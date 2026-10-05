@@ -432,6 +432,9 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   portikus_alert_webhook_url: "https://hooks.slack.com/services/..."
   ```
 
+  If the file holds only a `{}` line, delete that line first; keys
+  after it make the file invalid.
+
   The two Pushover keys go together. The webhook must be `https://`.
   Setup refuses anything else and lets the server reach only those
   hosts through its egress proxy. Check delivery with **Admin**, then
@@ -700,7 +703,8 @@ saves and starts setup again, which changes only what differs.
 The answers live in `/etc/portikus/portikus.yaml` (secrets in
 `/etc/portikus/secrets.yaml`). You may edit the file by hand; a hand edit
 wins over the remembered answer the next time you reconfigure, though
-comments in it are not kept. After a hand edit, apply it with:
+comments in it are not kept. If a file holds only a `{}` line, replace
+that line with your keys rather than adding them below it. After a hand edit, apply it with:
 
 ```
 sudo portikus setup

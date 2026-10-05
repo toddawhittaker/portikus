@@ -81,6 +81,9 @@ def write(path, data, mode, header):
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     with os.fdopen(fd, "w") as f:
         f.write(header)
+        if not data:
+            # Ansible refuses a comment-only extra-vars file, so `{}` stays.
+            f.write("# To add a setting, replace the {} line below with key: \"value\" lines.\n")
         yaml.safe_dump(data, f, default_flow_style=False, sort_keys=True)
     os.chmod(tmp, mode)
     os.replace(tmp, path)
