@@ -14,6 +14,7 @@ export async function runAlertCommand(
 	args: readonly string[],
 	env: NodeJS.ProcessEnv,
 	print: (line: string) => void,
+	printError: (line: string) => void,
 	site?: string,
 	pushoverUrl?: string,
 ): Promise<number> {
@@ -38,11 +39,9 @@ export async function runAlertCommand(
 		site,
 		pushoverUrl,
 	);
-	for (const r of results)
-		print(
-			r.ok
-				? `portikus: the ${r.channel} alert was sent`
-				: `portikus: the ${r.channel} alert could not be sent (${r.error})`,
-		);
+	for (const r of results) {
+		if (r.ok) print(`portikus: the ${r.channel} alert was sent`);
+		else printError(`portikus: the ${r.channel} alert could not be sent (${r.error})`);
+	}
 	return results.every((r) => r.ok) ? 0 : 1;
 }
