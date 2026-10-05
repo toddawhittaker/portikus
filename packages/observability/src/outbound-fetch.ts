@@ -9,7 +9,7 @@ export type OutboundFetch = (url: string, init: RequestInit) => Promise<Response
 // loads, which would change every other fetch in the process (such as the
 // agent client's). The ProxyAgent and request modules on their own do not,
 // so only they are loaded, and requests go through them rather than a fetch.
-// Internal paths of undici 8.10.2, pinned; outbound-fetch tests fail if a bump moves them.
+// Internal paths of undici 8.11.2, pinned; outbound-fetch tests fail if a bump moves them.
 const requireUndici = createRequire(import.meta.url);
 const ProxyAgent = requireUndici(
 	"undici/lib/dispatcher/proxy-agent.js",
@@ -29,8 +29,8 @@ DispatcherClass.prototype.connect ??= requireUndici("undici/lib/api/api-connect.
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 /**
- * The fetch for the API's outbound provider requests: OIDC discovery, token
- * and userinfo requests, and LMS keysets (ADR 0027). With a
+ * The fetch for requests that leave the site: OIDC discovery, token and
+ * userinfo requests, LMS keysets (ADR 0027) and administrator alerts. With a
  * proxy URL every request goes through that forward proxy; without one it is
  * the plain global fetch, for development and tests.
  */

@@ -27,13 +27,22 @@ export const RECOVERY_CODE_COUNT = 10;
 const ENROL_TTL_MS = 10 * 60_000;
 
 /**
- * The key that seals TOTP secrets, derived from the session cookie secret
- * so the install needs no new secret. Rotating that secret makes every
- * enrolled factor unreadable, and the holders must be reset.
+ * The key that seals TOTP secrets and pending enrolments, from the
+ * install's own second-factor key (64 hex characters) rather than the
+ * session secret, so rotating sessions never strands a factor and a
+ * restore that carries the key file can open them (SPEC.md section 24.13).
  */
-export function secondFactorKey(platformSecret: string): Buffer {
+export function secondFactorKey(hexKey: string): Buffer {
+	if (!/^[0-9a-f]{64}$/i.test(hexKey))
+		throw new Error("the second-factor key must be 64 hexadecimal characters");
 	return Buffer.from(
-		hkdfSync("sha256", platformSecret, "", "portikus second factor secrets v1", 32),
+		hkdfSync(
+			"sha256",
+			Buffer.from(hexKey, "hex"),
+			"",
+			"portikus second factor secrets v1",
+			32,
+		),
 	);
 }
 

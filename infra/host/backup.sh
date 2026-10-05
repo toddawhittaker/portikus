@@ -2,7 +2,7 @@
 # Pull a backup of the platform VM to this host, encrypted with age
 # (docs/adr/0024-backups-pulled-to-host.md).  It only reads from the VM:
 # a pg_dump of the portikus database and of Dex's accounts, when Dex has a
-# database, and an export of each workspace's home and recovery volume.
+# database, the key that seals second factors, and an export of each workspace's home and recovery volume.
 #
 # Sets go to <backup dir>/<VM name>/<UTC timestamp>, so the rehearsal VM's
 # sets never push out the pilot's.  The name comes from the caller, never
@@ -396,6 +396,14 @@ if [ "$has_dex" = 1 ]; then
   info "Dex database"
   pull dex.dump plain dex-db || die "dex.dump: the pipeline failed (ssh, index or age)"
   echo "file dex.dump $(cat "${scratch}/dex.dump.sum")" >>"$manifest"
+fi
+# Without it a restored server cannot check any TOTP or recovery code.
+has_sfk=$(bounded "second-factor key check" 8 1 remote_export has-second-factor-key)
+must "second-factor key check" '^[01]$' "$has_sfk"
+if [ "$has_sfk" = 1 ]; then
+  info "second-factor key"
+  pull second-factor.key plain second-factor-key || die "second-factor.key: the pipeline failed (ssh, index or age)"
+  echo "file second-factor.key $(cat "${scratch}/second-factor.key.sum")" >>"$manifest"
 fi
 
 failed=()

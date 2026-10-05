@@ -4,6 +4,10 @@ set -eu
 
 API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
+ALERTS_ENV=/etc/portikus/alerts.env
+ALERT_STAMPS=/run/portikus-alert
+ALERT_QUIET_SECONDS=600
+PUSHOVER_URL=https://api.pushover.net/1/messages.json
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
 ADMIN_PENDING=/etc/portikus/certificate/admin-pending
@@ -29,6 +33,8 @@ Usage: portikus setup [--follow]
        portikus backup-channel pull|report
        portikus restore [--check] [--start-check] [--unverified] [--key FILE] STAMP
        portikus reset-certificate
+       portikus alert warning|danger TITLE TEXT
+       portikus alert-failed UNIT
 
 setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
              play, in the foreground.  Safe to run again.
@@ -74,6 +80,14 @@ reset-certificate
              earlier settings are kept, so Roll back on that tab returns
              to them.  Prints where the root certificate browsers must
              trust is.
+
+alert TONE TITLE TEXT
+             Send an alert, warning or danger, to the channels in
+             ${ALERTS_ENV}, through the egress proxy, as the worker
+             sends them.  Does nothing when no channel is set.
+alert-failed UNIT
+             What portikus-alert@.service runs when UNIT fails: one
+             danger alert, then none for UNIT for 10 minutes.
 EOF
 }
 
@@ -305,7 +319,149 @@ reset_certificate() {
   exec "${CERTIFICATE_JOB}" reset
 }
 
+# One KEY=value from an environment file; empty when either is missing.
+env_value() {
+  sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -n 1
+}
+
+# Writes curl's settings for one channel from A_* in the environment, so no
+# secret is ever on a command line.  The bodies are those of
+# packages/observability/src/alerts.ts.
+ALERT_CURL_CONFIG='
+import json, os, time, urllib.parse
+e = os.environ
+
+def quote(s):
+    for a, b in (("\\", "\\\\"), ("\"", "\\\""), ("\n", "\\n"), ("\r", "\\r"), ("\t", "\\t")):
+        s = s.replace(a, b)
+    return "\"" + s + "\""
+
+epoch = int(e["A_EPOCH"])
+if e["A_CHANNEL"] == "pushover":
+    kind = "application/x-www-form-urlencoded"
+    body = urllib.parse.urlencode({
+        "token": e["A_TOKEN"],
+        "user": e["A_USER"],
+        "title": e["A_TITLE"],
+        "message": e["A_TEXT"] + "\n(" + e["A_SITE"] + ")",
+        "priority": "1" if e["A_TONE"] == "danger" else "0",
+        "timestamp": str(epoch),
+    })
+else:
+    kind = "application/json"
+    body = json.dumps({
+        "text": e["A_TITLE"] + "\n" + e["A_TEXT"],
+        "title": e["A_TITLE"],
+        "tone": e["A_TONE"],
+        "site": e["A_SITE"],
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(epoch)),
+    })
+print("url = " + quote(e["A_URL"]))
+if e["A_PROXY"]:
+    print("proxy = " + quote(e["A_PROXY"]))
+print("header = " + quote("Content-Type: " + kind))
+print("data-binary = " + quote(body))
+'
+
+# Posts one alert to the channel in A_CHANNEL.
+post_alert() {
+  config="$(mktemp)"
+  if ! python3 -c "${ALERT_CURL_CONFIG}" >"${config}"; then
+    rm -f "${config}"
+    return 1
+  fi
+  rc=0
+  curl -sS --fail --max-time 15 --output /dev/null --config "${config}" || rc=$?
+  rm -f "${config}"
+  if [ "${rc}" != 0 ]; then
+    echo "portikus: the ${A_CHANNEL} alert could not be sent" >&2
+    return 1
+  fi
+  echo "portikus: the ${A_CHANNEL} alert was sent"
+}
+
+# Sends to every configured channel (STACK.md section 15); fails when one could not.
+send_alert() {
+  umask 077
+  user_key="$(env_value ALERT_PUSHOVER_USER_KEY "${ALERTS_ENV}")"
+  app_token="$(env_value ALERT_PUSHOVER_APP_TOKEN "${ALERTS_ENV}")"
+  webhook="$(env_value ALERT_WEBHOOK_URL "${ALERTS_ENV}")"
+  if [ -z "${webhook}" ] && { [ -z "${user_key}" ] || [ -z "${app_token}" ]; }; then
+    echo "portikus: no alert channel is set in ${ALERTS_ENV}; nothing sent"
+    return 0
+  fi
+  # The API's proxy, whose allow list setup extends for these channels (ADR 0027).
+  A_PROXY="$(env_value OUTBOUND_PROXY_URL "${API_ENV}")"
+  A_TONE="$1"
+  A_TITLE="$2"
+  A_TEXT="$3"
+  A_SITE="$(uname -n)"
+  A_EPOCH="$(date -u +%s)"
+  export A_PROXY A_TONE A_TITLE A_TEXT A_SITE A_EPOCH
+  failed=0
+  if [ -n "${user_key}" ] && [ -n "${app_token}" ]; then
+    A_CHANNEL=pushover A_URL="${PUSHOVER_URL}" A_USER="${user_key}" A_TOKEN="${app_token}" \
+      post_alert || failed=1
+  fi
+  if [ -n "${webhook}" ]; then
+    A_CHANNEL=webhook A_URL="${webhook}" post_alert || failed=1
+  fi
+  return "${failed}"
+}
+
+alert() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: alert must run as root: sudo portikus alert ..." >&2
+    exit 1
+  fi
+  if [ $# -ne 3 ]; then
+    usage >&2
+    exit 2
+  fi
+  case "$1" in
+    warning | danger) ;;
+    *)
+      echo "portikus: alert takes a tone of warning or danger, then a title and a text" >&2
+      exit 2
+      ;;
+  esac
+  send_alert "$@"
+}
+
+# OnFailure= runs this on every failure, and a crash loop fails every few
+# seconds, so one alert per unit per quiet period.
+alert_failed() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: alert-failed must run as root" >&2
+    exit 1
+  fi
+  if [ $# -ne 1 ] || ! printf '%s' "$1" | grep -Eqx '[A-Za-z0-9][A-Za-z0-9@._:\\-]*'; then
+    echo "portikus: alert-failed takes a unit name, such as portikus-worker.service" >&2
+    exit 2
+  fi
+  unit="$1"
+  [ -d "${ALERT_STAMPS}" ] || mkdir -m 0700 "${ALERT_STAMPS}"
+  stamp="${ALERT_STAMPS}/${unit}"
+  now="$(date +%s)"
+  if [ -f "${stamp}" ] && [ $((now - $(stat -c %Y "${stamp}"))) -lt "${ALERT_QUIET_SECONDS}" ]; then
+    echo "portikus: ${unit} failed again within $((ALERT_QUIET_SECONDS / 60)) minutes of its last alert; not sending another"
+    exit 0
+  fi
+  touch "${stamp}"
+  result="$(systemctl show --property=Result --value "${unit}" 2>/dev/null || true)"
+  send_alert danger "${unit} failed on $(uname -n)" \
+    "systemd reports that ${unit} failed (${result:-reason unknown}). It restarts by itself if it can. Read its log with: sudo journalctl -u ${unit}"
+}
+
 case "${1:-}" in
+  alert)
+    shift
+    alert "$@"
+    ;;
+  alert-failed)
+    shift
+    alert_failed "$@"
+    ;;
   reset-certificate)
     shift
     reset_certificate "$@"

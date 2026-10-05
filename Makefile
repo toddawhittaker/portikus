@@ -154,6 +154,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
 	bash infra/tests/host-hardening-test.sh
+	bash infra/tests/alert-command-test.sh
 	python3 -B infra/tests/totp_test.py
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
@@ -162,6 +163,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/workspace-egress-render-test.yml
 	ansible-playbook infra/tests/setup-settings-test.yml
 	ansible-playbook infra/tests/certificate-seed-test.yml
+	ansible-playbook infra/tests/alerts-render-test.yml
 	ansible-playbook infra/tests/apt-failures-test.yml
 	ansible-playbook infra/tests/workspace-image-test.yml
 	ansible-playbook infra/tests/registry-cache-size-test.yml
@@ -256,6 +258,7 @@ export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HO
 export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
 export PORTIKUS_DEX_UPSTREAM_ISSUER PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES
 export PORTIKUS_ADMIN_EMAIL
+export PORTIKUS_ALERT_PUSHOVER_USER_KEY PORTIKUS_ALERT_PUSHOVER_APP_TOKEN PORTIKUS_ALERT_WEBHOOK_URL
 export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LDAP_BIND_PASSWORD
 export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
 export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW

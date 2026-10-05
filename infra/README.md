@@ -410,6 +410,7 @@ The settings, all read from the environment by `make configure-vm`:
 | `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
 | `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |
 | `PORTIKUS_USERS_FILE` | any | The retired users file, imported once (below). |
+| `PORTIKUS_ALERT_PUSHOVER_USER_KEY`, `PORTIKUS_ALERT_PUSHOVER_APP_TOKEN`, `PORTIKUS_ALERT_WEBHOOK_URL` | any | Where administrator alerts go (STACK.md section 15): both Pushover keys or neither, and an `https://` webhook. Written to `/etc/portikus/alerts.env`; their hosts join the egress allow list. |
 
 The Makefile exports these to Ansible from the environment, so the
 secrets never appear in a recipe line. Keep them out of shell history too:
@@ -498,6 +499,13 @@ The session cookie secret is different: Ansible generates it on the VM
 once into `/etc/portikus/session.secret` and never regenerates it, the
 same way it handles the controller token, so re-running the playbook does
 not sign everyone out.
+
+The second-factor key, `/etc/portikus/second-factor.key` (root, mode
+0600), is made the same way and seals the authenticator-app secrets of
+Dex password accounts (SPEC.md section 24.13). Unlike the session secret
+it is part of every backup set, and a restore writes it back, with
+`SECOND_FACTOR_KEY` in `api.env`, before the API starts; without it a
+restored server could not check anyone's codes.
 
 ### LTI
 

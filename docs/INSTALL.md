@@ -417,6 +417,23 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   per-system steps). If you chose it for a server people reach from the
   internet, sign in only from a network you trust and switch to a public
   certificate before anyone else signs in.
+- **Alerts.** Portikus can push warnings and failures that need a
+  person, and a control-plane service dying, to Pushover or a webhook
+  such as a Slack incoming webhook. There is no install screen for it.
+  Add any of these keys to `/etc/portikus/secrets.yaml` (root only,
+  because they are secrets), then run `sudo portikus setup`:
+
+  ```yaml
+  portikus_alert_pushover_user_key: "<your Pushover user key>"
+  portikus_alert_pushover_app_token: "<your Pushover application token>"
+  portikus_alert_webhook_url: "https://hooks.slack.com/services/..."
+  ```
+
+  The two Pushover keys go together. The webhook must be `https://`.
+  Setup refuses anything else and lets the server reach only those
+  hosts through its egress proxy. Check delivery with **Admin**, then
+  **Settings**, then **Send test alert**, or from the server with
+  `sudo portikus alert warning "Test" "Sent from the server"`.
 - **Once the administrator exists, setup leaves the certificate alone.**
   A later setup run, an upgrade or `sudo dpkg-reconfigure portikus` never
   changes it, even if you give a different answer to the certificate

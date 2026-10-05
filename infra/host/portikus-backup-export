@@ -11,6 +11,8 @@
 #   portikus-backup-export db             pg_dump -Fc of the portikus database
 #   portikus-backup-export has-dex        1 when Dex's own database exists, else 0
 #   portikus-backup-export dex-db         pg_dump -Fc of Dex's database (its accounts)
+#   portikus-backup-export has-second-factor-key  1 when the second-factor key file exists, else 0
+#   portikus-backup-export second-factor-key      the key that seals TOTP secrets (SPEC.md section 24.13)
 #   portikus-backup-export counts         users, workspaces and projects rows
 #   portikus-backup-export workspaces     workspace id and instance name, one per line
 #   portikus-backup-export instances      the Incus instance names, one per line
@@ -21,6 +23,7 @@ set -euo pipefail
 POOL="${PORTIKUS_BACKUP_POOL:-workspace-data}"
 PROJECT="${PORTIKUS_BACKUP_PROJECT:-portikus}"
 SNAPSHOT=portikus-backup
+SECOND_FACTOR_KEY="${PORTIKUS_SECOND_FACTOR_KEY:-/etc/portikus/second-factor.key}"
 # Only these volumes hold student data; Docker and root disks are rebuilt.
 VOLUME_PATTERN='^ws-[0-9a-f]{24}-(home|recovery)$'
 
@@ -94,6 +97,12 @@ case "${1:-}" in
   dex-db)
     runuser -u postgres -- pg_dump -Fc dex
     ;;
+  has-second-factor-key)
+    if [ -s "$SECOND_FACTOR_KEY" ]; then echo 1; else echo 0; fi
+    ;;
+  second-factor-key)
+    cat "$SECOND_FACTOR_KEY"
+    ;;
   counts)
     runuser -u postgres -- psql -X -q -t -A -d portikus -c \
       "SELECT 'users ' || (SELECT count(*) FROM users) || ' workspaces ' || (SELECT count(*) FROM workspaces) || ' projects ' || (SELECT count(*) FROM projects)"
@@ -113,6 +122,6 @@ case "${1:-}" in
     export_volume "${2:-}"
     ;;
   *)
-    die "usage: portikus-backup-export volumes | db | has-dex | dex-db | counts | workspaces | instances | idmap VOL | volume VOL"
+    die "usage: portikus-backup-export volumes | db | has-dex | dex-db | has-second-factor-key | second-factor-key | counts | workspaces | instances | idmap VOL | volume VOL"
     ;;
 esac

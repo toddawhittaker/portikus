@@ -44,6 +44,19 @@
     - Reload systemd for PostgreSQL
     - Restart PostgreSQL
 
+# The worker's own alerts need the database, so systemd reports its failure
+# (STACK.md section 15).  A unit-section change needs no restart.
+- name: Alert the administrator when PostgreSQL fails
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/postgresql@.service.d/20-portikus-alert.conf
+    content: |
+      [Unit]
+      OnFailure=portikus-alert@%n.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for PostgreSQL
+
 # The server runs in system-postgresql.slice, and a unit's MemoryLow only
 # protects it up to what its parent slice is given.
 - name: Create the PostgreSQL slice drop-in directory

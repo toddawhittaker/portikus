@@ -1,0 +1,30 @@
+# Tells the administrator that a service failed (STACK.md section 15).  The
+# instance is the failed unit's full name, from OnFailure= on the worker,
+# the API, PostgreSQL, Caddy and the backup.  `portikus alert-failed` sends
+# at most one alert per unit in 10 minutes, keeping its stamps in
+# /run/portikus-alert.
+[Unit]
+Description=Portikus alert that %i failed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/portikus alert-failed %i
+TimeoutStartSec=2min
+RuntimeDirectory=portikus-alert
+RuntimeDirectoryMode=0700
+# Shared by every instance, and the stamps must outlive each run.
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# curl reaches the egress proxy on loopback; systemctl needs its socket.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

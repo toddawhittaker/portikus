@@ -20,6 +20,8 @@
 #     set is refused before any of it reaches a file name or a command, and a
 #     file name with a control character is left out of the checks rather
 #     than refusing the set;
+#   - the key that seals second factors is in every set, encrypted, and a
+#     restore puts it back from standard input before the API starts;
 #   - restore.sh --remove deletes only the set's own instances and volumes,
 #     never on the pilot.
 #
@@ -126,6 +128,14 @@ expect "db is a pg_dump as postgres" "grep -qx 'runuser -u postgres -- pg_dump -
 run_export dex-db >/dev/null
 expect "dex-db is a pg_dump of Dex's database as postgres" "grep -qx 'runuser -u postgres -- pg_dump -Fc dex' '$log'"
 
+printf '%s\n' "$(printf 'ab%.0s' $(seq 32))" >"${work}/sfk"
+run_export has-second-factor-key >"${work}/out"
+expect "has-second-factor-key is 0 without the key file" "grep -qx 0 '${work}/out'"
+PORTIKUS_SECOND_FACTOR_KEY="${work}/sfk" run_export has-second-factor-key >"${work}/out"
+expect "has-second-factor-key is 1 with the key file" "grep -qx 1 '${work}/out'"
+PORTIKUS_SECOND_FACTOR_KEY="${work}/sfk" run_export second-factor-key >"${work}/out"
+expect "second-factor-key prints the key file" "cmp -s '${work}/sfk' '${work}/out'"
+
 echo "--- host backup ---"
 # A small volume export: one file, one Git repository, and two files whose
 # names hold a tab and a newline.
@@ -153,6 +163,7 @@ cmd="\$*"
 printf 'ssh %s\n' "\$cmd" >>"\$FAKE_LOG"
 X=" portikus-backup-export"
 case "\$cmd" in
+  "sudo bash -c \"\\\$(echo "*" | base64 -d)\"") cat >"${work}/restored-key" ;;
   hostname) echo "\${FAKE_HOSTNAME:-portikus-rehearsal}" ;;
   dpkg-query*) printf '%s' "\${FAKE_VERSION:-0.1.348+g001e10e}" ;;
   *"\$X volumes")
@@ -162,6 +173,8 @@ case "\$cmd" in
   *"\$X db") [ -n "\${FAKE_DB_FAILS:-}" ] && exit 1; printf 'PGDMP fake dump' ;;
   *"\$X has-dex") echo "\${FAKE_HAS_DEX:-1}" ;;
   *"\$X dex-db") printf 'PGDMP fake dex dump' ;;
+  *"\$X has-second-factor-key") echo "\${FAKE_HAS_SFK:-1}" ;;
+  *"\$X second-factor-key") echo "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3" ;;
   *"\$X counts") echo "users 3 workspaces 1 projects 6" ;;
   *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0
     [ -z "\${FAKE_WORKSPACE_BYTES:-}" ] || { head -c "\$FAKE_WORKSPACE_BYTES" /dev/zero | tr '\\0' a; exit 0; }
@@ -235,13 +248,15 @@ all_sets() { find "$sets" -mindepth 1 | sort; }
 : >"$log"
 if run_backup >"${work}/backup.out" 2>&1; then ok "backup.sh completes against the fake VM"; else bad "backup.sh completes against the fake VM"; cat "${work}/backup.out"; fi
 expect "the VM is sent only hostname, dpkg-query and the export script's read commands" \
-  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|has-dex|dex-db|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
+  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|has-dex|dex-db|has-second-factor-key|second-factor-key|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
 sent=$(grep -m1 -oE 'echo [A-Za-z0-9+/=]+ \| base64' "$log" | cut -d' ' -f2)
 expect "the script it sends is the export script tested above" "[ \"\$(printf '%s' '$sent' | base64 -d | sha256sum)\" = \"\$(sha256sum <'$export_cmd')\" ]"
 newest=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
 expect "the set goes in the VM's own directory, named by hostname" "[ -n '$newest' ] && [ -f '${newest}/MANIFEST.age' ]"
 expect "the set holds both dumps, both volumes, their indexes and the MANIFEST" \
   "[ -f '${newest}/db.dump.age' ] && [ -f '${newest}/dex.dump.age' ] && [ -f '${newest}/${HOME_VOL}.age' ] && [ -f '${newest}/${REC_VOL}.index.age' ] && [ -f '${newest}/MANIFEST.age' ]"
+expect "the set holds the second-factor key, encrypted" \
+  "[ -f '${newest}/second-factor.key.age' ] && ! grep -rq c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 '$newest'"
 expect "a complete set has no FAILED file" "[ ! -e '${newest}/FAILED' ]"
 expect "nothing in the set is readable without the key" "! grep -rq 'PGDMP' '$newest'"
 expect "the set directory is private" "[ \"\$(stat -c %a '$newest')\" = 700 ]"
@@ -416,6 +431,18 @@ expect "restore loads Dex's accounts with Dex stopped, then starts it" \
 admin_subject=$(python3 -c 'import base64; print(base64.urlsafe_b64encode(b"\x0a\x0blocal-admin\x12\x05local").decode().rstrip("="))')
 expect "restore counts every user but the local administrator, found by its Dex subject and username" \
   "grep -q \"^sql SELECT (SELECT count(\\*) FROM users WHERE NOT (oidc_subject = '\${admin_subject}' AND preferred_username = 'admin')) + (SELECT count(\\*) FROM workspaces) + (SELECT count(\\*) FROM projects)\$\" '$log'"
+expect "restore hands the VM the set's second-factor key on standard input" \
+  "grep -qx c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 '${work}/restored-key'"
+expect "the key never appears in a command sent to the VM" "! grep -q c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 '$log'"
+# shellcheck disable=SC2034  # read inside expect's eval
+key_line=$(grep -n 'sudo bash -c .*base64 -d)"$' "$log" | head -1 | cut -d: -f1)
+# shellcheck disable=SC2034  # read inside expect's eval
+api_line=$(grep -n 'systemctl start portikus-api' "$log" | head -1 | cut -d: -f1)
+expect "the key is back before the API starts" "[ -n '$key_line' ] && [ -n '$api_line' ] && [ '$key_line' -lt '$api_line' ]"
+# shellcheck disable=SC2034  # read inside expect's eval
+put_script=$(grep -m1 -oE 'echo [A-Za-z0-9+/=]+ \| base64 -d\)"$' "$log" | cut -d' ' -f2 | base64 -d)
+expect "the restored key file is root's alone and named in api.env" \
+  "[[ \"\$put_script\" == *'chown root:root /etc/portikus/second-factor.key.new'* && \"\$put_script\" == *'chmod 0600 '* && \"\$put_script\" == *'SECOND_FACTOR_KEY='*'/etc/portikus/api.env'* ]]"
 expect "restore samples the plainly named file" "grep -q 'file pull .*projects/demo/a.txt' '$log'"
 expect "restore leaves the names with a tab or a newline out of the sample" "! grep -qE 'tab|line\\.txt' '$log'"
 
