@@ -749,9 +749,16 @@ export async function routeApi(
 	pattern: string,
 	handler: (route: Route, request: Request) => Promise<unknown> | unknown,
 ): Promise<void> {
-	await page.route(pattern, (route, request) =>
-		request.resourceType() === "document" ? route.fallback() : handler(route, request),
-	);
+	await page.route(pattern, async (route, request) => {
+		if (request.resourceType() === "document") return route.fallback();
+		try {
+			return await handler(route, request);
+		} catch (error) {
+			// A poll still fetching when the test ends is not a failure.
+			if (error instanceof Error && error.message.includes("Test ended")) return;
+			throw error;
+		}
+	});
 }
 
 /** Carol, the mock provider's administrator, on the admin page. */
