@@ -1926,9 +1926,9 @@ when the job fails.
 
 ## Link page empty status line
 
-**What.** The link page keeps an empty status line that screen readers can reach.
+**What.** The link page's "Linking your accounts…" status line takes up height even while it is empty, which leaves a visible gap above the code field.
 
-**What it would take.** Render the line only with text, or hide it while empty, with an axe check.
+**What it would take.** Fold that status into the Link button's loading state, or keep the status region mounted but with no height while empty, and recheck with an axe scan.
 
 **Source.** Epic 34, #1166.
 
