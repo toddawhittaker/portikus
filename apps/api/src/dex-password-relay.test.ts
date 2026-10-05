@@ -207,9 +207,9 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		).toBe(429);
 	});
 
-	test("counts every post per address, the IPv6 /64 as one", async () => {
+	test("counts wrong passwords per address, the IPv6 /64 as one", async () => {
 		for (let i = 0; i < 30; i += 1) {
-			await post(`user${i}@example.edu`, RIGHT, { ip: `2001:db8:5:6::${i + 1}` });
+			await post(`user${i}@example.edu`, WRONG, { ip: `2001:db8:5:6::${i + 1}` });
 		}
 		const refused = await post("new@example.edu", RIGHT, {
 			ip: "2001:db8:5:6:a:b:c:d",
@@ -218,6 +218,125 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(
 			(await post("new@example.edu", RIGHT, { ip: "2001:db8:5:7::1" })).statusCode,
 		).toBe(303);
+	});
+
+	test("parallel guesses cannot pass the account limit: each is counted before Dex sees it", async () => {
+		const results = await Promise.all(
+			Array.from({ length: 40 }, (_, i) =>
+				post("alice@example.edu", WRONG, { ip: `203.0.113.${i}` }),
+			),
+		);
+		expect(received.length).toBeLessThanOrEqual(ACCOUNT_FAILURE_LIMIT);
+		expect(results.filter((r) => r.statusCode === 429).length).toBeGreaterThanOrEqual(
+			40 - ACCOUNT_FAILURE_LIMIT,
+		);
+	});
+
+	test("right passwords from one address never fill its limit (SPEC.md 24.13)", async () => {
+		for (let i = 0; i < 60; i += 1) {
+			expect(
+				(await post(`user${i}@example.edu`, RIGHT, { ip: "198.51.100.9" })).statusCode,
+			).toBe(303);
+		}
+	});
+
+	test("a right password gives its account try back", async () => {
+		for (let i = 0; i < 30; i += 1) {
+			await post("alice@example.edu", RIGHT, { ip: `203.0.113.${i}` });
+		}
+		expect(
+			(await post("alice@example.edu", WRONG, { ip: "192.0.2.70" })).statusCode,
+		).toBe(200);
+	});
+
+	test.each([
+		["no login", "password=x"],
+		["an empty login", "login=&password=x"],
+		["a blank login", "login=%20%20&password=x"],
+		["a repeated login", "login=a%40example.edu&login=b%40example.edu&password=x"],
+	])("refuses a post with %s without forwarding it", async (_label, payload) => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/dex/auth/local/login?state=s1",
+			headers: {
+				origin: PUBLIC_URL,
+				"content-type": "application/x-www-form-urlencoded",
+				"x-forwarded-for": "198.51.100.1",
+			},
+			payload,
+		});
+		expect(res.statusCode).toBe(400);
+		expect(received).toEqual([]);
+	});
+
+	test("never forwards a login in the query string", async () => {
+		await post("alice@example.edu", WRONG, {
+			path: "/dex/auth/local/login?login=bob%40example.edu&state=s1",
+		});
+		expect(received[0]?.url).toBe("/dex/auth/local/login?state=s1");
+	});
+
+	test("a password reset or change ends earlier known-device cookies", async () => {
+		const user = await testDb.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: mock.issuer,
+				oidc_subject: "alice-sub",
+				email: "Alice@example.edu",
+				display_name: "Alice",
+				role: "student",
+				provider_role: "student",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const cookieFrom = (res: { headers: Record<string, unknown> }) =>
+			[res.headers["set-cookie"]]
+				.flat()
+				.map(String)
+				.find((c) => c.startsWith("portikus_known_device="))
+				?.split(";")[0] as string;
+		const lockOut = async () => {
+			for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {
+				await post("alice@example.edu", WRONG, { ip: `203.0.113.${i}` });
+			}
+		};
+		const signedIn = await post("alice@example.edu", RIGHT);
+		// Ninety days.
+		expect(String([signedIn.headers["set-cookie"]].flat())).toContain(
+			"Max-Age=7776000",
+		);
+		const known = cookieFrom(signedIn);
+		for (const action of ["dex_user.password_reset", "user.password_changed"]) {
+			await testDb.db
+				.insertInto("audit_events")
+				.values({
+					actor: "unknown",
+					target: user.id,
+					action,
+					result: "ok",
+					metadata: null,
+				})
+				.execute();
+		}
+		await lockOut();
+		expect(
+			(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
+				.statusCode,
+		).toBe(429);
+	});
+
+	test("the refusal page works on a phone, in light and dark, with a way back", async () => {
+		for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {
+			await post("alice@example.edu", WRONG, { ip: `203.0.113.${i}` });
+		}
+		const res = await post("alice@example.edu", WRONG, { ip: "192.0.2.90" });
+		expect(res.statusCode).toBe(429);
+		expect(res.body).toContain(
+			'<meta name="viewport" content="width=device-width, initial-scale=1">',
+		);
+		expect(res.body).toContain('<meta name="color-scheme" content="light dark">');
+		expect(res.body).toContain("prefers-color-scheme: dark");
+		expect(res.body).toMatch(/<a href="\/auth\/login">Back to sign in<\/a>/);
 	});
 
 	test("answers only a loopback peer", async () => {
