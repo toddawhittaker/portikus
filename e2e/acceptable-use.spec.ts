@@ -103,7 +103,8 @@ test("Sign out signs out", async ({ page, context }) => {
 async function localAdmin(context: BrowserContext): Promise<string> {
 	const userId = await createLocalPasswordAdmin(context, {
 		prefix: "aup",
-		displayName: "Local administrator",
+		// Not the install administrator's name, which admin-credential-resets.spec.ts finds by name.
+		displayName: "AUP local administrator",
 		mustChange: true,
 	});
 	await clearAcceptance(userId);
