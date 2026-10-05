@@ -16,7 +16,6 @@
     content: |
       target={{ portikus_backup_offsite }}
       port={{ portikus_backup_offsite_port }}
-      keep={{ portikus_backup_offsite_keep }}
       bwlimit={{ portikus_backup_offsite_bwlimit_kib }}
     dest: /etc/portikus/backup-offsite/config
     owner: root
@@ -56,15 +55,13 @@
           - openssh-client
         state: present
 
-    - name: Make the off-site copy's SSH key
+    # Makes the key on the first run; the line confines it to write-only rsync.
+    - name: Make the off-site copy's SSH key and its authorized_keys line
       ansible.builtin.command:
         cmd: /usr/lib/portikus/backup/portikus-backup-offsite public-key
-        creates: /etc/portikus/backup-offsite/id_ed25519
-
-    - name: Read the off-site copy's public key
-      ansible.builtin.slurp:
-        src: /etc/portikus/backup-offsite/id_ed25519.pub
-      register: backup_offsite_pub
+      register: backup_offsite_line
+      changed_when: false
+      check_mode: false
 
     - name: Enable the off-site copy
       ansible.builtin.systemd_service:
@@ -76,8 +73,9 @@
     - name: Say what the target needs
       ansible.builtin.debug:
         msg:
-          - "Off-site copy to {{ portikus_backup_offsite }}. The path must exist there. Add this line to the target account's ~/.ssh/authorized_keys:"
-          - "restrict {{ backup_offsite_pub.content | b64decode | trim }}"
+          - "Off-site copy to {{ portikus_backup_offsite }}. The path and its incoming folder must exist there. Add this line to the target account's ~/.ssh/authorized_keys:"
+          - "{{ backup_offsite_line.stdout }}"
+          - "Copy /usr/lib/portikus/backup/portikus-offsite-prune to the target and run it from the target's cron (docs/INSTALL.md, off-site copies)."
           - "{{ backup_offsite_check.stdout if portikus_backup_offsite_host_key | trim | length > 0 else backup_offsite_unpinned }}"
       vars:
         backup_offsite_unpinned: >-

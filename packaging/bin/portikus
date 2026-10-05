@@ -4,11 +4,12 @@ set -eu
 
 API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
+WORKER_OVERRIDE_ENV=/etc/portikus/worker.override.env
 ALERTS_ENV=/etc/portikus/alerts.env
 ALERT_STAMPS=/run/portikus-alert
 ALERT_QUIET_SECONDS=600
-PUSHOVER_URL=https://api.pushover.net/1/messages.json
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
+ALERT_MAIN=/usr/lib/portikus/worker/dist/alert-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
 ADMIN_PENDING=/etc/portikus/certificate/admin-pending
 BACKUP_SETS=/var/backups/portikus/local
@@ -319,94 +320,18 @@ reset_certificate() {
   exec "${CERTIFICATE_JOB}" reset
 }
 
-# One KEY=value from an environment file; empty when either is missing.
-env_value() {
-  sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -n 1
-}
-
-# Writes curl's settings for one channel from A_* in the environment, so no
-# secret is ever on a command line.  The bodies are those of
-# packages/observability/src/alerts.ts.
-ALERT_CURL_CONFIG='
-import json, os, time, urllib.parse
-e = os.environ
-
-def quote(s):
-    for a, b in (("\\", "\\\\"), ("\"", "\\\""), ("\n", "\\n"), ("\r", "\\r"), ("\t", "\\t")):
-        s = s.replace(a, b)
-    return "\"" + s + "\""
-
-epoch = int(e["A_EPOCH"])
-if e["A_CHANNEL"] == "pushover":
-    kind = "application/x-www-form-urlencoded"
-    body = urllib.parse.urlencode({
-        "token": e["A_TOKEN"],
-        "user": e["A_USER"],
-        "title": e["A_TITLE"],
-        "message": e["A_TEXT"] + "\n(" + e["A_SITE"] + ")",
-        "priority": "1" if e["A_TONE"] == "danger" else "0",
-        "timestamp": str(epoch),
-    })
-else:
-    kind = "application/json"
-    body = json.dumps({
-        "text": e["A_TITLE"] + "\n" + e["A_TEXT"],
-        "title": e["A_TITLE"],
-        "tone": e["A_TONE"],
-        "site": e["A_SITE"],
-        "at": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(epoch)),
-    })
-print("url = " + quote(e["A_URL"]))
-if e["A_PROXY"]:
-    print("proxy = " + quote(e["A_PROXY"]))
-print("header = " + quote("Content-Type: " + kind))
-print("data-binary = " + quote(body))
-'
-
-# Posts one alert to the channel in A_CHANNEL.
-post_alert() {
-  config="$(mktemp)"
-  if ! python3 -c "${ALERT_CURL_CONFIG}" >"${config}"; then
-    rm -f "${config}"
-    return 1
-  fi
-  rc=0
-  curl -sS --fail --max-time 15 --output /dev/null --config "${config}" || rc=$?
-  rm -f "${config}"
-  if [ "${rc}" != 0 ]; then
-    echo "portikus: the ${A_CHANNEL} alert could not be sent" >&2
-    return 1
-  fi
-  echo "portikus: the ${A_CHANNEL} alert was sent"
-}
-
-# Sends to every configured channel (STACK.md section 15); fails when one could not.
+# Sends to every channel in alerts.env (STACK.md section 15) with the
+# worker's sender, as the worker's account with the worker's settings, so
+# the bodies, the proxy and the handling of secrets are the worker's own.
 send_alert() {
-  umask 077
-  user_key="$(env_value ALERT_PUSHOVER_USER_KEY "${ALERTS_ENV}")"
-  app_token="$(env_value ALERT_PUSHOVER_APP_TOKEN "${ALERTS_ENV}")"
-  webhook="$(env_value ALERT_WEBHOOK_URL "${ALERTS_ENV}")"
-  if [ -z "${webhook}" ] && { [ -z "${user_key}" ] || [ -z "${app_token}" ]; }; then
-    echo "portikus: no alert channel is set in ${ALERTS_ENV}; nothing sent"
+  if [ ! -f "${WORKER_ENV}" ]; then
+    echo "portikus: setup has not finished, so no alert channel is set; nothing sent"
     return 0
   fi
-  # The API's proxy, whose allow list setup extends for these channels (ADR 0027).
-  A_PROXY="$(env_value OUTBOUND_PROXY_URL "${API_ENV}")"
-  A_TONE="$1"
-  A_TITLE="$2"
-  A_TEXT="$3"
-  A_SITE="$(uname -n)"
-  A_EPOCH="$(date -u +%s)"
-  export A_PROXY A_TONE A_TITLE A_TEXT A_SITE A_EPOCH
-  failed=0
-  if [ -n "${user_key}" ] && [ -n "${app_token}" ]; then
-    A_CHANNEL=pushover A_URL="${PUSHOVER_URL}" A_USER="${user_key}" A_TOKEN="${app_token}" \
-      post_alert || failed=1
-  fi
-  if [ -n "${webhook}" ]; then
-    A_CHANNEL=webhook A_URL="${webhook}" post_alert || failed=1
-  fi
-  return "${failed}"
+  systemd-run --wait --pipe --quiet --collect --uid=portikus-worker \
+    -p EnvironmentFile="${WORKER_ENV}" -p EnvironmentFile=-"${ALERTS_ENV}" \
+    -p EnvironmentFile=-"${WORKER_OVERRIDE_ENV}" \
+    "${NODE}" "${ALERT_MAIN}" "$@"
 }
 
 alert() {

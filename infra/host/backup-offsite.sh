@@ -4,32 +4,38 @@
 # ADR 0044).  The sets are already encrypted with age, so the target never
 # needs the key.  portikus-backup-offsite.timer runs `push` as root.
 #
+# The server can only add files: its key's authorized_keys line confines it
+# to rrsync, write-only and without deletes, inside <path>/incoming.  It
+# never lists, renames or removes anything on the target.
+# portikus-offsite-prune, run by the target itself, moves each finished set
+# from incoming into <path> and removes old ones, so root on this server
+# cannot wipe or replace a copy that is already there.
+#
 # Usage: portikus-backup-offsite push | public-key | check
-#   push        copy the newest complete set to the target, if it is not
-#               there yet, then keep only the newest <keep> sets there
-#   public-key  make the dedicated SSH key when there is none, and print its
-#               public half for the target's authorized_keys
+#   push        send the newest complete set into the target's incoming
+#               folder, unless it was the last one sent, then an empty
+#               <set>.done that tells the target the set is whole
+#   public-key  make the dedicated SSH key when there is none, and print the
+#               restricted line for the target's authorized_keys
 #   check       exit non-zero, with the reason, when the settings are invalid
 #
 # Settings, written by setup's backup role into <dir>/config as key=value:
 #   target   user@host:path, empty when the off-site copy is off
 #   port     the target's SSH port
-#   keep     sets kept on the target
 #   bwlimit  rsync's --bwlimit in KiB per second, 0 for none
 # <dir>/known_hosts pins the target's host key; without it nothing connects.
 #
-# Only names of the set form, and their .partial- leftovers, are ever
-# removed on the target, and only inside the configured path.
-#
 # Environment (for the tests; the unit sets none):
-#   PORTIKUS_OFFSITE_DIR  settings and SSH key (default /etc/portikus/backup-offsite)
-#   PORTIKUS_BACKUP_DIR   holds local/<set> (default /var/backups/portikus)
-#   PORTIKUS_BACKUP_KEY   the age identity sets are checked with (default /etc/portikus-backup/age-key.txt)
+#   PORTIKUS_OFFSITE_DIR    settings and SSH key (default /etc/portikus/backup-offsite)
+#   PORTIKUS_OFFSITE_STATE  remembers the last set sent (default /var/lib/portikus-backup-offsite)
+#   PORTIKUS_BACKUP_DIR     holds local/<set> (default /var/backups/portikus)
+#   PORTIKUS_BACKUP_KEY     the age identity sets are checked with (default /etc/portikus-backup/age-key.txt)
 set -euo pipefail
 umask 077
 
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 DIR="${PORTIKUS_OFFSITE_DIR:-/etc/portikus/backup-offsite}"
+STATE="${PORTIKUS_OFFSITE_STATE:-/var/lib/portikus-backup-offsite}"
 SETS="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}/local"
 AGE_KEY="${PORTIKUS_BACKUP_KEY:-/etc/portikus-backup/age-key.txt}"
 MAC_CMD="${here}/portikus-backup-mac"
@@ -40,13 +46,13 @@ HOST_ALIAS=portikus-backup-offsite
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
 USER_PATTERN='^[a-z_][a-z0-9_.-]{0,31}$'
 HOST_PATTERN='^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$'
-# No quotes, spaces or "~", so the path is safe inside single quotes on the target.
+# No quotes, spaces or "~", so the path is safe inside the authorized_keys command.
 PATH_PATTERN='^[A-Za-z0-9._/+-]{1,1024}$'
 
 info() { printf '[backup-offsite] %s\n' "$*"; }
 die() { printf '[backup-offsite] FAIL: %s\n' "$*" >&2; exit 1; }
 
-target="" port=22 keep=7 bwlimit=0 fingerprint=""
+target="" port=22 bwlimit=0 fingerprint=""
 read_config() {
   local k v
   [ -r "${DIR}/config" ] || die "no settings in ${DIR}/config; run: sudo portikus setup"
@@ -54,16 +60,12 @@ read_config() {
     case "$k" in
       target) target=$v ;;
       port) port=$v ;;
-      keep) keep=$v ;;
       bwlimit) bwlimit=$v ;;
     esac
   done <"${DIR}/config"
   [ -n "$target" ] || return 0
   if ! [[ "$port" =~ ^[0-9]{1,5}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
     die "portikus_backup_offsite_port '${port}' is not a port number"
-  fi
-  if ! [[ "$keep" =~ ^[0-9]{1,3}$ ]] || [ "$keep" -lt 1 ]; then
-    die "portikus_backup_offsite_keep '${keep}' must be a whole number from 1 to 999"
   fi
   [[ "$bwlimit" =~ ^[0-9]{1,9}$ ]] || die "portikus_backup_offsite_bwlimit '${bwlimit}' must be KiB per second, 0 for none"
   user=${target%%@*}
@@ -92,20 +94,12 @@ ssh_opts() {
     -o ServerAliveInterval=15 -o ServerAliveCountMax=4
 }
 
-# remote CMD -- CMD in the configured path on the target.
-remote() {
+# unrestricted -- true when the key opens a shell on the target, from which
+# this server could delete the copies.
+unrestricted() {
   local opts
   mapfile -t opts < <(ssh_opts)
-  # shellcheck disable=SC2029 # the path is checked and quoted for the target's shell
-  ssh "${opts[@]}" "${user}@${host}" "cd -- '${rpath}' && $1"
-}
-
-# remote_names -- the set names and .partial- leftovers in the target path.
-remote_names() {
-  local out
-  out=$(remote 'ls -1a' | head -c 1048576) \
-    || die "cannot list ${target}: check that the path exists, the key is in the target's authorized_keys, and the host key is right (journalctl -u portikus-backup-offsite.service)"
-  printf '%s\n' "$out" | grep -E "^(\.partial-)?[0-9]{8}T[0-9]{6}Z$" || true
+  [ "$(ssh "${opts[@]}" "${user}@${host}" echo portikus-unrestricted 2>/dev/null)" = portikus-unrestricted ]
 }
 
 # newest_complete -- the newest local set that is whole and genuine.
@@ -134,48 +128,48 @@ push() {
   [ -r "$AGE_KEY" ] || die "no backup key at ${AGE_KEY} to check sets with"
   command -v rsync >/dev/null || die "rsync is not installed; run: sudo portikus setup"
 
-  local newest names opts kept=0 n old=()
+  local newest opts marker
   newest=$(newest_complete)
   if [ -z "$newest" ]; then
     info "no complete set in ${SETS} yet; nothing to copy"
     return 0
   fi
-  names=$(remote_names)
-  if grep -qx "$newest" <<<"$names"; then
-    info "${newest} is already on ${target}"
-  else
-    info "copying ${newest} to ${target}"
-    mapfile -t opts < <(ssh_opts)
-    # Into a .partial- folder renamed when whole, so the target never holds
-    # a half set under a set's name; a later run resumes a broken copy.
-    rsync -rtp --chmod=Du=rwx,Dgo=,Fu=rw,Fgo= --bwlimit="$bwlimit" --timeout=600 \
-      -e "ssh ${opts[*]}" \
-      "${SETS}/${newest}/" "${user}@${host}:${rpath}/.partial-${newest}/" \
-      || die "rsync of ${newest} to ${target} failed; the next run resumes it"
-    remote "[ ! -e '${newest}' ] && mv -- '.partial-${newest}' '${newest}'" \
-      || die "could not rename .partial-${newest} to ${newest} on ${target}"
-    names=$(remote_names)
+  if [ "$(cat "${STATE}/sent" 2>/dev/null)" = "$newest" ]; then
+    info "${newest} was already sent to ${target}"
+    return 0
   fi
-
-  # Newest first: keep <keep> sets; every older set and every leftover goes.
-  while read -r n; do
-    [ -n "$n" ] || continue
-    if [ "$kept" -lt "$keep" ]; then kept=$((kept + 1)); else old+=("$n"); fi
-  done < <(grep -E "$SET_PATTERN" <<<"$names" | sort -r)
-  while read -r n; do [ -z "$n" ] || old+=("$n"); done < <(grep -E '^\.partial-' <<<"$names" || true)
-  if [ "${#old[@]}" -gt 0 ]; then
-    info "removing from ${target}: ${old[*]}"
-    remote "rm -rf -- $(printf "'%s' " "${old[@]}")" || die "could not remove old sets from ${target}"
+  if unrestricted; then
+    die "the key opens a shell on ${host}, from which this server could delete the copies, so nothing was copied. Replace its line in the target's authorized_keys with the output of: sudo /usr/lib/portikus/backup/portikus-backup-offsite public-key"
   fi
-  info "${target} holds ${kept} sets"
+  info "copying ${newest} to ${rpath%/}/incoming on ${host}"
+  mapfile -t opts < <(ssh_opts)
+  # The set stays the newest until it is sent, so a broken copy resumes.
+  rsync -rtp --chmod=Du=rwx,Dgo=,Fu=rw,Fgo= --bwlimit="$bwlimit" --timeout=600 \
+    -e "ssh ${opts[*]}" \
+    "${SETS}/${newest}/" "${user}@${host}:${newest}/" \
+    || die "rsync of ${newest} to ${target} failed; the next run resumes it. Check that ${rpath%/}/incoming exists there and that the target's authorized_keys holds the line from: sudo /usr/lib/portikus/backup/portikus-backup-offsite public-key"
+  marker=$(mktemp -d)
+  : >"${marker}/${newest}.done"
+  if ! rsync -rt --timeout=600 -e "ssh ${opts[*]}" "${marker}/${newest}.done" "${user}@${host}:${newest}.done"; then
+    rm -rf "$marker"
+    die "could not mark ${newest} as whole on ${target}; the next run tries again"
+  fi
+  rm -rf "$marker"
+  mkdir -p "$STATE"
+  printf '%s\n' "$newest" >"${STATE}/sent.tmp"
+  mv "${STATE}/sent.tmp" "${STATE}/sent"
+  info "${newest} is in ${rpath%/}/incoming on ${host}; the target's portikus-offsite-prune moves it in"
 }
 
 public_key() {
   [ -d "$DIR" ] || die "${DIR} is missing; run: sudo portikus setup"
+  read_config
+  [ -n "$target" ] || die "portikus_backup_offsite is empty, so there is no target to print a line for"
   if [ ! -e "$SSH_KEY" ]; then
     ssh-keygen -q -t ed25519 -N '' -C "portikus-backup-offsite@$(hostname)" -f "$SSH_KEY" >/dev/null
   fi
-  cat "${SSH_KEY}.pub"
+  # rrsync ships with rsync on Debian 12 and later and Ubuntu 24.04 and later.
+  printf 'restrict,command="rrsync -wo -no-del -munge %s/incoming" %s\n' "${rpath%/}" "$(cat "${SSH_KEY}.pub")"
 }
 
 case "${1:-}" in

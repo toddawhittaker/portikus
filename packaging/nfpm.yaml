@@ -253,6 +253,10 @@ contents:
   - src: ./infra/host/backup-offsite.sh
     dst: /usr/lib/portikus/backup/portikus-backup-offsite
     file_info: *backup_script
+  # Not run here: the operator copies it to the target, whose cron runs it.
+  - src: ./infra/host/offsite-prune.sh
+    dst: /usr/lib/portikus/backup/portikus-offsite-prune
+    file_info: *backup_script
   - src: ./packaging/systemd/portikus-backup-offsite.service
     dst: /usr/lib/systemd/system/portikus-backup-offsite.service
     file_info: *unit_info
