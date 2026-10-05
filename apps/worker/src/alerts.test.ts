@@ -7,6 +7,7 @@ import {
 } from "@portikus/db/testing";
 import type { Alert, AlertChannels } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
 	ALERT_QUIET_MS,
@@ -94,6 +95,39 @@ describe.skipIf(skip)("forwarding", () => {
 		expect(sent.map((a) => [a.tone, a.title, a.text])).toEqual([
 			["danger", "Down", "b"],
 		]);
+	});
+
+	// PostgreSQL keeps microseconds and a Date only milliseconds, so a row's
+	// own time must not make it newer than the tick that already read it.
+	test("a row with sub-millisecond time is read once, not on every tick", async () => {
+		const admin = await insertTestUser(tdb.db, { role: "administrator" });
+		const { logger, lines } = collectingLogger();
+		let calls = 0;
+		const tick = createAlertForwarder({
+			db: tdb.db,
+			logger,
+			channels,
+			now: () => new Date(Date.now() - 1000),
+			send: async () => {
+				calls++;
+				return [{ channel: "webhook", ok: true }];
+			},
+		});
+		await tdb.db
+			.insertInto("notifications")
+			.values({
+				user_id: admin,
+				tone: "warning",
+				title: "Reboot",
+				body: "b",
+				created_at: sql<string>`date_trunc('milliseconds', clock_timestamp()) + interval '500 microseconds'`,
+			})
+			.execute();
+		await tick();
+		await tick();
+		await tick();
+		expect(calls).toBe(1);
+		expect(JSON.stringify(lines)).not.toContain("held back by flood control");
 	});
 
 	test("does nothing when no channel is configured", async () => {

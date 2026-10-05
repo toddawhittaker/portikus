@@ -8,7 +8,7 @@ import {
 	type Logger,
 	sendAlert,
 } from "@portikus/observability";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { startLoop } from "./loop.js";
 
 /**
@@ -83,7 +83,12 @@ export function createAlertForwarder(
 			.select((eb) => eb.fn.max("notifications.created_at").as("at"))
 			.where("users.role", "=", "administrator")
 			.where("notifications.tone", "in", ["warning", "danger"])
-			.where("notifications.created_at", ">", since)
+			// At the Date's precision, or the newest row stays newer than `since`.
+			.where(
+				sql<Date>`date_trunc('milliseconds', notifications.created_at)`,
+				">",
+				since,
+			)
 			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
 			.orderBy("at")
 			.execute();
