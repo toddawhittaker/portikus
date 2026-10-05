@@ -1835,3 +1835,131 @@ when the job fails.
 **What it would take.** Report a socket error as its own error, with a test.
 
 **Source.** Epic 32.
+
+## Disk encryption at rest
+
+**What.** Workspace homes, the database and backup sets on the server are not encrypted at rest; only backup sets are encrypted with age. SPEC.md 24.9 asks production deployments for encryption at rest at some layer.
+
+**What it would take.** LUKS (Linux disk encryption) on the storage pool and database disk, with a way to unlock at boot on a rented server that has no console, such as a network unlock or a key typed over SSH early in boot.
+
+**Source.** Epic 34, #1142 (part).
+
+## Provider sign-out on shared computers
+
+**What.** Signing out of Portikus leaves the person signed in at Dex and the institution's provider, so the next person at a shared computer can sign in as them without a password.
+
+**What it would take.** Call Dex's and the provider's end-session URLs on sign-out, or tell people at the sign-out page to close the browser.
+
+**Source.** Epic 34, #1144.
+
+## Pin agent versions in the admin image rebuild
+
+**What.** The admin image rebuild installs the newest coding agents, so two rebuilds a day apart can differ.
+
+**What it would take.** Pin each agent's version in the image build and bump the pins with the image release.
+
+**Source.** Epic 34, #1145.
+
+## Rest of the security tests
+
+**What.** Three parts of #1138 are not done: a test of each restore mode, a test that agent logins stay out of recovery points, and making the Dex CI job a required check.
+
+**What it would take.** Two tests in the backup and recovery suites. The required check is a repository ruleset change, which is Todd's to make.
+
+**Source.** Epic 34, #1138.
+
+## A real breached-password list
+
+**What.** New passwords are checked against a small hand-written list, because a real corpus could not be fetched while building.
+
+**What it would take.** Ship a compact form of a public breached-password corpus (for example a Bloom filter of the most common ten million) with the package, and check against it offline.
+
+**Source.** Epic 34, #1133.
+
+## Alert on workspaces hitting outbound limits
+
+**What.** A workspace that keeps hitting the mail block or the connection and packet limits shows only on the Logs tab; no administrator is alerted.
+
+**What it would take.** The worker reads the limit meters each minute and sends one warning site alert per workspace and hour.
+
+**Source.** Epic 34, #1134.
+
+## Request rate limit on anonymous routes
+
+**What.** Routes that need no session have no per-address request limit beyond the sign-in throttle and Caddy's connection cap.
+
+**What it would take.** A per-address limit in the API for those routes, counting an IPv6 /64 as one address, with a 429 answer.
+
+**Source.** Epic 34 security review.
+
+## Internal certificate authority on an internet site
+
+**What.** An internet-facing site may still choose Portikus's own authority; setup only warns.
+
+**What it would take.** Refuse the internal authority when the public address is not private, unless an explicit override is set.
+
+**Source.** Epic 34, #1139.
+
+## Domain fronting in allow-list mode
+
+**What.** In allow-list mode, a workspace can reach an unlisted site that shares a CDN with a listed one by naming the listed site in the TLS SNI and the unlisted one inside the encrypted request.
+
+**What it would take.** Decrypting workspace TLS, which Portikus refuses by design (ADR 0038). Revisit only if abuse is seen.
+
+**Source.** Epic 34, #1134.
+
+## Passkey at link confirm
+
+**What.** Linking an LMS account to a Dex-password account accepts a TOTP code or a recovery code, but not a passkey.
+
+**What it would take.** Offer the WebAuthn challenge on the link page, sharing the sign-in gate's code.
+
+**Source.** Epic 34, #1165.
+
+## Help page and invitations
+
+**What.** The Help page does not describe invitations or CSV upload.
+
+**What it would take.** A short part in "For administrators" on inviting people, matching per provider (ADR 0049), and CSV upload.
+
+**Source.** Epic 34, #1155.
+
+## Link page empty status line
+
+**What.** The link page keeps an empty status line that screen readers can reach.
+
+**What it would take.** Render the line only with text, or hide it while empty, with an axe check.
+
+**Source.** Epic 34, #1166.
+
+## "Session ended" page and the one-hour role check
+
+**What.** The "Session ended" page says only "inactivity or another window", not that a provider-given administrator or instructor session ends after an hour.
+
+**What it would take.** Pass the reason to the page and add a sentence for it.
+
+**Source.** Epic 34, #1156.
+
+## Remove the names_v4 upgrade code
+
+**What.** The egress helper still removes the old `names_v4` set on upgrade.
+
+**What it would take.** Delete that code after the next release, once every site has upgraded past Epic 34.
+
+**Source.** Epic 34, #1134.
+
+## Residual risks from the Epic 34 security review
+
+**What.** Accepted risks, each small on its own:
+
+- Anyone who knows a Dex-password login and password can lock its holder out of second-factor checks for a day with 30 wrong codes.
+- Sign-in and second-factor counters and passkey challenges live in memory, reset on an API restart, and assume one API process.
+- The off-site target has no disk quota from Portikus; the operator should set one.
+- Dex logins that are not ASCII are refused.
+- HTML pages the API writes itself (refusal and error pages) carry only `frame-ancestors`, not the full content security policy.
+- Kept notices (credential resets) are never pruned, so they grow without limit.
+- An expired passkey challenge counts as a wrong try.
+
+**What it would take.** Each would need its own change: a holder-only bypass such as a recovery code that ignores the counter; counters in PostgreSQL; a quota check in the prune script; a full CSP header on API pages; a cap on kept notices per person; not counting expired challenges.
+
+**Source.** Epic 34, #919.

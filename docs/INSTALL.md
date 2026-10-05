@@ -410,7 +410,10 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   **Certificate**, and choose Let's Encrypt, another ACME service or your
   own files (docs/ADMIN-GUIDE.md, "The site certificate"). When it is
   applied, the server needs outgoing access to the ACME service and, for
-  DNS-01, the DNS provider's API. With Portikus's own authority, for a lab
+  DNS-01, the DNS provider's API. Prefer the DNS-01 wildcard. With
+  HTTP-01 there is no wildcard, so each preview host name gets its own
+  certificate, and every certificate is published in public certificate
+  logs, where anyone can read the preview names. With Portikus's own authority, for a lab
   or a private network, each browser must trust its root certificate.
   Download it from the same tab and import it into the browser's or the
   system's trusted authorities (infra/README.md, "Browser access", has the
