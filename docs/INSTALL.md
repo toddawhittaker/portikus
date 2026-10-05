@@ -532,6 +532,36 @@ versioned (for example object storage with versioning or object lock),
 so that nobody can silently replace a set. Restore refuses a set that
 was not made with your key.
 
+**Or let the server push the copy.** The server can copy the newest
+complete set to another machine itself, every hour, with rsync over SSH
+(Secure Shell). It copies only a set whose MAC (a checksum made with
+your key) verifies, and it never sends the key. Make an account on the
+target machine for the copies, with a folder for them and the `rsync`
+package installed, then add to
+`/etc/portikus/portikus.yaml`:
+
+```yaml
+portikus_backup_offsite: "backups@vault.example.edu:/srv/portikus-sets"
+# The contents of the target's /etc/ssh/ssh_host_ed25519_key.pub.
+portikus_backup_offsite_host_key: "ssh-ed25519 AAAA... root@vault"
+```
+
+Run `sudo portikus setup`. It makes a dedicated SSH key in
+`/etc/portikus/backup-offsite/` and prints a line starting `restrict
+ssh-ed25519`; add that line to the target account's
+`~/.ssh/authorized_keys`. Nothing is copied until the host key is set:
+a key learned on first contact is not trusted. Optional settings:
+`portikus_backup_offsite_port` (22), `portikus_backup_offsite_keep`,
+the number of sets kept on the target (7; older ones there are removed
+after each copy, and nothing else in the folder is touched), and
+`portikus_backup_offsite_bwlimit_kib`, a speed limit in KiB per second
+(10000; 0 for none). Watch a run with `sudo systemctl start
+portikus-backup-offsite.service` and `sudo journalctl -u
+portikus-backup-offsite.service`; a failed run sends an alert when
+alerts are set up. To turn it off, set `portikus_backup_offsite` to `""`
+and run setup again. The copies on the target are the same set folders
+as above, so bring one back with the `rsync` command in step 5 below.
+
 ## Rebuilding from an off-site backup
 
 When the server is lost, or you move to a new one:
