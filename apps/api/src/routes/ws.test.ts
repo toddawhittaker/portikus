@@ -12,6 +12,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import { MAX_WORKSPACE_SOCKETS_PER_USER } from "./ws.js";
 
 // Lets one test make the socket's first workspace read throw.
 const failRead = vi.hoisted(() => ({ on: false }));
@@ -343,6 +344,50 @@ test.skipIf(skip)(
 		const socket = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
 		await socket.next();
 		await socket.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a user at the event socket cap across workspaces is refused with 4429, and closing frees a slot (SPEC.md 24.13)",
+	async () => {
+		const carol = new CookieJar();
+		await loginAs(app, "carol", carol);
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		// Carol's own workspace is the third, so her count spans owner and admin sockets.
+		const workspaces = [workspaceId];
+		for (const jar of [bob, carol]) {
+			const res = await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+			});
+			workspaces.push(res.json().id);
+		}
+		const open: OpenSocket[] = [];
+		try {
+			for (let i = 0; i < MAX_WORKSPACE_SOCKETS_PER_USER; i += 1) {
+				const id = workspaces[Math.floor(i / 16)] as string;
+				const socket = await openWorkspaceSocket(app, id, carol, PUBLIC_URL);
+				await socket.next();
+				open.push(socket);
+			}
+			const third = workspaces[2] as string;
+			const refused = await openWorkspaceSocket(app, third, carol, PUBLIC_URL);
+			expect(await nextClose(refused)).toBe(4429);
+			// Alice is not held to carol's count.
+			const alices = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+			await alices.next();
+			open.push(alices);
+
+			await open.shift()?.close();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			const again = await openWorkspaceSocket(app, third, carol, PUBLIC_URL);
+			await again.next();
+			open.push(again);
+		} finally {
+			for (const socket of open) await socket.close();
+		}
 	},
 );
 

@@ -13,7 +13,15 @@ import {
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "../workspaces/presence.js";
+import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { workspaceView } from "../workspaces/workspace-view.js";
+
+/**
+ * Event sockets one user may hold across all workspaces: well above several
+ * tabs on a few workspaces, and a ceiling on what one account can pin
+ * (SPEC.md section 24.13).
+ */
+export const MAX_WORKSPACE_SOCKETS_PER_USER = 32;
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
@@ -50,6 +58,8 @@ export function registerWorkspaceSocket(
 	const watchers = new Map<string, Watcher>();
 	// Administrator sockets write no presence rows, so they are counted here.
 	const adminSockets = new Map<string, number>();
+
+	const userSockets = createSocketSlots(MAX_WORKSPACE_SOCKETS_PER_USER);
 
 	const { track, drain } = createPendingWork();
 
@@ -150,6 +160,12 @@ export function registerWorkspaceSocket(
 
 			const workspaceId = (request.params as { id: string }).id;
 			const connectionId = crypto.randomUUID();
+			const userId = request.user?.id ?? "";
+			if (!userSockets.take(userId)) {
+				socket.close(CloseCode.TOO_MANY_SOCKETS, "too many workspace connections");
+				socket.resume();
+				return;
+			}
 
 			// An administrator looking at a student's workspace is not presence: it
 			// must not start the workspace or hold it up (SPEC.md §20.2).
@@ -157,10 +173,13 @@ export function registerWorkspaceSocket(
 			if (!present) {
 				adminSockets.set(workspaceId, (adminSockets.get(workspaceId) ?? 0) + 1);
 			}
-			let released = present;
-			const releaseAdmin = (): void => {
+			let released = false;
+			// Every close path calls this; it gives back each slot once.
+			const releaseSlots = (): void => {
 				if (released) return;
 				released = true;
+				userSockets.release(userId);
+				if (present) return;
 				const left = (adminSockets.get(workspaceId) ?? 1) - 1;
 				if (left > 0) adminSockets.set(workspaceId, left);
 				else adminSockets.delete(workspaceId);
@@ -170,7 +189,7 @@ export function registerWorkspaceSocket(
 				await setUp();
 			} catch (error) {
 				request.log.error({ err: error, workspaceId }, "workspace socket setup failed");
-				releaseAdmin();
+				releaseSlots();
 				track(dropConnection(connectionId).catch(() => {}));
 				socket.close(CloseCode.SERVER_ERROR, "internal error");
 				socket.resume();
@@ -182,7 +201,7 @@ export function registerWorkspaceSocket(
 				if (socket.readyState !== socket.OPEN) {
 					// The browser gave up while we were writing presence.
 					track(dropConnection(connectionId).catch(() => {}));
-					releaseAdmin();
+					releaseSlots();
 					socket.resume();
 					return;
 				}
@@ -191,7 +210,7 @@ export function registerWorkspaceSocket(
 				if (socket.readyState !== socket.OPEN) {
 					// The browser gave up while we were reading the workspace.
 					track(dropConnection(connectionId).catch(() => {}));
-					releaseAdmin();
+					releaseSlots();
 					socket.resume();
 					return;
 				}
@@ -260,7 +279,7 @@ export function registerWorkspaceSocket(
 
 				async function onSocketClose(): Promise<void> {
 					unsubscribe();
-					releaseAdmin();
+					releaseSlots();
 					leave(workspaceId, subscriber);
 					request.log.debug(
 						{ workspaceId, connectionId, userId: request.user?.id },

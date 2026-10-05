@@ -55,12 +55,12 @@ describe("createSigninThrottle", () => {
 	test("refuses the 31st password attempt in ten minutes from one address", () => {
 		const { throttle, advance } = fixture();
 		for (let i = 0; i < 30; i += 1)
-			expect(throttle.checkPassword("198.51.100.1").allowed).toBe(true);
-		expect(throttle.checkPassword("198.51.100.1").allowed).toBe(false);
+			expect(throttle.passwordAttempt("198.51.100.1").allowed).toBe(true);
+		expect(throttle.passwordAttempt("198.51.100.1").allowed).toBe(false);
 		advance(9 * 60_000);
-		expect(throttle.checkPassword("198.51.100.1").allowed).toBe(false);
+		expect(throttle.passwordAttempt("198.51.100.1").allowed).toBe(false);
 		advance(60_000);
-		expect(throttle.checkPassword("198.51.100.1").allowed).toBe(true);
+		expect(throttle.passwordAttempt("198.51.100.1").allowed).toBe(true);
 	});
 
 	test("other clients' failures never refuse a fresh client (SPEC.md 24.13)", () => {
@@ -68,50 +68,69 @@ describe("createSigninThrottle", () => {
 		// A thousand addresses each use up their allowance.
 		for (let a = 0; a < 1000; a += 1) {
 			for (let i = 0; i < 31; i += 1)
-				throttle.checkPassword(`10.${a >> 8}.${a & 255}.1`);
+				throttle.passwordAttempt(`10.${a >> 8}.${a & 255}.1`);
 		}
-		expect(throttle.checkPassword("203.0.113.99").allowed).toBe(true);
-		expect(throttle.checkAccount("fresh@example.edu").allowed).toBe(true);
+		expect(throttle.passwordAttempt("203.0.113.99").allowed).toBe(true);
+		expect(throttle.accountAttempt("fresh@example.edu").allowed).toBe(true);
 	});
 
 	test("an IPv6 /64 counts as one address; the next /64 is apart", () => {
 		const { throttle } = fixture();
 		for (let i = 0; i < 30; i += 1) {
 			expect(
-				throttle.checkPassword(`2001:db8:1:2::${(i + 1).toString(16)}`).allowed,
+				throttle.passwordAttempt(`2001:db8:1:2::${(i + 1).toString(16)}`).allowed,
 			).toBe(true);
 		}
-		expect(throttle.checkPassword("2001:db8:1:2:ffff:ffff:ffff:ffff").allowed).toBe(
+		expect(throttle.passwordAttempt("2001:db8:1:2:ffff:ffff:ffff:ffff").allowed).toBe(
 			false,
 		);
-		expect(throttle.checkPassword("2001:db8:1:3::1").allowed).toBe(true);
+		expect(throttle.passwordAttempt("2001:db8:1:3::1").allowed).toBe(true);
 	});
 
-	test("counts wrong passwords per account, without case, and refuses the eleventh try", () => {
+	test("counts tries per account, without case, and refuses the eleventh", () => {
 		const { throttle, advance } = fixture();
 		for (let i = 0; i < 10; i += 1) {
-			expect(throttle.checkAccount("Alice@Example.edu").allowed).toBe(true);
-			throttle.accountFailed(i % 2 ? "alice@example.edu" : "ALICE@example.edu");
+			const login = i % 2 ? "alice@example.edu" : "ALICE@example.edu";
+			expect(throttle.accountAttempt(login).allowed).toBe(true);
 		}
-		expect(throttle.checkAccount("alice@example.edu")).toEqual({
+		expect(throttle.accountAttempt("alice@example.edu")).toEqual({
 			allowed: false,
 			audit: true,
 		});
-		expect(throttle.checkAccount("alice@example.edu").audit).toBe(false);
-		expect(throttle.checkAccount("bob@example.edu").allowed).toBe(true);
+		expect(throttle.accountAttempt("alice@example.edu").audit).toBe(false);
+		expect(throttle.accountAttempt("bob@example.edu").allowed).toBe(true);
 		advance(10 * 60_000);
-		expect(throttle.checkAccount("alice@example.edu").allowed).toBe(true);
+		expect(throttle.accountAttempt("alice@example.edu").allowed).toBe(true);
+	});
+
+	test("a try given back does not count toward the account limit", () => {
+		const { throttle } = fixture();
+		for (let i = 0; i < 50; i += 1) {
+			expect(throttle.accountAttempt("alice@example.edu").allowed).toBe(true);
+			throttle.accountGiveBack("alice@example.edu");
+		}
+		throttle.accountFailed("alice@example.edu");
+		for (let i = 0; i < 9; i += 1) throttle.accountAttempt("alice@example.edu");
+		expect(throttle.accountAttempt("alice@example.edu").allowed).toBe(false);
+	});
+
+	test("right passwords given back never fill an address's limit (SPEC.md 24.13)", () => {
+		const { throttle } = fixture();
+		for (let i = 0; i < 100; i += 1) {
+			expect(throttle.passwordAttempt("198.51.100.1").allowed).toBe(true);
+			throttle.passwordGiveBack("198.51.100.1");
+		}
 	});
 
 	test("one address making 400 password attempts does not stop another address", () => {
 		const { throttle } = fixture();
-		for (let i = 0; i < 400; i += 1) throttle.checkPassword("198.51.100.1");
-		expect(throttle.checkPassword("198.51.100.2").allowed).toBe(true);
+		for (let i = 0; i < 400; i += 1) throttle.passwordAttempt("198.51.100.1");
+		expect(throttle.passwordAttempt("198.51.100.2").allowed).toBe(true);
 	});
 
 	test("password attempts and sign-in starts are counted apart", () => {
 		const { throttle } = fixture();
-		for (let i = 0; i < 30; i += 1) throttle.checkPassword("198.51.100.1");
+		for (let i = 0; i < 30; i += 1) throttle.passwordAttempt("198.51.100.1");
 		expect(throttle.checkStart("198.51.100.1").allowed).toBe(true);
 	});
 });
@@ -213,9 +232,11 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		});
 	}
 
-	test("/edge/signin-throttle refuses the 31st password check in ten minutes", async () => {
-		for (let i = 0; i < 30; i += 1) {
-			expect((await edgeCheck("192.0.2.10")).statusCode).toBe(204);
+	test("/edge/signin-throttle counts every ask as a sign-in start, even with an encoded URI", async () => {
+		// Caddy matched the decoded path already; the raw URI can differ.
+		for (let i = 0; i < 150; i += 1) {
+			const uri = i % 2 ? "/dex/auth/loc%61l/login?state=x" : "/dex/auth/%6cocal";
+			expect((await edgeCheck("192.0.2.10", uri)).statusCode).toBe(204);
 		}
 		const refused = await edgeCheck("192.0.2.10");
 		expect(refused.statusCode).toBe(429);
@@ -224,19 +245,10 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 
 		const rows = await throttledRows();
 		expect(rows).toHaveLength(1);
-		expect(rows[0]?.metadata).toMatchObject({ ip: "192.0.2.10", scope: "password" });
-	});
-
-	test("/edge/signin-throttle counts every check, even with an encoded password-form URI", async () => {
-		// Caddy matched the decoded path already; the raw URI can differ.
-		for (let i = 0; i < 30; i += 1) {
-			const uri = i % 2 ? "/dex/auth/loc%61l/login?state=x" : "/dex/auth/%6cocal/login";
-			expect((await edgeCheck("192.0.2.10", uri)).statusCode).toBe(204);
-		}
-		expect((await edgeCheck("192.0.2.10", "/dex/auth/loc%61l/login")).statusCode).toBe(
-			429,
-		);
-		expect((await edgeCheck("192.0.2.10")).statusCode).toBe(429);
+		expect(rows[0]?.metadata).toMatchObject({
+			ip: "192.0.2.10",
+			scope: "signin-start",
+		});
 	});
 
 	test("/edge/signin-throttle: one address's 400 checks do not lock out another", async () => {
@@ -262,8 +274,6 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		const refused = await start("192.0.2.20");
 		expect(refused.statusCode).toBe(429);
 		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
-		// A start is not a password attempt.
-		expect((await edgeCheck("192.0.2.20")).statusCode).toBe(204);
 
 		const rows = await throttledRows();
 		expect(rows[0]?.metadata).toMatchObject({
@@ -272,7 +282,7 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		});
 	});
 
-	test("/edge/signin-throttle counts anything but exactly scope=start as a password attempt", async () => {
+	test("/edge/signin-throttle counts an ask whatever its scope", async () => {
 		const ask = (query: string) =>
 			app.inject({
 				url: `/edge/signin-throttle?${query}`,
@@ -284,10 +294,10 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 			"scope=start&scope=start",
 			"scope=",
 		];
-		for (let i = 0; i < 30; i += 1) {
+		for (let i = 0; i < 150; i += 1) {
 			expect((await ask(queries[i % queries.length] ?? "")).statusCode).toBe(204);
 		}
-		expect((await ask("scope=password")).statusCode).toBe(429);
+		expect((await ask("scope=start")).statusCode).toBe(429);
 	});
 
 	test("/edge/signin-throttle answers only a loopback peer", async () => {

@@ -40,6 +40,10 @@ function decide(window: Window, refused: boolean): ThrottleDecision {
 	return { allowed: false, audit };
 }
 
+function giveBack(window: Window): void {
+	if (window.count > 0) window.count -= 1;
+}
+
 /** Dex compares logins without case, so the count does too. */
 export function accountKey(login: string): string {
 	return login.trim().toLowerCase();
@@ -68,17 +72,28 @@ export function createSigninThrottle(options: {
 			const window = starts.hit(addressKey(ip));
 			return decide(window, window.count > starts.limit);
 		},
-		/** Counts every password post from this address, right or wrong. */
-		checkPassword(ip: string): ThrottleDecision {
+		/**
+		 * Count one password post from this address before it reaches Dex,
+		 * so parallel posts cannot slip past the limit.
+		 */
+		passwordAttempt(ip: string): ThrottleDecision {
 			const window = passwords.hit(addressKey(ip));
 			return decide(window, window.count > passwords.limit);
 		},
-		/** Whether this account may try a password now; counts nothing. */
-		checkAccount(login: string): ThrottleDecision {
-			const window = accountFailures.peek(accountKey(login));
-			return decide(window, window.count >= accountFailures.limit);
+		/** Give back a post that was not a wrong password, so a shared address is not locked out by right ones. */
+		passwordGiveBack(ip: string): void {
+			giveBack(passwords.peek(addressKey(ip)));
 		},
-		/** Count one wrong password against this account. */
+		/** Count one try against this account before it reaches Dex. */
+		accountAttempt(login: string): ThrottleDecision {
+			const window = accountFailures.hit(accountKey(login));
+			return decide(window, window.count > accountFailures.limit);
+		},
+		/** Give back a try that turned out not to be a wrong password. */
+		accountGiveBack(login: string): void {
+			giveBack(accountFailures.peek(accountKey(login)));
+		},
+		/** Count a wrong password from a known browser, which skipped accountAttempt. */
 		accountFailed(login: string): void {
 			accountFailures.hit(accountKey(login));
 		},
@@ -102,7 +117,6 @@ export function registerSigninThrottle(
 		request: FastifyRequest,
 		reply: FastifyReply,
 		decision: ThrottleDecision,
-		scope: "signin-start" | "password",
 	): Promise<void> {
 		if (decision.audit) {
 			try {
@@ -111,7 +125,7 @@ export function registerSigninThrottle(
 					target: "unknown",
 					action: "auth.throttled",
 					result: "denied",
-					metadata: { ip: request.ip, scope },
+					metadata: { ip: request.ip, scope: "signin-start" },
 				});
 			} catch (error) {
 				request.log.error({ err: error }, "could not audit a sign-in throttle");
@@ -128,7 +142,7 @@ export function registerSigninThrottle(
 		const url = request.routeOptions.url ?? "";
 		if (START_ROUTES.has(url)) {
 			const decision = throttle.checkStart(request.ip);
-			if (!decision.allowed) await refuse(request, reply, decision, "signin-start");
+			if (!decision.allowed) await refuse(request, reply, decision);
 			return;
 		}
 		if (url !== EDGE_THROTTLE_PATH) return;
@@ -139,24 +153,13 @@ export function registerSigninThrottle(
 			await reply.status(403).send(body);
 			return;
 		}
-		// Caddy has already matched the decoded path, so every ask counts;
-		// matching the raw URI again here let encoded paths by. Caddy sets
-		// scope=start for Dex's sign-in pages, which each store a request. The
-		// password post goes through the relay instead; any other ask still
-		// counts as a password, so no scope escapes counting.
+		// Caddy asks only for Dex's sign-in pages, each of which stores a
+		// request, so every ask counts as a start whatever its query says. The
+		// password post goes through the relay instead.
 		// request.ip is the client Caddy named in X-Forwarded-For.
-		const { scope } = request.query as { scope?: string };
-		const decision =
-			scope === "start"
-				? throttle.checkStart(request.ip)
-				: throttle.checkPassword(request.ip);
+		const decision = throttle.checkStart(request.ip);
 		if (!decision.allowed) {
-			await refuse(
-				request,
-				reply,
-				decision,
-				scope === "start" ? "signin-start" : "password",
-			);
+			await refuse(request, reply, decision);
 			return;
 		}
 		await reply.status(204).send();
@@ -187,8 +190,7 @@ export function createAccountThrottle(now: () => number = Date.now) {
 		},
 		/** Give back a try that turned out not to be a wrong password. */
 		giveBack(userId: string): void {
-			const window = attempts.peek(userId);
-			if (window.count > 0) window.count -= 1;
+			giveBack(attempts.peek(userId));
 		},
 	};
 }
