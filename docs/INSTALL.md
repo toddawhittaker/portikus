@@ -580,11 +580,14 @@ When the server is lost, or you move to a new one:
    `/var/backups/portikus/local/`:
 
    ```
-   rsync -a --exclude REQUESTED --rsync-path="sudo rsync" ~/portikus-backups/ you@portikus.example.edu:/var/backups/portikus/local/
+   rsync -a --exclude REQUESTED --rsync-path="sudo rsync" ~/portikus-backups/2*Z you@portikus.example.edu:/var/backups/portikus/local/
    ```
 
    The `--exclude REQUESTED` keeps copied sets from counting toward the
-   limit of 3 requested backups in 14 days.
+   limit of 3 requested backups in 14 days. Name the set folders, as
+   `2*Z` does, rather than `~/portikus-backups/` with a trailing slash:
+   that form would also give `/var/backups/portikus/local` itself the
+   owner and permissions of your copy folder.
 
    Within a minute the Backups tab lists them.
 6. Pick the newest complete set, and first prove the key opens it:
