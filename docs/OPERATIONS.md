@@ -613,9 +613,15 @@ view. The command's exit status:
 Each run that changes something writes `local_admin.created` or
 `local_admin.reset`, with the actor `host:root` and no password or email.
 
-The local administrator has only a password; Dex has no second factor for
-its own accounts. Keep the password long and private, and use the
-institution's sign-in for everyday administration.
+**Two-factor recovery.** Every Dex-password account, the local
+administrator included, has a second factor that Portikus keeps (ADR
+0048). Someone who lost their factor uses a recovery code. Someone who
+lost both password and factor asks an administrator, who may reset the
+password, the factor, or both from the Users view; the holder always
+gets a notice about it that they cannot delete. No other administrator
+can reset the install administrator. If it loses its factor, run `sudo
+portikus reset-admin`, which also clears its second factor, so the next
+sign-in sets a new password and then a new factor.
 
 ## The Dex cutover and the storage move
 
@@ -1160,9 +1166,21 @@ what is where.
   It pauses both timers while it runs, and removes the set's `REQUESTED`
   marker, so a set copied back in does not count against the limit on
   requested backups.
-- **Off-server copies are the real backup.** Nothing copies the sets off
-  the server automatically. docs/INSTALL.md shows rsync and object
-  storage; the target never needs the key.
+- **Off-server copies are the real backup.** With
+  `portikus_backup_offsite` set, `portikus-backup-offsite.timer` pushes
+  the newest verified set every hour with a write-only key: the target
+  runs it through `rrsync -wo` into `incoming`, and the target's own
+  `portikus-offsite-prune` moves sets in, at most one per UTC day (ADR
+  0050). Watch a run with `journalctl -u portikus-backup-offsite.service`;
+  a failure sends an alert. docs/INSTALL.md, "Backups: copying them off
+  the server", has the setup, and also shows a manual rsync or object
+  storage copy. The target never needs the key.
+- **Restoring from the off-site copy.** The server's key cannot read the
+  target, so pull sets back from a machine that can log in there. Copy
+  the set folders from the target's folder (not `incoming`) onto the
+  server, as INSTALL.md's "Rebuilding from an off-site backup", step 5,
+  shows, then prove the key opens one with `sudo portikus restore --check
+  <timestamp>` before restoring it.
 
 ### Authenticated sets
 

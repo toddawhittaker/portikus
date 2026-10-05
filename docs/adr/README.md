@@ -75,3 +75,6 @@ has four sections:
 | [0045](0045-shared-docker-pull-storage.md) | Shared Docker pull storage: a pull-through cache and LVM-thin seed snapshots (accepted, Epic 26) |
 | [0046](0046-certificates-from-the-admin-page.md) | Certificates from the admin page: Caddy as the only ACME client, a root job, and staging before live (accepted, Epic 27) |
 | [0047](0047-modals-hide-late-content-and-monaco-auto.md) | Modals re-hide late page content with aria-hidden, and Monaco's accessibility support is "auto" (accepted, Epic 33) |
+| [0048](0048-second-factor-inside-portikus.md) | The second factor is built inside Portikus, not in Dex (accepted, Epic 34) |
+| [0049](0049-invitation-only-admission.md) | Only an invitation admits an SSO account, matched per provider (accepted, Epic 34) |
+| [0050](0050-write-only-off-site-copy.md) | The off-site copy is pushed with a write-only key and pruned by the target (accepted, Epic 34) |

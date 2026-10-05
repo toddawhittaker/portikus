@@ -328,7 +328,9 @@ Added by Epic 14.3 (ADR 0032): every account accepts the acceptable-use statemen
   1. `must_change_password` is set: code `PASSWORD_CHANGE_REQUIRED`, allowed route `POST /me/password`, web page `/change-password`. A password-gated account can neither read nor accept the statement;
   2. the account's accepted version differs from the current one: code `ACCEPTABLE_USE_REQUIRED`, allowed routes `GET /me/acceptable-use` (the statement and its version) and `POST /me/acceptable-use`, web page `/acceptable-use`.
 
-  So a new local administrator changes the password first, then accepts. While a gate is unmet, every other API route answers 403 with that gate's code, except `GET /auth/me`, `POST /auth/logout` and the routes that need no session. New WebSocket upgrades are refused, and open sockets (terminal, workspace, project events and checks) are closed at their periodic session re-check. The preview gateway refuses the account. `loadSession` decides both gates in its one query, left-joining the settings row (`id = 1`) and treating a missing row as version 1.
+  So a new local administrator changes the password first, then accepts.
+
+  Added by Epic 34 (section 24.13): a Dex-password account meets a second-factor gate (code `SECOND_FACTOR_REQUIRED`) in two places, so the full order is: verify a code, if the account already has a factor; change the password; set up a factor, if it has none; accept acceptable use. While a gate is unmet, every other API route answers 403 with that gate's code, except `GET /auth/me`, `POST /auth/logout` and the routes that need no session. New WebSocket upgrades are refused, and open sockets (terminal, workspace, project events and checks) are closed at their periodic session re-check. The preview gateway refuses the account. `loadSession` decides both gates in its one query, left-joining the settings row (`id = 1`) and treating a missing row as version 1.
 - `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, its first paragraph as an introduction and the rest as a list, with **Accept and continue** and **Sign out** (Epic 25).
 - `POST /me/acceptable-use {version}` is CSRF-checked. It is one conditional update of the account plus the audit row `user.acceptable_use_accepted` with `{version}`, in one transaction. When `version` is not the current one it answers 409 `ACCEPTABLE_USE_CHANGED` and records nothing, so nobody accepts a text they did not see.
 - The gate is checked on every request, so a text change reaches people already signed in at their next request. Their workspaces keep running. An administrator who saves a new text meets the gate too.
@@ -2760,9 +2762,11 @@ P0 must not require silent administrator impersonation of a student session.
 
 P2 workspace-sharing/support access must be explicit and auditable.
 
-An administrator never holds a usable credential for another account.
-The account holder is told when their password is reset, and the install
-administrator is protected from other administrators (#1135).
+An administrator may reset another person's password, second factor, or
+both, so that someone who lost both can get back in. The holder is
+always told by a notice they cannot delete, and the install administrator
+is protected from other administrators; its recovery is `portikus
+reset-admin` (section 24.13, #1135).
 
 ### 20.3 Break-glass access
 
@@ -2976,9 +2980,11 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   fully qualified name, when it passes the host-name check), the local
   administrator's email (default `admin@<public_host>`), TLS
   (`letsencrypt`, `files` or `internal`, with that choice's fields; since
-  Epic 27 the default is `internal` and the question is asked at medium
-  priority, so a normal install skips it, and it is not asked once a
-  certificate state exists), the
+  Epic 27 the default is `internal`; since Epic 34 the question is asked
+  at high priority, so a normal install asks it, and it is not asked once a
+  certificate state exists; with Let's Encrypt or certificate files the
+  administrator's one-time password is held until the site serves a
+  publicly trusted certificate, section 24.10), the
   sign-in provider (`dex`, `entra`, `google`, `ldap` or `oidc`; each but
   `dex` fills one Dex connector, section 5.1) with only that provider's
   fields, and storage. Every client secret, the LDAP bind password and
@@ -3427,7 +3433,7 @@ IPv4 only.
   (ADR 0038). Our dnsmasq runs as `nobody` with only `CAP_NET_ADMIN`,
   under a systemd sandbox. It sends each listed name to the upstream
   (systemd-resolved at 127.0.0.53 by default, from configuration), and
-  every address it answers goes into the nftables set `names_v4` through
+  every address it answers goes into the nftables set `learned_v4` through
   `nftset`. Every other name goes to the worker's counter on
   127.0.0.1:5399, which answers NXDOMAIN. It sets `no-resolv` (a stopped
   counter fails closed), `stop-dns-rebind` (a listed name cannot put a
@@ -3436,13 +3442,16 @@ IPv4 only.
 - **The firewall.** A separate table, `inet portikus_egress`, that
   Ansible's `/etc/nftables.conf` never flushes (a drop-in replaces
   Debian's `flush ruleset` on stop). Its forward chain accepts TCP on the
-  allowed ports only to `names_v4` and to the administrator's ranges, and
-  drops everything else from the bridge, UDP and ICMP included. The
-  names set has no timeout, because dnsmasq's add never refreshes one; it
-  holds at most 65,535 addresses and fails closed when full. It is
+  allowed ports only to `learned_v4`, `recent_v4` and the administrator's
+  ranges, and drops everything else from the bridge, UDP and ICMP
+  included. Since Epic 34 a learned address expires after 300 seconds, the
+  TTL cap; each new connection to it also puts it in `recent_v4` for 300
+  seconds, so an address no DNS answer has named for ten minutes is closed
+  to new connections (ADR 0038). Each set holds at most 65,535 addresses
+  and fails closed when full. It is
   flushed when a name is removed, the mode changes or the previous apply
   failed; clients heal on their next lookup, within the 300-second cap.
-- **TLS and HTTP names.** Connections to a `names_v4` address on 443 and
+- **TLS and HTTP names.** Connections to a learned address on 443 and
   80 are redirected to a second Squid for workspaces,
   `portikus-workspace-proxy.service` (the `squid-openssl` build, as its
   own user `portikus-wsproxy`), on the gateway's ports 3130 and 3129. It
@@ -3636,6 +3645,20 @@ The system must assume it may:
 Workspaces cannot send outbound mail by default. Their new-connection and
 packet rates are limited, and outbound rates are counted so
 administrators can see outliers (#1134; alerts #918).
+
+As built (Epic 34): the table `inet portikus_workspace_limits` holds in
+every egress mode and survives an nftables restart.
+
+| Limit | Value |
+|---|---|
+| Mail (TCP 25, 465, 587) | blocked unless `portikus_workspace_mail_allowed` is set |
+| New connections | 20 a second per workspace |
+| Packets outside established TCP | 5,000 a second per workspace |
+
+Drops are counted per workspace and logged at a limited rate with the
+prefix `portikus-ws-`; the admin Logs tab shows them as Network warnings.
+Workspaces cannot reach the host's own address on ports 80 and 443: the
+host drops anything from the workspace bridge to those ports.
 
 ### 24.3 Browser-origin isolation
 
@@ -3944,10 +3967,18 @@ itself up.
   another time is refused. The `vm` line is not checked, because it
   differs after a rebuild from an off-site copy; this is accepted. The
   4 MiB cap on the decrypted MANIFEST is sized for 2,000 workspaces.
-- **Copies off the server are manual** and documented as the real backup
-  (docs/INSTALL.md); the copy's target never needs the key. Sets come back
-  onto a server with rsync or scp, never by upload in the browser.
-  Backups also get an automated copy off the server (#1142).
+- **Copies off the server** are the real backup (docs/INSTALL.md); the
+  copy's target never needs the key. Sets come back onto a server with
+  rsync or scp, never by upload in the browser.
+- **The off-site copy (Epic 34, ADR 0050).** With `portikus_backup_offsite`
+  set, the server pushes the newest complete, MAC-verified set every hour
+  by rsync over SSH, with a dedicated key and a pinned host key. The key
+  is write-only: the target's `authorized_keys` runs `rrsync -wo` into an
+  `incoming` folder. The target's own `portikus-offsite-prune` moves
+  finished sets in, accepts at most one set per UTC day, never replaces a
+  set, and removes a set only once it is more than KEEP days old with
+  KEEP newer sets present. Disk encryption at rest is deferred
+  (docs/BACKLOG.md).
 - **A restore keeps file owners and modes** (#1138).
 
 ### 24.10 Transport security
@@ -4112,6 +4143,14 @@ workspace's network address, or a name a workspace looked up.
   `backup.snapshot_delete_failed`, `backup.kept_home_deleted`,
   `backup.kept_home_delete_failed`, `workspace.home_replaced` and
   `workspace.home_replace_failed`.
+- Sign-in (Epic 34, section 24.13): `auth.password_failed`,
+  `auth.second_factor_enrolled`, `auth.second_factor_verified`,
+  `auth.second_factor_failed`, `auth.second_factor_reset`,
+  `auth.second_factor_removed`,
+  `auth.second_factor_recovery_codes_replaced` and
+  `auth.invitation_claimed`. Administrators write
+  `admin.invitation_created`, `admin.invitation_revoked` and
+  `admin.accounts_imported`.
 - Workspaces: `workspace.limits_updated` (with the before and after
   values), then the worker's `workspace.limits_applied` or
   `workspace.limits_apply_failed`; `workspace.reprovision_requested`;
@@ -4134,26 +4173,57 @@ The project must define a process for:
 
 ### 24.13 Sign-in abuse
 
-These rules hold before a site faces the internet.
+These rules hold before a site faces the internet. Epic 34 built them
+(ADRs 0048, 0049 and 0050).
 
 - Rate limits never refuse one client because of other clients'
   failures. They count per account as well as per address, and treat
   each IPv6 /64 as one address (#1133).
-- Every failed password sign-in, Dex's included, reaches the audit trail
-  (#1133).
-- New passwords are checked against known-breached passwords (#1133).
-- Every account that signs in with a Dex local password has a second
-  factor. Passkeys and time-based codes are both acceptable (#914).
-- The site admits only accounts an administrator created (Add user, bulk
-  upload, LTI enrolment), whatever the sign-in provider. Nobody signs
-  themselves up (#1136, #1132).
-- A role removed in the identity provider takes effect within a bounded
-  time much shorter than a session (#1141).
-- An administrator never holds a usable credential for another account,
-  the account holder is told when their password is reset, and the
-  install administrator is protected from other administrators (#1135).
-- The front door limits connections and slow clients, and each user has
-  a cap on open terminal and check-output sockets (#1140).
+- **The password relay.** The API relays Dex's password posts. It counts
+  each post against the account before forwarding it, and gives the count
+  back when the post did not fail: 10 wrong passwords in ten minutes
+  throttle the account (`auth.throttled`, scope `password-account`). Every
+  failure is audited as `auth.password_failed`. Logins must be ASCII; any
+  other login is refused before Dex sees it. A browser that signed in
+  before carries the `__Host-portikus_known_device` cookie and is exempt
+  from the account count. The cookie is bound to the account's last
+  password change or reset and expires on the server after 90 days, and
+  `portikus reset-admin` ends it too.
+- New passwords are checked against a list of known-breached passwords.
+  The list is small and written by hand (#1133).
+- **Second factor (ADR 0048).** Every account that signs in with a Dex
+  local password has a second factor, built inside Portikus: time-based
+  codes (TOTP), passkeys (WebAuthn), and ten single-use recovery codes
+  stored as hashes. An account keeps at least one factor. Wrong codes
+  count per account across sign-in and linking, with one counter: 10 in
+  ten minutes and 30 in 24 hours, after which the holder gets a kept
+  notice. Linking an LMS account to a Dex-password account needs a passed
+  second factor (a code or a recovery code). A session that came from an
+  LMS launch cannot add or remove factors. TOTP secrets and recovery codes
+  are sealed with `/etc/portikus/second-factor.key` (root, 0600), which
+  backups carry and restore writes back before the API starts.
+- **Invitations only (ADR 0049).** The site admits only accounts an
+  administrator created: Add user, an invitation, CSV bulk upload, or an
+  LTI enrolment. For SSO providers, only a Portikus invitation creates an
+  account, always, for every provider. Entra matches the invitation by
+  user principal name (UPN), Google and generic OIDC by a verified email,
+  and LDAP by username or email. Anyone else sees a refusal page and is
+  audited as a failed `auth.login` with reason `not_invited` (#1136,
+  #1132).
+- A session whose administrator or instructor role came from the
+  identity provider ends after one hour, and its open sockets close
+  within a second. Signing in again skips Dex's chooser (#1141).
+- **Administrator resets.** An administrator may reset another person's
+  password, second factor, or both. The holder is always told by a kept
+  notice they cannot clear (one notice when both are reset). The install
+  administrator is protected from other administrators; its recovery is
+  `portikus reset-admin` on the host, which also clears its second factor
+  (#1135).
+- **Socket caps.** The front door limits connections and slow clients.
+  Each user may hold 60 terminal sockets, 16 check-output sockets and 32
+  workspace event sockets; one more is closed with code 4429 and a clear
+  message. The counts live in one API process, as the event-socket cap
+  does (ADR 0010) (#1140).
 
 ## 25. Non-functional requirements
 
@@ -4243,6 +4313,8 @@ The platform must expose sufficient logs and metrics to diagnose:
 - Docker reset/rebuild failures.
 
 Metrics should support capacity planning without exposing student source code or prompts.
+
+Added by Epic 34 (#918): administrator notifications with tone warning or danger that are marked site alerts (`site_alert`, written only by `notifyAdministrators`) are forwarded to Pushover, then to a webhook, through the egress proxy. The webhook body is `{text, title, tone, site, at}`, with flood control. Settings has a **Send test alert** button. `portikus-alert@.service` reports a failed API, worker, PostgreSQL, Caddy, backup or off-site copy unit at most once per unit per 10 minutes. Email alerts come later.
 
 Added by Epic 14.3 (section 19.4): the worker records each running
 workspace's CPU time, memory working set and limits from Incus once a
