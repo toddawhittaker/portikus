@@ -1,12 +1,14 @@
 # Copies the newest complete backup set off the server with rsync over SSH
 # (SPEC.md section 24.9, ADR 0044).  Started by portikus-backup-offsite.timer,
 # which setup's backup role enables only when portikus_backup_offsite names a
-# target.  A failure is a plain unit failure with the reason in the journal.
+# target.  A failure is reported through portikus-alert@.service, with the
+# reason in the journal.
 [Unit]
 Description=Copy the newest Portikus backup set off the server
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/portikus/backup-offsite/config
+OnFailure=portikus-alert@%n.service
 
 [Service]
 Type=oneshot

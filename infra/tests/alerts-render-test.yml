@@ -94,6 +94,7 @@
         alerts_api_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-api.service').splitlines() }}"
         alerts_worker_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-worker.service').splitlines() }}"
         alerts_backup_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-backup.service').splitlines() }}"
+        alerts_offsite_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-backup-offsite.service').splitlines() }}"
         alerts_template_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-alert@.service').splitlines() }}"
         alerts_nfpm: "{{ lookup('ansible.builtin.file', '../../packaging/nfpm.yaml') | from_yaml }}"
         alerts_main_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/portikus/tasks/main.yml') | from_yaml }}"
@@ -116,11 +117,16 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Check the backup alerts when it fails
+    - name: Check the backup and the off-site copy alert when they fail
       ansible.builtin.assert:
         that:
-          - "'OnFailure=portikus-alert@%n.service' in alerts_backup_unit"
-          - alerts_backup_unit.index('OnFailure=portikus-alert@%n.service') < alerts_backup_unit.index('[Service]')
+          - "'OnFailure=portikus-alert@%n.service' in item.unit"
+          - item.unit.index('OnFailure=portikus-alert@%n.service') < item.unit.index('[Service]')
+      loop:
+        - { name: backup, unit: "{{ alerts_backup_unit }}" }
+        - { name: backup-offsite, unit: "{{ alerts_offsite_unit }}" }
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Check the template runs alert-failed with stamps that outlive each run, and the package ships it
       ansible.builtin.assert:

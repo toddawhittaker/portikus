@@ -1,6 +1,6 @@
 # Tells the administrator that a service failed (STACK.md section 15).  The
 # instance is the failed unit's full name, from OnFailure= on the worker,
-# the API, PostgreSQL, Caddy and the backup.  `portikus alert-failed` sends
+# the API, PostgreSQL, Caddy, the backup and the off-site copy.  `portikus alert-failed` sends
 # at most one alert per unit in 10 minutes, keeping its stamps in
 # /run/portikus-alert.
 [Unit]
