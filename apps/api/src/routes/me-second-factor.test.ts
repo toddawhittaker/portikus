@@ -1,3 +1,4 @@
+import { createSession } from "@portikus/auth";
 import {
 	base32Decode,
 	CookieJar,
@@ -491,5 +492,65 @@ describe.skipIf(skip)("managing factors", () => {
 		expect((await auditRows("auth.second_factor_removed"))[0]?.metadata).toMatchObject({
 			kind: "webauthn",
 		});
+	});
+});
+
+describe.skipIf(skip)("a course launch into a local-password account", () => {
+	/** Lena enrolled, plus a launch session into her account as a linked course identity starts. */
+	async function launched(): Promise<{ jar: CookieJar; factorId: string }> {
+		const own = await signIn("lena");
+		await enrol(own);
+		const [factor] = (await get(own, "/me/second-factor")).json().factors;
+		const row = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("email", "=", "lena@example.edu")
+			.executeTakeFirstOrThrow();
+		const session = await createSession(testDb.db, row.id, 3600, {
+			method: "lti",
+			courseUserId: null,
+		});
+		const jar = new CookieJar();
+		jar.capture(`portikus_session=${session.token}`);
+		return { jar, factorId: factor.id };
+	}
+
+	function refusedAsLaunch(res: { statusCode: number; json: () => { code: string } }) {
+		expect(res.statusCode).toBe(403);
+		expect(res.json().code).toBe("FORBIDDEN");
+	}
+
+	test("cannot remove the account's factors, even the last one", async () => {
+		const { jar, factorId } = await launched();
+		refusedAsLaunch(
+			await app.inject({
+				method: "DELETE",
+				url: `/me/second-factor/${factorId}`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+			}),
+		);
+		const left = await testDb.db
+			.selectFrom("user_second_factors")
+			.select("id")
+			.execute();
+		expect(left).toHaveLength(1);
+	});
+
+	test("cannot add a factor, rename one, or make new recovery codes", async () => {
+		const { jar, factorId } = await launched();
+		refusedAsLaunch(await post(jar, "/me/second-factor/totp/start"));
+		refusedAsLaunch(
+			await post(jar, "/me/second-factor/totp", { token: "x", code: "1" }),
+		);
+		refusedAsLaunch(await post(jar, "/me/second-factor/webauthn/start"));
+		refusedAsLaunch(await post(jar, "/me/second-factor/recovery-codes"));
+		refusedAsLaunch(
+			await app.inject({
+				method: "PATCH",
+				url: `/me/second-factor/${factorId}`,
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { label: "Attacker" },
+			}),
+		);
 	});
 });

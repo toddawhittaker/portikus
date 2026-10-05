@@ -1,5 +1,6 @@
 import type { LinkError } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, TextField } from "@portikus/ui";
+import { useState } from "react";
 import { ApiError } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { announceLink, leaveLinkTab } from "./channel.js";
@@ -34,6 +35,7 @@ function finishLinked() {
 export function LinkPage({ error }: { error: LinkError | undefined }) {
 	const pending = usePendingLink(error === undefined);
 	const confirm = useConfirmLink();
+	const [code, setCode] = useState("");
 
 	if (error) {
 		return (
@@ -105,7 +107,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 		);
 	}
 
-	const { course, sso } = pending.data;
+	const { course, sso, secondFactor } = pending.data;
 	const confirmError =
 		confirm.error instanceof ApiError && confirm.error.status === 404
 			? LINK_ERROR_MESSAGES.expired
@@ -146,6 +148,24 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 			<p className="pk-text-body pk-muted" role="status">
 				{busy ? "Linking your accounts…" : ""}
 			</p>
+			{secondFactor === "enrol" ? (
+				<p className="pk-text-body" role="alert" data-testid="link-error">
+					This SSO account signs in with a Portikus password, so it needs two-step
+					sign-in before it can be linked. Sign in to Portikus with it and set up
+					two-step sign-in, then open Portikus from your course and link again.
+				</p>
+			) : null}
+			{secondFactor === "verify" ? (
+				<TextField
+					id="link-code"
+					label="Two-step sign-in code"
+					hint="A code from your authenticator app, or one of your recovery codes."
+					autoComplete="one-time-code"
+					spellCheck={false}
+					value={code}
+					onChange={(event) => setCode(event.target.value)}
+				/>
+			) : null}
 			{confirmError ? (
 				<p
 					className="pk-text-body text-status-error"
@@ -159,14 +179,20 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 				<Button variant="secondary" onClick={leaveLinkTab} disabled={busy}>
 					Cancel
 				</Button>
-				<Button
-					variant="primary"
-					data-testid="link-confirm"
-					loading={busy}
-					onClick={() => confirm.mutate(undefined, { onSuccess: finishLinked })}
-				>
-					Link accounts
-				</Button>
+				{secondFactor === "enrol" ? null : (
+					<Button
+						variant="primary"
+						data-testid="link-confirm"
+						loading={busy}
+						onClick={() =>
+							confirm.mutate(code.trim() || undefined, {
+								onSuccess: finishLinked,
+							})
+						}
+					>
+						Link accounts
+					</Button>
+				)}
 			</div>
 		</StandalonePage>
 	);

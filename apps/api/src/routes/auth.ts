@@ -301,7 +301,8 @@ export function registerAuthRoutes(
 		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
 		const localPassword =
 			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
-		const body: MeResponse = { ...request.user, signInName, localPassword };
+		const { secondFactorApplies: _applies, ...user } = request.user;
+		const body: MeResponse = { ...user, signInName, localPassword };
 		return reply.send(body);
 	});
 }

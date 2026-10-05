@@ -15,6 +15,8 @@ export interface AuthUser {
 	 * 24.13): enrol a factor, verify one, or nothing.
 	 */
 	secondFactor: "enrol" | "verify" | null;
+	/** This session is one the second-factor check covers; only such a session may manage factors. */
+	secondFactorApplies: boolean;
 }
 
 /** Everything the auth helpers need, validated by the service's config loader. */

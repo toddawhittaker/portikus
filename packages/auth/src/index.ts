@@ -106,6 +106,7 @@ export {
 	revokeInstructor,
 } from "./roles.js";
 export {
+	accountNeedsSecondFactor,
 	checkSecondFactor,
 	enrolTotp,
 	markSecondFactorPassed,

@@ -2,6 +2,7 @@ import {
 	type AuthOptions,
 	createSession,
 	dexLocalUserId,
+	hashSessionToken,
 	type Role,
 	type SessionOrigin,
 	sessionCookieName,
@@ -16,6 +17,7 @@ import { claimInvitation } from "./invitations.js";
 /**
  * Create a server-side session and set its cookie. Both sign-in paths, the
  * OIDC callback, the LTI launch and link confirm, end here. The origin records how it started.
+ * Returns the session's id, the token's hash.
  */
 export async function startSession(
 	db: Kysely<Database>,
@@ -23,12 +25,13 @@ export async function startSession(
 	reply: FastifyReply,
 	userId: string,
 	origin: SessionOrigin,
-): Promise<void> {
+): Promise<string> {
 	const session = await createSession(db, userId, auth.sessionTtlSeconds, origin);
 	reply.setCookie(sessionCookieName(auth), session.token, {
 		...sessionCookieOptions(auth),
 		expires: session.expiresAt,
 	});
+	return hashSessionToken(session.token);
 }
 
 /** The client address and browser every sign-in audit row carries. */
