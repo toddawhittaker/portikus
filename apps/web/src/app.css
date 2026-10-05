@@ -26,6 +26,12 @@ body,
 	border-color: var(--line);
 }
 
+/* A file field kept focusable while its file is checked. */
+.pk-file-input[aria-disabled="true"],
+.pk-file-input[aria-disabled="true"]::file-selector-button {
+	cursor: progress;
+}
+
 body {
 	margin: 0;
 	background: var(--surface);

@@ -17,6 +17,7 @@ import { RecoveryCodes } from "../second-factor/RecoveryCodes.js";
 import { useShowSetting } from "./controls.js";
 
 const STATUS_KEY = ["second-factor"];
+const ADD_APP_ID = "two-factor-add-app";
 
 const KIND_NAMES: Record<SecondFactor["kind"], string> = {
 	totp: "Authenticator app",
@@ -290,14 +291,24 @@ export function TwoFactorPane({ highlightId }: { highlightId: string | null }) {
 				className="grid gap-3 outline-none"
 				aria-labelledby="two-factor-add-title"
 			>
-				<h3 id="two-factor-add-title" className="pk-text-heading text-ink">
+				<h3
+					id="two-factor-add-title"
+					tabIndex={-1}
+					className="pk-text-heading text-ink outline-none"
+				>
 					Add a sign-in method
 				</h3>
 				{adding ? (
 					<>
 						<EnrolTotp onEnrolled={showCodes} />
 						<div>
-							<Button variant="secondary" onClick={() => setAdding(false)}>
+							<Button
+								variant="secondary"
+								onClick={() => {
+									flushSync(() => setAdding(false));
+									document.getElementById(ADD_APP_ID)?.focus();
+								}}
+							>
 								Cancel
 							</Button>
 						</div>
@@ -305,9 +316,14 @@ export function TwoFactorPane({ highlightId }: { highlightId: string | null }) {
 				) : (
 					<div className="pk-actions">
 						<Button
+							id={ADD_APP_ID}
 							variant="secondary"
 							iconStart="plus"
-							onClick={() => setAdding(true)}
+							onClick={() => {
+								// The button goes away; the section heading keeps focus in place.
+								flushSync(() => setAdding(true));
+								document.getElementById("two-factor-add-title")?.focus();
+							}}
 						>
 							Add an authenticator app
 						</Button>

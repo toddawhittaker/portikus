@@ -15,7 +15,7 @@ import {
 	TextField,
 	useToast,
 } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { errorText } from "../../api/request.js";
 import {
@@ -237,6 +237,7 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 	const toast = useToast();
 	const revoke = useRevokeInvitation();
 	const [open, setOpen] = useState(false);
+	const row = useRef<HTMLTableRowElement>(null);
 	const name = invitation.displayName;
 
 	function change(next: boolean) {
@@ -255,11 +256,10 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 		}
 		toast.show({ tone: "success", title: `Invitation for ${name} revoked` });
 		setOpen(false);
-		document.getElementById("admin-accounts-caption")?.focus();
 	}
 
 	return (
-		<tr className="align-top" data-testid={`invitation-${invitation.email}`}>
+		<tr ref={row} className="align-top" data-testid={`invitation-${invitation.email}`}>
 			{/* Nothing to select: bulk actions act on accounts. */}
 			<td className="py-2" />
 			<td className="py-2 whitespace-normal">
@@ -312,6 +312,12 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 						confirmLabel="Revoke"
 						pending={revoke.isPending}
 						onConfirm={() => void run()}
+						// The row is gone after a revoke, so focus goes to the table; Cancel returns to Revoke.
+						returnFocusTo={() =>
+							row.current?.isConnected
+								? null
+								: document.getElementById("admin-accounts-caption")
+						}
 					/>
 				</ConfirmDialogRoot>
 			</td>

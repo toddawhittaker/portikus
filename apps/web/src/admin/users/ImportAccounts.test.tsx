@@ -65,9 +65,16 @@ const RESULT: AccountImportResultRow[] = [
 	},
 ];
 
-function stub() {
+/** The fake API; `previewGate` holds the preview reply until it resolves. */
+function stub(previewGate?: Promise<void>) {
 	const writes: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
+		if (previewGate && url === "/admin/accounts/import/preview") {
+			writes.push({ url, body: null });
+			return previewGate.then(() =>
+				json(200, { rows: PREVIEW }),
+			) as unknown as Response;
+		}
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/admin/users") return json(200, { users: [], dexUsers: true });
 		if (url === "/admin/invitations") return json(200, { invitations: [] });
@@ -92,12 +99,12 @@ test("a file is previewed, confirmed with the same text, and the passwords offer
 	});
 	const table = await within(dialog).findByRole("table", { name: "Rows in the file" });
 	expect(within(table).getByText("Administrators cannot be imported.")).toBeTruthy();
-	expect(within(dialog).getByTestId("import-summary").textContent).toBe(
+	expect(within(dialog).getByTestId("import-status").textContent).toBe(
 		"1 row is ready to add. 1 row will be skipped.",
 	);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Add 1 account" }));
 	const done = await screen.findByRole("dialog", { name: "Import finished" });
-	expect(within(done).getByTestId("import-result").textContent).toBe(
+	expect(within(done).getByTestId("import-status").textContent).toBe(
 		"1 account added, 0 invitations sent, 1 row skipped.",
 	);
 	expect(within(done).getByTestId("import-password-warning").textContent).toContain(
@@ -131,10 +138,60 @@ test("a file refused whole shows the reason on the picker", async () => {
 	await waitFor(() =>
 		expect(dialog.textContent).toContain('The header has no "kind" column.'),
 	);
-	expect(
-		(within(dialog).getByRole("button", { name: "Add accounts" }) as HTMLButtonElement)
-			.disabled,
-	).toBe(true);
+	const add = within(dialog).getByRole("button", { name: "Add accounts" });
+	expect(add.getAttribute("aria-disabled")).toBe("true");
+});
+
+test("one status line stays mounted from choosing a file to the result, and focus follows", async () => {
+	let release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const writes = stub(gate);
+	renderApp("/admin");
+	fireEvent.click(await screen.findByRole("button", { name: "Import from CSV…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Import from CSV" });
+	const status = within(dialog).getByRole("status");
+	expect(status.textContent).toBe("No file checked yet.");
+
+	// Add stays focusable while it cannot act, and names why through the status line.
+	const addNone = within(dialog).getByRole("button", { name: "Add accounts" });
+	expect(addNone.getAttribute("aria-disabled")).toBe("true");
+	expect(addNone.getAttribute("aria-describedby")).toBe(status.id);
+	fireEvent.click(addNone);
+	expect(writes).toEqual([]);
+
+	const input = within(dialog).getByLabelText("CSV file") as HTMLInputElement;
+	input.focus();
+	fireEvent.change(input, {
+		target: { files: [new File([CSV], "people.csv", { type: "text/csv" })] },
+	});
+	await waitFor(() => expect(status.textContent).toBe("Checking the file…"));
+	// Busy but still focusable: a disabled field would drop focus to the page.
+	expect(input.disabled).toBe(false);
+	expect(input.getAttribute("aria-disabled")).toBe("true");
+	expect(document.activeElement).toBe(input);
+	const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+	input.dispatchEvent(click);
+	expect(click.defaultPrevented).toBe(true);
+
+	release();
+	await within(dialog).findByRole("table", { name: "Rows in the file" });
+	expect(within(dialog).getByRole("status")).toBe(status);
+	expect(status.textContent).toBe("1 row is ready to add. 1 row will be skipped.");
+	expect(input.getAttribute("aria-disabled")).toBeNull();
+
+	fireEvent.click(within(dialog).getByRole("button", { name: "Add 1 account" }));
+	await screen.findByRole("dialog", { name: "Import finished" });
+	// Same node throughout, so each change is announced; focus moves to the result.
+	expect(within(dialog).getByRole("status")).toBe(status);
+	expect(status.textContent).toBe(
+		"1 account added, 0 invitations sent, 1 row skipped.",
+	);
+	await waitFor(() => expect(document.activeElement).toBe(status));
+	expect(status.getAttribute("aria-describedby")).toBe(
+		within(dialog).getByTestId("import-password-warning").id,
+	);
 });
 
 test("the passwords file quotes cells and defuses spreadsheet formulas", () => {

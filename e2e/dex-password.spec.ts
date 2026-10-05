@@ -59,4 +59,8 @@ test("an account with too many wrong passwords gets a clear message", async ({
 		page.getByRole("heading", { name: "Too many sign-in attempts" }),
 	).toBeVisible();
 	await expect(page.getByText("Wait ten minutes, then try again.")).toBeVisible();
+	await expect(page.getByRole("link", { name: "Back to sign in" })).toHaveAttribute(
+		"href",
+		"/auth/login",
+	);
 });

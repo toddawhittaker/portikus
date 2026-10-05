@@ -48,15 +48,19 @@ test("an administrator imports a file, downloads the passwords, and sees the new
 		"Administrators cannot be imported.",
 	);
 	await expect(dialog.getByTestId("import-row-5")).toContainText("Repeats row 2.");
-	await expect(dialog.getByTestId("import-summary")).toHaveText(
+	await expect(dialog.getByTestId("import-status")).toHaveText(
 		"2 rows are ready to add. 2 rows will be skipped.",
 	);
 
 	await dialog.getByRole("button", { name: "Add 2 accounts" }).click();
 	const done = page.getByRole("dialog", { name: "Import finished" });
-	await expect(done.getByTestId("import-result")).toHaveText(
+	const result = done.getByTestId("import-status");
+	await expect(result).toHaveText(
 		"1 account added, 1 invitation sent, 2 rows skipped.",
 	);
+	// The confirm button became Done in place; focus moves to what happened.
+	await expect(result).toBeFocused();
+	await expect(result).toHaveAccessibleDescription(/will not be shown again/);
 	await expect(done.getByTestId("import-password-warning")).toContainText(
 		"will not be shown again",
 	);
@@ -95,12 +99,16 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		const tag = crypto.randomUUID().slice(0, 8);
 		const dialog = await openImport(page);
+		// Add stays focusable before a file is checked, and says why.
+		const add = dialog.getByRole("button", { name: "Add accounts" });
+		await expect(add).toHaveAttribute("aria-disabled", "true");
+		await expect(add).toHaveAccessibleDescription("No file checked yet.");
 		await expectNoViolations(page, "[data-testid=import-dialog]");
 		await dialog.getByLabel("CSV file").setInputFiles(sampleFile(tag));
-		await expect(dialog.getByTestId("import-summary")).toBeVisible();
+		await expect(dialog.getByTestId("import-status")).toHaveText(/ready to add/);
 		await expectNoViolations(page, "[data-testid=import-dialog]");
 		await dialog.getByRole("button", { name: "Add 2 accounts" }).click();
-		await expect(page.getByTestId("import-result")).toBeVisible();
+		await expect(page.getByTestId("import-status")).toHaveText(/accounts? added/);
 		await expectNoViolations(page, "[data-testid=import-dialog]");
 	});
 }

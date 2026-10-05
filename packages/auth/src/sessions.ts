@@ -42,7 +42,7 @@ export async function upsertUser(
 	role: Role,
 ): Promise<
 	// Acceptance and the second factor are the session's business; loadSession decides them.
-	Omit<AuthUser, "mustAcceptUse" | "secondFactor"> & {
+	Omit<AuthUser, "mustAcceptUse" | "secondFactor" | "secondFactorApplies"> & {
 		disabledAt: string | null;
 		previousRole: Role | null;
 	}
@@ -267,6 +267,7 @@ export async function loadSessionById(
 		return null;
 	}
 
+	const applies = secondFactorApplies(row);
 	return {
 		id: row.user_id,
 		email: row.email,
@@ -276,11 +277,12 @@ export async function loadSessionById(
 		// No settings row yet means version 1, the column default.
 		mustAcceptUse: row.accepted_use_version !== (row.current_use_version ?? 1),
 		secondFactor:
-			row.second_factor_at !== null || !secondFactorApplies(row)
+			row.second_factor_at !== null || !applies
 				? null
 				: row.has_second_factor
 					? "verify"
 					: "enrol",
+		secondFactorApplies: applies,
 	};
 }
 

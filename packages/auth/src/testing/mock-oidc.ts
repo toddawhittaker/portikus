@@ -103,6 +103,14 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Lena Student",
 		groups: [MOCK_GROUPS.student],
 	},
+	// A Dex local-password student for e2e/account-link.spec.ts: linking her
+	// must pass her second factor (SPEC.md section 24.13).
+	lars: {
+		sub: dexLocalSubject("e2e-link-two-step"),
+		email: "lars@example.edu",
+		name: "Lars Student",
+		groups: [MOCK_GROUPS.student],
+	},
 	// The local administrator's Dex subject (SPEC.md section 5.1), for
 	// e2e/change-password.spec.ts. The mock admits only grouped people; the
 	// account's grant makes it an administrator.

@@ -37,6 +37,40 @@ for (const scheme of ["light", "dark"] as const) {
 		await expectNoViolations(page, "[data-testid=invite-dialog]");
 	});
 
+	test(`revoking an invitation keeps focus on the table, in its dialog and after (${scheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const tag = crypto.randomUUID().slice(0, 8);
+		const email = `revoke-${tag}@example.edu`;
+		await query(
+			`insert into account_invitations (email, display_name, role)
+			 values ($1, $2, 'student')`,
+			[email, `Revoke ${tag}`],
+		);
+		await loginAs(page, "carol");
+		await page.goto("/admin");
+		await page.getByTestId("admin-filter-text").fill(email);
+		const row = page.getByTestId(`invitation-${email}`);
+		await expect(row).toBeVisible({ timeout: 15_000 });
+		const revoke = row.getByRole("button", {
+			name: `Revoke the invitation for Revoke ${tag}`,
+		});
+
+		await revoke.click();
+		const dialog = page.getByTestId("invitation-revoke-dialog");
+		await expect(dialog).toBeVisible();
+		await expectNoViolations(page, "[data-testid=invitation-revoke-dialog]");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(revoke).toBeFocused();
+
+		await revoke.click();
+		await dialog.getByRole("button", { name: "Revoke" }).click();
+		await expect(row).toBeHidden();
+		// The row and its button are gone, so focus lands on the table.
+		await expect(page.locator("#admin-accounts-caption")).toBeFocused();
+	});
+
 	test(`the not-invited page has no automatic violations (${scheme})`, async ({
 		page,
 	}) => {

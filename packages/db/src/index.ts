@@ -92,6 +92,14 @@ export async function recordAuditReturningId(
 	return row.id;
 }
 
+/** How a notification is handled beyond what it says (SPEC.md sections 24.12, 24.13). */
+export interface NoticeFlags {
+	/** A site condition, forwarded off the site by the worker. */
+	siteAlert?: boolean;
+	/** Its holder may mark it read but not delete it. */
+	kept?: boolean;
+}
+
 /** What one notification says (ADR 0033). */
 export interface Notice {
 	tone: NotificationTone;
@@ -107,6 +115,7 @@ export async function recordNotification(
 	db: Kysely<Database>,
 	userId: string,
 	notice: Notice,
+	flags: NoticeFlags = {},
 ): Promise<Selectable<NotificationsTable>> {
 	const row = await db
 		.insertInto("notifications")
@@ -115,13 +124,16 @@ export async function recordNotification(
 			tone: notice.tone,
 			title: notice.title,
 			body: notice.body,
+			site_alert: flags.siteAlert ?? false,
+			kept: flags.kept ?? false,
 		})
 		.returningAll()
 		.executeTakeFirstOrThrow();
-	// The worker also prunes by age.
+	// The worker also prunes by age. Newer rows never push out a kept notice.
 	await db
 		.deleteFrom("notifications")
 		.where("user_id", "=", userId)
+		.where("kept", "=", false)
 		.where("id", "not in", (eb) =>
 			eb
 				.selectFrom("notifications")
@@ -146,5 +158,6 @@ export async function notifyAdministrators(
 		.where("role", "=", "administrator")
 		.where("disabled_at", "is", null)
 		.execute();
-	for (const admin of admins) await recordNotification(db, admin.id, notice);
+	for (const admin of admins)
+		await recordNotification(db, admin.id, notice, { siteAlert: true });
 }

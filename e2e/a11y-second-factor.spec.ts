@@ -1,5 +1,11 @@
+import { readFile } from "node:fs/promises";
 import { type BrowserContext, expect, test } from "@playwright/test";
-import { createLocalPasswordAdmin, expectNoViolations, query } from "./helpers";
+import {
+	createLocalPasswordAdmin,
+	expectNoViolations,
+	query,
+	TestAuthenticator,
+} from "./helpers";
 
 /**
  * axe on the two-step sign-in pages, in light and dark (SPEC.md sections
@@ -38,6 +44,32 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(field).toHaveAccessibleDescription(
 			"Enter the 6-digit code from your app.",
 		);
+		await expectNoViolations(page, "[data-testid=page-second-factor]");
+
+		// The key reads in groups of four, and the copy is confirmed.
+		const key = (await page.getByTestId("totp-secret").textContent()) ?? "";
+		expect(key).toMatch(/^[A-Z2-7]{4}( [A-Z2-7]{1,4})+$/);
+		await page.getByRole("button", { name: "Copy key" }).click();
+		await expect(page.getByRole("status").filter({ hasText: /cop/i })).toBeVisible();
+		await expectNoViolations(page, "[data-testid=page-second-factor]");
+
+		const app = TestAuthenticator.fromKey(key);
+		await field.fill(await app.nextCode());
+		await page.getByRole("button", { name: "Turn on two-step sign-in" }).click();
+		await expect(
+			page.getByRole("heading", { name: "Save your recovery codes" }),
+		).toBeFocused();
+		const codes = await page
+			.getByTestId("recovery-codes")
+			.getByRole("listitem")
+			.allTextContents();
+		const download = page.waitForEvent("download");
+		await page.getByRole("button", { name: "Download codes" }).click();
+		const file = await download;
+		expect(file.suggestedFilename()).toBe("portikus-recovery-codes.txt");
+		expect(await readFile(await file.path(), "utf8")).toBe(`${codes.join("\n")}\n`);
+		await page.getByRole("button", { name: "Copy codes" }).click();
+		await expect(page.getByRole("status").filter({ hasText: /cop/i })).toBeVisible();
 		await expectNoViolations(page, "[data-testid=page-second-factor]");
 	});
 

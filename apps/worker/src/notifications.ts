@@ -27,7 +27,7 @@ export async function pruneNotifications(
 		select id from (
 			select id, row_number() over (
 				partition by user_id order by created_at desc, id desc
-			) as n from notifications
+			) as n from notifications where not kept
 		) ranked where n > ${MAX_NOTIFICATIONS_PER_USER}
 	)`.execute(db);
 	return Number(old.numDeletedRows) + Number(extra.numAffectedRows ?? 0n);

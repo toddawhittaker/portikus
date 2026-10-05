@@ -76,9 +76,19 @@ test("an administrator resets a student's two-factor sign-in; the student sets u
 		await expect(student.getByTestId("notifications-badge")).toHaveText("1");
 		await student.getByTestId("me").click();
 		await student.getByRole("menuitem", { name: "Notifications" }).click();
-		await expect(
-			student.getByTestId("dialog-notifications").getByTestId("notification"),
-		).toContainText("An administrator reset your two-factor sign-in on ");
+		const notices = student.getByTestId("dialog-notifications");
+		await expect(notices.getByTestId("notification")).toContainText(
+			"An administrator reset your two-factor sign-in on ",
+		);
+		// The holder is always told: Clear leaves the notice, which can still be read.
+		await notices.getByTestId("notifications-clear").click();
+		await expect(notices.getByTestId("notification")).toHaveCount(1);
+		await expect(notices.getByTestId("notification")).toContainText(
+			"An administrator reset your two-factor sign-in on ",
+		);
+		await notices.getByTestId("notification-mark-read").click();
+		await expect(notices.getByTestId("notification-mark-read")).toHaveCount(0);
+		await expect(student.getByTestId("notifications-badge")).toHaveCount(0);
 	} finally {
 		await context.close();
 	}

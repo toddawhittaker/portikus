@@ -34,6 +34,7 @@ export type MockUser =
 	| "frank"
 	| "gail"
 	| "lena"
+	| "lars"
 	| "nina"
 	| "rita"
 	| "admin";

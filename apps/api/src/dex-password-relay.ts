@@ -3,7 +3,7 @@ import { DEX_PASSWORD_ROUTE } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { fromLoopback } from "./loopback.js";
 import { accountKey, type SigninThrottle } from "./signin-throttle.js";
 
@@ -15,7 +15,7 @@ import { accountKey, type SigninThrottle } from "./signin-throttle.js";
  */
 
 const KNOWN_DEVICE_COOKIE = "portikus_known_device";
-const KNOWN_DEVICE_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
+const KNOWN_DEVICE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 /** Audit targets keep a login this long at most; the form takes any text. */
 const MAX_LOGIN_LENGTH = 254;
 const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "cookie", "user-agent"];
@@ -47,10 +47,40 @@ function cookieName(config: ApiConfig): string {
 		: KNOWN_DEVICE_COOKIE;
 }
 
+/**
+ * The newest password change or reset for this login, so a reset ends every
+ * known-device cookie issued before it. The audit trail already records
+ * both, which spares a column (SPEC.md section 24.13).
+ */
+async function passwordStamp(
+	db: Kysely<Database>,
+	issuer: string,
+	login: string,
+): Promise<string> {
+	const row = await db
+		.selectFrom("audit_events")
+		// Audit targets are text; user IDs are UUIDs.
+		.innerJoin("users", (join) =>
+			join.on(sql<boolean>`audit_events.target = users.id::text`),
+		)
+		.select("audit_events.id")
+		.where("users.oidc_issuer", "=", issuer)
+		.where(sql<string>`lower(users.email)`, "=", accountKey(login))
+		.where("audit_events.result", "=", "ok")
+		.where("audit_events.action", "in", [
+			"user.password_changed",
+			"dex_user.password_reset",
+		])
+		.orderBy("audit_events.id", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	return row ? String(row.id) : "none";
+}
+
 /** The cookie value that marks a browser as one this account signed in on. */
-function knownDeviceValue(secret: string, login: string): string {
+function knownDeviceValue(secret: string, login: string, stamp: string): string {
 	return createHmac("sha256", secret)
-		.update(`known-device\0${accountKey(login)}`)
+		.update(`known-device\0${accountKey(login)}\0${stamp}`)
 		.digest("base64url");
 }
 
@@ -58,33 +88,56 @@ function isKnownDevice(
 	request: FastifyRequest,
 	config: ApiConfig,
 	login: string,
+	stamp: string,
 ): boolean {
 	const sent = request.cookies[cookieName(config)];
 	if (!sent) return false;
-	const expected = Buffer.from(knownDeviceValue(config.SESSION_COOKIE_SECRET, login));
+	const expected = Buffer.from(
+		knownDeviceValue(config.SESSION_COOKIE_SECRET, login, stamp),
+	);
 	const actual = Buffer.from(sent);
 	return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-const REFUSAL_PAGE = `<!doctype html>
+/** Readable in light and dark, and usable on a phone (SPEC.md section 25.8). */
+function page(title: string, body: string): string {
+	return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Too many sign-in attempts</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>${title}</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 36rem; padding: 0 1rem; line-height: 1.5; background: #ffffff; color: #1a1a1a; }
+a { color: #0b57d0; }
+@media (prefers-color-scheme: dark) {
+body { background: #121212; color: #ececec; }
+a { color: #8ab4f8; }
+}
+</style>
+</head>
 <body>
 <main>
-<h1>Too many sign-in attempts</h1>
-<p>There have been too many wrong passwords for this sign-in. Wait ten minutes, then try again.</p>
-<p>If you have signed in on this browser before, you can still sign in here with the right password.</p>
+<h1>${title}</h1>
+${body}
+<p><a href="/auth/login">Back to sign in</a></p>
 </main>
 </body>
 </html>
 `;
+}
 
-const UNAVAILABLE_PAGE = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Sign-in unavailable</title></head>
-<body><main><h1>Sign-in is unavailable</h1><p>Try again in a minute.</p></main></body>
-</html>
-`;
+const REFUSAL_PAGE = page(
+	"Too many sign-in attempts",
+	`<p>There have been too many wrong passwords for this sign-in. Wait ten minutes, then try again.</p>
+<p>If you have signed in on this browser before, you can still sign in here with the right password.</p>`,
+);
+
+const UNAVAILABLE_PAGE = page(
+	"Sign-in is unavailable",
+	"<p>Try again in a minute.</p>",
+);
 
 export function registerDexPasswordRelay(
 	app: FastifyInstance,
@@ -121,25 +174,28 @@ export function registerDexPasswordRelay(
 	}
 
 	/**
-	 * Refuse when this address or account is over its limit. A browser this
-	 * account signed in on is not refused for wrong passwords others typed
-	 * for the account (SPEC.md section 24.13).
+	 * Count this post against its address and, unless the browser is one
+	 * this account signed in on, its account, before Dex sees it, so parallel
+	 * posts cannot slip past either limit (SPEC.md section 24.13). True when
+	 * refused.
 	 */
 	async function refused(
 		request: FastifyRequest,
 		login: string,
 		target: string,
+		knownDevice: boolean,
 	): Promise<boolean> {
-		const byAddress = throttle.checkPassword(request.ip);
+		const byAddress = throttle.passwordAttempt(request.ip);
 		if (!byAddress.allowed) {
 			if (byAddress.audit) {
 				await audit(request, "auth.throttled", target, { scope: "password" });
 			}
 			return true;
 		}
-		if (isKnownDevice(request, config, login)) return false;
-		const byAccount = throttle.checkAccount(login);
+		if (knownDevice) return false;
+		const byAccount = throttle.accountAttempt(login);
 		if (byAccount.allowed) return false;
+		throttle.passwordGiveBack(request.ip);
 		if (byAccount.audit) {
 			await audit(request, "auth.throttled", target, { scope: "password-account" });
 		}
@@ -148,7 +204,7 @@ export function registerDexPasswordRelay(
 
 	function sendToDex(
 		request: FastifyRequest,
-		fields: Record<string, unknown>,
+		form: URLSearchParams,
 		dexUrl: string,
 	): Promise<Response> {
 		const headers: Record<string, string> = {
@@ -158,11 +214,10 @@ export function registerDexPasswordRelay(
 			const value = request.headers[name];
 			if (typeof value === "string") headers[name] = value;
 		}
-		const form = new URLSearchParams();
-		for (const [key, value] of Object.entries(fields)) {
-			if (typeof value === "string") form.append(key, value);
-		}
-		return fetch(new URL(request.raw.url ?? "/", dexUrl), {
+		// Dex also reads login from the query, which would dodge the count.
+		const url = new URL(request.raw.url ?? "/", dexUrl);
+		url.searchParams.delete("login");
+		return fetch(url, {
 			method: "POST",
 			headers,
 			body: form.toString(),
@@ -173,7 +228,7 @@ export function registerDexPasswordRelay(
 	async function passBack(
 		reply: FastifyReply,
 		answer: Response,
-		knownLogin: string | null,
+		known: { login: string; stamp: string } | null,
 	): Promise<FastifyReply> {
 		reply.status(answer.status);
 		answer.headers.forEach((value, name) => {
@@ -182,10 +237,10 @@ export function registerDexPasswordRelay(
 		// The cookie plugin adds ours to Dex's own when the reply is sent.
 		const dexCookies = answer.headers.getSetCookie();
 		if (dexCookies.length > 0) reply.header("set-cookie", dexCookies);
-		if (knownLogin !== null) {
+		if (known !== null) {
 			reply.setCookie(
 				cookieName(config),
-				knownDeviceValue(config.SESSION_COOKIE_SECRET, knownLogin),
+				knownDeviceValue(config.SESSION_COOKIE_SECRET, known.login, known.stamp),
 				{
 					httpOnly: true,
 					secure: config.PUBLIC_URL.startsWith("https:"),
@@ -198,21 +253,49 @@ export function registerDexPasswordRelay(
 		return reply.send(Buffer.from(await answer.arrayBuffer()));
 	}
 
-	app.post(DEX_PASSWORD_ROUTE, async (request, reply) => {
+	// Its own form parser keeps repeated fields, which the app-wide one
+	// collapses, so a repeated login can be refused.
+	app.register(async (scope) => {
+		scope.removeContentTypeParser("application/x-www-form-urlencoded");
+		scope.addContentTypeParser(
+			"application/x-www-form-urlencoded",
+			{ parseAs: "string" },
+			(_request, body, done) => done(null, new URLSearchParams(body as string)),
+		);
+		scope.post(DEX_PASSWORD_ROUTE, relay);
+	});
+
+	async function relay(request: FastifyRequest, reply: FastifyReply) {
 		// Only Caddy on this machine sends these; it is the front door's rate limit.
 		if (!fromLoopback(request) || !dexUrl) {
 			return reply.status(404).send({ code: "NOT_FOUND", message: "Not found." });
 		}
-		const fields = (request.body ?? {}) as Record<string, unknown>;
-		const login =
-			typeof fields.login === "string" ? fields.login.slice(0, MAX_LOGIN_LENGTH) : "";
-		const target = login === "" ? "unknown" : `login:${accountKey(login)}`;
-		if (await refused(request, login, target)) return refuse(reply);
+		const form =
+			request.body instanceof URLSearchParams ? request.body : new URLSearchParams();
+		// A missing, empty or repeated login would be counted under no account.
+		const logins = form.getAll("login");
+		const first = logins[0] ?? "";
+		if (logins.length !== 1 || first.trim() === "") {
+			return reply
+				.status(400)
+				.header("content-type", "text/html; charset=utf-8")
+				.send(page("Sign-in failed", "<p>Enter your email address and password.</p>"));
+		}
+		const login = first.slice(0, MAX_LOGIN_LENGTH);
+		const target = `login:${accountKey(login)}`;
+		const stamp = await passwordStamp(db, config.OIDC_ISSUER_URL, login);
+		const knownDevice = isKnownDevice(request, config, login, stamp);
+		if (await refused(request, login, target, knownDevice)) return refuse(reply);
 
+		const giveBack = (): void => {
+			throttle.passwordGiveBack(request.ip);
+			if (!knownDevice) throttle.accountGiveBack(login);
+		};
 		let answer: Response;
 		try {
-			answer = await sendToDex(request, fields, dexUrl);
+			answer = await sendToDex(request, form, dexUrl);
 		} catch (error) {
+			giveBack();
 			request.log.error({ err: error }, "dex did not answer a password post");
 			return reply
 				.status(502)
@@ -222,13 +305,11 @@ export function registerDexPasswordRelay(
 
 		const outcome = dexOutcome(answer.status);
 		if (outcome === "failure") {
-			throttle.accountFailed(login);
+			if (knownDevice) throttle.accountFailed(login);
 			await audit(request, "auth.password_failed", target, {});
+		} else {
+			giveBack();
 		}
-		return passBack(
-			reply,
-			answer,
-			outcome === "success" && login !== "" ? login : null,
-		);
-	});
+		return passBack(reply, answer, outcome === "success" ? { login, stamp } : null);
+	}
 }

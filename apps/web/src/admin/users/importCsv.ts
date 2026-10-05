@@ -27,16 +27,3 @@ export function passwordsCsv(rows: AccountImportResultRow[]): string {
 	}
 	return `${lines.map((line) => line.map(cell).join(",")).join("\r\n")}\r\n`;
 }
-
-/** Hand text to the browser as a downloaded file; nothing keeps a copy. */
-export function downloadText(fileName: string, text: string): void {
-	const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
-	const link = document.createElement("a");
-	link.href = url;
-	link.download = fileName;
-	document.body.append(link);
-	link.click();
-	link.remove();
-	// Revoked once the browser has started the download, not before.
-	setTimeout(() => URL.revokeObjectURL(url), 1000);
-}

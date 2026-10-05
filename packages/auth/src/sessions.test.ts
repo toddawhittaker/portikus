@@ -211,7 +211,12 @@ describe("users and sessions", () => {
 			} = user;
 			const loaded = await loadSession(t.db, token);
 			// Test users have accepted (packages/db testing).
-			expect(loaded).toEqual({ ...expected, mustAcceptUse: false, secondFactor: null });
+			expect(loaded).toEqual({
+				...expected,
+				mustAcceptUse: false,
+				secondFactor: null,
+				secondFactorApplies: false,
+			});
 		},
 	);
 
