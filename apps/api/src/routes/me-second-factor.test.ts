@@ -212,6 +212,34 @@ describe.skipIf(skip)("the second-factor gate", () => {
 		expect((await post(b, "/me/second-factor/verify", { code })).statusCode).toBe(403);
 	});
 
+	test("a new session secret, as on a restored server, leaves the factor working", async () => {
+		const { secret } = await enrol(await signIn("admin"));
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, {
+			SESSION_COOKIE_SECRET: "a rotated session secret, nothing like the first one",
+		});
+		await app.ready();
+		const jar = await signIn("admin");
+		const ok = await post(jar, "/me/second-factor/verify", {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(ok.statusCode).toBe(204);
+	});
+
+	test("another second-factor key cannot open the factor", async () => {
+		const { secret } = await enrol(await signIn("admin"));
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, {
+			SECOND_FACTOR_KEY: "9a".repeat(32),
+		});
+		await app.ready();
+		const jar = await signIn("admin");
+		const refused = await post(jar, "/me/second-factor/verify", {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(refused.statusCode).toBe(403);
+	});
+
 	test("a recovery code signs in once", async () => {
 		const first = await signIn("admin");
 		const { codes } = await enrol(first);

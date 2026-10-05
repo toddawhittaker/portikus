@@ -499,6 +499,13 @@ once into `/etc/portikus/session.secret` and never regenerates it, the
 same way it handles the controller token, so re-running the playbook does
 not sign everyone out.
 
+The second-factor key, `/etc/portikus/second-factor.key` (root, mode
+0600), is made the same way and seals the authenticator-app secrets of
+Dex password accounts (SPEC.md section 24.13). Unlike the session secret
+it is part of every backup set, and a restore writes it back, with
+`SECOND_FACTOR_KEY` in `api.env`, before the API starts; without it a
+restored server could not check anyone's codes.
+
 ### LTI
 
 LTI 1.3 (Learning Tools Interoperability) lets a student open Portikus

@@ -197,6 +197,7 @@ export default defineConfig({
 				DEX_GRPC_KEY: dexCerts.clientKey,
 				DEX_HTTP_URL: `http://127.0.0.1:${FAKE_DEX_HTTP_PORT}`,
 				SESSION_COOKIE_SECRET: "e2e-session-secret-not-for-production-0000",
+				SECOND_FACTOR_KEY: "e2".repeat(32),
 				SESSION_TTL_SECONDS: "3600",
 				PRESENCE_TTL_SECONDS: "60",
 				// One template, so projects.spec.ts can use the template option;

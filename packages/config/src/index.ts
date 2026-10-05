@@ -10,6 +10,7 @@ const nonNegativeInt = z.coerce.number().int().nonnegative();
 const DEV_TOKEN = "dev-controller-token-not-for-production";
 const DEV_SESSION_SECRET = "dev-session-secret-not-for-production";
 const DEV_CLIENT_SECRET = "portikus-dev-secret";
+const DEV_SECOND_FACTOR_KEY = "0".repeat(64);
 
 /**
  * Fields shared by all service configurations (STACK.md §5, §9).
@@ -158,6 +159,18 @@ export const ApiConfigSchema = BaseConfig.extend({
 	/** The tool's RSA key, whose public half `/lti/jwks` serves. */
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
+	/**
+	 * Seals TOTP secrets (SPEC.md section 24.13): 32 bytes as hex, from
+	 * /etc/portikus/second-factor.key, which backups carry so a restore
+	 * can still open them.
+	 */
+	SECOND_FACTOR_KEY: z
+		.string()
+		.regex(
+			/^[0-9a-f]{64}$/i,
+			"SECOND_FACTOR_KEY must be 64 hexadecimal characters (32 bytes)",
+		)
+		.default(DEV_SECOND_FACTOR_KEY),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
 	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
 	PROJECT_TEMPLATES: z.string().default(""),
@@ -238,6 +251,15 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
 	})
+	.refine(
+		(config) =>
+			config.NODE_ENV !== "production" ||
+			config.SECOND_FACTOR_KEY !== DEV_SECOND_FACTOR_KEY,
+		{
+			message: "SECOND_FACTOR_KEY must be set in production",
+			path: ["SECOND_FACTOR_KEY"],
+		},
+	)
 	.refine(
 		(config) =>
 			config.NODE_ENV !== "production" || config.PREVIEW_SUFFIX !== DEV_PREVIEW_SUFFIX,

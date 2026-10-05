@@ -44,6 +44,7 @@ export function testConfig(
 		OIDC_INSTRUCTOR_GROUP: "portikus-instructors",
 		OIDC_DEFAULT_ROLE: "none",
 		SESSION_COOKIE_SECRET: "test-session-secret",
+		SECOND_FACTOR_KEY: "5f".repeat(32),
 		SESSION_TTL_SECONDS: 43200,
 		PROJECT_TEMPLATES: "",
 		projectTemplates: [],

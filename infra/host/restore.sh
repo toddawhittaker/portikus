@@ -44,7 +44,7 @@ LOCAL_ADMIN_SUBJECT=Cgtsb2NhbC1hZG1pbhIFbG9jYWw
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json|second-factor\.key) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
 # backup.sh never writes a larger one.
 MANIFEST_MAX=4194304
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
@@ -310,6 +310,33 @@ elif [ "$(dex_installed)" = yes ]; then
     psql_vm "UPDATE users SET must_change_password = true WHERE oidc_subject = '${LOCAL_ADMIN_SUBJECT}' AND preferred_username = 'admin'"
     step "no Dex accounts in the set; the local administrator must change its password at next sign-in"
   fi
+fi
+
+# The key that seals second factors (SPEC.md section 24.13), written while
+# the API is stopped so it starts able to check the restored accounts'
+# codes.  The key travels on standard input, never in a command line.
+if grep -q '^file second-factor\.key ' "$manifest"; then
+  put_key=$(base64 -w0 <<'EOF'
+set -euo pipefail
+key=$(head -c 200 | tr -d '[:space:]')
+[[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "the set's second-factor key is not 64 hex characters" >&2; exit 1; }
+umask 077
+printf '%s\n' "$key" >/etc/portikus/second-factor.key.new
+chown root:root /etc/portikus/second-factor.key.new
+chmod 0600 /etc/portikus/second-factor.key.new
+mv /etc/portikus/second-factor.key.new /etc/portikus/second-factor.key
+if grep -q '^SECOND_FACTOR_KEY=' /etc/portikus/api.env; then
+  sed -i "s/^SECOND_FACTOR_KEY=.*/SECOND_FACTOR_KEY=${key}/" /etc/portikus/api.env
+else
+  printf 'SECOND_FACTOR_KEY=%s\n' "$key" >>/etc/portikus/api.env
+fi
+EOF
+)
+  decrypt second-factor.key | vm_in "sudo bash -c \"\$(echo ${put_key} | base64 -d)\"" \
+    || die "could not put the second-factor key back"
+  step "second-factor key restored"
+else
+  info "the set holds no second-factor key; accounts with a second factor need it reset"
 fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────

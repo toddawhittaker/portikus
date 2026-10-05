@@ -19,7 +19,7 @@ import {
 import { createSession, hashSessionToken, loadSession } from "./sessions.js";
 import { generateTotpSecret, totpCode, totpStep } from "./totp.js";
 
-const key = secondFactorKey("a test platform secret");
+const key = secondFactorKey("5f".repeat(32));
 const USER = "6f1c1a8e-1d3b-4b7e-9a51-1d2c3b4a5e6f";
 
 describe("sealing secrets (SPEC.md section 24.13)", () => {
@@ -29,8 +29,17 @@ describe("sealing secrets (SPEC.md section 24.13)", () => {
 		expect(sealed).not.toContain(secret.toString("base64url"));
 		expect(openSecret(key, sealed, "totp:a")).toEqual(secret);
 		expect(openSecret(key, sealed, "totp:b")).toBeNull();
-		expect(openSecret(secondFactorKey("another secret"), sealed, "totp:a")).toBeNull();
+		expect(openSecret(secondFactorKey("a0".repeat(32)), sealed, "totp:a")).toBeNull();
 		expect(openSecret(key, `${sealed.slice(0, -2)}AA`, "totp:a")).toBeNull();
+	});
+
+	test("the key comes from 32 bytes of hex and nothing shorter", () => {
+		const sealed = sealSecret(key, Buffer.from("x"), "totp:a");
+		expect(openSecret(secondFactorKey("5F".repeat(32)), sealed, "totp:a")).toEqual(
+			Buffer.from("x"),
+		);
+		expect(() => secondFactorKey("5f".repeat(31))).toThrow(/64 hexadecimal/);
+		expect(() => secondFactorKey("a test platform secret")).toThrow(/64 hexadecimal/);
 	});
 
 	test("a started enrolment opens for its account until it expires", () => {
