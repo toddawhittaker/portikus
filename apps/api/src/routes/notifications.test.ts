@@ -11,10 +11,12 @@ import {
 	MAX_NOTIFICATIONS_PER_USER,
 	NotificationList,
 } from "@portikus/contracts";
+import { recordNotification } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { notifyCredentialReset, RESET_NOTICE_TITLES } from "../admin/reset-notice.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { NOTIFICATION_RECORDS_PER_MINUTE } from "./notifications.js";
 
@@ -152,6 +154,56 @@ describe.skipIf(skip)("notifications API", () => {
 		});
 		expect(res.statusCode).toBe(204);
 		expect(await list(jar)).toEqual({ notifications: [], unreadCount: 0 });
+	});
+
+	// SPEC.md section 24.13: the holder of a reset account is always told.
+	test("clearing leaves a credential reset notice, which can still be read", async () => {
+		const jar = await signIn("alice");
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		await notifyCredentialReset(testDb.db, user.id, "password");
+		await record(jar, { tone: "neutral", title: "gone soon" });
+		const res = await app.inject({
+			method: "DELETE",
+			url: "/me/notifications",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+		});
+		expect(res.statusCode).toBe(204);
+		const left = await list(jar);
+		expect(left.notifications.map((n) => n.title)).toEqual([
+			RESET_NOTICE_TITLES.password,
+		]);
+		const read = await app.inject({
+			method: "PATCH",
+			url: `/me/notifications/${left.notifications[0]?.id}`,
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { read: true },
+		});
+		expect(read.statusCode).toBe(200);
+		expect((await list(jar)).unreadCount).toBe(0);
+	});
+
+	test("newer notifications never push out a reset notice", async () => {
+		await signIn("alice");
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		await notifyCredentialReset(testDb.db, user.id, "password");
+		for (let i = 0; i < MAX_NOTIFICATIONS_PER_USER; i++)
+			await recordNotification(testDb.db, user.id, {
+				tone: "neutral",
+				title: `n${i}`,
+				body: "",
+			});
+		const kept = await testDb.db
+			.selectFrom("notifications")
+			.select("title")
+			.where("title", "=", RESET_NOTICE_TITLES.password)
+			.execute();
+		expect(kept).toHaveLength(1);
 	});
 
 	test(`keeps only the newest ${MAX_NOTIFICATIONS_PER_USER} per user`, async () => {

@@ -1,4 +1,4 @@
-import { notifyAdministrators } from "@portikus/db";
+import { notifyAdministrators, recordNotification } from "@portikus/db";
 import {
 	createTestDb,
 	hasTestDb,
@@ -97,6 +97,37 @@ describe.skipIf(skip)("forwarding", () => {
 		]);
 	});
 
+	// SPEC.md section 24.12: only site conditions leave the site.
+	test("a personal notice to an administrator is not forwarded", async () => {
+		const admin = await insertTestUser(tdb.db, { role: "administrator" });
+		const sent: Alert[] = [];
+		const { logger } = collectingLogger();
+		const tick = createAlertForwarder({
+			db: tdb.db,
+			logger,
+			channels,
+			now: () => new Date(Date.now() - 1000),
+			send: async (alert) => {
+				sent.push(alert);
+				return [{ channel: "webhook", ok: true }];
+			},
+		});
+		await recordNotification(
+			tdb.db,
+			admin,
+			{ tone: "warning", title: "An administrator reset your password", body: "b" },
+			{ kept: true },
+		);
+		await recordNotification(tdb.db, admin, {
+			tone: "danger",
+			title: "Your home folder was not replaced",
+			body: "b",
+		});
+		await notifyAdministrators(tdb.db, { tone: "warning", title: "Disk", body: "b" });
+		await tick();
+		expect(sent.map((a) => a.title)).toEqual(["Disk"]);
+	});
+
 	// PostgreSQL keeps microseconds and a Date only milliseconds, so a row's
 	// own time must not make it newer than the tick that already read it.
 	test("a row with sub-millisecond time is read once, not on every tick", async () => {
@@ -120,6 +151,7 @@ describe.skipIf(skip)("forwarding", () => {
 				tone: "warning",
 				title: "Reboot",
 				body: "b",
+				site_alert: true,
 				created_at: sql<string>`date_trunc('milliseconds', clock_timestamp()) + interval '500 microseconds'`,
 			})
 			.execute();
