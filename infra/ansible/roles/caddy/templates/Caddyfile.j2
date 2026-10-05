@@ -190,9 +190,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	import portikus_tls_site
 	encode gzip
 
-	# Browser-side hardening (SPEC 24.3 and 24.10).
+	# Browser-side hardening (SPEC 24.3 and 24.10).  Every name under this
+	# host is HTTPS only (port 80 just redirects), so subdomains are
+	# included; not preload, which no operator could undo quickly.
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
 		-Server

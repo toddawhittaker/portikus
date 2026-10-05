@@ -19,7 +19,7 @@
 			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"]
 		},
 		"apps/worker": {
-			"entry": ["src/backup-channel-main.ts"],
+			"entry": ["src/backup-channel-main.ts", "src/alert-main.ts"],
 			"project": ["src/**/*.ts"]
 		},
 		"apps/workspace-controller": {

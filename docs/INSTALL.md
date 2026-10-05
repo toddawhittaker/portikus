@@ -535,10 +535,22 @@ was not made with your key.
 **Or let the server push the copy.** The server can copy the newest
 complete set to another machine itself, every hour, with rsync over SSH
 (Secure Shell). It copies only a set whose MAC (a checksum made with
-your key) verifies, and it never sends the key. Make an account on the
-target machine for the copies, with a folder for them and the `rsync`
-package installed, then add to
-`/etc/portikus/portikus.yaml`:
+your key) verifies, and it never sends the key. The server's key can
+only add files to the target, never read, change or delete them, so
+someone who breaks into the server cannot wipe the copies. The target
+removes old copies itself.
+
+On the target machine, which needs the `rsync` package (Debian 12 or
+later, or Ubuntu 24.04 or later, for its `rrsync` command), make an
+account for the copies and a folder with an `incoming` folder inside,
+owned by that account:
+
+```
+sudo mkdir -p /srv/portikus-sets/incoming
+sudo chown -R backups: /srv/portikus-sets
+```
+
+Then add to the server's `/etc/portikus/portikus.yaml`:
 
 ```yaml
 portikus_backup_offsite: "backups@vault.example.edu:/srv/portikus-sets"
@@ -547,20 +559,36 @@ portikus_backup_offsite_host_key: "ssh-ed25519 AAAA... root@vault"
 ```
 
 Run `sudo portikus setup`. It makes a dedicated SSH key in
-`/etc/portikus/backup-offsite/` and prints a line starting `restrict
-ssh-ed25519`; add that line to the target account's
-`~/.ssh/authorized_keys`. Nothing is copied until the host key is set:
-a key learned on first contact is not trusted. Optional settings:
-`portikus_backup_offsite_port` (22), `portikus_backup_offsite_keep`,
-the number of sets kept on the target (7; older ones there are removed
-after each copy, and nothing else in the folder is touched), and
+`/etc/portikus/backup-offsite/` and prints a line starting
+`restrict,command="rrsync -wo`; add that whole line to the target
+account's `~/.ssh/authorized_keys`. Print it again at any time with
+`sudo /usr/lib/portikus/backup/portikus-backup-offsite public-key`. The
+server refuses to copy while its key could open a shell on the target.
+Nothing is copied until the host key is set: a key learned on first
+contact is not trusted. Optional settings:
+`portikus_backup_offsite_port` (22) and
 `portikus_backup_offsite_bwlimit_kib`, a speed limit in KiB per second
-(10000; 0 for none). Watch a run with `sudo systemctl start
-portikus-backup-offsite.service` and `sudo journalctl -u
-portikus-backup-offsite.service`; a failed run sends an alert when
-alerts are set up. To turn it off, set `portikus_backup_offsite` to `""`
-and run setup again. The copies on the target are the same set folders
-as above, so bring one back with the `rsync` command in step 5 below.
+(10000; 0 for none).
+
+Each set arrives in `incoming`. Copy the server's
+`/usr/lib/portikus/backup/portikus-offsite-prune` to the target, for
+example to `/usr/local/bin/`, and run it from the target account's
+crontab (`crontab -e` as that account):
+
+```
+30 * * * * /usr/local/bin/portikus-offsite-prune /srv/portikus-sets 7
+```
+
+Each run moves every finished set from `incoming` into
+`/srv/portikus-sets`, never replacing a set already there, and removes
+a set only when it is more than 7 days old and 7 newer sets are there.
+Nothing else in the folder is touched. Watch a server run with
+`sudo systemctl start portikus-backup-offsite.service` and `sudo
+journalctl -u portikus-backup-offsite.service`; a failed run sends an
+alert when alerts are set up. To turn it off, set
+`portikus_backup_offsite` to `""` and run setup again. The copies on
+the target are the same set folders as above, so bring one back with
+the `rsync` command in step 5 below.
 
 ## Rebuilding from an off-site backup
 

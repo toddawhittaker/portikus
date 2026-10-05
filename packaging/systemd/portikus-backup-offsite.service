@@ -16,7 +16,10 @@ ExecStart=/usr/lib/portikus/backup/portikus-backup-offsite push
 Nice=10
 IOSchedulingClass=idle
 UMask=0077
-# Reads the sets, the keys and its settings; writes nothing on this machine.
+# Reads the sets, the keys and its settings; writes only the name of the
+# last set it sent, since it cannot ask the write-only target.
+StateDirectory=portikus-backup-offsite
+StateDirectoryMode=0700
 NoNewPrivileges=yes
 # Sets an administrator copied in by hand may belong to another account.
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
