@@ -4,11 +4,19 @@
  * mock LMS launch, Settings, the mock OIDC provider and the /link page. Only
  * standard OIDC behaviour of the mock is used.
  *
- * Lin (mock LMS), erin and frank (mock OIDC) exist for this spec alone, so a
- * link never sends another spec's launch into the wrong account.
+ * Lin (mock LMS), erin, frank and lars (mock OIDC) exist for this spec alone,
+ * so a link never sends another spec's launch into the wrong account.
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { apiLoginAs, MOCK_ISSUER, type MockUser, query, WEB_ORIGIN } from "./helpers";
+import {
+	apiLoginAs,
+	enrolSecondFactor,
+	loginAs,
+	MOCK_ISSUER,
+	type MockUser,
+	query,
+	WEB_ORIGIN,
+} from "./helpers";
 import { launchAs, ltiUsers, type PersonKey } from "./lti-helpers";
 
 const PERSON: PersonKey = "lin";
@@ -218,5 +226,49 @@ test("a link to an SSO identity with no account is refused", async ({ browser })
 		expect((await me(page)).id).toBe(courseId);
 	} finally {
 		await context.close();
+	}
+});
+
+test("linking a local-password account asks for its two-step code first", async ({
+	browser,
+}) => {
+	test.setTimeout(120_000);
+	// lars signs in once and sets up an authenticator, from a clean start.
+	await query(
+		"delete from user_second_factors where user_id in (select id from users where email = $1)",
+		["lars@example.edu"],
+	);
+	const own = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const ownPage = await own.newPage();
+	await loginAs(ownPage, "lars");
+	const { app } = await enrolSecondFactor(ownPage);
+	const larsId = (await me(ownPage)).id;
+	await own.close();
+
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const page = await context.newPage();
+		await launchAs(page, { person: PERSON });
+		const courseId = await courseUserId();
+		const tab = await linkAs(page, "lars");
+
+		// The password alone links nothing.
+		await tab.getByRole("button", { name: "Link accounts" }).click();
+		await expect(tab.getByTestId("link-error")).toContainText(
+			"Enter a code from your authenticator app",
+		);
+		expect((await me(page)).id).toBe(courseId);
+
+		await tab.getByLabel("Two-step sign-in code").fill(await app.nextCode());
+		await confirmLink(page, tab);
+		expect((await me(page)).id).toBe(larsId);
+
+		// A relaunch lands in lars's account without asking again.
+		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(larsId);
+		await expect(page).not.toHaveURL(/\/second-factor$/);
+	} finally {
+		await context.close();
+		await query("delete from account_links where user_id = $1", [larsId]);
 	}
 });

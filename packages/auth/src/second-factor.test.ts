@@ -2,6 +2,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { dexLocalSubject } from "./dex-subject.js";
 import {
+	accountNeedsSecondFactor,
 	checkSecondFactor,
 	enrolTotp,
 	generateRecoveryCodes,
@@ -104,6 +105,24 @@ describe("who needs a second factor", () => {
 	});
 });
 
+describe("which accounts must keep a second factor", () => {
+	test("a Dex local-password account, whatever session it is in", () => {
+		const local = dexLocalSubject("ada");
+		expect(
+			accountNeedsSecondFactor({ oidc_issuer: "https://dex", oidc_subject: local }),
+		).toBe(true);
+		expect(
+			accountNeedsSecondFactor({
+				oidc_issuer: "https://dex",
+				oidc_subject: "CgNhZGESBWVudHJh",
+			}),
+		).toBe(false);
+		expect(
+			accountNeedsSecondFactor({ oidc_issuer: "lti:https://lms", oidc_subject: local }),
+		).toBe(false);
+	});
+});
+
 describe("second factors in the database", () => {
 	let t: TestDb;
 
@@ -155,6 +174,7 @@ describe("second factors in the database", () => {
 				courseUserId: null,
 			});
 			expect((await loadSession(t.db, first.token))?.secondFactor).toBe("enrol");
+			expect((await loadSession(t.db, first.token))?.secondFactorApplies).toBe(true);
 
 			await enrol(userId, first.token);
 			expect((await loadSession(t.db, first.token))?.secondFactor).toBeNull();
@@ -178,12 +198,14 @@ describe("second factors in the database", () => {
 				courseUserId: null,
 			});
 			expect((await loadSession(t.db, session.token))?.secondFactor).toBeNull();
+			expect((await loadSession(t.db, session.token))?.secondFactorApplies).toBe(false);
 			const local = await localUser();
 			const launch = await createSession(t.db, local, 3600, {
 				method: "lti",
 				courseUserId: null,
 			});
 			expect((await loadSession(t.db, launch.token))?.secondFactor).toBeNull();
+			expect((await loadSession(t.db, launch.token))?.secondFactorApplies).toBe(false);
 		},
 	);
 

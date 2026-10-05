@@ -328,21 +328,30 @@ export async function checkSecondFactor(
 }
 
 /**
- * Whether a session must pass the second-factor check: it signed in with a
- * Dex local password (SPEC.md section 24.13). Course launches, and Dex's
- * other connectors such as Entra or Google, leave it to the provider.
- * Dex is the only non-course issuer (ADR 0031), so the subject decides.
+ * Whether an account must have a second factor: it signs in with a Dex
+ * local password (SPEC.md section 24.13). Course accounts, and Dex's other
+ * connectors such as Entra or Google, leave it to the provider. Dex is the
+ * only non-course issuer (ADR 0031), so the subject decides.
+ */
+export function accountNeedsSecondFactor(row: {
+	oidc_issuer: string;
+	oidc_subject: string;
+}): boolean {
+	return !isCourseIssuer(row.oidc_issuer) && dexLocalUserId(row.oidc_subject) !== null;
+}
+
+/**
+ * Whether a session must pass the second-factor check. A course launch into
+ * a linked account is exempt because the link itself could be made only
+ * with a verified second factor (SPEC.md section 24.13, ADR 0026); such a
+ * session can never manage the account's factors.
  */
 export function secondFactorApplies(row: {
 	oidc_issuer: string;
 	oidc_subject: string;
 	method: string;
 }): boolean {
-	return (
-		row.method !== "lti" &&
-		!isCourseIssuer(row.oidc_issuer) &&
-		dexLocalUserId(row.oidc_subject) !== null
-	);
+	return row.method !== "lti" && accountNeedsSecondFactor(row);
 }
 
 /** Mark a session as having passed the second-factor check. */

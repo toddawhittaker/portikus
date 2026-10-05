@@ -1,4 +1,6 @@
 import {
+	accountNeedsSecondFactor,
+	checkSecondFactor,
 	consumeLinkIntent,
 	courseLinkWindow,
 	hashSessionToken,
@@ -6,21 +8,24 @@ import {
 	listLinks,
 	loginCookieName,
 	loginCookieOptions,
+	markSecondFactorPassed,
 	pendingLinkIntent,
 	platformIssuerOf,
 	requireUser,
 	saveLinkIntent,
+	secondFactorKey,
 	sessionCookieName,
 	sessionCookieOptions,
 	sessionLinkState,
 	unlinkAccount,
 } from "@portikus/auth";
-import type {
-	ApiError,
-	MyLinks,
-	PendingLink,
-	StartLinkResponse,
-	UnlinkResponse,
+import {
+	type ApiError,
+	LinkConfirm,
+	type MyLinks,
+	type PendingLink,
+	type StartLinkResponse,
+	type UnlinkResponse,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -28,6 +33,7 @@ import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
 import { requestMetadata, startSession } from "../sessions/start-session.js";
+import { createAccountThrottle } from "../signin-throttle.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 
@@ -52,6 +58,104 @@ export function registerLinkRoutes(
 	{ db, config, oidc, lti }: ServerDeps,
 ): void {
 	const auth = toAuthOptions(config);
+	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
+	const throttle = createAccountThrottle();
+
+	/**
+	 * What the SSO account must do before it can be linked. A later launch
+	 * through the link asks for no code, so a Dex local-password account
+	 * proves its second factor here (SPEC.md section 24.13).
+	 */
+	async function secondFactorOwed(userId: string): Promise<"verify" | "enrol" | null> {
+		const row = await db
+			.selectFrom("users")
+			.select(["oidc_issuer", "oidc_subject"])
+			.select((eb) =>
+				eb
+					.exists(
+						eb
+							.selectFrom("user_second_factors")
+							.select("user_second_factors.id")
+							.whereRef("user_second_factors.user_id", "=", "users.id"),
+					)
+					.as("has_factor"),
+			)
+			.where("id", "=", userId)
+			.executeTakeFirst();
+		if (!row || !accountNeedsSecondFactor(row)) return null;
+		return row.has_factor ? "verify" : "enrol";
+	}
+
+	/** Check the code for a link that needs one; on a refusal the reply is already sent. */
+	async function passSecondFactor(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		userId: string,
+		code: string | undefined,
+	): Promise<"passed" | "not_needed" | "refused"> {
+		const owed = await secondFactorOwed(userId);
+		if (owed === null) return "not_needed";
+		if (owed === "enrol") {
+			fail(
+				reply,
+				403,
+				"SECOND_FACTOR_REQUIRED",
+				"Set up two-step sign-in first: sign in to Portikus with your password, then open Portikus from your course and link again.",
+			);
+			return "refused";
+		}
+		if (code === undefined) {
+			fail(
+				reply,
+				403,
+				"SECOND_FACTOR_REQUIRED",
+				"Enter a code from your authenticator app, or a recovery code.",
+			);
+			return "refused";
+		}
+		const decision = throttle.attempt(userId);
+		if (!decision.allowed) {
+			if (decision.audit) {
+				await recordAudit(db, {
+					actor: `user:${userId}`,
+					target: userId,
+					action: "auth.throttled",
+					result: "denied",
+					metadata: { ip: request.ip, scope: "second-factor" },
+				});
+			}
+			fail(
+				reply,
+				429,
+				"RATE_LIMITED",
+				"Too many wrong codes. Please wait a few minutes and try again.",
+			);
+			return "refused";
+		}
+		const result = await checkSecondFactor(db, key, userId, code);
+		await recordAudit(db, {
+			actor: `user:${userId}`,
+			target: userId,
+			action: result.ok ? "auth.second_factor_verified" : "auth.second_factor_failed",
+			result: result.ok ? "ok" : "failed",
+			metadata: {
+				...requestMetadata(request),
+				...(result.ok ? { method: result.method } : {}),
+				flow: "link",
+			},
+		});
+		if (!result.ok) {
+			fail(
+				reply,
+				403,
+				"WRONG_CODE",
+				"That code is not right. Try the newest code from your app, or a recovery code.",
+			);
+			return "refused";
+		}
+		throttle.giveBack(userId);
+		return "passed";
+	}
 
 	/** The LTI registration's name, or the issuer's host when it is no longer registered. */
 	function platformName(platformIssuer: string): string {
@@ -146,16 +250,29 @@ export function registerLinkRoutes(
 				signInName: sso.preferred_username || null,
 				email: sso.email,
 			},
+			secondFactor: await secondFactorOwed(sso.id),
 		};
 		return body;
 	});
 
 	// Link, retire the course account, and sign in to the SSO account.
 	app.post("/me/links/confirm", async (request, reply) => {
+		const input = LinkConfirm.safeParse(request.body ?? {});
+		if (!input.success) {
+			return fail(reply, 400, "VALIDATION_FAILED", "Enter a code to link.");
+		}
 		const id = sessionId(request);
+		// Checked before the intent is used, so a wrong code can be retried.
+		const pending = await pendingLinkIntent(db, id);
+		const checked = pending
+			? await passSecondFactor(request, reply, pending.userId, input.data.code)
+			: "not_needed";
+		if (checked === "refused") return reply;
 		const outcome = await db.transaction().execute(async (trx) => {
 			const intent = await consumeLinkIntent(trx, id);
 			if (!intent) return { kind: "none" as const };
+			// The code proved this account; any other is never linked.
+			if (intent.userId !== pending?.userId) return { kind: "none" as const };
 			const window = await courseLinkWindow(trx, id);
 			if (!window?.open || window.courseUserId !== intent.courseUserId) {
 				return { kind: "too_late" as const, intent };
@@ -214,10 +331,12 @@ export function registerLinkRoutes(
 			return fail(reply, 400, "VALIDATION_FAILED", message);
 		}
 
-		await startSession(db, auth, reply, intent.userId, {
+		const newSession = await startSession(db, auth, reply, intent.userId, {
 			method: "link",
 			courseUserId: null,
 		});
+		// The code typed above is this session's second factor.
+		if (checked === "passed") await markSecondFactorPassed(db, newSession);
 		await recordAudit(db, {
 			actor: `user:${intent.userId}`,
 			target: intent.userId,

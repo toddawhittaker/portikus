@@ -19,7 +19,6 @@ import {
 	replaceRecoveryCodes,
 	requireUser,
 	sealPendingTotp,
-	secondFactorApplies,
 	secondFactorKey,
 	sessionOrigin,
 	storeFactor,
@@ -95,19 +94,34 @@ export function registerMeSecondFactorRoutes(
 		return hashSessionToken(request.sessionToken as string);
 	}
 
-	/** Whether this session signed in with a Dex local password, the accounts the check covers. */
-	async function applies(request: FastifyRequest, userId: string): Promise<boolean> {
-		const row = await db
-			.selectFrom("users")
-			.select(["oidc_issuer", "oidc_subject"])
-			.where("id", "=", userId)
-			.executeTakeFirstOrThrow();
+	/**
+	 * Refuse a course launch: it skips the check, so it may never change what
+	 * the check asks (SPEC.md section 24.13). Returns whether it refused.
+	 */
+	async function refuseLaunch(
+		request: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<boolean> {
+		if (requireUser(request).secondFactorApplies) return false;
 		const origin = await sessionOrigin(db, sessionId(request));
-		return (
-			row.oidc_issuer === config.OIDC_ISSUER_URL &&
-			origin !== null &&
-			secondFactorApplies({ ...row, method: origin.method })
+		if (origin?.method !== "lti") return false;
+		sendError(
+			reply,
+			403,
+			"FORBIDDEN",
+			"Two-step sign-in cannot be changed from a session opened through your course. Sign in to Portikus with your password to change it.",
 		);
+		return true;
+	}
+
+	/** Only a session the check covers may add factors or recovery codes; on a refusal the reply is sent. */
+	async function mayManage(
+		request: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<boolean> {
+		if (requireUser(request).secondFactorApplies) return true;
+		if (!(await refuseLaunch(request, reply))) notLocal(reply);
+		return false;
 	}
 
 	function notLocal(reply: FastifyReply) {
@@ -131,7 +145,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.get("/me/second-factor", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!user.secondFactorApplies) return notLocal(reply);
 		const factors = await db
 			.selectFrom("user_second_factors")
 			.select(["id", "kind", "label", "created_at", "last_used_at"])
@@ -160,7 +174,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.post("/me/second-factor/totp/start", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!(await mayManage(request, reply))) return reply;
 		if (user.secondFactor === "verify") return verifyFirst(reply);
 		const secret = generateTotpSecret();
 		const uri = otpauthUri(
@@ -179,7 +193,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.post("/me/second-factor/totp", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!(await mayManage(request, reply))) return reply;
 		if (user.secondFactor === "verify") return verifyFirst(reply);
 		const input = parseBody(TotpEnrolConfirm, request.body, reply);
 		if (!input) return reply;
@@ -318,7 +332,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.post("/me/second-factor/webauthn/start", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!(await mayManage(request, reply))) return reply;
 		if (user.secondFactor === "verify") return verifyFirst(reply);
 		const existing = await listPasskeys(db, user.id);
 		const options = await passkeyRegistrationOptions(
@@ -337,7 +351,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.post("/me/second-factor/webauthn", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!(await mayManage(request, reply))) return reply;
 		if (user.secondFactor === "verify") return verifyFirst(reply);
 		const input = parseBody(PasskeyEnrolConfirm, request.body, reply);
 		if (!input) return reply;
@@ -427,6 +441,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.patch("/me/second-factor/:id", async (request, reply) => {
 		const user = requireUser(request);
+		if (await refuseLaunch(request, reply)) return reply;
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return reply;
 		const input = parseBody(SecondFactorRename, request.body, reply);
@@ -445,7 +460,7 @@ export function registerMeSecondFactorRoutes(
 
 	app.post("/me/second-factor/recovery-codes", async (request, reply) => {
 		const user = requireUser(request);
-		if (!(await applies(request, user.id))) return notLocal(reply);
+		if (!(await mayManage(request, reply))) return reply;
 		const recoveryCodes = await replaceRecoveryCodes(
 			db,
 			user.id,
@@ -461,7 +476,7 @@ export function registerMeSecondFactorRoutes(
 		const user = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return reply;
-		const mustKeepOne = await applies(request, user.id);
+		if (await refuseLaunch(request, reply)) return reply;
 		const removed = await db.transaction().execute(async (trx) => {
 			// Lock the account's factors so two removals cannot both leave none.
 			const factors = await trx
@@ -472,7 +487,8 @@ export function registerMeSecondFactorRoutes(
 				.execute();
 			const factor = factors.find((f) => f.id === params.id);
 			if (!factor) return "missing" as const;
-			if (mustKeepOne && factors.length === 1) return "last" as const;
+			// Only a Dex local-password account has factors, and it always keeps one (SPEC.md section 24.13).
+			if (factors.length === 1) return "last" as const;
 			await trx.deleteFrom("user_second_factors").where("id", "=", params.id).execute();
 			await recordAudit(trx, {
 				actor: `user:${user.id}`,
