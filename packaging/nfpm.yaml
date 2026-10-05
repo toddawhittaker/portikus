@@ -249,6 +249,16 @@ contents:
   - src: ./packaging/systemd/portikus-backup-key@.service
     dst: /usr/lib/systemd/system/portikus-backup-key@.service
     file_info: *unit_info
+  # The off-server copy, enabled by setup only when a target is named.
+  - src: ./infra/host/backup-offsite.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-offsite
+    file_info: *backup_script
+  - src: ./packaging/systemd/portikus-backup-offsite.service
+    dst: /usr/lib/systemd/system/portikus-backup-offsite.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-offsite.timer
+    dst: /usr/lib/systemd/system/portikus-backup-offsite.timer
+    file_info: *unit_info
   # The recipe a "rebuild" job builds from (ADR 0030).
   - src: ./infra/workspace-image/portikus.yaml
     dst: /usr/share/portikus/workspace-image/portikus.yaml

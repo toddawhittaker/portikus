@@ -9,6 +9,7 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-image-job.path portikus-egress-apply.path portikus-setup.service \
 		portikus-image-job.service portikus-egress-apply.service \
 		portikus-backup.service portikus-backup-channel.service \
+		portikus-backup-offsite.timer portikus-backup-offsite.service \
 		portikus-image-check.timer portikus-image-check.service \
 		portikus-registry-job.path portikus-registry-status.timer \
 		portikus-registry-job.service portikus-registry-status.service \
@@ -16,7 +17,7 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 	# Setup enables these; left enabled, their links dangle once the unit files are gone.
 	systemctl disable portikus-image-job.path portikus-egress-apply.path \
 		portikus-image-check.timer portikus-backup.timer portikus-backup-channel.timer \
-		portikus-backup-key.socket portikus-setup.service \
+		portikus-backup-key.socket portikus-backup-offsite.timer portikus-setup.service \
 		portikus-registry-job.path portikus-registry-status.timer \
 		portikus-registry-hub.service portikus-registry-ghcr.service >/dev/null 2>&1 || true
 fi
