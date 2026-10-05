@@ -3,9 +3,9 @@ import { expect, test } from "@playwright/test";
 import { MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 
 /**
- * A role removed in the identity provider takes effect within an hour
+ * A role removed in the identity provider takes effect within 12 hours
  * (SPEC.md section 24.13): an administrator session whose role came from
- * the provider ends after an hour, and signing in again applies the
+ * the provider ends after 12 hours, and signing in again applies the
  * provider's current groups. The server clock cannot be moved from the
  * browser, so the session is made older in the database instead.
  */
@@ -31,11 +31,11 @@ async function seedProviderAdmin(ageMinutes: number): Promise<string> {
 
 test.describe.configure({ mode: "serial" });
 
-test("a provider administrator's session younger than an hour still works", async ({
+test("a provider administrator's session at 11 hours 59 minutes still works", async ({
 	context,
 	page,
 }) => {
-	const token = await seedProviderAdmin(50);
+	const token = await seedProviderAdmin(12 * 60 - 1);
 	await context.addCookies([
 		{ name: "portikus_session", value: token, url: WEB_ORIGIN },
 	]);
@@ -45,11 +45,11 @@ test("a provider administrator's session younger than an hour still works", asyn
 	expect((await me.json()).role).toBe("administrator");
 });
 
-test("after an hour the provider administrator signs in again and gets the provider's current role", async ({
+test("after 12 hours the provider administrator signs in again and gets the provider's current role", async ({
 	context,
 	page,
 }) => {
-	const token = await seedProviderAdmin(61);
+	const token = await seedProviderAdmin(12 * 60 + 1);
 	await context.addCookies([
 		{ name: "portikus_session", value: token, url: WEB_ORIGIN },
 	]);

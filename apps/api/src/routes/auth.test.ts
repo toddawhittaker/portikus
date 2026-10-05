@@ -501,7 +501,7 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"a provider administrator's session ends after an hour (SPEC.md section 24.13)",
+	"a provider administrator's session works until 12 hours and then ends (SPEC.md section 24.13)",
 	async () => {
 		const jar = new CookieJar();
 		await loginAs(app, "carol", jar);
@@ -512,15 +512,19 @@ test.skipIf(skip)(
 				headers: { cookie: jar.cookieHeader() },
 			});
 		expect((await me()).json().role).toBe("administrator");
+		expect(ELEVATED_SESSION_MAX_SECONDS).toBe(12 * 3600);
 
-		await testDb.db
-			.updateTable("sessions")
-			.set({
-				created_at: new Date(
-					Date.now() - ELEVATED_SESSION_MAX_SECONDS * 1000,
-				).toISOString(),
-			} as never)
-			.execute();
+		const ageSession = (seconds: number) =>
+			testDb.db
+				.updateTable("sessions")
+				.set({
+					created_at: new Date(Date.now() - seconds * 1000).toISOString(),
+				} as never)
+				.execute();
+		await ageSession(ELEVATED_SESSION_MAX_SECONDS - 60);
+		expect((await me()).json().role).toBe("administrator");
+
+		await ageSession(ELEVATED_SESSION_MAX_SECONDS);
 		expect((await me()).statusCode).toBe(401);
 	},
 );
