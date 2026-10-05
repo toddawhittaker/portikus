@@ -73,11 +73,18 @@
     - name: Say what the target needs
       ansible.builtin.debug:
         msg:
-          - "Off-site copy to {{ portikus_backup_offsite }}. The path and its incoming folder must exist there. Add this line to the target account's ~/.ssh/authorized_keys:"
+          - "{{ backup_offsite_intro }}"
           - "{{ backup_offsite_line.stdout }}"
-          - "Copy /usr/lib/portikus/backup/portikus-offsite-prune to the target and run it from the target's cron (docs/INSTALL.md, off-site copies)."
+          - "{{ backup_offsite_prune }}"
           - "{{ backup_offsite_check.stdout if portikus_backup_offsite_host_key | trim | length > 0 else backup_offsite_unpinned }}"
       vars:
+        backup_offsite_intro: >-
+          Off-site copy to {{ portikus_backup_offsite }}. The path and its
+          incoming folder must exist there. Add this line to the target
+          account's ~/.ssh/authorized_keys:
+        backup_offsite_prune: >-
+          Copy /usr/lib/portikus/backup/portikus-offsite-prune to the target
+          and run it from the target's cron (docs/INSTALL.md, off-site copies).
         backup_offsite_unpinned: >-
           Set portikus_backup_offsite_host_key to the contents of the target's
           /etc/ssh/ssh_host_ed25519_key.pub; until then nothing is copied.
