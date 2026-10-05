@@ -151,6 +151,17 @@ Run it from the libvirt host: the network checks probe the host's own
 addresses, which only the host itself knows. A run takes about two
 minutes.
 
+On a host where Portikus is installed straight from the apt package, with
+no VM (SPEC.md section 24.1), run it on that host as a user with sudo:
+`make security-test SECURITY_TARGET=host`. Commands run locally, not over
+SSH. The site name and port come from `PUBLIC_URL` in
+`/etc/portikus/api.env`. Workspaces must not reach this host's own address
+on SSH, PostgreSQL, Dex, the API's ports or the Incus API, nor its bridge
+address, its other addresses, the metadata address or each other. Checks
+that only mean something with a libvirt host in front are listed as not
+applicable, with the reason. For the view from outside, run
+`make external-port-check HOST=<site name>` from another machine.
+
 If a run is interrupted before it cleans up, the next run lists the
 leftover `sectest` users and workspaces. `make security-test SWEEP=1`
 removes them. `PORTIKUS_SECURITY_HEAVY=1` adds the heavy resource tests,

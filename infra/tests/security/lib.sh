@@ -93,12 +93,16 @@ sec_summary() {
 
 # ── Transport ────────────────────────────────────────────────────
 
+# In plain-host mode the suite runs on the platform host itself, so a
+# command runs in a local shell just as ssh would hand it to the remote one.
 # -n keeps the remote command off this script's standard input.
 sec_ssh() {
+  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*" </dev/null; return; fi
   ssh -n "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 sec_ssh_stdin() {
+  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*"; return; fi
   ssh "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
@@ -124,15 +128,54 @@ sec_quote() {
 
 # ── Setup ────────────────────────────────────────────────────────
 
-# sec_init VM_IP [--sweep]
+# sec_mode TARGET -- "host" when TARGET is "local": the plain-host mode, for a
+# platform installed straight from the package (SPEC.md 24.1). "vm" otherwise.
+sec_mode() {
+  if [ "$1" = local ]; then echo host; else echo vm; fi
+}
+
+# sec_public_url_parts ENV_FILE -- prints "host port" from the PUBLIC_URL line
+# the package writes to /etc/portikus/api.env, or nothing when it has none.
+sec_public_url_parts() {
+  local url hostport
+  url=$(sed -n 's/^PUBLIC_URL=//p' "$1" 2>/dev/null | tail -1 | tr -d "\"'")
+  [[ "$url" == https://* ]] || return 0
+  hostport="${url#https://}"
+  hostport="${hostport%%/*}"
+  case "$hostport" in
+    *:*) printf '%s %s\n' "${hostport%%:*}" "${hostport##*:}" ;;
+    ?*) printf '%s 443\n' "$hostport" ;;
+  esac
+}
+
+# The address the host's Internet traffic leaves from; on a plain host, the
+# address the outside world reaches it on.
+sec_host_address() {
+  ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }'
+}
+
+# sec_init VM_IP|local [--sweep]
 sec_init() {
-  SEC_VM="${1:?Usage: security-test.sh <vm-ip> [--sweep]}"
+  local target="${1:?Usage: security-test.sh <vm-ip>|local [--sweep]}" parts env_file="${SEC_API_ENV:-/etc/portikus/api.env}"
+  SEC_MODE=$(sec_mode "$target")
   SEC_SWEEP=no
   [ "${2:-}" = "--sweep" ] && SEC_SWEEP=yes
   SEC_HEAVY="${PORTIKUS_SECURITY_HEAVY:-0}"
   SEC_RUN_ID="$(date -u +%m%d%H%M%S)"
-  SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"
-  SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"
+  if [ "$SEC_MODE" = host ]; then
+    SEC_VM=$(sec_host_address)
+    parts=$(sec_public_url_parts "$env_file")
+    SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-${parts% *}}"
+    SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-${parts#* }}"
+    if [ -z "$SEC_VM" ] || [ -z "$SEC_PUBLIC_HOST" ]; then
+      echo "security-test: plain-host mode needs a default route and a PUBLIC_URL line in ${env_file}" >&2
+      exit 2
+    fi
+  else
+    SEC_VM="$target"
+    SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"
+    SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"
+  fi
   if [ "$SEC_PUBLIC_PORT" = "443" ]; then
     SEC_API="https://${SEC_PUBLIC_HOST}"
   else
@@ -151,7 +194,7 @@ sec_init() {
 sec_preflight() {
   local version mem_kib pool meta size data free_gib leftovers
   echo "--- Portikus VM security suite ---"
-  echo "Target: ${SEC_VM}  site: ${SEC_API}  run: ${SEC_RUN_ID}"
+  echo "Target: ${SEC_VM} (${SEC_MODE} mode)  site: ${SEC_API}  run: ${SEC_RUN_ID}"
   sec_lock || return 1
   version=$(sec_ssh "dpkg-query -W -f='\${Version}' portikus" 2>/dev/null)
   echo "Deployed package: portikus ${version:-(not installed)}"
