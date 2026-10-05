@@ -25,6 +25,22 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	pki {
 		ca local
 	}
+	# Slow clients may not hold connections open (SPEC 24.13).  Measured on
+	# Caddy 2.11: once a connection is upgraded, neither read_body nor idle
+	# applies, and read_body does not cut a long response, so terminals,
+	# events and zip downloads stay open.  A write timeout would cut those
+	# downloads, so none is set.  read_body bounds a whole upload: the
+	# largest is a 50 MiB file (MAX_UPLOAD_BYTES), which at 15 minutes still
+	# fits a 0.5 Mbit/s uplink.  64 KB of headers fits the largest real
+	# cookie set many times over; the sign-in URI is capped at 1 KB below.
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 15m
+			idle 2m
+		}
+		max_header_size 64KB
+	}
 }
 
 # ── Preview edge building blocks ─────────────────────────────────────
@@ -186,6 +202,9 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# launch, so the API sends its own frame-ancestors there (ADR 0025).
 	@not_lti not path /lti/*
 	header @not_lti Content-Security-Policy "frame-ancestors 'none'"
+	# The same rule for browsers that predate frame-ancestors.  The page's
+	# own meta policy cannot carry either (apps/web/src/csp.ts).
+	header @not_lti X-Frame-Options DENY
 
 	# A browser navigating to a workspace page wants the single-page
 	# application, not the API's JSON.  Only document requests are sent to
@@ -303,10 +322,11 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	import portikus_tls_preview
 
 	# Preview responses belong to the student's application, so Portikus
-	# adds no policy headers of its own here.  In particular there is no
-	# frame-ancestors directive: the Preview tab embeds these pages
-	# (BROWSER-HANDLING 12).  Only Caddy's own banner is removed.
+	# adds no framing policy here: the Preview tab embeds these pages
+	# (BROWSER-HANDLING 12).  nosniff only stops a browser running a
+	# response as a type its server did not declare (SPEC 24.3).
 	header {
+		X-Content-Type-Options nosniff
 		-Server
 	}
 
