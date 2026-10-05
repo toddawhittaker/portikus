@@ -82,6 +82,8 @@ export function createAlertForwarder(
 			.select(["notifications.title", "notifications.body", "notifications.tone"])
 			.select((eb) => eb.fn.max("notifications.created_at").as("at"))
 			.where("users.role", "=", "administrator")
+			// Personal notices to an administrator stay on the site.
+			.where("notifications.site_alert", "=", true)
 			.where("notifications.tone", "in", ["warning", "danger"])
 			// At the Date's precision, or the newest row stays newer than `since`.
 			.where(

@@ -135,7 +135,12 @@ export function registerNotificationRoutes(
 
 	app.delete("/me/notifications", async (request, reply) => {
 		const user = requireUser(request);
-		await db.deleteFrom("notifications").where("user_id", "=", user.id).execute();
+		// A kept notice, such as a credential reset, stays (SPEC.md section 24.13).
+		await db
+			.deleteFrom("notifications")
+			.where("user_id", "=", user.id)
+			.where("kept", "=", false)
+			.execute();
 		return reply.status(204).send();
 	});
 }

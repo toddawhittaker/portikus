@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, statfs } from "node:fs/promises";
 import { type Database, notifyAdministrators } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
@@ -20,11 +20,24 @@ export const SIGNIN_WINDOW_MINUTES = 15;
 /** ...raise an alert when they reach this many. */
 export const SIGNIN_FAILURE_THRESHOLD = 20;
 
+/** The root filesystem raises a danger alert at this percent used. */
+export const ROOT_FS_ALERT_PERCENT = 90;
+
 export interface AlertSourceOptions {
 	db: Kysely<Database>;
 	logger: Logger;
 	now?: () => Date;
 	rebootFile?: string;
+	/** Percent of the root filesystem in use; replaceable in tests. */
+	rootFsPercent?: () => Promise<number>;
+}
+
+/** Used share of `/` as `df` counts it: blocks reserved for root are not free. */
+export async function rootFsUsedPercent(): Promise<number> {
+	const s = await statfs("/");
+	const used = s.blocks - s.bfree;
+	const total = used + s.bavail;
+	return total === 0 ? 0 : (used / total) * 100;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -36,7 +49,10 @@ async function fileExists(path: string): Promise<boolean> {
 	}
 }
 
-/** Failed password sign-ins plus failed or denied logins in the window. */
+/**
+ * Failed password sign-ins, failed or denied logins, failed second-factor
+ * codes and throttled attempts in the window (SPEC.md section 24.13).
+ */
 export async function countSignInFailures(
 	db: Kysely<Database>,
 	now: Date,
@@ -48,7 +64,11 @@ export async function countSignInFailures(
 		.where("at", ">", since)
 		.where((eb) =>
 			eb.or([
-				eb("action", "=", "auth.password_failed"),
+				eb("action", "in", [
+					"auth.password_failed",
+					"auth.second_factor_failed",
+					"auth.throttled",
+				]),
 				eb.and([
 					eb("action", "=", "auth.login"),
 					eb("result", "in", ["failed", "denied"]),
@@ -66,6 +86,8 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 	const rebootFile = options.rebootFile ?? REBOOT_REQUIRED_FILE;
 	let rebootRaised = false;
 	let signInRaised = false;
+	const rootFsPercent = options.rootFsPercent ?? rootFsUsedPercent;
+	let rootFsRaised = false;
 
 	return async function tick(): Promise<void> {
 		try {
@@ -91,6 +113,21 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 				logger.info({ failures }, "sign-in failure alert raised");
 			}
 			signInRaised = spike;
+
+			const rootFill = await rootFsPercent();
+			const rootFull = rootFill >= ROOT_FS_ALERT_PERCENT;
+			if (rootFull && !rootFsRaised) {
+				await notifyAdministrators(db, {
+					tone: "danger",
+					title: `The server's system disk is ${Math.floor(rootFill)}% full`,
+					body: "Free space on the VM's root filesystem before the database or logs stop writing.",
+				});
+				logger.info(
+					{ fillPercent: Math.floor(rootFill) },
+					"root filesystem alert raised",
+				);
+			}
+			rootFsRaised = rootFull;
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "alert source check failed");
 		}

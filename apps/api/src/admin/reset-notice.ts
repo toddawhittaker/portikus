@@ -18,7 +18,8 @@ export const RESET_NOTICE_TITLES: Record<ResetKind | "both", string> = {
 /**
  * Tell the account holder an administrator reset a credential (SPEC.md
  * section 24.13). An unread notice of the other kind is folded into one
- * that names both, so a person who lost both reads one message.
+ * that names both, so a person who lost both reads one message. The notice
+ * is kept: the account can mark it read but not delete it.
  */
 export async function notifyCredentialReset(
 	trx: Kysely<Database>,
@@ -36,9 +37,14 @@ export async function notifyCredentialReset(
 		.execute();
 	const which = folded.length > 0 ? "both" : kind;
 	const date = now.toISOString().slice(0, 10);
-	await recordNotification(trx, userId, {
-		tone: "warning",
-		title: RESET_NOTICE_TITLES[which],
-		body: `An administrator reset ${WHAT[which]} on ${date}. If you did not ask for this, tell your instructor or the site administrator.`,
-	});
+	await recordNotification(
+		trx,
+		userId,
+		{
+			tone: "warning",
+			title: RESET_NOTICE_TITLES[which],
+			body: `An administrator reset ${WHAT[which]} on ${date}. If you did not ask for this, tell your instructor or the site administrator.`,
+		},
+		{ kept: true },
+	);
 }
