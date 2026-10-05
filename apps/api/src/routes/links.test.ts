@@ -609,6 +609,23 @@ describe.skipIf(skip)("linking a local-password account", () => {
 		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
 	});
 
+	test("wrong codes at the sign-in check and at the link share one count", async () => {
+		const { secret } = await enrolledLena();
+		const lena = new CookieJar();
+		await loginAs(app, "lena", lena);
+		for (let i = 0; i < 10; i++) {
+			const res = await postBody("/me/second-factor/verify", lena, { code: "000000" });
+			expect(res.statusCode).toBe(403);
+		}
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		const res = await postBody("/me/links/confirm", course.jar, {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(res.statusCode).toBe(429);
+		expect(await linkCount()).toBe(0);
+	});
+
 	test("the right code links, and the new session has passed its second factor", async () => {
 		const { secret } = await enrolledLena();
 		const course = await courseAccount();

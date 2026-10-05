@@ -37,14 +37,16 @@ afterEach(async () => {
 
 async function run(args: string[], env: NodeJS.ProcessEnv, pushoverUrl?: string) {
 	const lines: string[] = [];
+	const errors: string[] = [];
 	const code = await runAlertCommand(
 		args,
 		env,
 		(l) => lines.push(l),
+		(l) => errors.push(l),
 		"site-a",
 		pushoverUrl,
 	);
-	return { code, lines };
+	return { code, lines, errors };
 }
 
 describe("portikus alert (STACK.md section 15)", () => {
@@ -89,7 +91,7 @@ describe("portikus alert (STACK.md section 15)", () => {
 
 	test("both channels go through OUTBOUND_PROXY_URL, and one failure fails the run", async () => {
 		const proxy = await receiver();
-		const { code, lines } = await run(
+		const { code, lines, errors } = await run(
 			["danger", "T", "X"],
 			{
 				ALERT_PUSHOVER_USER_KEY: "u",
@@ -104,8 +106,9 @@ describe("portikus alert (STACK.md section 15)", () => {
 			"http://hooks.example.invalid/fail",
 		]);
 		expect(new URLSearchParams(proxy.got[0]?.body).get("priority")).toBe("1");
-		expect(lines).toEqual([
-			"portikus: the pushover alert was sent",
+		// A failure goes to stderr, so a caller's log shows it as an error.
+		expect(lines).toEqual(["portikus: the pushover alert was sent"]);
+		expect(errors).toEqual([
 			"portikus: the webhook alert could not be sent (HTTP 500)",
 		]);
 		expect(code).toBe(1);

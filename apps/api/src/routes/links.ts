@@ -32,8 +32,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
+import type { SecondFactorThrottle } from "../second-factor-throttle.js";
 import { requestMetadata, startSession } from "../sessions/start-session.js";
-import { createAccountThrottle } from "../signin-throttle.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 
@@ -56,10 +56,10 @@ function fail(
 export function registerLinkRoutes(
 	app: FastifyInstance,
 	{ db, config, oidc, lti }: ServerDeps,
+	throttle: SecondFactorThrottle,
 ): void {
 	const auth = toAuthOptions(config);
 	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
-	const throttle = createAccountThrottle();
 
 	/**
 	 * What the SSO account must do before it can be linked. A later launch
@@ -113,25 +113,7 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		const decision = throttle.attempt(userId);
-		if (!decision.allowed) {
-			if (decision.audit) {
-				await recordAudit(db, {
-					actor: `user:${userId}`,
-					target: userId,
-					action: "auth.throttled",
-					result: "denied",
-					metadata: { ip: request.ip, scope: "second-factor" },
-				});
-			}
-			fail(
-				reply,
-				429,
-				"RATE_LIMITED",
-				"Too many wrong codes. Please wait a few minutes and try again.",
-			);
-			return "refused";
-		}
+		if (!(await throttle.allow(request, reply, userId))) return "refused";
 		const result = await checkSecondFactor(db, key, userId, code);
 		await recordAudit(db, {
 			actor: `user:${userId}`,

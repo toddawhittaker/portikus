@@ -173,9 +173,9 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 }
 
 /**
- * Wrong answers from one account: ten in ten minutes, for current
- * passwords on the change form (SPEC.md section 5.3) and second-factor
- * codes (section 24.13). Each try is counted before it is checked, so
+ * Wrong current passwords on the change form from one account: ten in ten
+ * minutes (SPEC.md section 5.3). Second-factor codes have their own count
+ * in second-factor-throttle.ts. Each try is counted before it is checked, so
  * parallel requests cannot slip past the limit, and handed back when it
  * was not wrong. Per account, not per address, so a lab behind one
  * address is not blocked together.

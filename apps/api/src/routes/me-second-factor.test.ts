@@ -13,7 +13,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
@@ -277,6 +277,53 @@ describe.skipIf(skip)("the second-factor gate", () => {
 			.execute();
 		expect(throttled).toHaveLength(1);
 		expect(throttled[0]?.metadata).toMatchObject({ scope: "second-factor" });
+	});
+
+	test("thirty wrong codes in a day stop the account for the day and tell its holder once", async () => {
+		const first = await signIn("admin");
+		const { secret } = await enrol(first);
+		const jar = await signIn("admin");
+		const start = Date.now();
+		vi.useFakeTimers({ toFake: ["Date"], now: start });
+		try {
+			for (let window = 0; window < 3; window++) {
+				vi.setSystemTime(start + window * 11 * 60_000);
+				for (let i = 0; i < 10; i++) {
+					const res = await post(jar, "/me/second-factor/verify", {
+						code: "WRONG-CODE",
+					});
+					expect(res.statusCode).toBe(403);
+				}
+			}
+			vi.setSystemTime(start + 3 * 11 * 60_000);
+			const refused = await post(jar, "/me/second-factor/verify", {
+				code: totpCode(secret, totpStep(Date.now())),
+			});
+			expect(refused.statusCode).toBe(429);
+			vi.setSystemTime(start + 4 * 11 * 60_000);
+			expect(
+				(await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" }))
+					.statusCode,
+			).toBe(429);
+		} finally {
+			vi.useRealTimers();
+		}
+		const throttled = await testDb.db
+			.selectFrom("audit_events")
+			.select("metadata")
+			.where("action", "=", "auth.throttled")
+			.execute();
+		expect(throttled).toHaveLength(1);
+		expect(throttled[0]?.metadata).toMatchObject({ scope: "second-factor-daily" });
+		const notices = await testDb.db
+			.selectFrom("notifications")
+			.select(["body", "kept"])
+			.execute();
+		expect(notices).toHaveLength(1);
+		expect(notices[0]?.kept).toBe(true);
+		expect(notices[0]?.body).toContain(
+			"Someone entered many wrong two-step sign-in codes for your account today.",
+		);
 	});
 
 	test("the last factor cannot be removed; a second one can be", async () => {

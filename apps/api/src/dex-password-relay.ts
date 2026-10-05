@@ -15,7 +15,15 @@ import { accountKey, type SigninThrottle } from "./signin-throttle.js";
  */
 
 const KNOWN_DEVICE_COOKIE = "portikus_known_device";
-const KNOWN_DEVICE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
+const KNOWN_DEVICE_MAX_AGE_DAYS = 90;
+const KNOWN_DEVICE_MAX_AGE_SECONDS = KNOWN_DEVICE_MAX_AGE_DAYS * 24 * 60 * 60;
+const DAY_MS = 86_400_000;
+/**
+ * Dex local logins are emails or usernames. Anything else is refused, because
+ * Go and JavaScript lower-case some letters differently and one account would
+ * be counted under several keys (SPEC.md section 24.13).
+ */
+const PLAIN_ASCII = /^[\x20-\x7e]+$/;
 /** Audit targets keep a login this long at most; the form takes any text. */
 const MAX_LOGIN_LENGTH = 254;
 const FORWARDED_REQUEST_HEADERS = ["accept", "accept-language", "cookie", "user-agent"];
@@ -70,6 +78,7 @@ async function passwordStamp(
 		.where("audit_events.action", "in", [
 			"user.password_changed",
 			"dex_user.password_reset",
+			"local_admin.reset",
 		])
 		.orderBy("audit_events.id", "desc")
 		.limit(1)
@@ -77,11 +86,25 @@ async function passwordStamp(
 	return row ? String(row.id) : "none";
 }
 
-/** The cookie value that marks a browser as one this account signed in on. */
-function knownDeviceValue(secret: string, login: string, stamp: string): string {
-	return createHmac("sha256", secret)
-		.update(`known-device\0${accountKey(login)}\0${stamp}`)
+function today(): number {
+	return Math.floor(Date.now() / DAY_MS);
+}
+
+/**
+ * The cookie value that marks a browser as one this account signed in on. It
+ * carries its issue day, signed with the rest, so the server ends a copied
+ * value after ninety days whatever the browser does with Max-Age.
+ */
+function knownDeviceValue(
+	secret: string,
+	login: string,
+	stamp: string,
+	day: number,
+): string {
+	const mac = createHmac("sha256", secret)
+		.update(`known-device\0${accountKey(login)}\0${stamp}\0${day}`)
 		.digest("base64url");
+	return `${day}.${mac}`;
 }
 
 function isKnownDevice(
@@ -92,8 +115,13 @@ function isKnownDevice(
 ): boolean {
 	const sent = request.cookies[cookieName(config)];
 	if (!sent) return false;
+	const dayText = sent.split(".")[0] ?? "";
+	if (!/^\d{1,9}$/.test(dayText)) return false;
+	const day = Number(dayText);
+	const age = today() - day;
+	if (age < 0 || age >= KNOWN_DEVICE_MAX_AGE_DAYS) return false;
 	const expected = Buffer.from(
-		knownDeviceValue(config.SESSION_COOKIE_SECRET, login, stamp),
+		knownDeviceValue(config.SESSION_COOKIE_SECRET, login, stamp, day),
 	);
 	const actual = Buffer.from(sent);
 	return actual.length === expected.length && timingSafeEqual(actual, expected);
@@ -240,7 +268,12 @@ export function registerDexPasswordRelay(
 		if (known !== null) {
 			reply.setCookie(
 				cookieName(config),
-				knownDeviceValue(config.SESSION_COOKIE_SECRET, known.login, known.stamp),
+				knownDeviceValue(
+					config.SESSION_COOKIE_SECRET,
+					known.login,
+					known.stamp,
+					today(),
+				),
 				{
 					httpOnly: true,
 					secure: config.PUBLIC_URL.startsWith("https:"),
@@ -275,7 +308,7 @@ export function registerDexPasswordRelay(
 		// A missing, empty or repeated login would be counted under no account.
 		const logins = form.getAll("login");
 		const first = logins[0] ?? "";
-		if (logins.length !== 1 || first.trim() === "") {
+		if (logins.length !== 1 || first.trim() === "" || !PLAIN_ASCII.test(first)) {
 			return reply
 				.status(400)
 				.header("content-type", "text/html; charset=utf-8")

@@ -41,8 +41,8 @@ import qrcode from "qrcode-generator";
 import type { ZodType } from "zod";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
+import type { SecondFactorThrottle } from "../second-factor-throttle.js";
 import { requestMetadata } from "../sessions/start-session.js";
-import { createAccountThrottle } from "../signin-throttle.js";
 
 const ISSUER_NAME = "Portikus";
 
@@ -81,10 +81,10 @@ function parseBody<T>(
 export function registerMeSecondFactorRoutes(
 	app: FastifyInstance,
 	deps: ServerDeps,
+	throttle: SecondFactorThrottle,
 ): void {
 	const { db, config } = deps;
 	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
-	const throttle = createAccountThrottle();
 	const host = new URL(config.PUBLIC_URL).hostname;
 	const rp = relyingParty(config.PUBLIC_URL);
 	const challenges = createChallengeStore();
@@ -229,32 +229,6 @@ export function registerMeSecondFactorRoutes(
 		return reply.header("cache-control", "no-store").send(body);
 	});
 
-	/** Whether the account may try again; a refusal is answered and audited once. */
-	async function allowAttempt(
-		request: FastifyRequest,
-		reply: FastifyReply,
-		userId: string,
-	): Promise<boolean> {
-		const decision = throttle.attempt(userId);
-		if (decision.allowed) return true;
-		if (decision.audit) {
-			await recordAudit(db, {
-				actor: `user:${userId}`,
-				target: userId,
-				action: "auth.throttled",
-				result: "denied",
-				metadata: { ip: request.ip, scope: "second-factor" },
-			});
-		}
-		sendError(
-			reply,
-			429,
-			"RATE_LIMITED",
-			"Too many wrong codes. Please wait a few minutes and try again.",
-		);
-		return false;
-	}
-
 	async function auditFailure(
 		request: FastifyRequest,
 		userId: string,
@@ -297,7 +271,7 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(SecondFactorVerify, request.body, reply);
 		if (!input) return reply;
-		if (!(await allowAttempt(request, reply, user.id))) return reply;
+		if (!(await throttle.allow(request, reply, user.id))) return reply;
 
 		const result = await checkSecondFactor(db, key, user.id, input.code);
 		if (!result.ok) {
@@ -411,7 +385,7 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(PasskeyVerify, request.body, reply);
 		if (!input) return reply;
-		if (!(await allowAttempt(request, reply, user.id))) return reply;
+		if (!(await throttle.allow(request, reply, user.id))) return reply;
 		const challenge = challenges.take(challengeKey(request, "verify"));
 		if (challenge === null) return expired(reply);
 

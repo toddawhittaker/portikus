@@ -4,7 +4,7 @@ import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/tes
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { dexOutcome } from "./dex-password-relay.js";
 import { ACCOUNT_FAILURE_LIMIT } from "./signin-throttle.js";
 import { buildTestServer, PUBLIC_URL } from "./testing/test-support.js";
@@ -254,6 +254,9 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		["an empty login", "login=&password=x"],
 		["a blank login", "login=%20%20&password=x"],
 		["a repeated login", "login=a%40example.edu&login=b%40example.edu&password=x"],
+		// Go and JavaScript lower-case "İ" differently, which would split one
+		// Dex account's count in two (SPEC.md section 24.13).
+		["a login that is not plain ASCII", "login=%C4%B0nci%40example.edu&password=x"],
 	])("refuses a post with %s without forwarding it", async (_label, payload) => {
 		const res = await app.inject({
 			method: "POST",
@@ -276,37 +279,64 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(received[0]?.url).toBe("/dex/auth/local/login?state=s1");
 	});
 
-	test("a password reset or change ends earlier known-device cookies", async () => {
-		const user = await testDb.db
-			.insertInto("users")
-			.values({
-				oidc_issuer: mock.issuer,
-				oidc_subject: "alice-sub",
-				email: "Alice@example.edu",
-				display_name: "Alice",
-				role: "student",
-				provider_role: "student",
-			})
-			.returning("id")
-			.executeTakeFirstOrThrow();
-		const cookieFrom = (res: { headers: Record<string, unknown> }) =>
-			[res.headers["set-cookie"]]
-				.flat()
-				.map(String)
-				.find((c) => c.startsWith("portikus_known_device="))
-				?.split(";")[0] as string;
-		const lockOut = async () => {
-			for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {
-				await post("alice@example.edu", WRONG, { ip: `203.0.113.${i}` });
-			}
-		};
+	const cookieFrom = (res: { headers: Record<string, unknown> }) =>
+		[res.headers["set-cookie"]]
+			.flat()
+			.map(String)
+			.find((c) => c.startsWith("portikus_known_device="))
+			?.split(";")[0] as string;
+
+	async function lockOutAlice(): Promise<void> {
+		for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {
+			await post("alice@example.edu", WRONG, { ip: `203.0.113.${i}` });
+		}
+	}
+
+	test("a known-device cookie lasts ninety days", async () => {
 		const signedIn = await post("alice@example.edu", RIGHT);
-		// Ninety days.
 		expect(String([signedIn.headers["set-cookie"]].flat())).toContain(
 			"Max-Age=7776000",
 		);
-		const known = cookieFrom(signedIn);
-		for (const action of ["dex_user.password_reset", "user.password_changed"]) {
+	});
+
+	test("the server ends a known-device cookie after ninety days, even one copied elsewhere", async () => {
+		const start = Date.now();
+		vi.useFakeTimers({ toFake: ["Date"], now: start });
+		try {
+			const known = cookieFrom(await post("alice@example.edu", RIGHT));
+			vi.setSystemTime(start + 89 * 86_400_000);
+			await lockOutAlice();
+			expect(
+				(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
+					.statusCode,
+			).toBe(303);
+			vi.setSystemTime(start + 91 * 86_400_000);
+			await lockOutAlice();
+			expect(
+				(await post("alice@example.edu", RIGHT, { ip: "192.0.2.81", cookie: known }))
+					.statusCode,
+			).toBe(429);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test.each(["dex_user.password_reset", "user.password_changed", "local_admin.reset"])(
+		"%s ends earlier known-device cookies",
+		async (action) => {
+			const user = await testDb.db
+				.insertInto("users")
+				.values({
+					oidc_issuer: mock.issuer,
+					oidc_subject: "alice-sub",
+					email: "Alice@example.edu",
+					display_name: "Alice",
+					role: "student",
+					provider_role: "student",
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const known = cookieFrom(await post("alice@example.edu", RIGHT));
 			await testDb.db
 				.insertInto("audit_events")
 				.values({
@@ -317,13 +347,13 @@ describe.skipIf(skip)("the Dex password relay", () => {
 					metadata: null,
 				})
 				.execute();
-		}
-		await lockOut();
-		expect(
-			(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
-				.statusCode,
-		).toBe(429);
-	});
+			await lockOutAlice();
+			expect(
+				(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
+					.statusCode,
+			).toBe(429);
+		},
+	);
 
 	test("the refusal page works on a phone, in light and dark, with a way back", async () => {
 		for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {

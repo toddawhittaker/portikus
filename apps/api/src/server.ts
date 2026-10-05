@@ -55,6 +55,7 @@ import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerWorkspaceSocket } from "./routes/ws.js";
+import { createSecondFactorThrottle } from "./second-factor-throttle.js";
 import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
@@ -210,6 +211,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
 	// One file-write count for the files and projects routes together.
 	const limitFileWrites = fileWriteLimit(deps.config);
+	// One wrong-code count for every route that checks a second factor.
+	const secondFactorThrottle = createSecondFactorThrottle(deps.db);
 	app.register(async (instance) => {
 		instance.get("/health", () => {
 			const body: HealthResponse = {
@@ -243,10 +246,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);
-		registerMeSecondFactorRoutes(instance, deps);
+		registerMeSecondFactorRoutes(instance, deps, secondFactorThrottle);
 		registerAcceptableUseRoutes(instance, deps);
 		registerNotificationRoutes(instance, deps);
-		registerLinkRoutes(instance, deps);
+		registerLinkRoutes(instance, deps, secondFactorThrottle);
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
 		registerAdminInvitationRoutes(instance, deps);
