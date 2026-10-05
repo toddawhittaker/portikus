@@ -155,7 +155,9 @@ On a host where Portikus is installed straight from the apt package, with
 no VM (SPEC.md section 24.1), run it on that host as a user with sudo:
 `make security-test SECURITY_TARGET=host`. Commands run locally, not over
 SSH. The site name and port come from `PUBLIC_URL` in
-`/etc/portikus/api.env`. Workspaces must not reach this host's own address
+`/etc/portikus/api.env`, read through sudo. Setup pins that name to
+127.0.0.1 in `/etc/hosts`, so the public-site probes use this host's own
+address, the source of its default route, instead. Workspaces must not reach this host's own address
 on SSH, PostgreSQL, Dex, the API's ports or the Incus API, nor its bridge
 address, its other addresses, the metadata address or each other. Checks
 that only mean something with a libvirt host in front are listed as not
