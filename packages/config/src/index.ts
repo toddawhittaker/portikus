@@ -151,6 +151,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	DEX_GRPC_CA: z.string().min(1).optional(),
 	DEX_GRPC_CERT: z.string().min(1).optional(),
 	DEX_GRPC_KEY: z.string().min(1).optional(),
+	/** Dex's own HTTP address on loopback, where the API relays password posts; unset turns the relay off. */
+	DEX_HTTP_URL: z.string().url().optional(),
 	/** The LTI platforms file (ADR 0025); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
 	/** The tool's RSA key, whose public half `/lti/jwks` serves. */

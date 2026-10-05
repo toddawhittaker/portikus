@@ -1,0 +1,70 @@
+---
+# SSH hardening (docs/SPEC.md section 24.1).  ssh_keys_guard.yml, run
+# before any role, has already proved a key still signs in.
+- name: Create the sshd drop-in directory
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# sshd keeps the first value it reads and Debian's sshd_config includes the
+# drop-ins first, so the 00 prefix wins over a provider's 50-cloud-init.conf.
+# The drop-in alone is checked first; the whole configuration after.
+- name: Write the SSH hardening drop-in
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-portikus-hardening.conf
+    content: |
+      # Managed by Ansible (base role); docs/SPEC.md section 24.1.
+      # Keys only: a password can be guessed from the internet.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+      # Slow down repeated failures; sshd's PerSourcePenalties adds to this.
+      MaxAuthTries 3
+      LoginGraceTime 30
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd
+
+- name: Check the whole sshd configuration before reloading
+  block:
+    - name: Test the sshd configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+  rescue:
+    - name: Remove the drop-in so sshd keeps its working configuration
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/00-portikus-hardening.conf
+        state: absent
+
+    - name: Stop on an sshd configuration that does not load
+      ansible.builtin.fail:
+        msg: >-
+          sshd -t rejected the configuration with the Portikus drop-in in it,
+          so the drop-in was removed and sshd keeps its old settings.  Fix the
+          other files in /etc/ssh and run setup again.
+
+# An earlier drop-in, such as one named 00-aaa.conf, would quietly win.
+- name: Read the settings sshd will use
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: base_sshd_effective
+  changed_when: false
+  check_mode: false
+
+- name: Require the hardened settings to be in effect
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in base_sshd_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in base_sshd_effective.stdout_lines"
+      - "'permitrootlogin without-password' in base_sshd_effective.stdout_lines"
+      - "'maxauthtries 3' in base_sshd_effective.stdout_lines"
+      - "'logingracetime 30' in base_sshd_effective.stdout_lines"
+    fail_msg: >-
+      Another file under /etc/ssh overrides
+      /etc/ssh/sshd_config.d/00-portikus-hardening.conf.  sshd keeps the
+      first value it reads; remove the conflicting setting or rename that
+      file so it sorts after ours.

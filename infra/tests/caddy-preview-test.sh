@@ -352,12 +352,12 @@ has "only password form posts, local and LDAP, are matched for the throttle" \
 lacks "the throttle also catches an encoded post such as /dex/auth/loc%61l/login" \
   '^[[:space:]]+path /dex/.*%' "${app}"
 has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
-has "a password post asks the API's sign-in throttle first" \
-  "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"
+# The API counts it per address and per account and passes it on to Dex
+# (SPEC.md section 24.13).
+has "a password post goes to the API, which relays it to Dex" \
+  "^[[:space:]]+reverse_proxy @dex_password_post 127\.0\.0\.1:${API_PORT}\$" "${app}"
 # Caddy keeps the client's query when the forward_auth URI has none, so a
-# client could add ?scope=start to a password post.  Every ask names its scope.
-has "the password post is asked at /edge/signin-throttle?scope=password" \
-  '^[[:space:]]+uri /edge/signin-throttle\?scope=password$' "${app}"
+# client could add ?scope=password to a sign-in start.  Every ask names its scope.
 lacks "no throttle ask leaves the client's query in place" \
   '^[[:space:]]+uri /edge/signin-throttle$' "${app}"
 # Dex stores every /dex/auth request for ten minutes, so each one is counted
@@ -397,7 +397,7 @@ esac
 line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
 dex_proxy_line="$(line_of 'reverse_proxy 127.0.0.1:5556')"
 for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_other_method' \
-  'max_size 16KB' 'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
+  'max_size 16KB' 'reverse_proxy @dex_password_post' 'forward_auth @dex_signin_start'; do
   step_line="$(line_of "${step}")"
   if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
     ok "${step} runs before the request reaches Dex"
@@ -432,6 +432,14 @@ while IFS= read -r m; do
   esac
 done < <(api_routes "${rendered}")
 [ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
+# A proxy with its own matcher is outside the list above; the only one is
+# the Dex password post, whose paths cannot cover /edge.
+if [ "$(grep -oE '^[[:space:]]+reverse_proxy @[a-z_]+ 127\.0\.0\.1:'"${API_PORT}"'$' "${rendered}" \
+  | awk '{ print $2 }' | sort -u)" = "@dex_password_post" ]; then
+  ok "the only API proxy with its own matcher is the Dex password post"
+else
+  bad "the only API proxy with its own matcher is the Dex password post"
+fi
 # /__portikus/ports/* reaches the API only through forward_auth, whose fixed
 # uri replaces the client's path; so does every other forward_auth.
 if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' "${rendered}")" = \

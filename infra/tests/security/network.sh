@@ -12,6 +12,10 @@
 echo ""
 echo "--- Network isolation ---"
 
+# The probes below may already use a's one limit log line a minute, so the
+# outbound limit checks count lines from here.
+net_limits_since=$(sec_ssh "date -u '+%Y-%m-%d %H:%M:%S'")
+
 net_a_ip=$(sec_ws_ip a)
 net_b_ip=$(sec_ws_ip b)
 net_bridge=$(sec_ssh "incus network get portikus-ws ipv4.address" | cut -d/ -f1)
@@ -259,6 +263,119 @@ check "a, inner Docker, reaches the npm registry" \
   sec_docker_exec a "wget -q -T 20 -O /dev/null https://registry.npmjs.org/"
 check "a, inner Docker, reaches GitHub" \
   sec_docker_exec a "wget -q -T 20 -O /dev/null https://github.com/"
+
+# ── Outbound abuse limits (SPEC.md 24.2) ─────────────────────────
+
+# The limits table counts what it drops, so each check reads its counter or
+# meter on the VM: a refusal the table never saw proves nothing.  The
+# connection flood goes to a private address the firewall drops after this
+# table has counted it, so nothing leaves the VM.
+echo ""
+echo "Outbound abuse limits..."
+net_flood_dst=10.255.255.1
+net_limits() { sec_ssh "sudo nft list table inet portikus_workspace_limits" 2>/dev/null; }
+net_mail_count() {
+  sec_ssh "sudo nft list counter inet portikus_workspace_limits mail_blocked" 2>/dev/null \
+    | awk '$1 == "packets" { print $2; exit }'
+}
+# net_meter SET -- the packets a's address has in the meter set, 0 when absent.
+net_meter() {
+  sec_ssh "sudo nft list set inet portikus_workspace_limits $1" 2>/dev/null \
+    | grep -o "${net_a_ip//./\\.} counter packets [0-9]*" | awk '{ print $4 }' | grep . || echo 0
+}
+# net_logged PREFIX -- kernel log lines with PREFIX for a's address since the limits checks began.
+net_logged() {
+  sec_ssh "sudo journalctl -k -q --no-pager --since '${net_limits_since}' --grep '$1: .*SRC=${net_a_ip//./\\.} '" 2>/dev/null \
+    | grep -c "$1: " || true
+}
+
+net_limits_table=$(net_limits)
+if [ -z "$net_limits_table" ]; then
+  bad "the workspace outbound limits table is loaded"
+else
+  ok "the workspace outbound limits table is loaded"
+
+  # Mail: dialled by address, so the probe does not depend on the egress mode's DNS.
+  if printf '%s\n' "$net_limits_table" | grep -q 'tcp dport { 25, 465, 587 } goto mail'; then
+    net_smtp=$(sec_ssh "getent ahostsv4 smtp.gmail.com" | awk '{ print $1; exit }')
+    net_mx=$(sec_ssh "getent ahostsv4 gmail-smtp-in.l.google.com" | awk '{ print $1; exit }')
+    net_smtp=${net_smtp:-192.0.2.25}
+    net_mx=${net_mx:-192.0.2.25}
+    net_mail_targets="${net_mx},25 ${net_smtp},465 ${net_smtp},587"
+    net_mail_before=$(net_mail_count)
+    check_output "a as student cannot open outbound mail ports 25, 465 or 587" "" \
+      sec_exec a student "{ $(net_probe_bash "$net_mail_targets"); } | grep ' open$'"
+    check_output "a as root cannot open outbound mail ports 25, 465 or 587" "" \
+      sec_exec a root "{ $(net_probe_bash "$net_mail_targets"); } | grep ' open$'"
+    check_output "a, inner Docker, cannot open outbound mail ports 25, 465 or 587" "" \
+      sec_docker_exec a "{ $(net_probe_sh "$net_mail_targets"); } | grep ' open$'"
+    net_mail_after=$(net_mail_count)
+    # Nine probes, each at least one SYN through the mail rule.
+    if [ -n "$net_mail_before" ] && [ -n "$net_mail_after" ] && [ $((net_mail_after - net_mail_before)) -ge 9 ]; then
+      ok "the mail block, not something else, refused every mail probe (counter ${net_mail_before} to ${net_mail_after})"
+    else
+      bad "the mail block, not something else, refused every mail probe (counter ${net_mail_before:-?} to ${net_mail_after:-?})"
+    fi
+    check "the mail block logs the workspace's address" test "$(net_logged portikus-ws-mail-blocked)" -ge 1
+  else
+    sec_warn "outbound mail from workspaces is allowed on this VM (portikus_workspace_mail_allowed)"
+  fi
+
+  # Packets first: a flow whose first packet is over the connection limit is
+  # never set up, so after the connection flood every packet would count there.
+  # The flow must be one the firewall forwards, or it is never set up either:
+  # 198.18.0.0/15 (RFC 2544) goes into a dummy link for the flood, so the
+  # packets are forwarded yet never leave the VM.
+  # One UDP flow, 50,000 packets as fast as Python sends them.
+  net_packet_before=$(net_meter packet_over)
+  net_packet_after=$net_packet_before
+  if sec_ssh "sudo ip link del ${SEC_SINK_LINK} 2>/dev/null; sudo ip link add ${SEC_SINK_LINK} type dummy \
+      && sudo ip link set ${SEC_SINK_LINK} up && sudo ip route add 198.18.0.0/15 dev ${SEC_SINK_LINK} \
+      && ip -4 route get 198.18.0.9 | grep -q 'dev ${SEC_SINK_LINK}'"; then
+    sec_exec a student "python3 -c '
+import socket
+u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+for _ in range(50000):
+    u.sendto(b\"x\", (\"198.18.0.9\", 9))
+'" >/dev/null 2>&1
+    net_packet_after=$(net_meter packet_over)
+  else
+    echo "The flood's dummy link could not be set up, so the flood is not sent."
+  fi
+  sec_ssh "sudo ip link del ${SEC_SINK_LINK} 2>/dev/null; true"
+  if [ $((net_packet_after - net_packet_before)) -ge 10000 ]; then
+    ok "a flood of 50,000 UDP packets from a is cut at the per-workspace limit (meter ${net_packet_before} to ${net_packet_after})"
+  else
+    bad "a flood of 50,000 UDP packets from a is cut at the per-workspace limit (meter ${net_packet_before} to ${net_packet_after})"
+  fi
+  check "the packet limit logs the workspace's address" test "$(net_logged portikus-ws-packet-limit)" -ge 1
+
+  # New connections: 600 at once to distinct ports, three times the burst.
+  net_conn_before=$(net_meter conn_over)
+  sec_exec a student "python3 -c '
+import socket
+for port in range(20000, 20600):
+    s = socket.socket(); s.setblocking(False)
+    try: s.connect((\"${net_flood_dst}\", port))
+    except BlockingIOError: pass
+    s.close()
+'" >/dev/null 2>&1
+  net_conn_after=$(net_meter conn_over)
+  if [ $((net_conn_after - net_conn_before)) -ge 300 ]; then
+    ok "a burst of 600 new connections from a is cut at the per-workspace limit (meter ${net_conn_before} to ${net_conn_after})"
+  else
+    bad "a burst of 600 new connections from a is cut at the per-workspace limit (meter ${net_conn_before} to ${net_conn_after})"
+  fi
+  check "the connection limit logs the workspace's address" test "$(net_logged portikus-ws-conn-limit)" -ge 1
+
+  # The limits hold per workspace and refill: b was never limited, and a recovers.
+  check "b still reaches the npm registry while a is limited" \
+    sec_exec b student "curl -sS -o /dev/null --max-time 20 https://registry.npmjs.org/"
+  sleep 12
+  check "a reaches the npm registry again once its allowance refills" \
+    sec_exec a student "curl -sS -o /dev/null --max-time 20 https://registry.npmjs.org/"
+  check "the meter counts a's new connections" test "$(net_meter new_conns)" -gt 0
+fi
 
 # Done item 16, last part: a claims b's address.  The bridge filters a's
 # frames by address, so the VM keeps talking to b, and a's listener never sees

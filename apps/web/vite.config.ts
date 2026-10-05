@@ -44,6 +44,8 @@ export default defineConfig({
 		proxy: {
 			"/health": api,
 			"/auth": api,
+			// Dex's password form posts, which the API relays to Dex.
+			"/dex": api,
 			// The signed-in user's own editor settings.
 			"/me": api,
 			// LTI launch and the Course page's data. Anchored so

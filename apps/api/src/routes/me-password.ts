@@ -1,6 +1,8 @@
 import {
+	BREACHED_PASSWORD_MESSAGE,
 	hashDexPassword,
 	hashSessionToken,
+	isBreachedPassword,
 	localDexUserId,
 	requireUser,
 } from "@portikus/auth";
@@ -14,6 +16,19 @@ import { createAccountThrottle } from "../signin-throttle.js";
 
 /** Thrown inside the transaction when Dex no longer holds the password. */
 class PasswordGone extends Error {}
+
+/** Why a new password is refused beyond the length rule, or null when it is fine. */
+function newPasswordProblem(
+	currentPassword: string,
+	newPassword: string,
+): string | null {
+	if (newPassword === currentPassword) {
+		return "Choose a password different from the current one.";
+	}
+	// SPEC.md section 24.13.
+	if (isBreachedPassword(newPassword)) return BREACHED_PASSWORD_MESSAGE;
+	return null;
+}
 
 /**
  * Settings, Password: change a Dex local password (SPEC.md section
@@ -53,14 +68,8 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			);
 		}
 		const { currentPassword, newPassword } = body.data;
-		if (newPassword === currentPassword) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"Choose a password different from the current one.",
-			);
-		}
+		const problem = newPasswordProblem(currentPassword, newPassword);
+		if (problem) return sendError(reply, 400, "VALIDATION_FAILED", problem);
 
 		const row = await db
 			.selectFrom("users")

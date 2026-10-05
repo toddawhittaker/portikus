@@ -1,6 +1,10 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
 export {
+	BREACHED_PASSWORD_MESSAGE,
+	isBreachedPassword,
+} from "./breached-passwords.js";
+export {
 	createDexApi,
 	DEX_PASSWORD_LENGTH,
 	type DexApi,
@@ -85,6 +89,7 @@ export {
 	authPlugin,
 	connectorCookieName,
 	connectorCookieOptions,
+	DEX_PASSWORD_ROUTE,
 	loginCookieName,
 	loginCookieOptions,
 	requireRole,

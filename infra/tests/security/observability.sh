@@ -39,9 +39,6 @@ check_output "the portikus user alone reads no API journal line" "0" \
   sec_ssh "sudo -u portikus journalctl --unit=portikus-api.service -n 5 --no-pager -o cat 2>/dev/null | wc -l"
 
 # ── What journalctl on this VM supports (ADR 0036) ───────────────
-# The reader filters levels with --grep, which needs journalctl built with PCRE2.
-check "journalctl --grep matches the API's warn lines" \
-  sec_ssh "sudo journalctl --unit=portikus-api.service --grep='\"level\":\"(warn)\"' -n 1 --no-pager -o cat | grep -q '\"level\":\"warn\"'"
 # Older pages continue with --reverse and --after-cursor: after the newest
 # entry's cursor comes the second newest.
 obs_reverse_after_cursor() {
@@ -84,6 +81,11 @@ obs_secret="SECPROBE${SEC_RUN_ID}"
 obs_line=$(printf '{"level":"warn","time":"%s","service":"api","msg":"%s","headers":{"authorization":"Bearer %s-auth","cookie":"portikus_session=%s-cookie"},"token":"%s-token","note":"sent Bearer %s-inline","url":"https://sectest:%s-password@example.invalid/x"}' \
   "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$obs_probe" "$obs_secret" "$obs_secret" "$obs_secret" "$obs_secret" "$obs_secret")
 printf '%s\n' "$obs_line" | sec_ssh_stdin "sudo sh -c 'echo \$\$ > /sys/fs/cgroup/system.slice/portikus-api.service/cgroup.procs && { cat; sleep 2; } | systemd-cat --identifier=portikus-api'" >/dev/null 2>&1
+
+# The reader filters levels with --grep, which needs journalctl built with
+# PCRE2.  It runs after the probe line, since a fresh VM may have no warn line.
+check "journalctl --grep matches the API's warn lines" \
+  sec_ssh "sudo journalctl --unit=portikus-api.service --grep='\"level\":\"(warn)\"' -n 1 --no-pager -o cat | grep -q '\"level\":\"warn\"'"
 
 obs_probe_page() {
   local _

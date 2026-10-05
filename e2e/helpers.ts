@@ -78,6 +78,8 @@ export { API_ORIGIN, MOCK_ISSUER, WEB_ORIGIN };
 
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
+/** The one password e2e/fake-dex-login.mjs accepts. */
+export const FAKE_DEX_RIGHT_PASSWORD = "the-right-password-1234";
 
 // `pnpm test:e2e` points this at a database created for the run, not the
 // shared server database the URL named when the process started.

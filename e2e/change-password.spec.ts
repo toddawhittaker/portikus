@@ -111,11 +111,21 @@ test("a short password is refused with the rule shown", async ({ page }) => {
 	await expect(next).toHaveAccessibleDescription(/At least 15 characters\./);
 });
 
-test("a good change lands on the administration page and Settings offers Password", async ({
+test("a known-breached password is refused with the reason shown (SPEC.md 24.13)", async ({
 	page,
 }) => {
 	await signInAsAdmin(page);
 	await submit(page, oneTime, "correct horse battery staple");
+	const next = page.getByLabel("New password", { exact: true });
+	await expect(next).toHaveAccessibleDescription(/leaked passwords/);
+	await expect(page).toHaveURL(/\/change-password$/);
+});
+
+test("a good change lands on the administration page and Settings offers Password", async ({
+	page,
+}) => {
+	await signInAsAdmin(page);
+	await submit(page, oneTime, "violet tram orbit lantern");
 	await expect(
 		page.getByText("Password changed. The one-time password no longer works.", {
 			exact: true,
@@ -137,7 +147,7 @@ test("a good change lands on the administration page and Settings offers Passwor
 	await expect(
 		dialog.getByRole("heading", { name: "Password", exact: true }),
 	).toBeVisible();
-	await dialog.getByLabel("Current password").fill("correct horse battery staple");
+	await dialog.getByLabel("Current password").fill("violet tram orbit lantern");
 	await dialog
 		.getByLabel("New password", { exact: true })
 		.fill("another long passphrase");

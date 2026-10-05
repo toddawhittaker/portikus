@@ -14,9 +14,9 @@ left in /root/portikus-install-test/jar.  Steps:
                  key: refused without consent, then replaced
   wait-set STAMP the Backups tab lists a set copied in by hand, as verified
                  (with --unverified, as not verified)
-  check-restored after `portikus restore`: sign in with the old password,
-                 and the student, the Dex account, the workspace and the
-                 marker are all back
+  check-restored after `portikus restore`: sign in with the old password and
+                 second factor, and the student, the Dex account, the
+                 workspace and the marker are all back
 
 Never run it on a host with real users: it makes a throwaway student.
 """
@@ -268,7 +268,7 @@ def signin(host, password_file):
     c = ["curl", "-s", "--cacert", CA, "-c", jar, "-b", jar]
     page = sh(*c, "-L", "-o", "/dev/null", "-w", "%{url_effective}", f"{base}/auth/login")
     page = sh(*c, "-L", "-o", "/dev/null", "-w", "%{url_effective}", page.replace("/dex/auth?", "/dex/auth/local?"))
-    sh(*c, "-L", "-o", "/dev/null", "--data-urlencode", f"login=admin@{host}",
+    sh(*c, "-L", "-o", "/dev/null", "-H", f"Origin: {base}", "--data-urlencode", f"login=admin@{host}",
        "--data-urlencode", f"password@{password_file}", page)
     return jar
 
@@ -280,6 +280,12 @@ def check_restored(args):
     code, me = api.call("GET", "/auth/me")
     check("the old administrator password signs in again (Dex's accounts came back)",
           code == 200 and me.get("role") == "administrator", f"{code} {me}")
+    # totp.py sits beside this script on the VM (install-test.sh copies both to /tmp).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import totp
+    with open(args.totp_file) as f:
+        code, _ = api.call("POST", "/me/second-factor/verify", {"code": totp.code(f.read())})
+    check("the old second factor is back and passes", code == 204, str(code))
     code, users = api.call("GET", "/admin/users")
     check("the Users view answers for the restored administrator", code == 200, str(code))
     check("the student's account is back",
@@ -307,6 +313,7 @@ def main():
     parser.add_argument("--stamp")
     parser.add_argument("--expect")
     parser.add_argument("--password-file")
+    parser.add_argument("--totp-file", help="check-restored: the old administrator's second-factor secret")
     parser.add_argument("--unverified", action="store_true", help="wait-set: expect the set not verified")
     args = parser.parse_args()
     {"seed": seed, "backup-now": backup_now, "download-key": download_key, "upload-key": upload_key,

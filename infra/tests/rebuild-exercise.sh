@@ -154,7 +154,7 @@ signin_status() {
       A='https://${AUTHORITY}'
       C=\"curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar\"
       form=\$(\$C -L -o /dev/null -w '%{url_effective}' \"\$A/auth/login\")
-      \$C -L -o /dev/null --data-urlencode 'login=${signin_email}' --data-urlencode \"password@\$t/pw\" \"\$form\"
+      \$C -L -o /dev/null -H \"Origin: \$A\" --data-urlencode 'login=${signin_email}' --data-urlencode \"password@\$t/pw\" \"\$form\"
       \$C -o /dev/null -w '%{http_code}' \"\$A/auth/me\""
 }
 

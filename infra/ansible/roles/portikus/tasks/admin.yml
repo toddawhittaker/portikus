@@ -19,7 +19,37 @@
       made.  The installed package is older than this play; install the
       current Portikus package and run the play again.
 
+# Setup leaves this when it seeds a public certificate: no password may be
+# typed into the site before browsers can verify it (SPEC.md section 24.10).
+- name: Look for an administrator waiting for the public certificate
+  ansible.builtin.stat:
+    path: "{{ portikus_admin_pending }}"
+  register: portikus_admin_pending_file
+
+- name: Check whether the site serves a publicly trusted certificate
+  ansible.builtin.command:
+    argv: [/usr/lib/portikus/certificate-job, public-trust]
+  register: portikus_public_trust
+  changed_when: false
+  failed_when: false
+  when: portikus_admin_pending_file.stat.exists
+
+- name: Say the local administrator waits for the public certificate
+  ansible.builtin.debug:
+    msg: >-
+      The local administrator, {{ portikus_admin_email }}, is not made yet,
+      because the site does not serve a publicly trusted certificate yet and
+      no password may be typed into it before then.  The hourly certificate
+      check makes it once the certificate is served; to check now, run: sudo
+      systemctl start portikus-certificate-check.service.  Then read its
+      one-time password with: sudo cat /etc/portikus/admin-password.  To
+      correct the certificate answers, run: sudo dpkg-reconfigure portikus.
+  when:
+    - portikus_admin_pending_file.stat.exists
+    - portikus_public_trust.rc | default(0) != 0
+
 - name: Make the local administrator
+  when: not portikus_admin_pending_file.stat.exists or portikus_public_trust.rc | default(1) == 0
   block:
     - name: Make the local administrator if there is none
       ansible.builtin.command:
@@ -28,11 +58,24 @@
       changed_when: portikus_local_admin.rc == 0
       failed_when: portikus_local_admin.rc not in [0, 10, 11]
 
+    - name: Read the certificate source
+      ansible.builtin.slurp:
+        path: /etc/portikus/certificate/settings.json
+      register: portikus_certificate_settings
+      failed_when: false
+
     - name: Say where the one-time password is
+      vars:
+        portikus_certificate_source: >-
+          {{ (portikus_certificate_settings.content | default('e30=') | b64decode | from_json).source | default('') }}
       ansible.builtin.debug:
         msg: >-
           {{ ('Made the local administrator, ' ~ portikus_admin_email ~ '.  ') if portikus_local_admin.rc == 0 else '' }}{{
-             portikus_local_admin.stdout_lines | join('  ') }}
+             portikus_local_admin.stdout_lines | join('  ') }}{{
+             ("  Warning: the site uses Portikus's own certificate authority, which is meant for a private"
+              ~ " network; browsers cannot check it.  If people reach this server from the internet, sign in"
+              ~ " only from a network you trust and choose a public certificate on the Certificate page first.")
+             if portikus_certificate_source == 'internal' else '' }}
       when: portikus_local_admin.rc in [0, 10]
 
     # It holds a password that no longer works.
@@ -41,3 +84,15 @@
         path: /etc/portikus/admin-password
         state: absent
       when: portikus_local_admin.rc == 11
+
+    - name: Stop waiting for the public certificate
+      ansible.builtin.file:
+        path: "{{ portikus_admin_pending }}"
+        state: absent
+
+    # The admin page owns the certificate from now on, and the job keeps the token.
+    - name: Remove the Cloudflare token from the install answers
+      ansible.builtin.include_role:
+        name: caddy
+        tasks_from: install_token
+      when: portikus_admin_pending_file.stat.exists

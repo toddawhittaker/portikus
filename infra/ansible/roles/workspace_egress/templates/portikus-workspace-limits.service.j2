@@ -1,0 +1,15 @@
+# Managed by Ansible (workspace_egress role).  Loads the outbound abuse
+# limits for workspaces (SPEC.md 24.2) before Incus starts any.  Stopping it
+# leaves the table in place, so the limits never lapse by accident.
+[Unit]
+Description=Portikus workspace outbound limits (nftables)
+After=nftables.service
+Before=incus.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/portikus/workspace-limits.nft
+
+[Install]
+WantedBy=multi-user.target

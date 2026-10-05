@@ -6,6 +6,7 @@ API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
+ADMIN_PENDING=/etc/portikus/certificate/admin-pending
 BACKUP_SETS=/var/backups/portikus/local
 BACKUP_KEY=/etc/portikus-backup/age-key.txt
 RESTORE=/usr/lib/portikus/backup/portikus-restore
@@ -145,6 +146,11 @@ status() {
   for unit in ${UNITS}; do
     printf '%-32s %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
   done
+  # Setup holds the administrator back until browsers can check the site (SPEC.md section 24.10).
+  if [ -e "${ADMIN_PENDING}" ]; then
+    echo "The local administrator is made once the site serves its public certificate (checked hourly)."
+    echo "Then read its one-time password with: sudo cat ${PASSWORD_FILE}"
+  fi
 }
 
 # The host's backup timer calls this over SSH (SPEC.md section 24.9, ADR 0040).

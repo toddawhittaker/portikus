@@ -285,6 +285,22 @@ describe.skipIf(skip)("POST /me/password", () => {
 		}
 	});
 
+	test("a known-breached new password is refused and changes nothing (SPEC.md 24.13)", async () => {
+		const jar = new CookieJar();
+		await localAccount("alice", jar);
+		const before = storedHash("alice@example.edu");
+		const res = await change(jar, {
+			currentPassword: CURRENT,
+			newPassword: "PasswordPassword",
+		});
+		expect(res.statusCode).toBe(400);
+		expect(res.json()).toMatchObject({
+			code: "VALIDATION_FAILED",
+			message: expect.stringContaining("leaked passwords"),
+		});
+		expect(storedHash("alice@example.edu")).toBe(before);
+	});
+
 	test("a wrong current password is 403 and changes nothing", async () => {
 		const jar = new CookieJar();
 		const id = await localAccount("alice", jar);

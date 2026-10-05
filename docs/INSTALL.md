@@ -29,16 +29,21 @@ detail could not be checked that way, this guide says so.
   you install Debian" below says how to plan this.
 - **A DNS name you control**, such as `portikus.example.edu`, for the
   server. Students also get preview addresses under `preview.<that name>`.
-- **A plan for the HTTPS certificate.** Setup starts with Portikus's own
-  certificate authority, which browsers do not trust until told to. Once
-  the site is up, an administrator chooses the real certificate on the
-  **Admin** page, **Certificate** tab (docs/ADMIN-GUIDE.md, "The site
-  certificate"): Let's Encrypt or another ACME service (ACME is the
-  protocol these free services speak), using one of nine DNS providers or
-  port 80, or certificate files you already have. Have the provider's API
-  token or the files ready.
+- **A plan for the HTTPS certificate.** A server people reach from the
+  internet needs a certificate every browser trusts before anyone types a
+  password into it. The install asks for one: Let's Encrypt through
+  Cloudflare's DNS (have a Cloudflare API token ready), or certificate
+  files you already have. Portikus's own certificate authority is the
+  third choice, for a private network only, since browsers do not trust
+  it until told to. Later, an administrator can switch to another ACME
+  service (ACME is the protocol these free services speak), one of nine
+  DNS providers or port 80, on the **Admin** page, **Certificate** tab
+  (docs/ADMIN-GUIDE.md, "The site certificate").
 - **Outgoing internet access from the server** during setup (see "Setup").
-- **SSH access** to the server as root or as a user with `sudo`.
+- **SSH access with a key** to the server as root or as a user with
+  `sudo`. Setup turns SSH password sign-in off, so it stops before
+  changing anything when neither root nor any member of the `sudo` group
+  has a key in `~/.ssh/authorized_keys`.
 
 ## Before you install Debian
 
@@ -197,10 +202,31 @@ suggestion is `admin@<web address>`, which is fine.
 
 ### 4. HTTPS certificate
 
-A normal install does not show this screen. Setup uses Portikus's own
-certificate authority, and you choose the real certificate on the Admin
-page after the first sign-in ("After setup", below). The question is still
-there for unattended installs ("Unattended installs", below).
+![The certificate explanation: for a server reached from the internet choose Let's Encrypt or your own files, because setup makes the one-time password only once the site serves that certificate](images/install/04-certificate.png)
+
+![The certificate screen, offering Portikus's own authority for private networks only, Let's Encrypt through Cloudflare DNS, or certificate files](images/install/05-certificate-choice.png)
+
+If people reach the server from the internet, choose **Let's Encrypt
+through Cloudflare DNS** or **Certificate files I already have**:
+
+- **Let's Encrypt** asks for an email that Let's Encrypt writes to about
+  expiry, then a Cloudflare API token with the "Edit zone DNS" permission
+  for your domain. Let's Encrypt proves you control the domain through a
+  DNS record, which is the only way it issues the wildcard certificate
+  student previews need, so the domain's DNS must be at Cloudflare.
+- **Certificate files** asks for the full paths of a certificate and its
+  private key on this server, in PEM format. They must come from an
+  authority browsers trust and cover both the web address and
+  `*.preview.<web address>`.
+
+With either one, setup does not make the administrator's one-time
+password until the site serves that certificate ("Setup", below). No
+password is ever typed into a site the browser cannot check.
+
+**Portikus's own authority** (the suggestion) is for a private network,
+such as a lab. Browsers warn until each one is told to trust its root
+certificate ("After setup", below), and setup prints a warning that says
+so.
 
 ### 5. How people sign in
 
@@ -285,6 +311,11 @@ Portikus setup is running in the background. It takes about ten minutes.
 
 ![The terminal after apt finishes: setup is running in the background, with the three steps to follow it, read the one-time password, and sign in](images/install/10-finished.png)
 
+With Let's Encrypt or certificate files it adds that the password is
+written only once the site serves its public certificate. With Portikus's
+own authority it adds a warning that the site is meant for a private
+network.
+
 If instead it says "Portikus is installed, but setup has not started", it
 lists what is missing; run `sudo dpkg-reconfigure portikus` to answer it.
 
@@ -320,7 +351,30 @@ itself reports through `sshd -T`, so a server that runs SSH on a port
 other than 22 keeps its connection. Port 80 redirects browsers to HTTPS, and it also answers the HTTP-01
 check if you later choose that way of getting a certificate.
 
+Setup also hardens the server. SSH accepts keys only, allows root to sign
+in only with a key, and gives each connection three tries and 30 seconds.
+The firewall drops a source address that opens more than 30 new SSH
+connections a minute, and refuses more than 8192 open web connections
+from one address. Kernel settings in `/etc/sysctl.d/90-portikus-hardening.conf`
+hide kernel addresses and the kernel log and close off features students'
+code has no need for. To prove from outside that only SSH, HTTP and HTTPS
+answer, run `make external-port-check HOST=<your server>` from a checkout of
+the Portikus repository on another machine; with nmap installed and run
+as root it checks UDP too.
+
 ## First sign-in
+
+With Let's Encrypt or certificate files, setup makes the local
+administrator only once the site serves a certificate that browsers
+trust. Setup waits up to five minutes for Let's Encrypt. If the
+certificate is not served by the end of setup, setup says so and leaves
+`/etc/portikus/admin-password` unwritten. The hourly certificate check
+makes the administrator as soon as the certificate is served; run
+`sudo systemctl start portikus-certificate-check.service` to check at
+once, and `sudo portikus status` to see whether the administrator still
+waits. Until then the certificate answers can still be changed with
+`sudo dpkg-reconfigure portikus`, for example to fix a wrong Cloudflare
+token, and setup uses the new answers.
 
 1. Read the one-time password:
 
@@ -352,22 +406,23 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   server, such as a password manager. Then set up a copy of the sets to
   another machine ("Backups: copying them off the server", below). The
   sets on the server alone do not survive losing the server.
-- **The certificate.** The site starts with Portikus's own certificate
-  authority, so browsers warn. Sign in, open **Admin**, then
+- **The certificate.** To change it, sign in, open **Admin**, then
   **Certificate**, and choose Let's Encrypt, another ACME service or your
   own files (docs/ADMIN-GUIDE.md, "The site certificate"). When it is
   applied, the server needs outgoing access to the ACME service and, for
-  DNS-01, the DNS provider's API. If you keep the internal authority, for
-  a lab or a private network, each browser must trust its root
-  certificate. Download it from the same tab and import it into the
-  browser's or the system's trusted authorities (infra/README.md,
-  "Browser access", has the per-system steps).
-- **After this, setup leaves the certificate alone.** A later setup run,
-  an upgrade or `sudo dpkg-reconfigure portikus` never changes it, even if
-  you give a different answer to the certificate question. Change it only
-  on the Certificate tab. If the tab has made the site unreachable, run
-  `sudo portikus reset-certificate` (docs/OPERATIONS.md, "The site
-  certificate").
+  DNS-01, the DNS provider's API. With Portikus's own authority, for a lab
+  or a private network, each browser must trust its root certificate.
+  Download it from the same tab and import it into the browser's or the
+  system's trusted authorities (infra/README.md, "Browser access", has the
+  per-system steps). If you chose it for a server people reach from the
+  internet, sign in only from a network you trust and switch to a public
+  certificate before anyone else signs in.
+- **Once the administrator exists, setup leaves the certificate alone.**
+  A later setup run, an upgrade or `sudo dpkg-reconfigure portikus` never
+  changes it, even if you give a different answer to the certificate
+  question. Change it only on the Certificate tab. If the tab has made the
+  site unreachable, run `sudo portikus reset-certificate`
+  (docs/OPERATIONS.md, "The site certificate").
 
 ## The Docker image cache
 
@@ -533,12 +588,14 @@ answer store once written, but delete your `preseed.txt` yourself. Setup
 starts only when every answer it needs is there; for a disk that includes
 `portikus/storage_confirm` set to `true`.
 
-The certificate keys in the preseed still work, but only for the first
-setup run. Leaving them out gives Portikus's own certificate authority.
-An old Let's Encrypt preseed, with an ACME email and a Cloudflare API
-token, starts the site on Let's Encrypt through Cloudflare's DNS, as
-before. Certificate files named in the preseed are used as they were.
-From then on the Certificate tab owns the certificate.
+The certificate keys in the preseed decide the certificate until the
+local administrator is made. Leaving them out gives Portikus's own
+certificate authority, for a private network only. A Let's Encrypt
+preseed, with an ACME email and a Cloudflare API token, starts the site
+on Let's Encrypt through Cloudflare's DNS. Certificate files named in the
+preseed are used as they are. With either, the administrator's one-time
+password appears only once the site serves that certificate ("First
+sign-in"). From then on the Certificate tab owns the certificate.
 
 ## Changing your answers
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { check, createCounter } from "./rate-limit.js";
+import { addressKey, check, createCounter } from "./rate-limit.js";
 
 describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 	function fixture(limit = 3, windowMs = 60_000) {
@@ -56,5 +56,21 @@ describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 		const { counter } = fixture(2000, 10_000);
 		for (let i = 0; i < 2000; i++) expect(check(counter, "s").allowed).toBe(true);
 		expect(check(counter, "s").allowed).toBe(false);
+	});
+});
+
+describe("addressKey (SPEC.md section 24.13)", () => {
+	test("keeps an IPv4 address, also when IPv6-mapped", () => {
+		expect(addressKey("198.51.100.7")).toBe("198.51.100.7");
+		expect(addressKey("::ffff:198.51.100.7")).toBe("198.51.100.7");
+	});
+
+	test("reduces every IPv6 spelling to its /64", () => {
+		const key = "2001:db8:0:12::/64";
+		expect(addressKey("2001:db8:0:12::1")).toBe(key);
+		expect(addressKey("2001:0DB8:0000:0012:ffff:1:2:3")).toBe(key);
+		expect(addressKey("2001:db8::12:0:0:0:1")).toBe(key);
+		expect(addressKey("2001:db8:0:13::1")).not.toBe(key);
+		expect(addressKey("::1")).toBe("0:0:0:0::/64");
 	});
 });
