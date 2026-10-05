@@ -139,9 +139,10 @@ export async function createSession(
 /**
  * How long a session may rely on an administrator or instructor role that
  * the identity provider gave, so a role removed there takes effect within
- * this bound (SPEC.md section 24.13).
+ * this bound (SPEC.md section 24.13). Twelve hours spares instructors and
+ * long-running agents an hourly sign-in.
  */
-export const ELEVATED_SESSION_MAX_SECONDS = 3600;
+export const ELEVATED_SESSION_MAX_SECONDS = 12 * 3600;
 
 /**
  * True when the session's elevated role came from the identity provider's

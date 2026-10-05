@@ -4415,7 +4415,7 @@ Delivered:
   confirm, duplicates skipped, administrator rows refused, one-time
   passwords only as a browser-made download.
 - Provider roles (#1156): sessions whose administrator or instructor
-  role came from the provider end after one hour, and sockets close
+  role came from the provider end after 12 hours, and sockets close
   within a second. Signing in again skips Dex's chooser.
 - Administrator resets (#1157, #1162): administrators reset a person's
   second factor; the holder gets a kept notice for every credential
@@ -4465,7 +4465,7 @@ Gaps left (most are in docs/BACKLOG.md):
 - No passkey at link confirm (a recovery code works); links made before
   #1165 should be relinked.
 - The Help page does not describe invitations; the "Session ended" page
-  does not mention the one-hour role check.
+  does not mention the 12-hour role check.
 - No email delivery of passwords, alerts or reset notices.
 - No alert setting on an install screen; no certificate-expiry alert.
 - The off-site target needs rrsync (Debian 12, Ubuntu 24.04 or later);

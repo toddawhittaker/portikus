@@ -4211,8 +4211,10 @@ These rules hold before a site faces the internet. Epic 34 built them
   audited as a failed `auth.login` with reason `not_invited` (#1136,
   #1132).
 - A session whose administrator or instructor role came from the
-  identity provider ends after one hour, and its open sockets close
-  within a second. Signing in again skips Dex's chooser (#1141).
+  identity provider ends after 12 hours, and its open sockets close
+  within a second. Twelve hours spares instructors and long-running
+  agents an hourly sign-in; disabling the account in Portikus still
+  takes effect at once. Signing in again skips Dex's chooser (#1141).
 - **Administrator resets.** An administrator may reset another person's
   password, second factor, or both. The holder is always told by a kept
   notice they cannot clear (one notice when both are reset). The install

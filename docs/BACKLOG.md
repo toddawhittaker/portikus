@@ -1932,9 +1932,9 @@ when the job fails.
 
 **Source.** Epic 34, #1166.
 
-## "Session ended" page and the one-hour role check
+## "Session ended" page and the 12-hour role check
 
-**What.** The "Session ended" page says only "inactivity or another window", not that a provider-given administrator or instructor session ends after an hour.
+**What.** The "Session ended" page says only "inactivity or another window", not that a provider-given administrator or instructor session ends after 12 hours.
 
 **What it would take.** Pass the reason to the page and add a sentence for it.
 
