@@ -27,6 +27,27 @@ test("Copy codes puts every code on the clipboard and says so in a status line",
 	expect(writeText).toHaveBeenCalledWith("AAAA-BBBB-CCCC-DDDD\nEEEE-FFFF-GGGG-HHHH\n");
 });
 
+test("a second Copy press empties the status first, so the same message is announced again", async () => {
+	let finish = () => {};
+	clipboard(
+		() =>
+			new Promise<void>((resolve) => {
+				finish = resolve;
+			}),
+	);
+	render(<RecoveryCodes codes={CODES} onDone={() => {}} />);
+	const status = screen.getByRole("status");
+	const copy = screen.getByRole("button", { name: "Copy codes" });
+	fireEvent.click(copy);
+	finish();
+	await waitFor(() => expect(status.textContent).toBe("Codes copied."));
+
+	fireEvent.click(copy);
+	expect(status.textContent).toBe("");
+	finish();
+	await waitFor(() => expect(status.textContent).toBe("Codes copied."));
+});
+
 test("a refused clipboard says what to do instead", async () => {
 	clipboard(async () => {
 		throw new Error("denied");

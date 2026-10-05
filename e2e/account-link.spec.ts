@@ -254,9 +254,12 @@ test("linking a local-password account asks for its two-step code first", async 
 
 		// The password alone links nothing.
 		await tab.getByRole("button", { name: "Link accounts" }).click();
-		await expect(tab.getByTestId("link-error")).toContainText(
-			"Enter a code from your authenticator app",
+		const field = tab.getByLabel("Two-step sign-in code");
+		await expect(field).toHaveAccessibleDescription(
+			/Enter a code from your authenticator app/,
 		);
+		await expect(field).toHaveAttribute("aria-invalid", "true");
+		await expect(field).toBeFocused();
 		expect((await me(page)).id).toBe(courseId);
 
 		await tab.getByLabel("Two-step sign-in code").fill(await app.nextCode());

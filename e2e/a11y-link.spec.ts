@@ -3,8 +3,14 @@
  * the Profile section's linked accounts (ADR 0026). Max (mock
  * LMS) and gail (mock OIDC) exist for this spec alone.
  */
-import { expect, test } from "@playwright/test";
-import { apiLoginAs, expectNoViolations, MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
+import { expect, type Page, test } from "@playwright/test";
+import {
+	apiLoginAs,
+	expectNoViolations,
+	MOCK_ISSUER,
+	routeApi,
+	WEB_ORIGIN,
+} from "./helpers";
 import { launchAs } from "./lti-helpers";
 
 test("the Profile link section and the /link page have no automatic violations", async ({
@@ -64,3 +70,54 @@ test("the /link refusal page has no automatic violations", async ({ page }) => {
 	await expect(page.getByRole("alert")).toBeVisible();
 	await expectNoViolations(page);
 });
+
+/** The /link page with its pending link answered by the test, at the given second-factor step. */
+async function openStubbedLink(page: Page, secondFactor: "verify" | "enrol") {
+	await routeApi(page, "**/me/links/pending", (route) =>
+		route.fulfill({
+			json: {
+				course: { displayName: "Max Learner", platformName: "mock-lms" },
+				sso: { displayName: "Lars Local", signInName: "lars", email: null },
+				secondFactor,
+			},
+		}),
+	);
+	await routeApi(page, "**/me/links/confirm", (route) =>
+		route.fulfill({
+			status: 400,
+			json: {
+				code: "VALIDATION_FAILED",
+				message: "That code did not work. Enter a new code from your app.",
+			},
+		}),
+	);
+	await page.goto(`${WEB_ORIGIN}/link`);
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the /link code step has no automatic violations, before and after a wrong code (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await openStubbedLink(page, "verify");
+		const field = page.getByLabel("Two-step sign-in code");
+		await expect(field).toBeVisible();
+		await expectNoViolations(page);
+
+		await page.getByRole("button", { name: "Link accounts" }).click();
+		// The field itself carries the error and takes focus (SPEC.md 25.8).
+		await expect(field).toHaveAttribute("aria-invalid", "true");
+		await expect(field).toHaveAccessibleDescription(/That code did not work/);
+		await expect(field).toBeFocused();
+		await expectNoViolations(page);
+	});
+
+	test(`the /link "set up two-step sign-in first" message has no automatic violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await openStubbedLink(page, "enrol");
+		await expect(page.getByRole("alert")).toContainText("set up two-step sign-in");
+		await expectNoViolations(page);
+	});
+}
