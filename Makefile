@@ -149,6 +149,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
+	bash infra/tests/security-mode-test.sh
 	bash packaging/tests/settings-keys-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
@@ -311,11 +312,17 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").
-security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+# SECURITY_TARGET=host runs the suite on an apt-installed host against itself
+# (docs/SPEC.md section 24.1); the site name comes from /etc/portikus/api.env.
+security-test: ## Run the security suite against the VM, or SECURITY_TARGET=host on the platform host itself (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+ifeq ($(SECURITY_TARGET),host)
+	PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) bash infra/tests/security-test.sh local $(if $(SWEEP),--sweep,)
+else
 	$(REQUIRE_VM_IP)
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
+endif
 
 # Run from a machine outside the server's network (docs/SPEC.md section 24.1).
 external-port-check: ## From another machine, fail if anything but SSH, HTTP and HTTPS answers on HOST=<name or address> (ALLOWED_PORTS="22 80 443" by default; nmap run as root adds UDP)
