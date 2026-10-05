@@ -1,5 +1,6 @@
 import { Button } from "@portikus/ui";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 
 /**
  * A copy button with its own always-mounted status line, so the result is
@@ -23,6 +24,8 @@ export function CopyButton({
 	const [message, setMessage] = useState("");
 
 	async function copy() {
+		// Empty the status first so a second identical result is announced again.
+		flushSync(() => setMessage(""));
 		try {
 			await navigator.clipboard.writeText(text);
 			setMessage(copied);

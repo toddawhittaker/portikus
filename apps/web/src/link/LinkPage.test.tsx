@@ -182,3 +182,55 @@ test("a local-password account with no two-step sign-in is told to set it up, wi
 	expect(screen.queryByRole("button", { name: "Link accounts" })).toBeNull();
 	expect(screen.queryByLabelText("Two-step sign-in code")).toBeNull();
 });
+
+function stubVerify(confirm: () => Response) {
+	stubFetch((url) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify" });
+		if (url === "/me/links/confirm") return confirm();
+		throw new Error(`unexpected request: ${url}`);
+	});
+}
+
+test("a wrong two-step code marks the field invalid, describes it with the reason, and focuses it", async () => {
+	let answer = () =>
+		json(400, { code: "VALIDATION_FAILED", message: "That code did not work." });
+	stubVerify(() => answer());
+	vi.stubGlobal("close", vi.fn());
+	renderApp("/link");
+
+	const field = await screen.findByLabelText("Two-step sign-in code");
+	const confirm = screen.getByRole("button", { name: "Link accounts" });
+	confirm.focus();
+	fireEvent.click(confirm);
+
+	await waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("true"));
+	expect(document.getElementById("link-code-err")?.textContent).toBe(
+		"That code did not work.",
+	);
+	expect((field.getAttribute("aria-describedby") ?? "").split(" ")).toContain(
+		"link-code-err",
+	);
+	expect(document.activeElement).toBe(field);
+	// The reason is said once, by the field, not again in a separate alert.
+	expect(screen.queryByTestId("link-error")).toBeNull();
+
+	// A second attempt that works leaves no stale error behind.
+	answer = () => json(200, {});
+	fireEvent.change(field, { target: { value: "123456" } });
+	fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
+	await screen.findByTestId("link-done");
+});
+
+test("an expired link at the code step is an alert, not a field error", async () => {
+	stubVerify(() => json(404, { code: "NOT_FOUND", message: "Not found" }));
+	renderApp("/link");
+
+	const field = await screen.findByLabelText("Two-step sign-in code");
+	fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
+
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		LINK_ERROR_MESSAGES.expired,
+	);
+	expect(field.getAttribute("aria-invalid")).toBeNull();
+});
