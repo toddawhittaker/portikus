@@ -17,9 +17,11 @@
 #   - with the server's key, nothing on the target can be listed, deleted
 #     or reached outside incoming, and a second copy of a set already there
 #     does not replace it;
-#   - the target's prune moves finished sets in, drops future-dated and
-#     stale unfinished ones, removes a set only when it is old and KEEP
-#     newer ones are there, and touches nothing else.
+#   - the target's prune moves finished sets in, at most one per UTC day,
+#     drops future-dated and stale unfinished ones, removes a set only when
+#     it is old and KEEP newer ones are there, so a flood of junk cannot
+#     push out genuine copies faster than a day at a time, and touches
+#     nothing else.
 #
 # Usage: ./infra/tests/backup-offsite-test.sh
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
@@ -211,14 +213,20 @@ echo "== pruning"
 for s in "$(stamp '-30 days')" "$(stamp '-20 days')" "$(stamp '-10 days')" "$old"; do
   mkdir "${target}/${s}"
 done
-# Eight fresh sets at once, the flood a broken-into server could send.
+# Seven finished sets from today at once, the flood a broken-into server
+# could send.  Fixed times keep them on one UTC day whenever this runs.
+today=$(date -u +%Y%m%d)
 flood=()
-for h in 1 2 3 4 5 6 7 8; do
-  s=$(stamp "-${h} minutes")
+for i in 1 2 3 4 5 6 7; do
+  s="${today}T00000${i}Z"
   flood+=("$s")
   mkdir "${incoming}/${s}"
   : >"${incoming}/${s}.done"
 done
+# A second set for a day already kept, more than a day old.
+late="${old:0:8}T235959Z"
+mkdir "${incoming}/${late}"
+: >"${incoming}/${late}.done"
 future=$(stamp '+3 days')
 mkdir "${incoming}/${future}"
 : >"${incoming}/${future}.done"
@@ -229,13 +237,20 @@ echo keep >"${target}/notes.txt"
 mkdir "${target}/20260801T023000Z.old" "${work}/target/20260101T000000Z"
 out=$(sh "$prune" "$target" 3)
 expect_eq "prune with a flood succeeds" 0 "$?"
-check "the flood moved in" bash -c "cd '${target}' && ls -d ${flood[*]}"
-check "the sets from the last 3 days stay, however many newer ones came" \
+check "only the first set of the flood moved in" test -d "${target}/${flood[0]}"
+waiting=$(for s in "${flood[@]:1}"; do printf '%s\n%s.done\n' "$s" "$s"; done)
+expect_eq "the rest of the flood waits in incoming; a stale unfinished set is dropped, a fresh one waits" \
+  "$(printf '%s\n%s\n' "$fresh" "$waiting" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')" "$(listing "$incoming")"
+check "a later set from a kept day is dropped once a day old" \
+  bash -c "test ! -e '${target}/${late}' && grep -q 'dropping ${late}: a set from that day is already kept' <<<'${out}'"
+check "the sets from the last 3 days stay" \
   bash -c "test -d '${target}/${old}' && test -d '${target}/${newest}'"
 check "sets older than 3 days with 3 newer ones are removed" \
   bash -c "test ! -e '${target}/$(stamp '-30 days')' && test ! -e '${target}/$(stamp '-10 days')'"
 check "a future-dated set is dropped" test ! -e "${target}/${future}"
-expect_eq "a stale unfinished set is dropped, a fresh one waits" "$fresh" "$(listing "$incoming")"
+sh "$prune" "$target" 3 >/dev/null
+check "a second run still adds none of the rest of the flood" \
+  bash -c "test -d '${incoming}/${flood[1]}' && test ! -e '${target}/${flood[1]}'"
 check "other names in the folder are untouched" \
   bash -c "test -f '${target}/notes.txt' && test -d '${target}/20260801T023000Z.old'"
 check "nothing outside the folder is touched" test -d "${work}/target/20260101T000000Z"
@@ -244,6 +259,34 @@ quiet="${work}/quiet"
 mkdir -p "${quiet}/incoming" "${quiet}/$(stamp '-40 days')" "${quiet}/$(stamp '-50 days')"
 sh "$prune" "$quiet" 3 >/dev/null
 expect_eq "fewer than KEEP sets: none is removed, however old" 2 "$(find "$quiet" -mindepth 1 -maxdepth 1 -name '2*' | wc -l)"
+# Junk from a broken-into server pushes out genuine copies only one day at
+# a time: they stay until KEEP newer sets have been accepted.
+burst="${work}/burst"
+g1=$(stamp '-5 days') g2=$(stamp '-4 days')
+mkdir -p "${burst}/incoming" "${burst}/${g1}" "${burst}/${g2}"
+junk() { # DAY-EXPRESSION COUNT -- COUNT finished sets dated on one day.
+  local day i
+  day=$(date -u -d "$1" +%Y%m%d)
+  for i in $(seq "$2"); do
+    mkdir "${burst}/incoming/${day}T00000${i}Z"
+    : >"${burst}/incoming/${day}T00000${i}Z.done"
+  done
+}
+kept() { find "$burst" -mindepth 1 -maxdepth 1 -name '2*' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
+junk now 7
+sh "$prune" "$burst" 3 >/dev/null
+expect_eq "a burst of 7 sets in one day: one is accepted, the genuine copies stay" \
+  "${g1} ${g2} ${today}T000001Z" "$(kept)"
+junk '-1 day' 3
+sh "$prune" "$burst" 3 >/dev/null
+expect_eq "a second day of junk: one more is accepted; only the copy with 3 newer sets goes" \
+  "${g2} $(date -u -d '-1 day' +%Y%m%d)T000001Z ${today}T000001Z" "$(kept)"
+expect_eq "the rest of the older burst is dropped from incoming" "" \
+  "$(find "${burst}/incoming" -name "$(date -u -d '-1 day' +%Y%m%d)T*" -printf x)"
+junk '-2 days' 1
+sh "$prune" "$burst" 3 >/dev/null
+expect_eq "with 3 newer sets accepted, the last genuine copy goes" \
+  "$(date -u -d '-2 days' +%Y%m%d)T000001Z $(date -u -d '-1 day' +%Y%m%d)T000001Z ${today}T000001Z" "$(kept)"
 
 echo "== failures"
 settings "${me}@127.0.0.1:${work}/target/missing"
