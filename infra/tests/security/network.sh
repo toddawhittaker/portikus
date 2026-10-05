@@ -46,9 +46,11 @@ net_control="1.1.1.1,443"
 # The site's name is no help here: this host may map it to the VM directly.
 net_lan_ip=$(sec_host_address)
 if [ "$SEC_MODE" = host ]; then
-  # Here the site's configured name is the real public address.
-  net_lan_ip=$(getent ahostsv4 "$SEC_PUBLIC_HOST" | awk '{ print $1; exit }')
-  echo "Public site ${SEC_PUBLIC_HOST} resolves to ${net_lan_ip:-(nothing)} port ${SEC_PUBLIC_PORT}"
+  # Here the site's configured name is the real public address, unless
+  # /etc/hosts pins it to loopback, as setup does.
+  net_site_answer=$(getent ahostsv4 "$SEC_PUBLIC_HOST" | awk '{ print $1; exit }')
+  net_lan_ip=$(sec_site_address_or "$net_lan_ip" "$net_site_answer")
+  echo "Public site ${SEC_PUBLIC_HOST} resolves to ${net_site_answer:-(nothing)} here; probing ${net_lan_ip:-(nothing)} port ${SEC_PUBLIC_PORT}"
 else
   echo "Public site through the host's LAN address: ${net_lan_ip:-(unknown)} port ${SEC_PUBLIC_PORT}"
 fi
@@ -151,7 +153,7 @@ fi
 
 # The public-site probe counts only if the site really answers there.
 if [ -z "$net_lan_ip" ] && [ "$SEC_MODE" = host ]; then
-  bad "the public site's name ${SEC_PUBLIC_HOST} resolves"
+  bad "the public site ${SEC_PUBLIC_HOST} has an address to probe"
 elif [ -z "$net_lan_ip" ]; then
   bad "the public site's name resolves to the host's LAN address"
 else

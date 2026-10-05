@@ -24,6 +24,20 @@ check_output "PUBLIC_URL with a port and quotes gives that port" "pilot.example.
 printf 'PORT=3000\n' >"$env_file"
 check_output "no PUBLIC_URL gives nothing" "" sec_public_url_parts "$env_file"
 check_output "a missing file gives nothing" "" sec_public_url_parts "${work}/absent"
+# api.env is root:portikus 0640, and the suite runs as an operator with sudo.
+if [ "$(id -u)" != 0 ]; then
+  printf 'PUBLIC_URL=https://hidden.example.org\n' >"$env_file"
+  chmod 000 "$env_file"
+  check_output "an unreadable api.env is read through sudo" "via-sudo.example.org 443" \
+    bash -c "$(declare -f sec_public_url_parts sec_read_root_file); sudo() { echo 'PUBLIC_URL=https://via-sudo.example.org'; }; sec_public_url_parts '$env_file'"
+  chmod 600 "$env_file"
+fi
+
+# The package pins the site's name to loopback in /etc/hosts, which is no
+# address a workspace can be tested against.
+check_output "a loopback answer gives way to this host's address" "203.0.113.10" sec_site_address_or 203.0.113.10 127.0.0.1
+check_output "a public answer is kept" "198.51.100.7" sec_site_address_or 203.0.113.10 198.51.100.7
+check_output "no answer gives this host's address" "203.0.113.10" sec_site_address_or 203.0.113.10 ""
 
 # sec_init in plain-host mode, with the host's route stubbed.
 ip() { echo "1.1.1.1 via 203.0.113.254 dev eth0 src 203.0.113.10 uid 0"; }
@@ -59,6 +73,12 @@ SEC_MODE=host
 check_output "plain-host sec_ssh runs the command locally" "local a b" sec_ssh "echo local" "a b"
 check_output "plain-host sec_ssh_stdin passes standard input" "from stdin" \
   bash -c "$(declare -f sec_ssh_stdin); SEC_MODE=host; echo 'from stdin' | sec_ssh_stdin cat"
+# The cleanup runs from an EXIT trap, where a bare return would report the
+# status of the command before the trap instead of the one just run.
+check_output "plain-host sec_ssh keeps a failure inside an EXIT trap" "1 1" \
+  bash -c "$(declare -f sec_ssh sec_ssh_stdin); SEC_MODE=host
+    t() { sec_ssh false; a=\$?; sec_ssh_stdin false </dev/null; echo \"\$a \$?\"; }
+    trap t EXIT; true"
 SEC_MODE=vm SEC_VM=10.100.0.120
 check_output "VM mode sec_ssh still goes over SSH" "ssh was called" sec_ssh true
 

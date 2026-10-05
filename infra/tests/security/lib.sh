@@ -97,12 +97,14 @@ sec_summary() {
 # command runs in a local shell just as ssh would hand it to the remote one.
 # -n keeps the remote command off this script's standard input.
 sec_ssh() {
-  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*" </dev/null; return; fi
+  # An explicit status: a bare return in the cleanup's EXIT trap reports the
+  # command before the trap.
+  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*" </dev/null; return $?; fi
   ssh -n "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 sec_ssh_stdin() {
-  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*"; return; fi
+  if [ "${SEC_MODE:-vm}" = host ]; then bash -c "$*"; return $?; fi
   ssh "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
@@ -134,11 +136,27 @@ sec_mode() {
   if [ "$1" = local ]; then echo host; else echo vm; fi
 }
 
+# sec_read_root_file FILE -- FILE's contents, through sudo when this user
+# cannot read it, as for root:portikus 0640 api.env; nothing when absent.
+sec_read_root_file() {
+  if [ -r "$1" ]; then cat "$1"; else sudo -n cat "$1" 2>/dev/null; fi
+}
+
+# sec_site_address_or FALLBACK ANSWER -- ANSWER, the site name's address,
+# unless it is empty or loopback: setup pins the name to 127.0.0.1 in
+# /etc/hosts, so then this host's own address FALLBACK stands in for it.
+sec_site_address_or() {
+  case "$2" in
+    "" | 127.*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$2" ;;
+  esac
+}
+
 # sec_public_url_parts ENV_FILE -- prints "host port" from the PUBLIC_URL line
 # the package writes to /etc/portikus/api.env, or nothing when it has none.
 sec_public_url_parts() {
   local url hostport
-  url=$(sed -n 's/^PUBLIC_URL=//p' "$1" 2>/dev/null | tail -1 | tr -d "\"'")
+  url=$(sec_read_root_file "$1" | sed -n 's/^PUBLIC_URL=//p' | tail -1 | tr -d "\"'")
   [[ "$url" == https://* ]] || return 0
   hostport="${url#https://}"
   hostport="${hostport%%/*}"
