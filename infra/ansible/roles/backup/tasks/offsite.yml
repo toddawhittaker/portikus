@@ -56,6 +56,8 @@
         state: present
 
     # Makes the key on the first run; the line confines it to write-only rsync.
+    # It runs under --check too, because the line to print needs the key;
+    # a new key file in /etc/portikus/backup-offsite is a harmless change.
     - name: Make the off-site copy's SSH key and its authorized_keys line
       ansible.builtin.command:
         cmd: /usr/lib/portikus/backup/portikus-backup-offsite public-key

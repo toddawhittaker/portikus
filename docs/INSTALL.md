@@ -434,6 +434,9 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   hosts through its egress proxy. Check delivery with **Admin**, then
   **Settings**, then **Send test alert**, or from the server with
   `sudo portikus alert warning "Test" "Sent from the server"`.
+  The alert that a service failed runs through the worker's bundled
+  Node and its environment files, so a broken worker install can also
+  stop that alert from being sent.
 - **Once the administrator exists, setup leaves the certificate alone.**
   A later setup run, an upgrade or `sudo dpkg-reconfigure portikus` never
   changes it, even if you give a different answer to the certificate
@@ -536,9 +539,14 @@ was not made with your key.
 complete set to another machine itself, every hour, with rsync over SSH
 (Secure Shell). It copies only a set whose MAC (a checksum made with
 your key) verifies, and it never sends the key. The server's key can
-only add files to the target, never read, change or delete them, so
-someone who breaks into the server cannot wipe the copies. The target
-removes old copies itself.
+only add files to the target, never read, change or delete them. The
+target removes old copies itself and accepts at most one set a day, so
+someone who breaks into the server cannot delete or replace the copies
+already there, and its new sets push out the genuine ones only a day at
+a time. Each copy already on the target survives until it is at least
+KEEP days old (the number given to the target's prune command below).
+Choose KEEP to cover how long a break-in could go unnoticed; 30 is a
+good start.
 
 On the target machine, which needs the `rsync` package (Debian 12 or
 later, or Ubuntu 24.04 or later, for its `rrsync` command), make an
@@ -576,13 +584,14 @@ example to `/usr/local/bin/`, and run it from the target account's
 crontab (`crontab -e` as that account):
 
 ```
-30 * * * * /usr/local/bin/portikus-offsite-prune /srv/portikus-sets 7
+30 * * * * /usr/local/bin/portikus-offsite-prune /srv/portikus-sets 30
 ```
 
-Each run moves every finished set from `incoming` into
-`/srv/portikus-sets`, never replacing a set already there, and removes
-a set only when it is more than 7 days old and 7 newer sets are there.
-Nothing else in the folder is touched. Watch a server run with
+Each run moves finished sets from `incoming` into `/srv/portikus-sets`,
+at most one a day (UTC): the first finished set of a day is kept, and a
+later one from the same day is dropped within a day. It never replaces
+a set already there, and removes a set only when it is more than 30
+days old and 30 newer sets are there. Nothing else in the folder is touched. Watch a server run with
 `sudo systemctl start portikus-backup-offsite.service` and `sudo
 journalctl -u portikus-backup-offsite.service`; a failed run sends an
 alert when alerts are set up. To turn it off, set
