@@ -1,0 +1,23 @@
+/*
+ * The Root shell tab fills the admin frame: the heading and banner on top,
+ * then the panes edge to edge, as the workspace's work area sits in its pane.
+ */
+.pk-rootshell {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+.pk-rootshell[hidden] {
+	display: none;
+}
+.pk-rootshell-head {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-6) var(--space-4) var(--space-4);
+}
+.pk-rootshell > .pk-work-area {
+	border-block-start: 1px solid var(--line);
+}
