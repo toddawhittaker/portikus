@@ -19,6 +19,8 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocket from "ws";
+import { HELPER_CLOSE_TIMEOUT_MS } from "../root-shell/pipe.js";
+import { SHUTDOWN_GRACE_MS } from "../shutdown.js";
 import {
 	FAKE_ROOT_PROMPT,
 	type FakeRootShell,
@@ -385,3 +387,26 @@ test.skipIf(skip)(
 		expect(response.statusCode).toBe(404);
 	},
 );
+
+test.skipIf(skip)(
+	"a browser that leaves during setup gets no shell, and the rows still pair up",
+	async () => {
+		const { port } = app.server.address() as AddressInfo;
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/admin/root-shell/ws`, {
+			headers: { origin: ORIGIN, cookie: carol.cookieHeader() },
+		});
+		ws.on("error", () => {});
+		// Gone the moment the upgrade answers, while the opened row is still being written.
+		ws.once("upgrade", () => ws.terminate());
+		await until(async () => (await auditRows("admin.root_shell_closed")).length === 1);
+		const [closed] = await auditRows("admin.root_shell_closed");
+		expect(closed?.metadata).toMatchObject({ reason: "client" });
+		expect(await auditRows("admin.root_shell_opened")).toHaveLength(1);
+		expect(terminalSockets.open(carolId)).toBe(0);
+		await until(() => fake.connections.every((one) => one.closed));
+	},
+);
+
+test("the helper's close timeout fits inside the shutdown grace period", () => {
+	expect(HELPER_CLOSE_TIMEOUT_MS).toBeLessThan(SHUTDOWN_GRACE_MS);
+});

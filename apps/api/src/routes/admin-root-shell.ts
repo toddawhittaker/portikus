@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Socket } from "node:net";
 import type { WebSocket } from "@fastify/websocket";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -126,11 +127,29 @@ export function registerAdminRootShellRoutes(
 				}
 			}
 
+			/** The browser left during setup: no shell, but the opened row still gets its closed row. */
+			function abandon(helper: Socket | null): void {
+				helper?.destroy();
+				terminalSockets.release(admin.id);
+				track(recordClosed("client"));
+				socket.resume();
+			}
+
+			if (socket.readyState !== socket.OPEN) {
+				abandon(null);
+				return;
+			}
+
 			track(alertIfOn(request, admin.displayName));
 
+			let helper: Socket | null = null;
 			let pipe: RootShellPipe;
 			try {
-				const helper = await connectRootShellHelper(config.ROOT_SHELL_SOCKET);
+				helper = await connectRootShellHelper(config.ROOT_SHELL_SOCKET);
+				if (socket.readyState !== socket.OPEN) {
+					abandon(helper);
+					return;
+				}
 				helper.write(
 					encodeJsonFrame(FrameType.OPEN, {
 						shellId,
@@ -150,6 +169,8 @@ export function registerAdminRootShellRoutes(
 					log: request.log,
 				});
 			} catch (error) {
+				// A throw after connecting must not leave the helper socket open.
+				helper?.destroy();
 				terminalSockets.release(admin.id);
 				request.log.error({ err: error, shellId }, "root shell helper unavailable");
 				socket.close(CloseCode.SERVER_ERROR, "root shell unavailable");

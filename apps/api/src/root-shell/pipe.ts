@@ -23,8 +23,11 @@ export const SESSION_CHECK_INTERVAL_MS = 1000;
  */
 export const MAX_FAILED_CHECKS = 60;
 
-/** How long the helper gets to close its end after the API closes its own. */
-const HELPER_CLOSE_TIMEOUT_MS = 5000;
+/**
+ * How long the helper gets to close its end after the API closes its own;
+ * below SHUTDOWN_GRACE_MS, so a stopping API still writes each closed row.
+ */
+export const HELPER_CLOSE_TIMEOUT_MS = 3000;
 
 /** A helper error code is a fixed word; anything else stays out of the log. */
 const HELPER_CODE = /^[a-z_]{1,64}$/;
