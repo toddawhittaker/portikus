@@ -117,16 +117,19 @@ contents, journal lines from the helper, and a banner.
    it. The workspace terminal re-check ignores role, so the root-shell
    pipe adds that check. If the re-check cannot run because the
    database fails, the shell ends after about 60 consecutive failed
-   checks; do database maintenance inside tmux.
+   checks. That is not a revocation: the API drops input, closes the
+   helper connection without an `end` frame, so the shell is only hung
+   up, and closes the browser socket with `close(1011)`. A tmux the
+   administrator started survives, so do database maintenance inside
+   tmux.
 
    On revocation the API drops all further browser input at once,
    closes the helper connection, and closes the browser socket with
    `close(4401)`, as the workspace terminals do, so the web client hears
    the session-ended code. Dropping input first matters because the
    WebSocket close handshake can take 30 seconds and keeps delivering
-   input meanwhile. When the reason is `session_ended` (revocation: sign-out, role loss,
-   a disabled account, the 12-hour limit, or the failed database
-   re-check), the API sends an `end` frame before closing the helper
+   input meanwhile. On revocation (sign-out, role loss,
+   a disabled account, or the 12-hour limit), the API sends an `end` frame before closing the helper
    connection. On `end`, and only then, the helper ends that shell's
    logind session, found from its record. Every other close only hangs
    up (SIGHUP), so an administrator's own tmux survives an ordinary pane

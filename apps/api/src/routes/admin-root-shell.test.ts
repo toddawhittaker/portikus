@@ -266,14 +266,15 @@ test.skipIf(skip)("with the open alert off, no administrator is notified", async
 });
 
 test.skipIf(skip)(
-	"with the open alert on, every administrator gets a warning naming the opener",
+	"with the open alert on, each open warns every administrator, naming the opener and the shell",
 	async () => {
 		writeFileSync(
 			notifyFile,
 			JSON.stringify({ ...NOTIFY_FILE_OFF, rootShellOpenedAlert: true }),
 		);
-		const shell = await openShell(carol);
-		await until(async () => (await notices()).length > 0);
+		const first = await openShell(carol);
+		const second = await openShell(carol);
+		await until(async () => (await notices()).length > 1);
 		const name = (
 			await testDb.db
 				.selectFrom("users")
@@ -281,8 +282,22 @@ test.skipIf(skip)(
 				.where("id", "=", carolId)
 				.executeTakeFirstOrThrow()
 		).display_name;
-		expect(await notices()).toEqual([`warning: Root shell opened by ${name}`]);
-		shell.ws.close();
+		const opened = await testDb.db
+			.selectFrom("audit_events")
+			.select("target")
+			.where("action", "=", "admin.root_shell_opened")
+			.execute();
+		// Distinct titles, so the worker's flood control and grouping send each one out.
+		expect((await notices()).sort()).toEqual(
+			opened
+				.map(
+					(row) =>
+						`warning: Root shell opened by ${name} (shell ${row.target.slice(0, 8)})`,
+				)
+				.sort(),
+		);
+		first.ws.close();
+		second.ws.close();
 	},
 );
 
