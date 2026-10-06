@@ -1,14 +1,18 @@
+import { DEFAULT_NOTIFY_FILE } from "@portikus/config";
 import {
-	alertChannelsFromConfig,
+	type AlertChannels,
 	anyAlertChannel,
+	errorMessage,
+	readAlertChannels,
 	sendAlert,
 } from "@portikus/observability";
 
 /**
  * `portikus alert` and `portikus alert-failed` (STACK.md section 15): one
- * alert to every channel in the worker's environment, through its outbound
+ * alert to every channel in notify.json, through the worker's outbound
  * proxy, with the same bodies the worker sends. Exit 0 when every channel
- * took it or none is set, 1 when one failed, 2 for a usage error.
+ * took it or none is set, 1 when one failed or the settings cannot be read,
+ * 2 for a usage error.
  */
 export async function runAlertCommand(
 	args: readonly string[],
@@ -23,14 +27,16 @@ export async function runAlertCommand(
 		print("usage: alert-main.js warning|danger TITLE TEXT");
 		return 2;
 	}
-	const channels = alertChannelsFromConfig({
-		ALERT_PUSHOVER_USER_KEY: env.ALERT_PUSHOVER_USER_KEY ?? "",
-		ALERT_PUSHOVER_APP_TOKEN: env.ALERT_PUSHOVER_APP_TOKEN ?? "",
-		ALERT_WEBHOOK_URL: env.ALERT_WEBHOOK_URL ?? "",
-		OUTBOUND_PROXY_URL: env.OUTBOUND_PROXY_URL || undefined,
-	});
+	const path = env.NOTIFY_FILE || DEFAULT_NOTIFY_FILE;
+	let channels: AlertChannels;
+	try {
+		channels = await readAlertChannels(path, env.OUTBOUND_PROXY_URL || undefined);
+	} catch (e) {
+		printError(`portikus: ${errorMessage(e)}; nothing sent`);
+		return 1;
+	}
 	if (!anyAlertChannel(channels)) {
-		print("portikus: no alert channel is set in alerts.env; nothing sent");
+		print(`portikus: no alert channel is set in ${path}; nothing sent`);
 		return 0;
 	}
 	const results = await sendAlert(

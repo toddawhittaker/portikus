@@ -6,6 +6,17 @@ import { z } from "zod";
  * validates the same rules independently before writing the file.
  */
 
+// Labels of at most 63 characters, as the root alerts job checks (ADR 0052).
+const HOST_NAME_RE =
+	/^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+/** A host name the egress proxy may list: labels only, never an address. */
+function isHostName(value: string): boolean {
+	return HOST_NAME_RE.test(value) && !/^[0-9]+$/.test(value.split(".").at(-1) ?? "");
+}
+
+const HostName = z.string().max(253).refine(isHostName, "must be a host name");
+
 // The egress proxy opens only port 443 for alert hosts (ADR 0052).
 const AlertUrl = z
 	.string()
@@ -15,20 +26,27 @@ const AlertUrl = z
 		try {
 			const parsed = new URL(url);
 			return (
-				parsed.protocol === "https:" && parsed.port === "" && parsed.username === ""
+				parsed.protocol === "https:" &&
+				parsed.port === "" &&
+				parsed.username === "" &&
+				parsed.password === "" &&
+				isHostName(parsed.hostname)
 			);
 		} catch {
 			return false;
 		}
-	}, "must be an https URL on the default port");
+	}, "must be an https URL with a host name on the default port");
 
-const HostName = z
-	.string()
-	.max(253)
-	.regex(
-		/^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/,
-		"must be a host name",
-	);
+// The root job refuses control characters in text it writes (ADR 0052).
+const PlainText = (max: number) =>
+	z
+		.string()
+		.max(max)
+		.refine(
+			(value) =>
+				[...value].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f),
+			"must not hold control characters",
+		);
 
 // Pushover keys are 30 letters and digits; the check only keeps quotes and spaces out.
 const PushoverKey = z.string().regex(/^[A-Za-z0-9]{1,100}$/);
@@ -43,9 +61,9 @@ export const NotifySmtp = z
 		/** 587 is STARTTLS and 465 implicit TLS; TLS is required on both (ADR 0052). */
 		port: z.union([z.literal(587), z.literal(465)]),
 		/** Empty means the server takes mail without signing in. */
-		username: z.string().max(200),
+		username: PlainText(200),
 		password: Secret,
-		from: z.string().min(1).max(200),
+		from: PlainText(200).refine((value) => value.length > 0, "is required"),
 	})
 	.strict();
 export type NotifySmtp = z.infer<typeof NotifySmtp>;
@@ -193,3 +211,67 @@ export function notificationSettingsView(file: NotifyFile): NotificationSettings
 		rootShellOpenedAlert: file.rootShellOpenedAlert,
 	};
 }
+
+// ---- The root alerts job: request and status files (ADR 0052) ----
+
+export const NotifyJobId = z.string().uuid();
+
+/** The job's fixed codes; never a server's or a validator's own text. */
+export const NotifyJobCode = z.enum([
+	"invalid_request",
+	"invalid_smtp",
+	"invalid_email",
+	"invalid_pushover",
+	"invalid_webhook",
+	"invalid_ntfy",
+	"invalid_teams",
+	"email_needs_smtp",
+	"missing_secret",
+	"proxy_config_rejected",
+	"proxy_reload_failed",
+	"write_failed",
+]);
+export type NotifyJobCode = z.infer<typeof NotifyJobCode>;
+
+/** What the API writes as `request-<id>.json`, mode 0600. */
+export interface NotifyJobRequestFile {
+	id: string;
+	requestedAt: string;
+	requestedBy: string;
+	settings: NotificationSettingsUpdate;
+}
+
+/** `<id>/status.json`, written by the job; it never holds a secret. */
+export const NotifyJobStatusFile = z.object({
+	id: NotifyJobId,
+	state: z.enum(["running", "succeeded", "refused", "failed"]),
+	code: NotifyJobCode.nullable(),
+	channels: z.array(z.string()),
+	hosts: z.array(z.string()),
+	requestedAt: z.string().nullable(),
+	requestedBy: z.string().nullable(),
+	startedAt: z.string().nullable(),
+	finishedAt: z.string().nullable(),
+});
+export type NotifyJobStatusFile = z.infer<typeof NotifyJobStatusFile>;
+
+/** A job as the page sees it; "queued" means its request file is still waiting. */
+export const NotifyJobView = z.object({
+	id: NotifyJobId,
+	state: z.enum(["queued", "running", "succeeded", "refused", "failed"]),
+	code: NotifyJobCode.nullable(),
+	channels: z.array(z.string()),
+	hosts: z.array(z.string()),
+	requestedAt: z.string().nullable(),
+	startedAt: z.string().nullable(),
+	finishedAt: z.string().nullable(),
+});
+export type NotifyJobView = z.infer<typeof NotifyJobView>;
+
+/** `GET /admin/notifications`. */
+export const AdminNotifications = z.object({
+	settings: NotificationSettingsView,
+	/** The waiting or running job, else the one started last; null before the first save. */
+	job: NotifyJobView.nullable(),
+});
+export type AdminNotifications = z.infer<typeof AdminNotifications>;

@@ -1,10 +1,6 @@
 import { loadConfig, WorkerConfigSchema } from "@portikus/config";
 import { createDb, type Database } from "@portikus/db";
-import {
-	alertChannelsFromConfig,
-	createLogger,
-	errorMessage,
-} from "@portikus/observability";
+import { createLogger, errorMessage, readAlertChannels } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
 import { startAlertSources } from "./alert-sources.js";
@@ -99,7 +95,12 @@ async function main(): Promise<void> {
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
 	startAlertSources({ db, logger });
-	startAlertForwarding({ db, logger, channels: alertChannelsFromConfig(config) });
+	startAlertForwarding({
+		db,
+		logger,
+		loadChannels: () =>
+			readAlertChannels(config.NOTIFY_FILE, config.OUTBOUND_PROXY_URL),
+	});
 	startTerminalPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
 	startBackupVmLoop({ db, controller, logger });

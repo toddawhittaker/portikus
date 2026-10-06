@@ -13,10 +13,10 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
 	type Alert,
 	type AlertChannels,
-	alertChannelsFromConfig,
 	alertChannelsFromNotifyFile,
 	anyAlertChannel,
 	type MailTransportFactory,
+	readAlertChannels,
 	readNotifyFile,
 	sendAlert,
 	sendEmail,
@@ -184,16 +184,6 @@ describe("senders", () => {
 		expect(proxy.got[0]?.type).toBe("application/x-www-form-urlencoded");
 		expect(new URLSearchParams(proxy.got[0]?.body).get("token")).toBe("t");
 		expect(JSON.parse(proxy.got[1]?.body ?? "")).toEqual(webhookBody(alert, "s"));
-	});
-
-	test("the proxy URL comes from OUTBOUND_PROXY_URL", () => {
-		const channels = alertChannelsFromConfig({
-			ALERT_PUSHOVER_USER_KEY: "",
-			ALERT_PUSHOVER_APP_TOKEN: "",
-			ALERT_WEBHOOK_URL: "",
-			OUTBOUND_PROXY_URL: "http://127.0.0.1:3128",
-		});
-		expect(channels.proxyUrl).toBe("http://127.0.0.1:3128");
 	});
 });
 
@@ -523,6 +513,15 @@ describe("the settings file", () => {
 			teamsUrl: "https://teams.example.com/workflows/x",
 			proxyUrl: "http://127.0.0.1:3128",
 		});
+	});
+
+	test("readAlertChannels reads the file at each call, with the proxy", async () => {
+		const path = await write(JSON.stringify(NOTIFY_FILE_OFF));
+		expect(anyAlertChannel(await readAlertChannels(path))).toBe(false);
+		await writeFile(path, JSON.stringify(full));
+		const channels = await readAlertChannels(path, "http://127.0.0.1:3128");
+		expect(channels.webhookUrl).toBe("https://hooks.example.com/services/T0");
+		expect(channels.proxyUrl).toBe("http://127.0.0.1:3128");
 	});
 
 	test("a missing rootShellOpenedAlert reads as false", async () => {
