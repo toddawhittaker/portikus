@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "@fastify/websocket";
@@ -90,6 +91,7 @@ const db = {} as Kysely<Database>;
 let fake: FakeRootShell;
 let browser: FakeBrowser;
 let pipe: RootShellPipe;
+let helper: Socket;
 
 async function until(found: () => boolean): Promise<void> {
 	for (let i = 0; i < 200 && !found(); i += 1) {
@@ -104,7 +106,7 @@ beforeEach(async () => {
 	const dir = mkdtempSync(join(tmpdir(), "portikus-root-shell-"));
 	fake = await startFakeRootShell(join(dir, "helper.sock"));
 	vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval", "Date"] });
-	const helper = await connectRootShellHelper(fake.socketPath);
+	helper = await connectRootShellHelper(fake.socketPath);
 	helper.write(
 		encodeJsonFrame(FrameType.OPEN, {
 			shellId: "00000000-0000-4000-8000-000000000002",
@@ -238,8 +240,34 @@ test("a failing database ends the shell only after about a minute of failed chec
 	expect(browser.closeCode).toBeNull();
 	await vi.advanceTimersByTimeAsync(SESSION_CHECK_INTERVAL_MS);
 	await until(() => browser.closeCode !== null);
-	expect(browser.closeCode).toBe(CloseCode.SESSION_ENDED);
+	// Only a hang-up: no end frame, so a tmux running pg_upgrade survives.
+	expect(browser.closeCode).toBe(CloseCode.SERVER_ERROR);
+	browser.type("after\r");
 	expect(await pipe.done).toBe("session_ended");
+	expect(fake.connections[0]?.endReason).toBeNull();
+	expect(fake.connections[0]?.frames).toEqual([]);
+});
+
+test("revocation resumes a helper paused by a lagging browser before sending end", async () => {
+	browser.bufferedAmount = 10 * 1024 * 1024;
+	browser.type("x");
+	await until(() => browser.output().endsWith("x"));
+	expect(helper.isPaused()).toBe(true);
+	// Whether the helper socket is still paused when the end frame goes out.
+	const pausedAtWrite: boolean[] = [];
+	const write = helper.write.bind(helper);
+	helper.write = ((...args: Parameters<Socket["write"]>) => {
+		pausedAtWrite.push(helper.isPaused());
+		return write(...args);
+	}) as Socket["write"];
+	auth.loadSession.mockResolvedValue(null);
+	vi.advanceTimersByTime(SESSION_CHECK_INTERVAL_MS + 10);
+	await until(() => browser.closeCode !== null);
+	expect(browser.closeCode).toBe(CloseCode.SESSION_ENDED);
+	expect(pausedAtWrite).toEqual([false]);
+	// Well inside HELPER_CLOSE_TIMEOUT_MS: the paused socket was resumed, not destroyed.
+	const late = new Promise((resolve) => setTimeout(() => resolve("late"), 1000));
+	expect(await Promise.race([pipe.done, late])).toBe("session_ended");
 	expect(fake.connections[0]?.endReason).toBe("session_ended");
 });
 
