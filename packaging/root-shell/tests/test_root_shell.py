@@ -307,7 +307,7 @@ class RelayTest(unittest.TestCase):
         # login's vhangup() leaves the terminal with no open end for a moment.
         gap = "exec 0<&- 1>&- 2>&-; sleep 0.5; exec 0<>/dev/tty 1>&0 2>&0\n" if "gap" in name else ""
         # A shell busy with a command, reading nothing typed.
-        busy = "sleep 5\n" if "busy" in name else ""
+        busy = "sleep 30\n" if "busy" in name else ""
         # The session outlives the shell, as when the administrator's tmux runs in it.
         self.logind = FakeLogind(self.dir, {"c9": "remote"} if "lives" in name else {})
         # Prints its size, then echoes lines; records a hang-up in a file.
@@ -439,12 +439,13 @@ class RelayTest(unittest.TestCase):
         frame = line * (64000 // len(line))
         for _ in range(6):
             self.send(rs.INPUT, frame)
-        started = time.monotonic()
         self.send(rs.END, b'{"reason":"session_ended"}')
+        deadline = time.monotonic() + 3
+        while "terminate-session c9" not in " ".join(self.logind.calls()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertIn("terminate-session c9", " ".join(self.logind.calls()), "end waited for the busy shell")
         self.wait_helper()
-        self.assertLess(time.monotonic() - started, 4, "end waited for the busy shell")
         self.assertRegex(self.journal(), r"\(session_ended, session not found\)")
-        self.assertIn("terminate-session c9", " ".join(self.logind.calls()))
         time.sleep(0.5)
         self.assertFalse(Path(self.dir, "ran").exists(), "queued input ran after end")
 
@@ -456,7 +457,8 @@ class RelayTest(unittest.TestCase):
         started = time.monotonic()
         self.client.shutdown(socket.SHUT_RDWR)
         self.wait_helper()
-        self.assertLess(time.monotonic() - started, 4)
+        # Hang-up and its grace periods, well short of the busy shell's 30 seconds.
+        self.assertLess(time.monotonic() - started, 2 * rs.HANGUP_GRACE + 3)
         self.assertRegex(self.journal(), r"closed shell .*\(client\)")
 
     def test_repeated_shell_id_is_refused_before_login_starts(self):
