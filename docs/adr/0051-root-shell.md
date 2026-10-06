@@ -32,7 +32,10 @@ contents, journal lines from the helper, and a banner.
    what a closed pane left running there, such as tmux, is still found.
    Setup ends every recorded session that still exists and whose PAM
    service is `remote`, and forgets the rest, so a process id the kernel
-   has reused for another sign-in is never ended. Each closing helper
+   has reused for another sign-in is never ended. Ending a session also
+   kills every process left in its scope (`loginctl kill-session`):
+   once `login` has exited, logind abandons the scope and
+   `terminate-session` alone leaves a tmux server there running. Each closing helper
    also forgets the records of sessions that have ended. The journal
    lines carry the process id and the session. The package's `prerm`
    script also stops the socket and its instances. An upgrade turns the

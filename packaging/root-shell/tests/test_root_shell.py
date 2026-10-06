@@ -63,7 +63,7 @@ class FakeLogind:
         verb, session = argv[1], argv[2]
         if verb == "show-session" and argv[3:] == ["-P", "Service"] and session in live:
             return subprocess.CompletedProcess(argv, 0, live[session] + "\n")
-        if verb == "terminate-session" and session in live:
+        if verb in ("terminate-session", "kill-session") and session in live:
             del live[session]
             self.save(live)
             return subprocess.CompletedProcess(argv, 0, "")
@@ -235,6 +235,8 @@ class EndSessionsTest(unittest.TestCase):
         self.record(7, "")
         Path(self.run_dir, "not-a-shell").write_text("10 c4\n")
         self.assertEqual(rs.end_sessions(self.run_dir, self.proc, logind), 2)
+        self.assertEqual([c for c in logind.calls() if "kill-session" in c],
+                         ["loginctl kill-session c4 --signal=SIGKILL", "loginctl kill-session c7 --signal=SIGKILL"])
         self.assertEqual([c for c in logind.calls() if "terminate-session" in c],
                          ["loginctl terminate-session c4", "loginctl terminate-session c7"])
         self.assertEqual(logind.live(), {"c5": "login", "8": "remote"})

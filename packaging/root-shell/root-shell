@@ -277,8 +277,13 @@ def is_login(pid, proc="/proc"):
 
 
 def terminate_session(session, run=subprocess.run):
-    return run(["loginctl", "terminate-session", session],
-               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    """Ends the session and every process left in its scope."""
+    quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    ended = run(["loginctl", "terminate-session", session], **quiet).returncode == 0
+    # Once login has exited, logind abandons the scope and terminate-session no longer
+    # stops it, so a tmux server left there would live on.
+    run(["loginctl", "kill-session", session, "--signal=SIGKILL"], **quiet)
+    return ended
 
 
 def session_service(session, run=subprocess.run):

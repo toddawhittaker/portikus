@@ -424,7 +424,7 @@ edge_open=0
 while IFS= read -r m; do
   case "${m}" in
     /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
-      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
+      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset | /admin/root-shell/ws) ;;
     *)
       bad "the route '${m}' proxies to the API and could cover /edge"
       edge_open=1
@@ -484,11 +484,19 @@ has "the global options keep Caddy's internal authority, so its root exists what
 echo ""
 echo "--- Reloads keep WebSockets open ---"
 
-count_is "the API's WebSocket proxy and the preview proxies delay closing streams on a reload" 2 \
+count_is "the API's WebSocket proxies and the preview proxies delay closing streams on a reload" 3 \
   '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
 awk '/^\thandle \/workspaces\* \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/workspaces-block"
 has "the /workspaces proxy, which carries every API WebSocket, has the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${work}/workspaces-block"
+awk '/^\thandle @root_shell_ws \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/root-shell-block"
+has "the root-shell proxy has the delay, so a reload does not end a shell" \
+  '^[[:space:]]+stream_close_delay 1h$' "${work}/root-shell-block"
+if [ "$(awk '/^\thandle @root_shell_ws \{$/ { print NR }' "${app}")" -lt "$(awk '/^\thandle @api \{$/ { print NR }' "${app}")" ]; then
+  ok "the root-shell handle comes ahead of @api, which would take it"
+else
+  bad "the root-shell handle comes ahead of @api, which would take it"
+fi
 has "the preview proxies' shared rules have the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${preview}"
 
