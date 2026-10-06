@@ -391,6 +391,7 @@ def run(argv, timeout=60):
 
 # ---- Files ----
 
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
 def write_at(dir_fd, name, data, mode, uid, gid, own):
     """Write name inside dir_fd atomically (temporary file, then rename), never following a link."""
     temp = f".{name}.tmp"
@@ -434,6 +435,7 @@ def remove_at(dir_fd, name):
         shutil.rmtree(name, dir_fd=dir_fd)
     else:
         os.unlink(name, dir_fd=dir_fd)
+# jscpd:ignore-end
 
 
 def open_dir(path):
