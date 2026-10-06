@@ -27,8 +27,7 @@ trap cleanup EXIT
 mkdir -p "${work}/bin"
 cli="${work}/portikus"
 main="${REPO_ROOT}/apps/worker/dist/alert-main.js"
-sed -e "s|^ALERTS_ENV=.*|ALERTS_ENV=${work}/alerts.env|" \
-  -e "s|^WORKER_ENV=.*|WORKER_ENV=${work}/worker.env|" \
+sed -e "s|^WORKER_ENV=.*|WORKER_ENV=${work}/worker.env|" \
   -e "s|^WORKER_OVERRIDE_ENV=.*|WORKER_OVERRIDE_ENV=${work}/worker.override.env|" \
   -e "s|^ALERT_STAMPS=.*|ALERT_STAMPS=${work}/stamps|" \
   -e "s|^NODE=.*|NODE=$(command -v node || echo node)|" \
@@ -84,8 +83,8 @@ echo
 title='Backup "nightly" failed'
 run alert warning "${title}" "Two words"
 expect_eq "it runs the worker's sender as the worker, with the worker's settings and the group that reads notify.json" \
-  "--wait --pipe --quiet --collect --uid=portikus-worker -p SupplementaryGroups=portikus-notify -p EnvironmentFile=${work}/worker.env -p EnvironmentFile=-${work}/alerts.env -p EnvironmentFile=-${work}/worker.override.env" \
-  "$(head -n 13 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
+  "--wait --pipe --quiet --collect --uid=portikus-worker -p SupplementaryGroups=portikus-notify -p EnvironmentFile=${work}/worker.env -p EnvironmentFile=-${work}/worker.override.env" \
+  "$(head -n 11 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
 expect_eq "with the tone, title and text as three arguments" \
   "${main} warning ${title} Two words" "$(tail -n 4 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
 check "and no secret on a command line, only file names" bash -c "! grep -q ALERT_ '${work}/systemd-run.args'"
@@ -119,16 +118,16 @@ echo
 if [ ! -f "${main}" ] || ! command -v node >/dev/null; then
   echo "SKIP  the end-to-end check needs node and ${main}; run pnpm build first"
 else
-  # Records each request as one JSON line; a path holding "fail" gets a 500.
+  # A fake egress proxy: records each tunnel request as one line and refuses
+  # it, as Squid refuses a host it does not list.
   cat >"${work}/fake.py" <<'EOF'
-import http.server, json, sys
+import http.server, sys
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+    def do_CONNECT(self):
         with open(sys.argv[1], "a") as log:
-            log.write(json.dumps({"path": self.path, "body": body}) + "\n")
-        self.send_response(500 if "fail" in self.path else 200)
+            log.write(self.path + "\n")
+        self.send_response(403)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -144,20 +143,23 @@ EOF
   server=$!
   for _ in $(seq 50); do [ -s "${work}/port" ] && break; sleep 0.1; done
   fake="http://127.0.0.1:$(cat "${work}/port")"
-  # The proxy comes from worker.env and the channel from alerts.env, as systemd loads them.
-  printf 'NODE_ENV=production\nOUTBOUND_PROXY_URL=%s\n' "${fake}" >"${work}/worker.env"
-  printf 'ALERT_PUSHOVER_USER_KEY=\nALERT_PUSHOVER_APP_TOKEN=\nALERT_WEBHOOK_URL=http://hooks.example.invalid/services/T0\n' >"${work}/alerts.env"
+  # The proxy comes from worker.env and the channel from notify.json (ADR
+  # 0052).  The worker's own tests check the bodies.
+  printf 'NODE_ENV=production\nOUTBOUND_PROXY_URL=%s\nNOTIFY_FILE=%s\n' "${fake}" "${work}/notify.json" >"${work}/worker.env"
   run alert danger "${title}" "It restarts by itself."
-  expect_eq "the alert exits 0" 0 "$?"
-  check "and says the webhook alert was sent" grep -q 'webhook alert was sent' "${work}/out"
-  expect_eq "the request reaches the proxy for the webhook's host" \
-    "http://hooks.example.invalid/services/T0" \
-    "$(python3 -c 'import json, sys; print(json.loads(open(sys.argv[1]).readline())["path"])' "${work}/requests.log")"
-  expect_eq "with the worker's body" "danger|${title}|${site}" \
-    "$(python3 -c 'import json, sys; b = json.loads(json.loads(open(sys.argv[1]).readline())["body"]); print("|".join([b["tone"], b["title"], b["site"]]))' "${work}/requests.log")"
-  printf 'ALERT_WEBHOOK_URL=http://hooks.example.invalid/fail\n' >"${work}/alerts.env"
+  expect_eq "with no notify.json the alert exits 0" 0 "$?"
+  check "and says nothing was sent" grep -q 'nothing sent' "${work}/out"
+  printf '{"version":1,"smtp":null,"alerts":{"email":null,"pushover":null,"webhook":{"url":"https://hooks.example.invalid/services/T0"},"ntfy":null,"teams":null}}\n' >"${work}/notify.json"
+  run alert danger "${title}" "It restarts by itself."
+  expect_eq "a refused webhook makes it fail" 1 "$?"
+  check "and says the webhook alert could not be sent" grep -q 'webhook alert could not be sent' "${work}/out"
+  expect_eq "the request reached the proxy for the webhook's host from notify.json" \
+    "hooks.example.invalid:443" "$(head -n 1 "${work}/requests.log")"
+  check "and no secret path reached the proxy" bash -c "! grep -q services '${work}/requests.log'"
+  printf '{"version":1' >"${work}/notify.json"
   run alert warning "Title" "Text"
-  expect_eq "a webhook answering 500 makes it fail" 1 "$?"
+  expect_eq "a broken notify.json makes it fail" 1 "$?"
+  check "and names the file" grep -q "${work}/notify.json" "${work}/out"
 fi
 
 echo

@@ -1,8 +1,17 @@
 import { z } from "zod";
 
+export const AlertChannelKind = z.enum([
+	"pushover",
+	"webhook",
+	"email",
+	"ntfy",
+	"teams",
+]);
+export type AlertChannelKind = z.infer<typeof AlertChannelKind>;
+
 /** What `POST /admin/alerts/test` reports for each configured channel (STACK.md section 15). */
 export const AlertChannelResult = z.object({
-	channel: z.enum(["pushover", "webhook", "email", "ntfy", "teams"]),
+	channel: AlertChannelKind,
 	ok: z.boolean(),
 	error: z.string().optional(),
 });
@@ -13,3 +22,9 @@ export const TestAlertResponse = z.object({
 	results: z.array(AlertChannelResult),
 });
 export type TestAlertResponse = z.infer<typeof TestAlertResponse>;
+
+/** `POST /admin/alerts/test`: one channel, or every configured one when left out. */
+export const TestAlertRequest = z
+	.object({ channel: AlertChannelKind.optional() })
+	.strict();
+export type TestAlertRequest = z.infer<typeof TestAlertRequest>;

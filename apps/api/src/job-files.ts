@@ -1,4 +1,12 @@
-import { open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+	open,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import type { ZodType } from "zod";
 
@@ -80,5 +88,17 @@ export async function writeRequestFile(
 	} catch (e) {
 		await rm(temp, { force: true });
 		throw e;
+	}
+}
+
+/**
+ * Remove temp request files a crash left behind; they may hold secrets.
+ * Call it under the route's write lock, so no write of ours is in flight.
+ */
+export async function sweepTempRequests(dir: string): Promise<void> {
+	for (const name of await listDir(dir)) {
+		if (name.startsWith(".request-") && name.endsWith(".tmp")) {
+			await unlink(join(dir, name)).catch(() => {});
+		}
 	}
 }

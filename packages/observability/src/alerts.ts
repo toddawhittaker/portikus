@@ -58,21 +58,6 @@ export const PUSHOVER_MESSAGES_URL = "https://api.pushover.net/1/messages.json";
 
 const SEND_TIMEOUT_MS = 10_000;
 
-/** The channel settings from a parsed service config. */
-export function alertChannelsFromConfig(config: {
-	ALERT_PUSHOVER_USER_KEY: string;
-	ALERT_PUSHOVER_APP_TOKEN: string;
-	ALERT_WEBHOOK_URL: string;
-	OUTBOUND_PROXY_URL?: string;
-}): AlertChannels {
-	return {
-		pushoverUserKey: config.ALERT_PUSHOVER_USER_KEY,
-		pushoverAppToken: config.ALERT_PUSHOVER_APP_TOKEN,
-		webhookUrl: config.ALERT_WEBHOOK_URL,
-		proxyUrl: config.OUTBOUND_PROXY_URL,
-	};
-}
-
 /**
  * The settings file (ADR 0052). A missing file reads as everything off; any
  * other failure names only the path, since the contents may hold secrets.
@@ -117,6 +102,14 @@ export function alertChannelsFromNotifyFile(
 		teamsUrl: alerts.teams?.url ?? "",
 		proxyUrl,
 	};
+}
+
+/** The channels in the settings file at `path`, read now, so a change needs no restart (ADR 0052). */
+export async function readAlertChannels(
+	path: string,
+	proxyUrl?: string,
+): Promise<AlertChannels> {
+	return alertChannelsFromNotifyFile(await readNotifyFile(path), proxyUrl);
 }
 
 export function pushoverConfigured(channels: AlertChannels): boolean {

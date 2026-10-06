@@ -1,10 +1,9 @@
 ---
 # The administrator alert settings with no VM (STACK.md section 15): which
-# values setup accepts, alerts.env as
-# rendered, and the units that read it or report a failure through
-# portikus-alert@.service.  `make infra-check` runs it; the rehearsal VM
+# values setup accepts, that alerts.env is gone (ADR 0052), and the units
+# that report a failure through portikus-alert@.service.  `make infra-check` runs it; the rehearsal VM
 # sends real alerts.
-- name: Check the alert settings, alerts.env and the units
+- name: Check the alert settings and the units
   hosts: localhost
   connection: local
   gather_facts: false
@@ -58,40 +57,6 @@
         loop_var: alerts_case
         label: "{{ alerts_case.name }}"
 
-    - name: Render alerts.env with every channel set
-      ansible.builtin.set_fact:
-        alerts_env: "{{ lookup('ansible.builtin.template', '../ansible/roles/portikus/templates/alerts.env.j2') }}"
-      vars:
-        portikus_alert_pushover_user_key: "{{ alerts_test_key }}"
-        portikus_alert_pushover_app_token: "{{ alerts_test_token }}"
-        portikus_alert_webhook_url: "https://alerts.example.edu/hook?team=ops&x=1"
-
-    - name: Check alerts.env carries each setting under the name packages/config reads
-      ansible.builtin.assert:
-        that:
-          - alerts_env_lines | select('match', '^[A-Z_]+=') | list
-            == ['ALERT_PUSHOVER_USER_KEY=' ~ alerts_test_key,
-                'ALERT_PUSHOVER_APP_TOKEN=' ~ alerts_test_token,
-                'ALERT_WEBHOOK_URL=https://alerts.example.edu/hook?team=ops&x=1']
-          - alerts_env_lines | reject('match', '^([A-Z_]+=|#)') | list == []
-        fail_msg: "{{ alerts_env }}"
-      vars:
-        alerts_env_lines: "{{ alerts_env.splitlines() }}"
-
-    - name: Render alerts.env with nothing set
-      ansible.builtin.set_fact:
-        alerts_env_empty: "{{ lookup('ansible.builtin.template', '../ansible/roles/portikus/templates/alerts.env.j2') }}"
-      vars:
-        portikus_alert_pushover_user_key: ""
-        portikus_alert_pushover_app_token: ""
-        portikus_alert_webhook_url: ""
-
-    - name: Check every channel is empty, which is off
-      ansible.builtin.assert:
-        that:
-          - alerts_env_empty.splitlines() | select('match', '^[A-Z_]+=') | list
-            == ['ALERT_PUSHOVER_USER_KEY=', 'ALERT_PUSHOVER_APP_TOKEN=', 'ALERT_WEBHOOK_URL=']
-
     - name: Read the units and the play
       ansible.builtin.set_fact:
         alerts_api_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-api.service').splitlines() }}"
@@ -101,6 +66,7 @@
         alerts_template_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-alert@.service').splitlines() }}"
         alerts_nfpm: "{{ lookup('ansible.builtin.file', '../../packaging/nfpm.yaml') | from_yaml }}"
         alerts_main_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/portikus/tasks/main.yml') | from_yaml }}"
+        alerts_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/portikus/tasks/alerts.yml') | from_yaml }}"
         alerts_postgresql_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/postgresql/tasks/main.yml') | from_yaml }}"
         alerts_caddy_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/caddy/tasks/main.yml') | from_yaml }}"
         alerts_site: "{{ lookup('ansible.builtin.file', '../ansible/site.yml') }}"
@@ -108,14 +74,12 @@
         alerts_postinst: "{{ lookup('ansible.builtin.file', '../../packaging/scripts/postinst') }}"
         alerts_prerm: "{{ lookup('ansible.builtin.file', '../../packaging/scripts/prerm') }}"
 
-    # Later EnvironmentFile= lines win, so an operator's override comes last.
-    - name: Check the API and the worker read alerts.env, before their overrides, and alert when they fail
+    # The services read notify.json at each send (ADR 0052).
+    - name: Check the API and the worker no longer read alerts.env, and alert when they fail
       ansible.builtin.assert:
         that:
           - "'OnFailure=portikus-alert@%n.service' in item.unit"
-          - "'EnvironmentFile=-/etc/portikus/alerts.env' in item.unit"
-          - item.unit.index('EnvironmentFile=-/etc/portikus/alerts.env')
-            < item.unit.index('EnvironmentFile=-/etc/portikus/' ~ item.name ~ '.override.env')
+          - item.unit | select('search', 'alerts[.]env') | list == []
           - item.unit.index('OnFailure=portikus-alert@%n.service') < item.unit.index('[Service]')
       loop:
         - { name: api, unit: "{{ alerts_api_unit }}" }
@@ -145,19 +109,19 @@
           - alerts_nfpm.contents | selectattr('dst', 'equalto', '/usr/lib/systemd/system/portikus-alert@.service')
             | map(attribute='src') | list == ['./packaging/systemd/portikus-alert@.service']
 
-    - name: Check alerts.env is written root:portikus 0640 without being logged
+    - name: Check setup no longer writes alerts.env, removes it after seeding, and portikus alert does not read it
       ansible.builtin.assert:
         that:
-          - alerts_task | length == 1
-          - alerts_task[0]['ansible.builtin.template'].dest == '/etc/portikus/alerts.env'
-          - alerts_task[0]['ansible.builtin.template'].owner == 'root'
-          - alerts_task[0]['ansible.builtin.template'].group == 'portikus'
-          - alerts_task[0]['ansible.builtin.template'].mode == '0640'
-          - alerts_task[0].no_log
-          - alerts_task[0].notify == ['Restart portikus-api', 'Restart portikus-worker']
+          - alerts_main_tasks | selectattr('name', 'equalto', 'Deploy the alert channels file') | list == []
+          - alerts_remove | length == 1
+          - alerts_remove[0]['ansible.builtin.file'].path == '/etc/portikus/alerts.env'
+          - alerts_remove[0]['ansible.builtin.file'].state == 'absent'
+          - (alerts_tasks | map(attribute='name') | list).index(alerts_remove[0].name)
+            > (alerts_tasks | map(attribute='name') | list).index('Create notify.json if it is missing, from secrets.yaml or alerts.env')
+          - alerts_cli is not search('alerts[.]env')
       vars:
-        alerts_task: >-
-          {{ alerts_main_tasks | selectattr('name', 'equalto', 'Deploy the alert channels file') | list }}
+        alerts_remove: >-
+          {{ alerts_tasks | selectattr('name', 'equalto', 'Remove the old alerts.env once notify.json is seeded') | list }}
 
     - name: Check PostgreSQL and Caddy alert when they fail, with only a reload
       ansible.builtin.assert:

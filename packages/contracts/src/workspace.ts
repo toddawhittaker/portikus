@@ -325,6 +325,8 @@ export const ApiErrorCode = z.enum([
 	"CERTIFICATE_UPLOAD_REFUSED",
 	"CERTIFICATE_PREFLIGHT_FAILED",
 	"CERTIFICATE_SECRET_REQUIRED",
+	// Notification settings (ADR 0052).
+	"NOTIFY_JOB_BUSY",
 	// Shared Docker pull storage.
 	"SEED_JOB_RUNNING",
 	"SEED_LIST_EMPTY",

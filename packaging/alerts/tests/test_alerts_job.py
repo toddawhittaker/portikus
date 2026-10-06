@@ -579,7 +579,8 @@ class Contracts(unittest.TestCase):
 
     def test_the_api_reads_the_file_the_job_writes(self):
         config = (REPO / "packages/config/src/index.ts").read_text()
-        self.assertIn(f'.default("{aj.NOTIFY_FILE}")', config.split("NOTIFY_FILE:", 1)[1].split("),", 1)[0] + ")")
+        self.assertIn(f'export const DEFAULT_NOTIFY_FILE = "{aj.NOTIFY_FILE}";', config)
+        self.assertIn(".default(DEFAULT_NOTIFY_FILE)", config.split("NOTIFY_FILE:", 1)[1].split("),", 1)[0] + ")")
 
     def test_the_units_and_setup_agree(self):
         path_unit = (REPO / "packaging/systemd/portikus-alerts-job.path").read_text()

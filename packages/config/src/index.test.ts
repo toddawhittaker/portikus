@@ -753,15 +753,21 @@ test("IMAGE_JOBS_DIR is off when unset and must be an absolute path", () => {
 	).toThrow(ConfigError);
 });
 
-test("alert channels default to off and a webhook must be a URL", () => {
+test("the API and the worker read alert settings from notify.json, an absolute path (ADR 0052)", () => {
 	const base = { DATABASE_URL: "postgres://localhost/portikus" };
-	const config = loadConfig(WorkerConfigSchema, base);
-	expect(config.ALERT_PUSHOVER_USER_KEY).toBe("");
-	expect(config.ALERT_PUSHOVER_APP_TOKEN).toBe("");
-	expect(config.ALERT_WEBHOOK_URL).toBe("");
+	expect(loadConfig(WorkerConfigSchema, base).NOTIFY_FILE).toBe(
+		"/etc/portikus/notify.json",
+	);
+	expect(loadConfig(ApiConfigSchema, base).NOTIFY_FILE).toBe(
+		"/etc/portikus/notify.json",
+	);
 	expect(() =>
-		loadConfig(ApiConfigSchema, { ...base, ALERT_WEBHOOK_URL: "not a url" }),
-	).toThrow(/ALERT_WEBHOOK_URL/);
+		loadConfig(WorkerConfigSchema, { ...base, NOTIFY_FILE: "notify.json" }),
+	).toThrow(/NOTIFY_FILE/);
+	expect(loadConfig(ApiConfigSchema, base).ALERTS_JOBS_DIR).toBeUndefined();
+	expect(() =>
+		loadConfig(ApiConfigSchema, { ...base, ALERTS_JOBS_DIR: "alerts-jobs" }),
+	).toThrow(/ALERTS_JOBS_DIR/);
 });
 
 // The worker unit reaches nothing outside but the egress proxy (ADR 0027).
