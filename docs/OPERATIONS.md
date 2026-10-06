@@ -1696,6 +1696,76 @@ replaced, after fixing what broke them, or set up a new certificate. Any
 secrets the old settings used are kept with them, so Roll back does not
 ask for them again.
 
+## The root shell
+
+The admin page's **Root shell** tab (`/admin/shell`) gives any signed-in
+administrator a root shell on the server, in split panes (ADR 0051). It
+is on by default, and an upgrade turns it on for an existing site.
+
+- **Turning it off.** Set `portikus_root_shell: false` in
+  `/etc/portikus/portikus.yaml` and run `sudo portikus setup`. Setup
+  disables `portikus-root-shell.socket`, ends every recorded root-shell
+  session, tmux left behind closed panes included, and hides the tab.
+  A tmux pane that ignores SIGHUP, or anything started with
+  `systemd-run`, can outlive it; check with `loginctl list-sessions`.
+- **How it runs.** The API never runs as root. Each pane connects to
+  `/run/portikus-root-shell.sock`, which starts one
+  `portikus-root-shell@.service` helper. The helper runs
+  `login -f root -h <address>`, so each shell is a PAM sign-in session
+  like SSH: it shows in `who`, `last` and `loginctl`, and PAM logs it.
+  Setup installs `/etc/pam.d/remote` when it is missing, and tmux.
+- **Records.** The audit rows `admin.root_shell_opened` and
+  `admin.root_shell_closed` hold the shell id, address, user agent,
+  duration and close reason. The helper's journal lines
+  (`journalctl -u 'portikus-root-shell@*'`) hold the shell id,
+  administrator id, address, process id and duration. Nothing typed or
+  shown is recorded anywhere. If the API crashes, an opened row has no
+  closed row, and the journal line is the record. An optional alert on
+  each open is the "Alert when a root shell opens" box under
+  Settings, Notifications.
+- **When a shell ends.**
+  - Closing a pane, reloading the page or leaving the admin area hangs
+    the shell up (SIGHUP). A tmux you started keeps running.
+  - Sign-out, losing the administrator role, a disabled account or the
+    12-hour provider-role limit end the shell's whole session with
+    SIGKILL and no grace period, tmux included. The close reason is
+    `session_ended`.
+  - A database outage of about 60 seconds hangs up root shells but does
+    not end their session, so tmux survives. The close reason is
+    `database_lost`.
+  - Anything that restarts the API (an upgrade, `systemctl restart
+    portikus-api`) ends every root shell. The close reason is
+    `api_stopped`. A Caddy reload does not.
+- **Run upgrades inside tmux.** `apt upgrade portikus` typed straight
+  into a root shell would cut dpkg off when the API restarts. Start
+  `tmux` first, and do database maintenance inside it too. Reattach with
+  `tmux attach` from a new pane.
+- **Typing.** Keys typed before the prompt appears are lost. Input over
+  256 KiB queued while the shell is busy, such as a huge paste, is
+  dropped, and the shell shows a notice saying so.
+- **Limits.** Root shells count toward the 60 terminal connections per
+  person, and the socket takes at most 64 connections at once.
+
+## Alert settings
+
+Alert channels are set on the admin page, Settings, Notifications, and
+kept in `/etc/portikus/notify.json` (root:portikus-notify, 0640). The
+API and worker read it at each send, so changes need no restart and
+alerts still go out when PostgreSQL is down. A root job,
+`portikus-alerts-job.path`, applies each change: it checks the
+settings, writes the file, and writes the alert hosts into
+`/etc/portikus/egress-proxy.d/alerts.conf` for Squid. Its status is on
+the page.
+
+- Setup fills the file only when it is missing, from the
+  `portikus_alert_*` keys in `secrets.yaml` or an old `alerts.env`. An
+  upgrade does the same before the services restart, and warns, without
+  failing, when the old settings are refused, such as a webhook not on
+  port 443. After that the page owns the file.
+- A malformed `notify.json` does not break the page. It shows every
+  channel as off, with a notice, and the next save replaces the file.
+- Backups carry `notify.json`.
+
 ## Logs
 
 The platform never logs secrets, prompts, source code or terminal bytes

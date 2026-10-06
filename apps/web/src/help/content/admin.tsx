@@ -4,7 +4,8 @@ import type { HelpPart } from "./part.js";
  * Running the site, the administrator help. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
  * admin-logs, admin-audit, admin-network, admin-backups, admin-image,
- * admin-certificate, admin-docker, admin-settings.
+ * admin-certificate, admin-docker, admin-settings, admin-notifications,
+ * admin-shell.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -352,6 +353,54 @@ export const ADMIN_HELP: HelpPart = {
 					asks everyone, you included, to accept it before they continue. Most rules can
 					be changed for one workspace from its panel on <strong>Users</strong>.
 				</p>
+			),
+		},
+		{
+			id: "admin-notifications",
+			title: "Alerts",
+			body: (
+				<>
+					<p>
+						The <strong>Notifications</strong> section of <strong>Settings</strong>{" "}
+						sends warnings and failures that need a person, and a Portikus service
+						stopping, to email, Pushover, ntfy, Microsoft Teams or a webhook. The
+						webhook also works for Slack, Mattermost, Google Chat and Discord. Email
+						needs an SMTP server on port 587 or 465 and a list of recipients. Every
+						other address must be an <code className="pk-mono-body">https://</code>{" "}
+						address on port 443.
+					</p>
+					<p>
+						Passwords, tokens and secret addresses are never shown again: each field
+						says whether one is set, and leaving it blank keeps it. Changing a host
+						clears the secret that went with it. Every change is audited and every
+						administrator gets a notice. After saving, use each channel's{" "}
+						<strong>Send test</strong> button to check it.{" "}
+						<strong>Alert when a root shell opens</strong> is off unless you turn it on.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-shell",
+			title: "Root shell",
+			body: (
+				<>
+					<p>
+						The <strong>Root shell</strong> tab opens a root shell on the server, in
+						panes you can split and drag like workspace terminals. Nothing you type or
+						see is recorded; opening and closing each shell is audited. Closing a pane,
+						reloading the page or leaving the admin area ends its shell. Signing out,
+						losing the administrator role or a disabled account ends every shell at
+						once, including programs it left running.
+					</p>
+					<p>
+						Restarting Portikus ends every root shell, so run{" "}
+						<code className="pk-mono-body">apt upgrade</code> and other long jobs inside{" "}
+						<code className="pk-mono-body">tmux</code>, which keeps running after the
+						pane closes. The server's operator can turn root shells off; then this tab
+						is hidden.
+					</p>
+				</>
 			),
 		},
 		{
