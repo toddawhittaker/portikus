@@ -315,6 +315,7 @@ class Requests(Host):
         self.request(update_from(full_settings()))
         self.assertEqual(self.run_pending(), 0)
         self.assertEqual(self.notify(), full_settings())
+        self.assertEqual(list(self.notify()["alerts"]), list(aj.KINDS))
         self.assertEqual(stat.S_IMODE(os.stat(self.path(aj.NOTIFY_FILE)).st_mode), 0o640)
         self.assertEqual(os.listdir(self.path(aj.JOBS_DIR)), [JOB])
         status = self.job_status()

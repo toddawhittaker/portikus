@@ -244,7 +244,7 @@ def validate_alerts(alerts):
         _keys(ntfy, ["url", "token"], code="invalid_ntfy")
         ntfy = {"url": check_url(ntfy["url"], "invalid_ntfy"), "token": _secret(ntfy["token"], "invalid_ntfy")}
     out["ntfy"] = ntfy
-    return out
+    return {kind: out[kind] for kind in KINDS}
 
 
 def validate_file(doc):
@@ -381,8 +381,11 @@ def run(argv, timeout=60):
     except OSError:
         return 127
     if done.returncode != 0 and done.stderr:
-        # Squid's parse errors name a line of the configuration, never a secret: it holds none.
-        journal(f"{argv[0]}: {done.stderr.strip()[-500:]}")
+        # Squid's configuration holds no secret, so its own error lines may be shown.
+        lines = done.stderr.strip().splitlines()
+        errors = [line for line in lines if any(word in line for word in ("FATAL", "ERROR", "Bungled"))]
+        for line in (errors or lines)[-3:]:
+            journal(f"{argv[0]}: {line[:300]}")
     return done.returncode
 
 
