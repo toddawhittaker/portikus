@@ -261,8 +261,8 @@ if [ ! -e "$NOTIFY" ] && [ -f /etc/portikus/alerts.env ] && [ -x "$ALERTS_JOB" ]
 
 Warning: alerts are off until this is fixed. The alert settings in
 /etc/portikus/alerts.env were refused ($seed_log).
-A webhook must now be an https URL on port 443. Correct or remove
-portikus_alert_webhook_url in /etc/portikus/secrets.yaml, then run:
+A webhook must now be an https URL on port 443. Correct or remove the
+webhook URL in /etc/portikus/secrets.yaml, then run:
   sudo portikus setup
 
 EOF
