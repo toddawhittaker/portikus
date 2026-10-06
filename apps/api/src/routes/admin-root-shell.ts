@@ -41,13 +41,18 @@ export function registerAdminRootShellRoutes(
 	);
 
 	/** The optional alert on open (ADR 0051 decision 7); a failure never blocks the shell. */
-	async function alertIfOn(request: FastifyRequest, name: string): Promise<void> {
+	async function alertIfOn(
+		request: FastifyRequest,
+		name: string,
+		shellId: string,
+	): Promise<void> {
 		try {
 			const settings = await readNotifyFile(config.NOTIFY_FILE);
 			if (!settings.rootShellOpenedAlert) return;
 			await notifyAdministrators(db, {
 				tone: "warning",
-				title: `Root shell opened by ${name}`,
+				// The shell id keeps the worker's flood control and grouping from hiding a second open.
+				title: `Root shell opened by ${name} (shell ${shellId.slice(0, 8)})`,
 				body: "An administrator opened a root shell on the server from the admin page.",
 			});
 		} catch (error) {
@@ -140,7 +145,7 @@ export function registerAdminRootShellRoutes(
 				return;
 			}
 
-			track(alertIfOn(request, admin.displayName));
+			track(alertIfOn(request, admin.displayName, shellId));
 
 			let helper: Socket | null = null;
 			let pipe: RootShellPipe;

@@ -282,3 +282,25 @@ export type AdminNotifications = z.infer<typeof AdminNotifications>;
  * the page says it did not finish.
  */
 export const NOTIFY_JOB_STALE_MS = 5 * 60_000;
+
+type JobTimes = Pick<NotifyJobView, "state" | "startedAt" | "requestedAt">;
+
+/**
+ * When an unfinished job counts as dead: NOTIFY_JOB_STALE_MS after it
+ * started running, or else after it was queued. Null for a finished job;
+ * NaN when the time is unknown, which never goes stale.
+ */
+export function notifyJobStaleAt(job: JobTimes | null | undefined): number | null {
+	if (job?.state !== "queued" && job?.state !== "running") return null;
+	const since = job.state === "running" ? job.startedAt : job.requestedAt;
+	return since ? Date.parse(since) + NOTIFY_JOB_STALE_MS : Number.NaN;
+}
+
+/** Queued or running, and not yet stale: a save waits for it. */
+export function isNotifyJobActive(
+	job: JobTimes | null | undefined,
+	now: number = Date.now(),
+): boolean {
+	const at = notifyJobStaleAt(job);
+	return at !== null && (Number.isNaN(at) || now < at);
+}

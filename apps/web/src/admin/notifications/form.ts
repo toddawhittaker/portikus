@@ -1,11 +1,12 @@
 import {
 	type AlertChannelKind,
+	isNotifyJobActive,
 	MAX_ALERT_EMAIL_RECIPIENTS,
-	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	type NotifyJobCode,
 	type NotifyJobView,
+	notifyJobStaleAt,
 	NotificationSettingsUpdate as UpdateSchema,
 } from "@portikus/contracts";
 
@@ -328,32 +329,15 @@ export const CODE_TEXT: Record<NotifyJobCode, string> = {
 		"The server could not write the settings file. Nothing changed. Look for portikus-alerts-job in the server's journal.",
 };
 
-/**
- * When an unfinished job counts as dead, as the API decides it: from the
- * time it started running, or else the time it was queued. Null for a
- * finished job; NaN when the time is unknown, which never goes stale.
- */
-export function staleAt(job: NotifyJobView | null | undefined): number | null {
-	if (job?.state !== "queued" && job?.state !== "running") return null;
-	const since = job.state === "running" ? job.startedAt : job.requestedAt;
-	return since ? Date.parse(since) + NOTIFY_JOB_STALE_MS : Number.NaN;
-}
-
-/** Queued or running, and not yet stale: a save waits for it. */
-export function isActive(
-	job: NotifyJobView | null | undefined,
-	now: number = Date.now(),
-): boolean {
-	const at = staleAt(job);
-	return at !== null && (Number.isNaN(at) || now < at);
-}
+// One rule for the page and the API.
+export { isNotifyJobActive as isActive, notifyJobStaleAt as staleAt };
 
 /** Queued or running for longer than any job takes: it will not finish. */
 export function isStale(
 	job: NotifyJobView | null | undefined,
 	now: number = Date.now(),
 ): boolean {
-	return staleAt(job) !== null && !isActive(job, now);
+	return notifyJobStaleAt(job) !== null && !isNotifyJobActive(job, now);
 }
 
 export const STALE_TEXT =

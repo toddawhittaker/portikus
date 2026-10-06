@@ -346,12 +346,24 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			for (const res of [
 				await call("GET", "/admin/notifications"),
 				await call("POST", "/admin/alerts/test"),
-				await call("PUT", "/admin/notifications", webhookOnly),
 			]) {
 				expect(res.statusCode).toBe(500);
 				expectNoSecret(res.body);
 			}
 			expect(await readdir(jobsDir)).toEqual([]);
+			// A save still goes through, read as if everything were off, so it repairs the file.
+			const put = await call("PUT", "/admin/notifications", webhookOnly);
+			expect(put.statusCode).toBe(202);
+			expectNoSecret(put.body);
+			const [row] = await testDb.db
+				.selectFrom("audit_events")
+				.select("metadata")
+				.where("action", "=", "settings.notifications_updated")
+				.execute();
+			expect(row?.metadata).toMatchObject({
+				changed: ["webhook", "rootShellOpenedAlert"],
+			});
+			expect(tunnels).toEqual([]);
 		} finally {
 			await app.close();
 		}
@@ -428,7 +440,15 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			expect(audit[0]?.actor).toMatch(/^user:/);
 			expect(audit[0]?.metadata).toEqual({
 				job: queued.id,
-				changed: ["smtp", "email", "pushover", "webhook", "ntfy", "teams"],
+				changed: [
+					"smtp",
+					"email",
+					"pushover",
+					"webhook",
+					"ntfy",
+					"teams",
+					"rootShellOpenedAlert",
+				],
 				channels: ["webhook"],
 				hosts: ["hooks.example.org"],
 				rootShellOpenedAlert: true,
@@ -447,6 +467,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 					`^Notification settings change requested by .* \\(job ${queued.id.slice(0, 8)}\\)$`,
 				),
 			);
+			expect(notices[0]?.body).toContain("Root-shell alert: on.");
 			expectNoSecret(JSON.stringify(notices));
 			// The outside alert went through the channels in force before the change.
 			await expect.poll(() => tunnels).toContain("hooks.example.com:443");
@@ -473,8 +494,15 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				.select("metadata")
 				.where("action", "=", "settings.notifications_updated")
 				.execute();
+			const [notice] = await testDb.db
+				.selectFrom("notifications")
+				.select("body")
+				.execute();
+			expect(notice?.body).toBe(
+				"Changed: rootShellOpenedAlert. Alert hosts: none. Root-shell alert: on.",
+			);
 			expect(row?.metadata).toMatchObject({
-				changed: [],
+				changed: ["rootShellOpenedAlert"],
 				channels: [],
 				rootShellOpenedAlert: true,
 				rootShellOpenedAlertChanged: true,
@@ -528,6 +556,73 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				(await call("GET", "/admin/notifications")).json(),
 			);
 			expect(view.job).toMatchObject({ state: "refused", code: "missing_secret" });
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("the change notice goes straight only to channels the change turns off or re-targets", async () => {
+		await writeFile(notifyFile, JSON.stringify(stored));
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			// Everything kept as it is but ntfy, which is turned off.
+			const ntfyOff: NotificationSettingsUpdate = {
+				smtp: {
+					...(stored.smtp as NonNullable<NotifyFile["smtp"]>),
+					password: undefined,
+				},
+				alerts: {
+					email: stored.alerts.email,
+					pushover: {},
+					webhook: {},
+					ntfy: null,
+					teams: {},
+				},
+				rootShellOpenedAlert: false,
+			};
+			expect((await call("PUT", "/admin/notifications", ntfyOff)).statusCode).toBe(202);
+			await expect.poll(() => tunnels).toContain("ntfy.sh:443");
+			// The unchanged channels hear of it once, from the worker, not here too.
+			await new Promise((r) => setTimeout(r, 200));
+			expect(tunnels).toEqual(["ntfy.sh:443"]);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("a save that turns no channel off or re-targets none sends nothing straight", async () => {
+		await writeFile(notifyFile, JSON.stringify(stored));
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			const onlyRootShell: NotificationSettingsUpdate = {
+				smtp: {
+					...(stored.smtp as NonNullable<NotifyFile["smtp"]>),
+					password: undefined,
+				},
+				alerts: {
+					email: stored.alerts.email,
+					pushover: {},
+					webhook: {},
+					ntfy: {},
+					teams: {},
+				},
+				rootShellOpenedAlert: true,
+			};
+			expect(
+				(await call("PUT", "/admin/notifications", onlyRootShell)).statusCode,
+			).toBe(202);
+			await new Promise((r) => setTimeout(r, 200));
+			expect(tunnels).toEqual([]);
+			// The worker still forwards the notice to every channel on afterwards.
+			const notices = await testDb.db
+				.selectFrom("notifications")
+				.select("title")
+				.execute();
+			expect(notices.length).toBeGreaterThan(0);
 		} finally {
 			await app.close();
 		}

@@ -3,6 +3,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminNotifications,
 	type AlertChannelKind,
+	NOTIFY_FILE_OFF,
 	NotificationSettingsUpdate,
 	type NotifyJobRequestFile,
 	notificationSettingsView,
@@ -13,6 +14,7 @@ import { notifyAdministrators, recordAudit } from "@portikus/db";
 import {
 	type AlertChannels,
 	alertChannelsFromNotifyFile,
+	errorMessage,
 	readNotifyFile,
 	sendAlert,
 } from "@portikus/observability";
@@ -20,6 +22,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import {
 	allJobs,
 	changeSummary,
+	channelsLeaving,
 	isActive,
 	latestJob,
 	queuedView,
@@ -33,16 +36,18 @@ const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A notification settings change is already waiting or running.";
 const UNREADABLE_MESSAGE = "The notification settings file cannot be read.";
 
-/** Only `kind` of `channels`, or all of them when no kind is named. */
-function onlyChannel(channels: AlertChannels, kind?: AlertChannelKind): AlertChannels {
-	if (!kind) return channels;
+/** Only the named kinds of `channels`. */
+function onlyChannels(
+	channels: AlertChannels,
+	kinds: AlertChannelKind[],
+): AlertChannels {
 	return {
-		pushoverUserKey: kind === "pushover" ? channels.pushoverUserKey : "",
-		pushoverAppToken: kind === "pushover" ? channels.pushoverAppToken : "",
-		webhookUrl: kind === "webhook" ? channels.webhookUrl : "",
-		email: kind === "email" ? channels.email : null,
-		ntfy: kind === "ntfy" ? channels.ntfy : null,
-		teamsUrl: kind === "teams" ? channels.teamsUrl : "",
+		pushoverUserKey: kinds.includes("pushover") ? channels.pushoverUserKey : "",
+		pushoverAppToken: kinds.includes("pushover") ? channels.pushoverAppToken : "",
+		webhookUrl: kinds.includes("webhook") ? channels.webhookUrl : "",
+		email: kinds.includes("email") ? channels.email : null,
+		ntfy: kinds.includes("ntfy") ? channels.ntfy : null,
+		teamsUrl: kinds.includes("teams") ? channels.teamsUrl : "",
 		proxyUrl: channels.proxyUrl,
 	};
 }
@@ -63,25 +68,19 @@ export function registerAdminAlertRoutes(
 	// One API process: this closes the gap between checking and writing.
 	let writing = false;
 
-	function off(reply: FastifyReply): boolean {
-		if (jobsDir) return false;
-		sendError(reply, 404, "NOT_FOUND", "Not found.");
-		return true;
-	}
-
 	/** The file now, or null after answering 500; the error names only the path. */
 	async function readSettings(reply: FastifyReply) {
 		try {
 			return await readNotifyFile(config.NOTIFY_FILE);
 		} catch (e) {
-			logger.error({ error: (e as Error).message }, "notification settings unreadable");
+			logger.error({ error: errorMessage(e) }, "notification settings unreadable");
 			sendNoStoreError(reply, 500, "INTERNAL", UNREADABLE_MESSAGE);
 			return null;
 		}
 	}
 
 	app.get("/admin/notifications", adminOnly, async (_request, reply) => {
-		if (off(reply) || !jobsDir) return;
+		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const file = await readSettings(reply);
 		if (!file) return;
 		const out: AdminNotifications = {
@@ -92,7 +91,7 @@ export function registerAdminAlertRoutes(
 	});
 
 	app.put("/admin/notifications", adminOnly, async (request, reply) => {
-		if (off(reply) || !jobsDir) return;
+		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const admin = requireUser(request);
 		const body = NotificationSettingsUpdate.safeParse(request.body ?? {});
 		if (!body.success) {
@@ -112,8 +111,14 @@ export function registerAdminAlertRoutes(
 			if (jobs.some((j) => isActive(j))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
-			const current = await readSettings(reply);
-			if (!current) return;
+			// A broken file must not block the save that repairs it.
+			const current = await readNotifyFile(config.NOTIFY_FILE).catch((e) => {
+				logger.error(
+					{ error: errorMessage(e) },
+					"notification settings unreadable; saving over them",
+				);
+				return NOTIFY_FILE_OFF;
+			});
 			const id = randomUUID();
 			const requestedAt = new Date().toISOString();
 			const summary = changeSummary(notificationSettingsView(current), body.data);
@@ -127,21 +132,32 @@ export function registerAdminAlertRoutes(
 			await recordAudit(db, { ...audit, result: "requested" });
 			const notice = {
 				title: `Notification settings change requested by ${admin.displayName} (job ${id.slice(0, 8)})`,
-				text: `Changed: ${summary.changed.join(", ") || "nothing"}. Alert hosts: ${summary.hosts.join(", ") || "none"}.`,
+				text: `Changed: ${summary.changed.join(", ") || "nothing"}. Alert hosts: ${summary.hosts.join(", ") || "none"}. Root-shell alert: ${summary.rootShellOpenedAlert ? "on" : "off"}.`,
 			};
-			// Through the channels in force now, so a change that swaps them
-			// still reaches the old ones (ADR 0052). Best effort: it never holds up the save.
-			void sendAlert(alertChannelsFromNotifyFile(current, config.OUTBOUND_PROXY_URL), {
-				...notice,
-				tone: "warning",
-				at: new Date(),
-			})
-				.then((results) => {
-					for (const r of results)
-						if (!r.ok)
-							logger.warn({ channel: r.channel }, "change alert could not be sent");
-				})
-				.catch(() => logger.warn("change alert could not be sent"));
+			// Straight to the old target of each channel this change turns off or
+			// re-targets, so it still hears of the change; the worker reaches every
+			// channel on afterwards (ADR 0052). Best effort: it never holds up the save.
+			const leaving = channelsLeaving(summary);
+			if (leaving.length > 0) {
+				void sendAlert(
+					onlyChannels(
+						alertChannelsFromNotifyFile(current, config.OUTBOUND_PROXY_URL),
+						leaving,
+					),
+					{ ...notice, tone: "warning", at: new Date() },
+				)
+					.then((results) => {
+						for (const r of results)
+							if (!r.ok)
+								logger.warn(
+									{ channel: r.channel, error: r.error },
+									"change alert could not be sent",
+								);
+					})
+					.catch((e) =>
+						logger.warn({ error: errorMessage(e) }, "change alert could not be sent"),
+					);
+			}
 			const file: NotifyJobRequestFile = {
 				id,
 				requestedAt,
@@ -184,10 +200,8 @@ export function registerAdminAlertRoutes(
 			}
 			const file = await readSettings(reply);
 			if (!file) return;
-			const channels = onlyChannel(
-				alertChannelsFromNotifyFile(file, config.OUTBOUND_PROXY_URL),
-				body.data.channel,
-			);
+			const all = alertChannelsFromNotifyFile(file, config.OUTBOUND_PROXY_URL);
+			const channels = body.data.channel ? onlyChannels(all, [body.data.channel]) : all;
 			const results = await sendAlert(channels, {
 				title: "Test alert from Portikus",
 				text: "An administrator sent this from the admin page to check alert delivery.",
