@@ -14,6 +14,7 @@ import {
 } from "./ChannelFields.js";
 import {
 	type ClearWarnings,
+	FIELD_ID,
 	type FormErrors,
 	initialForm,
 	isActive,
@@ -99,6 +100,8 @@ function NotificationsForm({
 	const [warned, setWarned] = useState<ClearWarnings>({ smtp: false, ntfy: false });
 	const [announcement, setAnnouncement] = useState("");
 	const focusError = useRef(false);
+	// The warnings Save has already stopped for once; a second Save goes ahead.
+	const heeded = useRef<ClearWarnings>({ smtp: false, ntfy: false });
 	const busy = isActive(job);
 
 	// New settings in force after a save: start the form from them. Each poll
@@ -110,6 +113,8 @@ function NotificationsForm({
 		setFormState(initialForm(view));
 		setErrors({});
 		setWarned({ smtp: false, ntfy: false });
+		setAnnouncement("");
+		heeded.current = { smtp: false, ntfy: false };
 	}
 
 	useEffect(() => {
@@ -128,7 +133,7 @@ function NotificationsForm({
 	 * Work out the "stored secret will be cleared" warnings when a field that
 	 * causes one is left, not on each key press, and read out each one that is new.
 	 */
-	function checkWarnings(next: NotifyForm = form) {
+	function checkWarnings(next: NotifyForm = form): ClearWarnings {
 		const now = {
 			smtp: smtpPasswordCleared(next, view),
 			ntfy: ntfyTokenCleared(next, view),
@@ -137,8 +142,13 @@ function NotificationsForm({
 			now.smtp && !warned.smtp ? SMTP_PASSWORD_WARNING : null,
 			now.ntfy && !warned.ntfy ? ntfyTokenWarning(view) : null,
 		].filter((line): line is string => line !== null);
+		// A warning that went away is cleared, so the same text is read out again if it returns.
+		if ((warned.smtp && !now.smtp) || (warned.ntfy && !now.ntfy)) setAnnouncement("");
+		if (!now.smtp) heeded.current.smtp = false;
+		if (!now.ntfy) heeded.current.ntfy = false;
 		setWarned(now);
 		if (fresh.length > 0) setAnnouncement(fresh.join(" "));
+		return now;
 	}
 
 	function clearError(id: string) {
@@ -152,6 +162,22 @@ function NotificationsForm({
 	function submit(event: FormEvent) {
 		event.preventDefault();
 		if (busy) return;
+		// Enter in a field, or a click on Save straight from it, skips the
+		// field's blur; a secret is never cleared before its warning is seen once.
+		const now = checkWarnings(form);
+		const unheeded = (["smtp", "ntfy"] as const).find(
+			(kind) => now[kind] && !heeded.current[kind],
+		);
+		if (unheeded) {
+			heeded.current[unheeded] = true;
+			setFailure(null);
+			document
+				.getElementById(
+					unheeded === "ntfy" ? FIELD_ID.ntfyToken : FIELD_ID.smtpPassword,
+				)
+				?.focus();
+			return;
+		}
 		const found = validate(form, view);
 		setErrors(found);
 		setFailure(null);

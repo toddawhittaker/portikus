@@ -299,6 +299,9 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 			.getByTestId("notify-email")
 			.getByText(/the stored password will be cleared/),
 	).toBeVisible();
+	// The first Save stops at the warning, on the password field; the second checks the form.
+	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await expect(section.getByLabel("Password")).toBeFocused();
 	await section.getByRole("button", { name: "Save notification settings" }).click();
 	await expect(section.getByLabel("Password")).toBeFocused();
 	await expect(
@@ -314,6 +317,9 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 	).toBeVisible();
 
 	await section.getByLabel("Password").fill("fake-new-password-e2e");
+	// Save stops once at the token warning it has not stopped for yet.
+	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await expect(section.getByLabel("Access token")).toBeFocused();
 	await section.getByRole("button", { name: "Save notification settings" }).click();
 	const job = await playAlertsJob();
 	expect(job.settings.smtp).toMatchObject({
@@ -460,4 +466,36 @@ test("a change the job never took is shown as not finished, and a new save goes 
 		{ timeout: 10_000 },
 	);
 	expect((await readNotifyFile()).rootShellOpenedAlert).toBe(true);
+});
+
+test("Enter in the topic URL after a host change stops at the token warning, and a second Save goes ahead", async ({
+	page,
+}) => {
+	await putNotifyFile(ALL_ON);
+	const section = await open(page);
+	let puts = 0;
+	page.on("request", (request) => {
+		if (request.method() === "PUT" && request.url().endsWith("/admin/notifications"))
+			puts++;
+	});
+
+	const url = section.getByLabel("Topic URL");
+	await url.fill("https://ntfy.other.invalid/alerts");
+	await url.press("Enter");
+	const token = section.getByLabel("Access token");
+	await expect(token).toBeFocused();
+	await expect(token).toHaveAccessibleDescription(
+		/so the stored token will be cleared/,
+	);
+	await expect(page.getByTestId("notify-warning-announce")).toHaveText(
+		/so the stored token will be cleared/,
+	);
+	expect(puts).toBe(0);
+
+	await section.getByRole("button", { name: "Save notification settings" }).click();
+	const job = await playAlertsJob();
+	expect(puts).toBe(1);
+	expect(job.settings.alerts.ntfy).toEqual({
+		url: "https://ntfy.other.invalid/alerts",
+	});
 });

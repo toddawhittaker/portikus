@@ -69,6 +69,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(
 			section.getByTestId("notify-ntfy").getByText(/the stored token will be cleared/),
 		).toBeVisible();
+		// The first Save stops at the token warning; the second checks the form.
+		await section.getByRole("button", { name: "Save notification settings" }).click();
+		await expect(section.getByLabel("Access token")).toBeFocused();
 		await section.getByRole("button", { name: "Save notification settings" }).click();
 		await expect(section.getByLabel("Workflows webhook URL")).toBeFocused();
 		await expect(section.getByTestId("notify-job")).toContainText("Not saved.");

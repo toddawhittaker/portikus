@@ -208,6 +208,48 @@ test("an ntfy URL on another server warns, once it is left, that the token is cl
 	);
 });
 
+test("Enter in the topic URL stops once at the token warning, and a second Save goes ahead", async () => {
+	const fetch = serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+
+	const url = await screen.findByLabelText("Topic URL");
+	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
+	// Enter submits without leaving the field.
+	fireEvent.submit(url.closest("form") as HTMLFormElement);
+	const token = screen.getByLabelText("Access token");
+	expect(document.activeElement).toBe(token);
+	expect(description(token)).toMatch(/so the stored token will be cleared/);
+	expect(screen.getByTestId("notify-warning-announce").textContent).toMatch(
+		/so the stored token will be cleared/,
+	);
+	expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(0);
+
+	fireEvent.click(screen.getByRole("button", { name: "Save notification settings" }));
+	await waitFor(() =>
+		expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(1),
+	);
+	expect(sent(fetch, "/admin/notifications", "PUT")[0].alerts.ntfy).toEqual({
+		url: "https://ntfy.example.edu/alerts",
+	});
+});
+
+test("a warning that goes away and comes back is read out again", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+
+	const url = await screen.findByLabelText("Topic URL");
+	const announce = screen.getByTestId("notify-warning-announce");
+	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
+	fireEvent.blur(url);
+	expect(announce.textContent).toMatch(/will be cleared/);
+	fireEvent.change(url, { target: { value: "https://ntfy.sh/other" } });
+	fireEvent.blur(url);
+	expect(announce.textContent).toBe("");
+	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
+	fireEvent.blur(url);
+	expect(announce.textContent).toMatch(/will be cleared/);
+});
+
 test("a test button says tests use the saved settings once its channel is edited", async () => {
 	serve({ settings: SETTINGS, job: null });
 	renderWithQuery(<NotificationsSection />);
