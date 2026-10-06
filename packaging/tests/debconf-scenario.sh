@@ -492,7 +492,9 @@ EOF
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "the install failed on a refused webhook"
 	[ ! -e /etc/portikus/notify.json ] || fail "notify.json was made from a refused webhook"
 	grep -qF 'Warning: alerts are off until this is fixed' /tmp/install.log || fail "no warning for a refused webhook"
-	grep -qF 'invalid_webhook' /tmp/install.log || fail "the warning does not name the problem"
+	grep -qF 'were refused: invalid_webhook.' /tmp/install.log || fail "the warning does not name the problem"
+	long=$(sed -n '/Warning: alerts are off/,/sudo portikus setup/p' /tmp/install.log | awk 'length > 78')
+	[ -z "$long" ] || fail "the warning has a line over 78 columns: $long"
 	grep -qF 'port 443' /tmp/install.log || fail "the warning does not name the 443 rule"
 	! grep -qF 'hooks.example.com' /tmp/install.log || fail "the warning printed the webhook URL"
 	;;
