@@ -143,6 +143,9 @@ class Shell:
             data = self.sock.recv(65536)
         except socket.timeout:
             return True
+        except ConnectionResetError:
+            # The helper exited with frames of ours still unread, as after a refusal.
+            return False
         if not data:
             return False
         self.buffer += data
@@ -176,6 +179,10 @@ class Shell:
             if not self.pump(0.5):
                 return True
         return False
+
+    def ready(self):
+        """Waits for root's prompt: login resets the terminal and drops anything typed before it."""
+        return self.expect(rb"root@[^\r\n]*# ", 30) is not None
 
     def login_pid(self):
         try:
@@ -268,6 +275,7 @@ def on_state():
     heading("A PAM sign-in session")
     shell = Shell(cols=91, rows=33)
     check("the banner comes first", shell.expect(rb"Portikus root shell on this server") is not None)
+    check("root's prompt follows", shell.ready())
     shell.type("echo rs-$((6*7))-ok; stty size\r")
     check("the shell runs commands at the size asked for", shell.expect(rb"rs-42-ok\r\n33 91") is not None)
     login = shell.login_pid()
@@ -276,8 +284,9 @@ def on_state():
     check("the process is login", login is not None and rs.is_login(login))
     session = session_of(login)
     props = session_props(session) if session else {}
+    # login uses the PAM service "remote" when given -h.
     check("login has its own logind session as root, remote host %s" % ADDRESS,
-          props.get("Name") == "root" and props.get("Service") == "login" and props.get("RemoteHost") == ADDRESS,
+          props.get("Name") == "root" and props.get("Service") == "remote" and props.get("RemoteHost") == ADDRESS,
           str(props))
     tty = props.get("TTY", "")
     check("who lists it", bool(tty) and re.search(r"^root\s+%s\s.*\(%s\)" % (re.escape(tty), re.escape(ADDRESS)),
@@ -296,10 +305,12 @@ def on_state():
 
     heading("Closing the pane hangs up")
     hup = "/run/root-shell-rehearsal-hup-%s" % shell.id
-    shell.type("trap 'echo hup > %s; exit 129' HUP; echo trap-$((1+1))\r" % hup)
-    shell.expect(rb"trap-2")
     marker = shell.start_daemon()
     check("a daemon started in the shell runs", bool(pids_of(marker)))
+    # A foreground job, as an editor or a long command would be.
+    job = "sh -c trap 'echo hup > %s; exit 129' HUP; while :; do sleep 0.2; done" % hup
+    shell.type("sh -c \"trap 'echo hup > %s; exit 129' HUP; while :; do sleep 0.2; done\"\r" % hup)
+    check("a foreground job runs", wait_for(lambda: bool(pids_of(job)), 5))
     shell.sock.close()
     check("the shell got SIGHUP", wait_for(lambda: os.path.exists(hup)))
     check("login ended", wait_for(lambda: not alive(login)))
@@ -315,7 +326,7 @@ def on_state():
 
     heading("The end frame ends the whole session")
     shell = Shell()
-    shell.expect(rb"Portikus root shell")
+    shell.ready()
     login = shell.login_pid()
     session = session_of(login)
     marker = shell.start_daemon()
@@ -330,7 +341,7 @@ def on_state():
 
     heading("Exit")
     shell = Shell()
-    shell.expect(rb"Portikus root shell")
+    shell.ready()
     shell.type("exit 7\r")
     check("the helper reports the exit and closes", shell.closed() and shell.exit is not None, str(shell.exit))
     check("no helper instance is left", wait_for(lambda: sh("systemctl", "list-units", "--no-legend", "portikus-root-shell@*") == ""))
@@ -347,7 +358,7 @@ def on_state():
 
 def hold():
     shell = Shell()
-    shell.expect(rb"Portikus root shell")
+    shell.ready()
     login = shell.login_pid()
     state = {"shellId": shell.id, "loginPid": login, "session": session_of(login), "marker": shell.start_daemon()}
     with open(HOLD, "w") as f:

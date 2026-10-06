@@ -66,6 +66,8 @@ BANNER = (b"\x1b[1mPortikus root shell on this server.\x1b[0m Nothing typed or s
           b"Run upgrades and long jobs inside tmux: closing this pane or restarting Portikus ends the shell.\r\n")
 # How long a hung-up shell has to end its PAM session before login is told to.
 HANGUP_GRACE = 5.0
+# How often to look again while no process holds the terminal open.
+NO_TERMINAL_POLL = 0.05
 SESSION_SCOPE = re.compile(r"/session-([A-Za-z0-9_-]+)\.scope$")
 
 
@@ -354,8 +356,9 @@ class Shell:
                 written = os.write(self.master, self.pending)
             except BlockingIOError:
                 return True
-            except OSError:
-                return False
+            except OSError as e:
+                # EIO: nothing holds the terminal open for now; only login's exit ends the shell.
+                return e.errno == errno.EIO
             del self.pending[:written]
         return True
 
@@ -434,7 +437,8 @@ class Shell:
         return session is not None and self.terminate(session)
 
     def finish(self):
-        self.reap(block=True)
+        if not self.reap():
+            self.hang_up()
         self.send(encode_json(EXIT, {"status": self.status}))
         return "exit"
 
@@ -480,7 +484,10 @@ class Shell:
                     except OSError as e:
                         if e.errno != errno.EIO:
                             raise
-                        data = b""
+                        # No process holds the terminal open, as during login's vhangup()
+                        # or after the shell exits; the reap at the top of the loop decides.
+                        time.sleep(NO_TERMINAL_POLL)
+                        continue
                     if not data:
                         return self.finish()
                     if not self.send(encode(OUTPUT, data)):

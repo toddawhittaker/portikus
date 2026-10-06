@@ -232,8 +232,11 @@ class RelayTest(unittest.TestCase):
         self.stderr = os.path.join(self.dir, "stderr")
         self.client, server = socket.socketpair()
         script = os.path.join(self.dir, "shell.sh")
+        # login's vhangup() leaves the terminal with no open end for a moment.
+        gap = "exec 0<&- 1>&- 2>&-; sleep 0.5; exec 0<>/dev/tty 1>&0 2>&0\n" if "gap" in self._testMethodName else ""
         # Prints its size, then echoes lines; records a hang-up in a file.
         Path(script).write_text(
+            gap +
             "trap 'echo hup > %s/hup; exit 129' HUP\n"
             "stty size\n"
             "while read -r line; do\n"
@@ -296,6 +299,14 @@ class RelayTest(unittest.TestCase):
         self.assertNotIn("secret", journal)
         self.assertNotIn("forged", journal)
         self.assertNotIn("Ada", journal)
+
+    def test_a_gap_with_the_terminal_closed_is_not_the_end(self):
+        self.send(rs.OPEN, open_body())
+        frames = frames_from(self.client, lambda f: b"24 80" in output(f))
+        self.assertIn(b"24 80", output(frames))
+        self.send(rs.INPUT, b"quit\n")
+        frames = frames_from(self.client, lambda f: any(k == rs.EXIT for k, _ in f))
+        self.assertEqual(frames[-1], (rs.EXIT, b'{"status":3}'))
 
     def test_close_hangs_up_the_shell(self):
         self.send(rs.OPEN, open_body())
