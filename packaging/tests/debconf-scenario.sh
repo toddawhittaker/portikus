@@ -485,7 +485,7 @@ EOF
 	printf 'ALERT_WEBHOOK_URL=https://other.example.com/y\n' >/etc/portikus/alerts.env
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "second reconfigure failed"
 	! grep -qF other.example.com /etc/portikus/notify.json || fail "an existing notify.json was replaced"
-	# Releases up to Epic 34 took a webhook on any port; the job takes only 443,
+	# Older releases took a webhook on any port; the job takes only 443 (ADR 0052),
 	# so the install completes and says alerts are off.
 	rm /etc/portikus/notify.json
 	printf 'ALERT_WEBHOOK_URL=https://hooks.example.com:8443/x\n' >/etc/portikus/alerts.env
