@@ -6,7 +6,6 @@
 # tries each refusal.  The values are secrets, so no task here prints them.
 
 # One key without the other cannot send, so it is a mistake, not "off".
-# systemd reads alerts.env unquoted, so only characters it keeps as written.
 - name: Require both Pushover keys or neither, each letters and digits
   ansible.builtin.assert:
     that:

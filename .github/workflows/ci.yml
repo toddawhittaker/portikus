@@ -682,7 +682,7 @@ jobs:
       - name: Certificate settings setup seeds
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/certificate-seed-test.yml
-      - name: Alert settings, alerts.env and failure units
+      - name: Alert settings and failure units
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/alerts-render-test.yml
       - name: Apt refresh failure decision

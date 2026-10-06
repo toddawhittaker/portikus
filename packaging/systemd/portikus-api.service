@@ -19,8 +19,6 @@ SupplementaryGroups=portikus-root-shell
 # Reads the notification settings, /etc/portikus/notify.json (docs/adr/0052).
 SupplementaryGroups=portikus-notify
 EnvironmentFile=/etc/portikus/api.env
-# Where alerts go; missing until setup writes it (STACK.md section 15).
-EnvironmentFile=-/etc/portikus/alerts.env
 EnvironmentFile=-/etc/portikus/api.override.env
 ExecStartPre=/usr/lib/portikus/node/bin/node /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js
 ExecStart=/usr/lib/portikus/node/bin/node /usr/lib/portikus/api/dist/index.js

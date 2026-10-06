@@ -8,11 +8,11 @@ import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-
 import { FAKE_AGENT_TOKEN, FAKE_DEX_RIGHT_PASSWORD } from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import { E2E_JOURNAL_FILE } from "./e2e/journal-file";
+import { ALERTS_JOBS_DIR, NOTIFY_FILE } from "./e2e/notify-jobs";
 import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
-	FAKE_ALERT_WEBHOOK_PORT,
 	FAKE_DEX_GRPC_PORT,
 	FAKE_DEX_HTTP_PORT,
 	MOCK_LMS_ORIGIN,
@@ -79,6 +79,9 @@ mkdirSync(CERTIFICATE_JOBS_DIR, { recursive: true });
 mkdirSync(CERTIFICATE_STATUS_DIR, { recursive: true });
 // The Docker tab's cache helper directory (e2e/registry-jobs.ts).
 mkdirSync(REGISTRY_JOBS_DIR, { recursive: true });
+// The Notifications section's job directory (e2e/notify-jobs.ts); no
+// notify.json yet, so every alert channel starts off.
+mkdirSync(ALERTS_JOBS_DIR, { recursive: true });
 
 // The API's standard output, copied here, is the journal the fake journalctl
 // reads for the Logs tab (docs/adr/0036). It is emptied when the API starts.
@@ -210,7 +213,10 @@ export default defineConfig({
 				// from 127.0.0.1; unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 				JOURNALCTL_PATH: fakeJournalctl,
-				ALERT_WEBHOOK_URL: `http://127.0.0.1:${FAKE_ALERT_WEBHOOK_PORT}/hook`,
+				// A fake alerts job directory the notification tests play the root job in,
+				// and the settings file it writes (ADR 0052).
+				NOTIFY_FILE,
+				ALERTS_JOBS_DIR,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
 				// A fake certificate job directory the admin-certificate tests play the root job in;
