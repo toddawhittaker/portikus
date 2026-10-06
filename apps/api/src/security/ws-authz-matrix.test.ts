@@ -1,10 +1,14 @@
+import { mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { startFakeRootShell } from "../testing/fake-root-shell.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
@@ -107,12 +111,20 @@ const socketKeys = Object.keys(ROUTE_POLICY).filter(
 	(key) => ROUTE_POLICY[key]?.websocket && key.startsWith("GET "),
 );
 
-test("the four browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(4);
+const workspaceSocketKeys = socketKeys.filter(
+	(key) => ROUTE_POLICY[key]?.access !== "admin",
+);
+const adminSocketKeys = socketKeys.filter(
+	(key) => ROUTE_POLICY[key]?.access === "admin",
+);
+
+test("the five browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(5);
+	expect(adminSocketKeys).toEqual(["GET /admin/root-shell/ws"]);
 });
 
 describe.skipIf(skip)("every browser socket refuses the wrong caller", () => {
-	for (const key of socketKeys) {
+	for (const key of workspaceSocketKeys) {
 		const { url: pattern } = splitKey(key);
 		const access = ROUTE_POLICY[key]?.access;
 
@@ -177,6 +189,72 @@ describe.skipIf(skip)("every browser socket refuses the wrong caller", () => {
 					).toBe(true);
 				}
 			}));
+	}
+});
+
+describe.skipIf(skip)("an administrator socket refuses everyone else", () => {
+	for (const key of adminSocketKeys) {
+		test(key, async () => {
+			await testDb.truncate();
+			const dir = mkdtempSync(join(tmpdir(), "portikus-ws-matrix-"));
+			const helper = await startFakeRootShell(join(dir, "root-shell.sock"));
+			const app = buildTestServer(testDb.db, mock.issuer, {
+				AGENT_PORT: agent.port,
+				ROOT_SHELL_SOCKET: helper.socketPath,
+			});
+			await app.listen({ port: 0, host: "127.0.0.1" });
+			try {
+				const world = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
+				const path = splitKey(key).url;
+				const admin = world.admin.cookieHeader();
+				const refusals: Array<[string, Record<string, string>, number]> = [
+					["anonymous", { origin: PUBLIC_ORIGIN }, 401],
+					[
+						"the disabled user",
+						{ origin: PUBLIC_ORIGIN, cookie: world.disabled.cookieHeader() },
+						401,
+					],
+					[
+						"an agent token with no cookie",
+						{ origin: PUBLIC_ORIGIN, authorization: `Bearer ${world.a.agentToken}` },
+						401,
+					],
+					[
+						"a student",
+						{ origin: PUBLIC_ORIGIN, cookie: world.a.jar.cookieHeader() },
+						403,
+					],
+					[
+						"an instructor",
+						{ origin: PUBLIC_ORIGIN, cookie: world.instructor.cookieHeader() },
+						403,
+					],
+					["the administrator with no Origin", { cookie: admin }, 403],
+					[
+						"the administrator from a preview Origin",
+						{
+							cookie: admin,
+							origin: `https://${world.a.label}-5173.preview.localhost`,
+						},
+						403,
+					],
+				];
+				for (const [who, headers, status] of refusals) {
+					const result = await upgrade(app, path, headers);
+					expect(result.status, `${key} for ${who}`).toBe(status);
+				}
+				expect(helper.connections, "a refused caller reached the helper").toEqual([]);
+
+				const allowed = await upgrade(app, path, {
+					origin: PUBLIC_ORIGIN,
+					cookie: admin,
+				});
+				expect(allowed.status).toBe(101);
+			} finally {
+				await app.close();
+				await helper.close();
+			}
+		});
 	}
 });
 

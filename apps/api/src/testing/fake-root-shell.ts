@@ -9,7 +9,7 @@ import { encodeFrame, encodeJsonFrame, FrameType } from "../root-shell/frames.js
  * input back as output, reports each resize, and exits on the line `exit`.
  */
 
-export interface FakeRootShellConnection {
+interface FakeRootShellConnection {
 	/** The `open` frame's body. */
 	open: Record<string, unknown> | null;
 	/** Every frame type received after `open`, in order, by name. */

@@ -15,6 +15,7 @@ import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
+import type { RootShellPipe } from "./root-shell/pipe.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAlertRoutes } from "./routes/admin-alerts.js";
@@ -129,6 +130,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Caddy's certificate asks and pre-flight probes carry no session (SPEC.md 20.1).
 	const nonces = new NonceStore();
+	const rootShells = new Set<RootShellPipe>();
 	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces, registry });
 
 	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
@@ -136,6 +138,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// Registered before @fastify/websocket so it runs before that plugin's own
 	// preClose, which drops the sockets without a status code.
 	app.addHook("preClose", async () => {
+		// Root shells end first, so their audit rows say api_stopped (ADR 0051).
+		for (const pipe of rootShells) pipe.stop();
 		const clients = app.websocketServer?.clients ?? [];
 		await Promise.all(
 			[...clients].map(
@@ -258,7 +262,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminProcessRoutes(instance, deps);
-		registerAdminRootShellRoutes(instance, deps);
+		registerAdminRootShellRoutes(instance, deps, rootShells);
 		registerAdminEgressRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminLogRoutes(instance, deps);

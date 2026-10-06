@@ -29,10 +29,10 @@ const MAX_USER_AGENT_LENGTH = 256;
 export function registerAdminRootShellRoutes(
 	app: FastifyInstance,
 	deps: ServerDeps,
+	live: Set<RootShellPipe>,
 ): void {
 	const { db, config } = deps;
 	const enabled = config.ROOT_SHELL_SOCKET !== "";
-	const live = new Set<RootShellPipe>();
 	const { track, drain } = createPendingWork();
 
 	app.get("/admin/root-shell", { preHandler: requireRole("administrator") }, async () =>
@@ -170,10 +170,6 @@ export function registerAdminRootShellRoutes(
 		},
 	);
 
-	// Each shell ends as api_stopped, and its closed row is written before the
-	// database pool closes.
-	app.addHook("preClose", async () => {
-		for (const pipe of live) pipe.stop();
-	});
+	// Each closed row is written before the database pool closes.
 	app.addHook("onClose", drain);
 }

@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "@fastify/websocket";
-import type { AuthUser } from "@portikus/auth";
+import type { loadSession } from "@portikus/auth";
 import { CloseCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyBaseLogger } from "fastify";
@@ -35,6 +35,8 @@ const auth = vi.hoisted(() => ({
 	sessionGate: vi.fn(),
 }));
 vi.mock("@portikus/auth", () => auth);
+
+type AuthUser = NonNullable<Awaited<ReturnType<typeof loadSession>>>;
 
 const ADMIN: AuthUser = {
 	id: "00000000-0000-4000-8000-000000000001",
