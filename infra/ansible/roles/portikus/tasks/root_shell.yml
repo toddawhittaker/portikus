@@ -9,6 +9,24 @@
     path: /usr/lib/systemd/system/portikus-root-shell.socket
   register: portikus_root_shell_unit
 
+# `login -h` uses the PAM service "remote", which Debian does not ship, so
+# PAM would fall back to "other": no loginuid, limits, environment or keyring.
+# An operator's own file is kept.
+- name: Give login's remote sign-ins the same PAM stack as login
+  ansible.builtin.copy:
+    dest: /etc/pam.d/remote
+    content: |
+      # Root shells from the Portikus admin page sign in with `login -h`,
+      # which uses this service (docs/adr/0051-root-shell.md).
+      auth     include login
+      account  include login
+      session  include login
+      password include login
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
 - name: Enable and start the root-shell socket
   ansible.builtin.systemd_service:
     name: portikus-root-shell.socket
@@ -32,9 +50,10 @@
         enabled: false
         state: stopped
 
-    # Before the helpers stop: each removes its process-id file as it closes,
-    # and only these files lead to the sessions.
-    - name: End the open root shells' sessions
+    # Every recorded session still alive: open shells, and what closed panes
+    # left running, such as tmux.  Before the helpers stop, so an open shell's
+    # record still leads to its session.
+    - name: End the root shells' sessions
       ansible.builtin.command:
         argv: [/usr/lib/portikus/root-shell, --end-sessions]
       register: portikus_root_shell_ended

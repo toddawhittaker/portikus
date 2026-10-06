@@ -51,6 +51,8 @@
       - jq
       - apparmor
       - apparmor-utils
+      # For administrators' long jobs, which a closed root shell or SSH session would end (docs/adr/0051-root-shell.md).
+      - tmux
     state: present
 
 - name: Enable and start AppArmor
