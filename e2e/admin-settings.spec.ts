@@ -40,7 +40,7 @@ for (const width of [1920, 1024]) {
 				"When workspaces stop",
 				"Resource guard",
 				"Acceptable use",
-				"Alerts",
+				"Notifications",
 			]);
 			// Stacked, each below the last, in a column no wider than 72ch.
 			const tops = [];

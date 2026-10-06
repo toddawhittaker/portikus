@@ -43,6 +43,14 @@ const CHANNEL_LINE: Record<AlertChannelKind, string> = {
 		"Posts each alert as JSON with a text field, which Slack, Mattermost, Rocket.Chat, Google Chat and Zulip read. For Discord, use its Slack-compatible URL ending in /slack.",
 };
 
+const SWITCH_LABEL: Record<AlertChannelKind, string> = {
+	email: "Send alerts by email",
+	pushover: "Send alerts to Pushover",
+	ntfy: "Send alerts to ntfy",
+	teams: "Send alerts to Microsoft Teams",
+	webhook: "Send alerts to a webhook",
+};
+
 const TEST_LABEL: Record<AlertChannelKind, string> = {
 	email: "Send test email",
 	pushover: "Send test to Pushover",
@@ -110,11 +118,7 @@ function Channel({
 				{CHANNEL_LINE[kind]}
 			</p>
 			<Checkbox
-				label={
-					kind === "email"
-						? "Send alerts by email"
-						: `Send alerts to ${CHANNEL_NAME[kind]}`
-				}
+				label={SWITCH_LABEL[kind]}
 				checked={on}
 				onChange={(event) => onToggle(event.target.checked)}
 			/>
