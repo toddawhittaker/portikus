@@ -609,6 +609,55 @@ starts with** to see every workspace action.
 
 ![The Audit tab: sign-ins, a throttled workspace, a quota change and a failed start](images/admin-audit.png)
 
+## Alerts
+
+**Settings**, then **Notifications**, decides where Portikus sends
+warnings and failures that need a person, such as a service stopping, a
+backup failing or a certificate about to expire. Channels:
+
+- **Email**, through your SMTP server on port 587 (STARTTLS) or 465
+  (TLS). TLS is required. List up to ten recipients.
+- **Pushover**, with your user key and application token.
+- **ntfy**, with a topic URL on ntfy.sh or your own server, and an
+  optional token.
+- **Microsoft Teams**, with a Workflows webhook URL.
+- **Webhook**, which also works for Slack, Mattermost, Google Chat and
+  Discord (use Discord's URL ending in `/slack`).
+
+Every URL must start with `https://` and use port 443. Passwords,
+tokens and secret URLs are never shown again: each field says whether
+one is set, and leaving it blank keeps it. Changing the SMTP server or
+user name clears its password, and changing the ntfy host clears its
+token, unless you enter a new one. Each save is audited and every
+administrator gets a notice. The page shows when the change has been
+applied. Then use the channel's own **Send test** button.
+
+**Alert when a root shell opens** sends a warning to every channel each
+time someone opens a root shell. It is off by default.
+
+If the settings file on the server is damaged, the page shows every
+channel as off with a notice; saving replaces the file.
+
+## The root shell
+
+The **Root shell** tab opens a root shell on the server. **Use it with
+care: root can read every student's files and change anything.** The
+tab is there only when the server's operator has left root shells on.
+
+- Open several shells and split or drag panes as in a workspace.
+- Nothing you type or see is recorded. Opening and closing each shell
+  is audited, and the server's journal records it too.
+- Closing a pane, reloading the page or leaving Administration ends its
+  shell. There is no reconnect. A `tmux` you started keeps running;
+  attach to it again with `tmux attach`.
+- Signing out, losing the administrator role, or a disabled account
+  ends every shell at once, and everything it left running, tmux
+  included.
+- An upgrade or anything else that restarts Portikus ends every root
+  shell. **Run `apt upgrade` and other long jobs inside `tmux`.**
+- Keys typed before the prompt appears are lost. A very large paste
+  while the shell is busy may be dropped; the shell says so.
+
 ## Roles
 
 Administrators and instructors come from your sign-in provider's groups, or

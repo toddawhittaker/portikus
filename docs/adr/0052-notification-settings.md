@@ -49,8 +49,12 @@ Ansible and without restarting services.
 3. **Who owns the file.** The page owns it after its first save, as for
    the certificate (ADR 0046). Setup creates it only when it is missing,
    from the `portikus_alert_*` keys in `secrets.yaml` or the old
-   `alerts.env`, then deletes `alerts.env` (in T4). Setup writes
-   `rootShellOpenedAlert: false`. Backups carry the file.
+   `alerts.env`, then deletes `alerts.env`. On an upgrade, the
+   package's `postinst` seeds the file the same way from `alerts.env`
+   before the API and worker restart, because they read only
+   `notify.json`; when the old settings are refused (such as a webhook
+   not on port 443), it prints a warning and the upgrade completes.
+   Seeding writes `rootShellOpenedAlert: false`. Backups carry the file.
 4. **A root job applies changes**, following ADR 0030:
    `portikus-alerts-job.path` and `.service`, Python standard library.
    The API writes a request file with mode 0600. The job deletes the
