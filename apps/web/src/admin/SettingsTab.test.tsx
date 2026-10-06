@@ -1,3 +1,4 @@
+import { NOTIFY_FILE_OFF, notificationSettingsView } from "@portikus/contracts";
 import { screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
@@ -26,6 +27,11 @@ function stubSettings() {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+			});
 		throw new Error(`unexpected request: ${url}`);
 	});
 }
@@ -42,7 +48,7 @@ test("Settings is four admin cards in one column, and the log level is not among
 		"When workspaces stop",
 		"Resource guard",
 		"Acceptable use",
-		"Alerts",
+		"Notifications",
 	]);
 	for (const name of headings) {
 		const card = within(column).getByRole("region", { name: name ?? "" });
