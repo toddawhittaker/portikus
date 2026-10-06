@@ -186,7 +186,8 @@ for (const scheme of ["light", "dark"] as const) {
 		);
 		await page.getByTestId(`terminal-actions-${id}`).click();
 		await expect(page.getByRole("menuitem", { name: "Close" })).toBeVisible();
-		await expectNoViolations(page);
+		// The open menu hides the page behind it from assistive technology, so scan the menu alone.
+		await expectNoViolations(page, '[role="menu"]');
 	});
 
 	test(`a shell ended by a failed session check says so and passes axe (${scheme})`, async ({
