@@ -432,6 +432,50 @@ class Requests(Host):
         self.assertEqual(self.job_status()["code"], "proxy_reload_failed")
         self.assertEqual(self.notify(), full_settings())
 
+    def test_a_failed_reload_is_retried_on_the_next_run(self):
+        self.fake.rc["reload"] = 1
+        self.request(update_from(full_settings()))
+        self.run_pending()
+        self.assertTrue(os.path.exists(self.proxy(aj.RELOAD_PENDING)))
+        # The files now match, so only the marker says Squid still runs the old rules.
+        self.fake.calls.clear()
+        self.fake.rc["reload"] = 0
+        self.run_pending()
+        self.assertEqual(self.fake.names(), ["reload"])
+        self.assertFalse(os.path.exists(self.proxy(aj.RELOAD_PENDING)))
+        self.fake.calls.clear()
+        self.run_pending()
+        self.assertEqual(self.fake.calls, [])
+
+    def test_a_run_killed_before_the_reload_is_finished_by_the_next(self):
+        # As a run killed between writing alerts.conf and reloading Squid leaves it.
+        self.store(full_settings())
+        Path(self.proxy()).write_text(aj.render_proxy(full_settings()))
+        Path(self.proxy(aj.RELOAD_PENDING)).write_text("")
+        code, out = Seed.seed(self, {})
+        self.assertEqual(code, 0)
+        self.assertIn("alerts.conf unchanged", out)
+        self.assertEqual(self.fake.names(), ["reload"])
+        self.assertFalse(os.path.exists(self.proxy(aj.RELOAD_PENDING)))
+
+    def test_a_refused_rule_change_leaves_no_marker(self):
+        self.fake.rc["parse"] = 1
+        self.request(update_from(full_settings()))
+        self.run_pending()
+        self.assertFalse(os.path.exists(self.proxy(aj.RELOAD_PENDING)))
+        self.fake.rc["parse"] = 0
+        self.fake.calls.clear()
+        self.run_pending()
+        self.assertEqual(self.fake.calls, [])
+
+    def test_a_marker_from_earlier_survives_a_refused_change(self):
+        Path(self.proxy(aj.RELOAD_PENDING)).write_text("")
+        # The run's first reload fails too, so Squid still owes one when the change is refused.
+        self.fake.rc.update(parse=1, reload=1)
+        self.request(update_from(full_settings()))
+        self.run_pending()
+        self.assertTrue(os.path.exists(self.proxy(aj.RELOAD_PENDING)))
+
     def test_a_cut_short_run_is_finished_from_notify_json(self):
         self.store(full_settings())
         Path(self.proxy()).write_text("# half a swap\n")
