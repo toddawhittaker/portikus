@@ -1,3 +1,4 @@
+import { NOTIFY_FILE_OFF, notificationSettingsView } from "@portikus/contracts";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -124,6 +125,12 @@ function stubAdmin(
 				nextCursor: null,
 				scanComplete: true,
 				skippedLines: 0,
+			});
+		}
+		if (url === "/admin/notifications") {
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
 			});
 		}
 		throw new Error(`unexpected request: ${url}`);
@@ -295,6 +302,12 @@ test("the Settings tab shows a settings read failure", async () => {
 		if (url === "/admin/settings") {
 			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
 		}
+		if (url === "/admin/notifications") {
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+			});
+		}
 		throw new Error(`unexpected request: ${url}`);
 	});
 
@@ -323,6 +336,12 @@ test("a value beyond the integer limit is refused before any request", async () 
 test("a student sent to /admin lands on the not-authorized page", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, USER);
+		if (url === "/admin/notifications") {
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+			});
+		}
 		throw new Error(`unexpected request: ${url}`);
 	});
 

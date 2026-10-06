@@ -32,6 +32,10 @@ export function Checkbox({
 	className,
 }: CheckboxProps): React.ReactElement {
 	const inputRef = React.useRef<HTMLInputElement>(null);
+	// The description is not part of the name: the label names the box and the description describes it.
+	const id = React.useId();
+	const labelId = `${id}-label`;
+	const descriptionId = `${id}-description`;
 	// The DOM has no indeterminate attribute; it is only a property.
 	React.useEffect(() => {
 		if (inputRef.current) inputRef.current.indeterminate = indeterminate;
@@ -47,6 +51,8 @@ export function Checkbox({
 				checked={checked}
 				disabled={disabled}
 				aria-disabled={ariaDisabled || undefined}
+				aria-labelledby={labelId}
+				aria-describedby={description ? descriptionId : undefined}
 				onChange={onChange}
 				readOnly={onChange ? undefined : true}
 			/>
@@ -61,8 +67,12 @@ export function Checkbox({
 				) : null}
 			</span>
 			<span className="pk-checkbox-copy">
-				<span>{label}</span>
-				{description ? <span className={HINT_CLASS}>{description}</span> : null}
+				<span id={labelId}>{label}</span>
+				{description ? (
+					<span id={descriptionId} className={HINT_CLASS}>
+						{description}
+					</span>
+				) : null}
 			</span>
 		</label>
 	);
