@@ -84,6 +84,8 @@ export function createAlertForwarder(
 		} catch (e) {
 			// The message names only the file, never its contents.
 			logger.warn({ error: errorMessage(e) }, "alert settings could not be read");
+			// `since` stays put, so these alerts go out once the file reads again.
+			return;
 		}
 		const rows = await db
 			.selectFrom("notifications")

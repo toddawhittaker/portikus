@@ -63,6 +63,9 @@ PROXY_FILE = "alerts.conf"
 # Neither name ends in .conf, so the proxy never reads them.
 PROXY_NEW = "alerts.conf.new"
 PROXY_OLD = "alerts.conf.old"
+# Present from before a rule change until Squid has reloaded, so a failed or
+# cut-short reload is retried even once the files match.
+RELOAD_PENDING = "reload-pending"
 SQUID_CONF = "/etc/squid/squid.conf"
 SQUID_UNIT = "squid.service"
 JOBS_DIR = "/var/lib/portikus/alerts-jobs"
@@ -548,6 +551,9 @@ class Runner:
         try:
             current = read_at(dir_fd, PROXY_FILE, MAX_REQUEST_BYTES)
             changed = current is None or current.decode("utf-8", "replace") != content
+            pending = read_at(dir_fd, RELOAD_PENDING, 0) is not None
+            if changed and not pending:
+                write_at(dir_fd, RELOAD_PENDING, "", 0o644, 0, 0, self.own)
             try:
                 old = self.swap_proxy(dir_fd, content) if changed else None
                 if write_file:
@@ -557,12 +563,18 @@ class Runner:
                         if changed:
                             self.put_back(dir_fd, old)
                         raise JobFailed("write_failed")
+            except JobFailed:
+                # The old rules are back in place, and Squid still runs what it ran.
+                if changed and not pending:
+                    remove_at(dir_fd, RELOAD_PENDING)
+                raise
             finally:
                 remove_at(dir_fd, PROXY_OLD)
+            if changed or pending:
+                self.reload_proxy()
+                remove_at(dir_fd, RELOAD_PENDING)
         finally:
             os.close(dir_fd)
-        if changed:
-            self.reload_proxy()
         return changed
 
     def sync(self):

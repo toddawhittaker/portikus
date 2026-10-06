@@ -70,7 +70,12 @@
       - 192.168.0.0/16
       - 224.0.0.0/4
       - 240.0.0.0/4
+      - ::/128
       - ::1/128
+      # IPv4 written as IPv6: mapped, NAT64 and 6to4 can each carry a private address.
+      - ::ffff:0:0/96
+      - 64:ff9b::/96
+      - 2002::/16
       - fc00::/7
       - fe80::/10
     # The workspace egress redirect targets on the bridge gateway (ADR 0038):

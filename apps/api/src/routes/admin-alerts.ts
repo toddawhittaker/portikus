@@ -17,10 +17,11 @@ import {
 	sendAlert,
 } from "@portikus/observability";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { allJobs, changeSummary, queuedView } from "../alerts/jobs.js";
+import { allJobs, changeSummary, isActive, queuedView } from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError, sendNoStoreError } from "../http.js";
 import { currentJob, sweepTempRequests, writeRequestFile } from "../job-files.js";
+import { testAlertLimit } from "../rate-limit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A notification settings change is already waiting or running.";
@@ -52,6 +53,7 @@ export function registerAdminAlertRoutes(
 	{ db, config, logger }: ServerDeps,
 ): void {
 	const jobsDir = config.ALERTS_JOBS_DIR;
+	const testLimit = testAlertLimit();
 	// One API process: this closes the gap between checking and writing.
 	let writing = false;
 
@@ -101,35 +103,58 @@ export function registerAdminAlertRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isActive(j))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
 			const current = await readSettings(reply);
 			if (!current) return;
 			const id = randomUUID();
 			const requestedAt = new Date().toISOString();
+			const summary = changeSummary(notificationSettingsView(current), body.data);
+			const audit = {
+				actor: `user:${admin.id}`,
+				target: id,
+				action: "settings.notifications_updated",
+				metadata: { job: id, ...summary },
+			};
+			// The row comes first: no change is ever applied without one. The job's status says how it ended.
+			await recordAudit(db, { ...audit, result: "requested" });
+			const notice = {
+				title: `Notification settings change requested by ${admin.displayName} (job ${id.slice(0, 8)})`,
+				text: `Changed: ${summary.changed.join(", ") || "nothing"}. Alert hosts: ${summary.hosts.join(", ") || "none"}.`,
+			};
+			// Through the channels in force now, so a change that swaps them
+			// still reaches the old ones (ADR 0052). Best effort: it never holds up the save.
+			void sendAlert(alertChannelsFromNotifyFile(current, config.OUTBOUND_PROXY_URL), {
+				...notice,
+				tone: "warning",
+				at: new Date(),
+			})
+				.then((results) => {
+					for (const r of results)
+						if (!r.ok)
+							logger.warn({ channel: r.channel }, "change alert could not be sent");
+				})
+				.catch(() => logger.warn("change alert could not be sent"));
 			const file: NotifyJobRequestFile = {
 				id,
 				requestedAt,
 				requestedBy: admin.id,
 				settings: body.data,
 			};
-			await sweepTempRequests(jobsDir);
-			// Owner-only, because it may hold secrets.
-			await writeRequestFile(jobsDir, file, 0o600);
-			const summary = changeSummary(notificationSettingsView(current), body.data);
-			await recordAudit(db, {
-				actor: `user:${admin.id}`,
-				target: id,
-				action: "settings.notifications_updated",
-				result: "ok",
-				metadata: { job: id, ...summary },
-			});
-			// Any change may send alerts to a new host, so every administrator hears of it (ADR 0052).
+			try {
+				await sweepTempRequests(jobsDir);
+				// Owner-only, because it may hold secrets.
+				await writeRequestFile(jobsDir, file, 0o600);
+			} catch (e) {
+				await recordAudit(db, { ...audit, result: "failed" });
+				throw e;
+			}
+			// The job id in the title keeps the worker's flood control from hiding a second change.
 			await notifyAdministrators(db, {
 				tone: "warning",
-				title: `Notification settings changed by ${admin.displayName}`,
-				body: `Changed: ${summary.changed.join(", ") || "nothing"}. Alert hosts: ${summary.hosts.join(", ") || "none"}.`,
+				title: notice.title,
+				body: notice.text,
 			});
 			return reply.status(202).send(queuedView(id, requestedAt));
 		} finally {
@@ -142,26 +167,41 @@ export function registerAdminAlertRoutes(
 	 * so an administrator can check delivery. It writes no notification, so
 	 * the worker's forwarder never repeats it.
 	 */
-	app.post("/admin/alerts/test", adminOnly, async (request, reply) => {
-		const body = TestAlertRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "Unknown alert channel.");
-		}
-		const file = await readSettings(reply);
-		if (!file) return;
-		const channels = onlyChannel(
-			alertChannelsFromNotifyFile(file, config.OUTBOUND_PROXY_URL),
-			body.data.channel,
-		);
-		const results = await sendAlert(channels, {
-			title: "Test alert from Portikus",
-			text: "An administrator sent this from the admin page to check alert delivery.",
-			tone: "warning",
-			at: new Date(),
-		});
-		for (const r of results)
-			logger.info({ channel: r.channel, ok: r.ok, error: r.error }, "test alert sent");
-		const out: TestAlertResponse = { results };
-		return reply.header("cache-control", "no-store").send(out);
-	});
+	app.post(
+		"/admin/alerts/test",
+		{ preHandler: [requireRole("administrator"), testLimit] },
+		async (request, reply) => {
+			const admin = requireUser(request);
+			const body = TestAlertRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", "Unknown alert channel.");
+			}
+			const file = await readSettings(reply);
+			if (!file) return;
+			const channels = onlyChannel(
+				alertChannelsFromNotifyFile(file, config.OUTBOUND_PROXY_URL),
+				body.data.channel,
+			);
+			const results = await sendAlert(channels, {
+				title: "Test alert from Portikus",
+				text: "An administrator sent this from the admin page to check alert delivery.",
+				tone: "warning",
+				at: new Date(),
+			});
+			for (const r of results)
+				logger.info(
+					{ channel: r.channel, ok: r.ok, error: r.error },
+					"test alert sent",
+				);
+			await recordAudit(db, {
+				actor: `user:${admin.id}`,
+				target: body.data.channel ?? "all",
+				action: "settings.alert_tested",
+				result: results.every((r) => r.ok) ? "ok" : "failed",
+				metadata: { results: results.map((r) => ({ channel: r.channel, ok: r.ok })) },
+			});
+			const out: TestAlertResponse = { results };
+			return reply.header("cache-control", "no-store").send(out);
+		},
+	);
 }
