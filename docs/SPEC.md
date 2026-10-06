@@ -2773,8 +2773,11 @@ Added by Epic 35 (ADRs 0051 and 0052):
   on the server in panes with the workspace terminals' split and drag
   layout. Any signed-in administrator may open one; there is no second
   factor, password prompt, address rule, idle timeout or shell limit.
-  Section 20.3 and ADR 0051 describe it. A banner says nothing typed is
-  recorded and that opening and closing are audited. Reloading the page
+  Section 20.3 and ADR 0051 describe it. A one-line warning beside the
+  heading says these are root shells on the server and that reloading,
+  leaving or a restart ends them, and links the Help topic, which says
+  nothing typed is recorded and that opening and closing are audited. The
+  tab has no About box. Reloading the page
   or leaving the admin area ends the shells; no layout is saved and
   there is no reconnect. When the operator has turned root shells off,
   `GET /admin/root-shell` answers `{enabled: false}` and the tab is

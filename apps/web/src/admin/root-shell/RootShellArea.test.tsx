@@ -71,17 +71,21 @@ function tabNames(): string[] {
 test("nothing opens until asked, and the banner says what these shells are", () => {
 	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	expect(screen.getByRole("heading", { level: 2, name: "Root shell" })).toBeDefined();
-	expect(screen.getByTestId("root-shell-banner").textContent).toContain(
-		"root shells on this server",
-	);
+	const banner = screen.getByTestId("root-shell-banner");
+	expect(banner.textContent).toContain("Root on this server.");
+	expect(banner.textContent).toContain("ends every shell, so run upgrades in tmux.");
 	expect(screen.getByText("No root shells open")).toBeDefined();
 	expect(screen.queryAllByTestId("leaf")).toHaveLength(0);
 });
 
-test("links its help topic", () => {
+test("the banner links its help topic in a new tab, and there is no About box", () => {
 	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
-	const link = screen.getByRole("link", { name: /More in Help/ });
+	const link = within(screen.getByTestId("root-shell-banner")).getByRole("link", {
+		name: /^Help ?\(opens in a new tab\)$/,
+	});
 	expect(link.getAttribute("href")).toBe("/admin/help#admin-shell");
+	expect(link.getAttribute("target")).toBe("_blank");
+	expect(screen.queryByTestId("intro-admin-shell")).toBeNull();
 });
 
 test("each new shell gets a numbered tab; a split adds a pane to the same tab", () => {

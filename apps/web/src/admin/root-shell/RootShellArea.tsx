@@ -11,7 +11,6 @@ import {
 	ConfirmDialogRoot,
 	EmptyState,
 	IconButton,
-	PageIntro,
 	type TabItem,
 	Tabs,
 	tabDomId,
@@ -212,14 +211,6 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 					Root shell
 				</h2>
 				<RootShellBanner />
-				<PageIntro
-					id="admin-shell"
-					summary="About Root shell"
-					helpHref="/admin/help#admin-shell"
-				>
-					A terminal as root on this server, for upgrades and repairs without SSH. Each
-					shell is audited when it opens and closes, and administrators can be alerted.
-				</PageIntro>
 			</div>
 			<DndContext
 				sensors={drag.sensors}
