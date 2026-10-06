@@ -739,6 +739,10 @@ jobs:
       - name: Docker cache helper
         if: needs.changes.outputs.infra == 'true'
         run: python3 -B -m unittest discover -s packaging/registry/tests
+      # /bin/sh stands in for login, and logind calls are stubbed.
+      - name: Root-shell helper
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/root-shell/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy
