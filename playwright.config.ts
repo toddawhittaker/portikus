@@ -23,6 +23,7 @@ import {
 	WEB_ORIGIN as WEB_URL,
 } from "./e2e/ports";
 import { REGISTRY_JOBS_DIR } from "./e2e/registry-jobs";
+import { ROOT_SHELL_SOCKET } from "./e2e/root-shell";
 import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
@@ -173,8 +174,8 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
-			// The fake backup key helper runs beside the API, in its process group.
-			command: `node e2e/fake-backup-key-server.mjs & : > ${journalFile} && node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee -a ${journalFile}`,
+			// The fake backup key and root-shell helpers run beside the API, in its process group.
+			command: `node e2e/fake-backup-key-server.mjs & node e2e/fake-root-shell-server.mjs & : > ${journalFile} && node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee -a ${journalFile}`,
 			url: `${API_ORIGIN}/health`,
 			env: {
 				NODE_ENV: "test",
@@ -220,6 +221,8 @@ export default defineConfig({
 				// A server that backs itself up and holds its key (ADR 0044).
 				BACKUP_KEY_SOCKET,
 				BACKUP_KEY_STATE,
+				// A fake root-shell helper that echoes input, for the Root shell tab (ADR 0051).
+				ROOT_SHELL_SOCKET,
 				// The suite starts, stops and writes files for a few users far
 				// faster than a person; unit tests keep the real limits.
 				WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: "100000",

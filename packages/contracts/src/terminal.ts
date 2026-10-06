@@ -24,6 +24,15 @@ export const SCROLLBACK_LINES = 5_000;
 /** Maximum bytes accepted in one terminal input frame (SPEC.md §24.2). */
 export const MAX_INPUT_FRAME_BYTES = 65536;
 
+/**
+ * A terminal socket's `?cols=&rows=` query; a missing or bad value falls
+ * back to 80 by 24 (SPEC.md §9.7).
+ */
+export const TerminalSizeQuery = z.object({
+	cols: z.coerce.number().int().min(1).max(1000).catch(80),
+	rows: z.coerce.number().int().min(1).max(1000).catch(24),
+});
+
 /** Identifier of a terminal, minted by the control plane (SPEC.md §26). */
 export const TerminalId = z.string().uuid();
 export type TerminalId = z.infer<typeof TerminalId>;

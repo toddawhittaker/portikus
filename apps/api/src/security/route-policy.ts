@@ -197,6 +197,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
 
 	"GET /admin/workspaces": { access: "admin" },
+	// Root shells (ADR 0051); the socket has no HEAD twin.
+	"GET /admin/root-shell": { access: "admin" },
+	"HEAD /admin/root-shell": { access: "admin" },
+	"GET /admin/root-shell/ws": { access: "admin", websocket: true },
 	"HEAD /admin/workspaces": { access: "admin" },
 	"GET /admin/settings": { access: "admin" },
 	"HEAD /admin/settings": { access: "admin" },

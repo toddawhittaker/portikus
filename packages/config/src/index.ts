@@ -222,6 +222,18 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "BACKUP_KEY_SOCKET must be an absolute path")
 		.optional(),
+	/** The root-shell helper's socket (ADR 0051); empty or unset turns root shells off. */
+	ROOT_SHELL_SOCKET: z
+		.union([
+			z.literal(""),
+			z.string().regex(/^\/./, "ROOT_SHELL_SOCKET must be an absolute path"),
+		])
+		.default(""),
+	/** The notification settings file (ADR 0052); a missing file reads as all off. */
+	NOTIFY_FILE: z
+		.string()
+		.regex(/^\/./, "NOTIFY_FILE must be an absolute path")
+		.default("/etc/portikus/notify.json"),
 	/** Workspace start, stop and restart requests per user per minute (ADR 0034). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
 	/** File and project writes per user per minute (ADR 0034). */
