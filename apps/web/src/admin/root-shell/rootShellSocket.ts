@@ -12,7 +12,7 @@ import { decodeTerminalFrame } from "../../terminal/terminalFrames.js";
 const SERVER_STOPPING = 1001;
 
 /** Why a root shell's socket closed without the shell exiting. */
-export type RootShellLoss = "too_many" | "server_stopped" | "closed";
+export type RootShellLoss = "too_many" | "server_stopped" | "refused" | "closed";
 
 export interface RootShellSocketEvents {
 	onOpen: () => void;
@@ -76,7 +76,13 @@ export function openRootShellSocket(
 			events.onLost("too_many");
 			return;
 		}
-		events.onLost(event.code === SERVER_STOPPING ? "server_stopped" : "closed");
+		if (event.code === SERVER_STOPPING) {
+			events.onLost("server_stopped");
+			return;
+		}
+		// The API closes a shell the host refused just as it closes one that
+		// ended; with no output yet, the shell never started.
+		events.onLost(outputSeen ? "closed" : "refused");
 	};
 
 	return {

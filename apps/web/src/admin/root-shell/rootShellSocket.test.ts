@@ -95,10 +95,20 @@ test("a dropped socket is never reopened: a new socket would be a new shell", ()
 	const handlers = events();
 	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
 	last().open();
+	last().onmessage?.({ data: new ArrayBuffer(1) });
 	last().drop(1006);
 	vi.runAllTimers();
 	expect(FakeSocket.all).toHaveLength(1);
 	expect(handlers.onLost).toHaveBeenCalledWith("closed");
+});
+
+test("a plain close before any output means the host refused the shell", () => {
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().open();
+	last().drop(1000);
+	expect(handlers.onLost).toHaveBeenCalledWith("refused");
+	expect(handlers.onExit).not.toHaveBeenCalled();
 });
 
 test("a revoked session hands over to the session-ended page", () => {
