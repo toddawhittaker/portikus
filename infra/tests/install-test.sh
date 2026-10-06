@@ -413,7 +413,7 @@ A='https://${PUBLIC_HOST}'
 C="curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar"
 page=\$(\$C -L -o /dev/null -w '%{url_effective}' "\$A/auth/login")
 page=\$(\$C -L -o /dev/null -w '%{url_effective}' "\$(printf '%s' "\$page" | sed 's|/dex/auth?|/dex/auth/local?|')")
-\$C -L -o /dev/null --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode "password@\$t/current" "\$page"
+\$C -L -o /dev/null -H "Origin: \$A" --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode "password@\$t/current" "\$page"
 me=\$(\$C "\$A/auth/me")
 echo "after the one-time password: \$(printf '%s' "\$me" | python3 -c 'import json,sys; m=json.load(sys.stdin); print(m["role"], "mustChangePassword", m["mustChangePassword"])')"
 printf '%s' "\$me" | python3 -c 'import json,sys; m=json.load(sys.stdin); sys.exit(0 if m["role"] == "administrator" and m["mustChangePassword"] else 1)'
@@ -423,6 +423,16 @@ code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-
 rm -f "\$t/body" "\$t/current" "\$t/new"
 echo "POST /me/password: \$code"
 test "\$code" = 204 || test "\$code" = 200
+# A Dex password account enrols a second factor next (SPEC.md 24.13); the
+# secret stays root-only on the VM for the later sign-ins.
+\$C -X POST -H "Origin: \$A" -H 'Content-Type: application/json' -d '{}' "\$A/me/second-factor/totp/start" >"\$t/enrol"
+python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["secret"])' "\$t/enrol" >"\$t/totp"
+python3 -c 'import json,sys; print(json.dumps({"token": json.load(open(sys.argv[1]))["token"], "code": sys.argv[2]}))' \
+  "\$t/enrol" "\$(python3 /tmp/totp.py <"\$t/totp")" >"\$t/body"
+code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-Type: application/json' --data-binary @"\$t/body" "\$A/me/second-factor/totp")
+rm -f "\$t/body" "\$t/enrol"
+echo "POST /me/second-factor/totp: \$code"
+test "\$code" = 200
 version=\$(\$C "\$A/me/acceptable-use" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-Type: application/json' -d "{\"version\":\$version}" "\$A/me/acceptable-use")
 echo "POST /me/acceptable-use: \$code"
@@ -430,8 +440,14 @@ echo "POST /me/acceptable-use: \$code"
 test "\$(\$C -o /dev/null -w '%{http_code}' "\$A/admin/users")" = 200
 EOF
   scp -q -o BatchMode=yes "$script" "deploy@${IP}:/tmp/first-signin.sh"
-  sed -n 2p "$signin" | tr -d '\n' | vm_stdin "sudo bash /tmp/first-signin.sh; rc=\$?; rm -f /tmp/first-signin.sh; exit \$rc"
+  send_totp_helper
+  sed -n 2p "$signin" | tr -d '\n' | vm_stdin "sudo bash /tmp/first-signin.sh; rc=\$?; rm -f /tmp/first-signin.sh; exit \$rc" || return
+  # The third line: the second factor's secret, for the later sign-ins.
+  vm "sudo cat /root/portikus-install-test/totp" >>"$signin"
 }
+
+# totp.py on the VM, where the sign-ins work out their codes.
+send_totp_helper() { scp -q -o BatchMode=yes "${ROOT}/infra/tests/totp.py" "deploy@${IP}:/tmp/totp.py"; }
 
 smoke() {
   "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
@@ -461,9 +477,11 @@ caddy_rerun() {
 }
 
 # An ACME install answer whose certificates never come: setup fails at the
-# wait, a rerun fails the same way, and `portikus reset-certificate` then a
-# rerun brings the site back (docs/SPEC.md section 21.12).  The directory
-# never resolves, so nothing leaves the rehearsal network.
+# wait and a rerun fails the same way.  The administrator waits for the
+# public certificate, so the install answers still own it, token included,
+# and going back to the internal answer brings the site back (docs/SPEC.md
+# sections 21.12 and 24.10).  The directory never resolves, so nothing
+# leaves the rehearsal network.
 acme_wait_rerun() {
   vm "sudo cp -p /etc/portikus/portikus.yaml /root/portikus.yaml.before"
   # Both files are YAML mappings, possibly the flow form {}, so they are rewritten whole.
@@ -488,13 +506,15 @@ EOF
     fi
     grep -q 'Caddy has not got its ACME certificates' "${LOGS}/setup-acme-${run}.txt" \
       || { tail -20 "${LOGS}/setup-acme-${run}.txt"; return 1; }
-    grep -q 'sudo portikus reset-certificate' "${LOGS}/setup-acme-${run}.txt"
+    grep -q 'sudo dpkg-reconfigure portikus' "${LOGS}/setup-acme-${run}.txt"
   done
-  ! vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the token is still in secrets.yaml"; return 1; }
-  vm "sudo portikus reset-certificate"
+  vm "sudo test -f /etc/portikus/certificate/admin-pending" || { echo "the administrator is not held back"; return 1; }
+  vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the waiting answers lost the token"; return 1; }
   vm "sudo cp -p /root/portikus.yaml.before /etc/portikus/portikus.yaml && sudo rm -f /root/portikus.yaml.before"
   vm "sudo portikus setup" >"${LOGS}/setup-acme-reset.txt" 2>&1 || { tail -20 "${LOGS}/setup-acme-reset.txt"; return 1; }
   vm "sudo python3 -c 'import json; assert json.load(open(\"/etc/portikus/certificate/settings.json\"))[\"source\"] == \"internal\"'"
+  ! vm "sudo test -e /etc/portikus/certificate/admin-pending" || { echo "the administrator still waits"; return 1; }
+  ! vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the token is still in secrets.yaml"; return 1; }
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
 }
 
@@ -568,13 +588,16 @@ after_upgrade() {
   [ "$(vm "systemctl is-enabled docker-registry.service")" = masked ] \
     || { echo "Debian's docker-registry.service is not masked"; return 1; }
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
-  # The chosen password still signs in after the upgrade.
+  # The chosen password and the enrolled second factor still sign in after the upgrade.
+  send_totp_helper
   sed -n 2p "${LOGS}/admin-signin" | tr -d '\n' | vm_stdin "
     set -e; umask 077; t=\$(mktemp -d); trap 'rm -rf \"\$t\"' EXIT; cat >\"\$t/pw\"
     A='https://${PUBLIC_HOST}'
     C=\"curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar\"
     page=\$(\$C -L -o /dev/null -w '%{url_effective}' \"\$A/auth/login\")
-    \$C -L -o /dev/null --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode \"password@\$t/pw\" \"\$page\"
+    \$C -L -o /dev/null -H \"Origin: \$A\" --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode \"password@\$t/pw\" \"\$page\"
+    totp=\$(sudo sh -c 'python3 /tmp/totp.py </root/portikus-install-test/totp')
+    test \"\$(\$C -o /dev/null -w '%{http_code}' -X POST -H \"Origin: \$A\" -H 'Content-Type: application/json' -d \"{\\\"code\\\":\\\"\$totp\\\"}\" \"\$A/me/second-factor/verify\")\" = 204
     test \"\$(\$C -o /dev/null -w '%{http_code}' \"\$A/admin/users\")\" = 200"
 }
 
@@ -788,7 +811,11 @@ check_restored() {
   scp -q -o BatchMode=yes "${LOGS}/seed.json" "deploy@${IP}:/tmp/seed.json"
   sed -n 2p "${LOGS}/admin-signin-old" | tr -d '\n' \
     | vm_stdin "sudo sh -c 'umask 077; cat >/root/portikus-install-test/old-password'"
-  vm "sudo python3 /tmp/backup-rehearsal.py check-restored --public-host ${PUBLIC_HOST} --expect /tmp/seed.json --password-file /root/portikus-install-test/old-password"
+  sed -n 3p "${LOGS}/admin-signin-old" \
+    | vm_stdin "sudo sh -c 'umask 077; cat >/root/portikus-install-test/old-totp'"
+  send_totp_helper
+  vm "sudo python3 /tmp/backup-rehearsal.py check-restored --public-host ${PUBLIC_HOST} --expect /tmp/seed.json \
+    --password-file /root/portikus-install-test/old-password --totp-file /root/portikus-install-test/old-totp"
 }
 
 trap finish EXIT

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Stands in for journalctl in e2e and route tests (docs/adr/0036). Each line
 // of FAKE_JOURNAL_FILE is one entry of portikus-api.service, as the API's
-// standard output would reach the journal. It honours the arguments the API
-// passes: --unit, --reverse, --since, --until, --after-cursor and --grep.
+// standard output would reach the journal, except that a line starting
+// "kernel:" is a kernel-transport entry holding the rest of the line. It
+// honours the arguments the API passes: _SYSTEMD_UNIT= and _TRANSPORT=kernel
+// matches, --reverse, --since, --until, --after-cursor and --grep.
 import { readFileSync } from "node:fs";
 
 const ZEROS = "0".repeat(32);
@@ -30,6 +32,9 @@ const entries = text
 		} catch {
 			// Not JSON: keeps the previous line's time.
 		}
+		if (line.startsWith("kernel:")) {
+			return { index, micros: lastMicros, unit: null, message: line.slice(7) };
+		}
 		return {
 			index,
 			micros: lastMicros,
@@ -51,7 +56,10 @@ if (
 	process.exit(1);
 }
 
-const units = value("unit");
+const units = args
+	.filter((arg) => arg.startsWith("_SYSTEMD_UNIT="))
+	.map((arg) => arg.slice("_SYSTEMD_UNIT=".length));
+const kernel = args.includes("_TRANSPORT=kernel");
 const since = value("since")[0];
 const until = value("until")[0];
 const after = value("after-cursor")[0];
@@ -61,7 +69,7 @@ const micros = (at) => BigInt(at.slice(1)) * 1_000_000n;
 
 let selected = entries.filter(
 	(entry) =>
-		(units.length === 0 || units.includes(entry.unit)) &&
+		(entry.unit === null ? kernel : units.includes(entry.unit)) &&
 		(!since || entry.micros >= micros(since)) &&
 		(!until || entry.micros <= micros(until)) &&
 		(!grep || new RegExp(grep, "i").test(entry.message)),
@@ -80,7 +88,9 @@ for (const entry of selected) {
 		`${JSON.stringify({
 			__CURSOR: cursor,
 			__REALTIME_TIMESTAMP: entry.micros.toString(),
-			_SYSTEMD_UNIT: entry.unit,
+			...(entry.unit === null
+				? { _TRANSPORT: "kernel" }
+				: { _SYSTEMD_UNIT: entry.unit }),
 			MESSAGE: entry.message,
 		})}\n`,
 	);

@@ -16,6 +16,29 @@ const SQUID_TLS_PORT = 3130;
 
 const TABLE = "inet portikus_egress";
 
+/**
+ * How long an address dnsmasq learned stays in `learned_v4`: the TTL cap
+ * dnsmasq gives workspaces, so an address stays only while DNS keeps
+ * answering with it (ADR 0038). dnsmasq's add never refreshes a timer, so a
+ * busy address drops out on schedule and comes back with the next lookup.
+ */
+const LEARNED_SECONDS = 300;
+
+/**
+ * How long an address stays usable for new connections after the last one
+ * made while it was learned. It covers the gap between a learned address
+ * timing out and the workspace's next lookup, which its cached answer delays
+ * by at most the TTL cap.
+ */
+const RECENT_SECONDS = LEARNED_SECONDS;
+
+/**
+ * Connection-mark bit on a forwarded connection the allow-list accepted, so
+ * it outlives its address leaving the sets. The workspace limits table
+ * (workspace-limits.nft.j2) uses 0x00100000.
+ */
+const ACCEPTED_MARK = "0x00200000";
+
 /** Open connections to Squid one workspace may hold, so it cannot exhaust the shared proxy. */
 export const SQUID_CONNECTIONS_PER_WORKSPACE = 256;
 
@@ -60,8 +83,9 @@ function checkedPorts(ports: readonly number[]): readonly number[] {
 function declareTable(): string[] {
 	return [
 		"table inet portikus_egress {",
-		// No timeout: dnsmasq's plain add never refreshes one (ADR 0038). Full fails closed.
-		"\tset names_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t}",
+		// Full fails closed (ADR 0038).
+		`\tset learned_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags timeout\n\t\ttimeout ${LEARNED_SECONDS}s\n\t}`,
+		`\tset recent_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic,timeout\n\t\ttimeout ${RECENT_SECONDS}s\n\t}`,
 		"\tset ranges_v4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n\t}",
 		"\tset ports {\n\t\ttype inet_service\n\t}",
 		"\tset squid_conns {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic\n\t}",
@@ -75,13 +99,17 @@ function declareTable(): string[] {
 
 function resetTable(flushNames: boolean): string[] {
 	return [
-		...(flushNames ? [`flush set ${TABLE} names_v4`] : []),
+		...(flushNames
+			? [`flush set ${TABLE} learned_v4`, `flush set ${TABLE} recent_v4`]
+			: []),
 		`flush set ${TABLE} ranges_v4`,
 		`flush set ${TABLE} ports`,
 		`flush chain ${TABLE} prerouting`,
 		`flush chain ${TABLE} output`,
 		`flush chain ${TABLE} forward`,
 		`flush chain ${TABLE} input`,
+		// The set an older table kept addresses in forever; nothing refers to it once the chains are empty.
+		`destroy set ${TABLE} names_v4`,
 	];
 }
 
@@ -157,8 +185,8 @@ function ghcrRedirectRule(env: EgressEnv): string {
 
 /**
  * The `nft -f` script for a policy: one transaction that declares the
- * table, empties it and fills it again. The names set keeps the addresses
- * dnsmasq learned unless `flushNames` is set, which the helper does when a
+ * table, empties it and fills it again. The learned and recent sets keep
+ * their addresses unless `flushNames` is set, which the helper does when a
  * name is removed or the mode changes (ADR 0038).
  */
 export function renderTable(
@@ -180,23 +208,28 @@ export function renderTable(
 		}
 		lines.push(`add element ${TABLE} ports { ${ports.join(", ")} }`);
 		const pre = `add rule ${TABLE} prerouting ${ws}`;
-		lines.push(`${pre} ip daddr @ranges_v4 return`);
+		lines.push(
+			`${pre} ip daddr @ranges_v4 return`,
+			// A new connection to a learned address keeps it usable a while; only a lookup keeps it learned.
+			`${pre} ip daddr @learned_v4 update @recent_v4 { ip daddr }`,
+		);
 		// A redirect goes to input, not forward, so it must honour the port list itself.
 		if (ports.includes(443)) {
 			lines.push(
-				`${pre} ip daddr @names_v4 tcp dport 443 redirect to :${SQUID_TLS_PORT}`,
+				`${pre} ip daddr @recent_v4 tcp dport 443 redirect to :${SQUID_TLS_PORT}`,
 			);
 		}
 		if (ports.includes(80)) {
 			lines.push(
-				`${pre} ip daddr @names_v4 tcp dport 80 redirect to :${SQUID_HTTP_PORT}`,
+				`${pre} ip daddr @recent_v4 tcp dport 80 redirect to :${SQUID_HTTP_PORT}`,
 			);
 		}
 		const fwd = `add rule ${TABLE} forward ${ws}`;
 		lines.push(
+			`${fwd} ct mark and ${ACCEPTED_MARK} != 0 accept`,
 			`${fwd} meta l4proto { tcp, udp } th dport { 53, 853 } drop`,
 			`${fwd} ip daddr @ranges_v4 tcp dport @ports accept`,
-			`${fwd} ip daddr @names_v4 tcp dport @ports accept`,
+			`${fwd} ip daddr @recent_v4 tcp dport @ports ct mark set ct mark or ${ACCEPTED_MARK} accept`,
 			`${fwd} drop`,
 		);
 	} else if (usesOurResolver(policy)) {
@@ -249,8 +282,9 @@ export function renderDnsmasq(
 		"no-hosts",
 		"strict-order",
 		"stop-dns-rebind",
-		"max-cache-ttl=300",
-		"max-ttl=300",
+		// No cache: dnsmasq adds to the set only on an upstream answer, and a timed-out address must come back.
+		"cache-size=0",
+		`max-ttl=${LEARNED_SECONDS}`,
 		"user=nobody",
 		"group=nogroup",
 		`server=/#/${open ? env.upstream : counter}`,
@@ -260,7 +294,7 @@ export function renderDnsmasq(
 	for (const n of names) {
 		lines.push(
 			`server=/${n}/${env.upstream}`,
-			`nftset=/${n}/4#inet#portikus_egress#names_v4`,
+			`nftset=/${n}/4#inet#portikus_egress#learned_v4`,
 		);
 	}
 	for (const n of blocked) lines.push(`server=/${n}/${counter}`);

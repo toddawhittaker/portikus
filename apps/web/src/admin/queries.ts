@@ -1,10 +1,16 @@
 import {
+	AccountImportPreview,
+	type AccountImportRequest,
+	AccountImportResult,
 	AdminUser,
 	AdminUserList,
 	AdminWorkspaceDetail,
 	type CreateDexUserRequest,
 	CreateDexUserResponse,
+	type CreateInvitationRequest,
 	DexPasswordResponse,
+	Invitation,
+	InvitationList,
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
@@ -224,9 +230,56 @@ export function useAddDexUser() {
 	);
 }
 
+/** Invitations nobody has claimed yet (SPEC.md section 24.13). */
+export function useInvitations() {
+	return useQuery({
+		queryKey: ["admin", "invitations"],
+		queryFn: () => request(InvitationList, "/admin/invitations"),
+	});
+}
+
+export function useCreateInvitation() {
+	return useDexWrite((body: CreateInvitationRequest) =>
+		request(Invitation, "/admin/invitations", json("POST", body)),
+	);
+}
+
+export function useRevokeInvitation() {
+	return useDexWrite(({ id }: { id: string }) =>
+		request(Invitation, `/admin/invitations/${id}/revoke`, { method: "POST" }),
+	);
+}
+
+/** Check an import file; nothing is created (SPEC.md section 5.1). */
+export function usePreviewImport() {
+	return useMutation({
+		mutationFn: (body: AccountImportRequest) =>
+			request(
+				AccountImportPreview,
+				"/admin/accounts/import/preview",
+				json("POST", body),
+			),
+	});
+}
+
+/** Create the valid rows of the same file, checked again by the server. */
+export function useConfirmImport() {
+	return useDexWrite((body: AccountImportRequest) =>
+		request(AccountImportResult, "/admin/accounts/import", json("POST", body)),
+	);
+}
+
 export function useResetDexPassword() {
 	return useDexWrite(({ userId }: { userId: string }) =>
 		request(DexPasswordResponse, `/admin/dex-users/${userId}/reset-password`, {
+			method: "POST",
+		}),
+	);
+}
+
+export function useResetSecondFactor() {
+	return useDexWrite(({ userId }: { userId: string }) =>
+		request(AdminUser, `/admin/dex-users/${userId}/reset-second-factor`, {
 			method: "POST",
 		}),
 	);

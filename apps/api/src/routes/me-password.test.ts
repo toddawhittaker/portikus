@@ -124,6 +124,12 @@ async function localAccount(
 		userId: dexUserId,
 		hash: await hashDexPassword(password),
 	});
+	// The second factor has its own tests (me-second-factor.test.ts).
+	await testDb.db
+		.updateTable("sessions")
+		.set({ second_factor_at: new Date().toISOString() })
+		.where("user_id", "=", row.id)
+		.execute();
 	return row.id;
 }
 
@@ -277,6 +283,22 @@ describe.skipIf(skip)("POST /me/password", () => {
 		for (const secret of [CURRENT, NEW, hash]) {
 			expect(everything).not.toContain(secret);
 		}
+	});
+
+	test("a known-breached new password is refused and changes nothing (SPEC.md 24.13)", async () => {
+		const jar = new CookieJar();
+		await localAccount("alice", jar);
+		const before = storedHash("alice@example.edu");
+		const res = await change(jar, {
+			currentPassword: CURRENT,
+			newPassword: "PasswordPassword",
+		});
+		expect(res.statusCode).toBe(400);
+		expect(res.json()).toMatchObject({
+			code: "VALIDATION_FAILED",
+			message: expect.stringContaining("leaked passwords"),
+		});
+		expect(storedHash("alice@example.edu")).toBe(before);
 	});
 
 	test("a wrong current password is 403 and changes nothing", async () => {

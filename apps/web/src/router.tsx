@@ -1,4 +1,4 @@
-import { LinkError, ProjectPath } from "@portikus/contracts";
+import { LinkError, NOT_INVITED_PATH, ProjectPath } from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
@@ -25,12 +25,14 @@ import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { NotFound } from "./pages/NotFound.js";
+import { NotInvited } from "./pages/NotInvited.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
 import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
+import { SecondFactorPage } from "./second-factor/SecondFactorPage.js";
 import { gatePath, useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
@@ -116,6 +118,12 @@ const changePasswordRoute = createRoute({
 	component: ChangePasswordPage,
 });
 
+const secondFactorRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/second-factor",
+	component: SecondFactorPage,
+});
+
 const acceptableUseRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/acceptable-use",
@@ -132,6 +140,12 @@ const notAuthorizedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/not-authorized",
 	component: NotAuthorized,
+});
+
+const notInvitedRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: NOT_INVITED_PATH,
+	component: NotInvited,
 });
 
 /** The SSO sign-in lands here to confirm a link (ADR 0026). */
@@ -365,7 +379,9 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	notInvitedRoute,
 	changePasswordRoute,
+	secondFactorRoute,
 	acceptableUseRoute,
 	unlinkedRoute,
 	linkRoute,

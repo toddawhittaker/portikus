@@ -13,8 +13,11 @@ CERTIFICATE_DIR=/etc/portikus/certificate
 db_capb backup escape
 
 # Once setup has seeded the certificate, the admin page owns it and the TLS
-# questions are not asked again.  Any file the root job writes counts.
+# questions are not asked again.  Any file the root job writes counts, but
+# while the local administrator waits for the public certificate nobody can
+# have used that page, so the install answers still own it (SPEC.md 24.10).
 certificate_seeded() {
+	[ ! -e "$CERTIFICATE_DIR/admin-pending" ] || return 1
 	for state_file in settings.json tls.caddy secrets; do
 		if [ -e "$CERTIFICATE_DIR/$state_file" ] || [ -L "$CERTIFICATE_DIR/$state_file" ]; then
 			return 0
@@ -359,7 +362,7 @@ summary() {
 		db_get portikus/tls_cert
 		line "Certificate: the file $RET"
 		;;
-	*) line "Certificate: Portikus's own authority" ;;
+	*) line "Certificate: Portikus's own authority, for a private network only" ;;
 	esac
 	db_get portikus/provider
 	case "$RET" in
@@ -602,12 +605,8 @@ while [ "$STATE" -ge 1 ] && [ "$STATE" -le "$LAST" ]; do
 	db_get portikus/storage
 	STORAGE_BEFORE=$RET
 	prepare "$name"
-	# The certificate is changed on the admin page, so its question shows
-	# only at a lower priority than a normal install asks at.
-	priority=high
-	[ "$name" != tls ] || priority=medium
 	rc=0
-	db_input "$priority" "portikus/$name" || rc=$?
+	db_input high "portikus/$name" || rc=$?
 	shown=0
 	if [ "$rc" = 0 ]; then
 		shown=1

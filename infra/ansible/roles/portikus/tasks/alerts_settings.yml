@@ -1,0 +1,45 @@
+---
+# Check the administrator alert settings and derive the egress proxy entries
+# they need (STACK.md section 15, ADR 0027).  Runs in the play's pre_tasks,
+# so a bad value changes nothing on the host.  alerts-render-test.yml tries
+# each refusal.  The values are secrets, so no task here prints them.
+
+# One key without the other cannot send, so it is a mistake, not "off".
+# systemd reads alerts.env unquoted, so only characters it keeps as written.
+- name: Require both Pushover keys or neither, each letters and digits
+  ansible.builtin.assert:
+    that:
+      - (portikus_alert_pushover_user_key | length > 0) == (portikus_alert_pushover_app_token | length > 0)
+      - portikus_alert_pushover_user_key is match('^[A-Za-z0-9]*$')
+      - portikus_alert_pushover_app_token is match('^[A-Za-z0-9]*$')
+    fail_msg: >-
+      portikus_alert_pushover_user_key and portikus_alert_pushover_app_token
+      go together: set both, from your Pushover account and application, or
+      neither.  Each is letters and digits only.
+    quiet: true
+  no_log: true
+
+# The alert crosses the internet, and a webhook URL is often a secret itself.
+- name: Require an https webhook URL with a host name
+  ansible.builtin.assert:
+    that:
+      - portikus_alert_webhook_url is match("^https://[^\\s\"'\\\\]+$")
+      - (portikus_alert_webhook_url | urlsplit('hostname') | default('', true))
+        is match('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$')
+    fail_msg: >-
+      portikus_alert_webhook_url must be an https:// URL with a host name,
+      such as https://hooks.slack.com/services/..., with no spaces, quotes or
+      backslashes.  Plain http would send the alerts and the URL in the clear.
+    quiet: true
+  when: portikus_alert_webhook_url | length > 0
+  no_log: true
+
+# The API and the worker reach the internet only through the egress proxy.
+- name: Allow the alert channels through the egress proxy
+  ansible.builtin.set_fact:
+    portikus_alert_egress_hosts: >-
+      {{ (['api.pushover.net'] if portikus_alert_pushover_user_key | length > 0 else [])
+         + ([(portikus_alert_webhook_url | urlsplit('hostname'))
+             ~ ((':' ~ (portikus_alert_webhook_url | urlsplit('port')))
+                if (portikus_alert_webhook_url | urlsplit('port')) not in [none, 443] else '')]
+            if portikus_alert_webhook_url | length > 0 else []) }}

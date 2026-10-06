@@ -3,6 +3,8 @@
 Description=Portikus API
 After=network.target postgresql.service
 Requires=postgresql.service
+# A crash alerts the administrator straight from systemd (STACK.md section 15).
+OnFailure=portikus-alert@%n.service
 ConditionPathExists=/etc/portikus/api.env
 
 [Service]
@@ -13,6 +15,8 @@ Group=portikus
 # portikus user, so the worker does not get it (docs/adr/0036).
 SupplementaryGroups=systemd-journal
 EnvironmentFile=/etc/portikus/api.env
+# Where alerts go; missing until setup writes it (STACK.md section 15).
+EnvironmentFile=-/etc/portikus/alerts.env
 EnvironmentFile=-/etc/portikus/api.override.env
 ExecStartPre=/usr/lib/portikus/node/bin/node /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js
 ExecStart=/usr/lib/portikus/node/bin/node /usr/lib/portikus/api/dist/index.js

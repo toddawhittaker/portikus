@@ -12,6 +12,7 @@ import {
 } from "@playwright/test";
 import pg from "pg";
 import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
+import { base32Decode, totpCode, totpStep } from "../packages/auth/dist/totp.js";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
 /**
@@ -32,6 +33,10 @@ export type MockUser =
 	| "erin"
 	| "frank"
 	| "gail"
+	| "lena"
+	| "lars"
+	| "nina"
+	| "rita"
 	| "admin";
 
 /**
@@ -74,6 +79,8 @@ export { API_ORIGIN, MOCK_ISSUER, WEB_ORIGIN };
 
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
+/** The one password e2e/fake-dex-login.mjs accepts. */
+export const FAKE_DEX_RIGHT_PASSWORD = "the-right-password-1234";
 
 // `pnpm test:e2e` points this at a database created for the run, not the
 // shared server database the URL named when the process started.
@@ -123,7 +130,10 @@ export async function createSignedInUser(
 }
 
 /** Give `userId` a session and put its cookie in the browser context. */
-async function addSession(context: BrowserContext, userId: string): Promise<string> {
+export async function addSession(
+	context: BrowserContext,
+	userId: string,
+): Promise<string> {
 	const sessionToken = crypto.randomBytes(32).toString("base64url");
 	await query(
 		`insert into sessions (id, user_id, expires_at)
@@ -161,7 +171,63 @@ export async function createLocalPasswordAdmin(
 	);
 	if (!user) throw new Error("could not create the test user");
 	await addSession(context, user.id);
+	// Past two-step sign-in; e2e/second-factor.spec.ts covers it.
+	await query("update sessions set second_factor_at = now() where user_id = $1", [
+		user.id,
+	]);
 	return user.id;
+}
+
+/**
+ * An authenticator app for two-step sign-in (SPEC.md section 24.13): codes
+ * computed from the key the setup page shows. Each code works once, so it
+ * hands out a later time step each time, waiting for the clock when the
+ * one-step drift window is used up.
+ */
+export class TestAuthenticator {
+	private lastStep = 0;
+	constructor(private readonly secret: Buffer) {}
+
+	static fromKey(key: string): TestAuthenticator {
+		return new TestAuthenticator(base32Decode(key));
+	}
+
+	async nextCode(): Promise<string> {
+		let now = totpStep(Date.now());
+		while (this.lastStep >= now + 1) {
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
+			now = totpStep(Date.now());
+		}
+		this.lastStep = Math.max(this.lastStep + 1, now);
+		return totpCode(this.secret, this.lastStep);
+	}
+}
+
+/**
+ * Finish the setup page with a test authenticator and continue past the
+ * recovery codes. Returns the authenticator and the codes it showed.
+ */
+export async function enrolSecondFactor(
+	page: Page,
+): Promise<{ app: TestAuthenticator; codes: string[] }> {
+	await expect(page).toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	await expect(
+		page.getByRole("heading", { name: "Set up two-step sign-in" }),
+	).toBeVisible();
+	const key = (await page.getByTestId("totp-secret").textContent()) ?? "";
+	const app = TestAuthenticator.fromKey(key);
+	await page.getByLabel("Code from your app").fill(await app.nextCode());
+	await page.getByRole("button", { name: "Turn on two-step sign-in" }).click();
+	await expect(
+		page.getByRole("heading", { name: "Save your recovery codes" }),
+	).toBeVisible();
+	const codes = await page
+		.getByTestId("recovery-codes")
+		.getByRole("listitem")
+		.allTextContents();
+	await page.getByRole("button", { name: "I have saved them, continue" }).click();
+	await expect(page).not.toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	return { app, codes };
 }
 
 /**
@@ -683,9 +749,16 @@ export async function routeApi(
 	pattern: string,
 	handler: (route: Route, request: Request) => Promise<unknown> | unknown,
 ): Promise<void> {
-	await page.route(pattern, (route, request) =>
-		request.resourceType() === "document" ? route.fallback() : handler(route, request),
-	);
+	await page.route(pattern, async (route, request) => {
+		if (request.resourceType() === "document") return route.fallback();
+		try {
+			return await handler(route, request);
+		} catch (error) {
+			// A poll still fetching when the test ends is not a failure.
+			if (error instanceof Error && error.message.includes("Test ended")) return;
+			throw error;
+		}
+	});
 }
 
 /** Carol, the mock provider's administrator, on the admin page. */

@@ -252,6 +252,14 @@
       {{ lookup('env', 'PORTIKUS_EGRESS_EXTRA_HOSTS') | replace(',', ' ') | split | select | list }}
     portikus_outbound_proxy_url: "http://127.0.0.1:3128"
 
+    # ── Administrator alerts (STACK.md section 15) ─────────────────
+    # Where warning and danger alerts, and a control-plane service dying,
+    # are pushed.  Empty turns a channel off.  Secrets: set them in
+    # /etc/portikus/secrets.yaml.  The webhook must be https.
+    portikus_alert_pushover_user_key: "{{ lookup('env', 'PORTIKUS_ALERT_PUSHOVER_USER_KEY') }}"
+    portikus_alert_pushover_app_token: "{{ lookup('env', 'PORTIKUS_ALERT_PUSHOVER_APP_TOKEN') }}"
+    portikus_alert_webhook_url: "{{ lookup('env', 'PORTIKUS_ALERT_WEBHOOK_URL') }}"
+
     # ── Browser access (Caddy) ────────────────────────────────────
     # nip.io resolves portikus.<ip>.nip.io to <ip>, so a fresh VM has a
     # hostname for TLS without anyone editing DNS.  PORTIKUS_PUBLIC_HOST
@@ -287,6 +295,10 @@
     # tests use with curl: the system's authorities, Caddy's internal root
     # and any uploaded chain, so switching the certificate never breaks it.
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
+    # Holds the local administrator's email while it waits for the site to
+    # serve a publicly trusted certificate (docs/SPEC.md section 24.10).  The
+    # root certificate job reads it as ADMIN_PENDING.
+    portikus_admin_pending: /etc/portikus/certificate/admin-pending
 
     # ── TLS (docs/SPEC.md section 21.12) ────────────────────────────
     # The first install's certificate.  Setup seeds the admin page's state
@@ -368,6 +380,14 @@
           with an optional port, such as keys.example.edu or 192.0.2.10:8443.
       tags: always
 
+    - name: Check the alert settings
+      ansible.builtin.include_role:
+        name: portikus
+        tasks_from: alerts_settings
+        apply:
+          tags: always
+      tags: always
+
     # A file that is not JSON changes nothing on the VM; the API's parser
     # checks the rest when the portikus role installs it.
     - name: Load the LTI platforms file
@@ -424,6 +444,15 @@
           image.
       tags: always
 
+    # The base role turns SSH password sign-in off (SPEC.md section 24.1).
+    - name: Refuse to lock the operator out of SSH
+      ansible.builtin.include_role:
+        name: base
+        tasks_from: ssh_keys_guard
+        apply:
+          tags: always
+      tags: always
+
   # Each role carries its own name as a tag, so a single part of the VM
   # can be converged on its own with --tags <role>.
   roles:
@@ -450,7 +479,7 @@
     - role: egress_proxy
       tags: [egress_proxy, lti]
       vars:
-        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
+        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress + portikus_alert_egress_hosts }}"
         # Only Dex's connector reaches a provider (SPEC.md section 5.1).
         # The entra connector never calls userinfo, so Microsoft Graph
         # stays off the list.

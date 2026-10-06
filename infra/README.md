@@ -151,6 +151,19 @@ Run it from the libvirt host: the network checks probe the host's own
 addresses, which only the host itself knows. A run takes about two
 minutes.
 
+On a host where Portikus is installed straight from the apt package, with
+no VM (SPEC.md section 24.1), run it on that host as a user with sudo:
+`make security-test SECURITY_TARGET=host`. Commands run locally, not over
+SSH. The site name and port come from `PUBLIC_URL` in
+`/etc/portikus/api.env`, read through sudo. Setup pins that name to
+127.0.0.1 in `/etc/hosts`, so the public-site probes use this host's own
+address, the source of its default route, instead. Workspaces must not reach this host's own address
+on SSH, PostgreSQL, Dex, the API's ports or the Incus API, nor its bridge
+address, its other addresses, the metadata address or each other. Checks
+that only mean something with a libvirt host in front are listed as not
+applicable, with the reason. For the view from outside, run
+`make external-port-check HOST=<site name>` from another machine.
+
 If a run is interrupted before it cleans up, the next run lists the
 leftover `sectest` users and workspaces. `make security-test SWEEP=1`
 removes them. `PORTIKUS_SECURITY_HEAVY=1` adds the heavy resource tests,
@@ -410,6 +423,7 @@ The settings, all read from the environment by `make configure-vm`:
 | `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
 | `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |
 | `PORTIKUS_USERS_FILE` | any | The retired users file, imported once (below). |
+| `PORTIKUS_ALERT_PUSHOVER_USER_KEY`, `PORTIKUS_ALERT_PUSHOVER_APP_TOKEN`, `PORTIKUS_ALERT_WEBHOOK_URL` | any | Where administrator alerts go (STACK.md section 15): both Pushover keys or neither, and an `https://` webhook. Written to `/etc/portikus/alerts.env`; their hosts join the egress allow list. |
 
 The Makefile exports these to Ansible from the environment, so the
 secrets never appear in a recipe line. Keep them out of shell history too:
@@ -498,6 +512,13 @@ The session cookie secret is different: Ansible generates it on the VM
 once into `/etc/portikus/session.secret` and never regenerates it, the
 same way it handles the controller token, so re-running the playbook does
 not sign everyone out.
+
+The second-factor key, `/etc/portikus/second-factor.key` (root, mode
+0600), is made the same way and seals the authenticator-app secrets of
+Dex password accounts (SPEC.md section 24.13). Unlike the session secret
+it is part of every backup set, and a restore writes it back, with
+`SECOND_FACTOR_KEY` in `api.env`, before the API starts; without it a
+restored server could not check anyone's codes.
 
 ### LTI
 

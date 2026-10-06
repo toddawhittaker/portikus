@@ -3,6 +3,13 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+# The file replaces the whole table in one transaction, so running
+# workspaces never see a gap; only the meters start again from zero.
+- name: Reload the workspace outbound limits
+  ansible.builtin.systemd:
+    name: portikus-workspace-limits
+    state: restarted
+
 - name: Restart the workspace proxy
   ansible.builtin.systemd:
     name: portikus-workspace-proxy

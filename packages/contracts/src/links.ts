@@ -51,8 +51,20 @@ export const PendingLink = z.object({
 		signInName: z.string().nullable(),
 		email: z.string().nullable(),
 	}),
+	/**
+	 * What a Dex local-password account must do before it can be linked
+	 * (SPEC.md section 24.13): type a code, or set up two-step sign-in
+	 * first. Null when no code is needed.
+	 */
+	secondFactor: z.enum(["verify", "enrol"]).nullable(),
 });
 export type PendingLink = z.infer<typeof PendingLink>;
+
+/** `POST /me/links/confirm`: the SSO account's code, when it needs one. */
+export const LinkConfirm = z
+	.object({ code: z.string().trim().min(1).max(64).optional() })
+	.strict();
+export type LinkConfirm = z.infer<typeof LinkConfirm>;
 
 /** The `?error=` codes the link-mode callback sends to `/link`. */
 export const LinkError = z.enum([

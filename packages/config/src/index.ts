@@ -10,6 +10,7 @@ const nonNegativeInt = z.coerce.number().int().nonnegative();
 const DEV_TOKEN = "dev-controller-token-not-for-production";
 const DEV_SESSION_SECRET = "dev-session-secret-not-for-production";
 const DEV_CLIENT_SECRET = "portikus-dev-secret";
+const DEV_SECOND_FACTOR_KEY = "0".repeat(64);
 
 /**
  * Fields shared by all service configurations (STACK.md §5, §9).
@@ -106,6 +107,25 @@ const SharedWorkspaceFields = {
 	AGENT_PORT: positiveInt.default(7400),
 };
 
+/**
+ * Where administrator alerts are pushed (STACK.md section 15). Empty turns a
+ * channel off. The API reads them for the test button, the worker to send.
+ */
+const AlertFields = {
+	ALERT_PUSHOVER_USER_KEY: z.string().default(""),
+	ALERT_PUSHOVER_APP_TOKEN: z.string().default(""),
+	ALERT_WEBHOOK_URL: z.union([z.literal(""), z.string().url()]).default(""),
+};
+
+/**
+ * The egress proxy every request leaving the site goes through (ADR 0027):
+ * the API's sign-in and LMS keyset requests, and both processes' alerts.
+ * Unset sends directly, for development.
+ */
+const OutboundFields = {
+	OUTBOUND_PROXY_URL: z.string().url().optional(),
+};
+
 function previewSuffixIsDnsName(config: { PREVIEW_SUFFIX: string }): boolean {
 	return DNS_NAME.test(config.PREVIEW_SUFFIX);
 }
@@ -120,6 +140,8 @@ const PREVIEW_SUFFIX_DNS_MESSAGE =
 export const ApiConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	...SharedWorkspaceFields,
+	...AlertFields,
+	...OutboundFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -133,18 +155,30 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
-	/** Forward proxy for discovery, token, keyset and LMS keyset requests. */
-	OUTBOUND_PROXY_URL: z.string().url().optional(),
 	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off. */
 	DEX_GRPC_ADDR: z.string().min(1).optional(),
 	DEX_GRPC_CA: z.string().min(1).optional(),
 	DEX_GRPC_CERT: z.string().min(1).optional(),
 	DEX_GRPC_KEY: z.string().min(1).optional(),
+	/** Dex's own HTTP address on loopback, where the API relays password posts; unset turns the relay off. */
+	DEX_HTTP_URL: z.string().url().optional(),
 	/** The LTI platforms file (ADR 0025); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
 	/** The tool's RSA key, whose public half `/lti/jwks` serves. */
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
+	/**
+	 * Seals TOTP secrets (SPEC.md section 24.13): 32 bytes as hex, from
+	 * /etc/portikus/second-factor.key, which backups carry so a restore
+	 * can still open them.
+	 */
+	SECOND_FACTOR_KEY: z
+		.string()
+		.regex(
+			/^[0-9a-f]{64}$/i,
+			"SECOND_FACTOR_KEY must be 64 hexadecimal characters (32 bytes)",
+		)
+		.default(DEV_SECOND_FACTOR_KEY),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
 	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
 	PROJECT_TEMPLATES: z.string().default(""),
@@ -225,6 +259,15 @@ export const ApiConfigSchema = BaseConfig.extend({
 		message: productionSecretMessage("SESSION_COOKIE_SECRET"),
 		path: ["SESSION_COOKIE_SECRET"],
 	})
+	.refine(
+		(config) =>
+			config.NODE_ENV !== "production" ||
+			config.SECOND_FACTOR_KEY !== DEV_SECOND_FACTOR_KEY,
+		{
+			message: "SECOND_FACTOR_KEY must be set in production",
+			path: ["SECOND_FACTOR_KEY"],
+		},
+	)
 	.refine(
 		(config) =>
 			config.NODE_ENV !== "production" || config.PREVIEW_SUFFIX !== DEV_PREVIEW_SUFFIX,
@@ -312,6 +355,8 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
 	...SharedWorkspaceFields,
+	...AlertFields,
+	...OutboundFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
 	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).

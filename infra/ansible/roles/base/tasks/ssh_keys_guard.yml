@@ -1,0 +1,64 @@
+---
+# Setup turns password sign-in off (ssh.yml), so it first proves someone
+# who can administer the host still signs in with a key.  Run from the
+# play's pre_tasks, so a refusal changes nothing on the host.
+- name: Check for sshd
+  ansible.builtin.stat:
+    path: /usr/sbin/sshd
+  register: base_guard_sshd
+
+- name: Check SSH keys before password sign-in is turned off
+  when: base_guard_sshd.stat.exists
+  block:
+    - name: Read where sshd looks for keys
+      ansible.builtin.command: /usr/sbin/sshd -T
+      register: base_guard_sshd_config
+      changed_when: false
+      check_mode: false
+
+    # A command that fetches keys from elsewhere (a cloud provider's sign-in
+    # service) cannot be inspected here, so it is trusted.
+    - name: Note how sshd finds keys
+      ansible.builtin.set_fact:
+        base_guard_key_files: >-
+          {{ base_guard_sshd_config.stdout_lines | select('match', '^authorizedkeysfile ') | first
+             | default('authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2')
+             | regex_replace('^authorizedkeysfile ', '') }}
+        base_guard_keys_command: >-
+          {{ base_guard_sshd_config.stdout_lines | select('match', '^authorizedkeyscommand ') | first
+             | default('authorizedkeyscommand none') | regex_replace('^authorizedkeyscommand ', '') }}
+
+    - name: Read the sudo group
+      ansible.builtin.getent:
+        database: group
+        key: sudo
+        fail_key: false
+
+    # A run from a workstation must keep its own account's key working; a
+    # local run needs root or any sudo member to hold one.
+    - name: Choose the accounts that must keep a key
+      ansible.builtin.set_fact:
+        base_guard_accounts: >-
+          {{ [portikus_operator_user] if portikus_operator_user | length > 0
+             else ['root'] + ((ansible_facts.getent_group.sudo | default([None, None, ''], true))[2] | split(',') | select | list) }}
+
+    - name: Find the accounts that hold an SSH key
+      ansible.builtin.script:
+        cmd: ssh-key-holders.sh {{ base_guard_key_files | quote }} {{ base_guard_accounts | map('quote') | join(' ') }}
+      register: base_guard_holders
+      changed_when: false
+      check_mode: false
+      when: base_guard_keys_command == 'none'
+
+    - name: Refuse to turn off password sign-in without a key
+      ansible.builtin.assert:
+        that:
+          - base_guard_keys_command != 'none' or base_guard_holders.stdout_lines | length > 0
+        fail_msg: >-
+          Setup turns off SSH password sign-in, but none of these accounts has
+          an SSH public key: {{ base_guard_accounts | join(', ') }}.  Without one
+          you would be locked out.  From your own computer, add a key with
+          ssh-copy-id {{ base_guard_accounts | first }}@<this server> (or put it in
+          that account's ~/.ssh/authorized_keys), check that you can sign in
+          with it, and run setup again.  Nothing was changed.
+        success_msg: "SSH keys found for: {{ base_guard_holders.stdout_lines | default([]) | join(', ') or 'the AuthorizedKeysCommand' }}"

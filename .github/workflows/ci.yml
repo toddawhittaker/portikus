@@ -682,6 +682,9 @@ jobs:
       - name: Certificate settings setup seeds
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/certificate-seed-test.yml
+      - name: Alert settings, alerts.env and failure units
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/alerts-render-test.yml
       - name: Apt refresh failure decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/apt-failures-test.yml
@@ -719,6 +722,15 @@ jobs:
       - name: Coding agents clear the terminal
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/agent-clear-test.sh
+      - name: Host hardening
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/host-hardening-test.sh
+      - name: The alert command against a fake webhook
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/alert-command-test.sh
+      - name: Two-step sign-in codes for the rehearsal scripts
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B infra/tests/totp_test.py
       # Under a second; incus, curl, gpgv and distrobuilder are stubbed.
       - name: Workspace image job
         if: needs.changes.outputs.infra == 'true'
@@ -789,6 +801,10 @@ jobs:
       - name: Backups on the server itself
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-local-test.sh
+      # A throwaway sshd on 127.0.0.1, run as the runner's own account.
+      - name: Off-server backup copy
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: scripts/ci-apt-install.sh openssh-server rsync && bash infra/tests/backup-offsite-test.sh
 
   apt-repo:
     name: Signed apt repository

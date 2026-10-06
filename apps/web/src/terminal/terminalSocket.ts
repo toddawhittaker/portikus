@@ -30,6 +30,8 @@ export interface TerminalSocketEvents {
 	onReconnecting: () => void;
 	/** Retrying stopped for good. */
 	onLost: () => void;
+	/** The user has too many terminal sockets open; nothing was retried (SPEC.md §24.13). */
+	onTooMany: () => void;
 	onOutput: (bytes: Uint8Array) => void;
 	/** The first output on this socket: the pane should say its size again. */
 	onFirstOutput: () => void;
@@ -134,6 +136,12 @@ export function openTerminalSocket(
 			if (event.code === CloseCode.SESSION_ENDED) {
 				stopped = true;
 				sessionEnded();
+				return;
+			}
+			if (event.code === CloseCode.TOO_MANY_SOCKETS) {
+				// Retrying would only be refused again until another socket closes.
+				stopped = true;
+				events.onTooMany();
 				return;
 			}
 			if (FATAL_CLOSE_CODES.has(event.code)) {

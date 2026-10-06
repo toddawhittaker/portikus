@@ -1,6 +1,10 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
 export {
+	BREACHED_PASSWORD_MESSAGE,
+	isBreachedPassword,
+} from "./breached-passwords.js";
+export {
 	createDexApi,
 	DEX_PASSWORD_LENGTH,
 	type DexApi,
@@ -9,7 +13,12 @@ export {
 	hashDexPassword,
 	loadDexApi,
 } from "./dex-api.js";
-export { dexLocalSubject, dexLocalUserId, localDexUserId } from "./dex-subject.js";
+export {
+	dexConnectorId,
+	dexLocalSubject,
+	dexLocalUserId,
+	localDexUserId,
+} from "./dex-subject.js";
 export {
 	bindLinkIntent,
 	consumeLinkIntent,
@@ -64,7 +73,23 @@ export {
 	OidcError,
 } from "./oidc.js";
 export {
+	type AuthenticationResponseJSON,
+	type ChallengeStore,
+	checkPasskey,
+	createChallengeStore,
+	listPasskeys,
+	passkeyAuthenticationOptions,
+	passkeyRegistrationOptions,
+	type RegistrationResponseJSON,
+	type RelyingParty,
+	relyingParty,
+	verifyPasskeyRegistration,
+} from "./passkey.js";
+export {
 	authPlugin,
+	connectorCookieName,
+	connectorCookieOptions,
+	DEX_PASSWORD_ROUTE,
 	loginCookieName,
 	loginCookieOptions,
 	requireRole,
@@ -81,14 +106,30 @@ export {
 	revokeInstructor,
 } from "./roles.js";
 export {
+	accountNeedsSecondFactor,
+	checkSecondFactor,
+	enrolTotp,
+	markSecondFactorPassed,
+	openPendingTotp,
+	replaceRecoveryCodes,
+	resetSecondFactor,
+	sealPendingTotp,
+	secondFactorApplies,
+	secondFactorKey,
+	storeFactor,
+} from "./second-factor.js";
+export {
 	createSession,
 	deleteSession,
+	ELEVATED_SESSION_MAX_SECONDS,
 	hashSessionToken,
 	loadSession,
 	loadSessionById,
+	roleFromProvider,
 	type SessionMethod,
 	type SessionOrigin,
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
+export { base32Encode, generateTotpSecret, matchTotp, otpauthUri } from "./totp.js";
 export { type AuthOptions, mapRole, type Role } from "./types.js";

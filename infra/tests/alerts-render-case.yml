@@ -1,0 +1,29 @@
+---
+# One case of alerts-render-test.yml: the portikus role's alerts_settings.yml
+# with the case's values, accepted or refused, and its egress entries.
+- name: Try {{ alerts_case.name }}
+  block:
+    - name: Run the alert settings checks for {{ alerts_case.name }}
+      ansible.builtin.include_tasks: ../ansible/roles/portikus/tasks/alerts_settings.yml
+      vars:
+        portikus_alert_pushover_user_key: "{{ (alerts_case.vars | default({})).user | default('') }}"
+        portikus_alert_pushover_app_token: "{{ (alerts_case.vars | default({})).token | default('') }}"
+        portikus_alert_webhook_url: "{{ (alerts_case.vars | default({})).webhook | default('') }}"
+
+    - name: Note that it was accepted, for {{ alerts_case.name }}
+      ansible.builtin.set_fact:
+        alerts_case_accepted: true
+  rescue:
+    - name: Note that it was refused, for {{ alerts_case.name }}
+      ansible.builtin.set_fact:
+        alerts_case_accepted: false
+
+- name: Require the expected answer for {{ alerts_case.name }}
+  ansible.builtin.assert:
+    that:
+      - alerts_case_accepted == alerts_case.accept
+      - not alerts_case.accept or portikus_alert_egress_hosts == alerts_case.egress
+    fail_msg: >-
+      {{ alerts_case.name }} was {{ 'accepted' if alerts_case_accepted else 'refused' }}{{
+      ', with egress ' ~ (portikus_alert_egress_hosts | to_json) if alerts_case_accepted else '' }}.
+    success_msg: "{{ alerts_case.name }}: {{ 'accepted' if alerts_case_accepted else 'refused' }}, as expected."

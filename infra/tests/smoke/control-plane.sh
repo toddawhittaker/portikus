@@ -145,7 +145,7 @@ redirects_to_https() {
 }
 check "http redirects to https"               redirects_to_https
 check "HSTS header on /" \
-  site_header_matches 'strict-transport-security: max-age=31536000'
+  site_header_matches 'strict-transport-security: max-age=31536000; includeSubDomains'
 check "frame-ancestors header on /" \
   site_header_matches "content-security-policy: frame-ancestors 'none'"
 

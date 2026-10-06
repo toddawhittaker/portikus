@@ -301,6 +301,7 @@ const apiProdBase = {
 	OIDC_ISSUER_URL: "https://idp.example.edu",
 	OIDC_CLIENT_SECRET: "c".repeat(48),
 	SESSION_COOKIE_SECRET: "d".repeat(48),
+	SECOND_FACTOR_KEY: "ab".repeat(32),
 	PREVIEW_SUFFIX: "preview.portikus.example.edu",
 };
 
@@ -407,6 +408,32 @@ test("ApiConfig rejects a short session secret in production", () => {
 	);
 });
 
+test("ApiConfig requires the second-factor key in production", () => {
+	const { SECOND_FACTOR_KEY: _unset, ...withoutKey } = apiProdBase;
+	expectConfigError(withoutKey, "SECOND_FACTOR_KEY");
+});
+
+test("ApiConfig refuses a second-factor key that is not 32 bytes of hex", () => {
+	expectConfigError(
+		{ ...apiProdBase, SECOND_FACTOR_KEY: "ab".repeat(31) },
+		"SECOND_FACTOR_KEY",
+	);
+	expectConfigError(
+		{ ...apiProdBase, SECOND_FACTOR_KEY: "zz".repeat(32) },
+		"SECOND_FACTOR_KEY",
+	);
+	expectConfigError(
+		{ DATABASE_URL: "postgres://localhost/portikus", SECOND_FACTOR_KEY: "short" },
+		"SECOND_FACTOR_KEY",
+	);
+});
+
+test("ApiConfig accepts a 32-byte hex second-factor key in production", () => {
+	expect(loadConfig(ApiConfigSchema, apiProdBase).SECOND_FACTOR_KEY).toBe(
+		"ab".repeat(32),
+	);
+});
+
 test("ApiConfig allows the dev secrets outside production", () => {
 	const config = loadConfig(ApiConfigSchema, {
 		DATABASE_URL: "postgres://localhost/portikus",
@@ -474,6 +501,7 @@ const PROD = {
 	OIDC_ISSUER_URL: "https://idp.school.edu",
 	OIDC_CLIENT_SECRET: "x".repeat(40),
 	SESSION_COOKIE_SECRET: "y".repeat(40),
+	SECOND_FACTOR_KEY: "7e".repeat(32),
 };
 
 function issuesFor(env: Record<string, string>): readonly string[] {
@@ -723,4 +751,30 @@ test("IMAGE_JOBS_DIR is off when unset and must be an absolute path", () => {
 	expect(() =>
 		loadConfig(ApiConfigSchema, { ...base, IMAGE_JOBS_DIR: "image-jobs" }),
 	).toThrow(ConfigError);
+});
+
+test("alert channels default to off and a webhook must be a URL", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	const config = loadConfig(WorkerConfigSchema, base);
+	expect(config.ALERT_PUSHOVER_USER_KEY).toBe("");
+	expect(config.ALERT_PUSHOVER_APP_TOKEN).toBe("");
+	expect(config.ALERT_WEBHOOK_URL).toBe("");
+	expect(() =>
+		loadConfig(ApiConfigSchema, { ...base, ALERT_WEBHOOK_URL: "not a url" }),
+	).toThrow(/ALERT_WEBHOOK_URL/);
+});
+
+// The worker unit reaches nothing outside but the egress proxy (ADR 0027).
+test("the worker reads the egress proxy for its alerts, and unset means none", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	expect(loadConfig(WorkerConfigSchema, base).OUTBOUND_PROXY_URL).toBeUndefined();
+	expect(
+		loadConfig(WorkerConfigSchema, {
+			...base,
+			OUTBOUND_PROXY_URL: "http://127.0.0.1:3128",
+		}).OUTBOUND_PROXY_URL,
+	).toBe("http://127.0.0.1:3128");
+	expect(() =>
+		loadConfig(WorkerConfigSchema, { ...base, OUTBOUND_PROXY_URL: "not a url" }),
+	).toThrow(/OUTBOUND_PROXY_URL/);
 });

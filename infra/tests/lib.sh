@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shared helpers for the shell tests under infra/tests.  Sourcing this file
-# sets the pass and fail counters and defines functions, nothing else.
+# sets the pass and fail counters and ssh_mux_opts and defines functions,
+# nothing else.
 #
 #   ok LABEL                          a PASS line
 #   bad LABEL                         a FAIL line
@@ -13,6 +14,10 @@
 
 pass=0
 fail=0
+
+# ssh options that reuse one connection for every command, which keeps a
+# test run far below the firewall's limit on new SSH connections per source.
+ssh_mux_opts=(-o ControlMaster=auto -o "ControlPath=${XDG_RUNTIME_DIR:-/tmp}/portikus-ssh-%C" -o ControlPersist=60)
 
 ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }

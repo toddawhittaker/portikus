@@ -40,11 +40,15 @@ export function useMe(): MeState {
 
 /**
  * The page of the first gate still holding this account, or null when none
- * does. The same order as the server's (SPEC.md section 5.1).
+ * does. The same order as the server's (SPEC.md sections 5.1 and 24.13).
  */
-export function gatePath(me: MeState): "/change-password" | "/acceptable-use" | null {
+export function gatePath(
+	me: MeState,
+): "/second-factor" | "/change-password" | "/acceptable-use" | null {
 	if (me.status !== "authenticated") return null;
+	if (me.user.secondFactor === "verify") return "/second-factor";
 	if (me.user.mustChangePassword) return "/change-password";
+	if (me.user.secondFactor === "enrol") return "/second-factor";
 	if (me.user.mustAcceptUse) return "/acceptable-use";
 	return null;
 }

@@ -11,7 +11,8 @@ const NOTIFICATION_PRUNE_SECONDS = 60 * 60;
 export const NOTIFICATION_MAX_AGE_DAYS = 90;
 
 /**
- * Delete notifications older than 90 days and all but each user's newest 200
+ * Delete notifications older than 90 days and all but each user's newest 200,
+ * never a kept one
  * (SPEC.md section 8.5, ADR 0033). Returns how many rows went.
  */
 export async function pruneNotifications(
@@ -22,12 +23,14 @@ export async function pruneNotifications(
 	const old = await db
 		.deleteFrom("notifications")
 		.where("created_at", "<", cutoff)
+		// A kept notice stays until its holder has seen it (SPEC.md section 24.13).
+		.where("kept", "=", false)
 		.executeTakeFirst();
 	const extra = await sql`delete from notifications where id in (
 		select id from (
 			select id, row_number() over (
 				partition by user_id order by created_at desc, id desc
-			) as n from notifications
+			) as n from notifications where not kept
 		) ranked where n > ${MAX_NOTIFICATIONS_PER_USER}
 	)`.execute(db);
 	return Number(old.numDeletedRows) + Number(extra.numAffectedRows ?? 0n);

@@ -25,6 +25,22 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	pki {
 		ca local
 	}
+	# Slow clients may not hold connections open (SPEC 24.13).  Measured on
+	# Caddy 2.11: once a connection is upgraded, neither read_body nor idle
+	# applies, and read_body does not cut a long response, so terminals,
+	# events and zip downloads stay open.  A write timeout would cut those
+	# downloads, so none is set.  read_body bounds a whole upload: the
+	# largest is a 50 MiB file (MAX_UPLOAD_BYTES), which at 15 minutes still
+	# fits a 0.5 Mbit/s uplink.  64 KB of headers fits the largest real
+	# cookie set many times over; the sign-in URI is capped at 1 KB below.
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 15m
+			idle 2m
+		}
+		max_header_size 64KB
+	}
 }
 
 # ── Preview edge building blocks ─────────────────────────────────────
@@ -174,9 +190,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	import portikus_tls_site
 	encode gzip
 
-	# Browser-side hardening (SPEC 24.3 and 24.10).
+	# Browser-side hardening (SPEC 24.3 and 24.10).  Every name under this
+	# host is HTTPS only (port 80 just redirects), so subdomains are
+	# included; not preload, which no operator could undo quickly.
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
 		-Server
@@ -186,6 +204,9 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# launch, so the API sends its own frame-ancestors there (ADR 0025).
 	@not_lti not path /lti/*
 	header @not_lti Content-Security-Policy "frame-ancestors 'none'"
+	# The same rule for browsers that predate frame-ancestors.  The page's
+	# own meta policy cannot carry either (apps/web/src/csp.ts).
+	header @not_lti X-Frame-Options DENY
 
 	# A browser navigating to a workspace page wants the single-page
 	# application, not the API's JSON.  Only document requests are sent to
@@ -231,10 +252,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
-	# lockout, so every password form post first asks the API's sign-in
-	# throttle (SPEC 5.3), and every other /dex/auth request counts as a sign-in
-	# start, because Dex keeps each one in memory for ten minutes. A 429 goes
-	# back to the browser unchanged.
+	# lockout, so every password form post goes to the API, which counts it
+	# per address and per account, audits a wrong password, and passes it on
+	# to Dex (SPEC 24.13). Every other /dex/auth request asks the API's
+	# sign-in throttle as a sign-in start, because Dex keeps each one in
+	# memory for ten minutes. A 429 goes back to the browser unchanged.
 	handle /dex/* {
 		# Only the paths the sign-in flow and the API use reach Dex; the rest,
 		# such as the unthrottled /dex/device/code, would store data for nothing.
@@ -271,11 +293,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			request_body {
 				max_size 16KB
 			}
-			# Each ask names its scope, so Caddy replaces the client's query
-			# instead of passing on a ?scope=start the client added.
-			forward_auth @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
-				uri /edge/signin-throttle?scope=password
-			}
+			# The path and query go to the API as the client sent them, and
+			# the API sends them on to Dex.
+			reverse_proxy @dex_password_post 127.0.0.1:{{ portikus_api_port }}
+			# The ask names its scope, so Caddy replaces the client's query
+			# instead of passing on one the client added.
 			forward_auth @dex_signin_start 127.0.0.1:{{ portikus_api_port }} {
 				uri /edge/signin-throttle?scope=start
 			}
@@ -302,10 +324,11 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	import portikus_tls_preview
 
 	# Preview responses belong to the student's application, so Portikus
-	# adds no policy headers of its own here.  In particular there is no
-	# frame-ancestors directive: the Preview tab embeds these pages
-	# (BROWSER-HANDLING 12).  Only Caddy's own banner is removed.
+	# adds no framing policy here: the Preview tab embeds these pages
+	# (BROWSER-HANDLING 12).  nosniff only stops a browser running a
+	# response as a type its server did not declare (SPEC 24.3).
 	header {
+		X-Content-Type-Options nosniff
 		-Server
 	}
 

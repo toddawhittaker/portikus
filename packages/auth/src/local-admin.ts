@@ -3,6 +3,7 @@ import type { Kysely } from "kysely";
 import { type DexApi, generateDexPassword, hashDexPassword } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
 import { precreateDexAccount } from "./links.js";
+import { resetSecondFactor } from "./second-factor.js";
 
 /**
  * The local administrator every install has (SPEC.md section 5.1;
@@ -42,7 +43,8 @@ type ResetLocalAdminResult =
 
 /**
  * Give the local administrator a new one-time password, restore its
- * administrator grant, re-enable it, set the flag, and end its sessions.
+ * administrator grant, re-enable it, set the flag, clear its second
+ * factors, and end its sessions.
  * The password is returned for the caller to write to the root-only file;
  * it is never logged or audited.
  */
@@ -99,6 +101,8 @@ export async function resetLocalAdmin(
 				mustChangePassword: true,
 			});
 		}
+		// The recovery path for a lost second factor too (SPEC.md section 24.13).
+		if (account) await resetSecondFactor(trx, id, "host:root");
 		await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
 		await trx
 			.updateTable("preview_sessions")

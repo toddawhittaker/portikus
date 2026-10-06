@@ -24,20 +24,31 @@ In allow-list mode, three layers each check the name:
    `CAP_NET_ADMIN`. The firewall redirects workspace DNS (TCP and UDP 53
    to the gateway) to it. Each listed name is sent to the upstream
    (systemd-resolved at 127.0.0.53 by default) and every address it
-   answers goes into the nftables set `names_v4` through dnsmasq's
+   answers goes into the nftables set `learned_v4` through dnsmasq's
    `nftset`. Every other name goes to the worker's counter on
    127.0.0.1:5399, which answers NXDOMAIN. `.incus` names still go to
    Incus's own dnsmasq. The file also sets `no-resolv` (so a stopped
    counter fails closed), `stop-dns-rebind` (so a listed name cannot put a
-   private address in the set), and a 300-second cap on TTLs.
+   private address in the set), a 300-second cap on TTLs, and no cache
+   of its own (`cache-size=0`), because dnsmasq adds to the set only on an
+   upstream answer and a timed-out address must come back on the next
+   lookup. systemd-resolved on the VM still caches.
 2. **The firewall.** A table of its own, `inet portikus_egress`, that
    Ansible's nftables configuration never touches. Its forward chain
    drops DNS and DNS over TLS to anywhere, then accepts TCP on the
-   allowed ports only to `names_v4` and to the administrator's ranges,
-   then drops everything else from the bridge, UDP and IPv6 included.
-   The names set has no timeout (dnsmasq's add never refreshes one; T1
-   proved it) and is capped at 65,535 entries, failing closed when full.
-3. **TLS and HTTP names.** Connections to a `names_v4` address on 443 and
+   allowed ports only to recently learned addresses and to the
+   administrator's ranges, then drops everything else from the bridge,
+   UDP and IPv6 included. A learned address times out after 300 seconds,
+   the TTL cap, so an address stays usable only while DNS keeps answering
+   with it. dnsmasq's add never refreshes a timer, so a busy address drops
+   out on schedule; to bridge the gap until the workspace's cached answer
+   expires and it looks up again, each new connection to a learned address
+   also puts it in `recent_v4` for 300 seconds, and the rules allow
+   `recent_v4`. An address no DNS answer has named for ten minutes is
+   closed to new connections. A connection the forward chain accepted
+   carries a connection mark and outlives its address leaving the sets.
+   Both sets are capped at 65,535 entries, failing closed when full.
+3. **TLS and HTTP names.** Connections to a recently learned address on 443 and
    80 are redirected to a workspace Squid on the gateway (3130 and 3129),
    which reads the TLS SNI or the HTTP `Host`, splices (never decrypts)
    only listed names, and refuses the rest. So an address shared by a CDN
@@ -79,10 +90,11 @@ names file and a reload. It controls only those two services, only with
 step worked, and a `status.json` the controller reads.
 
 **Keeping and flushing learned addresses.** Each change reloads the rules
-and the range and port sets, but keeps `names_v4` unless a name was
-removed, the mode changed, or the previous request failed; then the set
-is flushed. Clients heal on their next lookup, within the 300-second TTL
-cap.
+and the range and port sets, but keeps `learned_v4` and `recent_v4`
+unless a name was removed, the mode changed, or the previous request
+failed; then both are flushed. Clients heal on their next lookup, within
+the 300-second TTL cap. Connections already open keep running, as
+spliced web connections always did.
 
 **Boot.** The same helper runs once at boot, after `nftables.service` and
 before `incus.service`. Finding no table, it loads the last applied
@@ -153,8 +165,12 @@ Rejected:
 - **Incus network ACLs rendered from resolved addresses** (the first idea
   in #284). Stale for CDNs, and an ACL cannot test a set that dnsmasq
   fills; Incus also puts every drop before every allow.
-- **A timeout on the names set.** dnsmasq's add never refreshes an
-  element's timer, so busy addresses would drop out on a fixed schedule.
+- **A names set with no timeout.** It was the first design, because
+  dnsmasq's add never refreshes an element's timer. But an address learned
+  once stayed open for good, after the name's DNS had moved on, until a
+  policy change flushed the set (SPEC.md 24.2).
+- **Refreshing a learned address on every packet.** No gap at all, but
+  steady traffic would keep an address open forever, the same hole.
 - **One Squid for the API and the workspaces.** Untrusted workspace
   traffic must not be able to slow the proxy that every sign-in depends
   on, and the two allow lists have different owners.

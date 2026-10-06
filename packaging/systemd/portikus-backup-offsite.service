@@ -1,0 +1,46 @@
+# Copies the newest complete backup set off the server with rsync over SSH
+# (SPEC.md section 24.9, ADR 0044).  Started by portikus-backup-offsite.timer,
+# which setup's backup role enables only when portikus_backup_offsite names a
+# target.  A failure is reported through portikus-alert@.service, with the
+# reason in the journal.
+[Unit]
+Description=Copy the newest Portikus backup set off the server
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/portikus/backup-offsite/config
+OnFailure=portikus-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/backup/portikus-backup-offsite push
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+# Reads the sets, the keys and its settings; writes only the name of the
+# last set it sent, since it cannot ask the write-only target.
+StateDirectory=portikus-backup-offsite
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+# Sets an administrator copied in by hand may belong to another account.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=512M
+# A first copy of a large set at a low bandwidth limit takes hours.
+TimeoutStartSec=12h

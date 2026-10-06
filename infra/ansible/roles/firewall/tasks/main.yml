@@ -74,8 +74,9 @@
   notify: Reload nftables
 
 # Debian's unit runs "nft flush ruleset" on stop, so a restart would drop
-# Incus's table and the egress helper's, which would open allow-list mode
-# (ADR 0038).  Stopping removes only the tables this role owns.
+# Incus's table, the egress helper's, which would open allow-list mode
+# (ADR 0038), and the workspace limits (SPEC.md 24.2), whose oneshot unit
+# would not reload them.  Stopping removes only the tables this role owns.
 - name: Create the nftables drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/nftables.service.d

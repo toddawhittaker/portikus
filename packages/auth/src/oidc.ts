@@ -1,5 +1,5 @@
+import { createOutboundFetch } from "@portikus/observability";
 import * as client from "openid-client";
-import { createOutboundFetch } from "./outbound-fetch.js";
 import type { OidcIdentity } from "./sessions.js";
 import type { AuthOptions } from "./types.js";
 
@@ -25,9 +25,11 @@ export interface OidcClient {
 	/**
 	 * `prompt: "login"` asks the provider to re-authenticate the user, the
 	 * standard OIDC way; linking an account uses it (ADR 0026).
+	 * `connectorId` is Dex's `connector_id`, which skips its chooser page.
 	 */
 	buildLoginRedirect(options?: {
 		prompt?: "login";
+		connectorId?: string;
 	}): Promise<{ url: string; state: LoginState }>;
 	completeLogin(
 		callbackUrl: URL,
@@ -94,6 +96,7 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 				state,
 				nonce,
 				...(options.prompt ? { prompt: options.prompt } : {}),
+				...(options.connectorId ? { connector_id: options.connectorId } : {}),
 			});
 
 			return { url: url.href, state: { verifier, state, nonce } };

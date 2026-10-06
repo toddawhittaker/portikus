@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Role } from "./auth.js";
 import { PortNumber } from "./listening.js";
 import {
 	CpuThrottle,
@@ -364,3 +365,98 @@ export const AdminProcessSnapshot = z.object({
 	error: z.string().nullable(),
 });
 export type AdminProcessSnapshot = z.infer<typeof AdminProcessSnapshot>;
+
+/** Where a first sign-in without an invitation is sent (SPEC.md section 24.13). */
+export const NOT_INVITED_PATH = "/not-invited";
+
+/**
+ * The body of `POST /admin/invitations`. `username` is an Entra user
+ * principal name or an LDAP username, matched instead of email for those
+ * providers; leave it out to match the email (SPEC.md section 24.13).
+ */
+export const CreateInvitationRequest = z
+	.object({
+		email: z.string().trim().toLowerCase().email().max(254),
+		username: z.string().trim().toLowerCase().min(1).max(254).optional(),
+		name: z.string().trim().min(1, "Enter a name").max(100),
+		role: Role,
+	})
+	.strict();
+export type CreateInvitationRequest = z.infer<typeof CreateInvitationRequest>;
+
+/** An invitation nobody has claimed or revoked yet. */
+export const Invitation = z.object({
+	id: z.string().uuid(),
+	email: z.string(),
+	username: z.string().nullable(),
+	displayName: z.string(),
+	role: Role,
+	createdAt: z.string().datetime(),
+});
+export type Invitation = z.infer<typeof Invitation>;
+
+export const InvitationList = z.object({ invitations: z.array(Invitation) });
+export type InvitationList = z.infer<typeof InvitationList>;
+
+/** The columns of an account import file, in the order the sample uses (SPEC.md section 5.1). */
+export const ACCOUNT_IMPORT_COLUMNS = [
+	"name",
+	"email",
+	"username",
+	"role",
+	"kind",
+] as const;
+
+/** At most this many people per import file. */
+export const ACCOUNT_IMPORT_MAX_ROWS = 500;
+
+/** At most this many bytes per import file. */
+export const ACCOUNT_IMPORT_MAX_BYTES = 256 * 1024;
+
+/**
+ * The body of both import steps: the file's text. Confirm takes the same
+ * text again and validates it again, never trusting the preview.
+ */
+export const AccountImportRequest = z
+	.object({ csv: z.string().max(ACCOUNT_IMPORT_MAX_BYTES) })
+	.strict();
+export type AccountImportRequest = z.infer<typeof AccountImportRequest>;
+
+/** One data row of an import file as written, with what the preview found. */
+export const AccountImportPreviewRow = z.object({
+	/** The record number in the file, counting the header as 1. */
+	line: z.number().int().positive(),
+	name: z.string(),
+	email: z.string(),
+	username: z.string(),
+	role: z.string(),
+	kind: z.string(),
+	status: z.enum(["valid", "invalid", "duplicate"]),
+	/** Why the row is invalid or a duplicate; null when valid. */
+	reason: z.string().nullable(),
+});
+export type AccountImportPreviewRow = z.infer<typeof AccountImportPreviewRow>;
+
+export const AccountImportPreview = z.object({
+	rows: z.array(AccountImportPreviewRow),
+});
+export type AccountImportPreview = z.infer<typeof AccountImportPreview>;
+
+/**
+ * What confirm did with one row. A created row carries its one-time
+ * password, which leaves the server only in this response.
+ */
+export const AccountImportResultRow = z.object({
+	line: z.number().int().positive(),
+	name: z.string(),
+	email: z.string(),
+	username: z.string(),
+	kind: z.string(),
+	outcome: z.enum(["created", "invited", "skipped", "invalid", "failed"]),
+	reason: z.string().nullable(),
+	password: z.string().optional(),
+});
+export type AccountImportResultRow = z.infer<typeof AccountImportResultRow>;
+
+export const AccountImportResult = z.object({ rows: z.array(AccountImportResultRow) });
+export type AccountImportResult = z.infer<typeof AccountImportResult>;

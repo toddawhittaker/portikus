@@ -21,3 +21,15 @@
   register: base_ssh_generator_sockets
   changed_when: base_ssh_generator_sockets.rc == 0
   failed_when: base_ssh_generator_sockets.rc not in [0, 5]
+
+# Reload, not restart: a restart would drop sessions, including the one
+# running this play.
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded
+
+- name: Apply the kernel hardening settings
+  ansible.builtin.command:
+    argv: [sysctl, -p, /etc/sysctl.d/90-portikus-hardening.conf]
+  changed_when: true

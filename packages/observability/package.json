@@ -26,6 +26,7 @@
 	},
 	"dependencies": {
 		"@portikus/contracts": "workspace:*",
-		"pino": "10.3.1"
+		"pino": "10.3.1",
+		"undici": "8.11.2"
 	}
 }

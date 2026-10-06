@@ -170,6 +170,71 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"outbound-limit kernel lines show as network warnings naming the workspace",
+	async () => {
+		const carolId = (
+			await testDb.db
+				.selectFrom("users")
+				.select("id")
+				.where("oidc_subject", "=", "carol")
+				.executeTakeFirstOrThrow()
+		).id;
+		const workspaceId = crypto.randomUUID();
+		await testDb.db
+			.insertInto("workspaces")
+			.values({
+				id: workspaceId,
+				owner_user_id: carolId,
+				label: `logs-${workspaceId.slice(0, 8)}`,
+				state: "running",
+				desired_state: "running",
+				agent_address: "10.20.0.5",
+			})
+			.execute();
+		const mac = "MAC=00:16:3e:aa:bb:cc:00:16:3e:dd:ee:ff:08:00";
+		journal([
+			{ msg: "api line" },
+			{
+				raw: `kernel:portikus-ws-mail-blocked: IN=incusbr0 OUT=eth0 ${mac} SRC=10.20.0.5 DST=203.0.113.9 PROTO=TCP SPT=41000 DPT=25`,
+			},
+			{ raw: "kernel:portikus-ws-conn-limit: IN=incusbr0 SRC=10.20.0.77 DPT=443" },
+			{ raw: "kernel:usb 1-1: new high-speed USB device SRC=10.20.0.5" },
+		]);
+		const res = await get("/admin/logs");
+		const page = LogPage.parse(res.json());
+		expect(page.lines.map((l) => [l.service, l.line.msg])).toEqual([
+			["network", "Workspace hit the new-connection limit"],
+			["network", "Workspace outbound mail blocked"],
+			["api", "api line"],
+		]);
+		const [unknown, mail] = page.lines;
+		expect(unknown?.line.workspaceAddress).toBe("10.20.0.77");
+		expect(unknown?.line.workspaceId).toBeUndefined();
+		expect(mail?.line).toMatchObject({
+			level: "warn",
+			workspaceId,
+			userId: carolId,
+			destinationPort: 25,
+		});
+		expect(mail?.userName).toBe("Carol Admin");
+		expect(res.body).not.toContain("00:16:3e");
+		expect(res.body).not.toContain("203.0.113.9");
+		expect(res.body).not.toContain("USB");
+
+		const network = LogPage.parse((await get("/admin/logs?service=network")).json());
+		expect(network.lines).toHaveLength(2);
+		const mine = LogPage.parse(
+			(await get(`/admin/logs?service=network&workspace=${workspaceId}`)).json(),
+		);
+		expect(mine.lines.map((l) => l.line.msg)).toEqual([
+			"Workspace outbound mail blocked",
+		]);
+		const errors = LogPage.parse((await get("/admin/logs?level=error")).json());
+		expect(errors.lines).toHaveLength(0);
+	},
+);
+
 test.skipIf(skip)("filters by text and user, and pages by cursor", async () => {
 	journal(Array.from({ length: 120 }, (_, i) => ({ msg: `line ${i}` })));
 	const first = LogPage.parse((await get("/admin/logs")).json());

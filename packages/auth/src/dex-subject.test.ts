@@ -1,5 +1,41 @@
 import { expect, test } from "vitest";
-import { dexLocalSubject, dexLocalUserId, localDexUserId } from "./dex-subject.js";
+import {
+	dexConnectorId,
+	dexLocalSubject,
+	dexLocalUserId,
+	localDexUserId,
+} from "./dex-subject.js";
+
+/** A Dex subject for any connector, with varint lengths as protobuf writes them. */
+function subjectFor(userId: string, connId: string): string {
+	const field = (tag: number, text: string) => {
+		const body = Buffer.from(text, "utf8");
+		const length =
+			body.length < 128
+				? [body.length]
+				: [(body.length & 0x7f) | 0x80, body.length >> 7];
+		return Buffer.concat([Buffer.from([tag, ...length]), body]);
+	};
+	return Buffer.concat([field(0x0a, userId), field(0x12, connId)]).toString(
+		"base64url",
+	);
+}
+
+test("reads the connector out of any Dex subject", () => {
+	expect(dexConnectorId(dexLocalSubject("x"))).toBe("local");
+	expect(dexConnectorId(subjectFor("00000000-oid", "entra"))).toBe("entra");
+	// An LDAP DN longer than 127 bytes takes a two-byte length.
+	expect(dexConnectorId(subjectFor(`cn=${"a".repeat(200)},dc=example`, "ldap"))).toBe(
+		"ldap",
+	);
+});
+
+test("finds no connector in a subject that is not Dex's", () => {
+	expect(dexConnectorId("alice")).toBeNull();
+	expect(dexConnectorId("")).toBeNull();
+	expect(dexConnectorId(`${subjectFor("bob", "entra")}AA`)).toBeNull();
+	expect(dexConnectorId(Buffer.from([0x0a, 3, 0x62]).toString("base64url"))).toBeNull();
+});
 
 test("matches Dex's documented example for a static password", () => {
 	expect(dexLocalSubject("08a8684b-db88-4b73-90a9-3cd1661f5466")).toBe(

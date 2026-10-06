@@ -1,6 +1,9 @@
 import {
 	bindLinkIntent,
+	connectorCookieName,
+	connectorCookieOptions,
 	deleteSession,
+	dexConnectorId,
 	findLinkIntent,
 	hashSessionToken,
 	type LinkIntent,
@@ -14,7 +17,12 @@ import {
 	sessionCookieName,
 	sessionCookieOptions,
 } from "@portikus/auth";
-import type { ApiError, LinkError, MeResponse } from "@portikus/contracts";
+import {
+	type ApiError,
+	type LinkError,
+	type MeResponse,
+	NOT_INVITED_PATH,
+} from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
@@ -32,6 +40,7 @@ export function registerAuthRoutes(
 	const auth = toAuthOptions(config);
 	const sessionCookie = sessionCookieName(auth);
 	const loginCookie = loginCookieName(auth);
+	const connectorCookie = connectorCookieName(auth);
 
 	async function audit(
 		request: FastifyRequest,
@@ -58,11 +67,18 @@ export function registerAuthRoutes(
 		return reply.status(status).send({ code, message });
 	}
 
-	app.get("/auth/login", async (_request, reply) => {
+	app.get("/auth/login", async (request, reply) => {
 		if (!oidc) {
 			return fail(reply, 500, "INTERNAL", "Login is not configured");
 		}
-		const { url, state } = await oidc.buildLoginRedirect();
+		// A session ended at the elevated-role limit signs in again through the
+		// same connector, without Dex's chooser (SPEC.md section 24.13).
+		const raw = request.cookies[connectorCookie];
+		const remembered = raw ? request.unsignCookie(raw) : null;
+		const connectorId = remembered?.valid ? remembered.value : null;
+		const { url, state } = await oidc.buildLoginRedirect(
+			connectorId ? { connectorId } : {},
+		);
 		reply.setCookie(loginCookie, JSON.stringify(state), {
 			...loginCookieOptions(auth),
 			signed: true,
@@ -141,10 +157,28 @@ export function registerAuthRoutes(
 			method: "oidc",
 			loginMetadata: requestMetadata(request),
 			roleChangeMetadata: { source: "oidc" },
+			emailVerified: claims.email_verified === true,
 		});
+		// The web app's page tells them to ask for an invitation (SPEC.md §24.13).
+		if (!signedIn.ok && signedIn.reason === "not_invited") {
+			return reply.redirect(NOT_INVITED_PATH, 302);
+		}
 		if (!signedIn.ok) return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
+		rememberConnector(reply, identity);
 		return reply.redirect("/", 302);
 	});
+
+	/** Remember the Dex connector this person used, for the next sign-in. */
+	function rememberConnector(
+		reply: FastifyReply,
+		identity: { issuer: string; subject: string },
+	): void {
+		if (identity.issuer !== config.OIDC_ISSUER_URL) return;
+		const connectorId = dexConnectorId(identity.subject);
+		if (connectorId) {
+			reply.setCookie(connectorCookie, connectorId, connectorCookieOptions(auth));
+		}
+	}
 
 	/**
 	 * The callback in link mode: it never creates, updates
@@ -267,7 +301,8 @@ export function registerAuthRoutes(
 		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
 		const localPassword =
 			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
-		const body: MeResponse = { ...request.user, signInName, localPassword };
+		const { secondFactorApplies: _applies, ...user } = request.user;
+		const body: MeResponse = { ...user, signInName, localPassword };
 		return reply.send(body);
 	});
 }

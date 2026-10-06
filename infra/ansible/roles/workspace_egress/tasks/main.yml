@@ -95,6 +95,17 @@
     mode: "0644"
   notify: Re-apply the last egress policy
 
+# A table loaded by an older helper keeps every learned address forever
+# (names_v4) until a policy is applied again, so apply the last one now.
+- name: Look for an egress table whose learned addresses never expire
+  ansible.builtin.command:
+    cmd: nft list set inet portikus_egress names_v4
+  register: workspace_egress_old_names_set
+  changed_when: workspace_egress_old_names_set.rc == 0
+  failed_when: false
+  check_mode: false
+  notify: Re-apply the last egress policy
+
 # The helper's guard loads this without Node when the helper fails at boot.
 - name: Write the drop-all table for the egress guard
   ansible.builtin.template:
@@ -103,6 +114,38 @@
     owner: root
     group: root
     mode: "0644"
+
+# ── Outbound abuse limits (SPEC.md 24.2) ──────────────────────────
+
+# Its own table, outside the helper's, so the limits hold in every egress
+# mode and on a site that never applied a policy.
+- name: Write the workspace outbound limits
+  ansible.builtin.template:
+    src: workspace-limits.nft.j2
+    dest: /etc/portikus/workspace-limits.nft
+    owner: root
+    group: root
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload the workspace outbound limits
+
+- name: Install the workspace outbound limits unit
+  ansible.builtin.template:
+    src: portikus-workspace-limits.service.j2
+    dest: /etc/systemd/system/portikus-workspace-limits.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for workspace egress
+    - Reload the workspace outbound limits
+
+- name: Enable and load the workspace outbound limits
+  ansible.builtin.systemd:
+    name: portikus-workspace-limits
+    enabled: true
+    state: started
+    daemon_reload: true
 
 # ── The workspace proxy ───────────────────────────────────────────
 

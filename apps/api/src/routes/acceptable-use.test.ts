@@ -271,6 +271,12 @@ describe.skipIf(skip)("the acceptable-use gate", () => {
 			.set({ oidc_subject: dexLocalSubject(crypto.randomUUID()) })
 			.where("id", "=", id)
 			.execute();
+		// Past the second-factor gate, which comes first (SPEC.md section 24.13).
+		await testDb.db
+			.updateTable("sessions")
+			.set({ second_factor_at: new Date().toISOString() })
+			.where("user_id", "=", id)
+			.execute();
 		await expectGated(jar, "ACCEPTABLE_USE_REQUIRED");
 		expect((await accept(jar, 1)).statusCode).toBe(204);
 		expect((await get(jar, "/me/settings")).statusCode).toBe(200);

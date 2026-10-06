@@ -352,12 +352,12 @@ has "only password form posts, local and LDAP, are matched for the throttle" \
 lacks "the throttle also catches an encoded post such as /dex/auth/loc%61l/login" \
   '^[[:space:]]+path /dex/.*%' "${app}"
 has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
-has "a password post asks the API's sign-in throttle first" \
-  "forward_auth @dex_password_post 127\.0\.0\.1:${API_PORT} \{" "${app}"
+# The API counts it per address and per account and passes it on to Dex
+# (SPEC.md section 24.13).
+has "a password post goes to the API, which relays it to Dex" \
+  "^[[:space:]]+reverse_proxy @dex_password_post 127\.0\.0\.1:${API_PORT}\$" "${app}"
 # Caddy keeps the client's query when the forward_auth URI has none, so a
-# client could add ?scope=start to a password post.  Every ask names its scope.
-has "the password post is asked at /edge/signin-throttle?scope=password" \
-  '^[[:space:]]+uri /edge/signin-throttle\?scope=password$' "${app}"
+# client could add ?scope=password to a sign-in start.  Every ask names its scope.
 lacks "no throttle ask leaves the client's query in place" \
   '^[[:space:]]+uri /edge/signin-throttle$' "${app}"
 # Dex stores every /dex/auth request for ten minutes, so each one is counted
@@ -397,7 +397,7 @@ esac
 line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
 dex_proxy_line="$(line_of 'reverse_proxy 127.0.0.1:5556')"
 for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_other_method' \
-  'max_size 16KB' 'forward_auth @dex_password_post' 'forward_auth @dex_signin_start'; do
+  'max_size 16KB' 'reverse_proxy @dex_password_post' 'forward_auth @dex_signin_start'; do
   step_line="$(line_of "${step}")"
   if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
     ok "${step} runs before the request reaches Dex"
@@ -432,6 +432,14 @@ while IFS= read -r m; do
   esac
 done < <(api_routes "${rendered}")
 [ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
+# A proxy with its own matcher is outside the list above; the only one is
+# the Dex password post, whose paths cannot cover /edge.
+if [ "$(grep -oE '^[[:space:]]+reverse_proxy @[a-z_]+ 127\.0\.0\.1:'"${API_PORT}"'$' "${rendered}" \
+  | awk '{ print $2 }' | sort -u)" = "@dex_password_post" ]; then
+  ok "the only API proxy with its own matcher is the Dex password post"
+else
+  bad "the only API proxy with its own matcher is the Dex password post"
+fi
 # /__portikus/ports/* reaches the API only through forward_auth, whose fixed
 # uri replaces the client's path; so does every other forward_auth.
 if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' "${rendered}")" = \
@@ -483,6 +491,32 @@ has "the /workspaces proxy, which carries every API WebSocket, has the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${work}/workspaces-block"
 has "the preview proxies' shared rules have the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${preview}"
+
+echo ""
+echo "--- Slow clients (SPEC 24.13) ---"
+
+awk '/^\tservers \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${work}/global-block" >"${work}/servers-block"
+has "a client has 10 seconds to send its headers" '^[[:space:]]+read_header 10s$' "${work}/servers-block"
+# The largest upload is MAX_UPLOAD_BYTES (50 MiB); 15 minutes fits it at 0.5 Mbit/s.
+has "a request body may take 15 minutes, so a large upload is never cut off" \
+  '^[[:space:]]+read_body 15m$' "${work}/servers-block"
+has "an idle keep-alive connection closes after 2 minutes" '^[[:space:]]+idle 2m$' "${work}/servers-block"
+has "request headers are capped at 64 KB" '^[[:space:]]+max_header_size 64KB$' "${work}/servers-block"
+# A write timeout would cut long downloads; upgraded WebSockets ignore the rest.
+lacks "no write timeout, which would cut a long download" '^[[:space:]]+write ' "${work}/servers-block"
+count_is "the limits are set once, for every site" 1 '^[[:space:]]+servers \{$' "${rendered}"
+
+echo ""
+echo "--- Framing and content sniffing (SPEC 24.3) ---"
+
+has "older browsers are told the same: no framing outside /lti/*" \
+  '^[[:space:]]+header @not_lti X-Frame-Options DENY$' "${app}"
+count_is "X-Frame-Options is only ever sent through the /lti/* exception" 1 'X-Frame-Options' "${app}"
+lacks "the header policy holds only frame-ancestors; the page's meta policy has the rest" \
+  'Content-Security-Policy "[^"]*(script-src|default-src)' "${app}"
+has "preview responses are never content-sniffed" '^[[:space:]]+X-Content-Type-Options nosniff$' "${preview}"
+lacks "previews carry no frame-ancestors, so the Preview tab can embed them" 'frame-ancestors' "${preview}"
+lacks "previews carry no X-Frame-Options of Portikus's own" 'X-Frame-Options' "${preview}"
 
 echo ""
 echo "--- Plain HTTP on port 80 ---"
@@ -688,6 +722,13 @@ PY
   expect "a client-sent upstream header does not move the target" \
     "upstream=tls" "$(get tls / -H "X-Portikus-Upstream: 127.0.0.1:${live_plain}")"
 
+  preview_headers="$(get plain / -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  expect "a preview response is marked nosniff" "x-content-type-options: nosniff" "${preview_headers}"
+  case "${preview_headers}" in
+    *frame-ancestors* | *x-frame-options*) bad "a preview response carries no framing policy of Portikus's own" ;;
+    *) ok "a preview response carries no framing policy of Portikus's own" ;;
+  esac
+
   expect "a WebSocket works over the TLS hop" \
     "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
   expect "a WebSocket still works over the plain hop" \
@@ -701,6 +742,15 @@ PY
     curl -sk --max-time 5 --resolve "${PUBLIC_HOST}:${live_public}:127.0.0.1" "$@" \
       "https://${PUBLIC_HOST}:${live_public}${p}" -o /dev/null
   }
+  site_headers="$(site /health -D - | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  expect "the control plane refuses framing by CSP" "content-security-policy: frame-ancestors 'none'" "${site_headers}"
+  expect "the control plane refuses framing for older browsers" "x-frame-options: deny" "${site_headers}"
+  lti_headers="$(site /lti/launch -D - | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  case "${lti_headers}" in
+    *frame-ancestors* | *x-frame-options*) bad "an LTI launch is left to the API's own framing policy" ;;
+    *) ok "an LTI launch is left to the API's own framing policy" ;;
+  esac
+
   get plain /edge/certificate-ask?domain=evil.example -o /dev/null
   get plain /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is -o /dev/null
   site /edge/certificate-ask?domain=evil.example

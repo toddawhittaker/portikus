@@ -44,6 +44,7 @@ export function testConfig(
 		OIDC_INSTRUCTOR_GROUP: "portikus-instructors",
 		OIDC_DEFAULT_ROLE: "none",
 		SESSION_COOKIE_SECRET: "test-session-secret",
+		SECOND_FACTOR_KEY: "5f".repeat(32),
 		SESSION_TTL_SECONDS: 43200,
 		PROJECT_TEMPLATES: "",
 		projectTemplates: [],
@@ -59,6 +60,9 @@ export function testConfig(
 		JOURNALCTL_PATH: "/nonexistent/journalctl",
 		WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: 20,
 		FILE_WRITE_LIMIT_PER_MINUTE: 600,
+		ALERT_PUSHOVER_USER_KEY: "",
+		ALERT_PUSHOVER_APP_TOKEN: "",
+		ALERT_WEBHOOK_URL: "",
 		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};

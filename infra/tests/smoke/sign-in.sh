@@ -89,7 +89,7 @@ sys.stdout.write(urllib.parse.urlencode({"login": sys.argv[1], "password": passw
 dex_signin() {
   ssh_cmd_stdin "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
       && page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\") \
-      && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L --data-binary @- -o /dev/null -w '%{http_code}' \"\$page\""
+      && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -H 'Origin: ${API}' --data-binary @- -o /dev/null -w '%{http_code}' \"\$page\""
 }
 signin_has_session() {
   ssh_cmd "awk '\$6 == \"${SESSION_COOKIE_NAME}\"' ${SIGNIN_JAR} | grep -q ."
@@ -134,7 +134,7 @@ password_limit=$(api_env PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES)
 password_limit="${password_limit:-30}"
 throttle_source=$(random_loopback)
 throttle_statuses() {
-  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -o /dev/null -w '%{http_code}\n' \
+  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -o /dev/null -w '%{http_code}\n' -H 'Origin: ${API}' \
       --data 'login=smoke-throttle%40example.invalid&password=x' '${API}/dex/auth/local/login?back=&state=smoke-throttle'; done"
 }
 throttle_result() {
@@ -145,3 +145,9 @@ check_output "the password form refuses attempt $((password_limit + 1)) from one
   "last 429" throttle_result
 check_output "the refusal is audited once for that address" "1" \
   ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT count(*) FROM audit_events WHERE action = 'auth.throttled' AND metadata::jsonb->>'ip' = '${throttle_source}'\""
+
+# The relay sits behind the API's cross-site check, so another site cannot
+# sign a browser in to an account of its choosing (SPEC.md 24.13).
+check_output "a password post from another site is refused" "403" \
+  ssh_cmd "${CURL} --interface $(random_loopback) -o /dev/null -w '%{http_code}' -H 'Origin: https://elsewhere.example' \
+      --data 'login=smoke-csrf%40example.invalid&password=x' '${API}/dex/auth/local/login?back=&state=smoke-csrf'"

@@ -158,23 +158,44 @@ describe("the LTI exemptions", () => {
 	});
 });
 
-describe("sessionGate (SPEC.md sections 5.1 and 5.3)", () => {
-	test("no gate holds an account that changed its password and accepted", () => {
-		expect(sessionGate({ mustChangePassword: false, mustAcceptUse: false })).toBeNull();
+describe("sessionGate (SPEC.md sections 5.1, 5.3 and 24.13)", () => {
+	const clear = {
+		mustChangePassword: false,
+		mustAcceptUse: false,
+		secondFactor: null,
+	} as const;
+	const gate = (user: Partial<Parameters<typeof sessionGate>[0]>) =>
+		sessionGate({ ...clear, ...user })?.code;
+
+	test("no gate holds an account that changed its password, passed its second factor and accepted", () => {
+		expect(sessionGate(clear)).toBeNull();
 	});
 
 	test("each gate answers its own code", () => {
-		expect(sessionGate({ mustChangePassword: true, mustAcceptUse: false })?.code).toBe(
+		expect(gate({ mustChangePassword: true })).toBe("PASSWORD_CHANGE_REQUIRED");
+		expect(gate({ mustAcceptUse: true })).toBe("ACCEPTABLE_USE_REQUIRED");
+		expect(gate({ secondFactor: "enrol" })).toBe("SECOND_FACTOR_REQUIRED");
+		expect(gate({ secondFactor: "verify" })).toBe("SECOND_FACTOR_REQUIRED");
+	});
+
+	test("the password gate comes before the acceptable-use gate", () => {
+		expect(gate({ mustChangePassword: true, mustAcceptUse: true })).toBe(
 			"PASSWORD_CHANGE_REQUIRED",
-		);
-		expect(sessionGate({ mustChangePassword: false, mustAcceptUse: true })?.code).toBe(
-			"ACCEPTABLE_USE_REQUIRED",
 		);
 	});
 
-	test("the password gate comes first", () => {
-		expect(sessionGate({ mustChangePassword: true, mustAcceptUse: true })?.code).toBe(
-			"PASSWORD_CHANGE_REQUIRED",
+	test("an enrolled account verifies before it may change its password", () => {
+		expect(gate({ mustChangePassword: true, secondFactor: "verify" })).toBe(
+			"SECOND_FACTOR_REQUIRED",
+		);
+	});
+
+	test("an account with no factor changes its password first, then enrols, then accepts", () => {
+		expect(
+			gate({ mustChangePassword: true, secondFactor: "enrol", mustAcceptUse: true }),
+		).toBe("PASSWORD_CHANGE_REQUIRED");
+		expect(gate({ secondFactor: "enrol", mustAcceptUse: true })).toBe(
+			"SECOND_FACTOR_REQUIRED",
 		);
 	});
 });

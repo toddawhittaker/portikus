@@ -24,6 +24,13 @@ export const MAX_CHECK_COMMAND_LENGTH = 1024;
 /** Most checks one project may define. */
 export const MAX_CHECKS_PER_PROJECT = 32;
 
+/**
+ * Check output sockets one user may have open at once (SPEC.md §24.13). A
+ * student watches the one or two checks they just ran, perhaps in a second
+ * tab; sixteen leaves plenty of room for that.
+ */
+export const MAX_CHECK_SOCKETS_PER_USER = 16;
+
 /** One configured check (SPEC.md §18.1). */
 export const CheckDefinition = z
 	.object({

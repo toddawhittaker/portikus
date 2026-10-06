@@ -1,9 +1,12 @@
 import { createOidcClient, createSession, type LtiPlatform } from "@portikus/auth";
 import {
+	base32Decode,
 	CookieJar,
 	loginAs,
 	type MockOidcProvider,
 	startMockOidcProvider,
+	totpCode,
+	totpStep,
 } from "@portikus/auth/testing";
 import {
 	createTestDb,
@@ -219,6 +222,7 @@ describe.skipIf(skip)("the whole link, then unlink", () => {
 				signInName: "alice",
 				email: expect.any(String),
 			},
+			secondFactor: null,
 		});
 
 		const confirm = await post("/me/links/confirm", course.jar);
@@ -547,5 +551,122 @@ describe.skipIf(skip)("confirming", () => {
 			headers: { cookie: course.jar.cookieHeader() },
 		});
 		expect(res.statusCode).toBe(403);
+	});
+});
+
+/**
+ * A later launch into a linked account asks for no code, so linking a Dex
+ * local-password account must itself pass the second factor (SPEC.md
+ * section 24.13). The mock's "lena" has a Dex local password.
+ */
+describe.skipIf(skip)("linking a local-password account", () => {
+	function postBody(url: string, jar: CookieJar, payload: object) {
+		return app.inject({
+			method: "POST",
+			url,
+			headers: { cookie: jar.cookieHeader(), origin: ORIGIN },
+			payload,
+		});
+	}
+
+	/** Lena signs in and enrols an authenticator app; returns its secret and recovery codes. */
+	async function enrolledLena(): Promise<{ secret: Buffer; codes: string[] }> {
+		const lena = new CookieJar();
+		await loginAs(app, "lena", lena);
+		const start = await post("/me/second-factor/totp/start", lena);
+		expect(start.statusCode).toBe(200);
+		const secret = base32Decode(start.json().secret);
+		const done = await postBody("/me/second-factor/totp", lena, {
+			token: start.json().token,
+			code: totpCode(secret, totpStep(Date.now())),
+		});
+		expect(done.statusCode).toBe(200);
+		return { secret, codes: done.json().recoveryCodes };
+	}
+
+	async function linkCount(): Promise<number> {
+		return (await testDb.db.selectFrom("account_links").select("user_id").execute())
+			.length;
+	}
+
+	test("the password alone binds nothing; a wrong code neither", async () => {
+		await enrolledLena();
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		expect((await get("/me/links/pending", course.jar)).json().secondFactor).toBe(
+			"verify",
+		);
+
+		const bare = await post("/me/links/confirm", course.jar);
+		expect(bare.statusCode).toBe(403);
+		expect(bare.json().code).toBe("SECOND_FACTOR_REQUIRED");
+		const wrong = await postBody("/me/links/confirm", course.jar, { code: "000000" });
+		expect(wrong.statusCode).toBe(403);
+		expect(wrong.json().code).toBe("WRONG_CODE");
+		expect(await linkCount()).toBe(0);
+		// The link still waits, so the person can try the right code.
+		expect((await get("/me/links/pending", course.jar)).statusCode).toBe(200);
+		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
+	});
+
+	test("wrong codes at the sign-in check and at the link share one count", async () => {
+		const { secret } = await enrolledLena();
+		const lena = new CookieJar();
+		await loginAs(app, "lena", lena);
+		for (let i = 0; i < 10; i++) {
+			const res = await postBody("/me/second-factor/verify", lena, { code: "000000" });
+			expect(res.statusCode).toBe(403);
+		}
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		const res = await postBody("/me/links/confirm", course.jar, {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(res.statusCode).toBe(429);
+		expect(await linkCount()).toBe(0);
+	});
+
+	test("the right code links, and the new session has passed its second factor", async () => {
+		const { secret } = await enrolledLena();
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		const ok = await postBody("/me/links/confirm", course.jar, {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(ok.statusCode).toBe(200);
+		course.jar.capture(ok);
+		expect(await linkCount()).toBe(1);
+		expect((await get("/auth/me", course.jar)).json()).toMatchObject({
+			secondFactor: null,
+		});
+	});
+
+	test("a recovery code works too", async () => {
+		const { codes } = await enrolledLena();
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		const ok = await postBody("/me/links/confirm", course.jar, { code: codes[0] });
+		expect(ok.statusCode).toBe(200);
+	});
+
+	test("an account with no second factor yet must set one up first", async () => {
+		await loginAs(app, "lena", new CookieJar());
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		expect((await get("/me/links/pending", course.jar)).json().secondFactor).toBe(
+			"enrol",
+		);
+		const res = await post("/me/links/confirm", course.jar);
+		expect(res.statusCode).toBe(403);
+		expect(res.json().code).toBe("SECOND_FACTOR_REQUIRED");
+		expect(await linkCount()).toBe(0);
+	});
+
+	test("an account from another provider needs no code", async () => {
+		await ssoAccount("alice");
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "alice"), course.jar);
+		expect((await get("/me/links/pending", course.jar)).json().secondFactor).toBeNull();
+		expect((await post("/me/links/confirm", course.jar)).statusCode).toBe(200);
 	});
 });

@@ -11,11 +11,13 @@ import {
 } from "./certificate/edge.js";
 import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
+import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminAlertRoutes } from "./routes/admin-alerts.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
 import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
@@ -25,6 +27,8 @@ import { registerAdminDockerRoutes } from "./routes/admin-docker.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminImageRoutes } from "./routes/admin-image.js";
+import { registerAdminImportRoutes } from "./routes/admin-import.js";
+import { registerAdminInvitationRoutes } from "./routes/admin-invitations.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
@@ -39,6 +43,7 @@ import { registerLtiRoutes } from "./routes/lti.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerMePasswordRoutes } from "./routes/me-password.js";
+import { registerMeSecondFactorRoutes } from "./routes/me-second-factor.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProcessRoutes } from "./routes/processes.js";
@@ -50,6 +55,7 @@ import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerWorkspaceSocket } from "./routes/ws.js";
+import { createSecondFactorThrottle } from "./second-factor-throttle.js";
 import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
@@ -106,7 +112,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	);
 
 	// Before the auth plugin, so its hook runs first.
-	registerSigninThrottle(app, deps);
+	const signinThrottle = registerSigninThrottle(app, deps);
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({
@@ -205,6 +211,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
 	// One file-write count for the files and projects routes together.
 	const limitFileWrites = fileWriteLimit(deps.config);
+	// One wrong-code count for every route that checks a second factor.
+	const secondFactorThrottle = createSecondFactorThrottle(deps.db);
 	app.register(async (instance) => {
 		instance.get("/health", () => {
 			const body: HealthResponse = {
@@ -216,6 +224,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		});
 		registerAuthRoutes(instance, deps);
 		registerSigninThrottleRoute(instance);
+		registerDexPasswordRelay(instance, {
+			db: deps.db,
+			config: deps.config,
+			throttle: signinThrottle,
+		});
 		registerCertificateEdgeRoutes(instance);
 		registerLtiRoutes(instance, deps);
 		registerCourseRoutes(instance, deps);
@@ -233,17 +246,21 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);
+		registerMeSecondFactorRoutes(instance, deps, secondFactorThrottle);
 		registerAcceptableUseRoutes(instance, deps);
 		registerNotificationRoutes(instance, deps);
-		registerLinkRoutes(instance, deps);
+		registerLinkRoutes(instance, deps, secondFactorThrottle);
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
+		registerAdminInvitationRoutes(instance, deps);
+		registerAdminImportRoutes(instance, deps);
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminProcessRoutes(instance, deps);
 		registerAdminEgressRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminLogRoutes(instance, deps);
+		registerAdminAlertRoutes(instance, deps);
 		registerAdminHealthRoutes(instance, routeDeps);
 		registerAdminBackupRoutes(instance, deps);
 		registerAdminBackupKeyRoutes(instance, deps);

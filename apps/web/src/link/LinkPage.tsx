@@ -1,7 +1,10 @@
 import type { LinkError } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, TextField } from "@portikus/ui";
+import { useState } from "react";
+import { flushSync } from "react-dom";
 import { ApiError } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
+import { focusField } from "../second-factor/focusField.js";
 import { announceLink, leaveLinkTab } from "./channel.js";
 import { useConfirmLink, usePendingLink } from "./queries.js";
 
@@ -21,6 +24,13 @@ export const LINK_ERROR_MESSAGES: Record<LinkError, string> = {
 		"The accounts could not be linked. Open Portikus again from your course and try again.",
 };
 
+const CODE_ID = "link-code";
+
+/** A 404 from confirm means the pending link is gone, not that the code was wrong. */
+function isExpired(error: unknown): boolean {
+	return error instanceof ApiError && error.status === 404;
+}
+
 /** Tell the tab that started the link, then close this one; it stays open only if the browser refuses. */
 function finishLinked() {
 	announceLink({ type: "linked" });
@@ -34,6 +44,9 @@ function finishLinked() {
 export function LinkPage({ error }: { error: LinkError | undefined }) {
 	const pending = usePendingLink(error === undefined);
 	const confirm = useConfirmLink();
+	const [code, setCode] = useState("");
+	// Kept apart from confirm.error so it renders before focus moves to the field.
+	const [codeError, setCodeError] = useState<string | undefined>();
 
 	if (error) {
 		return (
@@ -105,12 +118,24 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 		);
 	}
 
-	const { course, sso } = pending.data;
-	const confirmError =
-		confirm.error instanceof ApiError && confirm.error.status === 404
-			? LINK_ERROR_MESSAGES.expired
-			: confirm.error?.message;
+	const { course, sso, secondFactor } = pending.data;
+	const confirmError = isExpired(confirm.error)
+		? LINK_ERROR_MESSAGES.expired
+		: confirm.error?.message;
 	const busy = confirm.isPending;
+
+	function submit() {
+		setCodeError(undefined);
+		confirm.mutate(code.trim() || undefined, {
+			onSuccess: finishLinked,
+			onError: (failure) => {
+				if (secondFactor !== "verify" || isExpired(failure)) return;
+				// The field carries the error so a screen reader reads it with the label (SPEC.md 25.8).
+				flushSync(() => setCodeError(failure.message));
+				focusField(CODE_ID);
+			},
+		});
+	}
 
 	return (
 		<StandalonePage title="Link accounts" testId="page-link">
@@ -146,7 +171,26 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 			<p className="pk-text-body pk-muted" role="status">
 				{busy ? "Linking your accounts…" : ""}
 			</p>
-			{confirmError ? (
+			{secondFactor === "enrol" ? (
+				<p className="pk-text-body" role="alert" data-testid="link-error">
+					This SSO account signs in with a Portikus password, so it needs two-step
+					sign-in before it can be linked. Sign in to Portikus with it and set up
+					two-step sign-in, then open Portikus from your course and link again.
+				</p>
+			) : null}
+			{secondFactor === "verify" ? (
+				<TextField
+					id={CODE_ID}
+					label="Two-step sign-in code"
+					hint="A code from your authenticator app, or one of your recovery codes."
+					autoComplete="one-time-code"
+					spellCheck={false}
+					value={code}
+					error={codeError}
+					onChange={(event) => setCode(event.target.value)}
+				/>
+			) : null}
+			{confirmError && !codeError ? (
 				<p
 					className="pk-text-body text-status-error"
 					role="alert"
@@ -159,14 +203,16 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 				<Button variant="secondary" onClick={leaveLinkTab} disabled={busy}>
 					Cancel
 				</Button>
-				<Button
-					variant="primary"
-					data-testid="link-confirm"
-					loading={busy}
-					onClick={() => confirm.mutate(undefined, { onSuccess: finishLinked })}
-				>
-					Link accounts
-				</Button>
+				{secondFactor === "enrol" ? null : (
+					<Button
+						variant="primary"
+						data-testid="link-confirm"
+						loading={busy}
+						onClick={submit}
+					>
+						Link accounts
+					</Button>
+				)}
 			</div>
 		</StandalonePage>
 	);

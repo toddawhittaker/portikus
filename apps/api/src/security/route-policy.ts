@@ -45,9 +45,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Every /auth/ route is exempt; signing out with no session is a harmless
 	// redirect, and the CSRF check still applies.
 	"POST /auth/logout": { access: "public" },
-	// Loopback only; Caddy asks it before Dex's password form.
+	// Loopback only; Caddy asks it before each Dex sign-in page.
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
+	// Loopback only; Caddy hands it Dex's password posts (SPEC.md 24.13).
+	"POST /dex/auth/*": { access: "public" },
 	// Loopback only; Caddy's on-demand TLS asks it (SPEC.md 20.1).
 	"GET /edge/certificate-ask": { access: "public" },
 	"HEAD /edge/certificate-ask": { access: "public" },
@@ -98,6 +100,19 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /me/acceptable-use": { access: "self" },
 	"HEAD /me/acceptable-use": { access: "self" },
 	"POST /me/acceptable-use": { access: "self" },
+	// Two-step sign-in for Dex local passwords (SPEC.md section 24.13).
+	"GET /me/second-factor": { access: "self" },
+	"HEAD /me/second-factor": { access: "self" },
+	"POST /me/second-factor/totp/start": { access: "self" },
+	"POST /me/second-factor/totp": { access: "self" },
+	"POST /me/second-factor/verify": { access: "self" },
+	"POST /me/second-factor/webauthn/start": { access: "self" },
+	"POST /me/second-factor/webauthn": { access: "self" },
+	"POST /me/second-factor/webauthn/verify/start": { access: "self" },
+	"POST /me/second-factor/webauthn/verify": { access: "self" },
+	"POST /me/second-factor/recovery-codes": { access: "self" },
+	"PATCH /me/second-factor/:id": { access: "self" },
+	"DELETE /me/second-factor/:id": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },
@@ -197,7 +212,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/users/:id/remove-instructor": { access: "admin" },
 	"POST /admin/dex-users": { access: "admin" },
 	"POST /admin/dex-users/:id/reset-password": { access: "admin" },
+	"POST /admin/dex-users/:id/reset-second-factor": { access: "admin" },
 	"POST /admin/dex-users/:id/remove": { access: "admin" },
+	"GET /admin/invitations": { access: "admin" },
+	"HEAD /admin/invitations": { access: "admin" },
+	"POST /admin/invitations": { access: "admin" },
+	"POST /admin/invitations/:id/revoke": { access: "admin" },
+	"POST /admin/accounts/import/preview": { access: "admin" },
+	"POST /admin/accounts/import": { access: "admin" },
 	"GET /admin/workspaces/:id": { access: "admin" },
 	"HEAD /admin/workspaces/:id": { access: "admin" },
 	"POST /admin/workspaces/:id/archive": { access: "admin" },
@@ -233,6 +255,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/logs": { access: "admin" },
 	"GET /admin/logs/counts": { access: "admin" },
 	"HEAD /admin/logs/counts": { access: "admin" },
+	"POST /admin/alerts/test": { access: "admin" },
 	"GET /admin/health": { access: "admin" },
 	"HEAD /admin/health": { access: "admin" },
 	"GET /admin/health/series": { access: "admin" },

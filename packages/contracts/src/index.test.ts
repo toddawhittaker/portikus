@@ -15,6 +15,7 @@ import {
 	StartInstanceResponse,
 	StopInstanceRequest,
 	StopInstanceResponse,
+	TotpEnrolConfirm,
 	Workspace,
 } from "./index.js";
 
@@ -122,7 +123,7 @@ test("AuthUser round-trips and allows a null email", () => {
 	expect(AuthUser.parse(withSubject)).toEqual(withSubject);
 });
 
-test("AuthUser and MeResponse require both gate flags (SPEC.md sections 5.1 and 5.3)", () => {
+test("AuthUser and MeResponse require every gate field (SPEC.md sections 5.1, 5.3 and 24.13)", () => {
 	const user = {
 		id: "550e8400-e29b-41d4-a716-446655440111",
 		email: null,
@@ -137,14 +138,27 @@ test("AuthUser and MeResponse require both gate flags (SPEC.md sections 5.1 and 
 		MeResponse.safeParse({ ...user, mustChangePassword: true, localPassword: true })
 			.success,
 	).toBe(false);
-	expect(
-		MeResponse.safeParse({
-			...user,
-			mustChangePassword: true,
-			mustAcceptUse: true,
-			localPassword: true,
-		}).success,
-	).toBe(true);
+	const held = {
+		...user,
+		mustChangePassword: true,
+		mustAcceptUse: true,
+		localPassword: true,
+	};
+	expect(MeResponse.safeParse(held).success).toBe(false);
+	expect(MeResponse.safeParse({ ...held, secondFactor: "verify" }).success).toBe(true);
+	expect(MeResponse.safeParse({ ...held, secondFactor: null }).success).toBe(true);
+	expect(MeResponse.safeParse({ ...held, secondFactor: "later" }).success).toBe(false);
+});
+
+test("an authenticator code is six digits, spaces ignored", () => {
+	const token = "1.v1:x";
+	expect(TotpEnrolConfirm.parse({ token, code: "123 456" })).toEqual({
+		token,
+		code: "123456",
+		label: "Authenticator app",
+	});
+	expect(TotpEnrolConfirm.safeParse({ token, code: "12345" }).success).toBe(false);
+	expect(TotpEnrolConfirm.safeParse({ token, code: "12345a" }).success).toBe(false);
 });
 
 test("AuthUser rejects an empty sign-in name", () => {

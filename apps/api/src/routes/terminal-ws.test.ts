@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { ELEVATED_SESSION_MAX_SECONDS } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -8,6 +9,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { CloseCode, MAX_TERMINAL_SOCKETS_PER_USER } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -15,6 +17,7 @@ import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { terminalGoneReason } from "../workspaces/terminal-pipe.js";
+import { terminalSockets } from "./terminals.js";
 
 /**
  * The terminal transport (SPEC.md §9.7, ADR 0009): the API forwards frames
@@ -328,6 +331,43 @@ test.skipIf(skip)("a revoked session closes the attachment with 4401", async () 
 	}
 });
 
+test.skipIf(skip)(
+	"a provider-given elevated session past its limit closes the attachment (SPEC.md section 24.13)",
+	async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval"] });
+		try {
+			const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+			await fresh.listen({ port: 0, host: "127.0.0.1" });
+			const previous = app;
+			app = fresh;
+
+			const socket = await openTerminal(workspaceId, terminalId, alice);
+			await socket.next();
+
+			// As if her last sign-in had brought the instructor group.
+			await testDb.db
+				.updateTable("users")
+				.set({ role: "instructor", provider_role: "instructor", granted_role: null })
+				.execute();
+			await testDb.db
+				.updateTable("sessions")
+				.set({
+					created_at: new Date(
+						Date.now() - ELEVATED_SESSION_MAX_SECONDS * 1000,
+					).toISOString(),
+				} as never)
+				.execute();
+			vi.advanceTimersByTime(1500);
+
+			expect(await socket.closed).toBe(4401);
+			await fresh.close();
+			app = previous;
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
+
 test.skipIf(skip)("a revoked session is caught on the next input frame", async () => {
 	// The interval is faked and never advanced, so only the per-frame check
 	// can close this socket (SPEC.md section 5.3).
@@ -627,5 +667,97 @@ test.skipIf(skip)(
 		expect(JSON.parse(await socket.next())).toEqual({ type: "exit" });
 		expect(agent.lastExitHits - before).toBeGreaterThan(1);
 		await socket.close();
+	},
+);
+
+async function ownerOf(id: string): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("owner_user_id")
+		.where("id", "=", id)
+		.executeTakeFirstOrThrow();
+	return row.owner_user_id;
+}
+
+/** Hold every one of a user's terminal socket slots while `body` runs. */
+async function withSlotsFull(userId: string, body: () => Promise<void>): Promise<void> {
+	for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1)
+		terminalSockets.take(userId);
+	try {
+		await body();
+	} finally {
+		for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1) {
+			terminalSockets.release(userId);
+		}
+	}
+}
+
+test.skipIf(skip)(
+	"a user at the terminal socket cap is refused with 4429, another user is not (SPEC.md §24.13)",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobWorkspace = await makeRunningWorkspace(bob);
+		const bobTerminal = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${bobWorkspace}/terminals`,
+				headers: csrfHeaders(bob, PUBLIC_URL),
+				payload: {},
+			})
+		).json().id;
+
+		await withSlotsFull(await ownerOf(workspaceId), async () => {
+			const refused = await openTerminal(workspaceId, terminalId, alice);
+			expect(await refused.closed).toBe(CloseCode.TOO_MANY_SOCKETS);
+			expect(await countConnections()).toBe(0);
+
+			const other = await openTerminal(bobWorkspace, bobTerminal, bob);
+			await other.next();
+			await other.close();
+		});
+	},
+);
+
+test.skipIf(skip)("a normal close gives the terminal socket slot back", async () => {
+	const userId = await ownerOf(workspaceId);
+	const socket = await openTerminal(workspaceId, terminalId, alice);
+	await socket.next();
+	expect(terminalSockets.open(userId)).toBe(1);
+	await socket.close();
+	await expect.poll(() => terminalSockets.open(userId)).toBe(0);
+});
+
+test.skipIf(skip)(
+	"a browser that drops without a close frame gives its slot back",
+	async () => {
+		const userId = await ownerOf(workspaceId);
+		const address = app.server.address() as AddressInfo;
+		const client = new WebSocketClient(
+			`ws://127.0.0.1:${address.port}/workspaces/${workspaceId}/terminals/${terminalId}/ws`,
+			{ headers: { origin: new URL(PUBLIC_URL).origin, cookie: alice.cookieHeader() } },
+		);
+		await new Promise<void>((resolve, reject) => {
+			client.on("message", () => resolve());
+			client.on("error", reject);
+		});
+		expect(terminalSockets.open(userId)).toBe(1);
+		client.terminate();
+		await expect.poll(() => terminalSockets.open(userId)).toBe(0);
+	},
+);
+
+test.skipIf(skip)(
+	"an agent that is down gives the terminal socket slot back",
+	async () => {
+		const userId = await ownerOf(workspaceId);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ agent_address: "127.0.0.127", updated_at: new Date().toISOString() })
+			.where("id", "=", workspaceId)
+			.execute();
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		expect(await socket.closed).toBe(1011);
+		await expect.poll(() => terminalSockets.open(userId)).toBe(0);
 	},
 );

@@ -121,6 +121,10 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # Started by OnFailure= on the units whose death it reports; never enabled.
+  - src: ./packaging/systemd/portikus-alert@.service
+    dst: /usr/lib/systemd/system/portikus-alert@.service
+    file_info: *unit_info
   # Started by postinst without waiting; never enabled.
   - src: ./packaging/systemd/portikus-setup.service
     dst: /usr/lib/systemd/system/portikus-setup.service
@@ -244,6 +248,20 @@ contents:
     file_info: *unit_info
   - src: ./packaging/systemd/portikus-backup-key@.service
     dst: /usr/lib/systemd/system/portikus-backup-key@.service
+    file_info: *unit_info
+  # The off-server copy, enabled by setup only when a target is named.
+  - src: ./infra/host/backup-offsite.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-offsite
+    file_info: *backup_script
+  # Not run here: the operator copies it to the target, whose cron runs it.
+  - src: ./infra/host/offsite-prune.sh
+    dst: /usr/lib/portikus/backup/portikus-offsite-prune
+    file_info: *backup_script
+  - src: ./packaging/systemd/portikus-backup-offsite.service
+    dst: /usr/lib/systemd/system/portikus-backup-offsite.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-offsite.timer
+    dst: /usr/lib/systemd/system/portikus-backup-offsite.timer
     file_info: *unit_info
   # The recipe a "rebuild" job builds from (ADR 0030).
   - src: ./infra/workspace-image/portikus.yaml

@@ -5,6 +5,8 @@
 [Unit]
 Description=Portikus backup of this server
 After=postgresql.service incus.service
+# A failed backup alerts at once, not only at the next status check (STACK.md section 15).
+OnFailure=portikus-alert@%n.service
 ConditionPathExists=/etc/portikus-backup/recipients.txt
 
 [Service]

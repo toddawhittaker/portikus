@@ -68,6 +68,47 @@ test.skipIf(skip)("deletes rows older than 90 days and keeps newer ones", async 
 	expect(await titles(user)).toEqual(["recent"]);
 });
 
+// SPEC.md section 24.13: a kept notice stays until its holder sees it, however old.
+test.skipIf(skip)("the age prune never removes a kept notice", async () => {
+	const user = await insertTestUser(tdb.db);
+	await tdb.db
+		.insertInto("notifications")
+		.values({
+			user_id: user,
+			tone: "warning",
+			title: "kept and old",
+			body: "",
+			kept: true,
+			created_at: new Date(
+				now.getTime() - (NOTIFICATION_MAX_AGE_DAYS + 30) * DAY,
+			).toISOString(),
+		})
+		.execute();
+	expect(await pruneNotifications(tdb.db, now)).toBe(0);
+	expect(await titles(user)).toEqual(["kept and old"]);
+});
+
+// SPEC.md section 24.13: newer rows never push out a kept reset notice.
+test.skipIf(skip)("the per-user cap never removes a kept notice", async () => {
+	const alice = await insertTestUser(tdb.db);
+	const count = MAX_NOTIFICATIONS_PER_USER + 1;
+	await tdb.db
+		.insertInto("notifications")
+		.values(
+			Array.from({ length: count }, (_, i) => ({
+				user_id: alice,
+				tone: "neutral",
+				title: `a${i}`,
+				body: "",
+				kept: i === 0,
+				created_at: new Date(now.getTime() - (count - i) * 1000).toISOString(),
+			})),
+		)
+		.execute();
+	expect(await pruneNotifications(tdb.db, now)).toBe(0);
+	expect(await titles(alice)).toContain("a0");
+});
+
 test.skipIf(skip)("keeps only each user's newest 200", async () => {
 	const alice = await insertTestUser(tdb.db);
 	const bob = await insertTestUser(tdb.db);

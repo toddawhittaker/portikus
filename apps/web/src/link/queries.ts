@@ -1,7 +1,7 @@
 import { PendingLink } from "@portikus/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { ApiError, request } from "../api/request.js";
+import { ApiError, request, sendJson } from "../api/request.js";
 
 /** The two accounts waiting to be linked, or null when none is (a 404). */
 export function usePendingLink(enabled: boolean) {
@@ -20,9 +20,10 @@ export function usePendingLink(enabled: boolean) {
 	});
 }
 
-/** ADR 0026. */
+/** ADR 0026. A Dex local-password account sends its second-factor code (SPEC.md section 24.13). */
 export function useConfirmLink() {
 	return useMutation({
-		mutationFn: () => request(z.unknown(), "/me/links/confirm", { method: "POST" }),
+		mutationFn: (code: string | undefined) =>
+			sendJson(z.unknown(), "/me/links/confirm", code === undefined ? {} : { code }),
 	});
 }

@@ -6,7 +6,7 @@
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
-       mock-lms lti-mock-register lti-mock-unregister
+       mock-lms lti-mock-register lti-mock-unregister external-port-check
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -149,10 +149,15 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
+	bash infra/tests/security-mode-test.sh
 	bash packaging/tests/settings-keys-test.sh
+	bash packaging/tests/secrets-yaml-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
+	bash infra/tests/host-hardening-test.sh
+	bash infra/tests/alert-command-test.sh
+	python3 -B infra/tests/totp_test.py
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
@@ -160,6 +165,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/workspace-egress-render-test.yml
 	ansible-playbook infra/tests/setup-settings-test.yml
 	ansible-playbook infra/tests/certificate-seed-test.yml
+	ansible-playbook infra/tests/alerts-render-test.yml
 	ansible-playbook infra/tests/apt-failures-test.yml
 	ansible-playbook infra/tests/workspace-image-test.yml
 	ansible-playbook infra/tests/registry-cache-size-test.yml
@@ -167,6 +173,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/backup-channel-test.sh
 	bash scripts/tests/publish-apt-repo-test.sh
 	bash infra/tests/backup-local-test.sh
+	bash infra/tests/backup-offsite-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -254,6 +261,7 @@ export PORTIKUS_ENTRA_TENANT_ID PORTIKUS_GOOGLE_DOMAINS PORTIKUS_EGRESS_EXTRA_HO
 export PORTIKUS_DEX_UPSTREAM PORTIKUS_DEX_UPSTREAM_CLIENT_ID PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET
 export PORTIKUS_DEX_UPSTREAM_ISSUER PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES
 export PORTIKUS_ADMIN_EMAIL
+export PORTIKUS_ALERT_PUSHOVER_USER_KEY PORTIKUS_ALERT_PUSHOVER_APP_TOKEN PORTIKUS_ALERT_WEBHOOK_URL
 export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LDAP_BIND_PASSWORD
 export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
 export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW
@@ -309,11 +317,22 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").
-security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+# SECURITY_TARGET=host runs the suite on an apt-installed host against itself
+# (docs/SPEC.md section 24.1); the site name comes from /etc/portikus/api.env.
+security-test: ## Run the security suite against the VM, or SECURITY_TARGET=host on the platform host itself (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
+ifeq ($(SECURITY_TARGET),host)
+	PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) bash infra/tests/security-test.sh local $(if $(SWEEP),--sweep,)
+else
 	$(REQUIRE_VM_IP)
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
+endif
+
+# Run from a machine outside the server's network (docs/SPEC.md section 24.1).
+external-port-check: ## From another machine, fail if anything but SSH, HTTP and HTTPS answers on HOST=<name or address> (ALLOWED_PORTS="22 80 443" by default; nmap run as root adds UDP)
+	@test -n "$(HOST)" || { echo "external-port-check: pass HOST=<name or address>"; exit 2; }
+	ALLOWED_PORTS="$(or $(ALLOWED_PORTS),22 80 443)" bash scripts/external-port-check.sh $(HOST)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible), and forget its SSH host key in ~/.ssh/known_hosts
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }

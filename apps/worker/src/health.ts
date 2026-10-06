@@ -22,6 +22,9 @@ const HEALTH_RETENTION_DAYS = 7;
 /** A level re-arms only once the fill falls this many points below it. */
 const POOL_REARM_POINTS = 5;
 
+/** Consecutive failed samples (about this many minutes) before administrators hear the controller is down. */
+export const CONTROLLER_DOWN_SAMPLES = 3;
+
 /** 0 below every threshold, else the highest threshold the pool is held at. */
 export type PoolLevel = 0 | typeof POOL_WARN_PERCENT | typeof POOL_FULL_PERCENT;
 
@@ -59,6 +62,7 @@ export function createHealthSampler(
 	const now = options.now ?? (() => new Date());
 	// Kept in memory only: a worker restart may repeat one alert, which is accepted.
 	let poolLevel: PoolLevel = 0;
+	let unreachableSamples = 0;
 
 	return async function tick(): Promise<void> {
 		try {
@@ -103,6 +107,17 @@ export function createHealthSampler(
 				.execute();
 			const cutoff = new Date(at.getTime() - HEALTH_RETENTION_DAYS * 86_400_000);
 			await db.deleteFrom("health_samples").where("observed_at", "<", cutoff).execute();
+
+			unreachableSamples = sample.controller.reachable ? 0 : unreachableSamples + 1;
+			// Raised once per outage: only on the sample that reaches the count.
+			if (unreachableSamples === CONTROLLER_DOWN_SAMPLES) {
+				await notifyAdministrators(db, {
+					tone: "danger",
+					title: "The workspace controller is not responding",
+					body: "Workspaces cannot start or stop. The Health tab on the admin page shows when it stopped answering.",
+				});
+				logger.info("controller outage alert sent");
+			}
 
 			if (sample.host) {
 				const fill = poolFillPercent(sample.host.pool);

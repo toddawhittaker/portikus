@@ -4379,3 +4379,99 @@ Gaps:
   (#1097).
 - On a wrapped admin tab strip, the rule between the rows runs only
   under tabs, not across the empty end of the second row (#1127).
+
+## Epic 34 — Internet launch
+
+Built on `epic/34-internet-launch` (task PRs #1147 to #1170 and this
+fold), milestone "Internet launch", issue #917. Migrations 0037 to 0039.
+SPEC.md sections 5.1, 20.2, 21.12, 23.6, 24.2, 24.9, 24.11, 24.13 and
+25.6, and ADRs 0048, 0049 and 0050. The goal: a site on a rented host
+with a public address, on one domain, where nobody signs themselves up.
+
+Delivered:
+
+- Security requirements (#1147): SPEC.md 24 states the rules for an
+  internet-facing site.
+- Sign-in limits and the password relay (#1160 T2, #1164, #1169): limits
+  never refuse one client for others' failures and treat an IPv6 /64 as
+  one address. The API relays Dex's password posts and counts each one
+  before forwarding it (10 wrong passwords in ten minutes), with a
+  known-device cookie exemption bound to the last password change and
+  ending after 90 days or on `portikus reset-admin`. Every failure is
+  audited as `auth.password_failed`. Logins must be ASCII. New passwords
+  are checked against a small breached list.
+- Second factor (#1153, #1154, #1161 T21, #1165, #1169): Dex-password
+  accounts set up TOTP or a passkey, with ten recovery codes. Settings,
+  Two-factor sign-in lists, adds, renames and removes factors (never the
+  last) and makes new recovery codes. One per-account counter for wrong
+  codes (10 in ten minutes, 30 a day, then a kept notice). Linking an LMS
+  account to a Dex-password account needs a passed factor, and LMS
+  sessions cannot manage factors. Secrets are sealed with
+  `/etc/portikus/second-factor.key`, which backups carry.
+- Invitations (#1155): only an invitation creates an SSO account, for
+  every provider; Entra matches the UPN. Invite and Revoke in the Users
+  view, a refusal page and an audit row for anyone uninvited.
+- CSV bulk upload (#1158): password or invite rows, preview then
+  confirm, duplicates skipped, administrator rows refused, one-time
+  passwords only as a browser-made download.
+- Provider roles (#1156): sessions whose administrator or instructor
+  role came from the provider end after 12 hours, and sockets close
+  within a second. Signing in again skips Dex's chooser.
+- Administrator resets (#1157, #1162): administrators reset a person's
+  second factor; the holder gets a kept notice for every credential
+  reset (one when both are reset), which cannot be cleared or pruned.
+  The install administrator is protected from other administrators.
+- Socket caps (#1148, #1164): 60 terminal, 16 check-output and 32
+  workspace event sockets per user, closed with 4429 and a clear
+  message.
+- Content security policy (#1150): `script-src 'self'` with no inline or
+  eval sources, checked in Chromium and Firefox.
+- Alerts (#1149, #1161 T4b, #1162, #1168): warning and danger site
+  alerts go to Pushover or a webhook through the egress proxy, with flood
+  control and a Send test alert button. New sources: reboot required,
+  sign-in failure spike, controller outage, backup failure, root
+  filesystem at 90%. `portikus-alert@.service` reports a failed unit at
+  most once per 10 minutes.
+- Outbound limits (#1160 T5, #1152): mail blocked by default, 20 new
+  connections and 5,000 packets a second per workspace, drops logged and
+  shown on the Logs tab as Network warnings. Allow-list addresses expire
+  with the DNS TTL (`learned_v4` and `recent_v4`).
+- Host hardening (#1160 T6): SSH keys only, kernel hardening, SSH rate
+  limit, web connection cap; `make external-port-check` proves only SSH,
+  HTTP and HTTPS answer.
+- Certificate before password (#1160 T10): with Let's Encrypt or
+  certificate files, the administrator's one-time password is written
+  only once a publicly trusted certificate is served. The certificate
+  question is asked in a normal install.
+- Front door (#1161 T7, #1168): slow-client limits, `X-Frame-Options:
+  DENY` outside `/lti/*`, `nosniff` on previews, HSTS covering
+  subdomains.
+- Off-site copy (#1161 T11, #1168, #1170): an hourly rsync-over-SSH push
+  of the newest verified set with a write-only key (rrsync into
+  `incoming`); the target's prune accepts at most one set per UTC day.
+- Tests (#1159, #1161 T16b): an audit coverage test ties SPEC 24.11 to
+  the code; `make security-test SECURITY_TARGET=host` runs on a plain
+  apt-installed host.
+- Accessibility fixes (#1163, #1166): import dialog status line and
+  focus, two-factor settings focus, copy and download of recovery codes,
+  the link page's code field error.
+
+Gaps left (most are in docs/BACKLOG.md):
+
+- Disk encryption at rest is deferred.
+- The breached-password list is small and written by hand.
+- Login counters, second-factor counters and passkey challenges live in
+  one API process and reset on restart.
+- No passkey at link confirm (a recovery code works); links made before
+  #1165 should be relinked.
+- The Help page does not describe invitations; the "Session ended" page
+  does not mention the 12-hour role check.
+- No email delivery of passwords, alerts or reset notices.
+- No alert setting on an install screen; no certificate-expiry alert.
+- The off-site target needs rrsync (Debian 12, Ubuntu 24.04 or later);
+  a broken-into server can fill its disk or backfill past days.
+- Real Entra and LDAP sign-ins with invitations have not been tried on
+  a VM; a real Let's Encrypt issuance before the password was not
+  tested on the rehearsal VM.
+- Domain fronting inside TLS stays open in allow-list mode (ADR 0038).
+- Safari is not tested for the content security policy.

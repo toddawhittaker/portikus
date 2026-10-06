@@ -385,6 +385,14 @@ gets the release with `apt upgrade` and rolls back with
 publish too, so a change that lands outside an epic still gives servers a
 release to install.
 
+Before a major release, meaning the first release of a new major.minor
+line (for example the first 0.2 release), run the security-reviewer agent
+over all of `main`, not only the latest epic's changes. It reviews against
+SPEC.md section 24 and the private threat model for an internet-facing
+server, and runs `make external-port-check` against a test host. Fix every
+finding, or record it in `docs/BACKLOG.md` with the reason, before that
+release is published.
+
 Two checks run before anything is published. First, the gate looks up the
 pull request that produced the push. GitHub can take a few seconds to list
 it, so the gate asks five times, ten seconds apart, and then fails, because

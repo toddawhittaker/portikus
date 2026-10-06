@@ -301,6 +301,7 @@ test("each guard row links to the owner's detail panel", async () => {
 				mustChangePassword: false,
 				mustAcceptUse: false,
 				localPassword: false,
+				secondFactor: null,
 			});
 		}
 		if (url === "/admin/health") return json(200, report({ guard: [GUARDED] }));

@@ -30,7 +30,7 @@ function stubSettings() {
 	});
 }
 
-test("Settings is three admin cards in one column, and the log level is not among them", async () => {
+test("Settings is four admin cards in one column, and the log level is not among them", async () => {
 	stubSettings();
 	renderApp("/admin/settings");
 
@@ -42,6 +42,7 @@ test("Settings is three admin cards in one column, and the log level is not amon
 		"When workspaces stop",
 		"Resource guard",
 		"Acceptable use",
+		"Alerts",
 	]);
 	for (const name of headings) {
 		const card = within(column).getByRole("region", { name: name ?? "" });

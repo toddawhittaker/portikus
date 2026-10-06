@@ -1,0 +1,180 @@
+---
+# The administrator alert settings with no VM (STACK.md section 15): which
+# values setup accepts, the egress proxy entries they add, alerts.env as
+# rendered, and the units that read it or report a failure through
+# portikus-alert@.service.  `make infra-check` runs it; the rehearsal VM
+# sends real alerts.
+- name: Check the alert settings, alerts.env and the units
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    # Made-up keys, whose form alone is checked.
+    alerts_test_key: uTestUserKey
+    alerts_test_token: aTestAppToken
+    alerts_test_cases:
+      - { name: nothing set, accept: true, egress: [] }
+      - name: Pushover alone
+        accept: true
+        egress: [api.pushover.net]
+        vars: { user: "{{ alerts_test_key }}", token: "{{ alerts_test_token }}" }
+      - name: a Slack webhook alone
+        accept: true
+        egress: [hooks.slack.com]
+        vars: { webhook: "https://hooks.slack.com/services/T000/B000/XXXX" }
+      - name: both, the webhook on its own port with a query
+        accept: true
+        egress: [api.pushover.net, "alerts.example.edu:8443"]
+        vars:
+          user: "{{ alerts_test_key }}"
+          token: "{{ alerts_test_token }}"
+          webhook: "https://alerts.example.edu:8443/hook?team=ops&x=1"
+      - name: a webhook on port 443 written out
+        accept: true
+        egress: [ntfy.example.org]
+        vars: { webhook: "https://ntfy.example.org:443/portikus" }
+      - { name: a user key without its app token, accept: false, vars: { user: "{{ alerts_test_key }}" } }
+      - { name: an app token without its user key, accept: false, vars: { token: "{{ alerts_test_token }}" } }
+      - name: a key holding a newline
+        accept: false
+        vars: { user: "abc\nALERT_WEBHOOK_URL=https://evil.example", token: "{{ alerts_test_token }}" }
+      - { name: a plain http webhook, accept: false, vars: { webhook: "http://hooks.slack.com/services/T000" } }
+      - { name: a webhook that is not a URL, accept: false, vars: { webhook: hooks.slack.com/services/T000 } }
+      - { name: a webhook with a space, accept: false, vars: { webhook: "https://hooks.slack.com/a b" } }
+      - { name: a webhook with a quote, accept: false, vars: { webhook: "https://hooks.slack.com/a\"b" } }
+      - { name: a webhook with no host, accept: false, vars: { webhook: "https:///services/T000" } }
+      - { name: a webhook whose host is a wildcard, accept: false, vars: { webhook: "https://*.example.org/hook" } }
+
+  tasks:
+    - name: Try each case
+      ansible.builtin.include_tasks: alerts-render-case.yml
+      loop: "{{ alerts_test_cases }}"
+      loop_control:
+        loop_var: alerts_case
+        label: "{{ alerts_case.name }}"
+
+    - name: Render alerts.env with every channel set
+      ansible.builtin.set_fact:
+        alerts_env: "{{ lookup('ansible.builtin.template', '../ansible/roles/portikus/templates/alerts.env.j2') }}"
+      vars:
+        portikus_alert_pushover_user_key: "{{ alerts_test_key }}"
+        portikus_alert_pushover_app_token: "{{ alerts_test_token }}"
+        portikus_alert_webhook_url: "https://alerts.example.edu/hook?team=ops&x=1"
+
+    - name: Check alerts.env carries each setting under the name packages/config reads
+      ansible.builtin.assert:
+        that:
+          - alerts_env_lines | select('match', '^[A-Z_]+=') | list
+            == ['ALERT_PUSHOVER_USER_KEY=' ~ alerts_test_key,
+                'ALERT_PUSHOVER_APP_TOKEN=' ~ alerts_test_token,
+                'ALERT_WEBHOOK_URL=https://alerts.example.edu/hook?team=ops&x=1']
+          - alerts_env_lines | reject('match', '^([A-Z_]+=|#)') | list == []
+        fail_msg: "{{ alerts_env }}"
+      vars:
+        alerts_env_lines: "{{ alerts_env.splitlines() }}"
+
+    - name: Render alerts.env with nothing set
+      ansible.builtin.set_fact:
+        alerts_env_empty: "{{ lookup('ansible.builtin.template', '../ansible/roles/portikus/templates/alerts.env.j2') }}"
+      vars:
+        portikus_alert_pushover_user_key: ""
+        portikus_alert_pushover_app_token: ""
+        portikus_alert_webhook_url: ""
+
+    - name: Check every channel is empty, which is off
+      ansible.builtin.assert:
+        that:
+          - alerts_env_empty.splitlines() | select('match', '^[A-Z_]+=') | list
+            == ['ALERT_PUSHOVER_USER_KEY=', 'ALERT_PUSHOVER_APP_TOKEN=', 'ALERT_WEBHOOK_URL=']
+
+    - name: Read the units and the play
+      ansible.builtin.set_fact:
+        alerts_api_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-api.service').splitlines() }}"
+        alerts_worker_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-worker.service').splitlines() }}"
+        alerts_backup_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-backup.service').splitlines() }}"
+        alerts_offsite_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-backup-offsite.service').splitlines() }}"
+        alerts_template_unit: "{{ lookup('ansible.builtin.file', '../../packaging/systemd/portikus-alert@.service').splitlines() }}"
+        alerts_nfpm: "{{ lookup('ansible.builtin.file', '../../packaging/nfpm.yaml') | from_yaml }}"
+        alerts_main_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/portikus/tasks/main.yml') | from_yaml }}"
+        alerts_postgresql_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/postgresql/tasks/main.yml') | from_yaml }}"
+        alerts_caddy_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/caddy/tasks/main.yml') | from_yaml }}"
+        alerts_site: "{{ lookup('ansible.builtin.file', '../ansible/site.yml') }}"
+
+    # Later EnvironmentFile= lines win, so an operator's override comes last.
+    - name: Check the API and the worker read alerts.env, before their overrides, and alert when they fail
+      ansible.builtin.assert:
+        that:
+          - "'OnFailure=portikus-alert@%n.service' in item.unit"
+          - "'EnvironmentFile=-/etc/portikus/alerts.env' in item.unit"
+          - item.unit.index('EnvironmentFile=-/etc/portikus/alerts.env')
+            < item.unit.index('EnvironmentFile=-/etc/portikus/' ~ item.name ~ '.override.env')
+          - item.unit.index('OnFailure=portikus-alert@%n.service') < item.unit.index('[Service]')
+      loop:
+        - { name: api, unit: "{{ alerts_api_unit }}" }
+        - { name: worker, unit: "{{ alerts_worker_unit }}" }
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check the backup and the off-site copy alert when they fail
+      ansible.builtin.assert:
+        that:
+          - "'OnFailure=portikus-alert@%n.service' in item.unit"
+          - item.unit.index('OnFailure=portikus-alert@%n.service') < item.unit.index('[Service]')
+      loop:
+        - { name: backup, unit: "{{ alerts_backup_unit }}" }
+        - { name: backup-offsite, unit: "{{ alerts_offsite_unit }}" }
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check the template runs alert-failed with stamps that outlive each run, and the package ships it
+      ansible.builtin.assert:
+        that:
+          - "'ExecStart=/usr/bin/portikus alert-failed %i' in alerts_template_unit"
+          - "'RuntimeDirectory=portikus-alert' in alerts_template_unit"
+          - "'RuntimeDirectoryPreserve=yes' in alerts_template_unit"
+          # A template with its own OnFailure= would chain alerts about alerts.
+          - alerts_template_unit | select('match', '^OnFailure=') | list == []
+          - alerts_nfpm.contents | selectattr('dst', 'equalto', '/usr/lib/systemd/system/portikus-alert@.service')
+            | map(attribute='src') | list == ['./packaging/systemd/portikus-alert@.service']
+
+    - name: Check alerts.env is written root:portikus 0640 without being logged
+      ansible.builtin.assert:
+        that:
+          - alerts_task | length == 1
+          - alerts_task[0]['ansible.builtin.template'].dest == '/etc/portikus/alerts.env'
+          - alerts_task[0]['ansible.builtin.template'].owner == 'root'
+          - alerts_task[0]['ansible.builtin.template'].group == 'portikus'
+          - alerts_task[0]['ansible.builtin.template'].mode == '0640'
+          - alerts_task[0].no_log
+          - alerts_task[0].notify == ['Restart portikus-api', 'Restart portikus-worker']
+      vars:
+        alerts_task: >-
+          {{ alerts_main_tasks | selectattr('name', 'equalto', 'Deploy the alert channels file') | list }}
+
+    - name: Check PostgreSQL and Caddy alert when they fail, with only a reload
+      ansible.builtin.assert:
+        that:
+          - alerts_dropin | length == 1
+          - alerts_dropin[0]['ansible.builtin.copy'].dest == item.dest
+          - alerts_dropin[0]['ansible.builtin.copy'].content == '[Unit]\nOnFailure=portikus-alert@%n.service\n'
+          - alerts_dropin[0].notify is string
+          - alerts_dropin[0].notify is match('^Reload systemd')
+      vars:
+        alerts_dropin: >-
+          {{ item.tasks | selectattr('name', 'equalto', item.task) | list }}
+      loop:
+        - task: Alert the administrator when PostgreSQL fails
+          tasks: "{{ alerts_postgresql_tasks }}"
+          dest: /etc/systemd/system/postgresql@.service.d/20-portikus-alert.conf
+        - task: Alert the administrator when Caddy fails
+          tasks: "{{ alerts_caddy_tasks }}"
+          dest: /etc/systemd/system/caddy.service.d/20-portikus-alert.conf
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Check the egress proxy is given the alert hosts
+      ansible.builtin.assert:
+        that:
+          - alerts_site is search('egress_proxy_hosts:.*\+ portikus_alert_egress_hosts')
