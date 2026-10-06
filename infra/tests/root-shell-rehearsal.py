@@ -19,6 +19,13 @@ frames, taken from the installed helper itself.
   root-shell-rehearsal.py --off    after setup with portikus_root_shell
                                    false: the socket is gone, api.env names
                                    none, and both sessions ended
+  root-shell-rehearsal.py --api HOST JAR
+                                   end to end through Caddy and the API, as
+                                   the administrator whose signed-in cookie
+                                   jar (curl's format) is JAR: the audit
+                                   rows, a Caddy reload leaves the shell
+                                   open, exit, and a shell the helper cannot
+                                   give is refused cleanly
 
 Never run it on a host with real users: it signs in as root and ends the
 sessions it made.
@@ -31,9 +38,12 @@ import json
 import os
 import pwd
 import re
+import base64
 import secrets
 import shutil
 import socket
+import ssl
+import struct
 import subprocess
 import sys
 import time
@@ -45,6 +55,7 @@ RUN_DIR = "/run/portikus-root-shell"
 GROUP = "portikus-root-shell"
 API_ENV = "/etc/portikus/api.env"
 HOLD = "/root/root-shell-rehearsal-hold.json"
+CA = "/etc/portikus/caddy-root.crt"
 ADDRESS = "192.0.2.77"
 ACTOR = "6f1c2d3e-4a5b-4c6d-8e7f-a1b2c3d4e5f6"
 # A newline in the name must not forge a journal line, and the name never appears there.
@@ -375,6 +386,7 @@ def on_state():
     check("the session is gone", wait_for(lambda: "State" not in session_props(session)) if session else False)
     time.sleep(2)
     check("the waiting input never ran", not os.path.exists(flood))
+    check("the administrator was told input was dropped", b"typed input was dropped" in shell.output)
 
     heading("A repeated shell id")
     first = Shell()
@@ -453,6 +465,187 @@ def off_state():
     os.unlink(HOLD)
 
 
+class Browser:
+    """The Root shell tab's WebSocket, through Caddy, with the standard library only."""
+
+    def __init__(self, host, cookies, cols=80, rows=24):
+        raw = socket.create_connection(("127.0.0.1", 443), timeout=15)
+        self.sock = ssl.create_default_context(cafile=CA).wrap_socket(raw, server_hostname=host)
+        key = base64.b64encode(secrets.token_bytes(16)).decode()
+        self.sock.sendall((
+            "GET /admin/root-shell/ws?cols=%d&rows=%d HTTP/1.1\r\nHost: %s\r\nOrigin: https://%s\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+            "Sec-WebSocket-Version: 13\r\nCookie: %s\r\n\r\n" % (cols, rows, host, host, key, cookies)).encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            data = self.sock.recv(4096)
+            if not data:
+                break
+            head += data
+        head, _, self.buffer = head.partition(b"\r\n\r\n")
+        self.status = int(head.split(b" ", 2)[1]) if head.startswith(b"HTTP/") else 0
+        self.output = b""
+        self.messages = []
+        self.close_code = None
+
+    def send(self, opcode, payload):
+        mask = secrets.token_bytes(4)
+        n = len(payload)
+        header = bytes([0x80 | opcode]) + (bytes([0x80 | n]) if n < 126 else struct.pack(">BH", 0x80 | 126, n))
+        self.sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+    def type(self, text):
+        self.send(0x1, json.dumps({"type": "input", "data": text}).encode())
+
+    def close(self):
+        self.send(0x8, struct.pack(">H", 1000))
+
+    def pump(self, timeout):
+        """Reads what has arrived; false once the connection is closed."""
+        self.sock.settimeout(timeout)
+        try:
+            data = self.sock.recv(65536)
+        except (socket.timeout, ssl.SSLWantReadError):
+            return True
+        except OSError:
+            return False
+        if not data:
+            return False
+        self.buffer += data
+        while len(self.buffer) >= 2:
+            opcode, n, at = self.buffer[0] & 0x0F, self.buffer[1] & 0x7F, 2
+            if n == 126:
+                n, at = struct.unpack(">H", self.buffer[2:4])[0], 4
+            elif n == 127:
+                n, at = struct.unpack(">Q", self.buffer[2:10])[0], 10
+            if len(self.buffer) < at + n:
+                break
+            payload, self.buffer = self.buffer[at:at + n], self.buffer[at + n:]
+            if opcode == 0x2:
+                self.output += payload
+            elif opcode == 0x1:
+                self.messages.append(json.loads(payload))
+            elif opcode == 0x8:
+                self.close_code = struct.unpack(">H", payload[:2])[0] if len(payload) >= 2 else 1005
+                # Answered as a browser does, which completes the server's close.
+                try:
+                    self.send(0x8, payload[:2])
+                except OSError:
+                    pass
+        return self.close_code is None
+
+    def expect(self, pattern, timeout=15):
+        deadline = time.monotonic() + timeout
+        while not re.search(pattern, self.output) and time.monotonic() < deadline:
+            if not self.pump(0.5):
+                break
+        return re.search(pattern, self.output) is not None
+
+    def closed(self, timeout=15):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self.pump(0.5):
+                return True
+        return False
+
+
+def jar_cookies(jar):
+    """The Cookie header for curl's cookie jar."""
+    pairs = []
+    with open(jar) as f:
+        for line in f:
+            if line.startswith("#HttpOnly_"):
+                line = line[len("#HttpOnly_"):]
+            elif line.startswith("#") or not line.strip():
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) == 7:
+                pairs.append("%s=%s" % (fields[5], fields[6]))
+    return "; ".join(pairs)
+
+
+def audit_rows(shell_id):
+    out = subprocess.run(["runuser", "-u", "postgres", "--", "psql", "-X", "-At", "-d", "portikus", "-c",
+                          "SELECT action || ' ' || metadata::text FROM audit_events WHERE target = '%s' ORDER BY id"
+                          % shell_id], capture_output=True, text=True, cwd="/").stdout
+    return [(line.split(" ", 1)[0], json.loads(line.split(" ", 1)[1])) for line in out.splitlines() if " " in line]
+
+
+def newest_record(before):
+    names = [n for n in os.listdir(RUN_DIR) if not n.startswith(".") and n not in before] if os.path.isdir(RUN_DIR) else []
+    return names[0] if len(names) == 1 else None
+
+
+def through_the_api(host, jar):
+    cookies = jar_cookies(jar)
+    since = int(time.time()) - 1
+
+    heading("The Root shell tab, through Caddy and the API")
+    before = set(os.listdir(RUN_DIR)) if os.path.isdir(RUN_DIR) else set()
+    tab = Browser(host, cookies, cols=100, rows=30)
+    check("the API accepts the administrator's WebSocket", tab.status == 101, str(tab.status))
+    check("the banner and root's prompt arrive", tab.expect(rb"Portikus root shell") and tab.expect(rb"root@[^\r\n]*# ", 30))
+    shell_id = newest_record(before)
+    check("the helper recorded one new shell", shell_id is not None)
+    tab.type("echo api-$((6*7)); stty size\r")
+    check("the shell runs commands at the tab's size", tab.expect(rb"api-42\r\n30 100"))
+    with open(os.path.join(RUN_DIR, shell_id)) as f:
+        login, session = (f.read().split() + [None, None])[:2]
+    props = session_props(session) if session else {}
+    check("a PAM sign-in session as root, service remote", props.get("Name") == "root" and props.get("Service") == "remote",
+          str(props))
+    rows = audit_rows(shell_id)
+    check("the opened row is written first, with the address and user agent",
+          rows[:1] and rows[0][0] == "admin.root_shell_opened" and rows[0][1].get("shellId") == shell_id
+          and "address" in rows[0][1] and "userAgent" in rows[0][1], str(rows))
+
+    heading("A Caddy reload leaves the shell open")
+    tab.type("tmux new-session -d -s rs-reload 'sleep 600'; echo before-$((1+1))\r")
+    tab.expect(rb"before-2")
+    subprocess.run(["systemctl", "reload", "caddy"], check=True)
+    time.sleep(3)
+    tab.type("echo after-reload-$((2+2))\r")
+    check("the shell still answers after `systemctl reload caddy`", tab.expect(rb"after-reload-4"))
+    check("its login is still running", alive(int(login)))
+    tab.type("tmux kill-session -t rs-reload\r")
+
+    heading("Closing the tab")
+    tab.close()
+    tab.closed()
+    check("login ended", wait_for(lambda: not alive(int(login))))
+    check("the closed row follows, reason client, with a duration",
+          wait_for(lambda: [r for r in audit_rows(shell_id) if r[0] == "admin.root_shell_closed"
+                            and r[1].get("reason") == "client" and "durationSeconds" in r[1]]), str(audit_rows(shell_id)))
+
+    heading("Exit")
+    before = set(os.listdir(RUN_DIR))
+    tab = Browser(host, cookies)
+    tab.expect(rb"root@[^\r\n]*# ", 30)
+    shell_id = newest_record(before)
+    tab.type("exit\r")
+    check("the tab is told the shell exited, then closed", tab.closed() and {"type": "exit"} in tab.messages, str(tab.messages))
+    check("the closed row says exit",
+          wait_for(lambda: [r for r in audit_rows(shell_id) if r[0] == "admin.root_shell_closed" and r[1].get("reason") == "exit"]))
+
+    heading("A shell the helper cannot give is refused cleanly")
+    subprocess.run(["systemctl", "stop", "portikus-root-shell.socket"], check=True)
+    try:
+        tab = Browser(host, cookies)
+        check("the WebSocket is closed with no shell", tab.closed() and tab.output == b"",
+              "status %s, close %s" % (tab.status, tab.close_code))
+        print("      (status %s, close code %s, messages %s)" % (tab.status, tab.close_code, tab.messages), flush=True)
+    finally:
+        subprocess.run(["systemctl", "start", "portikus-root-shell.socket"], check=True)
+    check("the API logged the refusal", "root shell helper unavailable" in journal_since(since, "-u", "portikus-api"))
+    check("the API is still running", sh("systemctl", "is-active", "portikus-api").strip() == "active")
+    anonymous = Browser(host, "")
+    check("a WebSocket with no session is refused before any shell", anonymous.status in (401, 403), str(anonymous.status))
+
+    heading("Nothing typed reaches the journal")
+    everything = journal_since(since)
+    check("not the typed commands, nor what the shell printed", "api-$((6*7))" not in everything and "after-reload-4" not in everything)
+
+
 def main(args):
     if os.geteuid() != 0:
         print("run as root", file=sys.stderr)
@@ -462,6 +655,8 @@ def main(args):
         return 0
     if args == ["--off"]:
         off_state()
+    elif len(args) == 3 and args[0] == "--api":
+        through_the_api(args[1], args[2])
     elif not args:
         on_state()
     else:
