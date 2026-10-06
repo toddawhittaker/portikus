@@ -210,9 +210,10 @@ class Shell:
         return int(fields[0]) if fields and fields[0].isdigit() else None
 
     def start_daemon(self):
-        """A tmux session running a uniquely named sleep, in the shell's logind session."""
+        """A tmux server of its own, in the shell's logind session, running a uniquely named sleep."""
         marker = "sleep %d" % (3000000 + secrets.randbelow(900000))
-        self.type("tmux new-session -d -s rs-%s '%s'; echo daemon-$((40+2))\r" % (self.id[:8], marker))
+        # Its own server: a pane joining a server another session started would leave this session empty.
+        self.type("tmux -L rs-%s new-session -d '%s'; echo daemon-$((40+2))\r" % (self.id[:8], marker))
         self.expect(rb"daemon-42")
         wait_for(lambda: bool(pids_of(marker)), 5)
         return marker
@@ -600,14 +601,15 @@ def through_the_api(host, jar):
           and "address" in rows[0][1] and "userAgent" in rows[0][1], str(rows))
 
     heading("A Caddy reload leaves the shell open")
-    tab.type("tmux new-session -d -s rs-reload 'sleep 600'; echo before-$((1+1))\r")
+    tab.type("tmux -L rs-reload new-session -d 'sleep 600'; echo before-$((1+1))\r")
     tab.expect(rb"before-2")
     subprocess.run(["systemctl", "reload", "caddy"], check=True)
     time.sleep(3)
     tab.type("echo after-reload-$((2+2))\r")
     check("the shell still answers after `systemctl reload caddy`", tab.expect(rb"after-reload-4"))
     check("its login is still running", alive(int(login)))
-    tab.type("tmux kill-session -t rs-reload\r")
+    tab.type("tmux -L rs-reload kill-server; echo killed-$((3+3))\r")
+    tab.expect(rb"killed-6")
 
     heading("Closing the tab")
     tab.close()
