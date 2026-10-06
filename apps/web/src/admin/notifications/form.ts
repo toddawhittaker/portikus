@@ -16,7 +16,7 @@ import {
  * the stored one is kept.
  */
 
-export type SmtpPort = "587" | "465";
+type SmtpPort = "587" | "465";
 
 export interface NotifyForm {
 	email: {
@@ -35,15 +35,6 @@ export interface NotifyForm {
 	webhook: { on: boolean; url: string };
 	rootShellOpenedAlert: boolean;
 }
-
-/** The order the page lists the channels in. */
-export const CHANNELS: AlertChannelKind[] = [
-	"email",
-	"pushover",
-	"ntfy",
-	"teams",
-	"webhook",
-];
 
 export const CHANNEL_NAME: Record<AlertChannelKind, string> = {
 	email: "Email",

@@ -131,11 +131,6 @@ export async function putStaleRequest(minutes: number): Promise<string> {
 	return path;
 }
 
-/** Whether a request is still waiting for the job. */
-export async function requestWaiting(): Promise<boolean> {
-	return (await requestFiles()).length > 0;
-}
-
 /**
  * Play the root alerts job once: wait for the API's request file and delete
  * it first, as the job does, then write the settings file and the status.

@@ -4,20 +4,10 @@ import {
 	MAX_ALERT_EMAIL_RECIPIENTS,
 	type NotificationSettingsView,
 } from "@portikus/contracts";
-import {
-	Button,
-	Checkbox,
-	CONTROL_CLASS,
-	FIELD_CLASS,
-	FieldMessages,
-	fieldDescribedBy,
-	HINT_CLASS,
-	LABEL_CLASS,
-	Select,
-	TextField,
-} from "@portikus/ui";
+import { Button, Checkbox, HINT_CLASS, Select, TextField } from "@portikus/ui";
 import type { ReactNode } from "react";
 import { ApiError, errorText } from "../../api/request.js";
+import { TextAreaField } from "../TextAreaField.js";
 import {
 	CHANNEL_NAME,
 	FIELD_ID,
@@ -74,7 +64,7 @@ function failureText(error: string | undefined): string {
 	return known[error] ?? error;
 }
 
-export function testResultText(results: AlertChannelResult[]): string {
+function testResultText(results: AlertChannelResult[]): string {
 	const result = results[0];
 	if (!result) return "Not sent: this channel is not saved yet.";
 	return result.ok
@@ -83,7 +73,7 @@ export function testResultText(results: AlertChannelResult[]): string {
 }
 
 /** The API allows a few tests a minute per administrator. */
-export function testErrorText(error: unknown): string {
+function testErrorText(error: unknown): string {
 	if (error instanceof ApiError && error.status === 429) {
 		return "Not sent: too many test alerts just now. Try again in a minute.";
 	}
@@ -274,27 +264,18 @@ function RecipientsField({
 	error: string | undefined;
 	onChange: (value: string) => void;
 }) {
-	const id = FIELD_ID.emailTo;
-	const hint = `One address per line, up to ${MAX_ALERT_EMAIL_RECIPIENTS}.`;
 	return (
 		// The list spans the whole row, beside nothing, so long addresses fit.
-		<div className={`${FIELD_CLASS} col-span-full`}>
-			<label className={LABEL_CLASS} htmlFor={id}>
-				Send to
-			</label>
-			<textarea
-				id={id}
-				className={`${CONTROL_CLASS} h-auto min-h-20 py-2 aria-[invalid=true]:border-status-error`}
-				rows={3}
-				autoComplete="off"
-				spellCheck={false}
-				value={value}
-				aria-invalid={error ? true : undefined}
-				aria-describedby={fieldDescribedBy({ id, hint, error })}
-				onChange={(event) => onChange(event.target.value)}
-			/>
-			<FieldMessages id={id} hint={hint} error={error} />
-		</div>
+		<TextAreaField
+			id={FIELD_ID.emailTo}
+			label="Send to"
+			className="col-span-full"
+			rows={3}
+			hint={`One address per line, up to ${MAX_ALERT_EMAIL_RECIPIENTS}.`}
+			error={error}
+			value={value}
+			onChange={onChange}
+		/>
 	);
 }
 

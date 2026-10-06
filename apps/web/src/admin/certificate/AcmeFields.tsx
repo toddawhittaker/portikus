@@ -3,17 +3,8 @@ import {
 	DNS_PROVIDER_FIELDS,
 	type DnsProvider,
 } from "@portikus/contracts";
-import {
-	CONTROL_CLASS,
-	FIELD_CLASS,
-	FieldMessages,
-	fieldDescribedBy,
-	HINT_CLASS,
-	LABEL_CLASS,
-	Select,
-	TextField,
-	Toggletip,
-} from "@portikus/ui";
+import { HINT_CLASS, Select, TextField, Toggletip } from "@portikus/ui";
+import { TextAreaField } from "../TextAreaField.js";
 import { Choice } from "./Choice.js";
 import {
 	type CertificateForm,
@@ -250,22 +241,15 @@ function SecretField({
 		);
 	}
 	return (
-		<div className={FIELD_CLASS}>
-			<label className={LABEL_CLASS} htmlFor={id}>
-				{label}
-			</label>
-			<textarea
-				id={id}
-				className={`${CONTROL_CLASS} h-auto min-h-24 py-2 font-mono aria-[invalid=true]:border-status-error`}
-				rows={4}
-				autoComplete="off"
-				spellCheck={false}
-				value={value}
-				aria-invalid={error ? true : undefined}
-				aria-describedby={fieldDescribedBy({ id, hint, error })}
-				onChange={(event) => onChange(event.target.value)}
-			/>
-			<FieldMessages id={id} hint={hint} error={error} />
-		</div>
+		<TextAreaField
+			id={id}
+			label={label}
+			rows={4}
+			mono
+			hint={hint}
+			error={error}
+			value={value}
+			onChange={onChange}
+		/>
 	);
 }

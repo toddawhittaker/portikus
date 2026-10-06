@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson } from "../../api/request.js";
 import { isActive } from "./form.js";
 
-export const notificationsKey = ["admin", "notifications"] as const;
+const notificationsKey = ["admin", "notifications"] as const;
 
 /** A queued or running job is polled every two seconds, as the certificate page does. */
 const POLL_MS = 2000;
