@@ -7,4 +7,7 @@ import { API_PORT } from "./ports";
  * ADR 0051). The API reaches it at ROOT_SHELL_SOCKET. It echoes input and
  * reports resizes, and runs no shell.
  */
-export const ROOT_SHELL_SOCKET = join(tmpdir(), `portikus-e2e-root-shell-${API_PORT}.sock`);
+export const ROOT_SHELL_SOCKET = join(
+	tmpdir(),
+	`portikus-e2e-root-shell-${API_PORT}.sock`,
+);
