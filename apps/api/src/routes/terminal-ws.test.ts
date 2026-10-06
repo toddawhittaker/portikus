@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import * as net from "node:net";
 import { ELEVATED_SESSION_MAX_SECONDS } from "@portikus/auth";
 import {
 	CookieJar,
@@ -393,6 +394,73 @@ test.skipIf(skip)("a revoked session is caught on the next input frame", async (
 		vi.useRealTimers();
 	}
 });
+
+/** A masked client text frame, written by hand so nothing answers a close. */
+function clientTextFrame(text: string): Buffer {
+	const payload = Buffer.from(text);
+	if (payload.length > 125) throw new Error("test frames stay short");
+	const mask = crypto.randomBytes(4);
+	const masked = Buffer.alloc(payload.length);
+	for (let i = 0; i < payload.length; i += 1) {
+		masked[i] = (payload[i] as number) ^ (mask[i % 4] as number);
+	}
+	return Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), mask, masked]);
+}
+
+test.skipIf(skip)(
+	"a revoked client that ignores the close frame cannot type into the terminal",
+	async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval"] });
+		const address = app.server.address() as AddressInfo;
+		const raw = net.connect(address.port, "127.0.0.1");
+		try {
+			let bytes = Buffer.alloc(0);
+			raw.on("data", (chunk: Buffer) => {
+				bytes = Buffer.concat([bytes, chunk]);
+			});
+			const until = async (found: () => boolean): Promise<void> => {
+				for (let i = 0; i < 100 && !found(); i += 1) {
+					await new Promise((resolve) => setTimeout(resolve, 20));
+				}
+				expect(found()).toBe(true);
+			};
+			await new Promise<void>((resolve) => raw.once("connect", () => resolve()));
+			raw.write(
+				[
+					`GET /workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=100&rows=30 HTTP/1.1`,
+					`Host: 127.0.0.1:${address.port}`,
+					"Upgrade: websocket",
+					"Connection: Upgrade",
+					"Sec-WebSocket-Version: 13",
+					`Sec-WebSocket-Key: ${crypto.randomBytes(16).toString("base64")}`,
+					`Origin: ${new URL(PUBLIC_URL).origin}`,
+					`Cookie: ${alice.cookieHeader()}`,
+					"",
+					"",
+				].join("\r\n"),
+			);
+			const before = JSON.stringify({ type: "input", data: "before" });
+			await until(() => bytes.includes("101 Switching Protocols"));
+			raw.write(clientTextFrame(before));
+			await until(() => agent.received.includes(before));
+
+			await testDb.db.deleteFrom("sessions").execute();
+			vi.advanceTimersByTime(1500);
+			// The server's close frame: opcode 8, code 4401, "session revoked".
+			const closeFrame = Buffer.from([0x88, 0x11, 0x11, 0x31]);
+			await until(() => bytes.includes(closeFrame));
+
+			// Keep typing without answering the close (SPEC.md section 24).
+			const after = JSON.stringify({ type: "input", data: "after" });
+			raw.write(clientTextFrame(after));
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			expect(agent.received).not.toContain(after);
+		} finally {
+			raw.destroy();
+			vi.useRealTimers();
+		}
+	},
+);
 
 test.skipIf(skip)(
 	"an administrator cannot attach to a student's terminal",

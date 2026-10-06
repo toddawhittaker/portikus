@@ -217,8 +217,25 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 	// The agent is student-controlled, so it gets one record lookup per
 	// connection and no more (SPEC.md §24).
 	let ending = false;
+	// Set once the API ends the browser socket. ws keeps delivering frames
+	// for up to 30 seconds while it waits for the peer's close, so nothing
+	// after this point may reach the agent (SPEC.md §24).
+	let inputStopped = false;
 
 	const backpressure = pipeBackpressure(socket, upstream);
+
+	// close(), not terminate(), so the web client still hears the code.
+	function endBrowser(code: number, reason: string): void {
+		inputStopped = true;
+		queued.length = 0;
+		if (
+			upstream.readyState === WebSocketClient.OPEN ||
+			upstream.readyState === WebSocketClient.CONNECTING
+		) {
+			upstream.close(1000, "terminal ended");
+		}
+		socket.close(code, reason);
+	}
 
 	const presenceTimer = setInterval(() => {
 		void touchPresence(db, connectionId).catch(() => {});
@@ -228,7 +245,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		lastSessionCheck = Date.now();
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
 		if (user && !sessionGate(user)) return true;
-		socket.close(CloseCode.SESSION_ENDED, "session revoked");
+		endBrowser(CloseCode.SESSION_ENDED, "session revoked");
 		return false;
 	}
 
@@ -247,6 +264,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		}
 
 		socket.on("message", (data: RawData) => {
+			if (inputStopped) return;
 			const text = data.toString();
 			// Revocation must take effect at once, but one check a second is
 			// enough for a stream of keystrokes (SPEC.md §5.3).
@@ -258,7 +276,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
 				queuedBytes += Buffer.byteLength(text);
 				if (queuedBytes > MAX_QUEUED_BYTES) {
-					socket.close(1009, "too much input before the terminal was ready");
+					endBrowser(1009, "too much input before the terminal was ready");
 					return;
 				}
 				queued.push(text);
@@ -325,7 +343,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			// The browser closing first aborts a still-connecting agent socket,
 			// which is the normal path and not a failure.
 			const line = { err: error, workspaceId, terminalId, connectionId };
-			if (closed) log.info(line, "terminal agent socket failed");
+			if (closed || inputStopped) log.info(line, "terminal agent socket failed");
 			else log.error(line, "terminal agent socket failed");
 			if (socket.readyState === socket.OPEN) {
 				socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
