@@ -151,8 +151,9 @@ contents, journal lines from the helper, and a banner.
    journal lines (shell id, actor id, address, process id, duration) and
    PAM's lines record each shell too. If the API crashes, an opened row
    has no closed row, and the journal line is then the record. A banner
-   in the shell and a fixed strip on the page say that nothing typed is
-   recorded and that opening and closing are audited. Nothing typed or
+   in the shell says that nothing typed is recorded and that opening and
+   closing are audited; the one-line strip on the page warns that these
+   are root shells and links to Help, which says the same. Nothing typed or
    shown is ever recorded (ADR 0012).
 7. **Optional alert on open.** When the `rootShellOpenedAlert` setting
    in `notify.json` is on (ADR 0052), the API sends every administrator a
