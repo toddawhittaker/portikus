@@ -103,6 +103,33 @@ test("Leave terminal in the menu names Alt+Shift+Q and moves to the tab", async 
 	await expect(workTabs(page).getByRole("tab", { selected: true })).toBeFocused();
 });
 
+test("Close in a pane's menu moves the keyboard to the next pane, then to New tab", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Close Pane" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	const first = await openTerminal(page, student.workspaceId, project.id);
+	await chooseFromActions(page, first, "Split right");
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const second = (await terminalIds(student.workspaceId, project.id)).find(
+		(id) => id !== first,
+	);
+	if (!second) throw new Error("the split did not create a terminal");
+	await expectConnected(page, second);
+
+	await chooseFromActions(page, first, "Close");
+	await expect(helperTextarea(page, second)).toBeFocused();
+	await expect(page.getByTestId(`terminal-pane-${first}`)).toHaveCount(0);
+
+	await chooseFromActions(page, second, "Close");
+	await expect(page.getByTestId("launcher")).toBeFocused();
+});
+
 test("each work-area tab panel is named by its tab", async ({ page, context }) => {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, { name: "Panel Names" });

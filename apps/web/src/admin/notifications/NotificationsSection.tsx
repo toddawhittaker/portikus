@@ -5,6 +5,7 @@ import { ApiError, errorText } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { Notice } from "../Notice.js";
+import { useRootShellStatus } from "../root-shell/status.js";
 import {
 	EmailChannel,
 	NtfyChannel,
@@ -93,6 +94,9 @@ function NotificationsForm({
 	onRequested: (job: NotifyJobView) => void;
 }) {
 	const save = useSaveNotifications();
+	// The setting stays editable when root shells are off, so it is ready if
+	// the operator turns them on; the description says why it does nothing.
+	const rootShellsOff = useRootShellStatus(true).data?.enabled === false;
 	const view = data.settings;
 	const [form, setFormState] = useState<NotifyForm>(() => initialForm(view));
 	const [errors, setErrors] = useState<FormErrors>({});
@@ -239,7 +243,7 @@ function NotificationsForm({
 				<legend className="pk-text-body m-0 p-0 font-semibold">Root shell</legend>
 				<Checkbox
 					label="Alert when a root shell opens"
-					description="Sends a warning, naming the administrator, each time anyone opens a root shell on the Root shell tab."
+					description={`Sends a warning, naming the administrator, each time anyone opens a root shell on the Root shell tab.${rootShellsOff ? " Root shells are off on this server." : ""}`}
 					checked={form.rootShellOpenedAlert}
 					onChange={(event) =>
 						setForm({ ...form, rootShellOpenedAlert: event.target.checked })

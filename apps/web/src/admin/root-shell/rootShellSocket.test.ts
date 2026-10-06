@@ -157,13 +157,47 @@ test("a failed session check still reports a refusal", async () => {
 	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("refused"));
 });
 
-test("a revoked session hands over to the session-ended page", () => {
+test("a revoked session hands over to the session-ended page", async () => {
+	meAnswers(401);
 	const handlers = events();
 	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
 	last().open();
+	last().onmessage?.({ data: new ArrayBuffer(1) });
 	last().drop(CloseCode.SESSION_ENDED);
-	expect(sessionEnded).toHaveBeenCalledTimes(1);
+	await vi.waitFor(() => expect(sessionEnded).toHaveBeenCalledTimes(1));
 	expect(handlers.onLost).not.toHaveBeenCalled();
+});
+
+test("a demotion ends the shell as forbidden, not as a lost session", async () => {
+	meAnswers(200, "student");
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().open();
+	last().onmessage?.({ data: new ArrayBuffer(1) });
+	last().drop(CloseCode.SESSION_ENDED);
+	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("forbidden"));
+	expect(sessionEnded).not.toHaveBeenCalled();
+});
+
+test("a session-ended close the session check cannot confirm says the check failed", async () => {
+	meAnswers(503);
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().open();
+	last().onmessage?.({ data: new ArrayBuffer(1) });
+	last().drop(CloseCode.SESSION_ENDED);
+	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("unchecked"));
+	expect(sessionEnded).not.toHaveBeenCalled();
+});
+
+test("a server error after the shell started is a lost database: the shell was hung up", () => {
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().open();
+	last().onmessage?.({ data: new ArrayBuffer(1) });
+	last().drop(CloseCode.SERVER_ERROR);
+	expect(handlers.onLost).toHaveBeenCalledWith("database_lost");
+	expect(sessionEnded).not.toHaveBeenCalled();
 });
 
 test("the socket cap and a stopping server each say what happened", () => {

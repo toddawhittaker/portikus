@@ -12,6 +12,10 @@ export const LOSS_TEXT: Record<RootShellLoss, string> = {
 		"Portikus restarted on the server, so this root shell ended. Close this pane and open a new root shell.",
 	refused: "The root shell could not start on the host.",
 	forbidden: "Your account is no longer an administrator, so this root shell ended.",
+	unchecked:
+		"Portikus could not check your session, so this root shell ended. Close this pane and open a new root shell.",
+	database_lost:
+		"Portikus lost its database connection, so this root shell was hung up. Anything running in tmux keeps running. Close this pane and open a new root shell.",
 	closed:
 		"This root shell's connection closed. Close this pane and open a new root shell.",
 };
@@ -33,6 +37,10 @@ export function lossSummary(reason: RootShellLoss, count: number): string {
 			return `${Shells} could not start on the host.`;
 		case "forbidden":
 			return LOSS_TEXT.forbidden;
+		case "unchecked":
+			return `Portikus could not check your session, so ${shells} ended.`;
+		case "database_lost":
+			return `Portikus lost its database connection, so ${shells} ${one ? "was" : "were"} hung up.`;
 		case "closed":
 			return one
 				? "A root shell's connection closed."
