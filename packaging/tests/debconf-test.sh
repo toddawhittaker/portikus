@@ -26,6 +26,8 @@ else
 	mkdir -p "$pkg/usr/share/portikus/ansible/roles/portikus/files"
 	cp "$repo_root/infra/ansible/roles/portikus/files/worker-grants.sql" \
 		"$pkg/usr/share/portikus/ansible/roles/portikus/files/"
+	mkdir -p "$pkg/usr/lib/portikus"
+	cp "$repo_root/packaging/alerts/alerts-job" "$pkg/usr/lib/portikus/"
 	cat >"$pkg/DEBIAN/control" <<EOF
 Package: portikus
 Version: 0.0.0+debconf-test
@@ -50,7 +52,7 @@ fi
 
 cp "$repo_root/packaging/tests/debconf-scenario.sh" "$work/"
 failed=0
-for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running worker-account tls-default seeded-certificate pending-certificate \
+for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running worker-account alerts-upgrade tls-default seeded-certificate pending-certificate \
 	ui-storage-default ui-cache-small-disk ui-cache-existing-file ui-host-short ui-host-full ui-summary-no ui-cert ui-reconfigure-seeded; do
 	# The container's host name is what the web address question suggests.
 	hostname=portikus
