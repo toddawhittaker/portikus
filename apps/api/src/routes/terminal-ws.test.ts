@@ -18,7 +18,7 @@ import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { terminalGoneReason } from "../workspaces/terminal-pipe.js";
-import { terminalSockets } from "./terminals.js";
+import { terminalSockets } from "../workspaces/terminal-sockets.js";
 
 /**
  * The terminal transport (SPEC.md §9.7, ADR 0009): the API forwards frames

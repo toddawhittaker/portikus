@@ -32,6 +32,7 @@ import { registerAdminInvitationRoutes } from "./routes/admin-invitations.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
+import { registerAdminRootShellRoutes } from "./routes/admin-root-shell.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
@@ -257,6 +258,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminProcessRoutes(instance, deps);
+		registerAdminRootShellRoutes(instance, deps);
 		registerAdminEgressRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminLogRoutes(instance, deps);
