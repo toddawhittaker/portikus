@@ -243,7 +243,7 @@ test("a failing database ends the shell only after about a minute of failed chec
 	// Only a hang-up: no end frame, so a tmux running pg_upgrade survives.
 	expect(browser.closeCode).toBe(CloseCode.SERVER_ERROR);
 	browser.type("after\r");
-	expect(await pipe.done).toBe("session_ended");
+	expect(await pipe.done).toBe("database_lost");
 	expect(fake.connections[0]?.endReason).toBeNull();
 	expect(fake.connections[0]?.frames).toEqual([]);
 });

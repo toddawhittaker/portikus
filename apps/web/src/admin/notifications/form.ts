@@ -329,9 +329,6 @@ export const CODE_TEXT: Record<NotifyJobCode, string> = {
 		"The server could not write the settings file. Nothing changed. Look for portikus-alerts-job in the server's journal.",
 };
 
-// One rule for the page and the API.
-export { isNotifyJobActive as isActive, notifyJobStaleAt as staleAt };
-
 /** Queued or running for longer than any job takes: it will not finish. */
 export function isStale(
 	job: NotifyJobView | null | undefined,

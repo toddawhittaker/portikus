@@ -1,4 +1,9 @@
-import type { AdminNotifications, NotifyJobView } from "@portikus/contracts";
+import {
+	type AdminNotifications,
+	isNotifyJobActive,
+	type NotifyJobView,
+	notifyJobStaleAt,
+} from "@portikus/contracts";
 import { Button, Checkbox, Skeleton } from "@portikus/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
@@ -18,7 +23,6 @@ import {
 	FIELD_ID,
 	type FormErrors,
 	initialForm,
-	isActive,
 	isStale,
 	jobText,
 	type NotifyForm,
@@ -26,7 +30,6 @@ import {
 	ntfyTokenWarning,
 	SMTP_PASSWORD_WARNING,
 	smtpPasswordCleared,
-	staleAt,
 	toUpdate,
 	validate,
 } from "./form.js";
@@ -43,12 +46,12 @@ export function NotificationsSection() {
 	// The job this page asked for. The API may report an older dead job
 	// instead until the new one is taken, so the page follows its own.
 	const [requested, setRequested] = useState<NotifyJobView | null>(null);
-	const waiting = requested !== null && isActive(requested);
+	const waiting = requested !== null && isNotifyJobActive(requested);
 	const notifications = useNotifications(waiting);
 	const reported = notifications.data?.job ?? null;
 	if (requested && reported?.id === requested.id) setRequested(null);
 	const job = waiting ? requested : reported;
-	useRenderAt(isActive(job) ? staleAt(job) : null);
+	useRenderAt(isNotifyJobActive(job) ? notifyJobStaleAt(job) : null);
 	return (
 		<AdminGroup
 			id="notify-title"
@@ -106,7 +109,7 @@ function NotificationsForm({
 	const focusError = useRef(false);
 	// The warnings Save has already stopped for once; a second Save goes ahead.
 	const heeded = useRef<ClearWarnings>({ smtp: false, ntfy: false });
-	const busy = isActive(job);
+	const busy = isNotifyJobActive(job);
 
 	// New settings in force after a save: start the form from them. Each poll
 	// brings a new object, so they are compared by content.
@@ -292,7 +295,7 @@ function NotificationsForm({
 
 function JobLine({ job }: { job: NotifyJobView }) {
 	const text = jobText(job);
-	if (isActive(job)) return <Notice tone="pending">{text}</Notice>;
+	if (isNotifyJobActive(job)) return <Notice tone="pending">{text}</Notice>;
 	if (isStale(job)) return <Notice tone="warning">{text}</Notice>;
 	if (job.state === "succeeded") {
 		return (

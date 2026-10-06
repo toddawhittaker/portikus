@@ -48,13 +48,6 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 }
 
 /**
- * True while a job is queued or running and not yet stale. A job waiting
- * or running longer than NOTIFY_JOB_STALE_MS (the job unit's two-minute
- * TimeoutStartSec plus a margin) has died, and must not block later saves.
- */
-export const isActive = isNotifyJobActive;
-
-/**
  * The job the page should show: the newest by request or start time, with
  * a dead queued or running job ranked below every live or finished one, so
  * a job killed mid-run never hides the ones after it.
@@ -64,7 +57,7 @@ export function latestJob(
 	now: number = Date.now(),
 ): NotifyJobView | null {
 	const dead = (j: NotifyJobView) =>
-		(j.state === "queued" || j.state === "running") && !isActive(j, now);
+		(j.state === "queued" || j.state === "running") && !isNotifyJobActive(j, now);
 	const at = (j: NotifyJobView) => j.requestedAt ?? j.startedAt ?? "";
 	const ranked = [...jobs].sort(
 		(a, b) => Number(dead(a)) - Number(dead(b)) || at(b).localeCompare(at(a)),
