@@ -1,0 +1,18 @@
+# One root shell from the admin page, started by portikus-root-shell.socket
+# (docs/adr/0051-root-shell.md).  The helper runs `login -f root`, which
+# moves the shell into its own logind session.
+#
+# No sandboxing and no RuntimeMaxSec on purpose: the shell inherits this
+# unit's namespaces, capabilities and filters, and must be an ordinary root
+# shell.  The helper writes only fixed lines to standard error, so nothing
+# the shell reads or prints reaches the journal (ADR 0012).
+[Unit]
+Description=Portikus root shell
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/lib/portikus/root-shell
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+Environment=TERM=xterm-256color

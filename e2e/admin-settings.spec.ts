@@ -40,7 +40,7 @@ for (const width of [1920, 1024]) {
 				"When workspaces stop",
 				"Resource guard",
 				"Acceptable use",
-				"Alerts",
+				"Notifications",
 			]);
 			// Stacked, each below the last, in a column no wider than 72ch.
 			const tops = [];
@@ -133,7 +133,10 @@ test("a field with a help button lines its input up with one without", async ({
 	// From the top of each field to the top of its control: the label row plus the gap.
 	const offsets = await page.evaluate(() =>
 		[...document.querySelectorAll<HTMLElement>(".pk-field")].flatMap((field) => {
-			const control = field.querySelector("input, textarea, select");
+			// A Radix Select in a form adds a hidden native select for form posts; only visible controls count.
+			const control = field.querySelector(
+				"input, textarea, select:not([aria-hidden='true'])",
+			);
 			if (!control) return [];
 			return [
 				{

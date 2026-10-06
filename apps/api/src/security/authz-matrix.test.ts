@@ -121,6 +121,10 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/certificate/preflight": 404,
 	"GET /admin/certificate/root.crt": 404,
 	"HEAD /admin/certificate/root.crt": 404,
+	// Tests set no ALERTS_JOBS_DIR, so the Notifications section is off.
+	"GET /admin/notifications": 404,
+	"HEAD /admin/notifications": 404,
+	"PUT /admin/notifications": 404,
 	// Tests set no REGISTRY_JOBS_DIR, so the Docker section is off.
 	"GET /admin/docker": 404,
 	"HEAD /admin/docker": 404,

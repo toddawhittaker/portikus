@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import type { Terminal } from "@portikus/contracts";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
 
@@ -140,14 +147,14 @@ test("closing the actions menu from the keyboard focuses it", async () => {
 	expect(document.activeElement).toBe(trigger);
 });
 
-test("the actions menu closes the terminal", () => {
+test("the actions menu closes the terminal", async () => {
 	const props = renderLeaf();
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
 	});
 	fireEvent.click(screen.getByTestId("terminal-close"));
-	expect(props.onClose).toHaveBeenCalledWith(terminal.id);
+	await waitFor(() => expect(props.onClose).toHaveBeenCalledWith(terminal.id));
 });
 
 test("Rename swaps the title for a field and saves on Enter", () => {

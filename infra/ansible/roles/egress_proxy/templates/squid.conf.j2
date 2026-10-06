@@ -54,4 +54,8 @@ acl portikus_port_{{ port }} port {{ port }}
 http_access allow {{ 'portikus_connect' if port == '443' else 'portikus_fetch' }} portikus_hosts_{{ port }} portikus_port_{{ port }}
 
 {% endfor %}
+# Rules other owners write, such as the alert hosts (ADR 0052); after the
+# address denies above, so they can only allow host names on the internet.
+include {{ egress_proxy_include_dir }}/*.conf
+
 http_access deny all

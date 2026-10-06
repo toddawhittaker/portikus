@@ -682,7 +682,7 @@ jobs:
       - name: Certificate settings setup seeds
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/certificate-seed-test.yml
-      - name: Alert settings, alerts.env and failure units
+      - name: Alert settings and failure units
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/alerts-render-test.yml
       - name: Apt refresh failure decision
@@ -739,6 +739,14 @@ jobs:
       - name: Docker cache helper
         if: needs.changes.outputs.infra == 'true'
         run: python3 -B -m unittest discover -s packaging/registry/tests
+      # /bin/sh stands in for login, and logind calls are stubbed.
+      - name: Root-shell helper
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/root-shell/tests
+      # squid and systemctl are stubbed.
+      - name: Notification settings job
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/alerts/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy

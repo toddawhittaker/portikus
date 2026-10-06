@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -37,7 +37,13 @@ import {
 import { checkUpload } from "../certificate/upload-check.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import { currentJob, listDir, tailLines, writeRequestFile } from "../job-files.js";
+import {
+	currentJob,
+	listDir,
+	sweepTempRequests,
+	tailLines,
+	writeRequestFile,
+} from "../job-files.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A certificate job is already waiting or running.";
@@ -336,17 +342,4 @@ export function registerAdminCertificateRoutes(
 			writing = false;
 		}
 	});
-}
-
-/**
- * Remove temp request files a crash left behind; they may hold secrets.
- * Runs under the write lock, so no write of ours is in flight.
- */
-async function sweepTempRequests(jobsDir: string): Promise<void> {
-	const names = await readdir(jobsDir).catch(() => [] as string[]);
-	for (const name of names) {
-		if (name.startsWith(".request-") && name.endsWith(".tmp")) {
-			await unlink(join(jobsDir, name)).catch(() => {});
-		}
-	}
 }

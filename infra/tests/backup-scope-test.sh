@@ -22,6 +22,8 @@
 #     than refusing the set;
 #   - the key that seals second factors is in every set, encrypted, and a
 #     restore puts it back from standard input before the API starts;
+#   - the notification settings are in every set, encrypted, and a restore
+#     hands them to the alerts job on standard input before the API starts;
 #   - restore.sh --remove deletes only the set's own instances and volumes,
 #     never on the pilot.
 #
@@ -136,6 +138,14 @@ expect "has-second-factor-key is 1 with the key file" "grep -qx 1 '${work}/out'"
 PORTIKUS_SECOND_FACTOR_KEY="${work}/sfk" run_export second-factor-key >"${work}/out"
 expect "second-factor-key prints the key file" "cmp -s '${work}/sfk' '${work}/out'"
 
+printf '%s\n' '{"version": 1}' >"${work}/notify"
+run_export has-notify >"${work}/out"
+expect "has-notify is 0 without the settings file" "grep -qx 0 '${work}/out'"
+PORTIKUS_NOTIFY_FILE="${work}/notify" run_export has-notify >"${work}/out"
+expect "has-notify is 1 with the settings file" "grep -qx 1 '${work}/out'"
+PORTIKUS_NOTIFY_FILE="${work}/notify" run_export notify >"${work}/out"
+expect "notify prints the settings file" "cmp -s '${work}/notify' '${work}/out'"
+
 echo "--- host backup ---"
 # A small volume export: one file, one Git repository, and two files whose
 # names hold a tab and a newline.
@@ -175,6 +185,9 @@ case "\$cmd" in
   *"\$X dex-db") printf 'PGDMP fake dex dump' ;;
   *"\$X has-second-factor-key") echo "\${FAKE_HAS_SFK:-1}" ;;
   *"\$X second-factor-key") echo "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3" ;;
+  *"\$X has-notify") echo "\${FAKE_HAS_NOTIFY:-1}" ;;
+  *"\$X notify") echo '{"alerts": "fake-notify-secret-d4d4d4d4"}' ;;
+  "sudo /usr/lib/portikus/alerts-job restore") cat >"${work}/restored-notify" ;;
   *"\$X counts") echo "users 3 workspaces 1 projects 6" ;;
   *"\$X workspaces") [ -n "\${FAKE_WORKSPACES_EMPTY:-}" ] && exit 0
     [ -z "\${FAKE_WORKSPACE_BYTES:-}" ] || { head -c "\$FAKE_WORKSPACE_BYTES" /dev/zero | tr '\\0' a; exit 0; }
@@ -248,7 +261,7 @@ all_sets() { find "$sets" -mindepth 1 | sort; }
 : >"$log"
 if run_backup >"${work}/backup.out" 2>&1; then ok "backup.sh completes against the fake VM"; else bad "backup.sh completes against the fake VM"; cat "${work}/backup.out"; fi
 expect "the VM is sent only hostname, dpkg-query and the export script's read commands" \
-  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|has-dex|dex-db|has-second-factor-key|second-factor-key|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
+  "! grep '^ssh ' '$log' | sed 's/^ssh //' | grep -vE '^(hostname|dpkg-query .*|sudo bash -c \"\\\$\\(echo [A-Za-z0-9+/=]+ \\| base64 -d\\)\" portikus-backup-export (volumes|db|has-dex|dex-db|has-second-factor-key|second-factor-key|has-notify|notify|counts|workspaces|instances|(idmap|volume) ws-[0-9a-f]{24}-(home|recovery)))\$'"
 sent=$(grep -m1 -oE 'echo [A-Za-z0-9+/=]+ \| base64' "$log" | cut -d' ' -f2)
 expect "the script it sends is the export script tested above" "[ \"\$(printf '%s' '$sent' | base64 -d | sha256sum)\" = \"\$(sha256sum <'$export_cmd')\" ]"
 newest=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
@@ -257,6 +270,8 @@ expect "the set holds both dumps, both volumes, their indexes and the MANIFEST" 
   "[ -f '${newest}/db.dump.age' ] && [ -f '${newest}/dex.dump.age' ] && [ -f '${newest}/${HOME_VOL}.age' ] && [ -f '${newest}/${REC_VOL}.index.age' ] && [ -f '${newest}/MANIFEST.age' ]"
 expect "the set holds the second-factor key, encrypted" \
   "[ -f '${newest}/second-factor.key.age' ] && ! grep -rq c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 '$newest'"
+expect "the set holds the notification settings, encrypted" \
+  "[ -f '${newest}/notify.json.age' ] && ! grep -rq fake-notify-secret-d4d4d4d4 '$newest'"
 expect "a complete set has no FAILED file" "[ ! -e '${newest}/FAILED' ]"
 expect "nothing in the set is readable without the key" "! grep -rq 'PGDMP' '$newest'"
 expect "the set directory is private" "[ \"\$(stat -c %a '$newest')\" = 700 ]"
@@ -439,6 +454,13 @@ key_line=$(grep -n 'sudo bash -c .*base64 -d)"$' "$log" | head -1 | cut -d: -f1)
 # shellcheck disable=SC2034  # read inside expect's eval
 api_line=$(grep -n 'systemctl start portikus-api' "$log" | head -1 | cut -d: -f1)
 expect "the key is back before the API starts" "[ -n '$key_line' ] && [ -n '$api_line' ] && [ '$key_line' -lt '$api_line' ]"
+expect "restore hands the alerts job the set's notification settings on standard input" \
+  "grep -qx '{\"alerts\": \"fake-notify-secret-d4d4d4d4\"}' '${work}/restored-notify'"
+expect "the notification settings never appear in a command sent to the VM" "! grep -q fake-notify-secret '$log'"
+# shellcheck disable=SC2034  # read inside expect's eval
+notify_line=$(grep -n 'alerts-job restore' "$log" | head -1 | cut -d: -f1)
+expect "the notification settings are back before the API starts" \
+  "[ -n '$notify_line' ] && [ '$notify_line' -lt '$api_line' ]"
 # shellcheck disable=SC2034  # read inside expect's eval
 put_script=$(grep -m1 -oE 'echo [A-Za-z0-9+/=]+ \| base64 -d\)"$' "$log" | cut -d' ' -f2 | base64 -d)
 expect "the restored key file is root's alone and named in api.env" \

@@ -1,3 +1,4 @@
+import { NOTIFY_FILE_OFF, notificationSettingsView } from "@portikus/contracts";
 import { screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
@@ -26,6 +27,12 @@ function stubSettings() {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
 		throw new Error(`unexpected request: ${url}`);
 	});
 }
@@ -42,7 +49,7 @@ test("Settings is four admin cards in one column, and the log level is not among
 		"When workspaces stop",
 		"Resource guard",
 		"Acceptable use",
-		"Alerts",
+		"Notifications",
 	]);
 	for (const name of headings) {
 		const card = within(column).getByRole("region", { name: name ?? "" });
@@ -130,7 +137,9 @@ test("every setting has a help button beside its label, and the page an intro", 
 	// The field keeps its own name; the help button is beside the label, not in it.
 	expect(screen.getByRole("textbox", { name: "Window (minutes)" })).toBeDefined();
 	expect(screen.getByText("About Settings")).toBeDefined();
-	expect(screen.getByRole("link", { name: /More in Help/ }).getAttribute("href")).toBe(
+	const links = screen.getAllByRole("link", { name: /More in Help/ });
+	expect(links.map((link) => link.getAttribute("href"))).toEqual([
 		"/admin/help#admin-settings",
-	);
+		"/admin/help#admin-notifications",
+	]);
 });

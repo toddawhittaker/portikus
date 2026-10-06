@@ -152,6 +152,9 @@
     mode: "0640"
   notify: Restart portikus-api
 
+- name: Set up the root shell
+  ansible.builtin.import_tasks: root_shell.yml
+
 # The root job's status directory, which also holds the lock every job
 # command takes, so before the first call below.
 - name: Create the certificate status directory
@@ -186,19 +189,8 @@
     mode: "0640"
   notify: Restart portikus-worker
 
-# The API, the worker and `portikus alert` read it (STACK.md section 15).
-# systemd opens it as root, so the worker needs no group on it.
-- name: Deploy the alert channels file
-  ansible.builtin.template:
-    src: alerts.env.j2
-    dest: /etc/portikus/alerts.env
-    owner: root
-    group: portikus
-    mode: "0640"
-  no_log: true
-  notify:
-    - Restart portikus-api
-    - Restart portikus-worker
+- name: Set up the notification settings
+  ansible.builtin.import_tasks: alerts.yml
 
 - name: Deploy controller environment file
   ansible.builtin.template:

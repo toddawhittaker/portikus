@@ -20,16 +20,15 @@ import type { z } from "zod";
 import { errorText } from "../api/request.js";
 import { announced } from "../common/announced.js";
 import { AdminGroup, AdminSection } from "./AdminSection.js";
-import { AlertsSection } from "./AlertsSection.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
+import { NotificationsSection } from "./notifications/NotificationsSection.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 
 /**
  * The platform-wide settings: when workspaces stop, the resource guard and
- * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032), and a check
- * that administrator alerts arrive. One column
- * of cards, as on the other tabs; the log level lives on the Logs tab.
+ * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032), and where
+ * administrator alerts go (ADR 0052). One column of cards, as on the other tabs; the log level lives on the Logs tab.
  */
 export function SettingsTab() {
 	return (
@@ -45,7 +44,7 @@ export function SettingsTab() {
 				<StopSection />
 				<ResourceGuardSection />
 				<AcceptableUseSection />
-				<AlertsSection />
+				<NotificationsSection />
 			</div>
 		</AdminSection>
 	);

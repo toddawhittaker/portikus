@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { NOTIFY_FILE_OFF, type NotifyFile } from "@portikus/contracts";
 import { notifyAdministrators, recordNotification } from "@portikus/db";
 import {
 	createTestDb,
@@ -5,10 +9,22 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
-import type { Alert, AlertChannels } from "@portikus/observability";
+import {
+	type Alert,
+	type AlertChannels,
+	readAlertChannels,
+} from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 import {
 	ALERT_QUIET_MS,
 	ALERTS_PER_HOUR,
@@ -77,7 +93,7 @@ describe.skipIf(skip)("forwarding", () => {
 		const tick = createAlertForwarder({
 			db: tdb.db,
 			logger,
-			channels,
+			loadChannels: async () => channels,
 			now: () => new Date(Date.now() - 1000),
 			send: async (alert) => {
 				sent.push(alert);
@@ -105,7 +121,7 @@ describe.skipIf(skip)("forwarding", () => {
 		const tick = createAlertForwarder({
 			db: tdb.db,
 			logger,
-			channels,
+			loadChannels: async () => channels,
 			now: () => new Date(Date.now() - 1000),
 			send: async (alert) => {
 				sent.push(alert);
@@ -137,7 +153,7 @@ describe.skipIf(skip)("forwarding", () => {
 		const tick = createAlertForwarder({
 			db: tdb.db,
 			logger,
-			channels,
+			loadChannels: async () => channels,
 			now: () => new Date(Date.now() - 1000),
 			send: async () => {
 				calls++;
@@ -169,7 +185,7 @@ describe.skipIf(skip)("forwarding", () => {
 		const tick = createAlertForwarder({
 			db: tdb.db,
 			logger,
-			channels: { ...channels, webhookUrl: "" },
+			loadChannels: async () => ({ ...channels, webhookUrl: "" }),
 			now: () => new Date(Date.now() - 1000),
 			send: async () => {
 				calls++;
@@ -187,7 +203,7 @@ describe.skipIf(skip)("forwarding", () => {
 		const tick = createAlertForwarder({
 			db: tdb.db,
 			logger,
-			channels,
+			loadChannels: async () => channels,
 			now: () => new Date(Date.now() - 1000),
 		});
 		await notifyAdministrators(tdb.db, { tone: "warning", title: "Disk", body: "b" });
@@ -195,5 +211,115 @@ describe.skipIf(skip)("forwarding", () => {
 		const text = JSON.stringify(lines);
 		expect(text).toContain("alert could not be sent");
 		expect(text).not.toContain("/hook");
+	});
+
+	describe("reading notify.json (ADR 0052)", () => {
+		let dir = "";
+		let path = "";
+		beforeEach(async () => {
+			dir = await mkdtemp(join(tmpdir(), "worker-notify-"));
+			path = join(dir, "notify.json");
+		});
+		afterEach(async () => {
+			await rm(dir, { recursive: true, force: true });
+		});
+
+		const withWebhook: NotifyFile = {
+			...NOTIFY_FILE_OFF,
+			alerts: {
+				...NOTIFY_FILE_OFF.alerts,
+				webhook: { url: "https://hooks.example.com/services/s3cret" },
+			},
+		};
+
+		function forwarder(sent: [Alert, AlertChannels][]) {
+			const { logger, lines } = collectingLogger();
+			const tick = createAlertForwarder({
+				db: tdb.db,
+				logger,
+				loadChannels: () => readAlertChannels(path, "http://127.0.0.1:3128"),
+				now: () => new Date(Date.now() - 1000),
+				send: async (alert, channels) => {
+					sent.push([alert, channels]);
+					return [{ channel: "webhook", ok: true }];
+				},
+			});
+			return { tick, lines };
+		}
+
+		test("a settings change is used at the next tick, with no restart", async () => {
+			await insertTestUser(tdb.db, { role: "administrator" });
+			await writeFile(path, JSON.stringify(withWebhook));
+			const sent: [Alert, AlertChannels][] = [];
+			const { tick } = forwarder(sent);
+			await notifyAdministrators(tdb.db, { tone: "danger", title: "One", body: "b" });
+			await tick();
+			expect(sent.map(([a, c]) => [a.title, c.webhookUrl, c.proxyUrl])).toEqual([
+				["One", "https://hooks.example.com/services/s3cret", "http://127.0.0.1:3128"],
+			]);
+			await writeFile(path, JSON.stringify(NOTIFY_FILE_OFF));
+			await notifyAdministrators(tdb.db, { tone: "danger", title: "Two", body: "b" });
+			await tick();
+			expect(sent).toHaveLength(1);
+		});
+
+		test("alerts raised while every channel was off are not sent once one is on", async () => {
+			await insertTestUser(tdb.db, { role: "administrator" });
+			const sent: [Alert, AlertChannels][] = [];
+			const { tick } = forwarder(sent);
+			await notifyAdministrators(tdb.db, { tone: "danger", title: "Old", body: "b" });
+			await tick();
+			await writeFile(path, JSON.stringify(withWebhook));
+			await notifyAdministrators(tdb.db, { tone: "danger", title: "New", body: "b" });
+			await tick();
+			expect(sent.map(([a]) => a.title)).toEqual(["New"]);
+		});
+
+		test("alert email gets site alerts such as a certificate notice", async () => {
+			await insertTestUser(tdb.db, { role: "administrator" });
+			const smtp = {
+				host: "smtp.example.edu",
+				port: 587 as const,
+				username: "",
+				password: "",
+				from: "portikus@example.edu",
+			};
+			await writeFile(
+				path,
+				JSON.stringify({
+					...NOTIFY_FILE_OFF,
+					smtp,
+					alerts: { ...NOTIFY_FILE_OFF.alerts, email: { to: ["ops@example.edu"] } },
+				}),
+			);
+			const sent: [Alert, AlertChannels][] = [];
+			const { tick } = forwarder(sent);
+			await notifyAdministrators(tdb.db, {
+				tone: "danger",
+				title: "A certificate did not renew",
+				body: "b",
+			});
+			await tick();
+			expect(sent.map(([a, c]) => [a.title, c.email])).toEqual([
+				["A certificate did not renew", { smtp, to: ["ops@example.edu"] }],
+			]);
+		});
+
+		test("an unreadable file is logged by name only and sends nothing", async () => {
+			await insertTestUser(tdb.db, { role: "administrator" });
+			await writeFile(path, '{"version": 1, "secret": "s3cret"');
+			const sent: [Alert, AlertChannels][] = [];
+			const { tick, lines } = forwarder(sent);
+			await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+			await tick();
+			expect(sent).toEqual([]);
+			const text = JSON.stringify(lines);
+			expect(text).toContain("alert settings could not be read");
+			expect(text).not.toContain("s3cret");
+			// Held, not dropped: it goes out once the file reads again.
+			await writeFile(path, JSON.stringify(withWebhook));
+			await tick();
+			expect(sent.map(([a]) => a.title)).toEqual(["Down"]);
+		});
 	});
 });

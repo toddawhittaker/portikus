@@ -1,0 +1,17 @@
+# The admin page's root shells (docs/adr/0051-root-shell.md).  Each
+# connection starts one portikus-root-shell@ helper as root.  Only the API
+# joins the socket's group, and the helper also refuses any peer but the
+# portikus user.  Enabled by setup unless portikus_root_shell is false.
+[Unit]
+Description=Portikus root shell requests
+
+[Socket]
+ListenStream=/run/portikus-root-shell.sock
+SocketUser=root
+SocketGroup=portikus-root-shell
+SocketMode=0660
+Accept=yes
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

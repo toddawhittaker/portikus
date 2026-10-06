@@ -54,9 +54,10 @@ export class AlertGate {
 export interface AlertForwarderOptions {
 	db: Kysely<Database>;
 	logger: Logger;
-	channels: AlertChannels;
+	/** The channels as they are now; read at each tick, so a settings change needs no restart (ADR 0052). */
+	loadChannels: () => Promise<AlertChannels>;
 	now?: () => Date;
-	send?: (alert: Alert) => Promise<ChannelResult[]>;
+	send?: (alert: Alert, channels: AlertChannels) => Promise<ChannelResult[]>;
 }
 
 /**
@@ -68,14 +69,24 @@ export interface AlertForwarderOptions {
 export function createAlertForwarder(
 	options: AlertForwarderOptions,
 ): () => Promise<void> {
-	const { db, logger, channels } = options;
+	const { db, logger, loadChannels } = options;
 	const now = options.now ?? (() => new Date());
-	const send = options.send ?? ((alert: Alert) => sendAlert(channels, alert));
+	const send =
+		options.send ??
+		((alert: Alert, channels: AlertChannels) => sendAlert(channels, alert));
 	const gate = new AlertGate();
 	let since = now();
 
 	return async function tick(): Promise<void> {
-		if (!anyAlertChannel(channels)) return;
+		let channels: AlertChannels;
+		try {
+			channels = await loadChannels();
+		} catch (e) {
+			// The message names only the file, never its contents.
+			logger.warn({ error: errorMessage(e) }, "alert settings could not be read");
+			// `since` stays put, so these alerts go out once the file reads again.
+			return;
+		}
 		const rows = await db
 			.selectFrom("notifications")
 			.innerJoin("users", "users.id", "notifications.user_id")
@@ -94,9 +105,12 @@ export function createAlertForwarder(
 			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
 			.orderBy("at")
 			.execute();
+		// Rows read while no channel is set are passed over, never sent later.
+		const live = anyAlertChannel(channels) ? channels : null;
 		for (const row of rows) {
 			const at = new Date(row.at);
 			if (at > since) since = at;
+			if (!live) continue;
 			if (!gate.admit(row.title, now())) {
 				logger.info({ title: row.title }, "alert held back by flood control");
 				continue;
@@ -108,7 +122,7 @@ export function createAlertForwarder(
 				at,
 			};
 			try {
-				for (const result of await send(alert)) {
+				for (const result of await send(alert, live)) {
 					if (result.ok) logger.info({ channel: result.channel }, "alert sent");
 					else
 						logger.warn(

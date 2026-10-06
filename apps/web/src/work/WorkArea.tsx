@@ -3,16 +3,7 @@
  * layout of one project (SPEC.md §7.5, §8, §9.3, §10.2). A coding-agent
  * launcher creates an ordinary terminal and names the agent.
  */
-import {
-	DndContext,
-	type DragMoveEvent,
-	DragOverlay,
-	PointerSensor,
-	pointerWithin,
-	useDroppable,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
+import { DndContext, DragOverlay, pointerWithin } from "@dnd-kit/core";
 import type { CodingAgent, Terminal } from "@portikus/contracts";
 import {
 	Button,
@@ -28,26 +19,18 @@ import {
 	type TabItem,
 	Tabs,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
+import { type SplitDirection, terminalIds } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import { dropZone, insertionIndex } from "./dropZone.js";
-import { moveIntoTargets } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
+import { usePaneActions } from "./usePaneActions.js";
+import { TabStripDrop, usePaneDrag } from "./usePaneDrag.js";
 import "./work.css";
-
-/** The one droppable that covers the tab strip (SPEC.md §8.3). */
-const TAB_STRIP_DROP_ID = "work-tab-strip";
-
-/** Where a dragged pane would land, as the drag moves. */
-type DragTarget =
-	| { kind: "pane"; tabId: string; terminalId: string; edge: DropEdge }
-	| { kind: "strip"; index: number; markerX: number };
 
 /**
  * Radix focuses a menu trigger when the menu closes, and that programmatic
@@ -79,16 +62,6 @@ function useLauncherMenuFocus() {
 	}
 
 	return { onOpenChange, onCloseAutoFocus, declineTriggerFocus };
-}
-
-/** The tab strip as a drop area; separate so it can use `useDroppable`. */
-function TabStripDrop({ children }: { children: ReactNode }) {
-	const drop = useDroppable({ id: TAB_STRIP_DROP_ID });
-	return (
-		<div className="pk-work-tabs-drop" ref={drop.setNodeRef}>
-			{children}
-		</div>
-	);
 }
 
 export interface WorkAreaProps {
@@ -125,12 +98,16 @@ export function WorkArea({
 		replacing: string | null;
 	} | null>(null);
 	const showRightPane = useShowRightPane();
-	const [draggedPane, setDraggedPane] = useState<{
-		terminalId: string;
-		title: string;
-	} | null>(null);
-	const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
 	const strip = useRef<HTMLDivElement | null>(null);
+	const drag = usePaneDrag({
+		tabs: layout.tabs,
+		strip,
+		moveLeaf: (tabId, dragged, target, edge) =>
+			store.getState().moveLeaf(tabId, dragged, target, edge),
+		moveLeafToNewTab: (dragged, index) =>
+			store.getState().moveLeafToNewTab(dragged, index),
+	});
+	const { draggedPane, dragTarget } = drag;
 	const launcherMenu = useLauncherMenuFocus();
 
 	// Until both lists are in, an empty layout only means not loaded yet.
@@ -226,15 +203,27 @@ export function WorkArea({
 		void terminals.close(terminalId).catch(() => {});
 	}
 
+	function launcher(): HTMLElement | null {
+		return (
+			strip.current?.querySelector<HTMLElement>('[data-testid="launcher"]') ?? null
+		);
+	}
+
+	/** Close from the pane's menu: the keyboard moves on rather than being lost. */
+	function closePane(terminalId: string) {
+		panes.moveFocusOff(terminalId);
+		closeTerminal(terminalId);
+	}
+
 	/**
 	 * A shell that ended takes its pane away. If the student was typing in it,
 	 * focus goes to the New control rather than being lost (SPEC.md §9.7).
+	 * Not to a neighbour: panes that end together, as in a restart, would
+	 * hand the keyboard to each other and then drop it.
 	 */
 	function terminalExited(terminalId: string) {
 		const pane = document.querySelector(`[data-testid="terminal-pane-${terminalId}"]`);
-		if (pane?.contains(document.activeElement)) {
-			strip.current?.querySelector<HTMLElement>('[data-testid="launcher"]')?.focus();
-		}
+		if (pane?.contains(document.activeElement)) launcher()?.focus();
 		closeTerminal(terminalId);
 	}
 
@@ -282,23 +271,6 @@ export function WorkArea({
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, []);
 
-	/** Alt+Shift+Q leaves the terminal for the tab strip (DESIGN.md). */
-	function leaveTerminal() {
-		const tabs = strip.current?.querySelectorAll<HTMLElement>('[role="tab"]');
-		if (!tabs) return;
-		const index = layout.tabs.findIndex((tab) => tab.id === activeTabId);
-		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
-	}
-
-	/** Give a pane a tab of its own after its current one. */
-	function moveToNewTab(terminalId: string) {
-		const from = layout.tabs.findIndex((tab) =>
-			terminalIds(tab.root).includes(terminalId),
-		);
-		store.getState().moveLeafToNewTab(terminalId, from + 1);
-		store.getState().setFocused(terminalId);
-	}
-
 	const items: TabItem[] = layout.tabs.map((tab) => {
 		if (tab.root.type === "preview") {
 			const port = tab.root.port;
@@ -342,189 +314,84 @@ export function WorkArea({
 		};
 	});
 
-	/** The other tabs a pane can join, under the names the tab strip shows. */
-	function moveTargetsFor(terminalId: string) {
-		return moveIntoTargets(layout, terminalId).map((target) => ({
-			tabId: target.tabId,
-			label: items.find((item) => item.id === target.tabId)?.label ?? "Tab",
-		}));
-	}
-
-	/** Put a pane into another tab's split, as dropping it there would. */
-	function moveInto(terminalId: string, tabId: string) {
-		const target = moveIntoTargets(layout, terminalId).find(
-			(candidate) => candidate.tabId === tabId,
-		);
-		if (!target) return;
-		store.getState().moveLeaf(tabId, terminalId, target.terminalId, target.edge);
-		store.getState().setFocused(terminalId);
-	}
+	const panes = usePaneActions({
+		store,
+		layout,
+		activeTabId,
+		strip,
+		items,
+		newControl: launcher,
+		closeTab,
+	});
 
 	const closingTab = layout.tabs.find((tab) => tab.id === closingTabId);
 
-	// 4px so a click on a title bar still just focuses the pane, matching the
-	// tab strip's own sensor.
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-	);
-
-	/**
-	 * Where the pointer is now. dnd-kit reports the pointer-down event and the
-	 * distance dragged since, which together beat measuring the moving rect.
-	 */
-	function pointerOf(event: DragMoveEvent): { x: number; y: number } | null {
-		const activator = event.activatorEvent;
-		if (!(activator instanceof MouseEvent)) return null;
-		return {
-			x: activator.clientX + event.delta.x,
-			y: activator.clientY + event.delta.y,
-		};
-	}
-
-	/** The insertion point on the tab strip, and where to draw its marker. */
-	function stripTargetAt(x: number): DragTarget | null {
-		const container = strip.current;
-		if (!container) return null;
-		const rects = [...container.querySelectorAll<HTMLElement>('[role="tab"]')].map(
-			(tab) => tab.getBoundingClientRect(),
-		);
-		const index = insertionIndex(rects, x);
-		const box = container.getBoundingClientRect();
-		const at = rects[index];
-		const last = rects[rects.length - 1];
-		const edge = at ? at.left : (last?.right ?? box.left);
-		return { kind: "strip", index, markerX: edge - box.left };
-	}
-
-	function handleDragMove(event: DragMoveEvent) {
-		const dragged = String(event.active.data.current?.terminalId ?? "");
-		const pointer = pointerOf(event);
-		const over = event.over;
-		if (!over || !pointer) {
-			setDragTarget(null);
-			return;
-		}
-		if (over.id === TAB_STRIP_DROP_ID) {
-			setDragTarget(stripTargetAt(pointer.x));
-			return;
-		}
-		const terminalId = String(over.data.current?.terminalId ?? "");
-		const tab = layout.tabs.find((item) => terminalIds(item.root).includes(terminalId));
-		if (!terminalId || terminalId === dragged || !tab) {
-			setDragTarget(null);
-			return;
-		}
-		setDragTarget({
-			kind: "pane",
-			tabId: tab.id,
-			terminalId,
-			edge: dropZone(over.rect, pointer.x, pointer.y),
-		});
-	}
-
-	function handleDragEnd() {
-		const dragged = draggedPane?.terminalId;
-		const target = dragTarget;
-		setDraggedPane(null);
-		setDragTarget(null);
-		if (!dragged || !target) return;
-		if (target.kind === "strip") {
-			store.getState().moveLeafToNewTab(dragged, target.index);
-			return;
-		}
-		store.getState().moveLeaf(target.tabId, dragged, target.terminalId, target.edge);
-	}
-
 	return (
 		<DndContext
-			sensors={sensors}
+			sensors={drag.sensors}
 			collisionDetection={pointerWithin}
-			onDragStart={(event) =>
-				setDraggedPane({
-					terminalId: String(event.active.data.current?.terminalId ?? ""),
-					title: String(event.active.data.current?.title ?? ""),
-				})
-			}
-			onDragMove={handleDragMove}
-			onDragEnd={handleDragEnd}
-			onDragCancel={() => {
-				setDraggedPane(null);
-				setDragTarget(null);
-			}}
+			{...drag.handlers}
 		>
 			<div className="pk-work-area" data-testid="work-area">
-				<TabStripDrop>
-					<div className="pk-work-tabs" data-testid="work-tabs" ref={strip}>
-						<Tabs
-							tabs={items}
-							activeId={activeTabId ?? ""}
-							label={`Open tabs in ${projectPath}`}
-							onSelect={(id) => store.getState().setActive(id)}
-							onClose={requestCloseTab}
-							onReorder={(from, to) => store.getState().moveTab(from, to)}
-							actions={
-								<MenuRoot onOpenChange={launcherMenu.onOpenChange}>
-									<MenuTrigger asChild={true}>
-										<IconButton
-											icon="plus"
-											label="New tab"
-											size="sm"
-											data-testid="launcher"
-											aria-haspopup="menu"
-										/>
-									</MenuTrigger>
-									<Menu
+				<TabStripDrop strip={strip} testId="work-tabs" target={dragTarget}>
+					<Tabs
+						tabs={items}
+						activeId={activeTabId ?? ""}
+						label={`Open tabs in ${projectPath}`}
+						onSelect={(id) => store.getState().setActive(id)}
+						onClose={requestCloseTab}
+						onReorder={(from, to) => store.getState().moveTab(from, to)}
+						actions={
+							<MenuRoot onOpenChange={launcherMenu.onOpenChange}>
+								<MenuTrigger asChild={true}>
+									<IconButton
+										icon="plus"
 										label="New tab"
-										onCloseAutoFocus={launcherMenu.onCloseAutoFocus}
+										size="sm"
+										data-testid="launcher"
+										aria-haspopup="menu"
+									/>
+								</MenuTrigger>
+								<Menu label="New tab" onCloseAutoFocus={launcherMenu.onCloseAutoFocus}>
+									<MenuLabel>Open in {projectPath}</MenuLabel>
+									<MenuItem
+										icon="terminal"
+										shortcut={["Mod", "Alt", "T"]}
+										onSelect={() => {
+											launcherMenu.declineTriggerFocus();
+											void openTerminalTab();
+										}}
 									>
-										<MenuLabel>Open in {projectPath}</MenuLabel>
-										<MenuItem
-											icon="terminal"
-											shortcut={["Mod", "Alt", "T"]}
-											onSelect={() => {
-												launcherMenu.declineTriggerFocus();
-												void openTerminalTab();
-											}}
-										>
-											<span data-testid="launcher-terminal">Terminal</span>
-										</MenuItem>
-										<MenuItem
-											icon="agent"
-											onSelect={() => {
-												launcherMenu.declineTriggerFocus();
-												void openAgent("claude");
-											}}
-										>
-											<span data-testid="launcher-claude">Claude Code</span>
-										</MenuItem>
-										<MenuItem
-											icon="agent"
-											onSelect={() => {
-												launcherMenu.declineTriggerFocus();
-												void openAgent("codex");
-											}}
-										>
-											<span data-testid="launcher-codex">Codex</span>
-										</MenuItem>
-										<MenuItem
-											icon="preview"
-											onSelect={() => setPickingPreview({ replacing: null })}
-										>
-											<span data-testid="launcher-preview">Preview</span>
-										</MenuItem>
-									</Menu>
-								</MenuRoot>
-							}
-						/>
-						{dragTarget?.kind === "strip" ? (
-							<div
-								className="pk-tab-insert"
-								data-testid="tab-insert-marker"
-								data-index={dragTarget.index}
-								style={{ left: `${dragTarget.markerX}px` }}
-							/>
-						) : null}
-					</div>
+										<span data-testid="launcher-terminal">Terminal</span>
+									</MenuItem>
+									<MenuItem
+										icon="agent"
+										onSelect={() => {
+											launcherMenu.declineTriggerFocus();
+											void openAgent("claude");
+										}}
+									>
+										<span data-testid="launcher-claude">Claude Code</span>
+									</MenuItem>
+									<MenuItem
+										icon="agent"
+										onSelect={() => {
+											launcherMenu.declineTriggerFocus();
+											void openAgent("codex");
+										}}
+									>
+										<span data-testid="launcher-codex">Codex</span>
+									</MenuItem>
+									<MenuItem
+										icon="preview"
+										onSelect={() => setPickingPreview({ replacing: null })}
+									>
+										<span data-testid="launcher-preview">Preview</span>
+									</MenuItem>
+								</Menu>
+							</MenuRoot>
+						}
+					/>
 				</TabStripDrop>
 
 				{terminals.error ? (
@@ -576,16 +443,16 @@ export function WorkArea({
 							onSplit={(id, direction) => void split(id, direction)}
 							onRename={(id, name) => void terminals.rename(id, name)}
 							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
-							onClose={closeTerminal}
+							onClose={closePane}
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}
-							onLeave={leaveTerminal}
-							onMoveToNewTab={moveToNewTab}
-							moveTargetsFor={moveTargetsFor}
-							onMoveInto={moveInto}
+							onLeave={panes.leaveTerminal}
+							onMoveToNewTab={panes.moveToNewTab}
+							moveTargetsFor={panes.moveTargetsFor}
+							onMoveInto={panes.moveInto}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingView={pendingView[tab.id]}
 							consumePendingView={() => store.getState().consumePendingView(tab.id)}
@@ -593,11 +460,7 @@ export function WorkArea({
 							onUnsavedChange={(unsaved) =>
 								store.getState().setTabUnsaved(tab.id, unsaved)
 							}
-							dropTarget={
-								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
-									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }
-									: null
-							}
+							dropTarget={drag.dropTargetIn(tab.id)}
 						/>
 					))
 				)}
@@ -626,9 +489,10 @@ export function WorkArea({
 						description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} terminals. Closing the tab ends them all.`}
 						confirmLabel="Close tab"
 						onConfirm={() => {
-							if (closingTabId) closeTab(closingTabId);
+							if (closingTabId) panes.confirmCloseTab(closingTabId);
 						}}
 						onCancel={() => setClosingTabId(null)}
+						returnFocusTo={panes.focusAfterCloseDialog}
 					/>
 				</ConfirmDialogRoot>
 			</div>

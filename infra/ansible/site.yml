@@ -70,7 +70,12 @@
       - 192.168.0.0/16
       - 224.0.0.0/4
       - 240.0.0.0/4
+      - ::/128
       - ::1/128
+      # IPv4 written as IPv6: mapped, NAT64 and 6to4 can each carry a private address.
+      - ::ffff:0:0/96
+      - 64:ff9b::/96
+      - 2002::/16
       - fc00::/7
       - fe80::/10
     # The workspace egress redirect targets on the bridge gateway (ADR 0038):
@@ -113,6 +118,9 @@
     # A local run backs the server up on itself (ADR 0044); a VM run from a
     # workstation is backed up by the separate host (ADR 0024).
     portikus_backup_local: "{{ ansible_connection | default('ssh') == 'local' }}"
+    # Administrators' root shells in the admin area (docs/adr/0051-root-shell.md).
+    # False in portikus.yaml turns them off and ends any open.
+    portikus_root_shell: true
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
@@ -255,7 +263,9 @@
     # ── Administrator alerts (STACK.md section 15) ─────────────────
     # Where warning and danger alerts, and a control-plane service dying,
     # are pushed.  Empty turns a channel off.  Secrets: set them in
-    # /etc/portikus/secrets.yaml.  The webhook must be https.
+    # /etc/portikus/secrets.yaml.  The webhook must be https.  They only
+    # seed /etc/portikus/notify.json while it is missing; the admin page
+    # owns it after that (ADR 0052).
     portikus_alert_pushover_user_key: "{{ lookup('env', 'PORTIKUS_ALERT_PUSHOVER_USER_KEY') }}"
     portikus_alert_pushover_app_token: "{{ lookup('env', 'PORTIKUS_ALERT_PUSHOVER_APP_TOKEN') }}"
     portikus_alert_webhook_url: "{{ lookup('env', 'PORTIKUS_ALERT_WEBHOOK_URL') }}"
@@ -479,7 +489,7 @@
     - role: egress_proxy
       tags: [egress_proxy, lti]
       vars:
-        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress + portikus_alert_egress_hosts }}"
+        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
         # Only Dex's connector reaches a provider (SPEC.md section 5.1).
         # The entra connector never calls userinfo, so Microsoft Graph
         # stays off the list.

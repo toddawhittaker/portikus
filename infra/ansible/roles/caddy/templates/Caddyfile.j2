@@ -239,6 +239,15 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			stream_close_delay 1h
 		}
 	}
+	# The admin page's root shells (docs/adr/0051-root-shell.md), kept open
+	# through a reload as above: closing one ends the shell, which may be in
+	# the middle of an upgrade.  Ahead of @api, which would close them.
+	@root_shell_ws path /admin/root-shell/ws
+	handle @root_shell_ws {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			stream_close_delay 1h
+		}
+	}
 	# The rest of the control-plane API.  /lti/* is the LTI launch from an
 	# LMS, answered 404 when no platform is registered.  /courses* is an
 	# instructor's course data; the pages live at /course, served by the

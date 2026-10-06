@@ -883,20 +883,6 @@ for the whole site (SPEC.md section 22.4).
 
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
 
-## LTI grade passback (AGS)
-
-**What.** Send a score from Portikus back to the LMS gradebook through
-the LTI Assignment and Grade Services (AGS).
-
-**Why.** Instructors could grade work done in Portikus without copying
-scores by hand.
-
-**What it would take.** A tool key that signs service tokens (the key
-already exists), an OAuth client-credentials call to the platform, and a
-decision on what a score even is in Portikus. Days, after that decision.
-
-**Source.** Left out of Epic 13.
-
 ## LTI roster sync (NRPS)
 
 **What.** Read the course roster from the LMS through the Names and Role
@@ -1610,17 +1596,6 @@ builder test.
 
 **Source.** Epic 26 (#840) pilot verification.
 
-## Email for certificate warnings
-
-**What.** Certificate expiry and renewal-failure warnings reach
-administrators only as notifications in Portikus. An administrator who
-does not sign in misses them.
-
-**What it would take.** Send the same notices by email once outgoing mail
-exists. This is blocked on #918.
-
-**Source.** Epic 27 (#804), ruling R12.
-
 ## Caddy reloads and long WebSockets
 
 **What.** A Caddy reload closes every proxied WebSocket, such as a
@@ -1844,21 +1819,20 @@ when the job fails.
 
 **Source.** Epic 34, #1142 (part).
 
-## Provider sign-out on shared computers
+## Provider sign-out on shared computers (accepted risk, will not fix)
 
 **What.** Signing out of Portikus leaves the person signed in at Dex and the institution's provider, so the next person at a shared computer can sign in as them without a password.
 
-**What it would take.** Call Dex's and the provider's end-session URLs on sign-out, or tell people at the sign-out page to close the browser.
+**Ruling.** Todd accepts this risk and will not fix it (#1144, closed 2026-10-05). People on shared computers should close the browser when they finish.
 
 **Source.** Epic 34, #1144.
-
 ## Pin agent versions in the admin image rebuild
 
 **What.** The admin image rebuild installs the newest coding agents, so two rebuilds a day apart can differ.
 
 **What it would take.** Pin each agent's version in the image build and bump the pins with the image release.
 
-**Source.** Epic 34, #1145.
+**Source.** Epic 34, #1145. Planned as Epic 36 H4.
 
 ## Rest of the security tests
 
@@ -1963,3 +1937,112 @@ when the job fails.
 **What it would take.** Each would need its own change: a holder-only bypass such as a recovery code that ignores the counter; counters in PostgreSQL; a quota check in the prune script; a full CSP header on API pages; a cap on kept notices per person; not counting expired challenges.
 
 **Source.** Epic 34, #919.
+
+## Epic 36: Internet hardening (planned)
+
+**What.** The next epic after Epic 35. Migration 0040 is reserved for H8.
+
+- H1: an offline breached-password list from the SecLists top-1M list
+  (MIT licence, approved by Todd 2026-10-05), filtered to passwords of
+  15 or more characters, with the file and its generator committed
+  ("A real breached-password list").
+- H2: about 600 requests a minute per address on routes without a
+  session, an IPv6 /64 counted as one address, answering 429 (SPEC.md
+  section 24.13; "Request rate limit on anonymous routes").
+- H3: refuse Caddy's internal authority on a public address unless
+  overridden; `portikus reset-certificate` still works.
+- H4: pinned coding-agent versions in the admin image rebuild (#1145).
+- H5: API-side alert sources: workspaces hitting outbound limits, and
+  an error spike.
+- H6: the rest of #1138: a test per restore mode, and coding-agent
+  logins kept out of recovery points.
+- H7: the residual risks from the Epic 34 security review, except the
+  counters.
+- H8: sign-in and second-factor counters in PostgreSQL, and a recovery
+  code that bypasses the per-account lockout (approved by Todd
+  2026-10-05; after H7).
+- H9: help on invitations and CSV upload (#1155), the link page's empty
+  status line (#1166), and "Session ended" giving the 12-hour reason
+  (#1156).
+- H10: fold.
+
+Accepted as is: Dex sign-in names that are not ASCII are refused. Disk
+encryption at rest (#1142) is its own later epic; the recommended shape
+is LUKS on the data volumes only, unlocked after boot over SSH with
+`sudo portikus unlock`.
+
+**What it would take.** An epic plan from the architect, then the tasks
+above; each is small or medium.
+
+**Source.** Epic 35 plan, appendix.
+
+## A killed job hides later ones
+
+**What.** `currentJob` in `apps/api/src/job-files.ts` returns the first
+queued or running job it finds. A job killed while "running" leaves its
+file, and the certificate and image tabs then show it instead of a newer
+job. The notifications page follows its own job id to get around it.
+
+**What it would take.** Have `currentJob` skip jobs older than the stale
+limit and prefer the newest, and have `apps/api/src/alerts/jobs.ts`
+import `NOTIFY_JOB_STALE_MS` from contracts instead of its own copy,
+with unit tests.
+
+**Source.** Epic 35.
+
+## Notification e2e flaky when repeated
+
+**What.** `e2e/admin-notifications.spec.ts` fails under
+`--repeat-each`, because state from one run reaches the next.
+
+**What it would take.** Reset the fake job runner's files and the
+settings file before each test, then prove it with `--repeat-each=5`.
+
+**Source.** Epic 35.
+
+## The notification e2e cannot run as root
+
+**What.** `e2e/notify-jobs.ts` runs the real alerts job, which looks up
+the `portikus-notify` group when it runs as root. Run as root, the e2e
+tests would fail on a machine without that group. CI runs unprivileged,
+so it passes today.
+
+**What it would take.** Give the job a test-only way to skip the group
+change, or create the group in the test setup, with a note in
+WORKFLOW.md.
+
+**Source.** Epic 35.
+
+## Package removal never run for real
+
+**What.** The `prerm` lines that stop the root-shell socket and disable
+`portikus-alerts-job.path` were checked by test, never by a real
+`apt remove portikus`.
+
+**What it would take.** Run `apt remove` and then `apt install` on the
+rehearsal VM and check that no unit, socket or helper is left running.
+
+**Source.** Epic 35.
+
+## Processes that outlive the root-shell off switch
+
+**What.** Turning root shells off ends each recorded logind session. A
+tmux pane that ignores SIGHUP, or anything started with `systemd-run`,
+can still outlive it.
+
+**What it would take.** Kill every process whose login session belonged
+to a root-shell helper, found through logind or the helper's cgroup, and
+list transient units started from those sessions, with a real-host test.
+
+**Source.** Epic 35, ADR 0051.
+
+## SMTP cleared when email is turned off
+
+**What.** Turning email alerts off on the Notifications page also clears
+the SMTP server settings.
+
+**What it would take.** Keep `smtp` when `alerts.email` is null. This
+matters once invitations or password resets reuse SMTP; do it then,
+with a unit test and an e2e check.
+
+**Source.** Epic 35.

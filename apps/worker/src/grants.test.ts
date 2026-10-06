@@ -295,7 +295,11 @@ describe.skipIf(skip)("the worker's role", () => {
 		await createAlertForwarder({
 			db: worker,
 			logger,
-			channels: { pushoverUserKey: "", pushoverAppToken: "", webhookUrl: "http://x" },
+			loadChannels: async () => ({
+				pushoverUserKey: "",
+				pushoverAppToken: "",
+				webhookUrl: "http://x",
+			}),
 			now: () => new Date(0),
 			send: async () => [],
 		})();

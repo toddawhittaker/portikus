@@ -3,10 +3,10 @@ import { requireUser } from "@portikus/auth";
 import {
 	CloseCode,
 	CreateTerminalRequest,
-	MAX_TERMINAL_SOCKETS_PER_USER,
 	MAX_TERMINALS_PER_WORKSPACE,
 	type Terminal,
 	type TerminalList,
+	TerminalSizeQuery,
 	TerminalTheme,
 	UpdateTerminalRequest,
 } from "@portikus/contracts";
@@ -29,8 +29,8 @@ import {
 	MAX_POINTS_PER_PROJECT,
 	makeRecoveryPoint,
 } from "../workspaces/recovery-points.js";
-import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
+import { terminalSockets } from "../workspaces/terminal-sockets.js";
 import { findWorkspaceOwnedBy } from "../workspaces/workspace-view.js";
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
@@ -39,20 +39,11 @@ const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() }
 /** Optional project filter on the terminal listing (SPEC.md §7.5). */
 const ListQuery = z.object({ projectId: z.string().uuid().optional() });
 
-/** Terminal size a browser may ask for on attach. */
-const TerminalSize = z.object({
-	cols: z.coerce.number().int().min(1).max(1000).catch(80),
-	rows: z.coerce.number().int().min(1).max(1000).catch(24),
-});
-
 /** Working directory a terminal gets when the caller does not choose one (SPEC.md §9.4). */
 const DEFAULT_CWD = "/home/student/projects";
 
 /** How many ended terminals the listing keeps, newest first (SPEC.md §9.6). */
 const MAX_ENDED_LISTED = 20;
-
-/** Terminal sockets open per user (SPEC.md §24.13). Exported for tests. */
-export const terminalSockets = createSocketSlots(MAX_TERMINAL_SOCKETS_PER_USER);
 
 /** Longest a new agent session waits for its recovery point (ADR 0020). */
 const AGENT_SESSION_POINT_TIMEOUT_MS = 30_000;
@@ -571,7 +562,7 @@ export function registerTerminalRoutes(
 				return;
 			}
 
-			const size = TerminalSize.parse(request.query ?? {});
+			const size = TerminalSizeQuery.parse(request.query ?? {});
 			// The guard is owner-only, so the owner is the user on this socket.
 			const userId = workspace?.owner_user_id ?? "";
 			if (!terminalSockets.take(userId)) {

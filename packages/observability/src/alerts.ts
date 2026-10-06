@@ -1,4 +1,12 @@
+import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
+import {
+	type AlertChannelResult,
+	NOTIFY_FILE_OFF,
+	NotifyFile,
+	type NotifySmtp,
+} from "@portikus/contracts";
+import { createTransport } from "nodemailer";
 import { createOutboundFetch, type OutboundFetch } from "./outbound-fetch.js";
 
 /**
@@ -21,6 +29,12 @@ export interface AlertChannels {
 	pushoverUserKey: string;
 	pushoverAppToken: string;
 	webhookUrl: string;
+	/** Alert email: the SMTP server and the explicit recipient list. */
+	email?: { smtp: NotifySmtp; to: string[] } | null;
+	/** An empty token means the topic needs none. */
+	ntfy?: { url: string; token: string } | null;
+	/** A Microsoft Teams Workflows webhook URL. */
+	teamsUrl?: string;
 	/** The egress proxy every send goes through; unset sends directly, for development. */
 	proxyUrl?: string;
 }
@@ -37,30 +51,65 @@ export interface AlertWebhookBody {
 	at: string;
 }
 
-export interface ChannelResult {
-	channel: "pushover" | "webhook";
-	ok: boolean;
-	/** Never holds a key, token or URL. */
-	error?: string;
-}
+/** `error` never holds a key, token, password or URL. */
+export type ChannelResult = AlertChannelResult;
 
 export const PUSHOVER_MESSAGES_URL = "https://api.pushover.net/1/messages.json";
 
 const SEND_TIMEOUT_MS = 10_000;
 
-/** The channel settings from a parsed service config. */
-export function alertChannelsFromConfig(config: {
-	ALERT_PUSHOVER_USER_KEY: string;
-	ALERT_PUSHOVER_APP_TOKEN: string;
-	ALERT_WEBHOOK_URL: string;
-	OUTBOUND_PROXY_URL?: string;
-}): AlertChannels {
+/**
+ * The settings file (ADR 0052). A missing file reads as everything off; any
+ * other failure names only the path, since the contents may hold secrets.
+ */
+export async function readNotifyFile(path: string): Promise<NotifyFile> {
+	let text: string;
+	try {
+		text = await readFile(path, "utf8");
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") return NOTIFY_FILE_OFF;
+		throw new Error(`cannot read ${path}`);
+	}
+	let json: unknown;
+	try {
+		json = JSON.parse(text);
+	} catch {
+		throw new Error(`${path} is not valid JSON`);
+	}
+	const parsed = NotifyFile.safeParse(json);
+	if (!parsed.success) {
+		// Only the field paths: a Zod message can quote the rejected value.
+		const fields = parsed.error.issues.map((i) => i.path.join(".") || "(top)");
+		throw new Error(
+			`${path} is not a valid settings file (${[...new Set(fields)].join(", ")})`,
+		);
+	}
+	return parsed.data;
+}
+
+/** The channel settings from the settings file. */
+export function alertChannelsFromNotifyFile(
+	file: NotifyFile,
+	proxyUrl?: string,
+): AlertChannels {
+	const { alerts, smtp } = file;
 	return {
-		pushoverUserKey: config.ALERT_PUSHOVER_USER_KEY,
-		pushoverAppToken: config.ALERT_PUSHOVER_APP_TOKEN,
-		webhookUrl: config.ALERT_WEBHOOK_URL,
-		proxyUrl: config.OUTBOUND_PROXY_URL,
+		pushoverUserKey: alerts.pushover?.userKey ?? "",
+		pushoverAppToken: alerts.pushover?.appToken ?? "",
+		webhookUrl: alerts.webhook?.url ?? "",
+		email: alerts.email && smtp ? { smtp, to: alerts.email.to } : null,
+		ntfy: alerts.ntfy,
+		teamsUrl: alerts.teams?.url ?? "",
+		proxyUrl,
 	};
+}
+
+/** The channels in the settings file at `path`, read now, so a change needs no restart (ADR 0052). */
+export async function readAlertChannels(
+	path: string,
+	proxyUrl?: string,
+): Promise<AlertChannels> {
+	return alertChannelsFromNotifyFile(await readNotifyFile(path), proxyUrl);
 }
 
 export function pushoverConfigured(channels: AlertChannels): boolean {
@@ -68,7 +117,13 @@ export function pushoverConfigured(channels: AlertChannels): boolean {
 }
 
 export function anyAlertChannel(channels: AlertChannels): boolean {
-	return pushoverConfigured(channels) || channels.webhookUrl !== "";
+	return (
+		pushoverConfigured(channels) ||
+		channels.webhookUrl !== "" ||
+		Boolean(channels.email) ||
+		Boolean(channels.ntfy) ||
+		Boolean(channels.teamsUrl)
+	);
 }
 
 /** Which site sent the alert; the host name is what an operator recognises. */
@@ -153,17 +208,161 @@ export async function sendWebhook(
 		: { channel: "webhook", ok: true };
 }
 
+/** The nodemailer call, injectable so tests need no SMTP server. */
+export type MailTransportFactory = typeof createTransport;
+
+/** SMTP error codes from nodemailer, mapped to text that cannot carry server replies. */
+function mailError(e: unknown): string {
+	const code = (e as { code?: unknown }).code;
+	switch (code) {
+		case "EAUTH":
+			return "authentication failed";
+		case "ETLS":
+		case "EREQUIRETLS":
+			return "TLS failed";
+		case "ETIMEDOUT":
+			return "timed out";
+		case "EENVELOPE":
+		case "EMESSAGE":
+			return "rejected";
+		default:
+			return "unreachable";
+	}
+}
+
+export async function sendEmail(
+	channels: AlertChannels,
+	alert: Alert,
+	site: string,
+	transportFactory: MailTransportFactory = createTransport,
+): Promise<ChannelResult> {
+	const email = channels.email;
+	if (!email) return { channel: "email", ok: false, error: "not configured" };
+	const { smtp } = email;
+	// TLS is required (ADR 0052): 465 starts in TLS, 587 must upgrade with STARTTLS.
+	let transport: ReturnType<MailTransportFactory> | null = null;
+	try {
+		transport = transportFactory({
+			host: smtp.host,
+			port: smtp.port,
+			secure: smtp.port === 465,
+			requireTLS: true,
+			tls: { rejectUnauthorized: true, servername: smtp.host },
+			auth:
+				smtp.username === "" ? undefined : { user: smtp.username, pass: smtp.password },
+			proxy: channels.proxyUrl,
+			connectionTimeout: SEND_TIMEOUT_MS,
+			greetingTimeout: SEND_TIMEOUT_MS,
+			socketTimeout: SEND_TIMEOUT_MS,
+			logger: false,
+			debug: false,
+		});
+		await transport.sendMail({
+			from: smtp.from,
+			to: email.to,
+			subject: alert.title,
+			text: `${alert.text}\n\n(${site}, ${alert.at.toISOString()})`,
+			priority: alert.tone === "danger" ? "high" : "normal",
+		});
+		return { channel: "email", ok: true };
+	} catch (e) {
+		return { channel: "email", ok: false, error: mailError(e) };
+	} finally {
+		transport?.close();
+	}
+}
+
+export async function sendNtfy(
+	channels: AlertChannels,
+	alert: Alert,
+	site: string,
+): Promise<ChannelResult> {
+	const ntfy = channels.ntfy;
+	if (!ntfy) return { channel: "ntfy", ok: false, error: "not configured" };
+	const headers: Record<string, string> = {
+		"content-type": "text/plain; charset=utf-8",
+		// Header values must be Latin-1; ntfy reads RFC 2047 encoded words.
+		title: `=?UTF-8?B?${Buffer.from(alert.title).toString("base64")}?=`,
+		priority: alert.tone === "danger" ? "5" : "4",
+		tags: alert.tone === "danger" ? "rotating_light" : "warning",
+	};
+	if (ntfy.token !== "") headers.authorization = `Bearer ${ntfy.token}`;
+	const error = await post(createOutboundFetch(channels.proxyUrl), ntfy.url, {
+		method: "POST",
+		headers,
+		body: `${alert.text}\n(${site})`,
+	});
+	return error ? { channel: "ntfy", ok: false, error } : { channel: "ntfy", ok: true };
+}
+
+/** A Teams Workflows message holding one Adaptive Card. */
+export function teamsBody(alert: Alert, site: string): unknown {
+	return {
+		type: "message",
+		attachments: [
+			{
+				contentType: "application/vnd.microsoft.card.adaptive",
+				content: {
+					$schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+					type: "AdaptiveCard",
+					version: "1.4",
+					body: [
+						{
+							type: "TextBlock",
+							text: alert.title,
+							weight: "Bolder",
+							size: "Medium",
+							color: alert.tone === "danger" ? "Attention" : "Warning",
+							wrap: true,
+						},
+						{ type: "TextBlock", text: alert.text, wrap: true },
+						{
+							type: "TextBlock",
+							text: `${site}, ${alert.at.toISOString()}`,
+							isSubtle: true,
+							size: "Small",
+							wrap: true,
+						},
+					],
+				},
+			},
+		],
+	};
+}
+
+export async function sendTeams(
+	channels: AlertChannels,
+	alert: Alert,
+	site: string,
+): Promise<ChannelResult> {
+	const url = channels.teamsUrl ?? "";
+	if (url === "") return { channel: "teams", ok: false, error: "not configured" };
+	const error = await post(createOutboundFetch(channels.proxyUrl), url, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(teamsBody(alert, site)),
+	});
+	return error
+		? { channel: "teams", ok: false, error }
+		: { channel: "teams", ok: true };
+}
+
 /** Send to every configured channel; an empty result means none is set. */
 export async function sendAlert(
 	channels: AlertChannels,
 	alert: Alert,
 	site: string = alertSite(),
 	pushoverUrl: string = PUSHOVER_MESSAGES_URL,
+	transportFactory: MailTransportFactory = createTransport,
 ): Promise<ChannelResult[]> {
 	const results: ChannelResult[] = [];
 	if (pushoverConfigured(channels))
 		results.push(await sendPushover(channels, alert, site, pushoverUrl));
 	if (channels.webhookUrl !== "")
 		results.push(await sendWebhook(channels, alert, site));
+	if (channels.email)
+		results.push(await sendEmail(channels, alert, site, transportFactory));
+	if (channels.ntfy) results.push(await sendNtfy(channels, alert, site));
+	if (channels.teamsUrl) results.push(await sendTeams(channels, alert, site));
 	return results;
 }

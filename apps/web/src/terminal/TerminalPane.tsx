@@ -1,17 +1,8 @@
-import {
-	MAX_UPLOAD_BYTES,
-	SCROLLBACK_LINES,
-	type Terminal as TerminalMeta,
-	type TerminalTheme,
-} from "@portikus/contracts";
+import { MAX_UPLOAD_BYTES, type Terminal as TerminalMeta } from "@portikus/contracts";
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Terminal as Xterm } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
-import "./terminal.css";
-import { useEffect, useId, useRef, useState } from "react";
+import type { Terminal as Xterm } from "@xterm/xterm";
+import { useCallback, useId, useRef, useState } from "react";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { savePastedImage } from "../files/queries.js";
@@ -23,11 +14,8 @@ import {
 	MIN_PREVIEW_PORT,
 	previewRouteFor,
 	type TerminalLink,
-	wrappedUrlsOnRow,
 } from "../links.js";
-import { currentPlatform } from "../platform.js";
 import { useProjects } from "../projects/queries.js";
-import { decide } from "./terminalClipboard.js";
 import {
 	AGENT_UPGRADED_MESSAGE,
 	firstNoticeOf,
@@ -37,77 +25,17 @@ import {
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
 import { openTerminalSocket, type TerminalSocket } from "./terminalSocket.js";
+import { useXterm, type XtermSession, type XtermTools } from "./useXterm.js";
 
-/** Quiet time after the pane's last size change before the size is sent. */
-export const RESIZE_SETTLE_MS = 100;
-
-/**
- * The two terminal colour schemes. They match the
- * `--terminal-*` and `--ansi-*` tokens in packages/ui/src/theme.css, which
- * colour the chrome around the terminal; xterm.js needs the values directly.
- * The scrollbar thumb is the terminal's muted foreground, quiet until the
- * pointer is on it: xterm.js would otherwise derive it from the text colour,
- * which is far too loud.
- */
-const DARK_THEME = {
-	background: "#11100e",
-	foreground: "#e4dfd4",
-	cursor: "#e8c37a",
-	selectionBackground: "#3a4a48",
-	scrollbarSliderBackground: "#9a938666",
-	scrollbarSliderHoverBackground: "#9a9386b3",
-	scrollbarSliderActiveBackground: "#9a9386cc",
-	// xterm's default palette fails AA on this ground.
-	black: "#11100e",
-	brightBlack: "#857f73",
-	red: "#e07a6e",
-	brightRed: "#f09a8f",
-	green: "#8fc28a",
-	brightGreen: "#a9d6a4",
-	yellow: "#e0bb6c",
-	brightYellow: "#ecd08e",
-	blue: "#86a7d9",
-	brightBlue: "#a6c0e6",
-	magenta: "#c49ad0",
-	brightMagenta: "#d6b5df",
-	cyan: "#79c1b8",
-	brightCyan: "#9ad3cb",
-	white: "#cfc9bd",
-	brightWhite: "#f2eee6",
-};
-
-const LIGHT_THEME = {
-	background: "#fdfcfa",
-	foreground: "#23211d",
-	cursor: "#8a5a00",
-	selectionBackground: "#d9e8e5",
-	scrollbarSliderBackground: "#5a554c40",
-	scrollbarSliderHoverBackground: "#5a554c80",
-	scrollbarSliderActiveBackground: "#5a554ca6",
-	// The default ANSI palette is written for a dark ground, so a light
-	// terminal needs its own or half the colours are unreadable.
-	black: "#23211d",
-	brightBlack: "#5a554c",
-	red: "#a4342a",
-	brightRed: "#c14437",
-	green: "#2e6e34",
-	brightGreen: "#35793b",
-	yellow: "#855b00",
-	brightYellow: "#946800",
-	blue: "#3f5a8c",
-	brightBlue: "#4f70ab",
-	magenta: "#8a3ea0",
-	brightMagenta: "#a44fbd",
-	cyan: "#24605c",
-	brightCyan: "#2c7a74",
-	white: "#6e685d",
-	brightWhite: "#23211d",
-};
-
-/** The xterm theme for one of the two schemes (contracts/settings.ts). */
-export function terminalTheme(theme: TerminalTheme): Record<string, string> {
-	return theme === "light" ? LIGHT_THEME : DARK_THEME;
-}
+// Kept importable from here, where the pane's tests and callers look for them.
+export {
+	decodeOsc52,
+	MAX_CLIPBOARD_BYTES,
+	pastedImageType,
+	RESIZE_SETTLE_MS,
+	sanitizePaste,
+	terminalTheme,
+} from "./useXterm.js";
 
 export interface TerminalPaneProps {
 	workspaceId: string;
@@ -124,57 +52,6 @@ export interface TerminalPaneProps {
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
 	onLeave: () => void;
-}
-
-/**
- * The most a program in a terminal may put on the system clipboard in one
- * OSC 52 request. Terminal output is untrusted, so a payload larger than this
- * is dropped rather than truncated (SPEC.md §24.2).
- */
-export const MAX_CLIPBOARD_BYTES = 100 * 1024;
-
-/** Firefox and older browsers may not expose clipboard reading at all. */
-function canReadClipboard(): boolean {
-	return typeof navigator.clipboard?.readText === "function";
-}
-
-/**
- * The text an OSC 52 copy request carries. The payload is base64, and the
- * bytes inside it are UTF-8, so a URL with an accented character survives.
- * Anything that is not valid base64 is treated as an empty copy.
- */
-export function decodeOsc52(encoded: string): string {
-	try {
-		const binary = atob(encoded);
-		const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-		return new TextDecoder().decode(bytes);
-	} catch {
-		return "";
-	}
-}
-
-/**
- * Pasted text with control characters removed, keeping tab, line feed and
- * carriage return. xterm does not strip an end-of-paste marker (ESC[201~)
- * inside the text, so planted clipboard text could otherwise leave the
- * bracket early and run a command (SPEC.md §24).
- */
-export function sanitizePaste(text: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
-	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "");
-}
-
-/** The only picture types a paste saves as a file. */
-const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
-
-/**
- * The picture type when a paste is a png or jpeg and nothing else. Anything
- * with text in it, or any other type, stays a text paste.
- */
-export function pastedImageType(types: readonly string[]): string | null {
-	if (types.length === 0) return null;
-	if (!types.every((type) => PASTE_IMAGE_TYPES.includes(type))) return null;
-	return types[0] ?? null;
 }
 
 /** How many names a paste tries before giving up, for pastes in one second. */
@@ -200,20 +77,19 @@ export function pastedPathInput(slug: string, path: string): string {
 	return `/home/student/projects/${slug}/${path} `;
 }
 
-/** Copy to the system clipboard, ignoring a browser that refuses. */
-async function writeClipboard(text: string): Promise<void> {
-	if (text === "") return;
-	try {
-		await navigator.clipboard?.writeText(text);
-	} catch {
-		// Permission denied or no clipboard: nothing the student can act on.
+/** Follow a link from the terminal's output into the app. */
+function go(navigate: ReturnType<typeof useNavigate>, link: TerminalLink | null) {
+	if (!link) return;
+	if (link.kind === "preview") {
+		void navigate({ to: link.to, params: link.params });
+		return;
 	}
+	void navigate({ to: link.to, params: link.params, search: link.search });
 }
 
 /**
- * One xterm.js instance attached to one terminal (SPEC.md §9.1, §9.7). The
- * element stays mounted while its tab exists and is hidden with CSS, so
- * scrollback survives a tab switch. No output is replayed on reconnect.
+ * One xterm.js instance attached to one workspace terminal (SPEC.md §9.1,
+ * §9.7). No output is replayed on reconnect.
  */
 export function TerminalPane({
 	workspaceId,
@@ -227,8 +103,7 @@ export function TerminalPane({
 	onLeave,
 }: TerminalPaneProps) {
 	const host = useRef<HTMLDivElement | null>(null);
-	const xterm = useRef<Xterm | null>(null);
-	const fit = useRef<FitAddon | null>(null);
+	const channel = useRef<TerminalSocket | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
 	const [lost, setLost] = useState(false);
 	const [tooMany, setTooMany] = useState(false);
@@ -239,408 +114,157 @@ export function TerminalPane({
 	const toast = useToast();
 	const projects = useProjects(workspaceId, "active");
 	const projectSlug = projects.data?.find((project) => project.id === projectId)?.slug;
-
-	// Callbacks the long-lived effect reads through a ref, so that a new
-	// render does not tear down the terminal and its socket.
-	const handlers = useRef({
-		onExited,
-		onCwd,
-		onFocus,
-		onLeave,
-		navigate,
-		toast,
-		terminalName: terminal.name,
-		projectSlug,
-	});
-	handlers.current = {
-		onExited,
-		onCwd,
-		onFocus,
-		onLeave,
-		navigate,
-		toast,
-		terminalName: terminal.name,
-		projectSlug,
-	};
-
-	// The long-lived effect reads visibility through a ref, for the same reason.
-	const visibleRef = useRef(visible);
-	visibleRef.current = visible;
-
-	// A pane that is born focused takes the keyboard, so "New terminal here"
-	// in an ended pane leaves the student typing in the new shell rather than
-	// nowhere.
-	const focusOnMountRef = useRef(focusOnMount);
-	focusOnMountRef.current = focusOnMount;
-
-	// This terminal's own colour scheme. It can change while the
-	// terminal is open, so the theme is set on the live instance rather than
-	// only at construction.
-	const scheme: TerminalTheme = terminal.theme;
-	const schemeRef = useRef(scheme);
-	schemeRef.current = scheme;
-	useEffect(() => {
-		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
-	}, [scheme]);
-
-	// Read at construction and applied live when the student changes it.
 	const screenReaderMode = useScreenReaderMode();
-	const screenReaderRef = useRef(screenReaderMode);
-	screenReaderRef.current = screenReaderMode;
-	useEffect(() => {
-		if (xterm.current) xterm.current.options.screenReaderMode = screenReaderMode;
-	}, [screenReaderMode]);
-
 	const terminalId = terminal.id;
 
-	useEffect(() => {
-		const container = host.current;
-		if (!container) return;
+	// Callbacks the long-lived attach reads through a ref, so that a new
+	// render does not tear down the terminal and its socket.
+	const handlers = useRef({ onExited, onCwd, navigate, toast, projectSlug });
+	handlers.current = { onExited, onCwd, navigate, toast, projectSlug };
 
-		function go(link: TerminalLink | null) {
-			if (!link) return;
-			if (link.kind === "preview") {
-				void handlers.current.navigate({ to: link.to, params: link.params });
-				return;
-			}
-			void handlers.current.navigate({
-				to: link.to,
-				params: link.params,
-				search: link.search,
+	function sendInput(data: string) {
+		if (data !== "") channel.current?.send({ type: "input", data });
+	}
+
+	function openUrl(uri: string) {
+		const preview = previewRouteFor(uri, workspaceId, projectId);
+		if (preview) {
+			go(navigate, preview);
+			return;
+		}
+		// A workspace URL on a port policy reserves opens nothing, so say
+		// why rather than leaving the click with no effect (SPEC.md §14.7).
+		const local = localPreviewTarget(uri);
+		if (local) {
+			toast.show({
+				tone: "warning",
+				title: `Port ${local.port} cannot be previewed`,
+				children: `Previews are for ports ${MIN_PREVIEW_PORT} and above. Run your application on a higher port.`,
 			});
+			return;
 		}
-
-		// True while the keyboard is in this pane; a copy nobody asked for is not
-		// allowed to reach the system clipboard (SPEC.md §24.2).
-		let focused = false;
-		const onFocusIn = () => {
-			focused = true;
-		};
-		const onFocusOut = () => {
-			focused = false;
-		};
-		container.addEventListener("focusin", onFocusIn);
-		container.addEventListener("focusout", onFocusOut);
-
-		const term = new Xterm({
-			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-			fontSize: 13,
-			theme: terminalTheme(schemeRef.current),
-			convertEol: false,
-			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
-			scrollback: SCROLLBACK_LINES,
-			// Programs pick their own colours too; lift any that miss WCAG AA.
-			minimumContrastRatio: 4.5,
-			screenReaderMode: screenReaderRef.current,
-		});
-		function openUrl(uri: string) {
-			const preview = previewRouteFor(uri, workspaceId, projectId);
-			if (preview) {
-				go(preview);
-				return;
-			}
-			// A workspace URL on a port policy reserves opens nothing, so say
-			// why rather than leaving the click with no effect (SPEC.md §14.7).
-			const local = localPreviewTarget(uri);
-			if (local) {
-				handlers.current.toast.show({
-					tone: "warning",
-					title: `Port ${local.port} cannot be previewed`,
-					children: `Previews are for ports ${MIN_PREVIEW_PORT} and above. Run your application on a higher port.`,
-				});
-				return;
-			}
-			// Any other URL leaves the app in a new tab, unless it points at
-			// the student's own machine or uses a scheme we do not open.
-			if (canOpenInNewTab(uri)) {
-				window.open(uri, "_blank", "noopener,noreferrer");
-			}
+		// Any other URL leaves the app in a new tab, unless it points at
+		// the student's own machine or uses a scheme we do not open.
+		if (canOpenInNewTab(uri)) {
+			window.open(uri, "_blank", "noopener,noreferrer");
 		}
+	}
 
-		const fitAddon = new FitAddon();
-		term.loadAddon(fitAddon);
-		// Registered before the web-links addon: where two providers offer a
-		// link over the same cells, xterm.js keeps the one registered first, and
-		// a URL that wrapped should be one link rather than the fragment the
-		// addon finds on this row (SPEC.md §14.9).
-		term.registerLinkProvider({
-			provideLinks(lineNumber, callback) {
-				const links = wrappedUrlsOnRow(
-					lineNumber,
-					(y) => term.buffer.active.getLine(y - 1)?.translateToString(true) ?? null,
-					term.cols,
-				).map((link) => ({
-					range: link.range,
-					text: link.text,
-					activate: () => openUrl(link.text),
-				}));
-				callback(links.length > 0 ? links : undefined);
-			},
-		});
-		term.loadAddon(new WebLinksAddon((_event, uri) => openUrl(uri)));
-		// A program in the pane copies by emitting OSC 52, which tmux passes
-		// through (SPEC.md §9, §10). A read request ("?") is ignored: nothing in
-		// the workspace needs to be handed the student's clipboard.
-		term.parser.registerOscHandler(52, (data) => {
-			const encoded = data.split(";")[1];
-			if (encoded === undefined || encoded === "?") return true;
-			// Only the pane the student is actually working in may copy, and only
-			// a payload small enough to be a real copy (SPEC.md §24.2).
-			if (!visibleRef.current || !focused) return true;
-			const text = decodeOsc52(encoded);
-			if (text === "") return true;
-			// The workspace's own shim allows more than this, so a student can
-			// ask for a copy that is refused here. Say so rather than letting
-			// the paste come back empty for no visible reason.
-			if (new TextEncoder().encode(text).length > MAX_CLIPBOARD_BYTES) {
-				handlers.current.toast.show({
-					title: `A program in ${handlers.current.terminalName} tried to copy more than 100 KB; nothing was copied.`,
-				});
-				return true;
-			}
-			void writeClipboard(text);
-			handlers.current.toast.show({
-				title: `Copied to your clipboard by a program in ${handlers.current.terminalName}`,
-			});
-			return true;
-		});
-		term.open(container);
-		term.textarea?.setAttribute("aria-describedby", leaveHintId);
-		xterm.current = term;
-		fit.current = fitAddon;
-		fitAddon.fit();
-		if (focusOnMountRef.current && visibleRef.current) term.focus();
-
-		// `src/auth.ts:73` and friends open the file at that line.
-		term.registerLinkProvider({
-			provideLinks(lineNumber, callback) {
-				const line = term.buffer.active
-					.getLine(lineNumber - 1)
-					?.translateToString(true);
-				if (!line) {
-					callback(undefined);
-					return;
-				}
-				const pattern = new RegExp(FILE_LINE_PATTERN.source, "g");
-				const links = [];
-				let found = pattern.exec(line);
-				while (found !== null) {
-					const route = fileRouteFor(found[0], workspaceId, projectId);
-					if (route) {
-						const start = found.index + 1;
-						links.push({
-							range: {
-								start: { x: start, y: lineNumber },
-								end: { x: start + found[0].length - 1, y: lineNumber },
-							},
-							text: found[0],
-							activate: () => go(route),
-						});
-					}
-					found = pattern.exec(line);
-				}
-				callback(links.length > 0 ? links : undefined);
-			},
-		});
-
-		let channel: TerminalSocket | null = null;
-
-		function send(message: unknown) {
-			channel?.send(message);
+	/** Save a pasted picture in the project and type its path. */
+	async function pasteImage(image: Blob, type: string) {
+		if (image.size > MAX_UPLOAD_BYTES) {
+			toast.show(tooLargeToast());
+			return;
 		}
-
-		function sendInput(data: string) {
-			if (data !== "") send({ type: "input", data });
+		if (!projectSlug) {
+			// The paste event was already cancelled, so say it failed.
+			toast.show(fileErrorToast(null));
+			return;
 		}
-
-		/** Save a pasted picture in the project and type its path. */
-		async function pasteImage(image: Blob, type: string) {
-			if (image.size > MAX_UPLOAD_BYTES) {
-				handlers.current.toast.show(tooLargeToast());
-				return;
-			}
-			const slug = handlers.current.projectSlug;
-			if (!slug) {
-				// The paste event was already cancelled, so say it failed.
-				handlers.current.toast.show(fileErrorToast(null));
-				return;
-			}
-			const now = new Date();
-			const paths = Array.from({ length: PASTE_NAME_TRIES }, (_, index) =>
-				pastePath(now, type, index + 1),
-			);
-			try {
-				const path = await savePastedImage(workspaceId, projectId, paths, image);
-				sendInput(pastedPathInput(slug, path));
-			} catch (error) {
-				handlers.current.toast.show(fileErrorToast(error));
-			}
+		const now = new Date();
+		const paths = Array.from({ length: PASTE_NAME_TRIES }, (_, index) =>
+			pastePath(now, type, index + 1),
+		);
+		try {
+			const path = await savePastedImage(workspaceId, projectId, paths, image);
+			sendInput(pastedPathInput(projectSlug, path));
+		} catch (error) {
+			toast.show(fileErrorToast(error));
 		}
+	}
 
-		/**
-		 * Every keyboard paste arrives as the browser's paste event. It is
-		 * handled here rather than by xterm: text is sanitized and typed once,
-		 * and a lone picture is saved, so its bytes never reach the terminal.
-		 */
-		function onPaste(event: ClipboardEvent) {
-			const data = event.clipboardData;
-			if (!data) return;
-			event.preventDefault();
-			event.stopPropagation();
-			const items = Array.from(data.items ?? []);
-			const type = pastedImageType(items.map((item) => item.type));
-			if (!type) {
-				term.paste(sanitizePaste(data.getData("text/plain")));
-				return;
-			}
-			const image = items[0]?.getAsFile();
-			if (image) void pasteImage(image, type);
-		}
-		container.addEventListener("paste", onPaste, { capture: true });
-
-		/** A right-click has no paste event, so read the clipboard's items. */
-		async function pasteFromMenu() {
-			// term.paste brackets the text when the program asked for it.
-			if (typeof navigator.clipboard?.read === "function") {
-				try {
-					const items = await navigator.clipboard.read();
-					const type = pastedImageType(items.flatMap((item) => item.types));
-					const first = items[0];
-					if (type && first) {
-						await pasteImage(await first.getType(type), type);
+	const attach = useCallback(
+		(term: Xterm, { container, fit }: XtermTools): XtermSession => {
+			// `src/auth.ts:73` and friends open the file at that line.
+			const fileLinks = term.registerLinkProvider({
+				provideLinks(lineNumber, callback) {
+					const line = term.buffer.active
+						.getLine(lineNumber - 1)
+						?.translateToString(true);
+					if (!line) {
+						callback(undefined);
 						return;
 					}
-					const textItem = items.find((item) => item.types.includes("text/plain"));
-					if (textItem) {
-						const blob = await textItem.getType("text/plain");
-						term.paste(sanitizePaste(await blob.text()));
+					const pattern = new RegExp(FILE_LINE_PATTERN.source, "g");
+					const links = [];
+					let found = pattern.exec(line);
+					while (found !== null) {
+						const route = fileRouteFor(found[0], workspaceId, projectId);
+						if (route) {
+							const start = found.index + 1;
+							links.push({
+								range: {
+									start: { x: start, y: lineNumber },
+									end: { x: start + found[0].length - 1, y: lineNumber },
+								},
+								text: found[0],
+								activate: () => go(handlers.current.navigate, route),
+							});
+						}
+						found = pattern.exec(line);
 					}
-				} catch {
-					// Refused: nothing the student can act on.
-				}
-				return;
+					callback(links.length > 0 ? links : undefined);
+				},
+			});
+
+			function send(message: unknown) {
+				channel.current?.send(message);
 			}
-			if (!canReadClipboard()) return;
-			try {
-				term.paste(sanitizePaste(await navigator.clipboard.readText()));
-			} catch {
-				// Firefox may refuse readText.
-			}
-		}
 
-		// True while a full-screen program such as nano or less holds the
-		// terminal, as the agent reports it (SPEC.md §9.1).
-		let alternateScreen = false;
+			// True while a full-screen program such as nano or less holds the
+			// terminal, as the agent reports it (SPEC.md §9.1).
+			let alternateScreen = false;
 
-		/** The height of one row on screen, for turning pixels into lines. */
-		const rowHeight = (): number => {
-			const row = container.querySelector(".xterm-rows")?.firstElementChild;
-			const height = row instanceof HTMLElement ? row.offsetHeight : 0;
-			return height > 0 ? height : 17;
-		};
+			/** The height of one row on screen, for turning pixels into lines. */
+			const rowHeight = (): number => {
+				const row = container.querySelector(".xterm-rows")?.firstElementChild;
+				const height = row instanceof HTMLElement ? row.offsetHeight : 0;
+				return height > 0 ? height : 17;
+			};
 
-		/**
-		 * A wheel turn over a full-screen program moves it a line at a time,
-		 * the way it does in any terminal: there is nothing of that program's
-		 * to scroll, so the notches become arrow keys. Everywhere else the
-		 * wheel scrolls the terminal's own scrollback (SPEC.md §9.1).
-		 */
-		function onWheel(event: WheelEvent) {
-			if (!alternateScreen) return;
-			// A program that asked to be told about the mouse gets the event.
-			if (term.modes.mouseTrackingMode !== "none") return;
-			// Stop the terminal scrolling its own buffer instead.
-			event.preventDefault();
-			event.stopPropagation();
-			// A wheel reports pixels, lines, or pages; turn them all into rows.
-			let scrolled = Math.abs(event.deltaY);
-			if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) scrolled /= rowHeight();
-			if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) scrolled *= term.rows;
-			const notches = Math.min(term.rows, Math.max(1, Math.round(scrolled)));
-			const key = term.modes.applicationCursorKeysMode
-				? `\u001bO${event.deltaY < 0 ? "A" : "B"}`
-				: `\u001b[${event.deltaY < 0 ? "A" : "B"}`;
-			sendInput(key.repeat(notches));
-		}
-		// xterm.js 6 scrolls in its own scrollable element and never calls
-		// `attachCustomWheelEventHandler`, so the event has to be caught on the
-		// way down, before that element sees it.
-		container.addEventListener("wheel", onWheel, { capture: true, passive: false });
-
-		const platform = currentPlatform();
-		term.attachCustomKeyEventHandler((event) => {
-			if (
-				event.type === "keydown" &&
-				event.altKey &&
-				event.shiftKey &&
-				event.key.toLowerCase() === "q"
-			) {
+			/**
+			 * A wheel turn over a full-screen program moves it a line at a time,
+			 * the way it does in any terminal: there is nothing of that program's
+			 * to scroll, so the notches become arrow keys. Everywhere else the
+			 * wheel scrolls the terminal's own scrollback (SPEC.md §9.1).
+			 */
+			function onWheel(event: WheelEvent) {
+				if (!alternateScreen) return;
+				// A program that asked to be told about the mouse gets the event.
+				if (term.modes.mouseTrackingMode !== "none") return;
+				// Stop the terminal scrolling its own buffer instead.
 				event.preventDefault();
-				handlers.current.onLeave();
-				return false;
+				event.stopPropagation();
+				// A wheel reports pixels, lines, or pages; turn them all into rows.
+				let scrolled = Math.abs(event.deltaY);
+				if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) scrolled /= rowHeight();
+				if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) scrolled *= term.rows;
+				const notches = Math.min(term.rows, Math.max(1, Math.round(scrolled)));
+				const key = term.modes.applicationCursorKeysMode
+					? `\u001bO${event.deltaY < 0 ? "A" : "B"}`
+					: `\u001b[${event.deltaY < 0 ? "A" : "B"}`;
+				const data = key.repeat(notches);
+				if (data !== "") send({ type: "input", data });
 			}
-			const action = decide(event, term.hasSelection(), platform);
-			if (action === "copy") {
-				const selection = term.getSelection();
-				void writeClipboard(selection);
-				clearSelection();
-				return false;
+			// xterm.js 6 scrolls in its own scrollable element and never calls
+			// `attachCustomWheelEventHandler`, so the event has to be caught on the
+			// way down, before that element sees it.
+			container.addEventListener("wheel", onWheel, { capture: true, passive: false });
+
+			/** Measure the pane and tell the server the size xterm.js now has. */
+			const sendSize = () => {
+				fit();
+				send({ type: "resize", cols: term.cols, rows: term.rows });
+			};
+
+			/** The pane is done with this terminal: stop showing it as live and close it. */
+			function ended() {
+				setReconnecting(false);
+				setConnected(false);
+				handlers.current.onExited(terminalId);
 			}
-			if (action === "paste") {
-				// The browser's own paste event follows and lands exactly once:
-				// xterm types text, and onPaste saves a picture.
-				return false;
-			}
-			return true;
-		});
 
-		// Selecting text copies it, as it does in a UNIX terminal.
-		const selection = term.onSelectionChange(() => {
-			if (term.hasSelection()) void writeClipboard(term.getSelection());
-		});
-
-		/** Let go of both the terminal's selection and the browser's. */
-		function clearSelection() {
-			term.clearSelection();
-			// The browser settles its own drag selection after the event that
-			// asked for the copy, so let go of it once that has happened.
-			setTimeout(() => window.getSelection()?.removeAllRanges(), 0);
-		}
-
-		function onContextMenu(event: MouseEvent) {
-			event.preventDefault();
-			if (term.hasSelection()) {
-				void writeClipboard(term.getSelection());
-				clearSelection();
-				return;
-			}
-			void pasteFromMenu();
-		}
-		container.addEventListener("contextmenu", onContextMenu);
-
-		function onPointerDown() {
-			handlers.current.onFocus(terminalId);
-		}
-		container.addEventListener("pointerdown", onPointerDown);
-
-		/** Measure the pane and tell the server the size xterm.js now has. */
-		const sendSize = () => {
-			// A pane with no box on screen cannot be measured; keep the last size.
-			if (container.clientWidth !== 0 && container.clientHeight !== 0) {
-				fitAddon.fit();
-			}
-			send({ type: "resize", cols: term.cols, rows: term.rows });
-		};
-
-		/** The pane is done with this terminal: stop showing it as live and close it. */
-		function ended() {
-			setReconnecting(false);
-			setConnected(false);
-			handlers.current.onExited(terminalId);
-		}
-
-		function connect(): TerminalSocket {
-			return openTerminalSocket(workspaceId, terminalId, {
+			channel.current = openTerminalSocket(workspaceId, terminalId, {
 				size: () => ({ cols: term.cols, rows: term.rows }),
 				onOpen: () => {
 					setReconnecting(false);
@@ -693,48 +317,37 @@ export function TerminalPane({
 					}
 				},
 			});
-		}
 
-		const input = term.onData((data) => send({ type: "input", data }));
+			const input = term.onData((data) => send({ type: "input", data }));
 
-		// Wait for the box to settle: every size sent makes tmux reflow and a
-		// full-screen app like Claude Code redraw, and redraws for sizes already
-		// gone land on the wrong rows.
-		let settle: ReturnType<typeof setTimeout> | undefined;
-		const observer = new ResizeObserver(() => {
-			if (settle !== undefined) clearTimeout(settle);
-			settle = setTimeout(() => {
-				settle = undefined;
-				if (container.clientWidth === 0 || container.clientHeight === 0) return;
-				sendSize();
-			}, RESIZE_SETTLE_MS);
-		});
-		observer.observe(container);
+			return {
+				resized: sendSize,
+				dispose: () => {
+					channel.current?.stop();
+					channel.current = null;
+					container.removeEventListener("wheel", onWheel, { capture: true });
+					fileLinks.dispose();
+					input.dispose();
+				},
+			};
+		},
+		[workspaceId, projectId, terminalId],
+	);
 
-		channel = connect();
-
-		return () => {
-			channel?.stop();
-			if (settle !== undefined) clearTimeout(settle);
-			observer.disconnect();
-			container.removeEventListener("wheel", onWheel, { capture: true });
-			container.removeEventListener("contextmenu", onContextMenu);
-			container.removeEventListener("paste", onPaste, { capture: true });
-			container.removeEventListener("focusin", onFocusIn);
-			container.removeEventListener("focusout", onFocusOut);
-			container.removeEventListener("pointerdown", onPointerDown);
-			selection.dispose();
-			input.dispose();
-			term.dispose();
-			xterm.current = null;
-			fit.current = null;
-		};
-	}, [workspaceId, projectId, terminalId, leaveHintId]);
-
-	// A hidden pane has no size, so re-fit when it comes back into view.
-	useEffect(() => {
-		if (visible) fit.current?.fit();
-	}, [visible]);
+	useXterm({
+		host,
+		name: terminal.name,
+		theme: terminal.theme,
+		screenReaderMode,
+		visible,
+		focusOnMount,
+		describedBy: leaveHintId,
+		onFocus: () => onFocus(terminalId),
+		onLeave,
+		openUrl,
+		pasteImage,
+		attach,
+	});
 
 	return (
 		<div

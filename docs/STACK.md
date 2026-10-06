@@ -867,6 +867,18 @@ API closes cleanly on SIGTERM, so the partial minute of request metrics is
 written at shutdown.
 The unit gives the API process, and no other, the `systemd-journal` group.
 
+Alerts (ADR 0052): site alerts go to the channels in
+`/etc/portikus/notify.json`, read at each send so they work with
+PostgreSQL down. The senders live in `packages/observability/src/alerts.ts`:
+Pushover, a generic webhook, ntfy, Microsoft Teams, and email through
+`nodemailer` (exact-pinned, `logger` and `debug` off, TLS required on
+port 587 or 465). Every send goes through the egress proxy; the alerts
+root job writes the allowed hosts to `/etc/portikus/egress-proxy.d/`.
+A send error is a short code, never the server's text, and the secret
+field names are in the logger's redaction list. Root shells (ADR 0051)
+log only to the journal and the audit table: the helper's standard
+error carries fixed codes, and nothing typed or shown is ever logged.
+
 # Part II — Infrastructure stack
 
 ## 16. Infrastructure philosophy
@@ -1636,6 +1648,7 @@ Kysely
 pg-boss
 
 openid-client
+nodemailer
 
 node-pty
 tmux
@@ -1672,6 +1685,9 @@ Incus/LXC
 distrobuilder
 
 Caddy
+Squid (egress proxy, with an include folder)
+Python standard library root helpers (jobs and the root-shell helper)
+PAM login sessions for root shells
 
 SOPS + age
 
@@ -1746,6 +1762,10 @@ same configuration when that day comes.
 Explicitly prohibited.
 
 Student workspaces are runtime application resources, not static infrastructure resources.
+
+### LTI grade passback (AGS)
+
+Not selected: sending scores to the LMS gradebook through the LTI Assignment and Grade Services (AGS) is not built, because grading never happens in Portikus (Todd, 2026-10-05).
 
 ## 36. Portability requirement
 

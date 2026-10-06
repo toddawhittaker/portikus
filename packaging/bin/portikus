@@ -5,7 +5,6 @@ set -eu
 API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
 WORKER_OVERRIDE_ENV=/etc/portikus/worker.override.env
-ALERTS_ENV=/etc/portikus/alerts.env
 ALERT_STAMPS=/run/portikus-alert
 ALERT_QUIET_SECONDS=600
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
@@ -331,7 +330,7 @@ reset_certificate() {
   exec "${CERTIFICATE_JOB}" reset
 }
 
-# Sends to every channel in alerts.env (STACK.md section 15) with the
+# Sends to every channel in notify.json (STACK.md section 15, ADR 0052) with the
 # worker's sender, as the worker's account with the worker's settings, so
 # the bodies, the proxy and the handling of secrets are the worker's own.
 send_alert() {
@@ -340,7 +339,8 @@ send_alert() {
     return 0
   fi
   systemd-run --wait --pipe --quiet --collect --uid=portikus-worker \
-    -p EnvironmentFile="${WORKER_ENV}" -p EnvironmentFile=-"${ALERTS_ENV}" \
+    -p SupplementaryGroups=portikus-notify \
+    -p EnvironmentFile="${WORKER_ENV}" \
     -p EnvironmentFile=-"${WORKER_OVERRIDE_ENV}" \
     "${NODE}" "${ALERT_MAIN}" "$@"
 }

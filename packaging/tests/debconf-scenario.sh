@@ -18,10 +18,12 @@ cat >/usr/bin/systemctl <<'EOF'
 #!/bin/sh
 echo "$*" >>/tmp/systemctl.log
 # Units listed in /tmp/active-units are "activating", as a running oneshot is;
-# is-active then exits 3, the same as real systemd.
+# is-active then exits 3, the same as real systemd.  Units listed in
+# /tmp/running-units are active, and a restart notes whether notify.json exists.
 for unit; do :; done
 case "$1" in
-is-active) exit 3 ;;
+is-active) grep -qxF "$unit" /tmp/running-units 2>/dev/null || exit 3 ;;
+restart) [ -e /etc/portikus/notify.json ] && echo "notify.json present" >>/tmp/systemctl.log ;;
 show) grep -qxF "$unit" /tmp/active-units 2>/dev/null && echo activating || echo inactive ;;
 esac
 exit 0
@@ -455,6 +457,46 @@ EOF
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "third reconfigure failed"
 	! grep -qF 'CREATE ROLE' /tmp/psql.log || fail "the role was made again after the move"
 	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the grants were not applied again"
+	;;
+alerts-upgrade)
+	# An upgrade from a release that kept alerts in alerts.env: notify.json is
+	# made before the API restarts, since setup may stop before it does (ADR 0052).
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	[ ! -e /etc/portikus/notify.json ] || fail "notify.json was made with no alerts.env"
+	printf 'ALERT_PUSHOVER_USER_KEY=\nALERT_PUSHOVER_APP_TOKEN=\nALERT_WEBHOOK_URL=https://hooks.example.com/services/x\n' \
+		>/etc/portikus/alerts.env
+	echo portikus-api.service >/tmp/running-units
+	: >/tmp/systemctl.log
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "reconfigure failed"
+	grep -qF '"url": "https://hooks.example.com/services/x"' /etc/portikus/notify.json ||
+		fail "notify.json does not hold the webhook from alerts.env"
+	[ "$(stat -c '%a %U %G' /etc/portikus/notify.json)" = "640 root portikus-notify" ] ||
+		fail "notify.json is $(stat -c '%a %U %G' /etc/portikus/notify.json)"
+	[ "$(grep -A1 -xF 'restart portikus-api.service' /tmp/systemctl.log | tail -1)" = "notify.json present" ] ||
+		fail "the API restarted before notify.json was made"
+	! grep -qF 'alerts are off' /tmp/install.log || fail "a good seed printed the warning"
+	# A notify.json that exists is the admin page's; the old file is not read again.
+	printf 'ALERT_WEBHOOK_URL=https://other.example.com/y\n' >/etc/portikus/alerts.env
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "second reconfigure failed"
+	! grep -qF other.example.com /etc/portikus/notify.json || fail "an existing notify.json was replaced"
+	# Older releases took a webhook on any port; the job takes only 443 (ADR 0052),
+	# so the install completes and says alerts are off.
+	rm /etc/portikus/notify.json
+	printf 'ALERT_WEBHOOK_URL=https://hooks.example.com:8443/x\n' >/etc/portikus/alerts.env
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "the install failed on a refused webhook"
+	[ ! -e /etc/portikus/notify.json ] || fail "notify.json was made from a refused webhook"
+	grep -qF 'Warning: alerts are off until this is fixed' /tmp/install.log || fail "no warning for a refused webhook"
+	grep -qF 'were refused: invalid_webhook.' /tmp/install.log || fail "the warning does not name the problem"
+	long=$(sed -n '/Warning: alerts are off/,/sudo portikus setup/p' /tmp/install.log | awk 'length > 78')
+	[ -z "$long" ] || fail "the warning has a line over 78 columns: $long"
+	grep -qF 'port 443' /tmp/install.log || fail "the warning does not name the 443 rule"
+	! grep -qF 'hooks.example.com' /tmp/install.log || fail "the warning printed the webhook URL"
 	;;
 tls-default)
 	# A preseed without the certificate question gets Portikus's own authority.

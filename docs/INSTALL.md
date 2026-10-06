@@ -420,29 +420,36 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   per-system steps). If you chose it for a server people reach from the
   internet, sign in only from a network you trust and switch to a public
   certificate before anyone else signs in.
-- **Alerts.** Portikus can push warnings and failures that need a
-  person, and a control-plane service dying, to Pushover or a webhook
-  such as a Slack incoming webhook. There is no install screen for it.
-  Add any of these keys to `/etc/portikus/secrets.yaml` (root only,
-  because they are secrets), then run `sudo portikus setup`:
+- **Alerts.** Portikus can send warnings and failures that need a
+  person, and a control-plane service dying, to email, Pushover, ntfy,
+  Microsoft Teams or a webhook such as a Slack incoming webhook. Set them
+  on the admin page: open **Admin**, then **Settings**, then
+  **Notifications**. Email needs an SMTP server on port 587 or 465 with
+  TLS. Every other address must be an `https://` address on port 443;
+  webhooks on other ports are refused. Saving lets the server reach
+  those hosts through its egress proxy, with no restart. Check each
+  channel with its own **Send test** button after saving, or from the
+  server with `sudo portikus alert warning "Test" "Sent from the server"`.
+  The settings live in `/etc/portikus/notify.json`, which the page owns.
 
-  ```yaml
-  portikus_alert_pushover_user_key: "<your Pushover user key>"
-  portikus_alert_pushover_app_token: "<your Pushover application token>"
-  portikus_alert_webhook_url: "https://hooks.slack.com/services/..."
-  ```
+  The older keys in `/etc/portikus/secrets.yaml`
+  (`portikus_alert_pushover_user_key`,
+  `portikus_alert_pushover_app_token` and `portikus_alert_webhook_url`)
+  still work, but only to fill `notify.json` once, when setup runs and
+  the file does not exist yet. After that, setup never changes the
+  file; change alerts on the page.
 
-  If the file holds only a `{}` line, delete that line first; keys
-  after it make the file invalid.
-
-  The two Pushover keys go together. The webhook must be `https://`.
-  Setup refuses anything else and lets the server reach only those
-  hosts through its egress proxy. Check delivery with **Admin**, then
-  **Settings**, then **Send test alert**, or from the server with
-  `sudo portikus alert warning "Test" "Sent from the server"`.
   The alert that a service failed runs through the worker's bundled
-  Node and its environment files, so a broken worker install can also
-  stop that alert from being sent.
+  Node, so a broken worker install can also stop that alert from being
+  sent.
+- **The root shell.** The admin page has a **Root shell** tab that opens
+  a root shell on the server for any administrator. It is on by
+  default, and an upgrade turns it on for an existing site. Nothing
+  typed is recorded; each shell's opening and closing is audited. To
+  turn it off, add `portikus_root_shell: false` to
+  `/etc/portikus/portikus.yaml` and run `sudo portikus setup`; that also
+  ends any root shell still running. docs/OPERATIONS.md, "The root
+  shell", says more.
 - **Once the administrator exists, setup leaves the certificate alone.**
   A later setup run, an upgrade or `sudo dpkg-reconfigure portikus` never
   changes it, even if you give a different answer to the certificate
@@ -723,9 +730,23 @@ before `apt install portikus`.
 ## Upgrades
 
 ```
+tmux
 sudo apt update
 sudo apt upgrade
 ```
+
+Run upgrades inside `tmux`, above all from the admin page's root shell:
+an upgrade restarts the API, which ends every root shell, and dpkg would
+be cut off midway without it.
+
+**Upgrading from a release before Epic 35.** Alert webhooks must now be
+https URLs on port 443. Releases up to Epic 34 accepted other ports. An
+upgrade moves your alert settings into `/etc/portikus/notify.json`
+before the services restart. An upgrade that finds a webhook on another
+port completes, but warns that alerts are off. Setup then stops until
+you correct or remove `portikus_alert_webhook_url` in
+`/etc/portikus/secrets.yaml` and run `sudo portikus setup`. The upgrade
+also turns the root shell on; see "Alerts" and "The root shell" above.
 
 An upgrade installs the new Portikus release, restarts its services, and
 starts setup again in the background, so any change a release makes to the

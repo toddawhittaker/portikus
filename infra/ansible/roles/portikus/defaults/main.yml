@@ -20,3 +20,6 @@ portikus_certificate_jobs_dir: /var/lib/portikus/certificate-jobs
 # The root Docker cache helper's request directory, made by the
 # registry_cache role; packages/contracts/src/docker-cache.ts fixes it.
 portikus_registry_jobs_dir: /var/lib/portikus/registry-jobs
+
+# The root notification settings job's request directory (ADR 0052).
+portikus_alerts_jobs_dir: /var/lib/portikus/alerts-jobs

@@ -108,13 +108,17 @@ const SharedWorkspaceFields = {
 };
 
 /**
- * Where administrator alerts are pushed (STACK.md section 15). Empty turns a
- * channel off. The API reads them for the test button, the worker to send.
+ * Where administrator alerts are pushed (STACK.md section 15). The API reads
+ * it for the test button and the settings page, the worker to send.
  */
-const AlertFields = {
-	ALERT_PUSHOVER_USER_KEY: z.string().default(""),
-	ALERT_PUSHOVER_APP_TOKEN: z.string().default(""),
-	ALERT_WEBHOOK_URL: z.union([z.literal(""), z.string().url()]).default(""),
+export const DEFAULT_NOTIFY_FILE = "/etc/portikus/notify.json";
+
+const NotifyFields = {
+	/** The notification settings file (ADR 0052); a missing file reads as all off. */
+	NOTIFY_FILE: z
+		.string()
+		.regex(/^\/./, "NOTIFY_FILE must be an absolute path")
+		.default(DEFAULT_NOTIFY_FILE),
 };
 
 /**
@@ -140,7 +144,7 @@ const PREVIEW_SUFFIX_DNS_MESSAGE =
 export const ApiConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	...SharedWorkspaceFields,
-	...AlertFields,
+	...NotifyFields,
 	...OutboundFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
@@ -212,6 +216,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "CERTIFICATE_JOBS_DIR must be an absolute path")
 		.optional(),
+	/** Where the API drops notification settings requests for the root alerts job (ADR 0052); unset turns the settings routes off. */
+	ALERTS_JOBS_DIR: z
+		.string()
+		.regex(/^\/./, "ALERTS_JOBS_DIR must be an absolute path")
+		.optional(),
 	/** Where the API drops Docker cache helper requests and reads its status; unset turns the Docker admin routes off. */
 	REGISTRY_JOBS_DIR: z
 		.string()
@@ -222,6 +231,13 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "BACKUP_KEY_SOCKET must be an absolute path")
 		.optional(),
+	/** The root-shell helper's socket (ADR 0051); empty or unset turns root shells off. */
+	ROOT_SHELL_SOCKET: z
+		.union([
+			z.literal(""),
+			z.string().regex(/^\/./, "ROOT_SHELL_SOCKET must be an absolute path"),
+		])
+		.default(""),
 	/** Workspace start, stop and restart requests per user per minute (ADR 0034). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
 	/** File and project writes per user per minute (ADR 0034). */
@@ -355,7 +371,7 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
 	...SharedWorkspaceFields,
-	...AlertFields,
+	...NotifyFields,
 	...OutboundFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
