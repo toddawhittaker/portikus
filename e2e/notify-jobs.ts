@@ -127,6 +127,7 @@ export async function playAlertsJob(
 			await mkdir(dirname(NOTIFY_FILE), { recursive: true });
 			await promisify(execFile)("python3", [
 				"-I",
+				"-B",
 				"-c",
 				RUN_JOB,
 				ALERTS_JOB,
