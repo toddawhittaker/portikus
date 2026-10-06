@@ -123,9 +123,9 @@ def connect_as(user, groups):
 class Shell:
     """One root shell, opened the way the API opens it."""
 
-    def __init__(self, sock=None, cols=80, rows=24):
+    def __init__(self, sock=None, cols=80, rows=24, shell_id=None):
         self.sock = sock or connect_as("portikus", ["portikus", GROUP])
-        self.id = str(uuid.uuid4())
+        self.id = shell_id or str(uuid.uuid4())
         self.buffer = b""
         self.output = b""
         self.exit = None
@@ -358,6 +358,33 @@ def on_state():
           wait_for(lambda: "(session_ended, session ended)" in journal_since(since, "-u", "portikus-root-shell@*")))
     check("its record is gone", shell.record() == [])
     end_leftovers(None, marker)
+
+    heading("End behind a full input queue")
+    shell = Shell()
+    shell.ready()
+    session = session_of(shell.login_pid())
+    flood = "/run/root-shell-rehearsal-flood-%s" % shell.id
+    shell.type("sleep 30\r")
+    time.sleep(1)
+    line = ("touch %s\n" % flood).encode()
+    for _ in range(6):
+        shell.send(rs.INPUT, line * (64000 // len(line)))
+    started = time.monotonic()
+    shell.send(rs.END, b'{"reason":"session_ended"}')
+    check("end is seen while the shell is busy and 384,000 bytes wait", shell.closed(8) and time.monotonic() - started < 8)
+    check("the session is gone", wait_for(lambda: "State" not in session_props(session)) if session else False)
+    time.sleep(2)
+    check("the waiting input never ran", not os.path.exists(flood))
+
+    heading("A repeated shell id")
+    first = Shell()
+    first.ready()
+    second = Shell(shell_id=first.id)
+    second.closed()
+    check("is refused before login starts", second.errors == ["duplicate-shell"] and second.output == b"", str(second.errors))
+    check("and the first shell's record is untouched", first.record() and first.login_pid() is not None)
+    first.type("exit\r")
+    first.closed()
 
     heading("Exit")
     shell = Shell()
