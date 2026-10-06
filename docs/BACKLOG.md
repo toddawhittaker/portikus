@@ -883,20 +883,6 @@ for the whole site (SPEC.md section 22.4).
 
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
 
-## LTI grade passback (AGS)
-
-**What.** Send a score from Portikus back to the LMS gradebook through
-the LTI Assignment and Grade Services (AGS).
-
-**Why.** Instructors could grade work done in Portikus without copying
-scores by hand.
-
-**What it would take.** A tool key that signs service tokens (the key
-already exists), an OAuth client-credentials call to the platform, and a
-decision on what a score even is in Portikus. Days, after that decision.
-
-**Source.** Left out of Epic 13.
-
 ## LTI roster sync (NRPS)
 
 **What.** Read the course roster from the LMS through the Names and Role
@@ -1610,17 +1596,6 @@ builder test.
 
 **Source.** Epic 26 (#840) pilot verification.
 
-## Email for certificate warnings
-
-**What.** Certificate expiry and renewal-failure warnings reach
-administrators only as notifications in Portikus. An administrator who
-does not sign in misses them.
-
-**What it would take.** Send the same notices by email once outgoing mail
-exists. This is blocked on #918.
-
-**Source.** Epic 27 (#804), ruling R12.
-
 ## Caddy reloads and long WebSockets
 
 **What.** A Caddy reload closes every proxied WebSocket, such as a
@@ -1844,14 +1819,13 @@ when the job fails.
 
 **Source.** Epic 34, #1142 (part).
 
-## Provider sign-out on shared computers
+## Provider sign-out on shared computers (accepted risk, will not fix)
 
 **What.** Signing out of Portikus leaves the person signed in at Dex and the institution's provider, so the next person at a shared computer can sign in as them without a password.
 
-**What it would take.** Call Dex's and the provider's end-session URLs on sign-out, or tell people at the sign-out page to close the browser.
+**Ruling.** Todd accepts this risk and will not fix it (#1144, closed 2026-10-05). People on shared computers should close the browser when they finish.
 
 **Source.** Epic 34, #1144.
-
 ## Pin agent versions in the admin image rebuild
 
 **What.** The admin image rebuild installs the newest coding agents, so two rebuilds a day apart can differ.
