@@ -97,6 +97,21 @@ describe.skipIf(skip)("noticeCertificates", () => {
 		expect(rows[0]?.title).toContain("2026-10-10");
 	});
 
+	// The worker forwards warning and danger site alerts to every channel, email included (ADR 0052).
+	test("expiry and renewal-failure notices are site alerts, so they leave the site", async () => {
+		await putStatus({
+			site: info("2026-10-10T00:00:00.000Z"),
+			lastRenewal: { ok: false, at: NOW.toISOString(), message: "rate limited" },
+		});
+		await noticeCertificates(testDb.db, dir, NOW);
+		const rows = await notifications();
+		expect(rows).toHaveLength(4);
+		for (const row of rows) {
+			expect(row.site_alert).toBe(true);
+			expect(["warning", "danger"]).toContain(row.tone);
+		}
+	});
+
 	test("says nothing for a certificate with more than 14 days left", async () => {
 		await putStatus({ site: info("2026-11-30T00:00:00.000Z") });
 		await noticeCertificates(testDb.db, dir, NOW);

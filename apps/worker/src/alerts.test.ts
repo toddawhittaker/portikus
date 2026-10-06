@@ -275,6 +275,36 @@ describe.skipIf(skip)("forwarding", () => {
 			expect(sent.map(([a]) => a.title)).toEqual(["New"]);
 		});
 
+		test("alert email gets site alerts such as a certificate notice", async () => {
+			await insertTestUser(tdb.db, { role: "administrator" });
+			const smtp = {
+				host: "smtp.example.edu",
+				port: 587 as const,
+				username: "",
+				password: "",
+				from: "portikus@example.edu",
+			};
+			await writeFile(
+				path,
+				JSON.stringify({
+					...NOTIFY_FILE_OFF,
+					smtp,
+					alerts: { ...NOTIFY_FILE_OFF.alerts, email: { to: ["ops@example.edu"] } },
+				}),
+			);
+			const sent: [Alert, AlertChannels][] = [];
+			const { tick } = forwarder(sent);
+			await notifyAdministrators(tdb.db, {
+				tone: "danger",
+				title: "A certificate did not renew",
+				body: "b",
+			});
+			await tick();
+			expect(sent.map(([a, c]) => [a.title, c.email])).toEqual([
+				["A certificate did not renew", { smtp, to: ["ops@example.edu"] }],
+			]);
+		});
+
 		test("an unreadable file is logged by name only and sends nothing", async () => {
 			await insertTestUser(tdb.db, { role: "administrator" });
 			await writeFile(path, '{"version": 1, "secret": "s3cret"');

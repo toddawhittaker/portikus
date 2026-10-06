@@ -85,11 +85,6 @@ export function createAlertForwarder(
 			// The message names only the file, never its contents.
 			logger.warn({ error: errorMessage(e) }, "alert settings could not be read");
 		}
-		// Nothing raised while no channel was set is sent once one is.
-		if (!channels || !anyAlertChannel(channels)) {
-			since = now();
-			return;
-		}
 		const rows = await db
 			.selectFrom("notifications")
 			.innerJoin("users", "users.id", "notifications.user_id")
@@ -108,9 +103,12 @@ export function createAlertForwarder(
 			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
 			.orderBy("at")
 			.execute();
+		// Rows read while no channel is set are passed over, never sent later.
+		const live = channels && anyAlertChannel(channels) ? channels : null;
 		for (const row of rows) {
 			const at = new Date(row.at);
 			if (at > since) since = at;
+			if (!live) continue;
 			if (!gate.admit(row.title, now())) {
 				logger.info({ title: row.title }, "alert held back by flood control");
 				continue;
@@ -122,7 +120,7 @@ export function createAlertForwarder(
 				at,
 			};
 			try {
-				for (const result of await send(alert, channels)) {
+				for (const result of await send(alert, live)) {
 					if (result.ok) logger.info({ channel: result.channel }, "alert sent");
 					else
 						logger.warn(
