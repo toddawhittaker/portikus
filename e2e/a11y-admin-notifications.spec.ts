@@ -80,7 +80,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 /** The page with `job` as the latest job, and the test route answering `tested`. */
 async function openWith(
 	page: Page,
-	colorScheme: "light" | "dark",
 	job: Record<string, unknown>,
 	tested: { status: number; json: unknown; headers?: Record<string, string> } = {
 		status: 200,
@@ -91,8 +90,6 @@ async function openWith(
 		route.fulfill({ json: { ...PAGE, job: { ...PAGE.job, ...job } } }),
 	);
 	await routeApi(page, "**/admin/alerts/test", (route) => route.fulfill(tested));
-	await page.emulateMedia({ colorScheme });
-	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
 	const section = page.getByTestId("notify-section");
 	await expect(section.getByLabel("Mail server")).toBeVisible({ timeout: 15_000 });
@@ -103,9 +100,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`a queued job, a stale job and a refused test have no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
 		// A job waiting now: Save is unavailable and says why.
 		const now = new Date().toISOString();
-		let section = await openWith(page, colorScheme, {
+		let section = await openWith(page, {
 			state: "queued",
 			code: null,
 			requestedAt: now,
@@ -120,7 +119,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		// A job queued ten minutes ago: it did not finish.
 		await page.unrouteAll({ behavior: "ignoreErrors" });
-		section = await openWith(page, colorScheme, {
+		section = await openWith(page, {
 			state: "queued",
 			code: null,
 			requestedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
@@ -136,7 +135,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.unrouteAll({ behavior: "ignoreErrors" });
 		section = await openWith(
 			page,
-			colorScheme,
 			{},
 			{
 				status: 429,
