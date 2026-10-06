@@ -113,6 +113,9 @@
     # A local run backs the server up on itself (ADR 0044); a VM run from a
     # workstation is backed up by the separate host (ADR 0024).
     portikus_backup_local: "{{ ansible_connection | default('ssh') == 'local' }}"
+    # Administrators' root shells in the admin area (docs/adr/0051-root-shell.md).
+    # False in portikus.yaml turns them off and ends any open.
+    portikus_root_shell: true
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001

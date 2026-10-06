@@ -1,0 +1,46 @@
+---
+# The admin page's root shells (docs/adr/0051-root-shell.md): on by default,
+# off with `portikus_root_shell: false` in portikus.yaml.  api.env names the
+# socket only when it is on, so the API refuses shells and the tab hides.
+
+# A package from before the root shell has neither unit nor helper.
+- name: Look for the root-shell socket unit
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/portikus-root-shell.socket
+  register: portikus_root_shell_unit
+
+- name: Enable and start the root-shell socket
+  ansible.builtin.systemd_service:
+    name: portikus-root-shell.socket
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - portikus_root_shell | bool
+    - portikus_root_shell_unit.stat.exists
+
+# Off: no new shells, then end the open ones' logind sessions, which also
+# ends what they left running there, such as tmux.
+- name: Turn the root shell off
+  when:
+    - not portikus_root_shell | bool
+    - portikus_root_shell_unit.stat.exists
+  block:
+    - name: Stop and disable the root-shell socket
+      ansible.builtin.systemd_service:
+        name: portikus-root-shell.socket
+        enabled: false
+        state: stopped
+
+    # Before the helpers stop: each removes its process-id file as it closes,
+    # and only these files lead to the sessions.
+    - name: End the open root shells' sessions
+      ansible.builtin.command:
+        argv: [/usr/lib/portikus/root-shell, --end-sessions]
+      register: portikus_root_shell_ended
+      changed_when: portikus_root_shell_ended.stdout != 'ended 0'
+
+    - name: Stop any root-shell helper still running
+      ansible.builtin.command:
+        argv: [systemctl, stop, "portikus-root-shell@*.service"]
+      changed_when: false
