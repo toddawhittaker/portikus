@@ -190,7 +190,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await expectNoViolations(page, '[role="menu"]');
 	});
 
-	test(`a shell ended by a failed session check says so and passes axe (${scheme})`, async ({
+	test(`a shell hung up for a lost database says so and passes axe (${scheme})`, async ({
 		page,
 	}) => {
 		await page.emulateMedia({ colorScheme: scheme });
@@ -200,10 +200,10 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 		const id = await openShellTab(page);
 		await expect(page.getByTestId(`root-shell-lost-${id}`)).toContainText(
-			"Portikus could not check your session",
+			"Anything running in tmux keeps running.",
 		);
 		await expect(page.getByTestId("root-shell-announce")).toHaveText(
-			"Portikus could not check your session, so a root shell ended.",
+			"Portikus lost its database connection, so a root shell was hung up.",
 		);
 		await expectNoViolations(page);
 	});

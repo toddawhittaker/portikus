@@ -190,13 +190,13 @@ test("a session-ended close the session check cannot confirm says the check fail
 	expect(sessionEnded).not.toHaveBeenCalled();
 });
 
-test("a server error after the shell started is a session check that failed", () => {
+test("a server error after the shell started is a lost database: the shell was hung up", () => {
 	const handlers = events();
 	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
 	last().open();
 	last().onmessage?.({ data: new ArrayBuffer(1) });
 	last().drop(CloseCode.SERVER_ERROR);
-	expect(handlers.onLost).toHaveBeenCalledWith("unchecked");
+	expect(handlers.onLost).toHaveBeenCalledWith("database_lost");
 	expect(sessionEnded).not.toHaveBeenCalled();
 });
 
