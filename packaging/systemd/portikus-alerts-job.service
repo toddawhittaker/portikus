@@ -1,0 +1,34 @@
+# Portikus notification settings job (ADR 0052). Started by
+# portikus-alerts-job.path for each request the admin page writes. It writes
+# /etc/portikus/notify.json and the egress proxy's alerts.conf, checks the
+# proxy's configuration and reloads it.
+[Unit]
+Description=Portikus notification settings job
+After=squid.service
+ConditionPathIsDirectory=/var/lib/portikus/alerts-jobs
+# The path unit starts this once per request; see portikus-image-job.service.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/alerts-job
+TimeoutStartSec=2min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+# notify.json and the include folder in /etc/portikus, and the job directory.
+ReadWritePaths=/etc/portikus /var/lib/portikus/alerts-jobs
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# systemctl and the journal use local sockets; squid's parse opens an
+# IPv6 socket to see whether the host has IPv6. Nothing leaves the host.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

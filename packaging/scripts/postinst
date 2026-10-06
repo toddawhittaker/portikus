@@ -241,6 +241,12 @@ if ! getent group portikus-root-shell >/dev/null; then
 	addgroup --system portikus-root-shell
 fi
 
+# Before the API and the worker restart below: their units name this group,
+# which reads the notification settings (docs/adr/0052-notification-settings.md).
+if ! getent group portikus-notify >/dev/null; then
+	addgroup --system portikus-notify
+fi
+
 # The controller needs the Incus socket; the group exists only once Incus does.
 if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin

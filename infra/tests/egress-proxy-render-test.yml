@@ -19,6 +19,7 @@
     egress_proxy_site_host: portikus.192.168.10.48.nip.io
     egress_proxy_site_port: "8443"
     egress_proxy_denied_ranges: [10.0.0.0/8, 127.0.0.0/8, 192.168.0.0/16, fc00::/7]
+    egress_proxy_include_dir: /etc/portikus/egress-proxy.d
 
   tasks:
     - name: Render the configuration
@@ -62,6 +63,15 @@
             < egress_rules.index('http_access deny portikus_ip_literal')
           - egress_rules.index('http_access deny portikus_ip_literal')
             < egress_rules.index('http_access allow portikus_connect portikus_hosts_443 portikus_port_443')
+          # Included rules, such as the alert hosts (ADR 0052), come after
+          # both address denies and before the final deny.
+          - "'include /etc/portikus/egress-proxy.d/*.conf' in egress_rules"
+          - egress_rules.index('http_access deny portikus_ip_literal')
+            < egress_rules.index('include /etc/portikus/egress-proxy.d/*.conf')
+          - egress_rules.index('http_access deny portikus_private')
+            < egress_rules.index('include /etc/portikus/egress-proxy.d/*.conf')
+          - egress_rules.index('include /etc/portikus/egress-proxy.d/*.conf')
+            == egress_rules.index('http_access deny all') - 1
           # No address rule names a host, and no host rule names an address.
           - egress_rules | select('search', 'dstdomain .*192\.168\.10\.48( |$)') | list | length == 0
         fail_msg: "{{ egress_render }}"

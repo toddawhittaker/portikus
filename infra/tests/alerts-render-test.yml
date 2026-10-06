@@ -1,6 +1,6 @@
 ---
 # The administrator alert settings with no VM (STACK.md section 15): which
-# values setup accepts, the egress proxy entries they add, alerts.env as
+# values setup accepts, alerts.env as
 # rendered, and the units that read it or report a failure through
 # portikus-alert@.service.  `make infra-check` runs it; the rehearsal VM
 # sends real alerts.
@@ -15,26 +15,24 @@
     alerts_test_key: uTestUserKey
     alerts_test_token: aTestAppToken
     alerts_test_cases:
-      - { name: nothing set, accept: true, egress: [] }
+      - { name: nothing set, accept: true }
       - name: Pushover alone
         accept: true
-        egress: [api.pushover.net]
         vars: { user: "{{ alerts_test_key }}", token: "{{ alerts_test_token }}" }
       - name: a Slack webhook alone
         accept: true
-        egress: [hooks.slack.com]
         vars: { webhook: "https://hooks.slack.com/services/T000/B000/XXXX" }
-      - name: both, the webhook on its own port with a query
+      - name: both, the webhook with a query
         accept: true
-        egress: [api.pushover.net, "alerts.example.edu:8443"]
         vars:
           user: "{{ alerts_test_key }}"
           token: "{{ alerts_test_token }}"
-          webhook: "https://alerts.example.edu:8443/hook?team=ops&x=1"
+          webhook: "https://alerts.example.edu/hook?team=ops&x=1"
       - name: a webhook on port 443 written out
         accept: true
-        egress: [ntfy.example.org]
         vars: { webhook: "https://ntfy.example.org:443/portikus" }
+      # The egress proxy opens only port 443 for alert hosts (ADR 0052).
+      - { name: a webhook on its own port, accept: false, vars: { webhook: "https://alerts.example.edu:8443/hook" } }
       - { name: a user key without its app token, accept: false, vars: { user: "{{ alerts_test_key }}" } }
       - { name: an app token without its user key, accept: false, vars: { token: "{{ alerts_test_token }}" } }
       - name: a key holding a newline
@@ -44,8 +42,13 @@
       - { name: a webhook that is not a URL, accept: false, vars: { webhook: hooks.slack.com/services/T000 } }
       - { name: a webhook with a space, accept: false, vars: { webhook: "https://hooks.slack.com/a b" } }
       - { name: a webhook with a quote, accept: false, vars: { webhook: "https://hooks.slack.com/a\"b" } }
+      - { name: a webhook ending in a newline, accept: false, vars: { webhook: "https://hooks.slack.com/a\n" } }
       - { name: a webhook with no host, accept: false, vars: { webhook: "https:///services/T000" } }
       - { name: a webhook whose host is a wildcard, accept: false, vars: { webhook: "https://*.example.org/hook" } }
+      # A leading dot would stand for every subdomain in the proxy's list.
+      - { name: a webhook whose host starts with a dot, accept: false, vars: { webhook: "https://.example.org/hook" } }
+      - { name: a webhook with a user name, accept: false, vars: { webhook: "https://me@example.org/hook" } }
+      - { name: a webhook at an address, accept: false, vars: { webhook: "https://192.0.2.10/hook" } }
 
   tasks:
     - name: Try each case
@@ -101,6 +104,9 @@
         alerts_postgresql_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/postgresql/tasks/main.yml') | from_yaml }}"
         alerts_caddy_tasks: "{{ lookup('ansible.builtin.file', '../ansible/roles/caddy/tasks/main.yml') | from_yaml }}"
         alerts_site: "{{ lookup('ansible.builtin.file', '../ansible/site.yml') }}"
+        alerts_cli: "{{ lookup('ansible.builtin.file', '../../packaging/bin/portikus') }}"
+        alerts_postinst: "{{ lookup('ansible.builtin.file', '../../packaging/scripts/postinst') }}"
+        alerts_prerm: "{{ lookup('ansible.builtin.file', '../../packaging/scripts/prerm') }}"
 
     # Later EnvironmentFile= lines win, so an operator's override comes last.
     - name: Check the API and the worker read alerts.env, before their overrides, and alert when they fail
@@ -174,7 +180,31 @@
       loop_control:
         label: "{{ item.dest }}"
 
-    - name: Check the egress proxy is given the alert hosts
+    # The alerts job writes the proxy's alert hosts from notify.json (ADR 0052).
+    - name: Check setup no longer lists alert hosts for the egress proxy
       ansible.builtin.assert:
         that:
-          - alerts_site is search('egress_proxy_hosts:.*\+ portikus_alert_egress_hosts')
+          - alerts_site is not search('portikus_alert_egress_hosts')
+          - alerts_site is search('egress_proxy_hosts:')
+
+    - name: Check the API and the worker join the group that reads notify.json, and portikus alert does too
+      ansible.builtin.assert:
+        that:
+          - "'SupplementaryGroups=portikus-notify' in alerts_api_unit"
+          - "'SupplementaryGroups=portikus-notify' in alerts_worker_unit"
+          - alerts_cli is search('--uid=portikus-worker')
+          - alerts_cli is search('-p SupplementaryGroups=portikus-notify')
+          - alerts_postinst is search('addgroup --system portikus-notify')
+
+    - name: Check the package ships the alerts job and its units, and removal stops and disables them
+      ansible.builtin.assert:
+        that:
+          - alerts_nfpm.contents | selectattr('dst', 'equalto', '/usr/lib/portikus/alerts-job')
+            | map(attribute='src') | list == ['./packaging/alerts/alerts-job']
+          - alerts_nfpm.contents | selectattr('dst', 'equalto', '/usr/lib/systemd/system/portikus-alerts-job.path')
+            | list | length == 1
+          - alerts_nfpm.contents | selectattr('dst', 'equalto', '/usr/lib/systemd/system/portikus-alerts-job.service')
+            | list | length == 1
+          - alerts_prerm is search('systemctl stop [^|]*portikus-alerts-job[.]path')
+          - alerts_prerm is search('systemctl stop [^|]*portikus-alerts-job[.]service')
+          - alerts_prerm is search('systemctl disable [^|]*portikus-alerts-job[.]path')

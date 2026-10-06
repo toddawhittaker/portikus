@@ -340,6 +340,7 @@ send_alert() {
     return 0
   fi
   systemd-run --wait --pipe --quiet --collect --uid=portikus-worker \
+    -p SupplementaryGroups=portikus-notify \
     -p EnvironmentFile="${WORKER_ENV}" -p EnvironmentFile=-"${ALERTS_ENV}" \
     -p EnvironmentFile=-"${WORKER_OVERRIDE_ENV}" \
     "${NODE}" "${ALERT_MAIN}" "$@"

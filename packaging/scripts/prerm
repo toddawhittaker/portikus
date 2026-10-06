@@ -14,14 +14,15 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-registry-job.path portikus-registry-status.timer \
 		portikus-registry-job.service portikus-registry-status.service \
 		portikus-registry-hub.service portikus-registry-ghcr.service \
-		portikus-root-shell.socket 'portikus-root-shell@*.service' || true
+		portikus-root-shell.socket 'portikus-root-shell@*.service' \
+		portikus-alerts-job.path portikus-alerts-job.service || true
 	# Setup enables these; left enabled, their links dangle once the unit files are gone.
 	systemctl disable portikus-image-job.path portikus-egress-apply.path \
 		portikus-image-check.timer portikus-backup.timer portikus-backup-channel.timer \
 		portikus-backup-key.socket portikus-backup-offsite.timer portikus-setup.service \
 		portikus-registry-job.path portikus-registry-status.timer \
 		portikus-registry-hub.service portikus-registry-ghcr.service \
-		portikus-root-shell.socket >/dev/null 2>&1 || true
+		portikus-root-shell.socket portikus-alerts-job.path >/dev/null 2>&1 || true
 fi
 
 exit 0

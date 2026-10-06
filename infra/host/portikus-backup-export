@@ -13,6 +13,8 @@
 #   portikus-backup-export dex-db         pg_dump -Fc of Dex's database (its accounts)
 #   portikus-backup-export has-second-factor-key  1 when the second-factor key file exists, else 0
 #   portikus-backup-export second-factor-key      the key that seals TOTP secrets (SPEC.md section 24.13)
+#   portikus-backup-export has-notify     1 when the notification settings file exists, else 0
+#   portikus-backup-export notify         the notification settings, secrets included (ADR 0052)
 #   portikus-backup-export counts         users, workspaces and projects rows
 #   portikus-backup-export workspaces     workspace id and instance name, one per line
 #   portikus-backup-export instances      the Incus instance names, one per line
@@ -24,6 +26,7 @@ POOL="${PORTIKUS_BACKUP_POOL:-workspace-data}"
 PROJECT="${PORTIKUS_BACKUP_PROJECT:-portikus}"
 SNAPSHOT=portikus-backup
 SECOND_FACTOR_KEY="${PORTIKUS_SECOND_FACTOR_KEY:-/etc/portikus/second-factor.key}"
+NOTIFY_FILE="${PORTIKUS_NOTIFY_FILE:-/etc/portikus/notify.json}"
 # Only these volumes hold student data; Docker and root disks are rebuilt.
 VOLUME_PATTERN='^ws-[0-9a-f]{24}-(home|recovery)$'
 
@@ -103,6 +106,12 @@ case "${1:-}" in
   second-factor-key)
     cat "$SECOND_FACTOR_KEY"
     ;;
+  has-notify)
+    if [ -s "$NOTIFY_FILE" ]; then echo 1; else echo 0; fi
+    ;;
+  notify)
+    cat "$NOTIFY_FILE"
+    ;;
   counts)
     runuser -u postgres -- psql -X -q -t -A -d portikus -c \
       "SELECT 'users ' || (SELECT count(*) FROM users) || ' workspaces ' || (SELECT count(*) FROM workspaces) || ' projects ' || (SELECT count(*) FROM projects)"
@@ -122,6 +131,6 @@ case "${1:-}" in
     export_volume "${2:-}"
     ;;
   *)
-    die "usage: portikus-backup-export volumes | db | has-dex | dex-db | has-second-factor-key | second-factor-key | counts | workspaces | instances | idmap VOL | volume VOL"
+    die "usage: portikus-backup-export volumes | db | has-dex | dex-db | has-second-factor-key | second-factor-key | has-notify | notify | counts | workspaces | instances | idmap VOL | volume VOL"
     ;;
 esac

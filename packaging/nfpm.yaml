@@ -170,6 +170,20 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # The root notification settings job and its trigger (ADR 0052).
+  # Enabled by Ansible, which creates the job directory.
+  - src: ./packaging/systemd/portikus-alerts-job.path
+    dst: /usr/lib/systemd/system/portikus-alerts-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-alerts-job.service
+    dst: /usr/lib/systemd/system/portikus-alerts-job.service
+    file_info: *unit_info
+  - src: ./packaging/alerts/alerts-job
+    dst: /usr/lib/portikus/alerts-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # The Docker pull-through caches and their root helper.
   # Enabled by Ansible, which installs docker-registry and makes their
   # filesystem, user and certificates.

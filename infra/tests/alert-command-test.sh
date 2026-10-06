@@ -83,9 +83,9 @@ echo
 : >"${work}/worker.env"
 title='Backup "nightly" failed'
 run alert warning "${title}" "Two words"
-expect_eq "it runs the worker's sender as the worker, with the worker's settings" \
-  "--wait --pipe --quiet --collect --uid=portikus-worker -p EnvironmentFile=${work}/worker.env -p EnvironmentFile=-${work}/alerts.env -p EnvironmentFile=-${work}/worker.override.env" \
-  "$(head -n 11 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
+expect_eq "it runs the worker's sender as the worker, with the worker's settings and the group that reads notify.json" \
+  "--wait --pipe --quiet --collect --uid=portikus-worker -p SupplementaryGroups=portikus-notify -p EnvironmentFile=${work}/worker.env -p EnvironmentFile=-${work}/alerts.env -p EnvironmentFile=-${work}/worker.override.env" \
+  "$(head -n 13 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
 expect_eq "with the tone, title and text as three arguments" \
   "${main} warning ${title} Two words" "$(tail -n 4 "${work}/systemd-run.args" | tr '\n' ' ' | sed 's/ $//')"
 check "and no secret on a command line, only file names" bash -c "! grep -q ALERT_ '${work}/systemd-run.args'"

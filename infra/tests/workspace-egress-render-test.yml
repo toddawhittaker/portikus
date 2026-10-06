@@ -118,6 +118,10 @@
           - drops[5].destination.split(',') ==
             ['0.0.0.0/8', '10.0.0.0-10.200.0.0', '10.200.0.2-10.255.255.255', '100.64.0.0/10',
              '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16', '224.0.0.0/3']
+          # Incus would write an IPv4-mapped range as an IPv4 rule, which nftables refuses.
+          - drops[6].destination.split(',') ==
+            ['::/127', '64:ff9b::/96', '2002::/16', 'fc00::/7', 'fe80::/10']
+          - drops | map(attribute='destination') | select('search', 'ffff') | list == []
           # No drop but the gateway's own names the gateway.
           - drops | map(attribute='destination') | select('search', '(^|,)10\.200\.0\.1(/|,|$)')
             | list | length == 3

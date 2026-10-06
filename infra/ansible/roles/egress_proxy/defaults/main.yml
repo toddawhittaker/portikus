@@ -19,3 +19,8 @@ egress_proxy_site_port: 443
 
 # Destinations no hostname may resolve to.
 egress_proxy_denied_ranges: []
+
+# Each owner writes its own *.conf here, which Squid reads after the
+# address denies and before `deny all`: the root alerts job writes
+# alerts.conf (ADR 0052).
+egress_proxy_include_dir: /etc/portikus/egress-proxy.d

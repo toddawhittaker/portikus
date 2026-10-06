@@ -743,6 +743,10 @@ jobs:
       - name: Root-shell helper
         if: needs.changes.outputs.infra == 'true'
         run: python3 -B -m unittest discover -s packaging/root-shell/tests
+      # squid and systemctl are stubbed.
+      - name: Notification settings job
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/alerts/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy

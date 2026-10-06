@@ -1,0 +1,12 @@
+# Portikus notification settings job trigger (ADR 0052). The API writes
+# request-<id>.json into the job directory; this starts the root job, which
+# takes every request before it exits.
+[Unit]
+Description=Portikus notification settings requests
+
+[Path]
+PathExistsGlob=/var/lib/portikus/alerts-jobs/request-*.json
+Unit=portikus-alerts-job.service
+
+[Install]
+WantedBy=paths.target

@@ -405,6 +405,14 @@ if [ "$has_sfk" = 1 ]; then
   pull second-factor.key plain second-factor-key || die "second-factor.key: the pipeline failed (ssh, index or age)"
   echo "file second-factor.key $(cat "${scratch}/second-factor.key.sum")" >>"$manifest"
 fi
+# The alert channels the admin page set, with their secrets (ADR 0052).
+has_notify=$(bounded "notification settings check" 8 1 remote_export has-notify)
+must "notification settings check" '^[01]$' "$has_notify"
+if [ "$has_notify" = 1 ]; then
+  info "notification settings"
+  pull notify.json plain notify || die "notify.json: the pipeline failed (ssh, index or age)"
+  echo "file notify.json $(cat "${scratch}/notify.json.sum")" >>"$manifest"
+fi
 
 failed=()
 failed_why=()
