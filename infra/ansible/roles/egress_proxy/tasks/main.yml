@@ -23,6 +23,25 @@
   ansible.builtin.debug:
     msg: "The API may reach: {{ egress_proxy_allowed | join(', ') if egress_proxy_allowed else 'no outside host' }}"
 
+# Squid refuses an include that matches no file, so alerts.conf is always
+# there; the alerts job fills it in (ADR 0052).
+- name: Create the folder of included squid rules
+  ansible.builtin.file:
+    path: "{{ egress_proxy_include_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Give the include a file to find
+  ansible.builtin.copy:
+    dest: "{{ egress_proxy_include_dir }}/alerts.conf"
+    content: "# The alerts job writes the alert hosts here (ADR 0052).\n"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
 - name: Deploy the squid configuration
   ansible.builtin.template:
     src: squid.conf.j2

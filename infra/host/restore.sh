@@ -43,8 +43,6 @@ SAMPLE=20
 LOCAL_ADMIN_SUBJECT=Cgtsb2NhbC1hZG1pbhIFbG9jYWw
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-# Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json|second-factor\.key) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
 # backup.sh never writes a larger one.
 MANIFEST_MAX=4194304
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
@@ -337,6 +335,17 @@ EOF
   step "second-factor key restored"
 else
   info "the set holds no second-factor key; accounts with a second factor need it reset"
+fi
+
+# The alert channels (ADR 0052).  The job checks the file as strictly as an
+# admin page request and puts the egress proxy's alert hosts in line; the
+# secrets travel on standard input, never in a command line.
+if grep -q '^file notify\.json ' "$manifest"; then
+  decrypt notify.json | vm_in "sudo /usr/lib/portikus/alerts-job restore" \
+    || die "could not put the notification settings back"
+  step "notification settings restored"
+else
+  info "the set holds no notification settings; set the alert channels on the admin page"
 fi
 
 # ── 5. Volumes ────────────────────────────────────────────────────

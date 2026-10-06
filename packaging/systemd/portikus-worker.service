@@ -12,6 +12,8 @@ Type=simple
 # Its own account: the API's group opens the backup key socket (ADR 0044).
 User=portikus-worker
 Group=portikus-worker
+# Reads the notification settings, /etc/portikus/notify.json (docs/adr/0052).
+SupplementaryGroups=portikus-notify
 EnvironmentFile=/etc/portikus/worker.env
 # Where alerts go; missing until setup writes it (STACK.md section 15).
 EnvironmentFile=-/etc/portikus/alerts.env

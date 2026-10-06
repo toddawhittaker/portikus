@@ -7,6 +7,11 @@
 # (0, the default, means no limit).  use_local_vm runs the same commands on
 # this machine instead.
 
+# Every line backup.sh writes in a set's MANIFEST, and nothing else; both
+# restore scripts refuse a MANIFEST with any other line.
+# shellcheck disable=SC2034 # read by the scripts that source this file
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json|second-factor\.key|notify\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+
 # A hung connection is cut after a minute without an answer from sshd,
 # however long the remote command itself runs.
 PORTIKUS_SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)

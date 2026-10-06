@@ -189,6 +189,9 @@
     mode: "0640"
   notify: Restart portikus-worker
 
+- name: Set up the notification settings
+  ansible.builtin.import_tasks: alerts.yml
+
 # The API, the worker and `portikus alert` read it (STACK.md section 15).
 # systemd opens it as root, so the worker needs no group on it.
 - name: Deploy the alert channels file

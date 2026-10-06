@@ -543,15 +543,17 @@ class Runner:
         try:
             current = read_at(dir_fd, PROXY_FILE, MAX_REQUEST_BYTES)
             changed = current is None or current.decode("utf-8", "replace") != content
-            old = self.swap_proxy(dir_fd, content) if changed else None
-            if write_file:
-                try:
-                    self.write_notify(settings)
-                except (OSError, JobFailed):
-                    if changed:
-                        self.put_back(dir_fd, old)
-                    raise JobFailed("write_failed")
-            remove_at(dir_fd, PROXY_OLD)
+            try:
+                old = self.swap_proxy(dir_fd, content) if changed else None
+                if write_file:
+                    try:
+                        self.write_notify(settings)
+                    except (OSError, JobFailed):
+                        if changed:
+                            self.put_back(dir_fd, old)
+                        raise JobFailed("write_failed")
+            finally:
+                remove_at(dir_fd, PROXY_OLD)
         finally:
             os.close(dir_fd)
         if changed:

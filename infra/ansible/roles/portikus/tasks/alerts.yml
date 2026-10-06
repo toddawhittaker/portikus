@@ -1,0 +1,43 @@
+---
+# The notification settings in /etc/portikus/notify.json and the root job
+# that applies the admin page's changes to them (ADR 0052).  Setup writes
+# the file only while it is missing; after that the page owns it.
+
+# A package from before the notification settings has neither job nor units.
+- name: Look for the alerts job
+  ansible.builtin.stat:
+    path: /usr/lib/portikus/alerts-job
+  register: portikus_alerts_job
+
+# Before alerts.env is written again, so a file left by an older setup can
+# still seed it.  The values reach the job on standard input, never in its
+# arguments.  It also brings the egress proxy's alerts.conf in line with the
+# file and reloads the proxy when that changes.
+- name: Create notify.json if it is missing, from secrets.yaml or alerts.env
+  ansible.builtin.command:
+    argv: [/usr/lib/portikus/alerts-job, seed]
+    stdin: >-
+      {{ {'pushoverUserKey': portikus_alert_pushover_user_key,
+          'pushoverAppToken': portikus_alert_pushover_app_token,
+          'webhookUrl': portikus_alert_webhook_url} | to_json }}
+  register: portikus_alerts_seed
+  changed_when: "'created' in portikus_alerts_seed.stdout or 'alerts.conf changed' in portikus_alerts_seed.stdout"
+  when: portikus_alerts_job.stat.exists
+  no_log: true
+
+# The API writes requests here, and the root job started by the path unit
+# reads them.
+- name: Create the alerts job directory
+  ansible.builtin.file:
+    path: "{{ portikus_alerts_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+
+- name: Enable and start the alerts job's path unit
+  ansible.builtin.systemd_service:
+    name: portikus-alerts-job.path
+    enabled: true
+    state: started
+  when: portikus_alerts_job.stat.exists
