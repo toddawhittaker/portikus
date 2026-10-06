@@ -4475,3 +4475,75 @@ Gaps left (most are in docs/BACKLOG.md):
   tested on the rehearsal VM.
 - Domain fronting inside TLS stays open in allow-list mode (ADR 0038).
 - Safari is not tested for the content security policy.
+
+## Epic 35 — Admin notification settings and root shell
+
+Built on `epic/35-admin-notifications-root-shell` (task PRs #1176 to
+#1188 and this fold), issues #918 and #1063. No migration. SPEC.md
+sections 20.1, 20.3, 24.1, 24.8, 24.11 and 25.6, STACK.md sections 15
+and 34, and ADRs 0051 and 0052.
+
+Delivered:
+
+- Plan and decisions (#1176 T1): ADR 0051 (root shell) and ADR 0052
+  (notification settings), reviewed by security-reviewer before code.
+- Notification file and senders (#1179 T2): `NotifyFile` v1 with
+  write-only secret views, `readNotifyFile` (a missing file means all
+  off), and email (nodemailer through the egress proxy, TLS required on
+  587 or 465), ntfy and Teams senders; new secret keys are redacted.
+- Root alerts job (#1183 T3, #1187 F2): `portikus-alerts-job` writes
+  `/etc/portikus/notify.json` and the Squid include
+  `/etc/portikus/egress-proxy.d/alerts.conf`; setup, and on upgrade the
+  package's postinst before the restart, seed the file from
+  `secrets.yaml` or `alerts.env`, warning without failing when the old
+  settings are refused. Backups carry the file. `restore-copy.sh` no
+  longer refuses sets that hold a second-factor key.
+- Notification settings API (#1184 T4, #1186 F1): `GET` and
+  `PUT /admin/notifications`, the job's status, one
+  `settings.notifications_updated` row and an administrator notice per
+  change, and `POST /admin/alerts/test` per channel
+  (`settings.alert_tested`). The API and worker read `notify.json` at
+  each send; `alerts.env` is gone. A broken settings file is repaired by
+  a save; real TLS-through-proxy webhook delivery is tested.
+- Notifications screen (#1185 T5, #1188 F3): Settings, Notifications
+  sets email, Pushover, ntfy, Teams and webhook alerts, the recipient
+  list and "Alert when a root shell opens", with write-only secrets,
+  host-change warnings, job polling and per-channel tests. The e2e tests
+  run the real alerts job.
+- Root-shell helper (#1181 T6): a per-connection Python helper behind
+  `/run/portikus-root-shell.sock` runs `login -f root` as a PAM session;
+  the `portikus-root-shell` group, `/etc/pam.d/remote`, tmux on the host,
+  a Caddy handle that keeps root shells open through a reload, and the
+  `portikus_root_shell` switch (on by default; off ends every recorded
+  session). Verified on the rehearsal VM with
+  `infra/tests/root-shell-rehearsal.py`.
+- Root-shell API (#1180 T7, #1186 F1): status route, the admin
+  WebSocket, open and close audit rows, the optional open alert,
+  revocation with an `end` frame and close 4401, the shared terminal
+  socket cap, and a fake helper for Playwright. A database outage hangs
+  shells up without ending their session.
+- Root-shell tab (#1182 T8b, #1188 F3): `/admin/shell`, shown only when
+  root shells are on, with split panes, a banner, and exit,
+  session-ended, database-lost, socket-cap and refused states; a demoted
+  administrator goes to /not-authorized.
+- Shared pane layout (#1177 T8a, #1188 F3): `SplitTree`, `usePaneDrag`,
+  `PaneFrame` and `useXterm`, with tab-strip and pane-menu wiring shared
+  by workspace and root-shell panes.
+- Workspace terminals (#1178 T10): input stops the moment a session
+  re-check fails; the browser still receives 4401.
+- Fold: SPEC, STACK, ADR 0052, INSTALL, OPERATIONS, ADMIN-GUIDE, the
+  admin help and BACKLOG; the plan is deleted.
+
+Gaps left (most are in docs/BACKLOG.md):
+
+- The package's `prerm` removal path has not been run with a real
+  `apt remove`, and the `alerts.env` removal not on a real host.
+- No real delivery e2e for alert channels beyond the webhook through
+  the proxy, because alert URLs must be https on port 443.
+- Turning email off also clears the SMTP settings.
+- `currentJob` can report a dead job ahead of a new one; the page works
+  around it on the notifications tab.
+- A tmux pane that ignores SIGHUP, or anything started with
+  `systemd-run`, can outlive the off switch.
+- Root shells have no rename and no per-pane light theme.
+- `e2e/admin-notifications.spec.ts` is flaky under `--repeat-each`.
