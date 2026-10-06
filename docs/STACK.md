@@ -1747,6 +1747,10 @@ Explicitly prohibited.
 
 Student workspaces are runtime application resources, not static infrastructure resources.
 
+### LTI grade passback (AGS)
+
+Not selected: sending scores to the LMS gradebook through the LTI Assignment and Grade Services (AGS) is not built, because grading never happens in Portikus (Todd, 2026-10-05).
+
 ## 36. Portability requirement
 
 Portikus must remain portable across reasonable VM-capable deployment environments.
