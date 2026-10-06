@@ -31,6 +31,7 @@ function stubSettings() {
 			return json(200, {
 				settings: notificationSettingsView(NOTIFY_FILE_OFF),
 				job: null,
+				storedFileUnreadable: false,
 			});
 		throw new Error(`unexpected request: ${url}`);
 	});
@@ -136,7 +137,9 @@ test("every setting has a help button beside its label, and the page an intro", 
 	// The field keeps its own name; the help button is beside the label, not in it.
 	expect(screen.getByRole("textbox", { name: "Window (minutes)" })).toBeDefined();
 	expect(screen.getByText("About Settings")).toBeDefined();
-	expect(screen.getByRole("link", { name: /More in Help/ }).getAttribute("href")).toBe(
+	const links = screen.getAllByRole("link", { name: /More in Help/ });
+	expect(links.map((link) => link.getAttribute("href"))).toEqual([
 		"/admin/help#admin-settings",
-	);
+		"/admin/help#admin-notifications",
+	]);
 });

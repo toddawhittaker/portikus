@@ -1,13 +1,13 @@
 import {
 	AdminNotifications,
 	type AlertChannelKind,
+	isNotifyJobActive,
 	type NotificationSettingsUpdate,
 	NotifyJobView,
 	TestAlertResponse,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson } from "../../api/request.js";
-import { isActive } from "./form.js";
 
 const notificationsKey = ["admin", "notifications"] as const;
 
@@ -23,7 +23,7 @@ export function useNotifications(waiting: boolean) {
 		queryKey: notificationsKey,
 		queryFn: () => request(AdminNotifications, "/admin/notifications"),
 		refetchInterval: (query) =>
-			waiting || isActive(query.state.data?.job) ? POLL_MS : false,
+			waiting || isNotifyJobActive(query.state.data?.job) ? POLL_MS : false,
 		retry: false,
 	});
 }

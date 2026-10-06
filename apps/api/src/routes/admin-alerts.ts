@@ -3,6 +3,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminNotifications,
 	type AlertChannelKind,
+	isNotifyJobActive,
 	NOTIFY_FILE_OFF,
 	NotificationSettingsUpdate,
 	type NotifyJobRequestFile,
@@ -23,7 +24,6 @@ import {
 	allJobs,
 	changeSummary,
 	channelsLeaving,
-	isActive,
 	latestJob,
 	queuedView,
 } from "../alerts/jobs.js";
@@ -81,11 +81,20 @@ export function registerAdminAlertRoutes(
 
 	app.get("/admin/notifications", adminOnly, async (_request, reply) => {
 		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
-		const file = await readSettings(reply);
-		if (!file) return;
+		// A broken file must not hide the form whose save repairs it.
+		let file = NOTIFY_FILE_OFF;
+		let storedFileUnreadable = false;
+		try {
+			file = await readNotifyFile(config.NOTIFY_FILE);
+		} catch {
+			// A parse error can quote the file, so only its path is logged.
+			logger.error({ path: config.NOTIFY_FILE }, "notification settings unreadable");
+			storedFileUnreadable = true;
+		}
 		const out: AdminNotifications = {
 			settings: notificationSettingsView(file),
 			job: latestJob(await allJobs(jobsDir)),
+			storedFileUnreadable,
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});
@@ -108,7 +117,7 @@ export function registerAdminAlertRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => isActive(j))) {
+			if (jobs.some((j) => isNotifyJobActive(j))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
 			// A broken file must not block the save that repairs it.

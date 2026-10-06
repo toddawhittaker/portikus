@@ -27,6 +27,7 @@ import {
 	type NotifyFile,
 	type NotifyJobRequestFile,
 	NotifyJobView,
+	notificationSettingsView,
 	TestAlertResponse,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
@@ -259,6 +260,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 					rootShellOpenedAlert: false,
 				},
 				job: null,
+				storedFileUnreadable: false,
 			});
 		} finally {
 			await app.close();
@@ -337,19 +339,22 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 		}
 	});
 
-	test("an unreadable settings file is a 500 that names nothing inside it", async () => {
+	test("an unreadable settings file reads as all off and flagged, and names nothing inside it", async () => {
 		await writeFile(notifyFile, `{"version": 1, "smtp": "${SECRETS.smtpPassword}"}`);
 		const app = server();
 		await app.ready();
 		try {
 			const call = await as(app, "carol");
-			for (const res of [
-				await call("GET", "/admin/notifications"),
-				await call("POST", "/admin/alerts/test"),
-			]) {
-				expect(res.statusCode).toBe(500);
-				expectNoSecret(res.body);
-			}
+			const get = await call("GET", "/admin/notifications");
+			expect(get.statusCode).toBe(200);
+			expectNoSecret(get.body);
+			expect(get.json()).toMatchObject({
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				storedFileUnreadable: true,
+			});
+			const sent = await call("POST", "/admin/alerts/test");
+			expect(sent.statusCode).toBe(500);
+			expectNoSecret(sent.body);
 			expect(await readdir(jobsDir)).toEqual([]);
 			// A save still goes through, read as if everything were off, so it repairs the file.
 			const put = await call("PUT", "/admin/notifications", webhookOnly);

@@ -146,7 +146,8 @@ contents, journal lines from the helper, and a banner.
    agent) first, and refuses the shell if that write fails. It then
    sends the shell id in the `open` frame. On close it writes
    `admin.root_shell_closed` (shell id, `durationSeconds` and a reason:
-   `exit`, `client`, `session_ended` or `api_stopped`). The helper's
+   `exit`, `client`, `session_ended`, `api_stopped` or
+   `database_lost`). The helper's
    journal lines (shell id, actor id, address, process id, duration) and
    PAM's lines record each shell too. If the API crashes, an opened row
    has no closed row, and the journal line is then the record. A banner

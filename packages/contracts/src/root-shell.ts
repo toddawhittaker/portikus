@@ -10,5 +10,6 @@ export const RootShellCloseReason = z.enum([
 	"client",
 	"session_ended",
 	"api_stopped",
+	"database_lost",
 ]);
 export type RootShellCloseReason = z.infer<typeof RootShellCloseReason>;

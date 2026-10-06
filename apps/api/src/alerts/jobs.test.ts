@@ -1,6 +1,10 @@
-import { NOTIFY_JOB_STALE_MS, type NotifyJobView } from "@portikus/contracts";
+import {
+	isNotifyJobActive,
+	NOTIFY_JOB_STALE_MS,
+	type NotifyJobView,
+} from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
-import { isActive, latestJob } from "./jobs.js";
+import { latestJob } from "./jobs.js";
 
 const NOW = Date.parse("2026-10-06T12:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -21,16 +25,19 @@ function job(over: Partial<NotifyJobView>): NotifyJobView {
 	};
 }
 
-describe("isActive", () => {
+describe("isNotifyJobActive", () => {
 	test("a queued or running job is active until NOTIFY_JOB_STALE_MS has passed", () => {
-		expect(isActive(job({ state: "queued", requestedAt: ago(60_000) }), NOW)).toBe(
-			true,
-		);
 		expect(
-			isActive(job({ state: "queued", requestedAt: ago(NOTIFY_JOB_STALE_MS) }), NOW),
+			isNotifyJobActive(job({ state: "queued", requestedAt: ago(60_000) }), NOW),
+		).toBe(true);
+		expect(
+			isNotifyJobActive(
+				job({ state: "queued", requestedAt: ago(NOTIFY_JOB_STALE_MS) }),
+				NOW,
+			),
 		).toBe(false);
 		expect(
-			isActive(
+			isNotifyJobActive(
 				job({
 					state: "running",
 					requestedAt: ago(NOTIFY_JOB_STALE_MS * 2),
@@ -39,9 +46,9 @@ describe("isActive", () => {
 				NOW,
 			),
 		).toBe(true);
-		expect(isActive(job({ state: "succeeded", requestedAt: ago(1000) }), NOW)).toBe(
-			false,
-		);
+		expect(
+			isNotifyJobActive(job({ state: "succeeded", requestedAt: ago(1000) }), NOW),
+		).toBe(false);
 	});
 });
 

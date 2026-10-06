@@ -1,7 +1,9 @@
-import type {
-	AdminNotifications,
-	NotificationSettingsView,
-	NotifyJobView,
+import {
+	type AdminNotifications,
+	NOTIFY_FILE_OFF,
+	type NotificationSettingsView,
+	type NotifyJobView,
+	notificationSettingsView,
 } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -46,7 +48,9 @@ function job(over: Partial<NotifyJobView> = {}): NotifyJobView {
 
 /** Answers GET with `page`, PUT with `put` and the test with `tested`. */
 function serve(
-	page: AdminNotifications,
+	page: Omit<AdminNotifications, "storedFileUnreadable"> & {
+		storedFileUnreadable?: boolean;
+	},
 	answers: { put?: () => Response; tested?: () => Response } = {},
 ) {
 	return stubFetch((url, init) => {
@@ -58,7 +62,7 @@ function serve(
 		if (init?.method === "PUT") {
 			return answers.put ? answers.put() : json(202, job());
 		}
-		return json(200, page);
+		return json(200, { storedFileUnreadable: false, ...page });
 	});
 }
 
@@ -114,12 +118,39 @@ test("shows each channel with a switch, and saved secrets only as set and their 
 	expect(screen.queryByLabelText("User key")).toBeNull();
 });
 
+test("warns when the stored settings could not be read, and only then", async () => {
+	serve({
+		settings: notificationSettingsView(NOTIFY_FILE_OFF),
+		job: null,
+		storedFileUnreadable: true,
+	});
+	renderWithQuery(<NotificationsSection />);
+	expect((await screen.findByTestId("notify-unreadable")).textContent).toBe(
+		"The stored notification settings could not be read, so every channel shows as off. Saving replaces them.",
+	);
+	expect(box("Send alerts by email").checked).toBe(false);
+});
+
+test("shows no unreadable warning for a readable file", async () => {
+	serve({ settings: SETTINGS, job: null, storedFileUnreadable: false });
+	renderWithQuery(<NotificationsSection />);
+	await screen.findByRole("group", { name: "Email" });
+	expect(screen.queryByTestId("notify-unreadable")).toBeNull();
+});
+
+test("links its help topic", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+	const link = await screen.findByRole("link", { name: /More in Help/ });
+	expect(link.getAttribute("href")).toBe("/admin/help#admin-notifications");
+});
+
 test("with root shells off, the root-shell alert stays and its description says they are off", async () => {
 	for (const enabled of [false, true]) {
 		stubFetch((url) =>
 			url === "/admin/root-shell"
 				? json(200, { enabled })
-				: json(200, { settings: SETTINGS, job: null }),
+				: json(200, { settings: SETTINGS, job: null, storedFileUnreadable: false }),
 		);
 		renderWithQuery(<NotificationsSection />);
 		const alert = await screen.findByRole("checkbox", {

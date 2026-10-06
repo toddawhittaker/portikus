@@ -1,4 +1,5 @@
 import {
+	isNotifyJobActive,
 	NOTIFY_FILE_OFF,
 	type NotificationSettingsView,
 	NotifyJobCode,
@@ -10,7 +11,6 @@ import {
 	CODE_TEXT,
 	FIELD_ID,
 	initialForm,
-	isActive,
 	isStale,
 	jobText,
 	type NotifyForm,
@@ -327,19 +327,19 @@ describe("a job that never finishes", () => {
 
 	test("blocks a save for five minutes from queueing or starting, then says it did not finish", () => {
 		const queued = job({});
-		expect(isActive(queued, at + 4 * 60_000)).toBe(true);
-		expect(isActive(queued, at + 5 * 60_000)).toBe(false);
+		expect(isNotifyJobActive(queued, at + 4 * 60_000)).toBe(true);
+		expect(isNotifyJobActive(queued, at + 5 * 60_000)).toBe(false);
 		expect(isStale(queued, at + 5 * 60_000)).toBe(true);
 		expect(jobText(queued, at + 6 * 60_000)).toBe(STALE_TEXT);
 
 		// A running job counts from when it started.
 		const running = job({ state: "running", startedAt: "2026-10-06T10:04:00.000Z" });
-		expect(isActive(running, at + 6 * 60_000)).toBe(true);
+		expect(isNotifyJobActive(running, at + 6 * 60_000)).toBe(true);
 		expect(isStale(running, at + 10 * 60_000)).toBe(true);
 	});
 
 	test("a finished job is never stale, and an unknown time never goes stale", () => {
 		expect(isStale(job({ state: "succeeded" }), at + 60 * 60_000)).toBe(false);
-		expect(isActive(job({ requestedAt: null }), at + 60 * 60_000)).toBe(true);
+		expect(isNotifyJobActive(job({ requestedAt: null }), at + 60 * 60_000)).toBe(true);
 	});
 });

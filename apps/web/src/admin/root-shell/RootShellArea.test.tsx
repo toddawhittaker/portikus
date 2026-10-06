@@ -78,6 +78,12 @@ test("nothing opens until asked, and the banner says what these shells are", () 
 	expect(screen.queryAllByTestId("leaf")).toHaveLength(0);
 });
 
+test("links its help topic", () => {
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
+	const link = screen.getByRole("link", { name: /More in Help/ });
+	expect(link.getAttribute("href")).toBe("/admin/help#admin-shell");
+});
+
 test("each new shell gets a numbered tab; a split adds a pane to the same tab", () => {
 	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));

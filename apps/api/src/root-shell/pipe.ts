@@ -117,7 +117,7 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 	 */
 	function abandon(): void {
 		if (inputStopped) return;
-		endWith("session_ended");
+		endWith("database_lost");
 		closeHelper();
 		socket.close(CloseCode.SERVER_ERROR, "session cannot be checked");
 	}

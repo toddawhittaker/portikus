@@ -273,6 +273,8 @@ export const AdminNotifications = z.object({
 	settings: NotificationSettingsView,
 	/** The waiting or running job, else the one started last; null before the first save. */
 	job: NotifyJobView.nullable(),
+	/** The stored file could not be read, so `settings` shows every channel off; a save replaces it. */
+	storedFileUnreadable: z.boolean(),
 });
 export type AdminNotifications = z.infer<typeof AdminNotifications>;
 
