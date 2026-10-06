@@ -59,6 +59,8 @@ READ_CHUNK = 65536
 # Typed input waiting for a shell that is not reading; input past this is dropped.
 # The socket is always read, so `end` and a close are seen however full this is.
 MAX_PENDING = 4 * CAPS[INPUT]
+DROPPED_NOTICE = (b"\r\n[Portikus: typed input was dropped because the shell was busy"
+                  b" and more than %d KiB was waiting]\r\n" % (MAX_PENDING // 1024))
 
 PEER_USER = "portikus"
 LOGIN = "/bin/login"
@@ -309,10 +311,17 @@ def create_record(run_dir, shell_id):
 
 
 def write_record(run_dir, shell_id, pid, session=None):
-    # No O_CREAT: a record the off switch removed stays removed.
-    fd = os.open(record_path(run_dir, shell_id), os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+    path = record_path(run_dir, shell_id)
+    # A record the off switch removed stays removed.
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    # Renamed into place, so a reader never sees it half written.  The dot
+    # keeps the temporary name out of records().
+    temporary = os.path.join(run_dir, "." + shell_id)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write("%d %s\n" % (pid, session) if session else "%d\n" % pid)
+    os.replace(temporary, path)
 
 
 def read_record(run_dir, shell_id):
@@ -346,6 +355,9 @@ def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
     ended = 0
     for name in records(run_dir):
         pid, session = read_record(run_dir, name)
+        # Empty or unreadable: its helper has not yet started login, and records it next.
+        if pid is None and session is None:
+            continue
         # Login had not joined its session when the record was written; a reused PID is not ours.
         if session is None and pid is not None and is_login(pid, proc):
             session = session_of(pid, proc)
@@ -385,6 +397,7 @@ class Shell:
         self.status = None
         self.started = None
         self.pending = bytearray()
+        self.dropping = False
 
     def send(self, data):
         try:
@@ -407,9 +420,18 @@ class Shell:
         return True
 
     def queue(self, data):
-        # Dropped past the cap rather than unread, so `end` behind it is still seen.
-        if len(self.pending) + len(data) <= MAX_PENDING:
-            self.pending += data
+        """Queues typed input whole or not at all, so a pasted script never runs with lines missing."""
+        # Dropped past the cap rather than left unread, so `end` behind it is still seen.
+        if self.dropping and not self.pending:
+            self.dropping = False
+        if self.dropping:
+            return
+        if len(self.pending) + len(data) > MAX_PENDING:
+            # Every later frame goes too, until the shell has taken all that was waiting.
+            self.dropping = True
+            self.send(encode(OUTPUT, DROPPED_NOTICE))
+            return
+        self.pending += data
 
     def watch(self, selector):
         # Never block on the terminal: a shell blocked printing would never read what we type.

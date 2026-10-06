@@ -232,7 +232,7 @@ class EndSessionsTest(unittest.TestCase):
         self.record(4, "13\n")  # login had not joined its session when recorded: found from its PID
         self.record(5, "14\n")  # the PID now belongs to another process
         self.record(6, "15 ../x\n")
-        self.record(7, "")
+        starting = self.record(7, "")  # its helper has not started login yet
         Path(self.run_dir, "not-a-shell").write_text("10 c4\n")
         self.assertEqual(rs.end_sessions(self.run_dir, self.proc, logind), 2)
         self.assertEqual([c for c in logind.calls() if "kill-session" in c],
@@ -240,7 +240,7 @@ class EndSessionsTest(unittest.TestCase):
         self.assertEqual([c for c in logind.calls() if "terminate-session" in c],
                          ["loginctl terminate-session c4", "loginctl terminate-session c7"])
         self.assertEqual(logind.live(), {"c5": "login", "8": "remote"})
-        self.assertEqual(os.listdir(self.run_dir), ["not-a-shell"])
+        self.assertEqual(sorted(os.listdir(self.run_dir)), sorted(["not-a-shell", starting]))
 
     def test_no_directory(self):
         self.assertEqual(rs.end_sessions(os.path.join(self.dir, "none"), self.proc, FakeLogind(self.dir)), 0)
@@ -262,9 +262,54 @@ class EndSessionsTest(unittest.TestCase):
         self.assertEqual(rs.read_record(self.run_dir, SHELL), (42, None))
         rs.write_record(self.run_dir, SHELL, 42, "c9")
         self.assertEqual(rs.read_record(self.run_dir, SHELL), (42, "c9"))
+        self.assertEqual(os.listdir(self.run_dir), [SHELL])
+        self.assertEqual(os.stat(os.path.join(self.run_dir, SHELL)).st_mode & 0o777, 0o600)
         rs.forget_record(self.run_dir, SHELL)
         with self.assertRaises(FileNotFoundError):
             rs.write_record(self.run_dir, SHELL, 42)
+
+    def test_a_record_is_never_seen_half_written(self):
+        rs.create_record(self.run_dir, SHELL)
+        rs.write_record(self.run_dir, SHELL, 42)
+        old = os.stat(os.path.join(self.run_dir, SHELL)).st_ino
+        rs.write_record(self.run_dir, SHELL, 42, "c9")
+        # A new file renamed over the old one: a reader holds either whole.
+        self.assertNotEqual(os.stat(os.path.join(self.run_dir, SHELL)).st_ino, old)
+
+
+class QueueTest(unittest.TestCase):
+    def setUp(self):
+        self.ours, self.theirs = socket.socketpair()
+        self.shell = rs.Shell(self.ours, run=_no_real_loginctl)
+
+    def tearDown(self):
+        self.ours.close()
+        self.theirs.close()
+
+    def sent(self):
+        self.theirs.setblocking(False)
+        try:
+            return self.theirs.recv(65536)
+        except BlockingIOError:
+            return b""
+
+    def test_input_is_queued_whole_or_dropped_until_the_queue_drains(self):
+        frames = [bytes([65 + i]) * rs.CAPS[rs.INPUT] for i in range(4)]
+        for frame in frames:
+            self.shell.queue(frame)
+        self.assertEqual(bytes(self.shell.pending), b"".join(frames))
+        self.assertEqual(self.sent(), b"")
+        self.shell.queue(b"E" * 10)
+        self.assertEqual(self.sent(), rs.encode(rs.OUTPUT, rs.DROPPED_NOTICE))
+        self.assertIn(b"256 KiB", rs.DROPPED_NOTICE)
+        # Partly drained is not enough: a later line would run with the dropped one missing.
+        del self.shell.pending[:rs.CAPS[rs.INPUT]]
+        self.shell.queue(b"F\n")
+        self.assertEqual(bytes(self.shell.pending), b"".join(frames[1:]))
+        self.assertEqual(self.sent(), b"", "one notice per overflow")
+        self.shell.pending.clear()
+        self.shell.queue(b"G\n")
+        self.assertEqual(bytes(self.shell.pending), b"G\n")
 
 
 def frames_from(sock, until, timeout=10):

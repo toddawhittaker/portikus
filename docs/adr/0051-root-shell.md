@@ -35,7 +35,10 @@ contents, journal lines from the helper, and a banner.
    has reused for another sign-in is never ended. Ending a session also
    kills every process left in its scope (`loginctl kill-session`):
    once `login` has exited, logind abandons the scope and
-   `terminate-session` alone leaves a tmux server there running. Each closing helper
+   `terminate-session` alone leaves a tmux server there running. The
+   kill is SIGKILL, sent straight after `terminate-session` with no
+   grace period, on revocation and on the off switch alike. A tmux
+   running `apt upgrade` is killed in the middle of dpkg. Each closing helper
    also forgets the records of sessions that have ended. The journal
    lines carry the process id and the session. The package's `prerm`
    script also stops the socket and its instances. An upgrade turns the
@@ -76,8 +79,11 @@ contents, journal lines from the helper, and a banner.
      body is read: `open` 4 KiB, `resize` 64 bytes, `end` 64 bytes, `input` 64 KiB.
    - The socket is always read, so `end` and a close are seen even while
      the shell reads nothing. Input waiting for the shell is capped at
-     256 KiB, and input past the cap is dropped. On `end` the waiting
-     input is dropped before the session ends.
+     256 KiB. Input is never spliced: the frame that would pass the cap
+     and every later one are dropped until the shell has taken all that
+     was waiting, and the shell's output carries one notice saying so.
+     The shell is not hung up. On `end` the waiting input is dropped
+     before the session ends.
    - The first frame must be `open`, and `open` comes only once. An
      unknown type closes the connection.
    - `cols` and `rows` are integers from 1 to 1000.
