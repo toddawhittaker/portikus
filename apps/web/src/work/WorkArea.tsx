@@ -3,16 +3,7 @@
  * layout of one project (SPEC.md §7.5, §8, §9.3, §10.2). A coding-agent
  * launcher creates an ordinary terminal and names the agent.
  */
-import {
-	DndContext,
-	type DragMoveEvent,
-	DragOverlay,
-	PointerSensor,
-	pointerWithin,
-	useDroppable,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
+import { DndContext, DragOverlay, pointerWithin, useDroppable } from "@dnd-kit/core";
 import type { CodingAgent, Terminal } from "@portikus/contracts";
 import {
 	Button,
@@ -31,23 +22,15 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
+import { type SplitDirection, terminalIds } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import { dropZone, insertionIndex } from "./dropZone.js";
 import { moveIntoTargets } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
+import { TAB_STRIP_DROP_ID, usePaneDrag } from "./usePaneDrag.js";
 import "./work.css";
-
-/** The one droppable that covers the tab strip (SPEC.md §8.3). */
-const TAB_STRIP_DROP_ID = "work-tab-strip";
-
-/** Where a dragged pane would land, as the drag moves. */
-type DragTarget =
-	| { kind: "pane"; tabId: string; terminalId: string; edge: DropEdge }
-	| { kind: "strip"; index: number; markerX: number };
 
 /**
  * Radix focuses a menu trigger when the menu closes, and that programmatic
@@ -125,12 +108,16 @@ export function WorkArea({
 		replacing: string | null;
 	} | null>(null);
 	const showRightPane = useShowRightPane();
-	const [draggedPane, setDraggedPane] = useState<{
-		terminalId: string;
-		title: string;
-	} | null>(null);
-	const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
 	const strip = useRef<HTMLDivElement | null>(null);
+	const drag = usePaneDrag({
+		tabs: layout.tabs,
+		strip,
+		moveLeaf: (tabId, dragged, target, edge) =>
+			store.getState().moveLeaf(tabId, dragged, target, edge),
+		moveLeafToNewTab: (dragged, index) =>
+			store.getState().moveLeafToNewTab(dragged, index),
+	});
+	const { draggedPane, dragTarget } = drag;
 	const launcherMenu = useLauncherMenuFocus();
 
 	// Until both lists are in, an empty layout only means not loaded yet.
@@ -362,95 +349,11 @@ export function WorkArea({
 
 	const closingTab = layout.tabs.find((tab) => tab.id === closingTabId);
 
-	// 4px so a click on a title bar still just focuses the pane, matching the
-	// tab strip's own sensor.
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-	);
-
-	/**
-	 * Where the pointer is now. dnd-kit reports the pointer-down event and the
-	 * distance dragged since, which together beat measuring the moving rect.
-	 */
-	function pointerOf(event: DragMoveEvent): { x: number; y: number } | null {
-		const activator = event.activatorEvent;
-		if (!(activator instanceof MouseEvent)) return null;
-		return {
-			x: activator.clientX + event.delta.x,
-			y: activator.clientY + event.delta.y,
-		};
-	}
-
-	/** The insertion point on the tab strip, and where to draw its marker. */
-	function stripTargetAt(x: number): DragTarget | null {
-		const container = strip.current;
-		if (!container) return null;
-		const rects = [...container.querySelectorAll<HTMLElement>('[role="tab"]')].map(
-			(tab) => tab.getBoundingClientRect(),
-		);
-		const index = insertionIndex(rects, x);
-		const box = container.getBoundingClientRect();
-		const at = rects[index];
-		const last = rects[rects.length - 1];
-		const edge = at ? at.left : (last?.right ?? box.left);
-		return { kind: "strip", index, markerX: edge - box.left };
-	}
-
-	function handleDragMove(event: DragMoveEvent) {
-		const dragged = String(event.active.data.current?.terminalId ?? "");
-		const pointer = pointerOf(event);
-		const over = event.over;
-		if (!over || !pointer) {
-			setDragTarget(null);
-			return;
-		}
-		if (over.id === TAB_STRIP_DROP_ID) {
-			setDragTarget(stripTargetAt(pointer.x));
-			return;
-		}
-		const terminalId = String(over.data.current?.terminalId ?? "");
-		const tab = layout.tabs.find((item) => terminalIds(item.root).includes(terminalId));
-		if (!terminalId || terminalId === dragged || !tab) {
-			setDragTarget(null);
-			return;
-		}
-		setDragTarget({
-			kind: "pane",
-			tabId: tab.id,
-			terminalId,
-			edge: dropZone(over.rect, pointer.x, pointer.y),
-		});
-	}
-
-	function handleDragEnd() {
-		const dragged = draggedPane?.terminalId;
-		const target = dragTarget;
-		setDraggedPane(null);
-		setDragTarget(null);
-		if (!dragged || !target) return;
-		if (target.kind === "strip") {
-			store.getState().moveLeafToNewTab(dragged, target.index);
-			return;
-		}
-		store.getState().moveLeaf(target.tabId, dragged, target.terminalId, target.edge);
-	}
-
 	return (
 		<DndContext
-			sensors={sensors}
+			sensors={drag.sensors}
 			collisionDetection={pointerWithin}
-			onDragStart={(event) =>
-				setDraggedPane({
-					terminalId: String(event.active.data.current?.terminalId ?? ""),
-					title: String(event.active.data.current?.title ?? ""),
-				})
-			}
-			onDragMove={handleDragMove}
-			onDragEnd={handleDragEnd}
-			onDragCancel={() => {
-				setDraggedPane(null);
-				setDragTarget(null);
-			}}
+			{...drag.handlers}
 		>
 			<div className="pk-work-area" data-testid="work-area">
 				<TabStripDrop>
@@ -593,11 +496,7 @@ export function WorkArea({
 							onUnsavedChange={(unsaved) =>
 								store.getState().setTabUnsaved(tab.id, unsaved)
 							}
-							dropTarget={
-								dragTarget?.kind === "pane" && dragTarget.tabId === tab.id
-									? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }
-									: null
-							}
+							dropTarget={drag.dropTargetIn(tab.id)}
 						/>
 					))
 				)}

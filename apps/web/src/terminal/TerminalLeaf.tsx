@@ -1,34 +1,14 @@
 /**
- * One terminal pane inside a split: the title bar with its actions and the
- * terminal itself (SPEC.md §9.3). A terminal ended by a workspace stop keeps
- * its place and offers a new one (SPEC.md §6.8).
+ * One terminal pane inside a split: the pane frame around the terminal
+ * itself (SPEC.md §9.3). A terminal ended by a workspace stop keeps its
+ * place and offers a new one (SPEC.md §6.8).
  */
-import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { Terminal, TerminalTheme } from "@portikus/contracts";
-import {
-	Button,
-	IconButton,
-	Menu,
-	MenuCheckboxItem,
-	MenuItem,
-	MenuRoot,
-	MenuSeparator,
-	MenuSub,
-	MenuTrigger,
-} from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import { Button } from "@portikus/ui";
+import { useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
-import { usePointerDismiss } from "../work/pointerDismiss.js";
+import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
-
-/** The dnd-kit ids for one pane's drag handle and its drop area. */
-function paneDragId(terminalId: string): string {
-	return `pane-drag-${terminalId}`;
-}
-
-function paneDropId(terminalId: string): string {
-	return `pane-drop-${terminalId}`;
-}
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -59,37 +39,6 @@ export interface TerminalLeafProps {
 	dropEdge?: DropEdge | null;
 }
 
-/**
- * Radix focuses a menu trigger when the menu closes, and that programmatic
- * focus paints the focus ring. A pointer dismiss leaves the trigger at rest;
- * a keyboard dismiss still focuses it.
- */
-function usePointerDismissFocus() {
-	const { pointer, track: onOpenChange } = usePointerDismiss();
-
-	// An action that moves the keyboard elsewhere runs once the menu has
-	// closed, instead of the trigger taking the keyboard back.
-	const afterClose = useRef<(() => void) | null>(null);
-	function thenFocus(action: () => void) {
-		afterClose.current = action;
-	}
-
-	function onCloseAutoFocus(event: Event) {
-		const action = afterClose.current;
-		if (action) {
-			afterClose.current = null;
-			event.preventDefault();
-			action();
-			return;
-		}
-		if (!pointer.current) return;
-		event.preventDefault();
-		pointer.current = false;
-	}
-
-	return { onOpenChange, onCloseAutoFocus, thenFocus };
-}
-
 /** `/home/student/projects/x` reads as `~/projects/x` to a student. */
 export function shortenPath(path: string): string {
 	return path.startsWith("/home/student")
@@ -118,167 +67,32 @@ export function TerminalLeaf({
 	alone,
 	dropEdge = null,
 }: TerminalLeafProps) {
-	const [renaming, setRenaming] = useState(false);
-	const [draft, setDraft] = useState(terminal.name);
-	const field = useRef<HTMLInputElement | null>(null);
-	const mountId = useRef(crypto.randomUUID());
-	const actionsMenu = usePointerDismissFocus();
-	// The menu returns focus to its trigger as it closes, so the field waits
-	// for that to happen and only commits on a blur once it really had focus.
-	const armed = useRef(false);
 	// The agent reports the directory as the student cds around (SPEC.md §9.3).
 	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
 	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
-	// The title bar is the drag handle; the whole pane is a drop area
-	// (SPEC.md §9.3).
-	const drag = useDraggable({
-		id: paneDragId(terminal.id),
-		data: { terminalId: terminal.id, title },
-	});
-	const drop = useDroppable({
-		id: paneDropId(terminal.id),
-		data: { terminalId: terminal.id },
-	});
-
-	useEffect(() => {
-		if (!renaming) {
-			armed.current = false;
-			return;
-		}
-		const timer = setTimeout(() => {
-			field.current?.focus();
-			field.current?.select();
-		}, 50);
-		return () => clearTimeout(timer);
-	}, [renaming]);
-
-	function commitRename() {
-		const name = draft.trim();
-		if (name.length > 0 && name !== terminal.name) onRename(terminal.id, name);
-		setRenaming(false);
-	}
 
 	return (
-		<section
-			ref={drop.setNodeRef}
-			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
-			aria-label={`Terminal: ${title}`}
-			data-testid={`terminal-leaf-${terminal.id}`}
-			// The pane's own --terminal-* tokens, so the title bar and the
-			// scrollbar follow this terminal rather than the per-user default
-			// on the document.
-			data-terminal-theme={terminal.theme}
-			// Changes only when this pane is mounted again, which a test reads
-			// to tell a move apart from a teardown and reconnect.
-			data-mount-id={mountId.current}
-			onFocusCapture={() => onFocus(terminal.id)}
-			onMouseDown={() => onFocus(terminal.id)}
+		<PaneFrame
+			terminalId={terminal.id}
+			name={terminal.name}
+			title={title}
+			theme={terminal.theme}
+			focused={focused}
+			ended={ended}
+			alone={alone}
+			dropEdge={dropEdge}
+			moveTargets={moveTargets}
+			onFocus={onFocus}
+			onSplit={onSplit}
+			onMoveToNewTab={onMoveToNewTab}
+			onMoveInto={onMoveInto}
+			onResetSizes={onResetSizes}
+			onLeave={onLeave}
+			onClose={onClose}
+			onRename={onRename}
+			onSetTheme={onSetTheme}
 		>
-			<div className="pk-term-bar">
-				{renaming ? (
-					<input
-						ref={field}
-						aria-label={`Rename ${terminal.name}`}
-						data-testid="terminal-rename-field"
-						className="pk-term-bar-input"
-						value={draft}
-						onFocus={() => {
-							armed.current = true;
-						}}
-						onChange={(event) => setDraft(event.target.value)}
-						onBlur={() => {
-							if (armed.current) commitRename();
-						}}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") commitRename();
-							if (event.key === "Escape") setRenaming(false);
-						}}
-					/>
-				) : (
-					// Only the drag listeners: dnd-kit's attributes would make the
-					// title a focus stop inside the terminal.
-					<span
-						ref={drag.setNodeRef}
-						className="pk-term-bar-title pk-term-bar-title--handle"
-						data-testid={`terminal-handle-${terminal.id}`}
-						{...drag.listeners}
-					>
-						{title}
-					</span>
-				)}
-				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
-					<MenuTrigger asChild={true}>
-						<IconButton
-							icon="more"
-							label={`Actions for ${terminal.name}`}
-							size="sm"
-							data-testid={`terminal-actions-${terminal.id}`}
-						/>
-					</MenuTrigger>
-					<Menu
-						label={`Actions for ${terminal.name}`}
-						onCloseAutoFocus={actionsMenu.onCloseAutoFocus}
-					>
-						<MenuItem disabled={ended} onSelect={() => onSplit(terminal.id, "row")}>
-							<span data-testid="split-right">Split right</span>
-						</MenuItem>
-						<MenuItem disabled={ended} onSelect={() => onSplit(terminal.id, "column")}>
-							<span data-testid="split-down">Split down</span>
-						</MenuItem>
-						<MenuItem disabled={alone} onSelect={() => onMoveToNewTab(terminal.id)}>
-							<span data-testid="terminal-move-to-new-tab">Move to new tab</span>
-						</MenuItem>
-						<MenuSub
-							label="Move into"
-							disabled={moveTargets.length === 0}
-							testId="terminal-move-into"
-						>
-							{moveTargets.map((target) => (
-								<MenuItem
-									key={target.tabId}
-									testId={`terminal-move-into-${target.tabId}`}
-									onSelect={() => onMoveInto(terminal.id, target.tabId)}
-								>
-									{target.label}
-								</MenuItem>
-							))}
-						</MenuSub>
-						<MenuItem disabled={alone} onSelect={onResetSizes}>
-							<span data-testid="terminal-reset-sizes">Reset pane sizes</span>
-						</MenuItem>
-						<MenuSeparator />
-						<MenuItem
-							onSelect={() => {
-								setDraft(terminal.name);
-								setRenaming(true);
-							}}
-						>
-							<span data-testid="terminal-rename">Rename</span>
-						</MenuItem>
-						<MenuCheckboxItem
-							testId="terminal-theme-toggle"
-							checked={terminal.theme === "light"}
-							onCheckedChange={(light) =>
-								onSetTheme(terminal.id, light ? "light" : "dark")
-							}
-						>
-							Light terminal
-						</MenuCheckboxItem>
-						<MenuSeparator />
-						<MenuItem
-							shortcut={["Alt", "Shift", "Q"]}
-							onSelect={() => actionsMenu.thenFocus(onLeave)}
-						>
-							<span data-testid="terminal-leave">Leave terminal</span>
-						</MenuItem>
-						<MenuSeparator />
-						<MenuItem danger={true} onSelect={() => onClose(terminal.id)}>
-							<span data-testid="terminal-close">Close</span>
-						</MenuItem>
-					</Menu>
-				</MenuRoot>
-			</div>
 			{ended ? (
 				<div className="pk-term-ended" data-testid={`terminal-ended-${terminal.id}`}>
 					<p className="pk-term-ended-text">
@@ -306,13 +120,6 @@ export function TerminalLeaf({
 					onLeave={onLeave}
 				/>
 			)}
-			{dropEdge ? (
-				<div
-					className={`pk-term-drop pk-term-drop--${dropEdge}`}
-					data-testid={`drop-zone-${terminal.id}`}
-					data-edge={dropEdge}
-				/>
-			) : null}
-		</section>
+		</PaneFrame>
 	);
 }
