@@ -22,10 +22,13 @@ contents, journal lines from the helper, and a banner.
    restriction and no per-shell or site-wide limit. An operator turns
    the feature off with `portikus_root_shell: false` in `portikus.yaml`.
    Setup then runs `systemctl disable --now` on the socket, stops every
-   helper instance, ends the logind sessions the helper created
-   (`loginctl terminate-session`, found by the helper's PAM service and
-   terminal), leaves `ROOT_SHELL_SOCKET` empty in `api.env`, and the web
-   app hides the tab. The package's `prerm` script also stops the socket
+   helper instance, ends the logind sessions led by the `login`
+   processes the helper started (`loginctl terminate-session`), and
+   leaves `ROOT_SHELL_SOCKET` empty in `api.env`, and the web
+   app hides the tab. The helper records the process id of each
+   `login` child it starts in its journal line and in one file per
+   shell under `/run/portikus-root-shell/`, removed when the shell
+   closes; setup reads those files to find the sessions. The package's `prerm` script also stops the socket
    and its instances. An upgrade turns the feature on for existing
    sites.
 2. **A helper outside the API.** The API never runs as root. A
@@ -50,7 +53,8 @@ contents, journal lines from the helper, and a banner.
    then the body. The types are `open` (JSON `{shellId, actorId,
    actorName, address, cols, rows}`, no secret), `input` (bytes),
    `resize` (JSON `{cols, rows}`), `output` (bytes), `exit` (JSON
-   `{status}`) and `error` (JSON `{code}`). The API translates these to
+   `{status}`), `error` (JSON `{code}`) and `end` (API to helper, JSON
+   `{reason}`, described in decision 5). The API translates these to
    and from the browser frames of SPEC.md section 9.7, so the browser's
    frame decoder is unchanged. Browser frames keep section 9.7's caps.
    There is no reconnect and no platform tmux: closing the socket ends
@@ -58,7 +62,7 @@ contents, journal lines from the helper, and a banner.
 
    The helper enforces these limits:
    - Each type has a size cap, checked against the length before the
-     body is read: `open` 4 KiB, `resize` 64 bytes, `input` 64 KiB.
+     body is read: `open` 4 KiB, `resize` 64 bytes, `end` 64 bytes, `input` 64 KiB.
    - The first frame must be `open`, and `open` comes only once. An
      unknown type closes the connection.
    - `cols` and `rows` are integers from 1 to 1000.
@@ -94,10 +98,15 @@ contents, journal lines from the helper, and a banner.
    all further browser input and calls `terminate()` on the browser
    socket. It does not call `close()`, because the WebSocket close
    handshake can take 30 seconds and keeps delivering input meanwhile.
-   When a revoked session ends a shell, the helper's handling of the
-   closed connection also ends that shell's logind session. Processes
-   that deliberately escape it (for example with `setsid nohup`) are
-   ended only by the off switch's `terminate-session`; the operations
+   When the reason is `session_ended` (revocation: sign-out, role loss,
+   a disabled account, the 12-hour limit, or the failed database
+   re-check), the API sends an `end` frame before closing the helper
+   connection. On `end`, and only then, the helper ends that shell's
+   logind session, found from the process id of the `login` child it
+   started. Every other close only hangs up (SIGHUP), so an
+   administrator's own tmux survives an ordinary pane close. Processes
+   that deliberately escape the logind session (for example with
+   `setsid nohup`) are ended only by the off switch; the operations
    guide says so.
 
    Two flood guards stay: root-shell sockets count toward the 60

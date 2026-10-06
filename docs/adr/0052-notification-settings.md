@@ -49,7 +49,7 @@ Ansible and without restarting services.
 3. **Who owns the file.** The page owns it after its first save, as for
    the certificate (ADR 0046). Setup creates it only when it is missing,
    from the `portikus_alert_*` keys in `secrets.yaml` or the old
-   `alerts.env`, then deletes `alerts.env`. Setup writes
+   `alerts.env`, then deletes `alerts.env` (in T4). Setup writes
    `rootShellOpenedAlert: false`. Backups carry the file.
 4. **A root job applies changes**, following ADR 0030:
    `portikus-alerts-job.path` and `.service`, Python standard library.
@@ -58,9 +58,13 @@ Ansible and without restarting services.
    it the way the certificate job does: `O_NOFOLLOW`, a regular file
    only, and a size cap. It checks every field again, then writes
    `notify.json` atomically with mode 0640 and group `portikus-notify`.
-   It writes `/etc/portikus/egress-proxy.d/alerts.conf`, runs
-   `squid -k parse` against the new configuration before swapping it in,
-   reloads Squid, and writes a status file holding only channel kinds,
+   It updates `/etc/portikus/egress-proxy.d/alerts.conf` by swap, parse
+   and roll back: it keeps a copy of the old file, renames the new one
+   into place, and runs `squid -k parse`; if the parse fails it puts the
+   old file back and reports a fixed code without reloading. This is
+   simpler than building a staged copy of Squid's whole configuration,
+   and Squid never reads the new file before the parse passes because
+   only a reload makes it read. Then it reloads Squid, and writes a status file holding only channel kinds,
    host names and fixed codes.
 5. **A Squid include folder.** Squid's configuration includes
    `/etc/portikus/egress-proxy.d/*.conf`, after both the IP-literal deny
