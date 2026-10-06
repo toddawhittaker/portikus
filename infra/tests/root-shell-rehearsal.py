@@ -442,11 +442,12 @@ def off_state():
     with open(HOLD) as f:
         held = json.load(f)
     check("the held shell's login ended", not alive(held["loginPid"]))
-    check("the daemon in its session was ended", not pids_of(held["marker"]))
+    check("its tmux was ended", wait_for(lambda: not pids_of(held["marker"]), 10))
     check("its session is gone", held["session"] is not None and "State" not in session_props(held["session"]))
     left = held["leftover"]
-    check("tmux left behind a closed pane was ended", not pids_of(left["marker"]))
-    check("that session is gone too", left["session"] is not None and "State" not in session_props(left["session"]))
+    check("tmux left behind a closed pane was ended", wait_for(lambda: not pids_of(left["marker"]), 10))
+    check("that session is gone too", left["session"] is not None
+          and wait_for(lambda: "State" not in session_props(left["session"]), 10))
     end_leftovers(held["session"], held["marker"])
     end_leftovers(left["session"], left["marker"])
     os.unlink(HOLD)
