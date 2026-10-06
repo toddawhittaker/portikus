@@ -154,4 +154,50 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		await expectNoViolations(page, '[data-testid="notify-section"]');
 	});
+
+	test(`the section without the alerts job, and when it cannot load, has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await routeApi(page, "**/admin/notifications", (route) =>
+			route.fulfill({
+				status: 404,
+				json: { code: "NOT_FOUND", message: "Not found." },
+			}),
+		);
+		await page.goto("/admin/settings");
+		const section = page.getByTestId("notify-section");
+		await expect(section.getByTestId("notify-off")).toContainText(
+			"This site runs without the alerts job",
+			{ timeout: 15_000 },
+		);
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+		await routeApi(page, "**/admin/notifications", (route) =>
+			route.fulfill({
+				status: 500,
+				json: { code: "INTERNAL", message: "Something went wrong on the server." },
+			}),
+		);
+		await page.goto("/admin/settings");
+		await expect(section.getByRole("alert")).toBeVisible({ timeout: 15_000 });
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+	});
+
+	test(`with root shells off, the root-shell alert says so and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await routeApi(page, "**/admin/root-shell", (route) =>
+			route.fulfill({ json: { enabled: false } }),
+		);
+		const section = await openWith(page, {});
+		await expect(
+			section.getByRole("checkbox", { name: /^Alert when a root shell opens/ }),
+		).toHaveAccessibleDescription(/Root shells are off on this server\./);
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+	});
 }

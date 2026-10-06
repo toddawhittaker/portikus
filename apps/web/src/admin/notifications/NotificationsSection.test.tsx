@@ -3,7 +3,7 @@ import type {
 	NotificationSettingsView,
 	NotifyJobView,
 } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { NotificationsSection } from "./NotificationsSection.js";
@@ -112,6 +112,32 @@ test("shows each channel with a switch, and saved secrets only as set and their 
 	);
 	// A channel turned off shows no fields.
 	expect(screen.queryByLabelText("User key")).toBeNull();
+});
+
+test("with root shells off, the root-shell alert stays and its description says they are off", async () => {
+	for (const enabled of [false, true]) {
+		stubFetch((url) =>
+			url === "/admin/root-shell"
+				? json(200, { enabled })
+				: json(200, { settings: SETTINGS, job: null }),
+		);
+		renderWithQuery(<NotificationsSection />);
+		const alert = await screen.findByRole("checkbox", {
+			name: /^Alert when a root shell opens/,
+		});
+		if (enabled) {
+			await waitFor(() =>
+				expect(description(alert)).toContain("each time anyone opens a root shell"),
+			);
+			expect(description(alert)).not.toContain("Root shells are off");
+		} else {
+			await waitFor(() =>
+				expect(description(alert)).toContain("Root shells are off on this server."),
+			);
+			expect((alert as HTMLInputElement).disabled).toBe(false);
+		}
+		cleanup();
+	}
 });
 
 test("a save sends no secret that was not typed, and drops the typed ones after", async () => {
