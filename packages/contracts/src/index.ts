@@ -42,6 +42,7 @@ export * from "./preview.js";
 export * from "./processes.js";
 export * from "./project.js";
 export * from "./recovery.js";
+export * from "./root-shell.js";
 export * from "./search.js";
 export * from "./settings.js";
 export * from "./terminal.js";
