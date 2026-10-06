@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type NotificationSettingsUpdate,
@@ -33,9 +34,30 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 	const jobs: NotifyJobView[] = [];
 	for (const name of await listDir(dir)) {
 		const id = REQUEST_FILE.exec(name)?.[1];
-		if (id && NotifyJobId.safeParse(id).success) jobs.push(queuedView(id, null));
+		if (!id || !NotifyJobId.safeParse(id).success) continue;
+		// The file's age is its queue time; its body may hold secrets, so it is not read.
+		const queuedAt = await stat(join(dir, name)).then(
+			(s) => s.mtime.toISOString(),
+			() => null,
+		);
+		jobs.push(queuedView(id, queuedAt));
 	}
 	return jobs;
+}
+
+/**
+ * The job unit's TimeoutStartSec (2 minutes, packaging/systemd/
+ * portikus-alerts-job.service) plus a margin. A job waiting or running
+ * longer than this has died, and must not block every later save.
+ */
+export const STALE_JOB_MS = 5 * 60_000;
+
+/** True while a job is queued or running and not yet stale. */
+export function isActive(job: NotifyJobView, now: number = Date.now()): boolean {
+	if (job.state !== "queued" && job.state !== "running") return false;
+	const since = job.state === "running" ? job.startedAt : job.requestedAt;
+	const at = since ? Date.parse(since) : Number.NaN;
+	return Number.isNaN(at) || now - at < STALE_JOB_MS;
 }
 
 async function readJob(dir: string, id: string): Promise<NotifyJobView | null> {

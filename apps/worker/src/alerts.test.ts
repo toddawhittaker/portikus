@@ -316,6 +316,10 @@ describe.skipIf(skip)("forwarding", () => {
 			const text = JSON.stringify(lines);
 			expect(text).toContain("alert settings could not be read");
 			expect(text).not.toContain("s3cret");
+			// Held, not dropped: it goes out once the file reads again.
+			await writeFile(path, JSON.stringify(withWebhook));
+			await tick();
+			expect(sent.map(([a]) => a.title)).toEqual(["Down"]);
 		});
 	});
 });

@@ -1,4 +1,5 @@
 import {
+	chmod,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -38,6 +39,8 @@ import {
 	expect,
 	test,
 } from "vitest";
+import { STALE_JOB_MS } from "../alerts/jobs.js";
+import { TEST_ALERTS_PER_MINUTE } from "../rate-limit.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 const skip = !hasTestDb();
@@ -421,7 +424,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				.where("action", "=", "settings.notifications_updated")
 				.execute();
 			expect(audit).toHaveLength(1);
-			expect(audit[0]).toMatchObject({ target: queued.id, result: "ok" });
+			expect(audit[0]).toMatchObject({ target: queued.id, result: "requested" });
 			expect(audit[0]?.actor).toMatch(/^user:/);
 			expect(audit[0]?.metadata).toEqual({
 				job: queued.id,
@@ -439,8 +442,15 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				.execute();
 			expect(notices.length).toBeGreaterThan(0);
 			expect(notices[0]).toMatchObject({ tone: "warning", site_alert: true });
-			expect(notices[0]?.title).toMatch(/^Notification settings changed by /);
+			expect(notices[0]?.title).toMatch(
+				new RegExp(
+					`^Notification settings change requested by .* \\(job ${queued.id.slice(0, 8)}\\)$`,
+				),
+			);
 			expectNoSecret(JSON.stringify(notices));
+			// The outside alert went through the channels in force before the change.
+			await expect.poll(() => tunnels).toContain("hooks.example.com:443");
+			expect(tunnels).not.toContain("hooks.example.org:443");
 		} finally {
 			await app.close();
 		}
@@ -518,6 +528,113 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				(await call("GET", "/admin/notifications")).json(),
 			);
 			expect(view.job).toMatchObject({ state: "refused", code: "missing_secret" });
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("two saves arriving together: one is queued, the other is busy", async () => {
+		await writeFile(notifyFile, JSON.stringify(NOTIFY_FILE_OFF));
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			const answers = await Promise.all([
+				call("PUT", "/admin/notifications", webhookOnly),
+				call("PUT", "/admin/notifications", webhookOnly),
+			]);
+			expect(answers.map((r) => r.statusCode).sort()).toEqual([202, 409]);
+			expect(
+				(await readdir(jobsDir)).filter((n) => n.startsWith("request-")),
+			).toHaveLength(1);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("a job stuck running past the unit's timeout no longer blocks a save", async () => {
+		await writeFile(notifyFile, JSON.stringify(NOTIFY_FILE_OFF));
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			const id = "11111111-2222-4333-8444-555555555555";
+			await mkdir(join(jobsDir, id));
+			const status = (startedAt: string) =>
+				JSON.stringify({
+					id,
+					state: "running",
+					code: null,
+					channels: [],
+					hosts: [],
+					requestedAt: null,
+					requestedBy: null,
+					startedAt,
+					finishedAt: null,
+				});
+			await writeFile(
+				join(jobsDir, id, "status.json"),
+				status(new Date().toISOString()),
+			);
+			expect((await call("PUT", "/admin/notifications", webhookOnly)).statusCode).toBe(
+				409,
+			);
+			const old = new Date(Date.now() - STALE_JOB_MS - 1000).toISOString();
+			await writeFile(join(jobsDir, id, "status.json"), status(old));
+			expect((await call("PUT", "/admin/notifications", webhookOnly)).statusCode).toBe(
+				202,
+			);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("a request file that cannot be written leaves a second, failed audit row", async () => {
+		await writeFile(notifyFile, JSON.stringify(NOTIFY_FILE_OFF));
+		await chmod(jobsDir, 0o500);
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			expect((await call("PUT", "/admin/notifications", webhookOnly)).statusCode).toBe(
+				500,
+			);
+			const rows = await testDb.db
+				.selectFrom("audit_events")
+				.select(["target", "result"])
+				.where("action", "=", "settings.notifications_updated")
+				.orderBy("id")
+				.execute();
+			expect(rows.map((r) => r.result)).toEqual(["requested", "failed"]);
+			expect(rows[0]?.target).toBe(rows[1]?.target);
+		} finally {
+			await chmod(jobsDir, 0o700);
+			await app.close();
+		}
+	});
+
+	test("test alerts are limited per administrator and each one is audited", async () => {
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			for (let i = 0; i < TEST_ALERTS_PER_MINUTE; i++) {
+				expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(200);
+			}
+			const refused = await call("POST", "/admin/alerts/test");
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+			const rows = await testDb.db
+				.selectFrom("audit_events")
+				.select(["target", "result", "metadata"])
+				.where("action", "=", "settings.alert_tested")
+				.execute();
+			expect(rows).toHaveLength(TEST_ALERTS_PER_MINUTE);
+			expect(rows[0]).toMatchObject({
+				target: "all",
+				result: "ok",
+				metadata: { results: [] },
+			});
 		} finally {
 			await app.close();
 		}
