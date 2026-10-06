@@ -245,8 +245,16 @@ class RelayTest(unittest.TestCase):
             fd = os.open(self.stderr, os.O_WRONLY | os.O_CREAT, 0o600)
             os.dup2(fd, 2)
             signal.signal(signal.SIGTERM, rs.stop)
+            ended = os.path.join(self.dir, "ended")
+
+            # Never the real loginctl: the test runner's own logind session would end.
+            def terminate(session):
+                Path(ended).write_text(session)
+                return True
+
             try:
-                rs.serve(server, os.getuid(), self.run_dir, lambda _address: ["/bin/sh", script], b"BANNER\r\n")
+                rs.serve(server, os.getuid(), self.run_dir, lambda _address: ["/bin/sh", script], b"BANNER\r\n",
+                         session_for=lambda _pid: "c9", terminate=terminate)
             finally:
                 os._exit(0)
         server.close()
@@ -322,9 +330,23 @@ class RelayTest(unittest.TestCase):
         frames_from(self.client, lambda f: b"24 80" in output(f))
         self.send(rs.END, b'{"reason":"session_ended"}')
         self.wait_helper()
-        # /bin/sh here is in no logind session, so only the hang-up happens.
-        self.assertRegex(self.journal(), r"closed shell .*\(session_ended, session not found\)")
+        self.assertEqual(Path(self.dir, "ended").read_text(), "c9")
+        self.assertRegex(self.journal(), r"closed shell .*\(session_ended, session ended\)")
         self.assertTrue(Path(self.dir, "hup").exists())
+
+    def test_close_without_end_leaves_the_session(self):
+        self.send(rs.OPEN, open_body())
+        frames_from(self.client, lambda f: b"24 80" in output(f))
+        self.client.shutdown(socket.SHUT_RDWR)
+        self.wait_helper()
+        self.assertFalse(Path(self.dir, "ended").exists())
+
+    def test_repeated_shell_id_keeps_the_other_shells_file(self):
+        os.makedirs(self.run_dir, mode=0o700)
+        Path(self.run_dir, SHELL).write_text("4242\n")
+        self.send(rs.OPEN, open_body())
+        self.wait_helper()
+        self.assertEqual(Path(self.run_dir, SHELL).read_text(), "4242\n")
 
     def test_protocol_error_answers_a_fixed_code(self):
         self.send(rs.INPUT, b"rm -rf /")

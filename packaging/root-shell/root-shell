@@ -308,14 +308,13 @@ def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
             with open(os.path.join(run_dir, name)) as f:
                 text = f.read(32).strip()
         except OSError:
-            continue
-        if not text.isdigit():
-            continue
-        pid = int(text)
-        session = session_of(pid, proc) if is_login(pid, proc) else None
-        if session is not None and terminate_session(session, run):
-            log("ended the session of shell %s, login pid %d" % (name, pid))
-            ended += 1
+            text = ""
+        if text.isdigit():
+            pid = int(text)
+            session = session_of(pid, proc) if is_login(pid, proc) else None
+            if session is not None and terminate_session(session, run):
+                log("ended the session of shell %s, login pid %d" % (name, pid))
+                ended += 1
         # Its helper removes it too when the shell ends; a killed helper leaves it behind.
         forget_pid(run_dir, name)
     return ended
@@ -324,8 +323,12 @@ def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
 class Shell:
     """One connection: the socket, the login child on its pseudo-terminal, and the relay between them."""
 
-    def __init__(self, sock, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER):
+    def __init__(self, sock, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER,
+                 session_for=session_of, terminate=terminate_session):
         self.sock = sock
+        self.session_for = session_for
+        self.terminate = terminate
+        self.recorded = False
         self.run_dir = run_dir
         self.argv_for = argv_for
         self.banner = banner
@@ -380,6 +383,7 @@ class Shell:
         os.set_blocking(self.master, False)
         self.started = time.monotonic()
         record_pid(self.run_dir, opened["shellId"], self.pid)
+        self.recorded = True
         log("opened shell %s for actor %s from %s, login pid %d"
             % (opened["shellId"], opened["actorId"], opened["address"], self.pid))
         self.send(encode(OUTPUT, self.banner))
@@ -426,8 +430,8 @@ class Shell:
                 return
 
     def end_session(self):
-        session = session_of(self.pid)
-        return session is not None and terminate_session(session)
+        session = self.session_for(self.pid)
+        return session is not None and self.terminate(session)
 
     def finish(self):
         self.reap(block=True)
@@ -496,14 +500,16 @@ class Shell:
             reason = "%s, session %s" % (reason[4:], "ended" if ended else "not found")
         if self.status is None:
             self.hang_up()
-        forget_pid(self.run_dir, opened["shellId"])
+        # Never another shell's file: a repeated shell id fails before it is recorded.
+        if self.recorded:
+            forget_pid(self.run_dir, opened["shellId"])
         log("closed shell %s for actor %s from %s, login pid %d, after %d seconds (%s)"
             % (opened["shellId"], opened["actorId"], opened["address"], self.pid,
                int(time.monotonic() - self.started), reason))
 
 
-def serve(sock, uid, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER):
-    shell = Shell(sock, run_dir, argv_for, banner)
+def serve(sock, uid, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER, **session_calls):
+    shell = Shell(sock, run_dir, argv_for, banner, **session_calls)
     if not peer_allowed(peer_uid(sock), uid):
         shell.refuse("peer-refused")
         return
