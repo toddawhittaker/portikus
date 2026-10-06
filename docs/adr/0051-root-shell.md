@@ -59,7 +59,9 @@ contents, journal lines from the helper, and a banner.
 3. **Transport.** Each pane is its own browser WebSocket to the API,
    its own connection to the socket and its own helper instance. On the
    socket, each frame is a 1-byte type and a 4-byte big-endian length,
-   then the body. The types are `open` (JSON `{shellId, actorId,
+   then the body. The type bytes are 0x01 to 0x04 for `open`, `input`,
+   `resize` and `end`, and 0x81 to 0x83 for `output`, `exit` and
+   `error`. The types are `open` (JSON `{shellId, actorId,
    actorName, address, cols, rows}`, no secret), `input` (bytes),
    `resize` (JSON `{cols, rows}`), `output` (bytes), `exit` (JSON
    `{status}`), `error` (JSON `{code}`) and `end` (API to helper, JSON
@@ -111,11 +113,12 @@ contents, journal lines from the helper, and a banner.
    database fails, the shell ends after about 60 consecutive failed
    checks; do database maintenance inside tmux.
 
-   On any end the API first closes the helper connection, then drops
-   all further browser input and calls `terminate()` on the browser
-   socket. It does not call `close()`, because the WebSocket close
-   handshake can take 30 seconds and keeps delivering input meanwhile.
-   When the reason is `session_ended` (revocation: sign-out, role loss,
+   On revocation the API drops all further browser input at once,
+   closes the helper connection, and closes the browser socket with
+   `close(4401)`, as the workspace terminals do, so the web client hears
+   the session-ended code. Dropping input first matters because the
+   WebSocket close handshake can take 30 seconds and keeps delivering
+   input meanwhile. When the reason is `session_ended` (revocation: sign-out, role loss,
    a disabled account, the 12-hour limit, or the failed database
    re-check), the API sends an `end` frame before closing the helper
    connection. On `end`, and only then, the helper ends that shell's
