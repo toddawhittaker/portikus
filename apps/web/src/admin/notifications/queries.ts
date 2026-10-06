@@ -14,12 +14,16 @@ export const notificationsKey = ["admin", "notifications"] as const;
 /** A queued or running job is polled every two seconds, as the certificate page does. */
 const POLL_MS = 2000;
 
-/** The settings in force and the latest job; polled while that job is unfinished. */
-export function useNotifications() {
+/**
+ * The settings in force and the latest job; polled while that job is
+ * unfinished, or while `waiting` for a job this page asked for.
+ */
+export function useNotifications(waiting: boolean) {
 	return useQuery({
 		queryKey: notificationsKey,
 		queryFn: () => request(AdminNotifications, "/admin/notifications"),
-		refetchInterval: (query) => (isActive(query.state.data?.job) ? POLL_MS : false),
+		refetchInterval: (query) =>
+			waiting || isActive(query.state.data?.job) ? POLL_MS : false,
 		retry: false,
 	});
 }
@@ -31,12 +35,7 @@ export function useSaveNotifications() {
 		gcTime: 0,
 		mutationFn: (body: NotificationSettingsUpdate) =>
 			sendJson(NotifyJobView, "/admin/notifications", body, "PUT"),
-		onSuccess: (job) => {
-			client.setQueryData<AdminNotifications>(notificationsKey, (now) =>
-				now ? { ...now, job } : now,
-			);
-			return client.invalidateQueries({ queryKey: notificationsKey });
-		},
+		onSuccess: () => client.invalidateQueries({ queryKey: notificationsKey }),
 	});
 }
 

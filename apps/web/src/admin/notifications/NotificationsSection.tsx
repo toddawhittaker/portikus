@@ -1,5 +1,5 @@
 import type { AdminNotifications, NotifyJobView } from "@portikus/contracts";
-import { Button, Checkbox, Skeleton, useToast } from "@portikus/ui";
+import { Button, Checkbox, Skeleton } from "@portikus/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
@@ -16,8 +16,10 @@ import {
 	type FormErrors,
 	initialForm,
 	isActive,
+	isStale,
 	jobText,
 	type NotifyForm,
+	staleAt,
 	toUpdate,
 	validate,
 } from "./form.js";
@@ -31,7 +33,15 @@ const BUSY_NOTE = "A change is being applied. Wait until it finishes, then save 
  * root alerts job to apply them and this section follows that job.
  */
 export function NotificationsSection() {
-	const notifications = useNotifications();
+	// The job this page asked for. The API may report an older dead job
+	// instead until the new one is taken, so the page follows its own.
+	const [requested, setRequested] = useState<NotifyJobView | null>(null);
+	const waiting = requested !== null && isActive(requested);
+	const notifications = useNotifications(waiting);
+	const reported = notifications.data?.job ?? null;
+	if (requested && reported?.id === requested.id) setRequested(null);
+	const job = waiting ? requested : reported;
+	useRenderAt(isActive(job) ? staleAt(job) : null);
 	return (
 		<AdminGroup
 			id="notify-title"
@@ -40,7 +50,11 @@ export function NotificationsSection() {
 			testId="notify-section"
 		>
 			{notifications.data ? (
-				<NotificationsForm data={notifications.data} />
+				<NotificationsForm
+					data={notifications.data}
+					job={job}
+					onRequested={setRequested}
+				/>
 			) : notifications.isError ? (
 				notifications.error instanceof ApiError &&
 				notifications.error.status === 404 ? (
@@ -62,15 +76,23 @@ export function NotificationsSection() {
 	);
 }
 
-function NotificationsForm({ data }: { data: AdminNotifications }) {
-	const toast = useToast();
+function NotificationsForm({
+	data,
+	job,
+	onRequested,
+}: {
+	data: AdminNotifications;
+	/** The job to show: the one this page asked for, else the latest the API reports. */
+	job: NotifyJobView | null;
+	onRequested: (job: NotifyJobView) => void;
+}) {
 	const save = useSaveNotifications();
 	const view = data.settings;
 	const [form, setFormState] = useState<NotifyForm>(() => initialForm(view));
 	const [errors, setErrors] = useState<FormErrors>({});
 	const [failure, setFailure] = useState<string | null>(null);
 	const focusError = useRef(false);
-	const busy = isActive(data.job);
+	const busy = isActive(job);
 
 	// New settings in force after a save: start the form from them. Each poll
 	// brings a new object, so they are compared by content.
@@ -113,8 +135,8 @@ function NotificationsForm({ data }: { data: AdminNotifications }) {
 			return;
 		}
 		save.mutate(toUpdate(form), {
-			onSuccess: () => {
-				toast.show({ tone: "success", title: "Saving notification settings" });
+			onSuccess: (queued) => {
+				onRequested(queued);
 				// The secrets are with the job now; the page keeps none of them.
 				setFormState((now) => ({
 					...now,
@@ -194,7 +216,7 @@ function NotificationsForm({ data }: { data: AdminNotifications }) {
 				) : null}
 				{/* Always mounted, so each change of the job's state is read out (SPEC.md section 25.8). */}
 				<div role="status" data-testid="notify-job">
-					{data.job ? <JobLine job={data.job} /> : null}
+					{job ? <JobLine job={job} /> : null}
 				</div>
 			</div>
 		</form>
@@ -204,6 +226,7 @@ function NotificationsForm({ data }: { data: AdminNotifications }) {
 function JobLine({ job }: { job: NotifyJobView }) {
 	const text = jobText(job);
 	if (isActive(job)) return <Notice tone="pending">{text}</Notice>;
+	if (isStale(job)) return <Notice tone="warning">{text}</Notice>;
 	if (job.state === "succeeded") {
 		return (
 			<p className="pk-text-compact pk-muted m-0">
@@ -213,4 +236,20 @@ function JobLine({ job }: { job: NotifyJobView }) {
 		);
 	}
 	return <Notice tone="error">{text}</Notice>;
+}
+
+/**
+ * Render again at `at`: a dead job stops the polling, so nothing else would
+ * redraw the page when it turns stale.
+ */
+function useRenderAt(at: number | null) {
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		if (at === null || Number.isNaN(at)) return;
+		const timer = setTimeout(
+			() => setTick((n) => n + 1),
+			Math.max(0, at - Date.now()) + 50,
+		);
+		return () => clearTimeout(timer);
+	}, [at]);
 }

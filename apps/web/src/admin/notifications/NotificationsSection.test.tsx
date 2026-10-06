@@ -269,3 +269,68 @@ test("Send test goes to that saved channel only, and says what happened", async 
 		within(screen.getByRole("group", { name: "Pushover" })).queryByRole("button"),
 	).toBeNull();
 });
+
+test("a job queued long ago is shown as not finished, and Save is offered again", async () => {
+	const fetch = serve({
+		settings: SETTINGS,
+		job: job({ requestedAt: new Date(Date.now() - 6 * 60_000).toISOString() }),
+	});
+	renderWithQuery(<NotificationsSection />);
+
+	const save = await screen.findByRole("button", {
+		name: "Save notification settings",
+	});
+	expect(screen.getByTestId("notify-job").textContent).toContain(
+		"The last change did not finish",
+	);
+	expect(save.getAttribute("aria-disabled")).toBeNull();
+	fireEvent.click(save);
+	await waitFor(() =>
+		expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(1),
+	);
+});
+
+test("too many tests in a minute says to wait", async () => {
+	serve(
+		{ settings: SETTINGS, job: null },
+		{
+			tested: () =>
+				json(429, {
+					code: "RATE_LIMITED",
+					message: "Too many requests just now. Try again in a minute.",
+				}),
+		},
+	);
+	renderWithQuery(<NotificationsSection />);
+
+	const webhook = await screen.findByRole("group", { name: "Webhook" });
+	fireEvent.click(
+		within(webhook).getByRole("button", { name: "Send test to the webhook" }),
+	);
+	await waitFor(() =>
+		expect(within(webhook).getByTestId("notify-webhook-test-result").textContent).toBe(
+			"Not sent: too many test alerts just now. Try again in a minute.",
+		),
+	);
+});
+
+test("after a save the page follows its own job, though the API still reports a dead one", async () => {
+	const dead = job({
+		id: "44444444-4444-4444-8444-444444444444",
+		requestedAt: new Date(Date.now() - 6 * 60_000).toISOString(),
+	});
+	serve(
+		{ settings: SETTINGS, job: dead },
+		{ put: () => json(202, job({ requestedAt: new Date().toISOString() })) },
+	);
+	renderWithQuery(<NotificationsSection />);
+
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Save notification settings" }),
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("notify-job").textContent).toContain(
+			"Saving. Waiting for the server",
+		),
+	);
+});

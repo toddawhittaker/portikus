@@ -17,7 +17,7 @@ import {
 	TextField,
 } from "@portikus/ui";
 import type { ReactNode } from "react";
-import { errorText } from "../../api/request.js";
+import { ApiError, errorText } from "../../api/request.js";
 import {
 	CHANNEL_NAME,
 	FIELD_ID,
@@ -80,6 +80,14 @@ export function testResultText(results: AlertChannelResult[]): string {
 	return result.ok
 		? "Sent. Check that it arrived."
 		: `Not sent: ${failureText(result.error)}.`;
+}
+
+/** The API allows a few tests a minute per administrator. */
+export function testErrorText(error: unknown): string {
+	if (error instanceof ApiError && error.status === 429) {
+		return "Not sent: too many test alerts just now. Try again in a minute.";
+	}
+	return errorText(error);
 }
 
 interface ChannelProps {
@@ -157,7 +165,7 @@ function TestRow({ kind }: { kind: AlertChannelKind }) {
 				data-testid={`notify-${kind}-test-result`}
 			>
 				{test.isSuccess ? testResultText(test.data.results) : null}
-				{test.isError ? errorText(test.error) : null}
+				{test.isError ? testErrorText(test.error) : null}
 			</output>
 		</div>
 	);

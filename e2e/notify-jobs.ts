@@ -5,6 +5,7 @@ import {
 	rename,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -115,6 +116,19 @@ function merge(update: NotificationSettingsUpdate, stored: NotifyFile): NotifyFi
 
 async function requestFiles(): Promise<string[]> {
 	return (await readdir(ALERTS_JOBS_DIR)).filter((n) => /^request-.*\.json$/.test(n));
+}
+
+/**
+ * A request the job never took, queued `minutes` ago, as after the job
+ * unit died. Returns its path so the test can take it away again.
+ */
+export async function putStaleRequest(minutes: number): Promise<string> {
+	const id = crypto.randomUUID();
+	const path = join(ALERTS_JOBS_DIR, `request-${id}.json`);
+	await writeFile(path, "{}", { mode: 0o600 });
+	const then = new Date(Date.now() - minutes * 60_000);
+	await utimes(path, then, then);
+	return path;
 }
 
 /** Whether a request is still waiting for the job. */

@@ -1,9 +1,18 @@
+import { rm } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
-import { API_ORIGIN, createStudent, loginAs, WEB_ORIGIN } from "./helpers";
+import {
+	API_ORIGIN,
+	createSignedInUser,
+	createStudent,
+	loginAs,
+	routeApi,
+	WEB_ORIGIN,
+} from "./helpers";
 import {
 	type NotifyFile,
 	playAlertsJob,
 	putNotifyFile,
+	putStaleRequest,
 	readNotifyFile,
 	resetNotifyStore,
 } from "./notify-jobs";
@@ -56,8 +65,11 @@ const ALL_ON: NotifyFile = {
 	rootShellOpenedAlert: false,
 };
 
-async function open(page: Page) {
-	await loginAs(page, "carol");
+async function open(
+	page: Page,
+	signIn: () => Promise<unknown> = () => loginAs(page, "carol"),
+) {
+	await signIn();
 	await page.goto("/admin/settings");
 	const section = page.getByTestId("notify-section");
 	await expect(section.getByRole("heading", { name: "Notifications" })).toBeVisible({
@@ -232,8 +244,17 @@ test("while a change waits, Save says why it is unavailable, and a second save i
 	context,
 }) => {
 	const section = await open(page);
-	// A second tab opened before the first save still offers Save.
+	// A second tab whose reads still show no job, as one loaded just before
+	// the first save would; its save reaches the real API.
 	const other = await context.newPage();
+	await routeApi(other, "**/admin/notifications", async (route, request) => {
+		if (request.method() !== "GET") return route.fallback();
+		const real = await route.fetch();
+		return route.fulfill({
+			response: real,
+			json: { ...(await real.json()), job: null },
+		});
+	});
 	await other.goto("/admin/settings");
 	const otherSection = other.getByTestId("notify-section");
 	await expect(otherSection.getByTestId("notify-loading")).toHaveCount(0, {
@@ -304,9 +325,11 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 
 test("Send test goes to the one saved channel named, through the saved settings", async ({
 	page,
+	context,
 }) => {
 	await putNotifyFile(ALL_ON);
-	const section = await open(page);
+	// An administrator of its own, so the per-administrator test limit is fresh.
+	const section = await open(page, () => createSignedInUser(context, "administrator"));
 
 	const webhook = section.getByTestId("notify-webhook");
 	const answer = page.waitForResponse((r) => r.url().endsWith("/admin/alerts/test"));
@@ -365,4 +388,56 @@ test("students see no Settings tab and the API refuses them", async ({
 	});
 	expect(tested.status()).toBe(403);
 	expect(await readNotifyFile()).toMatchObject({ rootShellOpenedAlert: false });
+});
+
+test("more than five tests a minute are refused, and the page says to wait", async ({
+	page,
+	context,
+}) => {
+	await putNotifyFile(ALL_ON);
+	const section = await open(page, () => createSignedInUser(context, "administrator"));
+	const button = section.getByRole("button", { name: "Send test to the webhook" });
+	const result = section.getByTestId("notify-webhook-test-result");
+	for (let sent = 0; sent < 5; sent++) {
+		const answer = page.waitForResponse((r) => r.url().endsWith("/admin/alerts/test"));
+		await button.click();
+		expect((await answer).status()).toBe(200);
+		await expect(button).not.toHaveAttribute("aria-busy", "true");
+	}
+	const refused = page.waitForResponse((r) => r.url().endsWith("/admin/alerts/test"));
+	await button.click();
+	const answer = await refused;
+	expect(answer.status()).toBe(429);
+	expect(Number(answer.headers()["retry-after"])).toBeGreaterThan(0);
+	await expect(result).toHaveText(
+		"Not sent: too many test alerts just now. Try again in a minute.",
+	);
+});
+
+test("a change the job never took is shown as not finished, and a new save goes through", async ({
+	page,
+}) => {
+	const stale = await putStaleRequest(6);
+	const section = await open(page);
+	await expect(section.getByTestId("notify-job")).toContainText(
+		"The last change did not finish",
+	);
+	const save = section.getByRole("button", { name: "Save notification settings" });
+	await expect(save).not.toHaveAttribute("aria-disabled", "true");
+
+	await toggleRootShellAlert(page, true);
+	const answer = page.waitForResponse(
+		(r) => r.url().endsWith("/admin/notifications") && r.request().method() === "PUT",
+	);
+	await save.click();
+	expect((await answer).status()).toBe(202);
+	await expect(section.getByTestId("notify-job")).toContainText("Saving.");
+
+	await rm(stale);
+	await playAlertsJob();
+	await expect(section.getByTestId("notify-job")).toContainText(
+		"The new settings are in use.",
+		{ timeout: 10_000 },
+	);
+	expect((await readNotifyFile()).rootShellOpenedAlert).toBe(true);
 });

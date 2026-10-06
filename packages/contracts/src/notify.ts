@@ -275,3 +275,10 @@ export const AdminNotifications = z.object({
 	job: NotifyJobView.nullable(),
 });
 export type AdminNotifications = z.infer<typeof AdminNotifications>;
+
+/**
+ * A job waiting or running longer than this has died: the job unit's
+ * two-minute start timeout plus a margin. It no longer blocks a save, and
+ * the page says it did not finish.
+ */
+export const NOTIFY_JOB_STALE_MS = 5 * 60_000;

@@ -1,6 +1,7 @@
 import {
 	type AlertChannelKind,
 	MAX_ALERT_EMAIL_RECIPIENTS,
+	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	type NotifyJobCode,
@@ -314,12 +315,40 @@ export const CODE_TEXT: Record<NotifyJobCode, string> = {
 		"The server could not write the settings file. Nothing changed. Look for portikus-alerts-job in the server's journal.",
 };
 
-export function isActive(job: NotifyJobView | null | undefined): boolean {
-	return job?.state === "queued" || job?.state === "running";
+/**
+ * When an unfinished job counts as dead, as the API decides it: from the
+ * time it started running, or else the time it was queued. Null for a
+ * finished job; NaN when the time is unknown, which never goes stale.
+ */
+export function staleAt(job: NotifyJobView | null | undefined): number | null {
+	if (job?.state !== "queued" && job?.state !== "running") return null;
+	const since = job.state === "running" ? job.startedAt : job.requestedAt;
+	return since ? Date.parse(since) + NOTIFY_JOB_STALE_MS : Number.NaN;
 }
 
+/** Queued or running, and not yet stale: a save waits for it. */
+export function isActive(
+	job: NotifyJobView | null | undefined,
+	now: number = Date.now(),
+): boolean {
+	const at = staleAt(job);
+	return at !== null && (Number.isNaN(at) || now < at);
+}
+
+/** Queued or running for longer than any job takes: it will not finish. */
+export function isStale(
+	job: NotifyJobView | null | undefined,
+	now: number = Date.now(),
+): boolean {
+	return staleAt(job) !== null && !isActive(job, now);
+}
+
+export const STALE_TEXT =
+	"The last change did not finish, so it may not be in use. Save again. If it stops again, look for portikus-alerts-job in the server's journal.";
+
 /** One line on the latest save, for the page and its status region. */
-export function jobText(job: NotifyJobView): string {
+export function jobText(job: NotifyJobView, now: number = Date.now()): string {
+	if (isStale(job, now)) return STALE_TEXT;
 	switch (job.state) {
 		case "queued":
 			return "Saving. Waiting for the server to apply the change.";
