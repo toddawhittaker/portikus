@@ -131,6 +131,7 @@ function stubAdmin(
 			return json(200, {
 				settings: notificationSettingsView(NOTIFY_FILE_OFF),
 				job: null,
+				storedFileUnreadable: false,
 			});
 		}
 		throw new Error(`unexpected request: ${url}`);
@@ -306,6 +307,7 @@ test("the Settings tab shows a settings read failure", async () => {
 			return json(200, {
 				settings: notificationSettingsView(NOTIFY_FILE_OFF),
 				job: null,
+				storedFileUnreadable: false,
 			});
 		}
 		throw new Error(`unexpected request: ${url}`);
@@ -340,6 +342,7 @@ test("a student sent to /admin lands on the not-authorized page", async () => {
 			return json(200, {
 				settings: notificationSettingsView(NOTIFY_FILE_OFF),
 				job: null,
+				storedFileUnreadable: false,
 			});
 		}
 		throw new Error(`unexpected request: ${url}`);

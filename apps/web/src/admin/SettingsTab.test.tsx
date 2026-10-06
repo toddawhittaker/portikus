@@ -31,6 +31,7 @@ function stubSettings() {
 			return json(200, {
 				settings: notificationSettingsView(NOTIFY_FILE_OFF),
 				job: null,
+				storedFileUnreadable: false,
 			});
 		throw new Error(`unexpected request: ${url}`);
 	});

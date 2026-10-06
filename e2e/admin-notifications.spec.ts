@@ -1,14 +1,16 @@
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	API_ORIGIN,
 	createSignedInUser,
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	routeApi,
 	WEB_ORIGIN,
 } from "./helpers";
 import {
+	NOTIFY_FILE,
 	type NotifyFile,
 	playAlertsJob,
 	putNotifyFile,
@@ -465,6 +467,35 @@ test("a change the job never took is shown as not finished, and a new save goes 
 		"The new settings are in use.",
 		{ timeout: 10_000 },
 	);
+	expect((await readNotifyFile()).rootShellOpenedAlert).toBe(true);
+});
+
+test("an unreadable settings file still loads the page, warns, and a save repairs it", async ({
+	page,
+}) => {
+	await writeFile(NOTIFY_FILE, `{"version": 1, "smtp": "${SECRETS.smtpPassword}"`);
+	const section = await open(page);
+	await expect(section.getByTestId("notify-unreadable")).toHaveText(
+		"The stored notification settings could not be read, so every channel shows as off. Saving replaces them.",
+	);
+	await expect(
+		section.getByRole("checkbox", { name: "Send alerts by email" }),
+	).not.toBeChecked();
+	await expect(section).not.toContainText(SECRETS.smtpPassword);
+	await expectNoViolations(page, '[data-testid="notify-section"]');
+
+	await toggleRootShellAlert(page, true);
+	const answer = page.waitForResponse(
+		(r) => r.url().endsWith("/admin/notifications") && r.request().method() === "PUT",
+	);
+	await section.getByRole("button", { name: "Save notification settings" }).click();
+	expect((await answer).status()).toBe(202);
+	await playAlertsJob();
+	await expect(section.getByTestId("notify-job")).toContainText(
+		"The new settings are in use.",
+		{ timeout: 10_000 },
+	);
+	await expect(section.getByTestId("notify-unreadable")).toHaveCount(0);
 	expect((await readNotifyFile()).rootShellOpenedAlert).toBe(true);
 });
 

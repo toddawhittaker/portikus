@@ -35,6 +35,8 @@ import {
 } from "./form.js";
 import { useNotifications, useSaveNotifications } from "./queries.js";
 
+const UNREADABLE_NOTE =
+	"The stored notification settings could not be read, so every channel shows as off. Saving replaces them.";
 const BUSY_NOTE = "A change is being applied. Wait until it finishes, then save again.";
 
 /**
@@ -233,6 +235,11 @@ function NotificationsForm({
 			<p role="status" className="sr-only" data-testid="notify-warning-announce">
 				{announcement}
 			</p>
+			{data.storedFileUnreadable && (
+				<Notice tone="warning" testId="notify-unreadable">
+					{UNREADABLE_NOTE}
+				</Notice>
+			)}
 			<EmailChannel {...parts} />
 			<PushoverChannel {...parts} />
 			<NtfyChannel {...parts} />
