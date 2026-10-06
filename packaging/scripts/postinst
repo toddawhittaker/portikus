@@ -247,6 +247,29 @@ if ! getent group portikus-notify >/dev/null; then
 	addgroup --system portikus-notify
 fi
 
+# An upgrade from a release that kept alerts in alerts.env: the API and the
+# worker restart below read only notify.json, and setup may stop before it
+# seeds the file, so seed it here and say so if that fails (ADR 0052).
+NOTIFY=/etc/portikus/notify.json
+ALERTS_JOB=/usr/lib/portikus/alerts-job
+if [ ! -e "$NOTIFY" ] && [ -f /etc/portikus/alerts.env ] && [ -x "$ALERTS_JOB" ]; then
+	if ! seed_log=$(echo '{}' | "$ALERTS_JOB" seed 2>&1 >/dev/null); then
+		if [ -e "$NOTIFY" ]; then
+			echo "portikus: notify.json was made from alerts.env, but the egress proxy rules were not updated; setup updates them ($seed_log)" >&2
+		else
+			cat >&2 <<EOF
+
+Warning: alerts are off until this is fixed. The alert settings in
+/etc/portikus/alerts.env were refused ($seed_log).
+A webhook must now be an https URL on port 443. Correct or remove
+portikus_alert_webhook_url in /etc/portikus/secrets.yaml, then run:
+  sudo portikus setup
+
+EOF
+		fi
+	fi
+fi
+
 # The controller needs the Incus socket; the group exists only once Incus does.
 if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin

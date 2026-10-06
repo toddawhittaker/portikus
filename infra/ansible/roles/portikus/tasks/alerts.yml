@@ -29,7 +29,9 @@
   ansible.builtin.file:
     path: /etc/portikus/alerts.env
     state: absent
-  when: portikus_alerts_job.stat.exists
+  when:
+    - portikus_alerts_job.stat.exists
+    - portikus_alerts_seed is succeeded
 
 # The API writes requests here, and the root job started by the path unit
 # reads them.
