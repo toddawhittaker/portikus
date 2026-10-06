@@ -263,6 +263,20 @@ contents:
   - src: ./packaging/systemd/portikus-backup-offsite.timer
     dst: /usr/lib/systemd/system/portikus-backup-offsite.timer
     file_info: *unit_info
+  # The admin page's root shells (docs/adr/0051-root-shell.md).  Setup
+  # enables the socket unless portikus_root_shell is false.
+  - src: ./packaging/systemd/portikus-root-shell.socket
+    dst: /usr/lib/systemd/system/portikus-root-shell.socket
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-root-shell@.service
+    dst: /usr/lib/systemd/system/portikus-root-shell@.service
+    file_info: *unit_info
+  - src: ./packaging/root-shell/root-shell
+    dst: /usr/lib/portikus/root-shell
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # The recipe a "rebuild" job builds from (ADR 0030).
   - src: ./infra/workspace-image/portikus.yaml
     dst: /usr/share/portikus/workspace-image/portikus.yaml

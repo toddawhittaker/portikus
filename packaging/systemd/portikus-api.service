@@ -14,6 +14,8 @@ Group=portikus
 # Reads the journal for the admin Logs tab; the API process only, not the
 # portikus user, so the worker does not get it (docs/adr/0036).
 SupplementaryGroups=systemd-journal
+# Connects to the root-shell socket; the API process only, as above (docs/adr/0051).
+SupplementaryGroups=portikus-root-shell
 EnvironmentFile=/etc/portikus/api.env
 # Where alerts go; missing until setup writes it (STACK.md section 15).
 EnvironmentFile=-/etc/portikus/alerts.env

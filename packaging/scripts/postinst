@@ -235,6 +235,12 @@ for user in portikus portikus-worker portikus-controller; do
 	fi
 done
 
+# Before the API restarts below: its unit names this group, and only the API
+# joins it, through SupplementaryGroups= (docs/adr/0051-root-shell.md).
+if ! getent group portikus-root-shell >/dev/null; then
+	addgroup --system portikus-root-shell
+fi
+
 # The controller needs the Incus socket; the group exists only once Incus does.
 if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin

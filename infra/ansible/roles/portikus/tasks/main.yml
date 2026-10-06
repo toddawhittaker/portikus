@@ -152,6 +152,9 @@
     mode: "0640"
   notify: Restart portikus-api
 
+- name: Set up the root shell
+  ansible.builtin.import_tasks: root_shell.yml
+
 # The root job's status directory, which also holds the lock every job
 # command takes, so before the first call below.
 - name: Create the certificate status directory

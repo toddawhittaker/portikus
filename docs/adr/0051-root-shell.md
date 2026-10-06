@@ -21,16 +21,28 @@ contents, journal lines from the helper, and a banner.
    shell. There is no step-up check, no password prompt, no address
    restriction and no per-shell or site-wide limit. An operator turns
    the feature off with `portikus_root_shell: false` in `portikus.yaml`.
-   Setup then runs `systemctl disable --now` on the socket, stops every
-   helper instance, ends the logind sessions led by the `login`
-   processes the helper started (`loginctl terminate-session`), and
-   leaves `ROOT_SHELL_SOCKET` empty in `api.env`, and the web
-   app hides the tab. The helper records the process id of each
-   `login` child it starts in its journal line and in one file per
-   shell under `/run/portikus-root-shell/`, removed when the shell
-   closes; setup reads those files to find the sessions. The package's `prerm` script also stops the socket
-   and its instances. An upgrade turns the feature on for existing
-   sites.
+   Setup then runs `systemctl disable --now` on the socket, ends the
+   logind sessions of the shells (`loginctl terminate-session`), stops
+   every helper instance, and leaves `ROOT_SHELL_SOCKET` empty in
+   `api.env`, and the web app hides the tab. The helper keeps one record
+   per shell under `/run/portikus-root-shell/`: the process id of the
+   `login` child it starts and, once `login` has joined it, the logind
+   session. It claims the record before `login` starts, so a repeated
+   shell id is refused. The record stays while the session lives, so
+   what a closed pane left running there, such as tmux, is still found.
+   Setup ends every recorded session that still exists and whose PAM
+   service is `remote`, and forgets the rest, so a process id the kernel
+   has reused for another sign-in is never ended. Ending a session also
+   kills every process left in its scope (`loginctl kill-session`):
+   once `login` has exited, logind abandons the scope and
+   `terminate-session` alone leaves a tmux server there running. The
+   kill is SIGKILL, sent straight after `terminate-session` with no
+   grace period, on revocation and on the off switch alike. A tmux
+   running `apt upgrade` is killed in the middle of dpkg. Each closing helper
+   also forgets the records of sessions that have ended. The journal
+   lines carry the process id and the session. The package's `prerm`
+   script also stops the socket and its instances. An upgrade turns the
+   feature on for existing sites.
 2. **A helper outside the API.** The API never runs as root. A
    per-connection root helper, `portikus-root-shell@.service` (Python
    standard library), sits behind `/run/portikus-root-shell.sock`, with
@@ -65,6 +77,13 @@ contents, journal lines from the helper, and a banner.
    The helper enforces these limits:
    - Each type has a size cap, checked against the length before the
      body is read: `open` 4 KiB, `resize` 64 bytes, `end` 64 bytes, `input` 64 KiB.
+   - The socket is always read, so `end` and a close are seen even while
+     the shell reads nothing. Input waiting for the shell is capped at
+     256 KiB. Input is never spliced: the frame that would pass the cap
+     and every later one are dropped until the shell has taken all that
+     was waiting, and the shell's output carries one notice saying so.
+     The shell is not hung up. On `end` the waiting input is dropped
+     before the session ends.
    - The first frame must be `open`, and `open` comes only once. An
      unknown type closes the connection.
    - `cols` and `rows` are integers from 1 to 1000.
@@ -81,7 +100,11 @@ contents, journal lines from the helper, and a banner.
    `os.login_tty`) and no other inherited descriptor. That makes a PAM
    (Pluggable Authentication Modules) session that behaves like SSH: a
    logind scope, entries in `who`, `last` and wtmp, and PAM's own
-   journal line. Closing the socket sends the shell SIGHUP, and a tmux
+   journal line. With `-h`, `login` uses the PAM service `remote`, which
+   Debian does not ship; PAM would then fall back to `other`, without
+   the login user id, limits, environment or keyring. Setup installs
+   `/etc/pam.d/remote` with `login`'s stack when the file is absent, and
+   installs tmux on the host. Closing the socket sends the shell SIGHUP, and a tmux
    the administrator started survives. The helper's own standard error
    carries only fixed codes, never exception text, so nothing the shell
    writes reaches the helper's journal; the real-host check proves this
@@ -105,12 +128,12 @@ contents, journal lines from the helper, and a banner.
    a disabled account, the 12-hour limit, or the failed database
    re-check), the API sends an `end` frame before closing the helper
    connection. On `end`, and only then, the helper ends that shell's
-   logind session, found from the process id of the `login` child it
-   started. Every other close only hangs up (SIGHUP), so an
-   administrator's own tmux survives an ordinary pane close. Processes
-   that deliberately escape the logind session (for example with
-   `setsid nohup`) are ended only by the off switch; the operations
-   guide says so.
+   logind session, found from its record. Every other close only hangs
+   up (SIGHUP), so an administrator's own tmux survives an ordinary pane
+   close. What a closed pane left in its session, such as tmux or a
+   `setsid nohup` job, is ended by the off switch. A root process can
+   also leave the session altogether, for example with `systemd-run`;
+   nothing here ends that, and the operations guide says so.
 
    Two flood guards stay: root-shell sockets count toward the 60
    terminal sockets per user (SPEC.md section 24.13), and systemd's
