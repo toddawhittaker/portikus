@@ -359,7 +359,8 @@ function SecretUrlField({
 			mono
 			autoComplete="off"
 			spellCheck={false}
-			placeholder={example}
+			// A stored URL is never shown, so an example there would read as the stored one.
+			placeholder={host ? undefined : example}
 			hint={
 				host
 					? `Set, sending to ${host}. Leave blank to keep it.`
