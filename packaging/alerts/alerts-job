@@ -1,0 +1,794 @@
+#!/usr/bin/python3
+"""The notification settings job, run as root by portikus-alerts-job.service.
+
+It owns /etc/portikus/notify.json, the administrator alert settings (ADR
+0052), and /etc/portikus/egress-proxy.d/alerts.conf, the egress proxy rules
+that let the API and the worker reach the alert hosts those settings name.
+
+Request files. The API writes request-<id>.json, mode 0600, into the job
+directory, and the path unit starts this job:
+
+  {"id": "<uuid>", "requestedAt": "<ISO time>", "requestedBy": "<user uuid>",
+   "settings": <NotificationSettingsUpdate, packages/contracts/src/notify.ts>}
+
+A secret left out of the settings keeps the stored one, except that a new
+SMTP host, port or user name clears the stored password, and a new ntfy host
+clears the stored token, so a changed host never receives an old secret.
+
+Status. Each request gets <id>/status.json in the job directory:
+
+  {"id", "state": "running" | "succeeded" | "refused" | "failed",
+   "code": null | one of CODES, "channels": [kinds that are on],
+   "hosts": [host names the proxy allows], "requestedAt", "requestedBy",
+   "startedAt", "finishedAt"}
+
+It never holds a secret: only channel kinds, host names and fixed codes.
+
+Python standard library only, as the other root jobs (ADR 0030): strict
+validation of everything the API sent, atomic writes, a lock, and
+argument-list subprocesses.
+
+Usage:
+  alerts-job            take and apply pending requests (the path unit)
+  alerts-job seed       setup: create notify.json when it is missing, from
+                        the secrets.yaml values on standard input
+                        ({"pushoverUserKey", "pushoverAppToken", "webhookUrl"})
+                        or else from the old alerts.env; then bring
+                        alerts.conf in line with notify.json
+  alerts-job restore    a backup restore: a whole notify.json on standard
+                        input replaces the current one
+"""
+
+import datetime
+import fcntl
+import grp
+import json
+import os
+import pwd
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import time
+import urllib.parse
+
+NOTIFY_FILE = "/etc/portikus/notify.json"
+NOTIFY_GROUP = "portikus-notify"
+# Written by setup up to Epic 35; read once, to seed notify.json.
+ALERTS_ENV = "/etc/portikus/alerts.env"
+# The egress proxy includes every *.conf here; this job owns alerts.conf.
+PROXY_DIR = "/etc/portikus/egress-proxy.d"
+PROXY_FILE = "alerts.conf"
+# Neither name ends in .conf, so the proxy never reads them.
+PROXY_NEW = "alerts.conf.new"
+PROXY_OLD = "alerts.conf.old"
+SQUID_CONF = "/etc/squid/squid.conf"
+SQUID_UNIT = "squid.service"
+JOBS_DIR = "/var/lib/portikus/alerts-jobs"
+API_USER = "portikus"
+PUSHOVER_HOST = "api.pushover.net"
+
+KINDS = ("email", "pushover", "webhook", "ntfy", "teams")
+MAX_EMAIL_RECIPIENTS = 10
+MAX_REQUEST_BYTES = 64 * 1024
+MAX_SECRET = 500
+KEEP_JOBS = 20
+
+# Every code a status file or the journal may carry.
+CODES = (
+    "invalid_request", "invalid_smtp", "invalid_email", "invalid_pushover", "invalid_webhook",
+    "invalid_ntfy", "invalid_teams", "email_needs_smtp", "missing_secret",
+    "proxy_config_rejected", "proxy_reload_failed", "write_failed",
+)
+
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+DATETIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z", re.ASCII)
+REQUEST_NAME_RE = re.compile(r"request-(.*)\.json", re.ASCII | re.DOTALL)
+# No leading or trailing dot, so a proxy entry never widens to every subdomain.
+HOST_RE = re.compile(r"(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                     r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*", re.ASCII)
+# zod's email pattern.
+EMAIL_RE = re.compile(
+    r"(?!\.)(?!.*\.\.)[A-Za-z0-9_'+.-]*[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}", re.ASCII)
+PUSHOVER_KEY_RE = re.compile(r"[A-Za-z0-9]{1,100}", re.ASCII)
+# Printable characters only: no line break can reach a mail header or a log line.
+PRINTABLE_RE = re.compile(r"[^\x00-\x1f\x7f]*")
+URL_RE = re.compile(r"https://[!-~]+", re.ASCII)
+
+OFF = {
+    "version": 1,
+    "smtp": None,
+    "alerts": {kind: None for kind in KINDS},
+    "rootShellOpenedAlert": False,
+}
+
+
+class Refused(Exception):
+    """Settings the job will not write; `code` is one of CODES."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class JobFailed(Exception):
+    """Settings that were valid but could not be put in force; `code` is one of CODES."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def now_iso(clock=time.time):
+    stamp = datetime.datetime.fromtimestamp(clock(), datetime.timezone.utc)
+    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def journal(message):
+    print(f"alerts-job: {message}", file=sys.stderr, flush=True)
+
+
+# ---- Validation (mirrors packages/contracts/src/notify.ts; trusts nothing the API checked) ----
+
+def _no_duplicates(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")
+        out[key] = value
+    return out
+
+
+def parse_json(raw):
+    try:
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        return json.loads(text, object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError):
+        raise Refused("invalid_request")
+
+
+def _keys(obj, required, optional=(), code="invalid_request"):
+    if not isinstance(obj, dict):
+        raise Refused(code)
+    keys = set(obj)
+    if not set(required) <= keys or not keys <= set(required) | set(optional):
+        raise Refused(code)
+
+
+def _text(value, code, max_length, min_length=0):
+    if not isinstance(value, str) or not min_length <= len(value) <= max_length \
+            or not PRINTABLE_RE.fullmatch(value):
+        raise Refused(code)
+    return value
+
+
+def check_host(value, code):
+    """A host name the proxy may list: labels only, and never an address."""
+    if not isinstance(value, str) or not HOST_RE.fullmatch(value) or value.rsplit(".", 1)[-1].isdigit():
+        raise Refused(code)
+    return value
+
+
+def url_host(url):
+    return urllib.parse.urlsplit(url).hostname or ""
+
+
+def check_url(value, code):
+    """An https URL on port 443, with a host name and no user name or password."""
+    if not isinstance(value, str) or len(value) > MAX_SECRET or not URL_RE.fullmatch(value):
+        raise Refused(code)
+    try:
+        parts = urllib.parse.urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise Refused(code)
+    if parts.username is not None or parts.password is not None or port not in (None, 443):
+        raise Refused(code)
+    # The host as written, before urlsplit lowers it, must pass the host rule.
+    netloc = parts.netloc[:-4] if parts.netloc.endswith(":443") else parts.netloc
+    check_host(netloc, code)
+    return value
+
+
+def _secret(value, code):
+    if not isinstance(value, str) or len(value) > MAX_SECRET:
+        raise Refused(code)
+    return value
+
+
+def validate_smtp(smtp):
+    if smtp is None:
+        return None
+    _keys(smtp, ["host", "port", "username", "password", "from"], code="invalid_smtp")
+    check_host(smtp["host"], "invalid_smtp")
+    # bool is an int in Python, so the type is compared exactly.
+    if type(smtp["port"]) is not int or smtp["port"] not in (587, 465):
+        raise Refused("invalid_smtp")
+    _text(smtp["username"], "invalid_smtp", 200)
+    _secret(smtp["password"], "invalid_smtp")
+    _text(smtp["from"], "invalid_smtp", 200, min_length=1)
+    return {key: smtp[key] for key in ("host", "port", "username", "password", "from")}
+
+
+def validate_alerts(alerts):
+    _keys(alerts, KINDS)
+    out = {}
+    email = alerts["email"]
+    if email is not None:
+        _keys(email, ["to"], code="invalid_email")
+        to = email["to"]
+        if not isinstance(to, list) or not 1 <= len(to) <= MAX_EMAIL_RECIPIENTS:
+            raise Refused("invalid_email")
+        for address in to:
+            if not isinstance(address, str) or len(address) > 200 or not EMAIL_RE.fullmatch(address):
+                raise Refused("invalid_email")
+        email = {"to": list(to)}
+    out["email"] = email
+    pushover = alerts["pushover"]
+    if pushover is not None:
+        _keys(pushover, ["userKey", "appToken"], code="invalid_pushover")
+        for key in ("userKey", "appToken"):
+            if not isinstance(pushover[key], str) or not PUSHOVER_KEY_RE.fullmatch(pushover[key]):
+                raise Refused("invalid_pushover")
+        pushover = {"userKey": pushover["userKey"], "appToken": pushover["appToken"]}
+    out["pushover"] = pushover
+    for kind in ("webhook", "teams"):
+        block = alerts[kind]
+        if block is not None:
+            _keys(block, ["url"], code=f"invalid_{kind}")
+            block = {"url": check_url(block["url"], f"invalid_{kind}")}
+        out[kind] = block
+    ntfy = alerts["ntfy"]
+    if ntfy is not None:
+        _keys(ntfy, ["url", "token"], code="invalid_ntfy")
+        ntfy = {"url": check_url(ntfy["url"], "invalid_ntfy"), "token": _secret(ntfy["token"], "invalid_ntfy")}
+    out["ntfy"] = ntfy
+    return out
+
+
+def validate_file(doc):
+    """A whole notify.json, version 1; a missing rootShellOpenedAlert reads as false, as in zod."""
+    _keys(doc, ["version", "smtp", "alerts"], ["rootShellOpenedAlert"])
+    if type(doc["version"]) is not int or doc["version"] != 1:
+        raise Refused("invalid_request")
+    alert_on_open = doc.get("rootShellOpenedAlert", False)
+    if type(alert_on_open) is not bool:
+        raise Refused("invalid_request")
+    smtp = validate_smtp(doc["smtp"])
+    alerts = validate_alerts(doc["alerts"])
+    if alerts["email"] is not None and smtp is None:
+        raise Refused("email_needs_smtp")
+    return {"version": 1, "smtp": smtp, "alerts": alerts, "rootShellOpenedAlert": alert_on_open}
+
+
+def merge(update, stored):
+    """The file a NotificationSettingsUpdate asks for: secrets left out are kept where ADR 0052 allows."""
+    _keys(update, ["smtp", "alerts", "rootShellOpenedAlert"])
+    stored = stored or OFF
+    old_alerts = stored["alerts"]
+    smtp = update["smtp"]
+    if smtp is not None:
+        _keys(smtp, ["host", "port", "username", "from"], ["password"], code="invalid_smtp")
+        old = stored["smtp"]
+        if "password" in smtp:
+            password = smtp["password"]
+        elif old and isinstance(smtp["host"], str) and old["host"].lower() == smtp["host"].lower() \
+                and old["port"] == smtp["port"] and old["username"] == smtp["username"]:
+            password = old["password"]
+        else:
+            password = ""
+        smtp = {"host": smtp["host"], "port": smtp["port"], "username": smtp["username"],
+                "password": password, "from": smtp["from"]}
+    alerts = update["alerts"]
+    _keys(alerts, KINDS)
+    merged = {"email": alerts["email"]}
+
+    def kept(kind, block, key):
+        if key in block:
+            return block[key]
+        old = old_alerts[kind]
+        if old is None:
+            raise Refused("missing_secret")
+        return old[key]
+
+    pushover = alerts["pushover"]
+    if pushover is not None:
+        _keys(pushover, [], ["userKey", "appToken"], code="invalid_pushover")
+        pushover = {key: kept("pushover", pushover, key) for key in ("userKey", "appToken")}
+    merged["pushover"] = pushover
+    for kind in ("webhook", "teams"):
+        block = alerts[kind]
+        if block is not None:
+            _keys(block, [], ["url"], code=f"invalid_{kind}")
+            block = {"url": kept(kind, block, "url")}
+        merged[kind] = block
+    ntfy = alerts["ntfy"]
+    if ntfy is not None:
+        _keys(ntfy, [], ["url", "token"], code="invalid_ntfy")
+        url = check_url(kept("ntfy", ntfy, "url"), "invalid_ntfy")
+        old = old_alerts["ntfy"]
+        if "token" in ntfy:
+            token = ntfy["token"]
+        elif old and url_host(old["url"]) == url_host(url):
+            token = old["token"]
+        else:
+            token = ""
+        ntfy = {"url": url, "token": token}
+    merged["ntfy"] = ntfy
+    return validate_file({"version": 1, "smtp": smtp, "alerts": merged,
+                          "rootShellOpenedAlert": update["rootShellOpenedAlert"]})
+
+
+def legacy_file(user_key, app_token, webhook_url):
+    """notify.json from the Pushover keys and webhook URL of secrets.yaml or alerts.env."""
+    alerts = dict(OFF["alerts"])
+    if user_key or app_token:
+        alerts["pushover"] = {"userKey": user_key, "appToken": app_token}
+    if webhook_url:
+        alerts["webhook"] = {"url": webhook_url}
+    return validate_file({"version": 1, "smtp": None, "alerts": alerts, "rootShellOpenedAlert": False})
+
+
+# ---- What the proxy allows ----
+
+def channels(settings):
+    return [kind for kind in KINDS if settings["alerts"][kind] is not None]
+
+
+def proxy_hosts(settings):
+    """{port: sorted host names}: the SMTP host on its own port, every other alert host on 443."""
+    alerts = settings["alerts"]
+    https = set()
+    if alerts["pushover"] is not None:
+        https.add(PUSHOVER_HOST)
+    for kind in ("webhook", "ntfy", "teams"):
+        if alerts[kind] is not None:
+            https.add(url_host(alerts[kind]["url"]))
+    ports = {443: sorted(https)} if https else {}
+    smtp = settings["smtp"]
+    if smtp is not None:
+        ports.setdefault(smtp["port"], [])
+        ports[smtp["port"]] = sorted(set(ports[smtp["port"]]) | {smtp["host"].lower()})
+    return ports
+
+
+def render_proxy(settings):
+    lines = ["# Written by the alerts job from /etc/portikus/notify.json (ADR 0052); do not edit.",
+             "# CONNECT only, each host on its channel's one port."]
+    for port, hosts in sorted(proxy_hosts(settings).items()):
+        name = f"portikus_alerts_{port}"
+        lines += [f"acl {name} dstdomain -n {' '.join(hosts)}",
+                  f"acl {name}_port port {port}",
+                  f"http_access allow portikus_connect {name} {name}_port"]
+    return "\n".join(lines) + "\n"
+
+
+def host_names(settings):
+    return sorted({host for hosts in proxy_hosts(settings).values() for host in hosts})
+
+
+# ---- Commands ----
+
+def run(argv, timeout=60):
+    """Run argv without a shell; returns its exit code, 124 on a timeout, 127 when it cannot start."""
+    try:
+        done = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE, text=True, errors="replace", timeout=timeout,
+                              env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+    except subprocess.TimeoutExpired:
+        return 124
+    except OSError:
+        return 127
+    if done.returncode != 0 and done.stderr:
+        # Squid's parse errors name a line of the configuration, never a secret: it holds none.
+        journal(f"{argv[0]}: {done.stderr.strip()[-500:]}")
+    return done.returncode
+
+
+# ---- Files ----
+
+def write_at(dir_fd, name, data, mode, uid, gid, own):
+    """Write name inside dir_fd atomically (temporary file, then rename), never following a link."""
+    temp = f".{name}.tmp"
+    try:
+        os.unlink(temp, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=dir_fd)
+    try:
+        if own:
+            os.fchown(fd, uid, gid)
+        os.fchmod(fd, mode)
+        os.write(fd, data.encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.rename(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def read_at(dir_fd, name, limit):
+    """A regular file's bytes inside dir_fd, or None for anything else, a link included."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit + 1)
+        return data if len(data) <= limit else None
+    finally:
+        os.close(fd)
+
+
+def remove_at(dir_fd, name):
+    try:
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(st.st_mode):
+        shutil.rmtree(name, dir_fd=dir_fd)
+    else:
+        os.unlink(name, dir_fd=dir_fd)
+
+
+def open_dir(path):
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+
+def read_env_file(data):
+    """KEY=VALUE lines as systemd reads an unquoted EnvironmentFile."""
+    values = {}
+    for line in data.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+# ---- The job ----
+
+class Runner:
+    def __init__(self, root="", run_=None, clock=time.time):
+        self.notify_file = root + NOTIFY_FILE
+        self.alerts_env = root + ALERTS_ENV
+        self.proxy_dir = root + PROXY_DIR
+        self.squid_conf = root + SQUID_CONF
+        self.jobs_dir = root + JOBS_DIR
+        # Looked up at call time, so a test that replaces the module's run catches every command.
+        self.run = run_ if run_ is not None else (lambda argv, timeout=60: run(argv, timeout))
+        self.clock = clock
+        self.own = os.geteuid() == 0
+
+    # -- notify.json --
+
+    def notify_gid(self):
+        if not self.own:
+            return os.getegid()
+        try:
+            return grp.getgrnam(NOTIFY_GROUP).gr_gid
+        except KeyError:
+            journal(f"the {NOTIFY_GROUP} group is missing; reinstall the portikus package")
+            raise JobFailed("write_failed")
+
+    def stored(self):
+        """The settings in force, or None when the file is missing or not valid."""
+        fd = open_dir(os.path.dirname(self.notify_file))
+        try:
+            raw = read_at(fd, os.path.basename(self.notify_file), MAX_REQUEST_BYTES)
+        finally:
+            os.close(fd)
+        if raw is None:
+            return None
+        try:
+            return validate_file(parse_json(raw))
+        except Refused:
+            journal("notify.json is not a valid settings file; reading it as all off")
+            return None
+
+    def write_notify(self, settings):
+        gid = self.notify_gid()
+        fd = open_dir(os.path.dirname(self.notify_file))
+        try:
+            write_at(fd, os.path.basename(self.notify_file), json.dumps(settings, indent=2) + "\n",
+                     0o640, 0, gid, self.own)
+        finally:
+            os.close(fd)
+
+    # -- alerts.conf: swap, parse, roll back (ADR 0052) --
+
+    def proxy_fd(self):
+        try:
+            os.mkdir(self.proxy_dir, 0o755)
+        except FileExistsError:
+            pass
+        return open_dir(self.proxy_dir)
+
+    def squid_parses(self):
+        if not os.path.exists(self.squid_conf):
+            return True
+        return self.run(["squid", "-k", "parse", "-f", SQUID_CONF]) == 0
+
+    def swap_proxy(self, dir_fd, content):
+        """Put content in force as alerts.conf, keeping the old file as alerts.conf.old.
+
+        Returns the old content (None when there was none). Squid reads the file
+        only on a reload, so it never sees a new file that does not parse.
+        """
+        old = read_at(dir_fd, PROXY_FILE, MAX_REQUEST_BYTES)
+        if old is not None:
+            write_at(dir_fd, PROXY_OLD, old.decode(), 0o644, 0, 0, self.own)
+        write_at(dir_fd, PROXY_NEW, content, 0o644, 0, 0, self.own)
+        os.rename(PROXY_NEW, PROXY_FILE, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        if not self.squid_parses():
+            self.put_back(dir_fd, old)
+            raise JobFailed("proxy_config_rejected")
+        return old
+
+    def put_back(self, dir_fd, old):
+        # With no old file an empty one goes in, since the proxy's include needs a file to find.
+        content = old.decode() if old is not None else render_proxy(OFF)
+        write_at(dir_fd, PROXY_FILE, content, 0o644, 0, 0, self.own)
+
+    def reload_proxy(self):
+        if os.path.exists(self.squid_conf) and self.run(["systemctl", "try-reload-or-restart", SQUID_UNIT]) != 0:
+            raise JobFailed("proxy_reload_failed")
+
+    def apply(self, settings, write_file=True):
+        """Put settings in force: alerts.conf, then notify.json, then a proxy reload. Returns True if alerts.conf changed."""
+        content = render_proxy(settings)
+        dir_fd = self.proxy_fd()
+        try:
+            current = read_at(dir_fd, PROXY_FILE, MAX_REQUEST_BYTES)
+            changed = current is None or current.decode("utf-8", "replace") != content
+            old = self.swap_proxy(dir_fd, content) if changed else None
+            if write_file:
+                try:
+                    self.write_notify(settings)
+                except (OSError, JobFailed):
+                    if changed:
+                        self.put_back(dir_fd, old)
+                    raise JobFailed("write_failed")
+            remove_at(dir_fd, PROXY_OLD)
+        finally:
+            os.close(dir_fd)
+        if changed:
+            self.reload_proxy()
+        return changed
+
+    def sync(self):
+        """Bring alerts.conf in line with notify.json, as after a run that was cut short."""
+        dir_fd = self.proxy_fd()
+        try:
+            remove_at(dir_fd, PROXY_NEW)
+            remove_at(dir_fd, PROXY_OLD)
+        finally:
+            os.close(dir_fd)
+        return self.apply(self.stored() or OFF, write_file=False)
+
+    def locked(self):
+        """An exclusive lock on the include folder, held for each whole command."""
+        fd = self.proxy_fd()
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+
+    # -- requests --
+
+    def pending(self, jobs_fd):
+        names = []
+        for name in os.listdir(jobs_fd):
+            if REQUEST_NAME_RE.fullmatch(name):
+                try:
+                    st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                names.append((st.st_mtime_ns, name))
+        return [name for _, name in sorted(names)]
+
+    def api_uid(self):
+        if not self.own:
+            return os.geteuid()
+        try:
+            return pwd.getpwnam(API_USER).pw_uid
+        except KeyError:
+            return None
+
+    def take(self, jobs_fd, name):
+        """Read one request file and delete it at once, whatever it holds. Returns (id, raw or None)."""
+        raw = None
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=jobs_fd)
+            try:
+                st = os.fstat(fd)
+                if stat.S_ISREG(st.st_mode) and st.st_uid == self.api_uid():
+                    raw = os.read(fd, MAX_REQUEST_BYTES + 1)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        # The request may hold secrets, so it leaves the job directory before anything else,
+        # and whatever it is, or the path unit would start this job again at once.
+        try:
+            remove_at(jobs_fd, name)
+        except OSError:
+            pass
+        return REQUEST_NAME_RE.fullmatch(name).group(1), raw
+
+    def status(self, job_fd, record):
+        write_at(job_fd, "status.json", json.dumps(record, indent=2) + "\n", 0o640, 0, self.jobs_gid, self.own)
+
+    def handle(self, jobs_fd, name):
+        job_id, raw = self.take(jobs_fd, name)
+        if not UUID_RE.fullmatch(job_id):
+            journal("dropped a request file whose name is not a job id")
+            return
+        try:
+            os.mkdir(job_id, 0o750, dir_fd=jobs_fd)
+        except FileExistsError:
+            journal(f"dropped request {job_id}: its job directory already exists")
+            return
+        job_fd = os.open(job_id, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=jobs_fd)
+        try:
+            if self.own:
+                os.fchown(job_fd, 0, self.jobs_gid)
+            os.fchmod(job_fd, 0o750)
+            record = {"id": job_id, "state": "running", "code": None, "channels": [], "hosts": [],
+                      "requestedAt": None, "requestedBy": None, "startedAt": now_iso(self.clock),
+                      "finishedAt": None}
+            self.status(job_fd, record)
+            try:
+                record.update(self.perform(job_id, raw, record))
+            except Exception as err:  # noqa: BLE001 - a status left "running" would never end
+                journal(f"request {job_id} failed: {type(err).__name__}")
+                record.update(state="failed", code="write_failed")
+            record["finishedAt"] = now_iso(self.clock)
+            self.status(job_fd, record)
+        finally:
+            os.close(job_fd)
+
+    def perform(self, job_id, raw, record):
+        try:
+            if raw is None or len(raw) > MAX_REQUEST_BYTES:
+                raise Refused("invalid_request")
+            doc = parse_json(raw)
+            _keys(doc, ["id", "requestedAt", "requestedBy", "settings"])
+            if doc["id"] != job_id or not isinstance(doc["requestedAt"], str) \
+                    or not DATETIME_RE.fullmatch(doc["requestedAt"]) \
+                    or not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"]):
+                raise Refused("invalid_request")
+            record.update(requestedAt=doc["requestedAt"], requestedBy=doc["requestedBy"])
+            settings = merge(doc["settings"], self.stored())
+        except Refused as err:
+            journal(f"refused request {job_id}: {err.code}")
+            return {"state": "refused", "code": err.code}
+        result = {"channels": channels(settings), "hosts": host_names(settings)}
+        try:
+            self.apply(settings)
+        except JobFailed as err:
+            journal(f"request {job_id} failed: {err.code}")
+            return {**result, "state": "failed", "code": err.code}
+        journal(f"applied request {job_id} from {record['requestedBy']}: channels "
+                f"{', '.join(result['channels']) or 'none'}; hosts {', '.join(result['hosts']) or 'none'}")
+        return {**result, "state": "succeeded"}
+
+    def prune(self, jobs_fd):
+        jobs = []
+        for name in os.listdir(jobs_fd):
+            if UUID_RE.fullmatch(name):
+                st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+                if stat.S_ISDIR(st.st_mode):
+                    jobs.append((st.st_mtime_ns, name))
+        for _, name in sorted(jobs)[:-KEEP_JOBS]:
+            remove_at(jobs_fd, name)
+
+    def run_pending(self):
+        lock = self.locked()
+        try:
+            try:
+                self.sync()
+            except JobFailed as err:
+                # The requests below each put a whole new file in force, so they still run.
+                journal(f"could not bring alerts.conf in line with notify.json: {err.code}")
+            jobs_fd = open_dir(self.jobs_dir)
+            try:
+                self.jobs_gid = os.fstat(jobs_fd).st_gid
+                # Requests written while one runs are taken in the next pass.
+                while True:
+                    names = self.pending(jobs_fd)
+                    if not names:
+                        break
+                    for name in names:
+                        self.handle(jobs_fd, name)
+                self.prune(jobs_fd)
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock)
+        return 0
+
+    # -- setup and restore --
+
+    def seed_source(self, given):
+        """(settings, where they came from) for a host with no notify.json yet."""
+        values = (given.get("pushoverUserKey", ""), given.get("pushoverAppToken", ""), given.get("webhookUrl", ""))
+        if any(values):
+            return legacy_file(*values), "secrets.yaml"
+        fd = open_dir(os.path.dirname(self.alerts_env))
+        try:
+            raw = read_at(fd, os.path.basename(self.alerts_env), MAX_REQUEST_BYTES)
+        finally:
+            os.close(fd)
+        env = read_env_file(raw) if raw is not None else {}
+        values = (env.get("ALERT_PUSHOVER_USER_KEY", ""), env.get("ALERT_PUSHOVER_APP_TOKEN", ""),
+                  env.get("ALERT_WEBHOOK_URL", ""))
+        if any(values):
+            return legacy_file(*values), "alerts.env"
+        return OFF, "nothing set"
+
+    def run_seed(self, stdin, out):
+        """Setup: notify.json only when it is missing (the page owns it after that), then alerts.conf."""
+        try:
+            given = parse_json(stdin.read(MAX_REQUEST_BYTES + 1))
+            _keys(given, [], ["pushoverUserKey", "pushoverAppToken", "webhookUrl"])
+            if not all(isinstance(value, str) for value in given.values()):
+                raise Refused("invalid_request")
+        except Refused as err:
+            journal(f"seed: the setup values are refused: {err.code}")
+            return 2
+        lock = self.locked()
+        try:
+            if os.path.lexists(self.notify_file):
+                print("notify.json kept", file=out)
+            else:
+                try:
+                    settings, source = self.seed_source(given)
+                except Refused as err:
+                    journal(f"seed: the alert settings are refused: {err.code}")
+                    return 2
+                self.write_notify(settings)
+                print(f"notify.json created from {source}", file=out)
+                journal(f"seed: created notify.json from {source}; channels {', '.join(channels(settings)) or 'none'}")
+            changed = self.sync()
+            print(f"alerts.conf {'changed' if changed else 'unchanged'}", file=out)
+        except JobFailed as err:
+            journal(f"seed: {err.code}")
+            return 1
+        finally:
+            os.close(lock)
+        return 0
+
+    def run_restore(self, stdin, out):
+        """A backup's notify.json, checked as strictly as any request, replaces the current one."""
+        try:
+            settings = validate_file(parse_json(stdin.read(MAX_REQUEST_BYTES + 1)))
+        except Refused as err:
+            journal(f"restore: the backup's notify.json is refused: {err.code}")
+            return 2
+        lock = self.locked()
+        try:
+            self.apply(settings)
+        except JobFailed as err:
+            journal(f"restore: {err.code}")
+            return 1
+        finally:
+            os.close(lock)
+        journal(f"restore: notify.json restored; channels {', '.join(channels(settings)) or 'none'}")
+        print("notify.json restored", file=out)
+        return 0
+
+
+def main(argv):
+    if argv[1:] in ([], ["run"]):
+        return Runner().run_pending()
+    if argv[1:] == ["seed"]:
+        return Runner().run_seed(sys.stdin, sys.stdout)
+    if argv[1:] == ["restore"]:
+        return Runner().run_restore(sys.stdin, sys.stdout)
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
