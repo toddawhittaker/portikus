@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { expectNoViolations, loginAs, routeApi } from "./helpers";
 
 /**
@@ -65,11 +65,92 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"Sent. Check that it arrived.",
 		);
 		await section.getByLabel("Topic URL").fill("https://ntfy.other.invalid/alerts");
-		await expect(section.getByText(/the stored token will be cleared/)).toBeVisible();
+		await section.getByLabel("Topic URL").blur();
+		await expect(
+			section.getByTestId("notify-ntfy").getByText(/the stored token will be cleared/),
+		).toBeVisible();
 		await section.getByRole("button", { name: "Save notification settings" }).click();
 		await expect(section.getByLabel("Workflows webhook URL")).toBeFocused();
 		await expect(section.getByTestId("notify-job")).toContainText("Not saved.");
 
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+	});
+}
+
+/** The page with `job` as the latest job, and the test route answering `tested`. */
+async function openWith(
+	page: Page,
+	colorScheme: "light" | "dark",
+	job: Record<string, unknown>,
+	tested: { status: number; json: unknown; headers?: Record<string, string> } = {
+		status: 200,
+		json: { results: [{ channel: "webhook", ok: true }] },
+	},
+) {
+	await routeApi(page, "**/admin/notifications", (route) =>
+		route.fulfill({ json: { ...PAGE, job: { ...PAGE.job, ...job } } }),
+	);
+	await routeApi(page, "**/admin/alerts/test", (route) => route.fulfill(tested));
+	await page.emulateMedia({ colorScheme });
+	await loginAs(page, "carol");
+	await page.goto("/admin/settings");
+	const section = page.getByTestId("notify-section");
+	await expect(section.getByLabel("Mail server")).toBeVisible({ timeout: 15_000 });
+	return section;
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a queued job, a stale job and a refused test have no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		// A job waiting now: Save is unavailable and says why.
+		const now = new Date().toISOString();
+		let section = await openWith(page, colorScheme, {
+			state: "queued",
+			code: null,
+			requestedAt: now,
+			startedAt: null,
+			finishedAt: null,
+		});
+		await expect(section.getByTestId("notify-job")).toContainText("Saving.");
+		await expect(
+			section.getByRole("button", { name: "Save notification settings" }),
+		).toHaveAttribute("aria-disabled", "true");
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+
+		// A job queued ten minutes ago: it did not finish.
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+		section = await openWith(page, colorScheme, {
+			state: "queued",
+			code: null,
+			requestedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+			startedAt: null,
+			finishedAt: null,
+		});
+		await expect(section.getByTestId("notify-job")).toContainText(
+			"The last change did not finish",
+		);
+		await expectNoViolations(page, '[data-testid="notify-section"]');
+
+		// Too many tests in a minute.
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+		section = await openWith(
+			page,
+			colorScheme,
+			{},
+			{
+				status: 429,
+				headers: { "retry-after": "42" },
+				json: {
+					code: "RATE_LIMITED",
+					message: "Too many requests just now. Try again in a minute.",
+				},
+			},
+		);
+		await section.getByRole("button", { name: "Send test to the webhook" }).click();
+		await expect(section.getByTestId("notify-webhook-test-result")).toHaveText(
+			"Not sent: too many test alerts just now. Try again in a minute.",
+		);
 		await expectNoViolations(page, '[data-testid="notify-section"]');
 	});
 }

@@ -10,11 +10,13 @@ import { ApiError, errorText } from "../../api/request.js";
 import { TextAreaField } from "../TextAreaField.js";
 import {
 	CHANNEL_NAME,
+	type ClearWarnings,
+	channelChanged,
 	FIELD_ID,
 	type FormErrors,
 	type NotifyForm,
-	ntfyTokenCleared,
-	smtpPasswordCleared,
+	ntfyTokenWarning,
+	SMTP_PASSWORD_WARNING,
 } from "./form.js";
 import { useTestAlert } from "./queries.js";
 
@@ -86,6 +88,10 @@ interface ChannelProps {
 	errors: FormErrors;
 	onChange: (form: NotifyForm) => void;
 	onEdit: (id: string) => void;
+	/** The "will be cleared" warnings, worked out when a field that causes one loses focus. */
+	warned: ClearWarnings;
+	/** Work the warnings out again, from `next` when the change is not in `form` yet. */
+	onCheck: (next?: NotifyForm) => void;
 }
 
 /** One channel: its switch, its fields while it is on, and a test of the saved settings. */
@@ -93,12 +99,17 @@ function Channel({
 	kind,
 	on,
 	saved,
+	changed,
+	switchNote,
 	onToggle,
 	children,
 }: {
 	kind: AlertChannelKind;
 	on: boolean;
 	saved: boolean;
+	/** The fields differ from the saved ones, which a test still uses. */
+	changed: boolean;
+	switchNote?: string;
 	onToggle: (on: boolean) => void;
 	children: ReactNode;
 }) {
@@ -117,6 +128,7 @@ function Channel({
 			</p>
 			<Checkbox
 				label={SWITCH_LABEL[kind]}
+				description={switchNote}
 				checked={on}
 				onChange={(event) => onToggle(event.target.checked)}
 			/>
@@ -126,7 +138,7 @@ function Channel({
 				</div>
 			) : null}
 			{saved ? (
-				<TestRow kind={kind} />
+				<TestRow kind={kind} changed={changed} />
 			) : on ? (
 				<p className={HINT_CLASS}>Save first, then send a test.</p>
 			) : null}
@@ -135,19 +147,25 @@ function Channel({
 }
 
 /** A test always goes to the saved settings: the proxy lets a host through only once it is saved (ADR 0052). */
-function TestRow({ kind }: { kind: AlertChannelKind }) {
+function TestRow({ kind, changed }: { kind: AlertChannelKind; changed: boolean }) {
 	const test = useTestAlert();
 	const resultId = `notify-${kind}-test-result`;
+	const noteId = `notify-${kind}-test-note`;
 	return (
 		<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 			<Button
 				data-testid={`notify-${kind}-test`}
 				loading={test.isPending}
-				aria-describedby={resultId}
+				aria-describedby={changed ? `${noteId} ${resultId}` : resultId}
 				onClick={() => test.mutate(kind)}
 			>
 				{TEST_LABEL[kind]}
 			</Button>
+			{changed ? (
+				<p className={HINT_CLASS} id={noteId} data-testid={noteId}>
+					Tests use the saved settings.
+				</p>
+			) : null}
 			{/* Always mounted, so a result that arrives later is read out (SPEC.md section 25.8). */}
 			<output
 				id={resultId}
@@ -161,17 +179,31 @@ function TestRow({ kind }: { kind: AlertChannelKind }) {
 	);
 }
 
-export function EmailChannel({ form, view, errors, onChange, onEdit }: ChannelProps) {
+export function EmailChannel({
+	form,
+	view,
+	errors,
+	onChange,
+	onEdit,
+	warned,
+	onCheck,
+}: ChannelProps) {
 	const email = form.email;
 	const set = (patch: Partial<NotifyForm["email"]>) =>
 		onChange({ ...form, email: { ...email, ...patch } });
 	const passwordSet = view.smtp?.passwordSet === true;
-	const cleared = smtpPasswordCleared(form, view);
+	const cleared = warned.smtp;
 	return (
 		<Channel
 			kind="email"
 			on={email.on}
 			saved={view.alerts.email !== null}
+			changed={channelChanged(form, view, "email")}
+			switchNote={
+				view.smtp
+					? "Turning this off deletes the mail server settings and password."
+					: undefined
+			}
 			onToggle={(on) => set({ on })}
 		>
 			<TextField
@@ -183,6 +215,7 @@ export function EmailChannel({ form, view, errors, onChange, onEdit }: ChannelPr
 				placeholder="smtp.example.edu"
 				value={email.host}
 				error={errors[FIELD_ID.smtpHost]}
+				onBlur={() => onCheck()}
 				onChange={(event) => {
 					onEdit(FIELD_ID.smtpHost);
 					set({ host: event.target.value });
@@ -196,7 +229,15 @@ export function EmailChannel({ form, view, errors, onChange, onEdit }: ChannelPr
 					{ value: "587", label: "587, STARTTLS" },
 					{ value: "465", label: "465, TLS" },
 				]}
-				onValueChange={(value) => set({ port: value === "465" ? "465" : "587" })}
+				onValueChange={(value) => {
+					// A choice is made at once, so its warning is worked out now.
+					const next = {
+						...form,
+						email: { ...email, port: value === "465" ? "465" : "587" },
+					} as NotifyForm;
+					onChange(next);
+					onCheck(next);
+				}}
 			/>
 			<TextField
 				id={FIELD_ID.smtpUsername}
@@ -206,6 +247,7 @@ export function EmailChannel({ form, view, errors, onChange, onEdit }: ChannelPr
 				hint="Leave blank if the server takes mail without signing in."
 				value={email.username}
 				error={errors[FIELD_ID.smtpUsername]}
+				onBlur={() => onCheck()}
 				onChange={(event) => {
 					onEdit(FIELD_ID.smtpUsername);
 					set({ username: event.target.value });
@@ -218,14 +260,17 @@ export function EmailChannel({ form, view, errors, onChange, onEdit }: ChannelPr
 				autoComplete="new-password"
 				spellCheck={false}
 				data-testid="notify-smtp-password"
-				hint={passwordSet ? `${KEPT} A new server, port or user name clears it.` : NONE}
-				warning={
+				hint={
 					cleared
-						? "The server, port or user name changed, so the stored password will be cleared. Enter it again."
-						: undefined
+						? "A password is stored."
+						: passwordSet
+							? `${KEPT} A new server, port or user name clears it.`
+							: NONE
 				}
+				warning={cleared ? SMTP_PASSWORD_WARNING : undefined}
 				value={email.password}
 				error={errors[FIELD_ID.smtpPassword]}
+				onBlur={() => onCheck()}
 				onChange={(event) => {
 					onEdit(FIELD_ID.smtpPassword);
 					set({ password: event.target.value });
@@ -295,6 +340,7 @@ export function PushoverChannel({
 			kind="pushover"
 			on={pushover.on}
 			saved={stored !== null}
+			changed={channelChanged(form, view, "pushover")}
 			onToggle={(on) => set({ on })}
 		>
 			<TextField
@@ -302,7 +348,8 @@ export function PushoverChannel({
 				label="User key"
 				type="password"
 				mono
-				autoComplete="off"
+				// Browsers ignore "off" on password fields and may fill in a saved sign-in.
+				autoComplete="new-password"
 				spellCheck={false}
 				hint={stored?.userKeySet ? KEPT : NONE}
 				value={pushover.userKey}
@@ -317,7 +364,7 @@ export function PushoverChannel({
 				label="API token"
 				type="password"
 				mono
-				autoComplete="off"
+				autoComplete="new-password"
 				spellCheck={false}
 				hint={stored?.appTokenSet ? KEPT : NONE}
 				value={pushover.appToken}
@@ -340,6 +387,7 @@ function SecretUrlField({
 	value,
 	error,
 	onChange,
+	onBlur,
 }: {
 	id: string;
 	label: string;
@@ -348,6 +396,7 @@ function SecretUrlField({
 	value: string;
 	error: string | undefined;
 	onChange: (value: string) => void;
+	onBlur?: () => void;
 }) {
 	return (
 		<TextField
@@ -369,21 +418,31 @@ function SecretUrlField({
 			value={value}
 			error={error}
 			onChange={(event) => onChange(event.target.value)}
+			onBlur={onBlur}
 		/>
 	);
 }
 
-export function NtfyChannel({ form, view, errors, onChange, onEdit }: ChannelProps) {
+export function NtfyChannel({
+	form,
+	view,
+	errors,
+	onChange,
+	onEdit,
+	warned,
+	onCheck,
+}: ChannelProps) {
 	const ntfy = form.ntfy;
 	const stored = view.alerts.ntfy;
 	const set = (patch: Partial<NotifyForm["ntfy"]>) =>
 		onChange({ ...form, ntfy: { ...ntfy, ...patch } });
-	const cleared = ntfyTokenCleared(form, view);
+	const cleared = warned.ntfy;
 	return (
 		<Channel
 			kind="ntfy"
 			on={ntfy.on}
 			saved={stored !== null}
+			changed={channelChanged(form, view, "ntfy")}
 			onToggle={(on) => set({ on })}
 		>
 			<SecretUrlField
@@ -397,6 +456,7 @@ export function NtfyChannel({ form, view, errors, onChange, onEdit }: ChannelPro
 					onEdit(FIELD_ID.ntfyUrl);
 					set({ url });
 				}}
+				onBlur={() => onCheck()}
 			/>
 			<div className="grid gap-2">
 				<TextField
@@ -404,19 +464,18 @@ export function NtfyChannel({ form, view, errors, onChange, onEdit }: ChannelPro
 					label="Access token"
 					type="password"
 					mono
-					autoComplete="off"
+					autoComplete="new-password"
 					spellCheck={false}
 					data-testid="notify-ntfy-token"
 					hint={
-						stored?.tokenSet
-							? `${KEPT} A topic URL on another server clears it.`
-							: "Not set. Only for a topic that needs one."
-					}
-					warning={
 						cleared
-							? `The new URL is not on ${stored?.host}, so the stored token will be cleared. Enter it again if the new server needs one.`
-							: undefined
+							? "A token is stored."
+							: stored?.tokenSet
+								? `${KEPT} A topic URL on another server clears it.`
+								: "Not set. Only for a topic that needs one."
 					}
+					warning={cleared ? ntfyTokenWarning(view) : undefined}
+					onBlur={() => onCheck()}
 					value={ntfy.token}
 					disabled={ntfy.removeToken}
 					error={errors[FIELD_ID.ntfyToken]}
@@ -429,7 +488,14 @@ export function NtfyChannel({ form, view, errors, onChange, onEdit }: ChannelPro
 					<Checkbox
 						label="Remove the stored token"
 						checked={ntfy.removeToken}
-						onChange={(event) => set({ removeToken: event.target.checked, token: "" })}
+						onChange={(event) => {
+							const next = {
+								...form,
+								ntfy: { ...ntfy, removeToken: event.target.checked, token: "" },
+							};
+							onChange(next);
+							onCheck(next);
+						}}
 					/>
 				) : null}
 			</div>
@@ -444,6 +510,7 @@ export function TeamsChannel({ form, view, errors, onChange, onEdit }: ChannelPr
 			kind="teams"
 			on={form.teams.on}
 			saved={stored !== null}
+			changed={channelChanged(form, view, "teams")}
 			onToggle={(on) => onChange({ ...form, teams: { ...form.teams, on } })}
 		>
 			<SecretUrlField
@@ -469,6 +536,7 @@ export function WebhookChannel({ form, view, errors, onChange, onEdit }: Channel
 			kind="webhook"
 			on={form.webhook.on}
 			saved={stored !== null}
+			changed={channelChanged(form, view, "webhook")}
 			onToggle={(on) => onChange({ ...form, webhook: { ...form.webhook, on } })}
 		>
 			<SecretUrlField

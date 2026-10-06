@@ -167,28 +167,89 @@ test("a field error stops the save and takes focus", async () => {
 	expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(0);
 });
 
-test("a new mail server warns that the stored password is cleared", async () => {
+test("a new mail server warns, once it is left, that the stored password is cleared", async () => {
 	serve({ settings: SETTINGS, job: null });
 	renderWithQuery(<NotificationsSection />);
 
-	fireEvent.change(await screen.findByLabelText("Mail server"), {
-		target: { value: "mail.example.edu" },
-	});
-	expect(description(screen.getByLabelText("Password"))).toMatch(
-		/the stored password will be cleared\. Enter it again\./,
+	const host = await screen.findByLabelText("Mail server");
+	const password = screen.getByLabelText("Password");
+	fireEvent.change(host, { target: { value: "mail.example.edu" } });
+	// Nothing flashes while the person is still typing.
+	expect(description(password)).not.toMatch(/will be cleared/);
+	expect(screen.getByTestId("notify-warning-announce").textContent).toBe("");
+
+	fireEvent.blur(host);
+	expect(description(password)).toBe(
+		"A password is stored. The server, port or user name changed, so the stored password will be cleared. Enter it again.",
+	);
+	expect(screen.getByTestId("notify-warning-announce").textContent).toBe(
+		"The server, port or user name changed, so the stored password will be cleared. Enter it again.",
+	);
+
+	// A new password takes the warning away once that field is left.
+	fireEvent.change(password, { target: { value: "new" } });
+	fireEvent.blur(password);
+	expect(description(password)).not.toMatch(/will be cleared/);
+});
+
+test("an ntfy URL on another server warns, once it is left, that the token is cleared", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+
+	const url = await screen.findByLabelText("Topic URL");
+	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
+	expect(description(screen.getByLabelText("Access token"))).not.toMatch(/cleared/);
+	fireEvent.blur(url);
+	expect(description(screen.getByLabelText("Access token"))).toBe(
+		"A token is stored. The new URL is not on ntfy.sh, so the stored token will be cleared. Enter it again if the new server needs one.",
+	);
+	expect(screen.getByTestId("notify-warning-announce").textContent).toMatch(
+		/not on ntfy\.sh, so the stored token will be cleared/,
 	);
 });
 
-test("an ntfy URL on another server warns that the token is cleared", async () => {
+test("a test button says tests use the saved settings once its channel is edited", async () => {
 	serve({ settings: SETTINGS, job: null });
 	renderWithQuery(<NotificationsSection />);
 
-	fireEvent.change(await screen.findByLabelText("Topic URL"), {
-		target: { value: "https://ntfy.example.edu/alerts" },
+	const webhook = await screen.findByRole("group", { name: "Webhook" });
+	const button = within(webhook).getByRole("button", {
+		name: "Send test to the webhook",
 	});
-	expect(description(screen.getByLabelText("Access token"))).toMatch(
-		/not on ntfy\.sh, so the stored token will be cleared/,
+	expect(within(webhook).queryByText("Tests use the saved settings.")).toBeNull();
+	fireEvent.change(within(webhook).getByLabelText("Webhook URL"), {
+		target: { value: "https://hooks.example.com/new" },
+	});
+	expect(description(button)).toContain("Tests use the saved settings.");
+	// Other channels are untouched.
+	expect(screen.queryAllByText("Tests use the saved settings.")).toHaveLength(1);
+});
+
+test("the email switch says turning it off deletes the mail server settings", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+
+	const box = await screen.findByRole("checkbox", { name: "Send alerts by email" });
+	expect(description(box)).toBe(
+		"Turning this off deletes the mail server settings and password.",
 	);
+});
+
+test("secret fields ask the browser not to fill in a saved sign-in", async () => {
+	serve({
+		settings: {
+			...SETTINGS,
+			alerts: { ...SETTINGS.alerts, pushover: { userKeySet: true, appTokenSet: true } },
+		},
+		job: null,
+	});
+	renderWithQuery(<NotificationsSection />);
+
+	for (const label of ["Password", "User key", "API token", "Access token"]) {
+		expect((await screen.findByLabelText(label)).getAttribute("autocomplete")).toBe(
+			"new-password",
+		);
+	}
 });
 
 test("a busy answer is shown under the button", async () => {

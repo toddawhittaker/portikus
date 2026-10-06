@@ -19,6 +19,31 @@ describe("Checkbox", () => {
 		expect(description.previousElementSibling?.textContent).toBe("Auto-save");
 	});
 
+	it("is named by its label alone and described by its description", () => {
+		render(
+			<Checkbox label="Auto-save" description="Write the file a few seconds later." />,
+		);
+		const box = screen.getByRole("checkbox", { name: "Auto-save" });
+		const described = (box.getAttribute("aria-describedby") ?? "")
+			.split(" ")
+			.map((id) => document.getElementById(id)?.textContent)
+			.join(" ");
+		expect(described).toBe("Write the file a few seconds later.");
+		// Both stay inside the label, so a click anywhere on the row ticks the box.
+		expect(
+			screen.getByText("Write the file a few seconds later.").closest("label"),
+		).toBe(box.closest("label"));
+	});
+
+	it("has no description to point at when none is given", () => {
+		render(<Checkbox label="Show system" />);
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Show system" })
+				.hasAttribute("aria-describedby"),
+		).toBe(false);
+	});
+
 	it("toggles from the keyboard", () => {
 		const onChange = vi.fn();
 		render(<Checkbox label="Open preview in a new tab" onChange={onChange} />);

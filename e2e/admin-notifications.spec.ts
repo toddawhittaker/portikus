@@ -288,7 +288,17 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 	const section = await open(page);
 
 	await section.getByLabel("Mail server").fill("mail.example.invalid");
-	await expect(section.getByText(/the stored password will be cleared/)).toBeVisible();
+	// The warning is worked out once the field is left, and read out then.
+	await expect(section.getByText(/will be cleared/)).toHaveCount(0);
+	await section.getByLabel("Mail server").blur();
+	await expect(page.getByTestId("notify-warning-announce")).toHaveText(
+		/the stored password will be cleared/,
+	);
+	await expect(
+		section
+			.getByTestId("notify-email")
+			.getByText(/the stored password will be cleared/),
+	).toBeVisible();
 	await section.getByRole("button", { name: "Save notification settings" }).click();
 	await expect(section.getByLabel("Password")).toBeFocused();
 	await expect(
@@ -296,10 +306,11 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 	).toBeVisible();
 
 	await section.getByLabel("Topic URL").fill("https://ntfy.other.invalid/alerts");
+	await section.getByLabel("Topic URL").blur();
 	await expect(
-		section.getByText(
-			/not on ntfy\.example\.invalid, so the stored token will be cleared/,
-		),
+		section
+			.getByTestId("notify-ntfy")
+			.getByText(/not on ntfy\.example\.invalid, so the stored token will be cleared/),
 	).toBeVisible();
 
 	await section.getByLabel("Password").fill("fake-new-password-e2e");
@@ -346,6 +357,15 @@ test("Send test goes to the one saved channel named, through the saved settings"
 	);
 	// The other channels' results stay empty.
 	await expect(section.getByTestId("notify-ntfy-test-result")).toHaveText("");
+
+	// An edit not saved yet: the button says the test still uses the saved settings.
+	await expect(webhook.getByText("Tests use the saved settings.")).toHaveCount(0);
+	await webhook
+		.getByLabel("Webhook URL", { exact: true })
+		.fill("https://hooks.other.invalid/new");
+	await expect(
+		webhook.getByRole("button", { name: "Send test to the webhook" }),
+	).toHaveAccessibleDescription(/^Tests use the saved settings\./);
 
 	// A channel turned on but not saved yet has nothing to test.
 	await putNotifyFile({ ...ALL_ON, alerts: { ...ALL_ON.alerts, teams: null } });

@@ -124,6 +124,28 @@ export function ntfyTokenCleared(form: NotifyForm, view: NotificationSettingsVie
 	return host !== null && host !== stored.host;
 }
 
+export const SMTP_PASSWORD_WARNING =
+	"The server, port or user name changed, so the stored password will be cleared. Enter it again.";
+
+export function ntfyTokenWarning(view: NotificationSettingsView): string {
+	return `The new URL is not on ${view.alerts.ntfy?.host}, so the stored token will be cleared. Enter it again if the new server needs one.`;
+}
+
+/** Which "stored secret will be cleared" warnings are showing. */
+export interface ClearWarnings {
+	smtp: boolean;
+	ntfy: boolean;
+}
+
+/** Whether a channel's fields differ from the saved settings, so its test would not use them. */
+export function channelChanged(
+	form: NotifyForm,
+	view: NotificationSettingsView,
+	kind: AlertChannelKind,
+): boolean {
+	return JSON.stringify(form[kind]) !== JSON.stringify(initialForm(view)[kind]);
+}
+
 /** The update to send. Only call it once `validate` found nothing. */
 export function toUpdate(form: NotifyForm): NotificationSettingsUpdate {
 	const { email, pushover, ntfy, teams, webhook } = form;

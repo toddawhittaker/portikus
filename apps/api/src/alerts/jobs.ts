@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	NotifyJobId,
@@ -46,18 +47,33 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 }
 
 /**
- * The job unit's TimeoutStartSec (2 minutes, packaging/systemd/
- * portikus-alerts-job.service) plus a margin. A job waiting or running
- * longer than this has died, and must not block every later save.
+ * True while a job is queued or running and not yet stale. A job waiting
+ * or running longer than NOTIFY_JOB_STALE_MS (the job unit's two-minute
+ * TimeoutStartSec plus a margin) has died, and must not block later saves.
  */
-export const STALE_JOB_MS = 5 * 60_000;
-
-/** True while a job is queued or running and not yet stale. */
 export function isActive(job: NotifyJobView, now: number = Date.now()): boolean {
 	if (job.state !== "queued" && job.state !== "running") return false;
 	const since = job.state === "running" ? job.startedAt : job.requestedAt;
 	const at = since ? Date.parse(since) : Number.NaN;
-	return Number.isNaN(at) || now - at < STALE_JOB_MS;
+	return Number.isNaN(at) || now - at < NOTIFY_JOB_STALE_MS;
+}
+
+/**
+ * The job the page should show: the newest by request or start time, with
+ * a dead queued or running job ranked below every live or finished one, so
+ * a job killed mid-run never hides the ones after it.
+ */
+export function latestJob(
+	jobs: NotifyJobView[],
+	now: number = Date.now(),
+): NotifyJobView | null {
+	const dead = (j: NotifyJobView) =>
+		(j.state === "queued" || j.state === "running") && !isActive(j, now);
+	const at = (j: NotifyJobView) => j.requestedAt ?? j.startedAt ?? "";
+	const ranked = [...jobs].sort(
+		(a, b) => Number(dead(a)) - Number(dead(b)) || at(b).localeCompare(at(a)),
+	);
+	return ranked[0] ?? null;
 }
 
 async function readJob(dir: string, id: string): Promise<NotifyJobView | null> {

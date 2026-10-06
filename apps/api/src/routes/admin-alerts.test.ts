@@ -22,6 +22,7 @@ import {
 import {
 	AdminNotifications,
 	NOTIFY_FILE_OFF,
+	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	type NotifyFile,
 	type NotifyJobRequestFile,
@@ -39,7 +40,6 @@ import {
 	expect,
 	test,
 } from "vitest";
-import { STALE_JOB_MS } from "../alerts/jobs.js";
 import { TEST_ALERTS_PER_MINUTE } from "../rate-limit.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
@@ -579,11 +579,16 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			expect((await call("PUT", "/admin/notifications", webhookOnly)).statusCode).toBe(
 				409,
 			);
-			const old = new Date(Date.now() - STALE_JOB_MS - 1000).toISOString();
+			const old = new Date(Date.now() - NOTIFY_JOB_STALE_MS - 1000).toISOString();
 			await writeFile(join(jobsDir, id, "status.json"), status(old));
-			expect((await call("PUT", "/admin/notifications", webhookOnly)).statusCode).toBe(
-				202,
+			const saved = await call("PUT", "/admin/notifications", webhookOnly);
+			expect(saved.statusCode).toBe(202);
+			// The dead job no longer hides the new one from the page.
+			const read = AdminNotifications.parse(
+				(await call("GET", "/admin/notifications")).json(),
 			);
+			expect(read.job?.id).toBe(NotifyJobView.parse(saved.json()).id);
+			expect(read.job?.state).toBe("queued");
 		} finally {
 			await app.close();
 		}

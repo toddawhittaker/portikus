@@ -13,12 +13,17 @@ import {
 	WebhookChannel,
 } from "./ChannelFields.js";
 import {
+	type ClearWarnings,
 	type FormErrors,
 	initialForm,
 	isActive,
 	isStale,
 	jobText,
 	type NotifyForm,
+	ntfyTokenCleared,
+	ntfyTokenWarning,
+	SMTP_PASSWORD_WARNING,
+	smtpPasswordCleared,
 	staleAt,
 	toUpdate,
 	validate,
@@ -91,6 +96,8 @@ function NotificationsForm({
 	const [form, setFormState] = useState<NotifyForm>(() => initialForm(view));
 	const [errors, setErrors] = useState<FormErrors>({});
 	const [failure, setFailure] = useState<string | null>(null);
+	const [warned, setWarned] = useState<ClearWarnings>({ smtp: false, ntfy: false });
+	const [announcement, setAnnouncement] = useState("");
 	const focusError = useRef(false);
 	const busy = isActive(job);
 
@@ -102,6 +109,7 @@ function NotificationsForm({
 		setShownView(viewText);
 		setFormState(initialForm(view));
 		setErrors({});
+		setWarned({ smtp: false, ntfy: false });
 	}
 
 	useEffect(() => {
@@ -114,6 +122,23 @@ function NotificationsForm({
 	function setForm(next: NotifyForm) {
 		setFormState(next);
 		setFailure(null);
+	}
+
+	/**
+	 * Work out the "stored secret will be cleared" warnings when a field that
+	 * causes one is left, not on each key press, and read out each one that is new.
+	 */
+	function checkWarnings(next: NotifyForm = form) {
+		const now = {
+			smtp: smtpPasswordCleared(next, view),
+			ntfy: ntfyTokenCleared(next, view),
+		};
+		const fresh = [
+			now.smtp && !warned.smtp ? SMTP_PASSWORD_WARNING : null,
+			now.ntfy && !warned.ntfy ? ntfyTokenWarning(view) : null,
+		].filter((line): line is string => line !== null);
+		setWarned(now);
+		if (fresh.length > 0) setAnnouncement(fresh.join(" "));
 	}
 
 	function clearError(id: string) {
@@ -155,7 +180,15 @@ function NotificationsForm({
 		});
 	}
 
-	const parts = { form, view, errors, onChange: setForm, onEdit: clearError };
+	const parts = {
+		form,
+		view,
+		errors,
+		onChange: setForm,
+		onEdit: clearError,
+		warned,
+		onCheck: checkWarnings,
+	};
 	return (
 		<form
 			className="grid gap-6"
@@ -163,6 +196,10 @@ function NotificationsForm({
 			aria-labelledby="notify-title"
 			onSubmit={submit}
 		>
+			{/* Always mounted, so a warning written here is read out (SPEC.md section 25.8). */}
+			<p role="status" className="sr-only" data-testid="notify-warning-announce">
+				{announcement}
+			</p>
 			<EmailChannel {...parts} />
 			<PushoverChannel {...parts} />
 			<NtfyChannel {...parts} />

@@ -17,10 +17,16 @@ import {
 	sendAlert,
 } from "@portikus/observability";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { allJobs, changeSummary, isActive, queuedView } from "../alerts/jobs.js";
+import {
+	allJobs,
+	changeSummary,
+	isActive,
+	latestJob,
+	queuedView,
+} from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError, sendNoStoreError } from "../http.js";
-import { currentJob, sweepTempRequests, writeRequestFile } from "../job-files.js";
+import { sweepTempRequests, writeRequestFile } from "../job-files.js";
 import { testAlertLimit } from "../rate-limit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -80,7 +86,7 @@ export function registerAdminAlertRoutes(
 		if (!file) return;
 		const out: AdminNotifications = {
 			settings: notificationSettingsView(file),
-			job: currentJob(await allJobs(jobsDir)),
+			job: latestJob(await allJobs(jobsDir)),
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});
