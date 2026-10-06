@@ -8,16 +8,17 @@ frames, taken from the installed helper itself.
 
   root-shell-rehearsal.py          the on state: who may connect, the PAM
                                    sign-in and its logind session, resize,
-                                   hang-up on close (a daemon the shell
-                                   started survives, as tmux would), the
+                                   hang-up on close (the administrator's
+                                   tmux survives, and its record stays), the
                                    `end` frame ends the session, exit, and
                                    nothing typed or shown reaches the journal
-  root-shell-rehearsal.py --hold   opens one shell with a daemon in its
-                                   session and keeps it open in the
-                                   background, for the off switch to end
+  root-shell-rehearsal.py --hold   opens one shell with tmux in its session
+                                   and keeps it open in the background,
+                                   and leaves tmux behind a closed one, for
+                                   the off switch to end
   root-shell-rehearsal.py --off    after setup with portikus_root_shell
                                    false: the socket is gone, api.env names
-                                   none, and the held shell's session ended
+                                   none, and both sessions ended
 
 Never run it on a host with real users: it signs in as root and ends the
 sessions it made.
@@ -31,6 +32,7 @@ import os
 import pwd
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -184,17 +186,22 @@ class Shell:
         """Waits for root's prompt: login resets the terminal and drops anything typed before it."""
         return self.expect(rb"root@[^\r\n]*# ", 30) is not None
 
-    def login_pid(self):
+    def record(self):
+        """The helper's record of this shell: login's process id and the session, as strings."""
         try:
             with open(os.path.join(RUN_DIR, self.id)) as f:
-                return int(f.read().strip())
-        except (OSError, ValueError):
-            return None
+                return f.read().split()
+        except OSError:
+            return []
+
+    def login_pid(self):
+        fields = self.record()
+        return int(fields[0]) if fields and fields[0].isdigit() else None
 
     def start_daemon(self):
-        """A process that leaves the shell's process group but stays in its logind session, as tmux does."""
+        """A tmux session running a uniquely named sleep, in the shell's logind session."""
         marker = "sleep %d" % (3000000 + secrets.randbelow(900000))
-        self.type("setsid -f %s </dev/null >/dev/null 2>&1; echo daemon-$((40+2))\r" % marker)
+        self.type("tmux new-session -d -s rs-%s '%s'; echo daemon-$((40+2))\r" % (self.id[:8], marker))
         self.expect(rb"daemon-42")
         wait_for(lambda: bool(pids_of(marker)), 5)
         return marker
@@ -260,6 +267,13 @@ def on_state():
     check("the API process has the group", api > 0 and gid in groups_of(api))
     check("the worker process does not", worker > 0 and gid not in groups_of(worker))
     check("no user is a member of the group", grp.getgrnam(GROUP).gr_mem == [])
+    check("tmux is installed", shutil.which("tmux") is not None)
+    try:
+        with open("/etc/pam.d/remote") as f:
+            pam = f.read()
+    except OSError:
+        pam = ""
+    check("login -h has its own PAM service, login's stack", "session  include login" in pam)
 
     heading("Who may connect")
     try:
@@ -293,6 +307,10 @@ def on_state():
                                                   sh("who"), re.M) is not None, sh("who"))
     check("PAM wrote its own line", "session opened for user root" in journal_since(since, "_COMM=login"))
     shell.type("cat /proc/self/cgroup; awk '/^(NoNewPrivs|Seccomp):/' /proc/self/status\r")
+    shell.type("echo loginuid-$(cat /proc/$$/loginuid)\r")
+    check("pam_loginuid set the shell's login user id to root", shell.expect(rb"loginuid-0\r") is not None)
+    check("the record names the session", session is not None and shell.record() == [str(login), session],
+          str(shell.record()))
     check("the shell runs in the session's scope, not the helper's unit",
           shell.expect(rb"session-%s\.scope" % session.encode()) is not None if session else False)
     check("an ordinary root shell: no NoNewPrivileges and no seccomp filter",
@@ -314,9 +332,10 @@ def on_state():
     shell.sock.close()
     check("the shell got SIGHUP", wait_for(lambda: os.path.exists(hup)))
     check("login ended", wait_for(lambda: not alive(login)))
-    check("the daemon survives, as the administrator's tmux would", bool(pids_of(marker)))
+    check("the administrator's tmux survives", bool(pids_of(marker)))
     check("its session is still there", session is not None and "State" in session_props(session))
-    check("the process-id file is gone", wait_for(lambda: not os.path.exists(os.path.join(RUN_DIR, shell.id))))
+    check("the record stays while the session lives, for the off switch",
+          shell.record() == [str(login), session], str(shell.record()))
     check("the helper recorded the close",
           wait_for(lambda: "closed shell %s" % shell.id in journal_since(since, "-u", "portikus-root-shell@*"))
           and "(client)" in journal_since(since, "-u", "portikus-root-shell@*"))
@@ -337,6 +356,7 @@ def on_state():
     check("the session is gone", wait_for(lambda: "State" not in session_props(session)) if session else False)
     check("the helper recorded why",
           wait_for(lambda: "(session_ended, session ended)" in journal_since(since, "-u", "portikus-root-shell@*")))
+    check("its record is gone", shell.record() == [])
     end_leftovers(None, marker)
 
     heading("Exit")
@@ -357,10 +377,17 @@ def on_state():
 
 
 def hold():
+    closed = Shell()
+    closed.ready()
+    login = closed.login_pid()
+    leftover = {"session": session_of(login), "marker": closed.start_daemon()}
+    closed.sock.close()
+    wait_for(lambda: not alive(login))
     shell = Shell()
     shell.ready()
     login = shell.login_pid()
-    state = {"shellId": shell.id, "loginPid": login, "session": session_of(login), "marker": shell.start_daemon()}
+    state = {"shellId": shell.id, "loginPid": login, "session": session_of(login), "marker": shell.start_daemon(),
+             "leftover": leftover}
     with open(HOLD, "w") as f:
         json.dump(state, f)
     print(json.dumps(state))
@@ -390,7 +417,11 @@ def off_state():
     check("the held shell's login ended", not alive(held["loginPid"]))
     check("the daemon in its session was ended", not pids_of(held["marker"]))
     check("its session is gone", held["session"] is not None and "State" not in session_props(held["session"]))
+    left = held["leftover"]
+    check("tmux left behind a closed pane was ended", not pids_of(left["marker"]))
+    check("that session is gone too", left["session"] is not None and "State" not in session_props(left["session"]))
     end_leftovers(held["session"], held["marker"])
+    end_leftovers(left["session"], left["marker"])
     os.unlink(HOLD)
 
 
