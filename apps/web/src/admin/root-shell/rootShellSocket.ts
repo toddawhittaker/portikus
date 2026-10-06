@@ -13,13 +13,15 @@ const SERVER_STOPPING = 1001;
 
 /**
  * Why a root shell's socket closed without the shell exiting. `forbidden`
- * means the account is no longer an administrator.
+ * means the account is no longer an administrator; `unchecked` means the
+ * server could not confirm the session, so it ended the shell to be safe.
  */
 export type RootShellLoss =
 	| "too_many"
 	| "server_stopped"
 	| "refused"
 	| "forbidden"
+	| "unchecked"
 	| "closed";
 
 /**
@@ -97,7 +99,12 @@ export function openRootShellSocket(
 		if (stopped) return;
 		stopped = true;
 		if (event.code === CloseCode.SESSION_ENDED) {
-			sessionEnded();
+			// A demotion ends the shell with this code while the session lives
+			// on, so only a session the server no longer knows goes to sign-in.
+			void rootShellAccess().then((access) => {
+				if (access === "ended") sessionEnded();
+				else events.onLost(access === "forbidden" ? "forbidden" : "unchecked");
+			});
 			return;
 		}
 		if (event.code === CloseCode.TOO_MANY_SOCKETS) {
@@ -109,7 +116,9 @@ export function openRootShellSocket(
 			return;
 		}
 		if (outputSeen) {
-			events.onLost("closed");
+			// After the shell started, a server error is the session check
+			// failing, as when the database is down.
+			events.onLost(event.code === CloseCode.SERVER_ERROR ? "unchecked" : "closed");
 			return;
 		}
 		// The API closes a shell the host refused just as it closes one that

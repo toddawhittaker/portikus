@@ -114,6 +114,9 @@ test("losses read as one sentence however many shells they took", () => {
 	);
 	expect(lossSummary("closed", 2)).toBe("2 root shells' connections closed.");
 	expect(lossSummary("forbidden", 2)).toBe(LOSS_TEXT.forbidden);
+	expect(lossSummary("unchecked", 2)).toBe(
+		"Portikus could not check your session, so 2 root shells ended.",
+	);
 });
 
 test("a lost connection keeps the screen and flags it, with no retry", () => {

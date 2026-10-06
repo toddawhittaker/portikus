@@ -4,7 +4,7 @@
  * light and dark themes and at the narrowest admin window.
  */
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { createSignedInUser, expectNoViolations } from "./helpers";
+import { createSignedInUser, expectNoViolations, routeApi } from "./helpers";
 
 for (const scheme of ["light", "dark"] as const) {
 	test(`the Root shell tab has no automatic violations (${scheme})`, async ({
@@ -172,3 +172,52 @@ test("Close in a pane's menu moves the keyboard to the next pane, then to New ro
 	await page.getByRole("menuitem", { name: "Close" }).press("Enter");
 	await expect(page.getByTestId("root-shell-new")).toBeFocused();
 });
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`a root shell pane's actions menu passes axe while open (${scheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const id = await openShellTab(page);
+		await expect(page.getByTestId(`terminal-pane-${id}`)).toHaveAttribute(
+			"data-connected",
+			"true",
+			{ timeout: 15_000 },
+		);
+		await page.getByTestId(`terminal-actions-${id}`).click();
+		await expect(page.getByRole("menuitem", { name: "Close" })).toBeVisible();
+		await expectNoViolations(page);
+	});
+
+	test(`a shell ended by a failed session check says so and passes axe (${scheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		await page.routeWebSocket(/\/admin\/root-shell\/ws/, (socket) => {
+			socket.send(Buffer.from("root@fake:~# "));
+			socket.close({ code: 1011 });
+		});
+		const id = await openShellTab(page);
+		await expect(page.getByTestId(`root-shell-lost-${id}`)).toContainText(
+			"Portikus could not check your session",
+		);
+		await expect(page.getByTestId("root-shell-announce")).toHaveText(
+			"Portikus could not check your session, so a root shell ended.",
+		);
+		await expectNoViolations(page);
+	});
+
+	test(`the root-shells-off page passes axe (${scheme})`, async ({ page }) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		await routeApi(page, "**/admin/root-shell", (route) =>
+			route.fulfill({ json: { enabled: false } }),
+		);
+		await createSignedInUser(page.context(), "administrator");
+		await page.goto("/admin/shell");
+		await expect(page.getByTestId("root-shell-off")).toContainText(
+			"Root shells are turned off on this server",
+			{ timeout: 15_000 },
+		);
+		await expectNoViolations(page);
+	});
+}

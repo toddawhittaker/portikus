@@ -276,6 +276,15 @@ function upgradeStatus(cookie: string): Promise<number> {
 	});
 }
 
+test("an administrator demoted while a shell is open goes to the not-authorized page", async ({
+	page,
+}) => {
+	const userId = await openRootShellTab(page);
+	await openShell(page);
+	await query("update users set role = 'student' where id = $1", [userId]);
+	await expect(page).toHaveURL(/\/not-authorized$/, { timeout: 20_000 });
+});
+
 test("an administrator signed out before a shell opens goes to the session-ended page", async ({
 	page,
 }) => {
