@@ -21,3 +21,11 @@
 .pk-rootshell > .pk-work-area {
 	border-block-start: 1px solid var(--line);
 }
+/* A pane's slot, and the session element it adopts, fill the pane under its title bar. */
+.pk-rootshell-slot,
+.pk-rootshell-host {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}

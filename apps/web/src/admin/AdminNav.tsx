@@ -13,7 +13,7 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	certificate: "lock",
 	docker: "box",
 	settings: "settings",
-	"root-shell": "terminal",
+	shell: "terminal",
 };
 
 /**
@@ -28,7 +28,7 @@ export function AdminNav({
 	tab: AdminTab | null;
 	rootShell: boolean;
 }) {
-	const tabs = ADMIN_TABS.filter((item) => item !== "root-shell" || rootShell);
+	const tabs = ADMIN_TABS.filter((item) => item !== "shell" || rootShell);
 	return (
 		<nav aria-label="Administration" className="pk-adminnav">
 			{tabs.map((item) => (

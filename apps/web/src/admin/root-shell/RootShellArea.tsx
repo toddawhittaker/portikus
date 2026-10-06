@@ -27,6 +27,7 @@ import "../../work/work.css";
 import "./root-shell.css";
 import { RootShellBanner } from "./RootShellBanner.js";
 import { RootShellLeaf } from "./RootShellLeaf.js";
+import { createSessionHost, RootShellSession } from "./RootShellSession.js";
 
 /** The tab strip as a drop area; separate so it can use `useDroppable`. */
 function TabStripDrop({ children }: { children: ReactNode }) {
@@ -67,6 +68,32 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 			store.getState().moveLeafToNewTab(dragged, index),
 	});
 
+	// Each session's element, which its pane adopts (RootShellSession).
+	const hosts = useRef(new Map<string, HTMLDivElement>());
+	function hostFor(shellId: string): HTMLDivElement {
+		let host = hosts.current.get(shellId);
+		if (!host) {
+			host = createSessionHost();
+			hosts.current.set(shellId, host);
+		}
+		return host;
+	}
+	// Shells gone without exiting, whose panes stay until closed.
+	const [ended, setEndedSet] = useState<ReadonlySet<string>>(() => new Set());
+	function setEnded(shellId: string, gone: boolean) {
+		setEndedSet((current) => {
+			const next = new Set(current);
+			if (gone) next.add(shellId);
+			else next.delete(shellId);
+			return next;
+		});
+	}
+	const tabOf = new Map(
+		layout.tabs.flatMap((tab) =>
+			terminalIds(tab.root).map((id) => [id, tab.id] as const),
+		),
+	);
+
 	/** A new shell's id, with its name recorded. */
 	function newShell(): string {
 		const id = crypto.randomUUID();
@@ -88,7 +115,7 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 		store.getState().setFocused(id);
 	}
 
-	/** Removing the pane unmounts it, which closes its socket and hangs up the shell. */
+	/** Dropping the session closes its socket, which hangs up the shell. */
 	function closeShell(shellId: string) {
 		store.getState().removeLeaf(shellId);
 		setNames((current) => {
@@ -96,6 +123,8 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 			next.delete(shellId);
 			return next;
 		});
+		setEnded(shellId, false);
+		hosts.current.delete(shellId);
 	}
 
 	/** A shell that exited takes its pane away; the keyboard goes to New root shell. */
@@ -193,7 +222,7 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 			>
 				<div className="pk-work-area">
 					<TabStripDrop>
-						<div className="pk-work-tabs" ref={strip}>
+						<div className="pk-work-tabs" data-testid="root-shell-tabs" ref={strip}>
 							<Tabs
 								tabs={items}
 								activeId={activeTabId ?? ""}
@@ -265,8 +294,8 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 												shellId={id}
 												name={names.get(id) ?? "Root shell"}
 												theme={theme}
-												screenReaderMode={screenReaderMode}
-												visible={visible && tab.id === activeTabId}
+												host={hostFor(id)}
+												ended={ended.has(id)}
 												focused={focusedId === id}
 												alone={tab.root.type === "leaf"}
 												dropEdge={drop?.terminalId === id ? drop.edge : null}
@@ -278,7 +307,6 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 												onResetSizes={resetSizes}
 												onLeave={leaveTerminal}
 												onClose={closeShell}
-												onExited={shellExited}
 											/>
 										);
 									}}
@@ -287,6 +315,24 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 						))
 					)}
 				</div>
+				{/* Here, where a pane moving between tabs does not remount them. */}
+				{[...names].map(([id, name]) => (
+					<RootShellSession
+						key={id}
+						shellId={id}
+						host={hostFor(id)}
+						name={name}
+						theme={theme}
+						screenReaderMode={screenReaderMode}
+						visible={visible && tabOf.get(id) === activeTabId}
+						focused={focusedId === id}
+						onFocus={(shellId) => store.getState().setFocused(shellId)}
+						onLeave={leaveTerminal}
+						onExited={shellExited}
+						onEndedChange={setEnded}
+					/>
+				))}
+				{/* The dragged pane stays put; only its title follows the pointer. */}
 				<DragOverlay dropAnimation={null}>
 					{drag.draggedPane ? (
 						<div className="pk-term-drag" data-testid="pane-drag-overlay">

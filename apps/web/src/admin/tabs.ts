@@ -15,7 +15,9 @@ export const ADMIN_TABS = [
 	"certificate",
 	"docker",
 	"settings",
-	"root-shell",
+	// One lowercase word, as Caddy's and Vite's page rules expect, and apart
+	// from the API's /admin/root-shell.
+	"shell",
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
@@ -31,7 +33,7 @@ export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	certificate: "Certificate",
 	docker: "Docker",
 	settings: "Settings",
-	"root-shell": "Root shell",
+	shell: "Root shell",
 };
 
 export const DEFAULT_ADMIN_TAB: AdminTab = "users";

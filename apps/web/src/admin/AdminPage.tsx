@@ -52,7 +52,7 @@ export function AdminPage() {
 		const lost = !document.activeElement || document.activeElement === document.body;
 		if (lost) focusAdminHeading();
 	}, [view, label]);
-	const shellTab = view === "root-shell";
+	const shellTab = view === "shell";
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {

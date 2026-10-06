@@ -186,13 +186,13 @@ test("a server that offers root shells shows the Root shell tab last (ADR 0051)"
 	);
 	expect(
 		within(nav).getByRole("link", { name: "Root shell" }).getAttribute("href"),
-	).toBe("/admin/root-shell");
+	).toBe("/admin/shell");
 });
 
 test("with root shells off the tab is hidden and its address says why", async () => {
 	stubAdmin(600);
 
-	renderApp("/admin/root-shell");
+	renderApp("/admin/shell");
 
 	expect(
 		await screen.findByText("Root shells are turned off on this server"),
