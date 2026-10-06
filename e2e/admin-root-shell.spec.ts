@@ -4,13 +4,17 @@
  * states. playwright.config.ts runs a fake helper that echoes input,
  * reports each resize as "[resized CxR]", and ends on the line `exit`.
  */
+import { randomBytes } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	API_ORIGIN,
 	createSignedInUser,
 	createStudent,
 	deleteSessions,
+	query,
 	routeApi,
+	WEB_ORIGIN,
 } from "./helpers";
 
 const PROMPT = "root@fake:~#";
@@ -222,6 +226,16 @@ test("students see no Root shell tab and the API refuses them", async ({
 
 	const status = await page.request.get(`${API_ORIGIN}/admin/root-shell`);
 	expect(status.status()).toBe(403);
+
+	// A real upgrade with the student's cookie and an allowed Origin is
+	// refused with 403 before any socket opens; the API's own matrix,
+	// apps/api/src/security/ws-authz-matrix.test.ts, pins every role.
+	const cookie = (await context.cookies(WEB_ORIGIN))
+		.map((item) => `${item.name}=${item.value}`)
+		.join("; ");
+	expect(await upgradeStatus(cookie)).toBe(403);
+
+	// And the browser's own attempt never opens.
 	const outcome = await page.evaluate(
 		() =>
 			new Promise<string>((resolve) => {
@@ -234,6 +248,50 @@ test("students see no Root shell tab and the API refuses them", async ({
 			}),
 	);
 	expect(outcome).not.toBe("open");
+});
+
+/** The HTTP status the API answers a WebSocket upgrade to the root-shell socket with. */
+function upgradeStatus(cookie: string): Promise<number> {
+	return new Promise((resolve, reject) => {
+		const request = httpRequest(`${API_ORIGIN}/admin/root-shell/ws?cols=80&rows=24`, {
+			headers: {
+				connection: "Upgrade",
+				upgrade: "websocket",
+				"sec-websocket-version": "13",
+				"sec-websocket-key": randomBytes(16).toString("base64"),
+				origin: WEB_ORIGIN,
+				cookie,
+			},
+		});
+		request.on("response", (response) => {
+			response.resume();
+			resolve(response.statusCode ?? 0);
+		});
+		request.on("upgrade", (_response, socket) => {
+			socket.destroy();
+			resolve(101);
+		});
+		request.on("error", reject);
+		request.end();
+	});
+}
+
+test("an administrator signed out before a shell opens goes to the session-ended page", async ({
+	page,
+}) => {
+	const userId = await openRootShellTab(page);
+	await deleteSessions(userId);
+	await page.getByRole("button", { name: "Open a root shell" }).click();
+	await expect(page).toHaveURL(/\/session-ended$/, { timeout: 15_000 });
+});
+
+test("an administrator demoted before a shell opens goes to the not-authorized page", async ({
+	page,
+}) => {
+	const userId = await openRootShellTab(page);
+	await query("update users set role = 'student' where id = $1", [userId]);
+	await page.getByRole("button", { name: "Open a root shell" }).click();
+	await expect(page).toHaveURL(/\/not-authorized$/, { timeout: 15_000 });
 });
 
 test("with root shells off the tab is hidden and its address says so", async ({

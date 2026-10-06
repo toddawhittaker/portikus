@@ -269,7 +269,12 @@ export function PaneFrame({
 							<span data-testid="terminal-leave">Leave terminal</span>
 						</MenuItem>
 						<MenuSeparator />
-						<MenuItem danger={true} onSelect={() => onClose(terminalId)}>
+						{/* After the menu closes, so the caller can move the keyboard
+						    off this pane instead of the menu returning it here. */}
+						<MenuItem
+							danger={true}
+							onSelect={() => actionsMenu.thenFocus(() => onClose(terminalId))}
+						>
 							<span data-testid="terminal-close">Close</span>
 						</MenuItem>
 					</Menu>

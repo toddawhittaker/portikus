@@ -102,13 +102,59 @@ test("a dropped socket is never reopened: a new socket would be a new shell", ()
 	expect(handlers.onLost).toHaveBeenCalledWith("closed");
 });
 
-test("a plain close before any output means the host refused the shell", () => {
+/** Answer the session check an early close makes. */
+function meAnswers(status: number, role = "administrator") {
+	const fetch = vi.fn(async () => Response.json({ ...ME, role }, { status }));
+	vi.stubGlobal("fetch", fetch);
+	return fetch;
+}
+
+const ME = {
+	id: "33333333-3333-4333-8333-333333333333",
+	displayName: "Carol Admin",
+	email: "carol@example.invalid",
+};
+
+test("a plain close before any output, with the session still an administrator's, is a refusal", async () => {
+	const fetch = meAnswers(200);
 	const handlers = events();
 	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
 	last().open();
 	last().drop(1000);
-	expect(handlers.onLost).toHaveBeenCalledWith("refused");
+	expect(handlers.onLost).not.toHaveBeenCalled();
+	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("refused"));
+	expect(fetch).toHaveBeenCalledWith("/auth/me", { credentials: "same-origin" });
 	expect(handlers.onExit).not.toHaveBeenCalled();
+});
+
+test("an upgrade refused for a signed-out session goes to the session-ended page", async () => {
+	meAnswers(401);
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().drop(1006);
+	await vi.waitFor(() => expect(sessionEnded).toHaveBeenCalledTimes(1));
+	expect(handlers.onLost).not.toHaveBeenCalled();
+});
+
+test("an upgrade refused for a demoted account says the account is not allowed", async () => {
+	meAnswers(200, "student");
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().drop(1006);
+	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("forbidden"));
+});
+
+test("a failed session check still reports a refusal", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => {
+			throw new TypeError("offline");
+		}),
+	);
+	const handlers = events();
+	openRootShellSocket({ cols: 80, rows: 24 }, handlers);
+	last().drop(1006);
+	await vi.waitFor(() => expect(handlers.onLost).toHaveBeenCalledWith("refused"));
 });
 
 test("a revoked session hands over to the session-ended page", () => {

@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { useEffect } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { UseXtermOptions } from "../../terminal/useXterm.js";
-import { createSessionHost, LOSS_TEXT, RootShellSession } from "./RootShellSession.js";
+import { LOSS_TEXT, lossSummary } from "./lossText.js";
+import { createSessionHost, RootShellSession } from "./RootShellSession.js";
 import type { RootShellSocketEvents } from "./rootShellSocket.js";
 
 const sockets: { events: RootShellSocketEvents; stop: ReturnType<typeof vi.fn> }[] = [];
@@ -36,12 +37,12 @@ afterEach(() => {
 });
 
 function renderSession(
-	handlers: { onExited?: () => void; onEndedChange?: () => void } = {},
+	handlers: { onExited?: () => void; onLossChange?: () => void } = {},
 ) {
 	const host = createSessionHost();
 	document.body.append(host);
 	const onExited = vi.fn(handlers.onExited);
-	const onEndedChange = vi.fn(handlers.onEndedChange);
+	const onLossChange = vi.fn(handlers.onLossChange);
 	const view = render(
 		<RootShellSession
 			shellId="s1"
@@ -54,10 +55,10 @@ function renderSession(
 			onFocus={vi.fn()}
 			onLeave={vi.fn()}
 			onExited={onExited}
-			onEndedChange={onEndedChange}
+			onLossChange={onLossChange}
 		/>,
 	);
-	return { host, onExited, onEndedChange, view };
+	return { host, onExited, onLossChange, view };
 }
 
 test("the session renders into its host, which the pane adopts", () => {
@@ -67,19 +68,52 @@ test("the session renders into its host, which the pane adopts", () => {
 });
 
 test("a shell the host refused says so, and Try again opens a new socket", () => {
-	const { onEndedChange } = renderSession();
+	const { onLossChange } = renderSession();
 	act(() => sockets[0]?.events.onLost("refused"));
 	expect(screen.getByTestId("root-shell-refused-s1").textContent).toContain(
 		LOSS_TEXT.refused,
 	);
-	expect(screen.getByRole("status").textContent).toBe(LOSS_TEXT.refused);
-	expect(onEndedChange).toHaveBeenLastCalledWith("s1", true);
+	expect(onLossChange).toHaveBeenLastCalledWith("s1", "refused");
 
 	fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 	expect(sockets).toHaveLength(2);
 	expect(screen.queryByTestId("root-shell-refused-s1")).toBeNull();
-	expect(screen.getByRole("status").textContent).toBe("");
-	expect(onEndedChange).toHaveBeenLastCalledWith("s1", false);
+	expect(onLossChange).toHaveBeenLastCalledWith("s1", null);
+});
+
+test("a refusal while typing in the shell puts the keyboard on Try again", () => {
+	const { host } = renderSession();
+	const input = document.createElement("textarea");
+	host.querySelector('[data-testid="terminal-pane-s1"]')?.append(input);
+	input.focus();
+	act(() => sockets[0]?.events.onLost("refused"));
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "Try again" }),
+	);
+});
+
+test("a refusal elsewhere leaves the keyboard where it is", () => {
+	const outside = document.createElement("button");
+	document.body.append(outside);
+	renderSession();
+	outside.focus();
+	act(() => sockets[0]?.events.onLost("refused"));
+	expect(document.activeElement).toBe(outside);
+});
+
+test("losses read as one sentence however many shells they took", () => {
+	expect(lossSummary("server_stopped", 1)).toBe(
+		"Portikus restarted, so a root shell ended.",
+	);
+	expect(lossSummary("server_stopped", 3)).toBe(
+		"Portikus restarted, so 3 root shells ended.",
+	);
+	expect(lossSummary("refused", 2)).toBe("2 root shells could not start on the host.");
+	expect(lossSummary("too_many", 1)).toBe(
+		"A root shell could not open because too many terminals are open.",
+	);
+	expect(lossSummary("closed", 2)).toBe("2 root shells' connections closed.");
+	expect(lossSummary("forbidden", 2)).toBe(LOSS_TEXT.forbidden);
 });
 
 test("a lost connection keeps the screen and flags it, with no retry", () => {

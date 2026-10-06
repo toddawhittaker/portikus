@@ -9,7 +9,7 @@
 import type { TerminalTheme } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import type { Terminal as Xterm } from "@xterm/xterm";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { canOpenInNewTab } from "../../links.js";
 import {
@@ -17,18 +17,8 @@ import {
 	type XtermSession,
 	type XtermTools,
 } from "../../terminal/useXterm.js";
+import { LOSS_TEXT } from "./lossText.js";
 import { openRootShellSocket, type RootShellLoss } from "./rootShellSocket.js";
-
-/** What the pane says once its shell is gone without exiting. */
-export const LOSS_TEXT: Record<RootShellLoss, string> = {
-	too_many:
-		"You have too many terminals open across your browser tabs. Close some terminals or root shells, then open a new root shell.",
-	server_stopped:
-		"Portikus restarted on the server, so this root shell ended. Close this pane and open a new root shell.",
-	refused: "The root shell could not start on the host.",
-	closed:
-		"This root shell's connection closed. Close this pane and open a new root shell.",
-};
 
 /** The element a session renders into, which its pane adopts. */
 export function createSessionHost(): HTMLDivElement {
@@ -150,8 +140,8 @@ export interface RootShellSessionProps {
 	onLeave: () => void;
 	/** The shell exited: its pane goes away. */
 	onExited: (shellId: string) => void;
-	/** The shell is gone without exiting, or back after Try again. */
-	onEndedChange: (shellId: string, ended: boolean) => void;
+	/** The shell is gone without exiting, and why; null when back after Try again. */
+	onLossChange: (shellId: string, loss: RootShellLoss | null) => void;
 }
 
 export function RootShellSession(props: RootShellSessionProps) {
@@ -159,50 +149,56 @@ export function RootShellSession(props: RootShellSessionProps) {
 	const [loss, setLoss] = useState<RootShellLoss | null>(null);
 	// A new attempt mounts a new screen, so a fresh terminal and socket.
 	const [attempt, setAttempt] = useState(0);
+	const retry = useRef<HTMLButtonElement | null>(null);
+	// Set when the keyboard was in the shell as the host refused it, so it
+	// moves to Try again rather than falling to the page.
+	const focusRetry = useRef(false);
+
+	useEffect(() => {
+		if (loss !== "refused" || !focusRetry.current) return;
+		focusRetry.current = false;
+		retry.current?.focus();
+	}, [loss]);
 
 	function lost(reason: RootShellLoss) {
+		focusRetry.current = props.host.contains(document.activeElement);
 		setLoss(reason);
-		props.onEndedChange(shellId, true);
+		props.onLossChange(shellId, reason);
 	}
 
 	return createPortal(
-		<>
-			{loss === "refused" ? (
-				<div className="pk-term-ended" data-testid={`root-shell-refused-${shellId}`}>
-					<p className="pk-term-ended-text">{LOSS_TEXT.refused}</p>
-					<Button
-						variant="secondary"
-						size="sm"
-						onClick={() => {
-							setLoss(null);
-							setAttempt((count) => count + 1);
-							props.onEndedChange(shellId, false);
-						}}
-					>
-						Try again
-					</Button>
-				</div>
-			) : (
-				<RootShellScreen
-					key={attempt}
-					shellId={shellId}
-					name={props.name}
-					theme={props.theme}
-					screenReaderMode={props.screenReaderMode}
-					visible={props.visible}
-					focusOnMount={props.focused}
-					loss={loss}
-					onFocus={props.onFocus}
-					onLeave={props.onLeave}
-					onExited={props.onExited}
-					onLost={lost}
-				/>
-			)}
-			{/* Kept mounted, so the loss is announced whichever view shows it. */}
-			<p role="status" className="sr-only">
-				{loss ? LOSS_TEXT[loss] : ""}
-			</p>
-		</>,
+		loss === "refused" ? (
+			<div className="pk-term-ended" data-testid={`root-shell-refused-${shellId}`}>
+				<p className="pk-term-ended-text">{LOSS_TEXT.refused}</p>
+				<Button
+					ref={retry}
+					variant="secondary"
+					size="sm"
+					onClick={() => {
+						setLoss(null);
+						setAttempt((count) => count + 1);
+						props.onLossChange(shellId, null);
+					}}
+				>
+					Try again
+				</Button>
+			</div>
+		) : (
+			<RootShellScreen
+				key={attempt}
+				shellId={shellId}
+				name={props.name}
+				theme={props.theme}
+				screenReaderMode={props.screenReaderMode}
+				visible={props.visible}
+				focusOnMount={props.focused}
+				loss={loss}
+				onFocus={props.onFocus}
+				onLeave={props.onLeave}
+				onExited={props.onExited}
+				onLost={lost}
+			/>
+		),
 		props.host,
 	);
 }

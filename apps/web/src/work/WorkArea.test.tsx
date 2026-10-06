@@ -31,6 +31,10 @@ vi.mock("../terminal/TerminalPane", () => ({
 				data-testid={`fake-shell-${terminal.id}`}
 				onClick={() => onExited?.(terminal.id)}
 			/>
+			<textarea
+				className="xterm-helper-textarea"
+				data-testid={`fake-input-${terminal.id}`}
+			/>
 		</div>
 	),
 }));
@@ -176,7 +180,7 @@ test("a terminal that is gone loses its pane", async () => {
 	expect(screen.queryByTestId(`terminal-leaf-${TWO}`)).toBeNull();
 });
 
-test("a shell that ends in the focused pane hands focus to New", async () => {
+test("a shell that ends in the focused pane hands focus to the next pane", async () => {
 	stubFetch({
 		layout: savedLayout,
 		terminals: [terminal(ONE, "zsh"), terminal(TWO, "zsh")],
@@ -185,7 +189,34 @@ test("a shell that ends in the focused pane hands focus to New", async () => {
 	const shell = await screen.findByTestId(`fake-shell-${ONE}`);
 	shell.focus();
 	fireEvent.click(shell);
+	expect(document.activeElement).toBe(screen.getByTestId(`fake-input-${TWO}`));
+});
+
+test("a shell that ends in the only pane hands focus to New", async () => {
+	stubFetch({
+		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
+		terminals: [terminal(ONE, "zsh")],
+	});
+	renderArea();
+	const shell = await screen.findByTestId(`fake-shell-${ONE}`);
+	shell.focus();
+	fireEvent.click(shell);
 	expect(document.activeElement).toBe(screen.getByTestId("launcher"));
+});
+
+test("Close in a pane's menu moves the keyboard to the next pane (SPEC.md §25.8)", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm")],
+	});
+	renderArea();
+	const actions = await screen.findByTestId(`terminal-actions-${ONE}`);
+	actions.focus();
+	fireEvent.keyDown(actions, { key: "Enter" });
+	fireEvent.click(screen.getByTestId("terminal-close"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId(`fake-input-${TWO}`)),
+	);
 });
 
 test("a shell that ends in another pane leaves focus where it is", async () => {
@@ -408,6 +439,28 @@ test("closing a tab with two live terminals asks first", async () => {
 
 	expect(screen.getByRole("alertdialog").textContent).toContain("Close this tab?");
 	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
+});
+
+test("confirming a tab close returns the keyboard to the tab now shown", async () => {
+	const THREE = "77777777-7777-4777-8777-777777777777";
+	stubFetch({
+		layout: {
+			tabs: [
+				...savedLayout.tabs,
+				{ id: "tab2", root: { type: "leaf", terminalId: THREE } },
+			],
+		},
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm"), terminal(THREE, "vim")],
+	});
+	renderArea();
+
+	await waitFor(() => expect(screen.getByTestId("tab-tab1-close")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("tab-tab1-close"));
+	fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
+
+	const next = screen.getByTestId("tab-tab2");
+	await waitFor(() => expect(document.activeElement).toBe(next));
+	expect(next.getAttribute("aria-selected")).toBe("true");
 });
 
 test("a file the URL asks for opens on a full strip", async () => {

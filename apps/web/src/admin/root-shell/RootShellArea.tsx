@@ -16,18 +16,22 @@ import {
 	tabDomId,
 	tabPanelDomId,
 } from "@portikus/ui";
+import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useId, useRef, useState } from "react";
 import { useEditorSettings } from "../../editor/settingsQueries.js";
 import { SplitTree } from "../../layout/SplitTree.js";
 import { createLayoutStore, useLayout } from "../../layout/store.js";
 import { type SplitDirection, terminalIds } from "../../layout/tree.js";
 import { moveIntoTargets } from "../../work/moveInto.js";
+import { focusAfterPane, tabAfterClose } from "../../work/paneFocus.js";
 import { TAB_STRIP_DROP_ID, usePaneDrag } from "../../work/usePaneDrag.js";
 import "../../work/work.css";
 import "./root-shell.css";
 import { RootShellBanner } from "./RootShellBanner.js";
 import { RootShellLeaf } from "./RootShellLeaf.js";
 import { createSessionHost, RootShellSession } from "./RootShellSession.js";
+import type { RootShellLoss } from "./rootShellSocket.js";
+import { useLossAnnouncement } from "./useLossAnnouncement.js";
 
 /** The tab strip as a drop area; separate so it can use `useDroppable`. */
 function TabStripDrop({ children }: { children: ReactNode }) {
@@ -88,6 +92,17 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 			return next;
 		});
 	}
+	const losses = useLossAnnouncement();
+	const queryClient = useQueryClient();
+
+	function lossChanged(shellId: string, loss: RootShellLoss | null) {
+		setEnded(shellId, loss !== null);
+		if (loss === null) return;
+		losses.report(loss);
+		// A fresh look at the account sends a demoted administrator to the
+		// not-authorized page, as AdminPage does on load.
+		if (loss === "forbidden") void queryClient.invalidateQueries({ queryKey: ["me"] });
+	}
 	const tabOf = new Map(
 		layout.tabs.flatMap((tab) =>
 			terminalIds(tab.root).map((id) => [id, tab.id] as const),
@@ -115,6 +130,25 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 		store.getState().setFocused(id);
 	}
 
+	function newShellButton(): HTMLElement | null {
+		return (
+			strip.current?.querySelector<HTMLElement>('[data-testid="root-shell-new"]') ??
+			null
+		);
+	}
+
+	/** Move the keyboard to the next pane in the tab, or to New root shell (SPEC.md §25.8). */
+	function moveFocusOff(shellId: string) {
+		const next = focusAfterPane(layout, shellId, newShellButton());
+		if (next) store.getState().setFocused(next);
+	}
+
+	/** Close from the pane's menu: the keyboard moves on rather than being lost. */
+	function closePane(shellId: string) {
+		moveFocusOff(shellId);
+		closeShell(shellId);
+	}
+
 	/** Dropping the session closes its socket, which hangs up the shell. */
 	function closeShell(shellId: string) {
 		store.getState().removeLeaf(shellId);
@@ -127,15 +161,29 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 		hosts.current.delete(shellId);
 	}
 
-	/** A shell that exited takes its pane away; the keyboard goes to New root shell. */
+	/** A shell that exited takes its pane away; if the keyboard was in it, it moves on. */
 	function shellExited(shellId: string) {
 		const pane = document.querySelector(`[data-testid="terminal-pane-${shellId}"]`);
-		if (pane?.contains(document.activeElement)) {
-			strip.current
-				?.querySelector<HTMLElement>('[data-testid="root-shell-new"]')
-				?.focus();
-		}
+		if (pane?.contains(document.activeElement)) moveFocusOff(shellId);
 		closeShell(shellId);
+	}
+
+	// The tab a confirmed tab close leaves active, for the dialog to return
+	// focus to; undefined until confirmed, so Cancel returns focus as usual.
+	const tabAfterConfirm = useRef<string | null | undefined>(undefined);
+
+	function confirmCloseTab(tabId: string) {
+		const next = tabAfterClose(layout, tabId, store.getState().tabHistory);
+		tabAfterConfirm.current = next;
+		closeTab(tabId);
+		if (next) store.getState().setActive(next);
+	}
+
+	function focusAfterCloseDialog(): HTMLElement | null {
+		const next = tabAfterConfirm.current;
+		tabAfterConfirm.current = undefined;
+		if (next === undefined) return null;
+		return next ? document.getElementById(tabDomId(next)) : newShellButton();
 	}
 
 	function closeTab(tabId: string) {
@@ -306,7 +354,7 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 												onMoveInto={moveInto}
 												onResetSizes={resetSizes}
 												onLeave={leaveTerminal}
-												onClose={closeShell}
+												onClose={closePane}
 											/>
 										);
 									}}
@@ -329,7 +377,7 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 						onFocus={(shellId) => store.getState().setFocused(shellId)}
 						onLeave={leaveTerminal}
 						onExited={shellExited}
-						onEndedChange={setEnded}
+						onLossChange={lossChanged}
 					/>
 				))}
 				{/* The dragged pane stays put; only its title follows the pointer. */}
@@ -353,11 +401,16 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 					description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} root shells. Closing the tab ends them all.`}
 					confirmLabel="Close tab"
 					onConfirm={() => {
-						if (closingTabId) closeTab(closingTabId);
+						if (closingTabId) confirmCloseTab(closingTabId);
 					}}
 					onCancel={() => setClosingTabId(null)}
+					returnFocusTo={focusAfterCloseDialog}
 				/>
 			</ConfirmDialogRoot>
+			{/* Always here, so a loss in a hidden tab is still heard, once. */}
+			<p role="status" className="sr-only" data-testid="root-shell-announce">
+				{losses.announcement}
+			</p>
 		</section>
 	);
 }

@@ -34,8 +34,16 @@ export function RootShellLeaf(props: RootShellLeafProps) {
 
 	// A layout effect, so the element is in the page before the session's
 	// terminal opens in it and measures its cells.
+	// Moving the element drops the keyboard if it was inside, as when a
+	// closed neighbour collapses the split; the focused pane takes it back.
+	const focused = useRef(props.focused);
+	focused.current = props.focused;
 	useLayoutEffect(() => {
 		slot.current?.appendChild(props.host);
+		const active = document.activeElement;
+		if (focused.current && (active === null || active === document.body)) {
+			props.host.querySelector<HTMLElement>(".xterm-helper-textarea")?.focus();
+		}
 	}, [props.host]);
 
 	return (

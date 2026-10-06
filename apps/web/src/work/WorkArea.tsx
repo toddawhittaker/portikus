@@ -18,6 +18,7 @@ import {
 	MenuTrigger,
 	type TabItem,
 	Tabs,
+	tabDomId,
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLayoutPersistence } from "../layout/persist.js";
@@ -28,6 +29,7 @@ import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { moveIntoTargets } from "./moveInto.js";
+import { focusAfterPane, tabAfterClose } from "./paneFocus.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TAB_STRIP_DROP_ID, usePaneDrag } from "./usePaneDrag.js";
 import "./work.css";
@@ -213,16 +215,51 @@ export function WorkArea({
 		void terminals.close(terminalId).catch(() => {});
 	}
 
+	function launcher(): HTMLElement | null {
+		return (
+			strip.current?.querySelector<HTMLElement>('[data-testid="launcher"]') ?? null
+		);
+	}
+
+	/** Move the keyboard to the next pane in the tab, or to the New control (SPEC.md §25.8). */
+	function moveFocusOff(terminalId: string) {
+		const next = focusAfterPane(layout, terminalId, launcher());
+		if (next) store.getState().setFocused(next);
+	}
+
+	/** Close from the pane's menu: the keyboard moves on rather than being lost. */
+	function closePane(terminalId: string) {
+		moveFocusOff(terminalId);
+		closeTerminal(terminalId);
+	}
+
 	/**
 	 * A shell that ended takes its pane away. If the student was typing in it,
-	 * focus goes to the New control rather than being lost (SPEC.md §9.7).
+	 * focus moves on rather than being lost (SPEC.md §9.7).
 	 */
 	function terminalExited(terminalId: string) {
 		const pane = document.querySelector(`[data-testid="terminal-pane-${terminalId}"]`);
-		if (pane?.contains(document.activeElement)) {
-			strip.current?.querySelector<HTMLElement>('[data-testid="launcher"]')?.focus();
-		}
+		if (pane?.contains(document.activeElement)) moveFocusOff(terminalId);
 		closeTerminal(terminalId);
+	}
+
+	// The tab a confirmed tab close leaves active, for the dialog to return
+	// focus to; undefined until confirmed, so Cancel returns focus as usual.
+	const tabAfterConfirm = useRef<string | null | undefined>(undefined);
+
+	function confirmCloseTab(tabId: string) {
+		const next = tabAfterClose(layout, tabId, store.getState().tabHistory);
+		tabAfterConfirm.current = next;
+		// The terminals go one round trip later; show the next tab now.
+		if (next) store.getState().setActive(next);
+		closeTab(tabId);
+	}
+
+	function focusAfterCloseDialog(): HTMLElement | null {
+		const next = tabAfterConfirm.current;
+		tabAfterConfirm.current = undefined;
+		if (next === undefined) return null;
+		return next ? document.getElementById(tabDomId(next)) : launcher();
 	}
 
 	function closeTab(tabId: string) {
@@ -479,7 +516,7 @@ export function WorkArea({
 							onSplit={(id, direction) => void split(id, direction)}
 							onRename={(id, name) => void terminals.rename(id, name)}
 							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
-							onClose={closeTerminal}
+							onClose={closePane}
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
@@ -525,9 +562,10 @@ export function WorkArea({
 						description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} terminals. Closing the tab ends them all.`}
 						confirmLabel="Close tab"
 						onConfirm={() => {
-							if (closingTabId) closeTab(closingTabId);
+							if (closingTabId) confirmCloseTab(closingTabId);
 						}}
 						onCancel={() => setClosingTabId(null)}
+						returnFocusTo={focusAfterCloseDialog}
 					/>
 				</ConfirmDialogRoot>
 			</div>

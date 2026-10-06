@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
@@ -17,9 +17,21 @@ vi.mock("./RootShellSession.js", () => ({
 			sessionMounts.set(props.shellId, (sessionMounts.get(props.shellId) ?? 0) + 1);
 		}, [props.shellId]);
 		return (
-			<button type="button" onClick={() => props.onExited(props.shellId)}>
-				Exit {props.name}
-			</button>
+			<div data-testid={`terminal-pane-${props.shellId}`}>
+				<textarea
+					className="xterm-helper-textarea"
+					aria-label={`Input of ${props.name}`}
+				/>
+				<button type="button" onClick={() => props.onExited(props.shellId)}>
+					Exit {props.name}
+				</button>
+				<button
+					type="button"
+					onClick={() => props.onLossChange(props.shellId, "server_stopped")}
+				>
+					Lose {props.name}
+				</button>
+			</div>
 		);
 	},
 }));
@@ -113,4 +125,57 @@ test("a pane moved to a new tab keeps its name and its shell there", () => {
 	expect(tabNames()).toEqual(["Root shell 1", "Root shell 2"]);
 	// The same session: a remount would hang up the shell and open another.
 	expect([...sessionMounts.values()]).toEqual([1, 1]);
+});
+
+test("Close in a pane's menu moves the keyboard to the next pane, then to New root shell", () => {
+	renderWithQuery(<RootShellArea visible={true} />);
+	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
+	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
+	const first = screen.getByRole("region", { name: "Root shell 1" });
+	fireEvent.click(within(first).getByRole("button", { name: "Close" }));
+	expect(document.activeElement).toBe(screen.getByLabelText("Input of Root shell 2"));
+
+	fireEvent.click(screen.getByRole("button", { name: "Close" }));
+	expect(document.activeElement).toBe(screen.getByTestId("root-shell-new"));
+});
+
+test("an exit while typing moves the keyboard to the next pane", () => {
+	renderWithQuery(<RootShellArea visible={true} />);
+	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
+	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
+	screen.getByLabelText("Input of Root shell 2").focus();
+	fireEvent.click(screen.getByRole("button", { name: "Exit Root shell 2" }));
+	expect(document.activeElement).toBe(screen.getByLabelText("Input of Root shell 1"));
+});
+
+test("shells lost together are announced once, from one status region", async () => {
+	renderWithQuery(<RootShellArea visible={true} />);
+	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
+	fireEvent.click(screen.getByTestId("root-shell-new"));
+	fireEvent.click(screen.getByTestId("root-shell-new"));
+	// Two of the three are in hidden tabs.
+	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 1" }));
+	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 2" }));
+	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 3" }));
+	const status = screen.getByTestId("root-shell-announce");
+	expect(status.getAttribute("role")).toBe("status");
+	await waitFor(() =>
+		expect(status.textContent).toBe("Portikus restarted, so 3 root shells ended."),
+	);
+	expect(screen.getAllByRole("status").filter((node) => node.textContent)).toHaveLength(
+		1,
+	);
+});
+
+test("confirming a tab close returns the keyboard to the tab now shown", async () => {
+	renderWithQuery(<RootShellArea visible={true} />);
+	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
+	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
+	fireEvent.click(screen.getByTestId("root-shell-new"));
+	fireEvent.click(screen.getAllByTestId(/^tab-.*-close$/)[0] as HTMLElement);
+	const dialog = screen.getByRole("alertdialog", { name: "Close this tab?" });
+	fireEvent.click(within(dialog).getByRole("button", { name: "Close tab" }));
+	const remaining = screen.getByRole("tab", { name: /Root shell 3/ });
+	await waitFor(() => expect(document.activeElement).toBe(remaining));
+	expect(remaining.getAttribute("aria-selected")).toBe("true");
 });
