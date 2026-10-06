@@ -22,9 +22,10 @@ Closing the connection without `end` only hangs up the shell, so a tmux the
 administrator started survives.  Nothing the shell reads or prints, and no
 actorName, ever reaches standard error, which is the journal (ADR 0012).
 
-`root-shell --end-sessions` is the off switch's half: it ends the logind
-session of every shell this helper started, found by the login PIDs it
-records under /run/portikus-root-shell.
+Each shell has a record under /run/portikus-root-shell: login's PID and,
+once login has joined it, its logind session.  The record stays while that
+session lives, so `root-shell --end-sessions`, the off switch's half, can
+end what a closed pane left running there, such as tmux.
 """
 
 import errno
@@ -55,7 +56,8 @@ MAX_SIZE = 1000
 MAX_NAME = 256
 MAX_REASON = 32
 READ_CHUNK = 65536
-# Typed input waiting for the shell; past this the helper stops reading the socket.
+# Typed input waiting for a shell that is not reading; input past this is dropped.
+# The socket is always read, so `end` and a close are seen however full this is.
 MAX_PENDING = 4 * CAPS[INPUT]
 
 PEER_USER = "portikus"
@@ -68,7 +70,10 @@ BANNER = (b"\x1b[1mPortikus root shell on this server.\x1b[0m Nothing typed or s
 HANGUP_GRACE = 5.0
 # How often to look again while no process holds the terminal open.
 NO_TERMINAL_POLL = 0.05
-SESSION_SCOPE = re.compile(r"/session-([A-Za-z0-9_-]+)\.scope$")
+SESSION_ID = r"[A-Za-z0-9_-]{1,64}"
+SESSION_SCOPE = re.compile(r"/session-(%s)\.scope$" % SESSION_ID)
+# login uses this PAM service when given -h; only these sessions are ours to end.
+PAM_SERVICE = "remote"
 
 
 class Stopped(Exception):
@@ -276,61 +281,95 @@ def terminate_session(session, run=subprocess.run):
                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
-def pid_file(run_dir, shell_id):
+def session_service(session, run=subprocess.run):
+    """The PAM service of a logind session that still exists, or None."""
+    done = run(["loginctl", "show-session", session, "-P", "Service"],
+               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def record_path(run_dir, shell_id):
     return os.path.join(run_dir, shell_id)
 
 
-def record_pid(run_dir, shell_id, pid):
+def create_record(run_dir, shell_id):
+    """Claims the shell id before login starts; false if another shell holds it."""
     os.makedirs(run_dir, mode=0o700, exist_ok=True)
     os.chmod(run_dir, 0o700)
-    path = pid_file(run_dir, shell_id)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write("%d\n" % pid)
-
-
-def forget_pid(run_dir, shell_id):
     try:
-        os.unlink(pid_file(run_dir, shell_id))
+        os.close(os.open(record_path(run_dir, shell_id), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+    except FileExistsError:
+        return False
+    return True
+
+
+def write_record(run_dir, shell_id, pid, session=None):
+    # No O_CREAT: a record the off switch removed stays removed.
+    fd = os.open(record_path(run_dir, shell_id), os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+    with os.fdopen(fd, "w") as f:
+        f.write("%d %s\n" % (pid, session) if session else "%d\n" % pid)
+
+
+def read_record(run_dir, shell_id):
+    """(login pid, session), either None when missing or malformed."""
+    try:
+        with open(record_path(run_dir, shell_id)) as f:
+            fields = f.read(128).split()
+    except OSError:
+        return None, None
+    pid = int(fields[0]) if fields and fields[0].isdigit() else None
+    session = fields[1] if len(fields) == 2 and re.fullmatch(SESSION_ID, fields[1]) else None
+    return pid, session
+
+
+def forget_record(run_dir, shell_id):
+    try:
+        os.unlink(record_path(run_dir, shell_id))
     except FileNotFoundError:
         pass
 
 
-def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
-    """Ends the logind session of every recorded login PID; returns how many it ended."""
-    ended = 0
+def records(run_dir):
     try:
-        names = sorted(os.listdir(run_dir))
+        return [name for name in sorted(os.listdir(run_dir)) if canonical_uuid(name) is not None]
     except FileNotFoundError:
-        return 0
-    for name in names:
-        if canonical_uuid(name) is None:
-            continue
-        try:
-            with open(os.path.join(run_dir, name)) as f:
-                text = f.read(32).strip()
-        except OSError:
-            text = ""
-        if text.isdigit():
-            pid = int(text)
-            session = session_of(pid, proc) if is_login(pid, proc) else None
-            if session is not None and terminate_session(session, run):
-                log("ended the session of shell %s, login pid %d" % (name, pid))
-                ended += 1
-        # Its helper removes it too when the shell ends; a killed helper leaves it behind.
-        forget_pid(run_dir, name)
+        return []
+
+
+def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
+    """Ends every recorded session that still exists and is a `remote` sign-in; returns how many."""
+    ended = 0
+    for name in records(run_dir):
+        pid, session = read_record(run_dir, name)
+        # Login had not joined its session when the record was written; a reused PID is not ours.
+        if session is None and pid is not None and is_login(pid, proc):
+            session = session_of(pid, proc)
+        if session is not None and session_service(session, run) == PAM_SERVICE and terminate_session(session, run):
+            log("ended session %s of shell %s" % (session, name))
+            ended += 1
+        forget_record(run_dir, name)
     return ended
+
+
+def prune_records(run_dir=RUN_DIR, run=subprocess.run):
+    """Forgets the records whose session has ended; a record not yet naming one may be a shell starting."""
+    for name in records(run_dir):
+        _, session = read_record(run_dir, name)
+        if session is not None and session_service(session, run) is None:
+            forget_record(run_dir, name)
 
 
 class Shell:
     """One connection: the socket, the login child on its pseudo-terminal, and the relay between them."""
 
     def __init__(self, sock, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER,
-                 session_for=session_of, terminate=terminate_session):
+                 session_for=session_of, run=subprocess.run):
         self.sock = sock
         self.session_for = session_for
-        self.terminate = terminate
+        # Every loginctl call goes through this, so tests can never reach a real session.
+        self.run_command = run
         self.recorded = False
+        self.session = None
         self.run_dir = run_dir
         self.argv_for = argv_for
         self.banner = banner
@@ -362,14 +401,15 @@ class Shell:
             del self.pending[:written]
         return True
 
+    def queue(self, data):
+        # Dropped past the cap rather than unread, so `end` behind it is still seen.
+        if len(self.pending) + len(data) <= MAX_PENDING:
+            self.pending += data
+
     def watch(self, selector):
         # Never block on the terminal: a shell blocked printing would never read what we type.
-        want_socket = len(self.pending) < MAX_PENDING
-        if want_socket != (self.sock in selector.get_map()):
-            if want_socket:
-                selector.register(self.sock, selectors.EVENT_READ, "socket")
-            else:
-                selector.unregister(self.sock)
+        if self.sock not in selector.get_map():
+            selector.register(self.sock, selectors.EVENT_READ, "socket")
         if self.master is not None:
             events = selectors.EVENT_READ | (selectors.EVENT_WRITE if self.pending else 0)
             if self.master in selector.get_map():
@@ -382,11 +422,13 @@ class Shell:
         log("refused a connection: %s" % code)
 
     def start(self, opened):
+        if not create_record(self.run_dir, opened["shellId"]):
+            raise ProtocolError("duplicate-shell")
+        self.recorded = True
         self.master, self.pid = spawn(self.argv_for(opened["address"]), opened["cols"], opened["rows"])
         os.set_blocking(self.master, False)
         self.started = time.monotonic()
-        record_pid(self.run_dir, opened["shellId"], self.pid)
-        self.recorded = True
+        write_record(self.run_dir, opened["shellId"], self.pid)
         log("opened shell %s for actor %s from %s, login pid %d"
             % (opened["shellId"], opened["actorId"], opened["address"], self.pid))
         self.send(encode(OUTPUT, self.banner))
@@ -432,9 +474,19 @@ class Shell:
             if not data or not self.send(encode(OUTPUT, data)):
                 return
 
-    def end_session(self):
+    def learn_session(self):
+        """Records login's session once pam_systemd has moved login into it."""
+        if self.session is not None or self.pid is None or self.status is not None:
+            return
         session = self.session_for(self.pid)
-        return session is not None and self.terminate(session)
+        if session is not None:
+            self.session = session
+            write_record(self.run_dir, self.protocol.opened["shellId"], self.pid, session)
+
+    def end_session(self):
+        self.pending.clear()
+        session = self.session or self.session_for(self.pid)
+        return session is not None and terminate_session(session, self.run_command)
 
     def finish(self):
         if not self.reap():
@@ -451,6 +503,7 @@ class Shell:
                 if self.reap():
                     self.drain()
                     return self.finish()
+                self.learn_session()
                 self.watch(selector)
                 for key, events in selector.select(timeout=0.5):
                     if key.data == "socket":
@@ -465,7 +518,7 @@ class Shell:
                             if action == "open":
                                 self.start(value)
                             elif action == "input":
-                                self.pending += value
+                                self.queue(value)
                                 if not self.flush():
                                     return self.finish()
                             elif action == "resize":
@@ -500,18 +553,23 @@ class Shell:
 
     def close(self, reason):
         if self.pid is None:
+            # login never started, so the claimed id leads nowhere.
+            if self.recorded:
+                forget_record(self.run_dir, self.protocol.opened["shellId"])
             return
         opened = self.protocol.opened
+        ended = False
         if reason.startswith("end:"):
             ended = self.end_session()
             reason = "%s, session %s" % (reason[4:], "ended" if ended else "not found")
         if self.status is None:
             self.hang_up()
-        # Never another shell's file: a repeated shell id fails before it is recorded.
-        if self.recorded:
-            forget_pid(self.run_dir, opened["shellId"])
-        log("closed shell %s for actor %s from %s, login pid %d, after %d seconds (%s)"
-            % (opened["shellId"], opened["actorId"], opened["address"], self.pid,
+        # Kept while the session lives on, as with the administrator's tmux, for the off switch.
+        if ended or self.session is None or session_service(self.session, self.run_command) is None:
+            forget_record(self.run_dir, opened["shellId"])
+        prune_records(self.run_dir, self.run_command)
+        log("closed shell %s for actor %s from %s, login pid %d, session %s, after %d seconds (%s)"
+            % (opened["shellId"], opened["actorId"], opened["address"], self.pid, self.session or "none",
                int(time.monotonic() - self.started), reason))
 
 

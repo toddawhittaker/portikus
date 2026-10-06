@@ -13,6 +13,7 @@ import shutil
 import signal
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,6 +25,49 @@ _PATH = Path(__file__).resolve().parents[1] / "root-shell"
 _loader = importlib.machinery.SourceFileLoader("root_shell", str(_PATH))
 rs = importlib.util.module_from_spec(importlib.util.spec_from_loader("root_shell", _loader))
 _loader.exec_module(rs)
+
+
+def _no_real_loginctl(argv, **_):
+    raise AssertionError("a test reached the real loginctl: %r" % (argv,))
+
+
+# A default left in place would end or inspect the test runner's own logind session.
+for _function in (rs.terminate_session, rs.session_service, rs.end_sessions, rs.prune_records, rs.Shell.__init__):
+    _function.__defaults__ = tuple(_no_real_loginctl if d is subprocess.run else d for d in _function.__defaults__)
+
+
+class FakeLogind:
+    """loginctl show-session and terminate-session over a file, so a forked helper's calls are seen too."""
+
+    def __init__(self, directory, live=None):
+        self.calls_path = os.path.join(directory, "loginctl-calls")
+        self.live_path = os.path.join(directory, "live-sessions")
+        self.save(live or {})
+
+    def save(self, live):
+        Path(self.live_path).write_text("".join("%s %s\n" % item for item in live.items()))
+
+    def live(self):
+        return dict(line.split() for line in Path(self.live_path).read_text().splitlines())
+
+    def calls(self):
+        try:
+            return Path(self.calls_path).read_text().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def __call__(self, argv, **_):
+        with open(self.calls_path, "a") as f:
+            f.write(" ".join(argv) + "\n")
+        live = self.live()
+        verb, session = argv[1], argv[2]
+        if verb == "show-session" and argv[3:] == ["-P", "Service"] and session in live:
+            return subprocess.CompletedProcess(argv, 0, live[session] + "\n")
+        if verb == "terminate-session" and session in live:
+            del live[session]
+            self.save(live)
+            return subprocess.CompletedProcess(argv, 0, "")
+        return subprocess.CompletedProcess(argv, 1, "")
 
 SHELL = "0b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
 ACTOR = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
@@ -164,7 +208,6 @@ class EndSessionsTest(unittest.TestCase):
         self.run_dir = os.path.join(self.dir, "run")
         self.proc = os.path.join(self.dir, "proc")
         os.makedirs(self.run_dir)
-        self.calls = []
 
     def tearDown(self):
         shutil.rmtree(self.dir)
@@ -174,26 +217,52 @@ class EndSessionsTest(unittest.TestCase):
         Path(self.proc, str(pid), "comm").write_text(comm + "\n")
         Path(self.proc, str(pid), "cgroup").write_text(cgroup + "\n")
 
-    def fake_run(self, argv, **_):
-        self.calls.append(argv)
-        return type("Done", (), {"returncode": 0})()
+    def record(self, n, text):
+        name = "%da8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d" % n
+        Path(self.run_dir, name).write_text(text)
+        return name
 
-    def test_ends_recorded_login_sessions_only(self):
-        self.process(10, "login", "0::/user.slice/user-0.slice/session-c4.scope")
-        self.process(11, "bash", "0::/user.slice/user-0.slice/session-7.scope")
-        self.process(12, "login", "0::/system.slice/portikus-root-shell@1.service")
-        Path(self.run_dir, SHELL).write_text("10\n")
-        Path(self.run_dir, ACTOR).write_text("11\n")
-        Path(self.run_dir, "3a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d").write_text("12\n")
-        Path(self.run_dir, "4a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d").write_text("99\n")
-        Path(self.run_dir, "not-a-shell").write_text("10\n")
-        Path(self.run_dir, "5a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d").write_text("x\n")
-        self.assertEqual(rs.end_sessions(self.run_dir, self.proc, self.fake_run), 1)
-        self.assertEqual(self.calls, [["loginctl", "terminate-session", "c4"]])
+    def test_ends_only_live_remote_sessions_and_forgets_every_record(self):
+        logind = FakeLogind(self.dir, {"c4": "remote", "c5": "login", "c7": "remote", "8": "remote"})
+        self.process(13, "login", "0::/user.slice/user-0.slice/session-c7.scope")
+        self.process(14, "bash", "0::/user.slice/user-0.slice/session-8.scope")
+        self.record(1, "10 c4\n")  # a shell's leftover tmux: ended
+        self.record(2, "11 c5\n")  # a console sign-in: never ours
+        self.record(3, "12 c6\n")  # already gone
+        self.record(4, "13\n")  # login had not joined its session when recorded: found from its PID
+        self.record(5, "14\n")  # the PID now belongs to another process
+        self.record(6, "15 ../x\n")
+        self.record(7, "")
+        Path(self.run_dir, "not-a-shell").write_text("10 c4\n")
+        self.assertEqual(rs.end_sessions(self.run_dir, self.proc, logind), 2)
+        self.assertEqual([c for c in logind.calls() if "terminate-session" in c],
+                         ["loginctl terminate-session c4", "loginctl terminate-session c7"])
+        self.assertEqual(logind.live(), {"c5": "login", "8": "remote"})
         self.assertEqual(os.listdir(self.run_dir), ["not-a-shell"])
 
     def test_no_directory(self):
-        self.assertEqual(rs.end_sessions(os.path.join(self.dir, "none"), self.proc, self.fake_run), 0)
+        self.assertEqual(rs.end_sessions(os.path.join(self.dir, "none"), self.proc, FakeLogind(self.dir)), 0)
+
+    def test_prune_forgets_only_records_of_ended_sessions(self):
+        logind = FakeLogind(self.dir, {"c4": "remote"})
+        alive = self.record(1, "10 c4\n")
+        self.record(2, "11 c5\n")
+        starting = self.record(3, "12\n")
+        rs.prune_records(self.run_dir, logind)
+        self.assertEqual(sorted(os.listdir(self.run_dir)), sorted([alive, starting]))
+        self.assertFalse([c for c in logind.calls() if "terminate-session" in c])
+
+    def test_record_round_trip(self):
+        self.assertTrue(rs.create_record(self.run_dir, SHELL))
+        self.assertFalse(rs.create_record(self.run_dir, SHELL))
+        self.assertEqual(rs.read_record(self.run_dir, SHELL), (None, None))
+        rs.write_record(self.run_dir, SHELL, 42)
+        self.assertEqual(rs.read_record(self.run_dir, SHELL), (42, None))
+        rs.write_record(self.run_dir, SHELL, 42, "c9")
+        self.assertEqual(rs.read_record(self.run_dir, SHELL), (42, "c9"))
+        rs.forget_record(self.run_dir, SHELL)
+        with self.assertRaises(FileNotFoundError):
+            rs.write_record(self.run_dir, SHELL, 42)
 
 
 def frames_from(sock, until, timeout=10):
@@ -232,32 +301,31 @@ class RelayTest(unittest.TestCase):
         self.stderr = os.path.join(self.dir, "stderr")
         self.client, server = socket.socketpair()
         script = os.path.join(self.dir, "shell.sh")
+        name = self._testMethodName
         # login's vhangup() leaves the terminal with no open end for a moment.
-        gap = "exec 0<&- 1>&- 2>&-; sleep 0.5; exec 0<>/dev/tty 1>&0 2>&0\n" if "gap" in self._testMethodName else ""
+        gap = "exec 0<&- 1>&- 2>&-; sleep 0.5; exec 0<>/dev/tty 1>&0 2>&0\n" if "gap" in name else ""
+        # A shell busy with a command, reading nothing typed.
+        busy = "sleep 5\n" if "busy" in name else ""
+        # The session outlives the shell, as when the administrator's tmux runs in it.
+        self.logind = FakeLogind(self.dir, {"c9": "remote"} if "lives" in name else {})
         # Prints its size, then echoes lines; records a hang-up in a file.
         Path(script).write_text(
-            gap +
             "trap 'echo hup > %s/hup; exit 129' HUP\n"
+            "touch %s/started\n" % (self.dir, self.dir) +
+            gap + busy +
             "stty size\n"
             "while read -r line; do\n"
             "  case $line in size) stty size ;; quit) exit 3 ;; *) echo \"got:$line\" ;; esac\n"
-            "done\n" % self.dir)
+            "done\n")
         self.pid = os.fork()
         if self.pid == 0:
             self.client.close()
             fd = os.open(self.stderr, os.O_WRONLY | os.O_CREAT, 0o600)
             os.dup2(fd, 2)
             signal.signal(signal.SIGTERM, rs.stop)
-            ended = os.path.join(self.dir, "ended")
-
-            # Never the real loginctl: the test runner's own logind session would end.
-            def terminate(session):
-                Path(ended).write_text(session)
-                return True
-
             try:
                 rs.serve(server, os.getuid(), self.run_dir, lambda _address: ["/bin/sh", script], b"BANNER\r\n",
-                         session_for=lambda _pid: "c9", terminate=terminate)
+                         session_for=lambda _pid: "c9", run=self.logind)
             finally:
                 os._exit(0)
         server.close()
@@ -283,7 +351,7 @@ class RelayTest(unittest.TestCase):
         frames = frames_from(self.client, lambda f: b"33 91" in output(f))
         self.assertTrue(output(frames).startswith(b"BANNER\r\n"))
         self.assertEqual(os.listdir(self.run_dir), [SHELL])
-        login_pid = int(Path(self.run_dir, SHELL).read_text())
+        login_pid = int(Path(self.run_dir, SHELL).read_text().split()[0])
         self.assertEqual(oct(os.stat(self.run_dir).st_mode & 0o777), "0o700")
         self.send(rs.RESIZE, b'{"cols":120,"rows":40}')
         self.send(rs.INPUT, b"size\nsecret-typed-text\nquit\n")
@@ -336,28 +404,68 @@ class RelayTest(unittest.TestCase):
         self.wait_helper()
         self.assertRegex(self.journal(), r"closed shell .*\(exit\)")
 
-    def test_end_frame_looks_for_the_session_then_hangs_up(self):
+    def terminated(self):
+        return [c.split()[-1] for c in self.logind.calls() if "terminate-session" in c]
+
+    def test_end_frame_ends_the_session_that_lives_then_hangs_up(self):
         self.send(rs.OPEN, open_body())
         frames_from(self.client, lambda f: b"24 80" in output(f))
         self.send(rs.END, b'{"reason":"session_ended"}')
         self.wait_helper()
-        self.assertEqual(Path(self.dir, "ended").read_text(), "c9")
-        self.assertRegex(self.journal(), r"closed shell .*\(session_ended, session ended\)")
+        self.assertEqual(self.terminated(), ["c9"])
+        self.assertRegex(self.journal(), r"closed shell .*session c9, .*\(session_ended, session ended\)")
         self.assertTrue(Path(self.dir, "hup").exists())
+        self.assertEqual(os.listdir(self.run_dir), [])
 
-    def test_close_without_end_leaves_the_session(self):
+    def test_close_keeps_the_record_while_the_session_lives(self):
         self.send(rs.OPEN, open_body())
         frames_from(self.client, lambda f: b"24 80" in output(f))
         self.client.shutdown(socket.SHUT_RDWR)
         self.wait_helper()
-        self.assertFalse(Path(self.dir, "ended").exists())
+        self.assertEqual(self.terminated(), [])
+        pid, session = rs.read_record(self.run_dir, SHELL)
+        self.assertEqual(session, "c9")
+        self.assertIsNotNone(pid)
+        # The off switch then reaches it.
+        self.assertEqual(rs.end_sessions(self.run_dir, os.path.join(self.dir, "proc"), self.logind), 1)
+        self.assertEqual(self.terminated(), ["c9"])
 
-    def test_repeated_shell_id_keeps_the_other_shells_file(self):
-        os.makedirs(self.run_dir, mode=0o700)
-        Path(self.run_dir, SHELL).write_text("4242\n")
+    def test_end_behind_a_full_queue_is_still_seen_while_the_shell_is_busy(self):
         self.send(rs.OPEN, open_body())
+        frames_from(self.client, lambda f: b"BANNER" in output(f))
+        line = b"touch %s/ran\n" % self.dir.encode()
+        frame = line * (64000 // len(line))
+        for _ in range(6):
+            self.send(rs.INPUT, frame)
+        started = time.monotonic()
+        self.send(rs.END, b'{"reason":"session_ended"}')
         self.wait_helper()
-        self.assertEqual(Path(self.run_dir, SHELL).read_text(), "4242\n")
+        self.assertLess(time.monotonic() - started, 4, "end waited for the busy shell")
+        self.assertRegex(self.journal(), r"\(session_ended, session not found\)")
+        self.assertIn("terminate-session c9", " ".join(self.logind.calls()))
+        time.sleep(0.5)
+        self.assertFalse(Path(self.dir, "ran").exists(), "queued input ran after end")
+
+    def test_close_behind_a_full_queue_is_still_seen_while_the_shell_is_busy(self):
+        self.send(rs.OPEN, open_body())
+        frames_from(self.client, lambda f: b"BANNER" in output(f))
+        for _ in range(6):
+            self.send(rs.INPUT, b"x" * 64000)
+        started = time.monotonic()
+        self.client.shutdown(socket.SHUT_RDWR)
+        self.wait_helper()
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertRegex(self.journal(), r"closed shell .*\(client\)")
+
+    def test_repeated_shell_id_is_refused_before_login_starts(self):
+        os.makedirs(self.run_dir, mode=0o700)
+        Path(self.run_dir, SHELL).write_text("4242 c1\n")
+        self.send(rs.OPEN, open_body())
+        frames = frames_from(self.client, lambda f: bool(f))
+        self.wait_helper()
+        self.assertEqual(frames, [(rs.ERROR, b'{"code":"duplicate-shell"}')])
+        self.assertFalse(Path(self.dir, "started").exists())
+        self.assertEqual(Path(self.run_dir, SHELL).read_text(), "4242 c1\n")
 
     def test_protocol_error_answers_a_fixed_code(self):
         self.send(rs.INPUT, b"rm -rf /")
