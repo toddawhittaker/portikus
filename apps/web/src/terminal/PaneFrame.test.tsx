@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { PaneFrame, type PaneFrameProps } from "./PaneFrame";
 
@@ -41,13 +41,14 @@ test("the frame shows its title and holds what it is given", () => {
 	expect(screen.getByLabelText("Terminal: root · /")).toBeTruthy();
 });
 
-test("without rename or theme actions the menu offers neither", () => {
+test("without rename or theme actions the menu offers neither", async () => {
 	const props = renderFrame();
 	openMenu();
 	expect(screen.queryByTestId("terminal-rename")).toBeNull();
 	expect(screen.queryByTestId("terminal-theme-toggle")).toBeNull();
 	fireEvent.click(screen.getByTestId("terminal-close"));
-	expect(props.onClose).toHaveBeenCalledWith("t1");
+	// Once the menu has closed, so the caller can move the keyboard on.
+	await waitFor(() => expect(props.onClose).toHaveBeenCalledWith("t1"));
 });
 
 test("given rename and theme actions, the menu offers both", () => {

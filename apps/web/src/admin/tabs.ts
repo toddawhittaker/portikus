@@ -1,6 +1,6 @@
 /**
  * The admin tabs in reading order: people first, then what to look at, then
- * what to change. Each is the last part of its path, `/admin/<tab>`. Kept
+ * what to change, and the root shell last. Each is the last part of its path, `/admin/<tab>`. Kept
  * apart from AdminPage so the router can check a tab without loading the
  * admin screen.
  */
@@ -15,6 +15,9 @@ export const ADMIN_TABS = [
 	"certificate",
 	"docker",
 	"settings",
+	// One lowercase word, as Caddy's and Vite's page rules expect, and apart
+	// from the API's /admin/root-shell.
+	"shell",
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
@@ -30,6 +33,7 @@ export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	certificate: "Certificate",
 	docker: "Docker",
 	settings: "Settings",
+	shell: "Root shell",
 };
 
 export const DEFAULT_ADMIN_TAB: AdminTab = "users";

@@ -30,6 +30,7 @@ const ADMIN_TAB_NAMES = [
 	"Certificate",
 	"Docker",
 	"Settings",
+	"Root shell",
 ];
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -597,7 +598,9 @@ test.describe("admin layout", () => {
 		await loginAs(page, "carol");
 		await page.goto("/admin/help");
 		const nav = page.getByRole("navigation", { name: "Administration" });
-		await expect(nav.getByRole("link")).toHaveCount(10, { timeout: 15_000 });
+		await expect(nav.getByRole("link")).toHaveCount(ADMIN_TAB_NAMES.length, {
+			timeout: 15_000,
+		});
 		await expect(nav.locator("[aria-current]")).toHaveCount(0);
 		const backgrounds = await nav
 			.getByRole("link")

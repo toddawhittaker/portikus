@@ -87,9 +87,11 @@ const ADMIN_ROW = {
 function stubAdmin(
 	graceSeconds: number,
 	onWrite?: (url: string, body: unknown) => void,
+	rootShell = false,
 ) {
 	return stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/root-shell") return json(200, { enabled: rootShell });
 		if (url === "/admin/settings" && init?.method === "PUT") {
 			const body = JSON.parse(String(init.body));
 			onWrite?.(url, body);
@@ -171,6 +173,33 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 	expect(
 		await screen.findByRole("table", { name: /Accounts and their workspaces/ }),
 	).toBeDefined();
+});
+
+test("a server that offers root shells shows the Root shell tab last (ADR 0051)", async () => {
+	stubAdmin(600, undefined, true);
+
+	renderApp("/admin");
+
+	const nav = await screen.findByRole("navigation", { name: "Administration" });
+	await waitFor(() =>
+		expect(within(nav).getAllByRole("link").at(-1)?.textContent).toBe("Root shell"),
+	);
+	expect(
+		within(nav).getByRole("link", { name: "Root shell" }).getAttribute("href"),
+	).toBe("/admin/shell");
+});
+
+test("with root shells off the tab is hidden and its address says why", async () => {
+	stubAdmin(600);
+
+	renderApp("/admin/shell");
+
+	expect(
+		await screen.findByText("Root shells are turned off on this server"),
+	).toBeDefined();
+	const nav = screen.getByRole("navigation", { name: "Administration" });
+	expect(within(nav).queryByRole("link", { name: "Root shell" })).toBeNull();
+	expect(screen.getByRole("heading", { level: 2, name: "Root shell" })).toBeDefined();
 });
 
 test("the tab comes from the address", async () => {

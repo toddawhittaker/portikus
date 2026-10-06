@@ -66,6 +66,7 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 		"Certificate",
 		"Docker",
 		"Settings",
+		"Root shell",
 	]);
 	await expect(page).toHaveTitle(/Network, Administration/);
 	await expect(

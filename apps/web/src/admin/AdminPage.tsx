@@ -16,6 +16,8 @@ import { HealthTab } from "./health/HealthTab.js";
 import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
+import { RootShellTab } from "./root-shell/RootShellTab.js";
+import { useRootShellStatus } from "./root-shell/status.js";
 import { SettingsTab } from "./SettingsTab.js";
 import {
 	ADMIN_HELP_TAB,
@@ -29,6 +31,9 @@ import { WorkspacesTab } from "./WorkspacesTab.js";
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
+	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
+	const rootShell = useRootShellStatus(isAdmin);
+	const rootShellOn = rootShell.data?.enabled === true;
 	const params = useParams({ from: "/admin/$tab" });
 	// The administrator help is not a tab, so no tab is current while it shows.
 	const help = params.tab === ADMIN_HELP_TAB;
@@ -47,6 +52,7 @@ export function AdminPage() {
 		const lost = !document.activeElement || document.activeElement === document.body;
 		if (lost) focusAdminHeading();
 	}, [view, label]);
+	const shellTab = view === "shell";
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {
@@ -64,15 +70,19 @@ export function AdminPage() {
 			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}
 			<div className="pk-adminframe-row">
 				<div className="pk-adminframe" data-testid="admin-frame">
-					<AdminNav tab={view} />
+					<AdminNav tab={view} rootShell={rootShellOn} />
 					<main
 						className="pk-adminframe-scroll scroll-pt-16"
 						data-testid="page-admin"
 						data-density="compact"
 						aria-labelledby="admin-title"
 					>
-						{/* scroll-pt-16 keeps a focused row clear of the sticky table header. */}
-						<div className="px-4 py-6" data-testid="admin-content">
+						{/* scroll-pt-16 keeps a focused row clear of the sticky table header.
+						    The root shells fill the frame instead of scrolling in it. */}
+						<div
+							className={shellTab ? "flex h-full flex-col" : "px-4 py-6"}
+							data-testid="admin-content"
+						>
 							<p
 								aria-live="polite"
 								className="sr-only"
@@ -99,6 +109,7 @@ export function AdminPage() {
 							{view === "certificate" ? <CertificateTab /> : null}
 							{view === "docker" ? <DockerTab /> : null}
 							{view === "settings" ? <SettingsTab /> : null}
+							<RootShellTab shown={shellTab} status={rootShell} />
 						</div>
 					</main>
 				</div>

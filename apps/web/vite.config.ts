@@ -58,6 +58,8 @@ export default defineConfig({
 			// /admin/certificate/root.crt goes to the API.
 			"/admin": {
 				...api,
+				// The root shells' sockets (ADR 0051).
+				ws: true,
 				bypass: (req) => {
 					const path = (req.url ?? "").split("?")[0] ?? "";
 					if (!/^\/admin(\/[a-z]+)?\/?$/.test(path)) return undefined;
