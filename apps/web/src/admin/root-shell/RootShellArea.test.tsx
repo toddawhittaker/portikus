@@ -69,7 +69,7 @@ function tabNames(): string[] {
 }
 
 test("nothing opens until asked, and the banner says what these shells are", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	expect(screen.getByRole("heading", { level: 2, name: "Root shell" })).toBeDefined();
 	expect(screen.getByTestId("root-shell-banner").textContent).toContain(
 		"root shells on this server",
@@ -79,7 +79,7 @@ test("nothing opens until asked, and the banner says what these shells are", () 
 });
 
 test("each new shell gets a numbered tab; a split adds a pane to the same tab", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	expect(tabNames()).toEqual(["Root shell 1"]);
 
@@ -94,7 +94,7 @@ test("each new shell gets a numbered tab; a split adds a pane to the same tab", 
 });
 
 test("a shell that exits takes its pane away, and its tab with the last one", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	fireEvent.click(screen.getByRole("button", { name: "Exit Root shell 2" }));
@@ -106,7 +106,7 @@ test("a shell that exits takes its pane away, and its tab with the last one", ()
 });
 
 test("closing a tab of several shells asks first", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	fireEvent.click(screen.getByTestId(/^tab-.*-close$/));
@@ -117,7 +117,7 @@ test("closing a tab of several shells asks first", () => {
 });
 
 test("a pane moved to a new tab keeps its name and its shell there", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	const second = screen.getByRole("region", { name: "Root shell 2" });
@@ -128,7 +128,7 @@ test("a pane moved to a new tab keeps its name and its shell there", () => {
 });
 
 test("Close in a pane's menu moves the keyboard to the next pane, then to New root shell", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	const first = screen.getByRole("region", { name: "Root shell 1" });
@@ -139,17 +139,18 @@ test("Close in a pane's menu moves the keyboard to the next pane, then to New ro
 	expect(document.activeElement).toBe(screen.getByTestId("root-shell-new"));
 });
 
-test("an exit while typing moves the keyboard to the next pane", () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+test("an exit while typing moves the keyboard to New root shell, as in a workspace", () => {
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	screen.getByLabelText("Input of Root shell 2").focus();
 	fireEvent.click(screen.getByRole("button", { name: "Exit Root shell 2" }));
-	expect(document.activeElement).toBe(screen.getByLabelText("Input of Root shell 1"));
+	expect(document.activeElement).toBe(screen.getByTestId("root-shell-new"));
 });
 
-test("shells lost together are announced once, from one status region", async () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+test("every lost shell, in any tab, is reported to the caller", () => {
+	const onLoss = vi.fn();
+	renderWithQuery(<RootShellArea visible={true} onLoss={onLoss} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByTestId("root-shell-new"));
 	fireEvent.click(screen.getByTestId("root-shell-new"));
@@ -157,18 +158,15 @@ test("shells lost together are announced once, from one status region", async ()
 	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 1" }));
 	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 2" }));
 	fireEvent.click(screen.getByRole("button", { name: "Lose Root shell 3" }));
-	const status = screen.getByTestId("root-shell-announce");
-	expect(status.getAttribute("role")).toBe("status");
-	await waitFor(() =>
-		expect(status.textContent).toBe("Portikus restarted, so 3 root shells ended."),
-	);
-	expect(screen.getAllByRole("status").filter((node) => node.textContent)).toHaveLength(
-		1,
-	);
+	expect(onLoss.mock.calls).toEqual([
+		["server_stopped"],
+		["server_stopped"],
+		["server_stopped"],
+	]);
 });
 
 test("confirming a tab close returns the keyboard to the tab now shown", async () => {
-	renderWithQuery(<RootShellArea visible={true} />);
+	renderWithQuery(<RootShellArea visible={true} onLoss={vi.fn()} />);
 	fireEvent.click(screen.getByRole("button", { name: "Open a root shell" }));
 	fireEvent.click(screen.getByRole("button", { name: "Split right" }));
 	fireEvent.click(screen.getByTestId("root-shell-new"));

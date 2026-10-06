@@ -31,7 +31,6 @@ import { RootShellBanner } from "./RootShellBanner.js";
 import { RootShellLeaf } from "./RootShellLeaf.js";
 import { createSessionHost, RootShellSession } from "./RootShellSession.js";
 import type { RootShellLoss } from "./rootShellSocket.js";
-import { useLossAnnouncement } from "./useLossAnnouncement.js";
 
 /** The tab strip as a drop area; separate so it can use `useDroppable`. */
 function TabStripDrop({ children }: { children: ReactNode }) {
@@ -46,9 +45,14 @@ function TabStripDrop({ children }: { children: ReactNode }) {
 export interface RootShellAreaProps {
 	/** False while another admin tab is shown; the shells keep running. */
 	visible: boolean;
+	/**
+	 * A shell is gone without exiting. The caller announces it from a region
+	 * outside this area, which is hidden while another admin tab shows.
+	 */
+	onLoss: (reason: RootShellLoss) => void;
 }
 
-export function RootShellArea({ visible }: RootShellAreaProps) {
+export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 	const headingId = useId();
 	const [store] = useState(createLayoutStore);
 	const layout = useLayout(store, (state) => state.layout);
@@ -92,13 +96,12 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 			return next;
 		});
 	}
-	const losses = useLossAnnouncement();
 	const queryClient = useQueryClient();
 
 	function lossChanged(shellId: string, loss: RootShellLoss | null) {
 		setEnded(shellId, loss !== null);
 		if (loss === null) return;
-		losses.report(loss);
+		onLoss(loss);
 		// A fresh look at the account sends a demoted administrator to the
 		// not-authorized page, as AdminPage does on load.
 		if (loss === "forbidden") void queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -161,10 +164,13 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 		hosts.current.delete(shellId);
 	}
 
-	/** A shell that exited takes its pane away; if the keyboard was in it, it moves on. */
+	/**
+	 * A shell that exited takes its pane away; if the keyboard was in it, it
+	 * goes to New root shell, as in a workspace (SPEC.md §9.7).
+	 */
 	function shellExited(shellId: string) {
 		const pane = document.querySelector(`[data-testid="terminal-pane-${shellId}"]`);
-		if (pane?.contains(document.activeElement)) moveFocusOff(shellId);
+		if (pane?.contains(document.activeElement)) newShellButton()?.focus();
 		closeShell(shellId);
 	}
 
@@ -407,10 +413,6 @@ export function RootShellArea({ visible }: RootShellAreaProps) {
 					returnFocusTo={focusAfterCloseDialog}
 				/>
 			</ConfirmDialogRoot>
-			{/* Always here, so a loss in a hidden tab is still heard, once. */}
-			<p role="status" className="sr-only" data-testid="root-shell-announce">
-				{losses.announcement}
-			</p>
 		</section>
 	);
 }

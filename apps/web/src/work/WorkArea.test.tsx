@@ -180,7 +180,7 @@ test("a terminal that is gone loses its pane", async () => {
 	expect(screen.queryByTestId(`terminal-leaf-${TWO}`)).toBeNull();
 });
 
-test("a shell that ends in the focused pane hands focus to the next pane", async () => {
+test("a shell that ends in the focused pane hands focus to New", async () => {
 	stubFetch({
 		layout: savedLayout,
 		terminals: [terminal(ONE, "zsh"), terminal(TWO, "zsh")],
@@ -189,7 +189,24 @@ test("a shell that ends in the focused pane hands focus to the next pane", async
 	const shell = await screen.findByTestId(`fake-shell-${ONE}`);
 	shell.focus();
 	fireEvent.click(shell);
-	expect(document.activeElement).toBe(screen.getByTestId(`fake-input-${TWO}`));
+	expect(document.activeElement).toBe(screen.getByTestId("launcher"));
+});
+
+test("two panes of one split ending together leave focus on New (SPEC.md §9.7)", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "zsh")],
+	});
+	renderArea();
+	const first = await screen.findByTestId(`fake-shell-${ONE}`);
+	first.focus();
+	// As a terminals restart ends both: the second ends with focus already moved.
+	fireEvent.click(first);
+	fireEvent.click(screen.getByTestId(`fake-shell-${TWO}`));
+	const launcher = screen.getByTestId("launcher");
+	expect(document.activeElement).toBe(launcher);
+	await waitFor(() => expect(screen.queryByTestId(`terminal-leaf-${ONE}`)).toBeNull());
+	expect(document.activeElement).toBe(launcher);
 });
 
 test("a shell that ends in the only pane hands focus to New", async () => {

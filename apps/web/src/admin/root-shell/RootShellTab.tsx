@@ -3,6 +3,7 @@ import { EmptyState, Skeleton } from "@portikus/ui";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { errorText } from "../../api/request.js";
+import { useLossAnnouncement } from "./useLossAnnouncement.js";
 
 // xterm.js loads only when an administrator opens the Root shell tab.
 const RootShellArea = lazy(() =>
@@ -55,6 +56,7 @@ export function RootShellTab({
 	const enabled = status.data?.enabled === true;
 	const [kept, setKept] = useState(false);
 	if (shown && enabled && !kept) setKept(true);
+	const losses = useLossAnnouncement();
 
 	return (
 		<>
@@ -67,8 +69,16 @@ export function RootShellTab({
 			) : null}
 			{kept ? (
 				<Suspense fallback={shown ? <Loading /> : null}>
-					<RootShellArea visible={shown} />
+					<RootShellArea visible={shown} onLoss={losses.report} />
 				</Suspense>
+			) : null}
+			{/* Outside the area, which is hidden under other admin tabs, so a
+			    shell lost there is still heard, once. Mounted with the area's
+			    first visit, so the region exists before anything is said. */}
+			{kept ? (
+				<p role="status" className="sr-only" data-testid="root-shell-announce">
+					{losses.announcement}
+				</p>
 			) : null}
 		</>
 	);

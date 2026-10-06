@@ -235,11 +235,13 @@ export function WorkArea({
 
 	/**
 	 * A shell that ended takes its pane away. If the student was typing in it,
-	 * focus moves on rather than being lost (SPEC.md §9.7).
+	 * focus goes to the New control rather than being lost (SPEC.md §9.7).
+	 * Not to a neighbour: panes that end together, as in a restart, would
+	 * hand the keyboard to each other and then drop it.
 	 */
 	function terminalExited(terminalId: string) {
 		const pane = document.querySelector(`[data-testid="terminal-pane-${terminalId}"]`);
-		if (pane?.contains(document.activeElement)) moveFocusOff(terminalId);
+		if (pane?.contains(document.activeElement)) launcher()?.focus();
 		closeTerminal(terminalId);
 	}
 
