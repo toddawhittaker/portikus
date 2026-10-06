@@ -4,7 +4,13 @@
   and neighbour discovery to the bridge before these rules.
 #}
 {% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
-{% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
+{#
+  Incus writes an IPv4-mapped range (::ffff:0:0/96) as an IPv4 rule, which
+  nftables refuses.  Such addresses never travel on a wire, and the host
+  firewall drops them anyway, so the ACL leaves them out.
+#}
+{% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge
+   | reject('match', '^::ffff:0\.0\.0\.0/96$') | list %}
 {% set gateway = incus_network_cidr | ansible.utils.ipaddr('address') %}
 {#
   The egress helper's redirect in allow-list mode rewrites a workspace
