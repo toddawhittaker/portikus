@@ -7,7 +7,13 @@ import { useMutation } from "@tanstack/react-query";
 import { errorText, request } from "../api/request.js";
 import { AdminGroup } from "./AdminSection.js";
 
-const CHANNEL_NAME = { pushover: "Pushover", webhook: "Webhook" } as const;
+const CHANNEL_NAME = {
+	pushover: "Pushover",
+	webhook: "Webhook",
+	email: "Email",
+	ntfy: "ntfy",
+	teams: "Microsoft Teams",
+} as const;
 
 /** One sentence per channel, or why nothing was sent. */
 function describe(response: TestAlertResponse): string[] {

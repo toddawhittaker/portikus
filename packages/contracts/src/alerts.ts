@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /** What `POST /admin/alerts/test` reports for each configured channel (STACK.md section 15). */
 export const AlertChannelResult = z.object({
-	channel: z.enum(["pushover", "webhook"]),
+	channel: z.enum(["pushover", "webhook", "email", "ntfy", "teams"]),
 	ok: z.boolean(),
 	error: z.string().optional(),
 });

@@ -30,6 +30,18 @@ export const SENSITIVE_KEYS: readonly string[] = [
 	"AGENT_TOKEN",
 	"OIDC_CLIENT_SECRET",
 	"DATABASE_URL",
+	// Notification settings (ADR 0052): keys, tokens and URLs that carry a secret path.
+	"userKey",
+	"appToken",
+	"pushoverUserKey",
+	"pushoverAppToken",
+	"webhookUrl",
+	"teamsUrl",
+	"webhook",
+	"pushover",
+	"smtp",
+	"ntfy",
+	"teams",
 ];
 
 /** Strings longer than this are cut on display. */
