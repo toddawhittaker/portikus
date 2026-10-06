@@ -39,7 +39,6 @@ const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() }
 /** Optional project filter on the terminal listing (SPEC.md §7.5). */
 const ListQuery = z.object({ projectId: z.string().uuid().optional() });
 
-/** Terminal size a browser may ask for on attach. */
 /** Working directory a terminal gets when the caller does not choose one (SPEC.md §9.4). */
 const DEFAULT_CWD = "/home/student/projects";
 

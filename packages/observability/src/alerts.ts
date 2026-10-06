@@ -240,22 +240,23 @@ export async function sendEmail(
 	if (!email) return { channel: "email", ok: false, error: "not configured" };
 	const { smtp } = email;
 	// TLS is required (ADR 0052): 465 starts in TLS, 587 must upgrade with STARTTLS.
-	const transport = transportFactory({
-		host: smtp.host,
-		port: smtp.port,
-		secure: smtp.port === 465,
-		requireTLS: true,
-		tls: { rejectUnauthorized: true, servername: smtp.host },
-		auth:
-			smtp.username === "" ? undefined : { user: smtp.username, pass: smtp.password },
-		proxy: channels.proxyUrl,
-		connectionTimeout: SEND_TIMEOUT_MS,
-		greetingTimeout: SEND_TIMEOUT_MS,
-		socketTimeout: SEND_TIMEOUT_MS,
-		logger: false,
-		debug: false,
-	});
+	let transport: ReturnType<MailTransportFactory> | null = null;
 	try {
+		transport = transportFactory({
+			host: smtp.host,
+			port: smtp.port,
+			secure: smtp.port === 465,
+			requireTLS: true,
+			tls: { rejectUnauthorized: true, servername: smtp.host },
+			auth:
+				smtp.username === "" ? undefined : { user: smtp.username, pass: smtp.password },
+			proxy: channels.proxyUrl,
+			connectionTimeout: SEND_TIMEOUT_MS,
+			greetingTimeout: SEND_TIMEOUT_MS,
+			socketTimeout: SEND_TIMEOUT_MS,
+			logger: false,
+			debug: false,
+		});
 		await transport.sendMail({
 			from: smtp.from,
 			to: email.to,
@@ -267,7 +268,7 @@ export async function sendEmail(
 	} catch (e) {
 		return { channel: "email", ok: false, error: mailError(e) };
 	} finally {
-		transport.close();
+		transport?.close();
 	}
 }
 

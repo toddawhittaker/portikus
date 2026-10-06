@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	NOTIFY_JOB_STALE_MS,
+	AlertChannelKind,
+	isNotifyJobActive,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	NotifyJobId,
@@ -51,12 +52,7 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
  * or running longer than NOTIFY_JOB_STALE_MS (the job unit's two-minute
  * TimeoutStartSec plus a margin) has died, and must not block later saves.
  */
-export function isActive(job: NotifyJobView, now: number = Date.now()): boolean {
-	if (job.state !== "queued" && job.state !== "running") return false;
-	const since = job.state === "running" ? job.startedAt : job.requestedAt;
-	const at = since ? Date.parse(since) : Number.NaN;
-	return Number.isNaN(at) || now - at < NOTIFY_JOB_STALE_MS;
-}
+export const isActive = isNotifyJobActive;
 
 /**
  * The job the page should show: the newest by request or start time, with
@@ -150,12 +146,32 @@ export function changeSummary(
 	for (const kind of ["email", "pushover", "webhook", "ntfy", "teams"] as const) {
 		if (alerts[kind]) on.push(kind);
 	}
+	const rootShellOpenedAlertChanged =
+		update.rootShellOpenedAlert !== current.rootShellOpenedAlert;
+	const changedKinds: Array<Kind | "rootShellOpenedAlert"> = (
+		Object.keys(changed) as Kind[]
+	).filter((kind) => changed[kind]);
+	if (rootShellOpenedAlertChanged) changedKinds.push("rootShellOpenedAlert");
 	return {
-		changed: (Object.keys(changed) as Kind[]).filter((kind) => changed[kind]),
+		changed: changedKinds,
 		channels: on,
 		hosts: [...new Set(hosts)],
 		rootShellOpenedAlert: update.rootShellOpenedAlert,
-		rootShellOpenedAlertChanged:
-			update.rootShellOpenedAlert !== current.rootShellOpenedAlert,
+		rootShellOpenedAlertChanged,
 	};
+}
+
+/**
+ * The alert channels whose old target would miss a notice sent after the
+ * change: those it turns off or re-targets. The worker reaches the rest
+ * once the change is in force (ADR 0052). A changed SMTP server re-targets email.
+ */
+export function channelsLeaving(
+	summary: ReturnType<typeof changeSummary>,
+): AlertChannelKind[] {
+	const kinds = AlertChannelKind.options.filter((kind) =>
+		summary.changed.includes(kind),
+	);
+	if (summary.changed.includes("smtp") && !kinds.includes("email")) kinds.push("email");
+	return kinds;
 }

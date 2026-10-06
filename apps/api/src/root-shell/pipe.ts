@@ -85,6 +85,8 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 	}
 
 	function closeHelper(): void {
+		// A helper paused for a lagging browser would never read the close.
+		backpressure.cancel();
 		if (helper.destroyed) return;
 		helper.end();
 		// A helper that never finishes closing must not hold the pipe open.
@@ -98,12 +100,26 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 	 */
 	function revoke(): void {
 		if (inputStopped) return;
+		// A paused helper socket would never read the end frame and only hang up.
+		backpressure.cancel();
 		endWith("session_ended");
 		if (!helper.destroyed) {
 			helper.write(encodeJsonFrame(FrameType.END, { reason: "session_ended" }));
 		}
 		closeHelper();
 		socket.close(CloseCode.SESSION_ENDED, "session revoked");
+	}
+
+	/**
+	 * The session can no longer be checked because the database fails. That is
+	 * not a revocation: no end frame, so the helper only hangs up and a tmux
+	 * running database maintenance survives (ADR 0051).
+	 */
+	function abandon(): void {
+		if (inputStopped) return;
+		endWith("session_ended");
+		closeHelper();
+		socket.close(CloseCode.SERVER_ERROR, "session cannot be checked");
 	}
 
 	async function checkSession(): Promise<void> {
@@ -113,7 +129,7 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 			valid = await rootShellSessionValid(db, sessionToken);
 		} catch {
 			failedChecks += 1;
-			if (failedChecks >= MAX_FAILED_CHECKS) revoke();
+			if (failedChecks >= MAX_FAILED_CHECKS) abandon();
 			return;
 		}
 		failedChecks = 0;

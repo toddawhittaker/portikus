@@ -78,7 +78,7 @@ export function createAlertForwarder(
 	let since = now();
 
 	return async function tick(): Promise<void> {
-		let channels: AlertChannels | null = null;
+		let channels: AlertChannels;
 		try {
 			channels = await loadChannels();
 		} catch (e) {
@@ -106,7 +106,7 @@ export function createAlertForwarder(
 			.orderBy("at")
 			.execute();
 		// Rows read while no channel is set are passed over, never sent later.
-		const live = channels && anyAlertChannel(channels) ? channels : null;
+		const live = anyAlertChannel(channels) ? channels : null;
 		for (const row of rows) {
 			const at = new Date(row.at);
 			if (at > since) since = at;
