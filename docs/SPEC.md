@@ -2655,7 +2655,9 @@ Changed by Epic 25 (UI polish and help):
 - **Tab addresses.** Each tab has its own path, `/admin/<tab>`:
   `/admin/users`, `/admin/health`, `/admin/logs`, `/admin/audit`,
   `/admin/network`, `/admin/backups`, `/admin/image`,
-  `/admin/certificate`, `/admin/docker` and `/admin/settings`. `/admin`
+  `/admin/certificate`, `/admin/docker`, `/admin/settings` and
+  `/admin/shell` (eleven tabs; Root shell is last and shown only when
+  root shells are on). `/admin`
   opens Users. An older `/admin?tab=<x>` link redirects to `/admin/<x>`
   and keeps its other search keys; `?tab=workspaces` goes to
   `/admin/users`. Moving between tabs adds a history entry, so the back
@@ -2756,6 +2758,28 @@ names per workspace per fixed clock hour (the count resets at the start
 of each window, it does not roll), counted in memory so an API restart
 resets it. Changing the site's address is out (#935).
 
+Added by Epic 35 (ADRs 0051 and 0052):
+
+- **Notifications.** A Notifications group in the Settings tab sets the
+  alert channels (section 25.6): email through SMTP, Pushover, ntfy,
+  Microsoft Teams and a generic webhook, at most one of each, plus the
+  alert email recipients and the "Alert when a root shell opens"
+  checkbox, off by default. `GET` and `PUT /admin/notifications` read
+  and change the settings; secrets are write-only (section 24.8). A
+  change is applied by a root job, so the page shows the job's status.
+  Each saved channel has its own **Send test** button
+  (`POST /admin/alerts/test` with an optional `channel`).
+- **Root shell.** The Root shell tab, `/admin/shell`, opens root shells
+  on the server in panes with the workspace terminals' split and drag
+  layout. Any signed-in administrator may open one; there is no second
+  factor, password prompt, address rule, idle timeout or shell limit.
+  Section 20.3 and ADR 0051 describe it. A banner says nothing typed is
+  recorded and that opening and closing are audited. Reloading the page
+  or leaving the admin area ends the shells; no layout is saved and
+  there is no reconnect. When the operator has turned root shells off,
+  `GET /admin/root-shell` answers `{enabled: false}` and the tab is
+  hidden.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -2773,6 +2797,42 @@ reset-admin` (section 24.13, #1135).
 Operators may have host/Incus-level diagnostic access.
 
 Break-glass activity should be limited to authorized administrators and should not become the ordinary management path.
+
+Added by Epic 35 (ADR 0051): the admin page's root shell is an in-browser
+root sign-in to the server, on by default. An operator turns it off with
+`portikus_root_shell: false` in `portikus.yaml` and `sudo portikus
+setup`; an upgrade turns it on for existing sites. The API never runs as
+root. Each pane is its own WebSocket
+(`/admin/root-shell/ws?cols=&rows=`), its own connection to
+`/run/portikus-root-shell.sock` (root:portikus-root-shell, 0660, only
+`portikus-api.service` in that group) and its own per-connection helper,
+`portikus-root-shell@.service`, which runs `login -f root -h <address>`
+on a pseudo-terminal. That is a PAM session that behaves like SSH, with
+a logind scope and entries in `who`, `last` and wtmp. Setup installs
+`/etc/pam.d/remote` when absent, and tmux.
+
+- Closing a pane only hangs the shell up (SIGHUP), so a tmux the
+  administrator started survives.
+- The API re-checks the session once a second. Sign-out, losing the
+  administrator role, a disabled account and the 12-hour provider-role
+  limit end the shell: the API drops further input, sends the helper an
+  `end` frame and closes the browser socket with 4401. On `end` the
+  helper ends the shell's logind session and kills every process left
+  in it with SIGKILL, with no grace period.
+- When the database cannot be reached for about 60 seconds of checks,
+  the API closes the shell with 1011 but sends no `end`, so the shell is
+  only hung up and tmux survives.
+- The off switch ends every recorded root-shell session, including tmux
+  left behind closed panes. A tmux pane that ignores SIGHUP, or a
+  process started outside the session, for example with `systemd-run`,
+  can outlive it.
+- Input queued while the shell is busy is capped at 256 KiB; past that
+  it is dropped until the shell catches up, and the shell shows one
+  notice. Keys typed before the prompt appears are lost.
+- Root-shell sockets count toward the 60 terminal sockets per user
+  (section 24.13), and systemd allows 64 connections on the socket.
+- Anything that restarts the API ends every root shell, so upgrades and
+  database maintenance belong inside tmux.
 
 ## 21. Infrastructure as cattle
 
@@ -3592,6 +3652,16 @@ separate host. On an apt install the host and the platform are one zone
 that faces the internet. Only SSH, HTTP and HTTPS may answer from
 outside, and a check run from outside the server proves it (#1137).
 
+Added by Epic 35 (ADR 0051, an accepted risk): a stolen administrator
+session, a cross-site scripting bug in the web app, or a compromised API
+process now equals root on the host, through the root shell (section
+20.3). The barriers are the session rules, the WebSocket origin check,
+the content security policy, the second factor for Dex-password
+accounts and the 12-hour provider-role limit. The API still never runs
+as root, and the helper accepts only the `portikus` user on its socket.
+The API may also add any alert host name to the egress proxy through
+the alerts job (ADR 0052); each change is audited and announced.
+
 As built (Epic 29): the API and the worker reach the workspace agent
 through one shared client, `packages/agent-client`. It keeps the size cap
 on responses, refuses redirects, and skips an empty body. A stream that
@@ -3834,6 +3904,20 @@ under `/etc/portikus/certificate/` (root:caddy, 0640) that the snippet
 names with `{file.…}` placeholders. They never appear in Caddy's
 autosave, a log, the journal, an audit row, a status file, a view or a
 process's arguments, and the job scrubs them from Caddy's messages.
+
+Added by Epic 35 (ADR 0052): alert settings live in
+`/etc/portikus/notify.json` (root:portikus-notify, 0640), read at each
+send. The secrets in it (the SMTP password, the Pushover keys, the
+webhook, Teams and ntfy URLs, and the ntfy token) are write-only: the
+API and the page show each only as its host name and "set" or "not
+set". They travel once in a 0600 request file that the root alerts job
+deletes first, and never appear in a log, an audit row, a status file or
+a process argument. A change of the SMTP host, port or user name clears
+the stored password, and a change of the ntfy host clears its token,
+unless a new one comes in the same request. Setup seeds the file once
+from the `portikus_alert_*` keys in `secrets.yaml` or the old
+`alerts.env`; after that the page owns it. A malformed file shows every
+channel as off with a notice, and the next save replaces it.
 
 ### 24.9 Storage security
 
@@ -4157,6 +4241,16 @@ workspace's network address, or a name a workspace looked up.
   and the worker's `workspace.cpu_throttle_held`. The two throttle-hold
   settings join `settings.resource_guard_updated`.
 
+- Root shell (Epic 35, ADR 0051): `admin.root_shell_opened` (shell id,
+  address and user agent), written before the shell starts, and the
+  shell is refused if the write fails; `admin.root_shell_closed` (shell
+  id, `durationSeconds` and a reason: `exit`, `client`,
+  `session_ended`, `database_lost` or `api_stopped`). Nothing typed or
+  shown is recorded.
+- Notifications (Epic 35, ADR 0052): `settings.notifications_updated`
+  (the changed channel kinds and hosts, never a secret) and
+  `settings.alert_tested` (each channel and whether it sent).
+
 A test checks that every event this section lists writes an audit row
 (#1138).
 
@@ -4316,7 +4410,25 @@ The platform must expose sufficient logs and metrics to diagnose:
 
 Metrics should support capacity planning without exposing student source code or prompts.
 
-Added by Epic 34 (#918): administrator notifications with tone warning or danger that are marked site alerts (`site_alert`, written only by `notifyAdministrators`) are forwarded to Pushover, then to a webhook, through the egress proxy. The webhook body is `{text, title, tone, site, at}`, with flood control. Settings has a **Send test alert** button. `portikus-alert@.service` reports a failed API, worker, PostgreSQL, Caddy, backup or off-site copy unit at most once per unit per 10 minutes. Email alerts come later.
+Added by Epic 34 (#918): administrator notifications with tone warning or danger that are marked site alerts (`site_alert`, written only by `notifyAdministrators`) are forwarded to Pushover, then to a webhook, through the egress proxy. The webhook body is `{text, title, tone, site, at}`, with flood control. `portikus-alert@.service` reports a failed API, worker, PostgreSQL, Caddy, backup or off-site copy unit at most once per unit per 10 minutes.
+
+Added by Epic 35 (ADR 0052): the channels are set on the admin page
+(section 20.1) and kept in `/etc/portikus/notify.json` (section 24.8),
+read at each send, so a change needs no restart and alerts still go out
+when PostgreSQL is down. Site alerts go to every configured channel:
+email (nodemailer through the egress proxy, ports 587 with STARTTLS or
+465 with TLS, TLS required and certificates checked, at most ten
+recipients), Pushover, ntfy (with an optional bearer token), Microsoft
+Teams (an Adaptive Card to a Workflows webhook) and the generic webhook,
+whose `text` body also serves Slack, Mattermost, Google Chat and
+Discord. Every URL must be `https://` on port 443; other ports are
+refused. A root job, `portikus-alerts-job.path`, applies each change and
+writes the alert hosts into `/etc/portikus/egress-proxy.d/alerts.conf`,
+which Squid includes after its private-address denies. Errors are short
+codes, never a server's text. When `rootShellOpenedAlert` is on, each
+root shell opened sends a warning site alert naming the administrator.
+Certificate expiry and renewal failures are site alerts, so they reach
+email too.
 
 Added by Epic 14.3 (section 19.4): the worker records each running
 workspace's CPU time, memory working set and limits from Incus once a
@@ -5708,6 +5820,30 @@ Acceptance:
 - admin content does not shift between tall and short tabs;
 - every drag has a click alternative;
 - a status announcement is heard while a dialog is open.
+
+### Epic 35 — Admin notification settings and root shell
+
+Built on `epic/35-admin-notifications-root-shell`, issues #918 and
+#1063. No migration. See sections 20.1, 20.3, 24.1, 24.8, 24.11 and
+25.6 and ADRs 0051 and 0052.
+
+Includes:
+
+- alert channels set on the Settings tab: email, Pushover, ntfy,
+  Microsoft Teams and a webhook, kept in a root-owned `notify.json`
+  applied by a root job, with the alert hosts in a Squid include folder;
+- a Root shell admin tab with split panes, served by a per-connection
+  root helper that starts a PAM sign-in session;
+- the workspace pane layout shared with the root shell, and workspace
+  terminals that stop input at once when a session is revoked.
+
+Acceptance:
+
+- a saved channel's test reaches it through the egress proxy;
+- alerts still go out with PostgreSQL down;
+- revoking an administrator ends their root shells and what they left
+  running, while a closed pane leaves their tmux running;
+- nothing typed in a root shell reaches a log or an audit row.
 
 ### Estimated total
 
