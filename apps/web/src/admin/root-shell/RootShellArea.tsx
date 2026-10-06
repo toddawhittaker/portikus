@@ -3,7 +3,7 @@
  * laid out as the workspace terminals are (ADR 0051; SPEC.md §9.3). The
  * layout lives only in this page, since a reload ends every shell.
  */
-import { DndContext, DragOverlay, pointerWithin, useDroppable } from "@dnd-kit/core";
+import { DndContext, DragOverlay, pointerWithin } from "@dnd-kit/core";
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import {
 	Button,
@@ -17,30 +17,19 @@ import {
 	tabPanelDomId,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useEditorSettings } from "../../editor/settingsQueries.js";
 import { SplitTree } from "../../layout/SplitTree.js";
 import { createLayoutStore, useLayout } from "../../layout/store.js";
 import { type SplitDirection, terminalIds } from "../../layout/tree.js";
-import { moveIntoTargets } from "../../work/moveInto.js";
-import { focusAfterPane, tabAfterClose } from "../../work/paneFocus.js";
-import { TAB_STRIP_DROP_ID, usePaneDrag } from "../../work/usePaneDrag.js";
+import { usePaneActions } from "../../work/usePaneActions.js";
+import { TabStripDrop, usePaneDrag } from "../../work/usePaneDrag.js";
 import "../../work/work.css";
 import "./root-shell.css";
 import { RootShellBanner } from "./RootShellBanner.js";
 import { RootShellLeaf } from "./RootShellLeaf.js";
 import { createSessionHost, RootShellSession } from "./RootShellSession.js";
 import type { RootShellLoss } from "./rootShellSocket.js";
-
-/** The tab strip as a drop area; separate so it can use `useDroppable`. */
-function TabStripDrop({ children }: { children: ReactNode }) {
-	const drop = useDroppable({ id: TAB_STRIP_DROP_ID });
-	return (
-		<div className="pk-work-tabs-drop" ref={drop.setNodeRef}>
-			{children}
-		</div>
-	);
-}
 
 export interface RootShellAreaProps {
 	/** False while another admin tab is shown; the shells keep running. */
@@ -140,15 +129,9 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 		);
 	}
 
-	/** Move the keyboard to the next pane in the tab, or to New root shell (SPEC.md §25.8). */
-	function moveFocusOff(shellId: string) {
-		const next = focusAfterPane(layout, shellId, newShellButton());
-		if (next) store.getState().setFocused(next);
-	}
-
 	/** Close from the pane's menu: the keyboard moves on rather than being lost. */
 	function closePane(shellId: string) {
-		moveFocusOff(shellId);
+		panes.moveFocusOff(shellId);
 		closeShell(shellId);
 	}
 
@@ -174,24 +157,6 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 		closeShell(shellId);
 	}
 
-	// The tab a confirmed tab close leaves active, for the dialog to return
-	// focus to; undefined until confirmed, so Cancel returns focus as usual.
-	const tabAfterConfirm = useRef<string | null | undefined>(undefined);
-
-	function confirmCloseTab(tabId: string) {
-		const next = tabAfterClose(layout, tabId, store.getState().tabHistory);
-		tabAfterConfirm.current = next;
-		closeTab(tabId);
-		if (next) store.getState().setActive(next);
-	}
-
-	function focusAfterCloseDialog(): HTMLElement | null {
-		const next = tabAfterConfirm.current;
-		tabAfterConfirm.current = undefined;
-		if (next === undefined) return null;
-		return next ? document.getElementById(tabDomId(next)) : newShellButton();
-	}
-
 	function closeTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (tab) for (const id of terminalIds(tab.root)) closeShell(id);
@@ -207,22 +172,6 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 		closeTab(tabId);
 	}
 
-	/** Alt+Shift+Q leaves the terminal for the tab strip, as in a workspace. */
-	function leaveTerminal() {
-		const tabs = strip.current?.querySelectorAll<HTMLElement>('[role="tab"]');
-		if (!tabs) return;
-		const index = layout.tabs.findIndex((tab) => tab.id === activeTabId);
-		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
-	}
-
-	function moveToNewTab(shellId: string) {
-		const from = layout.tabs.findIndex((tab) =>
-			terminalIds(tab.root).includes(shellId),
-		);
-		store.getState().moveLeafToNewTab(shellId, from + 1);
-		store.getState().setFocused(shellId);
-	}
-
 	const items: TabItem[] = layout.tabs.map((tab) => {
 		const first = terminalIds(tab.root)[0];
 		return {
@@ -233,21 +182,15 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 		};
 	});
 
-	function moveTargetsFor(shellId: string) {
-		return moveIntoTargets(layout, shellId).map((target) => ({
-			tabId: target.tabId,
-			label: items.find((item) => item.id === target.tabId)?.label ?? "Tab",
-		}));
-	}
-
-	function moveInto(shellId: string, tabId: string) {
-		const target = moveIntoTargets(layout, shellId).find(
-			(candidate) => candidate.tabId === tabId,
-		);
-		if (!target) return;
-		store.getState().moveLeaf(tabId, shellId, target.terminalId, target.edge);
-		store.getState().setFocused(shellId);
-	}
+	const panes = usePaneActions({
+		store,
+		layout,
+		activeTabId,
+		strip,
+		items,
+		newControl: newShellButton,
+		closeTab,
+	});
 
 	const closingTab = layout.tabs.find((tab) => tab.id === closingTabId);
 
@@ -275,33 +218,24 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 				{...drag.handlers}
 			>
 				<div className="pk-work-area">
-					<TabStripDrop>
-						<div className="pk-work-tabs" data-testid="root-shell-tabs" ref={strip}>
-							<Tabs
-								tabs={items}
-								activeId={activeTabId ?? ""}
-								label="Open root shells"
-								onSelect={(id) => store.getState().setActive(id)}
-								onClose={requestCloseTab}
-								onReorder={(from, to) => store.getState().moveTab(from, to)}
-								actions={
-									<IconButton
-										icon="plus"
-										label="New root shell"
-										size="sm"
-										data-testid="root-shell-new"
-										onClick={openShellTab}
-									/>
-								}
-							/>
-							{drag.dragTarget?.kind === "strip" ? (
-								<div
-									className="pk-tab-insert"
-									data-testid="tab-insert-marker"
-									style={{ left: `${drag.dragTarget.markerX}px` }}
+					<TabStripDrop strip={strip} testId="root-shell-tabs" target={drag.dragTarget}>
+						<Tabs
+							tabs={items}
+							activeId={activeTabId ?? ""}
+							label="Open root shells"
+							onSelect={(id) => store.getState().setActive(id)}
+							onClose={requestCloseTab}
+							onReorder={(from, to) => store.getState().moveTab(from, to)}
+							actions={
+								<IconButton
+									icon="plus"
+									label="New root shell"
+									size="sm"
+									data-testid="root-shell-new"
+									onClick={openShellTab}
 								/>
-							) : null}
-						</div>
+							}
+						/>
 					</TabStripDrop>
 
 					{layout.tabs.length === 0 ? (
@@ -353,13 +287,13 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 												focused={focusedId === id}
 												alone={tab.root.type === "leaf"}
 												dropEdge={drop?.terminalId === id ? drop.edge : null}
-												moveTargets={moveTargetsFor(id)}
+												moveTargets={panes.moveTargetsFor(id)}
 												onFocus={(shellId) => store.getState().setFocused(shellId)}
 												onSplit={split}
-												onMoveToNewTab={moveToNewTab}
-												onMoveInto={moveInto}
+												onMoveToNewTab={panes.moveToNewTab}
+												onMoveInto={panes.moveInto}
 												onResetSizes={resetSizes}
-												onLeave={leaveTerminal}
+												onLeave={panes.leaveTerminal}
 												onClose={closePane}
 											/>
 										);
@@ -381,7 +315,7 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 						visible={visible && tabOf.get(id) === activeTabId}
 						focused={focusedId === id}
 						onFocus={(shellId) => store.getState().setFocused(shellId)}
-						onLeave={leaveTerminal}
+						onLeave={panes.leaveTerminal}
 						onExited={shellExited}
 						onLossChange={lossChanged}
 					/>
@@ -407,10 +341,10 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 					description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} root shells. Closing the tab ends them all.`}
 					confirmLabel="Close tab"
 					onConfirm={() => {
-						if (closingTabId) confirmCloseTab(closingTabId);
+						if (closingTabId) panes.confirmCloseTab(closingTabId);
 					}}
 					onCancel={() => setClosingTabId(null)}
-					returnFocusTo={focusAfterCloseDialog}
+					returnFocusTo={panes.focusAfterCloseDialog}
 				/>
 			</ConfirmDialogRoot>
 		</section>

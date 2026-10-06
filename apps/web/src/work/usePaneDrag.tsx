@@ -7,11 +7,12 @@ import {
 	type DragMoveEvent,
 	type DragStartEvent,
 	PointerSensor,
+	useDroppable,
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
 import type { SplitNode } from "@portikus/contracts";
-import { type RefObject, useState } from "react";
+import { type ReactNode, type RefObject, useState } from "react";
 import { type DropEdge, terminalIds } from "../layout/tree.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
 
@@ -22,6 +23,36 @@ export const TAB_STRIP_DROP_ID = "work-tab-strip";
 export type DragTarget =
 	| { kind: "pane"; tabId: string; terminalId: string; edge: DropEdge }
 	| { kind: "strip"; index: number; markerX: number };
+
+export interface TabStripDropProps {
+	/** The element `usePaneDrag` measures the tabs in. */
+	strip: RefObject<HTMLDivElement | null>;
+	testId: string;
+	/** The drag's current target; a strip target draws the insert marker. */
+	target: DragTarget | null;
+	/** The tab strip itself. */
+	children: ReactNode;
+}
+
+/** The tab strip as a drop area, with the marker where a dropped pane's tab would go. */
+export function TabStripDrop({ strip, testId, target, children }: TabStripDropProps) {
+	const drop = useDroppable({ id: TAB_STRIP_DROP_ID });
+	return (
+		<div className="pk-work-tabs-drop" ref={drop.setNodeRef}>
+			<div className="pk-work-tabs" data-testid={testId} ref={strip}>
+				{children}
+				{target?.kind === "strip" ? (
+					<div
+						className="pk-tab-insert"
+						data-testid="tab-insert-marker"
+						data-index={target.index}
+						style={{ left: `${target.markerX}px` }}
+					/>
+				) : null}
+			</div>
+		</div>
+	);
+}
 
 export interface UsePaneDragOptions {
 	tabs: readonly { id: string; root: SplitNode }[];
