@@ -4,7 +4,7 @@ import {
 	type NotifyJobView,
 	notifyJobStaleAt,
 } from "@portikus/contracts";
-import { Button, Checkbox, Skeleton } from "@portikus/ui";
+import { Button, Checkbox, PageIntro, Skeleton } from "@portikus/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
@@ -61,6 +61,14 @@ export function NotificationsSection() {
 			description="Warnings and failures that need a person appear on the admin bell and are also sent to each channel turned on here."
 			testId="notify-section"
 		>
+			<PageIntro
+				id="admin-notifications"
+				summary="About Notifications"
+				helpHref="/admin/help#admin-notifications"
+			>
+				A save is applied by a root job on the server, and secrets are never shown again
+				once saved. Send test checks that a saved channel delivers.
+			</PageIntro>
 			{notifications.data ? (
 				<NotificationsForm
 					data={notifications.data}

@@ -138,6 +138,13 @@ test("shows no unreadable warning for a readable file", async () => {
 	expect(screen.queryByTestId("notify-unreadable")).toBeNull();
 });
 
+test("links its help topic", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<NotificationsSection />);
+	const link = await screen.findByRole("link", { name: /More in Help/ });
+	expect(link.getAttribute("href")).toBe("/admin/help#admin-notifications");
+});
+
 test("with root shells off, the root-shell alert stays and its description says they are off", async () => {
 	for (const enabled of [false, true]) {
 		stubFetch((url) =>
