@@ -456,6 +456,30 @@ describe("sendAlert with every channel", () => {
 		expect(seen.mail).toHaveLength(1);
 	});
 
+	test("a mail transport that cannot be built fails email alone; later channels still send", async () => {
+		const fake = await fakeServer();
+		const factory = (() => {
+			throw new Error(`bad options ${SMTP_PASSWORD}`);
+		}) as unknown as MailTransportFactory;
+		const results = await sendAlert(
+			{
+				...off,
+				email: { smtp, to: ["a@example.edu"] },
+				ntfy: { url: `${fake.url}/ntfy`, token: "" },
+				teamsUrl: `${fake.url}/teams`,
+			},
+			alert,
+			"s",
+			`${fake.url}/push`,
+			factory,
+		);
+		expect(results).toEqual([
+			{ channel: "email", ok: false, error: "unreachable" },
+			{ channel: "ntfy", ok: true },
+			{ channel: "teams", ok: true },
+		]);
+	});
+
 	test("each new channel alone counts as a channel", () => {
 		expect(anyAlertChannel({ ...off, email: { smtp, to: ["a@example.edu"] } })).toBe(
 			true,
