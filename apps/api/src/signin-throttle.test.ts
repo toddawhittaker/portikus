@@ -46,19 +46,19 @@ describe("sign-in starts", () => {
 	test("asks for an audit row once per address per window", () => {
 		const { throttle, advance } = fixture(noDb);
 		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: true,
+			firstRefusal: true,
 		});
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: false,
+			firstRefusal: false,
 		});
 		advance(60_000);
 		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: true,
+			firstRefusal: true,
 		});
 	});
 });
@@ -289,6 +289,35 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 			remoteAddress: "203.0.113.9",
 		});
 		expect(refused.statusCode).toBe(429);
+	});
+
+	function dexAsk(address: string, uri: string) {
+		return app.inject({
+			url: "/edge/signin-throttle?scope=start",
+			headers: { "x-forwarded-for": address, "x-forwarded-uri": uri },
+		});
+	}
+
+	test("the 151st GET /dex/auth from one address in a minute is 429; another address is unaffected", async () => {
+		for (let i = 0; i < 150; i += 1) {
+			expect((await dexAsk("203.0.113.20", `/dex/auth?state=${i}`)).statusCode).toBe(
+				204,
+			);
+		}
+		const refused = await dexAsk("203.0.113.20", "/dex/auth?state=x");
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+		expect((await dexAsk("203.0.113.21", "/dex/auth")).statusCode).toBe(204);
+		expect(await throttledRows()).toHaveLength(1);
+	});
+
+	test("only the exact /dex/auth path is counted, so Dex's later pages in one sign-in are not", async () => {
+		for (let i = 0; i < 150; i += 1) await dexAsk("203.0.113.22", "/dex/auth");
+		expect((await dexAsk("203.0.113.22", "/dex/auth/local")).statusCode).toBe(204);
+		expect(
+			(await dexAsk("203.0.113.22", "/dex/auth/local/login?back=")).statusCode,
+		).toBe(204);
+		expect((await dexAsk("203.0.113.22", "/dex/auth")).statusCode).toBe(429);
 	});
 
 	test("/edge/signin-throttle answers only a loopback peer", async () => {

@@ -133,7 +133,8 @@ test("thirty wrong codes, then a recovery code still signs in", async ({ browser
 	await field.fill("000000");
 	await page.getByRole("button", { name: "Continue" }).click();
 	await expect(field).toHaveAccessibleDescription(
-		"Too many wrong codes. Wait a few minutes, or use a recovery code or a passkey.",
+		// This user has no passkey, so none is offered.
+		"Too many wrong codes. Wait a few minutes, or use a recovery code.",
 	);
 
 	await page.getByRole("button", { name: "Use a recovery code" }).click();

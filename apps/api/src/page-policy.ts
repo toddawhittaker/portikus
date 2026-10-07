@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
  * The content security policy for HTML the API writes itself (SPEC.md
  * section 24.3): no scripts, inline styles only, and never framed.
  */
-const PAGE_POLICY =
+export const PAGE_POLICY =
 	"default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 /** A preview-host page: like PAGE_POLICY, but the Preview tab may frame it. */
@@ -17,7 +17,8 @@ export function previewPagePolicy(publicUrl: string): string {
 /**
  * Adds PAGE_POLICY to any HTML reply that carries no policy of its own. The
  * Dex password relay is skipped: it passes Dex's page back, whose
- * stylesheet, font, logo and inline script this policy would block.
+ * stylesheet, font, logo and inline script this policy would block, and
+ * sets the policy on its own pages itself.
  */
 export function registerPagePolicy(app: FastifyInstance): void {
 	app.addHook("onSend", async (request, reply) => {

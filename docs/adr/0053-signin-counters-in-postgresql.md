@@ -36,8 +36,8 @@ password, because whoever spent the codes knows it.
    separate `UPDATE ... SET reported = true WHERE reported = false
    RETURNING 1`, so concurrent refusals audit once.
 5. **Keys are plain text**: an address key or a login, the same values
-   audit rows already hold. A worker loop deletes rows once `expires_at`
-   has passed.
+   audit rows already hold. The API deletes rows once `expires_at`
+   has passed; the worker has no rights on the table.
 6. **What moves.** Only guess counts: password posts per address,
    password failures per account, the second-factor counts and the
    password-change count. Sign-in starts stay in memory, because a

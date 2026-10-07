@@ -3,7 +3,8 @@ import { type Kysely, sql } from "kysely";
 /**
  * Sign-in guess counts (SPEC.md section 24.13, ADR 0053): one fixed window
  * per scope and key, so a restart of the API hands out no fresh guesses.
- * The worker deletes a row once `expires_at` has passed.
+ * The API deletes a row once `expires_at` has passed; the worker has no
+ * rights on this table.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`create table signin_counters (

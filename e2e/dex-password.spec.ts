@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { FAKE_DEX_RIGHT_PASSWORD } from "./helpers";
+import { expectNoViolations, FAKE_DEX_RIGHT_PASSWORD, query } from "./helpers";
 
 /**
  * Dex's password form, relayed by the API (SPEC.md section 24.13). The form
@@ -94,4 +94,38 @@ test("an account with too many wrong passwords gets a clear message", async ({
 		"href",
 		"/auth/login",
 	);
+});
+
+test("when the sign-in counts cannot be kept, the unavailable page is clear and accessible in both themes", async ({
+	page,
+}) => {
+	const login = `unavailable-${test.info().workerIndex}-${Date.now()}@example.edu`;
+	// Fail only this account's count, so parallel tests keep their sign-ins.
+	const fn = `e2e_fail_${test.info().workerIndex}_${Date.now()}`;
+	await query(`create function ${fn}() returns trigger language plpgsql as $$
+		begin
+			if new.key = '${login}' then raise exception 'counter store down'; end if;
+			return new;
+		end $$`);
+	await query(
+		`create trigger ${fn} before insert or update on signin_counters for each row execute function ${fn}()`,
+	);
+	try {
+		await openForm(page);
+		await submit(page, login, FAKE_DEX_RIGHT_PASSWORD);
+		await expect(
+			page.getByRole("heading", { name: "Sign-in is unavailable" }),
+		).toBeVisible();
+		await expect(page.getByRole("link", { name: "Back to sign in" })).toHaveAttribute(
+			"href",
+			"/auth/login",
+		);
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			await expectNoViolations(page);
+		}
+	} finally {
+		await query(`drop trigger ${fn} on signin_counters`);
+		await query(`drop function ${fn}()`);
+	}
 });
