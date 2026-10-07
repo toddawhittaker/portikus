@@ -259,7 +259,7 @@ test("the admin help explains invitations and the CSV import, right after findin
 	const text = heading.closest("section")?.textContent ?? "";
 	for (const phrase of [
 		"Invite…",
-		"Revoke",
+		"Revoke…",
 		"user principal name",
 		"Import from CSV…",
 		`at most ${ACCOUNT_IMPORT_MAX_ROWS} rows`,

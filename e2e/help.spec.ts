@@ -2,6 +2,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createSignedInUser,
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	query,
 	settledAxe,
@@ -175,11 +176,28 @@ test("the Users tab's More in Help reaches the topic on inviting people and the 
 	await expect(help).toHaveURL(/#admin-invitations$/);
 	const topic = help.locator("section:has(> h3#admin-invitations)");
 	await expect(topic).toBeInViewport();
+	await expect(
+		help.getByRole("heading", { level: 3, name: "Inviting people" }),
+	).toBeFocused();
 	await expect(topic).toContainText("Invite…");
 	await expect(topic).toContainText("user principal name");
 	await expect(topic).toContainText("Import from CSV…");
 	await expect(topic).toContainText("Download passwords");
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the administrator help with the invitations topic passes axe (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/help#admin-invitations");
+		await expect(
+			page.getByRole("heading", { level: 3, name: "Inviting people" }),
+		).toBeFocused({ timeout: 15_000 });
+		await expectNoViolations(page);
+	});
+}
 
 test("the Course page's anchor lands on its topic in the workspace help", async ({
 	browser,
