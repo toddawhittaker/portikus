@@ -13,7 +13,7 @@ import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { createListeningRegistry } from "./preview/registry.js";
-import { fileWriteLimit } from "./rate-limit.js";
+import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
 import type { RootShellPipe } from "./root-shell/pipe.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
@@ -113,6 +113,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			done(null, Object.fromEntries(new URLSearchParams(body as string))),
 	);
 
+	// The cheap per-address count runs first, so a refused request reaches no
+	// later count (SPEC.md section 24.13).
+	registerAnonymousLimit(app, deps.config);
 	// Before the auth plugin, so its hook runs first.
 	const signinThrottle = registerSigninThrottle(app, deps);
 	// One websocket per running workspace tells the control plane what is

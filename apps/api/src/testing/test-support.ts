@@ -60,6 +60,7 @@ export function testConfig(
 		JOURNALCTL_PATH: "/nonexistent/journalctl",
 		WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: 20,
 		FILE_WRITE_LIMIT_PER_MINUTE: 600,
+		ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: 600,
 		// Root shells off, and no settings file, so every alert is off.
 		ROOT_SHELL_SOCKET: "",
 		NOTIFY_FILE: "/nonexistent/notify.json",

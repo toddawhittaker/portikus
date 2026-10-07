@@ -79,6 +79,9 @@ export { API_ORIGIN, MOCK_ISSUER, WEB_ORIGIN };
 
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
+
+/** The e2e API's anonymous request limit per address per minute (SPEC.md section 24.13). */
+export const E2E_ANONYMOUS_LIMIT = 5000;
 /** The one password e2e/fake-dex-login.mjs accepts. */
 export const FAKE_DEX_RIGHT_PASSWORD = "the-right-password-1234";
 

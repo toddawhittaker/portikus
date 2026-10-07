@@ -1,7 +1,7 @@
 import { isIPv4, isIPv6 } from "node:net";
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 /**
  * Fixed-window request counters kept in this process, which the pilot runs
@@ -176,4 +176,72 @@ export function lifecycleLimit(config: ApiConfig): UserLimit {
 		"workspace-lifecycle",
 		createCounter(config.WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE, MINUTE_MS),
 	);
+}
+
+/**
+ * Routes that need no session, as `"<METHOD> <url pattern>"`. The limit
+ * cannot read the session, so it matches this fixed list (SPEC.md section
+ * 24.13). `/edge/certificate-ask` is left out: Caddy asks it with no client
+ * address.
+ */
+export const ANONYMOUS_ROUTES: ReadonlySet<string> = new Set([
+	"GET /health",
+	"GET /auth/login",
+	"HEAD /auth/login",
+	"GET /auth/callback",
+	"HEAD /auth/callback",
+	"POST /auth/logout",
+	"GET /edge/signin-throttle",
+	"HEAD /edge/signin-throttle",
+	"POST /dex/auth/*",
+	"GET /.well-known/portikus-preflight/:nonce",
+	"HEAD /.well-known/portikus-preflight/:nonce",
+	"GET /lti/login",
+	"HEAD /lti/login",
+	"POST /lti/login",
+	"POST /lti/launch",
+	"GET /lti/jwks",
+	"HEAD /lti/jwks",
+]);
+
+/** The answer the anonymous request limit refuses with. */
+const ANONYMOUS_LIMIT_BODY: ApiError = {
+	code: "RATE_LIMITED",
+	message: "Too many requests from your network just now. Try again in a minute.",
+};
+
+/** One minute's requests per address, at the anonymous limit. */
+export function createAnonymousCounter(
+	config: ApiConfig,
+	now: () => number = Date.now,
+): Counter {
+	return createCounter(config.ANONYMOUS_REQUEST_LIMIT_PER_MINUTE, MINUTE_MS, now);
+}
+
+/**
+ * Count every request to an anonymous route per address and answer 429 past
+ * the limit. Register it before the sign-in throttle, so a refused request
+ * reaches no later count.
+ */
+export function registerAnonymousLimit(
+	app: FastifyInstance,
+	config: ApiConfig,
+	now: () => number = Date.now,
+): void {
+	const counter = createAnonymousCounter(config, now);
+	app.addHook("onRequest", async (request, reply) => {
+		const route = `${request.method} ${request.routeOptions.url ?? ""}`;
+		if (!ANONYMOUS_ROUTES.has(route)) return;
+		// request.ip is the client Caddy named; trustProxy trusts only loopback.
+		const key = addressKey(request.ip);
+		const decision = check(counter, key);
+		if (decision.allowed) return;
+		if (decision.firstRefusal) {
+			request.log.warn({ address: key }, "anonymous request limit reached");
+		}
+		await reply
+			.status(429)
+			.header("retry-after", String(decision.retryAfterSeconds))
+			.send(ANONYMOUS_LIMIT_BODY);
+	});
 }
