@@ -13,6 +13,10 @@ const LIST_PATH = fileURLToPath(
 
 const BREACHED = new Set(readFileSync(LIST_PATH, "utf8").split("\n").filter(Boolean));
 
+// A truncated file would silently accept every password; stop the process instead.
+if (BREACHED.size < 10_000)
+	throw new Error("breached-password list is missing entries");
+
 /** True when the password is on the bundled list; case is ignored. */
 export function isBreachedPassword(password: string): boolean {
 	return BREACHED.has(password.toLowerCase());
