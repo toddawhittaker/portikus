@@ -478,7 +478,7 @@ expect "it checks the VM's hostname first" "vm_commands | head -1 | grep -qx 'ss
 expect "every command inside the workspace runs as uid and gid 1000" \
   "! vm_commands | grep 'incus exec' | grep -v -- '--user 1000 --group 1000 --cwd /home/student' | grep -q ."
 expect "it extracts into the derived folder as the student" \
-  "vm_commands | grep -q -- '--user 1000 --group 1000 --cwd /home/student --env HOME=/home/student -- tar -xz --strip-components=2 -C /home/student/restored-2026-09-24-0230 backup/volume'"
+  "vm_commands | grep -q -- '--user 1000 --group 1000 --cwd /home/student --env HOME=/home/student -- tar -xz --same-permissions --strip-components=2 -C /home/student/restored-2026-09-24-0230 backup/volume'"
 expect "the workspace receives the decrypted home" "cmp -s '${fakes}/stream' '${work}/home.tar.gz'"
 reset
 rm -rf "${sets:?}/${GOOD}"

@@ -667,3 +667,82 @@ describe("unreadable directories, changing files, and the point's own rules", ()
 		);
 	});
 });
+
+describe("coding-agent logins stay out of points (ADR 0024)", () => {
+	const CLAUDE_LOGIN = "CLAUDE-LOGIN-TOKEN";
+	const CODEX_LOGIN = "CODEX-LOGIN-TOKEN";
+
+	beforeEach(async () => {
+		await mkdir(join(paths.homeDir, ".claude"), { mode: 0o700 });
+		await writeFile(
+			join(paths.homeDir, ".claude", ".credentials.json"),
+			`{"token":"${CLAUDE_LOGIN}"}\n`,
+			{ mode: 0o600 },
+		);
+		await mkdir(join(paths.homeDir, ".codex"), { mode: 0o700 });
+		await writeFile(
+			join(paths.homeDir, ".codex", "auth.json"),
+			`{"token":"${CODEX_LOGIN}"}\n`,
+			{ mode: 0o600 },
+		);
+	});
+
+	async function archiveText(file: string): Promise<string> {
+		return zstdDecompressSync(await readFile(file)).toString("latin1");
+	}
+
+	test("a point of a project never reads the home's agent logins", async () => {
+		const { file } = await point();
+		const listed = names(await listMembers(file));
+		expect(listed.some((name) => name.includes(".credentials.json"))).toBe(false);
+		expect(listed.some((name) => name.includes("auth.json"))).toBe(false);
+		const text = await archiveText(file);
+		expect(text).not.toContain(CLAUDE_LOGIN);
+		expect(text).not.toContain(CODEX_LOGIN);
+	});
+
+	test("links in the project to the logins or their folders are stored as links only", async () => {
+		const home = paths.homeDir;
+		await symlink(join(home, ".claude"), join(project, ".claude"));
+		await symlink(join(home, ".codex"), join(project, ".codex"));
+		await symlink(
+			join(home, ".claude", ".credentials.json"),
+			join(project, "claude.json"),
+		);
+		await symlink(join(home, ".codex", "auth.json"), join(project, "src", "auth.json"));
+		// A relative link reaching up out of the project.
+		await symlink(
+			"../../../.claude/.credentials.json",
+			join(project, "src", "rel.json"),
+		);
+		const { file } = await point();
+		const lines = await listMembers(file);
+		for (const link of [
+			".claude",
+			".codex",
+			"claude.json",
+			"src/auth.json",
+			"src/rel.json",
+		]) {
+			const line = lines.find((entry) => names([entry])[0] === link);
+			expect(line?.startsWith("l"), link).toBe(true);
+		}
+		const listed = names(lines);
+		expect(listed.some((name) => name.startsWith(".claude/"))).toBe(false);
+		expect(listed.some((name) => name.startsWith(".codex/"))).toBe(false);
+		const text = await archiveText(file);
+		expect(text).not.toContain(CLAUDE_LOGIN);
+		expect(text).not.toContain(CODEX_LOGIN);
+	});
+
+	test("a project slug that is a link to a login folder makes no point", async () => {
+		await symlink(
+			join(paths.homeDir, ".claude"),
+			join(paths.homeDir, "projects", "claude"),
+		);
+		await expect(
+			createRecoveryPoint(paths, { slug: "claude", projectId, pointId: randomUUID() }),
+		).rejects.toMatchObject({ code: "INVALID_SLUG" });
+		expect(await readdir(paths.recoveryRoot)).toEqual([]);
+	});
+});
