@@ -200,104 +200,35 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 		});
 	});
 
-	test("/auth/callback shares the sign-in start limit", async () => {
-		for (let i = 0; i < 150; i += 1) {
-			await app.inject({ url: "/auth/login", remoteAddress: "203.0.113.7" });
-		}
-		const res = await app.inject({
-			url: "/auth/callback",
-			remoteAddress: "203.0.113.7",
-		});
-		expect(res.statusCode).toBe(429);
-	});
-
-	test("/lti/login and /lti/launch share the sign-in start limit", async () => {
+	test("only /auth/login and /lti/login count as sign-in starts", async () => {
 		for (let i = 0; i < 149; i += 1) {
 			await app.inject({ url: "/auth/login", remoteAddress: "203.0.113.9" });
 		}
-		const login = await app.inject({ url: "/lti/login", remoteAddress: "203.0.113.9" });
-		expect(login.statusCode).not.toBe(429);
+		// The callback, the LTI launch and Dex's page asks are not starts.
+		const callback = await app.inject({
+			url: "/auth/callback",
+			remoteAddress: "203.0.113.9",
+		});
+		expect(callback.statusCode).not.toBe(429);
 		const launch = await app.inject({
 			method: "POST",
 			url: "/lti/launch",
 			remoteAddress: "203.0.113.9",
 		});
-		expect(launch.statusCode).toBe(429);
-	});
-
-	function edgeCheck(clientIp: string, uri = "/dex/auth/local/login?back=&state=x") {
-		return app.inject({
-			url: "/edge/signin-throttle",
-			headers: { "x-forwarded-for": clientIp, "x-forwarded-uri": uri },
+		expect(launch.statusCode).not.toBe(429);
+		const ask = await app.inject({
+			url: "/edge/signin-throttle?scope=start",
+			headers: { "x-forwarded-for": "203.0.113.9" },
 		});
-	}
+		expect(ask.statusCode).toBe(204);
 
-	test("/edge/signin-throttle counts every ask as a sign-in start, even with an encoded URI", async () => {
-		// Caddy matched the decoded path already; the raw URI can differ.
-		for (let i = 0; i < 150; i += 1) {
-			const uri = i % 2 ? "/dex/auth/loc%61l/login?state=x" : "/dex/auth/%6cocal";
-			expect((await edgeCheck("192.0.2.10", uri)).statusCode).toBe(204);
-		}
-		const refused = await edgeCheck("192.0.2.10");
+		const login = await app.inject({ url: "/lti/login", remoteAddress: "203.0.113.9" });
+		expect(login.statusCode).not.toBe(429);
+		const refused = await app.inject({
+			url: "/auth/login",
+			remoteAddress: "203.0.113.9",
+		});
 		expect(refused.statusCode).toBe(429);
-		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
-		expect((await edgeCheck("192.0.2.11")).statusCode).toBe(204);
-
-		const rows = await throttledRows();
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.metadata).toMatchObject({
-			ip: "192.0.2.10",
-			scope: "signin-start",
-		});
-	});
-
-	test("/edge/signin-throttle: one address's 400 checks do not lock out another", async () => {
-		for (let i = 0; i < 400; i += 1) await edgeCheck("192.0.2.10");
-		expect((await edgeCheck("192.0.2.11")).statusCode).toBe(204);
-	});
-
-	test("/edge/signin-throttle?scope=start counts a sign-in start, shared with /auth/login", async () => {
-		const start = (ip: string) =>
-			app.inject({
-				url: "/edge/signin-throttle?scope=start",
-				headers: {
-					"x-forwarded-for": ip,
-					"x-forwarded-uri": "/dex/auth/local?state=x",
-				},
-			});
-		for (let i = 0; i < 75; i += 1) {
-			await app.inject({ url: "/auth/login", remoteAddress: "192.0.2.20" });
-		}
-		for (let i = 0; i < 75; i += 1) {
-			expect((await start("192.0.2.20")).statusCode).toBe(204);
-		}
-		const refused = await start("192.0.2.20");
-		expect(refused.statusCode).toBe(429);
-		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
-
-		const rows = await throttledRows();
-		expect(rows[0]?.metadata).toMatchObject({
-			ip: "192.0.2.20",
-			scope: "signin-start",
-		});
-	});
-
-	test("/edge/signin-throttle counts an ask whatever its scope", async () => {
-		const ask = (query: string) =>
-			app.inject({
-				url: `/edge/signin-throttle?${query}`,
-				headers: { "x-forwarded-for": "192.0.2.30" },
-			});
-		const queries = [
-			"scope=password",
-			"scope=Start",
-			"scope=start&scope=start",
-			"scope=",
-		];
-		for (let i = 0; i < 150; i += 1) {
-			expect((await ask(queries[i % queries.length] ?? "")).statusCode).toBe(204);
-		}
-		expect((await ask("scope=start")).statusCode).toBe(429);
 	});
 
 	test("/edge/signin-throttle answers only a loopback peer", async () => {

@@ -19,13 +19,10 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 export const ACCOUNT_FAILURE_LIMIT = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
 const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-// An LTI launch is a sign-in start too.
-const START_ROUTES = new Set([
-	"/auth/login",
-	"/auth/callback",
-	"/lti/login",
-	"/lti/launch",
-]);
+// Each sign-in begins at exactly one of these, so a start is counted once.
+// The callback, the LTI launch and Dex's own pages are bounded by the
+// anonymous request limit instead (SPEC.md section 24.13).
+const START_ROUTES = new Set(["/auth/login", "/lti/login"]);
 
 export interface ThrottleDecision {
 	allowed: boolean;
@@ -101,8 +98,8 @@ export function createSigninThrottle(options: {
 }
 
 /**
- * Count sign-in starts and Dex password posts before the auth hook runs, so
- * the edge check needs no session. Call before registering the auth plugin.
+ * Count sign-in starts before the auth hook runs. The edge check only
+ * confirms Caddy asked; the anonymous request limit already counted it. Call before registering the auth plugin.
  */
 export function registerSigninThrottle(
 	app: FastifyInstance,
@@ -151,15 +148,6 @@ export function registerSigninThrottle(
 		if (!fromLoopback(request)) {
 			const body: ApiError = { code: "FORBIDDEN", message: "Forbidden." };
 			await reply.status(403).send(body);
-			return;
-		}
-		// Caddy asks only for Dex's sign-in pages, each of which stores a
-		// request, so every ask counts as a start whatever its query says. The
-		// password post goes through the relay instead.
-		// request.ip is the client Caddy named in X-Forwarded-For.
-		const decision = throttle.checkStart(request.ip);
-		if (!decision.allowed) {
-			await refuse(request, reply, decision);
 			return;
 		}
 		await reply.status(204).send();

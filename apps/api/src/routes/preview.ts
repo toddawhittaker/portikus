@@ -43,11 +43,17 @@ import {
 	loadPreviewSession,
 	type PreviewLookup,
 	type PreviewSessionRow,
+	previewTokenIssued,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
-import { check, createCounter } from "../rate-limit.js";
+import {
+	addressKey,
+	check,
+	createAnonymousCounter,
+	createCounter,
+} from "../rate-limit.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 function previewCookieName(config: ApiConfig): string {
@@ -121,6 +127,9 @@ export function registerPreviewRoutes(
 	const deniedAudit = createPreviewDeniedAudit(db);
 	const lookups = createPreviewLookupCache(db);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
+	// Made-up preview cookies per address. Its own count, so one client's
+	// misses never refuse another's sign-in (SPEC.md section 24.13).
+	const cookieMisses = createAnonymousCounter(config);
 
 	const previewRequests = createCounter(PREVIEW_REQUESTS_PER_WINDOW, PREVIEW_WINDOW_MS);
 
@@ -573,6 +582,27 @@ export function registerPreviewRoutes(
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
 
 	/**
+	 * Whether this address has sent too many made-up cookies this window. A
+	 * cookie looked up moments ago is let through, so a student on the
+	 * guesser's network keeps a preview in use (SPEC.md section 24.13).
+	 */
+	function overMissLimit(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		address: string,
+		token: string,
+	): boolean {
+		const misses = cookieMisses.peek(address);
+		if (misses.count < cookieMisses.limit || lookups.has(token)) return false;
+		if (!misses.reported) {
+			misses.reported = true;
+			request.log.warn({ address }, "preview cookie miss limit reached");
+		}
+		reply.header("retry-after", String(cookieMisses.retryAfterSeconds(misses)));
+		return true;
+	}
+
+	/**
 	 * The first authorize steps: the caller is Caddy, the host is a preview
 	 * host, and the cookie names a live session of an ungated user that is
 	 * under its request cap.
@@ -601,10 +631,17 @@ export function registerPreviewRoutes(
 
 		const token = request.cookies[cookieName];
 		if (!token) return { refused: page(reply, 401, signInPage()) };
+		// Checked before the lookup, so a flood of guesses costs no queries.
+		const address = addressKey(request.ip);
+		if (overMissLimit(request, reply, address, token)) {
+			return { refused: page(reply, 429, tooManyRequestsPage()) };
+		}
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
 		if (!session) {
+			// A revoked or expired cookie was real; only a made-up one counts.
+			if (!(await previewTokenIssued(db, token))) cookieMisses.hit(address);
 			// Stopping revokes the sessions; the more specific cause wins.
 			if (await revokedForStoppedWorkspace(db, token, host)) {
 				return { refused: page(reply, 503, stoppedWorkspacePage()) };
