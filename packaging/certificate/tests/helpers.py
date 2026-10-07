@@ -111,14 +111,14 @@ class HostTree:
 
 
 class FakeResolver:
-    """Stands in for socket.getaddrinfo, so no test looks up a real name. No address: the name does not resolve."""
+    """Stands in for the job's DNS lookup, so no test asks a real server. No address: the name does not resolve."""
 
     def __init__(self, *addresses):
         self.addresses = list(addresses)
         self.asked = []
 
-    def __call__(self, host, port):
+    def __call__(self, host):
         self.asked.append(host)
         if not self.addresses:
-            raise OSError("Name or service not known")
-        return [(None, None, None, "", (a, 0)) for a in self.addresses]
+            raise OSError("no DNS server answered")
+        return list(self.addresses)

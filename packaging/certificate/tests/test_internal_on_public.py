@@ -14,6 +14,9 @@ import json
 import os
 import re
 import shutil
+import socket
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -43,12 +46,12 @@ class AddressScope(unittest.TestCase):
         self.assertEqual(self.scope(SITE, "2001:db8::1"), "public")
         # Shared address space and link-local are not private ranges.
         self.assertEqual(self.scope(SITE, "100.64.0.1"), "public")
-        self.assertEqual(self.scope(SITE, "fe80::1%eth0"), "public")
 
-    def test_unresolvable_or_loopback_only_is_unknown(self):
+    def test_unresolvable_loopback_or_link_local_only_is_unknown(self):
         self.assertEqual(self.scope(SITE), "unknown")
         self.assertEqual(self.scope(SITE, "127.0.1.1"), "unknown")
         self.assertEqual(self.scope(SITE, "::1", "127.0.0.1"), "unknown")
+        self.assertEqual(self.scope(SITE, "fe80::1%eth0", "169.254.0.9"), "unknown")
 
     def test_an_address_literal_is_taken_as_is(self):
         resolver = FakeResolver("10.0.0.1")
@@ -56,6 +59,67 @@ class AddressScope(unittest.TestCase):
             "198.51.100.4")]))
         self.assertEqual(cj.address_scope("10.9.9.9", resolver)[0], "private")
         self.assertEqual(resolver.asked, [])
+
+
+def dns_answer(query, records, rcode=0):
+    """A recursive server's answer: the query's header and question, then records as (type, rdata)."""
+    question = query[12:]
+    header = query[:2] + bytes([0x81, 0x80 | rcode]) + b"\0\1" + len(records).to_bytes(2, "big") + b"\0\0\0\0"
+    body = b""
+    for rtype, rdata in records:
+        # A pointer to the question's name, as servers compress it.
+        body += b"\xc0\x0c" + rtype.to_bytes(2, "big") + b"\0\1\0\0\0\x3c" + len(rdata).to_bytes(2, "big") + rdata
+    return header + question + body
+
+
+class Dns(unittest.TestCase):
+    def serve_once(self, answer):
+        """A one-shot DNS server on loopback; returns its port and the query it got."""
+        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        server.bind(("127.0.0.1", 0))
+        self.addCleanup(server.close)
+        got = []
+
+        def reply():
+            query, peer = server.recvfrom(512)
+            got.append(query)
+            server.sendto(b"\0\0stray", peer)  # a reply to some other query is ignored
+            server.sendto(answer(query), peer)
+
+        thread = threading.Thread(target=reply, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        return server.getsockname()[1], got
+
+    def test_a_records_after_a_cname(self):
+        cname = b"\3www\7example\4test\0"
+        port, got = self.serve_once(lambda q: dns_answer(q, [(5, cname), (1, bytes([203, 0, 113, 7]))]))
+        self.assertEqual(cj.dns_query("127.0.0.1", "portikus.example.test", 1, timeout=5, port=port),
+                         ["203.0.113.7"])
+        self.assertIn(b"\x08portikus\x07example\x04test\x00\x00\x01\x00\x01", got[0])
+
+    def test_aaaa_records(self):
+        address = cj.ipaddress.ip_address("2001:db8::7").packed
+        port, _ = self.serve_once(lambda q: dns_answer(q, [(28, address)]))
+        self.assertEqual(cj.dns_query("127.0.0.1", SITE, 28, timeout=5, port=port), ["2001:db8::7"])
+
+    def test_no_such_name_is_no_address(self):
+        port, _ = self.serve_once(lambda q: dns_answer(q, [], rcode=3))
+        self.assertEqual(cj.dns_query("127.0.0.1", SITE, 1, timeout=5, port=port), [])
+
+    def test_a_server_failure_raises(self):
+        port, _ = self.serve_once(lambda q: dns_answer(q, [], rcode=2))
+        with self.assertRaises(OSError):
+            cj.dns_query("127.0.0.1", SITE, 1, timeout=5, port=port)
+
+    def test_upstream_servers_skip_resolveds_stub_and_its_hosts_file(self):
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work)
+        upstream, system = os.path.join(work, "upstream"), os.path.join(work, "system")
+        Path(system).write_text("nameserver 127.0.0.53\noptions edns0\n")
+        self.assertEqual(cj.nameservers((upstream, system)), ["127.0.0.53"])
+        Path(upstream).write_text("# resolved\nnameserver 10.101.0.1\nnameserver 127.0.0.53\nnameserver fe80::1%eth0\n")
+        self.assertEqual(cj.nameservers((upstream, system)), ["10.101.0.1", "fe80::1"])
 
 
 class InternalOnPublic(base.JobTest):

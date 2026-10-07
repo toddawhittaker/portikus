@@ -762,29 +762,108 @@ def is_private(address):
     return any(address in net for net in PRIVATE_NETWORKS)
 
 
+# systemd-resolved's upstream servers; its stub, like getaddrinfo, answers from
+# /etc/hosts, where setup pins the site's name to loopback.
+UPSTREAM_RESOLV_CONF = ("/run/systemd/resolve/resolv.conf", "/etc/resolv.conf")
+DNS_TIMEOUT = 3
+DNS_TYPES = {1: 4, 28: 16}  # A and AAAA, and their address lengths
+
+
+def nameservers(paths=UPSTREAM_RESOLV_CONF):
+    for path in paths:
+        servers = []
+        for line in (read_bytes(path) or b"").decode("ascii", "replace").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "nameserver":
+                try:
+                    address = ipaddress.ip_address(parts[1].split("%")[0])
+                except ValueError:
+                    continue
+                if not (address.is_loopback and path != paths[-1]):
+                    servers.append(str(address))
+        if servers:
+            return servers
+    return []
+
+
+def _skip_name(data, at):
+    while True:
+        length = data[at]
+        if length >= 0xC0:
+            return at + 2
+        at += 1 + length
+        if length == 0:
+            return at
+
+
+def dns_query(server, host, qtype, timeout=DNS_TIMEOUT, port=53):
+    """The addresses one recursive server gives for host, from the answer section (CNAMEs followed)."""
+    ident = int.from_bytes(os.urandom(2), "big")
+    question = b"".join(bytes([len(p)]) + p.encode("ascii") for p in host.split(".")) + b"\0"
+    question += qtype.to_bytes(2, "big") + b"\0\1"
+    query = ident.to_bytes(2, "big") + b"\1\0\0\1\0\0\0\0\0\0" + question
+    family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    with socket.socket(family, socket.SOCK_DGRAM) as s:
+        s.settimeout(timeout)
+        s.sendto(query, (server, port))
+        while True:
+            data, _ = s.recvfrom(4096)
+            if data[:2] == query[:2] and data[12:12 + len(question)] == question:
+                break
+    rcode = data[3] & 0x0F
+    if rcode == 3:
+        return []
+    if rcode != 0:
+        raise OSError(f"the DNS server answered with code {rcode}")
+    answers = int.from_bytes(data[6:8], "big")
+    at = 12 + len(question)
+    found = []
+    for _ in range(answers):
+        at = _skip_name(data, at)
+        rtype = int.from_bytes(data[at:at + 2], "big")
+        length = int.from_bytes(data[at + 8:at + 10], "big")
+        rdata = data[at + 10:at + 10 + length]
+        if rtype == qtype and len(rdata) == DNS_TYPES[qtype]:
+            found.append(str(ipaddress.ip_address(rdata)))
+        at += 10 + length
+    return found
+
+
+def resolve_in_dns(host):
+    """The site's addresses in DNS, not /etc/hosts. Raises OSError when no server answers."""
+    servers = nameservers()
+    for server in servers:
+        try:
+            return [a for qtype in DNS_TYPES for a in dns_query(server, host, qtype)]
+        except (OSError, IndexError, ValueError):
+            continue
+    raise OSError("no DNS server answered")
+
+
 def address_scope(host, resolve):
     """("private" | "public" | "unknown", the addresses that decided it) for the site's name.
 
     Private only when every address is in a private range or a unique local
     one. A name that does not resolve, or resolves only to loopback (Debian's
-    127.0.1.1 host name), is unknown: the hourly check looks again.
+    127.0.1.1 host name) or link-local addresses, is unknown: the hourly
+    check looks again.
     """
     try:
         addresses = [ipaddress.ip_address(host)]
     except ValueError:
         try:
-            found = resolve(host, None)
+            found = resolve(host)
         except (OSError, UnicodeError):
             return "unknown", []
         addresses = []
-        for info in found:
+        for text in found:
             try:
-                address = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+                address = ipaddress.ip_address(text.split("%")[0])
             except ValueError:
                 continue
             if address not in addresses:
                 addresses.append(address)
-    outside = [a for a in addresses if not a.is_loopback]
+    outside = [a for a in addresses if not (a.is_loopback or a.is_link_local)]
     if not outside:
         return "unknown", addresses
     public = [a for a in outside if not is_private(a)]
@@ -925,7 +1004,7 @@ class Job:
 
 class Runner:
     def __init__(self, root="", run_=run, sleep=time.sleep, clock=time.time, caddy="caddy",
-                 test_env=None, test_http_port=None, timeouts=None, resolve=socket.getaddrinfo):
+                 test_env=None, test_http_port=None, timeouts=None, resolve=resolve_in_dns):
         self.jobs_dir = root + JOBS_DIR
         self.state_dir = root + STATE_DIR
         self.status_dir = root + STATUS_DIR
