@@ -1,8 +1,17 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CERTIFICATE_JOB_STALE_MS, IMAGE_JOB_STALE_MS } from "@portikus/contracts";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { allJobs as certificateJobs } from "./certificate/jobs.js";
 import { currentJob, writeRequestFile } from "./job-files.js";
 
 let dir: string;
@@ -135,5 +144,33 @@ describe("currentJob", () => {
 		});
 		const old = job({ state: "succeeded", requestedAt: ago(60 * 60_000) });
 		expect(currentJob([old, live], CERTIFICATE_JOB_STALE_MS, NOW)?.id).toBe(live.id);
+	});
+
+	test("certificate tab: a rollback the job took but has not started outranks the finished renew", async () => {
+		const renew = "11111111-1111-4111-8111-111111111111";
+		const rollback = "22222222-2222-4222-8222-222222222222";
+		const started = new Date(Date.now() - 5000).toISOString();
+		await mkdir(join(dir, renew));
+		await writeFile(
+			join(dir, renew, "status.json"),
+			JSON.stringify({
+				id: renew,
+				kind: "renew",
+				state: "succeeded",
+				step: "Done",
+				message: null,
+				restored: false,
+				startedAt: started,
+				finishedAt: started,
+			}),
+		);
+		await mkdir(join(dir, rollback));
+		await writeFile(
+			join(dir, rollback, "request.json"),
+			JSON.stringify({ kind: "rollback", settings: null }),
+		);
+		const job = currentJob(await certificateJobs(dir), CERTIFICATE_JOB_STALE_MS);
+		expect(job?.id).toBe(rollback);
+		expect(job?.state).toBe("queued");
 	});
 });

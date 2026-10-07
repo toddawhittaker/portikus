@@ -28,6 +28,23 @@
     group: caddy
     mode: "0750"
 
+# Before the first install below, which reads it; a root-owned file, so the
+# admin page and its request files cannot allow it (docs/SPEC.md section 24.10).
+- name: Allow Caddy's internal authority on a public address
+  ansible.builtin.copy:
+    dest: "{{ caddy_allow_internal_on_public_file }}"
+    content: "Written by portikus setup from portikus_allow_internal_ca_on_public_address in portikus.yaml.\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: portikus_allow_internal_ca_on_public_address | bool
+
+- name: Refuse Caddy's internal authority on a public address
+  ansible.builtin.file:
+    path: "{{ caddy_allow_internal_on_public_file }}"
+    state: absent
+  when: not portikus_allow_internal_ca_on_public_address | bool
+
 - name: Look for the certificate state
   ansible.builtin.import_tasks: state.yml
 

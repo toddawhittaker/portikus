@@ -477,6 +477,20 @@ export const CertificateStatusFile = z
 			})
 			.strict()
 			.nullable(),
+		/**
+		 * Set while Caddy's internal authority serves a site name that resolves to
+		 * a public address, allowed in portikus.yaml or put back by `portikus
+		 * reset-certificate` (SPEC.md 24.10). `since` is when the settings in force
+		 * last changed. Absent from a file an older job wrote.
+		 */
+		internalOnPublic: z
+			.object({
+				since: z.string().datetime(),
+				addresses: z.array(z.string().min(2).max(45)).max(4),
+			})
+			.strict()
+			.nullable()
+			.optional(),
 	})
 	.strict();
 export type CertificateStatusFile = z.infer<typeof CertificateStatusFile>;

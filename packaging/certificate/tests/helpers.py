@@ -108,3 +108,17 @@ class HostTree:
 
     def state(self, name):
         return os.path.join(self.root + cj.STATE_DIR, name)
+
+
+class FakeResolver:
+    """Stands in for the job's DNS lookup, so no test asks a real server. No address: the name does not resolve."""
+
+    def __init__(self, *addresses):
+        self.addresses = list(addresses)
+        self.asked = []
+
+    def __call__(self, host):
+        self.asked.append(host)
+        if not self.addresses:
+            raise OSError("no DNS server answered")
+        return list(self.addresses)
