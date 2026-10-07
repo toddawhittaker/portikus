@@ -4066,7 +4066,16 @@ itself up.
   set, and removes a set only once it is more than KEEP days old with
   KEEP newer sets present. Disk encryption at rest is deferred
   (docs/BACKLOG.md).
-- **A restore keeps file owners and modes** (#1138).
+- **A restore keeps file owners and modes** (#1138). Tests check owners,
+  modes and the marker for a whole restore, a side copy and Replace
+  home, and that recovery points never hold `~/.claude` or `~/.codex`
+  logins, even through links.
+- **Off-site quota (Epic 36).** The prune script empties `incoming` when
+  it uses more than twice the disk (at least 1 GiB) or ten times the
+  file count (at least 100,000) of the median kept set, or cannot be
+  measured, never following links, and warns on stderr. The operator's
+  filesystem quota on the target account is the real bound on bursts
+  (docs/INSTALL.md).
 
 ### 24.10 Transport security
 
@@ -4076,6 +4085,17 @@ Internal traffic carrying credentials or privileged control messages must be pro
 
 An internet-facing site holds a publicly trusted certificate before any
 credential is typed into it (#1139).
+
+Since Epic 36 the certificate job refuses Caddy's internal authority at
+first install, apply and rollback when the site name resolves, through
+DNS rather than `/etc/hosts`, to any public address. A name that does
+not resolve, or resolves only to loopback, is "unknown" and allowed.
+The one stated exception is `portikus_allow_internal_ca_on_public_address:
+true` in the root-owned `portikus.yaml`, read only from there; a request
+file carrying it is refused. `portikus reset-certificate` always works.
+The hourly certificate check repeats the test, and while the internal
+authority serves a public address it raises one warning site alert per
+settings change and the Certificate tab shows a banner.
 
 ### 24.11 Audit logging
 
@@ -4232,7 +4252,8 @@ workspace's network address, or a name a workspace looked up.
   `workspace.home_replace_failed`.
 - Sign-in (Epic 34, section 24.13): `auth.password_failed`,
   `auth.second_factor_enrolled`, `auth.second_factor_verified`,
-  `auth.second_factor_failed`, `auth.second_factor_reset`,
+  `auth.second_factor_failed` (with `bypass: true` when it came through
+  the holder bypass, section 24.13), `auth.second_factor_reset`,
   `auth.second_factor_removed`,
   `auth.second_factor_recovery_codes_replaced` and
   `auth.invitation_claimed`. Administrators write
@@ -4270,8 +4291,8 @@ The project must define a process for:
 
 ### 24.13 Sign-in abuse
 
-These rules hold before a site faces the internet. Epic 34 built them
-(ADRs 0048, 0049 and 0050).
+These rules hold before a site faces the internet. Epics 34 and 36
+built them (ADRs 0048 to 0050, 0053 and 0054).
 
 - Rate limits never refuse one client because of other clients'
   failures. They count per account as well as per address, and treat
@@ -4286,8 +4307,36 @@ These rules hold before a site faces the internet. Epic 34 built them
   from the account count. The cookie is bound to the account's last
   password change or reset and expires on the server after 90 days, and
   `portikus reset-admin` ends it too.
-- New passwords are checked against a list of known-breached passwords.
-  The list is small and written by hand (#1133).
+- New passwords are checked offline against a breached-password list
+  shipped in the package: the SecLists top-million list, lower-cased and
+  kept to entries of 15 or more characters (about 11,000), plus the
+  earlier hand-written entries. A newer breach is caught only when the
+  pinned snapshot is bumped (ADR 0054, #1133).
+- **Anonymous requests (Epic 36).** Routes that need no session take at
+  most 600 requests a minute per address (`ANONYMOUS_REQUEST_LIMIT_PER_MINUTE`),
+  an IPv6 /64 counting as one address, answered with 429 `RATE_LIMITED`
+  and one warning log line per window, no audit row. The limit runs
+  before every other count, so a refused request writes no counter.
+  Made-up preview cookies at `/preview/authorize` have their own count
+  per address, which refuses only that route. Only `/auth/login` and
+  `/lti/login` count as sign-in starts (150 a minute per address); the
+  callback, the LTI launch and Dex's pages fall under the anonymous
+  limit.
+- **Stored guess counts (ADR 0053).** Password posts per address,
+  password failures per account, the second-factor counts and the
+  password-change count live in PostgreSQL (`signin_counters`), so a
+  restart does not reset them; sign-in starts and passkey challenges
+  stay in memory. Each hit returns a receipt, and a give-back takes only
+  that receipt's count. A counter that cannot be read or written
+  refuses with 503 `SERVICE_BUSY`, never lets the request through. Each
+  refusal window writes one audit row. The API deletes ended rows every
+  hour; the worker has no rights on the table.
+- **Holder bypass (ADR 0053).** When the account's second-factor count
+  refuses, a recovery code or a passkey is still checked, 10 tries per
+  session per 10 minutes (kept in memory), so others cannot lock the
+  holder out. The bypass gives no count back. A wrong bypass code is
+  audited as `auth.second_factor_failed` with `bypass: true`. The daily
+  lockout notice tells the holder to change their password.
 - **Second factor (ADR 0048).** Every account that signs in with a Dex
   local password has a second factor, built inside Portikus: time-based
   codes (TOTP), passkeys (WebAuthn), and ten single-use recovery codes
@@ -4414,6 +4463,14 @@ The platform must expose sufficient logs and metrics to diagnose:
 Metrics should support capacity planning without exposing student source code or prompts.
 
 Added by Epic 34 (#918): administrator notifications with tone warning or danger that are marked site alerts (`site_alert`, written only by `notifyAdministrators`) are forwarded to Pushover, then to a webhook, through the egress proxy. The webhook body is `{text, title, tone, site, at}`, with flood control. `portikus-alert@.service` reports a failed API, worker, PostgreSQL, Caddy, backup or off-site copy unit at most once per unit per 10 minutes.
+
+Added by Epic 36: the API, the only unit that may read the journal,
+reads it each minute and raises two more site alerts. A workspace that
+hits the mail block or the connection or packet limit raises one
+warning per workspace and reason an hour, naming the Incus instance,
+never the student. Twenty or more error lines from the Portikus units
+in 15 minutes raise one alert with a fixed sentence giving the count and
+unit names, never log text; it is raised again only after it clears.
 
 Added by Epic 35 (ADR 0052): the channels are set on the admin page
 (section 20.1) and kept in `/etc/portikus/notify.json` (section 24.8),
@@ -5824,6 +5881,28 @@ Acceptance:
 - every drag has a click alternative;
 - a status announcement is heard while a dialog is open.
 
+### Epic 34 — Internet launch
+
+Built on `epic/34-internet-launch`, issue #917. Migrations 0037 to 0039.
+See sections 5.1, 20.2, 21.12, 23.6, 24.2, 24.9, 24.11, 24.13 and 25.6
+and ADRs 0048, 0049 and 0050.
+
+Includes:
+
+- the section 24 rules for an internet-facing site;
+- the Dex password relay with per-account counts and a known-device
+  cookie, and a second factor for Dex-password accounts;
+- invitation-only accounts and CSV import, administrator resets, and
+  socket caps;
+- site alerts to Pushover and a webhook, workspace outbound limits, and
+  an off-site backup copy.
+
+Acceptance:
+
+- nobody can sign themselves up;
+- one client's failures never refuse another;
+- a Dex-password account cannot sign in without its second factor.
+
 ### Epic 35 — Admin notification settings and root shell
 
 Built on `epic/35-admin-notifications-root-shell`, issues #918 and
@@ -5847,6 +5926,33 @@ Acceptance:
 - revoking an administrator ends their root shells and what they left
   running, while a closed pane leaves their tmux running;
 - nothing typed in a root shell reaches a log or an audit row.
+
+### Epic 36 — Internet hardening
+
+Built on `epic/36-internet-hardening`, issues #1145 and #1192, with
+parts of #1138. Migration 0040. See sections 24.9, 24.10, 24.11, 24.13
+and 25.6 and ADRs 0053 and 0054.
+
+Includes:
+
+- an offline breached-password list from SecLists;
+- a per-address limit on anonymous routes and on made-up preview
+  cookies, and fewer counted sign-in starts;
+- sign-in guess counts in PostgreSQL, with a recovery-code and passkey
+  bypass for the holder;
+- refusing the internal certificate authority on a public address unless
+  allowed;
+- pinned coding-agent versions in the admin image rebuild;
+- journal-based alerts for outbound limits and error spikes;
+- restore-mode tests, an off-site quota, a full content security policy
+  on API pages, a cap on kept notices, and help and text fixes.
+
+Acceptance:
+
+- guess counts survive an API restart;
+- a holder locked out by others' wrong codes still signs in with a
+  recovery code or passkey;
+- the internal authority is refused for a public name without the flag.
 
 ### Estimated total
 
