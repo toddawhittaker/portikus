@@ -39,7 +39,8 @@ function job(over: Partial<NotifyJobView> = {}): NotifyJobView {
 		code: null,
 		channels: [],
 		hosts: [],
-		requestedAt: "2026-10-06T10:00:00.000Z",
+		// Fresh, so a queued job is not already stale when the test runs.
+		requestedAt: new Date().toISOString(),
 		startedAt: null,
 		finishedAt: null,
 		...over,

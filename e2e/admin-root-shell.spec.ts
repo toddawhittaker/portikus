@@ -75,7 +75,7 @@ test("an administrator opens a root shell, types, splits, resizes and exits", as
 		"page",
 	);
 	await expect(page.getByTestId("root-shell-banner")).toContainText(
-		"These are root shells on this server",
+		"Root on this server.",
 	);
 	// Nothing opens on its own: each shell is an audited sign-in.
 	await expect(page.getByText("No root shells open")).toBeVisible();
@@ -112,6 +112,41 @@ test("an administrator opens a root shell, types, splits, resizes and exits", as
 	await typeLine(page, first, "exit");
 	await expect(page.getByRole("tab", { name: "Root shell 1" })).toHaveCount(0);
 	await expect(page.getByText("No root shells open")).toBeVisible();
+});
+
+test("the heading and warning share one short row, with Help and no About box", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await openRootShellTab(page);
+	const banner = page.getByTestId("root-shell-banner");
+	const help = banner.getByRole("link", { name: "Help (opens in a new tab)" });
+	await expect(help).toHaveAttribute("href", "/admin/help#admin-shell");
+	await expect(help).toHaveAttribute("target", "_blank");
+	await expect(page.getByTestId("intro-admin-shell")).toHaveCount(0);
+
+	// One line of warning beside the heading leaves the panes the rest of the frame.
+	const heading = await page
+		.getByRole("heading", { level: 2, name: "Root shell" })
+		.boundingBox();
+	const strip = await banner.boundingBox();
+	const head = await page.locator(".pk-rootshell-head").boundingBox();
+	if (!heading || !strip || !head) throw new Error("the Root shell header has no box");
+	expect(strip.x).toBeGreaterThan(heading.x + heading.width);
+	expect(strip.height).toBeLessThan(48);
+	expect(head.height).toBeLessThan(72);
+
+	// At the smallest admin window (SPEC.md section 20.1) the warning wraps inside the frame.
+	await page.setViewportSize({ width: 768, height: 720 });
+	await expect(async () => {
+		const frame = await page.getByTestId("admin-frame").boundingBox();
+		const narrow = await banner.boundingBox();
+		const narrowHead = await page.locator(".pk-rootshell-head").boundingBox();
+		if (!frame || !narrow || !narrowHead)
+			throw new Error("the Root shell header has no box");
+		expect(narrow.x + narrow.width).toBeLessThanOrEqual(frame.x + frame.width);
+		expect(narrowHead.height).toBeLessThan(120);
+	}).toPass();
 });
 
 test("a shell keeps running while another admin tab is shown", async ({ page }) => {

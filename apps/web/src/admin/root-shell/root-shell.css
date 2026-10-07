@@ -1,5 +1,5 @@
 /*
- * The Root shell tab fills the admin frame: the heading and banner on top,
+ * The Root shell tab fills the admin frame: the heading and banner in one row on top,
  * then the panes edge to edge, as the workspace's work area sits in its pane.
  */
 .pk-rootshell {
@@ -11,12 +11,18 @@
 .pk-rootshell[hidden] {
 	display: none;
 }
+/* The heading and the warning share one row; the warning drops under the heading when narrow. */
 .pk-rootshell-head {
 	flex: none;
 	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
-	padding: var(--space-6) var(--space-4) var(--space-4);
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-4);
+	padding: var(--space-3) var(--space-4);
+}
+.pk-rootshell-head > p {
+	flex: 1 1 20rem;
+	min-width: 0;
 }
 .pk-rootshell > .pk-work-area {
 	border-block-start: 1px solid var(--line);
