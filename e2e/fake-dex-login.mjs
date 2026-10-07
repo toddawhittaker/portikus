@@ -27,8 +27,13 @@ createServer((req, res) => {
 			return;
 		}
 		res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+		// Like Dex's own page: a theme stylesheet, a logo and an inline script.
 		res.end(
-			'<!doctype html><html lang="en"><title>Sign in</title><main><p role="alert">Invalid Email Address and password.</p></main></html>',
+			'<!doctype html><html lang="en"><title>Sign in</title>' +
+				'<link rel="stylesheet" href="/dex/theme/styles.css">' +
+				'<main><img src="/dex/theme/logo.svg" alt="Portikus">' +
+				'<p role="alert">Invalid Email Address and password.</p></main>' +
+				"<script>document.documentElement.dataset.scripted = 'yes';</script></html>",
 		);
 	});
 }).listen(port, "127.0.0.1");
