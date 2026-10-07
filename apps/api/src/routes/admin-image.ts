@@ -32,6 +32,7 @@ import {
 	currentJob,
 	listDir,
 	readJson,
+	removeStaleRequests,
 	tailLines,
 	writeRequestFile,
 } from "../job-files.js";
@@ -366,6 +367,7 @@ export function registerAdminImageRoutes(
 					"An image job is already waiting or running.",
 				);
 			}
+			await removeStaleRequests(jobsDir, jobs, IMAGE_JOB_STALE_MS);
 			const refused = await refuseImageJob(wanted, imagesDir);
 			if (refused) {
 				return sendError(reply, refused.status, refused.code, refused.message);

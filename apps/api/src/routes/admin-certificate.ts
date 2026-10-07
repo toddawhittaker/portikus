@@ -42,6 +42,7 @@ import { sendError } from "../http.js";
 import {
 	currentJob,
 	listDir,
+	removeStaleRequests,
 	sweepTempRequests,
 	tailLines,
 	writeRequestFile,
@@ -302,6 +303,7 @@ export function registerAdminCertificateRoutes(
 			if (jobs.some((j) => isJobActive(j, CERTIFICATE_JOB_STALE_MS))) {
 				return sendError(reply, 409, "CERTIFICATE_JOB_BUSY", BUSY_MESSAGE);
 			}
+			await removeStaleRequests(jobsDir, jobs, CERTIFICATE_JOB_STALE_MS);
 			const status = await readCertificateStatus(statusDir);
 			if (wanted.kind === "rollback" && !status?.previousAvailable) {
 				return sendError(

@@ -24,7 +24,12 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { allJobs, changeSummary, channelsLeaving, queuedView } from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError, sendNoStoreError } from "../http.js";
-import { currentJob, sweepTempRequests, writeRequestFile } from "../job-files.js";
+import {
+	currentJob,
+	removeStaleRequests,
+	sweepTempRequests,
+	writeRequestFile,
+} from "../job-files.js";
 import { testAlertLimit } from "../rate-limit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -115,6 +120,7 @@ export function registerAdminAlertRoutes(
 			if (jobs.some((j) => isJobActive(j, NOTIFY_JOB_STALE_MS))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
+			await removeStaleRequests(jobsDir, jobs, NOTIFY_JOB_STALE_MS);
 			// A broken file must not block the save that repairs it.
 			const current = await readNotifyFile(config.NOTIFY_FILE).catch((e) => {
 				logger.error(

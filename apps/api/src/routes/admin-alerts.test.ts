@@ -6,6 +6,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { createServer, request as httpRequest, type Server } from "node:http";
@@ -647,6 +648,26 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			expect(
 				(await readdir(jobsDir)).filter((n) => n.startsWith("request-")),
 			).toHaveLength(1);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("a stale queued request is removed before the new one is written", async () => {
+		await writeFile(notifyFile, JSON.stringify(NOTIFY_FILE_OFF));
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			const stale = join(jobsDir, "request-11111111-2222-4333-8444-666666666666.json");
+			await writeFile(stale, "{}");
+			const old = new Date(Date.now() - NOTIFY_JOB_STALE_MS - 60_000);
+			await utimes(stale, old, old);
+			const saved = await call("PUT", "/admin/notifications", webhookOnly);
+			expect(saved.statusCode).toBe(202);
+			expect((await readdir(jobsDir)).filter((n) => n.startsWith("request-"))).toEqual([
+				`request-${NotifyJobView.parse(saved.json()).id}.json`,
+			]);
 		} finally {
 			await app.close();
 		}

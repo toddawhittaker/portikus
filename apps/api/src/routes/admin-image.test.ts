@@ -406,6 +406,22 @@ describe.skipIf(skip)("POST /admin/image/jobs", () => {
 		expect(await requestFiles()).toHaveLength(1);
 	});
 
+	test("a stale queued request is removed before the new one is written", async () => {
+		const id = "55555555-5555-4555-8555-555555555555";
+		await writeFile(
+			join(jobsDir, `request-${id}.json`),
+			JSON.stringify({
+				id,
+				requestedAt: new Date(Date.now() - IMAGE_JOB_STALE_MS - 60_000).toISOString(),
+				requestedBy: "33333333-3333-4333-8333-333333333333",
+				request: { kind: "rollback" },
+			}),
+		);
+		const res = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });
+		expect(res.statusCode).toBe(202);
+		expect(await requestFiles()).toEqual([`request-${res.json().id}.json`]);
+	});
+
 	test("refuses a request while a job runs", async () => {
 		await putJob(jobStatus({ startedAt: new Date().toISOString() }));
 		const res = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });

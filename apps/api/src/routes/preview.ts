@@ -640,7 +640,7 @@ export function registerPreviewRoutes(
 		const { session, user, workspace } = await lookups.get(token);
 		const address = addressKey(request.ip);
 		if (!session) {
-			// Past the limit a guess costs only the one cached lookup, and a real
+			// Past the limit a guess costs only the one session query, and a real
 			// cookie from the same network still works (SPEC.md section 24.13).
 			if (overMissLimit(request, reply, address)) {
 				return { refused: page(reply, 429, missLimitPage()) };

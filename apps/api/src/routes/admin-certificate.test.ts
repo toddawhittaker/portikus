@@ -12,6 +12,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -329,6 +330,16 @@ describe.skipIf(skip)("POST /admin/certificate/jobs", () => {
 		});
 		expect(res.statusCode).toBe(202);
 		expect((await readdir(jobsDir)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+	});
+
+	test("a stale queued request is removed before the new one is written", async () => {
+		const stale = join(jobsDir, "request-55555555-5555-4555-8555-555555555555.json");
+		await writeFile(stale, "{}");
+		const old = new Date(Date.now() - CERTIFICATE_JOB_STALE_MS - 60_000);
+		await utimes(stale, old, old);
+		const res = await send(carol, "POST", "/admin/certificate/jobs", { kind: "check" });
+		expect(res.statusCode).toBe(202);
+		expect(await requestFiles()).toEqual([`request-${res.json().id}.json`]);
 	});
 
 	test("refuses a second job while one waits or runs", async () => {

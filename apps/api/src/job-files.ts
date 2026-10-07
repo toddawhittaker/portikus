@@ -122,3 +122,21 @@ export async function sweepTempRequests(dir: string): Promise<void> {
 		}
 	}
 }
+
+/**
+ * Remove the request files of stale queued jobs before a new request is
+ * written: the root job takes requests oldest first, so a dead one left in
+ * place would run instead of the new one. The API wrote these files.
+ */
+export async function removeStaleRequests(
+	dir: string,
+	jobs: Array<JobTimes & { id: string }>,
+	staleMs: number,
+	now: number = Date.now(),
+): Promise<void> {
+	for (const job of jobs) {
+		if (job.state === "queued" && isDead(job, staleMs, now)) {
+			await rm(join(dir, `request-${job.id}.json`), { force: true });
+		}
+	}
+}
