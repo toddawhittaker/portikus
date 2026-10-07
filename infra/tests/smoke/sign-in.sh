@@ -81,15 +81,22 @@ sys.stdout.write(urllib.parse.urlencode({"login": sys.argv[1], "password": passw
 ' "$1"
 }
 
-# dex_signin SOURCE -- the whole browser flow through Caddy: /auth/login
-# to Dex's password form, post it (body on stdin), follow Dex back
-# through the callback.  Prints the status of the last page.  With an
-# upstream connector Dex first shows a choice; the sed picks its own
-# passwords, and changes nothing when there is no choice.
+# dex_form_url SOURCE -- a fresh cookie jar, then /auth/login through
+# Caddy to Dex's password form.  Prints the form's URL, whose state Dex
+# knows.  With an upstream connector Dex first shows a choice; the sed
+# picks its own passwords, and changes nothing when there is no choice.
+dex_form_url() {
+  ssh_cmd "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
+      && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\""
+}
+
+# dex_signin SOURCE -- the whole browser flow: open the password form,
+# post it (body on stdin), follow Dex back through the callback.  Prints
+# the status of the last page.
 dex_signin() {
-  ssh_cmd_stdin "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
-      && page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\") \
-      && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -H 'Origin: ${API}' --data-binary @- -o /dev/null -w '%{http_code}' \"\$page\""
+  local form_url
+  form_url=$(dex_form_url "$1") || return
+  ssh_cmd_stdin "${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -H 'Origin: ${API}' --data-binary @- -o /dev/null -w '%{http_code}' '${form_url}'"
 }
 signin_has_session() {
   ssh_cmd "awk '\$6 == \"${SESSION_COOKIE_NAME}\"' ${SIGNIN_JAR} | grep -q ."
@@ -133,9 +140,14 @@ ssh_cmd "rm -f ${SIGNIN_JAR}" >/dev/null 2>&1 || true
 password_limit=$(api_env PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES)
 password_limit="${password_limit:-30}"
 throttle_source=$(random_loopback)
+# A state Dex knows makes each post a real wrong password, which keeps its
+# count.  A new login each time keeps the per-account limit of 10 from
+# refusing first and giving the address count back (SPEC.md 24.13).
 throttle_statuses() {
-  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -o /dev/null -w '%{http_code}\n' -H 'Origin: ${API}' \
-      --data 'login=smoke-throttle%40example.invalid&password=x' '${API}/dex/auth/local/login?back=&state=smoke-throttle'; done"
+  local form_url
+  form_url=$(dex_form_url "$throttle_source") || return
+  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}\n' -H 'Origin: ${API}' \
+      --data \"login=smoke-throttle-\$i%40example.invalid&password=x\" '${form_url}'; done; rm -f ${SIGNIN_JAR}"
 }
 throttle_result() {
   throttle_statuses | awk -v n="$((password_limit + 1))" \
