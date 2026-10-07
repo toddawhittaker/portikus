@@ -2,10 +2,12 @@ import { createOidcClient, loadDexApi } from "@portikus/auth";
 import { ApiConfigSchema, loadConfig } from "@portikus/config";
 import { createDb } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
+import { startLogAlerts } from "./alerts/log-alerts.js";
 import { toAuthOptions } from "./auth-options.js";
 import { startCertificateNotices } from "./certificate/notices.js";
 import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
+import { JournalReader } from "./logs/journal.js";
 import { loadLtiDeps } from "./lti/deps.js";
 import { buildServer } from "./server.js";
 import { closeOnSigterm } from "./shutdown.js";
@@ -57,7 +59,13 @@ const stopCertificateNotices = config.CERTIFICATE_JOBS_DIR
 			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
 		})
 	: () => {};
+const stopLogAlerts = startLogAlerts({
+	db,
+	logger,
+	reader: new JournalReader({ path: config.JOURNALCTL_PATH }),
+});
 app.addHook("onClose", async () => {
+	await stopLogAlerts();
 	levelSync.stop();
 	stopReleaseNotices();
 	stopCertificateNotices();
