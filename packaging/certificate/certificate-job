@@ -754,14 +754,6 @@ def free_port():
 
 # ---- Where the site name points (SPEC.md 24.10) ----
 
-PRIVATE_NETWORKS = tuple(ipaddress.ip_network(n) for n in
-                         ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
-
-
-def is_private(address):
-    return any(address in net for net in PRIVATE_NETWORKS)
-
-
 # systemd-resolved's upstream servers; its stub, like getaddrinfo, answers from
 # /etc/hosts, where setup pins the site's name to loopback.
 UPSTREAM_RESOLV_CONF = ("/run/systemd/resolve/resolv.conf", "/etc/resolv.conf")
@@ -803,12 +795,19 @@ def dns_query(server, host, qtype, timeout=DNS_TIMEOUT, port=53):
     question += qtype.to_bytes(2, "big") + b"\0\1"
     query = ident.to_bytes(2, "big") + b"\1\0\0\1\0\0\0\0\0\0" + question
     family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    deadline = time.monotonic() + timeout
     with socket.socket(family, socket.SOCK_DGRAM) as s:
-        s.settimeout(timeout)
         s.sendto(query, (server, port))
+        # One deadline for the whole wait, so stray packets cannot stretch it.
         while True:
-            data, _ = s.recvfrom(4096)
-            if data[:2] == query[:2] and data[12:12 + len(question)] == question:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise socket.timeout("the DNS server did not answer in time")
+            s.settimeout(left)
+            data, sender = s.recvfrom(4096)
+            if ipaddress.ip_address(sender[0].split("%")[0]) == ipaddress.ip_address(server) \
+                    and sender[1] == port and data[:2] == query[:2] \
+                    and data[12:12 + len(question)] == question:
                 break
     rcode = data[3] & 0x0F
     if rcode == 3:
@@ -843,8 +842,8 @@ def resolve_in_dns(host):
 def address_scope(host, resolve):
     """("private" | "public" | "unknown", the addresses that decided it) for the site's name.
 
-    Private only when every address is in a private range or a unique local
-    one. A name that does not resolve, or resolves only to loopback (Debian's
+    Public when any address is globally routable (ipaddress's is_global);
+    private when none is. A name that does not resolve, or resolves only to loopback (Debian's
     127.0.1.1 host name) or link-local addresses, is unknown: the hourly
     check looks again.
     """
@@ -866,7 +865,9 @@ def address_scope(host, resolve):
     outside = [a for a in addresses if not (a.is_loopback or a.is_link_local)]
     if not outside:
         return "unknown", addresses
-    public = [a for a in outside if not is_private(a)]
+    # Shared (100.64/10), benchmarking and documentation ranges are not
+    # reachable from the internet, so only a globally routable address counts.
+    public = [a for a in outside if a.is_global]
     return ("public", public) if public else ("private", outside)
 
 

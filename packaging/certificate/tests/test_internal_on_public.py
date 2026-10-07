@@ -17,7 +17,9 @@ import shutil
 import socket
 import tempfile
 import threading
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import test_certificate_job as base
@@ -38,14 +40,15 @@ class AddressScope(unittest.TestCase):
     def scope(self, host, *addresses):
         return cj.address_scope(host, FakeResolver(*addresses))[0]
 
-    def test_private_only_when_every_address_is_private_or_unique_local(self):
+    def test_public_only_when_an_address_is_globally_routable(self):
         self.assertEqual(self.scope(SITE, "10.1.2.3"), "private")
         self.assertEqual(self.scope(SITE, "192.168.1.5", "fd00::5"), "private")
         self.assertEqual(self.scope(SITE, "172.20.0.1", "127.0.1.1"), "private")
-        self.assertEqual(self.scope(SITE, "10.1.2.3", "203.0.113.7"), "public")
-        self.assertEqual(self.scope(SITE, "2001:db8::1"), "public")
-        # Shared address space and link-local are not private ranges.
-        self.assertEqual(self.scope(SITE, "100.64.0.1"), "public")
+        self.assertEqual(self.scope(SITE, "10.1.2.3", "93.184.215.14"), "public")
+        self.assertEqual(self.scope(SITE, "2606:4700::1111"), "public")
+        # Shared (carrier-grade NAT), "this network", benchmarking and documentation ranges are not reachable.
+        for address in ("100.64.1.1", "0.0.0.0", "198.18.0.1", "203.0.113.7", "2001:db8::1"):
+            self.assertEqual(self.scope(SITE, address), "private", address)
 
     def test_unresolvable_loopback_or_link_local_only_is_unknown(self):
         self.assertEqual(self.scope(SITE), "unknown")
@@ -55,8 +58,8 @@ class AddressScope(unittest.TestCase):
 
     def test_an_address_literal_is_taken_as_is(self):
         resolver = FakeResolver("10.0.0.1")
-        self.assertEqual(cj.address_scope("198.51.100.4", resolver), ("public", [cj.ipaddress.ip_address(
-            "198.51.100.4")]))
+        self.assertEqual(cj.address_scope("1.1.1.1", resolver), ("public", [cj.ipaddress.ip_address(
+            "1.1.1.1")]))
         self.assertEqual(cj.address_scope("10.9.9.9", resolver)[0], "private")
         self.assertEqual(resolver.asked, [])
 
@@ -93,9 +96,9 @@ class Dns(unittest.TestCase):
 
     def test_a_records_after_a_cname(self):
         cname = b"\3www\7example\4test\0"
-        port, got = self.serve_once(lambda q: dns_answer(q, [(5, cname), (1, bytes([203, 0, 113, 7]))]))
+        port, got = self.serve_once(lambda q: dns_answer(q, [(5, cname), (1, bytes([93, 184, 215, 14]))]))
         self.assertEqual(cj.dns_query("127.0.0.1", "portikus.example.test", 1, timeout=5, port=port),
-                         ["203.0.113.7"])
+                         ["93.184.215.14"])
         self.assertIn(b"\x08portikus\x07example\x04test\x00\x00\x01\x00\x01", got[0])
 
     def test_aaaa_records(self):
@@ -111,6 +114,42 @@ class Dns(unittest.TestCase):
         port, _ = self.serve_once(lambda q: dns_answer(q, [], rcode=2))
         with self.assertRaises(OSError):
             cj.dns_query("127.0.0.1", SITE, 1, timeout=5, port=port)
+
+    def test_an_answer_from_another_port_is_ignored(self):
+        # The real server answers late, so the impostor's answer surely comes first.
+        port, _ = self.serve_once(lambda q: (time.sleep(0.3), dns_answer(q, [(1, bytes([93, 184, 215, 14]))]))[1])
+        impostor = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.addCleanup(impostor.close)
+        real_sendto = socket.socket.sendto
+
+        # The client's query also goes to the impostor, which answers first with another address.
+        def spy(sock, data, address):
+            real_sendto(sock, data, address)
+            if address[1] == port:
+                impostor.sendto(dns_answer(data, [(1, bytes([10, 6, 6, 6]))]), sock.getsockname())
+
+        with mock.patch.object(socket.socket, "sendto", spy):
+            self.assertEqual(cj.dns_query("127.0.0.1", SITE, 1, timeout=5, port=port), ["93.184.215.14"])
+
+    def test_stray_packets_cannot_stretch_the_wait(self):
+        silent = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        silent.bind(("127.0.0.1", 0))
+        self.addCleanup(silent.close)
+        stop = threading.Event()
+        self.addCleanup(stop.set)
+
+        def chatter():
+            query, peer = silent.recvfrom(512)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as noise:
+                while not stop.is_set():
+                    noise.sendto(b"\0\0stray", peer)
+                    time.sleep(0.05)
+
+        threading.Thread(target=chatter, daemon=True).start()
+        started = time.monotonic()
+        with self.assertRaises(OSError):
+            cj.dns_query("127.0.0.1", SITE, 1, timeout=0.5, port=silent.getsockname()[1])
+        self.assertLess(time.monotonic() - started, 2)
 
     def test_upstream_servers_skip_resolveds_stub_and_its_hosts_file(self):
         work = tempfile.mkdtemp()
@@ -141,18 +180,18 @@ class InternalOnPublic(base.JobTest):
 
     def test_first_install_refuses_a_public_name(self):
         self.empty_state()
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         (code, _), said = self.first_install_internal()
         self.assertEqual(code, 2)
         self.assertEqual(os.listdir(self.runner.state_dir), [])
         self.assertEqual(self.fake.calls, [])
         for way in (*WAYS_OUT, "sudo dpkg-reconfigure portikus"):
             self.assertIn(way, said)
-        self.assertIn("203.0.113.7", said)
+        self.assertIn("93.184.215.14", said)
 
     def test_first_install_takes_a_private_or_unknown_name_or_the_flag(self):
         for addresses, allowed in ((["10.0.0.5"], False), ([], False), (["127.0.1.1"], False),
-                                   (["203.0.113.7"], True)):
+                                   (["93.184.215.14"], True)):
             with self.subTest(addresses=addresses, allowed=allowed):
                 self.empty_state()
                 with contextlib.suppress(FileNotFoundError):
@@ -164,7 +203,7 @@ class InternalOnPublic(base.JobTest):
 
     def test_first_install_of_acme_never_looks_the_name_up(self):
         self.empty_state()
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         self.resolver.asked.clear()
         self.assertEqual(self.first_install(base.acme()), (0, "changed"))
         self.assertEqual(self.resolver.asked, [])
@@ -173,7 +212,7 @@ class InternalOnPublic(base.JobTest):
     def test_apply_refuses_a_public_name_and_names_the_ways_out(self):
         self.fake.serve("acme")
         self.assertEqual(self.submit({"kind": "apply", "settings": base.acme()})["state"], "succeeded")
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         status = self.submit({"kind": "apply", "settings": {"source": "internal"}}, base.ID2)
         self.assertEqual(status["state"], "refused", status)
         self.assertEqual(status["kind"], "apply")
@@ -184,7 +223,7 @@ class InternalOnPublic(base.JobTest):
     def test_apply_with_the_flag_succeeds(self):
         self.fake.serve("acme")
         self.submit({"kind": "apply", "settings": base.acme()})
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         self.allow()
         self.fake.serve("internal")
         status = self.submit({"kind": "apply", "settings": {"source": "internal"}}, base.ID2)
@@ -194,7 +233,7 @@ class InternalOnPublic(base.JobTest):
     def test_rollback_to_internal_on_a_public_name_is_refused(self):
         self.fake.serve("acme")
         self.submit({"kind": "apply", "settings": base.acme()})
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         status = self.submit({"kind": "rollback"}, base.ID2)
         self.assertEqual(status["state"], "refused", status)
         self.assertIn(WAYS_OUT[0], status["message"])
@@ -202,7 +241,7 @@ class InternalOnPublic(base.JobTest):
 
     def test_a_request_file_cannot_carry_the_flag(self):
         key = "portikus_allow_internal_ca_on_public_address"
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         for request in ({"kind": "apply", "settings": {"source": "internal", key: True}},
                         {"kind": "apply", "settings": {"source": "internal"}, key: True}):
             with self.subTest(request=request):
@@ -214,25 +253,25 @@ class InternalOnPublic(base.JobTest):
     def test_reset_always_works_on_a_public_name(self):
         self.fake.serve("acme")
         self.submit({"kind": "apply", "settings": base.acme()})
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(self.runner.run_reset(io.StringIO()), 0)
         self.assertEqual(self.settings(), {"source": "internal"})
-        self.assertEqual(self.status_file()["internalOnPublic"]["addresses"], ["203.0.113.7"])
+        self.assertEqual(self.status_file()["internalOnPublic"]["addresses"], ["93.184.215.14"])
 
     def test_reset_works_before_any_state_exists(self):
         self.empty_state()
-        self.resolver.addresses = ["203.0.113.7"]
+        self.resolver.addresses = ["93.184.215.14"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(self.runner.run_reset(io.StringIO()), 0)
         self.assertEqual(self.settings(), {"source": "internal"})
 
     def test_the_hourly_check_reports_the_internal_authority_on_a_public_name(self):
-        self.resolver.addresses = ["198.51.100.4", "10.0.0.2"]
+        self.resolver.addresses = ["1.1.1.1", "10.0.0.2"]
         self.allow()
         self.runner.run_check()
         found = self.status_file()["internalOnPublic"]
-        self.assertEqual(found["addresses"], ["198.51.100.4"])
+        self.assertEqual(found["addresses"], ["1.1.1.1"])
         since = os.stat(self.tree.state("settings.json")).st_mtime
         self.assertEqual(found["since"], cj.iso(cj.datetime.datetime.fromtimestamp(since, cj.datetime.timezone.utc)))
         # The name moves to a private address, or stops resolving: no report.
