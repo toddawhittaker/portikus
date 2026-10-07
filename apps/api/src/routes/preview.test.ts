@@ -854,7 +854,7 @@ test.skipIf(skip)("a revoked preview cookie is not counted as made up", async ()
 });
 
 test.skipIf(skip)(
-	"past the miss limit, a cookie in use still works and an idle real one waits",
+	"past the miss limit, any real cookie still works and a made-up one gets the network page",
 	async () => {
 		const host = previewHostFor(5173);
 		const from = (ip: string) => ({ extra: { "x-forwarded-for": ip } });
@@ -866,8 +866,13 @@ test.skipIf(skip)(
 		// Used a moment ago from elsewhere, so its lookup is held.
 		expect((await authorize(inUse, host, from("198.51.100.44"))).statusCode).toBe(200);
 		expect((await authorize(inUse, host, from("198.51.100.43"))).statusCode).toBe(200);
-		// Not looked up lately: refused until the window ends, with no query.
-		expect((await authorize(idle, host, from("198.51.100.43"))).statusCode).toBe(429);
+		// Not looked up in the last two seconds, but real: still let through.
+		expect((await authorize(idle, host, from("198.51.100.43"))).statusCode).toBe(200);
+		const guess = await authorize("made-up-again", host, from("198.51.100.43"));
+		expect(guess.statusCode).toBe(429);
+		expect(guess.body).toContain(
+			"Too many preview requests came from your network just now. Wait a minute, then reload this preview.",
+		);
 	},
 );
 
