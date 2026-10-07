@@ -4074,11 +4074,11 @@ itself up.
   it uses more than twice the disk (at least 1 GiB) or ten times the
   file count (at least 100,000) of the median kept set, or cannot be
   measured, never following links, and warns on stderr. It leaves out
-  the newest unfinished set while it changed in the last 2 hours (a big
-  set takes longer than the hourly run to arrive), warning past four
-  times the median, and before any set is kept it limits only non-set
-  entries. The operator's
-  filesystem quota on the target account is the real bound on bursts
+  the newest unfinished set named for the last day while it changed in
+  the last 2 hours (a big set takes longer than the hourly run to
+  arrive), warning past four times the median, drops unfinished sets
+  dated over a day ahead, and before any set is kept limits only non-set
+  entries. The operator's filesystem quota on the target account is the real bound on bursts
   (docs/INSTALL.md).
 
 ### 24.10 Transport security

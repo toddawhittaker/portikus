@@ -28,10 +28,11 @@
 #     day, mode-000 folders and hidden or oddly named entries included,
 #     without following a symlink, and a warning goes to stderr; one huge
 #     kept set does not raise the limit, and keeping it warns too;
-#   - the newest unfinished set, while it changed in the last 2 hours, is
-#     left out of that limit and only warned about, as is every set before
-#     the first is kept; a second recent set and one stalled for over 2
-#     hours count as usual, and junk is still removed;
+#   - the newest unfinished set named for the last day, while it changed
+#     in the last 2 hours, is left out of that limit and only warned about,
+#     as is every set before the first is kept; a second recent set and one stalled for over 2
+#     hours or named over an hour ahead count as usual, junk is still
+#     removed, and an unfinished set dated over a day ahead is dropped;
 #   - a finished set holding hard links is not kept, and mode-000 folders
 #     inside a kept set or an old one being removed do not stop the run.
 #
@@ -381,7 +382,7 @@ rm -rf "$many"
 
 echo "== a set still uploading"
 # A first set over the 1 GiB floor, with no kept set to size it by.
-first="${work}/first"
+first="${work}/first set"
 big1=$(stamp '-20 minutes')
 mkdir -p "${first}/incoming/${big1}"
 fallocate -l 1100M "${first}/incoming/${big1}/home.age"
@@ -390,7 +391,7 @@ for run in 1 2 3; do
   expect_eq "run ${run}: prune with a large first set uploading succeeds" 0 "$?"
   check "run ${run}: the large first set survives" test -f "${first}/incoming/${big1}/home.age"
 done
-check "and a run warns that it is large" grep -q "${big1} is still uploading and uses" "${work}/first.err"
+check "and no run warns about it while no set is kept" bash -c "! grep -q 'still uploading' '${work}/first.err'"
 fallocate -l 1100M "${first}/incoming/junk"
 sh "$prune" "$first" 3 >/dev/null 2>"${work}/first.err"
 check "junk beside it over the floor is removed" test ! -e "${first}/incoming/junk"
@@ -401,7 +402,7 @@ check "once finished, the first set is kept" test -f "${first}/${big1}/home.age"
 chmod -R u+rwX "$first"
 rm -rf "$first"
 # With kept sets, only the newest unfinished set that is still changing is spared.
-up="${work}/up"
+up="${work}/up dir"
 mkdir -p "${up}/incoming"
 for s in "$(stamp '-3 days')" "$(stamp '-2 days')" "$(stamp '-1 day')"; do
   mkdir "${up}/${s}"
@@ -422,6 +423,16 @@ sh "$prune" "$up" 3 >/dev/null 2>"${work}/up.err"
 check "a second recently written set is not spared and goes over the limit" \
   bash -c "test ! -e '${up}/incoming/${second}' && grep -q 'emptying' '${work}/up.err'"
 check "the newest one still survives" test -f "${up}/incoming/${newest_up}/home.age"
+# A folder named ahead of the clock, kept touched, as a broken-into server could.
+ahead_up=$(stamp '+3 hours')
+mkdir "${up}/incoming/${ahead_up}" "${up}/incoming/99991231T000000Z"
+fallocate -l 1100M "${up}/incoming/${ahead_up}/home.age"
+sh "$prune" "$up" 3 >"${work}/up.out" 2>"${work}/up.err"
+check "an unfinished set dated over a day ahead is dropped" \
+  bash -c "test ! -e '${up}/incoming/99991231T000000Z' && grep -q 'dropping 99991231T000000Z: it is dated in the future' '${work}/up.out'"
+check "a set named over an hour ahead is not spared and goes over the limit" \
+  bash -c "test ! -e '${up}/incoming/${ahead_up}' && grep -q 'emptying' '${work}/up.err'"
+check "the genuine newest set is still spared" test -f "${up}/incoming/${newest_up}/home.age"
 # Three hours on, the newest set has not changed for over 2 hours.
 mkdir "${work}/later"
 real_date=$(command -v date)

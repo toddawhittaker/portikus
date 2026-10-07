@@ -17,7 +17,7 @@
 #     So is a set dated more than a day ahead of this clock, which would
 #     otherwise never age out;
 #   - drops sets in DIR/incoming that never finished and are more than
-#     KEEP days old;
+#     KEEP days old or dated more than a day ahead;
 #   - drops a newly kept set that holds hard-linked files, which the
 #     backup's rsync never makes, and warns when a newly kept set uses more
 #     than twice the disk of the median kept set before it;
@@ -30,10 +30,11 @@
 #     runs: a filesystem quota on this account is the real limit on a
 #     burst within the hour and on kept sets growing (docs/INSTALL.md).
 #     A large set takes longer than an hour to send, so two things are
-#     spared and left out of the measure: the newest unfinished set while
-#     anything in it changed in the last 2 hours, with a warning when it
-#     passes four times the median (1 GiB with none kept), and, until a
-#     first set is kept, every set, since there is no median to size one by;
+#     spared and left out of the measure: the newest unfinished set named
+#     for the last day (up to an hour ahead) while anything in it changed
+#     in the last 2 hours, with a warning when it passes four times the
+#     median, and, until a first set is kept, every set, since there is no
+#     median to size one by;
 #   - removes a set from DIR only when it is more than KEEP days old and
 #     KEEP newer sets are there, so a server that stops sending leaves the
 #     last KEEP sets in place.
@@ -166,6 +167,9 @@ for d in "${dir}"/incoming/*; do
   if is_set "$name" && is_dir "$d" && [ "$(num "$name")" -lt "$cutoff" ]; then
     echo "dropping ${name}: it never finished arriving"
     remove "$d"
+  elif is_set "$name" && is_dir "$d" && [ "$(num "$name")" -gt "$ahead" ]; then
+    echo "dropping ${name}: it is dated in the future"
+    remove "$d"
   fi
 done
 
@@ -176,29 +180,35 @@ max_entries=$((10 * $(median entries)))
 # Each measurement is tried twice: rsync renaming a file mid-walk can fail one.
 twice() { "$@" || "$@"; }
 kept=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Exc '[0-9]{8}T[0-9]{6}Z' || true)
-# The newest unfinished set, while anything in it changed in the last 2
-# hours.  The change time, because rsync gives files the source's
-# modification time.
+# The newest unfinished set named for the last day (an hour ahead allows
+# for clock skew), while anything in it changed in the last 2 hours.  The
+# name bounds it, so a folder kept touched cannot stay spared for ever.
+# The change time, because rsync gives files the source's modification time.
+soon=$(date -u -d '+1 hour' +%Y%m%d%H%M%S)
 uploading=""
 for d in "${dir}"/incoming/*; do
-  if is_set "${d##*/}" && is_dir "$d" && [ ! -e "${d}.done" ]; then uploading=$d; fi
+  name=${d##*/}
+  if is_set "$name" && is_dir "$d" && [ ! -e "${d}.done" ] \
+    && [ "$(num "$name")" -ge "$dayago" ] && [ "$(num "$name")" -le "$soon" ]; then
+    uploading=$name
+  fi
 done
-if [ -n "$uploading" ] && [ -z "$(find "$uploading" -newerct "$(date -d '-2 hours' +@%s)" -print -quit 2>/dev/null)" ]; then
+if [ -n "$uploading" ] \
+  && [ -z "$(find "${dir}/incoming/${uploading}" -newerct "$(date -d '-2 hours' +@%s)" -print -quit 2>/dev/null)" ]; then
   uploading=""
 fi
-if [ -n "$uploading" ] && up_kib=$(twice kib "$uploading"); then
-  big=$((4 * $(median kib)))
-  [ "$kept" -gt 0 ] || big=1048576
-  [ "$up_kib" -le "$big" ] || warn "${uploading##*/} is still uploading and uses ${up_kib} KiB, over ${big} KiB"
-fi
-# Before any set is kept there is no median to size a set by, so every set
-# is spared and only the rest is limited.
+# Spared sets are listed by name, which never holds a space.  Before any set
+# is kept there is no median to size a set by, so every set is spared and
+# only the rest is limited.
 spared=$uploading
 if [ "$kept" -eq 0 ]; then
   spared=""
   for d in "${dir}"/incoming/*; do
-    if is_set "${d##*/}" && is_dir "$d"; then spared="${spared} ${d}"; fi
+    if is_set "${d##*/}" && is_dir "$d"; then spared="${spared} ${d##*/}"; fi
   done
+elif [ -n "$uploading" ] && up_kib=$(twice kib "${dir}/incoming/${uploading}"); then
+  big=$((4 * $(median kib)))
+  [ "$up_kib" -le "$big" ] || warn "${uploading} is still uploading and uses ${up_kib} KiB, over ${big} KiB"
 fi
 is_spared() {
   for s in $spared; do
@@ -208,16 +218,15 @@ is_spared() {
 }
 
 over=""
-# Spared sets are measured first, so growth during the run counts against the rest.
+# Spared sets are measured first, so growth during the run counts against
+# the rest.  One that cannot be measured stays spared and subtracts nothing.
 spared_kib=0
 spared_entries=0
 for s in $spared; do
-  if s_kib=$(twice kib "$s") && s_entries=$(twice entries "$s"); then
+  if s_kib=$(twice kib "${dir}/incoming/${s}") && s_entries=$(twice entries "${dir}/incoming/${s}"); then
     spared_kib=$((spared_kib + s_kib))
     spared_entries=$((spared_entries + s_entries))
-  elif [ "$kept" -gt 0 ]; then
-    spared=""
-  else
+  elif [ "$kept" -eq 0 ]; then
     over="a set in it cannot be measured"
   fi
 done
@@ -238,7 +247,7 @@ if [ -n "$over" ]; then
   # The dot patterns catch hidden names; any left unmatched fail the test below.
   for e in "${dir}"/incoming/* "${dir}"/incoming/.[!.]* "${dir}"/incoming/..?*; do
     [ -e "$e" ] || [ -L "$e" ] || continue
-    is_spared "$e" || remove "$e"
+    is_spared "${e##*/}" || remove "$e"
   done
 fi
 
