@@ -320,6 +320,10 @@
     # files: a certificate and key already on the host, which must cover
     #   the site's name and *.<preview suffix>.
     portikus_tls: internal
+    # Caddy's internal authority is refused for a site name that resolves to
+    # a public address unless this is true (docs/SPEC.md section 24.10).
+    # Only portikus.yaml sets it, never the admin page.
+    portikus_allow_internal_ca_on_public_address: false
     portikus_acme_email: ""
     portikus_acme_ca: https://acme-v02.api.letsencrypt.org/directory
     # Only ever from the root-only secrets file; never logged.

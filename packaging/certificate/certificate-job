@@ -38,6 +38,7 @@ import datetime
 import fcntl
 import glob
 import grp
+import ipaddress
 import json
 import os
 import pwd
@@ -67,6 +68,9 @@ SYSTEM_CAS = "/etc/ssl/certs/ca-certificates.crt"
 # made, and the install answers still own the certificate (SPEC.md 24.10).
 ADMIN_PENDING = STATE_DIR + "/admin-pending"
 PORTIKUS_COMMAND = "/usr/bin/portikus"
+# Setup writes this when portikus.yaml sets portikus_allow_internal_ca_on_public_address
+# (infra/ansible/roles/caddy/defaults/main.yml), so only root can allow it (SPEC.md 24.10).
+ALLOW_INTERNAL_ON_PUBLIC = "/etc/portikus/allow-internal-ca-on-public-address"
 ADMIN_PASSWORD = "/etc/portikus/admin-password"
 
 LE_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
@@ -748,6 +752,45 @@ def free_port():
         return s.getsockname()[1]
 
 
+# ---- Where the site name points (SPEC.md 24.10) ----
+
+PRIVATE_NETWORKS = tuple(ipaddress.ip_network(n) for n in
+                         ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
+
+
+def is_private(address):
+    return any(address in net for net in PRIVATE_NETWORKS)
+
+
+def address_scope(host, resolve):
+    """("private" | "public" | "unknown", the addresses that decided it) for the site's name.
+
+    Private only when every address is in a private range or a unique local
+    one. A name that does not resolve, or resolves only to loopback (Debian's
+    127.0.1.1 host name), is unknown: the hourly check looks again.
+    """
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            found = resolve(host, None)
+        except (OSError, UnicodeError):
+            return "unknown", []
+        addresses = []
+        for info in found:
+            try:
+                address = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+            except ValueError:
+                continue
+            if address not in addresses:
+                addresses.append(address)
+    outside = [a for a in addresses if not a.is_loopback]
+    if not outside:
+        return "unknown", addresses
+    public = [a for a in outside if not is_private(a)]
+    return ("public", public) if public else ("private", outside)
+
+
 # ---- Caddy snippets ----
 
 SNIPPET_HEADER = (
@@ -882,7 +925,7 @@ class Job:
 
 class Runner:
     def __init__(self, root="", run_=run, sleep=time.sleep, clock=time.time, caddy="caddy",
-                 test_env=None, test_http_port=None, timeouts=None):
+                 test_env=None, test_http_port=None, timeouts=None, resolve=socket.getaddrinfo):
         self.jobs_dir = root + JOBS_DIR
         self.state_dir = root + STATE_DIR
         self.status_dir = root + STATUS_DIR
@@ -893,6 +936,8 @@ class Runner:
         self.trust_bundle = root + TRUST_BUNDLE
         self.system_cas = root + SYSTEM_CAS
         self.admin_pending = root + ADMIN_PENDING
+        self.allow_internal_on_public = root + ALLOW_INTERNAL_ON_PUBLIC
+        self.resolve = resolve
         self.lock_path = os.path.join(self.status_dir, ".lock")
         self.run = run_
         self.sleep = sleep
@@ -1497,6 +1542,31 @@ class Runner:
             self.run(["systemctl", "try-restart", "portikus-api.service"], log=job, timeout=180)
         return True
 
+    # -- the internal authority on a public address (SPEC.md 24.10) --
+
+    def internal_on_public(self):
+        """(site, its public addresses) when the site's name resolves outside the private ranges, else None."""
+        site, _, _ = read_api_env(self.api_env)
+        scope, addresses = address_scope(site, self.resolve)
+        return (site, addresses) if scope == "public" else None
+
+    def refuse_internal_on_public(self, kind, first_install=False):
+        """Raise Refused when the internal authority would serve a public name the operator has not allowed."""
+        if os.path.lexists(self.allow_internal_on_public):
+            return
+        found = self.internal_on_public()
+        if not found:
+            return
+        site, addresses = found
+        choose = ("run sudo dpkg-reconfigure portikus and choose Let's Encrypt or certificate files"
+                  if first_install else "choose ACME or upload certificate files here")
+        raise Refused(
+            f"{site} resolves to a public address ({', '.join(str(a) for a in addresses[:4])}), and Caddy's "
+            "internal authority is meant for private networks, because browsers cannot check it. "
+            f"Instead, {choose}; or, to use it anyway, set portikus_allow_internal_ca_on_public_address: "
+            "true in /etc/portikus/portikus.yaml and run sudo portikus setup; or run sudo portikus "
+            "reset-certificate", kind)
+
     # -- status.json --
 
     def write_status(self):
@@ -1522,6 +1592,7 @@ class Runner:
             events.insert(0, {"ok": True, "at": iso(datetime.datetime.fromtimestamp(renewed_at, datetime.timezone.utc)),
                               "name": site, "message": ""})
         last = choose_renewal(events, site)
+        public = self.internal_on_public() if current["source"] == "internal" else None
         status = {
             "checkedAt": now_iso(self.clock),
             "source": current["source"],
@@ -1535,6 +1606,11 @@ class Runner:
                 **({"name": last["name"]} if last["name"] else {}),
                 "message": None if last["ok"] else scrub(last["message"], self.all_secrets())[:2000],
             } if last else None,
+            # `since` is when the settings in force last changed, so the API alerts once per change.
+            "internalOnPublic": {
+                "since": iso(datetime.datetime.fromtimestamp(since, datetime.timezone.utc)),
+                "addresses": [str(a) for a in public[1][:4]],
+            } if public else None,
         }
         write_file(os.path.join(self.status_dir, "status.json"), json.dumps(status, indent=2) + "\n",
                    0o644, self.host)
@@ -1588,6 +1664,8 @@ class Runner:
 
     def apply(self, job, request):
         settings = request["settings"]
+        if settings["source"] == "internal":
+            self.refuse_internal_on_public("apply")
         secrets, uploads, view = self.take_settings(job, settings)
         job.save_record({"kind": "apply", "settings": view})
         new = self.state(".new")
@@ -1615,6 +1693,8 @@ class Runner:
         previous = self.state("previous")
         if not os.path.isfile(os.path.join(previous, "settings.json")):
             raise Refused("there is no previous certificate to roll back to", "rollback")
+        if (read_json(os.path.join(previous, "settings.json")) or {}).get("source") == "internal":
+            self.refuse_internal_on_public("rollback")
         job.secrets = self.all_secrets()
         job.status("running", "Rolling back")
         swap = self.state(".rollback")
@@ -2023,6 +2103,15 @@ class Runner:
         except Refused as err:
             journal(f"first-install: the settings are refused: {err}")
             return 2
+        try:
+            if settings["source"] == "internal":
+                self.refuse_internal_on_public("first-install", first_install=True)
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return 2
+        except JobFailed:
+            # No site name to look up yet; the hourly check looks once there is.
+            pass
         lock_fd = self.locked(blocking=True)
         try:
             secrets = self.resolve_secrets(settings)

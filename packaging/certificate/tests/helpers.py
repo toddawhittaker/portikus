@@ -108,3 +108,17 @@ class HostTree:
 
     def state(self, name):
         return os.path.join(self.root + cj.STATE_DIR, name)
+
+
+class FakeResolver:
+    """Stands in for socket.getaddrinfo, so no test looks up a real name. No address: the name does not resolve."""
+
+    def __init__(self, *addresses):
+        self.addresses = list(addresses)
+        self.asked = []
+
+    def __call__(self, host, port):
+        self.asked.append(host)
+        if not self.addresses:
+            raise OSError("Name or service not known")
+        return [(None, None, None, "", (a, 0)) for a in self.addresses]

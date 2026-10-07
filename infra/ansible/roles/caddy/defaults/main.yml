@@ -8,6 +8,9 @@ caddy_install_secrets_path: /etc/portikus/secrets.yaml
 caddy_admin_socket: /var/lib/caddy/admin.sock
 # The root job that owns the certificate state, shipped by the portikus package.
 caddy_certificate_job: /usr/lib/portikus/certificate-job
+# Present while portikus_allow_internal_ca_on_public_address is true; the job
+# reads it as ALLOW_INTERNAL_ON_PUBLIC (docs/SPEC.md section 24.10).
+caddy_allow_internal_on_public_file: /etc/portikus/allow-internal-ca-on-public-address
 # The release package; amd64 is the only architecture Portikus supports.
 caddy_deb: "caddy_{{ caddy_version | regex_replace('^v', '') }}_linux_amd64.deb"
 # The xcaddy build, checked here before it replaces /usr/bin/caddy.
