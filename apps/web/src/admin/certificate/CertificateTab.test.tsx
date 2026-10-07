@@ -188,6 +188,26 @@ test("an expiry inside 14 days and a failed renewal are called out", async () =>
 	);
 });
 
+// SPEC.md 24.10: the internal authority's short-lived certificates renew themselves.
+test("no expiry banner under the internal authority, even inside a day", async () => {
+	serve(
+		data({
+			settings: { source: "internal" },
+			status: {
+				...STATUS,
+				source: "internal",
+				settings: { source: "internal" },
+				site: STATUS.site
+					? { ...STATUS.site, notAfter: "2026-09-30T20:00:00.000Z" }
+					: null,
+			},
+		}),
+	);
+	renderWithQuery(<CertificateTab />);
+	await screen.findByTestId("cert-table");
+	expect(screen.queryByTestId("cert-expiry-notice")).toBeNull();
+});
+
 // SPEC.md 24.10: the internal authority on a public address is called out until it is replaced.
 test("the internal authority on a public address gets a warning", async () => {
 	const internal = { source: "internal" as const };
