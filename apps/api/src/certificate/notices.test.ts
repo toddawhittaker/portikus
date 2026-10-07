@@ -170,6 +170,47 @@ describe.skipIf(skip)("noticeCertificates", () => {
 		expect(await notifications()).toHaveLength(0);
 	});
 
+	// SPEC.md 24.10: browsers cannot check the internal authority, so a public address must be heard of.
+	test("the internal authority on a public address is a warning site alert, once per change", async () => {
+		const internal = {
+			source: "internal" as const,
+			settings: { source: "internal" as const },
+			site: info("2026-09-30T23:00:00.000Z"),
+		};
+		const exposed = { since: "2026-09-30T10:00:00Z", addresses: ["203.0.113.7"] };
+		await putStatus({ ...internal, internalOnPublic: exposed });
+		await noticeCertificates(testDb.db, dir, NOW);
+		await noticeCertificates(testDb.db, dir, NOW);
+		let rows = await notifications();
+		expect(rows).toHaveLength(2);
+		for (const row of rows) {
+			expect(row.tone).toBe("warning");
+			expect(row.site_alert).toBe(true);
+			expect(row.title).toBe(
+				"The site uses its own certificate authority on a public address",
+			);
+			expect(row.body).toContain("portikus.example.edu");
+		}
+
+		// A private address, or an older job's file without the field: no alert.
+		await testDb.truncate();
+		await insertTestUser(testDb.db, { role: "administrator", email: "a3@example.edu" });
+		await putStatus({ ...internal, internalOnPublic: null });
+		await noticeCertificates(testDb.db, dir, NOW);
+		await putStatus(internal);
+		await noticeCertificates(testDb.db, dir, NOW);
+		expect(await notifications()).toHaveLength(0);
+
+		// The settings changed again (a later reset): a new alert.
+		await putStatus({
+			...internal,
+			internalOnPublic: { ...exposed, since: "2026-09-30T11:00:00Z" },
+		});
+		await noticeCertificates(testDb.db, dir, NOW);
+		rows = await notifications();
+		expect(rows).toHaveLength(1);
+	});
+
 	test("a missing or malformed status file is ignored", async () => {
 		await noticeCertificates(testDb.db, dir, NOW);
 		await writeFile(join(dir, "status.json"), "{");

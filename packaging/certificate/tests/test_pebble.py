@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from helpers import cj
+from helpers import FakeResolver, cj
 
 PEBBLE = os.environ.get("PEBBLE")
 CHALLTESTSRV = os.environ.get("PEBBLE_CHALLTESTSRV")
@@ -190,7 +190,8 @@ https://*.{SUFFIX} {{
                     "XDG_CONFIG_HOME": self.root, "SSL_CERT_FILE": f"{self.dir}/listener.crt"}
         self.runner = cj.Runner(root=self.root, run_=self.run_, caddy=CADDY,
                                 test_env={"SSL_CERT_FILE": f"{self.dir}/listener.crt"},
-                                test_http_port=self.ports["challenge"], timeouts={"issue": 30, "serve": 20})
+                                test_http_port=self.ports["challenge"], timeouts={"issue": 30, "serve": 20},
+                                resolve=FakeResolver("127.0.0.1"))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner.run_first_install(io.StringIO('{"source": "internal"}')), 0)
         self.live_log = open(os.path.join(self.root, "live.log"), "wb")

@@ -72,9 +72,11 @@
         msg: >-
           {{ ('Made the local administrator, ' ~ portikus_admin_email ~ '.  ') if portikus_local_admin.rc == 0 else '' }}{{
              portikus_local_admin.stdout_lines | join('  ') }}{{
-             ("  Warning: the site uses Portikus's own certificate authority, which is meant for a private"
-              ~ " network; browsers cannot check it.  If people reach this server from the internet, sign in"
-              ~ " only from a network you trust and choose a public certificate on the Certificate page first.")
+             ("  Warning: the site uses Portikus's own certificate authority, which browsers cannot check, so"
+              ~ " it is meant for a private network.  It is refused for a name with a public address unless"
+              ~ " portikus_allow_internal_ca_on_public_address is true in /etc/portikus/portikus.yaml.  If"
+              ~ " people reach this server from the internet, choose a public certificate on the Certificate"
+              ~ " page before signing in.")
              if portikus_certificate_source == 'internal' else '' }}
       when: portikus_local_admin.rc in [0, 10]
 

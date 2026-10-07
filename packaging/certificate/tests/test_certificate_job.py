@@ -17,7 +17,7 @@ import time
 import unittest
 from pathlib import Path
 
-from helpers import REPO, SITE, SUFFIX, WILDCARD, Certificates, HostTree, cj
+from helpers import REPO, SITE, SUFFIX, WILDCARD, Certificates, FakeResolver, HostTree, cj
 
 ID = "0b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
 ID2 = "1b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
@@ -116,7 +116,9 @@ class JobTest(unittest.TestCase):
         self.tree = HostTree(CERTS)
         self.fake = FakeRun()
         self.clock = Clock()
-        self.runner = cj.Runner(root=self.tree.root, run_=self.fake, sleep=self.clock.sleep, clock=self.clock)
+        self.resolver = FakeResolver()
+        self.runner = cj.Runner(root=self.tree.root, run_=self.fake, sleep=self.clock.sleep, clock=self.clock,
+                                resolve=self.resolver)
         self.throwaway_calls = []
         self.throwaway_error = None
         self.throwaway_cert = "acme2"
