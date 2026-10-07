@@ -1,6 +1,8 @@
 # 0048. The second factor is built inside Portikus, not in Dex
 
-- **Status**: Accepted (Epic 34)
+- **Status**: Accepted (Epic 34). Superseded in part by ADR 0053, which
+  moves the second-factor counts into PostgreSQL and lets a recovery
+  code or passkey past the daily lockout.
 - **Date**: 2026-10-04
 - **References**: SPEC.md sections 5.1 and 24.13; issues #914, #1135
 

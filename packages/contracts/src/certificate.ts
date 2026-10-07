@@ -342,6 +342,12 @@ export const CertificateJobRequest = z.discriminatedUnion("kind", [
 ]);
 export type CertificateJobRequest = z.infer<typeof CertificateJobRequest>;
 
+/**
+ * A certificate job waiting or running longer than this has died: the job
+ * unit's thirty-minute start timeout plus a margin.
+ */
+export const CERTIFICATE_JOB_STALE_MS = 35 * 60_000;
+
 export const CertificateJobId = z.string().uuid();
 
 /** `request-<id>.json` as the API writes it (mode 0600). */

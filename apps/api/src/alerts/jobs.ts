@@ -2,7 +2,6 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	AlertChannelKind,
-	isNotifyJobActive,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	NotifyJobId,
@@ -45,24 +44,6 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 		jobs.push(queuedView(id, queuedAt));
 	}
 	return jobs;
-}
-
-/**
- * The job the page should show: the newest by request or start time, with
- * a dead queued or running job ranked below every live or finished one, so
- * a job killed mid-run never hides the ones after it.
- */
-export function latestJob(
-	jobs: NotifyJobView[],
-	now: number = Date.now(),
-): NotifyJobView | null {
-	const dead = (j: NotifyJobView) =>
-		(j.state === "queued" || j.state === "running") && !isNotifyJobActive(j, now);
-	const at = (j: NotifyJobView) => j.requestedAt ?? j.startedAt ?? "";
-	const ranked = [...jobs].sort(
-		(a, b) => Number(dead(a)) - Number(dead(b)) || at(b).localeCompare(at(a)),
-	);
-	return ranked[0] ?? null;
 }
 
 async function readJob(dir: string, id: string): Promise<NotifyJobView | null> {

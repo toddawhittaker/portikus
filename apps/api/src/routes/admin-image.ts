@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminImage,
 	type ApiError,
+	IMAGE_JOB_STALE_MS,
 	IMAGE_LOG_LINES,
 	ImageAliasesFile,
 	ImageDiffQuery,
@@ -183,7 +184,7 @@ export function registerAdminImageRoutes(
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		// Jobs first: the root job moves the aliases before it writes "succeeded",
 		// so a finished job is never paired with the aliases from before it.
-		const job = currentJob(await allJobs(jobsDir));
+		const job = currentJob(await allJobs(jobsDir), IMAGE_JOB_STALE_MS);
 		const { aliases, images } = await readStore(imagesDir);
 		const counts = await db
 			.selectFrom("workspaces")

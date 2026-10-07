@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminCertificate,
 	type ApiError,
+	CERTIFICATE_JOB_STALE_MS,
 	CERTIFICATE_LOG_LINES,
 	CertificateJobId,
 	CertificateJobRequest,
@@ -227,7 +228,7 @@ export function registerAdminCertificateRoutes(
 			settings: status?.settings ?? null,
 			previousAvailable: status?.previousAvailable ?? false,
 			status,
-			job: currentJob(jobs),
+			job: currentJob(jobs, CERTIFICATE_JOB_STALE_MS),
 			rootCertificateAvailable: await rootAvailable(statusDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
