@@ -384,6 +384,45 @@ test("a second request while one waits is refused", async ({ page }) => {
 	);
 });
 
+/** A status file with chosen times, for a job that started long ago. */
+async function putOldStatus(
+	id: string,
+	state: "running" | "succeeded",
+	startedAgoMs: number,
+): Promise<void> {
+	await mkdir(join(IMAGE_JOBS_DIR, id), { recursive: true });
+	const at = (ms: number) => new Date(Date.now() - ms).toISOString();
+	await writeFile(
+		join(IMAGE_JOBS_DIR, id, "status.json"),
+		JSON.stringify({
+			id,
+			kind: "fetch",
+			state,
+			step: state === "running" ? "Downloading" : "Done",
+			version: null,
+			message: null,
+			startedAt: at(startedAgoMs),
+			finishedAt: state === "running" ? null : at(startedAgoMs - 60_000),
+		}),
+	);
+}
+
+test("a job killed while running, hours ago, shows the job before it and does not block a rebuild", async ({
+	page,
+}) => {
+	const hour = 3_600_000;
+	await putOldStatus("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "succeeded", 4 * hour);
+	await putOldStatus("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "running", 3.5 * hour);
+	await open(page);
+	await expect(page.getByTestId("image-job-state")).toContainText("Finished Done");
+	await page.getByRole("button", { name: "Rebuild with latest packages" }).click();
+	const dialog = page.getByTestId("image-rebuild-dialog");
+	await dialog.getByRole("button", { name: "Rebuild" }).click();
+	await expect(dialog).toHaveCount(0);
+	const { request } = await takeRequest();
+	expect(request.kind).toBe("build");
+});
+
 /** What the daily `image-job check` would write, a newer image and package. */
 async function putPublished(
 	image: string,

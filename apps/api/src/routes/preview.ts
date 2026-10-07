@@ -28,6 +28,7 @@ import {
 } from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
+	missLimitPage,
 	refusedPage,
 	resetPage,
 	signInPage,
@@ -587,18 +588,16 @@ export function registerPreviewRoutes(
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
 
 	/**
-	 * Whether this address has sent too many made-up cookies this window. A
-	 * cookie looked up moments ago is let through, so a student on the
-	 * guesser's network keeps a preview in use (SPEC.md section 24.13).
+	 * Whether this address has sent too many made-up cookies this window;
+	 * when it has, the refusal is logged once and given a retry time.
 	 */
 	function overMissLimit(
 		request: FastifyRequest,
 		reply: FastifyReply,
 		address: string,
-		token: string,
 	): boolean {
 		const misses = cookieMisses.peek(address);
-		if (misses.count < cookieMisses.limit || lookups.has(token)) return false;
+		if (misses.count < cookieMisses.limit) return false;
 		if (!misses.reported) {
 			misses.reported = true;
 			request.log.warn({ address }, "preview cookie miss limit reached");
@@ -636,15 +635,16 @@ export function registerPreviewRoutes(
 
 		const token = request.cookies[cookieName];
 		if (!token) return { refused: page(reply, 401, signInPage()) };
-		// Checked before the lookup, so a flood of guesses costs no queries.
-		const address = addressKey(request.ip);
-		if (overMissLimit(request, reply, address, token)) {
-			return { refused: page(reply, 429, tooManyRequestsPage()) };
-		}
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
+		const address = addressKey(request.ip);
 		if (!session) {
+			// Past the limit a guess costs only the one session query, and a real
+			// cookie from the same network still works (SPEC.md section 24.13).
+			if (overMissLimit(request, reply, address)) {
+				return { refused: page(reply, 429, missLimitPage()) };
+			}
 			// A revoked or expired cookie was real; only a made-up one counts.
 			if (!(await previewTokenIssued(db, token))) cookieMisses.hit(address);
 			// Stopping revokes the sessions; the more specific cause wins.

@@ -3,6 +3,7 @@ import { type Database, type Notice, notifyAdministrators } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import type { JournalEntry, ReadRequest, ReadResult } from "../logs/journal.js";
+import { KERNEL_ALERT_REASONS } from "../logs/kernel.js";
 
 /**
  * Alert sources read from the journal (STACK.md section 15, ADR 0052). They
@@ -26,12 +27,6 @@ export interface LogAlertReader {
 		onEntry: (entry: JournalEntry) => "continue" | "stop",
 	): Promise<ReadResult>;
 }
-
-const LIMIT_REASONS: Readonly<Record<string, string>> = {
-	WORKSPACE_MAIL_BLOCKED: "was blocked from sending mail (port 25)",
-	WORKSPACE_CONN_LIMIT: "hit the new-connection limit",
-	WORKSPACE_PACKET_LIMIT: "hit the packet limit",
-};
 
 const SERVICE_UNITS: Readonly<Record<LogService, string>> = {
 	api: "portikus-api",
@@ -59,7 +54,7 @@ export function classifyEntry(entry: JournalEntry): ParsedEntry {
 	if (entry.service === "network") {
 		const code = fields.code;
 		const address = fields.workspaceAddress;
-		if (typeof code !== "string" || !(code in LIMIT_REASONS)) return null;
+		if (typeof code !== "string" || !(code in KERNEL_ALERT_REASONS)) return null;
 		if (typeof address !== "string") return null;
 		return { kind: "limit", code, address, at: entry.at };
 	}
@@ -72,7 +67,7 @@ export function classifyEntry(entry: JournalEntry): ParsedEntry {
 function limitNotice(instance: string, code: string): Notice {
 	return {
 		tone: "warning",
-		title: `Workspace ${instance} ${LIMIT_REASONS[code] ?? "hit an outbound limit"}`,
+		title: `Workspace ${instance} ${KERNEL_ALERT_REASONS[code] ?? "hit an outbound limit"}`,
 		body: "Open Admin, then Logs, and filter by this workspace to see when.",
 	};
 }

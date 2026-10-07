@@ -1,7 +1,8 @@
 import {
 	AdminNotifications,
 	type AlertChannelKind,
-	isNotifyJobActive,
+	isJobActive,
+	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	NotifyJobView,
 	TestAlertResponse,
@@ -23,7 +24,9 @@ export function useNotifications(waiting: boolean) {
 		queryKey: notificationsKey,
 		queryFn: () => request(AdminNotifications, "/admin/notifications"),
 		refetchInterval: (query) =>
-			waiting || isNotifyJobActive(query.state.data?.job) ? POLL_MS : false,
+			waiting || isJobActive(query.state.data?.job, NOTIFY_JOB_STALE_MS)
+				? POLL_MS
+				: false,
 		retry: false,
 	});
 }

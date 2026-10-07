@@ -19,6 +19,7 @@ import {
 	ImageSizeFile,
 	ImageVersion,
 	type ImageView,
+	isJobActive,
 	newerPublishedImage,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
@@ -31,6 +32,7 @@ import {
 	currentJob,
 	listDir,
 	readJson,
+	removeStaleRequests,
 	tailLines,
 	writeRequestFile,
 } from "../job-files.js";
@@ -357,7 +359,7 @@ export function registerAdminImageRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isJobActive(j, IMAGE_JOB_STALE_MS))) {
 				return sendError(
 					reply,
 					409,
@@ -365,6 +367,7 @@ export function registerAdminImageRoutes(
 					"An image job is already waiting or running.",
 				);
 			}
+			await removeStaleRequests(jobsDir, jobs, IMAGE_JOB_STALE_MS);
 			const refused = await refuseImageJob(wanted, imagesDir);
 			if (refused) {
 				return sendError(reply, refused.status, refused.code, refused.message);

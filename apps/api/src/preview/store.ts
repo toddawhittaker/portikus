@@ -370,11 +370,6 @@ export function createPreviewLookupCache(
 			entries.set(key, { at, lookup });
 			return lookup;
 		},
-		/** Whether a live lookup of this cookie is held now, without querying. */
-		has(token: string): boolean {
-			const hit = entries.get(hashSessionToken(token));
-			return hit !== undefined && now() - hit.at < PREVIEW_LOOKUP_TTL_MS;
-		},
 		/** Forget everything, after a revocation made in this process. */
 		clear(): void {
 			generation += 1;

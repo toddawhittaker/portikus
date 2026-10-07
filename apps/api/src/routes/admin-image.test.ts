@@ -13,10 +13,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import type {
-	ImageHealth,
-	ImageJobStatusFile,
-	ImageManifest,
+import {
+	IMAGE_JOB_STALE_MS,
+	type ImageHealth,
+	type ImageJobStatusFile,
+	type ImageManifest,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
@@ -346,7 +347,7 @@ describe.skipIf(skip)("GET /admin/image, jobs the root job wrote", () => {
 			join(jobsDir, id, "request.json"),
 			JSON.stringify({
 				id,
-				requestedAt: "2026-09-28T10:00:00Z",
+				requestedAt: new Date().toISOString(),
 				requestedBy: "33333333-3333-4333-8333-333333333333",
 				request: { kind: "rollback" },
 			}),
@@ -405,12 +406,53 @@ describe.skipIf(skip)("POST /admin/image/jobs", () => {
 		expect(await requestFiles()).toHaveLength(1);
 	});
 
+	test("a stale queued request is removed before the new one is written", async () => {
+		const id = "55555555-5555-4555-8555-555555555555";
+		await writeFile(
+			join(jobsDir, `request-${id}.json`),
+			JSON.stringify({
+				id,
+				requestedAt: new Date(Date.now() - IMAGE_JOB_STALE_MS - 60_000).toISOString(),
+				requestedBy: "33333333-3333-4333-8333-333333333333",
+				request: { kind: "rollback" },
+			}),
+		);
+		const res = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });
+		expect(res.statusCode).toBe(202);
+		expect(await requestFiles()).toEqual([`request-${res.json().id}.json`]);
+	});
+
 	test("refuses a request while a job runs", async () => {
-		await putJob(jobStatus());
+		await putJob(jobStatus({ startedAt: new Date().toISOString() }));
 		const res = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });
 		expect(res.statusCode).toBe(409);
 		expect(res.json().code).toBe("IMAGE_JOB_BUSY");
 		expect(await requestFiles()).toHaveLength(0);
+	});
+
+	test("a job killed while running stops blocking once stale, and the page shows the job before it", async () => {
+		const longAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+		await putJob(
+			jobStatus({
+				id: "33333333-3333-4333-8333-333333333333",
+				state: "succeeded",
+				step: "Done",
+				startedAt: longAgo(IMAGE_JOB_STALE_MS + 60_000),
+				finishedAt: longAgo(IMAGE_JOB_STALE_MS + 30_000),
+			}),
+		);
+		await putJob(jobStatus({ startedAt: longAgo(IMAGE_JOB_STALE_MS + 1000) }));
+		const page = await send(carol, "GET", "/admin/image");
+		expect(page.json().job).toMatchObject({
+			id: "33333333-3333-4333-8333-333333333333",
+			state: "succeeded",
+		});
+		const res = await send(carol, "POST", "/admin/image/jobs", {
+			kind: "build",
+			node: "26",
+			python: "uv-3.14",
+		});
+		expect(res.statusCode).toBe(202);
 	});
 
 	test.each([

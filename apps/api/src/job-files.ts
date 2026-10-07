@@ -9,6 +9,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { isJobActive, type JobTimes, jobStaleAt } from "@portikus/contracts";
 import type { ZodType } from "zod";
 
 /** log.txt can grow to megabytes during a build; only its tail is read. */
@@ -38,13 +39,9 @@ export async function fileTime(path: string): Promise<string | null> {
 	);
 }
 
-type JobTimes = { state: string; requestedAt: string | null; startedAt: string | null };
-
-/** Queued or running past `staleMs` (from start, else request): its unit died. */
+/** Queued or running past `staleMs`: its unit died. */
 function isDead(job: JobTimes, staleMs: number, now: number): boolean {
-	if (job.state !== "queued" && job.state !== "running") return false;
-	const since = job.state === "running" ? job.startedAt : job.requestedAt;
-	return since !== null && now >= Date.parse(since) + staleMs;
+	return jobStaleAt(job, staleMs) !== null && !isJobActive(job, staleMs, now);
 }
 
 /**
@@ -122,6 +119,24 @@ export async function sweepTempRequests(dir: string): Promise<void> {
 	for (const name of await listDir(dir)) {
 		if (name.startsWith(".request-") && name.endsWith(".tmp")) {
 			await unlink(join(dir, name)).catch(() => {});
+		}
+	}
+}
+
+/**
+ * Remove the request files of stale queued jobs before a new request is
+ * written: the root job takes requests oldest first, so a dead one left in
+ * place would run instead of the new one. The API wrote these files.
+ */
+export async function removeStaleRequests(
+	dir: string,
+	jobs: Array<JobTimes & { id: string }>,
+	staleMs: number,
+	now: number = Date.now(),
+): Promise<void> {
+	for (const job of jobs) {
+		if (job.state === "queued" && isDead(job, staleMs, now)) {
+			await rm(join(dir, `request-${job.id}.json`), { force: true });
 		}
 	}
 }

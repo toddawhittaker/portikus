@@ -1,5 +1,5 @@
 import {
-	isNotifyJobActive,
+	isJobActive,
 	NOTIFY_JOB_STALE_MS,
 	type NotifyJobView,
 } from "@portikus/contracts";
@@ -25,29 +25,39 @@ function job(over: Partial<NotifyJobView>): NotifyJobView {
 	};
 }
 
-describe("isNotifyJobActive", () => {
+describe("isJobActive with the notify stale limit", () => {
 	test("a queued or running job is active until NOTIFY_JOB_STALE_MS has passed", () => {
 		expect(
-			isNotifyJobActive(job({ state: "queued", requestedAt: ago(60_000) }), NOW),
+			isJobActive(
+				job({ state: "queued", requestedAt: ago(60_000) }),
+				NOTIFY_JOB_STALE_MS,
+				NOW,
+			),
 		).toBe(true);
 		expect(
-			isNotifyJobActive(
+			isJobActive(
 				job({ state: "queued", requestedAt: ago(NOTIFY_JOB_STALE_MS) }),
+				NOTIFY_JOB_STALE_MS,
 				NOW,
 			),
 		).toBe(false);
 		expect(
-			isNotifyJobActive(
+			isJobActive(
 				job({
 					state: "running",
 					requestedAt: ago(NOTIFY_JOB_STALE_MS * 2),
 					startedAt: ago(1000),
 				}),
+				NOTIFY_JOB_STALE_MS,
 				NOW,
 			),
 		).toBe(true);
 		expect(
-			isNotifyJobActive(job({ state: "succeeded", requestedAt: ago(1000) }), NOW),
+			isJobActive(
+				job({ state: "succeeded", requestedAt: ago(1000) }),
+				NOTIFY_JOB_STALE_MS,
+				NOW,
+			),
 		).toBe(false);
 	});
 });
