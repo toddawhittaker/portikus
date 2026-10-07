@@ -21,7 +21,12 @@
 #     drops future-dated and stale unfinished ones, removes a set only when
 #     it is old and KEEP newer ones are there, so a flood of junk cannot
 #     push out genuine copies faster than a day at a time, and touches
-#     nothing else.
+#     nothing else;
+#   - when incoming takes more than twice the disk of the median kept set
+#     (at least 1 GiB), everything there is removed, finished sets waiting
+#     their day and hidden or oddly named entries included, without
+#     following a symlink, and a warning goes to stderr; one huge kept set
+#     does not raise the limit, and keeping it warns too.
 #
 # Usage: ./infra/tests/backup-offsite-test.sh
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
@@ -287,6 +292,65 @@ junk '-2 days' 1
 sh "$prune" "$burst" 3 >/dev/null
 expect_eq "with 3 newer sets accepted, the last genuine copy goes" \
   "$(date -u -d '-2 days' +%Y%m%d)T000001Z $(date -u -d '-1 day' +%Y%m%d)T000001Z ${today}T000001Z" "$(kept)"
+
+echo "== the quota on incoming"
+quota="${work}/quota"
+inq="${quota}/incoming"
+outside="${work}/outside"
+mkdir -p "$inq" "${outside}/inner"
+echo precious >"${outside}/inner/file"
+for s in "$(stamp '-3 days')" "$(stamp '-2 days')" "$(stamp '-1 day')"; do
+  mkdir "${quota}/${s}"
+  echo small >"${quota}/${s}/home.age"
+done
+# A huge set the server got finished on a new day, to inflate the limit.
+huge="${today}T000001Z"
+mkdir "${inq}/${huge}"
+fallocate -l 600M "${inq}/${huge}/home.age"
+: >"${inq}/${huge}.done"
+# A second set from today waits in incoming with its marker.
+waits="${today}T000002Z"
+mkdir "${inq}/${waits}"
+echo small >"${inq}/${waits}/home.age"
+: >"${inq}/${waits}.done"
+fresh_unfinished=$(stamp '-1 minute')
+mkdir "${inq}/${fresh_unfinished}" "${inq}/odd name" "${inq}/.hidden" "${inq}/${today}T000003Z.done" "${inq}/ro"
+echo x >"${inq}/ro/file"
+chmod 0500 "${inq}/ro"
+echo x >"${inq}/junk"
+ln -s "$outside" "${inq}/link"
+ln -s "$outside" "${inq}/$(stamp '-3 hours')"
+: >"${inq}/$(stamp '-3 hours').done"
+quota_listing() { listing "$inq"; }
+sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
+expect_eq "prune with junk under the limit succeeds" 0 "$?"
+check "a huge new set is kept" test -d "${quota}/${huge}"
+check "and keeping it warns on stderr" grep -q "${huge} uses .* more than twice the median" "${work}/quota.err"
+check "under the limit, nothing warns about incoming" bash -c "! grep -q 'over its limit' '${work}/quota.err'"
+check "under the limit, the junk and the fresh unfinished set stay" \
+  bash -c "test -f '${inq}/junk' && test -d '${inq}/odd name' && test -d '${inq}/${fresh_unfinished}'"
+# Twice the largest kept set would allow this; twice the median does not.
+fallocate -l 1100M "${inq}/junk"
+sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
+expect_eq "prune over the limit succeeds" 0 "$?"
+check "over the limit warns on stderr" grep -q "incoming uses .* over its limit of 1048576 KiB" "${work}/quota.err"
+expect_eq "incoming is emptied, the finished set waiting its day included" "" "$(quota_listing)"
+check "the symlinks were not followed" test -f "${outside}/inner/file"
+check "the kept sets are untouched" bash -c "test -d '${quota}/${huge}' && test -d '${quota}/$(stamp '-1 day')'"
+check "nothing warns on a second run" bash -c "sh '${prune}' '${quota}' 3 2>&1 >/dev/null | grep -c . | grep -qx 0"
+# Many finished sets from one day, each small, together over the limit.
+for i in $(seq 10 21); do
+  mkdir "${inq}/${today}T0000${i}Z"
+  fallocate -l 100M "${inq}/${today}T0000${i}Z/home.age"
+  : >"${inq}/${today}T0000${i}Z.done"
+done
+sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
+expect_eq "prune with many finished same-day sets succeeds" 0 "$?"
+check "and warns that incoming is over its limit" grep -q "over its limit" "${work}/quota.err"
+expect_eq "none of them is kept and incoming is emptied" "" "$(quota_listing)"
+check "no new set moved in" test ! -e "${quota}/${today}T000010Z"
+chmod -R u+w "$quota"
+rm -rf "$quota"
 
 echo "== failures"
 settings "${me}@127.0.0.1:${work}/target/missing"
