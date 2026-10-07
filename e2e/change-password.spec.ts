@@ -121,6 +121,16 @@ test("a known-breached password is refused with the reason shown (SPEC.md 24.13)
 	await expect(page).toHaveURL(/\/change-password$/);
 });
 
+test("a password from the SecLists breach list is refused (ADR 0054)", async ({
+	page,
+}) => {
+	await signInAsAdmin(page);
+	await submit(page, oneTime, "ManchesterUnited");
+	const next = page.getByLabel("New password", { exact: true });
+	await expect(next).toHaveAccessibleDescription(/leaked passwords/);
+	await expect(page).toHaveURL(/\/change-password$/);
+});
+
 test("a good change lands on the administration page and Settings offers Password", async ({
 	page,
 }) => {
