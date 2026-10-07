@@ -308,9 +308,11 @@ def replace_home(args):
     deadline = time.time() + 1800
     row = ""
     while time.time() < deadline:
-        row = psql("SELECT coalesce(pending_operation, '-') || ' ' || state || ' ' || coalesce(error_code, '-') "
-                   f"FROM workspaces WHERE id = '{workspace}'")
-        if row.startswith("- ") and not row.startswith("- stopping") and not row.startswith("- starting"):
+        row, desired = psql("SELECT coalesce(pending_operation, '-') || ' ' || state || ' ' || coalesce(error_code, '-') "
+                            f"|| '|' || desired_state FROM workspaces WHERE id = '{workspace}'").split("|")
+        # The replace ends stopped; the next sweep starts it if it should run (ADR 0021).
+        restarting = row == "- stopped -" and desired in ("running", "restarting")
+        if row.startswith("- ") and not row.startswith(("- stopping", "- starting")) and not restarting:
             break
         time.sleep(10)
     must("Replace home finishes with the workspace running again", row == "- running -", row)
