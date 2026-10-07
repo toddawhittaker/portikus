@@ -236,7 +236,8 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 					{`This site's name resolves to a public address (${exposed.addresses.join(", ")}), but its certificate comes from the internal authority, which browsers cannot check. Choose ACME or upload a certificate below.`}
 				</Notice>
 			) : null}
-			{siteExpiry && siteExpiry.tone !== "ok" ? (
+			{/* The internal authority's ~12-hour certificates renew themselves (SPEC.md 24.10). */}
+			{siteExpiry && siteExpiry.tone !== "ok" && status?.source !== "internal" ? (
 				<Notice tone="error" testId="cert-expiry-notice">
 					{siteExpiry.tone === "expired"
 						? "The site's certificate has expired. Browsers refuse the site until it is renewed or replaced."

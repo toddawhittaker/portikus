@@ -1925,11 +1925,11 @@ with a unit test and an e2e check.
 
 **Source.** Epic 36.
 
-## Certificate tab expiry notice for the internal authority
+## A stopped install-test run still prints "Install test passed"
 
-**What.** The Certificate tab shows the red "expires in less than a day" notice for the internal authority's 12-hour certificates, which Caddy renews on its own. The API already skips expiry alerts for them.
+**What.** When an install-test run is stopped part way, its exit trap still prints "Install test passed", because it reports only the steps that finished.
 
-**What it would take.** Skip the notice in the tab when the issuer is the internal authority, with a unit test.
+**What it would take.** Track whether every step ran, and print the pass line only then.
 
 **Source.** Epic 36.
 

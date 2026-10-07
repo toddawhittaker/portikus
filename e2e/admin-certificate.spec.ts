@@ -155,6 +155,16 @@ test.describe("with the fake root job", () => {
 		expect(await readFile(await download.path(), "utf8")).toBe(FAKE_ROOT_PEM);
 	});
 
+	// SPEC.md 24.10: the internal authority's ~12-hour certificates renew themselves.
+	test("no expiry banner for the internal authority's short-lived certificate", async ({
+		page,
+	}) => {
+		await putStatus({ notAfter: new Date(Date.now() + 6 * 3600_000).toISOString() });
+		await open(page);
+		await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("cert-expiry-notice")).toHaveCount(0);
+	});
+
 	// SPEC.md 24.10: the hourly check reports the internal authority on a public address.
 	test("the internal authority on a public address shows a warning", async ({
 		page,

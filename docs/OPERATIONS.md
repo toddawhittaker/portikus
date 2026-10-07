@@ -134,7 +134,7 @@ git fetch origin && git checkout origin/main
 nvm use
 make build-deb
 make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
-make smoke-test TOFU_ENV=rehearsal-libvirt
+make smoke-test TOFU_ENV=rehearsal-libvirt PORTIKUS_PUBLIC_PORT=443
 ```
 
 - `make build-deb` builds the control-plane Debian package into `dist/deb`.
