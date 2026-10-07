@@ -17,7 +17,7 @@ const DAY_MS = 24 * 60 * 60_000;
 const SECOND_FACTOR_LIMIT_PER_10_MINUTES = 10;
 export const SECOND_FACTOR_DAILY_LIMIT = 30;
 /** Recovery-code and passkey tries one session may make once the account's count refuses. */
-export const BYPASS_LIMIT_PER_10_MINUTES = 10;
+const BYPASS_LIMIT_PER_10_MINUTES = 10;
 
 export interface SecondFactorDecision {
 	allowed: boolean;

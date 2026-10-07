@@ -158,6 +158,27 @@ check_output "the password form refuses attempt $((password_limit + 1)) from one
 check_output "the refusal is audited once for that address" "1" \
   ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT count(*) FROM audit_events WHERE action = 'auth.throttled' AND metadata::jsonb->>'ip' = '${throttle_source}'\""
 
+# The count lives in PostgreSQL, so a restart of the API hands out no fresh
+# guesses (ADR 0053).  A restart drops every open socket, so the pilot,
+# whose host name is portikus, is left alone.
+api_ready() {
+  ssh_cmd "for i in \$(seq 1 60); do test \"\$(${CURL} -o /dev/null -w '%{http_code}' '${API}/health')\" = 200 && exit 0; sleep 1; done; exit 1"
+}
+throttle_after_restart() {
+  ssh_cmd "sudo systemctl restart portikus-api" >/dev/null 2>&1 || { echo "restart failed"; return; }
+  api_ready || { echo "API not back"; return; }
+  local form_url
+  form_url=$(dex_form_url "$throttle_source") || return
+  ssh_cmd "${CURL} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}' -H 'Origin: ${API}' \
+      --data 'login=smoke-throttle-restart%40example.invalid&password=x' '${form_url}'; rm -f ${SIGNIN_JAR}"
+}
+if [ "$(ssh_cmd hostname 2>/dev/null || true)" = portikus ]; then
+  echo "The pilot: skipping the check that the password count survives an API restart."
+else
+  check_output "the password count for that address survives an API restart" "429" \
+    throttle_after_restart
+fi
+
 # The relay sits behind the API's cross-site check, so another site cannot
 # sign a browser in to an account of its choosing (SPEC.md 24.13).
 check_output "a password post from another site is refused" "403" \

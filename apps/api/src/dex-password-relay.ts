@@ -330,7 +330,11 @@ export function registerDexPasswordRelay(
 				.send(page("Sign-in failed", "<p>Enter your email address and password.</p>"));
 		}
 		try {
-			return await forward(request, reply, form, first.slice(0, MAX_LOGIN_LENGTH));
+			return await forward(request, reply, {
+				form,
+				login: first.slice(0, MAX_LOGIN_LENGTH),
+				dexUrl,
+			});
 		} catch (error) {
 			if (!(error instanceof CounterUnavailable)) throw error;
 			return unavailable(request, reply, error);
@@ -341,9 +345,9 @@ export function registerDexPasswordRelay(
 	async function forward(
 		request: FastifyRequest,
 		reply: FastifyReply,
-		form: URLSearchParams,
-		login: string,
+		post: { form: URLSearchParams; login: string; dexUrl: string },
 	): Promise<FastifyReply> {
+		const { form, login, dexUrl } = post;
 		const target = `login:${accountKey(login)}`;
 		const stamp = await passwordStamp(db, config.OIDC_ISSUER_URL, login);
 		const knownDevice = isKnownDevice(request, config, login, stamp);
