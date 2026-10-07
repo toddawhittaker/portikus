@@ -86,6 +86,12 @@ export const ImageJobRequest = z.discriminatedUnion("kind", [
 ]);
 export type ImageJobRequest = z.infer<typeof ImageJobRequest>;
 
+/**
+ * An image job waiting or running longer than this has died: the job unit's
+ * three-hour start timeout plus a margin.
+ */
+export const IMAGE_JOB_STALE_MS = 3 * 3_600_000 + 5 * 60_000;
+
 export const ImageJobId = z.string().uuid();
 
 /** `request-<id>.json` as the API writes it. */
