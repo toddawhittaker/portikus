@@ -181,8 +181,9 @@ export function lifecycleLimit(config: ApiConfig): UserLimit {
 /**
  * Routes that need no session, as `"<METHOD> <url pattern>"`. The limit
  * cannot read the session, so it matches this fixed list (SPEC.md section
- * 24.13). `/edge/certificate-ask` is left out: Caddy asks it with no client
- * address.
+ * 24.13). `/edge/certificate-ask` is left out because Caddy asks it with no
+ * client address, and `/preview/authorize` because it has its own count of
+ * made-up cookies.
  */
 export const ANONYMOUS_ROUTES: ReadonlySet<string> = new Set([
 	"GET /health",
@@ -202,6 +203,10 @@ export const ANONYMOUS_ROUTES: ReadonlySet<string> = new Set([
 	"POST /lti/launch",
 	"GET /lti/jwks",
 	"HEAD /lti/jwks",
+	"GET /__portikus/bootstrap",
+	"HEAD /__portikus/bootstrap",
+	"GET /__portikus/reset",
+	"HEAD /__portikus/reset",
 ]);
 
 /** The answer the anonymous request limit refuses with. */

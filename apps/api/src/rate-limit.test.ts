@@ -88,11 +88,17 @@ describe("addressKey (SPEC.md section 24.13)", () => {
 });
 
 describe("the anonymous request limit (SPEC.md section 24.13)", () => {
-	test("covers every public route except the certificate ask, which has no client address", () => {
+	test("covers every public and preview-edge route except the certificate ask and preview authorize", () => {
 		const publicRoutes = Object.entries(ROUTE_POLICY)
-			.filter(([, policy]) => policy.access === "public")
+			.filter(
+				([, policy]) => policy.access === "public" || policy.access === "preview-edge",
+			)
 			.map(([route]) => route)
-			.filter((route) => !route.endsWith(" /edge/certificate-ask"));
+			.filter(
+				(route) =>
+					!route.endsWith(" /edge/certificate-ask") &&
+					!route.endsWith(" /preview/authorize"),
+			);
 		expect([...ANONYMOUS_ROUTES].sort()).toEqual(publicRoutes.sort());
 	});
 
