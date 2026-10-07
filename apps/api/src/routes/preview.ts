@@ -15,6 +15,7 @@ import { AgentCallError } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
+import { previewPagePolicy } from "../page-policy.js";
 import {
 	createPreviewDeniedAudit,
 	type PreviewDeniedReason,
@@ -102,16 +103,6 @@ function stopMessageFor(code: string): string {
 const PREVIEW_REQUESTS_PER_WINDOW = 30;
 const PREVIEW_WINDOW_MS = 60_000;
 
-/** Send a Portikus-owned page. Nothing from the request is echoed. */
-function page(reply: FastifyReply, status: number, html: string): FastifyReply {
-	return reply
-		.status(status)
-		.header("content-type", "text/html; charset=utf-8")
-		.header("cache-control", "no-store")
-		.header("referrer-policy", "no-referrer")
-		.send(html);
-}
-
 /**
  * Preview grants, the bootstrap and reset endpoints on the preview host, and
  * the edge authorization subrequest (SPEC.md §14, §24.7;
@@ -123,6 +114,19 @@ export function registerPreviewRoutes(
 ): void {
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
+	// The Preview tab frames these pages, so they carry their own policy.
+	const pagePolicy = previewPagePolicy(config.PUBLIC_URL);
+
+	/** Send a Portikus-owned page. Nothing from the request is echoed. */
+	function page(reply: FastifyReply, status: number, html: string): FastifyReply {
+		return reply
+			.status(status)
+			.header("content-type", "text/html; charset=utf-8")
+			.header("content-security-policy", pagePolicy)
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.send(html);
+	}
 	const bridge = createBridgeForwards({ registry, logger });
 	const deniedAudit = createPreviewDeniedAudit(db);
 	const lookups = createPreviewLookupCache(db);
@@ -573,6 +577,7 @@ export function registerPreviewRoutes(
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
 			.header("clear-site-data", '"storage"')
 			.header("content-type", "text/html; charset=utf-8")
+			.header("content-security-policy", pagePolicy)
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")
 			.status(200)

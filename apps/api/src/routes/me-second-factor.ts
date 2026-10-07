@@ -41,7 +41,10 @@ import qrcode from "qrcode-generator";
 import type { ZodType } from "zod";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { SecondFactorThrottle } from "../second-factor-throttle.js";
+import type {
+	SecondFactorReceipt,
+	SecondFactorThrottle,
+} from "../second-factor-throttle.js";
 import { requestMetadata } from "../sessions/start-session.js";
 
 const ISSUER_NAME = "Portikus";
@@ -246,9 +249,10 @@ export function registerMeSecondFactorRoutes(
 	async function passed(
 		request: FastifyRequest,
 		userId: string,
+		receipt: SecondFactorReceipt,
 		extra: Record<string, unknown>,
 	): Promise<void> {
-		throttle.giveBack(userId);
+		throttle.giveBack(receipt);
 		await db.transaction().execute(async (trx) => {
 			await markSecondFactorPassed(trx, sessionId(request));
 			await recordAudit(trx, {
@@ -271,7 +275,8 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(SecondFactorVerify, request.body, reply);
 		if (!input) return reply;
-		if (!(await throttle.allow(request, reply, user.id))) return reply;
+		const receipt = await throttle.allow(request, reply, user.id);
+		if (!receipt) return reply;
 
 		const result = await checkSecondFactor(db, key, user.id, input.code);
 		if (!result.ok) {
@@ -283,7 +288,7 @@ export function registerMeSecondFactorRoutes(
 				"That code is not right. Try the newest code from your app, or a recovery code.",
 			);
 		}
-		await passed(request, user.id, { method: result.method });
+		await passed(request, user.id, receipt, { method: result.method });
 		return reply.status(204).send();
 	});
 
@@ -385,9 +390,14 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(PasskeyVerify, request.body, reply);
 		if (!input) return reply;
-		if (!(await throttle.allow(request, reply, user.id))) return reply;
+		const receipt = await throttle.allow(request, reply, user.id);
+		if (!receipt) return reply;
 		const challenge = challenges.take(challengeKey(request, "verify"));
-		if (challenge === null) return expired(reply);
+		if (challenge === null) {
+			// No passkey was checked, so this request's own try is returned.
+			throttle.giveBack(receipt);
+			return expired(reply);
+		}
 
 		const result = await checkPasskey(
 			db,
@@ -405,7 +415,7 @@ export function registerMeSecondFactorRoutes(
 				"That passkey did not work. Try again, or use your authenticator app or a recovery code.",
 			);
 		}
-		await passed(request, user.id, {
+		await passed(request, user.id, receipt, {
 			method: "webauthn",
 			kind: "webauthn",
 			factorId: result.factorId,

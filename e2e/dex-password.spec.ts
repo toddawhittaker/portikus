@@ -43,6 +43,37 @@ test("a wrong password shows Dex's error", async ({ page }) => {
 	);
 });
 
+test("the relayed wrong-password page keeps its styles, logo and script", async ({
+	page,
+}) => {
+	const blocked: string[] = [];
+	page.on("console", (message) => {
+		if (/content security policy/i.test(message.text())) blocked.push(message.text());
+	});
+	await page.route("**/dex/theme/styles.css", (route) =>
+		route.fulfill({ contentType: "text/css", body: "main { color: rgb(1, 2, 3); }" }),
+	);
+	await page.route("**/dex/theme/logo.svg", (route) =>
+		route.fulfill({
+			contentType: "image/svg+xml",
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>',
+		}),
+	);
+	await openForm(page);
+	await submit(page, `styled-${test.info().workerIndex}@example.edu`, "not-it-at-all");
+	await expect(page.getByRole("alert")).toHaveText(
+		"Invalid Email Address and password.",
+	);
+	await expect(page.locator("main")).toHaveCSS("color", "rgb(1, 2, 3)");
+	await expect(page.locator("html")).toHaveAttribute("data-scripted", "yes");
+	expect(
+		await page
+			.getByRole("img", { name: "Portikus" })
+			.evaluate((img) => (img as HTMLImageElement).naturalWidth),
+	).toBeGreaterThan(0);
+	expect(blocked).toEqual([]);
+});
+
 test("an account with too many wrong passwords gets a clear message", async ({
 	page,
 }) => {

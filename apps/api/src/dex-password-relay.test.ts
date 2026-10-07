@@ -133,6 +133,8 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		const res = await post("Alice@Example.edu", WRONG);
 		expect(res.statusCode).toBe(200);
 		expect(res.body).toContain("Invalid Email Address and password.");
+		// Dex's page loads its own stylesheet, font and script; the API's page policy would block them.
+		expect(res.headers["content-security-policy"]).toBeUndefined();
 		const rows = await auditRows("auth.password_failed");
 		expect(rows).toEqual([
 			{

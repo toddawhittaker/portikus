@@ -113,7 +113,8 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		if (!(await throttle.allow(request, reply, userId))) return "refused";
+		const receipt = await throttle.allow(request, reply, userId);
+		if (!receipt) return "refused";
 		const result = await checkSecondFactor(db, key, userId, code);
 		await recordAudit(db, {
 			actor: `user:${userId}`,
@@ -135,7 +136,7 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		throttle.giveBack(userId);
+		throttle.giveBack(receipt);
 		return "passed";
 	}
 

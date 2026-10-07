@@ -1,4 +1,8 @@
-import { MAX_NOTIFICATIONS_PER_USER, type NotificationTone } from "@portikus/contracts";
+import {
+	MAX_KEPT_NOTIFICATIONS_PER_USER,
+	MAX_NOTIFICATIONS_PER_USER,
+	type NotificationTone,
+} from "@portikus/contracts";
 import type { Kysely, Selectable } from "kysely";
 import { POOL_TIMEOUT_MESSAGE } from "./connection.js";
 import type { Database, NotificationsTable } from "./schema.js";
@@ -144,6 +148,24 @@ export async function recordNotification(
 				.limit(MAX_NOTIFICATIONS_PER_USER),
 		)
 		.execute();
+	// Kept notices have their own cap, so a flood of them cannot grow without end.
+	if (flags.kept) {
+		await db
+			.deleteFrom("notifications")
+			.where("user_id", "=", userId)
+			.where("kept", "=", true)
+			.where("id", "not in", (eb) =>
+				eb
+					.selectFrom("notifications")
+					.select("id")
+					.where("user_id", "=", userId)
+					.where("kept", "=", true)
+					.orderBy("created_at", "desc")
+					.orderBy("id", "desc")
+					.limit(MAX_KEPT_NOTIFICATIONS_PER_USER),
+			)
+			.execute();
+	}
 	return row;
 }
 
