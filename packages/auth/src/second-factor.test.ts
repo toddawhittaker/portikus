@@ -7,6 +7,7 @@ import {
 	enrolTotp,
 	generateRecoveryCodes,
 	hashRecoveryCode,
+	isRecoveryCodeShape,
 	markSecondFactorPassed,
 	openPendingTotp,
 	openSecret,
@@ -16,6 +17,7 @@ import {
 	sealSecret,
 	secondFactorApplies,
 	secondFactorKey,
+	useRecoveryCode,
 } from "./second-factor.js";
 import { createSession, hashSessionToken, loadSession } from "./sessions.js";
 import { generateTotpSecret, totpCode, totpStep } from "./totp.js";
@@ -66,6 +68,19 @@ describe("recovery codes", () => {
 		expect(hashRecoveryCode(code.toLowerCase().replace(/-/g, " "))).toBe(
 			hashRecoveryCode(code),
 		);
+	});
+
+	test("the shape that may pass a refused count: sixteen letters of the alphabet (ADR 0053)", () => {
+		for (const code of generateRecoveryCodes()) {
+			expect(isRecoveryCodeShape(code)).toBe(true);
+			expect(isRecoveryCodeShape(code.toLowerCase().replace(/-/g, " "))).toBe(true);
+		}
+		expect(isRecoveryCodeShape("123456")).toBe(false);
+		expect(isRecoveryCodeShape("AAAA-BBBB-CCCC-DDD")).toBe(false);
+		expect(isRecoveryCodeShape("AAAA-BBBB-CCCC-DDDDE")).toBe(false);
+		// 0, 1, I, L and O are never in a recovery code.
+		expect(isRecoveryCodeShape("AAAA-BBBB-CCCC-DDD0")).toBe(false);
+		expect(isRecoveryCodeShape("AAAA-BBBB-CCCC-DDDI")).toBe(false);
 	});
 });
 
@@ -297,6 +312,33 @@ describe("second factors in the database", () => {
 				.execute();
 			expect(stored).toHaveLength(RECOVERY_CODE_COUNT);
 			expect(JSON.stringify(stored)).not.toContain(codes[0]);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"the recovery-code-only check never takes an app code",
+		async () => {
+			const userId = await localUser();
+			const session = await createSession(t.db, userId, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			const now = Date.now();
+			const { secret, codes } = await enrol(userId, session.token, now);
+			const appCode = totpCode(secret, totpStep(now));
+			expect(await useRecoveryCode(t.db, userId, appCode, now)).toEqual({ ok: false });
+			expect(await useRecoveryCode(t.db, userId, codes[1] as string)).toEqual({
+				ok: true,
+				method: "recovery_code",
+			});
+			expect(await useRecoveryCode(t.db, userId, codes[1] as string)).toEqual({
+				ok: false,
+			});
+			// The app code was never spent, so the full check still takes it.
+			expect(await checkSecondFactor(t.db, key, userId, appCode, now)).toEqual({
+				ok: true,
+				method: "totp",
+			});
 		},
 	);
 

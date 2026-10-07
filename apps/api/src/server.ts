@@ -63,6 +63,7 @@ import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
+import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -121,6 +122,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	registerAnonymousLimit(app, deps.config);
 	// Before the auth plugin, so its hook runs first.
 	const signinThrottle = registerSigninThrottle(app, deps);
+	registerCounterPrune(app, { db: deps.db, logger: deps.logger });
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({
@@ -193,6 +195,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			reply.status(status).send(body);
 			return;
 		}
+		// A sign-in count that cannot be kept refuses the guess (ADR 0053).
+		if (error instanceof CounterUnavailable) {
+			request.log.error({ err: error.cause }, "sign-in counter store failed");
+			const body: ApiError = {
+				code: "SERVICE_BUSY",
+				message: "The server is busy. Try again in a moment.",
+			};
+			reply.status(503).send(body);
+			return;
+		}
 		if (isDatabaseUnavailable(error)) {
 			request.log.warn("no database connection was available");
 			const body: ApiError = {
@@ -223,7 +235,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// One file-write count for the files and projects routes together.
 	const limitFileWrites = fileWriteLimit(deps.config);
 	// One wrong-code count for every route that checks a second factor.
-	const secondFactorThrottle = createSecondFactorThrottle(deps.db);
+	const secondFactorThrottle = createSecondFactorThrottle(deps.db, deps.logger);
 	app.register(async (instance) => {
 		instance.get("/health", () => {
 			const body: HealthResponse = {

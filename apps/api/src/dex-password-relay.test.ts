@@ -4,6 +4,7 @@ import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/tes
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { dexOutcome } from "./dex-password-relay.js";
 import { ACCOUNT_FAILURE_LIMIT } from "./signin-throttle.js";
@@ -232,6 +233,36 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(results.filter((r) => r.statusCode === 429).length).toBeGreaterThanOrEqual(
 			40 - ACCOUNT_FAILURE_LIMIT,
 		);
+	});
+
+	test("the address count survives a restart of the API (ADR 0053)", async () => {
+		for (let i = 0; i < 30; i += 1) {
+			await post(`user${i}@example.edu`, WRONG, { ip: "198.51.100.30" });
+		}
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, { DEX_HTTP_URL: dexUrl });
+		await app.ready();
+		const refused = await post("fresh@example.edu", WRONG, { ip: "198.51.100.30" });
+		expect(refused.statusCode).toBe(429);
+		expect(received).toHaveLength(30);
+	});
+
+	test("when the counts cannot be kept, a post is refused with 503 and never reaches Dex", async () => {
+		await sql`alter table signin_counters rename to signin_counters_away`.execute(
+			testDb.db,
+		);
+		try {
+			const res = await post("alice@example.edu", RIGHT);
+			expect(res.statusCode).toBe(503);
+			expect(res.headers["content-type"]).toContain("text/html");
+			expect(res.body).toContain("Sign-in is unavailable");
+		} finally {
+			await sql`alter table signin_counters_away rename to signin_counters`.execute(
+				testDb.db,
+			);
+		}
+		expect(received).toEqual([]);
+		expect(lines.some((l) => l.msg === "sign-in counter store failed")).toBe(true);
 	});
 
 	test("right passwords from one address never fill its limit (SPEC.md 24.13)", async () => {

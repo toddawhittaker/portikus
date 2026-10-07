@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { fromLoopback } from "./loopback.js";
 import { accountKey, type SigninThrottle } from "./signin-throttle.js";
+import { type CounterReceipt, CounterUnavailable } from "./stored-counter.js";
 
 /**
  * Dex's password form posts come here from Caddy instead of going straight
@@ -193,6 +194,20 @@ export function registerDexPasswordRelay(
 		}
 	}
 
+	/** The counts could not be kept, so the post is refused, never let through (ADR 0053). */
+	function unavailable(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		error: CounterUnavailable,
+	): FastifyReply {
+		request.log.error({ err: error.cause }, "sign-in counter store failed");
+		return reply
+			.status(503)
+			.header("content-type", "text/html; charset=utf-8")
+			.header("retry-after", "60")
+			.send(UNAVAILABLE_PAGE);
+	}
+
 	async function refuse(reply: FastifyReply): Promise<FastifyReply> {
 		return reply
 			.status(429)
@@ -204,30 +219,30 @@ export function registerDexPasswordRelay(
 	/**
 	 * Count this post against its address and, unless the browser is one
 	 * this account signed in on, its account, before Dex sees it, so parallel
-	 * posts cannot slip past either limit (SPEC.md section 24.13). True when
-	 * refused.
+	 * posts cannot slip past either limit (SPEC.md section 24.13). Returns
+	 * the post's receipts, or null when refused.
 	 */
-	async function refused(
+	async function counted(
 		request: FastifyRequest,
 		login: string,
 		target: string,
 		knownDevice: boolean,
-	): Promise<boolean> {
-		const byAddress = throttle.passwordAttempt(request.ip);
-		if (!byAddress.allowed) {
+	): Promise<CounterReceipt[] | null> {
+		const byAddress = await throttle.passwordAttempt(request.ip);
+		if (!byAddress.receipt) {
 			if (byAddress.audit) {
 				await audit(request, "auth.throttled", target, { scope: "password" });
 			}
-			return true;
+			return null;
 		}
-		if (knownDevice) return false;
-		const byAccount = throttle.accountAttempt(login);
-		if (byAccount.allowed) return false;
-		throttle.passwordGiveBack(request.ip);
+		if (knownDevice) return [byAddress.receipt];
+		const byAccount = await throttle.accountAttempt(login);
+		if (byAccount.receipt) return [byAddress.receipt, byAccount.receipt];
+		await throttle.giveBack(byAddress.receipt);
 		if (byAccount.audit) {
 			await audit(request, "auth.throttled", target, { scope: "password-account" });
 		}
-		return true;
+		return null;
 	}
 
 	function sendToDex(
@@ -314,21 +329,39 @@ export function registerDexPasswordRelay(
 				.header("content-type", "text/html; charset=utf-8")
 				.send(page("Sign-in failed", "<p>Enter your email address and password.</p>"));
 		}
-		const login = first.slice(0, MAX_LOGIN_LENGTH);
+		try {
+			return await forward(request, reply, {
+				form,
+				login: first.slice(0, MAX_LOGIN_LENGTH),
+				dexUrl,
+			});
+		} catch (error) {
+			if (!(error instanceof CounterUnavailable)) throw error;
+			return unavailable(request, reply, error);
+		}
+	}
+
+	/** Count the post, pass it to Dex, and keep or give back its counts by Dex's answer. */
+	async function forward(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		post: { form: URLSearchParams; login: string; dexUrl: string },
+	): Promise<FastifyReply> {
+		const { form, login, dexUrl } = post;
 		const target = `login:${accountKey(login)}`;
 		const stamp = await passwordStamp(db, config.OIDC_ISSUER_URL, login);
 		const knownDevice = isKnownDevice(request, config, login, stamp);
-		if (await refused(request, login, target, knownDevice)) return refuse(reply);
+		const receipts = await counted(request, login, target, knownDevice);
+		if (!receipts) return refuse(reply);
 
-		const giveBack = (): void => {
-			throttle.passwordGiveBack(request.ip);
-			if (!knownDevice) throttle.accountGiveBack(login);
+		const giveBack = async (): Promise<void> => {
+			for (const receipt of receipts) await throttle.giveBack(receipt);
 		};
 		let answer: Response;
 		try {
 			answer = await sendToDex(request, form, dexUrl);
 		} catch (error) {
-			giveBack();
+			await giveBack();
 			request.log.error({ err: error }, "dex did not answer a password post");
 			return reply
 				.status(502)
@@ -338,10 +371,10 @@ export function registerDexPasswordRelay(
 
 		const outcome = dexOutcome(answer.status);
 		if (outcome === "failure") {
-			if (knownDevice) throttle.accountFailed(login);
+			if (knownDevice) await throttle.accountFailed(login);
 			await audit(request, "auth.password_failed", target, {});
 		} else {
-			giveBack();
+			await giveBack();
 		}
 		return passBack(reply, answer, outcome === "success" ? { login, stamp } : null);
 	}

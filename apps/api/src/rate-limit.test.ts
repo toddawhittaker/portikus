@@ -1,4 +1,5 @@
 import type { Database } from "@portikus/db";
+import { collectingLogger } from "@portikus/observability/testing";
 import Fastify from "fastify";
 import type { Kysely } from "kysely";
 import { describe, expect, test, vi } from "vitest";
@@ -111,6 +112,7 @@ describe("the anonymous request limit (SPEC.md section 24.13)", () => {
 		const throttle = registerSigninThrottle(app, {
 			db: {} as Kysely<Database>,
 			config,
+			logger: collectingLogger("debug").logger,
 		});
 		app.get("/auth/login", async () => "ok");
 		app.get("/lti/jwks", async () => "ok");

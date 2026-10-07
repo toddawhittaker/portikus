@@ -7,6 +7,7 @@ import {
 	enrolTotp,
 	generateTotpSecret,
 	hashSessionToken,
+	isRecoveryCodeShape,
 	listPasskeys,
 	markSecondFactorPassed,
 	matchTotp,
@@ -22,6 +23,7 @@ import {
 	secondFactorKey,
 	sessionOrigin,
 	storeFactor,
+	useRecoveryCode,
 	verifyPasskeyRegistration,
 } from "@portikus/auth";
 import {
@@ -42,7 +44,7 @@ import type { ZodType } from "zod";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type {
-	SecondFactorReceipt,
+	SecondFactorAllowance,
 	SecondFactorThrottle,
 } from "../second-factor-throttle.js";
 import { requestMetadata } from "../sessions/start-session.js";
@@ -246,13 +248,24 @@ export function registerMeSecondFactorRoutes(
 		});
 	}
 
+	/** Audit metadata that marks a try let past a refused count (ADR 0053). */
+	function bypassMark(allowance: SecondFactorAllowance): Record<string, unknown> {
+		return allowance.kind === "bypass" ? { bypass: true } : {};
+	}
+
 	async function passed(
 		request: FastifyRequest,
 		userId: string,
-		receipt: SecondFactorReceipt,
+		allowance: SecondFactorAllowance,
 		extra: Record<string, unknown>,
 	): Promise<void> {
-		throttle.giveBack(receipt);
+		// A bypass holds no receipt, so nothing on that path gives a count back.
+		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
+		const metadata = {
+			...requestMetadata(request),
+			...extra,
+			...bypassMark(allowance),
+		};
 		await db.transaction().execute(async (trx) => {
 			await markSecondFactorPassed(trx, sessionId(request));
 			await recordAudit(trx, {
@@ -260,7 +273,7 @@ export function registerMeSecondFactorRoutes(
 				target: userId,
 				action: "auth.second_factor_verified",
 				result: "ok",
-				metadata: { ...requestMetadata(request), ...extra },
+				metadata,
 			});
 		});
 	}
@@ -275,12 +288,20 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(SecondFactorVerify, request.body, reply);
 		if (!input) return reply;
-		const receipt = await throttle.allow(request, reply, user.id);
-		if (!receipt) return reply;
+		const allowance = await throttle.allow(request, reply, user.id, {
+			sessionId: sessionId(request),
+			eligible: isRecoveryCodeShape(input.code),
+			passkeys: true,
+		});
+		if (!allowance) return reply;
 
-		const result = await checkSecondFactor(db, key, user.id, input.code);
+		// Past a refused count only recovery codes are checked, never app codes.
+		const result =
+			allowance.kind === "counted"
+				? await checkSecondFactor(db, key, user.id, input.code)
+				: await useRecoveryCode(db, user.id, input.code);
 		if (!result.ok) {
-			await auditFailure(request, user.id, {});
+			await auditFailure(request, user.id, bypassMark(allowance));
 			return sendError(
 				reply,
 				403,
@@ -288,7 +309,7 @@ export function registerMeSecondFactorRoutes(
 				"That code is not right. Try the newest code from your app, or a recovery code.",
 			);
 		}
-		await passed(request, user.id, receipt, { method: result.method });
+		await passed(request, user.id, allowance, { method: result.method });
 		return reply.status(204).send();
 	});
 
@@ -390,12 +411,16 @@ export function registerMeSecondFactorRoutes(
 		if (user.secondFactor === "enrol") return setUpFirst(reply);
 		const input = parseBody(PasskeyVerify, request.body, reply);
 		if (!input) return reply;
-		const receipt = await throttle.allow(request, reply, user.id);
-		if (!receipt) return reply;
+		const allowance = await throttle.allow(request, reply, user.id, {
+			sessionId: sessionId(request),
+			eligible: true,
+			passkeys: true,
+		});
+		if (!allowance) return reply;
 		const challenge = challenges.take(challengeKey(request, "verify"));
 		if (challenge === null) {
 			// No passkey was checked, so this request's own try is returned.
-			throttle.giveBack(receipt);
+			if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
 			return expired(reply);
 		}
 
@@ -407,7 +432,11 @@ export function registerMeSecondFactorRoutes(
 			challenge,
 		);
 		if (!result.ok) {
-			await auditFailure(request, user.id, { kind: "webauthn", reason: result.reason });
+			await auditFailure(request, user.id, {
+				kind: "webauthn",
+				reason: result.reason,
+				...bypassMark(allowance),
+			});
 			return sendError(
 				reply,
 				403,
@@ -415,7 +444,7 @@ export function registerMeSecondFactorRoutes(
 				"That passkey did not work. Try again, or use your authenticator app or a recovery code.",
 			);
 		}
-		await passed(request, user.id, receipt, {
+		await passed(request, user.id, allowance, {
 			method: "webauthn",
 			kind: "webauthn",
 			factorId: result.factorId,

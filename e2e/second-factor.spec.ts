@@ -1,5 +1,6 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { enrolSecondFactor, loginAs, query, type TestAuthenticator } from "./helpers";
+import { WEB_ORIGIN } from "./ports";
 
 /**
  * Two-step sign-in for a Dex local password (SPEC.md section 24.13). The mock
@@ -22,13 +23,25 @@ async function freshSignIn(browser: Browser): Promise<Page> {
 	return page;
 }
 
+/** Lena's wrong-code counts, kept in the database (ADR 0053). */
+async function clearLenasCounts(): Promise<void> {
+	await query(
+		"delete from signin_counters where key in (select id::text from users where email = $1)",
+		["lena@example.edu"],
+	);
+}
+
 test.beforeAll(async () => {
 	// A clean start, whatever an earlier run on this database left behind.
 	await query(
 		"delete from user_second_factors where user_id in (select id from users where email = $1)",
 		["lena@example.edu"],
 	);
+	await clearLenasCounts();
 });
+
+// Other files sign lena in too; leave her no refused count.
+test.afterAll(clearLenasCounts);
 
 test("a first sign-in sets up an authenticator before anything else", async ({
 	page,
@@ -96,4 +109,37 @@ test("a recovery code signs in once", async ({ browser }) => {
 	);
 	await expect(again).toHaveURL(/\/second-factor$/);
 	await again.context().close();
+});
+
+test("thirty wrong codes, then a recovery code still signs in", async ({ browser }) => {
+	// The earlier tests' wrong codes are still counted; start from none.
+	await clearLenasCounts();
+	const page = await freshSignIn(browser);
+	const statuses: number[] = [];
+	for (let i = 0; i < 30; i++) {
+		const res = await page.request.post("/me/second-factor/verify", {
+			headers: { origin: WEB_ORIGIN },
+			data: { code: "000000" },
+		});
+		statuses.push(res.status());
+	}
+	expect(statuses).toEqual([
+		...Array<number>(10).fill(403),
+		...Array<number>(20).fill(429),
+	]);
+
+	// The refusal says what still works.
+	const field = page.getByLabel("Code from your app");
+	await field.fill("000000");
+	await page.getByRole("button", { name: "Continue" }).click();
+	await expect(field).toHaveAccessibleDescription(
+		"Too many wrong codes. Wait a few minutes, or use a recovery code or a passkey.",
+	);
+
+	await page.getByRole("button", { name: "Use a recovery code" }).click();
+	await page.getByLabel("Recovery code").fill(codes[1] as string);
+	await page.getByRole("button", { name: "Continue" }).click();
+	await expect(page).not.toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	await page.context().close();
 });

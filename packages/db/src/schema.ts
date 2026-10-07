@@ -11,7 +11,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running, 0036_start_retries_and_controller_check, 0037_second_factor, 0038_account_invitations and 0039_notification_flags
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running, 0036_start_retries_and_controller_check, 0037_second_factor, 0038_account_invitations, 0039_notification_flags and 0040_signin_counters
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -50,6 +50,7 @@ export interface Database {
 	docker_seed_jobs: DockerSeedJobsTable;
 	docker_image_pulls: DockerImagePullsTable;
 	docker_image_presence: DockerImagePresenceTable;
+	signin_counters: SigninCountersTable;
 }
 
 interface UsersTable {
@@ -619,4 +620,17 @@ interface DockerImagePresenceTable {
 	in_seed: boolean;
 	used: boolean;
 	sampled_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** One fixed window of sign-in guesses for one scope and key (ADR 0053). */
+interface SigninCountersTable {
+	/** Which count: `password`, `password-account`, `second-factor` and so on. */
+	scope: string;
+	/** An address key, a login, or a user id. */
+	key: string;
+	window_started_at: ColumnType<Date, Date | string, Date | string>;
+	expires_at: ColumnType<Date, Date | string, Date | string>;
+	count: number;
+	/** Set once the window's first refusal has been audited. */
+	reported: ColumnType<boolean, boolean | undefined, boolean>;
 }

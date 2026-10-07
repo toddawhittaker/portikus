@@ -138,7 +138,44 @@ export function generateRecoveryCodes(): string[] {
  * plain SHA-256 is enough; spaces, dashes and case are ignored.
  */
 export function hashRecoveryCode(code: string): string {
-	return sha256Hex(code.replace(/[\s-]/g, "").toUpperCase());
+	return sha256Hex(normalRecoveryCode(code));
+}
+
+function normalRecoveryCode(code: string): string {
+	return code.replace(/[\s-]/g, "").toUpperCase();
+}
+
+const RECOVERY_CODE_SHAPE = new RegExp(`^[${RECOVERY_ALPHABET}]{16}$`);
+
+/**
+ * Whether a typed code is shaped like a recovery code, which may still be
+ * checked once the account's wrong-code count refuses (ADR 0053).
+ */
+export function isRecoveryCodeShape(code: string): boolean {
+	return RECOVERY_CODE_SHAPE.test(normalRecoveryCode(code));
+}
+
+/**
+ * Use one of the account's unused recovery codes, and nothing else. The
+ * match is consumed in the same conditional update that finds it, so
+ * parallel requests cannot use one code twice.
+ */
+export async function useRecoveryCode(
+	db: Kysely<Database>,
+	userId: string,
+	code: string,
+	nowMs: number = Date.now(),
+): Promise<SecondFactorCheck> {
+	const used = await db
+		.updateTable("user_recovery_codes")
+		.set({ used_at: new Date(nowMs).toISOString() })
+		.where("user_id", "=", userId)
+		.where("code_hash", "=", hashRecoveryCode(code))
+		.where("used_at", "is", null)
+		.executeTakeFirst();
+	return used.numUpdatedRows > 0n
+		? { ok: true, method: "recovery_code" }
+		: { ok: false };
 }
 
 export interface EnrolTotpInput {
@@ -315,16 +352,7 @@ export async function checkSecondFactor(
 		}
 		return { ok: false };
 	}
-	const used = await db
-		.updateTable("user_recovery_codes")
-		.set({ used_at: now })
-		.where("user_id", "=", userId)
-		.where("code_hash", "=", hashRecoveryCode(typed))
-		.where("used_at", "is", null)
-		.executeTakeFirst();
-	return used.numUpdatedRows > 0n
-		? { ok: true, method: "recovery_code" }
-		: { ok: false };
+	return useRecoveryCode(db, userId, typed, nowMs);
 }
 
 /**
