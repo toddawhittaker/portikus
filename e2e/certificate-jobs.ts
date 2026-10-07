@@ -43,6 +43,8 @@ export async function putStatus(over: {
 	issuer?: string;
 	notAfter?: string;
 	renewal?: { ok: boolean; message: string | null } | null;
+	/** What the hourly check writes while the internal authority serves a public address. */
+	internalOnPublic?: { since: string; addresses: string[] } | null;
 }): Promise<void> {
 	const settings = over.settings ?? { source: "internal" };
 	const info = (name: string) => ({
@@ -65,6 +67,7 @@ export async function putStatus(over: {
 			lastRenewal: over.renewal
 				? { ...over.renewal, at: new Date().toISOString() }
 				: null,
+			internalOnPublic: over.internalOnPublic ?? null,
 		}),
 	);
 }

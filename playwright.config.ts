@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
 import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-jobs";
-import { FAKE_AGENT_TOKEN, FAKE_DEX_RIGHT_PASSWORD } from "./e2e/helpers";
+import {
+	E2E_ANONYMOUS_LIMIT,
+	FAKE_AGENT_TOKEN,
+	FAKE_DEX_RIGHT_PASSWORD,
+} from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import { E2E_JOURNAL_FILE } from "./e2e/journal-file";
 import { ALERTS_JOBS_DIR, NOTIFY_FILE } from "./e2e/notify-jobs";
@@ -212,6 +216,9 @@ export default defineConfig({
 				// One full local run makes more than 150 sign-in starts a minute
 				// from 127.0.0.1; unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
+				// Above what a full run sends from 127.0.0.1 in a minute, and low
+				// enough that anonymous-limit.spec.ts can reach it from another address.
+				ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: String(E2E_ANONYMOUS_LIMIT),
 				JOURNALCTL_PATH: fakeJournalctl,
 				// A fake alerts job directory the notification tests play the root job in,
 				// and the settings file it writes (ADR 0052).

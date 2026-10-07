@@ -4,6 +4,7 @@ import {
 	readFile,
 	rename,
 	rm,
+	stat,
 	unlink,
 	writeFile,
 } from "node:fs/promises";
@@ -27,6 +28,14 @@ export async function readJson<T>(path: string, schema: ZodType<T>): Promise<T |
 	} catch {
 		return null;
 	}
+}
+
+/** A request file's age is its queue time; its body may hold secrets, so it is not read. */
+export async function fileTime(path: string): Promise<string | null> {
+	return stat(path).then(
+		(s) => s.mtime.toISOString(),
+		() => null,
+	);
 }
 
 type JobTimes = { state: string; requestedAt: string | null; startedAt: string | null };

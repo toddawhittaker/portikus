@@ -604,7 +604,22 @@ Each run moves finished sets from `incoming` into `/srv/portikus-sets`,
 at most one a day (UTC): the first finished set of a day is kept, and a
 later one from the same day is dropped within a day. It never replaces
 a set already there, and removes a set only when it is more than 30
-days old and 30 newer sets are there. Nothing else in the folder is touched. Watch a server run with
+days old and 30 newer sets are there. Nothing else in the folder is touched.
+
+If `incoming` grows past twice the disk of a typical kept set (at least
+1 GiB) or past ten times its file count (at least 100,000), the next run
+empties it and the warning reaches you by cron mail. That only limits
+what sits in `incoming` between runs. **Set a filesystem quota on the
+target account**, for both disk blocks and files (inodes). It is the
+only real limit on a burst within the hour and on kept sets that keep
+growing. With quotas enabled on the filesystem (the `quota` package and
+the `usrquota` mount option), for example 200 GiB and 2 million files:
+
+```
+sudo setquota -u backups 200G 200G 2000000 2000000 /srv
+```
+
+Size it to hold KEEP sets plus a few spare. Watch a server run with
 `sudo systemctl start portikus-backup-offsite.service` and `sudo
 journalctl -u portikus-backup-offsite.service`; a failed run sends an
 alert when alerts are set up. To turn it off, set

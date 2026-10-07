@@ -228,8 +228,14 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 		? expiry(site.notAfter, now, CERTIFICATE_EXPIRY_WARNING_DAYS)
 		: null;
 	const renewal = status?.lastRenewal ?? null;
+	const exposed = status?.source === "internal" ? status.internalOnPublic : null;
 	return (
 		<>
+			{exposed ? (
+				<Notice tone="warning" testId="cert-public-notice">
+					{`This site's name resolves to a public address (${exposed.addresses.join(", ")}), but its certificate comes from the internal authority, which browsers cannot check. Choose ACME or upload a certificate below.`}
+				</Notice>
+			) : null}
 			{siteExpiry && siteExpiry.tone !== "ok" ? (
 				<Notice tone="error" testId="cert-expiry-notice">
 					{siteExpiry.tone === "expired"

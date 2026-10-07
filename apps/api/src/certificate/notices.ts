@@ -45,9 +45,23 @@ export async function noticeCertificates(
 	now: Date = new Date(),
 ): Promise<void> {
 	const status = await readCertificateStatus(statusDir);
+	if (!status) return;
+	const exposed = status.internalOnPublic;
+	if (status.source === "internal" && exposed) {
+		const name = status.site?.name ?? "this site";
+		// Once each time the settings in force change (SPEC.md 24.10).
+		await notifyOnce(db, {
+			action: "certificate.internal_on_public_noticed",
+			target: `${name}@${exposed.since}`,
+			actor: "certificate-check",
+			tone: "warning",
+			title: "The site uses its own certificate authority on a public address",
+			body: `${name} resolves to a public address, but its certificate comes from Caddy's internal authority, which browsers cannot check. Open Admin, then Certificate, to choose a public certificate.`,
+		});
+	}
 	// Caddy's internal authority issues leaves that last about 12 hours and
 	// renews them itself, so an expiry notice would fire twice a day.
-	if (!status || status.source === "internal") return;
+	if (status.source === "internal") return;
 	const limit = now.getTime() + CERTIFICATE_EXPIRY_WARNING_DAYS * 86_400_000;
 	for (const info of [status.site, status.preview]) {
 		if (!info || new Date(info.notAfter).getTime() > limit) continue;

@@ -203,6 +203,22 @@ export async function loadPreviewSession(
 }
 
 /**
+ * Whether any preview session, revoked or not, was ever issued for this
+ * cookie. A cookie with none was made up (SPEC.md section 24.13).
+ */
+export async function previewTokenIssued(
+	db: Kysely<Database>,
+	token: string,
+): Promise<boolean> {
+	const row = await db
+		.selectFrom("preview_sessions")
+		.select("id")
+		.where("token_hash", "=", hashSessionToken(token))
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
+/**
  * Whether a cookie belongs to a revoked preview session for this host whose
  * workspace is no longer running. Stopping revokes the sessions, and the
  * student should still be told the workspace stopped (BROWSER-HANDLING.md §9.2).
@@ -353,6 +369,11 @@ export function createPreviewLookupCache(
 			}
 			entries.set(key, { at, lookup });
 			return lookup;
+		},
+		/** Whether a live lookup of this cookie is held now, without querying. */
+		has(token: string): boolean {
+			const hit = entries.get(hashSessionToken(token));
+			return hit !== undefined && now() - hit.at < PREVIEW_LOOKUP_TTL_MS;
 		},
 		/** Forget everything, after a revocation made in this process. */
 		clear(): void {

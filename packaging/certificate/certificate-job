@@ -38,6 +38,7 @@ import datetime
 import fcntl
 import glob
 import grp
+import ipaddress
 import json
 import os
 import pwd
@@ -67,6 +68,9 @@ SYSTEM_CAS = "/etc/ssl/certs/ca-certificates.crt"
 # made, and the install answers still own the certificate (SPEC.md 24.10).
 ADMIN_PENDING = STATE_DIR + "/admin-pending"
 PORTIKUS_COMMAND = "/usr/bin/portikus"
+# Setup writes this when portikus.yaml sets portikus_allow_internal_ca_on_public_address
+# (infra/ansible/roles/caddy/defaults/main.yml), so only root can allow it (SPEC.md 24.10).
+ALLOW_INTERNAL_ON_PUBLIC = "/etc/portikus/allow-internal-ca-on-public-address"
 ADMIN_PASSWORD = "/etc/portikus/admin-password"
 
 LE_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
@@ -748,6 +752,125 @@ def free_port():
         return s.getsockname()[1]
 
 
+# ---- Where the site name points (SPEC.md 24.10) ----
+
+# systemd-resolved's upstream servers; its stub, like getaddrinfo, answers from
+# /etc/hosts, where setup pins the site's name to loopback.
+UPSTREAM_RESOLV_CONF = ("/run/systemd/resolve/resolv.conf", "/etc/resolv.conf")
+DNS_TIMEOUT = 3
+DNS_TYPES = {1: 4, 28: 16}  # A and AAAA, and their address lengths
+
+
+def nameservers(paths=UPSTREAM_RESOLV_CONF):
+    for path in paths:
+        servers = []
+        for line in (read_bytes(path) or b"").decode("ascii", "replace").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "nameserver":
+                try:
+                    address = ipaddress.ip_address(parts[1].split("%")[0])
+                except ValueError:
+                    continue
+                if not (address.is_loopback and path != paths[-1]):
+                    servers.append(str(address))
+        if servers:
+            return servers
+    return []
+
+
+def _skip_name(data, at):
+    while True:
+        length = data[at]
+        if length >= 0xC0:
+            return at + 2
+        at += 1 + length
+        if length == 0:
+            return at
+
+
+def dns_query(server, host, qtype, timeout=DNS_TIMEOUT, port=53):
+    """The addresses one recursive server gives for host, from the answer section (CNAMEs followed)."""
+    ident = int.from_bytes(os.urandom(2), "big")
+    question = b"".join(bytes([len(p)]) + p.encode("ascii") for p in host.split(".")) + b"\0"
+    question += qtype.to_bytes(2, "big") + b"\0\1"
+    query = ident.to_bytes(2, "big") + b"\1\0\0\1\0\0\0\0\0\0" + question
+    family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    deadline = time.monotonic() + timeout
+    with socket.socket(family, socket.SOCK_DGRAM) as s:
+        s.sendto(query, (server, port))
+        # One deadline for the whole wait, so stray packets cannot stretch it.
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise socket.timeout("the DNS server did not answer in time")
+            s.settimeout(left)
+            data, sender = s.recvfrom(4096)
+            if ipaddress.ip_address(sender[0].split("%")[0]) == ipaddress.ip_address(server) \
+                    and sender[1] == port and data[:2] == query[:2] \
+                    and data[12:12 + len(question)] == question:
+                break
+    rcode = data[3] & 0x0F
+    if rcode == 3:
+        return []
+    if rcode != 0:
+        raise OSError(f"the DNS server answered with code {rcode}")
+    answers = int.from_bytes(data[6:8], "big")
+    at = 12 + len(question)
+    found = []
+    for _ in range(answers):
+        at = _skip_name(data, at)
+        rtype = int.from_bytes(data[at:at + 2], "big")
+        length = int.from_bytes(data[at + 8:at + 10], "big")
+        rdata = data[at + 10:at + 10 + length]
+        if rtype == qtype and len(rdata) == DNS_TYPES[qtype]:
+            found.append(str(ipaddress.ip_address(rdata)))
+        at += 10 + length
+    return found
+
+
+def resolve_in_dns(host):
+    """The site's addresses in DNS, not /etc/hosts. Raises OSError when no server answers."""
+    servers = nameservers()
+    for server in servers:
+        try:
+            return [a for qtype in DNS_TYPES for a in dns_query(server, host, qtype)]
+        except (OSError, IndexError, ValueError):
+            continue
+    raise OSError("no DNS server answered")
+
+
+def address_scope(host, resolve):
+    """("private" | "public" | "unknown", the addresses that decided it) for the site's name.
+
+    Public when any address is globally routable (ipaddress's is_global);
+    private when none is. A name that does not resolve, or resolves only to loopback (Debian's
+    127.0.1.1 host name) or link-local addresses, is unknown: the hourly
+    check looks again.
+    """
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            found = resolve(host)
+        except (OSError, UnicodeError):
+            return "unknown", []
+        addresses = []
+        for text in found:
+            try:
+                address = ipaddress.ip_address(text.split("%")[0])
+            except ValueError:
+                continue
+            if address not in addresses:
+                addresses.append(address)
+    outside = [a for a in addresses if not (a.is_loopback or a.is_link_local)]
+    if not outside:
+        return "unknown", addresses
+    # Shared (100.64/10), benchmarking and documentation ranges are not
+    # reachable from the internet, so only a globally routable address counts.
+    public = [a for a in outside if a.is_global]
+    return ("public", public) if public else ("private", outside)
+
+
 # ---- Caddy snippets ----
 
 SNIPPET_HEADER = (
@@ -882,7 +1005,7 @@ class Job:
 
 class Runner:
     def __init__(self, root="", run_=run, sleep=time.sleep, clock=time.time, caddy="caddy",
-                 test_env=None, test_http_port=None, timeouts=None):
+                 test_env=None, test_http_port=None, timeouts=None, resolve=resolve_in_dns):
         self.jobs_dir = root + JOBS_DIR
         self.state_dir = root + STATE_DIR
         self.status_dir = root + STATUS_DIR
@@ -893,6 +1016,8 @@ class Runner:
         self.trust_bundle = root + TRUST_BUNDLE
         self.system_cas = root + SYSTEM_CAS
         self.admin_pending = root + ADMIN_PENDING
+        self.allow_internal_on_public = root + ALLOW_INTERNAL_ON_PUBLIC
+        self.resolve = resolve
         self.lock_path = os.path.join(self.status_dir, ".lock")
         self.run = run_
         self.sleep = sleep
@@ -1497,6 +1622,31 @@ class Runner:
             self.run(["systemctl", "try-restart", "portikus-api.service"], log=job, timeout=180)
         return True
 
+    # -- the internal authority on a public address (SPEC.md 24.10) --
+
+    def internal_on_public(self):
+        """(site, its public addresses) when the site's name resolves outside the private ranges, else None."""
+        site, _, _ = read_api_env(self.api_env)
+        scope, addresses = address_scope(site, self.resolve)
+        return (site, addresses) if scope == "public" else None
+
+    def refuse_internal_on_public(self, kind, first_install=False):
+        """Raise Refused when the internal authority would serve a public name the operator has not allowed."""
+        if os.path.lexists(self.allow_internal_on_public):
+            return
+        found = self.internal_on_public()
+        if not found:
+            return
+        site, addresses = found
+        choose = ("run sudo dpkg-reconfigure portikus and choose Let's Encrypt or certificate files"
+                  if first_install else "choose ACME or upload certificate files here")
+        raise Refused(
+            f"{site} resolves to a public address ({', '.join(str(a) for a in addresses[:4])}), and Caddy's "
+            "internal authority is meant for private networks, because browsers cannot check it. "
+            f"Instead, {choose}; or, to use it anyway, set portikus_allow_internal_ca_on_public_address: "
+            "true in /etc/portikus/portikus.yaml and run sudo portikus setup; or run sudo portikus "
+            "reset-certificate", kind)
+
     # -- status.json --
 
     def write_status(self):
@@ -1522,6 +1672,7 @@ class Runner:
             events.insert(0, {"ok": True, "at": iso(datetime.datetime.fromtimestamp(renewed_at, datetime.timezone.utc)),
                               "name": site, "message": ""})
         last = choose_renewal(events, site)
+        public = self.internal_on_public() if current["source"] == "internal" else None
         status = {
             "checkedAt": now_iso(self.clock),
             "source": current["source"],
@@ -1535,6 +1686,11 @@ class Runner:
                 **({"name": last["name"]} if last["name"] else {}),
                 "message": None if last["ok"] else scrub(last["message"], self.all_secrets())[:2000],
             } if last else None,
+            # `since` is when the settings in force last changed, so the API alerts once per change.
+            "internalOnPublic": {
+                "since": iso(datetime.datetime.fromtimestamp(since, datetime.timezone.utc)),
+                "addresses": [str(a) for a in public[1][:4]],
+            } if public else None,
         }
         write_file(os.path.join(self.status_dir, "status.json"), json.dumps(status, indent=2) + "\n",
                    0o644, self.host)
@@ -1588,6 +1744,8 @@ class Runner:
 
     def apply(self, job, request):
         settings = request["settings"]
+        if settings["source"] == "internal":
+            self.refuse_internal_on_public("apply")
         secrets, uploads, view = self.take_settings(job, settings)
         job.save_record({"kind": "apply", "settings": view})
         new = self.state(".new")
@@ -1615,6 +1773,8 @@ class Runner:
         previous = self.state("previous")
         if not os.path.isfile(os.path.join(previous, "settings.json")):
             raise Refused("there is no previous certificate to roll back to", "rollback")
+        if (read_json(os.path.join(previous, "settings.json")) or {}).get("source") == "internal":
+            self.refuse_internal_on_public("rollback")
         job.secrets = self.all_secrets()
         job.status("running", "Rolling back")
         swap = self.state(".rollback")
@@ -2023,6 +2183,15 @@ class Runner:
         except Refused as err:
             journal(f"first-install: the settings are refused: {err}")
             return 2
+        try:
+            if settings["source"] == "internal":
+                self.refuse_internal_on_public("first-install", first_install=True)
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return 2
+        except JobFailed:
+            # No site name to look up yet; the hourly check looks once there is.
+            pass
         lock_fd = self.locked(blocking=True)
         try:
             secrets = self.resolve_secrets(settings)

@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	AlertChannelKind,
@@ -8,7 +7,7 @@ import {
 	NotifyJobStatusFile,
 	type NotifyJobView,
 } from "@portikus/contracts";
-import { listDir, readJson } from "../job-files.js";
+import { fileTime, listDir, readJson } from "../job-files.js";
 
 /**
  * The API side of the root alerts job (ADR 0052): the API writes
@@ -36,12 +35,7 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 	for (const name of await listDir(dir)) {
 		const id = REQUEST_FILE.exec(name)?.[1];
 		if (!id || !NotifyJobId.safeParse(id).success) continue;
-		// The file's age is its queue time; its body may hold secrets, so it is not read.
-		const queuedAt = await stat(join(dir, name)).then(
-			(s) => s.mtime.toISOString(),
-			() => null,
-		);
-		jobs.push(queuedView(id, queuedAt));
+		jobs.push(queuedView(id, await fileTime(join(dir, name))));
 	}
 	return jobs;
 }
