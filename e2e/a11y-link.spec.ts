@@ -112,6 +112,61 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 	});
 
+	test(`the /link status line takes no room while empty and announces linking (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		let answer: () => void = () => {};
+		const answered = new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+		await routeApi(page, "**/me/links/pending", (route) =>
+			route.fulfill({
+				json: {
+					course: { displayName: "Max Learner", platformName: "mock-lms" },
+					sso: { displayName: "Gail Org", signInName: "gail", email: null },
+					secondFactor: null,
+				},
+			}),
+		);
+		// Held open so the in-progress text can be seen; never answered with success.
+		await routeApi(page, "**/me/links/confirm", async (route) => {
+			await answered;
+			await route.fulfill({
+				status: 404,
+				json: { code: "NOT_FOUND", message: "Not found" },
+			});
+		});
+		await page.goto(`${WEB_ORIGIN}/link`);
+
+		const status = page.getByTestId("link-status");
+		await expect(status).toHaveAttribute("role", "status");
+		await expect(status).toBeEmpty();
+		const accounts = page.getByTestId("link-accounts");
+		const actions = page.getByRole("button", { name: "Cancel" });
+		// Empty, the live region adds no height and no extra gap: the actions
+		// sit one panel gap below the accounts list.
+		const gap = await page
+			.locator(".pk-standalone-panel")
+			.evaluate((panel) => Number.parseFloat(getComputedStyle(panel).rowGap));
+		const below = async () => {
+			const list = await accounts.boundingBox();
+			const button = await actions.boundingBox();
+			if (!list || !button) throw new Error("layout not measured");
+			return button.y - (list.y + list.height);
+		};
+		expect((await status.boundingBox())?.height ?? 0).toBe(0);
+		expect(Math.round(await below())).toBe(gap);
+		await expectNoViolations(page);
+
+		await page.getByRole("button", { name: "Link accounts" }).click();
+		await expect(status).toHaveText("Linking your accounts…");
+		expect((await status.boundingBox())?.height ?? 0).toBeGreaterThan(0);
+		await expectNoViolations(page);
+		answer();
+		await expect(page.getByRole("alert")).toBeVisible();
+	});
+
 	test(`the /link "set up two-step sign-in first" message has no automatic violations (${colorScheme})`, async ({
 		page,
 	}) => {
