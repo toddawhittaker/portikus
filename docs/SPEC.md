@@ -3274,8 +3274,8 @@ language-aware editor".
   and health-checks it. When the newest is already the default or the
   previous image, the job ends with "Already up to date".
 - **Rebuild with latest packages** builds the shipped recipe on the
-  server with current Debian and vendor packages and the latest Claude
-  Code and Codex; the committed recipe stays pinned. The only choices are
+  server with current Debian and vendor packages; Claude Code and Codex
+  stay at the versions the recipe pins. The only choices are
   two dropdowns, never free text: Node major 24 or 26, and Python
   "Debian's 3.13" or "Debian's plus 3.14 from uv" (in `/opt/python`,
   linked as `python3.14` and `python`; `/usr/bin/python3` stays Debian's).
