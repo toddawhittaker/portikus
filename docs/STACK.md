@@ -879,6 +879,14 @@ field names are in the logger's redaction list. Root shells (ADR 0051)
 log only to the journal and the audit table: the helper's standard
 error carries fixed codes, and nothing typed or shown is ever logged.
 
+Log alerts (SPEC.md section 25.6): because only the API may read the
+journal, `apps/api/src/alerts/log-alerts.ts` reads it each minute from
+its last cursor, at warn and error levels. Kernel outbound-limit lines
+are matched to a workspace by its address and raise one alert per
+workspace and reason an hour, kept in memory, so a restart may repeat
+one. An error spike (20 lines in 15 minutes) raises one fixed-text
+alert. A busy or missing journal skips the minute.
+
 # Part II — Infrastructure stack
 
 ## 16. Infrastructure philosophy
