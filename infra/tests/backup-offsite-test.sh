@@ -23,10 +23,13 @@
 #     push out genuine copies faster than a day at a time, and touches
 #     nothing else;
 #   - when incoming takes more than twice the disk of the median kept set
-#     (at least 1 GiB), everything there is removed, finished sets waiting
-#     their day and hidden or oddly named entries included, without
-#     following a symlink, and a warning goes to stderr; one huge kept set
-#     does not raise the limit, and keeping it warns too.
+#     (at least 1 GiB), holds more than 100,000 entries, or cannot be
+#     measured, everything there is removed, finished sets waiting their
+#     day, mode-000 folders and hidden or oddly named entries included,
+#     without following a symlink, and a warning goes to stderr; one huge
+#     kept set does not raise the limit, and keeping it warns too;
+#   - a finished set holding hard links is not kept, and mode-000 folders
+#     inside a kept set or an old one being removed do not stop the run.
 #
 # Usage: ./infra/tests/backup-offsite-test.sh
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
@@ -49,7 +52,7 @@ work="$(mktemp -d)"
 sshd_pid=""
 cleanup() {
   [ -z "$sshd_pid" ] || kill "$sshd_pid" 2>/dev/null
-  chmod -R u+w "$work" 2>/dev/null
+  chmod -R u+rwX "$work" 2>/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -299,7 +302,8 @@ inq="${quota}/incoming"
 outside="${work}/outside"
 mkdir -p "$inq" "${outside}/inner"
 echo precious >"${outside}/inner/file"
-for s in "$(stamp '-3 days')" "$(stamp '-2 days')" "$(stamp '-1 day')"; do
+yesterday=$(stamp '-1 day')
+for s in "$(stamp '-3 days')" "$(stamp '-2 days')" "$yesterday"; do
   mkdir "${quota}/${s}"
   echo small >"${quota}/${s}/home.age"
 done
@@ -333,10 +337,10 @@ check "under the limit, the junk and the fresh unfinished set stay" \
 fallocate -l 1100M "${inq}/junk"
 sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
 expect_eq "prune over the limit succeeds" 0 "$?"
-check "over the limit warns on stderr" grep -q "incoming uses .* over its limit of 1048576 KiB" "${work}/quota.err"
+check "over the limit warns on stderr" grep -q "emptying .*incoming: it uses .* over its limit of 1048576 KiB" "${work}/quota.err"
 expect_eq "incoming is emptied, the finished set waiting its day included" "" "$(quota_listing)"
 check "the symlinks were not followed" test -f "${outside}/inner/file"
-check "the kept sets are untouched" bash -c "test -d '${quota}/${huge}' && test -d '${quota}/$(stamp '-1 day')'"
+check "the kept sets are untouched" bash -c "test -d '${quota}/${huge}' && test -d '${quota}/${yesterday}'"
 check "nothing warns on a second run" bash -c "sh '${prune}' '${quota}' 3 2>&1 >/dev/null | grep -c . | grep -qx 0"
 # Many finished sets from one day, each small, together over the limit.
 for i in $(seq 10 21); do
@@ -349,8 +353,53 @@ expect_eq "prune with many finished same-day sets succeeds" 0 "$?"
 check "and warns that incoming is over its limit" grep -q "over its limit" "${work}/quota.err"
 expect_eq "none of them is kept and incoming is emptied" "" "$(quota_listing)"
 check "no new set moved in" test ! -e "${quota}/${today}T000010Z"
-chmod -R u+w "$quota"
+chmod -R u+rwX "$quota"
 rm -rf "$quota"
+# A mode-000 folder hides its size from du; that counts as over the limit.
+locked="${work}/locked"
+mkdir -p "${locked}/incoming/hidden"
+fallocate -l 1100M "${locked}/incoming/hidden/big"
+chmod 000 "${locked}/incoming/hidden"
+sh "$prune" "$locked" 3 >/dev/null 2>"${work}/locked.err"
+expect_eq "prune with an unreadable folder in incoming succeeds" 0 "$?"
+check "and warns that it is emptying incoming" grep -q "emptying" "${work}/locked.err"
+expect_eq "and the folder is removed" "" "$(listing "${locked}/incoming")"
+rm -rf "$locked"
+# Many empty files take no blocks but use up the target's inodes.
+many="${work}/many"
+mkdir -p "${many}/incoming/files"
+(cd "${many}/incoming/files" && seq 100005 | xargs touch)
+sh "$prune" "$many" 3 >/dev/null 2>"${work}/many.err"
+expect_eq "prune with 100,005 empty files in incoming succeeds" 0 "$?"
+check "and warns about the entry count" grep -q "entries, over its limit of 100000" "${work}/many.err"
+expect_eq "and incoming is emptied" "" "$(listing "${many}/incoming")"
+rm -rf "$many"
+# Hard links and mode-000 folders inside finished and old sets.
+odd="${work}/odd"
+opened=$(stamp '-2 days')
+linked=$(stamp '-3 days')
+mkdir -p "${odd}/incoming/${opened}/locked" "${odd}/incoming/${linked}"
+echo x >"${odd}/incoming/${opened}/locked/file"
+chmod 000 "${odd}/incoming/${opened}/locked"
+echo x >"${odd}/incoming/${linked}/a"
+ln "${odd}/incoming/${linked}/a" "${odd}/incoming/${linked}/b"
+: >"${odd}/incoming/${opened}.done"
+: >"${odd}/incoming/${linked}.done"
+sh "$prune" "$odd" 3 >/dev/null 2>"${work}/odd.err"
+expect_eq "prune with mode-000 folders and hard links in finished sets succeeds" 0 "$?"
+check "a set with a mode-000 folder is kept, readable and read-only" \
+  bash -c "test -r '${odd}/${opened}/locked/file' && test ! -w '${odd}/${opened}/locked'"
+check "a set with hard links is not kept" test ! -e "${odd}/${linked}"
+check "and dropping it warns" grep -q "dropping ${linked}: it holds hard-linked" "${work}/odd.err"
+expect_eq "and incoming is empty" "" "$(listing "${odd}/incoming")"
+aged=$(stamp '-10 days')
+mkdir -p "${odd}/${aged}/locked"
+chmod 000 "${odd}/${aged}/locked"
+sh "$prune" "$odd" 1 >/dev/null
+expect_eq "prune removing an old set with a mode-000 folder succeeds" 0 "$?"
+check "and the old set is gone" test ! -e "${odd}/${aged}"
+chmod -R u+rwX "$odd"
+rm -rf "$odd"
 
 echo "== failures"
 settings "${me}@127.0.0.1:${work}/target/missing"

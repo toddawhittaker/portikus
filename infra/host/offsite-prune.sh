@@ -18,12 +18,17 @@
 #     otherwise never age out;
 #   - drops sets in DIR/incoming that never finished and are more than
 #     KEEP days old;
-#   - when incoming then takes more than twice the disk of the median kept
-#     set (at least 1 GiB), empties it, finished sets waiting their day
-#     included, and warns on stderr, so a broken-into server cannot fill
-#     this disk.  The median, not the largest, so one huge set it got
-#     kept cannot raise the limit.  A newly kept set more than twice the
-#     size of the median before it also warns;
+#   - drops a newly kept set that holds hard-linked files, which the
+#     backup's rsync never makes, and warns when a newly kept set uses more
+#     than twice the disk of the median kept set before it;
+#   - empties incoming, finished sets waiting their day included, and
+#     warns on stderr, when it uses more than twice the disk of the median
+#     kept set (at least 1 GiB) or holds more than ten times its entries
+#     (at least 100,000), or cannot be measured.  The median, not the
+#     largest, so one huge set a broken-into server got kept cannot raise
+#     the limit.  This bounds only the steady use of incoming between
+#     runs: a filesystem quota on this account is the real limit on a
+#     burst within the hour and on kept sets growing (docs/INSTALL.md);
 #   - removes a set from DIR only when it is more than KEEP days old and
 #     KEEP newer sets are there, so a server that stops sending leaves the
 #     last KEEP sets in place.
@@ -65,21 +70,33 @@ is_dir() { [ -d "$1" ] && [ ! -L "$1" ]; }
 is_finished() {
   is_set "${1##*/}" && is_dir "$1" && [ -f "${1}.done" ] && [ ! -L "${1}.done" ]
 }
-# remove PATH -- the server can send read-only folders, so make them
-# writable first.  Neither command follows a symlink inside the tree, and a
-# symlink at PATH itself is removed, not followed.
+# remove PATH -- the server can send folders of mode 000, so open them
+# first.  Neither command follows a symlink inside the tree, and a symlink
+# at PATH itself is removed, not followed.
 remove() {
   if is_dir "$1"; then
-    chmod -R u+w -- "$1" 2>/dev/null || true
+    chmod -R u+rwX -- "$1" 2>/dev/null || true
   fi
   rm -rf --one-file-system -- "$1" || warn "could not remove ${1}"
 }
-kib() { du -sxk -- "$1" | cut -f1; }
-# The disk used by the median kept set, in KiB; the lower middle of an even count.
-median_kib() {
+# kib PATH -- disk use in KiB; fails when du cannot read all of PATH.
+kib() {
+  _s=$(du -sxk -- "$1" 2>/dev/null) || return 1
+  printf '%s\n' "${_s%%[!0-9]*}"
+}
+# entries PATH -- files and folders in PATH, itself included; fails like kib.
+entries() {
+  _n=$( (find "$1" -xdev -printf '\n' 2>/dev/null || echo fail) \
+    | awk '/fail/ { f = 1 } END { print f ? "fail" : NR }')
+  [ "$_n" != fail ] || return 1
+  printf '%s\n' "$_n"
+}
+# median MEASURE -- MEASURE (kib or entries) of the median kept set; the
+# lower middle of an even count, 0 with none.
+median() {
   find "$dir" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*T*Z' -print \
     | while IFS= read -r d; do
-        is_set "${d##*/}" && kib "$d"
+        if is_set "${d##*/}"; then "$1" "$d" || true; fi
       done \
     | sort -n | awk '{ v[NR] = $1 } END { print NR ? v[int((NR + 1) / 2)] : 0 }'
 }
@@ -91,7 +108,7 @@ day_kept() {
   return 1
 }
 
-before=$(median_kib)
+before=$(median kib)
 for marker in "${dir}"/incoming/*.done; do
   [ -e "$marker" ] || [ -L "$marker" ] || continue
   name=${marker##*/}
@@ -121,11 +138,19 @@ for marker in "${dir}"/incoming/*.done; do
   else
     rm -f -- "$marker"
     mv -- "${dir}/incoming/${name}" "${dir}/${name}"
+    # Open first: the server can send folders of mode 000.
+    chmod -R u+rwX -- "${dir}/${name}" || warn "could not open ${name}"
+    # A hard link hides disk use from du; a failed search drops the set too.
+    links=$(find "${dir}/${name}" ! -type d -links +1 -print -quit 2>/dev/null) || links=unreadable
+    if [ -n "$links" ]; then
+      warn "dropping ${name}: it holds hard-linked or unreadable files"
+      remove "${dir}/${name}"
+      continue
+    fi
     # Read-only, so a slip on this machine does not change it either.
-    chmod -R a-w -- "${dir}/${name}"
+    chmod -R a-w -- "${dir}/${name}" || warn "could not make ${name} read-only"
     echo "added ${name}"
-    size=$(kib "${dir}/${name}")
-    if [ "$before" -gt 0 ] && [ "$size" -gt $((2 * before)) ]; then
+    if size=$(kib "${dir}/${name}") && [ "$before" -gt 0 ] && [ "$size" -gt $((2 * before)) ]; then
       warn "${name} uses ${size} KiB, more than twice the median kept set (${before} KiB)"
     fi
   fi
@@ -139,11 +164,22 @@ for d in "${dir}"/incoming/*; do
   fi
 done
 
-quota=$((2 * $(median_kib)))
-[ "$quota" -ge 1048576 ] || quota=1048576
-used=$(kib "${dir}/incoming")
-if [ "$used" -gt "$quota" ]; then
-  warn "${dir}/incoming uses ${used} KiB, over its limit of ${quota} KiB; emptying it"
+max_kib=$((2 * $(median kib)))
+[ "$max_kib" -ge 1048576 ] || max_kib=1048576
+max_entries=$((10 * $(median entries)))
+[ "$max_entries" -ge 100000 ] || max_entries=100000
+over=""
+if ! used=$(kib "${dir}/incoming"); then
+  over="its disk use cannot be measured"
+elif [ "$used" -gt "$max_kib" ]; then
+  over="it uses ${used} KiB, over its limit of ${max_kib} KiB"
+elif ! count=$(entries "${dir}/incoming"); then
+  over="its entries cannot be counted"
+elif [ "$count" -gt "$max_entries" ]; then
+  over="it holds ${count} entries, over its limit of ${max_entries}"
+fi
+if [ -n "$over" ]; then
+  warn "emptying ${dir}/incoming: ${over}"
   # The dot patterns catch hidden names; any left unmatched fail the test below.
   for e in "${dir}"/incoming/* "${dir}"/incoming/.[!.]* "${dir}"/incoming/..?*; do
     [ -e "$e" ] || [ -L "$e" ] || continue
@@ -155,8 +191,8 @@ newer=0
 for d in $(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Ex '[0-9]{8}T[0-9]{6}Z' | sort -r); do
   if [ "$newer" -ge "$keep" ] && [ "$(num "$d")" -lt "$cutoff" ]; then
     echo "removing ${d}"
-    chmod -R u+w -- "${dir}/${d}"
-    rm -rf -- "${dir:?}/${d}"
+    chmod -R u+rwX -- "${dir}/${d}" || warn "could not open ${d}"
+    rm -rf -- "${dir:?}/${d}" || warn "could not remove ${d}"
   fi
   newer=$((newer + 1))
 done
