@@ -3,6 +3,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import { type JournalEntry, LogsBusyError, parseJournalLine } from "../logs/journal.js";
+import { KERNEL_ALERT_REASONS, KERNEL_LINE_PATTERN } from "../logs/kernel.js";
 import {
 	classifyEntry,
 	createLogAlerts,
@@ -102,6 +103,17 @@ describe("classifyEntry", () => {
 				at: T0,
 			},
 		);
+	});
+
+	it("alerts on every kernel line the log reader keeps", () => {
+		const prefixes = KERNEL_LINE_PATTERN.slice(2, -1).split("|");
+		expect(prefixes.length).toBeGreaterThan(0);
+		for (const prefix of prefixes) {
+			const parsed = classifyEntry(kernel(prefix, "10.0.0.5", T0));
+			expect(parsed?.kind, prefix).toBe("limit");
+			const code = parsed?.kind === "limit" ? parsed.code : "";
+			expect(KERNEL_ALERT_REASONS[code], prefix).toBeTruthy();
+		}
 	});
 
 	it("counts error and fatal lines and ignores warnings", () => {
