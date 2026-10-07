@@ -5,6 +5,7 @@ import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { fromLoopback } from "./loopback.js";
+import { PAGE_POLICY } from "./page-policy.js";
 import { accountKey, type SigninThrottle } from "./signin-throttle.js";
 import { type CounterReceipt, CounterUnavailable } from "./stored-counter.js";
 
@@ -157,6 +158,18 @@ ${body}
 `;
 }
 
+/**
+ * One of the relay's own pages. Only Dex's answers, which passBack sends,
+ * go without PAGE_POLICY (SPEC.md section 24.3).
+ */
+function sendPage(reply: FastifyReply, status: number, html: string): FastifyReply {
+	return reply
+		.status(status)
+		.header("content-type", "text/html; charset=utf-8")
+		.header("content-security-policy", PAGE_POLICY)
+		.send(html);
+}
+
 const REFUSAL_PAGE = page(
 	"Too many sign-in attempts",
 	`<p>There have been too many wrong passwords for this sign-in. Wait ten minutes, then try again.</p>
@@ -201,19 +214,11 @@ export function registerDexPasswordRelay(
 		error: CounterUnavailable,
 	): FastifyReply {
 		request.log.error({ err: error.cause }, "sign-in counter store failed");
-		return reply
-			.status(503)
-			.header("content-type", "text/html; charset=utf-8")
-			.header("retry-after", "60")
-			.send(UNAVAILABLE_PAGE);
+		return sendPage(reply.header("retry-after", "60"), 503, UNAVAILABLE_PAGE);
 	}
 
 	async function refuse(reply: FastifyReply): Promise<FastifyReply> {
-		return reply
-			.status(429)
-			.header("content-type", "text/html; charset=utf-8")
-			.header("retry-after", "600")
-			.send(REFUSAL_PAGE);
+		return sendPage(reply.header("retry-after", "600"), 429, REFUSAL_PAGE);
 	}
 
 	/**
@@ -324,10 +329,11 @@ export function registerDexPasswordRelay(
 		const logins = form.getAll("login");
 		const first = logins[0] ?? "";
 		if (logins.length !== 1 || first.trim() === "" || !PLAIN_ASCII.test(first)) {
-			return reply
-				.status(400)
-				.header("content-type", "text/html; charset=utf-8")
-				.send(page("Sign-in failed", "<p>Enter your email address and password.</p>"));
+			return sendPage(
+				reply,
+				400,
+				page("Sign-in failed", "<p>Enter your email address and password.</p>"),
+			);
 		}
 		try {
 			return await forward(request, reply, {
@@ -363,10 +369,7 @@ export function registerDexPasswordRelay(
 		} catch (error) {
 			await giveBack();
 			request.log.error({ err: error }, "dex did not answer a password post");
-			return reply
-				.status(502)
-				.header("content-type", "text/html; charset=utf-8")
-				.send(UNAVAILABLE_PAGE);
+			return sendPage(reply, 502, UNAVAILABLE_PAGE);
 		}
 
 		const outcome = dexOutcome(answer.status);

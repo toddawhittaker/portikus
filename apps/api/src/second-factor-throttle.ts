@@ -98,8 +98,8 @@ export interface BypassRequest {
 	sessionId: string;
 	/** True for a recovery code or a passkey, the only tries that may pass a refused count. */
 	eligible: boolean;
-	/** Whether this route takes passkeys, so the refusal names only what works here. */
-	passkeys: boolean;
+	/** Whether to offer a passkey in the refusal; asked only when the count refuses. */
+	passkeys: () => Promise<boolean>;
 }
 
 function refusalMessage(daily: boolean, passkeys: boolean): string {
@@ -180,7 +180,7 @@ export function createSecondFactorThrottle(db: Kysely<Database>, logger: Logger)
 			}
 			const body: ApiError = {
 				code: "RATE_LIMITED",
-				message: refusalMessage(decision.daily, bypass.passkeys),
+				message: refusalMessage(decision.daily, await bypass.passkeys()),
 			};
 			await reply.status(429).send(body);
 			return null;

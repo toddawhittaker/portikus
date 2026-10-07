@@ -1,8 +1,16 @@
+import { randomBytes } from "node:crypto";
+import { createSession } from "@portikus/auth";
 import type { Database } from "@portikus/db";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import Fastify from "fastify";
 import type { Kysely } from "kysely";
-import { describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
 	ANONYMOUS_ROUTES,
 	addressKey,
@@ -12,7 +20,7 @@ import {
 } from "./rate-limit.js";
 import { ROUTE_POLICY } from "./security/route-policy.js";
 import { registerSigninThrottle } from "./signin-throttle.js";
-import { testConfig } from "./testing/test-support.js";
+import { buildTestServer, testConfig } from "./testing/test-support.js";
 
 describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 	function fixture(limit = 3, windowMs = 60_000) {
@@ -168,5 +176,52 @@ describe("the anonymous request limit (SPEC.md section 24.13)", () => {
 		});
 		expect(refused.statusCode).toBe(429);
 		expect(checkStart).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe.skipIf(!hasTestDb())("made-up session cookies (SPEC.md section 24.13)", () => {
+	let testDb: TestDb;
+
+	beforeAll(async () => {
+		testDb = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await testDb.close();
+	});
+
+	test("count against the address's anonymous limit; a real session there is unaffected", async () => {
+		const app = buildTestServer(testDb.db, "http://issuer.invalid", {
+			ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: 3,
+		});
+		await app.ready();
+		try {
+			const guess = () =>
+				app.inject({
+					url: "/auth/me",
+					remoteAddress: "203.0.113.40",
+					headers: {
+						cookie: `portikus_session=${randomBytes(32).toString("base64url")}`,
+					},
+				});
+			for (let i = 0; i < 3; i += 1) expect((await guess()).statusCode).toBe(401);
+			const refused = await guess();
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+
+			const userId = await insertTestUser(testDb.db);
+			const session = await createSession(testDb.db, userId, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			const real = await app.inject({
+				url: "/auth/me",
+				remoteAddress: "203.0.113.40",
+				headers: { cookie: `portikus_session=${session.token}` },
+			});
+			expect(real.statusCode).toBe(200);
+		} finally {
+			await app.close();
+		}
 	});
 });

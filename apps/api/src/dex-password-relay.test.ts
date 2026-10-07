@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { dexOutcome } from "./dex-password-relay.js";
+import { PAGE_POLICY } from "./page-policy.js";
 import { ACCOUNT_FAILURE_LIMIT } from "./signin-throttle.js";
 import { buildTestServer, PUBLIC_URL } from "./testing/test-support.js";
 
@@ -159,6 +160,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(refused.statusCode).toBe(429);
 		expect(refused.headers["content-type"]).toContain("text/html");
 		expect(refused.body).toContain("Too many sign-in attempts");
+		expect(refused.headers["content-security-policy"]).toBe(PAGE_POLICY);
 		// Dex never saw the refused try.
 		expect(received).toHaveLength(ACCOUNT_FAILURE_LIMIT);
 		// Another account from the same address is unaffected.
@@ -247,6 +249,19 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(received).toHaveLength(30);
 	});
 
+	test("when Dex does not answer, the relay's own 502 page carries the page policy", async () => {
+		await app.close();
+		// Port 9 (discard) has no listener here, so the fetch is refused.
+		app = buildTestServer(testDb.db, mock.issuer, {
+			DEX_HTTP_URL: "http://127.0.0.1:9",
+		});
+		await app.ready();
+		const res = await post("alice@example.edu", RIGHT);
+		expect(res.statusCode).toBe(502);
+		expect(res.body).toContain("Sign-in is unavailable");
+		expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
+	});
+
 	test("when the counts cannot be kept, a post is refused with 503 and never reaches Dex", async () => {
 		await sql`alter table signin_counters rename to signin_counters_away`.execute(
 			testDb.db,
@@ -256,6 +271,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 			expect(res.statusCode).toBe(503);
 			expect(res.headers["content-type"]).toContain("text/html");
 			expect(res.body).toContain("Sign-in is unavailable");
+			expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
 		} finally {
 			await sql`alter table signin_counters_away rename to signin_counters`.execute(
 				testDb.db,
@@ -302,6 +318,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 			payload,
 		});
 		expect(res.statusCode).toBe(400);
+		expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
 		expect(received).toEqual([]);
 	});
 

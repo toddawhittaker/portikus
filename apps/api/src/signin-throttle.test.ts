@@ -5,7 +5,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { createSigninThrottle } from "./signin-throttle.js";
+import { createSigninThrottle, isDexConnectorStart } from "./signin-throttle.js";
 import { buildTestServer, PUBLIC_URL } from "./testing/test-support.js";
 
 /** The sign-in rate limit (SPEC.md section 5.3). */
@@ -23,6 +23,31 @@ function fixture(db: Kysely<Database>) {
 	});
 	return { throttle, advance: (ms: number) => (clock += ms) };
 }
+
+describe("which Dex pages count as a sign-in start (ADR 0053)", () => {
+	test.each([
+		"/dex/auth/local?client_id=portikus&state=s",
+		"/dex/auth/local/",
+		"/dex/auth/loc%61l",
+		"//dex/auth/local",
+		"/dex//auth/ldap",
+		// Counting a doubtful spelling errs toward refusing.
+		"/dex/auth/%2Flocal",
+	])("%s is counted", (uri) => {
+		expect(isDexConnectorStart(uri)).toBe(true);
+	});
+
+	test.each([
+		"/dex/auth",
+		"/dex/auth?client_id=portikus",
+		"/dex/auth/local/login",
+		"/dex/auth/local/callback",
+		"/dex/auth/%zz",
+		"/dex/token",
+	])("%s is not counted", (uri) => {
+		expect(isDexConnectorStart(uri)).toBe(false);
+	});
+});
 
 // Sign-in starts stay in this process, so these need no database (ADR 0053).
 describe("sign-in starts", () => {
@@ -46,19 +71,19 @@ describe("sign-in starts", () => {
 	test("asks for an audit row once per address per window", () => {
 		const { throttle, advance } = fixture(noDb);
 		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: true,
+			firstRefusal: true,
 		});
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: false,
+			firstRefusal: false,
 		});
 		advance(60_000);
 		for (let i = 0; i < 150; i += 1) throttle.checkStart("198.51.100.1");
-		expect(throttle.checkStart("198.51.100.1")).toEqual({
+		expect(throttle.checkStart("198.51.100.1")).toMatchObject({
 			allowed: false,
-			audit: true,
+			firstRefusal: true,
 		});
 	});
 });
@@ -289,6 +314,35 @@ describe.skipIf(skip)("the API's sign-in throttle", () => {
 			remoteAddress: "203.0.113.9",
 		});
 		expect(refused.statusCode).toBe(429);
+	});
+
+	function dexAsk(address: string, uri: string) {
+		return app.inject({
+			url: "/edge/signin-throttle?scope=start",
+			headers: { "x-forwarded-for": address, "x-forwarded-uri": uri },
+		});
+	}
+
+	test("the 151st GET of a Dex connector page from one address in a minute is 429; another address is unaffected", async () => {
+		for (let i = 0; i < 150; i += 1) {
+			expect(
+				(await dexAsk("203.0.113.20", `/dex/auth/local?state=${i}`)).statusCode,
+			).toBe(204);
+		}
+		const refused = await dexAsk("203.0.113.20", "/dex/auth/local?state=x");
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+		expect((await dexAsk("203.0.113.21", "/dex/auth/local")).statusCode).toBe(204);
+		expect(await throttledRows()).toHaveLength(1);
+	});
+
+	test("only the connector page is counted, not bare /dex/auth or the form post's page", async () => {
+		for (let i = 0; i < 150; i += 1) await dexAsk("203.0.113.22", "/dex/auth/local");
+		expect((await dexAsk("203.0.113.22", "/dex/auth")).statusCode).toBe(204);
+		expect(
+			(await dexAsk("203.0.113.22", "/dex/auth/local/login?back=")).statusCode,
+		).toBe(204);
+		expect((await dexAsk("203.0.113.22", "/dex/auth/loc%61l")).statusCode).toBe(429);
 	});
 
 	test("/edge/signin-throttle answers only a loopback peer", async () => {
