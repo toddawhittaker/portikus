@@ -29,17 +29,31 @@ export async function readJson<T>(path: string, schema: ZodType<T>): Promise<T |
 	}
 }
 
-/** The queued or running job, else the one started last. */
-export function currentJob<T extends { state: string; startedAt?: string | null }>(
+type JobTimes = { state: string; requestedAt: string | null; startedAt: string | null };
+
+/** Queued or running past `staleMs` (from start, else request): its unit died. */
+function isDead(job: JobTimes, staleMs: number, now: number): boolean {
+	if (job.state !== "queued" && job.state !== "running") return false;
+	const since = job.state === "running" ? job.startedAt : job.requestedAt;
+	return since !== null && now >= Date.parse(since) + staleMs;
+}
+
+/**
+ * The job a page should show: the newest by request or start time, with a
+ * dead queued or running job ranked below every live or finished one, so a
+ * job killed mid-run never hides the ones after it.
+ */
+export function currentJob<T extends JobTimes>(
 	jobs: T[],
+	staleMs: number,
+	now: number = Date.now(),
 ): T | null {
-	const active =
-		jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
-	if (active) return active;
-	const byStart = [...jobs].sort((a, b) =>
-		(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+	const dead = (j: T) => Number(isDead(j, staleMs, now));
+	const at = (j: T) => j.requestedAt ?? j.startedAt ?? "";
+	const ranked = [...jobs].sort(
+		(a, b) => dead(a) - dead(b) || at(b).localeCompare(at(a)),
 	);
-	return byStart[0] ?? null;
+	return ranked[0] ?? null;
 }
 
 export async function listDir(path: string): Promise<string[]> {
