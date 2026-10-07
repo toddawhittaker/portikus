@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	API_ORIGIN,
@@ -461,7 +461,8 @@ test("a change the job never took is shown as not finished, and a new save goes 
 	expect((await answer).status()).toBe(202);
 	await expect(section.getByTestId("notify-job")).toContainText("Saving.");
 
-	await rm(stale);
+	// The API removed the dead request, so the job takes only the new one.
+	await expect(access(stale)).rejects.toThrow("ENOENT");
 	await playAlertsJob();
 	await expect(section.getByTestId("notify-job")).toContainText(
 		"The new settings are in use.",

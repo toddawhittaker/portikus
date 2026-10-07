@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { CERTIFICATE_JOB_STALE_MS, IMAGE_JOB_STALE_MS } from "@portikus/contracts";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { allJobs as certificateJobs } from "./certificate/jobs.js";
-import { currentJob, writeRequestFile } from "./job-files.js";
+import { currentJob, removeStaleRequests, writeRequestFile } from "./job-files.js";
 
 let dir: string;
 
@@ -172,5 +172,32 @@ describe("currentJob", () => {
 		const job = currentJob(await certificateJobs(dir), CERTIFICATE_JOB_STALE_MS);
 		expect(job?.id).toBe(rollback);
 		expect(job?.state).toBe("queued");
+	});
+});
+
+describe("removeStaleRequests", () => {
+	const old = new Date(Date.now() - 2 * IMAGE_JOB_STALE_MS).toISOString();
+	const queued = (id: string, requestedAt: string) => ({
+		id,
+		state: "queued",
+		requestedAt,
+		startedAt: null,
+	});
+
+	test("removes only stale queued request files", async () => {
+		await writeFile(join(dir, "request-a.json"), "{}");
+		await writeFile(join(dir, "request-b.json"), "{}");
+		await removeStaleRequests(
+			dir,
+			[queued("a", old), queued("b", new Date().toISOString())],
+			IMAGE_JOB_STALE_MS,
+		);
+		expect(await readdir(dir)).toEqual(["request-b.json"]);
+	});
+
+	test("a request file the job already took or removed is not an error", async () => {
+		await expect(
+			removeStaleRequests(dir, [queued("gone", old)], IMAGE_JOB_STALE_MS),
+		).resolves.toBeUndefined();
 	});
 });
