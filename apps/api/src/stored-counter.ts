@@ -1,5 +1,6 @@
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
+import type { FastifyInstance } from "fastify";
 import { type Kysely, sql } from "kysely";
 
 /**
@@ -139,4 +140,49 @@ export function createStoredCounter(options: {
 			}
 		},
 	};
+}
+
+/** How often the API deletes sign-in counts whose window has ended. */
+export const PRUNE_EVERY_MS = 60 * 60_000;
+
+/**
+ * Delete sign-in counts whose window has ended. A live window is never
+ * touched, and a hit restarts an ended one it meets first. Returns how many
+ * rows went.
+ */
+export async function pruneEndedCounters(
+	db: Kysely<Database>,
+	now: Date,
+): Promise<number> {
+	const result = await db
+		.deleteFrom("signin_counters")
+		.where("expires_at", "<=", now)
+		.executeTakeFirst();
+	return Number(result.numDeletedRows);
+}
+
+/**
+ * Prune every hour while the server runs. The API prunes its own table, so
+ * the worker needs no right to delete counts (ADR 0053).
+ */
+export function registerCounterPrune(
+	app: FastifyInstance,
+	deps: { db: Kysely<Database>; logger: Logger },
+): void {
+	let timer: NodeJS.Timeout | undefined;
+	const prune = async (): Promise<void> => {
+		try {
+			const deleted = await pruneEndedCounters(deps.db, new Date());
+			if (deleted > 0) deps.logger.info({ deleted }, "pruned ended sign-in counts");
+		} catch (e) {
+			deps.logger.warn({ error: errorMessage(e) }, "sign-in count prune failed");
+		}
+	};
+	app.addHook("onReady", async () => {
+		timer = setInterval(() => void prune(), PRUNE_EVERY_MS);
+		timer.unref();
+	});
+	app.addHook("onClose", async () => {
+		if (timer) clearInterval(timer);
+	});
 }

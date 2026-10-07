@@ -63,7 +63,7 @@ import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
-import { CounterUnavailable } from "./stored-counter.js";
+import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -122,6 +122,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	registerAnonymousLimit(app, deps.config);
 	// Before the auth plugin, so its hook runs first.
 	const signinThrottle = registerSigninThrottle(app, deps);
+	registerCounterPrune(app, { db: deps.db, logger: deps.logger });
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({

@@ -1,9 +1,16 @@
 import type { Database } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
+import Fastify from "fastify";
 import { Kysely, PostgresDialect } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { CounterUnavailable, createStoredCounter } from "./stored-counter.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+	CounterUnavailable,
+	createStoredCounter,
+	PRUNE_EVERY_MS,
+	pruneEndedCounters,
+	registerCounterPrune,
+} from "./stored-counter.js";
 
 /**
  * Sign-in guess counts kept in PostgreSQL (SPEC.md section 24.13, ADR 0053):
@@ -62,6 +69,35 @@ describe("a counter store that fails", () => {
 		expect(lines.some((l) => l.msg === "could not give a sign-in count back")).toBe(
 			true,
 		);
+	});
+});
+
+describe("the hourly prune", () => {
+	test("runs while the server is up and stops when it closes", async () => {
+		let calls = 0;
+		const db = {
+			deleteFrom: () => ({
+				where: () => ({
+					executeTakeFirst: async () => {
+						calls += 1;
+						return { numDeletedRows: 0n };
+					},
+				}),
+			}),
+		} as unknown as Kysely<Database>;
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			const app = Fastify();
+			registerCounterPrune(app, { db, logger: collectingLogger("debug").logger });
+			await app.ready();
+			vi.advanceTimersByTime(PRUNE_EVERY_MS);
+			expect(calls).toBe(1);
+			await app.close();
+			vi.advanceTimersByTime(3 * PRUNE_EVERY_MS);
+			expect(calls).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
@@ -198,6 +234,24 @@ describe.skipIf(skip)("the stored counter", () => {
 		await c.add("k");
 		await c.add("k");
 		expect((await c.attempt("k")).allowed).toBe(false);
+	});
+
+	test("the prune deletes only counts whose window has ended", async () => {
+		const now = new Date(clock);
+		const row = (key: string, endsInMinutes: number) => ({
+			scope: "password",
+			key,
+			window_started_at: new Date(clock + (endsInMinutes - 10) * 60_000),
+			expires_at: new Date(clock + endsInMinutes * 60_000),
+			count: 3,
+		});
+		await t.db
+			.insertInto("signin_counters")
+			.values([row("ended", -1), row("ends-now", 0), row("live", 1)])
+			.execute();
+		expect(await pruneEndedCounters(t.db, now)).toBe(2);
+		const left = await t.db.selectFrom("signin_counters").select("key").execute();
+		expect(left.map((r) => r.key)).toEqual(["live"]);
 	});
 
 	test("a row expires when its window ends", async () => {

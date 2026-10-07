@@ -17,7 +17,6 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createAlertSources } from "./alert-sources.js";
 import { createAlertForwarder } from "./alerts.js";
 import { backupVmTick, pullRequest } from "./backups.js";
-import { pruneExpiredCounters } from "./counter-prune.js";
 import { createEgressSync } from "./egress.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import { createGuard } from "./guard.js";
@@ -137,8 +136,12 @@ function schemaTables(): Set<string> {
 }
 const knownTables = schemaTables();
 
-/** Tables whose rows sign someone in or say who they are. */
+/**
+ * Tables whose rows sign someone in or say who they are, and the sign-in
+ * guess counts, which a worker could otherwise reset (ADR 0053).
+ */
 const AUTH_TABLES = [
+	"signin_counters",
 	"sessions",
 	"preview_grants",
 	"preview_sessions",
@@ -263,7 +266,6 @@ describe.skipIf(skip)("the worker's role", () => {
 		await notifyAdministrators(worker, { tone: "warning", title: "t", body: "b" });
 		await pruneNotifications(worker, new Date());
 		await pruneEndedTerminals(worker, new Date());
-		await pruneExpiredCounters(worker, new Date());
 		await reconcile(
 			worker,
 			controller,
