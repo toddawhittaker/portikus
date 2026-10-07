@@ -228,6 +228,20 @@ such as a lab. Browsers warn until each one is told to trust its root
 certificate ("After setup", below), and setup prints a warning that says
 so.
 
+Setup refuses Portikus's own authority when the web address resolves in
+DNS to a public address. If you really want it there, for example for a
+short test, add this line to `/etc/portikus/portikus.yaml` and run
+`sudo portikus setup` again:
+
+```yaml
+portikus_allow_internal_ca_on_public_address: true
+```
+
+While it is in use on a public address, administrators get an alert and
+the Certificate tab shows a warning. The other ways out are to pick Let's
+Encrypt or your own files with `sudo dpkg-reconfigure portikus`, or to
+run `sudo portikus reset-certificate`, which always works.
+
 ### 5. How people sign in
 
 ![The sign-in screen, offering local accounts only, Microsoft Entra ID, Google Workspace, LDAP or Active Directory, or another OpenID Connect provider](images/install/06-sign-in.png)

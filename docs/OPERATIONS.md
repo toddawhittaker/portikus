@@ -793,10 +793,16 @@ change it.
 Dex has no lockout, so the API slows repeated sign-ins from one address
 (#398, `apps/api/src/signin-throttle.ts`):
 
-- Sign-in starts: 150 a minute per address. These are `/auth/login`,
-  `/auth/callback`, and every GET under `/dex/auth`. One sign-in makes
-  about five, so one address can complete about 30 sign-ins a minute,
-  enough for a lab behind one campus address.
+- Sign-in starts: 150 a minute per address. Only `/auth/login` and
+  `/lti/login` count, so each sign-in is one start, and a lecture of 100
+  behind one address fits.
+- Anonymous requests: 600 a minute per address on every route that needs
+  no session, including the callback, the LTI launch and each Dex page
+  (an IPv6 /64 is one address). One sign-in makes about five, so a class
+  of about 120 arriving in the same minute fits; more are told to retry a
+  minute later. Raise it with `ANONYMOUS_REQUEST_LIMIT_PER_MINUTE` in a
+  drop-in, as below. Made-up preview cookies at `/preview/authorize` have
+  their own count of the same size, which refuses only that route.
 - Dex password posts, to Dex's own form or the LDAP connector's: 30 per
   10 minutes per address, and 300 per 10 minutes for everyone together.
   Caddy asks the API before each post reaches Dex. Attempts one address has already had refused do not count
@@ -809,8 +815,22 @@ Caddy also lets only the Dex paths a sign-in uses reach Dex: `/dex/auth*`,
 than GET on `/dex/auth` is a 405, apart from the two password forms.
 
 A refusal answers 429 with `RATE_LIMITED` and writes one `auth.throttled`
-audit event per address per window. The counts live in the API's memory,
-so restarting `portikus-api` clears them.
+audit event per address per window. The anonymous limit logs a warning
+instead of an audit row.
+
+Guess counts (password posts and failures, second-factor codes and
+password changes) live in the `signin_counters` table, so restarting
+`portikus-api` does not clear them (ADR 0053). Sign-in starts and the
+anonymous limit live in memory and do clear. The API deletes ended rows
+every hour. If PostgreSQL cannot be read or written, these routes answer
+503 `SERVICE_BUSY` (the Dex password form shows "Sign-in is unavailable")
+instead of letting guesses through; they recover by themselves once the
+database is back. To clear one account's count by hand, delete its rows
+from `signin_counters`.
+
+A person whose second-factor codes are locked by someone else's wrong
+guesses can still sign in with a recovery code or a passkey, 10 tries
+per session per 10 minutes.
 
 If many students share one address behind a campus network, raise the
 limits with `SIGNIN_START_LIMIT_PER_MINUTE` and
@@ -1662,6 +1682,21 @@ On a warning, open the Certificate tab, read the error, and fix the cause:
 usually an expired or narrowed DNS token, a changed DNS record, or port 80
 blocked for HTTP-01. Then choose **Renew now**. Uploaded certificates are
 never renewed; upload new files before the old ones expire.
+
+### Own authority on a public address
+
+The certificate job refuses Caddy's internal authority when the site name
+resolves to a public address, unless
+`portikus_allow_internal_ca_on_public_address: true` is set in
+`/etc/portikus/portikus.yaml` (docs/INSTALL.md). The hourly check repeats
+the test; while the internal authority serves a public address, it sends
+a warning alert and the Certificate tab shows a banner.
+
+The test asks the host's own upstream DNS server, not `/etc/hosts`. Two
+consequences: if the only server it can find is the systemd stub at
+127.0.0.53, every name reads as "unknown", which is allowed; and
+split-horizon DNS, where the host's server gives a private answer for a
+name that is public outside, reads a public site as private.
 
 ### Recovering an unreachable site: `portikus reset-certificate`
 
