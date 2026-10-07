@@ -169,11 +169,12 @@ max_kib=$((2 * $(median kib)))
 max_entries=$((10 * $(median entries)))
 [ "$max_entries" -ge 100000 ] || max_entries=100000
 over=""
-if ! used=$(kib "${dir}/incoming"); then
+# Each measurement is tried twice: rsync renaming a file mid-walk can fail one.
+if ! used=$(kib "${dir}/incoming") && ! used=$(kib "${dir}/incoming"); then
   over="its disk use cannot be measured"
 elif [ "$used" -gt "$max_kib" ]; then
   over="it uses ${used} KiB, over its limit of ${max_kib} KiB"
-elif ! count=$(entries "${dir}/incoming"); then
+elif ! count=$(entries "${dir}/incoming") && ! count=$(entries "${dir}/incoming"); then
   over="its entries cannot be counted"
 elif [ "$count" -gt "$max_entries" ]; then
   over="it holds ${count} entries, over its limit of ${max_entries}"
