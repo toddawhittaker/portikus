@@ -156,6 +156,31 @@ test("an admin tab's More in Help lands on its topic in the administrator help",
 	});
 });
 
+test("the Users tab's More in Help reaches the topic on inviting people and the CSV import", async ({
+	page,
+	context,
+}) => {
+	await loginAs(page, "carol");
+	await page.goto("/admin");
+	const more = page.getByRole("link", { name: /More in Help/ });
+	await expect(more).toHaveAttribute("href", "/admin/help#admin-users");
+	const [help] = await Promise.all([context.waitForEvent("page"), more.click()]);
+	await expect(
+		help.getByRole("heading", { level: 3, name: "Find a person and their workspace" }),
+	).toBeFocused({ timeout: 15_000 });
+
+	// The invitations topic follows straight after, and the contents name it.
+	const contents = help.getByRole("navigation", { name: "Help contents" });
+	await contents.getByRole("link", { name: "Inviting people" }).click();
+	await expect(help).toHaveURL(/#admin-invitations$/);
+	const topic = help.locator("section:has(> h3#admin-invitations)");
+	await expect(topic).toBeInViewport();
+	await expect(topic).toContainText("Invite…");
+	await expect(topic).toContainText("user principal name");
+	await expect(topic).toContainText("Import from CSV…");
+	await expect(topic).toContainText("Download passwords");
+});
+
 test("the Course page's anchor lands on its topic in the workspace help", async ({
 	browser,
 }) => {

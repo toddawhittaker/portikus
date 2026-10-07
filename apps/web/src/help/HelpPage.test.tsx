@@ -1,3 +1,4 @@
+import { ACCOUNT_IMPORT_MAX_ROWS } from "@portikus/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
@@ -242,4 +243,28 @@ test("a malformed anchor names nothing instead of breaking the page", () => {
 	expect(anchorId("#%E0%A4%A")).toBe("");
 	expect(anchorId("#student%2Dkeyboard")).toBe("student-keyboard");
 	expect(anchorId("")).toBe("");
+});
+
+test("the admin help explains invitations and the CSV import, right after finding a person", async () => {
+	const ids = ADMIN_HELP.topics.map((topic) => topic.id);
+	expect(ids.indexOf("admin-invitations")).toBe(ids.indexOf("admin-users") + 1);
+
+	stub("administrator");
+	renderApp("/admin/help");
+	const heading = await screen.findByRole("heading", {
+		level: 3,
+		name: "Inviting people",
+	});
+	expect(heading.id).toBe("admin-invitations");
+	const text = heading.closest("section")?.textContent ?? "";
+	for (const phrase of [
+		"Invite…",
+		"Revoke",
+		"user principal name",
+		"Import from CSV…",
+		`at most ${ACCOUNT_IMPORT_MAX_ROWS} rows`,
+		"Download passwords",
+	]) {
+		expect(text).toContain(phrase);
+	}
 });
