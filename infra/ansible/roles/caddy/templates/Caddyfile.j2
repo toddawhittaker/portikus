@@ -263,10 +263,13 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
 	# lockout, so every password form post goes to the API, which counts it
 	# per address and per account, audits a wrong password, and passes it on
-	# to Dex (SPEC 24.13). Every other /dex/auth GET asks the API first,
-	# because Dex keeps each one in memory for ten minutes; it is not a
-	# sign-in start, and the API's anonymous limit of 600 a minute per
-	# address bounds it. A 429 goes back to the browser unchanged.
+	# to Dex (SPEC 24.13). Every other GET under /dex/auth asks the API's
+	# sign-in throttle, which counts it against the anonymous limit of 600 a
+	# minute per address. A GET of a connector's page, such as
+	# /dex/auth/local, once per sign-in, is also counted against a limit of
+	# 150 a minute per address, because that is where Dex stores a sign-in
+	# record in PostgreSQL for ten minutes.
+	# A 429 goes back to the browser unchanged.
 	handle /dex/* {
 		# Only the paths the sign-in flow and the API use reach Dex; the rest,
 		# such as the unthrottled /dex/device/code, would store data for nothing.

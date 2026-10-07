@@ -119,7 +119,7 @@ export function registerLinkRoutes(
 		const allowance = await throttle.allow(request, reply, userId, {
 			sessionId: sessionId(request),
 			eligible: isRecoveryCodeShape(code),
-			passkeys: false,
+			passkeys: async () => false,
 		});
 		if (!allowance) return "refused";
 		const result =

@@ -39,7 +39,6 @@ export class CounterUnavailable extends Error {
 
 export interface StoredCounter {
 	readonly scope: string;
-	readonly limit: number;
 	/** Count one try for `key` and say whether it is within the limit. */
 	attempt(key: string): Promise<StoredDecision>;
 	/** Count one try without asking, for a failure whose check was skipped. */
@@ -101,7 +100,6 @@ export function createStoredCounter(options: {
 
 	return {
 		scope,
-		limit,
 		async attempt(key) {
 			try {
 				const counted = await hit(key);

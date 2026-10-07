@@ -1909,11 +1909,11 @@ with a unit test and an e2e check.
 
 **Source.** Epic 35.
 
-## A made-up main session cookie has no per-address limit
+## A made-up session cookie still costs one session lookup
 
-**What.** A request with a made-up session cookie to a protected route costs one session lookup in PostgreSQL. The anonymous limit does not count it, because the route needs a session.
+**What.** A made-up session cookie is refused past the anonymous limit, but each one is still looked up in PostgreSQL first, so a flood costs one query per request even after the limit starts refusing.
 
-**What it would take.** Count session-lookup misses per address, as made-up preview cookies already are, and refuse past a limit.
+**What it would take.** Count per address before the lookup without refusing real sessions: once an address is over the limit, refuse its cookies that match a short in-memory list of recent misses before querying.
 
 **Source.** Epic 36.
 

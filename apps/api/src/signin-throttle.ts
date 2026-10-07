@@ -5,7 +5,7 @@ import type { Logger } from "@portikus/observability";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { fromLoopback } from "./loopback.js";
-import { addressKey, createCounter, type Window } from "./rate-limit.js";
+import { addressKey, check, createCounter, type LimitDecision } from "./rate-limit.js";
 import {
 	type CounterReceipt,
 	createStoredCounter,
@@ -33,18 +33,9 @@ const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
 // anonymous request limit instead (SPEC.md section 24.13).
 const START_ROUTES = new Set(["/auth/login", "/lti/login"]);
 
-export interface ThrottleDecision {
-	allowed: boolean;
-	/** True for the first refusal of this address in its window. */
-	audit: boolean;
-}
-
-function decide(window: Window, refused: boolean): ThrottleDecision {
-	if (!refused) return { allowed: true, audit: false };
-	const audit = !window.reported;
-	window.reported = true;
-	return { allowed: false, audit };
-}
+// Dex stores a sign-in record when the browser opens a connector's page,
+// such as /dex/auth/local, once per sign-in (ADR 0053).
+const DEX_CONNECTOR_PATH = /^\/dex\/auth\/[^/]+\/?$/;
 
 /** Dex compares logins without case, so the count does too. */
 export function accountKey(login: string): string {
@@ -62,6 +53,7 @@ export function createSigninThrottle(options: {
 }) {
 	const now = options.now ?? (() => Date.now());
 	const starts = createCounter(options.startLimitPerMinute, MINUTE_MS, now);
+	const dexStarts = createCounter(options.startLimitPerMinute, MINUTE_MS, now);
 	const stored = {
 		db: options.db,
 		logger: options.logger,
@@ -82,9 +74,12 @@ export function createSigninThrottle(options: {
 	// No site-wide count: other clients' failures never refuse a client
 	// (SPEC.md section 24.13).
 	return {
-		checkStart(ip: string): ThrottleDecision {
-			const window = starts.hit(addressKey(ip));
-			return decide(window, window.count > starts.limit);
+		checkStart(ip: string): LimitDecision {
+			return check(starts, addressKey(ip));
+		},
+		/** Count one GET of a Dex connector's page, where Dex stores a sign-in record. */
+		checkDexStart(ip: string): LimitDecision {
+			return check(dexStarts, addressKey(ip));
 		},
 		/**
 		 * Count one password post from this address before it reaches Dex,
@@ -113,8 +108,27 @@ export function createSigninThrottle(options: {
 }
 
 /**
- * Count sign-in starts before the auth hook runs. The edge check only
- * confirms Caddy asked; the anonymous request limit already counted it. Call before registering the auth plugin.
+ * Whether a forwarded URI opens a Dex connector's page. The path is decoded
+ * and its repeated slashes collapsed, as Caddy matches it, so an encoded
+ * spelling is counted too.
+ */
+export function isDexConnectorStart(uri: string): boolean {
+	let path = uri.split("?")[0] ?? "";
+	try {
+		path = decodeURIComponent(path);
+	} catch {
+		// Not valid percent-encoding: Dex would not route it either.
+		return false;
+	}
+	return DEX_CONNECTOR_PATH.test(path.replace(/\/{2,}/g, "/"));
+}
+
+/**
+ * Count sign-in starts before the auth hook runs. Call before registering
+ * the auth plugin.
+ *
+ * The anonymous request limit has already counted each edge check; this
+ * hook also counts the ones for /dex/auth itself.
  */
 export function registerSigninThrottle(
 	app: FastifyInstance,
@@ -130,9 +144,9 @@ export function registerSigninThrottle(
 	async function refuse(
 		request: FastifyRequest,
 		reply: FastifyReply,
-		decision: ThrottleDecision,
+		decision: LimitDecision,
 	): Promise<void> {
-		if (decision.audit) {
+		if (decision.firstRefusal) {
 			try {
 				await recordAudit(deps.db, {
 					actor: "unknown",
@@ -166,6 +180,14 @@ export function registerSigninThrottle(
 			const body: ApiError = { code: "FORBIDDEN", message: "Forbidden." };
 			await reply.status(403).send(body);
 			return;
+		}
+		const uri = request.headers["x-forwarded-uri"];
+		if (typeof uri === "string" && isDexConnectorStart(uri)) {
+			const decision = throttle.checkDexStart(request.ip);
+			if (!decision.allowed) {
+				await refuse(request, reply, decision);
+				return;
+			}
 		}
 		await reply.status(204).send();
 	});

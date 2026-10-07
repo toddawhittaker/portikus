@@ -119,7 +119,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// The cheap per-address count runs first, so a refused request reaches no
 	// later count (SPEC.md section 24.13).
-	registerAnonymousLimit(app, deps.config);
+	const unknownSession = registerAnonymousLimit(app, deps.config);
 	// Before the auth plugin, so its hook runs first.
 	const signinThrottle = registerSigninThrottle(app, deps);
 	registerCounterPrune(app, { db: deps.db, logger: deps.logger });
@@ -141,7 +141,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	const rootShells = new Set<RootShellPipe>();
 	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces, registry });
 
-	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
+	app.register(authPlugin, {
+		db: deps.db,
+		auth: toAuthOptions(deps.config),
+		unknownSession,
+	});
 
 	// Registered before @fastify/websocket so it runs before that plugin's own
 	// preClose, which drops the sockets without a status code.

@@ -4073,8 +4073,12 @@ itself up.
 - **Off-site quota (Epic 36).** The prune script empties `incoming` when
   it uses more than twice the disk (at least 1 GiB) or ten times the
   file count (at least 100,000) of the median kept set, or cannot be
-  measured, never following links, and warns on stderr. The operator's
-  filesystem quota on the target account is the real bound on bursts
+  measured, never following links, and warns on stderr. It leaves out
+  the newest unfinished set named for the last day while it changed in
+  the last 2 hours (a big set takes longer than the hourly run to
+  arrive), warning past four times the median, drops unfinished sets
+  dated over a day ahead, and before any set is kept limits only non-set
+  entries. The operator's filesystem quota on the target account is the real bound on bursts
   (docs/INSTALL.md).
 
 ### 24.10 Transport security
@@ -4318,10 +4322,16 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   and one warning log line per window, no audit row. The limit runs
   before every other count, so a refused request writes no counter.
   Made-up preview cookies at `/preview/authorize` have their own count
-  per address, which refuses only that route. Only `/auth/login` and
-  `/lti/login` count as sign-in starts (150 a minute per address); the
-  callback, the LTI launch and Dex's pages fall under the anonymous
-  limit.
+  per address, which refuses only that route. A session cookie that
+  matches no session counts against the anonymous limit on any route
+  and is refused past it, though each one still costs one session
+  lookup, because the lookup must come first so a real session is never
+  refused. `/auth/login` and `/lti/login` count as sign-in starts (150 a
+  minute per address), and so, in a count of its own with the same
+  limit, does a GET of a Dex connector's page (`/dex/auth/<connector>`,
+  matched on the decoded path), because that is where Dex stores a
+  sign-in record; bare `/dex/auth`, the callback, the LTI launch and
+  Dex's other pages fall under the anonymous limit.
 - **Stored guess counts (ADR 0053).** Password posts per address,
   password failures per account, the second-factor counts and the
   password-change count live in PostgreSQL (`signin_counters`), so a

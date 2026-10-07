@@ -286,8 +286,7 @@ describe.skipIf(skip)("the second-factor gate", () => {
 		expect(refused.statusCode).toBe(429);
 		expect(refused.json()).toEqual({
 			code: "RATE_LIMITED",
-			message:
-				"Too many wrong codes. Wait a few minutes, or use a recovery code or a passkey.",
+			message: "Too many wrong codes. Wait a few minutes, or use a recovery code.",
 		});
 		await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
 		const throttled = await testDb.db
@@ -449,6 +448,20 @@ async function auditRows(action: string) {
 }
 
 describe.skipIf(skip)("passkeys", () => {
+	test("a refused code offers a passkey to someone who has one", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		await enrolPasskey(await signIn("admin"), key);
+		const jar = await signIn("admin");
+		for (let i = 0; i < 10; i++) {
+			await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
+		}
+		const refused = await post(jar, "/me/second-factor/verify", { code: "123456" });
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json().message).toBe(
+			"Too many wrong codes. Wait a few minutes, or use a recovery code or a passkey.",
+		);
+	});
+
 	test("a passkey enrols at the gate and signs the next session in", async () => {
 		const key = new SoftPasskey(PUBLIC_URL);
 		const jar = await signIn("admin");
@@ -695,7 +708,7 @@ describe.skipIf(skip)("past a refused count", () => {
 			});
 			expect(refused.statusCode).toBe(429);
 			expect(refused.json().message).toBe(
-				"Too many wrong codes today. You can still sign in with a recovery code or a passkey.",
+				"Too many wrong codes today. You can still sign in with a recovery code.",
 			);
 			const ok = await post(holder, "/me/second-factor/verify", { code: codes[0] });
 			expect(ok.statusCode).toBe(204);

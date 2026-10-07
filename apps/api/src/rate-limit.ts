@@ -9,7 +9,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
  * cap and the per-user limits all count with them.
  */
 
-export interface Window {
+interface Window {
 	startedAt: number;
 	count: number;
 	/** Set once the first refusal in this window has been reported. */
@@ -223,24 +223,31 @@ export function createAnonymousCounter(
 	return createCounter(config.ANONYMOUS_REQUEST_LIMIT_PER_MINUTE, MINUTE_MS, now);
 }
 
+function isAnonymousRoute(request: FastifyRequest): boolean {
+	return ANONYMOUS_ROUTES.has(`${request.method} ${request.routeOptions.url ?? ""}`);
+}
+
 /**
  * Count every request to an anonymous route per address and answer 429 past
  * the limit. Register it before the sign-in throttle, so a refused request
  * reaches no later count.
+ *
+ * Returns the check for a session cookie that matches no session, which the
+ * auth plugin calls: guessing cookies is anonymous work too (SPEC.md section
+ * 24.13). It answers 429 and returns false past the limit.
  */
 export function registerAnonymousLimit(
 	app: FastifyInstance,
 	config: ApiConfig,
 	now: () => number = Date.now,
-): void {
+): (request: FastifyRequest, reply: FastifyReply) => Promise<boolean> {
 	const counter = createAnonymousCounter(config, now);
-	app.addHook("onRequest", async (request, reply) => {
-		const route = `${request.method} ${request.routeOptions.url ?? ""}`;
-		if (!ANONYMOUS_ROUTES.has(route)) return;
+
+	async function allow(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
 		// request.ip is the client Caddy named; trustProxy trusts only loopback.
 		const key = addressKey(request.ip);
 		const decision = check(counter, key);
-		if (decision.allowed) return;
+		if (decision.allowed) return true;
 		if (decision.firstRefusal) {
 			request.log.warn({ address: key }, "anonymous request limit reached");
 		}
@@ -248,5 +255,12 @@ export function registerAnonymousLimit(
 			.status(429)
 			.header("retry-after", String(decision.retryAfterSeconds))
 			.send(ANONYMOUS_LIMIT_BODY);
+		return false;
+	}
+
+	app.addHook("onRequest", async (request, reply) => {
+		if (isAnonymousRoute(request)) await allow(request, reply);
 	});
+	// An anonymous route was counted above already.
+	return async (request, reply) => isAnonymousRoute(request) || allow(request, reply);
 }
