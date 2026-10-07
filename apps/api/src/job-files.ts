@@ -9,6 +9,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { isJobActive, type JobTimes, jobStaleAt } from "@portikus/contracts";
 import type { ZodType } from "zod";
 
 /** log.txt can grow to megabytes during a build; only its tail is read. */
@@ -38,13 +39,9 @@ export async function fileTime(path: string): Promise<string | null> {
 	);
 }
 
-type JobTimes = { state: string; requestedAt: string | null; startedAt: string | null };
-
-/** Queued or running past `staleMs` (from start, else request): its unit died. */
+/** Queued or running past `staleMs`: its unit died. */
 function isDead(job: JobTimes, staleMs: number, now: number): boolean {
-	if (job.state !== "queued" && job.state !== "running") return false;
-	const since = job.state === "running" ? job.startedAt : job.requestedAt;
-	return since !== null && now >= Date.parse(since) + staleMs;
+	return jobStaleAt(job, staleMs) !== null && !isJobActive(job, staleMs, now);
 }
 
 /**

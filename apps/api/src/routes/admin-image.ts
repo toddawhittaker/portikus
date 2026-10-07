@@ -19,6 +19,7 @@ import {
 	ImageSizeFile,
 	ImageVersion,
 	type ImageView,
+	isJobActive,
 	newerPublishedImage,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
@@ -357,7 +358,7 @@ export function registerAdminImageRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isJobActive(j, IMAGE_JOB_STALE_MS))) {
 				return sendError(
 					reply,
 					409,

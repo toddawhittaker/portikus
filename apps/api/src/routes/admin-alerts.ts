@@ -3,7 +3,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminNotifications,
 	type AlertChannelKind,
-	isNotifyJobActive,
+	isJobActive,
 	NOTIFY_FILE_OFF,
 	NOTIFY_JOB_STALE_MS,
 	NotificationSettingsUpdate,
@@ -112,7 +112,7 @@ export function registerAdminAlertRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => isNotifyJobActive(j))) {
+			if (jobs.some((j) => isJobActive(j, NOTIFY_JOB_STALE_MS))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
 			// A broken file must not block the save that repairs it.

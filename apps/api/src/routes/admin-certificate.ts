@@ -14,6 +14,7 @@ import {
 	type CertificateSettings,
 	type CertificateSettingsView,
 	DNS_PROVIDER_FIELDS,
+	isJobActive,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -298,7 +299,7 @@ export function registerAdminCertificateRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isJobActive(j, CERTIFICATE_JOB_STALE_MS))) {
 				return sendError(reply, 409, "CERTIFICATE_JOB_BUSY", BUSY_MESSAGE);
 			}
 			const status = await readCertificateStatus(statusDir);
