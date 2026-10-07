@@ -28,7 +28,12 @@
 #     largest, so one huge set a broken-into server got kept cannot raise
 #     the limit.  This bounds only the steady use of incoming between
 #     runs: a filesystem quota on this account is the real limit on a
-#     burst within the hour and on kept sets growing (docs/INSTALL.md);
+#     burst within the hour and on kept sets growing (docs/INSTALL.md).
+#     A large set takes longer than an hour to send, so two things are
+#     spared and left out of the measure: the newest unfinished set while
+#     anything in it changed in the last 2 hours, with a warning when it
+#     passes four times the median (1 GiB with none kept), and, until a
+#     first set is kept, every set, since there is no median to size one by;
 #   - removes a set from DIR only when it is more than KEEP days old and
 #     KEEP newer sets are there, so a server that stops sending leaves the
 #     last KEEP sets in place.
@@ -168,23 +173,72 @@ max_kib=$((2 * $(median kib)))
 [ "$max_kib" -ge 1048576 ] || max_kib=1048576
 max_entries=$((10 * $(median entries)))
 [ "$max_entries" -ge 100000 ] || max_entries=100000
-over=""
 # Each measurement is tried twice: rsync renaming a file mid-walk can fail one.
-if ! used=$(kib "${dir}/incoming") && ! used=$(kib "${dir}/incoming"); then
+twice() { "$@" || "$@"; }
+kept=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Exc '[0-9]{8}T[0-9]{6}Z' || true)
+# The newest unfinished set, while anything in it changed in the last 2
+# hours.  The change time, because rsync gives files the source's
+# modification time.
+uploading=""
+for d in "${dir}"/incoming/*; do
+  if is_set "${d##*/}" && is_dir "$d" && [ ! -e "${d}.done" ]; then uploading=$d; fi
+done
+if [ -n "$uploading" ] && [ -z "$(find "$uploading" -newerct "$(date -d '-2 hours' +@%s)" -print -quit 2>/dev/null)" ]; then
+  uploading=""
+fi
+if [ -n "$uploading" ] && up_kib=$(twice kib "$uploading"); then
+  big=$((4 * $(median kib)))
+  [ "$kept" -gt 0 ] || big=1048576
+  [ "$up_kib" -le "$big" ] || warn "${uploading##*/} is still uploading and uses ${up_kib} KiB, over ${big} KiB"
+fi
+# Before any set is kept there is no median to size a set by, so every set
+# is spared and only the rest is limited.
+spared=$uploading
+if [ "$kept" -eq 0 ]; then
+  spared=""
+  for d in "${dir}"/incoming/*; do
+    if is_set "${d##*/}" && is_dir "$d"; then spared="${spared} ${d}"; fi
+  done
+fi
+is_spared() {
+  for s in $spared; do
+    if [ "$1" = "$s" ] || [ "$1" = "${s}.done" ]; then return 0; fi
+  done
+  return 1
+}
+
+over=""
+# Spared sets are measured first, so growth during the run counts against the rest.
+spared_kib=0
+spared_entries=0
+for s in $spared; do
+  if s_kib=$(twice kib "$s") && s_entries=$(twice entries "$s"); then
+    spared_kib=$((spared_kib + s_kib))
+    spared_entries=$((spared_entries + s_entries))
+  elif [ "$kept" -gt 0 ]; then
+    spared=""
+  else
+    over="a set in it cannot be measured"
+  fi
+done
+if [ -z "$over" ] && ! used=$(twice kib "${dir}/incoming"); then
   over="its disk use cannot be measured"
-elif [ "$used" -gt "$max_kib" ]; then
-  over="it uses ${used} KiB, over its limit of ${max_kib} KiB"
-elif ! count=$(entries "${dir}/incoming") && ! count=$(entries "${dir}/incoming"); then
+fi
+if [ -z "$over" ] && [ $((used - spared_kib)) -gt "$max_kib" ]; then
+  over="it uses $((used - spared_kib)) KiB, over its limit of ${max_kib} KiB"
+fi
+if [ -z "$over" ] && ! count=$(twice entries "${dir}/incoming"); then
   over="its entries cannot be counted"
-elif [ "$count" -gt "$max_entries" ]; then
-  over="it holds ${count} entries, over its limit of ${max_entries}"
+fi
+if [ -z "$over" ] && [ $((count - spared_entries)) -gt "$max_entries" ]; then
+  over="it holds $((count - spared_entries)) entries, over its limit of ${max_entries}"
 fi
 if [ -n "$over" ]; then
-  warn "emptying ${dir}/incoming: ${over}"
+  warn "emptying ${dir}/incoming: ${over}${spared:+; sets still arriving are left}"
   # The dot patterns catch hidden names; any left unmatched fail the test below.
   for e in "${dir}"/incoming/* "${dir}"/incoming/.[!.]* "${dir}"/incoming/..?*; do
     [ -e "$e" ] || [ -L "$e" ] || continue
-    remove "$e"
+    is_spared "$e" || remove "$e"
   done
 fi
 

@@ -608,7 +608,12 @@ days old and 30 newer sets are there. Nothing else in the folder is touched.
 
 If `incoming` grows past twice the disk of a typical kept set (at least
 1 GiB) or past ten times its file count (at least 100,000), the next run
-empties it and the warning reaches you by cron mail. That only limits
+empties it and the warning reaches you by cron mail. A big set can take
+longer than an hour to arrive, so the newest unfinished set is left
+alone while anything in it changed in the last 2 hours; a run warns when
+it grows past four times a typical kept set (1 GiB before any is kept).
+Until the first set is kept there is nothing to size a set by, so no
+set in `incoming` is removed for size, only other files. That only limits
 what sits in `incoming` between runs. **Set a filesystem quota on the
 target account**, for both disk blocks and files (inodes). It is the
 only real limit on a burst within the hour and on kept sets that keep

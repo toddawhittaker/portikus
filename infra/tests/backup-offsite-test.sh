@@ -28,6 +28,10 @@
 #     day, mode-000 folders and hidden or oddly named entries included,
 #     without following a symlink, and a warning goes to stderr; one huge
 #     kept set does not raise the limit, and keeping it warns too;
+#   - the newest unfinished set, while it changed in the last 2 hours, is
+#     left out of that limit and only warned about, as is every set before
+#     the first is kept; a second recent set and one stalled for over 2
+#     hours count as usual, and junk is still removed;
 #   - a finished set holding hard links is not kept, and mode-000 folders
 #     inside a kept set or an old one being removed do not stop the run.
 #
@@ -338,7 +342,7 @@ fallocate -l 1100M "${inq}/junk"
 sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
 expect_eq "prune over the limit succeeds" 0 "$?"
 check "over the limit warns on stderr" grep -q "emptying .*incoming: it uses .* over its limit of 1048576 KiB" "${work}/quota.err"
-expect_eq "incoming is emptied, the finished set waiting its day included" "" "$(quota_listing)"
+expect_eq "incoming is emptied but for the set still uploading, the finished set waiting its day included" "$fresh_unfinished" "$(quota_listing)"
 check "the symlinks were not followed" test -f "${outside}/inner/file"
 check "the kept sets are untouched" bash -c "test -d '${quota}/${huge}' && test -d '${quota}/${yesterday}'"
 check "nothing warns on a second run" bash -c "sh '${prune}' '${quota}' 3 2>&1 >/dev/null | grep -c . | grep -qx 0"
@@ -351,7 +355,7 @@ done
 sh "$prune" "$quota" 3 >"${work}/quota.out" 2>"${work}/quota.err"
 expect_eq "prune with many finished same-day sets succeeds" 0 "$?"
 check "and warns that incoming is over its limit" grep -q "over its limit" "${work}/quota.err"
-expect_eq "none of them is kept and incoming is emptied" "" "$(quota_listing)"
+expect_eq "none of them is kept and incoming is emptied but for the set still uploading" "$fresh_unfinished" "$(quota_listing)"
 check "no new set moved in" test ! -e "${quota}/${today}T000010Z"
 chmod -R u+rwX "$quota"
 rm -rf "$quota"
@@ -374,6 +378,67 @@ expect_eq "prune with 100,005 empty files in incoming succeeds" 0 "$?"
 check "and warns about the entry count" grep -q "entries, over its limit of 100000" "${work}/many.err"
 expect_eq "and incoming is emptied" "" "$(listing "${many}/incoming")"
 rm -rf "$many"
+
+echo "== a set still uploading"
+# A first set over the 1 GiB floor, with no kept set to size it by.
+first="${work}/first"
+big1=$(stamp '-20 minutes')
+mkdir -p "${first}/incoming/${big1}"
+fallocate -l 1100M "${first}/incoming/${big1}/home.age"
+for run in 1 2 3; do
+  sh "$prune" "$first" 3 >/dev/null 2>"${work}/first.err"
+  expect_eq "run ${run}: prune with a large first set uploading succeeds" 0 "$?"
+  check "run ${run}: the large first set survives" test -f "${first}/incoming/${big1}/home.age"
+done
+check "and a run warns that it is large" grep -q "${big1} is still uploading and uses" "${work}/first.err"
+fallocate -l 1100M "${first}/incoming/junk"
+sh "$prune" "$first" 3 >/dev/null 2>"${work}/first.err"
+check "junk beside it over the floor is removed" test ! -e "${first}/incoming/junk"
+check "and the set is not" test -f "${first}/incoming/${big1}/home.age"
+: >"${first}/incoming/${big1}.done"
+sh "$prune" "$first" 3 >/dev/null 2>&1
+check "once finished, the first set is kept" test -f "${first}/${big1}/home.age"
+chmod -R u+rwX "$first"
+rm -rf "$first"
+# With kept sets, only the newest unfinished set that is still changing is spared.
+up="${work}/up"
+mkdir -p "${up}/incoming"
+for s in "$(stamp '-3 days')" "$(stamp '-2 days')" "$(stamp '-1 day')"; do
+  mkdir "${up}/${s}"
+  echo small >"${up}/${s}/home.age"
+done
+second=$(stamp '-30 minutes')
+newest_up=$(stamp '-10 minutes')
+mkdir "${up}/incoming/${newest_up}"
+fallocate -l 1100M "${up}/incoming/${newest_up}/home.age"
+sh "$prune" "$up" 3 >/dev/null 2>"${work}/up.err"
+expect_eq "prune with a large set uploading beside kept sets succeeds" 0 "$?"
+check "the uploading set survives" test -f "${up}/incoming/${newest_up}/home.age"
+check "and the run warns that it is four times the median" grep -q "${newest_up} is still uploading" "${work}/up.err"
+check "and does not empty incoming" bash -c "! grep -q emptying '${work}/up.err'"
+mkdir "${up}/incoming/${second}"
+fallocate -l 1100M "${up}/incoming/${second}/home.age"
+sh "$prune" "$up" 3 >/dev/null 2>"${work}/up.err"
+check "a second recently written set is not spared and goes over the limit" \
+  bash -c "test ! -e '${up}/incoming/${second}' && grep -q 'emptying' '${work}/up.err'"
+check "the newest one still survives" test -f "${up}/incoming/${newest_up}/home.age"
+# Three hours on, the newest set has not changed for over 2 hours.
+mkdir "${work}/later"
+real_date=$(command -v date)
+cat >"${work}/later/date" <<EOF
+#!/usr/bin/env bash
+a=("\$@")
+for i in "\${!a[@]}"; do
+  if [ "\${a[i]}" = -d ]; then a[i+1]="\${a[i+1]} +3 hours"; exec ${real_date} "\${a[@]}"; fi
+done
+exec ${real_date} -d '+3 hours' "\$@"
+EOF
+chmod +x "${work}/later/date"
+PATH="${work}/later:${PATH}" sh "$prune" "$up" 3 >/dev/null 2>"${work}/up.err"
+expect_eq "prune with a stalled set succeeds" 0 "$?"
+check "a set stalled for over 2 hours is removed when over the limit" \
+  bash -c "test ! -e '${up}/incoming/${newest_up}' && grep -q 'emptying' '${work}/up.err'"
+rm -rf "$up"
 # Hard links and mode-000 folders inside finished and old sets.
 odd="${work}/odd"
 opened=$(stamp '-2 days')
