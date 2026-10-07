@@ -1909,14 +1909,6 @@ with a unit test and an e2e check.
 
 **Source.** Epic 35.
 
-## A made-up main session cookie has no per-address limit
-
-**What.** A request with a made-up session cookie to a protected route costs one session lookup in PostgreSQL. The anonymous limit does not count it, because the route needs a session.
-
-**What it would take.** Count session-lookup misses per address, as made-up preview cookies already are, and refuse past a limit.
-
-**Source.** Epic 36.
-
 ## A notifications job with no status yet is not listed
 
 **What.** `allJobs` in `apps/api/src/alerts/jobs.ts` skips a job folder the alerts job has taken but not yet given a `status.json`, so for a moment the Notifications page can show no job.
