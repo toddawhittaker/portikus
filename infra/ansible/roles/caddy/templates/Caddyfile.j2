@@ -264,10 +264,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# lockout, so every password form post goes to the API, which counts it
 	# per address and per account, audits a wrong password, and passes it on
 	# to Dex (SPEC 24.13). Every other GET under /dex/auth asks the API's
-	# sign-in throttle, which counts it against the anonymous request limit.
-	# A GET of exactly /dex/auth is also counted as a sign-in start, once per
-	# student sign-in, because Dex stores each one as an auth request in
-	# PostgreSQL for ten minutes. A 429 goes back to the browser unchanged.
+	# sign-in throttle, which counts it against the anonymous limit of 600 a
+	# minute per address. A GET of exactly /dex/auth, once per sign-in, is
+	# also counted against a limit of 150 a minute per address, because Dex
+	# stores each one as an auth request in PostgreSQL for ten minutes.
+	# A 429 goes back to the browser unchanged.
 	handle /dex/* {
 		# Only the paths the sign-in flow and the API use reach Dex; the rest,
 		# such as the unthrottled /dex/device/code, would store data for nothing.
