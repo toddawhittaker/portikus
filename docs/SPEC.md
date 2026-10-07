@@ -4319,12 +4319,15 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   before every other count, so a refused request writes no counter.
   Made-up preview cookies at `/preview/authorize` have their own count
   per address, which refuses only that route. A session cookie that
-  matches no session counts against the anonymous limit on any route.
-  `/auth/login` and `/lti/login` count as sign-in starts (150 a minute
-  per address), and so, in a count of its own with the same limit, does
-  a GET of exactly `/dex/auth`, because Dex stores an auth request for
-  each; the callback, the LTI launch and Dex's other pages fall under
-  the anonymous limit.
+  matches no session counts against the anonymous limit on any route
+  and is refused past it, though each one still costs one session
+  lookup, because the lookup must come first so a real session is never
+  refused. `/auth/login` and `/lti/login` count as sign-in starts (150 a
+  minute per address), and so, in a count of its own with the same
+  limit, does a GET of a Dex connector's page (`/dex/auth/<connector>`,
+  matched on the decoded path), because that is where Dex stores a
+  sign-in record; bare `/dex/auth`, the callback, the LTI launch and
+  Dex's other pages fall under the anonymous limit.
 - **Stored guess counts (ADR 0053).** Password posts per address,
   password failures per account, the second-factor counts and the
   password-change count live in PostgreSQL (`signin_counters`), so a

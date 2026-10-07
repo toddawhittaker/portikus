@@ -33,9 +33,9 @@ const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
 // anonymous request limit instead (SPEC.md section 24.13).
 const START_ROUTES = new Set(["/auth/login", "/lti/login"]);
 
-// Caddy asks about every GET under /dex/auth; only this path creates a Dex
-// auth request, and a student loads it once per sign-in (ADR 0053).
-const DEX_AUTH_PATH = "/dex/auth";
+// Dex stores a sign-in record when the browser opens a connector's page,
+// such as /dex/auth/local, once per sign-in (ADR 0053).
+const DEX_CONNECTOR_PATH = /^\/dex\/auth\/[^/]+\/?$/;
 
 /** Dex compares logins without case, so the count does too. */
 export function accountKey(login: string): string {
@@ -77,7 +77,7 @@ export function createSigninThrottle(options: {
 		checkStart(ip: string): LimitDecision {
 			return check(starts, addressKey(ip));
 		},
-		/** Count one GET of Dex's /dex/auth, which stores an auth request in Dex. */
+		/** Count one GET of a Dex connector's page, where Dex stores a sign-in record. */
 		checkDexStart(ip: string): LimitDecision {
 			return check(dexStarts, addressKey(ip));
 		},
@@ -107,11 +107,20 @@ export function createSigninThrottle(options: {
 	};
 }
 
-/** The path of the URI Caddy forwarded, without its query. */
-function forwardedPath(request: FastifyRequest): string {
-	const uri = request.headers["x-forwarded-uri"];
-	if (typeof uri !== "string") return "";
-	return uri.split("?")[0] ?? "";
+/**
+ * Whether a forwarded URI opens a Dex connector's page. The path is decoded
+ * and its repeated slashes collapsed, as Caddy matches it, so an encoded
+ * spelling is counted too.
+ */
+export function isDexConnectorStart(uri: string): boolean {
+	let path = uri.split("?")[0] ?? "";
+	try {
+		path = decodeURIComponent(path);
+	} catch {
+		// Not valid percent-encoding: Dex would not route it either.
+		return false;
+	}
+	return DEX_CONNECTOR_PATH.test(path.replace(/\/{2,}/g, "/"));
 }
 
 /**
@@ -172,7 +181,8 @@ export function registerSigninThrottle(
 			await reply.status(403).send(body);
 			return;
 		}
-		if (forwardedPath(request) === DEX_AUTH_PATH) {
+		const uri = request.headers["x-forwarded-uri"];
+		if (typeof uri === "string" && isDexConnectorStart(uri)) {
 			const decision = throttle.checkDexStart(request.ip);
 			if (!decision.allowed) {
 				await refuse(request, reply, decision);

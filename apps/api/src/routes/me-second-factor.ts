@@ -292,7 +292,7 @@ export function registerMeSecondFactorRoutes(
 			sessionId: sessionId(request),
 			eligible: isRecoveryCodeShape(input.code),
 			// Offer a passkey only to someone who has one (SPEC.md section 25.8).
-			passkeys: (await listPasskeys(db, user.id)).length > 0,
+			passkeys: async () => (await listPasskeys(db, user.id)).length > 0,
 		});
 		if (!allowance) return reply;
 
@@ -415,7 +415,7 @@ export function registerMeSecondFactorRoutes(
 		const allowance = await throttle.allow(request, reply, user.id, {
 			sessionId: sessionId(request),
 			eligible: true,
-			passkeys: true,
+			passkeys: async () => true,
 		});
 		if (!allowance) return reply;
 		const challenge = challenges.take(challengeKey(request, "verify"));

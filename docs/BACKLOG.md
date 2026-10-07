@@ -1909,6 +1909,14 @@ with a unit test and an e2e check.
 
 **Source.** Epic 35.
 
+## A made-up session cookie still costs one session lookup
+
+**What.** A made-up session cookie is refused past the anonymous limit, but each one is still looked up in PostgreSQL first, so a flood costs one query per request even after the limit starts refusing.
+
+**What it would take.** Count per address before the lookup without refusing real sessions: once an address is over the limit, refuse its cookies that match a short in-memory list of recent misses before querying.
+
+**Source.** Epic 36.
+
 ## A notifications job with no status yet is not listed
 
 **What.** `allJobs` in `apps/api/src/alerts/jobs.ts` skips a job folder the alerts job has taken but not yet given a `status.json`, so for a moment the Notifications page can show no job.
