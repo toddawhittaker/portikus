@@ -558,7 +558,9 @@ class BuildTest(Base):
         self.assertRegex(status["version"], r"^2026\.09\.12-local\.[0-9]{12}$")
         env = self.host.env
         self.assertEqual((env["PORTIKUS_NODE_MAJOR"], env["PORTIKUS_PYTHON"]), ("26", "uv-3.14"))
-        self.assertEqual((env["PORTIKUS_CLAUDE_VERSION"], env["PORTIKUS_CODEX_VERSION"]), ("latest", "latest"))
+        # Unset, so the recipe's own pinned coding-agent versions apply.
+        self.assertNotIn("PORTIKUS_CLAUDE_VERSION", env)
+        self.assertNotIn("PORTIKUS_CODEX_VERSION", env)
         self.assertEqual(env["PORTIKUS_IMAGE_VERSION"], status["version"])
         build = self.host.ran("distrobuilder")[0]
         self.assertEqual(build[1:3], ["build-incus", str(self.recipe / "portikus.yaml")])
