@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createAlertSources } from "./alert-sources.js";
 import { createAlertForwarder } from "./alerts.js";
 import { backupVmTick, pullRequest } from "./backups.js";
+import { pruneExpiredCounters } from "./counter-prune.js";
 import { createEgressSync } from "./egress.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import { createGuard } from "./guard.js";
@@ -262,6 +263,7 @@ describe.skipIf(skip)("the worker's role", () => {
 		await notifyAdministrators(worker, { tone: "warning", title: "t", body: "b" });
 		await pruneNotifications(worker, new Date());
 		await pruneEndedTerminals(worker, new Date());
+		await pruneExpiredCounters(worker, new Date());
 		await reconcile(
 			worker,
 			controller,

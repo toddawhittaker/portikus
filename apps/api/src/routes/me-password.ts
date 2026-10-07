@@ -37,7 +37,7 @@ function newPasswordProblem(
  */
 export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps): void {
 	const { db, config } = deps;
-	const throttle = createAccountThrottle();
+	const throttle = createAccountThrottle({ db, logger: deps.logger });
 
 	function notLocal(reply: FastifyReply) {
 		sendError(reply, 400, "NOT_LOCAL_PASSWORD", "This account has no Dex password.");
@@ -79,8 +79,8 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 		const dexUserId = localDexUserId(row, config.OIDC_ISSUER_URL);
 		if (dexUserId === null) return notLocal(reply);
 
-		const decision = throttle.attempt(user.id);
-		if (!decision.allowed) {
+		const decision = await throttle.attempt(user.id);
+		if (!decision.receipt) {
 			if (decision.audit) {
 				await recordAudit(db, {
 					actor: `user:${user.id}`,
@@ -165,7 +165,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			if (err instanceof PasswordGone) return notLocal(reply);
 			return dexUnavailable(request, reply, err);
 		} finally {
-			if (!wrong) throttle.giveBack(user.id);
+			if (!wrong) await throttle.giveBack(decision.receipt);
 		}
 		return reply.status(204).send();
 	});

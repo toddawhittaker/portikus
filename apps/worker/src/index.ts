@@ -7,6 +7,7 @@ import { startAlertSources } from "./alert-sources.js";
 import { startAlertForwarding } from "./alerts.js";
 import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
+import { startCounterPrune } from "./counter-prune.js";
 import { startSeedJobs } from "./docker-seed-jobs.js";
 import { startDockerUsage } from "./docker-usage.js";
 import { startEgressSync } from "./egress.js";
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
 			readAlertChannels(config.NOTIFY_FILE, config.OUTBOUND_PROXY_URL),
 	});
 	startTerminalPrune({ db, logger });
+	startCounterPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
 	startBackupVmLoop({ db, controller, logger });
 	startEgressSync({ db, controller, logger });

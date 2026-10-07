@@ -604,6 +604,9 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0040_signin_counters",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0039_notification_flags",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -735,6 +738,7 @@ describe("database migrations and schema", () => {
 					"0037_second_factor",
 					"0038_account_invitations",
 					"0039_notification_flags",
+					"0040_signin_counters",
 				]);
 				throw rollback;
 			}),
@@ -757,6 +761,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -901,6 +908,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1003,6 +1013,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -1410,6 +1423,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1525,6 +1541,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -2000,6 +2019,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2177,6 +2199,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2242,6 +2267,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -2532,6 +2560,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2597,6 +2628,7 @@ describe("resource guard migration", () => {
 						"0037_second_factor",
 						"0038_account_invitations",
 						"0039_notification_flags",
+						"0040_signin_counters",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
@@ -2649,6 +2681,7 @@ describe("resource guard migration", () => {
 						"0037_second_factor",
 						"0038_account_invitations",
 						"0039_notification_flags",
+						"0040_signin_counters",
 					]);
 					throw rollback;
 				}),
@@ -2682,6 +2715,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -2761,6 +2797,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2829,6 +2868,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2884,6 +2926,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -2988,6 +3033,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -3105,6 +3153,9 @@ describe("resource guard migration", () => {
 						.returning("id")
 						.executeTakeFirstOrThrow();
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3176,6 +3227,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -3294,6 +3348,9 @@ describe("backups migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -3415,6 +3472,9 @@ describe("backups migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3509,6 +3569,9 @@ describe("api request samples migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);
@@ -3718,6 +3781,9 @@ describe("throttle hold migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0040_signin_counters",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0039_notification_flags",
 					);

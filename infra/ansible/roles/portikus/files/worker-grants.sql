@@ -43,6 +43,9 @@ GRANT UPDATE (egress_applied_version, egress_applied_at, egress_apply_error,
 GRANT SELECT, UPDATE ON workspaces, terminals, projects, backup_status
 	TO "portikus-worker";
 GRANT DELETE ON terminals TO "portikus-worker";
+-- Deletes ended sign-in counts (ADR 0053); reads no login or address.
+GRANT SELECT (expires_at) ON signin_counters TO "portikus-worker";
+GRANT DELETE ON signin_counters TO "portikus-worker";
 GRANT SELECT, UPDATE, DELETE ON workspace_process_snapshots TO "portikus-worker";
 GRANT SELECT, INSERT, UPDATE ON backup_requests, package_survey_counts
 	TO "portikus-worker";
