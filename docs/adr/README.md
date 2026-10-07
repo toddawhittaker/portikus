@@ -80,3 +80,5 @@ has four sections:
 | [0050](0050-write-only-off-site-copy.md) | The off-site copy is pushed with a write-only key and pruned by the target (accepted, Epic 34) |
 | [0051](0051-root-shell.md) | Administrators get a root shell in the admin area through a root helper behind a socket (accepted, Epic 35) |
 | [0052](0052-notification-settings.md) | Notification settings are set from the admin page and kept in a root-owned file (accepted, Epic 35) |
+| [0053](0053-signin-counters-in-postgresql.md) | Sign-in counters live in PostgreSQL, and a recovery code or passkey gets past the account lockout (accepted, Epic 36) |
+| [0054](0054-offline-breached-password-list.md) | Breached passwords are checked against an offline list from SecLists (accepted, Epic 36) |

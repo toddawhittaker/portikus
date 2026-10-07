@@ -168,8 +168,13 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 					</dd>
 				</div>
 			</dl>
-			<p className="pk-text-body pk-muted" role="status">
-				{busy ? "Linking your accounts…" : ""}
+			{/* Always mounted so it announces; while empty it leaves the flow, so the panel adds no gap for it. */}
+			<p
+				className="pk-text-body pk-muted empty:absolute"
+				role="status"
+				data-testid="link-status"
+			>
+				{busy ? "Linking your accounts…" : null}
 			</p>
 			{secondFactor === "enrol" ? (
 				<p className="pk-text-body" role="alert" data-testid="link-error">

@@ -98,6 +98,38 @@ test("a refused confirm is announced with the server's reason", async () => {
 	);
 });
 
+test("the status line stays mounted and empty until it announces the link in progress", async () => {
+	let answer: (response: Response) => void = () => {};
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "/me/links/pending") return json(200, PENDING);
+			if (url === "/me/links/confirm") {
+				return new Promise<Response>((resolve) => {
+					answer = resolve;
+				});
+			}
+			throw new Error(`unexpected request: ${url}`);
+		}),
+	);
+	vi.stubGlobal("close", vi.fn());
+	renderApp("/link");
+
+	const status = await screen.findByTestId("link-status");
+	expect(status.getAttribute("role")).toBe("status");
+	// Empty, it adds no text node, so `:empty` takes it out of the flow and its gap.
+	expect(status.childNodes).toHaveLength(0);
+	expect(status.className).toContain("empty:absolute");
+
+	fireEvent.click(screen.getByRole("button", { name: "Link accounts" }));
+	await waitFor(() => expect(status.textContent).toBe("Linking your accounts…"));
+	expect(screen.getByTestId("link-status")).toBe(status);
+
+	answer(json(200, {}));
+	await screen.findByTestId("link-done");
+});
+
 test("a confirm with no pending link left says it expired", async () => {
 	stubLink(() => json(404, { code: "NOT_FOUND", message: "Not found" }));
 	renderApp("/link");

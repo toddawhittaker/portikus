@@ -1,3 +1,4 @@
+import { ACCOUNT_IMPORT_MAX_ROWS } from "@portikus/contracts";
 import type { HelpPart } from "./part.js";
 
 /**
@@ -22,6 +23,40 @@ export const ADMIN_HELP: HelpPart = {
 					label, and choose a name to open its panel. The panel shows the workspace's
 					state and storage, and every action for it.
 				</p>
+			),
+		},
+		{
+			id: "admin-invitations",
+			title: "Inviting people",
+			body: (
+				<>
+					<p>
+						Nobody can sign up on their own. On <strong>Users</strong>, choose{" "}
+						<strong>Invite…</strong> before someone's first sign-in; that sign-in
+						creates their account with the role you chose. Until then they are listed at
+						the end of the table as <strong>Invited</strong>, and{" "}
+						<strong>Revoke…</strong> takes the invitation back.
+					</p>
+					<p>
+						How the first sign-in is matched depends on the sign-in provider. Most
+						providers must send a verified email that matches the invitation. Microsoft
+						Entra does not verify email, so Portikus matches only the user principal
+						name: put it in <strong>Sign-in name</strong>, or leave that empty to match
+						the email. LDAP matches either the username or the email.
+					</p>
+					<p>
+						To add many people at once, choose <strong>Import from CSV…</strong>.{" "}
+						<strong>Download a sample file</strong> shows the columns: name, email,
+						username, role and kind, one row per person, at most{" "}
+						{ACCOUNT_IMPORT_MAX_ROWS} rows. Kind <strong>invite</strong> invites the
+						person; kind <strong>password</strong> adds an account with a Portikus
+						password. Role is student or instructor; add administrators one at a time.
+						Portikus checks the file and marks each row Ready, Invalid or Already
+						exists, and adds nothing until you confirm. Then{" "}
+						<strong>Download passwords</strong> gives the one-time passwords, once only.
+						Give each person theirs privately.
+					</p>
+				</>
 			),
 		},
 		{
