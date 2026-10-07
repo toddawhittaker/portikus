@@ -9,7 +9,7 @@ import {
 } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
-import { listDir, readJson } from "../job-files.js";
+import { fileTime, listDir, readJson } from "../job-files.js";
 
 const REQUEST_FILE = /^request-([0-9a-f-]{36})\.json$/;
 
@@ -64,7 +64,7 @@ export async function queuedJobs(dir: string): Promise<CertificateJobView[]> {
 	for (const name of await listDir(dir)) {
 		const match = REQUEST_FILE.exec(name);
 		if (!match?.[1] || !CertificateJobId.safeParse(match[1]).success) continue;
-		jobs.push(queuedView(match[1], null, null));
+		jobs.push(queuedView(match[1], await fileTime(join(dir, name)), null));
 	}
 	return jobs;
 }
@@ -75,7 +75,10 @@ export async function readJob(
 ): Promise<CertificateJobView | null> {
 	const status = await readJson(join(dir, id, "status.json"), CertificateJobStatusFile);
 	const record = await readJson(join(dir, id, "request.json"), CertificateJobRecord);
-	if (!status) return record ? queuedView(id, null, record.kind) : null;
+	if (!status) {
+		if (!record) return null;
+		return queuedView(id, await fileTime(join(dir, id, "request.json")), record.kind);
+	}
 	if (status.id !== id) return null;
 	return {
 		id,
