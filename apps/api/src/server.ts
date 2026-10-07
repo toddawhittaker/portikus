@@ -12,6 +12,7 @@ import {
 import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
+import { registerPagePolicy } from "./page-policy.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -103,6 +104,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			reply.header("cache-control", "no-store");
 		}
 	});
+
+	registerPagePolicy(app);
 
 	// Browser forms post urlencoded: the sign-out button, whose fields no
 	// route reads, and the LTI login and launch.

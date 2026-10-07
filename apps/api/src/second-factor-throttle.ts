@@ -22,6 +22,21 @@ export interface SecondFactorDecision {
 	audit: boolean;
 	/** True when the daily cap, not the ten-minute one, refused it. */
 	daily: boolean;
+	/** Present only when the try was counted, so only it can be given back. */
+	receipt: SecondFactorReceipt | null;
+}
+
+/** One counted hit on one counter: which count, whose, and in which window. */
+interface CounterReceipt {
+	scope: "second-factor" | "second-factor-daily";
+	key: string;
+	windowStart: number;
+}
+
+/** Proof that one request's try was counted, so a give-back returns only its own count. */
+export interface SecondFactorReceipt {
+	readonly hits: readonly CounterReceipt[];
+	spent: boolean;
 }
 
 /** The counting alone, apart from audit and notice, so it can be tested with a clock. */
@@ -36,7 +51,7 @@ export function createSecondFactorCounts(now: () => number = () => Date.now()) {
 			if (window.count > short.limit) {
 				const audit = !window.reported;
 				window.reported = true;
-				return { allowed: false, audit, daily: false };
+				return { allowed: false, audit, daily: false, receipt: null };
 			}
 			// Only tries that reach the check count toward the day.
 			const day = daily.hit(userId);
@@ -45,16 +60,29 @@ export function createSecondFactorCounts(now: () => number = () => Date.now()) {
 				day.count -= 1;
 				const audit = !day.reported;
 				day.reported = true;
-				return { allowed: false, audit, daily: true };
+				return { allowed: false, audit, daily: true, receipt: null };
 			}
-			return { allowed: true, audit: false, daily: false };
+			const receipt: SecondFactorReceipt = {
+				hits: [
+					{ scope: "second-factor", key: userId, windowStart: window.startedAt },
+					{ scope: "second-factor-daily", key: userId, windowStart: day.startedAt },
+				],
+				spent: false,
+			};
+			return { allowed: true, audit: false, daily: false, receipt };
 		},
-		/** Give back a try that turned out to be a right code. */
-		giveBack(userId: string): void {
-			const window = short.peek(userId);
-			if (window.count > 0) window.count -= 1;
-			const day = daily.peek(userId);
-			if (day.count > 0) day.count -= 1;
+		/**
+		 * Give back a counted try that was a right code or never reached the
+		 * check. Does nothing once spent, or in a window that has since ended.
+		 */
+		giveBack(receipt: SecondFactorReceipt): void {
+			if (receipt.spent) return;
+			receipt.spent = true;
+			for (const hit of receipt.hits) {
+				const counter = hit.scope === "second-factor" ? short : daily;
+				const window = counter.peek(hit.key);
+				if (window.startedAt === hit.windowStart && window.count > 0) window.count -= 1;
+			}
 		},
 	};
 }
@@ -68,15 +96,15 @@ export function createSecondFactorThrottle(db: Kysely<Database>) {
 		/**
 		 * Count one try for this account. On a refusal the 429 is sent, the
 		 * first refusal is audited, and the first daily-cap refusal leaves the
-		 * holder a kept notice. Returns whether the try may go on.
+		 * holder a kept notice. Returns the try's receipt, or null when refused.
 		 */
 		async allow(
 			request: FastifyRequest,
 			reply: FastifyReply,
 			userId: string,
-		): Promise<boolean> {
+		): Promise<SecondFactorReceipt | null> {
 			const decision = counts.attempt(userId);
-			if (decision.allowed) return true;
+			if (decision.receipt) return decision.receipt;
 			if (decision.audit) {
 				await recordAudit(db, {
 					actor: `user:${userId}`,
@@ -109,7 +137,7 @@ export function createSecondFactorThrottle(db: Kysely<Database>) {
 					: "Too many wrong codes. Please wait a few minutes and try again.",
 			};
 			await reply.status(429).send(body);
-			return false;
+			return null;
 		},
 		giveBack: counts.giveBack,
 	};

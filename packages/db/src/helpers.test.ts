@@ -1,4 +1,7 @@
-import { MAX_NOTIFICATIONS_PER_USER } from "@portikus/contracts";
+import {
+	MAX_KEPT_NOTIFICATIONS_PER_USER,
+	MAX_NOTIFICATIONS_PER_USER,
+} from "@portikus/contracts";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
 	isUniqueViolation,
@@ -166,6 +169,35 @@ describe("recordAuditReturningId and notifications", () => {
 				.execute();
 			expect(rows).toHaveLength(MAX_NOTIFICATIONS_PER_USER);
 			expect(rows.map((r) => r.title)).not.toContain("n0");
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
+		"recordNotification keeps only a user's newest kept notices",
+		async () => {
+			const userId = await insertTestUser(t.db);
+			await recordNotification(t.db, userId, {
+				tone: "neutral",
+				title: "plain",
+				body: "b",
+			});
+			for (let i = 0; i <= MAX_KEPT_NOTIFICATIONS_PER_USER; i++) {
+				await recordNotification(
+					t.db,
+					userId,
+					{ tone: "warning", title: `k${i}`, body: "b" },
+					{ kept: true },
+				);
+			}
+			const rows = await t.db
+				.selectFrom("notifications")
+				.select(["title", "kept"])
+				.where("user_id", "=", userId)
+				.execute();
+			const kept = rows.filter((r) => r.kept).map((r) => r.title);
+			expect(kept).toHaveLength(MAX_KEPT_NOTIFICATIONS_PER_USER);
+			expect(kept).not.toContain("k0");
+			expect(rows.map((r) => r.title)).toContain("plain");
 		},
 	);
 
