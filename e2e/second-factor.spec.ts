@@ -112,6 +112,8 @@ test("a recovery code signs in once", async ({ browser }) => {
 });
 
 test("thirty wrong codes, then a recovery code still signs in", async ({ browser }) => {
+	// The earlier tests' wrong codes are still counted; start from none.
+	await clearLenasCounts();
 	const page = await freshSignIn(browser);
 	const statuses: number[] = [];
 	for (let i = 0; i < 30; i++) {

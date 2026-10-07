@@ -112,11 +112,9 @@ function refusalMessage(daily: boolean, passkeys: boolean): string {
 export type SecondFactorThrottle = ReturnType<typeof createSecondFactorThrottle>;
 
 /** One per server; buildServer hands it to every route that checks a code. */
-export function createSecondFactorThrottle(
-	db: Kysely<Database>,
-	logger: Logger,
-	now: () => number = () => Date.now(),
-) {
+export function createSecondFactorThrottle(db: Kysely<Database>, logger: Logger) {
+	// Read the clock on every call, so a test that fakes Date is seen.
+	const now = () => Date.now();
 	const counts = createSecondFactorCounts({ db, logger, now });
 	// In memory: losing these on a restart only means a retry (ADR 0053).
 	const bypassTries = createCounter(BYPASS_LIMIT_PER_10_MINUTES, TEN_MINUTES_MS, now);

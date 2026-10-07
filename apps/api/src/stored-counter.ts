@@ -69,7 +69,8 @@ export function createStoredCounter(options: {
 	async function hit(key: string): Promise<Hit> {
 		const at = new Date(now());
 		const ends = new Date(at.getTime() + windowMs);
-		// Every SET expression reads the old row, so `stale` is decided once.
+		// Every SET expression reads the old row, so all four agree on whether
+		// the window had ended. The row lock makes parallel hits count exactly.
 		const result = await sql<{ count: number; window_started_at: Date }>`
 			insert into signin_counters as c
 				(scope, key, window_started_at, expires_at, count, reported)

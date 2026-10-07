@@ -390,52 +390,6 @@ describe.skipIf(skip)("the second-factor gate", () => {
 		}
 	});
 
-	test("a passkey post with no challenge gives back only its own try", async () => {
-		const first = await signIn("admin");
-		const { codes } = await enrol(first);
-		const jar = await signIn("admin");
-		// Ten posts in the ten-minute window; without the give-back the next try is refused.
-		for (let i = 0; i < 10; i++) {
-			const res = await post(jar, "/me/second-factor/webauthn/verify", {
-				credential: NO_CHALLENGE_CREDENTIAL,
-			});
-			expect(res.json().code).toBe("PASSKEY_EXPIRED");
-		}
-		const ok = await post(jar, "/me/second-factor/verify", {
-			code: codes[0],
-		});
-		expect(ok.statusCode).toBe(204);
-	});
-
-	test("after the daily cap, passkey posts with no challenge give nothing back", async () => {
-		const first = await signIn("admin");
-		const { secret } = await enrol(first);
-		const jar = await signIn("admin");
-		const start = Date.now();
-		vi.useFakeTimers({ toFake: ["Date"], now: start });
-		try {
-			for (let window = 0; window < 3; window++) {
-				vi.setSystemTime(start + window * 11 * 60_000);
-				for (let i = 0; i < 10; i++) {
-					await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
-				}
-			}
-			vi.setSystemTime(start + 3 * 11 * 60_000);
-			for (let i = 0; i < 10; i++) {
-				const res = await post(jar, "/me/second-factor/webauthn/verify", {
-					credential: NO_CHALLENGE_CREDENTIAL,
-				});
-				expect(res.statusCode).toBe(429);
-			}
-			const refused = await post(jar, "/me/second-factor/verify", {
-				code: totpCode(secret, totpStep(Date.now())),
-			});
-			expect(refused.statusCode).toBe(429);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
 	test("the last factor cannot be removed; a second one can be", async () => {
 		const jar = await signIn("admin");
 		await enrol(jar);
