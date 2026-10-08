@@ -138,7 +138,10 @@ contents, journal lines from the helper, and a banner.
    of the session's scope, as `systemd-run --scope` does, keeps the
    session's audit id, which logind uses as the session's name; the off
    switch and the `end` frame kill those too, and a record stays while
-   any such process lives. A service started with plain `systemd-run`
+   any such process lives. This is best effort against a cooperative
+   administrator: root can give a process a new audit session id, for
+   example by writing `/proc/self/loginuid`, and it then escapes the
+   kill. A service started with plain `systemd-run`
    has no link to the session; the off switch only names the running
    units under systemd-run's own `run-*` names, and the operations guide
    says so.

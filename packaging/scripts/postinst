@@ -321,9 +321,11 @@ apply_worker_grants() {
 # Enable the services on a first install ($2, the previously configured
 # version, is empty) and on a reinstall after apt remove, whose postrm
 # dropped their links.  Never on an upgrade, which would undo an
-# administrator's systemctl disable.
+# administrator's systemctl disable.  Without systemd running, as in a
+# chroot, nothing is enabled, but the mark still goes, or a later upgrade
+# would count as a reinstall.
 enable_units() {
-	if [ -z "$1" ] || [ -e "$REINSTALL_MARK" ]; then
+	if [ -d /run/systemd/system ] && { [ -z "$1" ] || [ -e "$REINSTALL_MARK" ]; }; then
 		for unit in $UNITS; do
 			systemctl enable "$unit" >/dev/null
 		done
@@ -343,8 +345,6 @@ if [ -d /run/systemd/system ]; then
 
 	systemctl daemon-reload
 
-	enable_units "$2"
-
 	# The Docker caches pick up a changed unit or helper; setup starts them first.
 	systemctl try-restart portikus-registry-hub.service portikus-registry-ghcr.service || true
 
@@ -355,6 +355,8 @@ if [ -d /run/systemd/system ]; then
 		esac
 	done
 fi
+
+enable_units "$2"
 
 apply_worker_grants
 
