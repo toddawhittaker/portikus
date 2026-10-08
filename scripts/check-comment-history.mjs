@@ -7,11 +7,13 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+// Two to five digits: skips HTML entities like &#43;, hex colours with a letter
+// and six- or eight-digit colours such as #333333.
+const BARE_HASH = /(?<![&\w])#\d{2,5}(?![\w])/g;
+
 const PATTERNS = [
 	{ name: "issue reference", re: /\bissues? #?\d+/gi },
-	// Two to five digits: skips HTML entities like &#43;, hex colours with a letter
-	// and six- or eight-digit colours such as #333333.
-	{ name: "issue reference", re: /(?<![&\w])#\d{2,5}(?![\w])/g },
+	{ name: "issue reference", re: BARE_HASH },
 	{ name: "pull request reference", re: /\bPRs? #?\d+/g },
 	{ name: "epic reference", re: /\bEpics? \d+/gi },
 	{ name: "task reference", re: /\b[Tt]asks? T?\d+\b/g },
@@ -77,9 +79,35 @@ function skipString(src, start, startLine) {
 	return { i: i + 1, line };
 }
 
-// Returns [{ line, text }] per comment line; string literals are skipped so
-// "https://" inside a string is not taken for a comment.
-function cComments(src) {
+// A "/" after one of these characters or words starts a regex, not a division.
+const REGEX_AFTER_CHAR = "(,=:[!&|?{};+-*%<>~^";
+const REGEX_AFTER_WORD = /(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|throw)$/;
+
+function regexAllowed(src, at) {
+	let j = at - 1;
+	while (j >= 0 && /\s/.test(src[j])) j--;
+	if (j < 0) return true;
+	if (REGEX_AFTER_CHAR.includes(src[j])) return true;
+	return REGEX_AFTER_WORD.test(src.slice(Math.max(0, j - 8), j + 1));
+}
+
+// Skips the regex literal opening at start; returns the index past its end.
+function skipRegex(src, start) {
+	let i = start + 1;
+	let inClass = false;
+	while (i < src.length && src[i] !== "\n") {
+		if (src[i] === "\\") i++;
+		else if (src[i] === "[") inClass = true;
+		else if (src[i] === "]") inClass = false;
+		else if (src[i] === "/" && !inClass) return i + 1;
+		i++;
+	}
+	return i;
+}
+
+// Returns [{ line, text }] per comment line; string and regex literals are
+// skipped so "https://" or a backtick inside them is not taken for code.
+function cComments(src, isCss) {
 	const out = [];
 	let line = 1;
 	let i = 0;
@@ -104,6 +132,8 @@ function cComments(src) {
 			i = stop + 2;
 		} else if (ch === '"' || ch === "'" || ch === "`") {
 			({ i, line } = skipString(src, i, line));
+		} else if (ch === "/" && !isCss && regexAllowed(src, i)) {
+			i = skipRegex(src, i);
 		} else {
 			i++;
 		}
@@ -111,10 +141,31 @@ function cComments(src) {
 	return out;
 }
 
+// Index of the first "#" comment start outside quotes, or -1.
+function hashStart(text) {
+	let quote = "";
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (quote) {
+			if (ch === "\\" && quote === '"') i++;
+			else if (ch === quote) quote = "";
+		} else if (ch === '"' || ch === "'") {
+			quote = ch;
+		} else if (
+			ch === "#" &&
+			(i === 0 || /\s/.test(text[i - 1])) &&
+			text[i + 1] !== "!"
+		) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 function hashComments(src) {
 	const out = [];
 	src.split("\n").forEach((text, n) => {
-		const at = text.search(/(^|\s)#(?!!)/);
+		const at = hashStart(text);
 		if (at !== -1) out.push({ line: n + 1, text: text.slice(at) });
 	});
 	return out;
@@ -136,7 +187,8 @@ function jinjaComments(src) {
 
 function testTitles(src) {
 	const out = [];
-	const re = /\b(?:test|it|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*?)\1/g;
+	const re =
+		/(?<![.\w$])(?:test|it|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1)[^\\])*?)\1/g;
 	for (const m of src.matchAll(re)) {
 		out.push({ line: src.slice(0, m.index).split("\n").length, text: m[2] });
 	}
@@ -147,7 +199,7 @@ export function scanText(path, src) {
 	const kind = kindOf(path);
 	if (!kind) return [];
 	let spans;
-	if (kind === "c") spans = cComments(src);
+	if (kind === "c") spans = cComments(src, path.endsWith(".css"));
 	else if (kind === "jinja") spans = jinjaComments(src);
 	else spans = hashComments(src);
 	if (/\.(test|spec)\.tsx?$/.test(path)) spans = spans.concat(testTitles(src));
@@ -157,6 +209,8 @@ export function scanText(path, src) {
 		for (const allow of ALLOWED) clean = clean.replace(allow, "");
 		// One hit per comment line is enough to point the reader at it.
 		for (const { name, re } of PATTERNS) {
+			// In a stylesheet a bare short number is a colour; an explicit "issue" prefix still hits.
+			if (re === BARE_HASH && path.endsWith(".css")) continue;
 			const m = clean.match(new RegExp(re.source, re.flags.replace("g", "")));
 			if (m) {
 				hits.push({ path, line, name, match: m[0] });
