@@ -1,14 +1,35 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
+import {
+	lockSharedState,
+	loginAs,
+	openToggletip,
+	query,
+	SETTINGS_ROW_LOCK,
+	settledAxe,
+	toast,
+	WCAG_TAGS,
+} from "./helpers";
 import { expectTokenFill } from "./token-colour";
 
 /**
  * The Settings tab layout (SPEC.md section 20.1): one column of sections
  * split by hairlines, the resource guard in four
  * groups, the grace period in minutes. These tests write the one settings
- * row, so they run one after another.
+ * row, so they run one after another under a lock every worker shares.
  */
 test.describe.configure({ mode: "serial" });
+
+let release: (() => Promise<void>) | undefined;
+
+test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState(SETTINGS_ROW_LOCK);
+});
+
+test.afterAll(async () => {
+	await release?.();
+});
 
 async function box(locator: Locator) {
 	const found = await locator.boundingBox();

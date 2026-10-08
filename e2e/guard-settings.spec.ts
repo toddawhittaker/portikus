@@ -1,11 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { expectNoViolations, loginAs, query, toast } from "./helpers";
+import {
+	expectNoViolations,
+	lockSharedState,
+	loginAs,
+	query,
+	SETTINGS_ROW_LOCK,
+	toast,
+} from "./helpers";
 
 /**
  * The Resource guard card's saves in the admin Settings tab: the automatic
  * throttle lift (ADR 0032) and the throttle hold (SPEC.md §19.4).
  * Save writes every field of the card to the one settings row, so these
- * tests share a file and run serially; in parallel they overwrite each other.
+ * tests share a file, run serially, and hold a lock every worker shares.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -23,8 +30,12 @@ async function liftSettings(): Promise<LiftRow> {
 }
 
 let saved: LiftRow;
+let release: (() => Promise<void>) | undefined;
 
 test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState(SETTINGS_ROW_LOCK);
 	saved = await liftSettings();
 });
 
@@ -33,6 +44,7 @@ test.afterAll(async () => {
 		"update settings set cpu_idle_lift_minutes = $1, cpu_idle_lift_percent = $2",
 		[saved.cpu_idle_lift_minutes, saved.cpu_idle_lift_percent],
 	);
+	await release?.();
 });
 
 test("an administrator saves the quiet time and percent, and they show after a reload", async ({
