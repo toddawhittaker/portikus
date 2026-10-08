@@ -10,8 +10,6 @@ import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
 	fileRouteFor,
-	localPreviewTarget,
-	MIN_PREVIEW_PORT,
 	previewRouteFor,
 	type TerminalLink,
 } from "../links.js";
@@ -130,17 +128,6 @@ export function TerminalPane({
 		const preview = previewRouteFor(uri, workspaceId, projectId);
 		if (preview) {
 			go(navigate, preview);
-			return;
-		}
-		// A workspace URL on a port policy reserves opens nothing, so say
-		// why rather than leaving the click with no effect (SPEC.md §14.7).
-		const local = localPreviewTarget(uri);
-		if (local) {
-			toast.show({
-				tone: "warning",
-				title: `Port ${local.port} cannot be previewed`,
-				children: `Previews are for ports ${MIN_PREVIEW_PORT} and above. Run your application on a higher port.`,
-			});
 			return;
 		}
 		// Any other URL leaves the app in a new tab, unless it points at

@@ -35,15 +35,19 @@ test("an IPv6 loopback URL becomes the preview route", () => {
 	});
 });
 
-// The default ports of http and https are both below 1024, so a URL with no
-// port is a workspace URL the preview policy refuses (SPEC.md §14.7).
+// The port policy lives only in the API (SPEC.md §14.7), so a low or reserved
+// port still opens the Preview tab, which shows the API's refusal.
 test.each([
 	["http with no port means 80", "http://localhost/", 80],
 	["https with no port means 443", "https://127.0.0.1/app", 443],
 	["a reserved port", "http://localhost:22/", 22],
-])("%s is a local URL that may not be previewed", (_name, url, port) => {
-	expect(localPreviewTarget(url)).toEqual({ port, allowed: false });
-	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toBeNull();
+])("%s opens the preview route", (_name, url, port) => {
+	expect(localPreviewTarget(url)).toEqual({ port });
+	expect(previewRouteFor(url, WORKSPACE, PROJECT)).toEqual({
+		kind: "preview",
+		to: "/workspaces/$id/projects/$projectId/preview/$port",
+		params: { id: WORKSPACE, projectId: PROJECT, port: String(port) },
+	});
 });
 
 test.each([
@@ -71,14 +75,12 @@ test.each([
 test("a short loopback form is the same loopback host", () => {
 	expect(localPreviewTarget("http://127.1:3000/")).toEqual({
 		port: 3000,
-		allowed: true,
 	});
 });
 
 test("host matching ignores case", () => {
 	expect(localPreviewTarget("http://LocalHost:3000/")).toEqual({
 		port: 3000,
-		allowed: true,
 	});
 });
 

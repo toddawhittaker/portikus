@@ -26,7 +26,7 @@ import {
 	projectNameFromRepository,
 } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
-import { AgentFailure } from "./errors.js";
+import { AgentFailure, saysNoSpace } from "./errors.js";
 import { runGit, STDERR_LIMIT } from "./git-runner.js";
 import {
 	excludePortikusFiles,
@@ -175,6 +175,10 @@ async function git(args: string[], cwd: string, timeout?: number): Promise<void>
 		: result.overflow
 			? "git printed too much output"
 			: `git exited with status ${result.exitCode}`;
+	// A clone or template on a full disk must say so (SPEC.md §27).
+	if (saysNoSpace(result.stderr)) {
+		throw new AgentFailure("STORAGE_FULL", "no space left in the home folder");
+	}
 	throw new AgentFailure(
 		"GIT_FAILED",
 		result.stderr.slice(-STDERR_LIMIT).trim() || reason,
@@ -417,6 +421,9 @@ export async function duplicateProject(
 		});
 	} catch (error) {
 		await rm(target.path, { recursive: true, force: true });
+		if (saysNoSpace(errorMessage(error))) {
+			throw new AgentFailure("STORAGE_FULL", "no space left in the home folder");
+		}
 		throw new AgentFailure(
 			"GIT_FAILED",
 			`could not duplicate the project: ${errorMessage(error)}`,

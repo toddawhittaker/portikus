@@ -151,7 +151,7 @@ export function registerRecoveryRoutes(
 				return sendError(
 					reply,
 					429,
-					"BUSY",
+					"RATE_LIMITED",
 					"A recovery point was made moments ago. Wait 30 seconds and try again.",
 				);
 			}

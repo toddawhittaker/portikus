@@ -159,6 +159,21 @@ test("an unreachable workspace is explained in plain English", async () => {
 	);
 });
 
+test("a refused search past the running cap says so", async () => {
+	stubError(409, { code: "BUSY", message: "too many searches are running" });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+
+	type("answer");
+
+	await waitFor(() =>
+		expect(screen.getByTestId("search-error").textContent).toBe(
+			"Too many searches are running in this workspace. Try again in a moment.",
+		),
+	);
+});
+
 test("any other failure gets the general sentence, not the raw message", async () => {
 	stubError(500, { code: "INTERNAL", message: "ripgrep died in /home/student" });
 	renderWithQuery(

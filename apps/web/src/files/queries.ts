@@ -111,8 +111,14 @@ export function directoryDownloadUrl(
  * polls any more: the project events socket refetches the listing when
  * something in that directory changes (SPEC.md §11.4, useProjectEvents.ts).
  */
-export function useTree(workspaceId: string, projectId: string, dir: string) {
+export function useTree(
+	workspaceId: string,
+	projectId: string,
+	dir: string,
+	enabled = true,
+) {
 	return useQuery({
+		enabled,
 		queryKey: fileKeys.tree(workspaceId, projectId, dir),
 		queryFn: () => request(TreeResponse, treeUrl(workspaceId, projectId, dir)),
 	});

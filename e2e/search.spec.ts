@@ -58,6 +58,18 @@ test.describe("project search", () => {
 		await expect(page.getByTestId("search-truncated")).toBeHidden();
 	});
 
+	test("a search refused past the running cap says so", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await openSearch(page, student, "Search busy");
+
+		// The fake agent answers BUSY for any query containing "busy".
+		await page.getByTestId("search-input").fill("busy");
+
+		await expect(page.getByTestId("search-error")).toHaveText(
+			"Too many searches are running in this workspace. Try again in a moment.",
+		);
+	});
+
 	/** SPEC.md §25.8: a result is named by file and line, and shows its focus. */
 	test("a result is named by its file and line and draws a focus ring", async ({
 		page,

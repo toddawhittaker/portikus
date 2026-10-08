@@ -233,6 +233,18 @@ describe("secret values", () => {
 		expect(CertificateJobRequest.safeParse(google("not json")).success).toBe(false);
 	});
 
+	test("a key file naming a field twice is refused", () => {
+		const text = JSON.stringify(serviceAccount);
+		const repeated = `${text.slice(0, -1)},"client_email":"other@demo-project.iam.gserviceaccount.com"}`;
+		expect(CertificateJobRequest.safeParse(google(repeated)).success).toBe(false);
+		// An escaped spelling of the same name is still the same key.
+		const escaped = `${text.slice(0, -1)},"\\u0074ype":"service_account"}`;
+		expect(CertificateJobRequest.safeParse(google(escaped)).success).toBe(false);
+		// A value that looks like a key does not count as one.
+		const quoted = JSON.stringify({ ...serviceAccount, client_id: '"type":"x"' });
+		expect(CertificateJobRequest.safeParse(google(quoted)).success).toBe(true);
+	});
+
 	test("a key without the service-account fields is refused", () => {
 		expect(
 			CertificateJobRequest.safeParse(google({ type: "service_account" })).success,
