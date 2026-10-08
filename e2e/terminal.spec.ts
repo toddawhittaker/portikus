@@ -8,6 +8,7 @@ import {
 	newTerminal,
 	projectIds,
 	query,
+	seedListening,
 	terminalIds,
 	WEB_ORIGIN,
 	waitForSavedLeaf,
@@ -597,6 +598,27 @@ test("a localhost URL in the output opens the preview route", async ({
 	await expect(page.getByTestId("tab-preview:3000")).toBeVisible({
 		timeout: 15_000,
 	});
+});
+
+test("a link to a reserved port opens the Preview tab with the API's refusal", async ({
+	page,
+	context,
+}) => {
+	// The port policy lives only in the API (SPEC.md §14.7), so the browser
+	// opens the tab and the refusal comes from the API.
+	const student = await createStudent(context);
+	await seedListening(student.workspaceId, [{ port: 80 }]);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+
+	await typeAndExpectEcho(page, rowsOf(page, terminalId), "http://localhost:80/x");
+	await clickTerminalText(page, "http://localhost:80/x");
+
+	await expect(page.getByTestId("tab-preview:80")).toBeVisible({ timeout: 15_000 });
+	await expect(
+		page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
+	).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId("preview-port-refused")).toBeVisible();
+	await expect(page.getByTestId("preview-frame")).toHaveCount(0);
 });
 
 test("the title bar follows cd", async ({ page, context }) => {

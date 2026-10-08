@@ -1,10 +1,12 @@
 import { deflateSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
+import { MAX_EDITOR_FILE_BYTES } from "../packages/contracts/src/files.ts";
 import {
 	createProject,
 	createStudent,
 	expectNoViolations,
 	openFileTab,
+	pushEvent,
 	query,
 	seedFile,
 	workspacePath,
@@ -59,6 +61,23 @@ function png(width: number, height: number, rgb: [number, number, number]): Buff
 	]);
 }
 
+/**
+ * A real PNG padded past the editor limit with a text chunk, so its read
+ * comes back too large and carries no etag. `extra` changes its size.
+ */
+function bigPng(width: number, height: number, extra: number): Buffer {
+	const plain = png(width, height, [47, 125, 109]);
+	const end = plain.length - 12;
+	const pad = chunk(
+		"tEXt",
+		Buffer.concat([
+			Buffer.from("pad\0"),
+			Buffer.alloc(MAX_EDITOR_FILE_BYTES + extra, 0x61),
+		]),
+	);
+	return Buffer.concat([plain.subarray(0, end), pad, plain.subarray(end)]);
+}
+
 /** An SVG that would set a flag on the page if any of its script ran. */
 const HOSTILE_SVG = [
 	'<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" onload="top.svgRan = true">',
@@ -101,6 +120,40 @@ test.describe("file viewer", () => {
 		expect(response.headers()["content-type"]).toBe("image/png");
 		expect(response.headers()["x-content-type-options"]).toBe("nosniff");
 		expect(response.headers()["content-security-policy"]).toMatch(/^sandbox;/);
+	});
+
+	test("an image past the editor limit refreshes when it changes on disk", async ({
+		page,
+		context,
+	}) => {
+		// A large file's read has no etag, so its size and modified time from
+		// the listing make the change a new address (SPEC.md §13.2, §11.4).
+		const student = await createStudent(context);
+		const path = "big.png";
+		const project = await openFileTab(page, student, "Big", path, bigPng(64, 40, 0));
+		const image = page.getByRole("img", { name: "big.png" });
+		await expect
+			.poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth), {
+				timeout: 15_000,
+			})
+			.toBe(64);
+
+		await seedFile(student.workspaceId, project.slug, path, bigPng(32, 20, 1000));
+		await expect
+			.poll(() =>
+				pushEvent(student.workspaceId, project.slug, {
+					type: "fs",
+					paths: [path],
+					git: false,
+					truncated: false,
+				}),
+			)
+			.toBeGreaterThan(0);
+		await expect
+			.poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth), {
+				timeout: 15_000,
+			})
+			.toBe(32);
 	});
 
 	test("an SVG shows its picture and its script does not run", async ({
