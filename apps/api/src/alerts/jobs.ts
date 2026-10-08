@@ -42,7 +42,14 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 
 async function readJob(dir: string, id: string): Promise<NotifyJobView | null> {
 	const status = await readJson(join(dir, id, "status.json"), NotifyJobStatusFile);
-	if (!status || status.id !== id) return null;
+	if (!status) {
+		// Taken but no status yet: running since the folder appeared, so the
+		// shared stale rule still ends it if the job died (jobStaleAt).
+		const since = await fileTime(join(dir, id));
+		if (!since) return null;
+		return { ...queuedView(id, since), state: "running", startedAt: since };
+	}
+	if (status.id !== id) return null;
 	return {
 		id,
 		state: status.state,

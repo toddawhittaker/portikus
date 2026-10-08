@@ -424,6 +424,12 @@ export function documentTabId(node: SplitNode): string | null {
 }
 
 /**
+ * Most layout bytes one user may keep across all their projects, so many
+ * workspaces and projects cannot fill the database (SPEC.md §7.5).
+ */
+export const MAX_LAYOUT_BYTES_PER_USER = 8 * 1024 * 1024;
+
+/**
  * The saved layout of one project (SPEC.md §7.5). There is no cap on the
  * number of tabs: the strip shrinks and then scrolls instead.
  * The browser writes this column and the whole tree is attacker-controlled

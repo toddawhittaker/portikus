@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	isJobActive,
 	NOTIFY_JOB_STALE_MS,
@@ -5,6 +8,7 @@ import {
 } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
 import { currentJob } from "../job-files.js";
+import { allJobs } from "./jobs.js";
 
 const NOW = Date.parse("2026-10-06T12:00:00.000Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -119,5 +123,21 @@ describe("currentJob with the notify stale limit", () => {
 		});
 		const b = job({ state: "queued", requestedAt: ago(NOTIFY_JOB_STALE_MS + 1) });
 		expect(currentJob([a, b], NOTIFY_JOB_STALE_MS, NOW)?.id).toBe(b.id);
+	});
+});
+
+describe("allJobs", () => {
+	test("a taken job folder without status.json yet is listed as running", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "alerts-jobs-"));
+		try {
+			const id = "11111111-1111-4111-8111-111111111111";
+			await mkdir(join(dir, id));
+			const [listed] = await allJobs(dir);
+			expect(listed).toMatchObject({ id, state: "running" });
+			expect(listed?.startedAt).not.toBeNull();
+			expect(isJobActive(listed, NOTIFY_JOB_STALE_MS)).toBe(true);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

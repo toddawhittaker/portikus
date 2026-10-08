@@ -367,11 +367,6 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
-		const recoveryPointId =
-			body.data.agent !== undefined && project
-				? await agentSessionPoint(request, agent, params.id, project, user.id)
-				: null;
-
 		// The early check can race a parallel create; the lock makes the
 		// recount, the name, the position and the insert one step so the cap
 		// holds and parallel creates never share a name (SPEC.md 9.7).
@@ -400,12 +395,18 @@ export function registerTerminalRoutes(
 					project_id: project ? project.id : null,
 					theme,
 					agent: body.data.agent ?? null,
-					recovery_point_id: recoveryPointId,
 				})
 				.execute();
 			return true;
 		});
 		if (!inserted) return terminalLimit(reply);
+
+		// Taken only once the capped insert holds, so a refused create leaves
+		// no point behind (SPEC.md 9.7), and still before the session starts.
+		const recoveryPointId =
+			body.data.agent !== undefined && project
+				? await agentSessionPoint(request, agent, params.id, project, user.id)
+				: null;
 
 		let baselineObjectId: string | null = null;
 		let baselineHead: string | null = null;
@@ -430,6 +431,7 @@ export function registerTerminalRoutes(
 			.set({
 				baseline_object_id: baselineObjectId,
 				baseline_head: baselineHead,
+				recovery_point_id: recoveryPointId,
 			})
 			.where("id", "=", id)
 			.returningAll()

@@ -7,12 +7,10 @@ import {
 	DuplicateProjectRequest,
 	displayNameFromDirectory,
 	type Project,
-	ProjectLayout,
 	type ProjectList,
 	ProjectPath,
 	ProjectState,
 	type ProjectTemplateList,
-	type SplitNode,
 	slugify,
 	UpdateProjectRequest,
 } from "@portikus/contracts";
@@ -45,6 +43,7 @@ import {
 	sendAgentError,
 } from "../workspaces/project-scope.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
+import { registerProjectLayoutRoutes } from "./project-layout.js";
 
 const ListQuery = z.object({ state: ProjectState.default("active") });
 
@@ -81,13 +80,6 @@ function listRows(db: Kysely<Database>, workspaceId: string) {
 		.selectAll()
 		.where("workspace_id", "=", workspaceId)
 		.orderBy("created_at");
-}
-
-/** Terminal panes in one layout tab, for the debug line on a save. */
-function countPanes(node: SplitNode): number {
-	if (node.type === "leaf") return 1;
-	if (node.type !== "split") return 0;
-	return node.children.reduce((total, child) => total + countPanes(child), 0);
 }
 
 /** One directory under `~/projects`, as the agent reported it. */
@@ -902,51 +894,5 @@ export function registerProjectRoutes(
 		return reply.send(stream);
 	});
 
-	// SPEC.md §7.5.
-	app.get("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
-		const params = parseOr400(ProjectParam, request.params, reply);
-		if (!params) return;
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.pid, reply);
-		if (!row) return;
-		if (row.layout === null) return reply.status(204).send();
-		return row.layout;
-	});
-
-	// Last write wins (SPEC.md §7.5).
-	app.put(
-		"/workspaces/:id/projects/:pid/layout",
-		{ preHandler: limitWrites },
-		async (request, reply) => {
-			const params = parseOr400(ProjectParam, request.params, reply);
-			if (!params) return;
-			const scope = await owned(request, reply);
-			if (!scope) return;
-			const body = ProjectLayout.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
-			const row = await ownedProject(scope.workspaceId, params.pid, reply);
-			if (!row) return;
-
-			await db
-				.updateTable("projects")
-				.set({ layout: JSON.stringify(body.data) })
-				.where("id", "=", row.id)
-				.execute();
-
-			request.log.debug(
-				{
-					workspaceId: scope.workspaceId,
-					projectId: row.id,
-					tabs: body.data.tabs.length,
-					panes: body.data.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
-				},
-				"layout saved",
-			);
-
-			return reply.status(204).send();
-		},
-	);
+	registerProjectLayoutRoutes(app, db, limitWrites, owned, ownedProject);
 }
