@@ -24,6 +24,9 @@ function searchErrorMessage(error: unknown): string {
 	if (error instanceof ApiError && error.code === "AGENT_UNAVAILABLE") {
 		return "The workspace is not responding. Try again in a moment.";
 	}
+	if (error instanceof ApiError && error.code === "BUSY") {
+		return "Too many searches are running in this workspace. Try again in a moment.";
+	}
 	return SOMETHING_WENT_WRONG;
 }
 

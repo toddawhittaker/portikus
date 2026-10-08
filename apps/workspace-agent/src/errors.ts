@@ -38,6 +38,11 @@ export function isNoSpace(error: unknown): boolean {
 	return code === "ENOSPC" || code === "EDQUOT";
 }
 
+/** Whether a child process's stderr reports a full disk or quota. */
+export function saysNoSpace(stderr: string): boolean {
+	return /No space left on device|Disk quota exceeded/i.test(stderr);
+}
+
 /** The HTTP status each agent failure maps to (SPEC.md §27). */
 export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	BAD_REQUEST: 400,

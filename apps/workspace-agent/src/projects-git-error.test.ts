@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -11,7 +11,7 @@ vi.mock("./git-runner.js", async (importOriginal) => {
 	return { ...actual, runGit: async () => gitResult.value };
 });
 
-const { gitInitProject, projectsDir } = await import("./projects.js");
+const { createProject, gitInitProject, projectsDir } = await import("./projects.js");
 
 let homeDir: string;
 
@@ -49,4 +49,43 @@ test("a newline-only stderr falls back to the exit status", async () => {
 		code: "GIT_FAILED",
 		message: "git exited with status 128",
 	});
+});
+
+test("git reporting a full disk answers STORAGE_FULL, not GIT_FAILED", async () => {
+	// SPEC.md §27: the student must be told storage is the cause.
+	gitResult.value = failed("error: unable to write file: No space left on device\n");
+	await expect(gitInitProject("demo", homeDir)).rejects.toMatchObject({
+		code: "STORAGE_FULL",
+	});
+});
+
+test("a clone on a full disk answers STORAGE_FULL and leaves no folder", async () => {
+	gitResult.value = failed("fatal: write error: No space left on device\n");
+	await expect(
+		createProject(
+			{
+				slug: "cloned",
+				source: "clone",
+				url: "https://example.com/a/b.git",
+				gitInit: true,
+			},
+			homeDir,
+		),
+	).rejects.toMatchObject({ code: "STORAGE_FULL" });
+	expect(await readdir(projectsDir(homeDir))).toEqual(["demo"]);
+});
+
+test("a template on an over-quota disk answers STORAGE_FULL", async () => {
+	gitResult.value = failed("fatal: Disk quota exceeded\n");
+	await expect(
+		createProject(
+			{
+				slug: "tmpl",
+				source: "template",
+				url: "https://example.com/a/t.git",
+				gitInit: true,
+			},
+			homeDir,
+		),
+	).rejects.toMatchObject({ code: "STORAGE_FULL" });
 });

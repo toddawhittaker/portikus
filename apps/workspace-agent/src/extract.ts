@@ -22,7 +22,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_ENTRIES } from "@portikus/contracts";
-import { AgentFailure, errorCode, isNoSpace } from "./errors.js";
+import { AgentFailure, errorCode, isNoSpace, saysNoSpace } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { resolveProject } from "./projects.js";
 
@@ -301,9 +301,7 @@ async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise
 				resolvePromise();
 			} else if (exitSignal === "SIGXFSZ") {
 				reject(new AgentFailure("FILE_TOO_LARGE", "a file in the zip is over the cap"));
-			} else if (
-				/No space left on device|Disk quota exceeded|write error/i.test(stderr)
-			) {
+			} else if (saysNoSpace(stderr) || /write error/i.test(stderr)) {
 				reject(new AgentFailure("STORAGE_FULL", "no space left in the home folder"));
 			} else {
 				reject(invalid("the zip could not be extracted"));
