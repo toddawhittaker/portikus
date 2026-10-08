@@ -319,6 +319,20 @@ export function registerTerminalRoutes(
 		return null;
 	}
 
+	/** End a tmux session whose row is gone; one already ended is fine. */
+	async function endOrphanSession(
+		agent: AgentClient,
+		terminalId: string,
+	): Promise<void> {
+		try {
+			await agent.deleteTerminal(terminalId);
+		} catch (error) {
+			if (!(error instanceof AgentCallError && error.code === "TERMINAL_NOT_FOUND")) {
+				throw error;
+			}
+		}
+	}
+
 	app.post("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
@@ -435,7 +449,13 @@ export function registerTerminalRoutes(
 			})
 			.where("id", "=", id)
 			.returningAll()
-			.executeTakeFirstOrThrow();
+			.executeTakeFirst();
+		if (!saved) {
+			// Closed while the recovery point or the session was being made;
+			// the tmux session must not outlive its row.
+			await endOrphanSession(agent, id);
+			return sendError(reply, 404, "TERMINAL_NOT_FOUND", "Terminal not found");
+		}
 
 		return reply.status(201).send(toTerminal(saved));
 	});

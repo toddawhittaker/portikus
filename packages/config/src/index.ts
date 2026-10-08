@@ -107,13 +107,13 @@ const SharedWorkspaceFields = {
 	AGENT_PORT: positiveInt.default(7400),
 };
 
+/** Workspace state counts as verified while the controller answered the worker this recently (SPEC.md §18.3). */
+export const STATE_VERIFIED_WITHIN_MS = 2 * 60 * 1000;
+
 /**
  * Where administrator alerts are pushed (STACK.md section 15). The API reads
  * it for the test button and the settings page, the worker to send.
  */
-/** Workspace state counts as verified while the controller answered the worker this recently (SPEC.md §18.3). */
-export const STATE_VERIFIED_WITHIN_MS = 2 * 60 * 1000;
-
 export const DEFAULT_NOTIFY_FILE = "/etc/portikus/notify.json";
 
 const NotifyFields = {

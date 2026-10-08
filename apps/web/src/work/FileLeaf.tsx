@@ -324,6 +324,11 @@ export function FileLeaf({
 				</EmptyState>
 			);
 		}
+		// Without an etag the viewer's address is versioned from the listing,
+		// so showing it sooner would load the file twice.
+		if (viewer && data && !data.etag && kind !== null && listing.isPending) {
+			return <p className="pk-file-note">Loading…</p>;
+		}
 		if (viewer && data) return viewerBody(data);
 		if (text === null || !revealReady) {
 			return <p className="pk-file-note">Loading…</p>;

@@ -727,6 +727,45 @@ test("a PDF opens in the browser's viewer from a copy held in the page", async (
 	expect(revoked).toEqual(["blob:pdf-copy"]);
 });
 
+test("an image past the editor limit waits for its listing, so it loads once", async () => {
+	seed = { text: "", etag: "", status: 413 };
+	const server = vi.mocked(fetch);
+	let listed: (response: Response) => void = () => {};
+	const listing = new Promise<Response>((resolve) => {
+		listed = resolve;
+	});
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+			String(input).includes("/tree?") ? await listing : await server(input, init),
+		),
+	);
+	renderLeaf(() => {}, "assets/huge.png");
+	await waitFor(() =>
+		expect(
+			server.mock.calls.some(([input]) => String(input).includes("huge.png")),
+		).toBe(true),
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	});
+	// Without an etag the address is versioned from the listing, so an image
+	// drawn before it arrives would be fetched a second time.
+	expect(screen.queryByRole("img", { name: "huge.png" })).toBeNull();
+
+	listed(
+		new Response(
+			JSON.stringify({
+				entries: [{ name: "huge.png", type: "file", size: 7, mtimeMs: 1000 }],
+				truncated: false,
+			}),
+			{ status: 200, headers: { "content-type": "application/json" } },
+		),
+	);
+	const image = await screen.findByRole("img", { name: "huge.png" });
+	expect(image.getAttribute("src")).toContain("&v=7-1000");
+});
+
 test("a deleted file says so and can be closed", async () => {
 	seed = { text: "", etag: "", status: 404 };
 	const onClose = vi.fn();

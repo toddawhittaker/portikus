@@ -172,6 +172,10 @@ test("a refused search past the running cap says so", async () => {
 			"Too many searches are running in this workspace. Try again in a moment.",
 		),
 	);
+	// The live region says why, not only that it failed (SPEC.md §25.8).
+	expect(screen.getByRole("status").textContent).toBe(
+		"Too many searches are running in this workspace. Try again in a moment.",
+	);
 });
 
 test("any other failure gets the general sentence, not the raw message", async () => {

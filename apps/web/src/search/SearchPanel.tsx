@@ -59,7 +59,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 	// Said by screen readers as the search settles.
 	let status = "";
 	if (term === "") status = "";
-	else if (result.isError) status = "The search failed";
+	else if (result.isError) status = searchErrorMessage(result.error);
 	else if (result.isPending) status = "Searching…";
 	else
 		status = matchCount(matches.length, groups.length, result.data?.truncated ?? false);
