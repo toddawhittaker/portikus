@@ -3,7 +3,24 @@
  * inside the project (SPEC.md §13.2, §13.4).
  */
 import { expect, test } from "vitest";
-import { projectImagePath, viewerKind } from "./viewable.js";
+import { projectImagePath, viewerKind, viewerVersion } from "./viewable.js";
+
+test("a file's etag is its viewer version", () => {
+	expect(viewerVersion("W/abc", { size: 9, mtimeMs: 1 })).toBe("W/abc");
+});
+
+// A file past the editor limit comes back with no etag, so its size and
+// modified time stand in for one and a change on disk is a new address.
+test("a large file without an etag is versioned by size and modified time", () => {
+	const before = viewerVersion("", { size: 3_000_000, mtimeMs: 100 });
+	const after = viewerVersion("", { size: 3_000_000, mtimeMs: 200 });
+	expect(before).toBe("3000000-100");
+	expect(after).not.toBe(before);
+});
+
+test("no etag and no listing entry means no version", () => {
+	expect(viewerVersion("", undefined)).toBeUndefined();
+});
 
 test("images, SVG and PDF open in a viewer, whatever the case of the extension", () => {
 	expect(viewerKind("a.png")).toBe("image");

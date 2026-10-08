@@ -22,7 +22,7 @@ import {
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
-import { MIN_PREVIEW_PORT, UUID } from "./links.js";
+import { UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { NotFound } from "./pages/NotFound.js";
 import { NotInvited } from "./pages/NotInvited.js";
@@ -288,12 +288,13 @@ function safePath(value: unknown): string | undefined {
 	return parsed.success ? parsed.data : undefined;
 }
 
-/** A port from a link is a port a preview may use (SPEC.md §14.7). */
+/**
+ * A port from a link is any TCP port; the API alone decides whether it may be
+ * previewed, and the Preview tab shows its refusal (SPEC.md §14.7).
+ */
 function safePort(value: unknown): number | undefined {
 	const port = Number(value);
-	return Number.isInteger(port) && port >= MIN_PREVIEW_PORT && port <= 65535
-		? port
-		: undefined;
+	return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
 }
 
 /** A line number from a link is a whole line, counted from one. */

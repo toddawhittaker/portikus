@@ -17,6 +17,19 @@ const KINDS: Record<string, ViewerKind> = {
 	pdf: "pdf",
 };
 
+/**
+ * The version a viewer puts in the file's address, so a change on disk is a
+ * new address the browser reloads. A file past the editor limit has no etag,
+ * so its size and modified time from the listing stand in for one.
+ */
+export function viewerVersion(
+	etag: string,
+	entry: { size: number; mtimeMs: number } | undefined,
+): string | undefined {
+	if (etag) return etag;
+	return entry ? `${entry.size}-${entry.mtimeMs}` : undefined;
+}
+
 /** How `path` is shown in a viewer, or null for text and other files. */
 export function viewerKind(path: string): ViewerKind | null {
 	const name = path.slice(path.lastIndexOf("/") + 1);
