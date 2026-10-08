@@ -215,11 +215,13 @@ class Shell:
         fields = self.record()
         return int(fields[0]) if fields and fields[0].isdigit() else None
 
-    def start_daemon(self):
+    def start_daemon(self, ignore_hup=False):
         """A tmux server of its own, in the shell's logind session, running a uniquely named sleep."""
         marker = "sleep %d" % (3000000 + secrets.randbelow(900000))
+        # tmux starts panes in a scope of its own under user@0.service, outside the session's scope.
+        pane = "trap '' HUP; exec %s" % marker if ignore_hup else marker
         # Its own server: a pane joining a server another session started would leave this session empty.
-        self.type("tmux -L rs-%s new-session -d '%s'; echo daemon-$((40+2))\r" % (self.id[:8], marker))
+        self.type("tmux -L rs-%s new-session -d \"%s\"; echo daemon-$((40+2))\r" % (self.id[:8], pane))
         self.expect(rb"daemon-42")
         wait_for(lambda: bool(pids_of(marker)), 5)
         return marker
@@ -449,10 +451,11 @@ def hold():
     shell.ready()
     login = shell.login_pid()
     # Under systemd-run's own name, the only kind the helper can name.
-    unit_marker = shell.run_outside("systemd-run --quiet SLEEP")
+    unit_marker = shell.run_outside("systemd-run --quiet sh -c 'exec SLEEP'")
     with open("/proc/%d/cgroup" % pids_of(unit_marker)[0]) as f:
         unit = f.read().strip().rsplit("/", 1)[-1]
-    state = {"shellId": shell.id, "loginPid": login, "session": session_of(login), "marker": shell.start_daemon(),
+    state = {"shellId": shell.id, "loginPid": login, "session": session_of(login),
+             "marker": shell.start_daemon(ignore_hup=True),
              "leftover": leftover, "orphan": orphan,
              "scoped": shell.run_outside("systemd-run --scope --quiet sh -c 'trap \"\" HUP; exec SLEEP'"),
              "unit": unit, "unitMarker": unit_marker}
@@ -483,7 +486,7 @@ def off_state():
     with open(HOLD) as f:
         held = json.load(f)
     check("the held shell's login ended", not alive(held["loginPid"]))
-    check("its tmux was ended", wait_for(lambda: not pids_of(held["marker"]), 10))
+    check("its tmux pane, which ignored SIGHUP, was ended", wait_for(lambda: not pids_of(held["marker"]), 10))
     check("its session is gone", held["session"] is not None and "State" not in session_props(held["session"]))
     left = held["leftover"]
     check("tmux left behind a closed pane was ended", wait_for(lambda: not pids_of(left["marker"]), 10))

@@ -342,7 +342,9 @@ def transient_units(run=subprocess.run):
     """Running units under systemd-run's own names.  A root shell may have
     started one, and the unit carries nothing that says so, so the off switch
     only names them."""
-    done = run(["systemctl", "list-units", "--plain", "--no-legend", "--state=active", "run-*"],
+    # The types systemd-run makes; mounts such as run-user-0.mount share the prefix.
+    done = run(["systemctl", "list-units", "--plain", "--no-legend", "--state=active",
+                "--type=service,scope,timer,path,socket", "run-*"],
                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     return [line.split()[0] for line in done.stdout.splitlines() if line.strip()] if done.returncode == 0 else []
 
