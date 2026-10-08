@@ -333,9 +333,27 @@ def kill_in_session(pid, session, proc="/proc"):
         os.close(fd)
 
 
+# A process can fork between one listing of /proc and its kill, so the sweep repeats;
+# the bound stops a fork bomb from holding the off switch forever.
+KILL_ROUNDS = 10
+KILL_PAUSE = 0.05
+
+
 def kill_strays(session, proc="/proc", kill=kill_in_session):
-    """Kills what a root shell's session left outside its scope; returns how many."""
-    return sum(1 for pid in session_pids(session, proc) if kill(pid, session, proc))
+    """Kills what a root shell's session left outside its scope; returns (killed, survivors)."""
+    killed = 0
+    for attempt in range(KILL_ROUNDS):
+        pids = session_pids(session, proc)
+        if not pids:
+            return killed, 0
+        if attempt:
+            # A process just sent SIGKILL stays listed until it has exited.
+            time.sleep(KILL_PAUSE)
+        killed += sum(1 for pid in pids if kill(pid, session, proc))
+    survivors = len(session_pids(session, proc))
+    if survivors:
+        log("%d processes of session %s survived %d rounds of kills" % (survivors, session, KILL_ROUNDS))
+    return killed, survivors
 
 
 def transient_units(run=subprocess.run):
@@ -432,10 +450,13 @@ def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run, kill=kill_in
             service = session_service(session, run)
             ours = service == PAM_SERVICE or (recorded and service is None)
             terminated = service == PAM_SERVICE and terminate_session(session, run)
-            strays = kill_strays(session, proc, kill) if ours else 0
-            if terminated or strays:
+            strays, survivors = kill_strays(session, proc, kill) if ours else (0, 0)
+            if (terminated or strays) and not survivors:
                 log("ended session %s of shell %s, and killed %d processes that had left it" % (session, name, strays))
                 ended += 1
+            if survivors:
+                # Kept, so the next off switch or prune sees the session again.
+                continue
         forget_record(run_dir, name)
     return ended
 
@@ -466,6 +487,7 @@ class Shell:
         self.proc = proc
         self.recorded = False
         self.session = None
+        self.survivors = 0
         self.run_dir = run_dir
         self.argv_for = argv_for
         self.banner = banner
@@ -595,7 +617,7 @@ class Shell:
         if session is None:
             return False
         ended = terminate_session(session, self.run_command)
-        kill_strays(session, self.proc, self.kill)
+        _, self.survivors = kill_strays(session, self.proc, self.kill)
         return ended
 
     def finish(self):
@@ -675,9 +697,9 @@ class Shell:
         if self.status is None:
             self.hang_up()
         # Kept while the session lives on, as with the administrator's tmux, for the off switch.
-        if ended or self.session is None or session_over(self.session, self.run_command):
+        if (ended and not self.survivors) or self.session is None or session_over(self.session, self.run_command, self.proc):
             forget_record(self.run_dir, opened["shellId"])
-        prune_records(self.run_dir, self.run_command)
+        prune_records(self.run_dir, self.run_command, self.proc)
         log("closed shell %s for actor %s from %s, login pid %d, session %s, after %d seconds (%s)"
             % (opened["shellId"], opened["actorId"], opened["address"], self.pid, self.session or "none",
                int(time.monotonic() - self.started), reason))

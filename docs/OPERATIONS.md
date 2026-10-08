@@ -1743,6 +1743,9 @@ is on by default, and an upgrade turns it on for an existing site.
   session, tmux left behind closed panes included, and hides the tab.
   It also kills every process that left one of those sessions but kept
   its audit session id, such as one started with `systemd-run --scope`.
+  That is best effort against a cooperative administrator: root can give
+  a process a new audit session id, for example by writing
+  `/proc/self/loginuid`, and such a process survives.
   A service started with plain `systemd-run` carries nothing that ties it
   to a root shell, so setup only names the running `run-*` units in its
   output; stop any you do not expect with `systemctl stop`.

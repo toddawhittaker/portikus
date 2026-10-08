@@ -480,6 +480,8 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
  * Learned names are kept. A site that never applied (the default-open
  * marker) gets the default open table again. With neither file the table
  * stays as it is: lost state must never swap a restrictive table for the open one.
+ * It does not rewrite applied.json, so applied.bridge keeps the old name after
+ * a bridge rename; renaming the bridge is not supported.
  */
 async function rerenderTable(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	const applied = await readApplied(deps);

@@ -30,12 +30,15 @@ sed "s|$mark|$local_mark|" "$scripts/preinst" >"$work/preinst"
 	cat <<'SH'
 systemctl() { echo "$*" >>"$CALLS"; }
 SH
-	sed -n '/^enable_units() {/,/^}/p' "$scripts/postinst"
+	sed -n '/^enable_units() {/,/^}/p' "$scripts/postinst" | sed "s|/run/systemd/system|$work/systemd|"
 	cat <<'SH'
 enable_units "$1"
 SH
 } >"$work/enable.sh"
 grep -q '^enable_units() {' "$work/enable.sh" || fail "postinst has no enable_units"
+
+# Present while systemd runs; a chroot or image build has none.
+mkdir "$work/systemd"
 
 # One dpkg run: preinst ARGS, then postinst configure with PREVIOUS.
 dpkg_run() { # PREVIOUS PREINST-ARGS...
@@ -52,6 +55,12 @@ dpkg_run() { # PREVIOUS PREINST-ARGS...
 [ "$(dpkg_run 0.1.1 install 0.1.1)" = 3 ] || fail "a reinstall after apt remove did not enable them"
 [ ! -e "$local_mark" ] || fail "postinst left the reinstall mark behind"
 [ "$(dpkg_run 0.1.2 upgrade 0.1.2)" = 0 ] || fail "the upgrade after a reinstall enabled them"
+
+rmdir "$work/systemd"
+[ "$(dpkg_run 0.1.2 install 0.1.2)" = 0 ] || fail "a reinstall without systemd running enabled the services"
+[ ! -e "$local_mark" ] || fail "a reinstall without systemd running left the reinstall mark behind"
+mkdir "$work/systemd"
+[ "$(dpkg_run 0.1.3 upgrade 0.1.3)" = 0 ] || fail "the upgrade after a reinstall without systemd enabled them"
 
 [ "$failures" = 0 ] || exit 1
 echo "enable-units: ok"

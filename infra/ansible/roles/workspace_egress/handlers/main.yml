@@ -23,8 +23,19 @@
   changed_when: true
 
 # With no request the helper reloads the applied policy with the new
-# settings, the same run the registry helper starts.
-- name: Re-apply the last egress policy
-  ansible.builtin.systemd_service:
-    name: portikus-egress-apply.service
-    state: started
+# settings, the same run the registry helper starts.  A run already going
+# may have read the settings before this change, and the systemd module
+# skips a start while the oneshot is activating.  systemctl start instead
+# waits for that run; the second start is a fresh one that reads the change.
+# Not a restart, which would kill a run holding a controller request.
+- name: Let a running egress apply finish  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    argv: [systemctl, start, portikus-egress-apply.service]
+  changed_when: true
+  listen: Re-apply the last egress policy
+
+- name: Re-apply the last egress policy in a fresh run  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    argv: [systemctl, start, portikus-egress-apply.service]
+  changed_when: true
+  listen: Re-apply the last egress policy
