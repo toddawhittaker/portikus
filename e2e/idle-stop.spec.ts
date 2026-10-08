@@ -3,8 +3,10 @@ import {
 	createProject,
 	createStudent,
 	expectConnected,
+	lockSharedState,
 	loginAs,
 	query,
+	SETTINGS_ROW_LOCK,
 	terminalIds,
 	toast,
 	workspacePath,
@@ -27,13 +29,18 @@ async function idleSetting(): Promise<number> {
 }
 
 let saved = 60;
+let release: (() => Promise<void>) | undefined;
 
 test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState(SETTINGS_ROW_LOCK);
 	saved = await idleSetting();
 });
 
 test.afterAll(async () => {
 	await query("update settings set idle_stop_minutes = $1", [saved]);
+	await release?.();
 });
 
 /**

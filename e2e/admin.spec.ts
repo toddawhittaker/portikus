@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, toast, WEB_ORIGIN } from "./helpers";
+import {
+	lockSharedState,
+	loginAs,
+	query,
+	SETTINGS_ROW_LOCK,
+	toast,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * The administration page: the live disconnect grace period and the
@@ -7,9 +14,7 @@ import { loginAs, query, toast, WEB_ORIGIN } from "./helpers";
  * administrator; alice and bob are students.
  *
  * These tests share the one row in the settings table, so they run one after
- * another. For the same reason `--repeat-each` needs `--workers=1` here:
- * Playwright puts each repeat in its own group, and two groups running at
- * once overwrite each other's settings.
+ * another and hold a lock every worker shares while they run.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -38,7 +43,12 @@ test.describe("administration", () => {
 		return id;
 	}
 
+	let release: (() => Promise<void>) | undefined;
+
 	test.beforeAll(async () => {
+		// The wait for other workers' repeats counts against this hook.
+		test.setTimeout(600_000);
+		release = await lockSharedState(SETTINGS_ROW_LOCK);
 		// No worker runs here, so seed the settings row the way the worker
 		// does on its first start.
 		await query(
@@ -52,8 +62,9 @@ test.describe("administration", () => {
 	});
 
 	test.afterAll(async () => {
-		// Leave the platform on its default, whatever the tests did.
+		// Leave the platform on its default before the next holder sees it.
 		await query("update settings set shutdown_grace_seconds = 600, log_level = null");
+		await release?.();
 	});
 
 	async function savedLogLevel(): Promise<string | null> {
