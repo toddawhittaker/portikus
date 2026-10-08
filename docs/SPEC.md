@@ -274,7 +274,7 @@ A deliberate workspace rebuild may replace the root filesystem while retaining t
 Added by Epic 15.2, changed by Epic 28 (issue #933): the coding agents' platform instructions are system files the student does not own.
 
 - One template, `agent-instructions.md`, ships in the Portikus package with the workspace agent (`/usr/lib/portikus/workspace-agent/`, bind-mounted read-only into every workspace), written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), preferring the seed's preloaded Docker images, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
-- Before every start the workspace controller writes it, as root with mode 0644, to `/etc/claude-code/CLAUDE.md` (Claude Code's system memory) and as `developer_instructions` in `/etc/codex/config.toml` (Codex's system config, beside `check_for_update_on_startup = false`). The controller, not the agent, writes them because the agent runs as the student and cannot write `/etc`. An edit or deletion lasts until the next start. The controller never opens what is at those paths: it deletes the path (a file, named pipe or link alike) and pushes the new file, so a pipe cannot block a start; a directory there is refused and logged. A failure is logged and never stops the start, and a host without the template writes nothing. A student's own `developer_instructions` in `~/.codex/config.toml` replaces the platform's for Codex; other keys there keep it.
+- Before every start the workspace controller writes it, as root with mode 0644, to `/etc/claude-code/CLAUDE.md` (Claude Code's system memory) and as `developer_instructions` in `/etc/codex/config.toml` (Codex's system config, beside `check_for_update_on_startup = false`). The controller, not the agent, writes them because the agent runs as the student and cannot write `/etc`. An edit or deletion lasts until the next start. The controller never opens what is at those paths: it deletes the path (a file, named pipe or link alike) and pushes the new file, so a pipe cannot block a start; a directory there is refused and logged. A failure is logged and never stops the start, and a host without the template writes nothing. A student's own `developer_instructions` in `~/.codex/config.toml` replaces the platform's for Codex; other keys there keep it. The controller also rewrites `/etc/claude-code/managed-settings.json` at every start from a template in the package, by the same rules, so a student who deletes `/etc/claude-code` gets Claude Code's `BROWSER` setting back at the next start.
 - `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` belong to the student. The workspace agent only removes what older versions wrote there: a `~/.codex/AGENTS.md` that is an unchanged copy of an old template (checked by SHA-256), and the exact line `@~/.codex/AGENTS.md` in `~/.claude/CLAUDE.md` once that file is gone (the file too if nothing else is left). It never follows a symbolic link.
 - The image also sets `init.defaultBranch main` in `/etc/gitconfig`, so a student's own `git init` starts on `main`.
 
@@ -774,7 +774,9 @@ wins. Before it is used the browser reconciles it against the terminal list:
 a terminal with no leaf is added as a new tab, and a leaf whose terminal no
 longer exists is removed, so a saved layout can never point at a terminal that
 is gone. Ended terminals keep their leaf (§9.7). The selected tab and the pane
-widths are browser-local, not part of this document.
+widths are browser-local, not part of this document. One user's saved layouts
+together may hold at most 8 MiB; a save past that is refused with 413
+`LAYOUT_LIMIT`, and the browser shows the server's message once as a toast.
 
 ## 8. Main browser interface
 
@@ -1290,6 +1292,8 @@ The implementation should use `ripgrep` or an equivalent fast workspace-local se
 - avoid blocking the workspace agent or browser on very large repositories;
 - enforce project confinement and not follow search paths outside the selected project.
 
+As built, the workspace agent runs at most four searches at once (one agent per workspace). A search past that is refused with 409 `BUSY`, and the search panel says too many searches are running in this workspace.
+
 Search must operate on the actual project files and update naturally as agents or tools modify them.
 
 ### 11.6 File API and storage
@@ -1561,7 +1565,9 @@ A write that fails because the disk or quota is full (`ENOSPC` or `EDQUOT`)
 is `STORAGE_FULL` (HTTP 507) on every agent route, and the control plane
 relays it as such. A failed save then says "Your home folder is full. Delete
 files, then save again."; upload, new folder, move and project create say
-"Your home folder is full. Delete files, then try again."
+"Your home folder is full. Delete files, then try again." Clone, template,
+`git init` and duplicate answer `STORAGE_FULL` too when git or the copy reports
+a full disk or quota, and the clone dialog says the home folder is full.
 
 An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
 
@@ -1772,7 +1778,7 @@ The UI may surface likely development ports automatically.
 
 P0 should favor unprivileged application ports, normally `1024-65535`.
 
-As built: a preview is refused for a port below `PREVIEW_PORT_MIN` (1024) or listed in `PREVIEW_DENIED_PORTS` (by default 22, 2375, 2376 and 5432, plus the agent's port). The preview then says "Port {n} cannot be previewed", explains that such ports, including ones kept for SSH, Docker and PostgreSQL, cannot be opened, suggests a port such as 3000 or 5173, and offers **Choose another port…** (Epic 25).
+As built: a preview is refused for a port below `PREVIEW_PORT_MIN` (1024) or listed in `PREVIEW_DENIED_PORTS` (by default 22, 2375, 2376 and 5432, plus the agent's port). The preview then says "Port {n} cannot be previewed", explains that such ports, including ones kept for SSH, Docker and PostgreSQL, cannot be opened, suggests a port such as 3000 or 5173, and offers **Choose another port…** (Epic 25). The browser keeps no port minimum of its own: a terminal link to any port opens the Preview tab, and the API's policy alone decides.
 
 ### 14.8 Inactive preview
 
@@ -2239,7 +2245,7 @@ P0 should include:
 
 Error messages must suggest a next action where possible.
 
-The state is marked unconfirmed when Portikus cannot vouch for it. The worker records in `settings.controller_checked_at` each time it reaches the workspace controller. The API sends `stateVerified: true` on the Workspace only while that time is within the last two minutes; before any check, or after a longer gap, it sends `false`. In every state, the status bar then shows a warning-toned "unconfirmed" with an alert icon inside the state button, and the button's accessible name adds "Portikus can't reach the workspace host right now, so this may be out of date." The state text itself is unchanged.
+The state is marked unconfirmed when Portikus cannot vouch for it. The worker records in `settings.controller_checked_at` each time it reaches the workspace controller. The API sends `stateVerified: true` on the Workspace only while that time is within the last two minutes; before any check, after a longer gap, or when the recorded time is in the future, it sends `false`. `STATUS_REFRESH_SECONDS` may be at most 60, half that window; a larger value stops the worker from starting. In every state, the status bar then shows a warning-toned "unconfirmed" with an alert icon inside the state button, and the button's accessible name adds "Portikus can't reach the workspace host right now, so this may be out of date." The state text itself is unchanged.
 
 The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image. While the workspace is in error, the dialog shows the error message and the same storage figures as the error screen (section 28).
 

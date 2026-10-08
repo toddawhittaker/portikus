@@ -360,8 +360,8 @@ presence, so watching a project does not by itself keep a workspace alive.
 A detached `HEAD` shows no short object id, because the contract does not
 carry one. Untracked and unmerged paths share the letter `U` and are told
 apart by colour, icon and the `data-git` attribute. A project that is not a
-Git repository diffs every file as "added". The agent has no cap on
-concurrent searches. The fake agent, now under
+Git repository diffs every file as "added". The agent capped concurrent
+searches at four per workspace in Epic 37. The fake agent, now under
 `apps/api/src/testing/fake-agent/`, is stripped from the Debian package
 since Epic 30. Relative image paths in Markdown are not resolved, so an image
 in a repository does not render. Code blocks inside Markdown have no syntax
@@ -851,8 +851,8 @@ deployment.
   is accepted: the worst outcome is that one origin's storage in one
   browser is cleared.
 - The saved layout is bounded per request, by Fastify's 1 MiB body limit
-  and the shape checks on each tab, but there is no total quota on how
-  much layout one user can store.
+  and the shape checks on each tab. Since Epic 37 one user's layouts
+  together are also capped at 8 MiB (#1239).
 - An application that refuses to be embedded gives the browser no event,
   so the Preview tab guesses after eight seconds without a load. The
   guess is now an overlay over a frame that stays mounted, and a late
@@ -864,9 +864,8 @@ deployment.
   student is offered the new tab instead of the frame.
 - The Running pane shows `unknown` for a process the agent could not
   name, which happens when the `/proc` entries for it cannot be read.
-- A client-side minimum port of 1024 is still in the terminal link
-  handler and in the web app's preview route, even though the launcher
-  and the Running pane now take the port policy from the API.
+- The client-side minimum port was removed in Epic 37; the API's policy
+  alone decides (#1238).
 - The workspace agent runs as the student, inside the student's own
   container, and its bearer token sits in a file that user can read, so a
   student can call the agent's own API directly, including its loopback
@@ -2988,7 +2987,8 @@ Gaps:
 
 - A create has no single shared deadline; on paper its steps can pass the
   worker's 300 s budget, though a retry adopts what exists.
-- Clone and template on a full disk still report `GIT_FAILED` (issue #1253).
+- Clone and template on a full disk reported `GIT_FAILED`; fixed in Epic
+  37 (#1253).
 - No watchdogs, no disk I/O priority, no per-address limit on made-up
   preview cookies, no connection-tracking limits, and no limits on reads.
 - At the rehearsal's load the CPU weight made no measurable difference to
@@ -3627,12 +3627,12 @@ Gaps:
 - The extractor's free-space backstop reads the whole filesystem, so
   other writes on it count too. It is only a backstop behind the header
   checks and `prlimit`.
-- Setup re-enables the API, controller and worker on every configure, so
-  it undoes an administrator's own `systemctl disable`.
+- Setup re-enabled the API, controller and worker on every configure;
+  fixed in Epic 37 (#1269).
 - Extract progress is a notice, not a percentage.
 - A PDF over 50 MB is offered as a download rather than shown.
-- An image or PDF over the 2 MiB editor limit shows a change on disk only
-  after its tab is reopened.
+- An image or PDF over the 2 MiB editor limit showed a change on disk only
+  after its tab was reopened; fixed in Epic 37 (#1267).
 - CSV as a table (optional in #816) was left out.
 
 ## Epic 15.3 — Pilot fixes
@@ -3666,7 +3666,8 @@ Delivered:
 
 Gaps:
 
-- A keycap emoji such as 1️⃣ leaves its digit in the clone name.
+- A keycap emoji such as 1️⃣ left its digit in the clone name; fixed in
+  Epic 37 (#1271).
 - Projects nobody pastes into again keep their old pastes, by design.
 - An admin rebuild or reset result that ends after the panel is closed
   is not announced; the Audit tab still shows it.
@@ -3712,8 +3713,8 @@ Gaps:
 - The usage window can take in 31 calendar days.
 - Volumes seeded before the seed-share key fix lack the key.
 - A dropped cache connection stalls a pull for about 15 seconds.
-- The Ansible egress re-apply handler does less than the helper's own
-  re-apply.
+- The Ansible egress re-apply handler did less than the helper's own
+  re-apply; since Epic 37 it runs the helper (#1274).
 - Every workspace can list the cache's contents, by ruling S6.
 
 ## Epic 27 — Certificates from the admin page
@@ -3881,8 +3882,8 @@ Gaps:
 - The browser-facing listening event in packages/events has no cap of
   its own; the API's acceptance bounds it.
 - The admin Docker and Image tabs do not narrow below about 760 px.
-- Deleting `/etc/claude-code` loses Claude Code's managed settings until
-  a fix restores them at start (issue #1283).
+- Deleting `/etc/claude-code` lost Claude Code's managed settings; since
+  Epic 37 they are restored at every start (#1283).
 - Status bar overflow at narrow widths (issue #1276), and the shell's
   storage meters are not yet on `Meter` (not filed).
 
@@ -4136,11 +4137,11 @@ certificate download through Caddy.
 
 Gaps:
 
-- A terminal create refused at the cap may still have made an
-  agent-session recovery point, bounded by the per-project point cap.
-- A `controller_checked_at` in the future (a clock stepped back) counts as
-  verified, and `STATUS_REFRESH_SECONDS` has no upper bound; above 120
-  seconds the state would flap to unconfirmed.
+- A terminal create refused at the cap could make an agent-session
+  recovery point; fixed in Epic 37 (#1287).
+- A `controller_checked_at` in the future counted as verified, and
+  `STATUS_REFRESH_SECONDS` had no upper bound. Since Epic 37 a future
+  time is stale and the setting is capped at 60 seconds (#1286).
 - An abort during the Docker seed copy or the instance create does not
   cancel the Incus operation; a retry adopts what exists (ADR 0034).
   Routes other than create and the process read ignore the budget.
@@ -4236,9 +4237,8 @@ Gaps:
   for about 10 seconds, until the automatic retry.
 - The sweep can show a workspace running about a second before the
   controller finishes its setup.
-- An exec whose socket errors is reported as "exec timed out". This
-  was already so, and was seen once in the optional package survey right
-  after a start.
+- An exec whose socket errored was reported as "exec timed out"; since
+  Epic 37 it is its own error (#1292).
 - `/etc/hostname` holds the instance name until the second start (the
   image template, already so).
 
@@ -4541,10 +4541,12 @@ Gaps left (most are filed as GitHub issues):
 - Turning email off also clears the SMTP settings.
 - `currentJob` can report a dead job ahead of a new one; the page works
   around it on the notifications tab.
-- A tmux pane that ignores SIGHUP, or anything started with
-  `systemd-run`, can outlive the off switch.
+- A tmux pane that ignores SIGHUP, or anything moved out with
+  `systemd-run --scope`, could outlive the off switch; fixed in Epic 37
+  (#1297). A plain `systemd-run` service is still only named.
 - Root shells have no rename and no per-pane light theme.
-- `e2e/admin-notifications.spec.ts` is flaky under `--repeat-each`.
+- `e2e/admin-notifications.spec.ts` was flaky under `--repeat-each`;
+  fixed in Epic 37 (#1295).
 
 ## Epic 36 — Internet hardening
 
@@ -4628,3 +4630,84 @@ Gaps left (most are filed as GitHub issues):
   `portikus restore` in a full install test.
 - The Dex sign-in CI job is not yet a required check (Todd's ruleset
   change; the last part of #1138).
+
+## Epic 37 — Bug fixes
+
+Built on `epic/37-bug-fixes` (plan #1306, task PRs #1305, #1307 to
+#1312, review fixes #1315 and #1316, and this fold). A fix batch of 25
+bug issues filed from the old backlog. No migration. SPEC.md sections 3
+and 7.5 gained a sentence each.
+
+Delivered:
+
+- Workspace agent (#1307 T1): clone, template, `git init` and duplicate on
+  a full disk answer `STORAGE_FULL`, and the clone dialog says the home
+  folder is full (#1253). The agent runs at most four searches at once
+  per workspace; a fifth gets `BUSY`, and the search panel explains it
+  (#1231).
+- Controller and worker (#1311 T2): an exec socket error is its own error,
+  not "exec timed out" (#1292); a start that fails after the start
+  request force-stops the instance (#1291); a controller check time in
+  the future counts as stale, and `STATUS_REFRESH_SECONDS` is capped at
+  60 (#1286); Claude Code's managed settings are restored at every start
+  from a template in the package (#1283).
+- API and contracts (#1308 T3): a terminal refused at the 20-terminal cap
+  leaves no recovery point (#1287); the recovery-point rate limit answers
+  `RATE_LIMITED` (#1244); a Google service-account key naming a field
+  twice is refused (#1275); a fresh alerts job folder without a status
+  file is listed as running (#1299); one user's saved layouts are capped
+  at 8 MiB in total, `LAYOUT_LIMIT` (#1239); the image job measures
+  images that have no recorded size (#1277).
+- Web (#1309 T4): a keycap emoji leaves no digit in a suggested clone
+  name (#1271); large viewed images and PDFs refresh when they change on
+  disk (#1267); the browser no longer has its own preview port minimum,
+  so the Preview tab shows the API's refusal (#1238).
+- Flaky browser tests (#1310 T5): the seven specs that change the
+  settings row or the fake notification store hold a lock shared by all
+  workers, so
+  `--repeat-each` works with default workers (#1301, #1295); `toast()`
+  takes the newest toast (#1282).
+- Infrastructure, packaging and root shell (#1312 T6): the package
+  enables its services only on a first install or a reinstall after
+  removal, so an administrator's `systemctl disable` survives upgrades
+  (#1269); the egress settings handler re-applies through the helper,
+  which also refreshes dnsmasq's settings (#1274);
+  `make build-workspace-image` works on an apt-installed VM (#1270); the
+  rehearsal VM has its own LTI platforms file and mock LMS (#1290); the
+  root-shell off switch also kills processes that left a root-shell
+  session and names systemd-run services it cannot end (#1297); the
+  relay test's hang-up race is fixed (#1300).
+- Tooling (#1305 T7): the comment-history check reads regex literals,
+  quoted strings in hash-comment files, CSS colours and regex `.test()`
+  calls (#1285).
+- Review fixes, application (#1316 F1): a terminal closed while being
+  created answers 404 and leaves no tmux session; a layout save over the
+  cap shows the server's message once as a toast; an over-limit viewed
+  file loads once; the search status announces the failure's own
+  message; a PDF reload keeps focus.
+- Review fixes, infrastructure (#1315 F2): the root-shell sweep repeats,
+  up to 10 rounds, until no stray carries the session, and keeps the
+  record and logs if any survive; the egress handler waits out a running
+  apply and then starts a fresh one; `postinst` clears the reinstall mark
+  even without systemd running; ADR 0051 and OPERATIONS say the
+  audit-id kill is best effort.
+- Fold: SPEC and STATUS; the plan is deleted.
+
+Gaps left:
+
+- A service started with plain `systemd-run` from a root shell is only
+  listed by setup, never stopped, because nothing ties it to the session.
+- The root-shell kill by audit session id is best effort against a
+  cooperative administrator; root can give a process a new audit id on
+  purpose.
+- The preview refusal text and help page still name 1024 as the default
+  minimum. It is advice, not a check, so a site with a different
+  `PREVIEW_PORT_MIN` sees slightly wrong advice (#1238).
+- A PDF over 50 MB is still offered as a download; a streamed source was
+  not built, because the viewer loads PDFs from a blob on purpose.
+- The layout total is a soft bound: two racing saves can each pass it by
+  one layout.
+- Sizes for images stored before Epic 28 appear at the next boot or the
+  next image job.
+- The rehearsal VM's own setup run removes its LTI platforms file; re-run
+  `make lti-mock-register TOFU_ENV=rehearsal-libvirt` after it.
