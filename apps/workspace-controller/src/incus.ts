@@ -317,6 +317,7 @@ export class IncusClient {
 			const finish = (
 				kill: boolean,
 				result?: { stdout: Buffer; tooLarge: boolean },
+				error: IncusError = new IncusError("TIMEOUT", "exec timed out"),
 			): void => {
 				if (settled) return;
 				settled = true;
@@ -326,7 +327,7 @@ export class IncusClient {
 				}
 				for (const ws of sockets) ws.terminate();
 				if (result) resolve(result);
-				else reject(new IncusError("TIMEOUT", "exec timed out"));
+				else reject(error);
 			};
 			const timer = setTimeout(() => finish(true), timeoutSeconds * 1000);
 			const tooLarge = (): void =>
@@ -334,7 +335,12 @@ export class IncusClient {
 			for (const ws of sockets) {
 				ws.on("error", (err: Error & { code?: string }) => {
 					if (err.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH") tooLarge();
-					else finish(true);
+					else
+						finish(
+							true,
+							undefined,
+							new IncusError("OPERATION_FAILED", `exec socket error: ${err.message}`),
+						);
 				});
 			}
 			stdin.on("open", () => stdin.close());

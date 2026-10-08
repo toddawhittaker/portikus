@@ -190,6 +190,9 @@ test.skipIf(skip)(
 		expect(await verifiedAt(new Date(now.getTime() - 119_000))).toBe(true);
 		expect(await verifiedAt(new Date(now.getTime() - 121_000))).toBe(false);
 		expect(await verifiedAt(null)).toBe(false);
+		// A check in the future means the clock was stepped back.
+		expect(await verifiedAt(new Date(now.getTime() + 1_000))).toBe(false);
+		expect(await verifiedAt(now)).toBe(true);
 		expect(toWorkspace(row, 0, config, undefined, now).stateVerified).toBe(false);
 	},
 );

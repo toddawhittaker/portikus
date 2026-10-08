@@ -5,6 +5,7 @@ import {
 	ConfigError,
 	ControllerConfigSchema,
 	loadConfig,
+	STATE_VERIFIED_WITHIN_MS,
 	WorkerConfigSchema,
 } from "./index.js";
 
@@ -182,6 +183,18 @@ test("WorkerConfig applies all timer defaults", () => {
 	expect(config.STOP_TIMEOUT_SECONDS).toBe(30);
 	expect(config.STATUS_REFRESH_SECONDS).toBe(15);
 	expect(config.PRESENCE_TTL_SECONDS).toBe(60);
+});
+
+test("WorkerConfig caps STATUS_REFRESH_SECONDS below the verified window", () => {
+	const env = { DATABASE_URL: "postgres://localhost/portikus" };
+	expect(
+		loadConfig(WorkerConfigSchema, { ...env, STATUS_REFRESH_SECONDS: "60" })
+			.STATUS_REFRESH_SECONDS,
+	).toBe(60);
+	expect(() =>
+		loadConfig(WorkerConfigSchema, { ...env, STATUS_REFRESH_SECONDS: "61" }),
+	).toThrow(ConfigError);
+	expect(STATE_VERIFIED_WITHIN_MS).toBe(120_000);
 });
 
 test("ControllerConfig applies Incus defaults", () => {
