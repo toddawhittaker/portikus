@@ -134,9 +134,14 @@ contents, journal lines from the helper, and a banner.
    logind session, found from its record. Every other close only hangs
    up (SIGHUP), so an administrator's own tmux survives an ordinary pane
    close. What a closed pane left in its session, such as tmux or a
-   `setsid nohup` job, is ended by the off switch. A root process can
-   also leave the session altogether, for example with `systemd-run`;
-   nothing here ends that, and the operations guide says so.
+   `setsid nohup` job, is ended by the off switch. A process moved out
+   of the session's scope, as `systemd-run --scope` does, keeps the
+   session's audit id, which logind uses as the session's name; the off
+   switch and the `end` frame kill those too, and a record stays while
+   any such process lives. A service started with plain `systemd-run`
+   has no link to the session; the off switch only names the running
+   units under systemd-run's own `run-*` names, and the operations guide
+   says so.
 
    Two flood guards stay: root-shell sockets count toward the 60
    terminal sockets per user (SPEC.md section 24.13), and systemd's

@@ -33,7 +33,8 @@ import {
 /**
  * The root helper (ADR 0038, the pattern of ADR 0030). systemd starts it
  * when the controller writes a request, once at boot, and when the registry
- * helper switches the ghcr.io cache (no request: reload the table). It trusts
+ * helper switches the ghcr.io cache or setup rewrites egress.env (no request:
+ * reload the table and dnsmasq's settings). It trusts
  * nothing the controller wrote: the request is moved aside, read without
  * following links, capped in size and checked strictly before any value
  * reaches the firewall or a configuration file.
@@ -474,7 +475,8 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 
 /**
  * A run with no request while the table is loaded: the registry helper
- * switched the ghcr.io cache, so load the applied policy's table again.
+ * switched the ghcr.io cache, or setup rewrote egress.env, so load the
+ * applied policy's table again and restart our dnsmasq if its settings changed.
  * Learned names are kept. A site that never applied (the default-open
  * marker) gets the default open table again. With neither file the table
  * stays as it is: lost state must never swap a restrictive table for the open one.
@@ -491,6 +493,13 @@ async function rerenderTable(deps: HelperDeps, env: EgressEnv): Promise<void> {
 		return;
 	}
 	await loadTable(deps, renderTable(policy, env, false, await readGhcrEnabled(deps)));
+	const dnsmasq = renderDnsmasq(policy, env);
+	const before = await readFile(join(deps.stateDir, STATE_FILES.dnsmasq), "utf8").catch(
+		() => null,
+	);
+	if (dnsmasq === before) return;
+	await writeState(deps, STATE_FILES.dnsmasq, dnsmasq);
+	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT);
 }
 
 async function tableLoaded(deps: HelperDeps): Promise<boolean> {

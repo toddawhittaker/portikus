@@ -15,10 +15,16 @@ frames, taken from the installed helper itself.
   root-shell-rehearsal.py --hold   opens one shell with tmux in its session
                                    and keeps it open in the background,
                                    and leaves tmux behind a closed one, for
-                                   the off switch to end
+                                   the off switch to end; the open shell also
+                                   moves a process ignoring SIGHUP out of its
+                                   session with `systemd-run --scope` and
+                                   starts a systemd-run service, and a third,
+                                   closed shell leaves only such a process
   root-shell-rehearsal.py --off    after setup with portikus_root_shell
                                    false: the socket is gone, api.env names
-                                   none, and both sessions ended
+                                   none, both sessions ended, the processes
+                                   that left them were killed, and the
+                                   helper names the service it cannot end
   root-shell-rehearsal.py --api HOST JAR
                                    end to end through Caddy and the API, as
                                    the administrator whose signed-in cookie
@@ -216,6 +222,14 @@ class Shell:
         self.type("tmux -L rs-%s new-session -d '%s'; echo daemon-$((40+2))\r" % (self.id[:8], marker))
         self.expect(rb"daemon-42")
         wait_for(lambda: bool(pids_of(marker)), 5)
+        return marker
+
+    def run_outside(self, command):
+        """Runs COMMAND with systemd-run in the background and waits for its uniquely named sleep."""
+        marker = "sleep %d" % (4000000 + secrets.randbelow(900000))
+        self.type("%s >/dev/null 2>&1 & echo outside-$((40+2))\r" % command.replace("SLEEP", marker))
+        self.expect(rb"outside-42")
+        wait_for(lambda: bool(pids_of(marker)), 10)
         return marker
 
 
@@ -423,11 +437,25 @@ def hold():
     leftover = {"session": session_of(login), "marker": closed.start_daemon()}
     closed.sock.close()
     wait_for(lambda: not alive(login))
+    # Only a process that left the session and ignores SIGHUP: the session ends, its record must stay.
+    escaped = Shell()
+    escaped.ready()
+    login = escaped.login_pid()
+    orphan = {"session": session_of(login), "shellId": escaped.id,
+              "marker": escaped.run_outside("systemd-run --scope --quiet nohup SLEEP")}
+    escaped.sock.close()
+    wait_for(lambda: not alive(login))
     shell = Shell()
     shell.ready()
     login = shell.login_pid()
+    # Under systemd-run's own name, the only kind the helper can name.
+    unit_marker = shell.run_outside("systemd-run --quiet SLEEP")
+    with open("/proc/%d/cgroup" % pids_of(unit_marker)[0]) as f:
+        unit = f.read().strip().rsplit("/", 1)[-1]
     state = {"shellId": shell.id, "loginPid": login, "session": session_of(login), "marker": shell.start_daemon(),
-             "leftover": leftover}
+             "leftover": leftover, "orphan": orphan,
+             "scoped": shell.run_outside("systemd-run --scope --quiet sh -c 'trap \"\" HUP; exec SLEEP'"),
+             "unit": unit, "unitMarker": unit_marker}
     with open(HOLD, "w") as f:
         json.dump(state, f)
     print(json.dumps(state))
@@ -461,8 +489,19 @@ def off_state():
     check("tmux left behind a closed pane was ended", wait_for(lambda: not pids_of(left["marker"]), 10))
     check("that session is gone too", left["session"] is not None
           and wait_for(lambda: "State" not in session_props(left["session"]), 10))
+    check("a process that ignored SIGHUP and left the session with systemd-run --scope was killed",
+          wait_for(lambda: not pids_of(held["scoped"]), 10))
+    orphan = held["orphan"]
+    check("a process that left a session which then ended was killed",
+          wait_for(lambda: not pids_of(orphan["marker"]), 10))
+    listed = sh(HELPER, "--end-sessions").splitlines()
+    check("the helper names the systemd-run service it cannot end", "transient %s" % held["unit"] in listed, str(listed))
+    check("that service is left running", bool(pids_of(held["unitMarker"])))
+    subprocess.run(["systemctl", "stop", held["unit"]], capture_output=True)
     end_leftovers(held["session"], held["marker"])
     end_leftovers(left["session"], left["marker"])
+    end_leftovers(orphan["session"], orphan["marker"])
+    end_leftovers(None, held["scoped"])
     os.unlink(HOLD)
 
 

@@ -1,0 +1,14 @@
+#!/bin/sh
+# portikus preinst.  dpkg passes "install" with the old version only when
+# the package was removed but not purged; that postrm dropped the services'
+# enable links, so leave postinst a mark to enable them again.
+set -e
+
+REINSTALL_MARK=/var/lib/portikus/.reinstall
+
+if [ "$1" = "install" ] && [ -n "$2" ]; then
+	mkdir -p "${REINSTALL_MARK%/*}"
+	: >"$REINSTALL_MARK"
+fi
+
+exit 0

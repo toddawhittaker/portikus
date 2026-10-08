@@ -562,6 +562,8 @@ agent_after_upgrade() {
 
 upgrade() {
   local before after
+  # An administrator's disable must survive the upgrade and its setup run.
+  vm "sudo systemctl disable --quiet portikus-worker.service"
   # An old time on the key file shows whether the upgrade writes it again.
   vm "sudo touch -d 2000-01-01 /usr/share/keyrings/portikus-archive-keyring.gpg"
   before=$(vm "stat -c '%Y %i' /usr/share/keyrings/portikus-archive-keyring.gpg")
@@ -580,6 +582,9 @@ upgrade() {
 after_upgrade() {
   vm "sudo portikus status"
   local s
+  [ "$(vm "systemctl is-enabled portikus-worker.service" || true)" = disabled ] \
+    || { echo "the upgrade enabled the worker the administrator disabled"; return 1; }
+  vm "sudo systemctl enable --quiet portikus-worker.service"
   for s in portikus-api portikus-worker portikus-controller portikus-registry-hub; do
     [ "$(vm "systemctl is-active ${s}")" = active ] || { echo "${s} is not active"; return 1; }
   done
