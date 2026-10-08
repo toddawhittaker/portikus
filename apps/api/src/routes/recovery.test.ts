@@ -6,7 +6,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import type { WorkspaceState } from "@portikus/contracts";
+import { MAX_TERMINALS_PER_WORKSPACE, type WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
@@ -403,6 +403,26 @@ test.skipIf(skip)("the agent session still launches when its point fails", async
 	expect(created.json().recoveryPointId).toBe(null);
 });
 
+test.skipIf(skip)(
+	"an agent terminal refused at the terminal cap leaves no point",
+	async () => {
+		for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE - 1; i += 1) {
+			expect((await createTerminal({ projectId })).statusCode).toBe(201);
+		}
+		// Both pass the early count; only the locked insert refuses one.
+		const results = await Promise.all([
+			createTerminal({ projectId, agent: "claude" }),
+			createTerminal({ projectId, agent: "claude" }),
+		]);
+		const codes = results.map((r) => r.statusCode).sort();
+		expect(codes).toEqual([201, 409]);
+		const kept = results.find((r) => r.statusCode === 201)?.json().recoveryPointId;
+		const points = await pointRows();
+		expect(points.map((p) => p.id)).toEqual([kept]);
+		expect(agent.recoveryPoints.size).toBe(1);
+	},
+);
+
 test.skipIf(skip)("a plain terminal makes no point", async () => {
 	const created = await createTerminal({ projectId });
 	expect(created.statusCode).toBe(201);
@@ -414,7 +434,7 @@ test.skipIf(skip)("a second manual point within 30 seconds is refused", async ()
 	expect((await create(alice)).statusCode).toBe(201);
 	const refused = await create(alice);
 	expect(refused.statusCode).toBe(429);
-	expect(refused.json().code).toBe("BUSY");
+	expect(refused.json().code).toBe("RATE_LIMITED");
 	expect(refused.json().message).toMatch(/30 seconds/);
 	expect(await pointRows()).toHaveLength(1);
 });

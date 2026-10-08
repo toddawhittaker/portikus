@@ -176,6 +176,19 @@ const ServiceAccountJson = z
 	.refine(isServiceAccountKey, "must be a Google service-account key file");
 
 /**
+ * Whether a flat JSON object of string values names a key twice. In such an
+ * object the string tokens alternate key, value, so the keys are every
+ * other token.
+ */
+function hasDuplicateKey(text: string): boolean {
+	const tokens = text.match(/"(?:[^"\\]|\\.)*"/g) ?? [];
+	const keys = tokens
+		.filter((_, index) => index % 2 === 0)
+		.map((token) => JSON.parse(token) as string);
+	return new Set(keys).size !== keys.length;
+}
+
+/**
  * A Google service-account key, and nothing Google's library would treat as
  * an instruction to read a local file or fetch a URL as caddy (SPEC.md 24.8).
  */
@@ -195,6 +208,8 @@ export function isServiceAccountKey(text: string): boolean {
 	if (!Object.values(key).every((v) => typeof v === "string")) return false;
 	if (!SERVICE_ACCOUNT_REQUIRED.every((name) => key[name] !== "")) return false;
 	if (key.type !== "service_account") return false;
+	// JSON.parse keeps the last of a repeated key; the root job refuses it.
+	if (hasDuplicateKey(text)) return false;
 	// Google's library posts a signed assertion to token_uri, so only Google's own.
 	if ((key.token_uri ?? GOOGLE_TOKEN_URI) !== GOOGLE_TOKEN_URI) return false;
 	return (key.universe_domain ?? GOOGLE_UNIVERSE) === GOOGLE_UNIVERSE;

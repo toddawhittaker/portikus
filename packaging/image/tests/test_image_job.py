@@ -783,6 +783,19 @@ class SizeTest(Base):
         self.assertEqual(json.loads((self.images / "2026.09.10" / "size.json").read_text()), {"bytes": 123})
         self.assertEqual(json.loads((self.images / "2026.09.11" / "size.json").read_text()), {"bytes": 880803840})
 
+    def test_a_run_with_no_request_measures_images_that_have_no_size(self):
+        # The boot run, so images from before sizes were recorded get one.
+        self.put_image("2026.09.10")
+        self.host.sizes[FP["2026.09.10"]] = 456
+        self.go()
+        self.assertEqual(json.loads((self.images / "2026.09.10" / "size.json").read_text()), {"bytes": 456})
+
+    def test_a_run_with_every_image_measured_asks_incus_nothing(self):
+        self.put_image("2026.09.10")
+        (self.images / "2026.09.10" / "size.json").write_text(json.dumps({"bytes": 1}))
+        self.go()
+        self.assertEqual(self.host.calls, [])
+
     def test_an_image_incus_cannot_describe_gets_no_size(self):
         self.put_image("2026.09.10")
         self.host.sizes[FP["2026.09.10"]] = "big"
