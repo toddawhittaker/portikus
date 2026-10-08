@@ -55,6 +55,12 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 				.status(409)
 				.send({ error: { code: "PROJECT_EXISTS", message: "already exists" } });
 		}
+		// A url the test marks as diskfull stands in for a clone on a full disk.
+		if (body.source !== "new" && (body.url ?? "").includes("diskfull")) {
+			return reply.status(507).send({
+				error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
+			});
+		}
 		// A url the test marks as failing stands in for a clone that goes wrong.
 		if (body.source !== "new" && (body.url ?? "").includes("fail")) {
 			return reply
