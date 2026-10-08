@@ -1,4 +1,5 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { ToastProvider } from "@portikus/ui";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { useLayoutPersistence } from "./persist";
 import { createLayoutStore, type LayoutStore } from "./store";
@@ -7,9 +8,17 @@ const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 const PROJECT = "33333333-3333-4333-8333-333333333333";
 const URL = `/workspaces/${WORKSPACE}/projects/${PROJECT}/layout`;
 
-function Harness({ store }: { store: LayoutStore }) {
+function Persisted({ store }: { store: LayoutStore }) {
 	const loaded = useLayoutPersistence(WORKSPACE, PROJECT, store);
 	return <span data-testid="loaded">{loaded ? "yes" : "no"}</span>;
+}
+
+function Harness({ store }: { store: LayoutStore }) {
+	return (
+		<ToastProvider>
+			<Persisted store={store} />
+		</ToastProvider>
+	);
 }
 
 function stubFetch(get: () => Response) {
@@ -167,4 +176,57 @@ test("the selected tab and the view states come back on the next mount", async (
 	expect(store.getState().activeTabId).toBe("file:src/app.ts");
 	expect(store.getState().viewStates).toEqual({ "src/app.ts": { line: 42 } });
 	localStorage.clear();
+});
+
+const LIMIT_MESSAGE = "Your saved tab layouts have reached their size limit.";
+
+function stubSaves(status: number, code: string, message: string) {
+	const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+		if (init?.method === "PUT") {
+			return new Response(JSON.stringify({ code, message }), { status });
+		}
+		return noContent();
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	return fetchMock;
+}
+
+async function changeAndSave(store: LayoutStore, id: string) {
+	act(() => {
+		store.getState().addTab(id);
+	});
+	await act(async () => {
+		vi.advanceTimersByTime(1_100);
+	});
+}
+
+test("a save over the layout limit says so once, not on every retry", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const fetchMock = stubSaves(413, "LAYOUT_LIMIT", LIMIT_MESSAGE);
+	const store = createLayoutStore();
+	render(<Harness store={store} />);
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+	await changeAndSave(store, "a");
+	await waitFor(() => expect(screen.getAllByText(LIMIT_MESSAGE)).toHaveLength(1));
+	await changeAndSave(store, "b");
+	await waitFor(() => expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(2));
+	await act(async () => {
+		await Promise.resolve();
+	});
+	expect(screen.getAllByText(LIMIT_MESSAGE)).toHaveLength(1);
+});
+
+test("any other failed save stays silent", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const fetchMock = stubSaves(500, "INTERNAL", "Boom.");
+	const store = createLayoutStore();
+	render(<Harness store={store} />);
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+	await changeAndSave(store, "a");
+	await waitFor(() => expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(1));
+	await act(async () => {
+		await Promise.resolve();
+	});
+	expect(screen.queryByText("Boom.")).toBeNull();
 });

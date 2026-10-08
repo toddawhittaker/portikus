@@ -92,7 +92,6 @@ const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
 
-/** Run one statement on the test database. A client per call needs no teardown. */
 /** The lock for specs that change the one row in the settings table. */
 export const SETTINGS_ROW_LOCK = "e2e-settings-row";
 
@@ -113,6 +112,7 @@ export async function lockSharedState(name: string): Promise<() => Promise<void>
 	};
 }
 
+/** Run one statement on the test database. A client per call needs no teardown. */
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 	text: string,
 	values: unknown[] = [],
