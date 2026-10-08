@@ -181,8 +181,8 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
-			// The fake backup key and root-shell helpers run beside the API, in its process group.
-			command: `node e2e/fake-backup-key-server.mjs & node e2e/fake-root-shell-server.mjs & : > ${journalFile} && node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee -a ${journalFile}`,
+			// The fake backup key, root-shell and controller-check helpers run beside the API, in its process group.
+			command: `node e2e/fake-backup-key-server.mjs & node e2e/fake-root-shell-server.mjs & node e2e/fake-controller-check.mjs & : > ${journalFile} && node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee -a ${journalFile}`,
 			url: `${API_ORIGIN}/health`,
 			env: {
 				NODE_ENV: "test",

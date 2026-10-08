@@ -53,15 +53,13 @@ test("the API under test reads the same database as the test helpers", async ({
 });
 
 /**
- * No worker runs under the end-to-end tests, so nothing records a controller
- * check. Mark it far ahead so every workspace reads as verified (SPEC.md
- * §18.3); the unverified marker is tested by rewriting socket messages.
+ * No worker runs under the end-to-end tests, so e2e/fake-controller-check.mjs
+ * keeps the controller check fresh; this stamps it once before the first spec
+ * (SPEC.md §18.3). The unverified marker is tested by rewriting socket messages.
  */
 test("the workspace state reads as verified", async () => {
 	await query(
 		"insert into settings (id, shutdown_grace_seconds) values (1, 600) on conflict do nothing",
 	);
-	await query(
-		"update settings set controller_checked_at = '2100-01-01T00:00:00Z' where id = 1",
-	);
+	await query("update settings set controller_checked_at = now() where id = 1");
 });
