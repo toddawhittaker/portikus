@@ -124,7 +124,7 @@ test("a fenced code block renders inside pre and code", () => {
 });
 
 // Images with a workspace-relative path do not resolve here; serving them is
-// out of scope for this task and is in the backlog.
+// not built yet.
 
 test("a relative link stays in this tab and keeps its href", () => {
 	const { container } = render(<MarkdownPreview text={"[notes](docs/notes.md)\n"} />);

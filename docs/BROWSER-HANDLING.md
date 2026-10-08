@@ -3,7 +3,7 @@
 **Status:** Design specification  
 **Audience:** Software-development agents and human implementers  
 **Related documents:** `SPEC.md`, `STACK.md`  
-**Priority:** Application preview is P0 (Epic 8); URL brokering and provider-aware authentication are P0 (Epic 9). A remote-browser fallback is not planned; see `BACKLOG.md`, "Remote browser for loopback OAuth callbacks".
+**Priority:** Application preview is P0 (Epic 8); URL brokering and provider-aware authentication are P0 (Epic 9). A remote-browser fallback is not planned.
 
 ## 1. Purpose and authority
 
@@ -12,7 +12,7 @@ This document defines how Portikus handles two different browser problems:
 1. displaying a web application running inside a student workspace; and
 2. responding when a command-line tool in that remote workspace wants to open a browser, especially for authentication.
 
-The two cases must not be implemented as one generic remote-desktop feature. Application previews use the student's existing browser and an authenticated reverse proxy. CLI browser requests use the student's browser through a URL broker. Portikus runs no browser on the server. A flow that can only finish by calling back to the workspace's own loopback interface is unsupported; both P0 coding agents have an out-of-band login path, and `BACKLOG.md` records the remote-browser idea should a required tool ever lack one.
+The two cases must not be implemented as one generic remote-desktop feature. Application previews use the student's existing browser and an authenticated reverse proxy. CLI browser requests use the student's browser through a URL broker. Portikus runs no browser on the server. A flow that can only finish by calling back to the workspace's own loopback interface is unsupported; both P0 coding agents have an out-of-band login path, so a remote browser is not planned.
 
 This document refines the preview and coding-agent requirements in `SPEC.md` and the Caddy, Fastify, TypeScript, and workspace-agent choices in `STACK.md`. Where those documents contain a less specific browser-handling example, this document controls. It does not change their broader product or infrastructure decisions.
 
@@ -34,7 +34,7 @@ The implementation must follow these decisions unless a later architecture decis
 | CLI URL requests | `BROWSER`/`xdg-open` shim sends an `open-url` event to the Portikus UI |
 | Loopback-only services | The workspace agent forwards an approved port from the container interface to `127.0.0.1`, so students need not change bind addresses |
 | Authentication order | Provider-supported device/out-of-band flow, then external browser, then institutional credentials; no server-side browser |
-| Remote browser, full desktop, VNC | Out of scope (`BACKLOG.md`) |
+| Remote browser, full desktop, VNC | Out of scope |
 
 ## 3. Goals
 
@@ -63,7 +63,7 @@ P0 does not provide:
 - browser DevTools for the preview iframe;
 - credential entry or MFA automation;
 - a general web-browsing service inside the workspace;
-- a server-side browser of any kind (see `BACKLOG.md`);
+- a server-side browser of any kind;
 - silent bypass of a student application's `frame-ancestors` or `X-Frame-Options` policy.
 
 ## 5. Terminology
@@ -674,7 +674,7 @@ Use this order for coding-agent and developer-tool authentication:
 1. provider-supported device-code or comparable out-of-band login;
 2. external browser flow that does not depend on a callback to the workspace loopback interface;
 3. API key, enterprise access token, or institution-provided credential mechanism when permitted by product and institutional policy (`SPEC.md` Epic 9, institutional credential injection);
-4. fail with an explanation if the only remaining flow requires a callback to the workspace's loopback interface, an unsupported local authenticator, hardware key, file picker, download, or browser capability. Section 20 explains why that flow cannot be served without a server-side browser, and `BACKLOG.md` holds that option.
+4. fail with an explanation if the only remaining flow requires a callback to the workspace's loopback interface, an unsupported local authenticator, hardware key, file picker, download, or browser capability. Section 20 explains why that flow cannot be served without a server-side browser.
 
 The provider adapter must decide among supported methods. Do not infer behavior solely by searching an authorization URL for the string `localhost`.
 
@@ -724,7 +724,7 @@ and its registered OAuth redirect sends the browser to that URL, opening the aut
 
 Portikus cannot safely fix this by editing the OAuth `redirect_uri`; authorization servers validate registered redirects. It also cannot intercept the final navigation from a cross-origin page in the student's browser. An SSH tunnel or local desktop agent could bridge it, but both violate the browser-only Portikus requirement.
 
-A browser running on the server whose loopback network is the workspace's network would close this gap, but it is the most expensive and security-sensitive piece considered for Portikus, and neither P0 coding agent needs it: Codex has device-code login and Claude Code accepts its code pasted back into the terminal. The idea, its isolation requirements, and its spike plan are recorded in `BACKLOG.md` under "Remote browser for loopback OAuth callbacks" and are not part of any epic. Until then such a flow fails with the explanation in section 19.
+A browser running on the server whose loopback network is the workspace's network would close this gap, but it is the most expensive and security-sensitive piece considered for Portikus, and neither P0 coding agent needs it: Codex has device-code login and Claude Code accepts its code pasted back into the terminal. It is not planned and is not part of any epic. Until then such a flow fails with the explanation in section 19.
 
 ## 21. Browser handling security model
 
@@ -854,7 +854,7 @@ Add:
 - URL validation and secret-safe logs; and
 - documented key/token alternatives governed by credential policy.
 
-Phases A and B are `SPEC.md` Epic 8; phase C is Epic 9. There is no remote-browser phase; see `BACKLOG.md`.
+Phases A and B are `SPEC.md` Epic 8; phase C is Epic 9. There is no remote-browser phase.
 
 ## 25. Acceptance criteria
 

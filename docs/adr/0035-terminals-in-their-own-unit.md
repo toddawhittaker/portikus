@@ -46,8 +46,7 @@ older images until they are rebuilt.
 ## Consequences
 
 - Checks still run in the agent's cgroup, so a Check that runs out of
-  memory can still take the agent down with it (BACKLOG, "Move Checks out
-  of the agent's cgroup").
+  memory can still take the agent down with it (issue #1254).
 - The terminals unit is a second place a student's processes live, and
   the tmux socket name changed to `portikus` on every image.
 - Known gap: the exit record says `oom-kill` when tmux died of `SIGKILL`
@@ -55,4 +54,4 @@ older images until they are rebuilt.
   covers the whole cgroup for the unit's current run, so if a pane's
   program was OOM-killed earlier and tmux is later killed with a plain
   `SIGKILL` before the unit restarts, the record wrongly says `oom-kill`
-  and the student is told their workspace ran out of memory (BACKLOG).
+  and the student is told their workspace ran out of memory.

@@ -75,7 +75,7 @@ average keeps one definition of "busy".
   going quiet for a few minutes (amendment above). Each
   throttle and each lift is audited, so a repeat offender shows in the
   audit log, but the number of throttle-then-restart cycles is not
-  limited (docs/BACKLOG.md).
+  limited.
 - A long unattended job, including a coding agent, is stopped by idle
   stop unless an administrator sets that workspace's idle override to 0.
 - Rejected: sampling from the workspace agent. It is simpler, but the

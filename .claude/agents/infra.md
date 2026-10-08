@@ -9,6 +9,8 @@ description: |
 model: claude-opus-5-5
 effort: medium
 tools: Bash, Read, Write, Edit, Grep, Glob
+experimental:
+  cacheTtl: 1h
 ---
 
 # infra

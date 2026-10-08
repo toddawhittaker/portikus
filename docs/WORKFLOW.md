@@ -233,7 +233,7 @@ agent working from a checkout can read it.
 
 Before a feature epic's plan is written, the architect agent designs it
 (not for small fix batches). It reads wide: VISION.md, the epics still
-to come in SPEC.md section 29, BACKLOG.md and the open issues for the
+to come in SPEC.md section 29 and the open GitHub issues for the
 area. It reports where the code goes, what existing helpers and
 contracts the builders must reuse, and which task owns each shared file,
 migration number and contract change. For each significant choice it
@@ -390,7 +390,7 @@ line (for example the first 0.2 release), run the security-reviewer agent
 over all of `main`, not only the latest epic's changes. It reviews against
 SPEC.md section 24 and the private threat model for an internet-facing
 server, and runs `make external-port-check` against a test host. Fix every
-finding, or record it in `docs/BACKLOG.md` with the reason, before that
+finding, or file it as a GitHub issue with the reason, before that
 release is published.
 
 Two checks run before anything is published. First, the gate looks up the

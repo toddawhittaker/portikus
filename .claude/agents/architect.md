@@ -30,7 +30,7 @@ Read more than the epic's own section:
 - docs/VISION.md for intent;
 - docs/SPEC.md section 29 (the epics still to come) and section 30
   (milestone gates);
-- docs/BACKLOG.md and the open GitHub issues for the parts of the code
+- the open GitHub issues for the parts of the code
   the epic touches (`gh issue list --search ...`);
 - docs/adr/ for decisions already made, and the code itself for the
   patterns already established.

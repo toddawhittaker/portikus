@@ -173,7 +173,7 @@ plaintext on the workspace bridge until Epic 12; the token file sits in a
 directory the student owns, so containment relies on the Incus files API
 resolving paths inside the instance; the eight-terminal cap has a benign
 check-then-act race; and terminal rows (open plus the 20 most recent ended
-per listing) are never pruned (tracked in `docs/BACKLOG.md`). From Epic 6, the 1024-wide rail collapse is
+per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
 deferred, a clone shows no progress while it runs, a download has no size
 cap, discovery ignores directories that are not repositories, unarchiving
 is only reachable through the API, right-click paste in Firefox depends on
@@ -181,7 +181,7 @@ the browser's own paste prompt, a failed archive stream can reach the browser
 as a truncated zip, a failed download shows the API's JSON error page, and
 rename is not atomic across the agent and the database, so a crash between
 them leaves the old row missing and the new directory discovered as a
-separate project (tracked in `docs/BACKLOG.md`). Terminal names count per workspace rather than per
+separate project (issue #1222). Terminal names count per workspace rather than per
 project, so a second project's first terminal may be "Terminal 3", and a
 workspace created on an older image lacks zip until it is recreated, which
 the agent reports as a download failure, and the same workspace has empty
@@ -590,7 +590,7 @@ app.
 Known gaps. Multi-row selection downloads one file or zip per row rather
 than one merged zip, because the download route takes a single path; a
 multi-path agent endpoint would let the files pane send one request for a
-merged zip (tracked in `docs/BACKLOG.md`). A new terminal in a project
+merged zip (issue #1234). A new terminal in a project
 with an ended, custom-named terminal inherits that name rather than
 matching it exactly; a `replacesTerminalId` hint from the browser would
 make the revive exact. The xclip/xsel/pbcopy shim covers the common
@@ -599,7 +599,7 @@ its xterm 6 support is still in beta. `DiffViewer` still picks its
 language from the file extension only; there is no Makefile grammar in
 Monaco. Source-line to preview-line scroll mapping in the Markdown split
 view is deferred; the current sync is by relative scroll position, not by
-the corresponding source line (tracked in `docs/BACKLOG.md`). Codex's
+the corresponding source line (not planned). Codex's
 update-check setting belongs with the rest of agent configuration in Epic
 9, so issue #129 stays open. A handful of end-to-end tests were seen to
 flake once during the batch (an admin grace-period toast, a full tab
@@ -806,7 +806,7 @@ make the control plane hold outbound sockets open. Fixing the second
 changed what reset clears: the answer now expires each cookie name the
 request carried rather than asking the browser to clear the domain's
 cookies. One gap was fixed the same way: the loopback forward dialed only
-IPv4, while Vite's default bind is IPv6 loopback. One gap is deferred to the backlog: Vite
+IPv4, while Vite's default bind is IPv6 loopback. One gap is deferred: Vite
 refuses unknown hosts until its `server.allowedHosts` names the preview
 suffix, and nothing yet carries the suffix into the workspace for a
 template to use. The Incus workspace network access list needed one new
@@ -1154,7 +1154,7 @@ project, confirm a link a program in the workspace asks to open, and
 review the working tree against the snapshot taken when that session
 began. SPEC.md section 29 Epic 9, sections 10.4–10.9 and 12.7, and
 `docs/BROWSER-HANDLING.md` Part II. A server-side browser was never part
-of this epic; it stays in `docs/BACKLOG.md`.
+of this epic and is not planned.
 
 **Contracts.** The shared contracts name the two launchers, `claude` and
 `codex`, and the frames the URL broker uses. A request on the workspace
@@ -1209,8 +1209,7 @@ not in the status pull request.
 **Left out, because the spec and the plan left it out.**
 
 - No server-side browser. Loopback OAuth that has no device or paste-back
-  path stays the backlog item "Remote browser for loopback OAuth
-  callbacks".
+  path stays unsupported; a remote browser is not planned.
 - No restore of the tree as it was before the session. That is Epic 10.
   The baseline is a review snapshot only. A later `git prune` can drop
   the dangling object, and the review then has nothing to compare.
@@ -2048,7 +2047,8 @@ new tab.
 - **An LTI account and a Dex account are separate**, even for the same
   person.
 - Grade passback, roster sync, Deep Linking and instructor views of
-  student workspaces are left out; they are in `docs/BACKLOG.md`.
+  student workspaces are left out; roster sync, Deep Linking and instructor views are issues
+  #1217, #1218 and #1219.
 
 ## Epic 13.1 — Link a course account to an SSO account, and promote administrators
 
@@ -2151,7 +2151,7 @@ Rulings S1 to S5, N1, N2 and N4 in `docs/archive/epics/EPIC-13-1.md` record them
   accounts (ruling 24).
 - **No administrator UI to link or unlink on someone else's behalf.** So
   a student whose linked SSO account is later disabled or promoted is
-  locked out of launches until one exists (ruling N4, BACKLOG.md).
+  locked out of launches until one exists (ruling N4, issue #1252).
 - **Moving or merging workspaces, files or projects between accounts** is
   out of scope; a link only changes where a later launch or sign-in lands.
 - **No `instructor` grant in the UI or API yet**, though the column
@@ -2806,7 +2806,7 @@ Pilot: on 2026-09-26, main at 9ca56ba (PR #590) was deployed to the pilot as 0.1
 Gaps:
 
 - A student can run a heavy load, get throttled, restart and repeat
-  without limit. Each cycle is audited; a limit is in docs/BACKLOG.md.
+  without limit. Each cycle is audited; there is no limit yet.
 - A determined student can fake activity with a script that holds their
   own session cookie. The throttle still catches heavy CPU.
 - A long unattended job, including a coding agent, is stopped by idle
@@ -2895,11 +2895,11 @@ Gaps:
 
 - The workspace usage figures are not served while the workspace is in
   error, so the error screen's meters and "Clean up Docker…" do not
-  appear yet (BACKLOG, "Workspace usage in the error state").
+  appear yet.
 - A restart confirmation opened before the workspace starts moving does
-  nothing on confirm (BACKLOG).
+  nothing on confirm.
 - "Reset preview data" still acts without a confirmation, and issue
-  #607's resource notices are left to their own epic (BACKLOG).
+  #607's resource notices are left to their own epic.
 
 ## Epic 16 — Workspace resilience
 
@@ -2944,9 +2944,8 @@ Gaps:
 - The agent's planned OOM score of -500 was dropped because the kernel
   refuses it in an unprivileged container (ADR 0035).
 - The exit record can wrongly say `oom-kill` after an earlier pane OOM
-  kill (ADR 0035, BACKLOG).
-- Checks still run in the agent's cgroup, and the items the plan left out
-  are in BACKLOG.
+  kill (ADR 0035).
+- Checks still run in the agent's cgroup (issue #1254).
 
 ## Epic 17 — Platform resilience
 
@@ -2988,11 +2987,10 @@ Delivered:
 Gaps:
 
 - A create has no single shared deadline; on paper its steps can pass the
-  worker's 300 s budget, though a retry adopts what exists (BACKLOG).
-- Clone and template on a full disk still report `GIT_FAILED` (BACKLOG).
+  worker's 300 s budget, though a retry adopts what exists.
+- Clone and template on a full disk still report `GIT_FAILED` (issue #1253).
 - No watchdogs, no disk I/O priority, no per-address limit on made-up
-  preview cookies, no connection-tracking limits, and no limits on reads
-  (BACKLOG).
+  preview cookies, no connection-tracking limits, and no limits on reads.
 - At the rehearsal's load the CPU weight made no measurable difference to
   `/health` or terminal latency, because the platform's work is short.
 
@@ -3045,10 +3043,10 @@ Gaps:
 
 - The heat map's cell values are not readable by sighted keyboard users;
   the Peak column is the summary.
-- Everything under "Left out of Epic 19" in BACKLOG.md: per-route
+- What the plan left out: per-route
   request figures, custom windows, agent, Dex, Caddy and PostgreSQL lines,
   non-JSON lines, alerts, longer per-workspace history, faster sampling
-  and OpenTelemetry.
+  and OpenTelemetry. Agent lines are issue #1256; the rest were not filed.
 
 ## Epic 21 — Resource tools for students and admins
 
@@ -3108,11 +3106,12 @@ Gaps:
   administrator's list by restarting a unit and moving the program into
   its cgroup, and can make every Refresh fail with 10,000 empty cgroups
   (about 2.8 seconds, then an error). The administrator can still stop
-  the whole workspace (ADR 0037, BACKLOG).
+  the whole workspace (ADR 0037).
 - The "See what's using" buttons do nothing visible while Find in files
-  covers the right pane's tabs; this predates the epic (BACKLOG).
+  covers the right pane's tabs; this predates the epic.
 - The items the plan left out, such as stopping a process tree and an
-  administrator's stop without the agent, are in BACKLOG.
+  administrator's stop without the agent, were left out; stopping a
+  process tree is issue #1257.
 
 ## Epic 23 — Student interface leftovers
 
@@ -3140,7 +3139,7 @@ a confirmation review.
 
 Gaps:
 
-- The radio-item menu component is still in BACKLOG.
+- The radio-item menu component is still not built.
 - The id of the region that states why Confirm is disabled is a fixed
   default. That is safe while only one confirmation is open at a time.
 
@@ -3345,7 +3344,7 @@ Delivered, by task pull request:
   accessibility (the server security fixes have their own entry below).
 - #812: final leftovers, and set MANIFESTs that must name their own
   folder.
-- This task folds the epic plan into SPEC.md, STATUS.md and BACKLOG.md.
+- This task folds the epic plan into SPEC.md, STATUS.md and the backlog file.
 
 Verified by unit, Playwright and axe tests in each task, the debconf
 container tests, `make infra-check`, code, security and accessibility
@@ -3362,11 +3361,11 @@ Gaps:
 - A set's MAC does not check its `vm` line, which differs after a rebuild;
   accepted.
 - The worker shares the API's account, so it can reach the backup-key
-  helper (ADR 0044; BACKLOG).
+  helper (ADR 0044).
 - Setup failed when any apt repository stayed unreachable after three
   retries. Closed by Epic 15.1 (#825): it now warns and goes on when only
   the Portikus repository failed, and still fails for Debian's.
-- The install settings keys are named in three places (BACKLOG).
+- The install settings keys are named in three places.
 
 ## Epic 15, task T7 — Backups on an apt-installed server
 
@@ -3537,21 +3536,20 @@ Gaps:
 - The debconf config script keeps its own read-back map of settings
   keys, checked by the test rather than read from the list, because
   config can run before the package's files are unpacked.
-- The image job's lock and jobs-directory setup is written three times
-  (BACKLOG.md).
+- The image job's lock and jobs-directory setup is written three times.
 - A scheduled weekly re-sign can still cancel a release queued behind
-  another run (BACKLOG.md).
+  another run (issue #1261).
 - The host backup targets are untested on a `make configure-vm` VM
-  (BACKLOG.md).
+  (issue #1262).
 - The pin between two published versions is untested until the second
-  release (BACKLOG.md).
+  release (issue #1263).
 - After an apt upgrade from a release before 15.1, postinst restarts
   the worker as `portikus-worker` before `portikus setup` loads the new
   firewall rule, so until setup finishes the worker can reach ports 3000
   and 5556 on loopback. This is no new exposure: the old worker ran as
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
-  own address (BACKLOG.md).
+  own address (issue #1264).
 
 ## Epic 15.2 — Pilot fixes
 
@@ -3884,9 +3882,9 @@ Gaps:
   its own; the API's acceptance bounds it.
 - The admin Docker and Image tabs do not narrow below about 760 px.
 - Deleting `/etc/claude-code` loses Claude Code's managed settings until
-  a fix restores them at start (BACKLOG.md).
+  a fix restores them at start (issue #1283).
 - Status bar overflow at narrow widths, and the shell's storage meters
-  are not yet on `Meter` (BACKLOG.md).
+  are not yet on `Meter` (issue #1276).
 
 ## Epic 29 — Code quality cleanup
 
@@ -3976,7 +3974,7 @@ Gaps:
 - jscpd's ignored regions include the whole of `createQuotaSync` and the
   `WorkspaceProvider` interface, so a copy added inside them is not
   caught.
-- Five smaller items are in BACKLOG.md.
+- Five smaller items were left out.
 
 ## Epic 30 — Architecture review fixes
 
@@ -4456,7 +4454,7 @@ Delivered:
   focus, two-factor settings focus, copy and download of recovery codes,
   the link page's code field error.
 
-Gaps left (most are in docs/BACKLOG.md):
+Gaps left (most are filed as GitHub issues):
 
 - Disk encryption at rest is deferred.
 - The breached-password list is small and written by hand.
@@ -4532,9 +4530,9 @@ Delivered:
 - Workspace terminals (#1178 T10): input stops the moment a session
   re-check fails; the browser still receives 4401.
 - Fold: SPEC, STACK, ADR 0052, INSTALL, OPERATIONS, ADMIN-GUIDE, the
-  admin help and BACKLOG; the plan is deleted.
+  admin help and the backlog file; the plan is deleted.
 
-Gaps left (most are in docs/BACKLOG.md):
+Gaps left (most are filed as GitHub issues):
 
 - The package's `prerm` removal path has not been run with a real
   `apt remove`, and the `alerts.env` removal not on a real host.
@@ -4610,9 +4608,9 @@ Delivered:
   the Certificate, Image and Notifications tabs, and a freshly queued
   job outranks a finished one.
 - Fold: SPEC, STACK, INSTALL, OPERATIONS, the Caddyfile comment and
-  BACKLOG; the plan is deleted.
+  the backlog file; the plan is deleted.
 
-Gaps left (most are in docs/BACKLOG.md):
+Gaps left (most are filed as GitHub issues):
 
 - Passwords breached after the pinned SecLists snapshot are caught only
   when the pin is bumped.
