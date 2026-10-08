@@ -3883,8 +3883,8 @@ Gaps:
 - The admin Docker and Image tabs do not narrow below about 760 px.
 - Deleting `/etc/claude-code` loses Claude Code's managed settings until
   a fix restores them at start (issue #1283).
-- Status bar overflow at narrow widths, and the shell's storage meters
-  are not yet on `Meter` (issue #1276).
+- Status bar overflow at narrow widths (issue #1276), and the shell's
+  storage meters are not yet on `Meter` (not filed).
 
 ## Epic 29 — Code quality cleanup
 
