@@ -815,6 +815,67 @@ test.skipIf(skip)("no preview cookie is 401", async () => {
 	expect(response.headers["x-portikus-upstream"]).toBeUndefined();
 });
 
+test.skipIf(skip)(
+	"made-up preview cookies are limited per address, on their own count",
+	async () => {
+		const host = previewHostFor(5173);
+		const from = (ip: string) => ({ extra: { "x-forwarded-for": ip } });
+		for (let i = 0; i < 600; i += 1) {
+			const miss = await authorize(`made-up-${i}`, host, from("198.51.100.40"));
+			expect(miss.statusCode).toBe(401);
+		}
+		const refused = await authorize("made-up-last", host, from("198.51.100.40"));
+		expect(refused.statusCode).toBe(429);
+		expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+		// Another address is unaffected, and so are the address's public routes.
+		expect((await authorize("made-up", host, from("198.51.100.41"))).statusCode).toBe(
+			401,
+		);
+		const jwks = await app.inject({
+			url: "/lti/jwks",
+			headers: { "x-forwarded-for": "198.51.100.40" },
+		});
+		expect(jwks.statusCode).not.toBe(429);
+	},
+);
+
+test.skipIf(skip)("a revoked preview cookie is not counted as made up", async () => {
+	const host = previewHostFor(5173);
+	const from = { extra: { "x-forwarded-for": "198.51.100.42" } };
+	const token = await openPreview(5173);
+	await testDb.db
+		.updateTable("preview_sessions")
+		.set({ revoked_at: new Date().toISOString() })
+		.execute();
+	for (let i = 0; i < 601; i += 1) {
+		expect((await authorize(token, host, from)).statusCode).toBe(401);
+	}
+	expect((await authorize("made-up", host, from)).statusCode).toBe(401);
+});
+
+test.skipIf(skip)(
+	"past the miss limit, any real cookie still works and a made-up one gets the network page",
+	async () => {
+		const host = previewHostFor(5173);
+		const from = (ip: string) => ({ extra: { "x-forwarded-for": ip } });
+		const inUse = await openPreview(5173);
+		const idle = await openPreview(5173);
+		for (let i = 0; i < 600; i += 1) {
+			await authorize(`made-up-${i}`, host, from("198.51.100.43"));
+		}
+		// Used a moment ago from elsewhere, so its lookup is held.
+		expect((await authorize(inUse, host, from("198.51.100.44"))).statusCode).toBe(200);
+		expect((await authorize(inUse, host, from("198.51.100.43"))).statusCode).toBe(200);
+		// Not looked up in the last two seconds, but real: still let through.
+		expect((await authorize(idle, host, from("198.51.100.43"))).statusCode).toBe(200);
+		const guess = await authorize("made-up-again", host, from("198.51.100.43"));
+		expect(guess.statusCode).toBe(429);
+		expect(guess.body).toContain(
+			"Too many preview requests came from your network just now. Wait a minute, then reload this preview.",
+		);
+	},
+);
+
 test.skipIf(skip)("an unknown or revoked preview session is 401", async () => {
 	expect((await authorize("nonsense", previewHostFor(5173))).statusCode).toBe(401);
 
@@ -1558,6 +1619,10 @@ test.skipIf(skip)("a workspace leaving running revokes its previews", async () =
 	const stopped = await authorize(token, previewHostFor(5173));
 	expect(stopped.statusCode).toBe(503);
 	expect(stopped.headers["x-portikus-upstream"]).toBeUndefined();
+	// The Preview tab frames this page, so its policy names the control plane.
+	expect(stopped.headers["content-security-policy"]).toContain(
+		`frame-ancestors ${new URL(PUBLIC_URL).origin}`,
+	);
 
 	// Starting the workspace again does not bring the revoked session back.
 	await testDb.db

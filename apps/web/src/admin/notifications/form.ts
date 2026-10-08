@@ -1,12 +1,13 @@
 import {
 	type AlertChannelKind,
-	isNotifyJobActive,
+	isJobActive,
+	jobStaleAt,
 	MAX_ALERT_EMAIL_RECIPIENTS,
+	NOTIFY_JOB_STALE_MS,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	type NotifyJobCode,
 	type NotifyJobView,
-	notifyJobStaleAt,
 	NotificationSettingsUpdate as UpdateSchema,
 } from "@portikus/contracts";
 
@@ -334,7 +335,10 @@ export function isStale(
 	job: NotifyJobView | null | undefined,
 	now: number = Date.now(),
 ): boolean {
-	return notifyJobStaleAt(job) !== null && !isNotifyJobActive(job, now);
+	return (
+		jobStaleAt(job, NOTIFY_JOB_STALE_MS) !== null &&
+		!isJobActive(job, NOTIFY_JOB_STALE_MS, now)
+	);
 }
 
 export const STALE_TEXT =

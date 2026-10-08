@@ -754,6 +754,39 @@ test.describe("the preview in a real browser", () => {
 		await app.close();
 	});
 
+	test("the explanation page renders inside the Preview pane under its own policy", async ({
+		page,
+		context,
+	}) => {
+		const blocked: string[] = [];
+		page.on("console", (message) => {
+			if (/content security policy|frame-ancestors/i.test(message.text())) {
+				blocked.push(message.text());
+			}
+		});
+		const student = await createStudent(context);
+		await previewGateway(context);
+		const app = await startPreview(student.workspaceId, "Framed stop");
+		await openPreviewTab(page, student.workspaceId, app.port);
+		await expect(appHeading(page)).toHaveText("Framed stop", { timeout: 20_000 });
+		await app.stop();
+
+		const frame = page.frameLocator("[data-testid=preview-frame]");
+		await expect
+			.poll(
+				async () => {
+					await page.getByTestId("preview-reload").click();
+					return (await frame.locator("body").textContent()) ?? "";
+				},
+				{ timeout: 20_000 },
+			)
+			.toContain(`Nothing is currently listening on port ${app.port}`);
+		await expect(frame.getByRole("heading", { level: 1 })).toHaveText(
+			"Nothing is listening yet",
+		);
+		expect(blocked).toEqual([]);
+	});
+
 	test("Open in new tab from a Running row opens exactly one tab", async ({
 		page,
 		context,

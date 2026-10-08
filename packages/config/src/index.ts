@@ -202,6 +202,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 	RELEASE_NOTICE_SECONDS: positiveInt.default(3600),
 	/** Sign-in starts per address per minute: 150 lets a lab of 30 behind one address sign in, at five starts each. */
 	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(150),
+	/**
+	 * Requests per address per minute on routes that need no session (SPEC.md
+	 * 24.13). One sign-in makes about five, so 600 covers a class of 100.
+	 */
+	ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: positiveInt.default(600),
 	/** Dex password posts per address per ten minutes; ten times this overall. */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 	/** The journal reader behind the Logs tab (docs/adr/0036); e2e points it at a fake. */

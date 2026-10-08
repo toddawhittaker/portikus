@@ -448,8 +448,9 @@ if [ "$start_check" = yes ]; then
   owner=$(in_ws "stat -c %u:%g /home/student")
   bad=0
   [ "$owner" = "1000:1000" ] || { echo "  /home/student is owned by ${owner} inside the workspace, not the student"; bad=$((bad + 1)); }
+  # As the container's root: a home may hold files the student cannot read.
   while read -r sum path; do
-    got=$(in_ws "sha256sum $(printf '%q' "/home/student/${path}")" | cut -d' ' -f1)
+    got=$(vm "incus exec ${instance} --project ${PROJECT} -- sha256sum $(printf '%q' "/home/student/${path}")" | cut -d' ' -f1)
     [ "$got" = "$sum" ] || { echo "  differs: ${path}"; bad=$((bad + 1)); }
   done < <(sample "$home")
   repos=0

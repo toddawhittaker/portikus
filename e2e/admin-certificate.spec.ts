@@ -155,6 +155,33 @@ test.describe("with the fake root job", () => {
 		expect(await readFile(await download.path(), "utf8")).toBe(FAKE_ROOT_PEM);
 	});
 
+	// SPEC.md 24.10: the internal authority's ~12-hour certificates renew themselves.
+	test("no expiry banner for the internal authority's short-lived certificate", async ({
+		page,
+	}) => {
+		await putStatus({ notAfter: new Date(Date.now() + 6 * 3600_000).toISOString() });
+		await open(page);
+		await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("cert-expiry-notice")).toHaveCount(0);
+	});
+
+	// SPEC.md 24.10: the hourly check reports the internal authority on a public address.
+	test("the internal authority on a public address shows a warning", async ({
+		page,
+	}) => {
+		await putStatus({
+			internalOnPublic: { since: "2026-09-30T10:00:00Z", addresses: ["203.0.113.7"] },
+		});
+		await open(page);
+		await expect(page.getByTestId("cert-public-notice")).toContainText(
+			"resolves to a public address (203.0.113.7)",
+		);
+		await putStatus({ internalOnPublic: null });
+		await page.reload();
+		await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("cert-public-notice")).toHaveCount(0);
+	});
+
 	test("Test only: checks the names, sends the token once in a 0600 request, and shows progress", async ({
 		page,
 	}) => {
@@ -561,6 +588,39 @@ for (const colorScheme of ["light", "dark"] as const) {
 		// The log takes focus, so it scrolls from the keyboard.
 		await page.getByTestId("cert-job-log").focus();
 		await expect(page.getByTestId("cert-job-log")).toBeFocused();
+	});
+
+	test(`the public-address warning has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		const internal = { source: "internal" };
+		await routeApi(page, "**/admin/certificate", (route) =>
+			route.fulfill({
+				json: {
+					...PAGE,
+					settings: internal,
+					job: null,
+					status: {
+						...PAGE.status,
+						source: "internal",
+						settings: internal,
+						lastRenewal: null,
+						internalOnPublic: {
+							since: "2026-09-30T10:00:00Z",
+							addresses: ["203.0.113.7", "2001:db8::7"],
+						},
+					},
+				},
+			}),
+		);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/certificate");
+		await expect(page.getByTestId("cert-public-notice")).toContainText(
+			"(203.0.113.7, 2001:db8::7)",
+			{ timeout: 15_000 },
+		);
+		await expectNoViolations(page);
 	});
 
 	test(`the certificate dialogs have no automatic accessibility violations (${colorScheme})`, async ({

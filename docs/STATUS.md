@@ -4547,3 +4547,86 @@ Gaps left (most are in docs/BACKLOG.md):
   `systemd-run`, can outlive the off switch.
 - Root shells have no rename and no per-pane light theme.
 - `e2e/admin-notifications.spec.ts` is flaky under `--repeat-each`.
+
+## Epic 36 — Internet hardening
+
+Built on `epic/36-internet-hardening` (task PRs #1194 to #1207 and this
+fold), issues #1145 and #1192, with parts of #1138. Migration 0040.
+SPEC.md sections 24.9, 24.10, 24.11, 24.13 and 25.6, STACK.md section
+15, and ADRs 0053 and 0054. The goal: close the gaps left before a site
+faces the internet.
+
+Delivered:
+
+- Plan and decisions (#1195 H0): ADR 0053 (sign-in counters in
+  PostgreSQL and the holder bypass) and ADR 0054 (an offline
+  breached-password list from SecLists).
+- Breached passwords (#1200 H1): 10,958 entries from a pinned SecLists
+  file plus the hand-written ones, at least 15 characters, shipped in
+  the package and read once into a set.
+- Anonymous limit (#1201 H2): 600 requests a minute per address on
+  routes without a session (IPv6 /64 as one address, 429
+  `RATE_LIMITED`), ahead of every other count; a separate count of
+  made-up preview cookies at `/preview/authorize`; sign-in starts
+  counted only at `/auth/login` and `/lti/login`.
+- Own authority on a public address (#1203 H3): the certificate job
+  refuses it at first install, apply and rollback unless
+  `portikus_allow_internal_ca_on_public_address` is true in
+  `portikus.yaml`; `reset-certificate` always works; the hourly check
+  raises one warning alert per settings change and a Certificate-tab
+  banner while it is in use. Verified on the rehearsal VM.
+- Pinned agents (#1194 H4, Fixes #1145): the admin image rebuild
+  installs the recipe's pinned Claude Code and Codex versions.
+- Log alerts (#1199 H5): the API reads the journal each minute;
+  outbound-limit hits raise one alert per workspace and reason an hour,
+  naming the Incus instance; 20 or more errors in 15 minutes raise one
+  fixed-text alert.
+- Restore tests (#1206 H6): side copy, Replace home and whole restore
+  keep owners, modes and the marker; the side copy now keeps group and
+  setgid bits; recovery points never hold `~/.claude` or `~/.codex`
+  logins, even through links.
+- Residual risks, API side (#1205 H7a): an expired passkey challenge
+  gives back only its own try, by receipt; kept notices are capped at 50
+  per person; HTML the API writes carries a full content security
+  policy, and preview pages their own, framed by the control plane.
+- Off-site quota (#1202 H7b): the prune script empties `incoming` past
+  twice the median kept set's disk (at least 1 GiB) or ten times its
+  file count (at least 100,000), drops sets with hard links, copes with
+  mode-000 folders and warns; INSTALL tells operators to set a
+  `setquota` limit.
+- Stored guess counts (#1207 H8): password, second-factor and
+  password-change counts in PostgreSQL (`signin_counters`, migration
+  0040), one atomic upsert per hit, receipts for give-backs, one audit
+  row per refusal, 503 when the store fails, hourly prune by the API,
+  and no worker rights on the table. A recovery code or passkey still
+  gets a check when the account's count refuses, 10 per session per 10
+  minutes.
+- Help and text (#1197 H9): an "Inviting people" help topic, a link page
+  status line that adds no gap, and a 12-hour sentence on "Session
+  ended".
+- Smoke throttle check (#1198 H11, Fixes #1192): it opens a real Dex
+  form and posts 31 distinct wrong logins; passes on the pilot.
+- Jobs (#1196 H12, #1204): a killed job no longer hides newer ones on
+  the Certificate, Image and Notifications tabs, and a freshly queued
+  job outranks a finished one.
+- Fold: SPEC, STACK, INSTALL, OPERATIONS, the Caddyfile comment and
+  BACKLOG; the plan is deleted.
+
+Gaps left (most are in docs/BACKLOG.md):
+
+- Passwords breached after the pinned SecLists snapshot are caught only
+  when the pin is bumped.
+- Split-horizon DNS can make a public site name read as private to the
+  certificate job.
+- The Certificate tab shows the red expiry notice for the internal
+  authority's 12-hour certificates.
+- The log alerts' hourly memory is lost on an API restart.
+- The relay's own refusal pages get only Caddy's `frame-ancestors`.
+- The 12 in the "Session ended" sentence is fixed text.
+- The off-site prune bounds only the steady use of `incoming`; bursts
+  rely on the operator's filesystem quota.
+- Not yet run on a VM: the anonymous-limit 429 through Caddy, the
+  counter-restart smoke check, the `curl -I` policy checks, and a whole
+  `portikus restore` in a full install test.
+- The Dex sign-in CI job is not yet a required check (Todd's ruleset
+  change; the last part of #1138).

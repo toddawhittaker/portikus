@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminCertificate,
 	type ApiError,
+	CERTIFICATE_JOB_STALE_MS,
 	CERTIFICATE_LOG_LINES,
 	CertificateJobId,
 	CertificateJobRequest,
@@ -13,6 +14,7 @@ import {
 	type CertificateSettings,
 	type CertificateSettingsView,
 	DNS_PROVIDER_FIELDS,
+	isJobActive,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -40,6 +42,7 @@ import { sendError } from "../http.js";
 import {
 	currentJob,
 	listDir,
+	removeStaleRequests,
 	sweepTempRequests,
 	tailLines,
 	writeRequestFile,
@@ -227,7 +230,7 @@ export function registerAdminCertificateRoutes(
 			settings: status?.settings ?? null,
 			previousAvailable: status?.previousAvailable ?? false,
 			status,
-			job: currentJob(jobs),
+			job: currentJob(jobs, CERTIFICATE_JOB_STALE_MS),
 			rootCertificateAvailable: await rootAvailable(statusDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
@@ -297,9 +300,10 @@ export function registerAdminCertificateRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isJobActive(j, CERTIFICATE_JOB_STALE_MS))) {
 				return sendError(reply, 409, "CERTIFICATE_JOB_BUSY", BUSY_MESSAGE);
 			}
+			await removeStaleRequests(jobsDir, jobs, CERTIFICATE_JOB_STALE_MS);
 			const status = await readCertificateStatus(statusDir);
 			if (wanted.kind === "rollback" && !status?.previousAvailable) {
 				return sendError(

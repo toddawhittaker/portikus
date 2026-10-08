@@ -623,7 +623,37 @@ describe.skipIf(skip)("linking a local-password account", () => {
 			code: totpCode(secret, totpStep(Date.now()) + 1),
 		});
 		expect(res.statusCode).toBe(429);
+		expect(res.json().message).toBe(
+			"Too many wrong codes. Wait a few minutes, or use a recovery code.",
+		);
 		expect(await linkCount()).toBe(0);
+	});
+
+	test("once the count refuses, a recovery code still links, and a wrong one is audited (ADR 0053)", async () => {
+		const { codes } = await enrolledLena();
+		const lena = new CookieJar();
+		await loginAs(app, "lena", lena);
+		for (let i = 0; i < 10; i++) {
+			await postBody("/me/second-factor/verify", lena, { code: "000000" });
+		}
+		const course = await courseAccount();
+		await callback(await startAndPick(course.jar, "lena"), course.jar);
+		const wrong = await postBody("/me/links/confirm", course.jar, {
+			code: "AAAA-BBBB-CCCC-DDDD",
+		});
+		expect(wrong.statusCode).toBe(403);
+		expect(wrong.json().code).toBe("WRONG_CODE");
+		const failed = await testDb.db
+			.selectFrom("audit_events")
+			.select("metadata")
+			.where("action", "=", "auth.second_factor_failed")
+			.orderBy("id", "desc")
+			.executeTakeFirstOrThrow();
+		expect(failed.metadata).toMatchObject({ flow: "link", bypass: true });
+
+		const ok = await postBody("/me/links/confirm", course.jar, { code: codes[0] });
+		expect(ok.statusCode).toBe(200);
+		expect(await linkCount()).toBe(1);
 	});
 
 	test("the right code links, and the new session has passed its second factor", async () => {

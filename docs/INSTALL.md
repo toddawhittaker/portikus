@@ -228,6 +228,20 @@ such as a lab. Browsers warn until each one is told to trust its root
 certificate ("After setup", below), and setup prints a warning that says
 so.
 
+Setup refuses Portikus's own authority when the web address resolves in
+DNS to a public address. If you really want it there, for example for a
+short test, add this line to `/etc/portikus/portikus.yaml` and run
+`sudo portikus setup` again:
+
+```yaml
+portikus_allow_internal_ca_on_public_address: true
+```
+
+While it is in use on a public address, administrators get an alert and
+the Certificate tab shows a warning. The other ways out are to pick Let's
+Encrypt or your own files with `sudo dpkg-reconfigure portikus`, or to
+run `sudo portikus reset-certificate`, which always works.
+
 ### 5. How people sign in
 
 ![The sign-in screen, offering local accounts only, Microsoft Entra ID, Google Workspace, LDAP or Active Directory, or another OpenID Connect provider](images/install/06-sign-in.png)
@@ -604,7 +618,28 @@ Each run moves finished sets from `incoming` into `/srv/portikus-sets`,
 at most one a day (UTC): the first finished set of a day is kept, and a
 later one from the same day is dropped within a day. It never replaces
 a set already there, and removes a set only when it is more than 30
-days old and 30 newer sets are there. Nothing else in the folder is touched. Watch a server run with
+days old and 30 newer sets are there. Nothing else in the folder is touched.
+
+If `incoming` grows past twice the disk of a typical kept set (at least
+1 GiB) or past ten times its file count (at least 100,000), the next run
+empties it and the warning reaches you by cron mail. A big set can take
+longer than an hour to arrive, so the newest unfinished set named for
+the last day is left alone while anything in it changed in the last 2
+hours; a run warns when it grows past four times a typical kept set. An
+unfinished set dated more than a day ahead is dropped.
+Until the first set is kept there is nothing to size a set by, so no
+set in `incoming` is removed for size, only other files. That only limits
+what sits in `incoming` between runs. **Set a filesystem quota on the
+target account**, for both disk blocks and files (inodes). It is the
+only real limit on a burst within the hour and on kept sets that keep
+growing. With quotas enabled on the filesystem (the `quota` package and
+the `usrquota` mount option), for example 200 GiB and 2 million files:
+
+```
+sudo setquota -u backups 200G 200G 2000000 2000000 /srv
+```
+
+Size it to hold KEEP sets plus a few spare. Watch a server run with
 `sudo systemctl start portikus-backup-offsite.service` and `sudo
 journalctl -u portikus-backup-offsite.service`; a failed run sends an
 alert when alerts are set up. To turn it off, set

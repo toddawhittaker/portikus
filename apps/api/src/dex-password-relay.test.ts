@@ -4,8 +4,10 @@ import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/tes
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { dexOutcome } from "./dex-password-relay.js";
+import { PAGE_POLICY } from "./page-policy.js";
 import { ACCOUNT_FAILURE_LIMIT } from "./signin-throttle.js";
 import { buildTestServer, PUBLIC_URL } from "./testing/test-support.js";
 
@@ -133,6 +135,8 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		const res = await post("Alice@Example.edu", WRONG);
 		expect(res.statusCode).toBe(200);
 		expect(res.body).toContain("Invalid Email Address and password.");
+		// Dex's page loads its own stylesheet, font and script; the API's page policy would block them.
+		expect(res.headers["content-security-policy"]).toBeUndefined();
 		const rows = await auditRows("auth.password_failed");
 		expect(rows).toEqual([
 			{
@@ -156,6 +160,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		expect(refused.statusCode).toBe(429);
 		expect(refused.headers["content-type"]).toContain("text/html");
 		expect(refused.body).toContain("Too many sign-in attempts");
+		expect(refused.headers["content-security-policy"]).toBe(PAGE_POLICY);
 		// Dex never saw the refused try.
 		expect(received).toHaveLength(ACCOUNT_FAILURE_LIMIT);
 		// Another account from the same address is unaffected.
@@ -232,6 +237,50 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		);
 	});
 
+	test("the address count survives a restart of the API (ADR 0053)", async () => {
+		for (let i = 0; i < 30; i += 1) {
+			await post(`user${i}@example.edu`, WRONG, { ip: "198.51.100.30" });
+		}
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, { DEX_HTTP_URL: dexUrl });
+		await app.ready();
+		const refused = await post("fresh@example.edu", WRONG, { ip: "198.51.100.30" });
+		expect(refused.statusCode).toBe(429);
+		expect(received).toHaveLength(30);
+	});
+
+	test("when Dex does not answer, the relay's own 502 page carries the page policy", async () => {
+		await app.close();
+		// Port 9 (discard) has no listener here, so the fetch is refused.
+		app = buildTestServer(testDb.db, mock.issuer, {
+			DEX_HTTP_URL: "http://127.0.0.1:9",
+		});
+		await app.ready();
+		const res = await post("alice@example.edu", RIGHT);
+		expect(res.statusCode).toBe(502);
+		expect(res.body).toContain("Sign-in is unavailable");
+		expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
+	});
+
+	test("when the counts cannot be kept, a post is refused with 503 and never reaches Dex", async () => {
+		await sql`alter table signin_counters rename to signin_counters_away`.execute(
+			testDb.db,
+		);
+		try {
+			const res = await post("alice@example.edu", RIGHT);
+			expect(res.statusCode).toBe(503);
+			expect(res.headers["content-type"]).toContain("text/html");
+			expect(res.body).toContain("Sign-in is unavailable");
+			expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
+		} finally {
+			await sql`alter table signin_counters_away rename to signin_counters`.execute(
+				testDb.db,
+			);
+		}
+		expect(received).toEqual([]);
+		expect(lines.some((l) => l.msg === "sign-in counter store failed")).toBe(true);
+	});
+
 	test("right passwords from one address never fill its limit (SPEC.md 24.13)", async () => {
 		for (let i = 0; i < 60; i += 1) {
 			expect(
@@ -269,6 +318,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 			payload,
 		});
 		expect(res.statusCode).toBe(400);
+		expect(res.headers["content-security-policy"]).toBe(PAGE_POLICY);
 		expect(received).toEqual([]);
 	});
 

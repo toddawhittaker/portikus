@@ -12,6 +12,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,11 +25,12 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import type {
-	CertificateJobRecord,
-	CertificateJobStatusFile,
-	CertificateSettingsView,
-	CertificateStatusFile,
+import {
+	CERTIFICATE_JOB_STALE_MS,
+	type CertificateJobRecord,
+	type CertificateJobStatusFile,
+	type CertificateSettingsView,
+	type CertificateStatusFile,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
@@ -330,6 +332,16 @@ describe.skipIf(skip)("POST /admin/certificate/jobs", () => {
 		expect((await readdir(jobsDir)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
 	});
 
+	test("a stale queued request is removed before the new one is written", async () => {
+		const stale = join(jobsDir, "request-55555555-5555-4555-8555-555555555555.json");
+		await writeFile(stale, "{}");
+		const old = new Date(Date.now() - CERTIFICATE_JOB_STALE_MS - 60_000);
+		await utimes(stale, old, old);
+		const res = await send(carol, "POST", "/admin/certificate/jobs", { kind: "check" });
+		expect(res.statusCode).toBe(202);
+		expect(await requestFiles()).toEqual([`request-${res.json().id}.json`]);
+	});
+
 	test("refuses a second job while one waits or runs", async () => {
 		const first = await send(carol, "POST", "/admin/certificate/jobs", {
 			kind: "check",
@@ -341,11 +353,35 @@ describe.skipIf(skip)("POST /admin/certificate/jobs", () => {
 		expect(second.statusCode).toBe(409);
 		expect(second.json().code).toBe("CERTIFICATE_JOB_BUSY");
 		await rm(join(jobsDir, `request-${first.json().id}.json`));
-		await putJob(jobStatus(), null);
+		await putJob(jobStatus({ startedAt: new Date().toISOString() }), null);
 		const third = await send(carol, "POST", "/admin/certificate/jobs", {
 			kind: "check",
 		});
 		expect(third.statusCode).toBe(409);
+	});
+
+	test("a job killed while running stops blocking once stale, and the page shows the job before it", async () => {
+		const longAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+		const earlier = "44444444-4444-4444-8444-444444444444";
+		await putJob(
+			jobStatus({
+				id: earlier,
+				kind: "check",
+				state: "succeeded",
+				step: "Done",
+				startedAt: longAgo(CERTIFICATE_JOB_STALE_MS + 60_000),
+				finishedAt: longAgo(CERTIFICATE_JOB_STALE_MS + 30_000),
+			}),
+			null,
+		);
+		await putJob(
+			jobStatus({ startedAt: longAgo(CERTIFICATE_JOB_STALE_MS + 1000) }),
+			null,
+		);
+		const page = await send(carol, "GET", "/admin/certificate");
+		expect(page.json().job).toMatchObject({ id: earlier, state: "succeeded" });
+		const res = await send(carol, "POST", "/admin/certificate/jobs", { kind: "check" });
+		expect(res.statusCode).toBe(202);
 	});
 
 	test("is administrator-only", async () => {

@@ -10,7 +10,8 @@ export function SessionEnded() {
 				</h1>
 				<p className="pk-text-body">
 					You were signed out, either after a long period without activity or from
-					another window.
+					another window. If you are an administrator or instructor through your
+					institution's sign-in, you are also signed out 12 hours after you sign in.
 				</p>
 				<p className="pk-text-body pk-muted">
 					Your projects are saved in your workspace. Sign in again to pick up where you

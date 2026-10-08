@@ -1,15 +1,13 @@
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	AlertChannelKind,
-	isNotifyJobActive,
 	type NotificationSettingsUpdate,
 	type NotificationSettingsView,
 	NotifyJobId,
 	NotifyJobStatusFile,
 	type NotifyJobView,
 } from "@portikus/contracts";
-import { listDir, readJson } from "../job-files.js";
+import { fileTime, listDir, readJson } from "../job-files.js";
 
 /**
  * The API side of the root alerts job (ADR 0052): the API writes
@@ -37,32 +35,9 @@ async function queuedJobs(dir: string): Promise<NotifyJobView[]> {
 	for (const name of await listDir(dir)) {
 		const id = REQUEST_FILE.exec(name)?.[1];
 		if (!id || !NotifyJobId.safeParse(id).success) continue;
-		// The file's age is its queue time; its body may hold secrets, so it is not read.
-		const queuedAt = await stat(join(dir, name)).then(
-			(s) => s.mtime.toISOString(),
-			() => null,
-		);
-		jobs.push(queuedView(id, queuedAt));
+		jobs.push(queuedView(id, await fileTime(join(dir, name))));
 	}
 	return jobs;
-}
-
-/**
- * The job the page should show: the newest by request or start time, with
- * a dead queued or running job ranked below every live or finished one, so
- * a job killed mid-run never hides the ones after it.
- */
-export function latestJob(
-	jobs: NotifyJobView[],
-	now: number = Date.now(),
-): NotifyJobView | null {
-	const dead = (j: NotifyJobView) =>
-		(j.state === "queued" || j.state === "running") && !isNotifyJobActive(j, now);
-	const at = (j: NotifyJobView) => j.requestedAt ?? j.startedAt ?? "";
-	const ranked = [...jobs].sort(
-		(a, b) => Number(dead(a)) - Number(dead(b)) || at(b).localeCompare(at(a)),
-	);
-	return ranked[0] ?? null;
 }
 
 async function readJob(dir: string, id: string): Promise<NotifyJobView | null> {

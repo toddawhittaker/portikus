@@ -17,16 +17,34 @@
 #     So is a set dated more than a day ahead of this clock, which would
 #     otherwise never age out;
 #   - drops sets in DIR/incoming that never finished and are more than
-#     KEEP days old;
+#     KEEP days old or dated more than a day ahead;
+#   - drops a newly kept set that holds hard-linked files, which the
+#     backup's rsync never makes, and warns when a newly kept set uses more
+#     than twice the disk of the median kept set before it;
+#   - empties incoming, finished sets waiting their day included, and
+#     warns on stderr, when it uses more than twice the disk of the median
+#     kept set (at least 1 GiB) or holds more than ten times its entries
+#     (at least 100,000), or cannot be measured.  The median, not the
+#     largest, so one huge set a broken-into server got kept cannot raise
+#     the limit.  This bounds only the steady use of incoming between
+#     runs: a filesystem quota on this account is the real limit on a
+#     burst within the hour and on kept sets growing (docs/INSTALL.md).
+#     A large set takes longer than an hour to send, so two things are
+#     spared and left out of the measure: the newest unfinished set named
+#     for the last day (up to an hour ahead) while anything in it changed
+#     in the last 2 hours, with a warning when it passes four times the
+#     median, and, until a first set is kept, every set, since there is no
+#     median to size one by;
 #   - removes a set from DIR only when it is more than KEEP days old and
 #     KEEP newer sets are there, so a server that stops sending leaves the
 #     last KEEP sets in place.
-# KEEP defaults to 7.  Nothing but set folders and their markers is touched.
+# KEEP defaults to 7.  Outside incoming, nothing but set folders is touched.
 set -eu
 # find fails when the caller's directory is unreadable to this account.
 cd /
 
 die() { printf 'portikus-offsite-prune: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'portikus-offsite-prune: warning: %s\n' "$*" >&2; }
 
 case $# in
   1 | 2) ;;
@@ -45,9 +63,49 @@ cutoff=$(date -u -d "-${keep} days" +%Y%m%d%H%M%S)
 ahead=$(date -u -d '+1 day' +%Y%m%d%H%M%S)
 dayago=$(date -u -d '-1 day' +%Y%m%d%H%M%S)
 num() { printf '%s' "$1" | tr -d TZ; }
-is_set() { printf '%s\n' "$1" | grep -Eqx '[0-9]{8}T[0-9]{6}Z'; }
+# A pattern, not grep, so a name with a newline in it cannot match.
+is_set() {
+  case "$1" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) return 0 ;;
+  esac
+  return 1
+}
 # A real folder, not a symlink the server left to point elsewhere.
 is_dir() { [ -d "$1" ] && [ ! -L "$1" ]; }
+# A finished set in incoming: a set folder with a plain-file marker.
+is_finished() {
+  is_set "${1##*/}" && is_dir "$1" && [ -f "${1}.done" ] && [ ! -L "${1}.done" ]
+}
+# remove PATH -- the server can send folders of mode 000, so open them
+# first.  Neither command follows a symlink inside the tree, and a symlink
+# at PATH itself is removed, not followed.
+remove() {
+  if is_dir "$1"; then
+    chmod -R u+rwX -- "$1" 2>/dev/null || true
+  fi
+  rm -rf --one-file-system -- "$1" || warn "could not remove ${1}"
+}
+# kib PATH -- disk use in KiB; fails when du cannot read all of PATH.
+kib() {
+  _s=$(du -sxk -- "$1" 2>/dev/null) || return 1
+  printf '%s\n' "${_s%%[!0-9]*}"
+}
+# entries PATH -- files and folders in PATH, itself included; fails like kib.
+entries() {
+  _n=$( (find "$1" -xdev -printf '\n' 2>/dev/null || echo fail) \
+    | awk '/fail/ { f = 1 } END { print f ? "fail" : NR }')
+  [ "$_n" != fail ] || return 1
+  printf '%s\n' "$_n"
+}
+# median MEASURE -- MEASURE (kib or entries) of the median kept set; the
+# lower middle of an even count, 0 with none.
+median() {
+  find "$dir" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*T*Z' -print \
+    | while IFS= read -r d; do
+        if is_set "${d##*/}"; then "$1" "$d" || true; fi
+      done \
+    | sort -n | awk '{ v[NR] = $1 } END { print NR ? v[int((NR + 1) / 2)] : 0 }'
+}
 # day_kept YYYYMMDD -- DIR already holds a set from that UTC day.
 day_kept() {
   for e in "${dir}/${1}"T*Z; do
@@ -56,33 +114,51 @@ day_kept() {
   return 1
 }
 
+before=$(median kib)
 for marker in "${dir}"/incoming/*.done; do
   [ -e "$marker" ] || [ -L "$marker" ] || continue
-  name=$(basename "$marker" .done)
-  if ! is_set "$name" || ! is_dir "${dir}/incoming/${name}"; then
-    rm -f -- "$marker"
+  name=${marker##*/}
+  name=${name%.done}
+  # Anything but a plain file is not a marker; rm -f would fail on a folder.
+  if ! is_finished "${dir}/incoming/${name}"; then
+    remove "$marker"
     continue
   fi
   if [ -e "${dir}/${name}" ] || [ -L "${dir}/${name}" ]; then
     echo "dropping a second copy of ${name}; the first is kept"
-    rm -rf -- "${dir}/incoming/${name}" "$marker"
+    remove "${dir}/incoming/${name}"
+    remove "$marker"
   elif [ "$(num "$name")" -gt "$ahead" ]; then
     echo "dropping ${name}: it is dated in the future"
-    rm -rf -- "${dir}/incoming/${name}" "$marker"
+    remove "${dir}/incoming/${name}"
+    remove "$marker"
   elif day_kept "${name%%T*}"; then
     # The marker stays, so the next run looks at it again.
     if [ "$(num "$name")" -lt "$dayago" ]; then
       echo "dropping ${name}: a set from that day is already kept"
-      rm -rf -- "${dir}/incoming/${name}" "$marker"
+      remove "${dir}/incoming/${name}"
+      remove "$marker"
     else
       echo "not adding ${name}: a set from that day is already kept"
     fi
   else
     rm -f -- "$marker"
     mv -- "${dir}/incoming/${name}" "${dir}/${name}"
+    # Open first: the server can send folders of mode 000.
+    chmod -R u+rwX -- "${dir}/${name}" || warn "could not open ${name}"
+    # A hard link hides disk use from du; a failed search drops the set too.
+    links=$(find "${dir}/${name}" ! -type d -links +1 -print -quit 2>/dev/null) || links=unreadable
+    if [ -n "$links" ]; then
+      warn "dropping ${name}: it holds hard-linked or unreadable files"
+      remove "${dir}/${name}"
+      continue
+    fi
     # Read-only, so a slip on this machine does not change it either.
-    chmod -R a-w -- "${dir}/${name}"
+    chmod -R a-w -- "${dir}/${name}" || warn "could not make ${name} read-only"
     echo "added ${name}"
+    if size=$(kib "${dir}/${name}") && [ "$before" -gt 0 ] && [ "$size" -gt $((2 * before)) ]; then
+      warn "${name} uses ${size} KiB, more than twice the median kept set (${before} KiB)"
+    fi
   fi
 done
 
@@ -90,16 +166,97 @@ for d in "${dir}"/incoming/*; do
   name=$(basename "$d")
   if is_set "$name" && is_dir "$d" && [ "$(num "$name")" -lt "$cutoff" ]; then
     echo "dropping ${name}: it never finished arriving"
-    rm -rf -- "$d"
+    remove "$d"
+  elif is_set "$name" && is_dir "$d" && [ "$(num "$name")" -gt "$ahead" ]; then
+    echo "dropping ${name}: it is dated in the future"
+    remove "$d"
   fi
 done
+
+max_kib=$((2 * $(median kib)))
+[ "$max_kib" -ge 1048576 ] || max_kib=1048576
+max_entries=$((10 * $(median entries)))
+[ "$max_entries" -ge 100000 ] || max_entries=100000
+# Each measurement is tried twice: rsync renaming a file mid-walk can fail one.
+twice() { "$@" || "$@"; }
+kept=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Exc '[0-9]{8}T[0-9]{6}Z' || true)
+# The newest unfinished set named for the last day (an hour ahead allows
+# for clock skew), while anything in it changed in the last 2 hours.  The
+# name bounds it, so a folder kept touched cannot stay spared for ever.
+# The change time, because rsync gives files the source's modification time.
+soon=$(date -u -d '+1 hour' +%Y%m%d%H%M%S)
+uploading=""
+for d in "${dir}"/incoming/*; do
+  name=${d##*/}
+  if is_set "$name" && is_dir "$d" && [ ! -e "${d}.done" ] \
+    && [ "$(num "$name")" -ge "$dayago" ] && [ "$(num "$name")" -le "$soon" ]; then
+    uploading=$name
+  fi
+done
+if [ -n "$uploading" ] \
+  && [ -z "$(find "${dir}/incoming/${uploading}" -newerct "$(date -d '-2 hours' +@%s)" -print -quit 2>/dev/null)" ]; then
+  uploading=""
+fi
+# Spared sets are listed by name, which never holds a space.  Before any set
+# is kept there is no median to size a set by, so every set is spared and
+# only the rest is limited.
+spared=$uploading
+if [ "$kept" -eq 0 ]; then
+  spared=""
+  for d in "${dir}"/incoming/*; do
+    if is_set "${d##*/}" && is_dir "$d"; then spared="${spared} ${d##*/}"; fi
+  done
+elif [ -n "$uploading" ] && up_kib=$(twice kib "${dir}/incoming/${uploading}"); then
+  big=$((4 * $(median kib)))
+  [ "$up_kib" -le "$big" ] || warn "${uploading} is still uploading and uses ${up_kib} KiB, over ${big} KiB"
+fi
+is_spared() {
+  for s in $spared; do
+    if [ "$1" = "$s" ] || [ "$1" = "${s}.done" ]; then return 0; fi
+  done
+  return 1
+}
+
+over=""
+# Spared sets are measured first, so growth during the run counts against
+# the rest.  One that cannot be measured stays spared and subtracts nothing.
+spared_kib=0
+spared_entries=0
+for s in $spared; do
+  if s_kib=$(twice kib "${dir}/incoming/${s}") && s_entries=$(twice entries "${dir}/incoming/${s}"); then
+    spared_kib=$((spared_kib + s_kib))
+    spared_entries=$((spared_entries + s_entries))
+  elif [ "$kept" -eq 0 ]; then
+    over="a set in it cannot be measured"
+  fi
+done
+if [ -z "$over" ] && ! used=$(twice kib "${dir}/incoming"); then
+  over="its disk use cannot be measured"
+fi
+if [ -z "$over" ] && [ $((used - spared_kib)) -gt "$max_kib" ]; then
+  over="it uses $((used - spared_kib)) KiB, over its limit of ${max_kib} KiB"
+fi
+if [ -z "$over" ] && ! count=$(twice entries "${dir}/incoming"); then
+  over="its entries cannot be counted"
+fi
+if [ -z "$over" ] && [ $((count - spared_entries)) -gt "$max_entries" ]; then
+  over="it holds $((count - spared_entries)) entries, over its limit of ${max_entries}"
+fi
+if [ -n "$over" ]; then
+  warn "emptying ${dir}/incoming: ${over}${spared:+; sets still arriving are left}"
+  # The dot patterns catch hidden names; any left unmatched fail the test below.
+  for e in "${dir}"/incoming/* "${dir}"/incoming/.[!.]* "${dir}"/incoming/..?*; do
+    [ -e "$e" ] || [ -L "$e" ] || continue
+    is_spared "${e##*/}" || remove "$e"
+  done
+fi
 
 newer=0
 for d in $(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Ex '[0-9]{8}T[0-9]{6}Z' | sort -r); do
   if [ "$newer" -ge "$keep" ] && [ "$(num "$d")" -lt "$cutoff" ]; then
     echo "removing ${d}"
-    chmod -R u+w -- "${dir}/${d}"
-    rm -rf -- "${dir:?}/${d}"
+    chmod -R u+rwX -- "${dir}/${d}" || warn "could not open ${d}"
+    rm -rf -- "${dir:?}/${d}" || warn "could not remove ${d}"
   fi
   newer=$((newer + 1))
 done

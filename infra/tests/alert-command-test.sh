@@ -58,10 +58,14 @@ echo
 echo "--- arguments ---"
 echo
 
+run --help
+expect_eq "--help prints the usage under set -u" 0 "$?"
+check "and the usage names where the alert channels live" grep -q 'notify.json' "${work}/out"
 run alert info "Title" "Text"
 expect_eq "a tone other than warning or danger is refused" 2 "$?"
 run alert warning "Title only"
 expect_eq "a missing text is refused" 2 "$?"
+check "with the usage" grep -q '^Usage: portikus' "${work}/out"
 run alert-failed "../etc/passwd"
 expect_eq "alert-failed refuses a name that is not a unit's" 2 "$?"
 check "and runs no sender" test ! -e "${work}/systemd-run.args"

@@ -156,6 +156,21 @@ check_output "/auth/me is 401 anonymously"    "401" http_status - "${API}/auth/m
 check_output "POST /workspaces is 401 anonymously" "401" \
   http_status - "${API}/workspaces" "-X POST -H 'Origin: ${API}'"
 
+# 4a. Routes without a session are limited per address (SPEC.md 24.13).
+#     The limit is the packages/config default unless api.env raises it.
+#     /lti/jwks answers 404 on a site with no LMS, so only a 429 before the
+#     limit fails the check.
+anonymous_limit=$(api_env ANONYMOUS_REQUEST_LIMIT_PER_MINUTE)
+anonymous_limit="${anonymous_limit:-600}"
+anonymous_source=$(random_loopback)
+anonymous_result() {
+  ssh_cmd "for i in \$(seq 1 $((anonymous_limit + 1))); do ${CURL} --interface ${anonymous_source} -o /dev/null -w '%{http_code}\n' '${API}/lti/jwks'; done" |
+    awk -v n="$((anonymous_limit + 1))" \
+      'NR < n && $1 == 429 { early++ } NR == n { last = $1 } END { print (early ? "early 429" : "last " last) }'
+}
+check_output "request $((anonymous_limit + 1)) to /lti/jwks from one address is refused" \
+  "last 429" anonymous_result
+
 # 4b. Anything already on the VM belongs to somebody else.  List it and
 #     leave it alone.  The lifecycle checks are skipped while it is there,
 #     because they shorten the platform grace period and would stop it.

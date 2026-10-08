@@ -342,6 +342,12 @@ export const CertificateJobRequest = z.discriminatedUnion("kind", [
 ]);
 export type CertificateJobRequest = z.infer<typeof CertificateJobRequest>;
 
+/**
+ * A certificate job waiting or running longer than this has died: the job
+ * unit's thirty-minute start timeout plus a margin.
+ */
+export const CERTIFICATE_JOB_STALE_MS = 35 * 60_000;
+
 export const CertificateJobId = z.string().uuid();
 
 /** `request-<id>.json` as the API writes it (mode 0600). */
@@ -471,6 +477,20 @@ export const CertificateStatusFile = z
 			})
 			.strict()
 			.nullable(),
+		/**
+		 * Set while Caddy's internal authority serves a site name that resolves to
+		 * a public address, allowed in portikus.yaml or put back by `portikus
+		 * reset-certificate` (SPEC.md 24.10). `since` is when the settings in force
+		 * last changed. Absent from a file an older job wrote.
+		 */
+		internalOnPublic: z
+			.object({
+				since: z.string().datetime(),
+				addresses: z.array(z.string().min(2).max(45)).max(4),
+			})
+			.strict()
+			.nullable()
+			.optional(),
 	})
 	.strict();
 export type CertificateStatusFile = z.infer<typeof CertificateStatusFile>;

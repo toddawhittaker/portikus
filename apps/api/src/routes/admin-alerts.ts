@@ -3,8 +3,9 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminNotifications,
 	type AlertChannelKind,
-	isNotifyJobActive,
+	isJobActive,
 	NOTIFY_FILE_OFF,
+	NOTIFY_JOB_STALE_MS,
 	NotificationSettingsUpdate,
 	type NotifyJobRequestFile,
 	notificationSettingsView,
@@ -20,16 +21,15 @@ import {
 	sendAlert,
 } from "@portikus/observability";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import {
-	allJobs,
-	changeSummary,
-	channelsLeaving,
-	latestJob,
-	queuedView,
-} from "../alerts/jobs.js";
+import { allJobs, changeSummary, channelsLeaving, queuedView } from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError, sendNoStoreError } from "../http.js";
-import { sweepTempRequests, writeRequestFile } from "../job-files.js";
+import {
+	currentJob,
+	removeStaleRequests,
+	sweepTempRequests,
+	writeRequestFile,
+} from "../job-files.js";
 import { testAlertLimit } from "../rate-limit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -93,7 +93,7 @@ export function registerAdminAlertRoutes(
 		}
 		const out: AdminNotifications = {
 			settings: notificationSettingsView(file),
-			job: latestJob(await allJobs(jobsDir)),
+			job: currentJob(await allJobs(jobsDir), NOTIFY_JOB_STALE_MS),
 			storedFileUnreadable,
 		};
 		return reply.header("cache-control", "no-store").send(out);
@@ -117,9 +117,10 @@ export function registerAdminAlertRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => isNotifyJobActive(j))) {
+			if (jobs.some((j) => isJobActive(j, NOTIFY_JOB_STALE_MS))) {
 				return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 			}
+			await removeStaleRequests(jobsDir, jobs, NOTIFY_JOB_STALE_MS);
 			// A broken file must not block the save that repairs it.
 			const current = await readNotifyFile(config.NOTIFY_FILE).catch((e) => {
 				logger.error(

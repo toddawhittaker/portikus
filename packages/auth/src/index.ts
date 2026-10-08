@@ -109,6 +109,7 @@ export {
 	accountNeedsSecondFactor,
 	checkSecondFactor,
 	enrolTotp,
+	isRecoveryCodeShape,
 	markSecondFactorPassed,
 	openPendingTotp,
 	replaceRecoveryCodes,
@@ -117,6 +118,7 @@ export {
 	secondFactorApplies,
 	secondFactorKey,
 	storeFactor,
+	useRecoveryCode,
 } from "./second-factor.js";
 export {
 	createSession,

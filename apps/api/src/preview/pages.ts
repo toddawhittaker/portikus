@@ -64,6 +64,15 @@ export function resetPage(): string {
 	);
 }
 
+/** One network sent too many made-up preview cookies (SPEC.md section 24.13). */
+export function missLimitPage(): string {
+	return previewPage(
+		"Too many preview requests",
+		"Too many preview requests came from your network just now. Wait a " +
+			"minute, then reload this preview.",
+	);
+}
+
 /** One preview session asked too often (ADR 0034 ruling 12). */
 export function tooManyRequestsPage(): string {
 	return previewPage(

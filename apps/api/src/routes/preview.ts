@@ -15,6 +15,7 @@ import { AgentCallError } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
+import { previewPagePolicy } from "../page-policy.js";
 import {
 	createPreviewDeniedAudit,
 	type PreviewDeniedReason,
@@ -27,6 +28,7 @@ import {
 } from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
+	missLimitPage,
 	refusedPage,
 	resetPage,
 	signInPage,
@@ -43,11 +45,17 @@ import {
 	loadPreviewSession,
 	type PreviewLookup,
 	type PreviewSessionRow,
+	previewTokenIssued,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
-import { check, createCounter } from "../rate-limit.js";
+import {
+	addressKey,
+	check,
+	createAnonymousCounter,
+	createCounter,
+} from "../rate-limit.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 function previewCookieName(config: ApiConfig): string {
@@ -96,16 +104,6 @@ function stopMessageFor(code: string): string {
 const PREVIEW_REQUESTS_PER_WINDOW = 30;
 const PREVIEW_WINDOW_MS = 60_000;
 
-/** Send a Portikus-owned page. Nothing from the request is echoed. */
-function page(reply: FastifyReply, status: number, html: string): FastifyReply {
-	return reply
-		.status(status)
-		.header("content-type", "text/html; charset=utf-8")
-		.header("cache-control", "no-store")
-		.header("referrer-policy", "no-referrer")
-		.send(html);
-}
-
 /**
  * Preview grants, the bootstrap and reset endpoints on the preview host, and
  * the edge authorization subrequest (SPEC.md §14, §24.7;
@@ -117,10 +115,26 @@ export function registerPreviewRoutes(
 ): void {
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
+	// The Preview tab frames these pages, so they carry their own policy.
+	const pagePolicy = previewPagePolicy(config.PUBLIC_URL);
+
+	/** Send a Portikus-owned page. Nothing from the request is echoed. */
+	function page(reply: FastifyReply, status: number, html: string): FastifyReply {
+		return reply
+			.status(status)
+			.header("content-type", "text/html; charset=utf-8")
+			.header("content-security-policy", pagePolicy)
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.send(html);
+	}
 	const bridge = createBridgeForwards({ registry, logger });
 	const deniedAudit = createPreviewDeniedAudit(db);
 	const lookups = createPreviewLookupCache(db);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
+	// Made-up preview cookies per address. Its own count, so one client's
+	// misses never refuse another's sign-in (SPEC.md section 24.13).
+	const cookieMisses = createAnonymousCounter(config);
 
 	const previewRequests = createCounter(PREVIEW_REQUESTS_PER_WINDOW, PREVIEW_WINDOW_MS);
 
@@ -564,6 +578,7 @@ export function registerPreviewRoutes(
 			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
 			.header("clear-site-data", '"storage"')
 			.header("content-type", "text/html; charset=utf-8")
+			.header("content-security-policy", pagePolicy)
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")
 			.status(200)
@@ -571,6 +586,25 @@ export function registerPreviewRoutes(
 	});
 
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
+
+	/**
+	 * Whether this address has sent too many made-up cookies this window;
+	 * when it has, the refusal is logged once and given a retry time.
+	 */
+	function overMissLimit(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		address: string,
+	): boolean {
+		const misses = cookieMisses.peek(address);
+		if (misses.count < cookieMisses.limit) return false;
+		if (!misses.reported) {
+			misses.reported = true;
+			request.log.warn({ address }, "preview cookie miss limit reached");
+		}
+		reply.header("retry-after", String(cookieMisses.retryAfterSeconds(misses)));
+		return true;
+	}
 
 	/**
 	 * The first authorize steps: the caller is Caddy, the host is a preview
@@ -604,7 +638,15 @@ export function registerPreviewRoutes(
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
+		const address = addressKey(request.ip);
 		if (!session) {
+			// Past the limit a guess costs only the one session query, and a real
+			// cookie from the same network still works (SPEC.md section 24.13).
+			if (overMissLimit(request, reply, address)) {
+				return { refused: page(reply, 429, missLimitPage()) };
+			}
+			// A revoked or expired cookie was real; only a made-up one counts.
+			if (!(await previewTokenIssued(db, token))) cookieMisses.hit(address);
 			// Stopping revokes the sessions; the more specific cause wins.
 			if (await revokedForStoppedWorkspace(db, token, host)) {
 				return { refused: page(reply, 503, stoppedWorkspacePage()) };

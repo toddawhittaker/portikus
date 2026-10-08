@@ -775,10 +775,7 @@ class Runner:
             env = dict(os.environ,
                        PORTIKUS_IMAGE_VERSION=version,
                        PORTIKUS_NODE_MAJOR=request["node"],
-                       PORTIKUS_PYTHON=request["python"],
-                       # This action alone takes the newest Claude Code and Codex.
-                       PORTIKUS_CLAUDE_VERSION="latest",
-                       PORTIKUS_CODEX_VERSION="latest")
+                       PORTIKUS_PYTHON=request["python"])
             out = os.path.join(work, "out")
             code, _ = run(["distrobuilder", "build-incus", os.path.join(self.recipe_dir, "portikus.yaml"), out,
                            "-o", f"image.serial={version}", "-o", "image.release=trixie"],

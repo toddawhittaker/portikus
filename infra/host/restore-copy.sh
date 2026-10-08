@@ -206,7 +206,8 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  age -d -i "$KEY" "${held}/volume.age" | vm_stream "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  # --same-permissions: without it the student's umask would strip group bits and setgid.
+  age -d -i "$KEY" "${held}/volume.age" | vm_stream "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --same-permissions --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"

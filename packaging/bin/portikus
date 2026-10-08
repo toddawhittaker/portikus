@@ -83,8 +83,8 @@ reset-certificate
 
 alert TONE TITLE TEXT
              Send an alert, warning or danger, to the channels in
-             ${ALERTS_ENV}, through the egress proxy, as the worker
-             sends them.  Does nothing when no channel is set.
+             /etc/portikus/notify.json, through the egress proxy, as the
+             worker sends them.  Does nothing when no channel is set.
 alert-failed UNIT
              What portikus-alert@.service runs when UNIT fails: one
              danger alert, then none for UNIT for 10 minutes.

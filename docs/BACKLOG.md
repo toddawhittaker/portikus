@@ -1075,16 +1075,6 @@ matters, switch the VM's disks to BFQ and set weights.
 
 **Source.** Left out of Epic 17 (ADR 0034).
 
-## A per-address limit on made-up preview cookies
-
-**What.** A made-up preview cookie is neither cached nor capped; each costs
-two indexed lookups, bounded only by the database pool timeouts.
-
-**What it would take.** Reuse the sign-in edge throttle for
-`/preview/authorize` misses, per address.
-
-**Source.** Left out of Epic 17.
-
 ## Connection-tracking and dnsmasq limits per workspace
 
 **What.** Workspaces share the host's connection-tracking table (262,144
@@ -1106,17 +1096,6 @@ limit.
 `apps/api/src/rate-limit.ts` if a need appears.
 
 **Source.** Left out of Epic 17.
-
-## A per-user cap on terminal WebSocket connections
-
-**What.** Each terminal allows 4 attachments and each workspace 20
-terminals, but nothing caps how many terminal WebSockets one user holds
-open across the control plane. This predates Epic 16.
-
-**What it would take.** A per-user connection count in the terminal
-WebSocket route with a clear refusal code. About a day with tests.
-
-**Source.** Security review of Epic 16.
 
 ## An exact out-of-memory reason in the terminals exit record
 
@@ -1826,53 +1805,13 @@ when the job fails.
 **Ruling.** Todd accepts this risk and will not fix it (#1144, closed 2026-10-05). People on shared computers should close the browser when they finish.
 
 **Source.** Epic 34, #1144.
-## Pin agent versions in the admin image rebuild
+## Make the Dex sign-in job a required check
 
-**What.** The admin image rebuild installs the newest coding agents, so two rebuilds a day apart can differ.
+**What.** The last part of #1138: the Dex sign-in CI job is not a required check, so a pull request can merge with it failing.
 
-**What it would take.** Pin each agent's version in the image build and bump the pins with the image release.
-
-**Source.** Epic 34, #1145. Planned as Epic 36 H4.
-
-## Rest of the security tests
-
-**What.** Three parts of #1138 are not done: a test of each restore mode, a test that agent logins stay out of recovery points, and making the Dex CI job a required check.
-
-**What it would take.** Two tests in the backup and recovery suites. The required check is a repository ruleset change, which is Todd's to make.
+**What it would take.** A repository ruleset change, which is Todd's to make.
 
 **Source.** Epic 34, #1138.
-
-## A real breached-password list
-
-**What.** New passwords are checked against a small hand-written list, because a real corpus could not be fetched while building.
-
-**What it would take.** Ship a compact form of a public breached-password corpus (for example a Bloom filter of the most common ten million) with the package, and check against it offline.
-
-**Source.** Epic 34, #1133.
-
-## Alert on workspaces hitting outbound limits
-
-**What.** A workspace that keeps hitting the mail block or the connection and packet limits shows only on the Logs tab; no administrator is alerted.
-
-**What it would take.** The worker reads the limit meters each minute and sends one warning site alert per workspace and hour.
-
-**Source.** Epic 34, #1134.
-
-## Request rate limit on anonymous routes
-
-**What.** Routes that need no session have no per-address request limit beyond the sign-in throttle and Caddy's connection cap.
-
-**What it would take.** A per-address limit in the API for those routes, counting an IPv6 /64 as one address, with a 429 answer.
-
-**Source.** Epic 34 security review.
-
-## Internal certificate authority on an internet site
-
-**What.** An internet-facing site may still choose Portikus's own authority; setup only warns.
-
-**What it would take.** Refuse the internal authority when the public address is not private, unless an explicit override is set.
-
-**Source.** Epic 34, #1139.
 
 ## Domain fronting in allow-list mode
 
@@ -1890,30 +1829,6 @@ when the job fails.
 
 **Source.** Epic 34, #1165.
 
-## Help page and invitations
-
-**What.** The Help page does not describe invitations or CSV upload.
-
-**What it would take.** A short part in "For administrators" on inviting people, matching per provider (ADR 0049), and CSV upload.
-
-**Source.** Epic 34, #1155.
-
-## Link page empty status line
-
-**What.** The link page's "Linking your accounts…" status line takes up height even while it is empty, which leaves a visible gap above the code field.
-
-**What it would take.** Fold that status into the Link button's loading state, or keep the status region mounted but with no height while empty, and recheck with an axe scan.
-
-**Source.** Epic 34, #1166.
-
-## "Session ended" page and the 12-hour role check
-
-**What.** The "Session ended" page says only "inactivity or another window", not that a provider-given administrator or instructor session ends after 12 hours.
-
-**What it would take.** Pass the reason to the page and add a sentence for it.
-
-**Source.** Epic 34, #1156.
-
 ## Remove the names_v4 upgrade code
 
 **What.** The egress helper still removes the old `names_v4` set on upgrade.
@@ -1924,71 +1839,18 @@ when the job fails.
 
 ## Residual risks from the Epic 34 security review
 
-**What.** Accepted risks, each small on its own:
+**What.** Epic 36 closed all but one: Dex logins that are not ASCII are refused. This is an accepted risk.
 
-- Anyone who knows a Dex-password login and password can lock its holder out of second-factor checks for a day with 30 wrong codes.
-- Sign-in and second-factor counters and passkey challenges live in memory, reset on an API restart, and assume one API process.
-- The off-site target has no disk quota from Portikus; the operator should set one.
-- Dex logins that are not ASCII are refused.
-- HTML pages the API writes itself (refusal and error pages) carry only `frame-ancestors`, not the full content security policy.
-- Kept notices (credential resets) are never pruned, so they grow without limit.
-- An expired passkey challenge counts as a wrong try.
-
-**What it would take.** Each would need its own change: a holder-only bypass such as a recovery code that ignores the counter; counters in PostgreSQL; a quota check in the prune script; a full CSP header on API pages; a cap on kept notices per person; not counting expired challenges.
+**What it would take.** Nothing planned.
 
 **Source.** Epic 34, #919.
 
-## Epic 36: Internet hardening (planned)
+## Epic 36: Internet hardening (done)
 
-**What.** The next epic after Epic 35. Migration 0040 is reserved for H8.
-
-- H1: an offline breached-password list from the SecLists top-1M list
-  (MIT licence, approved by Todd 2026-10-05), filtered to passwords of
-  15 or more characters, with the file and its generator committed
-  ("A real breached-password list").
-- H2: about 600 requests a minute per address on routes without a
-  session, an IPv6 /64 counted as one address, answering 429 (SPEC.md
-  section 24.13; "Request rate limit on anonymous routes").
-- H3: refuse Caddy's internal authority on a public address unless
-  overridden; `portikus reset-certificate` still works.
-- H4: pinned coding-agent versions in the admin image rebuild (#1145).
-- H5: API-side alert sources: workspaces hitting outbound limits, and
-  an error spike.
-- H6: the rest of #1138: a test per restore mode, and coding-agent
-  logins kept out of recovery points.
-- H7: the residual risks from the Epic 34 security review, except the
-  counters.
-- H8: sign-in and second-factor counters in PostgreSQL, and a recovery
-  code that bypasses the per-account lockout (approved by Todd
-  2026-10-05; after H7).
-- H9: help on invitations and CSV upload (#1155), the link page's empty
-  status line (#1166), and "Session ended" giving the 12-hour reason
-  (#1156).
-- H10: fold.
-
-Accepted as is: Dex sign-in names that are not ASCII are refused. Disk
-encryption at rest (#1142) is its own later epic; the recommended shape
-is LUKS on the data volumes only, unlocked after boot over SSH with
-`sudo portikus unlock`.
-
-**What it would take.** An epic plan from the architect, then the tasks
-above; each is small or medium.
-
-**Source.** Epic 35 plan, appendix.
-
-## A killed job hides later ones
-
-**What.** `currentJob` in `apps/api/src/job-files.ts` returns the first
-queued or running job it finds. A job killed while "running" leaves its
-file, and the certificate and image tabs then show it instead of a newer
-job. The notifications page follows its own job id to get around it.
-
-**What it would take.** Have `currentJob` skip jobs older than the stale
-limit and prefer the newest, and have `apps/api/src/alerts/jobs.ts`
-import `NOTIFY_JOB_STALE_MS` from contracts instead of its own copy,
-with unit tests.
-
-**Source.** Epic 35.
+Delivered on `epic/36-internet-hardening`; see docs/STATUS.md, "Epic 36".
+Disk encryption at rest (#1142) stays its own later epic; the
+recommended shape is LUKS on the data volumes only, unlocked after boot
+over SSH with `sudo portikus unlock`.
 
 ## Notification e2e flaky when repeated
 
@@ -2046,3 +1908,75 @@ matters once invitations or password resets reuse SMTP; do it then,
 with a unit test and an e2e check.
 
 **Source.** Epic 35.
+
+## A made-up session cookie still costs one session lookup
+
+**What.** A made-up session cookie is refused past the anonymous limit, but each one is still looked up in PostgreSQL first, so a flood costs one query per request even after the limit starts refusing.
+
+**What it would take.** Count per address before the lookup without refusing real sessions: once an address is over the limit, refuse its cookies that match a short in-memory list of recent misses before querying.
+
+**Source.** Epic 36.
+
+## A notifications job with no status yet is not listed
+
+**What.** `allJobs` in `apps/api/src/alerts/jobs.ts` skips a job folder the alerts job has taken but not yet given a `status.json`, so for a moment the Notifications page can show no job.
+
+**What it would take.** List such a folder as running, as the certificate jobs now do, with a unit test.
+
+**Source.** Epic 36.
+
+## A stopped install-test run still prints "Install test passed"
+
+**What.** When an install-test run is stopped part way, its exit trap still prints "Install test passed", because it reports only the steps that finished.
+
+**What it would take.** Track whether every step ran, and print the pass line only then.
+
+**Source.** Epic 36.
+
+## Root-shell helper test flake
+
+**What.** A root-shell helper test fails now and then with `FileNotFoundError` on `/tmp/root-shell-relay-*/hup`.
+
+**What it would take.** Find the race between the test and the relay's temporary folder, and wait for the file before reading it.
+
+**Source.** Epic 36.
+
+## Grace-period test flake in admin.spec.ts
+
+**What.** The grace-period test in `e2e/admin.spec.ts` changes a site-wide setting that other tests read, so it fails now and then when tests run in parallel.
+
+**What it would take.** Run it serially, or restore the setting in a fixture, and check with `--repeat-each`.
+
+**Source.** Epic 36.
+
+## Log alerts forget their hourly limit on restart
+
+**What.** The once-an-hour memory for outbound-limit alerts is held in the API's memory, so a restart may repeat one alert.
+
+**What it would take.** Keep the last alert time per workspace and reason in PostgreSQL, if the repeats turn out to annoy.
+
+**Source.** Epic 36.
+
+## The 12-hour sentence on "Session ended" is fixed text
+
+**What.** The "Session ended" page says 12 hours as fixed text. The real limit is `ELEVATED_SESSION_MAX_SECONDS` in `@portikus/auth`, which the web app cannot import.
+
+**What it would take.** Move the constant into `@portikus/contracts` and use it in both places.
+
+**Source.** Epic 36.
+
+## Off-site prune and a genuine set that suddenly doubles
+
+**What.** If a real backup set suddenly grows past twice the median kept set and past 1 GiB, the off-site prune empties `incoming` and that set is lost for the run; it warns by cron mail.
+
+**What it would take.** Keep the newest finished set even when over quota, or let the operator set the size; decide once it happens.
+
+**Source.** Epic 36.
+
+## The off-site quota depends on the operator
+
+**What.** The real bound on the off-site target's disk and file use is a filesystem quota the operator must set with `setquota` (docs/INSTALL.md). Portikus cannot check that it is set.
+
+**What it would take.** A check in the prune script that warns when the account has no quota.
+
+**Source.** Epic 36.

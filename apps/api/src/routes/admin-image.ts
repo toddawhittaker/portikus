@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminImage,
 	type ApiError,
+	IMAGE_JOB_STALE_MS,
 	IMAGE_LOG_LINES,
 	ImageAliasesFile,
 	ImageDiffQuery,
@@ -18,6 +19,7 @@ import {
 	ImageSizeFile,
 	ImageVersion,
 	type ImageView,
+	isJobActive,
 	newerPublishedImage,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
@@ -30,6 +32,7 @@ import {
 	currentJob,
 	listDir,
 	readJson,
+	removeStaleRequests,
 	tailLines,
 	writeRequestFile,
 } from "../job-files.js";
@@ -183,7 +186,7 @@ export function registerAdminImageRoutes(
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		// Jobs first: the root job moves the aliases before it writes "succeeded",
 		// so a finished job is never paired with the aliases from before it.
-		const job = currentJob(await allJobs(jobsDir));
+		const job = currentJob(await allJobs(jobsDir), IMAGE_JOB_STALE_MS);
 		const { aliases, images } = await readStore(imagesDir);
 		const counts = await db
 			.selectFrom("workspaces")
@@ -356,7 +359,7 @@ export function registerAdminImageRoutes(
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
-			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
+			if (jobs.some((j) => isJobActive(j, IMAGE_JOB_STALE_MS))) {
 				return sendError(
 					reply,
 					409,
@@ -364,6 +367,7 @@ export function registerAdminImageRoutes(
 					"An image job is already waiting or running.",
 				);
 			}
+			await removeStaleRequests(jobsDir, jobs, IMAGE_JOB_STALE_MS);
 			const refused = await refuseImageJob(wanted, imagesDir);
 			if (refused) {
 				return sendError(reply, refused.status, refused.code, refused.message);

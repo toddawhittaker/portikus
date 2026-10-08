@@ -136,8 +136,12 @@ function schemaTables(): Set<string> {
 }
 const knownTables = schemaTables();
 
-/** Tables whose rows sign someone in or say who they are. */
+/**
+ * Tables whose rows sign someone in or say who they are, and the sign-in
+ * guess counts, which a worker could otherwise reset (ADR 0053).
+ */
 const AUTH_TABLES = [
+	"signin_counters",
 	"sessions",
 	"preview_grants",
 	"preview_sessions",

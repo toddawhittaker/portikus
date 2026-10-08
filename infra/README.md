@@ -258,7 +258,7 @@ build the package and hand Ansible the file, on the rehearsal VM:
 make build-deb
 make rehearsal-up
 make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
-make smoke-test TOFU_ENV=rehearsal-libvirt
+make smoke-test TOFU_ENV=rehearsal-libvirt PORTIKUS_PUBLIC_PORT=443
 make rehearsal-destroy
 ```
 

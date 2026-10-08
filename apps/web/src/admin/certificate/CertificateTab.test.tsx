@@ -6,7 +6,7 @@ import {
 	type CertificateSettingsView,
 	type CertificateStatusFile,
 } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { CertificateTab } from "./CertificateTab.js";
@@ -186,6 +186,69 @@ test("an expiry inside 14 days and a failed renewal are called out", async () =>
 	expect(screen.getByTestId("cert-renewal-notice").textContent).toContain(
 		"invalid credentials",
 	);
+});
+
+// SPEC.md 24.10: the internal authority's short-lived certificates renew themselves.
+test("no expiry banner under the internal authority, even inside a day", async () => {
+	serve(
+		data({
+			settings: { source: "internal" },
+			status: {
+				...STATUS,
+				source: "internal",
+				settings: { source: "internal" },
+				site: STATUS.site
+					? { ...STATUS.site, notAfter: "2026-09-30T20:00:00.000Z" }
+					: null,
+			},
+		}),
+	);
+	renderWithQuery(<CertificateTab />);
+	await screen.findByTestId("cert-table");
+	expect(screen.queryByTestId("cert-expiry-notice")).toBeNull();
+});
+
+// SPEC.md 24.10: the internal authority on a public address is called out until it is replaced.
+test("the internal authority on a public address gets a warning", async () => {
+	const internal = { source: "internal" as const };
+	serve(
+		data({
+			settings: internal,
+			status: {
+				...STATUS,
+				source: "internal",
+				settings: internal,
+				internalOnPublic: { since: "2026-09-30T10:00:00Z", addresses: ["203.0.113.7"] },
+			},
+		}),
+	);
+	renderWithQuery(<CertificateTab />);
+	const notice = await screen.findByTestId("cert-public-notice");
+	expect(notice.textContent).toContain("resolves to a public address (203.0.113.7)");
+	expect(notice.textContent).toContain("browsers cannot check");
+});
+
+test("no public-address warning on a private address, an older file, or another source", async () => {
+	const internal = { source: "internal" as const };
+	for (const status of [
+		{
+			...STATUS,
+			source: "internal" as const,
+			settings: internal,
+			internalOnPublic: null,
+		},
+		{ ...STATUS, source: "internal" as const, settings: internal },
+		{
+			...STATUS,
+			internalOnPublic: { since: "2026-09-30T10:00:00Z", addresses: ["203.0.113.7"] },
+		},
+	]) {
+		serve(data({ status }));
+		renderWithQuery(<CertificateTab />);
+		await screen.findByTestId("cert-table");
+		expect(screen.queryByTestId("cert-public-notice")).toBeNull();
+		cleanup();
+	}
 });
 
 test("before the first check the page says so", async () => {

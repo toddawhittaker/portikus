@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import { expectNoViolations, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 
 /**
  * A role removed in the identity provider takes effect within 12 hours
@@ -68,3 +68,21 @@ test("after 12 hours the provider administrator signs in again and gets the prov
 	expect((await me.json()).role).toBe("student");
 	expect((await page.request.get("/admin/workspaces")).status()).toBe(403);
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the session-ended page names the 12-hour limit and passes axe (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await page.goto("/session-ended");
+		const ended = page.getByTestId("page-session-ended");
+		await expect(ended.getByRole("heading", { level: 1 })).toHaveText(
+			"Your session ended",
+		);
+		// The page is not told why the session ended, so one sentence covers this case for everyone.
+		await expect(ended).toContainText(
+			"If you are an administrator or instructor through your institution's sign-in, you are also signed out 12 hours after you sign in.",
+		);
+		await expectNoViolations(page);
+	});
+}

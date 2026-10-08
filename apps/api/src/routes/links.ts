@@ -4,6 +4,7 @@ import {
 	consumeLinkIntent,
 	courseLinkWindow,
 	hashSessionToken,
+	isRecoveryCodeShape,
 	linkAccounts,
 	listLinks,
 	loginCookieName,
@@ -18,6 +19,7 @@ import {
 	sessionCookieOptions,
 	sessionLinkState,
 	unlinkAccount,
+	useRecoveryCode,
 } from "@portikus/auth";
 import {
 	type ApiError,
@@ -113,8 +115,17 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		if (!(await throttle.allow(request, reply, userId))) return "refused";
-		const result = await checkSecondFactor(db, key, userId, code);
+		// Linking takes no passkey, so only a recovery code may pass a refused count.
+		const allowance = await throttle.allow(request, reply, userId, {
+			sessionId: sessionId(request),
+			eligible: isRecoveryCodeShape(code),
+			passkeys: async () => false,
+		});
+		if (!allowance) return "refused";
+		const result =
+			allowance.kind === "counted"
+				? await checkSecondFactor(db, key, userId, code)
+				: await useRecoveryCode(db, userId, code);
 		await recordAudit(db, {
 			actor: `user:${userId}`,
 			target: userId,
@@ -123,6 +134,7 @@ export function registerLinkRoutes(
 			metadata: {
 				...requestMetadata(request),
 				...(result.ok ? { method: result.method } : {}),
+				...(allowance.kind === "bypass" ? { bypass: true } : {}),
 				flow: "link",
 			},
 		});
@@ -135,7 +147,8 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		throttle.giveBack(userId);
+		// A bypass holds no receipt, so nothing on that path gives a count back.
+		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
 		return "passed";
 	}
 

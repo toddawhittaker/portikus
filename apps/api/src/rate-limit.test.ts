@@ -1,5 +1,26 @@
-import { describe, expect, test } from "vitest";
-import { addressKey, check, createCounter } from "./rate-limit.js";
+import { randomBytes } from "node:crypto";
+import { createSession } from "@portikus/auth";
+import type { Database } from "@portikus/db";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
+import Fastify from "fastify";
+import type { Kysely } from "kysely";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import {
+	ANONYMOUS_ROUTES,
+	addressKey,
+	check,
+	createCounter,
+	registerAnonymousLimit,
+} from "./rate-limit.js";
+import { ROUTE_POLICY } from "./security/route-policy.js";
+import { registerSigninThrottle } from "./signin-throttle.js";
+import { buildTestServer, testConfig } from "./testing/test-support.js";
 
 describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 	function fixture(limit = 3, windowMs = 60_000) {
@@ -72,5 +93,135 @@ describe("addressKey (SPEC.md section 24.13)", () => {
 		expect(addressKey("2001:db8::12:0:0:0:1")).toBe(key);
 		expect(addressKey("2001:db8:0:13::1")).not.toBe(key);
 		expect(addressKey("::1")).toBe("0:0:0:0::/64");
+	});
+});
+
+describe("the anonymous request limit (SPEC.md section 24.13)", () => {
+	test("covers every public and preview-edge route except the certificate ask and preview authorize", () => {
+		const publicRoutes = Object.entries(ROUTE_POLICY)
+			.filter(
+				([, policy]) => policy.access === "public" || policy.access === "preview-edge",
+			)
+			.map(([route]) => route)
+			.filter(
+				(route) =>
+					!route.endsWith(" /edge/certificate-ask") &&
+					!route.endsWith(" /preview/authorize"),
+			);
+		expect([...ANONYMOUS_ROUTES].sort()).toEqual(publicRoutes.sort());
+	});
+
+	function fixture(limit = 3) {
+		const config = testConfig("http://issuer.invalid", {
+			ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: limit,
+		});
+		const app = Fastify({ trustProxy: "127.0.0.1" });
+		registerAnonymousLimit(app, config);
+		const throttle = registerSigninThrottle(app, {
+			db: {} as Kysely<Database>,
+			config,
+			logger: collectingLogger("debug").logger,
+		});
+		app.get("/auth/login", async () => "ok");
+		app.get("/lti/jwks", async () => "ok");
+		app.get("/auth/me", async () => "ok");
+		return { app, throttle };
+	}
+
+	test("refuses one address past the limit with 429 RATE_LIMITED and retry-after", async () => {
+		const { app } = fixture();
+		for (let i = 0; i < 3; i += 1) {
+			const ok = await app.inject({ url: "/lti/jwks", remoteAddress: "203.0.113.1" });
+			expect(ok.statusCode).toBe(200);
+		}
+		const refused = await app.inject({
+			url: "/lti/jwks",
+			remoteAddress: "203.0.113.1",
+		});
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+		expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+		const other = await app.inject({ url: "/lti/jwks", remoteAddress: "203.0.113.2" });
+		expect(other.statusCode).toBe(200);
+	});
+
+	test("counts an IPv6 /64 as one address", async () => {
+		const { app } = fixture(1);
+		await app.inject({ url: "/lti/jwks", remoteAddress: "2001:db8:1:2::a" });
+		const refused = await app.inject({
+			url: "/lti/jwks",
+			remoteAddress: "2001:db8:1:2:ffff::b",
+		});
+		expect(refused.statusCode).toBe(429);
+	});
+
+	test("leaves routes that need a session alone", async () => {
+		const { app } = fixture(1);
+		for (let i = 0; i < 5; i += 1) {
+			const res = await app.inject({ url: "/auth/me", remoteAddress: "203.0.113.1" });
+			expect(res.statusCode).toBe(200);
+		}
+	});
+
+	test("a refused request makes no sign-in count", async () => {
+		const { app, throttle } = fixture(2);
+		const checkStart = vi.spyOn(throttle, "checkStart");
+		for (let i = 0; i < 2; i += 1) {
+			await app.inject({ url: "/auth/login", remoteAddress: "203.0.113.1" });
+		}
+		expect(checkStart).toHaveBeenCalledTimes(2);
+		const refused = await app.inject({
+			url: "/auth/login",
+			remoteAddress: "203.0.113.1",
+		});
+		expect(refused.statusCode).toBe(429);
+		expect(checkStart).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe.skipIf(!hasTestDb())("made-up session cookies (SPEC.md section 24.13)", () => {
+	let testDb: TestDb;
+
+	beforeAll(async () => {
+		testDb = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await testDb.close();
+	});
+
+	test("count against the address's anonymous limit; a real session there is unaffected", async () => {
+		const app = buildTestServer(testDb.db, "http://issuer.invalid", {
+			ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: 3,
+		});
+		await app.ready();
+		try {
+			const guess = () =>
+				app.inject({
+					url: "/auth/me",
+					remoteAddress: "203.0.113.40",
+					headers: {
+						cookie: `portikus_session=${randomBytes(32).toString("base64url")}`,
+					},
+				});
+			for (let i = 0; i < 3; i += 1) expect((await guess()).statusCode).toBe(401);
+			const refused = await guess();
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+
+			const userId = await insertTestUser(testDb.db);
+			const session = await createSession(testDb.db, userId, 3600, {
+				method: "oidc",
+				courseUserId: null,
+			});
+			const real = await app.inject({
+				url: "/auth/me",
+				remoteAddress: "203.0.113.40",
+				headers: { cookie: `portikus_session=${session.token}` },
+			});
+			expect(real.statusCode).toBe(200);
+		} finally {
+			await app.close();
+		}
 	});
 });

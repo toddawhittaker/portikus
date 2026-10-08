@@ -4,10 +4,12 @@ import {
 	readFile,
 	rename,
 	rm,
+	stat,
 	unlink,
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { isJobActive, type JobTimes, jobStaleAt } from "@portikus/contracts";
 import type { ZodType } from "zod";
 
 /** log.txt can grow to megabytes during a build; only its tail is read. */
@@ -29,17 +31,35 @@ export async function readJson<T>(path: string, schema: ZodType<T>): Promise<T |
 	}
 }
 
-/** The queued or running job, else the one started last. */
-export function currentJob<T extends { state: string; startedAt?: string | null }>(
-	jobs: T[],
-): T | null {
-	const active =
-		jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
-	if (active) return active;
-	const byStart = [...jobs].sort((a, b) =>
-		(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+/** A request file's age is its queue time; its body may hold secrets, so it is not read. */
+export async function fileTime(path: string): Promise<string | null> {
+	return stat(path).then(
+		(s) => s.mtime.toISOString(),
+		() => null,
 	);
-	return byStart[0] ?? null;
+}
+
+/** Queued or running past `staleMs`: its unit died. */
+function isDead(job: JobTimes, staleMs: number, now: number): boolean {
+	return jobStaleAt(job, staleMs) !== null && !isJobActive(job, staleMs, now);
+}
+
+/**
+ * The job a page should show: the newest by request or start time, with a
+ * dead queued or running job ranked below every live or finished one, so a
+ * job killed mid-run never hides the ones after it.
+ */
+export function currentJob<T extends JobTimes>(
+	jobs: T[],
+	staleMs: number,
+	now: number = Date.now(),
+): T | null {
+	const dead = (j: T) => Number(isDead(j, staleMs, now));
+	const at = (j: T) => j.requestedAt ?? j.startedAt ?? "";
+	const ranked = [...jobs].sort(
+		(a, b) => dead(a) - dead(b) || at(b).localeCompare(at(a)),
+	);
+	return ranked[0] ?? null;
 }
 
 export async function listDir(path: string): Promise<string[]> {
@@ -99,6 +119,24 @@ export async function sweepTempRequests(dir: string): Promise<void> {
 	for (const name of await listDir(dir)) {
 		if (name.startsWith(".request-") && name.endsWith(".tmp")) {
 			await unlink(join(dir, name)).catch(() => {});
+		}
+	}
+}
+
+/**
+ * Remove the request files of stale queued jobs before a new request is
+ * written: the root job takes requests oldest first, so a dead one left in
+ * place would run instead of the new one. The API wrote these files.
+ */
+export async function removeStaleRequests(
+	dir: string,
+	jobs: Array<JobTimes & { id: string }>,
+	staleMs: number,
+	now: number = Date.now(),
+): Promise<void> {
+	for (const job of jobs) {
+		if (job.state === "queued" && isDead(job, staleMs, now)) {
+			await rm(join(dir, `request-${job.id}.json`), { force: true });
 		}
 	}
 }

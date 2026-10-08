@@ -30,8 +30,10 @@ check "wildcard TLS is served for a preview host" \
   ssh_cmd "${CURL} ${PREVIEW_RESOLVE} -o /dev/null 'https://${PREVIEW_AUTHORITY}/__portikus/nothing'"
 check_output "an unknown reserved path is 404 from Caddy" "404" \
   preview_status /__portikus/nothing
+# Only the application site sends X-Frame-Options; the preview gateway's own
+# pages carry a frame-ancestors the Preview tab may frame (SPEC.md 24.3).
 check "the preview host is not the application site" \
-  ssh_cmd "! ${CURL} ${PREVIEW_RESOLVE} -I 'https://${PREVIEW_AUTHORITY}/' | grep -qi frame-ancestors"
+  ssh_cmd "! ${CURL} ${PREVIEW_RESOLVE} -I 'https://${PREVIEW_AUTHORITY}/' | grep -qi '^x-frame-options'"
 unauthorized_preview_is_refused() {
   [ "$(preview_status /)" != "200" ]
 }

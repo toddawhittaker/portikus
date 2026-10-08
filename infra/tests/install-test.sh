@@ -27,14 +27,15 @@
 #      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
 #  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
 #      with a workspace, the nightly backup run on the server, Back up now
-#      from the Backups tab, the key downloaded from the tab, and the newest
-#      set copied off the server with rsync;
+#      from the Backups tab, a side copy and Replace home from that set
+#      keeping owners and modes (ADR 0040), the key downloaded from the tab,
+#      and the newest set copied off the server with rsync;
 #  11. the rebuild from that off-site copy (docs/INSTALL.md, "Rebuilding
 #      from an off-site backup"): destroy the VM, install a fresh one, upload
 #      the key, rsync the set back in, show that a forged set is listed as
 #      not verified and refused, `portikus restore`, and check that the
-#      users, the Dex accounts and the workspace's files are back, and the
-#      worker's database role again;
+#      users, the Dex accounts and the workspace's files, with their owners
+#      and modes, are back, and the worker's database role again;
 #  12. destroy the VM.
 #
 # Usage: install-test.sh   (through `make install-test`)
@@ -715,6 +716,7 @@ backup_seed() {
   rehearse seed | tee "${LOGS}/seed.txt"
   tail -1 "${LOGS}/seed.txt" >"${LOGS}/seed.json"
   python3 -c 'import json, sys; json.load(open(sys.argv[1]))["instance"]' "${LOGS}/seed.json"
+  scp -q -o BatchMode=yes "${LOGS}/seed.json" "deploy@${IP}:/tmp/seed.json"
 }
 
 # What the nightly timer starts, started by hand: it runs here, as root, with no SSH.
@@ -734,6 +736,9 @@ backup_now() {
   rehearse backup-now | tee "${LOGS}/backup-now.txt"
   tail -1 "${LOGS}/backup-now.txt" | grep -Ex '[0-9]{8}T[0-9]{6}Z' >"${LOGS}/stamp"
 }
+
+restore_side_copy() { rehearse side-copy --stamp "$(cat "${LOGS}/stamp")" --expect /tmp/seed.json; }
+restore_replace_home() { rehearse replace-home --expect /tmp/seed.json; }
 
 # The key leaves the VM only into a file here that only this account can read.
 download_key() {
@@ -855,6 +860,8 @@ fi
 step "backups: a student with a workspace and a Dex account" backup_seed
 step "backups: the nightly backup runs on the server" backup_nightly
 step "backups: Back up now from the Backups tab" backup_now
+step "restore: a side copy keeps modes, owned by the student" restore_side_copy
+step "restore: Replace home keeps owners and modes" restore_replace_home
 step "backups: download the key from the Backups tab" download_key
 step "backups: copy the newest set off the server (rsync)" copy_offsite
 step "rebuild: destroy the VM" destroy_vm
@@ -870,5 +877,5 @@ step "rebuild: upload the old server's key from the Backups tab" upload_key
 step "rebuild: rsync the set back onto the server" copy_in
 step "rebuild: a forged set is shown not verified and refused" forged_set
 step "rebuild: portikus restore" restore_server
-step "rebuild: users, Dex accounts and workspace files are back" check_restored
+step "rebuild: users, Dex accounts, files and modes are back" check_restored
 step "rebuild: the worker's database role after the restore" worker_db_role

@@ -15,6 +15,9 @@ export const MAX_NOTIFICATION_BODY_LENGTH = 2000;
 /** The most notifications kept per user; the worker deletes older ones. */
 export const MAX_NOTIFICATIONS_PER_USER = 200;
 
+/** The most kept notices per user; older kept ones are dropped. */
+export const MAX_KEPT_NOTIFICATIONS_PER_USER = 50;
+
 /** One page of `GET /me/notifications` at most. */
 export const MAX_NOTIFICATIONS_PAGE = 100;
 

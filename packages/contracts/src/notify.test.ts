@@ -1,13 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
-	isNotifyJobActive,
 	NOTIFY_FILE_OFF,
-	NOTIFY_JOB_STALE_MS,
 	NotificationSettingsUpdate,
 	NotificationSettingsView,
 	NotifyFile,
 	notificationSettingsView,
-	notifyJobStaleAt,
 } from "./notify.js";
 
 const smtp = {
@@ -171,34 +168,5 @@ describe("the settings update", () => {
 				alerts: { ...base.alerts, email: { to: ["a@example.edu"] } },
 			}).success,
 		).toBe(false);
-	});
-});
-
-describe("when a notify job goes stale", () => {
-	const at = "2026-10-06T12:00:00.000Z";
-	const t = Date.parse(at);
-
-	test("a queued job counts from its request, a running one from its start", () => {
-		expect(
-			notifyJobStaleAt({ state: "queued", requestedAt: at, startedAt: null }),
-		).toBe(t + NOTIFY_JOB_STALE_MS);
-		expect(
-			notifyJobStaleAt({ state: "running", requestedAt: null, startedAt: at }),
-		).toBe(t + NOTIFY_JOB_STALE_MS);
-	});
-
-	test("a finished job never goes stale, and an unknown time never does either", () => {
-		expect(
-			notifyJobStaleAt({ state: "succeeded", requestedAt: at, startedAt: at }),
-		).toBeNull();
-		expect(notifyJobStaleAt(null)).toBeNull();
-		const unknown = { state: "queued" as const, requestedAt: null, startedAt: null };
-		expect(isNotifyJobActive(unknown, t + 10 * NOTIFY_JOB_STALE_MS)).toBe(true);
-	});
-
-	test("active until the stale time, then not", () => {
-		const job = { state: "running" as const, requestedAt: null, startedAt: at };
-		expect(isNotifyJobActive(job, t + NOTIFY_JOB_STALE_MS - 1)).toBe(true);
-		expect(isNotifyJobActive(job, t + NOTIFY_JOB_STALE_MS)).toBe(false);
 	});
 });

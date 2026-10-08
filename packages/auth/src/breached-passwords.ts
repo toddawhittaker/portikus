@@ -1,116 +1,23 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 /**
  * Known-breached passwords a new password is checked against (SPEC.md
- * section 24.13). A new password needs 15 characters, so only entries that
- * long are kept: shorter ones are refused by the length rule already.
- *
- * Written by hand for this project from passwords and patterns that recur
- * at the top of public breach corpora (keyboard walks, digit runs, repeated
- * words, famous phrases). It is part of Portikus and shares its licence.
- * Matching ignores case, since these are typed in every case.
+ * section 24.13, ADR 0054). scripts/generate-breached-passwords.mjs writes
+ * the list already lower-cased and limited to 15+ characters. It lives
+ * outside src/ because the Debian package drops every src/ directory.
  */
-const BREACHED = new Set(
-	[
-		"123456789012345",
-		"1234567890123456",
-		"12345678901234567890",
-		"123456789123456",
-		"111111111111111",
-		"000000000000000",
-		"987654321987654",
-		"098765432109876",
-		"147258369147258",
-		"123123123123123",
-		"121212121212121",
-		"qwertyuiopasdfg",
-		"qwertyuiopasdfgh",
-		"qwertyuiopasdfghjkl",
-		"qwertyuiopasdfghjklzxcvbnm",
-		"qwertyuiop123456",
-		"qwertyqwertyqwerty",
-		"qwerty123456789",
-		"qwertyuiop1234567890",
-		"1234567890qwertyuiop",
-		"1q2w3e4r5t6y7u8i",
-		"1q2w3e4r5t6y7u8i9o",
-		"1q2w3e4r5t6y7u8i9o0p",
-		"q1w2e3r4t5y6u7i8",
-		"1qaz2wsx3edc4rfv",
-		"1qaz2wsx3edc4rfv5tgb",
-		"zaq12wsxcde34rfv",
-		"zxcvbnmasdfghjkl",
-		"asdfghjklqwertyuiop",
-		"asdfghjkl123456",
-		"abcdefghijklmno",
-		"abcdefghijklmnop",
-		"abcdefghijklmnopqrstuvwxyz",
-		"abcdefg123456789",
-		"abc123abc123abc123",
-		"passwordpassword",
-		"password1234567",
-		"password12345678",
-		"password123456789",
-		"passwordpassword123",
-		"mypasswordis123",
-		"thisismypassword",
-		"thisismypassword1",
-		"thisisapassword",
-		"thisismynewpassword",
-		"changemechangeme",
-		"letmeinletmein1",
-		"iloveyouiloveyou",
-		"iloveyou1234567",
-		"iloveyouforever",
-		"iloveyoubaby123",
-		"iloveyoumorethananything",
-		"welcomewelcome1",
-		"welcome12345678",
-		"administrator123",
-		"administrator1234",
-		"adminadminadmin",
-		"admin1234567890",
-		"rootrootrootroot",
-		"monkeymonkeymonkey",
-		"dragondragondragon",
-		"footballfootball",
-		"baseballbaseball",
-		"basketball12345",
-		"superman12345678",
-		"starwarsstarwars",
-		"princessprincess",
-		"sunshinesunshine",
-		"trustno1trustno1",
-		"masterkeymasterkey",
-		"correcthorsebatterystaple",
-		"correct horse battery staple",
-		"thequickbrownfox",
-		"thequickbrownfoxjumpsoverthelazydog",
-		"the quick brown fox jumps over the lazy dog",
-		"maytheforcebewithyou",
-		"iamthegreatest1",
-		"letmeinplease123",
-		"opensesameopensesame",
-		"supercalifragilisticexpialidocious",
-		"aaaaaaaaaaaaaaa",
-		"aaaaaaaaaaaaaaaa",
-		"zzzzzzzzzzzzzzz",
-		"xxxxxxxxxxxxxxx",
-		"!@#$%^&*()!@#$%",
-		"!@#$%^&*()_+1234",
-		"1234567890!@#$%",
-		"1234567890-=qwerty",
-		"qazwsxedcrfvtgbyhn",
-		"qazwsxedcrfvtgb",
-		"mnbvcxzlkjhgfdsa",
-		"poiuytrewqlkjhgfdsa",
-		"0987654321poiuytrewq",
-		"student123456789",
-		"studentstudent1",
-		"portikusportikus",
-		"portikus12345678",
-	].map((entry) => entry.toLowerCase()),
+const LIST_PATH = fileURLToPath(
+	new URL("../data/breached-passwords.txt", import.meta.url),
 );
 
-/** True when the password is on the bundled list of breached passwords. */
+const BREACHED = new Set(readFileSync(LIST_PATH, "utf8").split("\n").filter(Boolean));
+
+// A truncated file would silently accept every password; stop the process instead.
+if (BREACHED.size < 10_000)
+	throw new Error("breached-password list is missing entries");
+
+/** True when the password is on the bundled list; case is ignored. */
 export function isBreachedPassword(password: string): boolean {
 	return BREACHED.has(password.toLowerCase());
 }

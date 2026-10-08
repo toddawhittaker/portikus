@@ -1,7 +1,7 @@
 import type { IncomingHttpHeaders } from "node:http";
 import cookie, { type CookieSerializeOptions } from "@fastify/cookie";
 import type { Database } from "@portikus/db";
-import type { FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
+import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import fp from "fastify-plugin";
 import type { Kysely } from "kysely";
 import { loadSession } from "./sessions.js";
@@ -222,6 +222,11 @@ export function sessionGate(
 export interface AuthPluginOptions {
 	db: Kysely<Database>;
 	auth: AuthOptions;
+	/**
+	 * Called when a session cookie matches no session. Answering and
+	 * returning false ends the request.
+	 */
+	unknownSession?: (request: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
 }
 
 /**
@@ -266,6 +271,9 @@ export const authPlugin = fp<AuthPluginOptions>(
 					request.user = user;
 					request.sessionToken = token;
 				} else {
+					if (opts.unknownSession && !(await opts.unknownSession(request, reply))) {
+						return;
+					}
 					reply.clearCookie(sessionCookie, { path: "/" });
 				}
 			}

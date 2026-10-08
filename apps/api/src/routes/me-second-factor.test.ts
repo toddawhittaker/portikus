@@ -13,6 +13,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
@@ -87,6 +88,21 @@ async function enrol(jar: CookieJar): Promise<{ secret: Buffer; codes: string[] 
 	});
 	expect(done.statusCode).toBe(200);
 	return { secret, codes: done.json().recoveryCodes };
+}
+
+/**
+ * Thirty wrong codes, ten in each of three ten-minute windows, so the
+ * account's daily cap refuses. Leaves the clock in a fresh ten-minute window.
+ */
+async function spendTheDay(jar: CookieJar, start: number): Promise<void> {
+	for (let window = 0; window < 3; window++) {
+		vi.setSystemTime(start + window * 11 * 60_000);
+		for (let i = 0; i < 10; i++) {
+			const res = await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
+			expect(res.statusCode).toBe(403);
+		}
+	}
+	vi.setSystemTime(start + 3 * 11 * 60_000);
 }
 
 async function auditActions(): Promise<string[]> {
@@ -268,7 +284,10 @@ describe.skipIf(skip)("the second-factor gate", () => {
 			code: totpCode(secret, totpStep(Date.now()) + 1),
 		});
 		expect(refused.statusCode).toBe(429);
-		expect(refused.json().code).toBe("RATE_LIMITED");
+		expect(refused.json()).toEqual({
+			code: "RATE_LIMITED",
+			message: "Too many wrong codes. Wait a few minutes, or use a recovery code.",
+		});
 		await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
 		const throttled = await testDb.db
 			.selectFrom("audit_events")
@@ -324,6 +343,50 @@ describe.skipIf(skip)("the second-factor gate", () => {
 		expect(notices[0]?.body).toContain(
 			"Someone entered many wrong two-step sign-in codes for your account today.",
 		);
+		// Whoever spent the codes knows the password (ADR 0053).
+		expect(notices[0]?.body).toContain("change it in Settings");
+	});
+
+	test("a passkey post with no challenge gives back only its own try", async () => {
+		const first = await signIn("admin");
+		const { secret } = await enrol(first);
+		const jar = await signIn("admin");
+		// Ten posts in the ten-minute window; without the give-back the next try is refused.
+		for (let i = 0; i < 10; i++) {
+			const res = await post(jar, "/me/second-factor/webauthn/verify", {
+				credential: NO_CHALLENGE_CREDENTIAL,
+			});
+			expect(res.json().code).toBe("PASSKEY_EXPIRED");
+		}
+		// An app code, which a refused count never lets through.
+		const ok = await post(jar, "/me/second-factor/verify", {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(ok.statusCode).toBe(204);
+	});
+
+	test("after the daily cap, passkey posts with no challenge give nothing back", async () => {
+		const first = await signIn("admin");
+		const { secret } = await enrol(first);
+		const jar = await signIn("admin");
+		const start = Date.now();
+		vi.useFakeTimers({ toFake: ["Date"], now: start });
+		try {
+			await spendTheDay(jar, start);
+			// A passkey may still pass the cap, but these reach no check.
+			for (let i = 0; i < 10; i++) {
+				const res = await post(jar, "/me/second-factor/webauthn/verify", {
+					credential: NO_CHALLENGE_CREDENTIAL,
+				});
+				expect(res.json().code).toBe("PASSKEY_EXPIRED");
+			}
+			const refused = await post(jar, "/me/second-factor/verify", {
+				code: totpCode(secret, totpStep(Date.now())),
+			});
+			expect(refused.statusCode).toBe(429);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("the last factor cannot be removed; a second one can be", async () => {
@@ -359,6 +422,14 @@ async function enrolPasskey(jar: CookieJar, key: SoftPasskey): Promise<string[]>
 	return done.json().recoveryCodes;
 }
 
+/** A well-formed passkey answer, posted when no challenge was started. */
+const NO_CHALLENGE_CREDENTIAL = {
+	id: "x",
+	rawId: "x",
+	type: "public-key",
+	response: { clientDataJSON: "" },
+};
+
 async function passkeySignIn(jar: CookieJar, key: SoftPasskey) {
 	const start = await post(jar, "/me/second-factor/webauthn/verify/start");
 	expect(start.statusCode).toBe(200);
@@ -377,6 +448,20 @@ async function auditRows(action: string) {
 }
 
 describe.skipIf(skip)("passkeys", () => {
+	test("a refused code offers a passkey to someone who has one", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		await enrolPasskey(await signIn("admin"), key);
+		const jar = await signIn("admin");
+		for (let i = 0; i < 10; i++) {
+			await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
+		}
+		const refused = await post(jar, "/me/second-factor/verify", { code: "123456" });
+		expect(refused.statusCode).toBe(429);
+		expect(refused.json().message).toBe(
+			"Too many wrong codes. Wait a few minutes, or use a recovery code or a passkey.",
+		);
+	});
+
 	test("a passkey enrols at the gate and signs the next session in", async () => {
 		const key = new SoftPasskey(PUBLIC_URL);
 		const jar = await signIn("admin");
@@ -599,5 +684,134 @@ describe.skipIf(skip)("a course launch into a local-password account", () => {
 				payload: { label: "Attacker" },
 			}),
 		);
+	});
+});
+
+/**
+ * Once the account's count refuses, a recovery code or a passkey still gets
+ * through, counted per session in memory, with no receipt (ADR 0053).
+ */
+describe.skipIf(skip)("past a refused count", () => {
+	const RECOVERY_SHAPED = "AAAA-BBBB-CCCC-DDDD";
+
+	test("after thirty wrong codes in a day, a recovery code still signs in and gives nothing back", async () => {
+		const first = await signIn("admin");
+		const { secret, codes } = await enrol(first);
+		const attacker = await signIn("admin");
+		const holder = await signIn("admin");
+		const start = Date.now();
+		vi.useFakeTimers({ toFake: ["Date"], now: start });
+		try {
+			await spendTheDay(attacker, start);
+			const refused = await post(holder, "/me/second-factor/verify", {
+				code: totpCode(secret, totpStep(Date.now())),
+			});
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json().message).toBe(
+				"Too many wrong codes today. You can still sign in with a recovery code.",
+			);
+			const ok = await post(holder, "/me/second-factor/verify", { code: codes[0] });
+			expect(ok.statusCode).toBe(204);
+			expect((await get(holder, "/auth/me")).json().secondFactor).toBeNull();
+			// Nothing was given back: an app code is still refused for the day.
+			const later = await signIn("admin");
+			const still = await post(later, "/me/second-factor/verify", {
+				code: totpCode(secret, totpStep(Date.now()) + 1),
+			});
+			expect(still.statusCode).toBe(429);
+		} finally {
+			vi.useRealTimers();
+		}
+		const verified = await auditRows("auth.second_factor_verified");
+		expect(verified.at(-1)?.metadata).toMatchObject({
+			method: "recovery_code",
+			bypass: true,
+		});
+	});
+
+	test("an app code is never checked past a refused count, even a right one", async () => {
+		const first = await signIn("admin");
+		const { secret } = await enrol(first);
+		const jar = await signIn("admin");
+		for (let i = 0; i < 10; i++) {
+			await post(jar, "/me/second-factor/verify", { code: "WRONG-CODE" });
+		}
+		const right = await post(jar, "/me/second-factor/verify", {
+			code: totpCode(secret, totpStep(Date.now()) + 1),
+		});
+		expect(right.statusCode).toBe(429);
+		expect((await get(jar, "/auth/me")).json().secondFactor).toBe("verify");
+	});
+
+	test("wrong recovery codes are audited, ten per session, and another session keeps its own", async () => {
+		const first = await signIn("admin");
+		const { codes } = await enrol(first);
+		const attacker = await signIn("admin");
+		for (let i = 0; i < 10; i++) {
+			await post(attacker, "/me/second-factor/verify", { code: "WRONG-CODE" });
+		}
+		const before = (await auditRows("auth.second_factor_failed")).length;
+		for (let i = 0; i < 10; i++) {
+			const res = await post(attacker, "/me/second-factor/verify", {
+				code: RECOVERY_SHAPED,
+			});
+			expect(res.statusCode).toBe(403);
+			expect(res.json().code).toBe("WRONG_CODE");
+		}
+		const failed = await auditRows("auth.second_factor_failed");
+		expect(failed).toHaveLength(before + 10);
+		expect(failed.at(-1)?.metadata).toMatchObject({ bypass: true });
+
+		// The attacker's session has used its ten; even a right code is refused there.
+		const spent = await post(attacker, "/me/second-factor/verify", { code: codes[0] });
+		expect(spent.statusCode).toBe(429);
+		expect(spent.json().code).toBe("RATE_LIMITED");
+		expect(Number(spent.headers["retry-after"])).toBeGreaterThan(0);
+
+		// The holder's own session is not locked out by it.
+		const holder = await signIn("admin");
+		const ok = await post(holder, "/me/second-factor/verify", { code: codes[0] });
+		expect(ok.statusCode).toBe(204);
+	});
+
+	test("a passkey still signs in after thirty wrong codes in a day", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		await enrolPasskey(await signIn("admin"), key);
+		const attacker = await signIn("admin");
+		const holder = await signIn("admin");
+		const start = Date.now();
+		vi.useFakeTimers({ toFake: ["Date"], now: start });
+		try {
+			await spendTheDay(attacker, start);
+			expect((await passkeySignIn(holder, key)).statusCode).toBe(204);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect((await get(holder, "/auth/me")).json().secondFactor).toBeNull();
+		expect(
+			(await auditRows("auth.second_factor_verified")).at(-1)?.metadata,
+		).toMatchObject({ method: "webauthn", bypass: true });
+	});
+
+	test("when the counts cannot be kept, a code is refused with 503 SERVICE_BUSY", async () => {
+		const first = await signIn("admin");
+		const { secret } = await enrol(first);
+		const jar = await signIn("admin");
+		await sql`alter table signin_counters rename to signin_counters_away`.execute(
+			testDb.db,
+		);
+		try {
+			const res = await post(jar, "/me/second-factor/verify", {
+				code: totpCode(secret, totpStep(Date.now()) + 1),
+			});
+			expect(res.statusCode).toBe(503);
+			expect(res.json().code).toBe("SERVICE_BUSY");
+		} finally {
+			await sql`alter table signin_counters_away rename to signin_counters`.execute(
+				testDb.db,
+			);
+		}
+		expect((await get(jar, "/auth/me")).json().secondFactor).toBe("verify");
+		expect(lines.some((l) => l.msg === "sign-in counter store failed")).toBe(true);
 	});
 });

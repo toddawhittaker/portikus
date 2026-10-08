@@ -12,8 +12,9 @@ import {
 import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
+import { registerPagePolicy } from "./page-policy.js";
 import { createListeningRegistry } from "./preview/registry.js";
-import { fileWriteLimit } from "./rate-limit.js";
+import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
 import type { RootShellPipe } from "./root-shell/pipe.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
@@ -62,6 +63,7 @@ import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
+import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -104,6 +106,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		}
 	});
 
+	registerPagePolicy(app);
+
 	// Browser forms post urlencoded: the sign-out button, whose fields no
 	// route reads, and the LTI login and launch.
 	app.addContentTypeParser(
@@ -113,8 +117,12 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			done(null, Object.fromEntries(new URLSearchParams(body as string))),
 	);
 
+	// The cheap per-address count runs first, so a refused request reaches no
+	// later count (SPEC.md section 24.13).
+	const unknownSession = registerAnonymousLimit(app, deps.config);
 	// Before the auth plugin, so its hook runs first.
 	const signinThrottle = registerSigninThrottle(app, deps);
+	registerCounterPrune(app, { db: deps.db, logger: deps.logger });
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({
@@ -133,7 +141,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	const rootShells = new Set<RootShellPipe>();
 	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces, registry });
 
-	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
+	app.register(authPlugin, {
+		db: deps.db,
+		auth: toAuthOptions(deps.config),
+		unknownSession,
+	});
 
 	// Registered before @fastify/websocket so it runs before that plugin's own
 	// preClose, which drops the sockets without a status code.
@@ -187,6 +199,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			reply.status(status).send(body);
 			return;
 		}
+		// A sign-in count that cannot be kept refuses the guess (ADR 0053).
+		if (error instanceof CounterUnavailable) {
+			request.log.error({ err: error.cause }, "sign-in counter store failed");
+			const body: ApiError = {
+				code: "SERVICE_BUSY",
+				message: "The server is busy. Try again in a moment.",
+			};
+			reply.status(503).send(body);
+			return;
+		}
 		if (isDatabaseUnavailable(error)) {
 			request.log.warn("no database connection was available");
 			const body: ApiError = {
@@ -217,7 +239,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// One file-write count for the files and projects routes together.
 	const limitFileWrites = fileWriteLimit(deps.config);
 	// One wrong-code count for every route that checks a second factor.
-	const secondFactorThrottle = createSecondFactorThrottle(deps.db);
+	const secondFactorThrottle = createSecondFactorThrottle(deps.db, deps.logger);
 	app.register(async (instance) => {
 		instance.get("/health", () => {
 			const body: HealthResponse = {
