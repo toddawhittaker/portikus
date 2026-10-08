@@ -16,6 +16,13 @@ export interface SearchOptions {
 	onChild?: (child: ChildProcess) => void;
 }
 
+/**
+ * How many ripgrep processes may run at once. A browser cancels a superseded
+ * search, so only several windows typing together reach this.
+ */
+export const MAX_RUNNING_SEARCHES = 4;
+let runningSearches = 0;
+
 /** The longest slice of any line we return. */
 const MAX_LINE_CHARS = 300;
 
@@ -58,11 +65,16 @@ export async function searchProject(
 	}
 	args.push("--", query, project.path);
 
+	// One agent serves one workspace, so this counter is the per-workspace cap.
+	if (runningSearches >= MAX_RUNNING_SEARCHES) {
+		throw new AgentFailure("BUSY", "too many searches are running");
+	}
 	const child = spawn("rg", args, {
 		stdio: ["ignore", "pipe", "pipe"],
 		// An rg config file could otherwise inject flags such as --pre.
 		env: { ...process.env, RIPGREP_CONFIG_PATH: "" },
 	});
+	runningSearches += 1;
 	options.onChild?.(child);
 
 	const matches: SearchMatch[] = [];
@@ -205,6 +217,7 @@ export async function searchProject(
 		}
 		throw new AgentFailure("SEARCH_FAILED", "search could not be started");
 	} finally {
+		runningSearches -= 1;
 		clearTimeout(timer);
 		options.signal?.removeEventListener("abort", onAbort);
 	}
