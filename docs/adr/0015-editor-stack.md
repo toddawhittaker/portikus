@@ -55,4 +55,4 @@ it does not know shows plain text. The cost of dropping `rehype-raw` is that
 Markdown with inline HTML renders as text; the cost of dropping the language
 services is no IntelliSense, which the coding agent in the terminal beside the
 editor is the answer to. Relative images in Markdown do not resolve, and code
-blocks inside Markdown are not highlighted; both are in `docs/BACKLOG.md`.
+blocks inside Markdown are not highlighted (issue #1233).

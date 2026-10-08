@@ -204,7 +204,6 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 | [docs/BROWSER-HANDLING.md](docs/BROWSER-HANDLING.md) | Application preview and CLI browser requests |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching, review, CI, secret scanning |
 | [docs/HOW-WE-WORK.md](docs/HOW-WE-WORK.md) | A plain-English guide to working with AI agents here |
-| [docs/BACKLOG.md](docs/BACKLOG.md) | Wanted work that is not yet planned |
 | [docs/STATUS.md](docs/STATUS.md) | What has landed and what gaps remain |
 | [docs/adr/](docs/adr) | Decision records |
 

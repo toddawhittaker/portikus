@@ -1126,7 +1126,7 @@ and the OIDC provider are configured.
   (granted)" for a stored grant.
 - **Under Microsoft Entra ID, roles come from app roles**, which Entra
   sends in the `roles` claim however many groups a person is in. Entra's
-  group object IDs and its overage claim are not used (docs/BACKLOG.md).
+  group object IDs and its overage claim are not used (issue #1247).
 - **Bulk actions and instructor member removal need no operator step.**
   The Users view's ticked-row Disable, Enable, Archive and Unarchive call
   the same single-row routes as clicking each one, so nothing here differs
@@ -1605,8 +1605,8 @@ or load test does not mean stopping the class.
 
 - **Memory.** 32 GB runs the pilot but not the rehearsal VM beside it.
   64 GB runs both, and leaves room for language servers if the editor
-  work in docs/BACKLOG.md ("Course profiles and a language-aware
-  editor") goes ahead; those add roughly 100 to 500 MB per active
+  work in issue #1246 (course profiles and a language-aware editor)
+  goes ahead; those add roughly 100 to 500 MB per active
   student.
 - **Disk.** The VM takes a 20 GiB system disk and a 200 GiB data disk.
   The host also keeps the 14 newest backup sets under

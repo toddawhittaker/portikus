@@ -3267,7 +3267,7 @@ shows the default and previous images, candidates with their health and
 manifest summary, and how many workspaces run each version. New
 workspaces use the default; existing ones keep their root until rebuilt
 (sections 17.2 and 22.3). Per-course or per-project tool versions are
-out; they belong with the BACKLOG item "Course profiles and a
+out; they belong with issue #1246, "Course profiles and a
 language-aware editor".
 
 - **Update to the latest published image** fetches, verifies, imports
@@ -4065,7 +4065,7 @@ itself up.
   finished sets in, accepts at most one set per UTC day, never replaces a
   set, and removes a set only once it is more than KEEP days old with
   KEEP newer sets present. Disk encryption at rest is deferred
-  (docs/BACKLOG.md).
+  (issue #1142).
 - **A restore keeps file owners and modes** (#1138). Tests check owners,
   modes and the marker for a whole restore, a side copy and Replace
   home, and that recovery points never hold `~/.claude` or `~/.codex`
@@ -4914,11 +4914,10 @@ Known gaps after Epic 3, to be closed later:
 
 - The worker sweep is serial, so one slow start delays the timers of other
   workspaces. Revisit before the 25-concurrent-workspace target in §25.2.
-  Tracked in `docs/BACKLOG.md`.
 - There is no re-provision path after a failed create; the row stays in
-  `error` and an operator has to clear it. Tracked in `docs/BACKLOG.md`.
+  `error` and an operator has to clear it.
 - OpenAPI generation from the Zod contracts (ADR 0003) is not wired up yet.
-  Tracked in `docs/BACKLOG.md`.
+  Tracked in issue #1221.
 - When the controller is unreachable the worker records an audit event, but
   the API still reported the last known state instead of marking it
   unverified. Closed by Epic 31: see section 18.3.
@@ -5279,8 +5278,7 @@ Acceptance:
 
 Design: `docs/BROWSER-HANDLING.md`, Part II (the `portikus-open` URL
 broker, the authentication order, provider adapters) and its phase C.
-A server-side browser for loopback OAuth callbacks is not planned; the
-idea is in `docs/BACKLOG.md`.
+A server-side browser for loopback OAuth callbacks is not planned.
 
 Includes:
 

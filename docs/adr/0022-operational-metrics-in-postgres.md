@@ -40,8 +40,8 @@ host facts itself.
 - Nothing outside the platform can alert on these numbers. An operator has
   to open the administrator page.
 - `audit_events` grows without a limit; the throttle and the indexes from
-  migration 0014 keep that manageable for the pilot, and retention is a
-  backlog item.
+  migration 0014 keep that manageable for the pilot, and retention is
+  issue #1245.
 - OpenTelemetry export is worth adding when a second VM or an external
   monitor exists. The samples and counts would then feed it rather than be
   replaced by it.

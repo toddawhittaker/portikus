@@ -51,6 +51,6 @@ serial reconcile loop, so a slow Incus call delays other workspaces'
 timers; on LVM thin both take seconds and are rare, which is acceptable for
 the pilot. A new Docker volume picks up the current quota, but existing
 volumes are not resized in place (Epic 11). Re-creating a workspace whose
-instance is gone stays a backlog item. The device update is the most
+instance is gone is not built yet. The device update is the most
 dangerous code in the epic, so it is unit-tested to keep the `home` and
 `recovery` devices exactly and is first run only on a throwaway workspace.

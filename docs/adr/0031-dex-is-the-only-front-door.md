@@ -59,7 +59,7 @@ to their provider, which asks for the second factor under its own rules.
   one first-administrator path and one recovery path.
 - Setting up SSO in the admin area can manage Dex connectors only, through
   Dex's API, with the local administrator as the way back from a mistake
-  (docs/BACKLOG.md, "Sign-in setup in the admin area").
+  (issue #1220).
 - The local administrator is a password-only account: Dex at the pinned
   version has no second factor for its own passwords. Mitigations: a long
   generated password, the existing sign-in throttle, and an audit row for
