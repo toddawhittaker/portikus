@@ -2,8 +2,10 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	expectNoViolations,
+	lockSharedState,
 	loginAs,
 	query,
+	SETTINGS_ROW_LOCK,
 	toast,
 	workspacePath,
 } from "./helpers";
@@ -13,7 +15,8 @@ import {
  * workspace up from the workspace dialog, sees when the hold ends in their
  * own timezone, and ends it early; the administrator's cap bounds the
  * choice. The worker does not run here, so only the API and the pages are
- * checked. The cap is one settings row, so these tests run serially.
+ * checked. The cap is one settings row, so these tests run serially under
+ * a lock every worker shares.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -52,12 +55,18 @@ async function openWorkspaceDialog(page: Page, workspaceId: string) {
 	return dialog;
 }
 
+let release: (() => Promise<void>) | undefined;
+
 test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState(SETTINGS_ROW_LOCK);
 	await setCap(12);
 });
 
 test.afterAll(async () => {
 	await setCap(12);
+	await release?.();
 });
 
 for (const scheme of ["light", "dark"] as const) {
@@ -196,8 +205,7 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 
 	await cap.fill("0");
 	await stop.getByTestId("keep-running-max-save").click();
-	// The first save's toast can still be up, so two match; the newest is last.
-	await expect(toast(page, "Keep running saved").last()).toBeVisible();
+	await expect(toast(page, "Keep running saved")).toBeVisible();
 	await studentPage.reload();
 	await expect(studentPage.getByTestId("workspace-state")).toHaveText("Running", {
 		timeout: 15_000,

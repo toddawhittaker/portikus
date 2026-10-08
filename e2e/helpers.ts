@@ -21,7 +21,8 @@ import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
  * it appears, so a bare text locator matches twice and fails strict mode.
  */
 export function toast(page: Page, text: string): Locator {
-	return page.locator(".pk-toast").filter({ hasText: text });
+	// The same message saved twice can show two toasts; the newest is last.
+	return page.locator(".pk-toast").filter({ hasText: text }).last();
 }
 
 /** The mock identity provider's users (packages/auth testing). */
@@ -92,6 +93,26 @@ const DATABASE_URL =
 	"postgres://postgres:portikus@127.0.0.1:55432/portikus_test";
 
 /** Run one statement on the test database. A client per call needs no teardown. */
+/** The lock for specs that change the one row in the settings table. */
+export const SETTINGS_ROW_LOCK = "e2e-settings-row";
+
+/**
+ * Take a lock that every Playwright worker shares, for a spec that changes
+ * site-wide state other workers would see: `--repeat-each` puts each repeat
+ * of a serial group on its own worker. Take it in `beforeAll` and release it
+ * in `afterAll`, which runs after the last page closes, so no page of one
+ * holder is still saving while the next holder runs. A PostgreSQL advisory
+ * lock lives with its connection, so a crashed worker releases it.
+ */
+export async function lockSharedState(name: string): Promise<() => Promise<void>> {
+	const client = new pg.Client({ connectionString: DATABASE_URL });
+	await client.connect();
+	await client.query("select pg_advisory_lock(hashtext($1))", [name]);
+	return async () => {
+		await client.end();
+	};
+}
+
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 	text: string,
 	values: unknown[] = [],
