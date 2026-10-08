@@ -773,6 +773,23 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a last refresh in the future, after the clock stepped back, refreshes now",
+	async () => {
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, {
+			lastRefreshAt: new Date(now.getTime() + 60_000),
+		});
+		expect(fake.calls.filter((c) => c.method === "list")).toHaveLength(1);
+		const row = await tdb.db
+			.selectFrom("settings")
+			.select("controller_checked_at")
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(row.controller_checked_at?.getTime()).toBe(now.getTime());
+	},
+);
+
 test.skipIf(skip)("a failed list does not record a controller check", async () => {
 	fake.listResult = new ControllerClientError("INCUS_UNAVAILABLE", "socket down");
 	await sweep(tdb.db, fake, cfg, new Date());

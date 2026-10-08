@@ -1,4 +1,4 @@
-import type { ApiConfig } from "@portikus/config";
+import { type ApiConfig, STATE_VERIFIED_WITHIN_MS } from "@portikus/config";
 import {
 	type AuthUser,
 	DEFAULT_KEEP_RUNNING_MAX_HOURS,
@@ -64,9 +64,6 @@ export type WorkspaceSettings = Pick<
 	| "controller_checked_at"
 >;
 
-/** State counts as verified while the controller answered the worker this recently (SPEC.md §18.3). */
-const STATE_VERIFIED_WITHIN_MS = 2 * 60 * 1000;
-
 /** Read the settings row once per request; undefined before the first one exists. */
 export async function loadWorkspaceSettings(
 	db: Kysely<Database>,
@@ -96,8 +93,9 @@ export function toWorkspace(
 	now: Date = new Date(),
 ): Workspace {
 	const checked = settings?.controller_checked_at ?? null;
-	const stateVerified =
-		checked !== null && now.getTime() - checked.getTime() <= STATE_VERIFIED_WITHIN_MS;
+	const age = checked === null ? null : now.getTime() - checked.getTime();
+	// A check in the future means the clock was stepped back, so it proves nothing.
+	const stateVerified = age !== null && age >= 0 && age <= STATE_VERIFIED_WITHIN_MS;
 	const lift = row.cpu_throttle && settings ? idleLift(settings) : null;
 	return {
 		id: row.id,

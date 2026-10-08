@@ -10,6 +10,16 @@ import type { IncusClient } from "./incus.js";
 export const AGENT_INSTRUCTIONS_HOST_PATH =
 	"/usr/lib/portikus/workspace-agent/agent-instructions.md";
 
+/**
+ * Claude Code's managed settings, shipped beside the instructions template.
+ * They blank BROWSER so Claude Code offers its paste-code URL (BROWSER-HANDLING.md 19.2).
+ */
+export const CLAUDE_MANAGED_SETTINGS_HOST_PATH =
+	"/usr/lib/portikus/workspace-agent/claude-managed-settings.json";
+
+/** Claude Code's managed settings file, which wins over a student's own settings. */
+export const CLAUDE_MANAGED_SETTINGS_PATH = "/etc/claude-code/managed-settings.json";
+
 /** Claude Code's system-wide memory file, read in every session. */
 export const CLAUDE_SYSTEM_PATH = "/etc/claude-code/CLAUDE.md";
 
@@ -59,14 +69,53 @@ export async function writeAgentInstructions(
 	const failures: string[] = [];
 	for (const [dir, path, body] of files) {
 		try {
-			// Incus answers success whatever already sits at the folder path;
-			// a non-folder there makes the file push below fail instead.
-			await client.pushFile(name, dir, "", ROOT_DIR, signal);
-			await client.replaceFile(name, path, body, ROOT_FILE, signal);
+			await writeSystemFile(client, name, dir, path, body, signal);
 		} catch (err) {
 			failures.push(`${path}: ${errorMessage(err)}`);
 		}
 	}
 	if (failures.length > 0) throw new Error(failures.join("; "));
 	return true;
+}
+
+/**
+ * Write Claude Code's managed settings from the shipped template, undoing any
+ * edit or deletion. Does nothing when the host has no template.
+ */
+export async function writeClaudeManagedSettings(
+	client: FilesClient,
+	name: string,
+	templatePath: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	let template: string;
+	try {
+		template = await readFile(templatePath, "utf8");
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+		throw err;
+	}
+	await writeSystemFile(
+		client,
+		name,
+		"/etc/claude-code",
+		CLAUDE_MANAGED_SETTINGS_PATH,
+		template,
+		signal,
+	);
+	return true;
+}
+
+async function writeSystemFile(
+	client: FilesClient,
+	name: string,
+	dir: string,
+	path: string,
+	body: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	// Incus answers success whatever already sits at the folder path;
+	// a non-folder there makes the file push below fail instead.
+	await client.pushFile(name, dir, "", ROOT_DIR, signal);
+	await client.replaceFile(name, path, body, ROOT_FILE, signal);
 }

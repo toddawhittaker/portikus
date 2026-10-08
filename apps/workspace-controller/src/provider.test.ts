@@ -1934,6 +1934,92 @@ test("a start that fails while the instance is not running is an error", async (
 	});
 });
 
+/** Serves a running instance that never gets an address, so the start times out after the start request. */
+function serveRunningWithoutAddress(state: FakeIncus): void {
+	serveIncus(state);
+	const original = handler;
+	handler = (req, res) => {
+		if (
+			req.method === "GET" &&
+			req.url?.startsWith("/1.0/instances/ws-test/state") &&
+			state.status === "Running"
+		) {
+			respond(res, 200, sync({ status: "Running", network: {} }));
+			return;
+		}
+		original(req, res);
+	};
+}
+
+test("a start that fails after the start request force-stops the instance", async () => {
+	const state = fakeIncus();
+	serveRunningWithoutAddress(state);
+
+	await expect(
+		provider.start("ws-test", { ...START, timeoutSeconds: 1 }),
+	).rejects.toMatchObject({ code: "TIMEOUT" });
+
+	expect(state.status).toBe("Stopped");
+	const puts = state.log.filter((l) => l === "PUT /1.0/instances/ws-test/state");
+	expect(puts).toHaveLength(2);
+});
+
+test("a failed stop after a failed start is logged and the start's own error is kept", async () => {
+	const state = fakeIncus();
+	serveRunningWithoutAddress(state);
+	const original = handler;
+	handler = async (req, res) => {
+		if (req.method === "PUT" && req.url?.startsWith("/1.0/instances/ws-test/state")) {
+			const body = await readBody(req);
+			if (JSON.parse(body).action === "stop") {
+				incusError(res, 500, "stop refused");
+				return;
+			}
+			state.status = "Running";
+			respond(res, 200, sync({}));
+			return;
+		}
+		original(req, res);
+	};
+	const { logger, lines } = collectingLogger();
+	const own = new IncusWorkspaceProvider({
+		client: new IncusClient({ socketPath, project: "testproj" }),
+		pool: "mypool",
+		profile: "workspace",
+		imageAlias: "portikus",
+		agentPort,
+		thinPoolStatusPath: statusPath,
+		logger,
+	});
+
+	await expect(
+		own.start("ws-test", { ...START, timeoutSeconds: 1 }),
+	).rejects.toMatchObject({
+		code: "TIMEOUT",
+	});
+	expect(
+		lines.some((l) =>
+			String(l.msg).includes("could not stop the instance after a failed start"),
+		),
+	).toBe(true);
+});
+
+test("a start that fails before the start request sends no stop", async () => {
+	const state = fakeIncus();
+	const { docker: _d, ...rest } = state.devices;
+	state.devices = rest;
+	state.volumes.delete("ws-test-docker");
+	state.failVolumeCreate = true;
+	serveIncus(state);
+
+	await expect(
+		provider.start("ws-test", { ...START, dockerGiB: 20 }),
+	).rejects.toThrow();
+	expect(
+		state.log.filter((l) => l.startsWith("PUT /1.0/instances/ws-test/state")),
+	).toEqual([]);
+});
+
 /** Makes the state read report `status` instead of a running instance. */
 function serveIncusStateAs(status: string): void {
 	const original = handler;
@@ -2841,6 +2927,36 @@ describe("the Docker seed", () => {
 
 		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
 		await expect(own.start("ws-test", START)).resolves.toBeDefined();
+	});
+
+	test("start restores Claude Code's managed settings, and a refusal does not stop it", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			claudeManagedSettingsPath: path.join(
+				import.meta.dirname,
+				"../../workspace-agent/claude-managed-settings.json",
+			),
+			logger,
+		});
+		serveIncus(state);
+		await own.start("ws-test", START);
+		const written = state.files.get("/etc/claude-code/managed-settings.json")?.content;
+		expect(JSON.parse(written ?? "")).toEqual({ env: { BROWSER: "" } });
+
+		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
+		await expect(own.start("ws-test", START)).resolves.toBeDefined();
+		expect(
+			lines.some((l) =>
+				String(l.msg).includes("could not write Claude Code's managed settings"),
+			),
+		).toBe(true);
 	});
 
 	test("start writes the registry settings before the instance starts", async () => {
