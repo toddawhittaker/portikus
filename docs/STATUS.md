@@ -4662,8 +4662,9 @@ Delivered:
   name (#1271); large viewed images and PDFs refresh when they change on
   disk (#1267); the browser no longer has its own preview port minimum,
   so the Preview tab shows the API's refusal (#1238).
-- Flaky browser tests (#1310 T5): specs that change the settings row or
-  the fake notification store hold a lock shared by all workers, so
+- Flaky browser tests (#1310 T5): the seven specs that change the
+  settings row or the fake notification store hold a lock shared by all
+  workers, so
   `--repeat-each` works with default workers (#1301, #1295); `toast()`
   takes the newest toast (#1282).
 - Infrastructure, packaging and root shell (#1312 T6): the package
@@ -4710,5 +4711,3 @@ Gaps left:
   next image job.
 - The rehearsal VM's own setup run removes its LTI platforms file; re-run
   `make lti-mock-register TOFU_ENV=rehearsal-libvirt` after it.
-- `e2e/admin-settings.spec.ts` also writes the grace period but does not
-  take the settings-row lock; it has not failed.
