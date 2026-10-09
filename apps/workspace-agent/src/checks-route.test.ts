@@ -435,3 +435,48 @@ test("a check with no watchers never pauses", () => {
 	handlers.data?.("x".repeat(2 * HIGH_WATER_BYTES));
 	expect(paused).toBe(false);
 });
+
+test("a check starts under choom with a raised OOM score so it dies before the agent", () => {
+	const calls: Array<{ file: string; args: string[] }> = [];
+	const fakePty = { pid: 0, onData: () => {}, onExit: () => {}, kill: () => {} };
+	const launcher = ((file: string, args: string[]) => {
+		calls.push({ file, args });
+		return fakePty;
+	}) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] & never;
+	const runner = new CheckRunner(quietLog, launcher);
+	runner.start({
+		slug: SLUG,
+		check: { id: "mem", name: "Mem", command: "npm test" },
+		cwd: homeDir,
+	});
+	expect(calls).toEqual([
+		{ file: "choom", args: ["-n", "500", "--", "bash", "-lc", "npm test"] },
+	]);
+});
+
+test("a real check runs with oom_score_adj 500", async () => {
+	// The check passes only if its own shell sees the raised score.
+	await writeChecks(
+		JSON.stringify({
+			checks: [
+				{
+					id: "oom",
+					name: "OOM",
+					command: 'test "$(cat /proc/self/oom_score_adj)" = 500',
+				},
+			],
+		}),
+	);
+	await call("POST", `/projects/${SLUG}/checks/oom/runs`);
+	const oomRun = async () =>
+		(await call("GET", `/projects/${SLUG}/checks`))
+			.json()
+			.runs.find((run: { checkId: string }) => run.checkId === "oom");
+	await vi.waitFor(
+		async () => {
+			expect(["passed", "failed"]).toContain((await oomRun())?.state);
+		},
+		{ timeout: 10_000 },
+	);
+	expect((await oomRun()).state).toBe("passed");
+});

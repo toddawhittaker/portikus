@@ -89,6 +89,31 @@ interface AgentDirectory {
 }
 
 /**
+ * Fill in a row's blank directory identity. False when another row of the
+ * workspace already holds it, which only one row may; leaving this row blank
+ * is right, since no caller should fail over a directory the agent reported
+ * oddly.
+ */
+async function recordDirectoryId(
+	db: Kysely<Database>,
+	rowId: string,
+	directoryId: string,
+): Promise<boolean> {
+	try {
+		await db
+			.updateTable("projects")
+			.set({ directory_id: directoryId })
+			.where("id", "=", rowId)
+			.where("directory_id", "is", null)
+			.execute();
+		return true;
+	} catch (error) {
+		if (!isUniqueViolation(error)) throw error;
+		return false;
+	}
+}
+
+/**
  * Follow projects whose directory was renamed in the shell.
  *
  * The marker is the directory's inode, which `mv` keeps and which the agent
@@ -115,21 +140,9 @@ async function relocateMovedProjects(
 	for (const row of rows) {
 		const here = directories.get(row.slug);
 		if (!here?.directoryId || row.directory_id !== null) continue;
-		try {
-			await db
-				.updateTable("projects")
-				.set({ directory_id: here.directoryId })
-				.where("id", "=", row.id)
-				.where("directory_id", "is", null)
-				.execute();
-		} catch (error) {
-			// Another row of this workspace already holds that identity, which
-			// only one row may. Leaving this one blank is right: the listing
-			// must not fail over a directory the agent reported oddly.
-			if (!isUniqueViolation(error)) throw error;
-			continue;
+		if (await recordDirectoryId(db, row.id, here.directoryId)) {
+			row.directory_id = here.directoryId;
 		}
-		row.directory_id = here.directoryId;
 	}
 
 	// Pass two: a row whose directory is gone follows its id to the new slug.
@@ -468,6 +481,21 @@ export function registerProjectRoutes(
 					`A project called ${slug} already exists.`,
 				);
 				return null;
+			}
+			// Record the folder's identity before moving it, so a crash between
+			// the move and the row update is healed by the next listing instead
+			// of the moved folder being discovered as a new project.
+			if (row.directory_id === null) {
+				try {
+					const listed = await agent.listProjects();
+					const here = listed.projects.find((p) => p.slug === row.slug);
+					if (here?.directoryId) {
+						await recordDirectoryId(db, row.id, here.directoryId);
+					}
+				} catch (error) {
+					sendAgentError(reply, error);
+					return null;
+				}
 			}
 			try {
 				await agent.renameProject(row.slug, slug);

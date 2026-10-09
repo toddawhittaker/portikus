@@ -39,6 +39,9 @@ const MAX_REMEMBERED_RUNS = 50;
 /** The size a check's PTY reports. Wide enough that test output is not wrapped. */
 const CHECK_COLS = 120;
 const CHECK_ROWS = 30;
+// Well above the agent's 0, so the kernel picks a check first when the
+// container runs out of memory; an unprivileged process may raise its own.
+const CHECK_OOM_SCORE_ADJ = "500";
 
 /** How a finished or failed run is remembered, and who is watching it. */
 interface LiveRun {
@@ -134,13 +137,19 @@ export class CheckRunner {
 		try {
 			// A login shell is what the student would type the command in, so
 			// their own PATH and version managers apply (SPEC.md §18.1).
-			pty = this.spawnPty("bash", ["-lc", options.check.command], {
-				name: "xterm-256color",
-				cols: CHECK_COLS,
-				rows: CHECK_ROWS,
-				cwd: options.cwd,
-				env: { ...process.env } as Record<string, string>,
-			});
+			// choom raises the OOM score, then execs bash, so a check that
+			// exhausts memory is killed before the agent (ADR 0035).
+			pty = this.spawnPty(
+				"choom",
+				["-n", CHECK_OOM_SCORE_ADJ, "--", "bash", "-lc", options.check.command],
+				{
+					name: "xterm-256color",
+					cols: CHECK_COLS,
+					rows: CHECK_ROWS,
+					cwd: options.cwd,
+					env: { ...process.env } as Record<string, string>,
+				},
+			);
 		} catch (error) {
 			this.log.error({ error: errorMessage(error) }, "check failed to start");
 			this.finish(run, { type: "error", code: "SPAWN_FAILED" }, "error");
