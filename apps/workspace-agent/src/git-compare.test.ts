@@ -125,8 +125,15 @@ test("a ref that could read as an option, a range, or a second line is refused",
 		"x".repeat(257),
 		"",
 	];
+	// The route validates the ref once, before refDiff sees it.
 	for (const ref of hostile) {
-		expect((await refusal(ref)).code).toBe("BAD_REQUEST");
+		const denied = await app.inject({
+			method: "GET",
+			url: `/projects/${SLUG}/git/diff?path=a.txt&ref=${encodeURIComponent(ref)}`,
+			headers: { authorization: `Bearer ${TOKEN}` },
+		});
+		expect(denied.statusCode).toBe(400);
+		expect(denied.json().error.code).toBe("BAD_REQUEST");
 	}
 	await expect(access(marker)).rejects.toThrow();
 });

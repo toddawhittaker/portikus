@@ -1,18 +1,16 @@
-import { type GitDiff, GitRef } from "@portikus/contracts";
+import type { GitDiff, GitRef } from "@portikus/contracts";
 import { finishDiff, MISSING, readWorkingTree } from "./diff-side.js";
 import { AgentFailure } from "./errors.js";
 import { diffablePath, type GitDebugLog, OBJECT_ID, showFromRev } from "./git.js";
 import { runGit } from "./git-runner.js";
 
 /**
- * The commit a student-typed ref names, as a full object id. The ref is
- * validated first and then passed after `--end-of-options`, so it can never
- * be read as a flag; `^{commit}` refuses a tree, a blob, or a range.
+ * The commit a student-typed ref names, as a full object id. The route has
+ * validated the ref as a GitRef, and it is passed after `--end-of-options`,
+ * so it can never be read as a flag; `^{commit}` refuses a tree, a blob, or
+ * a range.
  */
-async function resolveCommit(dir: string, ref: string): Promise<string> {
-	if (!GitRef.safeParse(ref).success) {
-		throw new AgentFailure("BAD_REQUEST", "invalid ref");
-	}
+async function resolveCommit(dir: string, ref: GitRef): Promise<string> {
 	const result = await runGit(
 		["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
 		dir,
@@ -34,7 +32,7 @@ export async function refDiff(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	ref: string,
+	ref: GitRef,
 	options: { log?: GitDebugLog } = {},
 ): Promise<GitDiff> {
 	const { dir, repo, target } = await diffablePath(homeDir, slug, relPath);
@@ -43,6 +41,11 @@ export async function refDiff(
 	}
 	const oid = await resolveCommit(dir, ref);
 	const kind = await runGit(["cat-file", "-t", `${oid}:${relPath}`], dir, 64);
+	// A killed check says nothing about the file; reading it as missing
+	// would show the whole file as added.
+	if (kind.timedOut || kind.exitCode === null) {
+		throw new AgentFailure("GIT_FAILED", "git cat-file failed");
+	}
 	const objectKind = kind.ok ? kind.stdout.toString().trim() : "";
 	if (objectKind && objectKind !== "blob") {
 		throw new AgentFailure("PATH_INVALID", "not a file");

@@ -144,6 +144,15 @@ test("the compact status line carries behind, no upstream and detached", () => {
 	);
 });
 
+test("a detached HEAD is named by its short commit id (SPEC.md §12.8)", () => {
+	const oid = "0123456789abcdef0123456789abcdef01234567";
+	expect(
+		gitBar(status({ branch: null, detached: true, upstream: null, oid }))?.text,
+	).toBe("detached HEAD at 0123456 • 0 changes");
+	// A branch is named by its name, never its commit.
+	expect(gitBar(status({ oid }))?.text).toBe("main • 0 changes");
+});
+
 test("conflicts show in the line and are counted for the conspicuous style", () => {
 	const bar = gitBar(
 		status({

@@ -102,6 +102,8 @@ export interface FakeAgent {
 	 * resolves once that stop has arrived at the fake.
 	 */
 	holdNextStop: () => { reached: Promise<void>; release: () => void };
+	/** The same for the next recovery-point diff. */
+	holdNextDiff: () => { reached: Promise<void>; release: () => void };
 	/** Archives the fake holds in memory, by point id (ADR 0020). */
 	recoveryPoints: Map<string, FakeRecoveryPoint>;
 	/** Project ids whose archives `DELETE /recovery-points/:projectId` removed. */
@@ -123,6 +125,19 @@ export interface FakeAgent {
 	/** Push one frame larger than the control plane's 1 MiB cap. */
 	pushOversizedEvent: (key: string, slug: string) => number;
 	close: () => Promise<void>;
+}
+
+/** A gate a fake route waits on, and the test's side of it. */
+function newHold() {
+	let arrived = () => {};
+	let release = () => {};
+	const reached = new Promise<void>((resolve) => {
+		arrived = resolve;
+	});
+	const released = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	return { hold: { arrived, released }, handle: { reached, release } };
 }
 
 export async function startFakeAgent(
@@ -264,16 +279,14 @@ export async function startFakeAgent(
 		token,
 		appHits,
 		holdNextStop() {
-			let arrived = () => {};
-			let release = () => {};
-			const reached = new Promise<void>((resolve) => {
-				arrived = resolve;
-			});
-			const released = new Promise<void>((resolve) => {
-				release = resolve;
-			});
-			flags.stopHold = { arrived, released };
-			return { reached, release };
+			const { hold, handle } = newHold();
+			flags.stopHold = hold;
+			return handle;
+		},
+		holdNextDiff() {
+			const { hold, handle } = newHold();
+			flags.diffHold = hold;
+			return handle;
 		},
 		terminals,
 		creates,

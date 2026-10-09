@@ -189,8 +189,8 @@ export interface GitBar {
  * `main • 3 changes • 2 commits ahead`, and the other states the same line
  * has to carry: behind, no upstream, a detached HEAD, and conflicts.
  *
- * A detached HEAD says only that, because the status contract carries no
- * commit id to name it by.
+ * A detached HEAD is named by its short commit id (SPEC.md §12.8); an agent
+ * that sends no id gets the bare words.
  */
 export function gitBar(status: GitStatus | undefined): GitBar | null {
 	if (!status) return null;
@@ -198,7 +198,13 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 		return { text: "not a git repository", conflicts: 0, repo: false };
 	}
 	const parts: string[] = [];
-	parts.push(status.detached ? "detached HEAD" : (status.branch ?? "no branch"));
+	if (status.detached) {
+		parts.push(
+			status.oid ? `detached HEAD at ${status.oid.slice(0, 7)}` : "detached HEAD",
+		);
+	} else {
+		parts.push(status.branch ?? "no branch");
+	}
 	const count = status.entries.length;
 	parts.push(
 		status.truncated

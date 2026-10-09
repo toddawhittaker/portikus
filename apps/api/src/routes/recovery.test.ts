@@ -712,6 +712,22 @@ test.skipIf(skip)("a slow read becomes a timeout the browser can explain", async
 	expect(slow.json().code).toBe("RECOVERY_READ_TIMEOUT");
 });
 
+test.skipIf(skip)(
+	"a second point diff while one runs is refused, then allowed once it ends",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const held = agent.holdNextDiff();
+		const first = diff(alice, pointId);
+		await held.reached;
+		const second = await diff(alice, pointId);
+		expect(second.statusCode).toBe(429);
+		expect(second.json().code).toBe("RATE_LIMITED");
+		held.release();
+		expect((await first).statusCode).toBe(200);
+		expect((await diff(alice, pointId)).statusCode).toBe(200);
+	},
+);
+
 test.skipIf(skip)("a file in neither the point nor the project is 404", async () => {
 	const pointId = (await create(alice)).json().id;
 	const missing = await diff(alice, pointId, "never-there.txt");

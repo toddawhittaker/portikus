@@ -72,8 +72,11 @@ test.describe("search options and Git refs", () => {
 				wholeWord: true,
 			});
 
-		// SPEC.md §25.8: the toggles add no violation to the panel.
-		await expectNoViolations(page, "[data-testid=search-panel]");
+		// SPEC.md §25.8: the toggles add no violation to the panel, in either theme.
+		for (const scheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme: scheme });
+			await expectNoViolations(page, "[data-testid=search-panel]");
+		}
 	});
 
 	test("a regular expression that is not valid is named and announced", async ({
@@ -95,6 +98,21 @@ test.describe("search options and Git refs", () => {
 		await expect(page.getByTestId("search-status")).toHaveText(
 			"That regular expression is not valid.",
 		);
+		// The field is marked wrong and names the message as its description.
+		await expect(page.getByTestId("search-input")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		await expect(page.getByTestId("search-input")).toHaveAccessibleDescription(
+			"That regular expression is not valid.",
+		);
+
+		// SPEC.md §25.8: the refused pattern adds no violation, in either theme.
+		for (const scheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme: scheme });
+			await expectNoViolations(page, "[data-testid=search-panel]");
+		}
+		await page.emulateMedia({ colorScheme: "light" });
 
 		// The same text as a literal is an ordinary search.
 		await page

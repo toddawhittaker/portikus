@@ -153,6 +153,7 @@ export function createFakeAgentState(token: string) {
 			baselineHead: string | null;
 		},
 		stopHold: null as { arrived: () => void; released: Promise<void> } | null,
+		diffHold: null as { arrived: () => void; released: Promise<void> } | null,
 	};
 
 	// What each workspace key is listening on, who is watching it, and which

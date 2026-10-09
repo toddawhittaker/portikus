@@ -75,6 +75,15 @@ test("outermostPaths drops paths inside another selected path", () => {
 	]);
 });
 
+test("outermostPaths drops a nested path even when a sibling sorts between", () => {
+	// "a b" and "a.md" sort between "/p/a" and "/p/a/x" by plain string order.
+	expect(outermostPaths(["/p/a", "/p/a b", "/p/a.md", "/p/a/x"])).toEqual([
+		"/p/a",
+		"/p/a b",
+		"/p/a.md",
+	]);
+});
+
 test("commonParent is the deepest directory holding every path", () => {
 	expect(commonParent(["/p/src/a.ts", "/p/src/lib/b.ts"])).toBe("/p/src");
 	expect(commonParent(["/p/src/a.ts", "/p/README.md"])).toBe("/p");
@@ -133,3 +142,20 @@ test("a selection's sizes add up against the download cap", async () => {
 	const nested = await archive(["src", "src/a.ts", "src/lib"], true);
 	expect(nested.statusCode).toBe(204);
 });
+
+test("a nested path counts once even when a sibling sorts between", async () => {
+	await writeFile(join(alpha, "src.md"), "s\n");
+	await truncate(join(alpha, "src", "a.ts"), MAX_DOWNLOAD_BYTES / 2 + 1);
+	const nested = await archive(["src", "src.md", "src/a.ts"], true);
+	expect(nested.statusCode).toBe(204);
+});
+
+test.skipIf(!haveZip)(
+	"a selected file named - is zipped, not read from stdin",
+	async () => {
+		await writeFile(join(alpha, "-"), "dash\n");
+		const response = await archive(["-", "README.md"]);
+		expect(response.statusCode).toBe(200);
+		expect(await listing(response.rawPayload)).toEqual(["-", "README.md"]);
+	},
+);

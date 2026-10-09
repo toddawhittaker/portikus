@@ -99,6 +99,32 @@ test("a large file draws its first 1,000 rows and says how many there are", asyn
 	);
 });
 
+test("a very wide file draws its first 200 columns and names blank headers", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const student = await createStudent(context);
+	const path = "wide.csv";
+	// A blank second header, then a line of a million commas under it.
+	await openFileTab(
+		page,
+		student,
+		"Csv wide",
+		path,
+		`a,,c\n${",".repeat(1_000_000)}\n`,
+	);
+	const region = page.getByRole("region", { name: `${path} table` });
+	await expect(region.getByRole("table")).toBeVisible({ timeout: 15_000 });
+	await expect(region.getByRole("columnheader")).toHaveCount(200);
+	await expect(
+		region.getByRole("columnheader", { name: "Column 2", exact: true }),
+	).toHaveCount(1);
+	await expect(page.getByTestId("csv-column-cap")).toHaveText(
+		"Showing the first 200 of 1,000,001 columns.",
+	);
+});
+
 test("a file that is not valid CSV says so and opens its text", async ({
 	page,
 	context,
