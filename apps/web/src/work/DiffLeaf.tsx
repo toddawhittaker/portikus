@@ -14,6 +14,7 @@ import {
 	type ReactNode,
 	Suspense,
 	useEffect,
+	useId,
 	useState,
 } from "react";
 import { errorText } from "../api/request.js";
@@ -78,48 +79,29 @@ function pointLabel(point: RecoveryPoint): string {
 	return `${pointTime(point.createdAt)}, ${REASON_LABEL[point.reason]}`;
 }
 
+/** The wait or the empty list, said in the compare control's one live region. */
+const POINTS_LOADING = "Loading recovery points…";
+const POINTS_NONE = "This project has no recovery points yet.";
+const POINT_READING =
+	"Reading this file from the recovery point. This can take up to a minute…";
+
 /**
- * The project's recovery points, newest first, and a Compare button. The
- * list loads only once this choice is made, and arrowing through it does not
- * start a slow archive read per point: only Compare does.
+ * The project's recovery points, newest first, and a Compare button.
+ * Arrowing through the list does not start a slow archive read per point:
+ * only Compare does. The control above loads the list and says when it is
+ * loading or empty.
  */
 function PointPicker({
-	path,
-	workspaceId,
-	projectId,
+	points,
 	onCompare,
 }: {
-	path: string;
-	workspaceId: string;
-	projectId: string;
+	points: RecoveryPoint[];
 	onCompare: (base: DiffBase) => void;
 }) {
-	const list = useRecoveryPoints(workspaceId, projectId);
+	const id = useId();
 	const [picked, setPicked] = useState("");
-	const points = list.data?.points ?? [];
-	if (list.error) {
-		return (
-			<p className="pk-error m-0 text-[12px] text-status-error" role="alert">
-				{errorText(list.error, "The recovery points could not be loaded.")}
-			</p>
-		);
-	}
-	if (!list.data) {
-		return (
-			<p className="pk-file-note m-0" role="status">
-				Loading recovery points…
-			</p>
-		);
-	}
 	const point = points.find((p) => p.id === picked) ?? points[0];
-	if (!point) {
-		return (
-			<p className="pk-file-note m-0" role="status" data-testid="diff-point-none">
-				This project has no recovery points yet.
-			</p>
-		);
-	}
-	const id = `diff-point-${path}`;
+	if (!point) return null;
 	return (
 		<>
 			<div className="grid gap-1">
@@ -155,22 +137,26 @@ function PointPicker({
 
 /**
  * The "Compare with" control. A ref is only asked for once it is submitted,
- * so typing does not send a request per keystroke.
+ * so typing does not send a request per keystroke. The points list loads only
+ * once that choice is made.
  */
 function CompareWith({
-	path,
 	workspaceId,
 	projectId,
+	reading,
 	onCompare,
 }: {
-	path: string;
 	workspaceId: string;
 	projectId: string;
+	/** A recovery point's file is being read. */
+	reading: boolean;
 	onCompare: (base: DiffBase | undefined) => void;
 }) {
 	const [choice, setChoice] = useState<CompareChoice>("head");
 	const [draftRef, setDraftRef] = useState("");
 	const [problem, setProblem] = useState<string | null>(null);
+	const list = useRecoveryPoints(workspaceId, projectId, choice === "point");
+	const id = useId();
 
 	function choose(next: CompareChoice) {
 		setChoice(next);
@@ -189,7 +175,14 @@ function CompareWith({
 		onCompare({ kind: "ref", ref: typed });
 	}
 
-	const errorId = `diff-ref-${path}-err`;
+	let wait = "";
+	if (reading) wait = POINT_READING;
+	else if (choice === "point" && !list.error) {
+		if (!list.data) wait = POINTS_LOADING;
+		else if (list.data.points.length === 0) wait = POINTS_NONE;
+	}
+
+	const errorId = `${id}-ref-err`;
 	return (
 		<form
 			className="flex shrink-0 flex-wrap items-end gap-2 px-3 py-2"
@@ -197,11 +190,11 @@ function CompareWith({
 			data-testid="diff-compare"
 		>
 			<div className="grid gap-1">
-				<label className={LABEL_CLASS} htmlFor={`diff-compare-${path}`}>
+				<label className={LABEL_CLASS} htmlFor={`${id}-choice`}>
 					Compare with
 				</label>
 				<select
-					id={`diff-compare-${path}`}
+					id={`${id}-choice`}
 					className={`${CONTROL_CLASS} w-40 cursor-pointer`}
 					data-testid="diff-compare-choice"
 					value={choice}
@@ -217,11 +210,11 @@ function CompareWith({
 			{choice === "ref" ? (
 				<>
 					<div className="grid gap-1">
-						<label className={LABEL_CLASS} htmlFor={`diff-ref-${path}`}>
+						<label className={LABEL_CLASS} htmlFor={`${id}-ref`}>
 							Branch, tag, or commit
 						</label>
 						<input
-							id={`diff-ref-${path}`}
+							id={`${id}-ref`}
 							className={`${CONTROL_CLASS} w-48 font-mono`}
 							data-testid="diff-ref"
 							value={draftRef}
@@ -238,13 +231,16 @@ function CompareWith({
 					</Button>
 				</>
 			) : null}
-			{choice === "point" ? (
-				<PointPicker
-					path={path}
-					workspaceId={workspaceId}
-					projectId={projectId}
-					onCompare={onCompare}
-				/>
+			{choice === "point" && list.data ? (
+				<PointPicker points={list.data.points} onCompare={onCompare} />
+			) : null}
+			{choice === "point" && list.error ? (
+				<p
+					className="pk-error m-0 basis-full text-[12px] text-status-error"
+					role="alert"
+				>
+					{errorText(list.error, "The recovery points could not be loaded.")}
+				</p>
 			) : null}
 			{problem ? (
 				<p
@@ -255,6 +251,17 @@ function CompareWith({
 					{problem}
 				</p>
 			) : null}
+			{/* Always mounted, so each change of text is announced, not missed. */}
+			<p
+				className={
+					wait ? "m-0 basis-full text-[13px] text-ink-muted" : "pk-visually-hidden"
+				}
+				role="status"
+				aria-live="polite"
+				data-testid="diff-compare-status"
+			>
+				{wait}
+			</p>
 		</form>
 	);
 }
@@ -287,20 +294,36 @@ export function DiffLeaf({
 	const diff = useGitDiff(workspaceId, projectId, path, base);
 	const refBase = base?.kind === "ref" ? base.ref : null;
 	const pointBase = base?.kind === "point" ? base.label : null;
+	const reading = pointBase !== null && diff.isFetching;
 
 	// Coming back to a diff that was in the background shows what is on disk
-	// now, not what it was when the tab was last looked at (SPEC.md §12.6).
+	// now, not what it was when the tab was last looked at (SPEC.md §12.6). A
+	// recovery point is read again only by Compare (SPEC.md §15.8).
 	const refetch = diff.refetch;
+	const isPoint = pointBase !== null;
 	useEffect(() => {
-		if (visible) void refetch();
-	}, [visible, refetch]);
+		if (visible && !isPoint) void refetch();
+	}, [visible, refetch, isPoint]);
+
+	/** Compare on the point already shown reads it again; the key alone would not. */
+	function compare(next: DiffBase | undefined) {
+		if (
+			next?.kind === "point" &&
+			chosen?.kind === "point" &&
+			next.pointId === chosen.pointId
+		) {
+			void refetch();
+		}
+		setChosen(next);
+	}
 
 	const data = diff.data;
 
 	function body() {
 		// A failed refresh of a diff already on screen is a banner, not a
 		// replacement: the last good diff is still worth reading.
-		if (diff.error && !data) {
+		// A point read again after a failure says only that it is reading.
+		if (diff.error && !data && !reading) {
 			return (
 				<EmptyState icon="file" title="This diff could not be shown">
 					{/* A ref the student typed can name nothing; say so out loud. */}
@@ -314,15 +337,8 @@ export function DiffLeaf({
 			);
 		}
 		if (!data) {
-			// Reading one file out of a point's archive can take about a minute
-			// (SPEC.md §15.8), so the wait is explained and announced.
-			if (pointBase !== null) {
-				return (
-					<p className="pk-file-note" role="status" data-testid="diff-point-loading">
-						Reading this file from the recovery point. This can take up to a minute…
-					</p>
-				);
-			}
+			// The compare control's live region explains a point's long read.
+			if (pointBase !== null) return null;
 			return <p className="pk-file-note">Loading…</p>;
 		}
 		if (data.binary) {
@@ -417,14 +433,20 @@ export function DiffLeaf({
 			{/* Session review always compares with its baseline (SPEC.md §12.7). */}
 			{baseline ? null : (
 				<CompareWith
-					path={path}
 					workspaceId={workspaceId}
 					projectId={projectId}
-					onCompare={setChosen}
+					reading={reading}
+					onCompare={compare}
 				/>
 			)}
 			{diff.error && data ? (
-				<div className="pk-file-banner" role="status" data-testid="diff-error">
+				// A point's failure, such as another read already running, is
+				// something the student asked for and must hear.
+				<div
+					className="pk-file-banner"
+					role={pointBase !== null ? "alert" : "status"}
+					data-testid="diff-error"
+				>
 					This diff could not be refreshed:{" "}
 					{errorText(diff.error, "the workspace did not answer.")}
 				</div>

@@ -329,6 +329,13 @@ test("a refused pattern is named and announced", async () => {
 	expect(screen.getByRole("status").textContent).toBe(
 		"That regular expression is not valid.",
 	);
+	// The field itself is marked wrong and points at the message.
+	const input = screen.getByLabelText("Find in files");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	const described = input.getAttribute("aria-describedby") ?? "";
+	expect(document.getElementById(described)?.textContent).toBe(
+		"That regular expression is not valid.",
+	);
 });
 
 test("a regex match is highlighted for its own length, not the query's", async () => {

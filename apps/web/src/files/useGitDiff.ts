@@ -4,11 +4,13 @@
  * point. Nothing polls: the project events socket
  * invalidates this query when the file or the repository changes, and coming
  * back to the window or to the tab asks again in case the socket was away.
+ * A recovery point is the exception: reading it can take a minute
+ * (SPEC.md §15.8), so it is read only when the student presses Compare.
  */
 import { GitDiff } from "@portikus/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { request } from "../api/request.js";
-import { recoveryPointDiffUrl } from "../recovery/queries.js";
+import { recoveryKeys, recoveryPointDiffUrl } from "../recovery/queries.js";
 import { fileKeys } from "./queries.js";
 
 /**
@@ -42,12 +44,21 @@ function gitDiffUrl(
 	return `${prefix}/git/diff?${query}`;
 }
 
-/** The base's part of the query key; the file's own key stays the prefix. */
-function baseKey(base: DiffBase | undefined): string[] {
-	if (base?.kind === "baseline") return [base.object];
-	if (base?.kind === "ref") return ["ref", base.ref];
-	if (base?.kind === "point") return ["point", base.pointId];
-	return [];
+/** The query key: the file's diff key and the base, or the point's own key. */
+function diffKey(
+	workspaceId: string,
+	projectId: string,
+	path: string,
+	base: DiffBase | undefined,
+): readonly string[] {
+	if (base?.kind === "point") {
+		return recoveryKeys.pointDiff(workspaceId, projectId, base.pointId, path);
+	}
+	// A prefix of the file's key, so invalidating the file refreshes every base.
+	const file = fileKeys.diff(workspaceId, projectId, path);
+	if (base?.kind === "baseline") return [...file, base.object];
+	if (base?.kind === "ref") return [...file, "ref", base.ref];
+	return file;
 }
 
 export function useGitDiff(
@@ -56,15 +67,16 @@ export function useGitDiff(
 	path: string,
 	base?: DiffBase,
 ) {
+	const point = base?.kind === "point";
 	return useQuery({
-		// A prefix of the file's key, so invalidating the file refreshes every base.
-		queryKey: [...fileKeys.diff(workspaceId, projectId, path), ...baseKey(base)],
-		refetchOnWindowFocus: true,
+		queryKey: diffKey(workspaceId, projectId, path, base),
 		// Coming back to the window is another moment a diff can notice a
-		// change; a stale window would waste it.
-		staleTime: 0,
+		// change; a stale window would waste it. A point is read on Compare only.
+		refetchOnWindowFocus: !point,
+		staleTime: point ? Number.POSITIVE_INFINITY : 0,
 		retry: false,
-		queryFn: (): Promise<GitDiff> =>
-			request(GitDiff, gitDiffUrl(workspaceId, projectId, path, base)),
+		// Leaving a diff, or replacing it, cancels its read.
+		queryFn: ({ signal }): Promise<GitDiff> =>
+			request(GitDiff, gitDiffUrl(workspaceId, projectId, path, base), { signal }),
 	});
 }

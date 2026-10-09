@@ -7,6 +7,7 @@ import { expect, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	pushEvent,
 	query,
 	seedFile,
 	seedGit,
@@ -96,6 +97,35 @@ test.describe("compare with a recovery point", () => {
 		await expect(page.getByTestId(`diff-editor-${FILE}`)).toContainText("first draft", {
 			timeout: 60_000,
 		});
+		// The waits were said in one polite region that is still there, now quiet.
+		const region = pane.getByTestId("diff-compare-status");
+		await expect(region).toHaveAttribute("role", "status");
+		await expect(region).toHaveAttribute("aria-live", "polite");
+		await expect(region).toHaveText("");
+
+		// A change on disk refreshes Git but does not read the point again
+		// (SPEC.md §15.8): only Compare does.
+		let pointReads = 0;
+		page.on("request", (request) => {
+			if (/\/recovery-points\/[^/]+\/diff\?/.test(request.url())) pointReads += 1;
+		});
+		const statusAsked = page.waitForRequest(/\/git\/status\?/);
+		await expect
+			.poll(() =>
+				pushEvent(student.workspaceId, project.slug, {
+					type: "fs",
+					paths: [FILE],
+					git: true,
+					truncated: false,
+				}),
+			)
+			.toBeGreaterThan(0);
+		await statusAsked;
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+		await page.waitForTimeout(500);
+		expect(pointReads).toBe(0);
+		await pane.getByRole("button", { name: "Compare" }).click();
+		await expect.poll(() => pointReads).toBe(1);
 
 		// SPEC.md §25.8: the picker adds no violation in either theme.
 		for (const scheme of ["light", "dark"] as const) {

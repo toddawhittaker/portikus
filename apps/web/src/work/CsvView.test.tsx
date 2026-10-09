@@ -82,3 +82,21 @@ test("a header with nothing under it says so", () => {
 		screen.getByText("This file has a header row and no rows under it."),
 	).not.toBeNull();
 });
+
+test("a blank header cell still names its column for a screen reader", () => {
+	render(<CsvView path="x.csv" text={"a,,c\n1,2,3\n"} onShowText={() => {}} />);
+	expect(screen.getByRole("columnheader", { name: "Column 2" })).not.toBeNull();
+});
+
+test("a very wide file draws the first 200 columns and says how many there are", () => {
+	const start = performance.now();
+	render(
+		<CsvView path="wide.csv" text={",".repeat(1_000_000)} onShowText={() => {}} />,
+	);
+	expect(screen.getAllByRole("columnheader")).toHaveLength(200);
+	expect(screen.getByTestId("csv-column-cap").textContent).toBe(
+		"Showing the first 200 of 1,000,001 columns.",
+	);
+	// A generous bound: drawing every column took minutes.
+	expect(performance.now() - start).toBeLessThan(5000);
+});

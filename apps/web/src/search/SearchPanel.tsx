@@ -66,6 +66,10 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 	// area's store and can open a file there.
 	const store = useContext(LayoutStoreContext);
 
+	// A refused pattern is the field's own error, said under it (SPEC.md §25.8).
+	const patternInvalid =
+		result.error instanceof ApiError && result.error.code === "PATTERN_INVALID";
+
 	const matches = result.data?.matches ?? [];
 	const groups = groupByFile(matches);
 
@@ -112,16 +116,10 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 				</EmptyState>
 			);
 		}
+		if (patternInvalid) return null;
 		if (result.isError) {
 			return (
-				<EmptyState
-					icon="alert"
-					title={
-						result.error instanceof ApiError && result.error.code === "PATTERN_INVALID"
-							? "Check the pattern"
-							: "The search failed"
-					}
-				>
+				<EmptyState icon="alert" title="The search failed">
 					<span data-testid="search-error">{searchErrorMessage(result.error)}</span>
 				</EmptyState>
 			);
@@ -216,6 +214,11 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 					autoFocus={true}
 					data-testid="search-input"
 					maxLength={MAX_QUERY_LENGTH}
+					error={
+						patternInvalid ? (
+							<span data-testid="search-error">{PATTERN_INVALID_MESSAGE}</span>
+						) : undefined
+					}
 					onChange={(event) => setQuery(event.target.value)}
 				/>
 				<fieldset className="pk-segmented pk-search-options">
