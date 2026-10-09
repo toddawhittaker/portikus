@@ -34,6 +34,13 @@ const MAX_LINE_CHARS = 300;
 /** How much line text one search may take from ripgrep before it gives up. */
 const MAX_TEXT_BYTES = 1024 * 1024;
 
+/** ripgrep's stderr for a pattern it parsed but refused: bad syntax, or too big. */
+const REGEX_REFUSED = [
+	"regex parse error",
+	"compiled regex exceeds size limit",
+	"regex could not be compiled",
+];
+
 /** How much of ripgrep's stderr is kept, enough for its error heading. */
 const STDERR_TAIL_CHARS = 4096;
 
@@ -225,7 +232,7 @@ export async function searchProject(
 		// not open (a root-owned Docker volume, say) while it searched the
 		// rest; that search ran, so what it found is the answer.
 		if (!stopped && code === 2) {
-			if (options.regex && stderr.includes("regex parse error")) {
+			if (options.regex && REGEX_REFUSED.some((text) => stderr.includes(text))) {
 				throw new AgentFailure("PATTERN_INVALID", PATTERN_INVALID_MESSAGE);
 			}
 		} else if (!stopped && code !== 0 && code !== 1) {

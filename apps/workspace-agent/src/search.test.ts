@@ -199,6 +199,15 @@ test.skipIf(!haveRg)("no match is an empty result, not an error", async () => {
 	expect(result).toEqual({ matches: [], truncated: false });
 });
 
+test.skipIf(!haveRg)("a regex too big to compile is an invalid pattern", async () => {
+	await expect(
+		searchProject(homeDir, "demo", String.raw`\w{1000}{1000}`, {
+			hidden: false,
+			regex: true,
+		}),
+	).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+});
+
 test.skipIf(!haveRg)("an unknown project is not found", async () => {
 	await expect(searchProject(homeDir, "nope", "a", { hidden: false })).rejects.toThrow(
 		AgentFailure,
