@@ -49,23 +49,6 @@
 .pk-tree-row.is-dragging {
 	opacity: 0.5;
 }
-/* What follows the pointer during a drag. */
-.pk-tree-drag {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	max-width: 240px;
-	padding: var(--space-1) var(--space-2);
-	border-radius: var(--radius-sm);
-	background: var(--surface-raised);
-	box-shadow: var(--shadow-md);
-	color: var(--ink);
-	font-size: 13px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	pointer-events: none;
-}
 /* A flex column so the empty area below the tree can take whatever height
    is left over. Only the files pane; other panes are unchanged. */
 .pk-pane--right > .pk-pane-body {

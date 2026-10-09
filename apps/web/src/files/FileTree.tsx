@@ -8,7 +8,6 @@
  * socket open, so a change made in a terminal shows here on its own
  * (SPEC.md §11.4, §12.3).
  */
-import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import { MAX_UPLOAD_BYTES, type Project, type TreeEntry } from "@portikus/contracts";
 import {
 	Button,
@@ -27,6 +26,7 @@ import {
 } from "@portikus/ui";
 import {
 	createContext,
+	type DragEvent,
 	memo,
 	type ReactNode,
 	type Ref,
@@ -69,7 +69,6 @@ import {
 	joinPath,
 	nameError,
 	parentOf,
-	reseedFocus,
 	showMorePath,
 	tabIdsUnder,
 	visibleEntries,
@@ -98,13 +97,14 @@ import {
 } from "./selection.js";
 import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
-import { selectionAfterExtend, useTreeKeys } from "./treeKeys.js";
-import { useGitStatus } from "./useGitStatus.js";
 import {
-	dropId,
-	ROOT_SPACE_DROP_ID,
-	useTreeDragAndDrop,
-} from "./useTreeDragAndDrop.js";
+	selectionAfterExtend,
+	type TreeFocusHandlers,
+	useFocusRepair,
+	useTreeKeys,
+} from "./treeKeys.js";
+import { useGitStatus } from "./useGitStatus.js";
+import { useTreeDragAndDrop } from "./useTreeDragAndDrop.js";
 
 /** How many uploads are in flight at once, so a big drop stays polite. */
 const UPLOAD_CONCURRENCY = 4;
@@ -132,6 +132,8 @@ interface TreeApi {
 	visibleNodes: () => FileNode[];
 	/** Moves the Tab stop to a row on screen if the focused one is gone. */
 	repairFocus: () => void;
+	/** Whether the tree holds focus, so a repair knows to move it. */
+	treeFocusHandlers: TreeFocusHandlers;
 	clickRow: (path: string, modifiers: ClickModifiers) => void;
 	/** Shift+Arrow: run the selection from the anchor to `to`. */
 	extendTo: (from: string, to: string) => void;
@@ -142,9 +144,9 @@ interface TreeApi {
 	extract: (node: FileNode) => void;
 	/** The element holding the rows, so the drawn order can be read back. */
 	treeRef: (element: HTMLElement | null) => void;
-	dropDir: string | null;
-	/** A desktop file drag is over the pane (SPEC.md §11.2). */
-	uploadDrag: boolean;
+	/** Drag a row to another folder (SPEC.md §11.2). */
+	startMove: (event: DragEvent, node: FileNode) => void;
+	endMove: () => void;
 	/** Git decorations for the rows (SPEC.md §12.1). */
 	git: GitDecorations;
 	/** The row whose ⋯ menu is open, so the keyboard can open it. */
@@ -410,16 +412,7 @@ export function FileTreePane({
 		});
 	}, [rowElements]);
 
-	/**
-	 * Keeps one row as the Tab stop when the focused row has vanished: it was
-	 * deleted, moved, or its parent closed (SPEC.md §25.8).
-	 */
-	const repairFocus = useCallback(() => {
-		const focusedPath = rowState.getState().focusedPath;
-		const rendered = rowElements().map((row) => row.getAttribute("data-path") ?? "");
-		const next = reseedFocus(focusedPath, rendered);
-		if (next !== focusedPath) setFocusedPath(next);
-	}, [rowState, rowElements, setFocusedPath]);
+	const { repairFocus, treeFocusHandlers } = useFocusRepair(rowState, rowElements);
 
 	const clickRow = useCallback(
 		(path: string, modifiers: ClickModifiers) => {
@@ -545,13 +538,13 @@ export function FileTreePane({
 		mutations.move.mutateAsync,
 	);
 
-	const { sensors, dragged, dropDir, uploadDrag, dndHandlers, uploadHandlers } =
-		useTreeDragAndDrop({
-			moveFile: moveAsking,
-			afterMove,
-			fail,
-			uploadInto,
-		});
+	const { uploadDrag, startMove, endMove, paneHandlers } = useTreeDragAndDrop({
+		rowState,
+		moveFile: moveAsking,
+		afterMove,
+		fail,
+		uploadInto,
+	});
 
 	const openFile = useCallback(
 		(node: FileNode) => {
@@ -611,6 +604,7 @@ export function FileTreePane({
 			rowElements,
 			visibleNodes,
 			repairFocus,
+			treeFocusHandlers,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -619,8 +613,8 @@ export function FileTreePane({
 			treeRef: (element) => {
 				treeElement.current = element;
 			},
-			dropDir,
-			uploadDrag,
+			startMove,
+			endMove,
 			git,
 			menuPath,
 			setMenuPath,
@@ -641,13 +635,14 @@ export function FileTreePane({
 			rowElements,
 			visibleNodes,
 			repairFocus,
+			treeFocusHandlers,
 			clickRow,
 			extendTo,
 			targetsFor,
 			download,
 			extract,
-			dropDir,
-			uploadDrag,
+			startMove,
+			endMove,
 			git,
 			menuPath,
 		],
@@ -656,267 +651,258 @@ export function FileTreePane({
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
 	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
-	const uploadToRoot = uploadDrag && (dropDir === "" || dropDir === null);
+	const overRoot = useStore(rowState, (state) => state.dropDir === "");
+	const uploadToRoot = uploadDrag && overRoot;
 
 	return (
-		// The context wraps the header too, so a file can be dragged back to
-		// the project root (SPEC.md §11.2).
-		<DndContext
-			sensors={sensors}
-			onDragStart={dndHandlers.onDragStart}
-			onDragEnd={dndHandlers.onDragEnd}
-			onDragCancel={dndHandlers.onDragCancel}
-		>
-			<TreeContext.Provider value={api}>
-				<aside className="pk-pane pk-pane--right" aria-label="Files">
-					<div className="pk-pane-head pk-pane-head--actions">
-						<h2 className="sr-only">Files</h2>
-						<MenuRoot>
-							<MenuTrigger asChild>
-								<IconButton
-									icon="plus"
-									label="New file or folder"
-									size="sm"
-									data-testid="files-new"
-								/>
-							</MenuTrigger>
-							<Menu label="New file or folder">
-								<CreateMenuItems dir="" testIdPrefix="files" />
-							</Menu>
-						</MenuRoot>
-						<IconButton
-							icon="search"
-							label="Find in files"
-							size="sm"
-							data-testid="search-open"
-							ref={searchButtonRef}
-							onClick={onSearch}
-						/>
-						<MenuRoot>
-							<MenuTrigger asChild>
-								<IconButton
-									icon="more"
-									label="More file actions"
-									size="sm"
-									data-testid="files-more"
-								/>
-							</MenuTrigger>
-							<Menu label="More file actions">
-								{/* The same create actions as a row's menu, on the project
+		<TreeContext.Provider value={api}>
+			{/* The whole pane takes drags, so a file can go back to the project
+			    root by the path line under the header (SPEC.md §11.2). */}
+			<aside
+				className="pk-pane pk-pane--right"
+				aria-label="Files"
+				onDragEnter={paneHandlers.onDragEnter}
+				onDragOver={paneHandlers.onDragOver}
+				onDragLeave={paneHandlers.onDragLeave}
+				onDrop={paneHandlers.onDrop}
+			>
+				<div className="pk-pane-head pk-pane-head--actions">
+					<h2 className="sr-only">Files</h2>
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="plus"
+								label="New file or folder"
+								size="sm"
+								data-testid="files-new"
+							/>
+						</MenuTrigger>
+						<Menu label="New file or folder">
+							<CreateMenuItems dir="" testIdPrefix="files" />
+						</Menu>
+					</MenuRoot>
+					<IconButton
+						icon="search"
+						label="Find in files"
+						size="sm"
+						data-testid="search-open"
+						ref={searchButtonRef}
+						onClick={onSearch}
+					/>
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="more"
+								label="More file actions"
+								size="sm"
+								data-testid="files-more"
+							/>
+						</MenuTrigger>
+						<Menu label="More file actions">
+							{/* The same create actions as a row's menu, on the project
 							    root, so a project with no files still has them. */}
-								<CreateMenuItems dir="" testIdPrefix="files-more" />
-								<MenuSeparator />
-								<MenuCheckboxItem
-									checked={showHidden}
-									onCheckedChange={() => toggleShowHidden(project.id)}
-									testId="files-show-hidden"
-								>
-									Show hidden and generated files
-								</MenuCheckboxItem>
-								<MenuSeparator />
-								<MenuItem onSelect={() => api.pickUpload("")}>
-									<span data-testid="files-upload">Upload files…</span>
-								</MenuItem>
-								<MenuItem
-									onSelect={() =>
-										download([{ path: "", name: project.slug, isDir: true }])
-									}
-									testId="files-download-project"
-								>
-									Download project
-								</MenuItem>
-							</Menu>
-						</MenuRoot>
-					</div>
+							<CreateMenuItems dir="" testIdPrefix="files-more" />
+							<MenuSeparator />
+							<MenuCheckboxItem
+								checked={showHidden}
+								onCheckedChange={() => toggleShowHidden(project.id)}
+								testId="files-show-hidden"
+							>
+								Show hidden and generated files
+							</MenuCheckboxItem>
+							<MenuSeparator />
+							<MenuItem onSelect={() => api.pickUpload("")}>
+								<span data-testid="files-upload">Upload files…</span>
+							</MenuItem>
+							<MenuItem
+								onSelect={() =>
+									download([{ path: "", name: project.slug, isDir: true }])
+								}
+								testId="files-download-project"
+							>
+								Download project
+							</MenuItem>
+						</Menu>
+					</MenuRoot>
+				</div>
 
-					<RootDropZone slug={project.slug} />
+				<RootDropZone slug={project.slug} />
 
-					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
+				<div
+					className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
+					data-upload-root={uploadToRoot ? "true" : undefined}
+					data-testid="file-tree-body"
+				>
+					{/* The live region exists before its text, so the text is announced. */}
+					{/* aria-live as well, so an open dialog's aria-hidden does not silence it. */}
 					<div
-						className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
-						data-upload-root={uploadToRoot ? "true" : undefined}
-						data-testid="file-tree-body"
-						onDragOver={uploadHandlers.onDragOver}
-						onDragEnter={uploadHandlers.onDragEnter}
-						onDragLeave={uploadHandlers.onDragLeave}
-						onDrop={uploadHandlers.onDrop}
+						role="status"
+						aria-live="polite"
+						data-testid="files-watch-limited-region"
 					>
-						{/* The live region exists before its text, so the text is announced. */}
-						{/* aria-live as well, so an open dialog's aria-hidden does not silence it. */}
-						<div
-							role="status"
-							aria-live="polite"
-							data-testid="files-watch-limited-region"
-						>
-							{watchLimited ? (
-								<p className="pk-watch-limited" data-testid="files-watch-limited">
-									This project is too large to update live. It refreshes when you return
-									to the window.
-								</p>
-							) : null}
-							{announcement ? (
-								<p className="pk-visually-hidden" data-testid="files-announcement">
-									{announcement}
-								</p>
-							) : null}
-						</div>
-						{uploadToRoot ? (
-							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
-								Drop to upload to {project.name}
+						{watchLimited ? (
+							<p className="pk-watch-limited" data-testid="files-watch-limited">
+								This project is too large to update live. It refreshes when you return
+								to the window.
 							</p>
 						) : null}
-						<TreeListing
-							project={project}
-							failed={root.isError}
-							allHidden={allHidden}
-							empty={empty}
-							onRetry={() => void root.refetch()}
-							onNewFile={() => api.newIn("", "file")}
-						/>
+						{announcement ? (
+							<p className="pk-visually-hidden" data-testid="files-announcement">
+								{announcement}
+							</p>
+						) : null}
 					</div>
-
-					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-					<PaneChanges
-						workspaceId={workspaceId}
+					{uploadToRoot ? (
+						<p className="pk-upload-hint" data-testid="file-tree-root-hint">
+							Drop to upload to {project.name}
+						</p>
+					) : null}
+					<TreeListing
 						project={project}
-						session={session}
-						reviewSession={reviewSession}
-						setReviewSession={setReviewSession}
-						gitStatus={gitStatus}
-						baselineStatus={baselineStatus}
-						openFileTab={openFileTab}
+						failed={root.isError}
+						allHidden={allHidden}
+						empty={empty}
+						onRetry={() => void root.refetch()}
+						onNewFile={() => api.newIn("", "file")}
 					/>
+				</div>
 
-					{/* One hidden input serves every upload action. */}
-					<input
-						ref={uploadInput}
-						type="file"
-						multiple
-						className="hidden"
-						data-testid="files-upload-input"
-						onChange={(event) => {
-							const files = event.target.files;
-							if (files && files.length > 0) uploadInto(uploadDir.current, files);
-							event.target.value = "";
+				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
+				<PaneChanges
+					workspaceId={workspaceId}
+					project={project}
+					session={session}
+					reviewSession={reviewSession}
+					setReviewSession={setReviewSession}
+					gitStatus={gitStatus}
+					baselineStatus={baselineStatus}
+					openFileTab={openFileTab}
+				/>
+
+				{/* One hidden input serves every upload action. */}
+				<input
+					ref={uploadInput}
+					type="file"
+					multiple
+					className="hidden"
+					data-testid="files-upload-input"
+					onChange={(event) => {
+						const files = event.target.files;
+						if (files && files.length > 0) uploadInto(uploadDir.current, files);
+						event.target.value = "";
+					}}
+				/>
+
+				{dialog.kind === "new" && (
+					<NameDialog
+						title={dialog.type === "file" ? "New file" : "New folder"}
+						description={
+							dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
+						}
+						label="Name"
+						confirmLabel="Create"
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const path = joinPath(dialog.dir, name);
+							const run =
+								dialog.type === "file"
+									? mutations.createFile.mutateAsync(path)
+									: mutations.createDirectory.mutateAsync(path);
+							void run
+								.then(() => {
+									if (dialog.dir !== "") api.setOpen(dialog.dir, true);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
 						}}
 					/>
+				)}
+				{dialog.kind === "rename" && (
+					<NameDialog
+						title={`Rename ${displayName(dialog.node.name)}`}
+						label="New name"
+						confirmLabel="Rename"
+						initial={dialog.node.name}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const from = dialog.node.path;
+							const to = joinPath(parentOf(from), name);
+							void moveAsking(from, to, dialog.node.isDir)
+								.then((moved) => {
+									if (!moved) return;
+									afterMove(from, to);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+				{dialog.kind === "move" && (
+					<MoveDialog
+						workspaceId={workspaceId}
+						projectId={project.id}
+						slug={project.slug}
+						nodes={dialog.nodes}
+						showHidden={showHidden}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onMove={(destination) => {
+							// One at a time, so a failure stops the rest and is reported once.
+							void (async () => {
+								try {
+									for (const node of dialog.nodes) {
+										const to = joinPath(destination, node.name);
+										if (await moveAsking(node.path, to, node.isDir)) {
+											afterMove(node.path, to);
+										}
+									}
+									if (destination !== "") api.setOpen(destination, true);
+									setSelection(EMPTY_SELECTION);
+									setDialog({ kind: "none" });
+								} catch (error) {
+									fail(error);
+								}
+							})();
+						}}
+					/>
+				)}
+				{replaceConfirm}
+				{dialog.kind === "delete" && (
+					<DeleteFileConfirm
+						nodes={dialog.nodes}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onConfirm={() => {
+							const paths = dialog.nodes.map((node) => node.path);
+							// One at a time, so a failure stops the rest and is reported once.
+							void (async () => {
+								try {
+									for (const path of paths) {
+										await mutations.remove.mutateAsync(path);
+										afterRemove(path);
+									}
+									setSelection(EMPTY_SELECTION);
+									setDialog({ kind: "none" });
+								} catch (error) {
+									fail(error);
+								}
+							})();
+						}}
+					/>
+				)}
+			</aside>
+		</TreeContext.Provider>
+	);
+}
 
-					{dialog.kind === "new" && (
-						<NameDialog
-							title={dialog.type === "file" ? "New file" : "New folder"}
-							description={
-								dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
-							}
-							label="Name"
-							confirmLabel="Create"
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onSubmit={(name) => {
-								const path = joinPath(dialog.dir, name);
-								const run =
-									dialog.type === "file"
-										? mutations.createFile.mutateAsync(path)
-										: mutations.createDirectory.mutateAsync(path);
-								void run
-									.then(() => {
-										if (dialog.dir !== "") api.setOpen(dialog.dir, true);
-										setDialog({ kind: "none" });
-									})
-									.catch(fail);
-							}}
-						/>
-					)}
-					{dialog.kind === "rename" && (
-						<NameDialog
-							title={`Rename ${displayName(dialog.node.name)}`}
-							label="New name"
-							confirmLabel="Rename"
-							initial={dialog.node.name}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onSubmit={(name) => {
-								const from = dialog.node.path;
-								const to = joinPath(parentOf(from), name);
-								void moveAsking(from, to, dialog.node.isDir)
-									.then((moved) => {
-										if (!moved) return;
-										afterMove(from, to);
-										setDialog({ kind: "none" });
-									})
-									.catch(fail);
-							}}
-						/>
-					)}
-					{dialog.kind === "move" && (
-						<MoveDialog
-							workspaceId={workspaceId}
-							projectId={project.id}
-							slug={project.slug}
-							nodes={dialog.nodes}
-							showHidden={showHidden}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onMove={(destination) => {
-								// One at a time, so a failure stops the rest and is reported once.
-								void (async () => {
-									try {
-										for (const node of dialog.nodes) {
-											const to = joinPath(destination, node.name);
-											if (await moveAsking(node.path, to, node.isDir)) {
-												afterMove(node.path, to);
-											}
-										}
-										if (destination !== "") api.setOpen(destination, true);
-										setSelection(EMPTY_SELECTION);
-										setDialog({ kind: "none" });
-									} catch (error) {
-										fail(error);
-									}
-								})();
-							}}
-						/>
-					)}
-					{replaceConfirm}
-					{dialog.kind === "delete" && (
-						<DeleteFileConfirm
-							nodes={dialog.nodes}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onConfirm={() => {
-								const paths = dialog.nodes.map((node) => node.path);
-								// One at a time, so a failure stops the rest and is reported once.
-								void (async () => {
-									try {
-										for (const path of paths) {
-											await mutations.remove.mutateAsync(path);
-											afterRemove(path);
-										}
-										setSelection(EMPTY_SELECTION);
-										setDialog({ kind: "none" });
-									} catch (error) {
-										fail(error);
-									}
-								})();
-							}}
-						/>
-					)}
-				</aside>
-			</TreeContext.Provider>
-			{/* The row stays where it is; a small copy of it follows the
-			    pointer, so it is clear what is being dragged. */}
-			<DragOverlay dropAnimation={null}>
-				{dragged ? (
-					<div className="pk-tree-drag" data-testid="file-drag-overlay">
-						<Icon
-							name={dragged.isDir ? "folder" : fileIconName(baseName(dragged.path))}
-							size="sm"
-						/>
-						<span>{displayName(baseName(dragged.path))}</span>
-					</div>
-				) : null}
-			</DragOverlay>
-		</DndContext>
+/** Whether a row is being dragged over the project root. */
+function useMoveOverRoot(): boolean {
+	const { rowState } = useTreeApi();
+	return useStore(
+		rowState,
+		(state) => state.draggedPath !== null && state.dropDir === "",
 	);
 }
 
@@ -926,30 +912,28 @@ export function FileTreePane({
  * (SPEC.md §11.2).
  */
 function RootSpaceDropZone({ name }: { name: string }) {
-	const drop = useDroppable({ id: ROOT_SPACE_DROP_ID });
+	const over = useMoveOverRoot();
 	return (
 		<div
-			className={`pk-tree-space${drop.isOver ? " is-drop-target" : ""}`}
-			ref={drop.setNodeRef}
+			className={`pk-tree-space${over ? " is-drop-target" : ""}`}
 			data-drop-dir=""
 			data-testid="file-tree-space-drop"
-			data-drop-over={drop.isOver ? "true" : undefined}
+			data-drop-over={over ? "true" : undefined}
 		>
-			{drop.isOver ? <span>Move to {name}</span> : null}
+			{over ? <span>Move to {name}</span> : null}
 		</div>
 	);
 }
 
 /** The path line under the header, and the drop target for the project root. */
 function RootDropZone({ slug }: { slug: string }) {
-	const drop = useDroppable({ id: dropId("") });
+	const over = useMoveOverRoot();
 	return (
 		<div
 			className="pk-pane-sub"
-			ref={drop.setNodeRef}
 			data-drop-dir=""
 			data-testid="file-tree-root-drop"
-			data-drop-over={drop.isOver ? "true" : undefined}
+			data-drop-over={over ? "true" : undefined}
 		>
 			~/projects/{slug}
 		</div>
@@ -986,6 +970,8 @@ function TreeRoot({ slug }: { slug: string }) {
 			className="pk-tree"
 			data-testid="file-tree"
 			onKeyDown={onKeyDown}
+			onFocus={api.treeFocusHandlers.onFocus}
+			onBlur={api.treeFocusHandlers.onBlur}
 		>
 			<span id={helpId} className="pk-visually-hidden">
 				Arrow keys move and open folders, Home and End go to the first and last row, and
@@ -1152,13 +1138,11 @@ const Row = memo(function Row({
 	const status = rowStatus(decoration, dirty, ignored);
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
-	const { focused, selected, current } = useRowState(api.rowState, path);
-	const drag = useDraggable({ id: `row:${path}`, data: { isDir } });
-	// dnd-kit offers a button role and a tab stop; the row outside is the
-	// treeitem and the only thing the keyboard should reach.
-	const { role: _role, tabIndex: _tabIndex, ...dragAttributes } = drag.attributes;
-	const drop = useDroppable({ id: dropId(path), disabled: !isDir });
-	const over = isDir && (drop.isOver || api.dropDir === path);
+	const { focused, selected, current, dragging, dropTarget } = useRowState(
+		api.rowState,
+		path,
+	);
+	const over = isDir && dropTarget;
 
 	function activate() {
 		api.setFocusedPath(path);
@@ -1214,16 +1198,16 @@ const Row = memo(function Row({
 				activate();
 			}}
 		>
+			{/* The browser draws the dragged row under the pointer. */}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer drag source; Move to is the keyboard way */}
 			<div
-				ref={(element) => {
-					drag.setNodeRef(element);
-					if (isDir) drop.setNodeRef(element);
-				}}
-				{...drag.listeners}
-				{...dragAttributes}
+				draggable
+				onDragStart={(event) => api.startMove(event, node)}
+				onDragEnd={api.endMove}
 				className={`pk-tree-row${over ? " is-drop-target" : ""}${
-					drag.isDragging ? " is-dragging" : ""
+					dragging ? " is-dragging" : ""
 				}${ignored ? " is-ignored" : ""}`}
+				data-dragging={dragging ? "true" : undefined}
 				title={title}
 				style={{ paddingLeft: `${level * 16 - 8}px` }}
 				data-drop-dir={isDir ? path : dir}
