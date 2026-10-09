@@ -206,6 +206,53 @@ export const STUDENT_HELP: HelpPart = {
 			),
 		},
 		{
+			id: "student-recovery",
+			title: "Recovery points",
+			body: (
+				<>
+					<p>
+						A recovery point is a saved copy of one project's files. To see them, open
+						the project's three-dots menu and choose <strong>Recovery points…</strong>.{" "}
+						<strong>Create recovery point now</strong> makes one at once.
+					</p>
+					<ul>
+						<li>
+							Portikus makes one every 15 minutes while the project has changed. It also
+							makes one before you archive the project, before a Claude Code or Codex
+							session starts, before an administrator rebuilds your workspace or
+							replaces your home folder, and before a restore.
+						</li>
+						<li>
+							Points are kept for 14 days. If your recovery storage fills up, the oldest
+							points go first. The newest point of each project is always kept.
+						</li>
+						<li>
+							Some folders are left out because they can be built again:{" "}
+							<code>node_modules</code>, <code>.venv</code>, <code>dist</code>,{" "}
+							<code>build</code>, <code>target</code> and <code>__pycache__</code>. To
+							leave out more, add a <code>.workspaceignore</code> file to the project
+							folder. It works like <code>.gitignore</code>: one pattern per line, such
+							as <code>big-data/</code>. A line like <code>!dist/</code> puts a default
+							folder back in.
+						</li>
+						<li>
+							A restore puts back the whole project, Git's own records included, so
+							commits made since then leave the folder too. Portikus saves the current
+							state as a new recovery point first, so you can go back. It never makes a
+							Git commit for you.
+						</li>
+						<li>
+							If a restore cannot finish, your earlier files are kept in a hidden folder
+							named <code>~/projects/.portikus-aside-</code> followed by the point's ID.
+							Copy back what you need, then delete that folder in a terminal. Portikus
+							never deletes it for you, and it will not restore that same point again
+							until the folder is gone.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
 			id: "student-previews",
 			title: "Previews",
 			body: (
