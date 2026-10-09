@@ -4731,3 +4731,96 @@ Gaps left:
   next image job.
 - The rehearsal VM's own setup run removes its LTI platforms file; re-run
   `make lti-mock-register TOFU_ENV=rehearsal-libvirt` after it.
+
+## Epic 38 — Bug fixes
+
+Built on `epic/38-bug-fixes` (task PRs #1327 to #1330, #1332 to #1339,
+#1341 and #1342, and this fold). A fix batch of 17 issues. No plan file
+was written for it, so there was none to delete. No migration. SPEC.md
+sections 7.6, 9.7, 11.2, 11.4, 15.10, 19.3, 20.1 and the registry cache
+gate paragraph gained a sentence or two each. The workspace image version
+is 2026.10.1.
+
+Delivered:
+
+- Files and editor (#1335 T3): rename, Move to and drag-and-drop ask
+  "Replace?" before replacing a file, never a directory (#1229); a long
+  directory lists 2,000 entries a page with a continuation token and a
+  Show more row (#1230); reference-style Markdown links and images were
+  already fixed by the removal of the rich view (#218), and tests now pin
+  it (#1235); with hidden files shown, a narrow second watcher pushes
+  changes directly inside top-level generated folders (#1226).
+- Terminals (#1328 T6): `clear` reaches the browser at once, through a
+  per-pane `pipe-pane -O` FIFO scanned for the erase-scrollback sequence;
+  the half-second poll is the fallback (#1268).
+- Checks and renames (#1330 T7): a Check runs with OOM score 500, so an
+  out-of-memory Check dies before the workspace agent (#1254); a rename
+  that crashes after moving the folder is healed by the next listing and
+  no longer shows two projects (#1222).
+- Administration (#1332 T8): the admin process list marks protected
+  exactly what the agent's stop refuses, read from the agent's new
+  `GET /processes/protected`; an old agent falls back to host-only flags
+  (#1259).
+- Recovery (#1329 T9): the recovery sweep deletes archive files older than
+  an hour that no recovery point row accounts for. Aside folders from a
+  failed restore are kept by design (#1242, Todd's ruling).
+- Controller (#1334 T10): every controller route that waits on Incus
+  honours the worker's budget and hang-ups (#1288).
+- Release workflow (#1327 T5, #1336 F3): the weekly apt re-sign has its own
+  concurrency group and skips only for a release run that will sign the
+  index (gate undecided, or build, apt or Pages deploy unfinished); a
+  release waits for any unfinished re-sign. A release waiting for approval
+  no longer blocks re-signing (#1261).
+- Infrastructure (#1339 T4, #1341 F5): the rehearsal OS disk is recorded at
+  64 GiB (#1313); Docker cache ports are refused with a reset, not
+  dropped, so Docker falls back at once (#1273); the `names_v4` upgrade
+  code is gone (#1294); the root-shell full-queue tests read while they
+  send, ending a deadlock (#1321); smoke cleanup waits for a stop to
+  settle and fails on a leftover (#1322); Docker containers share
+  `portikus-docker.slice`, capped at 1,000 processes (#1255).
+  `workspace.sh` volume lookups fail loudly instead of reading an Incus
+  error as a missing volume, and the root-shell test teardown ends its
+  reader thread.
+- Student help (#1333 T11): a Recovery points section in the guide and in
+  `/help`.
+- Review fixes, application (#1338 F1, #1342 F6): Show more is a real tree
+  row, reachable by keyboard, keeping focus and announcing what it loaded;
+  a folder is never offered for replacement (`DIRECTORY_EXISTS`); the
+  tree keeps one Tab stop when the focused row is deleted; a nested row's
+  focus no longer jumps to its folder (a bug since Epic 7); the first
+  selection redraws only the changed rows.
+- Review fixes, agent and worker (#1337 F2): leaked pane pipes are swept
+  within 10 seconds of a shell exiting and on delete; the orphan archive
+  sweep deletes at most 20 per workspace per sweep, stops at the first
+  failure, and reads at most 20,000 listed archives.
+- Fold: SPEC and STATUS.
+
+Gaps left:
+
+- Checks are not under the terminals' process cap, so a fork bomb in a
+  Check can use up the container's process limit (#1331).
+- The Docker slice cap is an accident guard. A determined student can
+  leave it (`--cgroup-parent`, or `sudo systemctl set-property`). It is
+  fixed at 1,000, does not follow an administrator's per-workspace
+  process override, and is uncapped on older images until they are
+  rebuilt on 2026.10.1.
+- Loading a Show more page still redraws every row (#1340).
+- When the focused row is removed, focus falls to the page (#1343).
+- Live updates in generated folders reach one level deep, at the project
+  root only. Deeper changes wait for the next refetch.
+- The Move to dialog and the file viewer's sibling list see only the first
+  page of a long folder.
+- A student's own `tmux -L portikus pipe-pane` replaces ours, leaving the
+  poll as the only clear detector, and an agent restart replaces theirs.
+  A line printed in the same instant as a clear may land either side of
+  the wipe.
+- A workspace whose agent lists more than 20,000 archives never has its
+  orphans swept.
+- A sudo student can still protect a program from the admin Stop by
+  running it as root (ADR 0037).
+- The release workflow change is provable only on GitHub, at the next
+  Monday run or release. A non-release push can still replace a waiting
+  release in the `release` group.
+- No Playwright test covers the real agent's pipe-pane clear; the end-to-end
+  environment uses the fake agent.
+- Aside folders have no delete button yet (#1243).
