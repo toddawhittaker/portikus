@@ -35,7 +35,8 @@ export function useTreeDragAndDrop({
 	fail,
 	uploadInto,
 }: {
-	moveFile: (from: string, to: string) => Promise<unknown>;
+	/** Resolves false when the student declined to replace a file. */
+	moveFile: (from: string, to: string, isDir: boolean) => Promise<boolean>;
 	afterMove: (from: string, to: string) => void;
 	fail: (error: unknown) => void;
 	uploadInto: (dir: string, files: FileList) => void;
@@ -73,8 +74,11 @@ export function useTreeDragAndDrop({
 		);
 		if (!move) return;
 		const { from, to } = move;
-		void moveFile(from, to)
-			.then(() => afterMove(from, to))
+		const isDir = event.active.data.current?.isDir === true;
+		void moveFile(from, to, isDir)
+			.then((moved) => {
+				if (moved) afterMove(from, to);
+			})
 			.catch(fail);
 	}
 

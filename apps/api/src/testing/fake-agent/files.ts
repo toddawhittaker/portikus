@@ -209,13 +209,19 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 
 	app.post("/projects/:slug/move", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
-		const body = request.body as { from?: string; to?: string };
+		const body = request.body as { from?: string; to?: string; replace?: boolean };
 		const from = body.from ?? "";
 		const to = body.to ?? "";
 		try {
 			const source = nodeAt(request, slug, from);
 			if (!source) throw new FakeFileError("FILE_NOT_FOUND", "no such file");
-			if (nodeAt(request, slug, to)) {
+			const existing = nodeAt(request, slug, to);
+			const replaceable =
+				body.replace === true &&
+				from !== to &&
+				source.type === "file" &&
+				existing?.type === "file";
+			if (existing && !replaceable) {
 				throw new FakeFileError("FILE_EXISTS", "that name is already taken");
 			}
 			requireParent(request, slug, to);

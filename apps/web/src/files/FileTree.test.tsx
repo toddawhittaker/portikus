@@ -756,6 +756,71 @@ describe("the file tree", () => {
 		);
 	});
 
+	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */
+	it("asks before a rename replaces a file, then sends the replace flag", async () => {
+		const moves: { replace?: boolean }[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				const body = JSON.parse(String(init?.body));
+				moves.push(body);
+				if (body.replace) return json(204, null);
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: ".env" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		const confirm = await screen.findByTestId("dialog-replace-file");
+		expect(confirm.textContent).toContain("Replace .env?");
+		fireEvent.click(within(confirm).getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(moves).toEqual([
+				{ from: "README.md", to: ".env" },
+				{ from: "README.md", to: ".env", replace: true },
+			]),
+		);
+	});
+
+	it("does not offer to replace when a folder is renamed onto a taken name", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: "node_modules" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		await waitFor(() => expect(moves).toHaveLength(1));
+		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
+	});
+
 	it("does not offer a folder as a place to move itself", async () => {
 		renderPane();
 		fireEvent.keyDown(await screen.findByTestId("file-menu-src"), { key: "Enter" });

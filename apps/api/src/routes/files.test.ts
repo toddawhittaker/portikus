@@ -446,6 +446,30 @@ test.skipIf(skip)("delete, mkdir and move work on the project tree", async () =>
 	expect(agent.files.has("lab/docs/new.md")).toBe(false);
 });
 
+test.skipIf(skip)("a move replaces a file only when asked to", async () => {
+	seed("lab", "a.md", "new\n");
+	seed("lab", "b.md", "old\n");
+	const move = (payload: object) =>
+		app.inject({
+			method: "POST",
+			url: url("move"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload,
+		});
+
+	const refused = await move({ from: "a.md", to: "b.md" });
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().code).toBe("FILE_EXISTS");
+
+	const replaced = await move({ from: "a.md", to: "b.md", replace: true });
+	expect(replaced.statusCode).toBe(204);
+	expect(agent.files.has("lab/a.md")).toBe(false);
+	expect(agent.files.get("lab/b.md")).toEqual({
+		type: "file",
+		content: Buffer.from("new\n"),
+	});
+});
+
 test.skipIf(skip)(
 	"extract unpacks a zip into a new folder and relays a refusal",
 	async () => {

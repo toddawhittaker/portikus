@@ -67,8 +67,13 @@ export type WriteFileResponse = z.infer<typeof WriteFileResponse>;
 export const MkdirRequest = z.object({ path: ProjectPath }).strict();
 export type MkdirRequest = z.infer<typeof MkdirRequest>;
 
-/** Request body for a move or rename inside one project (SPEC.md §11.2). */
-export const MoveRequest = z.object({ from: ProjectPath, to: ProjectPath }).strict();
+/**
+ * Request body for a move or rename inside one project (SPEC.md §11.2).
+ * `replace` lets a file overwrite an existing file; a directory is never replaced.
+ */
+export const MoveRequest = z
+	.object({ from: ProjectPath, to: ProjectPath, replace: z.boolean().optional() })
+	.strict();
 export type MoveRequest = z.infer<typeof MoveRequest>;
 
 /** Request body for "Extract here" on a zip file. */

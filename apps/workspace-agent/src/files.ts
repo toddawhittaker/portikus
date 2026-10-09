@@ -456,12 +456,18 @@ export async function mkdir(
 	}
 }
 
+async function isPlainFile(path: string): Promise<boolean> {
+	const info = await lstat(path).catch(() => null);
+	return info?.isFile() ?? false;
+}
+
 /** Move or rename inside one project; both ends are confined to it. */
 export async function move(
 	homeDir: string,
 	slug: string,
 	from: string,
 	to: string,
+	replace = false,
 ): Promise<void> {
 	const source = await resolveInProject(homeDir, slug, from, {
 		mustExist: true,
@@ -472,7 +478,15 @@ export async function move(
 		refuseSymlink: true,
 	});
 	if (target.exists) {
-		throw new AgentFailure("FILE_EXISTS", "that name is already taken");
+		// Only a file may replace a file; a directory is never overwritten.
+		const replaceable =
+			replace &&
+			source.path !== target.path &&
+			(await isPlainFile(source.path)) &&
+			(await isPlainFile(target.path));
+		if (!replaceable) {
+			throw new AgentFailure("FILE_EXISTS", "that name is already taken");
+		}
 	}
 	if (contains(source.path, target.path)) {
 		throw new AgentFailure("BAD_REQUEST", "a directory cannot be moved into itself");

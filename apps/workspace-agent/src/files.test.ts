@@ -399,6 +399,30 @@ test("deleting with no path cannot remove the project itself", async () => {
 	expect(await readdir(projectsRoot)).toContain("alpha");
 });
 
+test("move with replace overwrites a file but never a directory", async () => {
+	await writeFileFs(join(project, "a.txt"), "new");
+	await writeFileFs(join(project, "b.txt"), "old");
+	await mkdir(join(project, "dir"));
+	await mkdir(join(project, "other"));
+	const move = (payload: object) =>
+		app.inject({
+			method: "POST",
+			url: "/projects/alpha/move",
+			headers: auth(),
+			payload,
+		});
+
+	const fileOnFile = await move({ from: "a.txt", to: "b.txt", replace: true });
+	expect(fileOnFile.statusCode).toBe(204);
+	expect(await readFileFs(join(project, "b.txt"), "utf8")).toBe("new");
+
+	const fileOnDir = await move({ from: "b.txt", to: "dir", replace: true });
+	expect(fileOnDir.statusCode).toBe(409);
+	const dirOnDir = await move({ from: "other", to: "dir", replace: true });
+	expect(dirOnDir.statusCode).toBe(409);
+	expect((await stat(join(project, "other"))).isDirectory()).toBe(true);
+});
+
 test("move renames within the project", async () => {
 	await writeFileFs(join(project, "a.txt"), "a");
 	const response = await app.inject({

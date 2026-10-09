@@ -127,7 +127,11 @@ export function useTree(
 export interface FileMutations {
 	createFile: UseMutationResult<WriteFileResponse, Error, string>;
 	createDirectory: UseMutationResult<unknown, Error, string>;
-	move: UseMutationResult<undefined, Error, { from: string; to: string }>;
+	move: UseMutationResult<
+		undefined,
+		Error,
+		{ from: string; to: string; replace?: boolean }
+	>;
 	remove: UseMutationResult<undefined, Error, string>;
 	upload: UseMutationResult<
 		WriteFileResponse,
@@ -221,11 +225,25 @@ export function useFileMutations(
 
 	const move = useMutation({
 		mutationKey,
-		mutationFn: ({ from, to }: { from: string; to: string }) =>
-			sendJson(z.undefined(), `${base(workspaceId, projectId)}/move`, { from, to }),
-		onSuccess: (_data, { from, to }) => {
+		mutationFn: ({
+			from,
+			to,
+			replace,
+		}: {
+			from: string;
+			to: string;
+			replace?: boolean;
+		}) =>
+			sendJson(z.undefined(), `${base(workspaceId, projectId)}/move`, {
+				from,
+				to,
+				...(replace ? { replace } : {}),
+			}),
+		onSuccess: (_data, { from, to, replace }) => {
 			forgetSubtree(from);
 			invalidateOpenFiles(from);
+			// A replaced file may be open too; its tab must show the new content.
+			if (replace) invalidateOpenFiles(to);
 			invalidate(parentOf(from), parentOf(to));
 		},
 	});

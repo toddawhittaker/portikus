@@ -234,7 +234,13 @@ export async function filesRoutes(
 			if (!parsed.success) {
 				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
-			await move(homeDir, slug, parsed.data.from, parsed.data.to);
+			await move(
+				homeDir,
+				slug,
+				parsed.data.from,
+				parsed.data.to,
+				parsed.data.replace ?? false,
+			);
 			await afterWrite(request.log, homeDir, slug, parsed.data.to);
 			return reply.code(204).send();
 		} catch (error) {
