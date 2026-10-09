@@ -25,7 +25,7 @@ test("the first row heads the columns and the rest are cells", () => {
 
 test("the scroll area takes focus and is named after the file", () => {
 	render(<CsvView path="data/marks.csv" text={"a\n1\n"} onShowText={() => {}} />);
-	const region = screen.getByRole("region", { name: "marks.csv" });
+	const region = screen.getByRole("region", { name: "marks.csv table" });
 	expect(region.tabIndex).toBe(0);
 	expect(within(region).getByRole("table")).not.toBeNull();
 });

@@ -62,7 +62,7 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 			<div className="pk-csv-frame">
 				<section
 					className="pk-csv-scroll"
-					aria-label={baseName(path)}
+					aria-label={`${baseName(path)} table`}
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region the keyboard must reach (WCAG 2.1.1)
 					tabIndex={0}
 				>

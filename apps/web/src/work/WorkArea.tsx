@@ -3,7 +3,12 @@
  * layout of one project (SPEC.md §7.5, §8, §9.3, §10.2). A coding-agent
  * launcher creates an ordinary terminal and names the agent.
  */
-import { DndContext, DragOverlay, pointerWithin } from "@dnd-kit/core";
+import {
+	DndContext,
+	DragOverlay,
+	MeasuringStrategy,
+	pointerWithin,
+} from "@dnd-kit/core";
 import type { CodingAgent, Terminal } from "@portikus/contracts";
 import {
 	Button,
@@ -22,7 +27,12 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { type SplitDirection, terminalIds } from "../layout/tree.js";
+import {
+	filePaths,
+	fileTabId,
+	type SplitDirection,
+	terminalIds,
+} from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
@@ -106,6 +116,7 @@ export function WorkArea({
 			store.getState().moveLeaf(tabId, dragged, target, edge),
 		moveLeafToNewTab: (dragged, index) =>
 			store.getState().moveLeafToNewTab(dragged, index),
+		activateTab: (tabId) => store.getState().setActive(tabId),
 	});
 	const { draggedPane, dragTarget } = drag;
 	const launcherMenu = useLauncherMenuFocus();
@@ -241,8 +252,19 @@ export function WorkArea({
 			setClosingTabId(null);
 			return;
 		}
-		for (const terminalId of terminalIds(tab.root)) closeTerminal(terminalId);
+		// Files in the tab's splits close with it; its terminals go once the
+		// server has ended them.
+		const ids = terminalIds(tab.root);
+		if (ids.length === 0) store.getState().closeTab(tabId);
+		else for (const path of filePaths(tab.root)) store.getState().closeFile(path);
+		for (const terminalId of ids) closeTerminal(terminalId);
 		setClosingTabId(null);
+	}
+
+	/** Close a file's pane from its menu; the keyboard moves on rather than being lost. */
+	function closeFile(path: string) {
+		panes.moveFocusOff(fileTabId(path));
+		store.getState().closeFile(path);
 	}
 
 	function requestCloseTab(tabId: string) {
@@ -282,19 +304,22 @@ export function WorkArea({
 				testId: `tab-${tab.id}`,
 			};
 		}
-		if (tab.root.type === "file" || tab.root.type === "diff") {
-			const path = tab.root.path;
+		// A tab shows the unsaved dot when any file in it has edits not on disk.
+		const files = filePaths(tab.root);
+		const dirty = files.some((path) => unsavedTabs[fileTabId(path)] ?? false);
+		const ids = terminalIds(tab.root);
+		if (tab.root.type === "file" || tab.root.type === "diff" || ids.length === 0) {
+			const path = tab.root.type === "diff" ? tab.root.path : (files[0] ?? "");
 			return {
 				id: tab.id,
-				kind: tab.root.type,
+				kind: tab.root.type === "diff" ? ("diff" as const) : ("file" as const),
 				// The strip has no room for a path, so the file name is the label.
 				label: path.split("/").pop() ?? path,
 				title: path,
-				dirty: unsavedTabs[tab.id] ?? false,
+				dirty,
 				testId: `tab-${tab.id}`,
 			};
 		}
-		const ids = terminalIds(tab.root);
 		const first = ids[0] ? byId.get(ids[0]) : undefined;
 		// Claude Code and Codex share the agent icon and are named apart from a
 		// shell (design system, Iconography). The terminal record is the source.
@@ -311,6 +336,7 @@ export function WorkArea({
 						: (first?.name ?? "Terminal"),
 			testId: `tab-${tab.id}`,
 			ended: ids.length > 0 && ids.every((id) => byId.get(id)?.endedAt != null),
+			dirty,
 		};
 	});
 
@@ -330,6 +356,9 @@ export function WorkArea({
 		<DndContext
 			sensors={drag.sensors}
 			collisionDetection={pointerWithin}
+			// A tab opened mid-drag shows panes that measured nothing when the
+			// drag began, so the drop areas are measured as the drag goes.
+			measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
 			{...drag.handlers}
 		>
 			<div className="pk-work-area" data-testid="work-area">
@@ -453,12 +482,12 @@ export function WorkArea({
 							onMoveToNewTab={panes.moveToNewTab}
 							moveTargetsFor={panes.moveTargetsFor}
 							onMoveInto={panes.moveInto}
-							onCloseTab={() => store.getState().closeTab(tab.id)}
-							pendingView={pendingView[tab.id]}
-							consumePendingView={() => store.getState().consumePendingView(tab.id)}
-							diffBaseline={diffBaseline[tab.id] ?? null}
-							onUnsavedChange={(unsaved) =>
-								store.getState().setTabUnsaved(tab.id, unsaved)
+							onCloseFile={closeFile}
+							pendingViews={pendingView}
+							consumePendingView={(id) => store.getState().consumePendingView(id)}
+							diffBaselines={diffBaseline}
+							onUnsavedChange={(id, unsaved) =>
+								store.getState().setTabUnsaved(id, unsaved)
 							}
 							dropTarget={drag.dropTargetIn(tab.id)}
 						/>

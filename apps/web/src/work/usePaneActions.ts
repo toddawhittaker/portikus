@@ -7,7 +7,7 @@ import type { ProjectLayout } from "@portikus/contracts";
 import { type TabItem, tabDomId } from "@portikus/ui";
 import { type RefObject, useRef } from "react";
 import type { LayoutStore } from "../layout/store.js";
-import { terminalIds } from "../layout/tree.js";
+import { paneIds } from "../layout/tree.js";
 import { moveIntoTargets } from "./moveInto.js";
 import { focusAfterPane, tabAfterClose } from "./paneFocus.js";
 
@@ -72,7 +72,7 @@ export function usePaneActions({
 
 	/** Give a pane a tab of its own after its current one. */
 	function moveToNewTab(paneId: string) {
-		const from = layout.tabs.findIndex((tab) => terminalIds(tab.root).includes(paneId));
+		const from = layout.tabs.findIndex((tab) => paneIds(tab.root).includes(paneId));
 		store.getState().moveLeafToNewTab(paneId, from + 1);
 		store.getState().setFocused(paneId);
 	}

@@ -504,3 +504,44 @@
 	background: var(--status-error-soft);
 	color: var(--status-error);
 }
+
+/* A file's pane, alone in its tab or in a split beside terminals (SPEC.md
+   §8.3). Its bar matches a terminal pane's, on the page's own colours. */
+.pk-filepane {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--surface);
+	color: var(--ink);
+}
+
+.pk-filepane-bar {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: 28px;
+	padding: 0 var(--space-1) 0 var(--space-3);
+	border-bottom: 1px solid var(--line);
+	color: var(--ink-muted);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.pk-filepane-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+}
+
+.pk-filepane.is-dragged .pk-filepane-bar {
+	opacity: 0.6;
+}

@@ -1,11 +1,13 @@
 import type { DragMoveEvent, DragStartEvent } from "@dnd-kit/core";
 import type { SplitNode } from "@portikus/contracts";
+import { tabDomId } from "@portikus/ui";
 import { act, renderHook } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { TAB_STRIP_DROP_ID, usePaneDrag } from "./usePaneDrag";
+import { SPRING_OPEN_MS, TAB_STRIP_DROP_ID, usePaneDrag } from "./usePaneDrag";
 
 const tabs: { id: string; root: SplitNode }[] = [
 	{ id: "tab-a", root: { type: "leaf", terminalId: "t1" } },
+	{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
 	{
 		id: "tab-b",
 		root: {
@@ -142,4 +144,80 @@ test("a cancelled drag moves nothing", () => {
 	expect(view.result.current.draggedPane).toBeNull();
 	act(() => view.result.current.handlers.onDragEnd());
 	expect(moveLeaf).not.toHaveBeenCalled();
+});
+
+/** A strip of one tab button per id, each 100 pixels wide, in order. */
+function stripOf(ids: string[]): HTMLElement {
+	const strip = document.createElement("div");
+	ids.forEach((id, index) => {
+		const tab = document.createElement("button");
+		tab.setAttribute("role", "tab");
+		tab.id = tabDomId(id);
+		const left = index * 100;
+		tab.getBoundingClientRect = () =>
+			({
+				left,
+				right: left + 100,
+				top: 0,
+				bottom: 30,
+				width: 100,
+				height: 30,
+			}) as DOMRect;
+		strip.append(tab);
+	});
+	strip.getBoundingClientRect = () =>
+		({ left: 0, right: 300, top: 0, bottom: 30, width: 300, height: 30 }) as DOMRect;
+	return strip;
+}
+
+test("a file pane can be dropped beside a terminal like any pane", () => {
+	const { view, moveLeaf } = setup();
+	act(() => view.result.current.handlers.onDragStart(start("file:src/app.ts")));
+	act(() =>
+		view.result.current.handlers.onDragMove(
+			move("file:src/app.ts", 95, 50, { id: "pane-drop-t1", terminalId: "t1" }),
+		),
+	);
+	act(() => view.result.current.handlers.onDragEnd());
+	expect(moveLeaf).toHaveBeenCalledWith("tab-a", "file:src/app.ts", "t1", "right");
+});
+
+test("a drag resting on a tab opens it, and one that moves on does not", () => {
+	vi.useFakeTimers();
+	try {
+		const activateTab = vi.fn();
+		const strip = stripOf(["tab-a", "file:src/app.ts", "tab-b"]);
+		const view = renderHook(() =>
+			usePaneDrag({
+				tabs,
+				strip: { current: strip },
+				moveLeaf: vi.fn(),
+				moveLeafToNewTab: vi.fn(),
+				activateTab,
+			}),
+		);
+		const drag = view.result.current.handlers;
+		act(() => drag.onDragStart(start("file:src/app.ts")));
+		// Passing over the first tab on the way to the third opens neither early.
+		act(() =>
+			drag.onDragMove(move("file:src/app.ts", 50, 10, { id: TAB_STRIP_DROP_ID })),
+		);
+		act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 100));
+		act(() =>
+			drag.onDragMove(move("file:src/app.ts", 250, 10, { id: TAB_STRIP_DROP_ID })),
+		);
+		act(() => vi.advanceTimersByTime(SPRING_OPEN_MS - 100));
+		expect(activateTab).not.toHaveBeenCalled();
+		act(() => vi.advanceTimersByTime(100));
+		expect(activateTab).toHaveBeenCalledExactlyOnceWith("tab-b");
+		// Ending the drag while resting on a tab cancels the pending open.
+		act(() =>
+			drag.onDragMove(move("file:src/app.ts", 50, 10, { id: TAB_STRIP_DROP_ID })),
+		);
+		act(() => view.result.current.handlers.onDragCancel());
+		act(() => vi.advanceTimersByTime(SPRING_OPEN_MS));
+		expect(activateTab).toHaveBeenCalledTimes(1);
+	} finally {
+		vi.useRealTimers();
+	}
 });

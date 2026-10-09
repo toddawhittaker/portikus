@@ -1,10 +1,11 @@
-import type { ProjectLayout, SplitNode } from "@portikus/contracts";
+import { ProjectLayout, type SplitNode } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	addTab,
 	closeTab,
 	emptyLayout,
 	evenSizes,
+	filePaths,
 	layoutTerminalIds,
 	migrateDiffTabs,
 	moveLeaf,
@@ -12,11 +13,13 @@ import {
 	moveTab,
 	normaliseSizes,
 	openFile,
+	paneIds,
 	reconcile,
 	removeLeaf,
 	replaceLeaf,
 	resize,
 	splitLeaf,
+	tabOfPane,
 	terminalIds,
 } from "./tree";
 
@@ -423,14 +426,172 @@ test("reconcile keeps file tabs while dropping terminals that are gone", () => {
 	expect(next.tabs.map((tab) => tab.id)).toEqual(["file:src/app.ts"]);
 });
 
-test("a file leaf cannot be split or moved", () => {
-	const layout = must(openFile(emptyLayout(), "src/app.ts")).layout;
-	expect(splitLeaf(layout, "src/app.ts", "row", "b")).toEqual(layout);
-	expect(moveLeaf(layout, "file:src/app.ts", "src/app.ts", "a", "right")).toBe(layout);
-	expect(moveLeafToNewTab(layout, "src/app.ts", 0, "fresh")).toBe(layout);
-	// A pane dragged onto a file tab has nothing to drop into either.
-	const mixed = addTab(layout, "a", "a");
-	expect(moveLeaf(mixed, "file:src/app.ts", "a", "src/app.ts", "right")).toBe(mixed);
+function file(path: string): SplitNode {
+	return { type: "file", path };
+}
+
+/** A terminal id the saved-layout schema accepts. */
+const TERM = "3f1c2a4e-8b7d-4c1a-9e2f-1a2b3c4d5e6f";
+
+/** A terminal tab "t" holding TERM, and a tab of its own for src/app.ts. */
+function terminalAndFile(): ProjectLayout {
+	return must(openFile(addTab(emptyLayout(), TERM, "t"), "src/app.ts")).layout;
+}
+
+/** Fresh tab ids for the tests, in order, so the results can be compared. */
+function ids(...names: string[]): () => string {
+	let next = 0;
+	return () => names[next++] ?? `extra-${next}`;
+}
+
+test("a file dragged beside a terminal joins its split and leaves its own tab", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	expect(moved.tabs).toEqual([
+		{
+			id: "t",
+			root: {
+				type: "split",
+				direction: "row",
+				sizes: [50, 50],
+				children: [leaf(TERM), file("src/app.ts")],
+			},
+		},
+	]);
+	// The saved layout accepts what the move made (SPEC.md §7.5).
+	expect(ProjectLayout.safeParse(moved).success).toBe(true);
+	expect(paneIds(moved.tabs[0]?.root as SplitNode)).toEqual([TERM, "file:src/app.ts"]);
+	expect(filePaths(moved.tabs[0]?.root as SplitNode)).toEqual(["src/app.ts"]);
+	expect(tabOfPane(moved, "file:src/app.ts")).toBe("t");
+});
+
+test("a split that collapses to one file takes back the file's tab id", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	// The terminal ended, so reconcile removes its pane.
+	const left = reconcile(moved, []);
+	expect(left.tabs).toEqual([{ id: "file:src/app.ts", root: file("src/app.ts") }]);
+	// Opening the file again finds that tab rather than making a second one.
+	expect(openFile(left, "src/app.ts").layout).toBe(left);
+});
+
+test("removing a file's pane from a split keeps the terminal's tab", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	expect(removeLeaf(moved, "file:src/app.ts").tabs).toEqual([
+		{ id: "t", root: leaf(TERM) },
+	]);
+});
+
+test("opening a file that sits in a split activates that split's tab", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	const opened = openFile(moved, "src/app.ts");
+	expect(opened.layout).toBe(moved);
+	expect(opened.tabId).toBe("t");
+});
+
+test("a terminal dropped on a file's own tab gives that tab a fresh id", () => {
+	const layout = terminalAndFile();
+	const moved = moveLeaf(
+		layout,
+		"file:src/app.ts",
+		TERM,
+		"file:src/app.ts",
+		"left",
+		ids("fresh"),
+	);
+	// A tab of two panes cannot keep the id that names a lone file.
+	expect(moved.tabs).toEqual([
+		{
+			id: "fresh",
+			root: {
+				type: "split",
+				direction: "row",
+				sizes: [50, 50],
+				children: [leaf(TERM), file("src/app.ts")],
+			},
+		},
+	]);
+	expect(ProjectLayout.safeParse(moved).success).toBe(true);
+});
+
+test("swapping a lone file with a lone terminal renames both tabs to match", () => {
+	const layout = terminalAndFile();
+	const swapped = moveLeaf(
+		layout,
+		"t",
+		"file:src/app.ts",
+		TERM,
+		"center",
+		ids("fresh"),
+	);
+	expect(swapped.tabs).toEqual([
+		{ id: "file:src/app.ts", root: file("src/app.ts") },
+		{ id: "fresh", root: leaf(TERM) },
+	]);
+	expect(ProjectLayout.safeParse(swapped).success).toBe(true);
+});
+
+test("two files can share a split, and dragging one out gives it its tab back", () => {
+	let layout = must(openFile(emptyLayout(), "a.ts")).layout;
+	layout = must(openFile(layout, "b.ts")).layout;
+	const together = moveLeaf(
+		layout,
+		"file:a.ts",
+		"file:b.ts",
+		"file:a.ts",
+		"bottom",
+		ids("pair"),
+	);
+	expect(together.tabs.map((tab) => tab.id)).toEqual(["pair"]);
+	expect(paneIds(together.tabs[0]?.root as SplitNode)).toEqual([
+		"file:a.ts",
+		"file:b.ts",
+	]);
+	const apart = moveLeafToNewTab(together, "file:b.ts", 1, "ignored");
+	expect(apart.tabs).toEqual([
+		{ id: "file:a.ts", root: file("a.ts") },
+		{ id: "file:b.ts", root: file("b.ts") },
+	]);
+});
+
+test("only terminals split; a file's pane id is not split", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	expect(splitLeaf(moved, "file:src/app.ts", "row", "b")).toEqual(moved);
+});
+
+test("a file's depth in a split counts toward the depth limit", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "tab1", root: deepTab(8) },
+			{ id: "file:x.ts", root: file("x.ts") },
+		],
+	};
+	expect(moveLeaf(layout, "tab1", "file:x.ts", "deep", "right")).toBe(layout);
+	expect(moveLeaf(layout, "tab1", "file:x.ts", "p3", "right")).not.toBe(layout);
+});
+
+test("a preview is never a pane and cannot be moved", () => {
+	const layout: ProjectLayout = {
+		tabs: [
+			{ id: "t", root: leaf(TERM) },
+			{ id: "preview:3000", root: { type: "preview", port: 3000 } },
+		],
+	};
+	expect(paneIds({ type: "preview", port: 3000 })).toEqual([]);
+	expect(moveLeaf(layout, "t", "preview:3000", TERM, "right")).toBe(layout);
+});
+
+test("a saved diff tab whose file already sits in a split keeps that pane", () => {
+	const moved = moveLeaf(terminalAndFile(), "t", "file:src/app.ts", TERM, "right");
+	const saved: ProjectLayout = {
+		tabs: [
+			...moved.tabs,
+			{ id: "diff:src/app.ts", root: { type: "diff", path: "src/app.ts" } },
+		],
+	};
+	const migrated = migrateDiffTabs(saved);
+	expect(migrated.layout.tabs.map((tab) => tab.id)).toEqual(["t"]);
+	// The pane still opens showing its diff.
+	expect(migrated.diffTabIds).toEqual(["file:src/app.ts"]);
+	expect(ProjectLayout.safeParse(migrated.layout).success).toBe(true);
 });
 
 test("a tab strip has no cap: a seventeenth tab opens", () => {

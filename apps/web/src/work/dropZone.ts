@@ -60,3 +60,14 @@ export function insertionIndex(
 	}
 	return index;
 }
+
+/** The index of the tab whose box holds the pointer, or -1 when none does. */
+export function tabUnder(tabs: readonly Rect[], x: number, y: number): number {
+	return tabs.findIndex(
+		(tab) =>
+			x >= tab.left &&
+			x < tab.left + tab.width &&
+			y >= tab.top &&
+			y < tab.top + tab.height,
+	);
+}
