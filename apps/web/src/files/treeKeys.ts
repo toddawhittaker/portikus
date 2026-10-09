@@ -90,6 +90,10 @@ type Move = "select" | "extend" | "focus";
 
 const pathOf = (row: HTMLElement): string => row.getAttribute("data-path") ?? "";
 
+/** A directory's "Show more" row: walked by the arrows, never selected. */
+const isMoreRow = (row: HTMLElement): boolean =>
+	row.getAttribute("data-kind") === "more";
+
 /** The focused row a key was pressed on, and what can be done from it. */
 interface KeyContext {
 	api: TreeKeysApi;
@@ -183,6 +187,11 @@ export function useTreeKeys(
 		if (!current) return;
 		const path = pathOf(current);
 		const rows = api.rowElements();
+		if (isMoreRow(current) && (event.key === "Enter" || event.key === " ")) {
+			event.preventDefault();
+			current.click();
+			return;
+		}
 		const context: KeyContext = {
 			api,
 			node: {
@@ -196,15 +205,24 @@ export function useTreeKeys(
 			moveTo: (row, how) => {
 				if (!row) return;
 				const to = pathOf(row);
-				if (how === "select") api.clickRow(to, { toggle: false, range: false });
-				if (how === "extend") api.extendTo(path, to);
+				const mode = isMoreRow(row) ? "focus" : how;
+				if (mode === "select") api.clickRow(to, { toggle: false, range: false });
+				if (mode === "extend") api.extendTo(path, to);
 				api.setFocusedPath(to);
 				row.focus();
 			},
 		};
 		const ctrl = event.ctrlKey || event.metaKey;
-		const how: Move = event.shiftKey ? "extend" : ctrl ? "focus" : "select";
-		if (navigate(context, event.key, how) || command(context, event)) {
+		// The Show more row is no anchor, so Shift from it does not extend.
+		const extend = event.shiftKey && !isMoreRow(current);
+		const how: Move = extend ? "extend" : ctrl ? "focus" : "select";
+		if (navigate(context, event.key, how)) {
+			event.preventDefault();
+			return;
+		}
+		// The Show more row has no menu, selection or delete.
+		if (isMoreRow(current)) return;
+		if (command(context, event)) {
 			event.preventDefault();
 			return;
 		}
@@ -212,7 +230,9 @@ export function useTreeKeys(
 		// Type-ahead: a printable letter jumps to the next row starting with it.
 		if (event.key.length !== 1 || ctrl || event.altKey) return;
 		typed.current = nextTypeAhead(typed.current, event.key, event.timeStamp);
-		const names = rows.map((row) => displayName(baseName(pathOf(row))));
+		const names = rows.map((row) =>
+			isMoreRow(row) ? "" : displayName(baseName(pathOf(row))),
+		);
 		const found = typeAheadIndex(names, context.index, typed.current.text);
 		if (found === -1) return;
 		event.preventDefault();

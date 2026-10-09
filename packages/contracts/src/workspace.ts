@@ -244,6 +244,7 @@ export const ApiErrorCode = z.enum([
 	"PATH_INVALID",
 	"FILE_NOT_FOUND",
 	"FILE_EXISTS",
+	"DIRECTORY_EXISTS",
 	"FILE_CHANGED",
 	"FILE_TOO_LARGE",
 	"NOT_A_DIRECTORY",
