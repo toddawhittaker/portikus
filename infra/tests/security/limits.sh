@@ -4,7 +4,8 @@
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
 # limit, another in the terminals unit hits that unit's cap while a's agent
-# still answers, busy loops fill a's CPUs for 20 seconds, a resource-guard throttle
+# still answers, loops in five Docker containers hit the Docker slice's cap
+# while the agent answers and the student can fork, busy loops fill a's CPUs for 20 seconds, a resource-guard throttle
 # reaches a's cpu.max and leaves it again, and fallocate past each
 # volume's size is refused for lack of space, and the platform services
 # carry a negative OOM score adjustment.  Meanwhile the API and
@@ -196,6 +197,34 @@ check "the refusal came from the terminals unit's limit (its pids.events max wen
   test "${lim_term_hits_after:-0}" -gt "${lim_term_hits_before:-0}"
 check "the terminals unit held fewer children than the container limit" \
   test "${lim_term_fork%% *}" -lt "$lim_pids"
+
+# ── Processes in Docker containers ───────────────────────────────
+
+# Every container runs under the image's Docker slice, whose TasksMax holds
+# all of them together below the container's limit.  Five containers each
+# fill their own scope (systemd's default of 15%), more than the slice
+# allows, and hold the children for two minutes; the agent must still answer
+# and the student still fork meanwhile.
+lim_docker_cg="/sys/fs/cgroup/portikus.slice/portikus-docker.slice"
+lim_docker_max=$(sec_exec a root "systemctl show -p TasksMax --value portikus-docker.slice" 2>/dev/null)
+lim_docker_hits() { sec_exec a root "awk '\$1 == \"max\" { print \$2 }' ${lim_docker_cg}/pids.events 2>/dev/null || echo 0"; }
+lim_docker_hits_before=$(lim_docker_hits)
+sec_exec a student "for n in 1 2 3 4 5; do c=sectest-pids-\$n-${SEC_RUN_ID}; \
+  docker run -d --rm --init --name \$c ${SEC_DOCKER_IMAGE} sleep 150 >/dev/null 2>&1 || continue; \
+  for _ in 1 2 3; do docker exec \$c sh -c 'while :; do sleep 120 & done' >/dev/null 2>&1; done; done" >/dev/null 2>&1
+lim_docker_now=$(sec_exec a root "cat ${lim_docker_cg}/pids.current" 2>/dev/null)
+lim_docker_hits_after=$(lim_docker_hits)
+echo "Fork loops in five of a's containers: Docker slice (TasksMax ${lim_docker_max:-?}) holds ${lim_docker_now:-?}; slice limit hits ${lim_docker_hits_before:-?} before, ${lim_docker_hits_after:-?} after"
+check "a's Docker slice has a process limit below the container's" \
+  test "${lim_docker_max:-infinity}" -lt "$lim_pids"
+check "the containers filled the Docker slice to its limit" \
+  test "${lim_docker_now:-0}" -ge "$((${lim_docker_max:-0} - 20))"
+check "the refusal came from the Docker slice's limit (its pids.events max went up)" \
+  test "${lim_docker_hits_after:-0}" -gt "${lim_docker_hits_before:-0}"
+check_output "a's agent answers while Docker's containers are out of processes" "200" lim_a_health
+check "the student can still start 100 processes while Docker's containers are out of them" \
+  sec_exec a student "for i in \$(seq 100); do sleep 2 & done; wait"
+sec_exec a student "docker rm -f \$(docker ps -aq --filter name=sectest-pids-) >/dev/null 2>&1" >/dev/null 2>&1
 
 # ── CPU ──────────────────────────────────────────────────────────
 
