@@ -32,3 +32,8 @@
 	z-index: 1;
 	pointer-events: none;
 }
+
+/* A voice error or hint, shown as well as announced; full ink so it reads. */
+.pk-term-voice-error {
+	color: var(--ink);
+}

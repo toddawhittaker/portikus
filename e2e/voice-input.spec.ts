@@ -7,7 +7,9 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	endTerminal,
 	expectConnected,
+	query,
 	settledAxe,
 	terminalIds,
 	WCAG_TAGS,
@@ -94,11 +96,24 @@ function recordInput(page: Page): string[] {
 	return sent;
 }
 
-async function openTerminal(page: Page, context: Parameters<typeof createStudent>[0]) {
+async function openTerminal(
+	page: Page,
+	context: Parameters<typeof createStudent>[0],
+	appearance?: "light" | "dark",
+) {
 	const student = await createStudent(context);
+	if (appearance) {
+		await query(
+			"update users set editor_settings = editor_settings || $1::jsonb where id = $2",
+			[JSON.stringify({ appearance }), student.userId],
+		);
+	}
 	const project = await createProject(student.workspaceId, { name: "Voice" });
 	await page.goto(workspacePath(student.workspaceId, project.id));
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	if (appearance) {
+		await expect(page.locator("html")).toHaveAttribute("data-theme", appearance);
+	}
 	await page.getByTestId("launcher").click();
 	await page.getByTestId("launcher-terminal").click();
 	await expect
@@ -207,36 +222,148 @@ test("a browser without speech recognition shows no microphone", async ({
 	await expect(page.getByTestId(`terminal-voice-${id}`)).toHaveCount(0);
 });
 
-test("a network error, as Brave gives, hides the microphone", async ({
+test("a network error, as Brave gives, hides the microphone, says why, and moves focus to the terminal", async ({
 	page,
 	context,
 }) => {
 	await fakeSpeech(page);
 	const id = await openTerminal(page, context);
 	const button = page.getByTestId(`terminal-voice-${id}`);
-	await button.hover();
-	await page.mouse.down();
+	await button.focus();
+	await page.keyboard.down("Space");
+	await expect(button).toHaveAttribute("aria-pressed", "true");
 	await page.evaluate(() =>
 		(window as unknown as FakeSpeechWindow).__speech.fail("network"),
 	);
-	await page.mouse.up();
+	await page.keyboard.up("Space");
 	await expect(button).toHaveCount(0);
+	const message = "Voice input is not available in this browser.";
+	await expect(page.getByTestId(`terminal-voice-status-${id}`)).toHaveText(message);
+	await expect(page.getByTestId(`terminal-voice-error-${id}`)).toHaveText(message);
+	await expect(
+		page.locator(`[data-testid=terminal-pane-${id}] textarea.xterm-helper-textarea`),
+	).toBeFocused();
 });
 
-test("the terminal with its microphone passes axe, idle and listening", async ({
+test("a voice error is shown on the pane as well as announced", async ({
 	page,
 	context,
 }) => {
 	await fakeSpeech(page);
 	const id = await openTerminal(page, context);
-	const idle = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(idle.violations).toEqual([]);
-
 	await page.getByTestId(`terminal-voice-${id}`).hover();
 	await page.mouse.down();
-	await say(page, "some words", false);
-	await expect(page.getByTestId(`terminal-voice-interim-${id}`)).toBeVisible();
-	const listening = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+	await page.evaluate(() =>
+		(window as unknown as FakeSpeechWindow).__speech.fail("audio-capture"),
+	);
 	await page.mouse.up();
-	expect(listening.violations).toEqual([]);
+	await expect(page.getByTestId(`terminal-voice-error-${id}`)).toHaveText(
+		"No microphone was found.",
+	);
+	await expect(page.getByTestId(`terminal-voice-status-${id}`)).toHaveText(
+		"No microphone was found.",
+	);
+	await expect(page.getByTestId(`terminal-voice-status-${id}`)).toHaveAttribute(
+		"aria-live",
+		"polite",
+	);
 });
+
+test("a click from assistive technology explains how to hold", async ({
+	page,
+	context,
+}) => {
+	await fakeSpeech(page);
+	const id = await openTerminal(page, context);
+	// element.click() has detail 0, as a screen reader's browse-mode click does.
+	await page
+		.getByTestId(`terminal-voice-${id}`)
+		.evaluate((el) => (el as HTMLElement).click());
+	await expect(page.getByTestId(`terminal-voice-status-${id}`)).toHaveText(
+		"Hold Space on this button, or Alt+Shift+M in the terminal, to talk.",
+	);
+	expect((await speech(page)).started).toBe(0);
+});
+
+test("a quick second press listens again before the first has ended", async ({
+	page,
+	context,
+}) => {
+	await fakeSpeech(page);
+	const id = await openTerminal(page, context);
+	const button = page.getByTestId(`terminal-voice-${id}`);
+	// One task, so the first recognizer's end has not arrived yet.
+	await button.evaluate((el) => {
+		const press = (type: string) =>
+			el.dispatchEvent(
+				new PointerEvent(type, {
+					bubbles: true,
+					button: 0,
+					pointerId: 1,
+					isPrimary: true,
+				}),
+			);
+		press("pointerdown");
+		press("pointerup");
+		press("pointerdown");
+	});
+	await expect(button).toHaveAttribute("aria-pressed", "true");
+	expect(await speech(page)).toEqual({ started: 2, stopped: 1 });
+});
+
+test("dictation stops when the terminal ends", async ({ page, context }) => {
+	await fakeSpeech(page);
+	const id = await openTerminal(page, context);
+	await page.getByTestId(`terminal-voice-${id}`).hover();
+	await page.mouse.down();
+	await expect(page.getByTestId(`terminal-voice-${id}`)).toHaveAttribute(
+		"aria-pressed",
+		"true",
+	);
+	await endTerminal(id);
+	// The terminal list is polled every 15 seconds.
+	await expect(page.getByTestId(`terminal-ended-${id}`)).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect.poll(async () => (await speech(page)).stopped).toBeGreaterThan(0);
+	await page.mouse.up();
+});
+
+test("without speech recognition, Alt+Shift+M still reaches the shell", async ({
+	page,
+	context,
+}) => {
+	await noSpeech(page);
+	const sent = recordInput(page);
+	const id = await openTerminal(page, context);
+	await page.locator(`[data-testid=terminal-pane-${id}] .xterm-screen`).click();
+	await page.keyboard.press("Alt+Shift+KeyM");
+	await expect.poll(() => sent.join("")).toContain("\u001bM");
+});
+
+for (const appearance of ["dark", "light"] as const) {
+	test(`the terminal with its microphone passes axe, idle, listening and in error (${appearance})`, async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		const id = await openTerminal(page, context, appearance);
+		const idle = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(idle.violations).toEqual([]);
+
+		await page.getByTestId(`terminal-voice-${id}`).hover();
+		await page.mouse.down();
+		await say(page, "some words", false);
+		await expect(page.getByTestId(`terminal-voice-interim-${id}`)).toBeVisible();
+		const listening = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.fail("audio-capture"),
+		);
+		await page.mouse.up();
+		expect(listening.violations).toEqual([]);
+
+		await expect(page.getByTestId(`terminal-voice-error-${id}`)).toBeVisible();
+		const failed = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(failed.violations).toEqual([]);
+	});
+}

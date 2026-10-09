@@ -5,7 +5,7 @@
  */
 import type { Terminal, TerminalTheme } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
@@ -75,6 +75,11 @@ export function TerminalLeaf({
 	// Voice input types into this pane's terminal through the ref it fills.
 	const dictation = useRef<((text: string) => void) | null>(null);
 	const speech = useSpeechInput((text) => dictation.current?.(text));
+	const stopSpeech = speech.stop;
+	// A terminal that ends mid-dictation must not keep the microphone open.
+	useEffect(() => {
+		if (ended) stopSpeech();
+	}, [ended, stopSpeech]);
 
 	return (
 		<PaneFrame
@@ -123,7 +128,12 @@ export function TerminalLeaf({
 					onCwd={setLiveCwd}
 					onFocus={onFocus}
 					onLeave={onLeave}
-					onVoiceHold={(held) => (held ? speech.start() : speech.stop())}
+					// Unsupported browsers (Firefox) keep Alt+Shift+M for the shell.
+					onVoiceHold={
+						speech.state === "unsupported"
+							? undefined
+							: (held) => (held ? speech.start() : speech.stop())
+					}
 					dictation={dictation}
 				/>
 			)}

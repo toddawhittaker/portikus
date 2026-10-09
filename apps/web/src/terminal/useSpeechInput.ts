@@ -71,6 +71,11 @@ function errorMessage(code: string): string {
 	return "Voice input stopped because of an error.";
 }
 
+const UNSUPPORTED_MESSAGE = "Voice input is not available in this browser.";
+
+/** How long an error or hint stays up before it clears itself. */
+export const MESSAGE_MS = 8000;
+
 export interface SpeechInput {
 	state: SpeechState;
 	/** Words heard so far that may still change; shown, never typed. */
@@ -79,6 +84,8 @@ export interface SpeechInput {
 	message: string;
 	start: () => void;
 	stop: () => void;
+	/** Put a hint in the status region, as an error message is put there. */
+	explain: (text: string) => void;
 }
 
 /** `onFinal` receives each settled phrase, already sanitized. */
@@ -92,6 +99,18 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 	const recognizer = useRef<Recognizer | null>(null);
 	const finalRef = useRef(onFinal);
 	finalRef.current = onFinal;
+	const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const show = useCallback((text: string) => {
+		if (clearTimer.current) clearTimeout(clearTimer.current);
+		clearTimer.current = null;
+		setMessage(text);
+		if (text === "" || text === "Listening…") return;
+		clearTimer.current = setTimeout(() => {
+			clearTimer.current = null;
+			setMessage((now) => (now === text ? "" : now));
+		}, MESSAGE_MS);
+	}, []);
 
 	const start = useCallback(() => {
 		const Recognition = recognizerClass();
@@ -119,38 +138,59 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 			if (event.error === "network") {
 				networkFailed = true;
 				setSupported(false);
+				show(UNSUPPORTED_MESSAGE);
 				return;
 			}
 			setState("error");
-			setMessage(errorMessage(event.error));
+			show(errorMessage(event.error));
 		};
 		rec.onend = () => {
-			if (recognizer.current === rec) recognizer.current = null;
+			// A recognizer stopped by a quick re-press ends after its successor
+			// has started; that one is still listening.
+			if (recognizer.current !== null && recognizer.current !== rec) return;
+			recognizer.current = null;
 			setInterim("");
 			setState((now) => (now === "listening" ? "idle" : now));
 			setMessage((now) => (now === "Listening…" ? "" : now));
 		};
 		recognizer.current = rec;
 		setState("listening");
-		setMessage("Listening…");
+		show("Listening…");
 		setInterim("");
 		try {
 			rec.start();
 		} catch {
 			recognizer.current = null;
 			setState("error");
-			setMessage(errorMessage(""));
+			show(errorMessage(""));
 		}
-	}, []);
+	}, [show]);
 
 	// Stop, not abort: the last phrase still arrives as a final result.
+	// Forgetting the recognizer at once lets a quick second press start a new
+	// one while the old one is still finishing.
 	const stop = useCallback(() => {
-		recognizer.current?.stop();
+		const rec = recognizer.current;
+		recognizer.current = null;
+		rec?.stop();
 		setState((now) => (now === "listening" ? "idle" : now));
 		setMessage((now) => (now === "Listening…" ? "" : now));
 	}, []);
 
-	useEffect(() => () => recognizer.current?.abort(), []);
+	useEffect(
+		() => () => {
+			recognizer.current?.abort();
+			if (clearTimer.current) clearTimeout(clearTimer.current);
+		},
+		[],
+	);
 
-	return { state: supported ? state : "unsupported", interim, message, start, stop };
+	return {
+		state: supported ? state : "unsupported",
+		interim,
+		message,
+		start,
+		stop,
+		explain: show,
+	};
 }
