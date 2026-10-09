@@ -141,8 +141,9 @@ export function registerCertificateEdge(
 
 /** The routes the hook answers; registered inside the server's plugin so the route list sees them. */
 export function registerCertificateEdgeRoutes(app: FastifyInstance): void {
-	const unreachable = async (_request: FastifyRequest, reply: FastifyReply) =>
-		reply.status(404).send({ code: "NOT_FOUND", message: "Not found." });
+	const unreachable = async (_request: FastifyRequest, reply: FastifyReply) => {
+		return reply.status(404).send({ code: "NOT_FOUND", message: "Not found." });
+	};
 	app.get(CERTIFICATE_ASK_PATH, unreachable);
 	app.get(NONCE_ROUTE, unreachable);
 }

@@ -582,7 +582,12 @@ function execServer(ret: number | "timeout", stdout: string, seen: ExecSeen) {
 			if (connected.size < 4) return;
 			const out = connected.get("s1");
 			if (!out) return;
-			if (stdout === "one big message") {
+			if (stdout === "socket error") {
+				// An invalid frame makes the client's stdout socket emit "error".
+				(out as unknown as { _socket: Duplex })._socket.write(
+					Buffer.from([0xff, 0x00]),
+				);
+			} else if (stdout === "one big message") {
 				out.send(Buffer.alloc(200 * 1024, "x"));
 			} else if (stdout === "flood") {
 				const chunk = Buffer.alloc(16 * 1024, "x");
@@ -715,6 +720,30 @@ test("an exec whose wait times out fails with TIMEOUT", async () => {
 	await expect(
 		client.exec("ws-a", ["sleep", "100"], { timeoutSeconds: 1 }),
 	).rejects.toMatchObject({ code: "TIMEOUT" });
+});
+
+test("an exec whose socket errors fails as a socket error, not a timeout", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "socket error", seen);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const caught = await client
+		.exec("ws-a", ["cat", "x"], { timeoutSeconds: 5, outputMaxBytes: 100 })
+		.catch((e: unknown) => e);
+	expect(caught).toMatchObject({ code: "OPERATION_FAILED" });
+	expect((caught as Error).message).toMatch(/^exec socket error/);
+	await vi.waitFor(() => expect(seen.closed).toBe(4));
+});
+
+test("an exec whose output never ends within the timeout still fails with TIMEOUT", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "flood", seen);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.exec("ws-a", ["cat", "x"], {
+			timeoutSeconds: 1,
+			outputMaxBytes: 1024 * 1024 * 1024,
+		}),
+	).rejects.toMatchObject({ code: "TIMEOUT", message: "exec timed out" });
 });
 
 /**

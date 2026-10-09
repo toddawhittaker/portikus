@@ -25,7 +25,8 @@ actorName, ever reaches standard error, which is the journal (ADR 0012).
 Each shell has a record under /run/portikus-root-shell: login's PID and,
 once login has joined it, its logind session.  The record stays while that
 session lives, so `root-shell --end-sessions`, the off switch's half, can
-end what a closed pane left running there, such as tmux.
+end what a closed pane left running there, such as tmux, and what moved out
+of the session but kept its audit id.
 """
 
 import errno
@@ -76,6 +77,8 @@ SESSION_ID = r"[A-Za-z0-9_-]{1,64}"
 SESSION_SCOPE = re.compile(r"/session-(%s)\.scope$" % SESSION_ID)
 # login uses this PAM service when given -h; only these sessions are ours to end.
 PAM_SERVICE = "remote"
+# The audit id of a process outside any sign-in, such as a service.
+NO_AUDIT_SESSION = str(2 ** 32 - 1)
 
 
 class Stopped(Exception):
@@ -288,6 +291,93 @@ def terminate_session(session, run=subprocess.run):
     return ended
 
 
+def audit_session(pid, proc="/proc"):
+    try:
+        with open("%s/%d/sessionid" % (proc, pid)) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def is_zombie(pid, proc="/proc"):
+    """Exited but not yet reaped, as login is until the helper waits for it: it can neither run nor be killed."""
+    try:
+        with open("%s/%d/stat" % (proc, pid)) as f:
+            # The state follows the command name, which may itself hold ") ".
+            return f.read().rpartition(")")[2].split()[:1] == ["Z"]
+    except OSError:
+        return False
+
+
+def session_pids(session, proc="/proc"):
+    """Processes that carry the session's audit id, wherever their cgroup now is.
+
+    logind names a session after its audit id, which every process started in
+    it inherits and keeps, also one moved out of the scope, as `systemd-run
+    --scope` does.  A name that is not a number has no audit id to match.
+    """
+    if not session.isdigit() or session == NO_AUDIT_SESSION:
+        return []
+    try:
+        names = os.listdir(proc)
+    except OSError:
+        return []
+    return [int(name) for name in names
+            if name.isdigit() and int(name) != os.getpid() and audit_session(int(name), proc) == session
+            and not is_zombie(int(name), proc)]
+
+
+def kill_in_session(pid, session, proc="/proc"):
+    """SIGKILL pid if it still carries the session; through a pidfd, so a reused PID is never hit."""
+    try:
+        fd = os.pidfd_open(pid)
+    except OSError:
+        return False
+    try:
+        if audit_session(pid, proc) != session:
+            return False
+        signal.pidfd_send_signal(fd, signal.SIGKILL)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+# A process can fork between one listing of /proc and its kill, so the sweep repeats;
+# the bound stops a fork bomb from holding the off switch forever.
+KILL_ROUNDS = 10
+KILL_PAUSE = 0.05
+
+
+def kill_strays(session, proc="/proc", kill=kill_in_session):
+    """Kills what a root shell's session left outside its scope; returns (killed, survivors)."""
+    killed = 0
+    for attempt in range(KILL_ROUNDS):
+        pids = session_pids(session, proc)
+        if not pids:
+            return killed, 0
+        if attempt:
+            # A process just sent SIGKILL stays listed until it has exited.
+            time.sleep(KILL_PAUSE)
+        killed += sum(1 for pid in pids if kill(pid, session, proc))
+    survivors = len(session_pids(session, proc))
+    if survivors:
+        log("%d processes of session %s survived %d rounds of kills" % (survivors, session, KILL_ROUNDS))
+    return killed, survivors
+
+
+def transient_units(run=subprocess.run):
+    """Running units under systemd-run's own names.  A root shell may have
+    started one, and the unit carries nothing that says so, so the off switch
+    only names them."""
+    # The types systemd-run makes; mounts such as run-user-0.mount share the prefix.
+    done = run(["systemctl", "list-units", "--plain", "--no-legend", "--state=active",
+                "--type=service,scope,timer,path,socket", "run-*"],
+               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return [line.split()[0] for line in done.stdout.splitlines() if line.strip()] if done.returncode == 0 else []
+
+
 def session_service(session, run=subprocess.run):
     """The PAM service of a logind session that still exists, or None."""
     done = run(["loginctl", "show-session", session, "-P", "Service"],
@@ -350,29 +440,48 @@ def records(run_dir):
         return []
 
 
-def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run):
-    """Ends every recorded session that still exists and is a `remote` sign-in; returns how many."""
+def end_sessions(run_dir=RUN_DIR, proc="/proc", run=subprocess.run, kill=kill_in_session):
+    """Ends every recorded root-shell session and what left it; returns how many shells had anything to end.
+
+    A session that still exists must be a `remote` sign-in.  One logind has
+    forgotten counts only when the helper itself recorded it, since audit ids
+    are never reused before a reboot clears /run.
+    """
     ended = 0
     for name in records(run_dir):
         pid, session = read_record(run_dir, name)
         # Empty or unreadable: its helper has not yet started login, and records it next.
         if pid is None and session is None:
             continue
+        recorded = session is not None
         # Login had not joined its session when the record was written; a reused PID is not ours.
         if session is None and pid is not None and is_login(pid, proc):
             session = session_of(pid, proc)
-        if session is not None and session_service(session, run) == PAM_SERVICE and terminate_session(session, run):
-            log("ended session %s of shell %s" % (session, name))
-            ended += 1
+        if session is not None:
+            service = session_service(session, run)
+            ours = service == PAM_SERVICE or (recorded and service is None)
+            terminated = service == PAM_SERVICE and terminate_session(session, run)
+            strays, survivors = kill_strays(session, proc, kill) if ours else (0, 0)
+            if (terminated or strays) and not survivors:
+                log("ended session %s of shell %s, and killed %d processes that had left it" % (session, name, strays))
+                ended += 1
+            if survivors:
+                # Kept, so the next off switch or prune sees the session again.
+                continue
         forget_record(run_dir, name)
     return ended
 
 
-def prune_records(run_dir=RUN_DIR, run=subprocess.run):
-    """Forgets the records whose session has ended; a record not yet naming one may be a shell starting."""
+def session_over(session, run=subprocess.run, proc="/proc"):
+    """Whether logind has forgotten the session and no process left it carrying its id."""
+    return session_service(session, run) is None and not session_pids(session, proc)
+
+
+def prune_records(run_dir=RUN_DIR, run=subprocess.run, proc="/proc"):
+    """Forgets the records of sessions that are over; a record not yet naming one may be a shell starting."""
     for name in records(run_dir):
         _, session = read_record(run_dir, name)
-        if session is not None and session_service(session, run) is None:
+        if session is not None and session_over(session, run, proc):
             forget_record(run_dir, name)
 
 
@@ -380,13 +489,16 @@ class Shell:
     """One connection: the socket, the login child on its pseudo-terminal, and the relay between them."""
 
     def __init__(self, sock, run_dir=RUN_DIR, argv_for=login_argv, banner=BANNER,
-                 session_for=session_of, run=subprocess.run):
+                 session_for=session_of, run=subprocess.run, kill=kill_in_session, proc="/proc"):
         self.sock = sock
         self.session_for = session_for
         # Every loginctl call goes through this, so tests can never reach a real session.
         self.run_command = run
+        self.kill = kill
+        self.proc = proc
         self.recorded = False
         self.session = None
+        self.survivors = 0
         self.run_dir = run_dir
         self.argv_for = argv_for
         self.banner = banner
@@ -513,7 +625,11 @@ class Shell:
     def end_session(self):
         self.pending.clear()
         session = self.session or self.session_for(self.pid)
-        return session is not None and terminate_session(session, self.run_command)
+        if session is None:
+            return False
+        ended = terminate_session(session, self.run_command)
+        _, self.survivors = kill_strays(session, self.proc, self.kill)
+        return ended
 
     def finish(self):
         if not self.reap():
@@ -592,9 +708,9 @@ class Shell:
         if self.status is None:
             self.hang_up()
         # Kept while the session lives on, as with the administrator's tmux, for the off switch.
-        if ended or self.session is None or session_service(self.session, self.run_command) is None:
+        if (ended and not self.survivors) or self.session is None or session_over(self.session, self.run_command, self.proc):
             forget_record(self.run_dir, opened["shellId"])
-        prune_records(self.run_dir, self.run_command)
+        prune_records(self.run_dir, self.run_command, self.proc)
         log("closed shell %s for actor %s from %s, login pid %d, session %s, after %d seconds (%s)"
             % (opened["shellId"], opened["actorId"], opened["address"], self.pid, self.session or "none",
                int(time.monotonic() - self.started), reason))
@@ -623,6 +739,8 @@ def stop(*_):
 def main(args):
     if args == ["--end-sessions"]:
         print("ended %d" % end_sessions())
+        for unit in transient_units():
+            print("transient %s" % unit)
         return 0
     if args:
         log("unknown arguments")

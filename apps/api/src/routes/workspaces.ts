@@ -277,7 +277,7 @@ export function registerWorkspaceRoutes(
 		reply: FastifyReply,
 		desired: DesiredState,
 		action: string,
-	): Promise<void> {
+	): Promise<FastifyReply | undefined> {
 		const user = requireUser(request);
 		if (!(await limitLifecycle(request, reply))) return;
 
@@ -326,7 +326,7 @@ export function registerWorkspaceRoutes(
 			result: "ok",
 		});
 
-		reply.status(202).send({ ok: true });
+		return reply.status(202).send({ ok: true });
 	}
 }
 

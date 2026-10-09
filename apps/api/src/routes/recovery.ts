@@ -151,7 +151,7 @@ export function registerRecoveryRoutes(
 				return sendError(
 					reply,
 					429,
-					"BUSY",
+					"RATE_LIMITED",
 					"A recovery point was made moments ago. Wait 30 seconds and try again.",
 				);
 			}
@@ -216,7 +216,7 @@ export function registerRecoveryRoutes(
 			if (!claimLongOperation(scope.workspaceId, reply)) return;
 			try {
 				if (await refusePending(db, scope.workspaceId, reply)) return;
-				await restore(request, reply, {
+				return await restore(request, reply, {
 					agent,
 					userId: user.id,
 					workspaceId: scope.workspaceId,
@@ -242,7 +242,7 @@ export function registerRecoveryRoutes(
 			point: RecoveryPointRow;
 			skipSafetyPoint: boolean;
 		},
-	): Promise<void> {
+	): Promise<FastifyReply | undefined> {
 		const { agent, project, point } = input;
 
 		// The current state is saved first. Only a full allowance may be
@@ -310,7 +310,7 @@ export function registerRecoveryRoutes(
 			{ workspaceId: input.workspaceId, projectId: project.id, pointId: point.id },
 			"recovery point restored",
 		);
-		reply.status(204).send();
+		return reply.status(204).send();
 	}
 
 	/** Ids and the reason only; never a file name or path (SPEC.md §24.11). */

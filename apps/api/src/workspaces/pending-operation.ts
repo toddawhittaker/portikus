@@ -67,17 +67,16 @@ export async function requestPendingOperation(
 export function sendPendingOperationRefusal(
 	reply: FastifyReply,
 	result: Exclude<PendingOperationResult, "ok">,
-): void {
+): FastifyReply {
 	if (result === "busy") {
-		sendError(
+		return sendError(
 			reply,
 			409,
 			"OPERATION_IN_PROGRESS",
 			"A project operation such as a restore is running on this workspace. Try again when it finishes.",
 		);
-		return;
 	}
-	sendError(
+	return sendError(
 		reply,
 		409,
 		"OPERATION_PENDING",

@@ -5,7 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { MAX_DOWNLOAD_BYTES } from "@portikus/contracts";
+import { MAX_DOWNLOAD_BYTES, MAX_LAYOUT_BYTES_PER_USER } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -729,6 +729,47 @@ test.skipIf(skip)("a layout is stored and read back", async () => {
 		payload: { tabs: [{ id: "tab-1", root: { type: "leaf" } }] },
 	});
 	expect(bad.statusCode).toBe(400);
+});
+
+test.skipIf(skip)("a save past the user's total layout limit is refused", async () => {
+	const big = (
+		await createProject(alice, workspaceId, { name: "big", source: "new" })
+	).json();
+	const small = (
+		await createProject(alice, workspaceId, { name: "small", source: "new" })
+	).json();
+	// Stored straight in the column: one request cannot carry this much.
+	await testDb.db
+		.updateTable("projects")
+		.set({
+			layout: JSON.stringify({ pad: "x".repeat(MAX_LAYOUT_BYTES_PER_USER - 50) }),
+		})
+		.where("id", "=", big.id)
+		.execute();
+	const layout = {
+		tabs: [{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } }],
+	};
+	const put = (projectId: string) =>
+		app.inject({
+			method: "PUT",
+			url: `/workspaces/${workspaceId}/projects/${projectId}/layout`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: layout,
+		});
+
+	const refused = await put(small.id);
+	expect(refused.statusCode).toBe(413);
+	expect(refused.json().code).toBe("LAYOUT_LIMIT");
+	const stored = await testDb.db
+		.selectFrom("projects")
+		.select("layout")
+		.where("id", "=", small.id)
+		.executeTakeFirstOrThrow();
+	expect(stored.layout).toBeNull();
+
+	// Replacing the big layout itself frees its bytes, so that save fits.
+	expect((await put(big.id)).statusCode).toBe(204);
+	expect((await put(small.id)).statusCode).toBe(204);
 });
 
 test.skipIf(skip)("the listing still works when the agent is down", async () => {

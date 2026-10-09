@@ -74,7 +74,9 @@ function readmeHeading(markdown: string): string | undefined {
 			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
 			.replace(/<[^>]*>/g, "")
 			.replace(/[*_`~]+/g, "")
-			// Emoji decorate a heading but make a poor project name.
+			// Emoji decorate a heading but make a poor project name. A keycap
+			// emoji is a plain digit, # or * plus marks, so its base goes too.
+			.replace(/[0-9#*]\u{FE0F}?\u{20E3}/gu, "")
 			.replace(
 				/(?![\u{A9}\u{AE}\u{2122}])\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\u{FE0E}|\u{FE0F}|\u{200D}|\u{20E3}/gu,
 				"",
@@ -422,6 +424,12 @@ export function documentTabId(node: SplitNode): string | null {
 	if (node.type === "preview") return `preview:${node.port}`;
 	return null;
 }
+
+/**
+ * Most layout bytes one user may keep across all their projects, so many
+ * workspaces and projects cannot fill the database (SPEC.md §7.5).
+ */
+export const MAX_LAYOUT_BYTES_PER_USER = 8 * 1024 * 1024;
 
 /**
  * The saved layout of one project (SPEC.md §7.5). There is no cap on the

@@ -662,6 +662,15 @@ class Runner:
         except Exception as err:  # noqa: BLE001 - sizes are informational only
             journal(f"warning: could not record image sizes: {err}")
 
+    def unmeasured(self):
+        """Whether an image in the store has no size.json yet; reads only the store."""
+        for version in os.listdir(self.images_dir):
+            store = os.path.join(self.images_dir, version)
+            if (VERSION_RE.fullmatch(version) and os.path.isdir(store) and not os.path.islink(store)
+                    and not os.path.exists(os.path.join(store, "size.json"))):
+                return True
+        return False
+
     def _record_sizes(self):
         try:
             known = versions_in(alias_map())
@@ -1007,6 +1016,10 @@ class Runner:
             try:
                 gid = os.fstat(jobs_fd).st_gid
                 self.recover(jobs_fd, gid)
+                # Every job run checks for images from before sizes were recorded (SPEC.md 22.4); while any
+                # lacks one, the run lists the aliases and queries Incus once per stored image.
+                if self.unmeasured():
+                    self.record_sizes()
                 last_finish = 0
                 # A name is taken once, so a file that cannot be removed cannot loop.
                 taken_names = set()

@@ -63,10 +63,6 @@ describe("history in comments is found", () => {
 		]);
 	});
 
-	test("a short all-digit colour in a comment reads as an issue number", () => {
-		expect(matches("a.css", "/* was #333 */")).toEqual(["#333"]);
-	});
-
 	test("one hit per line", () => {
 		expect(scan("a.ts", "// issue #1 and PR 2")).toHaveLength(1);
 	});
@@ -129,5 +125,38 @@ describe("overlong source files are flagged", () => {
 		"infra/ansible/site.yml",
 	])("%s is exempt", (path) => {
 		expect(sizeWarning(path, lines(MAX_LINES + 1))).toBeNull();
+	});
+});
+
+describe("code that only looks like a comment or a title", () => {
+	test("a backtick inside a regex literal does not hide later comments", () => {
+		const src = "const re = /`/;\n// fixed in #123\n";
+		expect(scan("a.ts", src)).toMatchObject([{ line: 2, match: "#123" }]);
+	});
+
+	test("a regex literal holding slashes and a class is skipped", () => {
+		const src = "x = s.replace(/[/`]\\//g, '');\n// see issue 45\n";
+		expect(scan("a.ts", src)).toMatchObject([{ line: 2, match: "issue 45" }]);
+	});
+
+	test("division is not read as a regex", () => {
+		const src = "const a = b / c; // see issue 45 / 2\n";
+		expect(matches("a.ts", src)).toEqual(["issue 45"]);
+	});
+
+	test("a CSS colour in a comment is not an issue reference", () => {
+		expect(matches("a.css", "/* grey #333 */")).toEqual([]);
+		expect(matches("a.css", "/* see issue #333 */")).toEqual(["issue #333"]);
+	});
+
+	test("a number in a quoted shell or YAML string is not a comment", () => {
+		expect(matches("a.sh", 'echo "item #12" # note\n')).toEqual([]);
+		expect(matches("a.yml", "msg: 'ticket #12'\n")).toEqual([]);
+		expect(matches("a.sh", 'echo "x" # fixed in #12\n')).toEqual(["#12"]);
+	});
+
+	test("a regex .test() call is not a test title", () => {
+		expect(matches("a.test.ts", 'expect(/a/.test("#123")).toBe(true);')).toEqual([]);
+		expect(matches("a.test.ts", 'test("fixes #123", () => {});')).toEqual(["#123"]);
 	});
 });

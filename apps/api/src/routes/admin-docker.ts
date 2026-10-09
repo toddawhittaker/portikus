@@ -38,8 +38,8 @@ import { readJson, writeRequestFile } from "../job-files.js";
 const adminOnly = { preHandler: requireRole("administrator") };
 
 /** The worker seeds the settings row on its first start. */
-function notReady(reply: FastifyReply): void {
-	sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
+function notReady(reply: FastifyReply): FastifyReply {
+	return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
 }
 
 const SEED_JOBS_SHOWN = 10;
@@ -151,8 +151,8 @@ function insertJob(
 		.executeTakeFirstOrThrow();
 }
 
-function jobRunning(reply: FastifyReply): void {
-	sendError(
+function jobRunning(reply: FastifyReply): FastifyReply {
+	return sendError(
 		reply,
 		409,
 		"SEED_JOB_RUNNING",

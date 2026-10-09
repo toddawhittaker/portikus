@@ -35,7 +35,9 @@ import {
 import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import {
 	AGENT_INSTRUCTIONS_HOST_PATH,
+	CLAUDE_MANAGED_SETTINGS_HOST_PATH,
 	writeAgentInstructions,
+	writeClaudeManagedSettings,
 } from "./agent-instructions.js";
 import type { RunningAgent } from "./agent-restart.js";
 import {
@@ -236,6 +238,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly ghcrCaPath: string;
 	private readonly cacheOffPath: string;
 	private readonly agentInstructionsPath: string;
+	private readonly claudeManagedSettingsPath: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -257,9 +260,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		cacheOffPath?: string;
 		/** The agent instructions template on the host; tests point it elsewhere. */
 		agentInstructionsPath?: string;
+		/** Claude Code's managed settings template on the host; tests point it elsewhere. */
+		claudeManagedSettingsPath?: string;
 	}) {
 		this.agentInstructionsPath =
 			opts.agentInstructionsPath ?? AGENT_INSTRUCTIONS_HOST_PATH;
+		this.claudeManagedSettingsPath =
+			opts.claudeManagedSettingsPath ?? CLAUDE_MANAGED_SETTINGS_HOST_PATH;
 		this.ghcrCaPath = opts.ghcrCaPath ?? GHCR_CA_HOST_PATH;
 		this.cacheOffPath = opts.cacheOffPath ?? CACHE_OFF_HOST_PATH;
 		this.client = opts.client;
@@ -510,6 +517,26 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 		}
 
+		// Rewritten at every start, so a deleted /etc/claude-code gets its settings back.
+		const settingsWritten = await this.optionalStep(
+			name,
+			signal,
+			"could not write Claude Code's managed settings; starting without them",
+			() =>
+				writeClaudeManagedSettings(
+					this.client,
+					name,
+					this.claudeManagedSettingsPath,
+					signal,
+				),
+		);
+		if (settingsWritten === false) {
+			this.log.warn(
+				{ instance: name, path: this.claudeManagedSettingsPath },
+				"Claude Code's managed settings template is missing; starting without them",
+			);
+		}
+
 		await writeStartFiles(
 			this.client,
 			name,
@@ -547,56 +574,92 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		// caller does, so the setup below runs to the end on its own limits: the
 		// worker's sweep would mark a half-set-up workspace running (ADR 0034).
 		signal.throwIfAborted();
-		// Something may have started it since the check above.
-		if (status !== "Running") {
-			try {
-				await this.client.request(
-					"PUT",
-					`/1.0/instances/${enc(name)}/state`,
-					{ action: "start" },
-					own,
-					opts.timeoutSeconds,
-				);
-			} catch (err) {
-				if ((await this.instanceStatus(name, own).catch(() => null)) !== "Running") {
-					throw err;
+		try {
+			// Something may have started it since the check above.
+			if (status !== "Running") {
+				try {
+					await this.client.request(
+						"PUT",
+						`/1.0/instances/${enc(name)}/state`,
+						{ action: "start" },
+						own,
+						opts.timeoutSeconds,
+					);
+				} catch (err) {
+					if ((await this.instanceStatus(name, own).catch(() => null)) !== "Running") {
+						throw err;
+					}
 				}
 			}
+
+			const deadline = Date.now() + opts.timeoutSeconds * 1000;
+			const ipv4 = await waitForAddress(this.client, name, deadline, own);
+
+			await setHostname(
+				this.client,
+				this.log,
+				name,
+				opts.hostname,
+				opts.timeoutSeconds,
+				own,
+			);
+
+			await setTimezone(this.client, name, opts.timezone, opts.timeoutSeconds, own);
+
+			// After the start: a first start after create or copy runs the image's
+			// /etc/hosts template, which would drop the line.
+			if (ghcr !== null) {
+				await this.optionalStep(
+					name,
+					own,
+					"could not write the ghcr.io hosts line",
+					() => writeGhcrHosts(this.client, name, ghcr, own),
+				);
+			}
+
+			if (recoveryAttached) {
+				await prepareRecoveryMount(
+					this.client,
+					this.log,
+					name,
+					opts.timeoutSeconds,
+					own,
+				);
+			}
+
+			// The agent wait has its own 15 s, not the start's timeout.
+			await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken);
+			if (caller?.aborted) {
+				this.log.info({ instance: name }, "start finished after the caller left");
+			}
+
+			return { ipv4 };
+		} catch (err) {
+			// A half-set-up instance must not stay running for the sweep to mark it running.
+			await this.forceStopAfterFailedStart(name, opts.timeoutSeconds);
+			throw err;
 		}
+	}
 
-		const deadline = Date.now() + opts.timeoutSeconds * 1000;
-		const ipv4 = await waitForAddress(this.client, name, deadline, own);
-
-		await setHostname(
-			this.client,
-			this.log,
-			name,
-			opts.hostname,
-			opts.timeoutSeconds,
-			own,
-		);
-
-		await setTimezone(this.client, name, opts.timezone, opts.timeoutSeconds, own);
-
-		// After the start: a first start after create or copy runs the image's
-		// /etc/hosts template, which would drop the line.
-		if (ghcr !== null) {
-			await this.optionalStep(name, own, "could not write the ghcr.io hosts line", () =>
-				writeGhcrHosts(this.client, name, ghcr, own),
+	private async forceStopAfterFailedStart(
+		name: string,
+		timeoutSeconds: number,
+	): Promise<void> {
+		try {
+			await this.client.request(
+				"PUT",
+				`/1.0/instances/${enc(name)}/state`,
+				{ action: "stop", force: true },
+				AbortSignal.timeout(timeoutSeconds * 1000),
+				timeoutSeconds,
+			);
+			this.log.info({ instance: name }, "instance stopped after a failed start");
+		} catch (err) {
+			this.log.warn(
+				{ instance: name, err: errorMessage(err) },
+				"could not stop the instance after a failed start",
 			);
 		}
-
-		if (recoveryAttached) {
-			await prepareRecoveryMount(this.client, this.log, name, opts.timeoutSeconds, own);
-		}
-
-		// The agent wait has its own 15 s, not the start's timeout.
-		await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken);
-		if (caller?.aborted) {
-			this.log.info({ instance: name }, "start finished after the caller left");
-		}
-
-		return { ipv4 };
 	}
 
 	/**

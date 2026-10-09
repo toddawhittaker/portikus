@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { SEARCH_TIMEOUT_MS } from "@portikus/contracts";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { AgentFailure } from "./errors.js";
-import { searchProject } from "./search.js";
+import { MAX_RUNNING_SEARCHES, searchProject } from "./search.js";
 
 // These tests pin what a search must do when ripgrep misbehaves (SPEC.md
 // §11.5: a search must not block the agent and must stay inside the
@@ -157,4 +157,41 @@ test("an unknown project fails before ripgrep is ever started", async () => {
 		}),
 	).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
 	expect(spawned).toBe(false);
+});
+
+test("a search past the running cap is refused as BUSY, and the slot frees", async () => {
+	// SPEC.md §11.5: a search must not block the agent, so many at once are capped.
+	await useFakeRg("exec sleep 30\n");
+	const controllers: AbortController[] = [];
+	const running: Promise<unknown>[] = [];
+	let spawned = 0;
+	let resolve = () => {};
+	const allSpawned = new Promise<void>((done) => {
+		resolve = done;
+	});
+	for (let i = 0; i < MAX_RUNNING_SEARCHES; i += 1) {
+		const controller = new AbortController();
+		controllers.push(controller);
+		running.push(
+			searchProject(homeDir, "demo", "needle", {
+				hidden: false,
+				signal: controller.signal,
+				onChild: () => {
+					spawned += 1;
+					if (spawned === MAX_RUNNING_SEARCHES) resolve();
+				},
+			}),
+		);
+	}
+	await allSpawned;
+	await expect(
+		searchProject(homeDir, "demo", "needle", { hidden: false }),
+	).rejects.toMatchObject({ code: "BUSY" });
+
+	for (const controller of controllers) controller.abort();
+	await Promise.all(running);
+
+	await useFakeRg(`${matchStream()}\nexit 0\n`);
+	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
+	expect(result.matches).toHaveLength(1);
 });

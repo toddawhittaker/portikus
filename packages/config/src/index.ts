@@ -107,6 +107,9 @@ const SharedWorkspaceFields = {
 	AGENT_PORT: positiveInt.default(7400),
 };
 
+/** Workspace state counts as verified while the controller answered the worker this recently (SPEC.md §18.3). */
+export const STATE_VERIFIED_WITHIN_MS = 2 * 60 * 1000;
+
 /**
  * Where administrator alerts are pushed (STACK.md section 15). The API reads
  * it for the test button and the settings page, the worker to send.
@@ -387,7 +390,8 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	SWEEP_INTERVAL_SECONDS: positiveInt.default(1),
 	START_TIMEOUT_SECONDS: positiveInt.default(60),
 	STOP_TIMEOUT_SECONDS: positiveInt.default(30),
-	STATUS_REFRESH_SECONDS: positiveInt.default(15),
+	// Half the verified window, so a slow list() call cannot let state flap to unconfirmed.
+	STATUS_REFRESH_SECONDS: positiveInt.max(STATE_VERIFIED_WITHIN_MS / 2000).default(15),
 	/** A project is due a periodic point after this long (SPEC.md §15.6). */
 	RECOVERY_INTERVAL_SECONDS: positiveInt.default(900),
 	/** How often the recovery loop looks for due projects (ADR 0020). */

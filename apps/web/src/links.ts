@@ -33,11 +33,9 @@ const PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 /** A UUID as the admin links carry it; the router and the audit tab share it. */
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Ports below this are reserved and are never previewed (SPEC.md §14.7). */
-export const MIN_PREVIEW_PORT = 1024;
-
 /** Why a port cannot be previewed, for the Preview tab and the Running pane (SPEC.md §14.7). */
-export const PORT_REFUSED_TEXT = `Ports below ${MIN_PREVIEW_PORT}, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from ${MIN_PREVIEW_PORT} up, such as 3000 or 5173.`;
+export const PORT_REFUSED_TEXT =
+	"Ports below 1024, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.";
 
 /** A `path:line` reference, for example `src/auth.ts:73`. */
 export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
@@ -48,12 +46,10 @@ export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
  *
  * Null for anything else: another host, a scheme we do not open, or a URL
  * carrying a user name, which is how `localhost@evil.example` is written.
- * `allowed` is false for a port policy reserves, so the caller can say why
- * nothing opened instead of opening the wrong thing.
+ * Whether the port may be previewed is the API's policy alone; the Preview
+ * tab shows its refusal (SPEC.md §14.7).
  */
-export function localPreviewTarget(
-	url: string,
-): { port: number; allowed: boolean } | null {
+export function localPreviewTarget(url: string): { port: number } | null {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -72,13 +68,12 @@ export function localPreviewTarget(
 			? 443
 			: 80;
 	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-	return { port, allowed: port >= MIN_PREVIEW_PORT };
+	return { port };
 }
 
 /**
  * A local development URL such as `http://localhost:3000` becomes the
- * authenticated preview route for that port. Anything else, and any port
- * policy reserves, is not ours.
+ * authenticated preview route for that port. Anything else is not ours.
  */
 export function previewRouteFor(
 	url: string,
@@ -86,7 +81,7 @@ export function previewRouteFor(
 	projectId: string,
 ): TerminalLink | null {
 	const target = localPreviewTarget(url);
-	if (!target?.allowed) return null;
+	if (!target) return null;
 	return {
 		kind: "preview",
 		to: "/workspaces/$id/projects/$projectId/preview/$port",

@@ -6,9 +6,10 @@
  * to the server (local.ts).
  */
 import { ProjectLayout } from "@portikus/contracts";
+import { useToast } from "@portikus/ui";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { request, sendJson } from "../api/request.js";
+import { ApiError, request, sendJson } from "../api/request.js";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { readLocalLayout, writeLocalLayout } from "./local.js";
 import type { LayoutStore } from "./store.js";
@@ -31,6 +32,7 @@ export function useLayoutPersistence(
 ): boolean {
 	// The URL whose layout is in, so a switch never reports the old one as loaded.
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+	const toast = useToast();
 
 	useEffect(() => {
 		let cancelled = false;
@@ -63,6 +65,8 @@ export function useLayoutPersistence(
 
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let localTimer: ReturnType<typeof setTimeout> | undefined;
+		// Every later change retries the save, so the limit is told only once.
+		let limitShown = false;
 
 		/** Keep only the view states of the file tabs that are still open. */
 		function saveLocal() {
@@ -88,9 +92,14 @@ export function useLayoutPersistence(
 			const state = store.getState();
 			if (!state.dirty) return;
 			state.clearDirty();
-			void sendJson(z.unknown(), url, state.layout, "PUT").catch(() => {
-				// A failed save is retried by the next change; the layout is a
-				// convenience, not the user's work.
+			void sendJson(z.unknown(), url, state.layout, "PUT").catch((error) => {
+				// Other failures are retried by the next change; the layout is a
+				// convenience, not the user's work. Only the size limit needs
+				// the student to act.
+				if (error instanceof ApiError && error.code === "LAYOUT_LIMIT" && !limitShown) {
+					limitShown = true;
+					toast.show({ tone: "warning", title: error.message });
+				}
 			});
 		}
 
@@ -116,7 +125,7 @@ export function useLayoutPersistence(
 			window.removeEventListener("pagehide", flush);
 			flush();
 		};
-	}, [workspaceId, projectId, store]);
+	}, [workspaceId, projectId, store, toast]);
 
 	return loadedUrl === layoutUrl(workspaceId, projectId);
 }

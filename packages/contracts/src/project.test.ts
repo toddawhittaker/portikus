@@ -541,3 +541,13 @@ test("a clone's name drops flag emoji but keeps trademark signs", () => {
 	expect(projectNameFromRepository({ readme: "# Acme™ Tools\n" })).toBe("Acme™ Tools");
 	expect(projectNameFromRepository({ readme: "# Foo® ©Bar\n" })).toBe("Foo® ©Bar");
 });
+
+test("a clone's name drops keycap emoji together with their digit", () => {
+	expect(projectNameFromRepository({ readme: "# 1\u{FE0F}\u{20E3} Step One\n" })).toBe(
+		"Step One",
+	);
+	expect(
+		projectNameFromRepository({ readme: "# 2\u{20E3} #\u{FE0F}\u{20E3} Tags\n" }),
+	).toBe("Tags");
+	expect(projectNameFromRepository({ readme: "# Lab 2\n" })).toBe("Lab 2");
+});

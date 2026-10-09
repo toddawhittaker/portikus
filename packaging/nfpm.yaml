@@ -331,6 +331,7 @@ deb:
     config: ./packaging/debian/config
 
 scripts:
+  preinstall: ./packaging/scripts/preinst
   postinstall: ./packaging/scripts/postinst
   preremove: ./packaging/scripts/prerm
   postremove: ./packaging/scripts/postrm

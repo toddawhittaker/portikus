@@ -104,3 +104,68 @@ test("a PDF shows a loading line until its copy is ready", () => {
 	render(<PdfView url="/b.pdf" path="b.pdf" download={null} fallback={fallback} />);
 	expect(screen.getByText("Loading…")).not.toBeNull();
 });
+
+function pdfResponse(length: number): Response {
+	return new Response("%PDF", {
+		status: 200,
+		headers: { "content-length": String(length) },
+	});
+}
+
+/** The first fetch answers at once; the second waits for `release`. */
+function stubReload(first: Response) {
+	let release: (response: Response) => void = () => {};
+	const fetchMock = vi
+		.fn()
+		.mockResolvedValueOnce(first)
+		.mockReturnValueOnce(
+			new Promise<Response>((resolve) => {
+				release = resolve;
+			}),
+		);
+	vi.stubGlobal("fetch", fetchMock);
+	return { fetchMock, release: (response: Response) => release(response) };
+}
+
+test("a reloaded PDF keeps its frame until the new copy is ready", async () => {
+	vi.spyOn(URL, "createObjectURL")
+		.mockReturnValueOnce("blob:one")
+		.mockReturnValueOnce("blob:two");
+	const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+	const { release } = stubReload(pdfResponse(4));
+	const view = render(
+		<PdfView url="/b.pdf?v=1" path="b.pdf" download={null} fallback={fallback} />,
+	);
+	const frame = await screen.findByTitle("b.pdf, PDF");
+	view.rerender(
+		<PdfView url="/b.pdf?v=2" path="b.pdf" download={null} fallback={fallback} />,
+	);
+	expect(screen.queryByText("Loading…")).toBeNull();
+	expect(screen.getByTitle("b.pdf, PDF")).toBe(frame);
+	expect(frame.getAttribute("src")).toBe("blob:one");
+	expect(revoke).not.toHaveBeenCalled();
+
+	release(pdfResponse(4));
+	await vi.waitFor(() => expect(frame.getAttribute("src")).toBe("blob:two"));
+	expect(screen.getByTitle("b.pdf, PDF")).toBe(frame);
+	expect(revoke).toHaveBeenCalledWith("blob:one");
+});
+
+test("a reloaded PDF over the limit keeps its panel and the focus in it", async () => {
+	const { fetchMock, release } = stubReload(pdfResponse(MAX_PDF_VIEW_BYTES + 1));
+	const panel = (title: string) => <button type="button">{title}</button>;
+	const view = render(
+		<PdfView url="/b.pdf?v=1" path="b.pdf" download={null} fallback={panel} />,
+	);
+	const button = await screen.findByText("This PDF is too large to show here");
+	button.focus();
+	view.rerender(
+		<PdfView url="/b.pdf?v=2" path="b.pdf" download={null} fallback={panel} />,
+	);
+	expect(screen.queryByText("Loading…")).toBeNull();
+	release(pdfResponse(MAX_PDF_VIEW_BYTES + 1));
+	await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(screen.getByText("This PDF is too large to show here")).toBe(button);
+	expect(document.activeElement).toBe(button);
+});

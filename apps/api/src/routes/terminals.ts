@@ -319,6 +319,20 @@ export function registerTerminalRoutes(
 		return null;
 	}
 
+	/** End a tmux session whose row is gone; one already ended is fine. */
+	async function endOrphanSession(
+		agent: AgentClient,
+		terminalId: string,
+	): Promise<void> {
+		try {
+			await agent.deleteTerminal(terminalId);
+		} catch (error) {
+			if (!(error instanceof AgentCallError && error.code === "TERMINAL_NOT_FOUND")) {
+				throw error;
+			}
+		}
+	}
+
 	app.post("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
@@ -367,11 +381,6 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
-		const recoveryPointId =
-			body.data.agent !== undefined && project
-				? await agentSessionPoint(request, agent, params.id, project, user.id)
-				: null;
-
 		// The early check can race a parallel create; the lock makes the
 		// recount, the name, the position and the insert one step so the cap
 		// holds and parallel creates never share a name (SPEC.md 9.7).
@@ -400,12 +409,18 @@ export function registerTerminalRoutes(
 					project_id: project ? project.id : null,
 					theme,
 					agent: body.data.agent ?? null,
-					recovery_point_id: recoveryPointId,
 				})
 				.execute();
 			return true;
 		});
 		if (!inserted) return terminalLimit(reply);
+
+		// Taken only once the capped insert holds, so a refused create leaves
+		// no point behind (SPEC.md 9.7), and still before the session starts.
+		const recoveryPointId =
+			body.data.agent !== undefined && project
+				? await agentSessionPoint(request, agent, params.id, project, user.id)
+				: null;
 
 		let baselineObjectId: string | null = null;
 		let baselineHead: string | null = null;
@@ -430,10 +445,17 @@ export function registerTerminalRoutes(
 			.set({
 				baseline_object_id: baselineObjectId,
 				baseline_head: baselineHead,
+				recovery_point_id: recoveryPointId,
 			})
 			.where("id", "=", id)
 			.returningAll()
-			.executeTakeFirstOrThrow();
+			.executeTakeFirst();
+		if (!saved) {
+			// Closed while the recovery point or the session was being made;
+			// the tmux session must not outlive its row.
+			await endOrphanSession(agent, id);
+			return sendError(reply, 404, "TERMINAL_NOT_FOUND", "Terminal not found");
+		}
 
 		return reply.status(201).send(toTerminal(saved));
 	});

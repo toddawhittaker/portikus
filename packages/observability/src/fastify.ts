@@ -90,12 +90,14 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 	app: FastifyInstance<RawServerDefault, IncomingMessage, ServerResponse, Log>,
 	opts: RequestLoggingOptions,
 ): void {
-	app.addHook("onSend", async (request, reply, payload) => {
+	// Synchronous on purpose: an async onSend hook delays the real send past
+	// the end of an async handler, and Fastify then answers the request twice.
+	app.addHook("onSend", (request, reply, payload, done) => {
 		if (reply.statusCode >= 400 && typeof payload === "string" && isJson(reply)) {
 			const details = readErrorBody(payload);
 			if (details) captured.set(request, details);
 		}
-		return payload;
+		done(null, payload);
 	});
 
 	app.addHook("onResponse", async (request, reply) => {

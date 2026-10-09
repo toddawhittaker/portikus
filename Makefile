@@ -3,7 +3,7 @@
 
 .PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
-       publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
+       publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight rehearsal-lti tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister external-port-check
@@ -80,6 +80,12 @@ export TF_VAR_data_disk_size_bytes := $(shell echo $$(( $(REHEARSAL_DATA_DISK_GB
 # restore.sh refuse the VM.
 # An exported PORTIKUS_USERS_FILE does not override this; the command line does.
 PORTIKUS_USERS_FILE := /nonexistent
+# Its own LTI platforms file, trusting a mock LMS on the host's address on
+# the rehearsal network, never the pilot's mock; rehearsal-up writes it.
+PORTIKUS_LTI_PLATFORMS_FILE := $(dir $(REHEARSAL_STATE))lti-platforms.json
+MOCK_LMS_PORT ?= 8766
+MOCK_LMS_HOST ?= $(MOCK_LMS_BRIDGE_IP)
+MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_BRIDGE_IP)
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
@@ -97,8 +103,15 @@ TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), 
 # names a different make target to run first than infra-apply.
 REQUIRE_VM_IP = @test -n "$(VM_IP)" || { echo "$@: no VM address; run make $(or $(1),infra-apply) first or pass VM_IP=<ip>"; exit 1; }
 
-rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for it (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB, REHEARSAL_DATA_DISK_GB size it)
+rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for it, and register its own mock LMS (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB, REHEARSAL_DATA_DISK_GB size it)
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
+	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-lti
+
+# A make of its own, so the mock's address comes from the network infra-apply made.
+rehearsal-lti:
+	@test "$(TOFU_ENV)" = rehearsal-libvirt || { echo "rehearsal-lti: TOFU_ENV must be rehearsal-libvirt"; exit 1; }
+	@test -n "$(MANAGEMENT_CIDR)" || { echo "rehearsal-lti: no rehearsal network in $(TOFU_STATE)"; exit 1; }
+	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL)
 
 rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot), and forget its SSH host key in ~/.ssh/known_hosts
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
@@ -152,6 +165,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/security-mode-test.sh
 	bash packaging/tests/settings-keys-test.sh
 	bash packaging/tests/secrets-yaml-test.sh
+	bash packaging/tests/enable-units-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
@@ -493,6 +507,7 @@ build-workspace-image: ## Build the workspace image on the VM with the image job
 	@here="$$(cd infra/workspace-image && sha256sum portikus.yaml VERSION)"; \
 	there="$$(ssh -n $(SSH_USER)@$(VM_IP) 'cd /usr/share/portikus/workspace-image && sha256sum portikus.yaml VERSION')"; \
 	test "$$here" = "$$there" || { echo "build-workspace-image: the package on $(VM_IP) ships a different image recipe from this checkout; run make deploy-app first"; exit 1; }
+	ssh -n $(SSH_USER)@$(VM_IP) sudo install -d -o $(SSH_USER) -g $(SSH_USER) -m 0755 /var/lib/portikus/incus
 	rsync -av --delete infra/incus/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/incus/
 	ssh -n $(SSH_USER)@$(VM_IP) sudo /usr/lib/portikus/image-job local-build
 

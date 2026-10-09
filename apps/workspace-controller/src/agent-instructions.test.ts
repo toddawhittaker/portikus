@@ -7,10 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+	CLAUDE_MANAGED_SETTINGS_PATH,
 	CLAUDE_SYSTEM_PATH,
 	CODEX_SYSTEM_PATH,
 	codexSystemConfig,
 	writeAgentInstructions,
+	writeClaudeManagedSettings,
 } from "./agent-instructions.js";
 import { IncusClient, IncusError } from "./incus.js";
 
@@ -166,6 +168,63 @@ describe("writeAgentInstructions", () => {
 	});
 });
 
+describe("writeClaudeManagedSettings", () => {
+	const SETTINGS = '{"env": {"BROWSER": ""}}';
+	let settingsPath: string;
+
+	beforeEach(() => {
+		settingsPath = join(mkdtempSync(join(tmpdir(), "managed-settings-")), "s.json");
+		writeFileSync(settingsPath, SETTINGS);
+	});
+
+	test("writes the settings root-owned and 0644, over an edit", async () => {
+		files.files.set(CLAUDE_MANAGED_SETTINGS_PATH, { type: "file", content: "{}" });
+		expect(await writeClaudeManagedSettings(files, "ws-a", settingsPath)).toBe(true);
+		expect(files.files.get(CLAUDE_MANAGED_SETTINGS_PATH)).toEqual({
+			type: "file",
+			content: SETTINGS,
+			mode: "0644",
+			uid: 0,
+		});
+	});
+
+	test("a deleted /etc/claude-code comes back with the settings", async () => {
+		files.files.clear();
+		await writeClaudeManagedSettings(files, "ws-a", settingsPath);
+		expect(files.files.get("/etc/claude-code")?.type).toBe("directory");
+		expect(files.files.get(CLAUDE_MANAGED_SETTINGS_PATH)?.content).toBe(SETTINGS);
+	});
+
+	test("a host without the template writes nothing", async () => {
+		const missing = join(tmpdir(), "no-such-dir-e37", "s.json");
+		expect(await writeClaudeManagedSettings(files, "ws-a", missing)).toBe(false);
+		expect(files.ops).toEqual([]);
+	});
+
+	test("a named pipe, link or other type is deleted then written, never opened", async () => {
+		for (const type of ["fifo", "symlink", "socket"]) {
+			files.ops = [];
+			files.files.set(CLAUDE_MANAGED_SETTINGS_PATH, { type, content: "" });
+			await writeClaudeManagedSettings(files, "ws-a", settingsPath);
+			expect(files.ops).toEqual([
+				"POST /etc/claude-code",
+				`DELETE ${CLAUDE_MANAGED_SETTINGS_PATH}`,
+				`POST ${CLAUDE_MANAGED_SETTINGS_PATH}`,
+			]);
+			expect(files.files.get(CLAUDE_MANAGED_SETTINGS_PATH)?.content).toBe(SETTINGS);
+		}
+	});
+
+	test("a directory at the file path is refused", async () => {
+		files.files.set(CLAUDE_MANAGED_SETTINGS_PATH, { type: "directory", content: "" });
+		files.files.set(`${CLAUDE_MANAGED_SETTINGS_PATH}/x`, { type: "file", content: "" });
+		await expect(
+			writeClaudeManagedSettings(files, "ws-a", settingsPath),
+		).rejects.toThrow(/cannot be replaced/);
+		expect(files.files.get(CLAUDE_MANAGED_SETTINGS_PATH)?.type).toBe("directory");
+	});
+});
+
 describe("codexSystemConfig", () => {
 	test("keeps the update switch and quotes the template as a TOML basic string", () => {
 		const config = codexSystemConfig(TEMPLATE);
@@ -187,5 +246,22 @@ describe("the shipped template", () => {
 		expect(text).toContain("Never commit");
 		expect(text).toContain("docker image ls");
 		expect(text).not.toMatch(/#\d{3}|SPEC|ADR/);
+	});
+});
+
+describe("the shipped managed settings", () => {
+	test("match what the workspace image writes", () => {
+		const shipped = readFileSync(
+			join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
+			"utf8",
+		);
+		const recipe = readFileSync(
+			join(import.meta.dirname, "../../../infra/workspace-image/portikus.yaml"),
+			"utf8",
+		);
+		const entry =
+			recipe.split("- path: /etc/claude-code/managed-settings.json")[1] ?? "";
+		const imageContent = entry.split("content: |-\n")[1]?.split("\n")[0]?.trim();
+		expect(JSON.parse(shipped)).toEqual(JSON.parse(imageContent ?? ""));
 	});
 });

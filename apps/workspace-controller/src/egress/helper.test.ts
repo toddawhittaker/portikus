@@ -448,6 +448,29 @@ describe("a request (ADR 0038)", () => {
 		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress learned_v4/);
 		expect(read("applied.json")).toMatch(/"version":3/);
 	});
+
+	// Setup starts the helper with no request after it rewrites egress.env.
+	test("no request after egress.env changed: dnsmasq gets the new upstream and restarts", async () => {
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		calls = [];
+		seenAtCall = [];
+		writeFileSync(deps.envPath, ENV_TEXT.replace("=127.0.0.53", "=192.0.2.53"));
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(systemctls()).toEqual(["restart portikus-egress-dns.service"]);
+		expect(seenAtCall[0]?.dnsmasq).toContain("server=/github.com/192.0.2.53");
+		expect(read("applied.json")).toMatch(/"version":3/);
+	});
+
+	test("no request with egress.env unchanged: our dnsmasq is not restarted", async () => {
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		calls = [];
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(systemctls()).toEqual([]);
+	});
 });
 
 describe("the helper refuses a bad request and changes nothing", () => {

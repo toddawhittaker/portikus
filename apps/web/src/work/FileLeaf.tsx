@@ -11,8 +11,9 @@ import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
-import { fileInlineUrl } from "../files/queries.js";
-import { viewerKind } from "../files/viewable.js";
+import { baseName, parentOf } from "../files/paths.js";
+import { fileInlineUrl, useTree } from "../files/queries.js";
+import { viewerKind, viewerVersion } from "../files/viewable.js";
 import { type PendingView, useEditorViewState } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
 import { DiffLeaf } from "./DiffLeaf.js";
@@ -119,6 +120,11 @@ export function FileLeaf({
 		buffer.state;
 	// An image, SVG or PDF is shown rather than edited.
 	const kind = viewerKind(path);
+	// The listing gives a large viewed file the size and modified time its
+	// read has no etag for; a change on disk refetches it.
+	const listing = useTree(workspaceId, projectId, parentOf(path), kind !== null);
+	const name = baseName(path);
+	const listed = listing.data?.entries.find((entry) => entry.name === name);
 	const svg = kind === "svg";
 	// Which view this tab shows. It belongs to this browser and is not saved.
 	// An SVG opens as its picture; its text is one button away.
@@ -263,12 +269,11 @@ export function FileLeaf({
 
 	/** A file shown rather than edited: an image, an SVG, a PDF, or a download panel. */
 	function viewerBody(data: NonNullable<typeof file.data>) {
-		// The etag, when there is one, makes a change on disk a new address.
 		const inlineUrl = fileInlineUrl(
 			workspaceId,
 			projectId,
 			path,
-			data.etag || undefined,
+			viewerVersion(data.etag, listed),
 		);
 		if (kind === "image" || kind === "svg") {
 			return (
@@ -318,6 +323,11 @@ export function FileLeaf({
 					{readError.message}
 				</EmptyState>
 			);
+		}
+		// Without an etag the viewer's address is versioned from the listing,
+		// so showing it sooner would load the file twice.
+		if (viewer && data && !data.etag && kind !== null && listing.isPending) {
+			return <p className="pk-file-note">Loading…</p>;
 		}
 		if (viewer && data) return viewerBody(data);
 		if (text === null || !revealReady) {

@@ -10,6 +10,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import { AgentClient } from "../agent-client.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
@@ -413,6 +414,28 @@ test.skipIf(skip)("an unreachable agent gives 503 and leaves no row", async () =
 	const rows = await testDb.db.selectFrom("terminals").selectAll().execute();
 	expect(rows).toHaveLength(0);
 });
+
+test.skipIf(skip)(
+	"a terminal closed while it was being created is 404 and leaves no session",
+	async () => {
+		const original = AgentClient.prototype.createTerminal;
+		const spy = vi
+			.spyOn(AgentClient.prototype, "createTerminal")
+			.mockImplementation(async function (this: AgentClient, input) {
+				// The row goes while the create is still in flight, as a close does.
+				await testDb.db.deleteFrom("terminals").execute();
+				return await original.call(this, input);
+			});
+		try {
+			const response = await create(alice, workspaceId);
+			expect(response.statusCode).toBe(404);
+			expect(response.json().code).toBe("TERMINAL_NOT_FOUND");
+			expect(agent.terminals.size).toBe(0);
+		} finally {
+			spy.mockRestore();
+		}
+	},
+);
 
 test.skipIf(skip)("a bad working directory is a 400 and leaves no row", async () => {
 	agent.failCreateWith = "INVALID_CWD";

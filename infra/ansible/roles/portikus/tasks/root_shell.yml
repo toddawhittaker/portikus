@@ -38,7 +38,8 @@
     - portikus_root_shell_unit.stat.exists
 
 # Off: no new shells, then end the open ones' logind sessions, which also
-# ends what they left running there, such as tmux.
+# ends what they left running there, such as tmux, and what left a session
+# but kept its audit id, such as `systemd-run --scope`.
 - name: Turn the root shell off
   when:
     - not portikus_root_shell | bool
@@ -57,7 +58,17 @@
       ansible.builtin.command:
         argv: [/usr/lib/portikus/root-shell, --end-sessions]
       register: portikus_root_shell_ended
-      changed_when: portikus_root_shell_ended.stdout != 'ended 0'
+      changed_when: portikus_root_shell_ended.stdout_lines[0] != 'ended 0'
+
+    # A unit systemd-run started outlives the session and carries nothing
+    # that says who started it, so setup only names them.
+    - name: Name the units systemd-run started, which a root shell may have
+      ansible.builtin.debug:
+        msg: >-
+          Still running, started by systemd-run, perhaps from a root shell:
+          {{ portikus_root_shell_ended.stdout_lines[1:] | map('regex_replace', '^transient ', '') | join(', ') }}.
+          Stop any you do not expect with systemctl stop.
+      when: portikus_root_shell_ended.stdout_lines | length > 1
 
     - name: Stop any root-shell helper still running
       ansible.builtin.command:

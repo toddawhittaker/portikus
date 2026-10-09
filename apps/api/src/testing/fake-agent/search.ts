@@ -23,6 +23,12 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 		if (!query.success) {
 			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid search query"));
 		}
+		// A query the test marks as busy stands in for one past the running cap.
+		if (query.data.q.includes("busy")) {
+			return reply
+				.status(409)
+				.send({ error: { code: "BUSY", message: "too many searches are running" } });
+		}
 		// A query the test marks as slow stands in for a search still running
 		// when the browser gives up, so cancellation can be observed.
 		if (query.data.q.includes("slow")) {

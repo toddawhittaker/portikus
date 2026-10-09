@@ -5,6 +5,7 @@ import {
 	createSignedInUser,
 	createStudent,
 	expectNoViolations,
+	lockSharedState,
 	loginAs,
 	routeApi,
 	WEB_ORIGIN,
@@ -28,6 +29,17 @@ import {
  * which no local receiver can listen on.
  */
 test.describe.configure({ mode: "serial" });
+
+// Every worker shares the one fake store, so this file holds it alone.
+let release: (() => Promise<void>) | undefined;
+test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState("e2e-notify-store");
+});
+test.afterAll(async () => {
+	await release?.();
+});
 
 test.beforeEach(async () => {
 	await resetNotifyStore();

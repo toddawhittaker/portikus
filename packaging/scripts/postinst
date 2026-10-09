@@ -6,6 +6,8 @@ set -e
 
 # Units the package owns.
 UNITS="portikus-controller.service portikus-worker.service portikus-api.service"
+# Left by preinst on a reinstall after apt remove.
+REINSTALL_MARK=/var/lib/portikus/.reinstall
 
 case "$1" in
 	configure)
@@ -316,6 +318,21 @@ apply_worker_grants() {
 	fi
 }
 
+# Enable the services on a first install ($2, the previously configured
+# version, is empty) and on a reinstall after apt remove, whose postrm
+# dropped their links.  Never on an upgrade, which would undo an
+# administrator's systemctl disable.  Without systemd running, as in a
+# chroot, nothing is enabled, but the mark still goes, or a later upgrade
+# would count as a reinstall.
+enable_units() {
+	if [ -d /run/systemd/system ] && { [ -z "$1" ] || [ -e "$REINSTALL_MARK" ]; }; then
+		for unit in $UNITS; do
+			systemctl enable "$unit" >/dev/null
+		done
+	fi
+	rm -f "$REINSTALL_MARK"
+}
+
 # Nothing to drive when systemd is not running, as in a container or chroot.
 if [ -d /run/systemd/system ]; then
 	# Note which units were running before the reload, so an upgrade restarts them.
@@ -328,13 +345,6 @@ if [ -d /run/systemd/system ]; then
 
 	systemctl daemon-reload
 
-	# $2 holds the previously configured version, so it is empty on first install.
-	if [ -z "$2" ]; then
-		for unit in $UNITS; do
-			systemctl enable "$unit" >/dev/null
-		done
-	fi
-
 	# The Docker caches pick up a changed unit or helper; setup starts them first.
 	systemctl try-restart portikus-registry-hub.service portikus-registry-ghcr.service || true
 
@@ -345,6 +355,8 @@ if [ -d /run/systemd/system ]; then
 		esac
 	done
 fi
+
+enable_units "$2"
 
 apply_worker_grants
 

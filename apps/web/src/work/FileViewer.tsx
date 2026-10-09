@@ -4,7 +4,7 @@
  * goes to the browser's own viewer as a copy held in the page, so its frame
  * never loads a document from the app's address.
  */
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { baseName } from "../files/paths.js";
 import { formatBytes } from "../monitor/format.js";
 
@@ -97,17 +97,30 @@ export interface PdfViewProps {
 /** A PDF in the browser's built-in viewer. */
 export function PdfView({ url, path, download, fallback }: PdfViewProps) {
 	const [state, setState] = useState<PdfState>({ status: "loading" });
+	// The copy on screen. A reload keeps it, and the frame or panel showing it,
+	// until the new copy is in, so the keyboard focus is not lost.
+	const shown = useRef<string | null>(null);
+	useEffect(() => {
+		return () => {
+			if (shown.current !== null) URL.revokeObjectURL(shown.current);
+			shown.current = null;
+		};
+	}, []);
 	useEffect(() => {
 		const controller = new AbortController();
-		let objectUrl: string | null = null;
-		setState({ status: "loading" });
+		function show(next: PdfState) {
+			const previous = shown.current;
+			shown.current = next.status === "ready" ? next.src : null;
+			setState(next);
+			if (previous !== null) URL.revokeObjectURL(previous);
+		}
 		fetch(url, { credentials: "same-origin", signal: controller.signal })
 			.then(async (response) => {
 				if (!response.ok) throw new Error(String(response.status));
 				// An unknown size could be any size, so it is not buffered in the page either.
 				const length = response.headers.get("content-length");
 				if (length === null || !(Number(length) <= MAX_PDF_VIEW_BYTES)) {
-					setState({ status: length === null ? "unsized" : "large" });
+					show({ status: length === null ? "unsized" : "large" });
 					controller.abort();
 					return;
 				}
@@ -116,16 +129,13 @@ export function PdfView({ url, path, download, fallback }: PdfViewProps) {
 				const blob = new Blob([await response.arrayBuffer()], {
 					type: "application/pdf",
 				});
-				objectUrl = URL.createObjectURL(blob);
-				setState({ status: "ready", src: objectUrl });
+				if (controller.signal.aborted) return;
+				show({ status: "ready", src: URL.createObjectURL(blob) });
 			})
 			.catch(() => {
-				if (!controller.signal.aborted) setState({ status: "failed" });
+				if (!controller.signal.aborted) show({ status: "failed" });
 			});
-		return () => {
-			controller.abort();
-			if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
-		};
+		return () => controller.abort();
 	}, [url]);
 
 	if (state.status === "large") return fallback("This PDF is too large to show here");

@@ -264,6 +264,11 @@ make rehearsal-destroy
 
 On a VM that already exists, `make deploy-app` is the quicker path.
 
+The rehearsal VM keeps its own LTI platforms file beside its OpenTofu
+state, never the pilot's. `make rehearsal-up` registers a mock LMS in it at
+the host's address on the rehearsal network, port 8766, and the smoke test
+starts that mock for its run.
+
 **Development path.** `make deploy-app` builds the package on your
 workstation and installs it on the VM directly. It does not go through a
 release, so use it only while developing. The next `make configure-vm` puts
@@ -273,6 +278,8 @@ The three systemd units (`portikus-api`, `portikus-worker`,
 `portikus-controller`) are enabled by the package but will not start until
 their environment file exists (guarded by `ConditionPathExists`). Ansible
 renders those files and starts the units, after which they start on boot.
+The package enables them only on a first install and on a reinstall after
+`apt remove`, so an upgrade keeps an administrator's `systemctl disable`.
 
 There is no `make db-migrate`. Database migrations run from the
 `portikus-api` unit's `ExecStartPre`, so they are applied when the service

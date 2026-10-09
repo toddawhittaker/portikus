@@ -1,6 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
-import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
+import {
+	expectNoViolations,
+	lockSharedState,
+	loginAs,
+	openToggletip,
+	query,
+	SETTINGS_ROW_LOCK,
+} from "./helpers";
 
 /**
  * The admin Network tab: the workspace egress allow-list (SPEC.md
@@ -8,7 +15,7 @@ import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
  * failed, straight in the database, as the worker's apply loop would.
  */
 
-// Every test here shares the one settings row.
+// Every test here shares the one settings row, as do repeats on other workers.
 test.describe.configure({ mode: "serial" });
 
 const SUFFIX = "e2e-egress.test";
@@ -36,6 +43,20 @@ async function markApplied(): Promise<void> {
 		 egress_applied_at = now(), egress_apply_error = null where id = 1`,
 	);
 }
+
+let release: (() => Promise<void>) | undefined;
+
+test.beforeAll(async () => {
+	// The wait for other workers' repeats counts against this hook.
+	test.setTimeout(600_000);
+	release = await lockSharedState(SETTINGS_ROW_LOCK);
+});
+
+test.afterAll(async () => {
+	// Leave the network open, as a new site has it.
+	await reset();
+	await release?.();
+});
 
 async function open(page: Page): Promise<void> {
 	await loginAs(page, "carol");

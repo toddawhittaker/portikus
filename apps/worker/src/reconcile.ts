@@ -892,10 +892,14 @@ async function refreshFromList(
 	controllerUnreachable: boolean,
 ): Promise<Omit<SweepResult, "transitions">> {
 	const { db, config, now } = ctx;
-	// (4) Periodic drift reconciliation from list().
+	// (4) Periodic drift reconciliation from list(). A refresh in the future
+	// means the clock was stepped back, so it is stale too.
+	const sinceRefresh =
+		lastRefreshAt === null ? null : now.getTime() - lastRefreshAt.getTime();
 	const shouldRefresh =
-		lastRefreshAt === null ||
-		now.getTime() - lastRefreshAt.getTime() >= config.STATUS_REFRESH_SECONDS * 1000;
+		sinceRefresh === null ||
+		sinceRefresh < 0 ||
+		sinceRefresh >= config.STATUS_REFRESH_SECONDS * 1000;
 	if (!shouldRefresh) {
 		return { lastRefreshAt, controllerUnreachable, refreshError: null };
 	}

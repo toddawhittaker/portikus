@@ -288,6 +288,25 @@ test.describe("projects", () => {
 		expect(await projectIds(student.workspaceId)).toEqual([]);
 	});
 
+	test("a clone on a full disk says the home folder is full", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "Clone repository");
+		await page.getByTestId("field-name").fill("Full Disk Clone");
+		// The fake agent answers STORAGE_FULL for any url containing "diskfull".
+		await page.getByTestId("field-url").fill("https://example.com/diskfull.git");
+		await page.getByTestId("dialog-confirm").click();
+
+		await expect(page.getByTestId("dialog-create-project")).toContainText(
+			"Your home folder is full. Delete files, then try again.",
+		);
+		expect(await projectIds(student.workspaceId)).toEqual([]);
+	});
+
 	test("a rejected clone url never reaches the agent", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await page.goto(workspacePath(student.workspaceId));

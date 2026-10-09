@@ -5,8 +5,10 @@ plain /bin/sh in place of `login`; nothing here needs root or touches logind.
 Run: python3 -B -m unittest discover -s packaging/root-shell/tests
 """
 
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -31,9 +33,15 @@ def _no_real_loginctl(argv, **_):
     raise AssertionError("a test reached the real loginctl: %r" % (argv,))
 
 
-# A default left in place would end or inspect the test runner's own logind session.
-for _function in (rs.terminate_session, rs.session_service, rs.end_sessions, rs.prune_records, rs.Shell.__init__):
-    _function.__defaults__ = tuple(_no_real_loginctl if d is subprocess.run else d for d in _function.__defaults__)
+def _no_real_kill(pid, session, _proc):
+    raise AssertionError("a test tried to kill process %d of session %s" % (pid, session))
+
+
+# A default left in place would end, inspect or kill the test runner's own logind session.
+_REAL = {id(subprocess.run): _no_real_loginctl, id(rs.kill_in_session): _no_real_kill}
+for _function in (rs.terminate_session, rs.session_service, rs.end_sessions, rs.prune_records, rs.session_over,
+                  rs.transient_units, rs.kill_strays, rs.Shell.__init__):
+    _function.__defaults__ = tuple(_REAL.get(id(d), d) for d in _function.__defaults__)
 
 
 class FakeLogind:
@@ -212,10 +220,52 @@ class EndSessionsTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def process(self, pid, comm, cgroup):
+    def process(self, pid, comm, cgroup, sessionid="4294967295", state=None):
         os.makedirs(os.path.join(self.proc, str(pid)))
         Path(self.proc, str(pid), "comm").write_text(comm + "\n")
         Path(self.proc, str(pid), "cgroup").write_text(cgroup + "\n")
+        Path(self.proc, str(pid), "sessionid").write_text(sessionid)
+        if state is not None:
+            Path(self.proc, str(pid), "stat").write_text("%d (%s) %s 1 %d %d 0 -1\n" % (pid, comm, state, pid, pid))
+
+    def test_kills_what_left_a_root_shell_session_but_keeps_its_audit_id(self):
+        # Sessions 7 and 9 are root shells; 9 has ended because its last process left the scope.
+        logind = FakeLogind(self.dir, {"7": "remote", "6": "login"})
+        self.record(1, "10 7\n")
+        self.record(2, "11 9\n")
+        self.record(3, "12 6\n")  # a console sign-in: never ours
+        self.process(20, "sleep", "0::/system.slice/run-u3.scope", "7")  # systemd-run --scope from shell 7
+        self.process(21, "nohup", "0::/system.slice/run-u4.scope", "9")
+        self.process(22, "bash", "0::/user.slice/user-0.slice/session-6.scope", "6")
+        self.process(23, "cron", "0::/system.slice/cron.service")
+        self.process(24, "sshd", "0::/user.slice/user-0.slice/session-77.scope", "77")
+        killed = []
+        ended = rs.end_sessions(self.run_dir, self.proc, logind,
+                                kill=self.recording_kill(killed))
+        self.assertEqual(sorted(killed), [(20, "7"), (21, "9")])
+        self.assertEqual(ended, 2)
+        self.assertEqual([c for c in logind.calls() if "terminate-session" in c], ["loginctl terminate-session 7"])
+        self.assertEqual(os.listdir(self.run_dir), [])
+
+    def test_a_session_name_that_is_no_audit_id_matches_no_process(self):
+        self.process(20, "sleep", "0::/system.slice/run-u3.scope", "4294967295")
+        self.assertEqual(rs.session_pids("c4", self.proc), [])
+        self.assertEqual(rs.session_pids("4294967295", self.proc), [])
+
+    def test_prune_keeps_an_ended_session_whose_processes_left_its_scope(self):
+        logind = FakeLogind(self.dir, {})
+        kept = self.record(1, "10 9\n")
+        self.record(2, "11 8\n")
+        self.process(21, "nohup", "0::/system.slice/run-u4.scope", "9")
+        rs.prune_records(self.run_dir, logind, self.proc)
+        self.assertEqual(os.listdir(self.run_dir), [kept])
+
+    def test_lists_running_systemd_run_units(self):
+        def systemctl(argv, **_):
+            self.assertEqual(argv[:2], ["systemctl", "list-units"])
+            return subprocess.CompletedProcess(argv, 0, "run-u12.service loaded active running /bin/sleep 900\n"
+                                                         "run-r3f.timer loaded active waiting /bin/true\n")
+        self.assertEqual(rs.transient_units(systemctl), ["run-u12.service", "run-r3f.timer"])
 
     def record(self, n, text):
         name = "%da8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d" % n
@@ -276,6 +326,124 @@ class EndSessionsTest(unittest.TestCase):
         # A new file renamed over the old one: a reader holds either whole.
         self.assertNotEqual(os.stat(os.path.join(self.run_dir, SHELL)).st_ino, old)
 
+    def test_revocation_also_kills_what_left_the_session(self):
+        logind = FakeLogind(self.dir, {"7": "remote"})
+        self.process(20, "sleep", "0::/system.slice/run-u3.scope", "7")
+        self.process(21, "sleep", "0::/system.slice/run-u4.scope", "8")
+        killed = []
+        a, b = socket.socketpair()
+        with a, b:
+            shell = rs.Shell(a, run=logind, proc=self.proc,
+                             kill=self.recording_kill(killed))
+            shell.session = "7"
+            self.assertTrue(shell.end_session())
+        self.assertEqual(killed, [(20, "7")])
+        self.assertEqual(logind.live(), {})
+
+
+    def recording_kill(self, killed):
+        """A kill that notes its target and takes it out of the fake /proc, as a real one does."""
+        def kill(pid, session, proc):
+            killed.append((pid, session))
+            shutil.rmtree(os.path.join(proc, str(pid)))
+            return True
+        return kill
+
+    def forking_kill(self, children):
+        """A kill that removes its target, which first forked a child into the session while it had children left."""
+        killed = []
+        spawned = iter(children)
+
+        def kill(pid, session, proc):
+            killed.append(pid)
+            shutil.rmtree(os.path.join(self.proc, str(pid)))
+            child = next(spawned, None)
+            if child is not None:
+                self.process(child, "sh", "0::/system.slice/run-u5.scope", session)
+            return True
+        return kill, killed
+
+    def test_kill_strays_repeats_until_a_forking_process_has_no_child_left(self):
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7")
+        kill, killed = self.forking_kill([30, 31, 32])
+        self.assertEqual(rs.kill_strays("7", self.proc, kill), (4, 0))
+        self.assertEqual(killed, [20, 30, 31, 32])
+        self.assertEqual(rs.session_pids("7", self.proc), [])
+
+    def test_end_sessions_keeps_the_record_while_a_stray_survives_every_round(self):
+        logind = FakeLogind(self.dir, {})
+        kept = self.record(1, "10 7\n")
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7")
+        attempts = []
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            ended = rs.end_sessions(self.run_dir, self.proc, logind,
+                                    kill=lambda pid, session, proc: attempts.append(pid) or False)
+        self.assertEqual(attempts, [20] * rs.KILL_ROUNDS)
+        self.assertEqual(ended, 0)
+        self.assertEqual(os.listdir(self.run_dir), [kept])
+        self.assertIn("1 processes of session 7 survived", journal.getvalue())
+
+    def test_end_sessions_forgets_the_record_once_a_forking_stray_is_gone(self):
+        logind = FakeLogind(self.dir, {})
+        self.record(1, "10 7\n")
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7")
+        kill, killed = self.forking_kill([30, 31])
+        self.assertEqual(rs.end_sessions(self.run_dir, self.proc, logind, kill=kill), 1)
+        self.assertEqual(killed, [20, 30, 31])
+        self.assertEqual(os.listdir(self.run_dir), [])
+
+    def closing_shell(self, logind, session):
+        """A Shell whose login has exited, at the point close() decides on its record."""
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        shell = rs.Shell(a, run_dir=self.run_dir, run=logind, proc=self.proc,
+                         kill=lambda pid, session, proc: False)
+        shell.protocol.opened = json.loads(open_body())
+        shell.protocol.opened["address"] = "192.0.2.7"
+        shell.pid, shell.status, shell.session, shell.started = 10, 0, session, time.monotonic()
+        rs.create_record(self.run_dir, SHELL)
+        rs.write_record(self.run_dir, SHELL, 10, session)
+        return shell
+
+    def test_close_keeps_the_record_while_a_process_carries_the_session_in_its_proc(self):
+        # Gone from logind, but a process that left its scope still carries the audit id.  An id no real
+        # process is likely to carry, so a check of the real /proc would wrongly call the session over.
+        logind = FakeLogind(self.dir, {})
+        self.process(20, "nohup", "0::/system.slice/run-u4.scope", "987654321")
+        other = self.record(2, "11 987654321\n")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.closing_shell(logind, "987654321").close("client")
+        self.assertEqual(sorted(os.listdir(self.run_dir)), sorted([SHELL, other]))
+
+    def test_close_keeps_the_record_when_a_stray_survives_the_end(self):
+        logind = FakeLogind(self.dir, {"7": "remote"})
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7")
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            self.closing_shell(logind, "7").close("end:session_ended")
+        self.assertEqual(os.listdir(self.run_dir), [SHELL])
+        self.assertIn("1 processes of session 7 survived", journal.getvalue())
+
+    def test_a_zombie_is_no_survivor_and_does_not_keep_the_record(self):
+        # login killed by terminate-session but not yet reaped by the helper; a ") S" in a name must not hide the state.
+        logind = FakeLogind(self.dir, {"7": "remote"})
+        self.process(10, "login) S", "0::/user.slice/user-0.slice/session-7.scope", "7", state="Z")
+        self.process(11, "sh", "0::/system.slice/run-u3.scope", "7", state="Z")
+        self.assertEqual(rs.session_pids("7", self.proc), [])
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            self.closing_shell(logind, "7").close("end:exit")
+        self.assertEqual(os.listdir(self.run_dir), [])
+        self.assertNotIn("survived", journal.getvalue())
+
+    def test_a_live_stray_beside_a_zombie_still_survives(self):
+        self.process(10, "login", "0::/user.slice/user-0.slice/session-7.scope", "7", state="Z")
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7", state="S")
+        attempts = []
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            result = rs.kill_strays("7", self.proc, lambda pid, session, proc: attempts.append(pid) or False)
+        self.assertEqual(result, (0, 1))
+        self.assertEqual(attempts, [20] * rs.KILL_ROUNDS)
+        self.assertIn("1 processes of session 7 survived", journal.getvalue())
 
 class QueueTest(unittest.TestCase):
     def setUp(self):
@@ -355,13 +523,16 @@ class RelayTest(unittest.TestCase):
         busy = "sleep 30\n" if "busy" in name else ""
         # The session outlives the shell, as when the administrator's tmux runs in it.
         self.logind = FakeLogind(self.dir, {"c9": "remote"} if "lives" in name else {})
-        # Prints its size, then echoes lines; records a hang-up in a file.
+        # Prints its size, then echoes lines; records a hang-up in a file.  A
+        # hung-up terminal can read as empty before SIGHUP arrives, so empty
+        # input does not end the loop, or the shell could exit untrapped.
         Path(script).write_text(
             "trap 'echo hup > %s/hup; exit 129' HUP\n"
             "touch %s/started\n" % (self.dir, self.dir) +
             gap + busy +
             "stty size\n"
-            "while read -r line; do\n"
+            "while :; do\n"
+            "  read -r line || { sleep 0.05; continue; }\n"
             "  case $line in size) stty size ;; quit) exit 3 ;; *) echo \"got:$line\" ;; esac\n"
             "done\n")
         self.pid = os.fork()
