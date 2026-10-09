@@ -13,6 +13,20 @@ export function parentOf(path: string): string {
 	return cut === -1 ? "" : path.slice(0, cut);
 }
 
+/**
+ * The key of a directory's "Show more" row. A NUL byte can never be in a
+ * file name, so it never collides with a real row, and its parent is `dir`
+ * so ArrowLeft returns to the folder like any child row does.
+ */
+export function showMorePath(dir: string): string {
+	return joinPath(dir, "\u0000more");
+}
+
+/** "1 entry" or "5 entries". */
+export function entryCount(count: number): string {
+	return `${count.toLocaleString("en")} ${count === 1 ? "entry" : "entries"}`;
+}
+
 /** The last segment of a path. */
 export function baseName(path: string): string {
 	const cut = path.lastIndexOf("/");

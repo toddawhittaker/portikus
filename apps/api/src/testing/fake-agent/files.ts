@@ -245,6 +245,9 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				from !== to &&
 				source.type === "file" &&
 				existing?.type === "file";
+			if (existing?.type === "dir" && from !== to) {
+				throw new FakeFileError("DIRECTORY_EXISTS", "a folder has that name");
+			}
 			if (existing && !replaceable) {
 				throw new FakeFileError("FILE_EXISTS", "that name is already taken");
 			}

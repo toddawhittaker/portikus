@@ -1,10 +1,10 @@
 /**
  * Ask before a rename or move replaces an existing file (SPEC.md §11.2).
- * The agent replaces only a file, never a directory, so a folder in the
- * way still fails with the usual "already taken" message.
+ * The agent replaces only a file, never a directory: a folder in the way
+ * answers DIRECTORY_EXISTS and fails with the usual "already taken" message.
  */
 import { ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { isFileExists } from "./errors.js";
 import { baseName, displayName } from "./paths.js";
 
@@ -21,6 +21,12 @@ interface Pending {
  */
 export function useMoveAskingToReplace(move: Move) {
 	const [pending, setPending] = useState<Pending | null>(null);
+	const pendingRef = useRef<Pending | null>(null);
+	pendingRef.current = pending;
+
+	// A prompt left open when the pane goes away counts as "keep", so a
+	// multi-file Move to loop waiting on it finishes instead of hanging.
+	useEffect(() => () => pendingRef.current?.resolve(false), []);
 
 	const moveAsking = useCallback(
 		async (from: string, to: string, isDir: boolean): Promise<boolean> => {

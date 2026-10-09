@@ -445,8 +445,12 @@ test("move with replace overwrites a file but never a directory", async () => {
 
 	const fileOnDir = await move({ from: "b.txt", to: "dir", replace: true });
 	expect(fileOnDir.statusCode).toBe(409);
+	expect(fileOnDir.json().error.code).toBe("DIRECTORY_EXISTS");
 	const dirOnDir = await move({ from: "other", to: "dir", replace: true });
 	expect(dirOnDir.statusCode).toBe(409);
+	expect(dirOnDir.json().error.code).toBe("DIRECTORY_EXISTS");
+	const dirOnFile = await move({ from: "other", to: "b.txt" });
+	expect(dirOnFile.json().error.code).toBe("FILE_EXISTS");
 	expect((await stat(join(project, "other"))).isDirectory()).toBe(true);
 });
 

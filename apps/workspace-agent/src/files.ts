@@ -491,6 +491,12 @@ export async function move(
 		refuseSymlink: true,
 	});
 	if (target.exists) {
+		// A folder in the way gets its own code, so the student is never
+		// offered a replace that cannot happen (SPEC.md §11.2).
+		const info = await lstat(target.path).catch(() => null);
+		if (source.path !== target.path && info?.isDirectory()) {
+			throw new AgentFailure("DIRECTORY_EXISTS", "a folder has that name");
+		}
 		// Only a file may replace a file; a directory is never overwritten.
 		const replaceable =
 			replace &&

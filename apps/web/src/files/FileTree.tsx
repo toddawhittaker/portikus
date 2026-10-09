@@ -9,12 +9,7 @@
  * (SPEC.md §11.4, §12.3).
  */
 import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
-import {
-	MAX_TREE_ENTRIES,
-	MAX_UPLOAD_BYTES,
-	type Project,
-	type TreeEntry,
-} from "@portikus/contracts";
+import { MAX_UPLOAD_BYTES, type Project, type TreeEntry } from "@portikus/contracts";
 import {
 	Button,
 	ContextMenu,
@@ -68,10 +63,12 @@ import { useWatchLimited } from "./ProjectEvents.js";
 import {
 	baseName,
 	displayName,
+	entryCount,
 	joinPath,
 	nameError,
 	parentOf,
 	reseedFocus,
+	showMorePath,
 	tabIdsUnder,
 	visibleEntries,
 	withoutNested,
@@ -86,6 +83,7 @@ import {
 	useTree,
 } from "./queries.js";
 import { useMoveAskingToReplace } from "./ReplaceFileConfirm.js";
+import { ShowMoreRow } from "./ShowMoreRow.js";
 import {
 	actionTargets,
 	type ClickModifiers,
@@ -149,6 +147,8 @@ interface TreeApi {
 	/** The row whose ⋯ menu is open, so the keyboard can open it. */
 	menuPath: string | null;
 	setMenuPath: (path: string | null) => void;
+	/** Say something in the pane's polite status region. */
+	announce: (text: string) => void;
 }
 
 const TreeContext = createContext<TreeApi | null>(null);
@@ -331,6 +331,7 @@ export function FileTreePane({
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
 	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
 	const [menuPath, setMenuPath] = useState<string | null>(null);
+	const [announcement, setAnnouncement] = useState("");
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
 		| { kind: "new"; dir: string; type: "file" | "dir" }
@@ -393,7 +394,10 @@ export function FileTreePane({
 
 	/** The rows on screen, as nodes. */
 	const visibleNodes = useCallback((): FileNode[] => {
-		return rowElements().map((row) => {
+		const rows = rowElements().filter(
+			(row) => row.getAttribute("data-kind") !== "more",
+		);
+		return rows.map((row) => {
 			const path = row.getAttribute("data-path") ?? "";
 			return {
 				path,
@@ -606,6 +610,7 @@ export function FileTreePane({
 			git,
 			menuPath,
 			setMenuPath,
+			announce: setAnnouncement,
 		}),
 		[
 			workspaceId,
@@ -733,6 +738,11 @@ export function FileTreePane({
 								<p className="pk-watch-limited" data-testid="files-watch-limited">
 									This project is too large to update live. It refreshes when you return
 									to the window.
+								</p>
+							) : null}
+							{announcement ? (
+								<p className="pk-visually-hidden" data-testid="files-announcement">
+									{announcement}
 								</p>
 							) : null}
 						</div>
@@ -985,6 +995,38 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 	const query = useTree(api.workspaceId, api.projectId, dir);
 	// Both agents return directories first, then files, each in name order.
 	const entries = query.data ? visibleEntries(query.data.entries, api.showHidden) : [];
+	const morePath = showMorePath(dir);
+	// The row to focus once the next page is drawn, so focus never drops to the page.
+	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
+	const { rowElements, setFocusedPath, announce, showHidden } = api;
+
+	useEffect(() => {
+		if (focusAfterLoad === null) return;
+		const row = rowElements().find(
+			(element) => element.getAttribute("data-path") === focusAfterLoad,
+		);
+		if (!row) return;
+		setFocusAfterLoad(null);
+		setFocusedPath(focusAfterLoad);
+		row.focus();
+	});
+
+	async function showMore() {
+		const before = entries.length;
+		const result = await query.fetchNextPage();
+		if (!result.data) return;
+		const after = visibleEntries(result.data.entries, showHidden);
+		const added = after.length - before;
+		announce(
+			result.data.truncated
+				? `Loaded ${added.toLocaleString("en")} more ${added === 1 ? "entry" : "entries"}`
+				: `All ${entryCount(after.length)} shown`,
+		);
+		// The first new row; with none visible and the Show more row gone, the last row.
+		const target =
+			added > 0 ? after[before] : result.data.truncated ? null : after.at(-1);
+		if (target) setFocusAfterLoad(joinPath(dir, target.name));
+	}
 
 	return (
 		<>
@@ -992,19 +1034,15 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 				<Row key={entry.name} dir={dir} entry={entry} level={level} />
 			))}
 			{query.data?.truncated ? (
-				// Not a treeitem: it is an action, outside the rows the arrow keys walk.
-				<div className="pk-tree-more" data-testid="file-tree-truncated">
-					<span>Showing {query.data.entries.length} entries.</span>{" "}
-					<Button
-						size="sm"
-						variant="secondary"
-						data-testid="file-tree-show-more"
-						disabled={query.isFetchingNextPage}
-						onClick={() => void query.fetchNextPage()}
-					>
-						Show {MAX_TREE_ENTRIES} more
-					</Button>
-				</div>
+				<ShowMoreRow
+					path={morePath}
+					level={level}
+					shown={entries.length}
+					focused={api.focusedPath === morePath}
+					loading={query.isFetchingNextPage}
+					onFocus={() => setFocusedPath(morePath)}
+					onActivate={() => void showMore()}
+				/>
 			) : null}
 		</>
 	);

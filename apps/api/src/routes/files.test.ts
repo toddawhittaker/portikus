@@ -491,6 +491,12 @@ test.skipIf(skip)("a move replaces a file only when asked to", async () => {
 		type: "file",
 		content: Buffer.from("new\n"),
 	});
+
+	// A folder in the way has its own code, so no replace is offered.
+	agent.files.set("lab/docs", { type: "dir" });
+	const onFolder = await move({ from: "b.md", to: "docs", replace: true });
+	expect(onFolder.statusCode).toBe(409);
+	expect(onFolder.json().code).toBe("DIRECTORY_EXISTS");
 });
 
 test.skipIf(skip)(

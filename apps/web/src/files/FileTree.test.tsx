@@ -273,7 +273,7 @@ describe("the file tree", () => {
 		renderPane();
 
 		expect((await screen.findByTestId("file-tree-truncated")).textContent).toContain(
-			"Showing 1 entries.",
+			"1 entry shown",
 		);
 		expect(screen.queryByText("b.txt")).toBeNull();
 		fireEvent.click(screen.getByTestId("file-tree-show-more"));
@@ -282,6 +282,49 @@ describe("the file tree", () => {
 		expect(screen.getByText("a.txt")).toBeDefined();
 		expect(screen.queryByTestId("file-tree-truncated")).toBeNull();
 		expect(urls.at(-1)).toContain("after=f%2Fa.txt");
+	});
+
+	/** SPEC.md §25.8: Show more is a tree row the keyboard reaches and keeps focus on. */
+	it("loads more from the keyboard, focuses the first new row and says so", async () => {
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("after=")) {
+				return json(200, {
+					entries: [entry(".hidden"), entry("b.txt"), entry("c.txt")],
+					truncated: true,
+					next: "f/c.txt",
+				});
+			}
+			return json(200, {
+				entries: [entry(".env"), entry("a.txt")],
+				truncated: true,
+				next: "f/a.txt",
+			});
+		});
+		useFileViewStore.setState({
+			byProject: { [PROJECT.id]: { expanded: [], showHidden: false } },
+		});
+		renderPane();
+
+		const more = await screen.findByTestId("file-tree-show-more");
+		expect(more.getAttribute("role")).toBe("treeitem");
+		// Hidden entries are not counted.
+		expect(more.textContent).toContain("1 entry shown");
+		const first = await screen.findByTestId("file-row-a.txt");
+		first.focus();
+		fireEvent.keyDown(first, { key: "ArrowDown" });
+		expect(document.activeElement).toBe(more);
+		fireEvent.keyDown(more, { key: "Enter" });
+
+		const next = await screen.findByTestId("file-row-b.txt");
+		await waitFor(() => expect(document.activeElement).toBe(next));
+		expect(screen.getByTestId("files-announcement").textContent).toBe(
+			"Loaded 2 more entries",
+		);
+		expect(screen.getByTestId("file-row-a.txt").getAttribute("aria-selected")).toBe(
+			"false",
+		);
 	});
 
 	/** SPEC.md §11.2: a deleted file leaves no tab behind. */
@@ -835,6 +878,38 @@ describe("the file tree", () => {
 		fireEvent.submit(field.closest("form") as HTMLFormElement);
 
 		await waitFor(() => expect(moves).toHaveLength(1));
+		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
+	});
+
+	/** SPEC.md §11.2: only a file replaces a file, so a folder in the way is not offered. */
+	it("does not offer to replace when a file is renamed onto a folder", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(409, {
+					code: "DIRECTORY_EXISTS",
+					message: "a folder has that name",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: "src" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		expect(
+			await screen.findByText("Something with that name already exists here"),
+		).toBeDefined();
+		expect(moves).toHaveLength(1);
 		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
 	});
 
