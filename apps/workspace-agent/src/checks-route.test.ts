@@ -436,7 +436,7 @@ test("a check with no watchers never pauses", () => {
 	expect(paused).toBe(false);
 });
 
-test("a check starts under choom with a raised OOM score so it dies before the agent", () => {
+test("a check starts under the terminals' process cap and a raised OOM score so it dies before the agent", () => {
 	const calls: Array<{ file: string; args: string[] }> = [];
 	const fakePty = { pid: 0, onData: () => {}, onExit: () => {}, kill: () => {} };
 	const launcher = ((file: string, args: string[]) => {
@@ -450,7 +450,20 @@ test("a check starts under choom with a raised OOM score so it dies before the a
 		cwd: homeDir,
 	});
 	expect(calls).toEqual([
-		{ file: "choom", args: ["-n", "500", "--", "bash", "-lc", "npm test"] },
+		{
+			file: "prlimit",
+			args: [
+				"--nproc=1700:1700",
+				"--",
+				"choom",
+				"-n",
+				"500",
+				"--",
+				"bash",
+				"-lc",
+				"npm test",
+			],
+		},
 	]);
 });
 
