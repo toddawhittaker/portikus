@@ -76,6 +76,8 @@ export interface ServerOptions {
 	 * tell the agent was upgraded under it.
 	 */
 	build?: string;
+	/** Overrides the process cap on a check, so tests do not depend on host load. */
+	checkMaxProcesses?: number;
 	/** Overrides how `docker` runs for the inventory route. For tests. */
 	dockerRunner?: DockerRunner;
 }
@@ -260,7 +262,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.register(filesRoutes, { homeDir: options.homeDir });
 		instance.register(gitRoutes, { homeDir: options.homeDir });
 		instance.register(recoveryRoutes, { homeDir: options.homeDir, recoveryRoot });
-		instance.register(checksRoute, { homeDir: options.homeDir });
+		instance.register(checksRoute, {
+			homeDir: options.homeDir,
+			maxProcesses: options.checkMaxProcesses,
+		});
 		instance.register(packagesRoutes, {
 			...options.packages,
 			homeDir: options.homeDir,
