@@ -319,7 +319,7 @@
           - >-
             lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/egress-drop-all.nft.j2').splitlines()
             | select('match', '^add rule') | list == [
-              'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+              'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } reject with tcp reset',
               'add rule inet portikus_egress forward iifname "portikus-ws" drop']
 
     # ── The outbound abuse limits (SPEC.md 24.2) ──────────────────

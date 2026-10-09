@@ -41,9 +41,9 @@ variable "memory_mb" {
 }
 
 variable "os_disk_size_bytes" {
-  description = "OS disk size in bytes"
+  description = "OS disk size in bytes; large enough for the install test, which builds the workspace image twice in the VM"
   type        = number
-  default     = 21474836480 # 20 GiB
+  default     = 68719476736 # 64 GiB
 }
 
 variable "data_disk_size_bytes" {

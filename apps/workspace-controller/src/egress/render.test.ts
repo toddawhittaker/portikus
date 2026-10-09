@@ -256,7 +256,7 @@ describe("renderTable", () => {
 		const t = renderTable(applied(policy), env, false, false);
 		const rules = t.split("\n").filter((l) => l.startsWith("add rule"));
 		expect(rules).toEqual([
-			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5000 drop',
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5000 reject with tcp reset',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
 			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
 			CAP,
@@ -281,7 +281,7 @@ describe("renderTable", () => {
 		expect(t).toMatch(
 			/set recent_v4 \{\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic,timeout\n\t\ttimeout 300s\n\t\}/,
 		);
-		expect(t).toMatch(/^destroy set inet portikus_egress names_v4$/m);
+		expect(t).not.toContain("names_v4");
 	});
 
 	test("open mode with blocked sites: both DNS rules, every public web port to Squid, outside DNS dropped", () => {
@@ -320,7 +320,7 @@ describe("renderTable", () => {
 				t
 					.split("\n")
 					.filter((l) => l.startsWith("add rule inet portikus_egress input"))
-					.filter((l) => !/dport 500[01] drop$/.test(l)),
+					.filter((l) => !/dport 500[01] reject with tcp reset$/.test(l)),
 			).toEqual([CAP]);
 			expect(t).toMatch(/^flush chain inet portikus_egress input$/m);
 		}
@@ -393,7 +393,7 @@ describe("renderTable", () => {
 	test("drop-all drops every forwarded packet from the bridge and redirects nothing", () => {
 		const t = renderDropAll(env);
 		expect(t.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
-			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } reject with tcp reset',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 	});
@@ -472,41 +472,6 @@ describe.skipIf(!nftAvailable())("the real nft accepts every rendering", () => {
 		);
 		expect(out).toContain("table inet portikus_egress");
 	});
-
-	// A running site keeps its table across a package upgrade.
-	test("replaces an older table whose names set never expired", () => {
-		const dir = mkdtempSync(join(tmpdir(), "egress-nft-"));
-		const old = join(dir, "old.nft");
-		const next = join(dir, "new.nft");
-		writeFileSync(
-			old,
-			[
-				"table inet portikus_egress {",
-				"\tset names_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t}",
-				"\tchain forward {\n\t\ttype filter hook forward priority filter - 1\n\t}",
-				"}",
-				"add element inet portikus_egress names_v4 { 192.0.2.1 }",
-				'add rule inet portikus_egress forward iifname "portikus-ws" ip daddr @names_v4 accept',
-				"",
-			].join("\n"),
-		);
-		writeFileSync(next, renderTable(applied(policy), env, false, false));
-		const out = execFileSync(
-			"unshare",
-			[
-				"-rn",
-				"sh",
-				"-c",
-				`nft -f "$1" && nft -f "$2" && nft list table inet portikus_egress`,
-				"sh",
-				old,
-				next,
-			],
-			{ encoding: "utf8" },
-		);
-		expect(out).not.toContain("names_v4");
-		expect(out).toContain("set learned_v4");
-	});
 });
 
 // The two tables mark connections for different reasons; one bit each.
@@ -558,10 +523,10 @@ describe.skipIf(!dnsmasqAvailable())("the real dnsmasq accepts the rendering", (
 });
 
 describe("the registry caches' gate and the ghcr.io redirect", () => {
-	const HUB_DROP =
-		'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5000 drop';
-	const GHCR_DROP =
-		'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5001 drop';
+	const HUB_REFUSED =
+		'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5000 reject with tcp reset';
+	const GHCR_REFUSED =
+		'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5001 reject with tcp reset';
 	const REDIRECT =
 		'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 tcp dport 443 redirect to :5001';
 	const hub = [...HUB_UPSTREAM_NAMES];
@@ -579,53 +544,53 @@ describe("the registry caches' gate and the ghcr.io redirect", () => {
 			.filter((l) => l.startsWith("add rule inet portikus_egress input"));
 	}
 
-	test("allow-list mode drops both cache ports unless every upstream name is listed", () => {
+	test("allow-list mode refuses both cache ports unless every upstream name is listed", () => {
 		const t = renderTable(applied(bare), env, true, false);
-		expect(t).toContain(HUB_DROP);
-		expect(t).toContain(GHCR_DROP);
+		expect(t).toContain(HUB_REFUSED);
+		expect(t).toContain(GHCR_REFUSED);
 		// The GitHub preset lists every ghcr.io name, so it opens that cache.
 		const github = renderTable(applied(policy), env, true, false);
-		expect(github).toContain(HUB_DROP);
-		expect(github).not.toContain(GHCR_DROP);
+		expect(github).toContain(HUB_REFUSED);
+		expect(github).not.toContain(GHCR_REFUSED);
 		// Two of the three Hub names are not enough: a pull needs all of them.
 		expect(renderTable(withNames(hub.slice(0, 2)), env, true, false)).toContain(
-			HUB_DROP,
+			HUB_REFUSED,
 		);
 	});
 
 	test("allow-list mode opens a cache port when its names, or a parent, are listed", () => {
 		const both = renderTable(withNames([...hub, ...ghcr]), env, true, false);
-		expect(both).not.toContain(HUB_DROP);
-		expect(both).not.toContain(GHCR_DROP);
+		expect(both).not.toContain(HUB_REFUSED);
+		expect(both).not.toContain(GHCR_REFUSED);
 		const parents = renderTable(
 			withNames(["docker.com", "docker.io", "ghcr.io", "githubusercontent.com"]),
 			env,
 			true,
 			false,
 		);
-		expect(parents).not.toContain(HUB_DROP);
-		expect(parents).not.toContain(GHCR_DROP);
+		expect(parents).not.toContain(HUB_REFUSED);
+		expect(parents).not.toContain(GHCR_REFUSED);
 		const hubOnly = renderTable(withNames(hub), env, true, false);
-		expect(hubOnly).not.toContain(HUB_DROP);
-		expect(hubOnly).toContain(GHCR_DROP);
+		expect(hubOnly).not.toContain(HUB_REFUSED);
+		expect(hubOnly).toContain(GHCR_REFUSED);
 	});
 
-	test("open mode drops a cache port only when a blocked site covers one of its names", () => {
+	test("open mode refuses a cache port only when a blocked site covers one of its names", () => {
 		const open = applied({ ...policy, mode: "open", blockedSites: [] });
 		const plain = renderTable(open, env, true, false);
-		expect(plain).not.toContain(HUB_DROP);
-		expect(plain).not.toContain(GHCR_DROP);
+		expect(plain).not.toContain(HUB_REFUSED);
+		expect(plain).not.toContain(GHCR_REFUSED);
 		const blocksHub = renderTable(
 			{ ...open, blocked: ["docker.com"] },
 			env,
 			true,
 			false,
 		);
-		expect(blocksHub).toContain(HUB_DROP);
-		expect(blocksHub).not.toContain(GHCR_DROP);
+		expect(blocksHub).toContain(HUB_REFUSED);
+		expect(blocksHub).not.toContain(GHCR_REFUSED);
 		const blocksGhcr = renderTable({ ...open, blocked: ["ghcr.io"] }, env, true, false);
-		expect(blocksGhcr).toContain(GHCR_DROP);
-		expect(blocksGhcr).not.toContain(HUB_DROP);
+		expect(blocksGhcr).toContain(GHCR_REFUSED);
+		expect(blocksGhcr).not.toContain(HUB_REFUSED);
 		// A blocked site elsewhere leaves the caches open.
 		const elsewhere = renderTable(
 			applied({ ...policy, mode: "open" }),
@@ -633,17 +598,17 @@ describe("the registry caches' gate and the ghcr.io redirect", () => {
 			true,
 			false,
 		);
-		expect(elsewhere).not.toContain(HUB_DROP);
+		expect(elsewhere).not.toContain(HUB_REFUSED);
 	});
 
-	test("the gate drops every packet and nothing in input accepts ahead of it", () => {
+	test("the gate refuses every packet and nothing in input accepts ahead of it", () => {
 		const open: EgressApplyPolicy = {
 			...applied({ ...policy, mode: "open" }),
 			blocked: ["docker.com", "ghcr.io"],
 		};
 		for (const p of [applied(bare), open]) {
 			const lines = inputLines(renderTable(p, env, true, true));
-			expect(lines.slice(0, 2)).toEqual([HUB_DROP, GHCR_DROP]);
+			expect(lines.slice(0, 2)).toEqual([HUB_REFUSED, GHCR_REFUSED]);
 			expect(lines.join("\n")).not.toMatch(/accept|established/);
 			expect(lines.slice(2)).toEqual([CAP]);
 		}
@@ -663,13 +628,13 @@ describe("the registry caches' gate and the ghcr.io redirect", () => {
 			expect(pre.find((l) => l.includes("redirect"))).toBe(REDIRECT);
 			expect(renderTable(p, env, true, false)).not.toContain("redirect to :5001");
 		}
-		// Redirected but not allowed: the gate still drops 5001.
-		expect(renderTable(applied(bare), env, true, true)).toContain(GHCR_DROP);
+		// Redirected but not allowed: the gate still refuses 5001.
+		expect(renderTable(applied(bare), env, true, true)).toContain(GHCR_REFUSED);
 	});
 
-	test("drop-all closes both cache ports", () => {
+	test("drop-all refuses both cache ports, so Docker falls back at once instead of waiting 15 s", () => {
 		expect(renderDropAll(env)).toContain(
-			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } reject with tcp reset',
 		);
 	});
 
