@@ -1,11 +1,12 @@
 /**
  * The diff view of a file tab: that file's changes, HEAD against the working
- * tree (SPEC.md §8.3, §12.6), or against a Git ref the student names. Staged
+ * tree (SPEC.md §8.3, §12.6), or against a Git ref the student names or a
+ * recovery point the student picks (SPEC.md §15.8). Staged
  * and unstaged changes are one picture, so there is no staging state to
  * choose here. The tab above owns the toggle between this view and the
  * editor.
  */
-import { type GitDiff, GitRef } from "@portikus/contracts";
+import { type GitDiff, GitRef, type RecoveryPoint } from "@portikus/contracts";
 import { Button, CONTROL_CLASS, EmptyState, LABEL_CLASS } from "@portikus/ui";
 import {
 	type FormEvent,
@@ -19,6 +20,8 @@ import { errorText } from "../api/request.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { DIFF_KIND, WORD } from "../files/gitStatus.js";
 import { type DiffBase, useGitDiff } from "../files/useGitDiff.js";
+import { pointTime, REASON_LABEL } from "../recovery/labels.js";
+import { useRecoveryPoints } from "../recovery/queries.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a diff tab
 // is actually opened (STACK.md §3).
@@ -37,11 +40,12 @@ const STATUS_NOTE: Record<string, string> = {
  * What the "Compare with" control offers. Each choice is local to this view
  * and never saved in the layout: reopening a file compares with HEAD again.
  */
-type CompareChoice = "head" | "ref";
+type CompareChoice = "head" | "ref" | "point";
 
 const COMPARE_LABELS: Record<CompareChoice, string> = {
 	head: "Last commit",
 	ref: "A Git ref…",
+	point: "A recovery point…",
 };
 
 /** The note under the header; under a base it is that base, not Git HEAD. */
@@ -52,6 +56,8 @@ function statusNote(
 	if (status === "A" && base?.kind === "baseline")
 		return "New since this session started";
 	if (status === "A" && base?.kind === "ref") return `New file (not in ${base.ref})`;
+	if (status === "A" && base?.kind === "point")
+		return "New file (not in this recovery point)";
 	return STATUS_NOTE[status] ?? null;
 }
 
@@ -62,8 +68,89 @@ function diffTitle(
 ) {
 	if (base?.kind === "baseline") return `Diff since session baseline · ${path}`;
 	if (base?.kind === "ref") return `Diff with ${base.ref} · ${path}`;
+	if (base?.kind === "point") return `Diff with recovery point ${base.label} · ${path}`;
 	if (data?.status === "R" && data.oldPath) return `Diff · ${data.oldPath} → ${path}`;
 	return `Diff · ${path}`;
+}
+
+/** A point as the picker and the diff header name it: time and trigger. */
+function pointLabel(point: RecoveryPoint): string {
+	return `${pointTime(point.createdAt)}, ${REASON_LABEL[point.reason]}`;
+}
+
+/**
+ * The project's recovery points, newest first, and a Compare button. The
+ * list loads only once this choice is made, and arrowing through it does not
+ * start a slow archive read per point: only Compare does.
+ */
+function PointPicker({
+	path,
+	workspaceId,
+	projectId,
+	onCompare,
+}: {
+	path: string;
+	workspaceId: string;
+	projectId: string;
+	onCompare: (base: DiffBase) => void;
+}) {
+	const list = useRecoveryPoints(workspaceId, projectId);
+	const [picked, setPicked] = useState("");
+	const points = list.data?.points ?? [];
+	if (list.error) {
+		return (
+			<p className="pk-error m-0 text-[12px] text-status-error" role="alert">
+				{errorText(list.error, "The recovery points could not be loaded.")}
+			</p>
+		);
+	}
+	if (!list.data) {
+		return (
+			<p className="pk-file-note m-0" role="status">
+				Loading recovery points…
+			</p>
+		);
+	}
+	const point = points.find((p) => p.id === picked) ?? points[0];
+	if (!point) {
+		return (
+			<p className="pk-file-note m-0" role="status" data-testid="diff-point-none">
+				This project has no recovery points yet.
+			</p>
+		);
+	}
+	const id = `diff-point-${path}`;
+	return (
+		<>
+			<div className="grid gap-1">
+				<label className={LABEL_CLASS} htmlFor={id}>
+					Recovery point
+				</label>
+				<select
+					id={id}
+					className={`${CONTROL_CLASS} w-72 cursor-pointer`}
+					data-testid="diff-point"
+					value={point.id}
+					onChange={(event) => setPicked(event.target.value)}
+				>
+					{points.map((each) => (
+						<option key={each.id} value={each.id}>
+							{pointLabel(each)}
+						</option>
+					))}
+				</select>
+			</div>
+			<Button
+				type="button"
+				data-testid="diff-point-go"
+				onClick={() =>
+					onCompare({ kind: "point", pointId: point.id, label: pointLabel(point) })
+				}
+			>
+				Compare
+			</Button>
+		</>
+	);
 }
 
 /**
@@ -72,9 +159,13 @@ function diffTitle(
  */
 function CompareWith({
 	path,
+	workspaceId,
+	projectId,
 	onCompare,
 }: {
 	path: string;
+	workspaceId: string;
+	projectId: string;
 	onCompare: (base: DiffBase | undefined) => void;
 }) {
 	const [choice, setChoice] = useState<CompareChoice>("head");
@@ -147,6 +238,14 @@ function CompareWith({
 					</Button>
 				</>
 			) : null}
+			{choice === "point" ? (
+				<PointPicker
+					path={path}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					onCompare={onCompare}
+				/>
+			) : null}
 			{problem ? (
 				<p
 					className="pk-error m-0 basis-full text-[12px] text-status-error"
@@ -187,6 +286,7 @@ export function DiffLeaf({
 		: chosen;
 	const diff = useGitDiff(workspaceId, projectId, path, base);
 	const refBase = base?.kind === "ref" ? base.ref : null;
+	const pointBase = base?.kind === "point" ? base.label : null;
 
 	// Coming back to a diff that was in the background shows what is on disk
 	// now, not what it was when the tab was last looked at (SPEC.md §12.6).
@@ -204,13 +304,27 @@ export function DiffLeaf({
 			return (
 				<EmptyState icon="file" title="This diff could not be shown">
 					{/* A ref the student typed can name nothing; say so out loud. */}
-					<span role={refBase !== null ? "alert" : undefined} data-testid="diff-failed">
+					<span
+						role={refBase !== null || pointBase !== null ? "alert" : undefined}
+						data-testid="diff-failed"
+					>
 						{errorText(diff.error, "The changes could not be loaded. Try again.")}
 					</span>
 				</EmptyState>
 			);
 		}
-		if (!data) return <p className="pk-file-note">Loading…</p>;
+		if (!data) {
+			// Reading one file out of a point's archive can take about a minute
+			// (SPEC.md §15.8), so the wait is explained and announced.
+			if (pointBase !== null) {
+				return (
+					<p className="pk-file-note" role="status" data-testid="diff-point-loading">
+						Reading this file from the recovery point. This can take up to a minute…
+					</p>
+				);
+			}
+			return <p className="pk-file-note">Loading…</p>;
+		}
 		if (data.binary) {
 			// A deleted binary has nothing left on disk to download.
 			const deleted = data.status === "D";
@@ -258,7 +372,9 @@ export function DiffLeaf({
 			<>
 				{/* Monaco's two columns carry no names, so say which side is which. */}
 				<div className="pk-diff-sides" data-testid="diff-sides">
-					<span>{baseline ? "Session start" : (refBase ?? "Last commit")}</span>
+					<span>
+						{baseline ? "Session start" : (refBase ?? pointBase ?? "Last commit")}
+					</span>
 					<span>Your changes</span>
 				</div>
 				<Suspense fallback={<p className="pk-file-note">Loading diff…</p>}>
@@ -299,7 +415,14 @@ export function DiffLeaf({
 				{toolbar}
 			</div>
 			{/* Session review always compares with its baseline (SPEC.md §12.7). */}
-			{baseline ? null : <CompareWith path={path} onCompare={setChosen} />}
+			{baseline ? null : (
+				<CompareWith
+					path={path}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					onCompare={setChosen}
+				/>
+			)}
 			{diff.error && data ? (
 				<div className="pk-file-banner" role="status" data-testid="diff-error">
 					This diff could not be refreshed:{" "}

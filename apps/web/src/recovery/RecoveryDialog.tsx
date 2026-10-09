@@ -1,20 +1,11 @@
-import type { Project, RecoveryPoint, RecoveryReason } from "@portikus/contracts";
+import type { Project, RecoveryPoint } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { DialogError } from "../common/DialogError.js";
 import { formatBytes } from "../monitor/format.js";
+import { pointTime, REASON_LABEL } from "./labels.js";
 import { useCreateRecoveryPoint, useRecoveryPoints } from "./queries.js";
-import { pointTime, RestoreConfirm } from "./RestoreConfirm.js";
-
-export const REASON_LABEL: Record<RecoveryReason, string> = {
-	periodic: "Every 15 minutes",
-	manual: "Made by you",
-	"before-archive": "Before archive",
-	"before-restore": "Before restore",
-	"before-rebuild": "Before rebuild",
-	"agent-session": "Before Claude Code or Codex session",
-	"before-replace-home": "Before home folder replaced",
-};
+import { RestoreConfirm } from "./RestoreConfirm.js";
 
 /**
  * The project's recovery points (SPEC.md §15): when, why and how big each

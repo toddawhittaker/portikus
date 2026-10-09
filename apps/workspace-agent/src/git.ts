@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, mkdtemp, open, readdir, readlink, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,12 +10,12 @@ import {
 	MAX_DIFF_SIDE_BYTES,
 	MAX_GIT_ENTRIES,
 } from "@portikus/contracts";
+import { finishDiff, MISSING, readWorkingTree, type Side } from "./diff-side.js";
 import { AgentFailure } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { runGit } from "./git-runner.js";
 
 /** How much of a side is sniffed for a NUL byte before it is called binary. */
-const SNIFF_BYTES = 8 * 1024;
 
 /** Somewhere to put git stderr that is not the response body (STACK.md §15). */
 export interface GitDebugLog {
@@ -195,13 +195,6 @@ export async function gitStatus(
 	return parsePorcelainV2(result.stdout.toString());
 }
 
-export interface Side {
-	content: Buffer | null;
-	tooLarge: boolean;
-}
-
-export const MISSING: Side = { content: null, tooLarge: false };
-
 /**
  * Read a blob out of HEAD, capped. A path HEAD does not have reads as null,
  * but only when git said so itself: a killed git is an error, not an add.
@@ -234,28 +227,6 @@ export async function showFromHead(
 		return { content: null, tooLarge: true };
 	}
 	return { content: result.stdout, tooLarge: false };
-}
-
-/** Read the working-tree side, capped the same way. */
-export async function readWorkingTree(path: string): Promise<Side> {
-	let info: Awaited<ReturnType<typeof stat>>;
-	try {
-		info = await stat(path);
-	} catch {
-		return MISSING;
-	}
-	if (!info.isFile()) return MISSING;
-	if (info.size > MAX_DIFF_SIDE_BYTES) return { content: null, tooLarge: true };
-	const handle = await open(path, "r");
-	try {
-		return { content: await handle.readFile(), tooLarge: false };
-	} finally {
-		await handle.close();
-	}
-}
-
-function isBinary(side: Side): boolean {
-	return side.content?.subarray(0, SNIFF_BYTES).includes(0) ?? false;
 }
 
 interface PathState {
@@ -879,29 +850,4 @@ export async function showFromRev(
 		return { content: null, tooLarge: true };
 	}
 	return { content: result.stdout, tooLarge: false };
-}
-
-export function finishDiff(
-	before: Side,
-	after: Side,
-	unmerged: boolean,
-	origPath: string | undefined,
-): GitDiff {
-	const tooLarge = before.tooLarge || after.tooLarge;
-	const binary = !tooLarge && (isBinary(before) || isBinary(after));
-	let status: GitDiff["status"];
-	if (unmerged) status = "U";
-	else if (origPath) status = "R";
-	else if (before.content === null && !before.tooLarge) status = "A";
-	else if (after.content === null && !after.tooLarge) status = "D";
-	else status = "M";
-	const hide = tooLarge || binary;
-	return {
-		status,
-		...(origPath ? { oldPath: origPath } : {}),
-		before: hide || before.content === null ? null : before.content.toString("utf8"),
-		after: hide || after.content === null ? null : after.content.toString("utf8"),
-		binary,
-		tooLarge,
-	};
 }

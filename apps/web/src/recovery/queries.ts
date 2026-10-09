@@ -7,6 +7,17 @@ import { request, sendJson } from "../api/request.js";
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
 
+/** One file of a point against its working copy (SPEC.md §15.8, §12.6). */
+export function recoveryPointDiffUrl(
+	workspaceId: string,
+	projectId: string,
+	pointId: string,
+	path: string,
+): string {
+	const query = new URLSearchParams({ path });
+	return `${base(workspaceId, projectId)}/${pointId}/diff?${query}`;
+}
+
 const recoveryKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["recovery-points", workspaceId, projectId] as const,
