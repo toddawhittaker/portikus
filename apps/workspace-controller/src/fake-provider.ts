@@ -192,7 +192,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { forced: false };
 	}
 
-	async list(): Promise<InstanceStatus[]> {
+	async list(_signal?: AbortSignal): Promise<InstanceStatus[]> {
 		this.checkError();
 		return [...this.instances.values()].map((inst) => ({
 			name: inst.name,
@@ -242,7 +242,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return inst;
 	}
 
-	async hostSnapshot(): Promise<HostSnapshot> {
+	async hostSnapshot(_signal?: AbortSignal): Promise<HostSnapshot> {
 		this.checkError();
 		return {
 			observedAt: new Date().toISOString(),
@@ -284,7 +284,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { ...inst.quota };
 	}
 
-	async usage(): Promise<InstanceUsage[]> {
+	async usage(_signal?: AbortSignal): Promise<InstanceUsage[]> {
 		this.checkError();
 		return [...this.instances.values()]
 			.filter((inst) => inst.status === "Running")
@@ -299,7 +299,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 			}));
 	}
 
-	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+	async setCpuAllowance(
+		name: string,
+		allowance: string | null,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		this.validate(name);
 		this.checkError();
 		const inst = this.instances.get(name);
@@ -361,7 +365,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return inst;
 	}
 
-	async setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void> {
+	async setLimits(
+		name: string,
+		limits: SetInstanceLimitsRequest,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		const inst = this.existingInstance(name);
 		if (limits.cpu !== null && limits.cpu > this.hostCpuCount) {
 			throw new IncusError("BAD_REQUEST", `the host has ${this.hostCpuCount} CPUs`);
@@ -369,7 +377,10 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		inst.limits = { ...limits };
 	}
 
-	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+	async addedPackages(
+		name: string,
+		_signal?: AbortSignal,
+	): Promise<AddedPackagesResponse> {
 		const inst = this.existingInstance(name);
 		const file = inst.addedPackagesFile;
 		if (file?.type !== "file") return { image: null, packages: [] };
@@ -380,7 +391,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { image, packages };
 	}
 
-	async keptVolumes(): Promise<KeptVolumesResponse> {
+	async keptVolumes(_signal?: AbortSignal): Promise<KeptVolumesResponse> {
 		this.checkError();
 		const result: KeptVolumesResponse = { snapshots: [], keptHomes: [] };
 		for (const [volume, info] of this.volumes) {
@@ -402,7 +413,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return result;
 	}
 
-	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+	async deleteSnapshot(
+		volume: string,
+		snapshot: string,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		if (
 			!WorkspaceVolumeName.safeParse(volume).success ||
 			!PreChangeSnapshotName.safeParse(snapshot).success
@@ -415,7 +430,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		}
 	}
 
-	async deleteKeptHome(volume: string): Promise<void> {
+	async deleteKeptHome(volume: string, _signal?: AbortSignal): Promise<void> {
 		if (!KeptHomeVolumeName.safeParse(volume).success) {
 			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
 		}
@@ -440,7 +455,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 	/** Holds the build at `prepareSeedBuilder` until resolved, when set. */
 	seedPrepareGate: Promise<void> | null = null;
 
-	async seedInfo(): Promise<SeedInfo | null> {
+	async seedInfo(_signal?: AbortSignal): Promise<SeedInfo | null> {
 		return this.seed;
 	}
 
@@ -472,7 +487,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		this.seedSteps.push("discard");
 	}
 
-	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+	async replaceHome(name: string, _signal?: AbortSignal): Promise<ReplaceHomeResponse> {
 		const inst = this.stoppedInstance(name);
 		const importVolume = `${name}-home-import`;
 		const imported = this.volumes.get(importVolume);
