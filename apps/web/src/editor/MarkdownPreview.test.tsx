@@ -4,9 +4,36 @@
  * scheme must not survive.
  */
 import { readFileSync } from "node:fs";
-import { render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { expect, test, vi } from "vitest";
 import { MarkdownPreview } from "./MarkdownPreview.js";
+
+/**
+ * Stands in for Monaco's colorize. The ts fence gets escaped, classed output
+ * as Monaco gives; the evil fence returns raw markup, as a Monaco bug might.
+ */
+vi.mock("./monaco.js", () => {
+	const escapeHtml = (text: string) =>
+		text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	return {
+		currentThemeName: () => "portikus-light",
+		onThemeChange: () => () => {},
+		colorizeFence: async (code: string, fence: string) => {
+			if (fence === "ts" || fence === "html") {
+				return code
+					.split("\n")
+					.map(
+						(line) => `<span><span class="mtk6">${escapeHtml(line)}</span></span><br/>`,
+					)
+					.join("");
+			}
+			if (fence === "evil") {
+				return '<img src="x" onerror="window.previewRan=1"><span class="mtk1" onclick="window.previewRan=1">a</span><br/>';
+			}
+			return null;
+		},
+	};
+});
 
 test("a GFM table renders as a table", () => {
 	render(<MarkdownPreview text={"| Port | Use |\n| --- | --- |\n| 3000 | web |\n"} />);
@@ -153,6 +180,50 @@ test("frontmatter is a collapsed block of raw text, not Markdown", () => {
 test("a fenced code block renders inside pre and code", () => {
 	const { container } = render(<MarkdownPreview text={"```ts\nconst a = 1;\n```\n"} />);
 	expect(container.querySelector("pre code")?.textContent).toContain("const a = 1;");
+});
+
+test("a fence that names a language is highlighted with the same text", async () => {
+	const { container } = render(
+		<MarkdownPreview text={"```ts\nconst a = 1;\nlet b;\n```\n"} />,
+	);
+	const code = container.querySelector("pre code");
+	await waitFor(() => expect(code?.hasAttribute("data-colorized")).toBe(true));
+	expect(code?.querySelectorAll("span.mtk6")).toHaveLength(2);
+	expect(code?.textContent).toBe("const a = 1;\nlet b;\n");
+});
+
+test("markup inside a highlighted fence renders as text (SPEC.md 24.3)", async () => {
+	const { container } = render(
+		<MarkdownPreview text={"```html\n<img src=x onerror=alert(1)>\n```\n"} />,
+	);
+	const code = container.querySelector("pre code");
+	await waitFor(() => expect(code?.hasAttribute("data-colorized")).toBe(true));
+	expect(container.querySelector("img")).toBeNull();
+	expect(code?.textContent).toBe("<img src=x onerror=alert(1)>\n");
+});
+
+test("raw markup from the highlighter itself never reaches the page", async () => {
+	const { container } = render(<MarkdownPreview text={"```evil\nignored\n```\n"} />);
+	const code = container.querySelector("pre code");
+	await waitFor(() => expect(code?.hasAttribute("data-colorized")).toBe(true));
+	expect(container.querySelector("img")).toBeNull();
+	expect(code?.querySelector("span")?.hasAttribute("onclick")).toBe(false);
+	expect((window as { previewRan?: number }).previewRan).toBeUndefined();
+});
+
+test("a fence in a language Monaco does not know stays plain", async () => {
+	const { container } = render(<MarkdownPreview text={"```nope\nplain text\n```\n"} />);
+	const code = container.querySelector("pre code");
+	// Give the highlighter its turn before checking it left the block alone.
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(code?.hasAttribute("data-colorized")).toBe(false);
+	expect(code?.textContent).toBe("plain text\n");
+});
+
+test("inline code is never highlighted", () => {
+	const { container } = render(<MarkdownPreview text={"Run `npm test` now.\n"} />);
+	expect(container.querySelector("p code")?.textContent).toBe("npm test");
+	expect(container.querySelector("p code")?.hasAttribute("data-colorized")).toBe(false);
 });
 
 // Images with a workspace-relative path do not resolve here; serving them is

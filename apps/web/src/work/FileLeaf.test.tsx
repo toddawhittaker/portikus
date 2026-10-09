@@ -702,6 +702,34 @@ test("an SVG opens as its picture, drawn from the tab's text through img", async
 	expect(await screen.findByRole("img", { name: "logo.svg" })).not.toBeNull();
 });
 
+test("a CSV file opens as its table, and its text is one button away", async () => {
+	seed = { text: "name,score\nAnn,9\n", etag: "etag-csv" };
+	renderLeaf(() => {}, "marks.csv");
+	expect(await screen.findByRole("columnheader", { name: "score" })).not.toBeNull();
+	expect(screen.getByRole("cell", { name: "Ann" })).not.toBeNull();
+	expect(screen.queryByTestId("editor-marks.csv")).toBeNull();
+	expect(
+		screen.getByTestId("file-view-view-marks.csv").getAttribute("aria-pressed"),
+	).toBe("true");
+
+	fireEvent.click(screen.getByTestId("file-view-edit-marks.csv"));
+	await findEditor("marks.csv");
+	expect(screen.queryByRole("table")).toBeNull();
+	fireEvent.click(screen.getByTestId("file-view-view-marks.csv"));
+	expect(await screen.findByRole("table")).not.toBeNull();
+});
+
+test("a CSV file that cannot be read offers its text instead", async () => {
+	seed = { text: 'name\n"never closed\n', etag: "etag-csv" };
+	renderLeaf(() => {}, "broken.csv");
+	await screen.findByText("This file could not be read as CSV");
+	fireEvent.click(screen.getByRole("button", { name: "Show as text" }));
+	await findEditor("broken.csv");
+	expect(
+		screen.getByTestId("file-view-edit-broken.csv").getAttribute("aria-pressed"),
+	).toBe("true");
+});
+
 test("a PDF opens in the browser's viewer from a copy held in the page", async () => {
 	const created: Blob[] = [];
 	const revoked: string[] = [];

@@ -16,6 +16,7 @@ import { fileInlineUrl, useTree } from "../files/queries.js";
 import { viewerKind, viewerVersion } from "../files/viewable.js";
 import { type PendingView, useEditorViewState } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
+import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 import { ImageView, PdfView } from "./FileViewer.js";
 import { type BufferStatus, useFileBuffer } from "./useFileBuffer.js";
@@ -41,7 +42,7 @@ const DiffViewer = lazy(() =>
 
 /**
  * The editor, or this file's changes against the last commit.
- * An SVG also has the picture it draws.
+ * An SVG also has the picture it draws, and a CSV file its table.
  */
 type View = "view" | "edit" | "diff";
 
@@ -61,6 +62,11 @@ const SAME_LINE = 0.01;
 function isMarkdownPath(path: string): boolean {
 	const lower = path.toLowerCase();
 	return lower.endsWith(".md") || lower.endsWith(".markdown");
+}
+
+/** True for the file names that open as a table. */
+function isCsvPath(path: string): boolean {
+	return path.toLowerCase().endsWith(".csv");
 }
 
 const STATUS_LABEL: Record<BufferStatus, string> = {
@@ -126,9 +132,11 @@ export function FileLeaf({
 	const name = baseName(path);
 	const listed = listing.data?.entries.find((entry) => entry.name === name);
 	const svg = kind === "svg";
+	const csv = isCsvPath(path);
 	// Which view this tab shows. It belongs to this browser and is not saved.
-	// An SVG opens as its picture; its text is one button away.
-	const firstView: View = svg ? "view" : "edit";
+	// An SVG opens as its picture and a CSV file as its table; the text is
+	// one button away.
+	const firstView: View = svg || csv ? "view" : "edit";
 	const [view, setView] = useState<View>(firstView);
 	// The pressed button is replaced by its twin in the other header, so the
 	// keyboard is handed to the twin as it mounts.
@@ -188,6 +196,9 @@ export function FileLeaf({
 		(data !== undefined && (kind === "image" || kind === "pdf"));
 	// An SVG small enough to edit has a picture view and a text view.
 	const svgModes = svg && !viewer;
+	// So does a CSV file: its table and its text.
+	const csvModes = csv && !viewer;
+	const viewModes = svgModes || csvModes;
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
@@ -346,6 +357,9 @@ export function FileLeaf({
 				/>
 			);
 		}
+		if (csvModes && view === "view") {
+			return <CsvView path={path} text={text} onShowText={() => pressView("edit")} />;
+		}
 		const editor = (
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
@@ -437,7 +451,7 @@ export function FileLeaf({
 	) : (
 		<fieldset className="pk-segmented pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
-			{svgModes ? (
+			{viewModes ? (
 				<button
 					type="button"
 					ref={viewButtonRef("view")}
@@ -451,7 +465,7 @@ export function FileLeaf({
 			<button
 				type="button"
 				ref={viewButtonRef("edit")}
-				aria-pressed={!inDiff && !(svgModes && view === "view")}
+				aria-pressed={!inDiff && !(viewModes && view === "view")}
 				onClick={() => pressView("edit")}
 				data-testid={`file-view-edit-${path}`}
 			>
