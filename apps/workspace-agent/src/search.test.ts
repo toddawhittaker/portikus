@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -318,3 +318,50 @@ test("the route needs the bearer token", async () => {
 	});
 	expect(response.statusCode).toBe(401);
 });
+
+/** A project with one readable match and one folder ripgrep cannot open. */
+async function lockedProject(slug: string): Promise<string> {
+	const dir = join(homeDir, "projects", slug);
+	await mkdir(join(dir, "locked"), { recursive: true });
+	await writeFile(join(dir, "open.txt"), "lockterm here\n");
+	await writeFile(join(dir, "locked", "inside.txt"), "lockterm hidden\n");
+	await chmod(join(dir, "locked"), 0o000);
+	return dir;
+}
+
+test.skipIf(!haveRg)(
+	"an unreadable folder in the project still returns the other matches",
+	async () => {
+		const dir = await lockedProject("locked-literal");
+		try {
+			const result = await searchProject(homeDir, "locked-literal", "lockterm", {
+				hidden: false,
+			});
+			expect(result.matches.map((match) => match.path)).toEqual(["open.txt"]);
+			const regex = await searchProject(homeDir, "locked-literal", "lock.erm", {
+				hidden: false,
+				regex: true,
+			});
+			expect(regex.matches.map((match) => match.path)).toEqual(["open.txt"]);
+		} finally {
+			await chmod(join(dir, "locked"), 0o755);
+		}
+	},
+);
+
+test.skipIf(!haveRg)(
+	"a valid regex that finds nothing beside an unreadable folder is not the student's pattern",
+	async () => {
+		const dir = await lockedProject("locked-regex");
+		try {
+			const failure = await searchProject(homeDir, "locked-regex", "abs[e]nt", {
+				hidden: false,
+				regex: true,
+			}).catch((error: unknown) => error);
+			expect(failure).toBeInstanceOf(AgentFailure);
+			expect((failure as AgentFailure).code).toBe("SEARCH_FAILED");
+		} finally {
+			await chmod(join(dir, "locked"), 0o755);
+		}
+	},
+);

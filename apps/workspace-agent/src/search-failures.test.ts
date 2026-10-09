@@ -195,3 +195,25 @@ test("a search past the running cap is refused as BUSY, and the slot frees", asy
 	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
 	expect(result.matches).toHaveLength(1);
 });
+
+test("only a regex parse error from ripgrep is the student's pattern", async () => {
+	await useFakeRg('echo "rg: ./x: Permission denied (os error 13)" >&2\nexit 2\n');
+	await expect(
+		searchProject(homeDir, "demo", "ne+dle", { hidden: false, regex: true }),
+	).rejects.toMatchObject({ code: "SEARCH_FAILED" });
+
+	await useFakeRg(
+		'printf "rg: regex parse error:\\n    (\\nerror: unclosed group\\n" >&2\nexit 2\n',
+	);
+	await expect(
+		searchProject(homeDir, "demo", "(", { hidden: false, regex: true }),
+	).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+});
+
+test("exit code 2 after matches returns the matches", async () => {
+	await useFakeRg(
+		`${matchStream()}\necho "rg: ./locked: Permission denied" >&2\nexit 2\n`,
+	);
+	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
+	expect(result.matches).toHaveLength(1);
+});

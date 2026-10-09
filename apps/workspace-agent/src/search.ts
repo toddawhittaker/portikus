@@ -34,6 +34,9 @@ const MAX_LINE_CHARS = 300;
 /** How much line text one search may take from ripgrep before it gives up. */
 const MAX_TEXT_BYTES = 1024 * 1024;
 
+/** How much of ripgrep's stderr is kept, enough for its error heading. */
+const STDERR_TAIL_CHARS = 4096;
+
 /** One line of a ripgrep `--json` stream, as much of it as we read. */
 interface RgLine {
 	type: string;
@@ -204,22 +207,30 @@ export async function searchProject(
 			index = buffer.indexOf("\n");
 		}
 	});
-	// Drain stderr so a noisy run cannot fill the pipe and stall ripgrep.
-	child.stderr?.resume();
+	// Read stderr so a noisy run cannot stall ripgrep; only its tail is kept,
+	// to tell a bad pattern from an unreadable file. It is never logged.
+	let stderr = "";
+	child.stderr?.setEncoding("utf8");
+	child.stderr?.on("data", (chunk: string) => {
+		stderr = (stderr + chunk).slice(-STDERR_TAIL_CHARS);
+	});
 
 	try {
 		const code = await new Promise<number | null>((resolve, reject) => {
 			child.on("error", reject);
 			child.on("close", (exitCode) => resolve(exitCode));
 		});
-		// 0 means matches, 1 means none, 2 an error. ripgrep refuses a bad
-		// pattern before it reads any file, so a regex run that ends in 2 with
-		// nothing found is the student's pattern, not a server fault.
-		if (!stopped && code === 2 && options.regex && matches.length === 0) {
-			throw new AgentFailure("PATTERN_INVALID", PATTERN_INVALID_MESSAGE);
-		}
-		// Anything else is a real failure.
-		if (!stopped && code !== 0 && code !== 1) {
+		// 0 means matches, 1 means none, 2 an error. An error can be a bad
+		// pattern, refused before any file is read, or a file or folder
+		// ripgrep could not open while it still searched the rest.
+		if (!stopped && code === 2) {
+			if (options.regex && stderr.includes("regex parse error")) {
+				throw new AgentFailure("PATTERN_INVALID", PATTERN_INVALID_MESSAGE);
+			}
+			if (matches.length === 0) {
+				throw new AgentFailure("SEARCH_FAILED", "search failed");
+			}
+		} else if (!stopped && code !== 0 && code !== 1) {
 			throw new AgentFailure("SEARCH_FAILED", "search failed");
 		}
 	} catch (error) {
