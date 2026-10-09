@@ -7,9 +7,9 @@ import type { Terminal, TerminalTheme } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
-import { useSpeechInput } from "./useSpeechInput.js";
 
 export interface TerminalLeafProps {
 	workspaceId: string;

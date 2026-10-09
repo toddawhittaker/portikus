@@ -6,6 +6,8 @@
 import type * as Monaco from "monaco-editor";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useEditorZoom } from "../layout/store.js";
+import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
+import { insertText } from "./insertText.js";
 import {
 	accessibilitySupport,
 	baseEditorOptions,
@@ -59,6 +61,11 @@ export interface CodeEditorProps {
 	 * can put the same line at the top of the other side.
 	 */
 	onTopLine?: (line: number) => void;
+	/**
+	 * Alt+Shift+M held in the editor calls this with true, and its release
+	 * with false, for hold-to-talk (SPEC.md §25.10).
+	 */
+	onVoiceHold?: (held: boolean) => void;
 	/** Lets the tab scroll this editor to a line. */
 	ref?: Ref<CodeEditorHandle>;
 }
@@ -66,6 +73,8 @@ export interface CodeEditorProps {
 export interface CodeEditorHandle {
 	/** Scroll so this source line is the first one showing. */
 	setTopLine: (line: number) => void;
+	/** Type at the cursor, replacing any selection, as one undo step. */
+	insertText: (text: string) => void;
 }
 
 export function CodeEditor({
@@ -81,6 +90,7 @@ export function CodeEditor({
 	viewState,
 	onViewState,
 	onTopLine,
+	onVoiceHold,
 	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
@@ -122,6 +132,7 @@ export function CodeEditor({
 		revealLine,
 		onViewState,
 		onTopLine,
+		onVoiceHold,
 	});
 	latest.current = {
 		value,
@@ -131,6 +142,7 @@ export function CodeEditor({
 		revealLine,
 		onViewState,
 		onTopLine,
+		onVoiceHold,
 	};
 
 	useImperativeHandle(ref, () => ({
@@ -138,6 +150,10 @@ export function CodeEditor({
 			const editor = editorRef.current;
 			if (!editor) return;
 			editor.setScrollTop(editorScrollTop(editor, line));
+		},
+		insertText(text: string) {
+			const editor = editorRef.current;
+			if (editor) insertText(editor, text);
 		},
 	}));
 
@@ -325,6 +341,40 @@ export function CodeEditor({
 		}
 		node.addEventListener("keydown", onKeyDown);
 		return () => node.removeEventListener("keydown", onKeyDown);
+	}, []);
+
+	// Alt+Shift+M listens while held (SPEC.md §25.10). Capture, so the key
+	// is taken before Monaco can type the character Alt makes on a Mac.
+	useEffect(() => {
+		const node = container.current;
+		if (!node) return;
+		let held = false;
+		function release() {
+			if (!held) return;
+			held = false;
+			latest.current.onVoiceHold?.(false);
+		}
+		function onKeyDown(event: KeyboardEvent) {
+			const hold = latest.current.onVoiceHold;
+			if (!hold || !isVoiceShortcut(event)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (held) return;
+			held = true;
+			hold(true);
+		}
+		function onKeyUp(event: KeyboardEvent) {
+			if (held && endsVoiceShortcut(event)) release();
+		}
+		node.addEventListener("keydown", onKeyDown, true);
+		node.addEventListener("keyup", onKeyUp, true);
+		node.addEventListener("focusout", release);
+		return () => {
+			node.removeEventListener("keydown", onKeyDown, true);
+			node.removeEventListener("keyup", onKeyUp, true);
+			node.removeEventListener("focusout", release);
+			release();
+		};
 	}, []);
 
 	// The theme follows the page's choice (shell/theme.ts). One watcher serves
