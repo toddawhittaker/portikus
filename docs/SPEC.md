@@ -733,7 +733,10 @@ a recovery archive, has a different identity and is honestly a new project. A
 directory whose identity belongs to no row is discovered under the existing
 rule: only if it is a Git repository.
 
-Rename changes the name, the slug, and the directory together. The agent moves
+Rename changes the name, the slug, and the directory together. A row with no
+recorded directory identity first gets one from the agent's listing, so a
+failure between the folder move and the row update is healed by the next
+listing. The agent moves
 the directory and refuses if the target already exists; the control plane
 rewrites the working-directory prefix of that project's terminal rows in the
 same transaction. Running shells are unaffected, because a process's working
@@ -1022,9 +1025,15 @@ the browser's scrollback, so a reload shows earlier output above the
 prompt; the platform still stores no terminal output anywhere. tmux does
 not pass `clear`'s erase-scrollback on, so when a pane's history drops to
 nothing the agent sends `{"type":"clear"}` and the browser drops its own
-scrollback (issue #882). The agent polls every half second, so a `clear`
-followed at once by more than a screen of output (`clear && npm test`) is
-not detected. Growing the pane taller can pull the whole history back onto
+scrollback (issue #882). The agent also reads a copy of each pane's
+output through tmux's `pipe-pane -O` into a FIFO in its runtime directory,
+scans it for the erase-scrollback sequence, and sends the clear at once, so
+`clear && npm test` clears too; the bytes are dropped after the scan and
+never logged. The pipe starts when a terminal is created and when the agent
+starts with terminals already running. The half-second poll remains for a
+pane whose pipe was replaced. The browser draws tmux's redraw, so a line
+printed in the same instant as the clear may land either side of the wipe.
+Growing the pane taller can pull the whole history back onto
 the screen, which also sends a clear.
 
 The browser connects to the control plane at
@@ -1217,13 +1226,18 @@ P0 file-tree operations:
 - create file;
 - create directory;
 - rename;
-- move within the project;
+- move within the project (a move may replace an existing file when the
+  student confirms, never a directory);
 - delete file/directory with application-styled confirmation where appropriate;
 - upload;
 - drag-and-drop upload;
 - download file;
 - download directory/project as archive;
 - extract a zip into a new folder beside it (§11.6).
+
+A directory listing returns at most 2,000 entries per page with a
+continuation token (the last entry sent, so a change between pages does not
+shift the rest); the tree offers **Show more** for the rest.
 
 ### 11.3 Hidden and generated files
 
@@ -1277,6 +1291,11 @@ reconnecting for that project, refreshes Files and Changes when the window
 regains focus and after the student's own file actions, and the Files pane
 says once: "This project is too large to update live. It refreshes when you
 return to the window."
+
+While a browser shows hidden files, the agent also follows the top-level
+generated folders and the entries directly inside them, with a second watcher
+that runs only while such a browser is connected; deeper changes inside them
+wait for the next refetch.
 
 ### 11.5 Project-wide search
 
@@ -1922,7 +1941,13 @@ active, non-missing projects; a project is due when
 (default 900). Retention gives every point an expiry of
 `RECOVERY_RETENTION_DAYS` (default 14). After expiry, the worker deletes
 points oldest first until the workspace's stored total is at or below 90%
-of its allowance. The newest point of each project is never deleted.
+of its allowance. The newest point of each project is never deleted. Once
+per sweep the worker lists the archives on each workspace's recovery volume
+and deletes any file older than one hour that has no `recovery_points` row,
+at most 20 per workspace per sweep, stopping at the first failure. The
+`.portikus-aside-*` folders a failed restore leaves in the student's home are
+never deleted automatically, because they may hold the only copy of the
+student's files.
 
 Restore checks the archive's SHA-256 against the row and refuses a
 mismatch, then lists the members and refuses any absolute or `..` path
@@ -2380,7 +2405,7 @@ One student's CPU, memory, storage, process count, or Docker workload must not m
 
 When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: both the workspace agent's unit and the terminals unit set `OOMPolicy=continue`, so the rest keep running.
 
-On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling, which Docker containers share. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
+On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling. On images from 2026.10.1 Docker puts every container under `portikus-docker.slice` (the `cgroup-parent` in daemon.json, which the controller also writes before each start), capped at `TasksMax=1000`, so containers together cannot take the room the agent and the terminals need; each container's own scope stops at systemd's default of 15%, 300. The slice cap guards against accidents, not a determined student. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
 
 `/tmp` is a tmpfs capped at 512 MB and `/dev/shm` at 256 MB, so a big temporary file fails with "No space left on device" instead of using up the workspace's memory.
 
@@ -2484,9 +2509,11 @@ instance and writing nothing, and returns the top ten
 processes by CPU over one second and the top ten by resident memory,
 each with PID, uid, short name (control characters replaced, at most 15
 characters), start ticks, CPU percent of the instance's CPU limit,
-resident bytes and whether it is protected (PID 1, not uid 1000, or the
-main process of the agent's unit or of `portikus-terminals.service`,
-recognised by its cgroup, not its name). `GET /admin/workspaces/:id/processes` returns
+resident bytes and whether it is protected (PID 1, not uid 1000, or one of the
+processes the agent's stop refuses: the agent, its attach clients, the tmux
+server and the pane shells, which the worker reads from the agent's
+`GET /processes/protected` by PID and start ticks; if the agent does not
+answer, only the first two rules apply). `GET /admin/workspaces/:id/processes` returns
 the latest snapshot, with `takenAt` null until it is served and `error`
 set to a code when it could not be read. Snapshots are deleted after an
 hour. **Stop** (`POST /admin/workspaces/:id/processes/:pid/stop`, body
@@ -3606,16 +3633,18 @@ errors.
 
 **Registry cache gate (Epic 26).** The pull cache must not bypass the
 policy. The egress helper renders an input-hook chain in `inet
-portikus_egress` that drops every packet to the gateway's ports 5000 and
-5001, with no "established" accept ahead of it, unless the policy's own
+portikus_egress` that refuses every packet to the gateway's ports 5000 and
+5001 with a TCP reset, with no "established" accept ahead of it, unless the policy's own
 name matcher allows fixed names: for Docker Hub `registry-1.docker.io`,
 `auth.docker.io` and `production.cloudflare.docker.com`; for ghcr.io
 `ghcr.io` and `pkg-containers.githubusercontent.com`. This covers
 allow-list mode and open mode's blocked sites alike. While the ghcr.io
 cache is on, the helper also renders the redirect of gateway TCP 443 to
 5001 behind the same gate. The Incus ACL opens only 5000 and 5001 on the
-gateway, never 443. `egress-drop-all.nft` and the guard table drop both
-ports, so a failure closes them. The worker leaves a mirror out of the
+gateway, never 443. `egress-drop-all.nft` and the guard table refuse both
+ports the same way, so a failure closes them. A reset, not a drop, because
+Docker waits 15 seconds on a silent mirror before it falls back to the
+registry. The worker leaves a mirror out of the
 workspace's Docker settings when the policy would drop its names. The
 name lists live in `packages/contracts` beside the ports, shared by the
 worker and the render. When the registry helper changes the ghcr.io
