@@ -13,6 +13,7 @@ import { Writable } from "node:stream";
 import {
 	AgentCreateRecoveryPointResponse,
 	AgentRecoveryArchiveList,
+	GitDiff,
 } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -102,6 +103,7 @@ test("every recovery route needs the token", async () => {
 	for (const [method, url] of [
 		["POST", "/projects/alpha/recovery-points"],
 		["POST", `/projects/alpha/recovery-points/${pointId}/restore`],
+		["GET", `/projects/alpha/recovery-points/${pointId}/diff`],
 		["DELETE", `/recovery-points/${projectId}/${pointId}`],
 		["DELETE", `/recovery-points/${projectId}`],
 		["GET", "/recovery-points"],
@@ -276,6 +278,44 @@ test("the listing names each archive by project and point with its time", async 
 		pointId,
 		modifiedAt: expect.any(String),
 	});
+});
+
+test("diff answers the point's version against the working copy; bad queries are 400", async () => {
+	const projectId = randomUUID();
+	const pointId = randomUUID();
+	const made = AgentCreateRecoveryPointResponse.parse(
+		(await create({ projectId, pointId })).json(),
+	);
+	if (!made.created) throw new Error("expected a point");
+	await writeFile(
+		join(homeDir, "projects", "alpha", "src", "private-name.txt"),
+		"v2\n",
+	);
+	const url = (query: Record<string, string>) =>
+		`/projects/alpha/recovery-points/${pointId}/diff?${new URLSearchParams(query)}`;
+
+	const ok = await app.inject({
+		method: "GET",
+		url: url({ projectId, path: "src/private-name.txt", sha256: made.sha256 }),
+		headers,
+	});
+	expect(ok.statusCode).toBe(200);
+	expect(GitDiff.parse(ok.json())).toMatchObject({
+		status: "M",
+		before: "v1\n",
+		after: "v2\n",
+	});
+
+	const refusals: Record<string, string>[] = [
+		{ projectId, path: "../x", sha256: made.sha256 },
+		{ projectId, path: "src/private-name.txt", sha256: "nothex" },
+		{ projectId: "nope", path: "src/private-name.txt", sha256: made.sha256 },
+		{ projectId, path: "src/private-name.txt", sha256: made.sha256, extra: "1" },
+	];
+	for (const query of refusals) {
+		const refused = await app.inject({ method: "GET", url: url(query), headers });
+		expect(refused.statusCode).toBe(400);
+	}
 });
 
 test("logs carry ids and sizes, never file names", () => {

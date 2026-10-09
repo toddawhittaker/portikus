@@ -328,6 +328,7 @@ export function createFakeAgentState(token: string) {
 	const recoveryFull = new Set<string>();
 	const restoreIncomplete = new Set<string>();
 	const restoreFailure = new Map<string, [number, string]>();
+	const diffFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
 	const processes = new Map<string, FakeProcess[]>();
 	const memory = new Map<string, { usedBytes: number; totalBytes: number }>();
@@ -381,6 +382,7 @@ export function createFakeAgentState(token: string) {
 		recoveryFull,
 		restoreIncomplete,
 		restoreFailure,
+		diffFailure,
 		storage,
 		processes,
 		memory,
