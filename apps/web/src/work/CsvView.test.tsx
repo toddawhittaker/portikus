@@ -33,7 +33,7 @@ test("the scroll area takes focus and is named after the file", () => {
 test("a short row is padded so every column lines up, and a wide one gets a named header", () => {
 	render(<CsvView path="x.csv" text={"a,b\n1\n2,3,4\n"} onShowText={() => {}} />);
 	const rows = screen.getAllByRole("row");
-	expect(rows.map((row) => row.children.length)).toEqual([3, 3, 3]);
+	expect(rows.map((row) => row.children.length)).toEqual([4, 4, 4]);
 	expect(screen.getByRole("columnheader", { name: "Column 3" })).not.toBeNull();
 });
 
@@ -99,4 +99,57 @@ test("a very wide file draws the first 200 columns and says how many there are",
 	);
 	// A generous bound: drawing every column took minutes.
 	expect(performance.now() - start).toBeLessThan(5000);
+});
+
+function bodyOrder(): string[] {
+	return screen
+		.getAllByRole("row")
+		.slice(1)
+		.map(
+			(row) =>
+				`${within(row).getByRole("rowheader").textContent}:${row.children[1]?.textContent}`,
+		);
+}
+
+const SCORES = "name,score\nAnn,10\nBo,9\nCy,\nDee,2\n";
+
+test("a header click cycles ascending, descending, then file order, with aria-sort", () => {
+	render(<CsvView path="s.csv" text={SCORES} onShowText={() => {}} />);
+	const header = () => screen.getByRole("columnheader", { name: /score/ });
+	expect(header().getAttribute("aria-sort")).toBe("none");
+	fireEvent.click(within(header()).getByRole("button"));
+	expect(header().getAttribute("aria-sort")).toBe("ascending");
+	expect(bodyOrder()).toEqual(["4:Dee", "2:Bo", "1:Ann", "3:Cy"]);
+	fireEvent.click(within(header()).getByRole("button"));
+	expect(header().getAttribute("aria-sort")).toBe("descending");
+	expect(bodyOrder()).toEqual(["1:Ann", "2:Bo", "4:Dee", "3:Cy"]);
+	fireEvent.click(within(header()).getByRole("button"));
+	expect(header().getAttribute("aria-sort")).toBe("none");
+	expect(bodyOrder()).toEqual(["1:Ann", "2:Bo", "3:Cy", "4:Dee"]);
+	expect(screen.getByRole("status").textContent).toBe("Sorted in file order");
+});
+
+test("sorting is announced and only one column is sorted at a time", () => {
+	render(<CsvView path="s.csv" text={SCORES} onShowText={() => {}} />);
+	fireEvent.click(screen.getByRole("button", { name: /score/ }));
+	expect(screen.getByRole("status").textContent).toBe("Sorted by score, ascending");
+	fireEvent.click(screen.getByRole("button", { name: /name/ }));
+	expect(
+		screen.getByRole("columnheader", { name: /score/ }).getAttribute("aria-sort"),
+	).toBe("none");
+	expect(
+		screen.getByRole("columnheader", { name: /name/ }).getAttribute("aria-sort"),
+	).toBe("ascending");
+});
+
+test("the whole file is sorted before the first 1,000 rows are drawn", () => {
+	const text = ["n", ...Array.from({ length: 1500 }, (_, i) => String(i + 1))].join(
+		"\n",
+	);
+	render(<CsvView path="big.csv" text={text} onShowText={() => {}} />);
+	const button = screen.getByRole("button", { name: /n/ });
+	fireEvent.click(button);
+	fireEvent.click(button);
+	expect(screen.getAllByRole("row")).toHaveLength(1001);
+	expect(screen.getAllByRole("rowheader")[0]?.textContent).toBe("1500");
 });

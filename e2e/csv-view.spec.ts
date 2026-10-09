@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { createStudent, expectNoViolations, openFileTab } from "./helpers";
+import {
+	createStudent,
+	expectNoViolations,
+	openFileTab,
+	readSeededFile,
+} from "./helpers";
 
 /**
  * A CSV file opens as a read-only table with its text one button away
@@ -57,6 +62,45 @@ test("a CSV file opens as a table, and Edit and View switch between table and te
 	await expect(page.getByRole("table")).toHaveCount(0);
 	await page.getByTestId(`file-view-view-${path}`).click();
 	await expect(table).toBeVisible();
+});
+
+test("column headers sort a view of the table and the file keeps its order", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const student = await createStudent(context);
+	const path = "scores.csv";
+	const content = "name,score\nAnn,10\nBo,9\nCy,\nDee,2\n";
+	const project = await openFileTab(page, student, "Csv sort", path, content);
+	const region = page.getByRole("region", { name: `${path} table` });
+	await expect(region.getByRole("table")).toBeVisible({ timeout: 15_000 });
+	const numbers = region.getByRole("rowheader");
+	const names = region.locator("tbody tr td:first-of-type");
+	const score = region.getByRole("columnheader", { name: "score" });
+	await expect(numbers).toHaveText(["1", "2", "3", "4"]);
+	await expect(score).toHaveAttribute("aria-sort", "none");
+
+	await score.getByRole("button").click();
+	await expect(score).toHaveAttribute("aria-sort", "ascending");
+	await expect(names).toHaveText(["Dee", "Bo", "Ann", "Cy"]);
+	await expect(numbers).toHaveText(["4", "2", "1", "3"]);
+
+	// Keyboard activation: focus the button and press Enter.
+	await score.getByRole("button").focus();
+	await page.keyboard.press("Enter");
+	await expect(score).toHaveAttribute("aria-sort", "descending");
+	await expect(names).toHaveText(["Ann", "Bo", "Dee", "Cy"]);
+	await expect(page.getByRole("status").filter({ hasText: "Sorted by" })).toHaveText(
+		"Sorted by score, descending",
+	);
+
+	await page.keyboard.press("Space");
+	await expect(score).toHaveAttribute("aria-sort", "none");
+	await expect(names).toHaveText(["Ann", "Bo", "Cy", "Dee"]);
+
+	await score.getByRole("button").click();
+	expect(await readSeededFile(student.workspaceId, project.slug, path)).toBe(content);
 });
 
 test("the keyboard reaches the table and scrolls it", async ({ page, context }) => {
@@ -162,6 +206,9 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 		await expectNoViolations(page);
 		await page.getByRole("region", { name: `${path} table` }).focus();
+		await expectNoViolations(page);
+		// A sorted column, with its marker and focus ring.
+		await page.getByRole("columnheader", { name: "score" }).getByRole("button").click();
 		await expectNoViolations(page);
 	});
 
