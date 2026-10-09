@@ -198,6 +198,9 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	});
 
+	// The fake extracts at once, so nothing is ever in progress.
+	app.get("/projects/:slug/extract/progress", async () => ({ done: 0, total: 0 }));
+
 	app.post("/projects/:slug/extract", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		const path = (request.body as { path?: string }).path ?? "";

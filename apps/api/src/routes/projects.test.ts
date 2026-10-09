@@ -5,7 +5,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { MAX_DOWNLOAD_BYTES, MAX_LAYOUT_BYTES_PER_USER } from "@portikus/contracts";
+import {
+	MAX_DOWNLOAD_BYTES,
+	MAX_DOWNLOAD_PATHS,
+	MAX_LAYOUT_BYTES_PER_USER,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -683,6 +687,40 @@ test.skipIf(skip)(
 			headers: { cookie: alice.cookieHeader() },
 		});
 		expect(download.statusCode).toBe(413);
+	},
+);
+
+test.skipIf(skip)(
+	"a selection download sends every path, checks them, and caps the count",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "pick", source: "new" })
+		).json();
+		agent.files.set("pick/a.txt", { type: "file", content: Buffer.from("a") });
+		agent.files.set("pick/c.txt", { type: "file", content: Buffer.from("c") });
+		agent.files.set("pick/b.bin", {
+			type: "file",
+			content: Buffer.alloc(0),
+			apparentSize: MAX_DOWNLOAD_BYTES,
+		});
+		const get = (query: string) =>
+			app.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/projects/${project.id}/download?${query}`,
+				headers: { cookie: alice.cookieHeader() },
+			});
+		const zipped = await get("path=a.txt&path=c.txt");
+		expect(zipped.statusCode).toBe(200);
+		expect(zipped.headers["content-disposition"]).toContain('filename="pick.zip"');
+		// The two sizes add up past the cap.
+		const over = await get("path=a.txt&path=b.bin&check=1");
+		expect(over.statusCode).toBe(413);
+		expect((await get("path=a.txt&path=../x&check=1")).statusCode).toBe(400);
+		const tooMany = Array.from(
+			{ length: MAX_DOWNLOAD_PATHS + 1 },
+			(_, n) => `path=f${n}`,
+		).join("&");
+		expect((await get(`${tooMany}&check=1`)).statusCode).toBe(400);
 	},
 );
 

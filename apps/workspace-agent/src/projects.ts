@@ -15,7 +15,7 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 import {
@@ -466,22 +466,73 @@ export async function archiveProject(
 
 /**
  * Zip one directory from its parent, so the archive holds a single top-level
- * entry named after that directory (SPEC.md §11.2). zip writes to a private
+ * entry named after that directory (SPEC.md §11.2).
+ */
+export function archiveDir(
+	dir: string,
+	signal: AbortSignal,
+	tempBase = "/var/tmp",
+): Promise<Readable> {
+	return archiveEntries(dirname(dir), [dir], signal, tempBase);
+}
+
+/**
+ * Drop every path that sits inside another path of the list, since zip
+ * would store it twice. Paths are absolute and already resolved.
+ */
+export function outermostPaths(paths: readonly string[]): string[] {
+	const sorted = [...new Set(paths)].sort();
+	const kept: string[] = [];
+	for (const path of sorted) {
+		const outer = kept.at(-1);
+		if (outer !== undefined && path.startsWith(`${outer}/`)) continue;
+		kept.push(path);
+	}
+	return kept;
+}
+
+/** The deepest directory that holds every path of a non-empty list. */
+export function commonParent(paths: readonly string[]): string {
+	let parent = dirname(paths[0] as string);
+	for (const path of paths) {
+		while (parent !== "/" && !path.startsWith(`${parent}/`)) parent = dirname(parent);
+	}
+	return parent;
+}
+
+/**
+ * Zip several resolved files and folders of one project (SPEC.md §11.2),
+ * named relative to their deepest common directory so the archive mirrors
+ * the tree. Paths inside another selected path are dropped.
+ */
+export function archiveSelection(
+	paths: readonly string[],
+	signal: AbortSignal,
+	tempBase = "/var/tmp",
+): Promise<Readable> {
+	const outer = outermostPaths(paths);
+	return archiveEntries(commonParent(outer), outer, signal, tempBase);
+}
+
+/**
+ * Zip `paths`, named relative to `parent`. zip writes to a private
  * temporary file, because it cannot store a symlink entry on a pipe;
  * the returned stream deletes that file when it closes. Aborting `signal`
  * kills zip. The file goes under /var/tmp because /tmp is a tmpfs on
  * Debian 13, and a large zip there would count against the memory limit.
  */
-export async function archiveDir(
-	dir: string,
+async function archiveEntries(
+	parent: string,
+	paths: readonly string[],
 	signal: AbortSignal,
-	tempBase = "/var/tmp",
+	tempBase: string,
 ): Promise<Readable> {
-	await checkDownloadSize(dir);
+	await checkDownloadSize(paths);
 	const tempDir = await mkdtemp(join(tempBase, "portikus-archive-"));
 	const zipPath = join(tempDir, "archive.zip");
 	try {
-		await runZip(dir, zipPath, signal);
+		const names = paths.map((path) => relative(parent, path));
+		await runZip(parent, names, zipPath, signal);
 		const stream = createReadStream(zipPath);
 		stream.once("close", () => {
 			void rm(tempDir, { recursive: true, force: true });
@@ -494,20 +545,21 @@ export async function archiveDir(
 }
 
 /**
- * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping. A
- * directory counts the apparent size of its regular files, walked without
- * following symlinks, and the walk stops as soon as the cap is passed. A
- * symlink named directly counts its target file.
+ * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping. The paths'
+ * sizes add up; a directory counts the apparent size of its regular files,
+ * walked without following symlinks, and the walk stops as soon as the cap
+ * is passed. A symlink named directly counts its target file.
  */
-export async function checkDownloadSize(path: string): Promise<void> {
+export async function checkDownloadSize(paths: readonly string[]): Promise<void> {
 	let total = 0;
-	const pending = [path];
+	const named = new Set(paths);
+	const pending = [...paths];
 	while (pending.length > 0) {
 		const current = pending.pop() as string;
 		try {
 			let info = await lstat(current);
 			// A symlinked file downloads its target's bytes, so count those.
-			if (current === path && info.isSymbolicLink()) {
+			if (named.has(current) && info.isSymbolicLink()) {
 				const target = await stat(current);
 				if (target.isFile()) info = target;
 			}
@@ -530,10 +582,15 @@ export async function checkDownloadSize(path: string): Promise<void> {
 	}
 }
 
-function runZip(dir: string, zipPath: string, signal: AbortSignal): Promise<void> {
+function runZip(
+	cwd: string,
+	names: readonly string[],
+	zipPath: string,
+	signal: AbortSignal,
+): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
-		const child = spawn("zip", ["-r", "-y", "-q", zipPath, "--", basename(dir)], {
-			cwd: dirname(dir),
+		const child = spawn("zip", ["-r", "-y", "-q", zipPath, "--", ...names], {
+			cwd,
 			stdio: ["ignore", "ignore", "pipe"],
 			signal,
 		});

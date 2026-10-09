@@ -111,6 +111,16 @@ export type ExtractResponse = z.infer<typeof ExtractResponse>;
 /** Most bytes a zip may unpack to, the same cap as a download. */
 export const MAX_EXTRACT_BYTES = 1024 * 1024 * 1024;
 
+/**
+ * How far an extraction has got: entries written out of the zip's total
+ * (SPEC.md §11.2). `total` is 0 when no extraction is running.
+ */
+export const ExtractProgress = z.object({
+	done: z.number().int().nonnegative(),
+	total: z.number().int().nonnegative(),
+});
+export type ExtractProgress = z.infer<typeof ExtractProgress>;
+
 /** Most entries a zip may hold and still be extracted. */
 export const MAX_EXTRACT_ENTRIES = 10_000;
 
@@ -129,6 +139,9 @@ export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
  * disk, where the zip is staged.
  */
 export const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
+
+/** Most paths one selection download may name (SPEC.md §11.2). */
+export const MAX_DOWNLOAD_PATHS = 100;
 
 /** What the API relays past MAX_DOWNLOAD_BYTES, for zip headers. */
 export const ZIP_OVERHEAD_BYTES = 64 * 1024 * 1024;

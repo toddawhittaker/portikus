@@ -166,6 +166,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/projects/:pid/mkdir": owner,
 	"POST /workspaces/:id/projects/:pid/move": owner,
 	"POST /workspaces/:id/projects/:pid/extract": owner,
+	"GET /workspaces/:id/projects/:pid/extract/progress": owner,
+	"HEAD /workspaces/:id/projects/:pid/extract/progress": owner,
 
 	"GET /workspaces/:id/projects/:pid/git/status": owner,
 	"HEAD /workspaces/:id/projects/:pid/git/status": owner,
