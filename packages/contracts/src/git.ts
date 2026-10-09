@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isControlCharacter } from "./search.js";
 
 /**
  * One changed path as Git reports it (SPEC.md §12.1). `x` is the staged
@@ -25,6 +26,12 @@ export const GitStatus = z.object({
 	repo: z.boolean(),
 	branch: z.string().nullable(),
 	detached: z.boolean(),
+	/**
+	 * The full id of the checked-out commit, so a detached HEAD can be named
+	 * (SPEC.md §12.8). Null before the first commit and for baseline status.
+	 * Optional so an agent from an older package still answers.
+	 */
+	oid: z.string().nullable().optional(),
 	upstream: z.string().nullable(),
 	ahead: z.number().int().nonnegative(),
 	behind: z.number().int().nonnegative(),
@@ -53,6 +60,24 @@ export const GitDiff = z.object({
 	tooLarge: z.boolean(),
 });
 export type GitDiff = z.infer<typeof GitDiff>;
+
+/**
+ * A Git ref the student types to compare one file against (SPEC.md §12.6):
+ * a branch, tag, or commit id. The agent still resolves it with
+ * `rev-parse --verify --end-of-options`; these rules keep it from ever
+ * reading as an option or a range.
+ */
+export const GitRef = z
+	.string()
+	.min(1)
+	.max(256)
+	.refine((value) => !value.startsWith("-"), { message: "ref starts with -" })
+	.refine((value) => ![...value].some(isControlCharacter), {
+		message: "ref contains a control character",
+	})
+	// Git forbids ".." anywhere in a ref name, and it is how a range is written.
+	.refine((value) => !value.includes(".."), { message: "ref contains .." });
+export type GitRef = z.infer<typeof GitRef>;
 
 /** Query for the status route: ignored files only when hidden files show. */
 export const GitStatusQuery = z.object({

@@ -7,7 +7,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
-import { useSearch } from "./useSearch.js";
+import { type SearchFlags, useSearch } from "./useSearch.js";
 
 const WORKSPACE = "ws-1";
 const PROJECT = "pr-1";
@@ -27,8 +27,15 @@ function renderProbe(ui: ReactElement) {
 	};
 }
 
-function Probe({ query, hidden = false }: { query: string; hidden?: boolean }) {
-	const { result } = useSearch(WORKSPACE, PROJECT, query, hidden);
+const OFF: SearchFlags = {
+	hidden: false,
+	regex: false,
+	caseSensitive: false,
+	wholeWord: false,
+};
+
+function Probe({ query, ...flags }: { query: string } & Partial<SearchFlags>) {
+	const { result } = useSearch(WORKSPACE, PROJECT, query, { ...OFF, ...flags });
 	return <output data-testid="count">{result.data?.matches.length ?? -1}</output>;
 }
 
@@ -88,6 +95,44 @@ test("the hidden flag is part of the request", async () => {
 
 	await waitFor(() => expect(calls).toHaveLength(1));
 	expect(calls[0]?.url).toContain("hidden=true");
+});
+
+test("every option is off unless switched on", async () => {
+	const calls = stubPendingFetch();
+
+	renderProbe(<Probe query="answer" />);
+
+	await waitFor(() => expect(calls).toHaveLength(1));
+	const params = new URL(calls[0]?.url ?? "", "http://x").searchParams;
+	expect(params.get("regex")).toBe("false");
+	expect(params.get("caseSensitive")).toBe("false");
+	expect(params.get("wholeWord")).toBe("false");
+});
+
+test("each option travels with the request", async () => {
+	const calls = stubPendingFetch();
+
+	renderProbe(
+		<Probe query="an+swer" regex={true} caseSensitive={true} wholeWord={true} />,
+	);
+
+	await waitFor(() => expect(calls).toHaveLength(1));
+	const params = new URL(calls[0]?.url ?? "", "http://x").searchParams;
+	expect(params.get("q")).toBe("an+swer");
+	expect(params.get("regex")).toBe("true");
+	expect(params.get("caseSensitive")).toBe("true");
+	expect(params.get("wholeWord")).toBe("true");
+});
+
+test("switching an option asks again", async () => {
+	const calls = stubPendingFetch();
+
+	const { rerender } = renderProbe(<Probe query="answer" />);
+	await waitFor(() => expect(calls).toHaveLength(1));
+	rerender(<Probe query="answer" caseSensitive={true} />);
+
+	await waitFor(() => expect(calls).toHaveLength(2));
+	expect(calls[1]?.url).toContain("caseSensitive=true");
 });
 
 test("a finished search reports its matches", async () => {

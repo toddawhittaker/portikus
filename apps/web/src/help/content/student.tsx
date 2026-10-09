@@ -8,6 +8,10 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		what: "Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
 	},
 	{
+		keys: "Alt+Shift+M",
+		what: "Hold while a terminal has the keyboard to talk into it; let go to stop. The microphone button in the terminal's title bar does the same while held.",
+	},
+	{
 		keys: tabFocusKey(),
 		what: "In the editor, switch whether Tab types a tab or moves focus out of the editor.",
 	},
@@ -174,6 +178,31 @@ export const STUDENT_HELP: HelpPart = {
 							place.
 						</li>
 					</ul>
+				</>
+			),
+		},
+		{
+			id: "student-voice",
+			title: "Voice input in a terminal",
+			body: (
+				<>
+					<p>
+						You can talk instead of typing. Hold down the microphone button in a
+						terminal's title bar, or hold{" "}
+						<kbd className="pk-mono-body">Alt+Shift+M</kbd> while the terminal has the
+						keyboard, and speak. Listening stops when you let go. With the keyboard on
+						the microphone button, holding Space or Enter works too. The words appear at
+						the bottom of the terminal as they are heard, then are typed at the prompt.
+						Voice input never presses Enter, so check the text and press Enter yourself.
+					</p>
+					<p>
+						Your browser does the listening, not Portikus. The audio goes to your
+						browser maker's speech service: Google for Chrome, Microsoft for Edge, and
+						Apple for Safari. Portikus does not receive the audio and keeps no record of
+						what you said. Firefox and Brave do not offer voice input, so the button
+						does not appear there. The first time, the browser asks to use your
+						microphone.
+					</p>
 				</>
 			),
 		},

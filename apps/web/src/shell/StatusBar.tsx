@@ -325,6 +325,11 @@ function GitSegment({
 	const status = useGitStatus(workspaceId, projectId);
 	const bar = gitBar(status.data);
 	if (!bar) return null;
+	// A detached HEAD is named by its short commit id (SPEC.md §12.8).
+	const oid = status.data?.detached ? status.data.oid : null;
+	const text = oid
+		? bar.text.replace(/^detached HEAD/, `detached HEAD at ${oid.slice(0, 7)}`)
+		: bar.text;
 	const tone = !bar.repo
 		? "pk-statusbar-muted"
 		: bar.conflicts > 0
@@ -333,11 +338,11 @@ function GitSegment({
 	return (
 		<span
 			className={`pk-statusbar-item pk-statusbar-git ${tone}`}
-			title={bar.text}
+			title={text}
 			data-testid="git-status"
 			data-conflicts={bar.conflicts > 0 ? "true" : undefined}
 		>
-			{bar.text}
+			{text}
 		</span>
 	);
 }

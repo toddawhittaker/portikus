@@ -26,6 +26,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	checkEntries,
 	checkExtracted,
+	entryCounter,
+	extractProgress,
 	extractZip,
 	folderNameFor,
 	readZipEntries,
@@ -422,6 +424,38 @@ describe("the pure checks", () => {
 	});
 });
 
+describe("extraction progress", () => {
+	test("entryCounter counts unzip's entry lines, even split across chunks", () => {
+		let count = 0;
+		const feed = entryCounter(() => {
+			count++;
+		});
+		feed("Archive:  /proc/self/fd/3\n   creating: src/\n  inflat");
+		feed("ing: src/a.js\n extracting: b.txt\n");
+		feed("  inflating: half");
+		expect(count).toBe(3);
+	});
+
+	test("counts entries up to the zip's total while running, then resets", async () => {
+		const entries = [
+			{ name: "big.bin", zeros: 3_000_000 },
+			...Array.from({ length: 50 }, (_, n) => ({ name: `f${n}.txt`, data: "x" })),
+		];
+		await place("many.zip", entries);
+		const seen: { done: number; total: number }[] = [];
+		const timer = setInterval(() => seen.push(extractProgress("alpha")), 1);
+		await extractZip(homeDir, "alpha", "many.zip");
+		clearInterval(timer);
+		const running = seen.filter((state) => state.total > 0);
+		expect(running.length).toBeGreaterThan(0);
+		for (const state of running) {
+			expect(state.total).toBe(entries.length);
+			expect(state.done).toBeLessThanOrEqual(state.total);
+		}
+		expect(extractProgress("alpha")).toEqual({ done: 0, total: 0 });
+	});
+});
+
 describe("POST /projects/:slug/extract", () => {
 	let app: FastifyInstance;
 	beforeEach(async () => {
@@ -443,6 +477,16 @@ describe("POST /projects/:slug/extract", () => {
 			payload: body,
 		});
 	}
+
+	test("GET /projects/:slug/extract/progress reports nothing running", async () => {
+		const response = await app.inject({
+			method: "GET",
+			url: "/projects/alpha/extract/progress",
+			headers: { authorization: `Bearer ${TOKEN}` },
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({ done: 0, total: 0 });
+	});
 
 	test("answers 201 with the new folder", async () => {
 		await place("starter.zip", [{ name: "a.txt", data: "a" }]);

@@ -5,9 +5,10 @@
  * the anchor, as Shift-click does; Ctrl moves without selecting, and
  * Ctrl+Space adds or removes the focused row, as Ctrl-click does.
  */
-import type { KeyboardEvent } from "react";
-import { useRef } from "react";
-import { baseName, displayName, parentOf } from "./paths.js";
+import type { FocusEvent, KeyboardEvent } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import { baseName, displayName, focusAfterRemoval, parentOf } from "./paths.js";
+import type { RowStateStore } from "./rowState.js";
 import {
 	type ClickModifiers,
 	type FileNode,
@@ -238,4 +239,59 @@ export function useTreeKeys(
 		event.preventDefault();
 		context.moveTo(rows[found], "select");
 	};
+}
+
+/** On the tree element, so a focus repair knows whether the tree held focus. */
+export interface TreeFocusHandlers {
+	onFocus: () => void;
+	onBlur: (event: FocusEvent<HTMLElement>) => void;
+}
+
+/**
+ * Keeps one row as the Tab stop when the focused row has vanished: it was
+ * deleted, moved, or its parent closed. When that row had the keyboard
+ * focus, the focus follows to the new one rather than falling to the page
+ * (SPEC.md §25.8). `rowElements` reads the rows back in drawn order.
+ */
+export function useFocusRepair(
+	rowState: RowStateStore,
+	rowElements: () => HTMLElement[],
+): { repairFocus: () => void; treeFocusHandlers: TreeFocusHandlers } {
+	// The rows as last drawn, so a vanished row's neighbours can be found.
+	const drawnOrder = useRef<string[]>([]);
+	const treeHeldFocus = useRef(false);
+	const treeFocusHandlers = useMemo<TreeFocusHandlers>(
+		() => ({
+			onFocus: () => {
+				treeHeldFocus.current = true;
+			},
+			onBlur: (event) => {
+				const to = event.relatedTarget;
+				if (to instanceof Node && event.currentTarget.contains(to)) return;
+				const from = event.target;
+				// A removed row loses focus too; only focus that left on purpose counts.
+				queueMicrotask(() => {
+					if (to !== null || from.isConnected) treeHeldFocus.current = false;
+				});
+			},
+		}),
+		[],
+	);
+
+	const repairFocus = useCallback(() => {
+		const { focusedPath, setFocusedPath } = rowState.getState();
+		const rows = rowElements();
+		const rendered = rows.map((row) => row.getAttribute("data-path") ?? "");
+		const next = focusAfterRemoval(focusedPath, drawnOrder.current, rendered);
+		drawnOrder.current = rendered;
+		if (next === focusedPath) return;
+		setFocusedPath(next);
+		const lost =
+			document.activeElement === null || document.activeElement === document.body;
+		if (next !== null && lost && treeHeldFocus.current) {
+			rows[rendered.indexOf(next)]?.focus();
+		}
+	}, [rowState, rowElements]);
+
+	return { repairFocus, treeFocusHandlers };
 }

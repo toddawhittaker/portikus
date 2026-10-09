@@ -1,10 +1,11 @@
-import { GitStatusQuery, ProjectPath } from "@portikus/contracts";
+import { GitRef, GitStatusQuery, ProjectPath } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentFailure, sendError } from "./errors.js";
 import { baselineDiff, baselineStatus, gitDiff, gitStatus, OBJECT_ID } from "./git.js";
+import { refDiff } from "./git-compare.js";
 
-const DiffQuery = z.object({ path: ProjectPath });
+const DiffQuery = z.object({ path: ProjectPath, ref: z.unknown().optional() });
 
 /** A full object id, SHA-1 or SHA-256. Anything else is refused. */
 const ObjectQuery = z.object({
@@ -44,7 +45,16 @@ export async function gitRoutes(
 			if (!query.success) {
 				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
-			return await gitDiff(options.homeDir, slug, query.data.path, {
+			const { path, ref } = query.data;
+			if (ref === undefined) {
+				return await gitDiff(options.homeDir, slug, path, { log: request.log });
+			}
+			// Compare with a ref the student typed (SPEC.md §12.6).
+			const parsedRef = GitRef.safeParse(ref);
+			if (!parsedRef.success) {
+				throw new AgentFailure("BAD_REQUEST", "invalid ref");
+			}
+			return await refDiff(options.homeDir, slug, path, parsedRef.data, {
 				log: request.log,
 			});
 		} catch (error) {

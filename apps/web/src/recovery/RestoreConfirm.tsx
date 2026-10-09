@@ -2,15 +2,8 @@ import type { Project, RecoveryPoint } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
+import { pointTime } from "./labels.js";
 import { useRestoreRecoveryPoint } from "./queries.js";
-
-/** The point's time in the student's own locale and time zone. */
-export function pointTime(createdAt: string): string {
-	return new Date(createdAt).toLocaleString(undefined, {
-		dateStyle: "medium",
-		timeStyle: "short",
-	});
-}
 
 /**
  * Restoring replaces the project's files, so it names the project and the

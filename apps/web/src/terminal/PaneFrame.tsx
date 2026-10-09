@@ -18,6 +18,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { usePointerDismiss } from "../work/pointerDismiss.js";
+import type { SpeechInput } from "./useSpeechInput.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -59,6 +60,8 @@ export interface PaneFrameProps {
 	onRename?: (terminalId: string, name: string) => void;
 	/** Offers the light terminal switch in the menu when given with `theme`. */
 	onSetTheme?: (terminalId: string, theme: TerminalTheme) => void;
+	/** Offers the hold-to-talk microphone when given (SPEC.md §25.10). */
+	voice?: SpeechInput;
 	children: ReactNode;
 }
 
@@ -112,6 +115,7 @@ export function PaneFrame({
 	onClose,
 	onRename,
 	onSetTheme,
+	voice,
 	children,
 }: PaneFrameProps) {
 	const [renaming, setRenaming] = useState(false);
@@ -199,6 +203,9 @@ export function PaneFrame({
 						{title}
 					</span>
 				)}
+				{voice ? (
+					<VoiceButton terminalId={terminalId} name={name} voice={voice} />
+				) : null}
 				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
 					<MenuTrigger asChild={true}>
 						<IconButton
@@ -281,6 +288,17 @@ export function PaneFrame({
 				</MenuRoot>
 			</div>
 			{children}
+			{voice && voice.interim !== "" ? (
+				// Shown only: the status region says "Listening…" instead of
+				// reading every guess aloud.
+				<p
+					className="pk-term-voice-interim"
+					aria-hidden="true"
+					data-testid={`terminal-voice-interim-${terminalId}`}
+				>
+					{voice.interim}
+				</p>
+			) : null}
 			{dropEdge ? (
 				<div
 					className={`pk-term-drop pk-term-drop--${dropEdge}`}
@@ -289,5 +307,59 @@ export function PaneFrame({
 				/>
 			) : null}
 		</section>
+	);
+}
+
+/**
+ * Hold to talk: listening lasts while the pointer or Space/Enter is down
+ * (SPEC.md §25.10). The status region stays mounted so its changes are read.
+ */
+function VoiceButton({
+	terminalId,
+	name,
+	voice,
+}: {
+	terminalId: string;
+	name: string;
+	voice: SpeechInput;
+}) {
+	const listening = voice.state === "listening";
+	return (
+		<>
+			{voice.state === "unsupported" ? null : (
+				<IconButton
+					icon="mic"
+					label={`Hold to talk into ${name}`}
+					shortcut={["Alt", "Shift", "M"]}
+					size="sm"
+					aria-pressed={listening}
+					data-testid={`terminal-voice-${terminalId}`}
+					onPointerDown={(event) => {
+						if (event.button !== 0) return;
+						event.currentTarget.setPointerCapture?.(event.pointerId);
+						voice.start();
+					}}
+					onPointerUp={voice.stop}
+					onPointerCancel={voice.stop}
+					onLostPointerCapture={voice.stop}
+					onKeyDown={(event) => {
+						if (event.key !== " " && event.key !== "Enter") return;
+						event.preventDefault();
+						if (!event.repeat) voice.start();
+					}}
+					onKeyUp={(event) => {
+						if (event.key === " " || event.key === "Enter") voice.stop();
+					}}
+					onBlur={voice.stop}
+				/>
+			)}
+			<span
+				role="status"
+				className="sr-only"
+				data-testid={`terminal-voice-status-${terminalId}`}
+			>
+				{voice.state === "unsupported" ? "" : voice.message}
+			</span>
+		</>
 	);
 }

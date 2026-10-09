@@ -250,6 +250,8 @@ export const ApiErrorCode = z.enum([
 	"NOT_A_DIRECTORY",
 	"ARCHIVE_INVALID",
 	"SEARCH_FAILED",
+	// A regular expression ripgrep cannot compile (SPEC.md §11.5).
+	"PATTERN_INVALID",
 	"WATCH_FAILED",
 	"AGENT_UNAVAILABLE",
 	// The preview routes (BROWSER-HANDLING.md §9.1).
@@ -272,6 +274,7 @@ export const ApiErrorCode = z.enum([
 	"STORAGE_FULL",
 	"OPERATION_PENDING",
 	"BUSY",
+	"RECOVERY_READ_TIMEOUT",
 	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
 	// Dex user management (ADR 0028).

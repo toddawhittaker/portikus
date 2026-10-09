@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	GitDiff,
 	GitEntry,
+	GitRef,
 	GitStatus,
 	GitStatusQuery,
 	MAX_DIFF_SIDE_BYTES,
@@ -83,4 +84,53 @@ test("hidden defaults to false and parses as a boolean", () => {
 test("the caps are the ones SPEC.md §12.6 asks the agent to enforce", () => {
 	expect(MAX_GIT_ENTRIES).toBe(5000);
 	expect(MAX_DIFF_SIDE_BYTES).toBe(1024 * 1024);
+});
+
+test("a ref is a branch, tag, commit id, or relative name", () => {
+	for (const ref of [
+		"main",
+		"feature/x",
+		"v1.0",
+		"abc1234",
+		"HEAD~2",
+		"HEAD^",
+		"@{u}",
+	]) {
+		expect(GitRef.safeParse(ref).success).toBe(true);
+	}
+});
+
+test("a ref that could read as an option, a range, or a second line is refused", () => {
+	for (const ref of [
+		"",
+		"-h",
+		"--output=/tmp/x",
+		"a..b",
+		"a...b",
+		"../x",
+		"a\nb",
+		"a\u0000b",
+		"a\u007fb",
+		"x".repeat(257),
+	]) {
+		expect(GitRef.safeParse(ref).success).toBe(false);
+	}
+	expect(GitRef.safeParse("x".repeat(256)).success).toBe(true);
+});
+
+test("a status without the commit id still parses, from an older agent", () => {
+	const status = {
+		repo: true,
+		branch: null,
+		detached: true,
+		upstream: null,
+		ahead: 0,
+		behind: 0,
+		conflicts: 0,
+		entries: [],
+		ignored: [],
+		truncated: false,
+	};
+	expect(GitStatus.parse(status).oid).toBeUndefined();
+	expect(GitStatus.parse({ ...status, oid: "abc" }).oid).toBe("abc");
 });

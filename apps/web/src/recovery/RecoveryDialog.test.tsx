@@ -8,8 +8,8 @@ import {
 	stubFetch,
 	WORKSPACE,
 } from "../test-utils.js";
-import { REASON_LABEL, RecoveryDialog } from "./RecoveryDialog.js";
-import { pointTime } from "./RestoreConfirm.js";
+import { pointTime, REASON_LABEL } from "./labels.js";
+import { RecoveryDialog } from "./RecoveryDialog.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();

@@ -40,7 +40,21 @@ export function registerGitRoutes(app: FastifyInstance, s: FakeAgentState): void
 		if (!ProjectPath.safeParse(path).success) {
 			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
 		}
-		const diff = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs?.[path];
+		const diffs = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs;
+		const ref = (request.query as { ref?: string }).ref;
+		if (ref !== undefined) {
+			// A comparison with a ref is seeded as `ref:path`; any other ref
+			// names no commit, as the real agent answers (SPEC.md §12.6).
+			const atRef = diffs?.[`${ref}:${path}`];
+			if (!atRef) {
+				return fileError(
+					reply,
+					new FakeFileError("BAD_REQUEST", "That Git ref does not name a commit."),
+				);
+			}
+			return atRef;
+		}
+		const diff = diffs?.[path];
 		// Like the real agent, a path on neither side is an empty addition,
 		// not a 404: the older side may still have had it (SPEC.md §12.6).
 		return (

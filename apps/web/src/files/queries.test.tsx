@@ -8,7 +8,12 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type * as React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
-import { fileKeys, useSaveFile } from "./queries.js";
+import {
+	fileKeys,
+	selectionDownloadUrl,
+	useExtractProgress,
+	useSaveFile,
+} from "./queries.js";
 
 const WORKSPACE = "ws-1";
 const PROJECT = "p-1";
@@ -44,4 +49,36 @@ test("a successful save invalidates the diff of the same file", async () => {
 	expect(invalidate).toHaveBeenCalledWith({
 		queryKey: fileKeys.diff(WORKSPACE, PROJECT, PATH),
 	});
+});
+
+test("a selection download names every path once each, escaped", () => {
+	expect(selectionDownloadUrl(WORKSPACE, PROJECT, ["src/a b.ts", "docs"])).toBe(
+		`/workspaces/${WORKSPACE}/projects/${PROJECT}/download?path=src%2Fa+b.ts&path=docs`,
+	);
+});
+
+test("extraction progress is read only while an extraction runs", async () => {
+	const fetchMock = vi.fn(
+		async () =>
+			new Response(JSON.stringify({ done: 3, total: 10 }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			}),
+	);
+	vi.stubGlobal("fetch", fetchMock);
+	const queryClient = createQueryClient();
+	const wrapper = ({ children }: { children: React.ReactNode }) => (
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	);
+	const { result, rerender } = renderHook(
+		({ running }) => useExtractProgress(WORKSPACE, PROJECT, running),
+		{ wrapper, initialProps: { running: false } },
+	);
+	expect(fetchMock).not.toHaveBeenCalled();
+	rerender({ running: true });
+	await waitFor(() => expect(result.current.data).toEqual({ done: 3, total: 10 }));
+	expect(fetchMock).toHaveBeenCalledWith(
+		`/workspaces/${WORKSPACE}/projects/${PROJECT}/extract/progress`,
+		expect.anything(),
+	);
 });

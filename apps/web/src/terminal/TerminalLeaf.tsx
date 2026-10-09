@@ -5,10 +5,11 @@
  */
 import type { Terminal, TerminalTheme } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
+import { useSpeechInput } from "./useSpeechInput.js";
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -71,6 +72,9 @@ export function TerminalLeaf({
 	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
 	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
+	// Voice input types into this pane's terminal through the ref it fills.
+	const dictation = useRef<((text: string) => void) | null>(null);
+	const speech = useSpeechInput((text) => dictation.current?.(text));
 
 	return (
 		<PaneFrame
@@ -92,6 +96,7 @@ export function TerminalLeaf({
 			onClose={onClose}
 			onRename={onRename}
 			onSetTheme={onSetTheme}
+			voice={ended ? undefined : speech}
 		>
 			{ended ? (
 				<div className="pk-term-ended" data-testid={`terminal-ended-${terminal.id}`}>
@@ -118,6 +123,8 @@ export function TerminalLeaf({
 					onCwd={setLiveCwd}
 					onFocus={onFocus}
 					onLeave={onLeave}
+					onVoiceHold={(held) => (held ? speech.start() : speech.stop())}
+					dictation={dictation}
 				/>
 			)}
 		</PaneFrame>

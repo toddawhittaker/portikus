@@ -17,6 +17,7 @@ import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import { userTaskCount } from "../testing/user-tasks.js";
 
 /**
  * The API's project, file, Git, search and checks routes in front of the REAL
@@ -50,7 +51,11 @@ beforeAll(async () => {
 	home = await mkdtemp(join(tmpdir(), "portikus-relay-home-"));
 	const tokenPath = join(home, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	agentApp = buildAgentServer({ tokenPath, homeDir: home }) as FastifyInstance;
+	agentApp = buildAgentServer({
+		tokenPath,
+		homeDir: home,
+		checkMaxProcesses: (await userTaskCount()) + 2000,
+	}) as FastifyInstance;
 	await agentApp.listen({ port: 0, host: "127.0.0.1" });
 	agentPort = (agentApp.server.address() as AddressInfo).port;
 });
@@ -274,6 +279,7 @@ describe.skipIf(skip)("search", () => {
 					path: "src.txt",
 					line: 2,
 					column: 1,
+					length: 6,
 					text: "needle here",
 					before: ["first"],
 					after: ["last"],

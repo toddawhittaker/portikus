@@ -1,0 +1,69 @@
+/* A CSV file's table view. The table rules come from .pk-table in packages/ui;
+   this only fits it to the file tab. */
+.pk-csv {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pk-csv-frame {
+	position: relative;
+	isolation: isolate;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+/* The table fills the tab edge to edge, like the editor it stands in for. */
+.pk-csv-scroll {
+	flex: 1;
+	min-width: 0;
+	overflow: auto;
+	background: var(--surface-raised);
+}
+
+/* The sticky header row would cover the top of an outline drawn on the
+   scroll area itself, so the frame draws the ring above it (DESIGN.md, "Focus
+   and keyboard"). */
+.pk-csv-scroll:focus-visible {
+	outline: none;
+}
+
+.pk-csv-frame:has(> .pk-csv-scroll:focus-visible)::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: calc(var(--z-sticky) + 1);
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+	pointer-events: none;
+}
+
+.pk-csv-table {
+	inline-size: max-content;
+	min-inline-size: 100%;
+}
+
+/* A cell keeps its own line breaks and wraps a long value rather than
+   stretching its column across the screen. */
+.pk-csv-table :is(th, td) {
+	max-inline-size: 48ch;
+	height: auto;
+	padding-block: var(--space-1);
+	border-inline-end: 1px solid var(--line);
+	vertical-align: top;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-variant-numeric: tabular-nums;
+}
+
+.pk-csv-table :is(th, td):last-child {
+	border-inline-end: 0;
+}
+
+.pk-csv > .pk-file-note {
+	flex: none;
+	border-block-start: 1px solid var(--line);
+}

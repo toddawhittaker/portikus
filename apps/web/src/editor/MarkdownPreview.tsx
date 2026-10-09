@@ -3,7 +3,8 @@
  * as a collapsed block of raw text above the body, so it can never be read as
  * Markdown. Raw HTML in the file is deliberately not rendered: react-markdown
  * escapes it without `rehype-raw`, so a student's `<script>` line shows as
- * text (SPEC.md §24, student content is untrusted).
+ * text (SPEC.md §24, student content is untrusted). Fenced code that names a
+ * language is highlighted by Monaco (highlight.ts).
  */
 import type { ComponentPropsWithoutRef, Ref, UIEventHandler } from "react";
 import Markdown, { defaultUrlTransform, type UrlTransform } from "react-markdown";
@@ -11,6 +12,7 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import { projectImagePath } from "../files/viewable.js";
 import { splitFrontmatter } from "./frontmatter.js";
+import { useHighlight } from "./highlight.js";
 import "./markdown.css";
 
 // remark-frontmatter catches the blocks splitFrontmatter does not match, such
@@ -115,7 +117,7 @@ export function MarkdownPreview({
 				remarkPlugins={PLUGINS}
 				rehypePlugins={[[rehypeSourceLines, offset]]}
 				urlTransform={urlTransform}
-				components={{ a: Link, input: TaskBox }}
+				components={{ a: Link, input: TaskBox, code: Code }}
 			>
 				{body}
 			</Markdown>
@@ -138,6 +140,59 @@ function TaskBox({
 }: ComponentPropsWithoutRef<"input"> & { node?: unknown }) {
 	return (
 		<input {...props} aria-label={props.type === "checkbox" ? "Task" : undefined} />
+	);
+}
+
+/**
+ * Code in the document. A fenced block that names a language is highlighted
+ * by Monaco once it has loaded; until then, and for any language Monaco does
+ * not know, it is the same text unstyled, so nothing moves when colour arrives.
+ */
+function Code({
+	node: _node,
+	className,
+	children,
+	...props
+}: ComponentPropsWithoutRef<"code"> & { node?: unknown }) {
+	const fence = /(?:^|\s)language-(\S+)/.exec(className ?? "")?.[1];
+	if (fence === undefined || typeof children !== "string") {
+		return (
+			<code {...props} className={className}>
+				{children}
+			</code>
+		);
+	}
+	return <FencedCode className={className} code={children} fence={fence} />;
+}
+
+function FencedCode({
+	className,
+	code,
+	fence,
+}: {
+	className: string | undefined;
+	code: string;
+	fence: string;
+}) {
+	// The closing fence leaves a line break the highlighter would draw as a line.
+	const text = code.endsWith("\n") ? code.slice(0, -1) : code;
+	const runs = useHighlight(text, fence);
+	if (runs === null) return <code className={className}>{code}</code>;
+	return (
+		<code className={className} data-colorized="">
+			{runs.map((run, at) =>
+				run.className === undefined ? (
+					run.text
+				) : (
+					// Runs are rebuilt whole on every change, so their order is their identity.
+					// biome-ignore lint/suspicious/noArrayIndexKey: see above
+					<span key={at} className={run.className}>
+						{run.text}
+					</span>
+				),
+			)}
+			{"\n"}
+		</code>
 	);
 }
 

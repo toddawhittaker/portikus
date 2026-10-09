@@ -150,18 +150,22 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 	app.get("/projects/:slug/archive", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
 		if (!dirs(request).has(slug)) return projectNotFound(reply);
-		const query = request.query as { path?: string; check?: string };
-		const path = query.path ?? "";
-		const key = nodeKey(slug, path);
+		const query = request.query as { path?: string | string[]; check?: string };
+		// A repeated `path` is a selection of several files and folders.
+		const paths = Array.isArray(query.path) ? query.path : [query.path ?? ""];
+		const path = paths.length > 1 ? "" : (paths[0] ?? "");
 		const tree = fsOf(request);
-		if (path !== "" && !tree.has(key)) {
-			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
-		}
 		// The same size check as the real agent, before any zipping.
 		let total = 0;
-		for (const [name, node] of tree) {
-			if ((name === key || name.startsWith(`${key}/`)) && node.type === "file") {
-				total += node.apparentSize ?? node.content.length;
+		for (const selected of paths) {
+			const key = nodeKey(slug, selected);
+			if (selected !== "" && !tree.has(key)) {
+				return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
+			}
+			for (const [name, node] of tree) {
+				if ((name === key || name.startsWith(`${key}/`)) && node.type === "file") {
+					total += node.apparentSize ?? node.content.length;
+				}
 			}
 		}
 		if (total > MAX_DOWNLOAD_BYTES) {
@@ -171,7 +175,12 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 			);
 		}
 		if (query.check === "1") return reply.status(204).send();
-		if (path !== "" && tree.get(key)?.type !== "dir") {
+		if (paths.length > 1) {
+			return reply
+				.header("content-type", "application/zip")
+				.send(oneFileZip("selection/README.md", "# selection\n"));
+		}
+		if (path !== "" && tree.get(nodeKey(slug, path))?.type !== "dir") {
 			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such directory"));
 		}
 		const name = path === "" ? slug : path.split("/").slice(-1)[0];

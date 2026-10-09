@@ -42,6 +42,10 @@ const CHECK_ROWS = 30;
 // Well above the agent's 0, so the kernel picks a check first when the
 // container runs out of memory; an unprivileged process may raise its own.
 const CHECK_OOM_SCORE_ADJ = "500";
+// Same cap as the terminals unit's TasksMax=1700 in
+// infra/workspace-image/portikus.yaml (SPEC.md §19.3): a fork bomb in a
+// check runs out of processes before the agent cannot fork.
+const CHECK_MAX_PROCESSES = 1700;
 
 /** How a finished or failed run is remembered, and who is watching it. */
 interface LiveRun {
@@ -81,6 +85,8 @@ export class CheckRunner {
 		private readonly log: FastifyBaseLogger,
 		/** Overridden by tests so they can drive a fake PTY. */
 		private readonly spawnPty: typeof spawn = spawn,
+		/** Overridden by tests, since the limit counts every task the user owns. */
+		private readonly maxProcesses: number = CHECK_MAX_PROCESSES,
 	) {}
 
 	/** The last run of each check of one project, live or finished. */
@@ -138,10 +144,21 @@ export class CheckRunner {
 			// A login shell is what the student would type the command in, so
 			// their own PATH and version managers apply (SPEC.md §18.1).
 			// choom raises the OOM score, then execs bash, so a check that
-			// exhausts memory is killed before the agent (ADR 0035).
+			// exhausts memory is killed before the agent (ADR 0035). prlimit
+			// execs in turn, so the pty's pid is still the check's shell.
 			pty = this.spawnPty(
-				"choom",
-				["-n", CHECK_OOM_SCORE_ADJ, "--", "bash", "-lc", options.check.command],
+				"prlimit",
+				[
+					`--nproc=${this.maxProcesses}:${this.maxProcesses}`,
+					"--",
+					"choom",
+					"-n",
+					CHECK_OOM_SCORE_ADJ,
+					"--",
+					"bash",
+					"-lc",
+					options.check.command,
+				],
 				{
 					name: "xterm-256color",
 					cols: CHECK_COLS,
@@ -364,6 +381,8 @@ export interface ChecksRouteOptions {
 	homeDir: string;
 	/** Overridden by tests so they can drive a fake PTY. */
 	runner?: CheckRunner;
+	/** Overrides the check process cap. For tests. */
+	maxProcesses?: number;
 }
 
 /** The agent's check routes (SPEC.md §18.1, §26). */
@@ -371,7 +390,8 @@ export async function checksRoute(
 	instance: FastifyInstance,
 	options: ChecksRouteOptions,
 ): Promise<void> {
-	const runner = options.runner ?? new CheckRunner(instance.log);
+	const runner =
+		options.runner ?? new CheckRunner(instance.log, spawn, options.maxProcesses);
 
 	instance.addHook("preClose", async () => {
 		runner.closeEverything();

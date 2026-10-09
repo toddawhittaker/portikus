@@ -3,6 +3,7 @@ import {
 	baseName,
 	canMoveInto,
 	displayName,
+	focusAfterRemoval,
 	isDescendant,
 	isHiddenName,
 	joinPath,
@@ -10,7 +11,6 @@ import {
 	nameError,
 	parentOf,
 	prunePaths,
-	reseedFocus,
 	rewritePaths,
 	tabIdsUnder,
 	visibleEntries,
@@ -141,17 +141,55 @@ describe("keeping the open directories honest", () => {
 	});
 });
 
+/** SPEC.md §25.8: a keyboard user keeps their place when the focused row goes. */
 describe("the focused row", () => {
+	const drawn = ["src", "src/a.ts", "src/b.ts", "src/c.ts", "README.md"];
+
 	it("keeps a row that is still on screen", () => {
-		expect(reseedFocus("src/app.ts", ["src", "src/app.ts"])).toBe("src/app.ts");
+		expect(focusAfterRemoval("src/b.ts", drawn, drawn)).toBe("src/b.ts");
 	});
 
-	it("falls back to the first row when the focused one is gone", () => {
-		expect(reseedFocus("gone.txt", ["src", "README.md"])).toBe("src");
+	it("starts on the first row when nothing was focused", () => {
+		expect(focusAfterRemoval(null, [], drawn)).toBe("src");
+		expect(focusAfterRemoval(null, [], [])).toBeNull();
 	});
 
-	it("has nothing to focus in an empty tree", () => {
-		expect(reseedFocus("gone.txt", [])).toBeNull();
+	it("moves to the next sibling of a removed row", () => {
+		const after = ["src", "src/a.ts", "src/c.ts", "README.md"];
+		expect(focusAfterRemoval("src/b.ts", drawn, after)).toBe("src/c.ts");
+	});
+
+	it("moves to the row above when the removed row was the last in its folder", () => {
+		const after = ["src", "src/a.ts", "src/b.ts", "README.md"];
+		expect(focusAfterRemoval("src/c.ts", drawn, after)).toBe("src/b.ts");
+	});
+
+	it("moves to the folder when its only row is removed", () => {
+		const before = ["src", "src/a.ts", "README.md"];
+		expect(focusAfterRemoval("src/a.ts", before, ["src", "README.md"])).toBe("src");
+	});
+
+	it("treats a row inside a deleted folder as the folder", () => {
+		expect(focusAfterRemoval("src/b.ts", drawn, ["README.md"])).toBe("README.md");
+		const lib = ["lib", "src", "src/a.ts", "src/b.ts"];
+		expect(focusAfterRemoval("src/a.ts", lib, ["lib"])).toBe("lib");
+	});
+
+	it("lands on a renamed row's new neighbour, not on the first row", () => {
+		const after = ["src", "src/a.ts", "src/c.ts", "src/z.ts", "README.md"];
+		expect(focusAfterRemoval("src/b.ts", drawn, after)).toBe("src/c.ts");
+	});
+
+	it("lands on the first loaded row when Show more is replaced by the rest", () => {
+		const more = "src/\u0000more";
+		const before = ["src", "src/a.ts", more, "README.md"];
+		const after = ["src", "src/a.ts", "src/b.ts", "README.md"];
+		expect(focusAfterRemoval(more, before, after)).toBe("src/b.ts");
+	});
+
+	it("falls back to the first row for a row it never drew", () => {
+		expect(focusAfterRemoval("gone.txt", drawn, drawn)).toBe("src");
+		expect(focusAfterRemoval("gone.txt", drawn, [])).toBeNull();
 	});
 });
 
@@ -182,22 +220,22 @@ describe("displayName", () => {
 /** SPEC.md §11.2: a drop asks for the move the student drew. */
 describe("moveForDrop", () => {
 	it("moves the dragged file into the directory under it", () => {
-		expect(moveForDrop("row:src/app.ts", "dir:tests")).toEqual({
+		expect(moveForDrop("src/app.ts", "tests")).toEqual({
 			from: "src/app.ts",
 			to: "tests/app.ts",
 		});
 	});
 
 	it("moves a file back out to the project root", () => {
-		expect(moveForDrop("row:src/app.ts", "dir:")).toEqual({
+		expect(moveForDrop("src/app.ts", "")).toEqual({
 			from: "src/app.ts",
 			to: "app.ts",
 		});
 	});
 
 	it("asks for nothing on a drop that changes nothing", () => {
-		expect(moveForDrop("row:src/app.ts", "dir:src")).toBeNull();
-		expect(moveForDrop("row:src", "dir:src/lib")).toBeNull();
-		expect(moveForDrop("row:src", null)).toBeNull();
+		expect(moveForDrop("src/app.ts", "src")).toBeNull();
+		expect(moveForDrop("src", "src/lib")).toBeNull();
+		expect(moveForDrop("src", null)).toBeNull();
 	});
 });

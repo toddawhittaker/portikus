@@ -171,6 +171,8 @@ export const AgentErrorCode = z.enum([
 	"FILE_TOO_LARGE",
 	"NOT_A_DIRECTORY",
 	"SEARCH_FAILED",
+	// A regular expression ripgrep cannot compile (SPEC.md §11.5).
+	"PATTERN_INVALID",
 	"WATCH_FAILED",
 	"EVENT_SOCKET_LIMIT",
 	"CHECK_NOT_FOUND",
@@ -195,6 +197,7 @@ export const AgentErrorCode = z.enum([
 	"RECOVERY_POINT_INVALID",
 	"RESTORE_INCOMPLETE",
 	"ROLLBACK_COPY_EXISTS",
+	"RECOVERY_READ_TIMEOUT",
 	// A zip that is damaged, locked, or unsafe to extract.
 	"ARCHIVE_INVALID",
 ]);

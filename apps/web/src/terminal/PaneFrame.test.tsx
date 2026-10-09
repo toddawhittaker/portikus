@@ -77,3 +77,48 @@ test("a drop zone is shaded on the edge a drag would land", () => {
 	renderFrame({ dropEdge: "left" });
 	expect(screen.getByTestId("drop-zone-t1").getAttribute("data-edge")).toBe("left");
 });
+
+function voice(state: "unsupported" | "idle" | "listening" | "error" = "idle") {
+	return { state, interim: "", message: "", start: vi.fn(), stop: vi.fn() };
+}
+
+test("the microphone listens only while it is held", () => {
+	const speech = voice();
+	renderFrame({ voice: speech });
+	const button = screen.getByTestId("terminal-voice-t1");
+	expect(button.getAttribute("aria-pressed")).toBe("false");
+	fireEvent.pointerDown(button, { button: 0 });
+	expect(speech.start).toHaveBeenCalledTimes(1);
+	fireEvent.pointerUp(button);
+	expect(speech.stop).toHaveBeenCalled();
+	// A click alone starts nothing more.
+	fireEvent.click(button);
+	expect(speech.start).toHaveBeenCalledTimes(1);
+});
+
+test("Space held on the microphone listens until it is released", () => {
+	const speech = voice();
+	renderFrame({ voice: speech });
+	const button = screen.getByTestId("terminal-voice-t1");
+	fireEvent.keyDown(button, { key: " " });
+	fireEvent.keyDown(button, { key: " ", repeat: true });
+	expect(speech.start).toHaveBeenCalledTimes(1);
+	fireEvent.keyUp(button, { key: " " });
+	expect(speech.stop).toHaveBeenCalled();
+});
+
+test("while listening the button is pressed and interim words show", () => {
+	renderFrame({
+		voice: { ...voice("listening"), interim: "git sta", message: "Listening…" },
+	});
+	expect(screen.getByTestId("terminal-voice-t1").getAttribute("aria-pressed")).toBe(
+		"true",
+	);
+	expect(screen.getByTestId("terminal-voice-interim-t1").textContent).toBe("git sta");
+	expect(screen.getByTestId("terminal-voice-status-t1").textContent).toBe("Listening…");
+});
+
+test("an unsupported browser shows no microphone", () => {
+	renderFrame({ voice: voice("unsupported") });
+	expect(screen.queryByTestId("terminal-voice-t1")).toBeNull();
+});
