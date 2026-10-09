@@ -31,9 +31,10 @@ export function createRowStateStore(): RowStateStore {
 export function useRowState(store: RowStateStore, path: string) {
 	const focused = useStore(store, (state) => state.focusedPath === path);
 	const selected = useStore(store, (state) => state.selection.paths.includes(path));
-	const nothingSelected = useStore(
+	// One selector, so the selection filling or emptying redraws only the focused row.
+	const current = useStore(
 		store,
-		(state) => state.selection.paths.length === 0,
+		(state) => state.focusedPath === path && state.selection.paths.length === 0,
 	);
-	return { focused, selected, current: focused && nothingSelected };
+	return { focused, selected, current };
 }
