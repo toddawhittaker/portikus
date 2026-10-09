@@ -423,11 +423,14 @@ replaced by that run, which builds from `main`.
 
 The Monday re-sign has a concurrency group of its own, so it can never
 cancel a waiting release. It still never writes the apt repository at the
-same time as a release. If any release run is queued or running when the
-re-sign's gate starts, the re-sign skips itself, because that release
-signs the index anyway. If a re-sign has already started when a release
-reaches its apt job, the release waits for it to finish, for up to 30
-minutes. A skipped re-sign needs nothing unless that release then fails;
+same time as a release. If a release run that will sign the index is
+queued or running when the re-sign's gate starts, the re-sign skips
+itself, because that release signs the index anyway. A release counts
+until its gate rules, and while its build or apt job is queued or running.
+A release whose apt job waits for approval, a push the gate ruled no
+release, and a failed build do not count, so the re-sign goes ahead. If a
+re-sign is unfinished (queued, waiting or running) when a release reaches
+its apt job, the release waits for it to finish, for up to 30 minutes. A skipped re-sign needs nothing unless that release then fails;
 in that case fix the release and rerun it, or rerun the re-sign, before
 the index expires.
 
