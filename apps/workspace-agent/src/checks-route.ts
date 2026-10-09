@@ -85,6 +85,8 @@ export class CheckRunner {
 		private readonly log: FastifyBaseLogger,
 		/** Overridden by tests so they can drive a fake PTY. */
 		private readonly spawnPty: typeof spawn = spawn,
+		/** Overridden by tests, since the limit counts every task the user owns. */
+		private readonly maxProcesses: number = CHECK_MAX_PROCESSES,
 	) {}
 
 	/** The last run of each check of one project, live or finished. */
@@ -147,7 +149,7 @@ export class CheckRunner {
 			pty = this.spawnPty(
 				"prlimit",
 				[
-					`--nproc=${CHECK_MAX_PROCESSES}:${CHECK_MAX_PROCESSES}`,
+					`--nproc=${this.maxProcesses}:${this.maxProcesses}`,
 					"--",
 					"choom",
 					"-n",
@@ -379,6 +381,8 @@ export interface ChecksRouteOptions {
 	homeDir: string;
 	/** Overridden by tests so they can drive a fake PTY. */
 	runner?: CheckRunner;
+	/** Overrides the check process cap. For tests. */
+	maxProcesses?: number;
 }
 
 /** The agent's check routes (SPEC.md §18.1, §26). */
@@ -386,7 +390,8 @@ export async function checksRoute(
 	instance: FastifyInstance,
 	options: ChecksRouteOptions,
 ): Promise<void> {
-	const runner = options.runner ?? new CheckRunner(instance.log);
+	const runner =
+		options.runner ?? new CheckRunner(instance.log, spawn, options.maxProcesses);
 
 	instance.addHook("preClose", async () => {
 		runner.closeEverything();

@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { CheckRunner, readChecksFile } from "./checks-route.js";
 import { buildServer } from "./server.js";
 import { HIGH_WATER_BYTES, LOW_WATER_BYTES } from "./terminals.js";
+import { userTaskCount } from "./test-support/user-tasks.js";
 
 const TOKEN = "d".repeat(64);
 const SLUG = "essay";
@@ -55,7 +56,12 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "pk-checks-"));
 	const tokenPath = join(homeDir, "token");
 	await writeFile(tokenPath, TOKEN);
-	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
+	app = buildServer({
+		tmuxSocketName: "portikus-test",
+		tokenPath,
+		homeDir,
+		checkMaxProcesses: (await userTaskCount()) + 2000,
+	});
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 	expect(port).toBeGreaterThan(0);
@@ -493,3 +499,69 @@ test("a real check runs with oom_score_adj 500", async () => {
 	);
 	expect((await oomRun()).state).toBe("passed");
 });
+
+test("a check that forks past its cap fails while the agent keeps running", async () => {
+	await writeChecks(
+		JSON.stringify({
+			checks: [
+				{
+					id: "bomb",
+					name: "Bomb",
+					// Forks sleepers until the kernel refuses, then exits 11
+					// (EAGAIN); a cap that never bites would exit 0.
+					command: `exec python3 -c '
+import os, sys, time
+kids = []
+try:
+    for _ in range(400):
+        pid = os.fork()
+        if pid == 0:
+            time.sleep(30)
+            os._exit(0)
+        kids.append(pid)
+except BlockingIOError as error:
+    print(error)
+    code = 11
+else:
+    code = 0
+for pid in kids:
+    os.kill(pid, 9)
+sys.exit(code)'`,
+				},
+			],
+		}),
+	);
+	const tokenPath = join(homeDir, "token");
+	const capped = buildServer({
+		tmuxSocketName: "portikus-test-capped",
+		tokenPath,
+		homeDir,
+		checkMaxProcesses: (await userTaskCount()) + 100,
+	});
+	try {
+		const capCall = (method: string, url: string) =>
+			capped.inject({
+				method: method as "GET",
+				url,
+				headers: { authorization: `Bearer ${TOKEN}` },
+			});
+		await capCall("POST", `/projects/${SLUG}/checks/bomb/runs`);
+		const bombRun = async () =>
+			(await capCall("GET", `/projects/${SLUG}/checks`))
+				.json()
+				.runs.find((run: { checkId: string }) => run.checkId === "bomb");
+		await vi.waitFor(
+			async () => {
+				expect(["passed", "failed"]).toContain((await bombRun())?.state);
+			},
+			{ timeout: 20_000 },
+		);
+		expect(await bombRun()).toMatchObject({ state: "failed", exitCode: 11 });
+		// The agent has no such limit, so it can still start processes.
+		await writeChecks(JSON.stringify(CHECKS));
+		const fine = await call("POST", `/projects/${SLUG}/checks/tests/runs`);
+		expect(fine.statusCode).toBeLessThan(300);
+	} finally {
+		await capped.close();
+	}
+}, 30_000);
