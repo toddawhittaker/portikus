@@ -449,11 +449,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (!validName(params.name, reply)) return reply;
 		const body = parseOr400(SetCpuAllowanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			await provider.setCpuAllowance(params.name, body.allowance);
+			await provider.setCpuAllowance(params.name, body.allowance, signal);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -463,11 +464,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (!validName(params.name, reply)) return reply;
 		const body = parseOr400(SetInstanceLimitsRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			await provider.setLimits(params.name, body);
+			await provider.setLimits(params.name, body, signal);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -475,10 +477,11 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	app.get("/instances/:name/added-packages", async (request, reply) => {
 		const params = request.params as { name: string };
 		if (!validName(params.name, reply)) return reply;
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			return reply.code(200).send(await provider.addedPackages(params.name));
+			return reply.code(200).send(await provider.addedPackages(params.name, signal));
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -487,9 +490,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const params = request.params as { name: string };
 		if (!validName(params.name, reply)) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			const result = await singleFlight(`replace-home:${params.name}`, undefined, () =>
-				provider.replaceHome(params.name),
+			const result = await singleFlight(
+				`replace-home:${params.name}`,
+				signal,
+				(shared) => provider.replaceHome(params.name, shared),
 			);
 			request.log.info(
 				{ instance: params.name, kept: result.kept, durationMs: Date.now() - started },
@@ -497,7 +503,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -537,11 +543,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				.code(400)
 				.send({ code: "BAD_REQUEST", message: "only kept homes can be deleted" });
 		}
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			await provider.deleteKeptHome(params.volume);
+			await provider.deleteKeptHome(params.volume, signal);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 

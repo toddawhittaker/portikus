@@ -299,7 +299,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 			}));
 	}
 
-	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+	async setCpuAllowance(
+		name: string,
+		allowance: string | null,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		this.validate(name);
 		this.checkError();
 		const inst = this.instances.get(name);
@@ -361,7 +365,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return inst;
 	}
 
-	async setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void> {
+	async setLimits(
+		name: string,
+		limits: SetInstanceLimitsRequest,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		const inst = this.existingInstance(name);
 		if (limits.cpu !== null && limits.cpu > this.hostCpuCount) {
 			throw new IncusError("BAD_REQUEST", `the host has ${this.hostCpuCount} CPUs`);
@@ -369,7 +377,10 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		inst.limits = { ...limits };
 	}
 
-	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+	async addedPackages(
+		name: string,
+		_signal?: AbortSignal,
+	): Promise<AddedPackagesResponse> {
 		const inst = this.existingInstance(name);
 		const file = inst.addedPackagesFile;
 		if (file?.type !== "file") return { image: null, packages: [] };
@@ -415,7 +426,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		}
 	}
 
-	async deleteKeptHome(volume: string): Promise<void> {
+	async deleteKeptHome(volume: string, _signal?: AbortSignal): Promise<void> {
 		if (!KeptHomeVolumeName.safeParse(volume).success) {
 			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
 		}
@@ -472,7 +483,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		this.seedSteps.push("discard");
 	}
 
-	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+	async replaceHome(name: string, _signal?: AbortSignal): Promise<ReplaceHomeResponse> {
 		const inst = this.stoppedInstance(name);
 		const importVolume = `${name}-home-import`;
 		const imported = this.volumes.get(importVolume);

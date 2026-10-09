@@ -128,21 +128,29 @@ export interface WorkspaceProvider {
 	/** CPU time and memory of every running instance, from Incus (ADR 0032). */
 	usage(): Promise<InstanceUsage[]>;
 	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
-	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
+	setCpuAllowance(
+		name: string,
+		allowance: string | null,
+		signal?: AbortSignal,
+	): Promise<void>;
 	/** The heaviest processes of a running instance, short names only (ADR 0037). */
 	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
 	/** Set or, with null, remove the instance's own CPU, memory and process limits. */
-	setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void>;
+	setLimits(
+		name: string,
+		limits: SetInstanceLimitsRequest,
+		signal?: AbortSignal,
+	): Promise<void>;
 	/** The packages the student added, from the apt hook's list in their home. */
-	addedPackages(name: string): Promise<AddedPackagesResponse>;
+	addedPackages(name: string, signal?: AbortSignal): Promise<AddedPackagesResponse>;
 	/** Pre-change snapshots and homes kept by Replace home. */
 	keptVolumes(): Promise<KeptVolumesResponse>;
 	/** Delete one `pre-*` snapshot of a workspace volume. */
 	deleteSnapshot(volume: string, snapshot: string): Promise<void>;
 	/** Delete one kept home that nothing uses. */
-	deleteKeptHome(volume: string): Promise<void>;
+	deleteKeptHome(volume: string, signal?: AbortSignal): Promise<void>;
 	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
-	replaceHome(name: string): Promise<ReplaceHomeResponse>;
+	replaceHome(name: string, signal?: AbortSignal): Promise<ReplaceHomeResponse>;
 }
 // jscpd:ignore-end
 
@@ -1015,13 +1023,17 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return { imageFingerprint };
 	}
 
-	async setCpuAllowance(name: string, allowance: string | null): Promise<void> {
+	async setCpuAllowance(
+		name: string,
+		allowance: string | null,
+		signal?: AbortSignal,
+	): Promise<void> {
 		validateName(name);
 		// Checked again here: a percentage is only a soft share (ADR 0032).
 		if (allowance !== null && !CpuAllowance.safeParse(allowance).success) {
 			throw new IncusError("BAD_REQUEST", `invalid cpu allowance: ${allowance}`);
 		}
-		await this.writeCpuAllowance(name, allowance);
+		await this.writeCpuAllowance(name, allowance, signal);
 		this.log.info({ instance: name, allowance }, "cpu allowance set");
 	}
 
@@ -1303,7 +1315,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * Set the instance's own limits, never the profile's; Incus applies them
 	 * live to a running container. Null removes the key so the profile applies.
 	 */
-	async setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void> {
+	async setLimits(
+		name: string,
+		limits: SetInstanceLimitsRequest,
+		signal?: AbortSignal,
+	): Promise<void> {
 		validateName(name);
 		if (limits.cpu !== null && limits.cpu > this.hostCpuCount) {
 			throw new IncusError(
@@ -1317,7 +1333,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			"limits.processes": limits.processes === null ? null : String(limits.processes),
 		};
 		const path = `/1.0/instances/${enc(name)}`;
-		const { metadata, etag } = await this.client.getWithEtag(path);
+		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		const config = { ...(inst.config ?? {}) };
 		let changed = false;
@@ -1329,7 +1345,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 		if (!changed) return;
 		// PATCH cannot remove a config key, so write back as read, ETag-guarded.
-		await this.client.putIfMatch(path, { ...writableFields(inst), config }, etag);
+		await this.client.putIfMatch(
+			path,
+			{ ...writableFields(inst), config },
+			etag,
+			signal,
+		);
 		this.log.info({ instance: name, ...limits }, "instance limits set");
 	}
 
@@ -1339,7 +1360,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * outside it (SPEC.md §24). Anything but a regular file, or a read that
 	 * fails, is no list.
 	 */
-	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+	async addedPackages(
+		name: string,
+		signal?: AbortSignal,
+	): Promise<AddedPackagesResponse> {
 		validateName(name);
 		const read = await this.client.exec(
 			name,
@@ -1358,6 +1382,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				user: STUDENT_UID,
 				outputMaxBytes: ADDED_PACKAGES_MAX_BYTES,
 			},
+			signal,
 		);
 		if (read.tooLarge) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
@@ -1416,17 +1441,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.log.info({ volume, snapshot }, "snapshot deleted");
 	}
 
-	async deleteKeptHome(volume: string): Promise<void> {
+	async deleteKeptHome(volume: string, signal?: AbortSignal): Promise<void> {
 		if (!KeptHomeVolumeName.safeParse(volume).success) {
 			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
 		}
-		const info = (await this.client.request("GET", volumePath(this.pool, volume))) as {
+		const info = (await this.client.request(
+			"GET",
+			volumePath(this.pool, volume),
+			undefined,
+			signal,
+		)) as {
 			used_by?: string[];
 		};
 		if ((info.used_by ?? []).length > 0) {
 			throw new VolumeInUseError(volume);
 		}
-		await this.client.request("DELETE", volumePath(this.pool, volume));
+		await this.client.request(
+			"DELETE",
+			volumePath(this.pool, volume),
+			undefined,
+			signal,
+		);
 		this.log.info({ volume }, "kept home deleted");
 	}
 
@@ -1435,12 +1470,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * home, keep the old volume under a new name, rename the import, attach.
 	 * Each step can be repeated, so a retry finishes a half-done swap.
 	 */
-	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+	async replaceHome(name: string, signal?: AbortSignal): Promise<ReplaceHomeResponse> {
 		validateName(name);
 		const path = `/1.0/instances/${enc(name)}`;
 		const homeVolume = `${name}-home`;
 		const importVolume = `${name}-home-import`;
-		const { metadata, etag } = await this.client.getWithEtag(path);
+		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		assertStopped(name, inst.status);
 
@@ -1451,33 +1486,55 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				`instance ${name} has an unexpected home device; refusing to replace it`,
 			);
 		}
-		const importExists = await volumeExists(this.client, this.pool, importVolume);
+		const importExists = await volumeExists(
+			this.client,
+			this.pool,
+			importVolume,
+			signal,
+		);
 		if (home && !importExists) {
 			throw new IncusError("NOT_FOUND", `volume ${importVolume} not found`);
 		}
 
 		if (home) {
 			const { home: _removed, ...devices } = inst.devices;
-			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
+			await this.client.putIfMatch(
+				path,
+				{ ...writableFields(inst), devices },
+				etag,
+				signal,
+			);
 		}
 
-		if (importExists && (await volumeExists(this.client, this.pool, homeVolume))) {
+		if (
+			importExists &&
+			(await volumeExists(this.client, this.pool, homeVolume, signal))
+		) {
 			const keptName = `${name}-home-replaced-${Math.floor(Date.now() / 1000)}`;
-			await this.client.request("POST", volumePath(this.pool, homeVolume), {
-				name: keptName,
-			});
+			await this.client.request(
+				"POST",
+				volumePath(this.pool, homeVolume),
+				{ name: keptName },
+				signal,
+			);
 		}
 		if (importExists) {
-			await this.client.request("POST", volumePath(this.pool, importVolume), {
-				name: homeVolume,
-			});
+			await this.client.request(
+				"POST",
+				volumePath(this.pool, importVolume),
+				{ name: homeVolume },
+				signal,
+			);
 		}
 
-		await this.client.request("PATCH", path, {
-			devices: { home: this.homeDevice(name) },
-		});
+		await this.client.request(
+			"PATCH",
+			path,
+			{ devices: { home: this.homeDevice(name) } },
+			signal,
+		);
 
-		const kept = await this.newestKeptHome(name);
+		const kept = await this.newestKeptHome(name, signal);
 		if (!kept) {
 			throw new IncusError("OPERATION_FAILED", `no kept home for ${name}`);
 		}
@@ -1485,10 +1542,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return { kept };
 	}
 
-	private async newestKeptHome(name: string): Promise<string | null> {
+	private async newestKeptHome(
+		name: string,
+		signal?: AbortSignal,
+	): Promise<string | null> {
 		const volumes = (await this.client.request(
 			"GET",
 			`/1.0/storage-pools/${enc(this.pool)}/volumes/custom?recursion=1`,
+			undefined,
+			signal,
 		)) as Array<{ name: string }>;
 		const prefix = `${name}-home-replaced-`;
 		let newest: { name: string; at: number } | null = null;
