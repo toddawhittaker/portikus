@@ -1,4 +1,10 @@
-import { MAX_EDITOR_FILE_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import {
+	MAX_EDITOR_FILE_BYTES,
+	MAX_TREE_ENTRIES,
+	MAX_UPLOAD_BYTES,
+	parseTreeAfter,
+	treeAfter,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import {
 	addParents,
@@ -19,7 +25,8 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 
 	app.get("/projects/:slug/tree", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
-		const path = (request.query as { path?: string }).path ?? "";
+		const query = request.query as { path?: string; after?: string };
+		const path = query.path ?? "";
 		try {
 			const node = nodeAt(request, slug, path);
 			if (!node) throw new FakeFileError("FILE_NOT_FOUND", "no such directory");
@@ -36,13 +43,30 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 					size: value.type === "file" ? value.content.length : 0,
 					mtimeMs: 0,
 				}));
-			entries.sort((a, b) => {
-				const aDir = a.type === "dir" ? 0 : 1;
-				const bDir = b.type === "dir" ? 0 : 1;
-				if (aDir !== bDir) return aDir - bDir;
-				return a.name.localeCompare(b.name);
-			});
-			return { entries, truncated: false };
+			const order = (aDir: boolean, aName: string, bDir: boolean, bName: string) => {
+				if (aDir !== bDir) return aDir ? -1 : 1;
+				return aName.localeCompare(bName);
+			};
+			entries.sort((a, b) => order(a.type === "dir", a.name, b.type === "dir", b.name));
+			// Pages of MAX_TREE_ENTRIES, like the real agent (SPEC.md §11.2).
+			let start = 0;
+			if (query.after !== undefined) {
+				const last = parseTreeAfter(query.after);
+				start = entries.findIndex(
+					(entry) => order(entry.type === "dir", entry.name, last.isDir, last.name) > 0,
+				);
+				if (start === -1) start = entries.length;
+			}
+			const page = entries.slice(start, start + MAX_TREE_ENTRIES);
+			const lastSent = page.at(-1);
+			if (start + MAX_TREE_ENTRIES >= entries.length || !lastSent) {
+				return { entries: page, truncated: false };
+			}
+			return {
+				entries: page,
+				truncated: true,
+				next: treeAfter(lastSent.type === "dir", lastSent.name),
+			};
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
 		}

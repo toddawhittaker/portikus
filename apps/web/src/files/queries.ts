@@ -8,7 +8,9 @@
  */
 import { ExtractResponse, TreeResponse, WriteFileResponse } from "@portikus/contracts";
 import {
+	type InfiniteData,
 	type UseMutationResult,
+	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
@@ -35,8 +37,23 @@ export const fileKeys = {
 		["file-action", workspaceId, projectId] as const,
 };
 
-function treeUrl(workspaceId: string, projectId: string, dir: string): string {
-	return `${base(workspaceId, projectId)}/tree?path=${encodeURIComponent(dir)}`;
+function treeUrl(
+	workspaceId: string,
+	projectId: string,
+	dir: string,
+	after: string | undefined,
+): string {
+	const url = `${base(workspaceId, projectId)}/tree?path=${encodeURIComponent(dir)}`;
+	return after === undefined ? url : `${url}&after=${encodeURIComponent(after)}`;
+}
+
+/** Every page fetched so far as one listing; `truncated` means more can be fetched. */
+function joinPages(data: InfiniteData<TreeResponse, string | undefined>): TreeResponse {
+	const last = data.pages.at(-1);
+	return {
+		entries: data.pages.flatMap((page) => page.entries),
+		truncated: last?.truncated ?? false,
+	};
 }
 
 /** The URL of one file, for reading and writing. */
@@ -110,6 +127,8 @@ export function directoryDownloadUrl(
  * One directory listing, fetched while the directory is mounted. Nothing
  * polls any more: the project events socket refetches the listing when
  * something in that directory changes (SPEC.md §11.4, useProjectEvents.ts).
+ * A directory past the page size loads its next page on `fetchNextPage`,
+ * and a refetch reloads every page already shown.
  */
 export function useTree(
 	workspaceId: string,
@@ -117,10 +136,14 @@ export function useTree(
 	dir: string,
 	enabled = true,
 ) {
-	return useQuery({
+	return useInfiniteQuery({
 		enabled,
 		queryKey: fileKeys.tree(workspaceId, projectId, dir),
-		queryFn: () => request(TreeResponse, treeUrl(workspaceId, projectId, dir)),
+		queryFn: ({ pageParam }) =>
+			request(TreeResponse, treeUrl(workspaceId, projectId, dir, pageParam)),
+		initialPageParam: undefined as string | undefined,
+		getNextPageParam: (page) => page.next,
+		select: joinPages,
 	});
 }
 

@@ -21,8 +21,10 @@ import {
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
 	ProjectPath,
+	parseTreeAfter,
 	type TreeEntry,
 	type TreeResponse,
+	treeAfter,
 	type WriteFileResponse,
 } from "@portikus/contracts";
 import { AgentFailure, errorCode, FileChanged } from "./errors.js";
@@ -147,6 +149,7 @@ export async function listDir(
 	homeDir: string,
 	slug: string,
 	relPath: string,
+	after?: string,
 ): Promise<TreeResponse> {
 	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: true });
 	let dirents: Dirent[];
@@ -160,15 +163,23 @@ export async function listDir(
 		}
 		throw error;
 	}
-	dirents.sort((a, b) => {
-		const aDir = a.isDirectory() ? 0 : 1;
-		const bDir = b.isDirectory() ? 0 : 1;
-		if (aDir !== bDir) return aDir - bDir;
-		return NAME_ORDER.compare(a.name, b.name);
-	});
-	const truncated = dirents.length > MAX_TREE_ENTRIES;
+	const order = (aDir: boolean, aName: string, bDir: boolean, bName: string) => {
+		if (aDir !== bDir) return aDir ? -1 : 1;
+		return NAME_ORDER.compare(aName, bName);
+	};
+	dirents.sort((a, b) => order(a.isDirectory(), a.name, b.isDirectory(), b.name));
+	let start = 0;
+	if (after !== undefined) {
+		const last = parseTreeAfter(after);
+		start = dirents.findIndex(
+			(dirent) => order(dirent.isDirectory(), dirent.name, last.isDir, last.name) > 0,
+		);
+		if (start === -1) start = dirents.length;
+	}
+	const page = dirents.slice(start, start + MAX_TREE_ENTRIES);
+	const truncated = start + MAX_TREE_ENTRIES < dirents.length;
 	const entries: TreeEntry[] = [];
-	for (const dirent of dirents.slice(0, MAX_TREE_ENTRIES)) {
+	for (const dirent of page) {
 		// lstat, so a symlink reports itself rather than what it points at.
 		const info = await lstat(join(target.path, dirent.name)).catch(() => null);
 		if (!info) continue;
@@ -179,7 +190,9 @@ export async function listDir(
 			mtimeMs: info.mtimeMs,
 		});
 	}
-	return { entries, truncated };
+	const lastSent = page.at(-1);
+	if (!truncated || !lastSent) return { entries, truncated };
+	return { entries, truncated, next: treeAfter(lastSent.isDirectory(), lastSent.name) };
 }
 
 export interface ReadFileResult {

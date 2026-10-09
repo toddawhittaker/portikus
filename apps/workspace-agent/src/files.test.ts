@@ -350,9 +350,36 @@ test("a directory past the cap is truncated", async () => {
 			writeFileFs(join(many, `f${String(index).padStart(5, "0")}.txt`), ""),
 		),
 	);
+	await mkdir(join(many, "zdir"));
 	const body = (await tree("many")).json();
 	expect(body.entries).toHaveLength(MAX_TREE_ENTRIES);
 	expect(body.truncated).toBe(true);
+	// Directories sort first, so the page ends one file short of the last.
+	expect(body.next).toBe(`f/f${String(MAX_TREE_ENTRIES - 2).padStart(5, "0")}.txt`);
+
+	// The next page carries on after that name, and is the last.
+	const rest = (
+		await app.inject({
+			method: "GET",
+			url: `/projects/alpha/tree?path=many&after=${encodeURIComponent(body.next)}`,
+			headers: auth(),
+		})
+	).json();
+	expect(rest.entries.map((entry: { name: string }) => entry.name)).toEqual([
+		`f${String(MAX_TREE_ENTRIES - 1).padStart(5, "0")}.txt`,
+		`f${String(MAX_TREE_ENTRIES).padStart(5, "0")}.txt`,
+	]);
+	expect(rest.truncated).toBe(false);
+	expect(rest.next).toBeUndefined();
+});
+
+test("a malformed listing token is refused", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/alpha/tree?path=&after=x%2F..",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(400);
 });
 
 test("mkdir creates a directory and refuses a name already taken", async () => {

@@ -8,7 +8,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { MAX_EDITOR_FILE_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import {
+	MAX_EDITOR_FILE_BYTES,
+	MAX_TREE_ENTRIES,
+	MAX_UPLOAD_BYTES,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -184,6 +188,25 @@ test.skipIf(skip)("the owner reads a tree and a file with its etag", async () =>
 	expect(file.headers["cache-control"]).toBe("no-transform");
 	expect(file.headers["content-type"]).toBe("text/plain; charset=utf-8");
 	expect(file.headers["content-length"]).toBe("6");
+});
+
+test.skipIf(skip)("a long listing continues from the token it ends with", async () => {
+	for (let index = 0; index <= MAX_TREE_ENTRIES; index++) {
+		seed("lab", `f${String(index).padStart(5, "0")}.txt`, "");
+	}
+	const first = (await get(alice, "tree")).json();
+	expect(first.entries).toHaveLength(MAX_TREE_ENTRIES);
+	expect(first.truncated).toBe(true);
+
+	const rest = await get(alice, "tree", `?after=${encodeURIComponent(first.next)}`);
+	expect(rest.statusCode).toBe(200);
+	expect(rest.json().entries.map((entry: { name: string }) => entry.name)).toEqual([
+		`f${String(MAX_TREE_ENTRIES).padStart(5, "0")}.txt`,
+	]);
+	expect(rest.json().truncated).toBe(false);
+
+	const bad = await get(alice, "tree", "?after=..%2Fx");
+	expect(bad.statusCode).toBe(400);
 });
 
 test.skipIf(skip)("a missing file is a 404 and a directory is a 400", async () => {

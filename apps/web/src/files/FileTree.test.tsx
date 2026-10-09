@@ -258,13 +258,30 @@ describe("the file tree", () => {
 		expect(region.getAttribute("aria-live")).toBe("polite");
 	});
 
-	it("says when a listing was cut short", async () => {
-		stubFetch(() => json(200, { entries: [entry("a.txt")], truncated: true }));
+	/** SPEC.md §11.2: the rest of a long directory is one click away. */
+	it("shows the rest of a long listing when Show more is pressed", async () => {
+		const urls: string[] = [];
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			urls.push(url);
+			if (url.includes("after=")) {
+				return json(200, { entries: [entry("b.txt")], truncated: false });
+			}
+			return json(200, { entries: [entry("a.txt")], truncated: true, next: "f/a.txt" });
+		});
 		renderPane();
 
-		expect((await screen.findByTestId("file-tree-truncated")).textContent).toBe(
-			"Showing the first 2000 entries",
+		expect((await screen.findByTestId("file-tree-truncated")).textContent).toContain(
+			"Showing 1 entries.",
 		);
+		expect(screen.queryByText("b.txt")).toBeNull();
+		fireEvent.click(screen.getByTestId("file-tree-show-more"));
+
+		expect(await screen.findByText("b.txt")).toBeDefined();
+		expect(screen.getByText("a.txt")).toBeDefined();
+		expect(screen.queryByTestId("file-tree-truncated")).toBeNull();
+		expect(urls.at(-1)).toContain("after=f%2Fa.txt");
 	});
 
 	/** SPEC.md §11.2: a deleted file leaves no tab behind. */

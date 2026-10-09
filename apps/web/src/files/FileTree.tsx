@@ -992,8 +992,18 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 				<Row key={entry.name} dir={dir} entry={entry} level={level} />
 			))}
 			{query.data?.truncated ? (
+				// Not a treeitem: it is an action, outside the rows the arrow keys walk.
 				<div className="pk-tree-more" data-testid="file-tree-truncated">
-					Showing the first {MAX_TREE_ENTRIES} entries
+					<span>Showing {query.data.entries.length} entries.</span>{" "}
+					<Button
+						size="sm"
+						variant="secondary"
+						data-testid="file-tree-show-more"
+						disabled={query.isFetchingNextPage}
+						onClick={() => void query.fetchNextPage()}
+					>
+						Show {MAX_TREE_ENTRIES} more
+					</Button>
 				</div>
 			) : null}
 		</>
