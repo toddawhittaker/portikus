@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { ProcessStopRequest, ProcessStopResponse } from "./processes.js";
+import {
+	AgentProtectedProcesses,
+	ProcessStopRequest,
+	ProcessStopResponse,
+} from "./processes.js";
 import { UsageProcess } from "./usage.js";
 
 test("a stop request needs start ticks and takes nothing else", () => {
@@ -34,5 +38,19 @@ test("a usage row's command line is capped at 1024 characters", () => {
 	expect(UsageProcess.safeParse(row).success).toBe(true);
 	expect(
 		UsageProcess.safeParse({ ...row, commandLine: "a".repeat(1025) }).success,
+	).toBe(false);
+});
+
+test("the agent's protected set carries only pid and start ticks", () => {
+	const ok = { processes: [{ pid: 9, startTicks: 10 }] };
+	expect(AgentProtectedProcesses.safeParse(ok).success).toBe(true);
+	expect(
+		AgentProtectedProcesses.safeParse({ processes: [{ pid: 0, startTicks: 1 }] })
+			.success,
+	).toBe(false);
+	expect(
+		AgentProtectedProcesses.safeParse({
+			processes: [{ pid: 9, startTicks: 10, name: "x" }],
+		}).success,
 	).toBe(false);
 });

@@ -102,7 +102,7 @@ async function main(): Promise<void> {
 			readAlertChannels(config.NOTIFY_FILE, config.OUTBOUND_PROXY_URL),
 	});
 	startTerminalPrune({ db, logger });
-	startProcessSnapshots({ db, controller, logger });
+	startProcessSnapshots({ db, controller, logger, agentPort: config.AGENT_PORT });
 	startBackupVmLoop({ db, controller, logger });
 	startEgressSync({ db, controller, logger });
 	// Only the egress dnsmasq and the workspace Squid talk to this, on loopback (ADR 0038).
