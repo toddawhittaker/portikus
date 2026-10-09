@@ -9,7 +9,7 @@ import {
 	MeasuringStrategy,
 	pointerWithin,
 } from "@dnd-kit/core";
-import type { CodingAgent, Terminal } from "@portikus/contracts";
+import type { CodingAgent, SplitNode, Terminal } from "@portikus/contracts";
 import {
 	Button,
 	ConfirmDialog,
@@ -25,6 +25,7 @@ import {
 	Tabs,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { baseName, displayName } from "../files/paths.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import {
@@ -72,6 +73,25 @@ function useLauncherMenuFocus() {
 	}
 
 	return { onOpenChange, onCloseAutoFocus, declineTriggerFocus };
+}
+
+/**
+ * What closing a tab would lose: edits not on disk, by file name when there
+ * is one, and the terminals it ends.
+ */
+function closeTabWarning(unsaved: string[], terminals: number): string {
+	const first = unsaved[0];
+	const files =
+		first === undefined
+			? null
+			: unsaved.length === 1
+				? `${displayName(baseName(first))} has changes that are not saved.`
+				: `${unsaved.length} files have changes that are not saved.`;
+	const ends = terminals === 1 ? "ends its terminal" : "ends all of its terminals";
+	if (files === null)
+		return `It has ${terminals} terminals. Closing the tab ends them all.`;
+	if (terminals === 0) return `${files} Closing the tab discards them.`;
+	return `${files} Closing the tab discards them and ${ends}.`;
 }
 
 export interface WorkAreaProps {
@@ -267,11 +287,16 @@ export function WorkArea({
 		store.getState().closeFile(path);
 	}
 
+	/** Files in the tab with edits not on disk. */
+	function unsavedFiles(root: SplitNode): string[] {
+		return filePaths(root).filter((path) => unsavedTabs[fileTabId(path)] ?? false);
+	}
+
 	function requestCloseTab(tabId: string) {
 		const tab = layout.tabs.find((item) => item.id === tabId);
 		if (!tab) return;
 		const live = terminalIds(tab.root).filter((id) => byId.get(id)?.endedAt == null);
-		if (live.length > 1) {
+		if (live.length > 1 || unsavedFiles(tab.root).length > 0) {
 			setClosingTabId(tabId);
 			return;
 		}
@@ -314,8 +339,8 @@ export function WorkArea({
 				id: tab.id,
 				kind: tab.root.type === "diff" ? ("diff" as const) : ("file" as const),
 				// The strip has no room for a path, so the file name is the label.
-				label: path.split("/").pop() ?? path,
-				title: path,
+				label: displayName(baseName(path)),
+				title: displayName(path),
 				dirty,
 				testId: `tab-${tab.id}`,
 			};
@@ -515,7 +540,14 @@ export function WorkArea({
 				>
 					<ConfirmDialog
 						title="Close this tab?"
-						description={`It has ${closingTab ? terminalIds(closingTab.root).length : 0} terminals. Closing the tab ends them all.`}
+						description={
+							closingTab
+								? closeTabWarning(
+										unsavedFiles(closingTab.root),
+										terminalIds(closingTab.root).length,
+									)
+								: ""
+						}
 						confirmLabel="Close tab"
 						onConfirm={() => {
 							if (closingTabId) panes.confirmCloseTab(closingTabId);

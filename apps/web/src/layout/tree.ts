@@ -6,12 +6,16 @@
  * reconciling can be tested on its own.
  */
 import {
+	filePaths,
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
 	type SplitNode,
 	splitDepth,
 } from "@portikus/contracts";
 import { movedPath } from "../files/paths.js";
+
+// One definition, shared with the layout schema that rejects a file open twice.
+export { filePaths } from "@portikus/contracts";
 
 export type SplitDirection = "row" | "column";
 
@@ -54,13 +58,6 @@ export function paneIds(node: SplitNode): string[] {
 	if (node.type === "split") return node.children.flatMap(paneIds);
 	const id = paneId(node);
 	return id === null ? [] : [id];
-}
-
-/** Every file path in the subtree, wherever it sits. */
-export function filePaths(node: SplitNode): string[] {
-	if (node.type === "file") return [node.path];
-	if (node.type !== "split") return [];
-	return node.children.flatMap(filePaths);
 }
 
 /** The id of the tab that holds this pane, or null when no tab does. */

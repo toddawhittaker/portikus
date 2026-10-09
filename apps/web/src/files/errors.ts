@@ -62,6 +62,15 @@ export function selectionTooLongToast(): ToastProps {
 	};
 }
 
+/** A selection whose names are too long to send in one request. */
+export function selectionNamesTooLongToast(): ToastProps {
+	return {
+		tone: "danger",
+		title: "The selected names are too long for one download",
+		children: "Download the folder that holds them instead, or select fewer.",
+	};
+}
+
 /** Why a selection's zip did not start: over the size cap gets its own advice. */
 export function selectionDownloadErrorToast(error: unknown): ToastProps {
 	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {

@@ -36,6 +36,7 @@ import {
 	fileErrorToast,
 	isFileExists,
 	selectionDownloadErrorToast,
+	selectionNamesTooLongToast,
 	selectionTooLongToast,
 	tooLargeToast,
 } from "./errors.js";
@@ -337,6 +338,10 @@ export function FileTreePane({
 				project.id,
 				nodes.map((item) => item.path),
 			);
+			if (href === null) {
+				toast.show(selectionNamesTooLongToast());
+				return;
+			}
 			startDownload(href, `${href}&check=1`, `${project.slug}.zip`).catch(
 				(error: unknown) => toast.show(selectionDownloadErrorToast(error)),
 			);

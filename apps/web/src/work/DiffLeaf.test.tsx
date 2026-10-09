@@ -634,6 +634,24 @@ test("a save or a file event does not read the point again; Compare does", async
 	await waitFor(() => expect(pointReads()).toBe(2));
 });
 
+test("Compare on a point viewed earlier reads it again", async () => {
+	const urls = stubPointServer({ status: 200, body: diff({ before: "saved\n" }) });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	const reads = (point: string) =>
+		urls.filter((url) => url.includes(`/${point}/diff?`)).length;
+	const select = await choosePoints();
+	const compareWith = async (point: string, times: number) => {
+		fireEvent.change(select, { target: { value: point } });
+		fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+		await waitFor(() => expect(reads(point)).toBe(times));
+	};
+
+	await compareWith(POINT_A, 1);
+	await compareWith(POINT_B, 1);
+	await compareWith(POINT_A, 2);
+});
+
 test("a point read carries an abort signal, so leaving it cancels the read", async () => {
 	stubPointServer({ status: 200, body: diff() });
 	renderLeaf();

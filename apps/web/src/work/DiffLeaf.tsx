@@ -20,6 +20,7 @@ import {
 import { errorText } from "../api/request.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { DIFF_KIND, WORD } from "../files/gitStatus.js";
+import { displayName } from "../files/paths.js";
 import { type DiffBase, useGitDiff } from "../files/useGitDiff.js";
 import { pointTime, REASON_LABEL } from "../recovery/labels.js";
 import { useRecoveryPoints } from "../recovery/queries.js";
@@ -67,11 +68,14 @@ function diffTitle(
 	base: DiffBase | undefined,
 	data: GitDiff | undefined,
 ) {
-	if (base?.kind === "baseline") return `Diff since session baseline · ${path}`;
-	if (base?.kind === "ref") return `Diff with ${base.ref} · ${path}`;
-	if (base?.kind === "point") return `Diff with recovery point ${base.label} · ${path}`;
-	if (data?.status === "R" && data.oldPath) return `Diff · ${data.oldPath} → ${path}`;
-	return `Diff · ${path}`;
+	const shown = displayName(path);
+	if (base?.kind === "baseline") return `Diff since session baseline · ${shown}`;
+	if (base?.kind === "ref") return `Diff with ${base.ref} · ${shown}`;
+	if (base?.kind === "point")
+		return `Diff with recovery point ${base.label} · ${shown}`;
+	if (data?.status === "R" && data.oldPath)
+		return `Diff · ${displayName(data.oldPath)} → ${shown}`;
+	return `Diff · ${shown}`;
 }
 
 /** A point as the picker and the diff header name it: time and trigger. */
@@ -360,8 +364,8 @@ export function DiffLeaf({
 					}
 				>
 					{deleted
-						? `${path} is not text, and it was deleted from the working tree, so there is nothing to show or download.`
-						: `${path} is not text, so its changes cannot be shown side by side.`}
+						? `${displayName(path)} is not text, and it was deleted from the working tree, so there is nothing to show or download.`
+						: `${displayName(path)} is not text, so its changes cannot be shown side by side.`}
 				</EmptyState>
 			);
 		}
@@ -379,8 +383,8 @@ export function DiffLeaf({
 						/>
 					}
 				>
-					{path} has more changes than the diff view can hold. Switch to Edit above to
-					open it, or download it.
+					{displayName(path)} has more changes than the diff view can hold. Switch to
+					Edit above to open it, or download it.
 				</EmptyState>
 			);
 		}

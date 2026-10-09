@@ -15,7 +15,7 @@ import {
 	MenuTrigger,
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useRef } from "react";
-import { baseName } from "../files/paths.js";
+import { baseName, displayName } from "../files/paths.js";
 import { type DropEdge, fileTabId } from "../layout/tree.js";
 import { usePaneMenuFocus } from "./pointerDismiss.js";
 
@@ -55,7 +55,8 @@ export function FilePane({
 	children,
 }: FilePaneProps) {
 	const id = fileTabId(path);
-	const name = baseName(path);
+	const name = displayName(baseName(path));
+	const shownPath = displayName(path);
 	const menu = usePaneMenuFocus();
 	const actions = useRef<HTMLButtonElement | null>(null);
 	// usePaneDrag reads the pane id from `terminalId`, the key a terminal's
@@ -67,17 +68,20 @@ export function FilePane({
 	const drop = useDroppable({ id: `pane-drop-${id}`, data: { terminalId: id } });
 
 	// A move mounts the pane again in its new place; the keyboard follows it
-	// there rather than falling to the page.
+	// there rather than falling to the page. A remount while the keyboard is
+	// somewhere else, such as the file tree, leaves it there.
 	const focusedAtMount = useRef(focused);
 	useEffect(() => {
-		if (focusedAtMount.current) actions.current?.focus();
+		const dropped =
+			document.activeElement === null || document.activeElement === document.body;
+		if (focusedAtMount.current && dropped) actions.current?.focus();
 	}, []);
 
 	return (
 		<section
 			ref={drop.setNodeRef}
 			className={`pk-filepane ${drag.isDragging ? "is-dragged" : ""}`}
-			aria-label={`File: ${path}`}
+			aria-label={`File: ${shownPath}`}
 			data-testid={`file-frame-${path}`}
 			onFocusCapture={() => onFocus(id)}
 		>
@@ -86,7 +90,7 @@ export function FilePane({
 				<span
 					ref={drag.setNodeRef}
 					className="pk-filepane-title"
-					title={path}
+					title={shownPath}
 					data-testid={`file-frame-handle-${path}`}
 					{...drag.listeners}
 				>

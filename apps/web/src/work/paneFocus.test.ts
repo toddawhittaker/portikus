@@ -43,6 +43,58 @@ test("the keyboard goes into the neighbour's terminal input, or to the fallback"
 	expect(document.activeElement).toBe(fallback);
 });
 
+const mixed: ProjectLayout = {
+	tabs: [
+		{
+			id: "t1",
+			root: {
+				type: "split",
+				direction: "row",
+				sizes: [50, 50],
+				children: [
+					{ type: "leaf", terminalId: "a" },
+					{ type: "file", path: "src/app.ts" },
+				],
+			},
+		},
+	],
+};
+
+test("a file pane and a terminal pane take over from each other", () => {
+	expect(neighbourPane(mixed, "file:src/app.ts")).toBe("a");
+	expect(neighbourPane(mixed, "a")).toBe("file:src/app.ts");
+});
+
+test("closing a file hands the keyboard to the terminal beside it", () => {
+	document.body.innerHTML = `
+		<div data-testid="terminal-pane-a"><textarea class="xterm-helper-textarea"></textarea></div>
+		<button id="fallback">New</button>`;
+	const fallback = document.getElementById("fallback");
+	expect(focusAfterPane(mixed, "file:src/app.ts", fallback)).toBe("a");
+	expect(document.activeElement?.tagName).toBe("TEXTAREA");
+});
+
+test("closing a terminal hands the keyboard to the file beside it: its editor, else its actions", () => {
+	document.body.innerHTML = `
+		<section data-testid="file-frame-src/app.ts">
+			<button data-testid="file-frame-actions-src/app.ts">Actions</button>
+			<div class="monaco-editor"><textarea class="inputarea"></textarea></div>
+		</section>
+		<button id="fallback">New</button>`;
+	const fallback = document.getElementById("fallback");
+	expect(focusAfterPane(mixed, "a", fallback)).toBe("file:src/app.ts");
+	expect(document.activeElement?.className).toBe("inputarea");
+
+	document.body.innerHTML = `
+		<section data-testid="file-frame-src/app.ts">
+			<button data-testid="file-frame-actions-src/app.ts">Actions</button>
+		</section>`;
+	expect(focusAfterPane(mixed, "a", null)).toBe("file:src/app.ts");
+	expect(document.activeElement?.getAttribute("data-testid")).toBe(
+		"file-frame-actions-src/app.ts",
+	);
+});
+
 test("a closed tab hands over to the last one active, else its left, then right neighbour", () => {
 	expect(tabAfterClose(layout, "t2", ["t2", "t3", "t1"])).toBe("t3");
 	expect(tabAfterClose(layout, "t2", [])).toBe("t1");

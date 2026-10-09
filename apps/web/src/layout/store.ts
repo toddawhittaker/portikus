@@ -6,7 +6,14 @@
  * this browser and are kept in localStorage instead (local.ts).
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { createStore, useStore } from "zustand";
 import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import { isDescendant, movedPath } from "../files/paths.js";
@@ -57,6 +64,12 @@ export interface LayoutState {
 	 * anywhere.
 	 */
 	unsavedTabs: Record<string, boolean>;
+	/**
+	 * Bumped, by path, when a move replaces an open file. The pane at that
+	 * path mounts again, so it shows the file that arrived and not the
+	 * editor of the one it replaced.
+	 */
+	fileGenerations: Record<string, number>;
 	dirty: boolean;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout) => void;
@@ -310,6 +323,7 @@ export function createLayoutStore() {
 			zooms: {},
 			tabHistory: [],
 			unsavedTabs: {},
+			fileGenerations: {},
 			dirty: false,
 
 			load: (saved) =>
@@ -513,6 +527,17 @@ export function createLayoutStore() {
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
 
 			retargetTabs: (from, to) => {
+				// An open file the move lands on was overwritten on disk, so
+				// its editor's text, live or kept, goes with it.
+				const open = get().layout.tabs.flatMap((tab) => tree.filePaths(tab.root));
+				const arriving = new Set(open.map((path) => movedPath(path, from, to)));
+				const replaced = open.filter(
+					(path) => arriving.has(path) && movedPath(path, from, to) === null,
+				);
+				for (const path of replaced) {
+					liveBuffers.delete(path);
+					carried.delete(path);
+				}
 				// The editors under `from` unmount once the layout changes, so
 				// their text is taken now and waits for the panes at the new paths.
 				for (const [path, snapshot] of [...liveBuffers]) {
@@ -538,8 +563,13 @@ export function createLayoutStore() {
 							: null;
 						return moved === null ? pane : tree.fileTabId(moved);
 					};
+					const fileGenerations = { ...state.fileGenerations };
+					for (const path of replaced) {
+						fileGenerations[path] = (fileGenerations[path] ?? 0) + 1;
+					}
 					return {
 						layout,
+						fileGenerations,
 						...settleActive(state, layout, paneNow),
 						pendingView: moveKeys(state.pendingView, files, from, to),
 						diffBaseline: moveKeys(state.diffBaseline, files, from, to),
@@ -611,6 +641,22 @@ export function useLayoutStore(projectId: string): LayoutStore {
 		held.current = { projectId, store: createLayoutStore() };
 	}
 	return shared ?? held.current.store;
+}
+
+/**
+ * How many times a move has replaced the open file at `path`, for keying its
+ * pane so it mounts again. Always 0 outside a workspace.
+ */
+export function useFileGeneration(path: string): number {
+	const store = useContext(LayoutStoreContext);
+	const subscribe = useCallback(
+		(listener: () => void) => store?.subscribe(listener) ?? (() => {}),
+		[store],
+	);
+	return useSyncExternalStore(
+		subscribe,
+		() => store?.getState().fileGenerations[path] ?? 0,
+	);
 }
 
 /**

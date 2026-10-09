@@ -62,6 +62,35 @@ test("a move hands an open editor's unsaved text to the file's new path", () => 
 	expect(layout.getState().takeBuffer("lib/a.ts")).toBeUndefined();
 });
 
+/** SPEC.md §11.2: Replace overwrites the open file with the one that moved. */
+test("a move onto an open file replaces its editor with the moved file's text", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().openFile("b.ts");
+	const releaseA = layout.getState().registerBuffer("a.ts", () => "a unsaved");
+	const releaseB = layout.getState().registerBuffer("b.ts", () => "b unsaved");
+	const before = layout.getState().fileGenerations["b.ts"] ?? 0;
+
+	layout.getState().retargetTabs("a.ts", "b.ts");
+	// The pane at b.ts mounts again, so it can take the text that arrived.
+	expect(layout.getState().fileGenerations["b.ts"]).toBe(before + 1);
+	expect(releaseA()).toBe(false);
+	// The replaced editor's text goes with its file, not to the next mount.
+	expect(releaseB()).toBe(false);
+	expect(layout.getState().takeBuffer("b.ts")).toBe("a unsaved");
+});
+
+test("a replaced file's leftover text does not survive a move with nothing unsaved", () => {
+	const layout = store();
+	layout.getState().openFile("a.ts");
+	layout.getState().openFile("b.ts");
+	layout.getState().carryBuffer("b.ts", "stale");
+	layout.getState().registerBuffer("a.ts", () => null);
+
+	layout.getState().retargetTabs("a.ts", "b.ts");
+	expect(layout.getState().takeBuffer("b.ts")).toBeUndefined();
+});
+
 test("text kept across a remount is dropped once its file is closed", () => {
 	const layout = store();
 	layout.getState().openFile("a.txt");

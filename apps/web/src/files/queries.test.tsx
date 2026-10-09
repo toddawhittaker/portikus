@@ -57,7 +57,15 @@ test("a selection download names every path once each, escaped", () => {
 	);
 });
 
-test("extraction progress is read only while an extraction runs", async () => {
+test("a selection whose link would be too long to send has no link", () => {
+	// Long names deep in folders: under the item limit, over a safe URL length.
+	const deep = `${"folder-with-a-long-name/".repeat(10)}`;
+	const paths = Array.from({ length: 60 }, (_, index) => `${deep}file-${index}.ts`);
+	expect(selectionDownloadUrl(WORKSPACE, PROJECT, paths)).toBeNull();
+	expect(selectionDownloadUrl(WORKSPACE, PROJECT, paths.slice(0, 10))).not.toBeNull();
+});
+
+test("extraction progress is read from the agent while it is shown", async () => {
 	const fetchMock = vi.fn(
 		async () =>
 			new Response(JSON.stringify({ done: 3, total: 10 }), {
@@ -70,12 +78,9 @@ test("extraction progress is read only while an extraction runs", async () => {
 	const wrapper = ({ children }: { children: React.ReactNode }) => (
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 	);
-	const { result, rerender } = renderHook(
-		({ running }) => useExtractProgress(WORKSPACE, PROJECT, running),
-		{ wrapper, initialProps: { running: false } },
-	);
-	expect(fetchMock).not.toHaveBeenCalled();
-	rerender({ running: true });
+	const { result } = renderHook(() => useExtractProgress(WORKSPACE, PROJECT), {
+		wrapper,
+	});
 	await waitFor(() => expect(result.current.data).toEqual({ done: 3, total: 10 }));
 	expect(fetchMock).toHaveBeenCalledWith(
 		`/workspaces/${WORKSPACE}/projects/${PROJECT}/extract/progress`,

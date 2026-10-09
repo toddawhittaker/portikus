@@ -5,7 +5,7 @@
  * never loads a document from the app's address.
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { baseName } from "../files/paths.js";
+import { baseName, displayName } from "../files/paths.js";
 import { formatBytes } from "../monitor/format.js";
 
 /** PDFs up to this size are shown; a larger one is offered as a download. */
@@ -44,7 +44,7 @@ export function ImageView({ src, path, size, download, fallback }: ImageViewProp
 			<div className="pk-file-viewer-stage">
 				<img
 					src={src}
-					alt={baseName(path)}
+					alt={displayName(baseName(path))}
 					onLoad={(event) =>
 						setLoaded({
 							src,
@@ -150,7 +150,7 @@ export function PdfView({ url, path, download, fallback }: PdfViewProps) {
 					<iframe
 						className="pk-file-viewer-pdf"
 						src={state.src}
-						title={`${baseName(path)}, PDF`}
+						title={`${displayName(baseName(path))}, PDF`}
 					/>
 				) : (
 					<p className="pk-file-note">Loading…</p>
