@@ -5,7 +5,7 @@
  * button.
  */
 import type { EditorSettings } from "@portikus/contracts";
-import { useEffect, useReducer, useRef } from "react";
+import { useContext, useEffect, useLayoutEffect, useReducer, useRef } from "react";
 import { ApiError } from "../api/request.js";
 import { isStorageFull, STORAGE_FULL_SAVE_MESSAGE } from "../files/errors.js";
 import {
@@ -14,6 +14,7 @@ import {
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { LayoutStoreContext } from "../layout/store.js";
 
 export type BufferStatus =
 	| "loading"
@@ -69,7 +70,19 @@ export type BufferAction =
 	| { type: "takeDisk"; version: Version }
 	| { type: "keepMine" }
 	| { type: "toggleConflict" }
-	| { type: "deleted" };
+	| { type: "deleted" }
+	/** The unsaved text this file's pane held before it remounted. */
+	| { type: "restore"; state: BufferState };
+
+/**
+ * What a file pane's editor hands to its next mount: its state and the
+ * versions it knows, so its own writes are not taken for someone else's.
+ */
+export interface CarriedBuffer {
+	state: BufferState;
+	known: string[];
+	sent: string[];
+}
 
 export const INITIAL_BUFFER: BufferState = {
 	text: null,
@@ -159,6 +172,14 @@ export function bufferReducer(state: BufferState, action: BufferAction): BufferS
 			return { ...state, showConflict: !state.showConflict };
 		case "deleted":
 			return { ...state, deleted: true };
+		case "restore":
+			// A write in flight belonged to the old mount, and a moved file is
+			// not deleted; this mount's own reads say otherwise if it is.
+			return {
+				...action.state,
+				deleted: false,
+				status: action.state.status === "saving" ? "unsaved" : action.state.status,
+			};
 	}
 }
 
@@ -230,13 +251,12 @@ export function useFileBuffer({
 
 	// Closing the tab or the browser mid-debounce must not lose the text, so
 	// the pending write goes out with `keepalive` (SPEC.md §13.5).
-	const flushOnUnmount = useRef(() => {});
-	flushOnUnmount.current = () => {
+	function flushPending() {
 		if (timer.current === null) return;
-		clearTimeout(timer.current);
-		timer.current = null;
+		cancelTimer();
 		const current = latest.current;
 		if (current.text === null) return;
+		sent.current = [...sent.current.slice(-2), current.text];
 		flushWrite(
 			workspaceId,
 			projectId,
@@ -244,13 +264,62 @@ export function useFileBuffer({
 			current.text,
 			current.deleted ? null : current.etag,
 		);
-	};
-	useEffect(
-		() => () => {
-			flushOnUnmount.current();
-		},
-		[],
-	);
+	}
+
+	const stateRef = useRef(state);
+	stateRef.current = state;
+	/** The unsaved text for the next mount of this pane, or null when all is on disk. */
+	function snapshot(): CarriedBuffer | null {
+		const held = stateRef.current;
+		const { text: typed, etag: base } = latest.current;
+		if (typed === null || (!held.dirty && typed === held.text)) return null;
+		// `latest` runs ahead of the last render, so its text and etag win.
+		const status =
+			held.status === "loading" || held.status === "saved" ? "unsaved" : held.status;
+		return {
+			state: { ...held, text: typed, etag: base, dirty: true, status },
+			known: [...known.current],
+			sent: [...sent.current],
+		};
+	}
+
+	function restore(carried: CarriedBuffer) {
+		known.current = new Set(carried.known);
+		sent.current = carried.sent;
+		latest.current = {
+			text: carried.state.text,
+			etag: carried.state.etag,
+			deleted: false,
+		};
+		dispatch({ type: "restore", state: carried.state });
+		// A remount ends a run of typing, so the carried text is saved at once.
+		if (settingsRef.current.autoSave && carried.state.conflict === null)
+			scheduleSave(0);
+	}
+
+	// A pane remounts when it moves into or out of a split, and its file's
+	// rename or move gives it a new path. Unsaved text, auto-save on or off,
+	// goes to the next mount instead of being lost (SPEC.md §13.5). A layout
+	// effect, so the old mount's cleanup runs before the new mount looks.
+	const mountHooks = useRef({ snapshot, restore, flushPending, cancelTimer });
+	mountHooks.current = { snapshot, restore, flushPending, cancelTimer };
+	const store = useContext(LayoutStoreContext);
+	useLayoutEffect(() => {
+		const hooks = () => mountHooks.current;
+		const carried = store?.getState().takeBuffer(path) as CarriedBuffer | undefined;
+		if (carried !== undefined) hooks().restore(carried);
+		const release = store?.getState().registerBuffer(path, () => hooks().snapshot());
+		return () => {
+			// A move already took the text to the file's new path.
+			if (release?.() === false) {
+				hooks().cancelTimer();
+				return;
+			}
+			hooks().flushPending();
+			const held = hooks().snapshot();
+			if (held !== null) store?.getState().carryBuffer(path, held);
+		};
+	}, [store, path]);
 
 	async function write(body: string, against: string | null, retried = false) {
 		// Three covers the reads already on their way when this write went out.

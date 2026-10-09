@@ -6,6 +6,7 @@
  */
 import {
 	MAX_DOWNLOAD_BYTES,
+	MAX_DOWNLOAD_PATHS,
 	MAX_EXTRACT_BYTES,
 	MAX_EXTRACT_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -47,6 +48,28 @@ export function downloadErrorToast(error: unknown): ToastProps {
 			title: `Downloads are limited to ${MAX_DOWNLOAD_GB} GB`,
 			children:
 				"Download a smaller folder, leave out node_modules, or use Git to move the project.",
+		};
+	}
+	return fileErrorToast(error);
+}
+
+/** A selection too long for one zip: the folder that holds it is one item. */
+export function selectionTooLongToast(): ToastProps {
+	return {
+		tone: "danger",
+		title: `One download can hold at most ${MAX_DOWNLOAD_PATHS} selected items`,
+		children: "Download the folder that holds them instead, or select fewer.",
+	};
+}
+
+/** Why a selection's zip did not start: over the size cap gets its own advice. */
+export function selectionDownloadErrorToast(error: unknown): ToastProps {
+	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {
+		return {
+			tone: "danger",
+			title: `Downloads are limited to ${MAX_DOWNLOAD_GB} GB`,
+			children:
+				"Select fewer items, leave out node_modules, or use Git to move the project.",
 		};
 	}
 	return fileErrorToast(error);

@@ -18,10 +18,60 @@ import {
 	removeLeaf,
 	replaceLeaf,
 	resize,
+	retargetFiles,
 	splitLeaf,
 	tabOfPane,
 	terminalIds,
 } from "./tree";
+
+// Terminal ids are UUIDs in a saved layout.
+const T1 = "7a1c2a4e-8b7d-4c1a-9e2f-1a2b3c4d5e01";
+const T2 = "7a1c2a4e-8b7d-4c1a-9e2f-1a2b3c4d5e02";
+
+test("a renamed file's lone tab takes its new path and id, in place", () => {
+	let layout = addTab(emptyLayout(), T1, T1);
+	layout = openFile(layout, "a.txt").layout;
+	layout = addTab(layout, T2, T2);
+	const next = retargetFiles(layout, "a.txt", "b.txt");
+	expect(next.tabs.map((tab) => tab.id)).toEqual([T1, "file:b.txt", T2]);
+	expect(next.tabs[1]?.root).toEqual({ type: "file", path: "b.txt" });
+	expect(ProjectLayout.safeParse(next).success).toBe(true);
+});
+
+test("a moved folder takes every open file inside it, in splits too", () => {
+	let layout = addTab(emptyLayout(), T1, T1);
+	layout = openFile(layout, "src/a.ts").layout;
+	layout = openFile(layout, "src/deep/b.ts").layout;
+	layout = openFile(layout, "src2/c.ts").layout;
+	// src/a.ts joins the terminal's split, beside t1.
+	layout = moveLeaf(layout, T1, "file:src/a.ts", T1, "right", () => "split-tab");
+	const next = retargetFiles(layout, "src", "lib/src");
+	const split = next.tabs[0]?.root;
+	expect(split && filePaths(split)).toEqual(["lib/src/a.ts"]);
+	expect(next.tabs.map((tab) => tab.id)).toEqual([
+		T1,
+		"file:lib/src/deep/b.ts",
+		"file:src2/c.ts",
+	]);
+	expect(ProjectLayout.safeParse(next).success).toBe(true);
+});
+
+test("a file open at the destination was replaced by the move, so its pane goes", () => {
+	let layout = openFile(emptyLayout(), "a.txt").layout;
+	layout = openFile(layout, "b.txt").layout;
+	const next = retargetFiles(layout, "a.txt", "b.txt");
+	expect(next.tabs).toEqual([
+		{ id: "file:b.txt", root: { type: "file", path: "b.txt" } },
+	]);
+	expect(ProjectLayout.safeParse(next).success).toBe(true);
+});
+
+test("a move of nothing that is open leaves the layout as it was", () => {
+	const layout = openFile(emptyLayout(), "a.txt").layout;
+	expect(retargetFiles(layout, "other", "elsewhere")).toBe(layout);
+	// A sibling whose name starts the same is not inside the moved folder.
+	expect(retargetFiles(layout, "a", "b")).toBe(layout);
+});
 
 /** openFile and openDiff refuse at the tab cap; these tests expect room. */
 function must<T>(opened: T | null): T {

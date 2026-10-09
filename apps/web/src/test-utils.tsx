@@ -75,7 +75,9 @@ export function json(status: number, body: unknown): Response {
 }
 
 /** Answers each request by URL and method; anything unmatched is a test failure. */
-export function stubFetch(handler: (url: string, init?: RequestInit) => Response) {
+export function stubFetch(
+	handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+) {
 	const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
 		handler(String(input), init),
 	);

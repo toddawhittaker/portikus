@@ -11,6 +11,7 @@ import {
 	type SplitNode,
 	splitDepth,
 } from "@portikus/contracts";
+import { movedPath } from "../files/paths.js";
 
 export type SplitDirection = "row" | "column";
 
@@ -536,6 +537,41 @@ export function migrateDiffTabs(layout: ProjectLayout): {
 		tabs.push({ id, root: { type: "file", path: tab.root.path } });
 	}
 	return { layout: { tabs }, diffTabIds };
+}
+
+/**
+ * Point every file pane under `from` at its new place under `to`, wherever
+ * it sits, after a rename or move (SPEC.md §11.2). A pane already open at a
+ * destination was replaced on disk by the move, so it goes. Tabs keep their
+ * places; a lone file's tab takes its new `file:<path>` id.
+ */
+export function retargetFiles(
+	layout: ProjectLayout,
+	from: string,
+	to: string,
+): ProjectLayout {
+	const open = layout.tabs.flatMap((tab) => filePaths(tab.root));
+	const arriving = new Set(
+		open.flatMap((path) => {
+			const moved = movedPath(path, from, to);
+			return moved === null ? [] : [moved];
+		}),
+	);
+	if (arriving.size === 0) return layout;
+	let next = layout;
+	for (const path of open) {
+		if (arriving.has(path) && movedPath(path, from, to) === null) {
+			next = { tabs: withoutPane(next, fileTabId(path)).tabs };
+		}
+	}
+	function walk(node: SplitNode): SplitNode {
+		if (node.type === "split") return { ...node, children: node.children.map(walk) };
+		if (node.type !== "file") return node;
+		const moved = movedPath(node.path, from, to);
+		return moved === null ? node : { ...node, path: moved };
+	}
+	const tabs = next.tabs.map((tab) => ({ ...tab, root: walk(tab.root) }));
+	return { tabs: settleTabIds(tabs, randomTabId) };
 }
 
 /** Drop one whole tab. Terminal tabs are closed by closing their terminals. */

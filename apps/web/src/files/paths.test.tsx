@@ -7,12 +7,12 @@ import {
 	isDescendant,
 	isHiddenName,
 	joinPath,
+	movedPath,
 	moveForDrop,
 	nameError,
 	parentOf,
 	prunePaths,
 	rewritePaths,
-	tabIdsUnder,
 	visibleEntries,
 	withoutNested,
 } from "./paths.js";
@@ -193,15 +193,12 @@ describe("the focused row", () => {
 	});
 });
 
-describe("the tabs under a path", () => {
-	it("matches the file itself and anything inside a directory", () => {
-		const tabs = ["file:src/app.ts", "diff:src/app.ts", "file:src2/a.ts", "terminal-1"];
-		expect(tabIdsUnder(tabs, "src")).toEqual(["file:src/app.ts", "diff:src/app.ts"]);
-		expect(tabIdsUnder(tabs, "src/app.ts")).toEqual([
-			"file:src/app.ts",
-			"diff:src/app.ts",
-		]);
-		expect(tabIdsUnder(tabs, "other")).toEqual([]);
+describe("where a path is after a move", () => {
+	it("moves the path itself and anything inside it, and nothing else", () => {
+		expect(movedPath("src", "src", "lib")).toBe("lib");
+		expect(movedPath("src/app.ts", "src", "lib")).toBe("lib/app.ts");
+		expect(movedPath("src2/a.ts", "src", "lib")).toBeNull();
+		expect(movedPath("README.md", "src", "lib")).toBeNull();
 	});
 });
 
