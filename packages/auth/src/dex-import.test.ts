@@ -107,6 +107,7 @@ function run(args: string[], env: Record<string, string | undefined> = {}) {
 	});
 }
 
+// Four child processes; with coverage on a busy CI runner they can pass 5 seconds.
 test("the command refuses bad arguments and missing settings", () => {
 	expect(run([]).stderr).toContain("--input is required");
 	expect(run(["--input", "x.json"]).stderr).toContain("--issuer is required");
@@ -114,7 +115,7 @@ test("the command refuses bad arguments and missing settings", () => {
 		"DATABASE_URL is not set",
 	);
 	expect(run(["--bogus"]).status).toBe(2);
-});
+}, 30_000);
 
 if (!hasTestDb()) {
 	console.log("TEST_DATABASE_URL is not set — skipping dex-import database tests.");
