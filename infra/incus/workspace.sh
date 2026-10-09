@@ -40,8 +40,12 @@ validate_name() {
     fi
 }
 
+# The bare list of instance URLs, not `incus info`: while an instance is
+# stopping, rendering it can fail, which would read as "no such instance".
 container_exists() {
-    incus_cmd info "$1" --project "$PROJECT" >/dev/null 2>&1
+    local urls
+    urls=$(incus_cmd query "/1.0/instances?project=${PROJECT}") || die "cannot list the instances in project ${PROJECT}"
+    grep -qF "\"/1.0/instances/${1}?project=${PROJECT}\"" <<<"$urls"
 }
 
 volume_exists() {

@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -561,6 +562,27 @@ class RelayTest(unittest.TestCase):
         os.waitpid(self.pid, 0)
         self.pid = None
 
+    def fill_the_queue(self, frames):
+        """Sends input frames while reading output, as the API does.
+
+        The terminal echoes what is typed, in hundreds of small frames on a
+        busy machine, so a client that only sends can block the helper's
+        writes and then wait on its reads: a deadlock until the timeout.
+        """
+        def read():
+            while True:
+                try:
+                    if not self.client.recv(65536):
+                        return
+                except OSError:
+                    return
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        # Long enough for a busy runner; a helper that stopped reading still fails.
+        self.client.settimeout(60)
+        for frame in frames:
+            self.send(rs.INPUT, frame)
+
     def journal(self):
         return Path(self.stderr).read_text()
 
@@ -653,8 +675,7 @@ class RelayTest(unittest.TestCase):
         frames_from(self.client, lambda f: b"BANNER" in output(f))
         line = b"touch %s/ran\n" % self.dir.encode()
         frame = line * (64000 // len(line))
-        for _ in range(6):
-            self.send(rs.INPUT, frame)
+        self.fill_the_queue([frame] * 6)
         self.send(rs.END, b'{"reason":"session_ended"}')
         deadline = time.monotonic() + 3
         while "terminate-session c9" not in " ".join(self.logind.calls()) and time.monotonic() < deadline:
@@ -668,8 +689,7 @@ class RelayTest(unittest.TestCase):
     def test_close_behind_a_full_queue_is_still_seen_while_the_shell_is_busy(self):
         self.send(rs.OPEN, open_body())
         frames_from(self.client, lambda f: b"BANNER" in output(f))
-        for _ in range(6):
-            self.send(rs.INPUT, b"x" * 64000)
+        self.fill_the_queue([b"x" * 64000] * 6)
         started = time.monotonic()
         self.client.shutdown(socket.SHUT_RDWR)
         self.wait_helper()

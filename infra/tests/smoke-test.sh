@@ -77,16 +77,22 @@ fi
 
 # One trap for the whole run: the control plane checks' cleanup when they
 # ran, the smoke-ws workspace when it was made, and the copied Incus script.
+# An instance or volume left behind fails the run, even one that passed.
 cleanup_all() {
+  local left=no
   if declare -F cleanup_lifecycle >/dev/null; then
-    cleanup_lifecycle
+    cleanup_lifecycle || left=yes
   fi
   if [ -n "${WS_NAME:-}" ]; then
     echo ""
     echo "Destroying ${WS_NAME}..."
-    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+    ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null || left=yes
   fi
   ssh_cmd rm -f /tmp/portikus-smoke-workspace.sh >/dev/null 2>&1 || true
+  if [ "$left" = yes ]; then
+    echo "smoke-test: cleanup could not destroy everything this run created; see the errors above" >&2
+    exit 1
+  fi
 }
 trap cleanup_all EXIT
 

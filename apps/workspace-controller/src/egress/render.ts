@@ -108,8 +108,6 @@ function resetTable(flushNames: boolean): string[] {
 		`flush chain ${TABLE} output`,
 		`flush chain ${TABLE} forward`,
 		`flush chain ${TABLE} input`,
-		// The set an older table kept addresses in forever; nothing refers to it once the chains are empty.
-		`destroy set ${TABLE} names_v4`,
 	];
 }
 
@@ -156,8 +154,10 @@ export function policyAllowsNames(
 /**
  * The registry caches' gate: a workspace reaches a cache port only when
  * the policy would let it reach the registry itself, so the cache is never a
- * way around the allow-list or a blocked site. It drops every packet, new or
- * established, and nothing in the input chain accepts ahead of it.
+ * way around the allow-list or a blocked site. It refuses every packet, new or
+ * established, and nothing in the input chain accepts ahead of it. A reset,
+ * not a drop, because Docker waits 15 s on a silent mirror before it falls
+ * back to the registry itself.
  */
 function registryGateRules(
 	policy: Pick<EgressApplyPolicy, "mode" | "names" | "blocked">,
@@ -166,10 +166,10 @@ function registryGateRules(
 	const rules: string[] = [];
 	const input = `add rule ${TABLE} input iifname "${env.bridge}"`;
 	if (!policyAllowsNames(policy, HUB_UPSTREAM_NAMES)) {
-		rules.push(`${input} tcp dport ${HUB_CACHE_PORT} drop`);
+		rules.push(`${input} tcp dport ${HUB_CACHE_PORT} reject with tcp reset`);
 	}
 	if (!policyAllowsNames(policy, GHCR_UPSTREAM_NAMES)) {
-		rules.push(`${input} tcp dport ${GHCR_CACHE_PORT} drop`);
+		rules.push(`${input} tcp dport ${GHCR_CACHE_PORT} reject with tcp reset`);
 	}
 	return rules;
 }
@@ -248,12 +248,12 @@ export function renderTable(
 	return `${lines.join("\n")}\n`;
 }
 
-/** The fallback when the last applied allow-list cannot be loaded at boot: drop all forwarding and both caches. */
+/** The fallback when the last applied allow-list cannot be loaded at boot: drop all forwarding and refuse both caches. */
 export function renderDropAll(env: Pick<EgressEnv, "bridge">): string {
 	return `${[
 		...declareTable(),
 		...resetTable(true),
-		`add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${HUB_CACHE_PORT}, ${GHCR_CACHE_PORT} } drop`,
+		`add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${HUB_CACHE_PORT}, ${GHCR_CACHE_PORT} } reject with tcp reset`,
 		`add rule ${TABLE} forward iifname "${env.bridge}" drop`,
 	].join("\n")}\n`;
 }
