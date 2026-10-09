@@ -30,11 +30,19 @@ const HOSTS_PATH = "/etc/hosts";
 /** How long the in-container hosts edit may run before `timeout` ends it. */
 const HOSTS_EDIT_SECONDS = 10;
 
+/**
+ * The systemd slice Docker puts every container under. The workspace image
+ * caps its processes, so containers cannot take the room the agent and the
+ * terminals need (SPEC.md 19.3); without the image's unit it is uncapped.
+ */
+export const DOCKER_SLICE = "portikus-docker.slice";
+
 /** The image's daemon.json (the overlay2 pin of SPEC.md 16.2) with our mirror when on. */
 export function daemonJson(hubMirror: boolean): string {
 	const config: Record<string, unknown> = {
 		"storage-driver": "overlay2",
 		features: { "containerd-snapshotter": false },
+		"cgroup-parent": DOCKER_SLICE,
 	};
 	if (hubMirror) config["registry-mirrors"] = [HUB_MIRROR_URL];
 	return `${JSON.stringify(config, null, 2)}\n`;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { silentLogger } from "@portikus/observability";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+	DOCKER_SLICE,
 	daemonJson,
 	GHCR_CERT_PATH,
 	GHCR_HOSTS_MARKER,
@@ -15,18 +16,50 @@ import {
 import { IncusClient, IncusError } from "./incus.js";
 
 describe("daemonJson", () => {
-	test("is the image's storage pin, with our mirror only when on", () => {
+	test("is the image's storage pin and Docker slice, with our mirror only when on", () => {
 		expect(JSON.parse(daemonJson(true))).toEqual({
 			"storage-driver": "overlay2",
 			features: { "containerd-snapshotter": false },
+			"cgroup-parent": "portikus-docker.slice",
 			"registry-mirrors": ["http://10.200.0.1:5000"],
 		});
 		expect(JSON.parse(daemonJson(false))).toEqual({
 			"storage-driver": "overlay2",
 			features: { "containerd-snapshotter": false },
+			"cgroup-parent": "portikus-docker.slice",
 		});
 	});
+
+	// A workspace started before the controller first writes the file runs the image's own.
+	test("without the mirror is what the workspace image writes", () => {
+		const entry = recipe().split("- path: /etc/docker/daemon.json")[1] ?? "";
+		const imageContent = entry.split("content: |-\n")[1]?.split("\n")[0]?.trim();
+		expect(JSON.parse(imageContent ?? "")).toEqual(JSON.parse(daemonJson(false)));
+	});
+
+	// Docker's containers share the workspace's process ceiling with the agent
+	// and the terminals, so together they get at most half of it (SPEC.md 19.3).
+	test("the image caps the Docker slice at half the workspace's process ceiling or less", () => {
+		const entry =
+			recipe().split(`- path: /etc/systemd/system/${DOCKER_SLICE}\n`)[1] ?? "";
+		const unit = entry.split("\n- path:")[0] ?? "";
+		const tasksMax = Number(/^ {4}TasksMax=(\d+)$/m.exec(unit)?.[1]);
+		const site = readFileSync(
+			join(import.meta.dirname, "../../../infra/ansible/site.yml"),
+			"utf8",
+		);
+		const ceiling = Number(/^\s*workspace_process_limit: "?(\d+)"?$/m.exec(site)?.[1]);
+		expect(tasksMax).toBeGreaterThan(0);
+		expect(tasksMax).toBeLessThanOrEqual(ceiling / 2);
+	});
 });
+
+function recipe(): string {
+	return readFileSync(
+		join(import.meta.dirname, "../../../infra/workspace-image/portikus.yaml"),
+		"utf8",
+	);
+}
 
 /**
  * A container's files as the Incus files API treats them on a real host:

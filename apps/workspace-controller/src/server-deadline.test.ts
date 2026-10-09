@@ -1,12 +1,20 @@
 import { EventEmitter } from "node:events";
 import {
+	type AddedPackagesResponse,
 	CONTROLLER_BUDGET_HEADER,
+	CONTROLLER_SHORT_BUDGET_MS,
 	type CreateInstanceResponse,
 	GROW_BUDGET_MS,
 	type GrowVolumesResponse,
+	type HostSnapshot,
 	INSTANCE_CREATE_BUDGET_MS,
+	type InstanceStatus,
+	type InstanceUsage,
+	type KeptVolumesResponse,
 	MAINTENANCE_BUDGET_MS,
 	type RebuildInstanceResponse,
+	type ReplaceHomeResponse,
+	type SeedInfo,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 	startBudgetMs,
@@ -65,12 +73,48 @@ class GatedProvider extends FakeWorkspaceProvider {
 	override rebuild(_n: string, _o: unknown, signal?: AbortSignal) {
 		return this.gate<RebuildInstanceResponse>(signal);
 	}
-	override growVolumes(_n: string, _o: unknown, signal?: AbortSignal) {
-		// No single-flight here, so the provider itself stops on the abort, as the real one does.
-		const work = this.gate<GrowVolumesResponse>(signal);
+	/** Routes without single-flight: the provider itself stops on the abort, as the real one does. */
+	private gateAbortable<T>(signal?: AbortSignal): Promise<T> {
+		const work = this.gate<T>(signal);
 		const call = this.calls.at(-1);
 		signal?.addEventListener("abort", () => call?.reject(signal.reason));
 		return work;
+	}
+	override growVolumes(_n: string, _o: unknown, signal?: AbortSignal) {
+		return this.gateAbortable<GrowVolumesResponse>(signal);
+	}
+	override setCpuAllowance(_n: string, _a: string | null, signal?: AbortSignal) {
+		return this.gateAbortable<void>(signal);
+	}
+	override setLimits(_n: string, _l: unknown, signal?: AbortSignal) {
+		return this.gateAbortable<void>(signal);
+	}
+	override addedPackages(_n: string, signal?: AbortSignal) {
+		return this.gateAbortable<AddedPackagesResponse>(signal);
+	}
+	override deleteKeptHome(_v: string, signal?: AbortSignal) {
+		return this.gateAbortable<void>(signal);
+	}
+	override deleteSnapshot(_v: string, _s: string, signal?: AbortSignal) {
+		return this.gateAbortable<void>(signal);
+	}
+	override keptVolumes(signal?: AbortSignal) {
+		return this.gateAbortable<KeptVolumesResponse>(signal);
+	}
+	override list(signal?: AbortSignal) {
+		return this.gateAbortable<InstanceStatus[]>(signal);
+	}
+	override hostSnapshot(signal?: AbortSignal) {
+		return this.gateAbortable<HostSnapshot>(signal);
+	}
+	override usage(signal?: AbortSignal) {
+		return this.gateAbortable<InstanceUsage[]>(signal);
+	}
+	override seedInfo(signal?: AbortSignal) {
+		return this.gateAbortable<SeedInfo | null>(signal);
+	}
+	override replaceHome(_n: string, signal?: AbortSignal) {
+		return this.gate<ReplaceHomeResponse>(signal);
 	}
 }
 
@@ -296,7 +340,7 @@ test("a budget header above the fallback is clamped to it", () => {
 	}
 });
 
-// Every lifecycle route honours the caller's deadline like create (SPEC.md 25.3, ADR 0034).
+// Every lifecycle and maintenance route honours the caller's deadline like create (SPEC.md 25.3, ADR 0034).
 const ROUTES = [
 	{
 		path: "/instances/ws-abc/start",
@@ -339,20 +383,111 @@ const ROUTES = [
 		result: { homeGiB: 30, dockerGiB: 30 },
 		shared: false,
 	},
-];
+	{
+		method: "PUT",
+		path: "/instances/ws-abc/cpu-allowance",
+		body: { allowance: "50ms/100ms" },
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: undefined,
+		shared: false,
+	},
+	{
+		method: "PUT",
+		path: "/instances/ws-abc/limits",
+		body: { cpu: 2, memoryMiB: 2048, processes: 500 },
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: undefined,
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/instances/ws-abc/added-packages",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: { image: null, packages: [] },
+		shared: false,
+	},
+	{
+		path: "/instances/ws-abc/replace-home",
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: { kept: "ws-abc-home-replaced-1" },
+		shared: true,
+	},
+	{
+		method: "DELETE",
+		path: `/volumes/ws-${"0".repeat(24)}-home-replaced-1`,
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: undefined,
+		shared: false,
+	},
+	{
+		method: "DELETE",
+		path: `/volumes/ws-${"0".repeat(24)}-home/snapshots/pre-restore-1`,
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: undefined,
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/volumes/kept",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: { snapshots: [], keptHomes: [] },
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/instances",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: [],
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/host",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: {},
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/instances/usage",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: [],
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/docker-seed",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: {
+			images: [],
+			sizeBytes: 0,
+			imageVersion: "2026.10.1",
+			builtAt: "2026-10-01T00:00:00Z",
+		},
+		shared: false,
+	},
+] as Array<{
+	method?: string;
+	path: string;
+	body?: unknown;
+	budgetMs: number;
+	result: unknown;
+	shared: boolean;
+}>;
 
 describe.each(ROUTES)("$path", (route) => {
 	function call(
 		opts: { budgetMs?: number; signal?: AbortSignal } = {},
 	): Promise<Response> {
+		const hasBody = route.body !== undefined;
 		return fetch(`${base}${route.path}`, {
-			method: "POST",
+			method: route.method ?? "POST",
 			headers: {
 				authorization: `Bearer ${TOKEN}`,
-				"content-type": "application/json",
+				...(hasBody ? { "content-type": "application/json" } : {}),
 				...(opts.budgetMs ? { [CONTROLLER_BUDGET_HEADER]: String(opts.budgetMs) } : {}),
 			},
-			body: JSON.stringify(route.body),
+			body: hasBody ? JSON.stringify(route.body) : undefined,
 			signal: opts.signal,
 		});
 	}

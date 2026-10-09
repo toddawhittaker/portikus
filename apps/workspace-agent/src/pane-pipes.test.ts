@@ -132,10 +132,68 @@ test.skipIf(!haveTmux)(
 		expect(cleared).toEqual([id]);
 		expect(JSON.stringify(lines)).not.toContain("SECRET-PANE-MARKER");
 
-		pipes.stop(id);
-		expect(pipes.watching()).toEqual([]);
+		pipes.stopAll();
+		await eventually(() => fifoGone(join(homeDir, "panes", id)));
 	},
 );
+
+/** Exit the shell; the wrapper treats an exit in the first second as a broken ~/.bashrc. */
+async function exitShell(id: string): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, 1200));
+	await type(id, "exit");
+}
+
+async function fifoGone(path: string): Promise<boolean> {
+	return stat(path).then(
+		() => false,
+		() => true,
+	);
+}
+
+test.skipIf(!haveTmux)(
+	"a terminal whose shell exits on its own leaves no reader or FIFO behind",
+	async () => {
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER);
+		const cleared: string[] = [];
+		const pipes = new PanePipes({
+			dir: join(homeDir, "exit-panes"),
+			server: SERVER,
+			onClear: (terminalId) => cleared.push(terminalId),
+			log: collectingLogger("debug").logger as unknown as FastifyBaseLogger,
+			sweepMs: 50,
+		});
+		try {
+			await pipes.start(id);
+			const fifo = join(homeDir, "exit-panes", id);
+			expect((await stat(fifo)).isFIFO()).toBe(true);
+			await exitShell(id);
+			await eventually(() => fifoGone(fifo));
+		} finally {
+			pipes.stopAll();
+		}
+	},
+	15_000,
+);
+
+test.skipIf(!haveTmux)("a pipe that cannot start is logged, not thrown", async () => {
+	const { logger, lines } = collectingLogger("debug");
+	const pipes = new PanePipes({
+		dir: join(homeDir, "missing-panes"),
+		server: SERVER,
+		onClear: () => undefined,
+		log: logger as unknown as FastifyBaseLogger,
+	});
+	try {
+		await pipes.adopt([makeId(), makeId()]);
+		const warnings = lines.filter(
+			(line) => line.msg === "could not watch a terminal for clear",
+		);
+		expect(warnings).toHaveLength(2);
+	} finally {
+		pipes.stopAll();
+	}
+});
 
 /** Just enough of an attach socket to collect the agent's text frames. */
 async function attach(
@@ -227,3 +285,38 @@ test.skipIf(!haveTmux)(
 		}
 	},
 );
+
+test.skipIf(!haveTmux)(
+	"deleting a terminal that already ended still removes its FIFO",
+	async () => {
+		const { app } = await startServer();
+		try {
+			const id = makeId();
+			const created = await app.inject({
+				method: "POST",
+				url: "/terminals",
+				headers: { authorization: `Bearer ${TOKEN}` },
+				payload: { id, cwd: homeDir, theme: "dark", timezone: "America/New_York" },
+			});
+			expect(created.statusCode).toBe(201);
+			const fifo = join(homeDir, "server-panes", id);
+			expect((await stat(fifo)).isFIFO()).toBe(true);
+			await exitShell(id);
+			await eventually(async () => !(await panePipedSafe(id)));
+			const deleted = await app.inject({
+				method: "DELETE",
+				url: `/terminals/${id}`,
+				headers: { authorization: `Bearer ${TOKEN}` },
+			});
+			expect(deleted.statusCode).toBe(404);
+			await eventually(() => fifoGone(fifo));
+		} finally {
+			await app.close();
+		}
+	},
+	15_000,
+);
+
+async function panePipedSafe(id: string): Promise<boolean> {
+	return panePiped(id).catch(() => false);
+}

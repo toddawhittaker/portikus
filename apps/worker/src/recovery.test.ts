@@ -674,6 +674,45 @@ describe("orphan archives (SPEC.md §15.10)", () => {
 		expect(agent.deletes).toHaveLength(2);
 	});
 
+	test.skipIf(skip)("at most twenty orphans are deleted per sweep", async () => {
+		const { projectId, now } = await setup();
+		agent.archives = Array.from({ length: 25 }, () =>
+			archive(projectId, 2 * HOUR, now),
+		);
+		const first = await recoverySweep(tdb.db, agentFor, cfg, now);
+		expect(first.deleted).toBe(20);
+		expect(agent.deletes).toHaveLength(20);
+	});
+
+	test.skipIf(skip)(
+		"the first failed delete ends the workspace's orphan pass",
+		async () => {
+			const { projectId, now } = await setup();
+			agent.archives = Array.from({ length: 5 }, () =>
+				archive(projectId, 2 * HOUR, now),
+			);
+			agent.deleteError = new AgentCallError("AGENT_UNAVAILABLE", "timed out", 504);
+			const result = await recoverySweep(tdb.db, agentFor, cfg, now);
+			expect(agent.deletes).toHaveLength(1);
+			expect(result.deleted).toBe(0);
+		},
+	);
+
+	test.skipIf(skip)(
+		"a refused archive list is logged and the sweep goes on",
+		async () => {
+			const { now } = await setup();
+			agent.listError = new Error("archive list too long");
+			const logs = collectingLogger("debug");
+			await expect(
+				recoverySweep(tdb.db, agentFor, cfg, now, logs.logger),
+			).resolves.toBeDefined();
+			expect(logs.lines.some((l) => String(l.msg).includes("listing failed"))).toBe(
+				true,
+			);
+		},
+	);
+
 	test.skipIf(skip)(
 		"an agent too old to list archives (404) is skipped quietly",
 		async () => {
