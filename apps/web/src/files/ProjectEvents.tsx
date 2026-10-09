@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { LayoutStore } from "../layout/store.js";
 import { BrowserOpenDialog } from "./BrowserOpenDialog.js";
+import { useShowHidden } from "./store.js";
 import { useProjectEvents } from "./useProjectEvents.js";
 
 /** True when the project is too large to watch live (SPEC.md §11.4). */
@@ -74,17 +75,23 @@ function ProjectSocket({
 	// previous dialog's removed button as its opener (SPEC.md §25.8).
 	const queued = useRef(0);
 	const opener = useRef<HTMLElement | null>(null);
-	const { limited } = useProjectEvents(workspaceId, projectId, (request) => {
-		// The agent may resend a request the page already queued.
-		if (seenOpens.current.has(request.requestId)) return;
-		seenOpens.current.add(request.requestId);
-		if (queued.current === 0) {
-			const active = document.activeElement;
-			opener.current = active instanceof HTMLElement ? active : null;
-		}
-		queued.current += 1;
-		setBrowserOpens((queue) => [...queue, request]);
-	});
+	const showHidden = useShowHidden(projectId);
+	const { limited } = useProjectEvents(
+		workspaceId,
+		projectId,
+		showHidden,
+		(request) => {
+			// The agent may resend a request the page already queued.
+			if (seenOpens.current.has(request.requestId)) return;
+			seenOpens.current.add(request.requestId);
+			if (queued.current === 0) {
+				const active = document.activeElement;
+				opener.current = active instanceof HTMLElement ? active : null;
+			}
+			queued.current += 1;
+			setBrowserOpens((queue) => [...queue, request]);
+		},
+	);
 	useEffect(() => {
 		onLimited(limited);
 		return () => onLimited(false);

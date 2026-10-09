@@ -44,6 +44,18 @@ function isIgnored(root: string, path: string): boolean {
 }
 
 /**
+ * For the hidden-files watcher: everything except the top-level generated
+ * folders themselves and what is inside them. The main watcher already
+ * covers the rest, so this one adds only those folders.
+ */
+function isOutsideGenerated(root: string, path: string): boolean {
+	const rel = relative(root, path);
+	if (rel === "" || rel.startsWith("..")) return false;
+	const first = rel.split(sep)[0] ?? "";
+	return !SKIPPED.has(first);
+}
+
+/**
  * The project has more folders than one watcher follows. The watcher is
  * already closed; the caller sends `watch_limited` once (SPEC.md §11.4).
  */
@@ -62,6 +74,8 @@ function errnoCode(error: unknown): string {
 
 interface Entry {
 	watcher: FSWatcher;
+	/** The map key: the root, or the root with HIDDEN_KEY for the hidden-files watcher. */
+	key: string;
 	root: string;
 	listeners: Set<FsListener>;
 	paths: Set<string>;
@@ -71,9 +85,21 @@ interface Entry {
 	failed: boolean;
 }
 
+/** Marks the hidden-files watcher's key apart from the main one for the same root. */
+const HIDDEN_KEY = "\0hidden";
+
 /**
  * One chokidar watcher per project root, shared by every subscriber, with
  * changes batched into FsEvent frames (SPEC.md §11.4, §25.1).
+ *
+ * A subscriber that shows hidden files also shares a second, narrow watcher
+ * per root. It follows only the top-level generated folders (node_modules,
+ * dist, .venv and the rest of WATCH_SKIP_NAMES) and the entries directly
+ * inside them, which is what an expanded generated folder shows. Its cost is
+ * one inotify watch for the root plus one per such folder, a handful in
+ * practice. A folder inside a generated folder, or one nested deeper in the
+ * project, is not followed and still waits for the next refetch. It runs
+ * only while some subscriber asks for hidden files.
  */
 export class ProjectWatchers {
 	private readonly entries = new Map<string, Entry>();
@@ -100,22 +126,43 @@ export class ProjectWatchers {
 		homeDir: string,
 		slug: string,
 		listener: FsListener,
+		options: { hidden?: boolean } = {},
 	): Promise<() => void> {
 		const project = await resolveProject(slug, homeDir);
 		if (!project.exists) {
 			throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 		}
-		let entry = await this.open(project.path);
+		const attached = [await this.attach(project.path, false, listener)];
+		if (options.hidden) {
+			// Best effort: without it the tree still updates, only not inside
+			// generated folders, which is how it behaves with hidden files off.
+			try {
+				attached.push(await this.attach(project.path, true, listener));
+			} catch (error) {
+				this.log.info(
+					{ code: error instanceof AgentFailure ? error.code : "WATCH_LIMITED" },
+					"hidden-files watcher not started",
+				);
+			}
+		}
+		return () => {
+			for (const entry of attached) {
+				if (!entry.listeners.delete(listener)) continue;
+				if (entry.listeners.size === 0) this.close(entry);
+			}
+		};
+	}
+
+	private async attach(root: string, hidden: boolean, listener: FsListener) {
+		const key = hidden ? `${root}${HIDDEN_KEY}` : root;
+		let entry = await this.open(key, root, hidden);
 		// The watcher may have failed and been dropped while we waited, so a
 		// late subscriber must not attach to one nobody is watching any more.
-		if (this.entries.get(project.path) !== entry) {
-			entry = await this.open(project.path);
+		if (this.entries.get(key) !== entry) {
+			entry = await this.open(key, root, hidden);
 		}
 		entry.listeners.add(listener);
-		return () => {
-			if (!entry.listeners.delete(listener)) return;
-			if (entry.listeners.size === 0) this.close(entry);
-		};
+		return entry;
 	}
 
 	/** Close every watcher, for shutdown. */
@@ -136,27 +183,41 @@ export class ProjectWatchers {
 		}
 	}
 
-	private async open(root: string): Promise<Entry> {
-		const existing = this.entries.get(root);
+	private async open(key: string, root: string, hidden: boolean): Promise<Entry> {
+		const existing = this.entries.get(key);
 		if (existing) return existing;
-		const pending = this.starting.get(root);
+		const pending = this.starting.get(key);
 		if (pending) return pending;
 
-		const started = this.start(root).finally(() => this.starting.delete(root));
-		this.starting.set(root, started);
+		const started = this.start(key, root, hidden).finally(() =>
+			this.starting.delete(key),
+		);
+		this.starting.set(key, started);
 		return started;
 	}
 
-	private async start(root: string): Promise<Entry> {
+	private async start(key: string, root: string, hidden: boolean): Promise<Entry> {
 		// The first scan's events are wanted only to count folders against the
 		// cap; nothing is recorded until the watcher is ready.
-		const watcher = watch(root, {
-			ignoreInitial: false,
-			followSymlinks: false,
-			ignored: (path: string) => isIgnored(root, path),
-		});
+		const watcher = watch(
+			root,
+			hidden
+				? {
+						ignoreInitial: false,
+						followSymlinks: false,
+						// The root's entries, then the entries of each generated folder.
+						depth: 1,
+						ignored: (path: string) => isOutsideGenerated(root, path),
+					}
+				: {
+						ignoreInitial: false,
+						followSymlinks: false,
+						ignored: (path: string) => isIgnored(root, path),
+					},
+		);
 		const entry: Entry = {
 			watcher,
+			key,
 			root,
 			listeners: new Set(),
 			paths: new Set(),
@@ -208,7 +269,7 @@ export class ProjectWatchers {
 		}
 		watcher.on("all", (_event, path) => this.record(entry, path));
 		watcher.on("error", (error) => this.fail(entry, error));
-		this.entries.set(root, entry);
+		this.entries.set(key, entry);
 		return entry;
 	}
 
@@ -288,7 +349,7 @@ export class ProjectWatchers {
 	private close(entry: Entry): void {
 		if (entry.timer !== null) clearTimeout(entry.timer);
 		entry.timer = null;
-		if (this.entries.get(entry.root) === entry) this.entries.delete(entry.root);
+		if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
 		entry.watcher
 			.close()
 			.catch((error) =>

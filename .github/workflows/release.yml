@@ -17,9 +17,14 @@ permissions:
   contents: read
 
 # The apt job reads the published repository and redeploys it, so two
-# releases must not overlap or one would drop the other's package.
+# releases must not overlap or one would drop the other's package. A group
+# keeps only one waiting run and cancels it for a newer one, so the weekly
+# re-sign has a group of its own and can never cancel a waiting release.
+# The two kinds keep apart with scripts/apt-writers.mjs instead: a re-sign
+# skips itself while a release that will sign is unfinished, and a release's
+# apt job waits for any unfinished re-sign (docs/WORKFLOW.md, "CI").
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'schedule' && 'apt-resign' || 'release' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,14 +34,19 @@ jobs:
     timeout-minutes: 5
     if: github.ref == 'refs/heads/main'
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
       release: ${{ steps.decide.outputs.release }}
       resign: ${{ steps.decide.outputs.resign }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - id: decide
         env:
+          RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
@@ -49,6 +59,22 @@ jobs:
           fi
           if [ "$EVENT" = schedule ]; then
             echo "release=false" >> "$GITHUB_OUTPUT"
+            # A release that will sign the index makes this run unneeded, and must
+            # not race it. One waiting for approval or ruled no release does not count.
+            # A failed lookup fails this run rather than signing past a release.
+            unfinished="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?branch=main&per_page=50" \
+              | node scripts/apt-writers.mjs releases "$RUN_ID")"
+            releases=""
+            for id in $unfinished; do
+              signer="$(gh api "repos/$GH_REPO/actions/runs/$id/jobs" | node scripts/apt-writers.mjs signs "$id")"
+              releases="$releases${releases:+$'\n'}$signer"
+            done
+            releases="$(echo "$releases" | sed '/^$/d')"
+            if [ -n "$releases" ]; then
+              echo "Release runs ${releases//$'\n'/ } are unfinished and will sign the index; not signing it here."
+              echo "resign=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             # A release in the last 6 days signed it already. Anything unreadable signs again.
             published="$(curl -fsSL "$APT_URL/dists/trixie/InRelease" | sed -n 's/^Date: //p' | head -n 1)" || published=""
             if [ -n "$published" ] && signed="$(date -d "$published" +%s)" \
@@ -173,12 +199,34 @@ jobs:
       && (needs.build.result == 'success' || needs.gate.outputs.resign == 'true')
     # The only job that can read APT_SIGNING_KEY (docs/SPEC.md section 21.13).
     environment: publish
+    permissions:
+      actions: read
+      contents: read
     env:
       APT_URL: https://toddawhittaker.github.io/portikus/apt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # A re-sign that checked before this release could sign would read the
+      # repository and deploy it again, so let it finish first. The re-sign
+      # never waits for a release, so the two cannot deadlock.
+      - name: Wait for an unfinished re-sign
+        if: github.event_name != 'schedule'
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # A failed lookup fails the job rather than publishing past a re-sign.
+          while true; do
+            resigns="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?event=schedule&per_page=20" \
+              | node scripts/apt-writers.mjs resigns "$RUN_ID")"
+            [ -n "$resigns" ] || break
+            echo "Waiting for re-sign runs ${resigns//$'\n'/ } to finish."
+            sleep 30
+          done
       - name: Download the package
         if: needs.build.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

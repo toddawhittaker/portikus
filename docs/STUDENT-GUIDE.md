@@ -98,6 +98,33 @@ Typing `exit` closes it.
   rename, move, download, upload and delete.
 - **Find in files** is the magnifier at the top of Files.
 
+## Recovery points
+
+A recovery point is a saved copy of one project's files. To see them, open the
+project's three-dots menu and choose **Recovery points…**. **Create recovery
+point now** makes one at once.
+
+- Portikus makes one every 15 minutes while the project has changed. It also
+  makes one before you archive the project, before a Claude Code or Codex
+  session starts, before an administrator rebuilds your workspace or replaces
+  your home folder, and before a restore.
+- Points are kept for 14 days. If your recovery storage fills up, the oldest
+  points go first. The newest point of each project is always kept.
+- Some folders are left out because they can be built again: `node_modules`,
+  `.venv`, `dist`, `build`, `target` and `__pycache__`. To leave out more, add
+  a `.workspaceignore` file to the project folder. It works like `.gitignore`:
+  one pattern per line, such as `big-data/`. A line like `!dist/` puts a
+  default folder back in.
+- A restore puts back the whole project, Git's own records included, so
+  commits made since then leave the folder too. Portikus saves the current
+  state as a new recovery point first, so you can go back. It never makes a
+  Git commit for you.
+- If a restore cannot finish, your earlier files are kept in a hidden folder
+  named `~/projects/.portikus-aside-` followed by the point's ID. Copy back
+  what you need, then delete that folder in a terminal. Portikus never deletes
+  it for you, and it will not restore that same point again until the folder
+  is gone.
+
 ## Previews
 
 When your web app is listening on a port, it appears under **Running**.
@@ -233,7 +260,7 @@ What the terminal and editor cannot do:
 - **Your workspace has been near its memory limit**: if it runs out, the
   biggest program is stopped. Stop a program you do not need from Monitor.
 - **You deleted or broke something**: open the project's three-dots menu
-  and choose **Recovery points…**. Restoring one puts back every file in the
+  and choose **Recovery points…** (see [Recovery points](#recovery-points)). Restoring one puts back every file in the
   folder, Git's own records included, so commits made since then leave the
   folder too. Portikus saves the current state as a new recovery point
   first, so you can go back. It never makes a Git commit for you.

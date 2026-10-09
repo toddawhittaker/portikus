@@ -9,7 +9,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { AgentCallError, type RecoveryAgent } from "./agent-client.js";
 import { type RecoveryConfig, rebuildPointsDone, recoverySweep } from "./recovery.js";
 
@@ -35,6 +35,8 @@ class FakeAgent implements RecoveryAgent {
 	sizeBytes = 1000;
 	createError: Error | null = null;
 	deleteError: Error | null = null;
+	archives: { projectId: string; pointId: string; modifiedAt: string }[] = [];
+	listError: Error | null = null;
 
 	async createRecoveryPoint(
 		slug: string,
@@ -56,6 +58,11 @@ class FakeAgent implements RecoveryAgent {
 	async deleteRecoveryPoint(projectId: string, pointId: string): Promise<void> {
 		this.deletes.push({ projectId, pointId });
 		if (this.deleteError) throw this.deleteError;
+	}
+
+	async listRecoveryArchives() {
+		if (this.listError) throw this.listError;
+		return { archives: this.archives };
 	}
 }
 
@@ -231,6 +238,7 @@ test.skipIf(skip)(
 		}
 		let release: () => void = () => {};
 		const hanging: RecoveryAgent = {
+			listRecoveryArchives: async () => ({ archives: [] }),
 			createRecoveryPoint: () =>
 				new Promise((_resolve, reject) => {
 					release = () => reject(new AgentCallError("AGENT_UNAVAILABLE", "timed out"));
@@ -268,6 +276,7 @@ test.skipIf(skip)(
 		let calls = 0;
 		let deletes = 0;
 		const hanging: RecoveryAgent = {
+			listRecoveryArchives: async () => ({ archives: [] }),
 			createRecoveryPoint: async () => {
 				calls++;
 				throw new AgentCallError("AGENT_UNAVAILABLE", "timed out");
@@ -314,6 +323,7 @@ test.skipIf(skip)(
 				.executeTakeFirstOrThrow()
 		).slug;
 		const mixed: RecoveryAgent = {
+			listRecoveryArchives: async () => ({ archives: [] }),
 			createRecoveryPoint: async (slug, req) => {
 				if (slug === slowSlug) {
 					slowCalls++;
@@ -580,4 +590,141 @@ test.skipIf(skip)("a failed file delete keeps the row", async () => {
 	await recoverySweep(tdb.db, agentFor, cfg, now);
 
 	expect(await points(a)).toHaveLength(2);
+});
+
+describe("orphan archives (SPEC.md §15.10)", () => {
+	const HOUR = 60 * 60 * 1000;
+
+	async function setup() {
+		const ws = await insertWorkspace();
+		const projectId = await insertProject(ws);
+		const now = new Date();
+		// A recent point so the periodic sweep makes nothing new.
+		await insertPoint(
+			ws,
+			projectId,
+			now,
+			1000,
+			new Date(now.getTime() + 86_400_000),
+			FP_A,
+		);
+		await tdb.db
+			.updateTable("projects")
+			.set({ recovery_checked_at: now.toISOString() })
+			.where("id", "=", projectId)
+			.execute();
+		return { ws, projectId, now };
+	}
+
+	function archive(
+		projectId: string,
+		ageMs: number,
+		now: Date,
+		pointId: string = crypto.randomUUID(),
+	) {
+		return {
+			projectId,
+			pointId,
+			modifiedAt: new Date(now.getTime() - ageMs).toISOString(),
+		};
+	}
+
+	test.skipIf(skip)(
+		"an old file with no row is deleted, a young one is kept",
+		async () => {
+			const { projectId, now } = await setup();
+			const old = archive(projectId, 2 * HOUR, now);
+			const young = archive(projectId, 10 * 60 * 1000, now);
+			// The archive and its partial share a point id: one delete.
+			agent.archives = [old, { ...old }, young];
+			const result = await recoverySweep(tdb.db, agentFor, cfg, now);
+			expect(agent.deletes).toEqual([{ projectId, pointId: old.pointId }]);
+			expect(result.deleted).toBe(1);
+		},
+	);
+
+	test.skipIf(skip)("an old file with a row is kept", async () => {
+		const { ws, projectId, now } = await setup();
+		const pointId = await insertPoint(
+			ws,
+			projectId,
+			new Date(now.getTime() - 3 * HOUR),
+			1000,
+			new Date(now.getTime() + 86_400_000),
+		);
+		agent.archives = [archive(projectId, 3 * HOUR, now, pointId)];
+		await recoverySweep(tdb.db, agentFor, cfg, now);
+		expect(agent.deletes).toEqual([]);
+	});
+
+	test.skipIf(skip)("a BUSY delete is logged and tried again next sweep", async () => {
+		const { projectId, now } = await setup();
+		const old = archive(projectId, 2 * HOUR, now);
+		agent.archives = [old];
+		agent.deleteError = new AgentCallError("BUSY", "busy", 409);
+		const logs = collectingLogger("debug");
+		await recoverySweep(tdb.db, agentFor, cfg, now, logs.logger);
+		expect(
+			logs.lines.some((l) =>
+				String(l.msg).includes("orphan recovery archive delete failed"),
+			),
+		).toBe(true);
+		agent.deleteError = null;
+		await recoverySweep(tdb.db, agentFor, cfg, now);
+		expect(agent.deletes).toHaveLength(2);
+	});
+
+	test.skipIf(skip)("at most twenty orphans are deleted per sweep", async () => {
+		const { projectId, now } = await setup();
+		agent.archives = Array.from({ length: 25 }, () =>
+			archive(projectId, 2 * HOUR, now),
+		);
+		const first = await recoverySweep(tdb.db, agentFor, cfg, now);
+		expect(first.deleted).toBe(20);
+		expect(agent.deletes).toHaveLength(20);
+	});
+
+	test.skipIf(skip)(
+		"the first failed delete ends the workspace's orphan pass",
+		async () => {
+			const { projectId, now } = await setup();
+			agent.archives = Array.from({ length: 5 }, () =>
+				archive(projectId, 2 * HOUR, now),
+			);
+			agent.deleteError = new AgentCallError("AGENT_UNAVAILABLE", "timed out", 504);
+			const result = await recoverySweep(tdb.db, agentFor, cfg, now);
+			expect(agent.deletes).toHaveLength(1);
+			expect(result.deleted).toBe(0);
+		},
+	);
+
+	test.skipIf(skip)(
+		"a refused archive list is logged and the sweep goes on",
+		async () => {
+			const { now } = await setup();
+			agent.listError = new Error("archive list too long");
+			const logs = collectingLogger("debug");
+			await expect(
+				recoverySweep(tdb.db, agentFor, cfg, now, logs.logger),
+			).resolves.toBeDefined();
+			expect(logs.lines.some((l) => String(l.msg).includes("listing failed"))).toBe(
+				true,
+			);
+		},
+	);
+
+	test.skipIf(skip)(
+		"an agent too old to list archives (404) is skipped quietly",
+		async () => {
+			const { now } = await setup();
+			agent.listError = new AgentCallError("AGENT_UNAVAILABLE", "not found", 404);
+			const logs = collectingLogger("debug");
+			const result = await recoverySweep(tdb.db, agentFor, cfg, now, logs.logger);
+			expect(result.deleted).toBe(0);
+			expect(agent.deletes).toEqual([]);
+			expect(logs.lines.some((l) => String(l.msg).includes("listing failed"))).toBe(
+				false,
+			);
+		},
+	);
 });

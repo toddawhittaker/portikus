@@ -277,6 +277,11 @@ export class TerminalRegistry {
 		});
 	}
 
+	/** Tell every browser on a terminal that its scrollback was erased. */
+	clearScrollback(id: string): void {
+		this.panes.clear(id);
+	}
+
 	/** Close every attachment to a terminal, used when the terminal is deleted. */
 	closeAll(id: string, code: number, reason: string): void {
 		for (const attachment of this.attachments.get(id) ?? []) {

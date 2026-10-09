@@ -71,9 +71,6 @@ SERVE="${CACHE}/install-test-serve"
 LOGS=$(mktemp -d "${TMPDIR:-/tmp}/portikus-install-test.XXXXXX")
 KEYHOME=$(mktemp -d "${TMPDIR:-/tmp}/portikus-install-test-gpg.XXXXXX")
 M=(make -C "$ROOT" --no-print-directory TOFU_ENV=rehearsal-libvirt)
-# The image rehearsal builds twice in the VM, so its root disk is larger than
-# the rehearsal default of 20 GiB.
-export TF_VAR_os_disk_size_bytes=$((64 * 1024 * 1024 * 1024))
 
 names=() seconds=() results=()
 T0=$(date +%s)

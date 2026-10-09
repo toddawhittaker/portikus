@@ -19,6 +19,10 @@
 	color: var(--ink);
 	cursor: default;
 }
+.pk-tree-more > .pk-tree-row {
+	color: var(--ink-muted);
+	font-size: 12px;
+}
 .pk-tree-row:hover {
 	background: var(--surface-hover);
 }
@@ -108,11 +112,6 @@
 .pk-tree-row:hover .pk-tree-actions,
 .pk-tree-actions:focus-visible {
 	opacity: 1;
-}
-.pk-tree-more {
-	padding: var(--space-1) var(--space-2);
-	color: var(--ink-muted);
-	font-size: 12px;
 }
 .pk-pane-sub[data-drop-over="true"] {
 	background: var(--surface-selected);

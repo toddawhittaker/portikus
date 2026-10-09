@@ -40,12 +40,20 @@ validate_name() {
     fi
 }
 
+# The bare list of instance URLs, not `incus info`: while an instance is
+# stopping, rendering it can fail, which would read as "no such instance".
 container_exists() {
-    incus_cmd info "$1" --project "$PROJECT" >/dev/null 2>&1
+    local urls
+    urls=$(incus_cmd query "/1.0/instances?project=${PROJECT}") || die "cannot list the instances in project ${PROJECT}"
+    grep -qF "\"/1.0/instances/${1}?project=${PROJECT}\"" <<<"$urls"
 }
 
+# Likewise the bare list, so a failing Incus stops the script instead of
+# reading as "no such volume" and leaving the volume behind.
 volume_exists() {
-    incus_cmd storage volume show "$POOL" "custom/$1" --project "$PROJECT" >/dev/null 2>&1
+    local urls
+    urls=$(incus_cmd query "/1.0/storage-pools/${POOL}/volumes/custom?project=${PROJECT}") || die "cannot list the volumes in pool ${POOL}"
+    grep -qF "\"/1.0/storage-pools/${POOL}/volumes/custom/${1}?project=${PROJECT}\"" <<<"$urls"
 }
 
 # Ensure a custom storage volume exists with the given size.

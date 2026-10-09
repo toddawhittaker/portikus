@@ -75,11 +75,14 @@ export function registerProjectEventsSocket(
 				socket.resume();
 				return;
 			}
+			// A browser showing hidden files also hears generated folders (SPEC.md §11.4).
+			const hidden = (request.query as { hidden?: unknown }).hidden === "1";
+			const agentUrl = scope.agent.projectEventsUrl(scope.slug);
 			track(
 				pipeOneWay({
 					db,
 					socket,
-					url: scope.agent.projectEventsUrl(scope.slug),
+					url: hidden ? `${agentUrl}?hidden=1` : agentUrl,
 					authHeader: scope.agent.authHeader(),
 					workspaceId: scope.workspaceId,
 					log: request.log,

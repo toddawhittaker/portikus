@@ -55,3 +55,9 @@ older images until they are rebuilt.
   program was OOM-killed earlier and tmux is later killed with a plain
   `SIGKILL` before the unit restarts, the record wrongly says `oom-kill`
   and the student is told their workspace ran out of memory.
+- Later note (Epic 38): neither unit sets a memory limit, so an
+  out-of-memory kill is container-wide and the kernel kills the process
+  with the highest OOM score, whatever its cgroup. Each Check now starts
+  under `choom -n 500`, which then runs the Check's shell, so a
+  memory-hungry Check is killed before the agent. Checks still count
+  against the agent unit's process count, which has no limit of its own.

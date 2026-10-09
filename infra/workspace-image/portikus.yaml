@@ -1798,11 +1798,26 @@ files:
 # root disk; the classic overlay2 store keeps them in the per-workspace
 # /var/lib/docker volume and its quota (SPEC.md 16.2, 19).  Setting the
 # storage driver already opts out today; the feature flag says so outright.
+# Every container goes under portikus-docker.slice below.  The controller
+# rewrites this file before each start (docker-config.ts); keep the two equal.
 - path: /etc/docker/daemon.json
   generator: dump
   mode: "0644"
   content: |-
-    {"storage-driver": "overlay2", "features": {"containerd-snapshotter": false}}
+    {"storage-driver": "overlay2", "features": {"containerd-snapshotter": false}, "cgroup-parent": "portikus-docker.slice"}
+
+# All of Docker's containers together, below the container's 2000 processes,
+# so they cannot starve the agent or the terminals (SPEC.md 19.3).  Each
+# container's own scope already stops at systemd's default of 15%, 300.
+- path: /etc/systemd/system/portikus-docker.slice
+  generator: dump
+  mode: "0644"
+  content: |-
+    [Unit]
+    Description=Portikus Docker containers
+
+    [Slice]
+    TasksMax=1000
 
 # First-boot initialiser for the persistent home volume (SPEC.md 4.4).
 - path: /usr/local/sbin/portikus-home-init

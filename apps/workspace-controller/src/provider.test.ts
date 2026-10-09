@@ -2984,6 +2984,7 @@ describe("the Docker seed", () => {
 		expect(daemon).toEqual({
 			"storage-driver": "overlay2",
 			features: { "containerd-snapshotter": false },
+			"cgroup-parent": "portikus-docker.slice",
 			"registry-mirrors": ["http://10.200.0.1:5000"],
 		});
 		expect(state.files.get("/etc/docker/certs.d/ghcr.io/ca.crt")?.content).toBe(

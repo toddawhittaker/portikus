@@ -52,6 +52,7 @@ const app = buildServer({
 	tmuxExternalServer: config.TMUX_EXTERNAL_SERVER,
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
+	panePipeDir: "/run/portikus/panes",
 	build,
 });
 

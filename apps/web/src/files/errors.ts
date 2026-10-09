@@ -81,6 +81,7 @@ const MESSAGES: Record<string, string> = {
 	NOT_A_DIRECTORY: "That is a file, not a folder.",
 	AGENT_UNAVAILABLE: "The workspace is not responding. Try again in a moment.",
 	FILE_EXISTS: "Something with that name already exists here",
+	DIRECTORY_EXISTS: "Something with that name already exists here",
 	FILE_TOO_LARGE: `Files must be ${MAX_UPLOAD_MB} MB or smaller`,
 	RATE_LIMITED: "Too many file changes just now. Wait a minute, then try again.",
 	SERVICE_BUSY: "Portikus is busy. Try again in a moment.",

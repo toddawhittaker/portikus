@@ -404,6 +404,16 @@ test("each refusal keeps its exact body", async () => {
 	});
 });
 
+test("the protected route lists each protected process with its start ticks", async () => {
+	const response = await app.inject({ method: "GET", url: "/processes/protected" });
+	expect(response.statusCode).toBe(200);
+	const body = response.json() as { processes: { pid: number; startTicks: number }[] };
+	expect(body.processes.sort((a, b) => a.pid - b.pid)).toEqual([
+		{ pid: TMUX, startTicks: 65 },
+		{ pid: ATTACH, startTicks: 66 },
+	]);
+});
+
 test("a pid that is not a positive integer is a 400", async () => {
 	for (const pid of ["0", "-3", "1.5", "abc", "1e3", "99999999999"]) {
 		const response = await post(pid, { startTicks: 1 });

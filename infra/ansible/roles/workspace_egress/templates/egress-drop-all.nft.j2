@@ -49,6 +49,5 @@ flush chain inet portikus_egress prerouting
 flush chain inet portikus_egress output
 flush chain inet portikus_egress forward
 flush chain inet portikus_egress input
-destroy set inet portikus_egress names_v4
-add rule inet portikus_egress input iifname "{{ workspace_egress_bridge }}" tcp dport { 5000, 5001 } drop
+add rule inet portikus_egress input iifname "{{ workspace_egress_bridge }}" tcp dport { 5000, 5001 } reject with tcp reset
 add rule inet portikus_egress forward iifname "{{ workspace_egress_bridge }}" drop

@@ -114,6 +114,47 @@ test("changes under node_modules produce nothing", async () => {
 	expect(frames).toEqual([]);
 });
 
+test("with hidden files shown, a change directly inside node_modules arrives", async () => {
+	await mkdir(join(project, "node_modules", "left-pad", "lib"), { recursive: true });
+	await mkdir(join(project, "src"));
+	const frames: (FsEvent | null)[] = [];
+	stops.push(
+		await watchers.subscribe(homeDir, "demo", (event) => frames.push(event), {
+			hidden: true,
+		}),
+	);
+	await writeFile(join(project, "node_modules", "fresh.js"), "x");
+	await mkdir(join(project, "node_modules", "new-package"));
+	await vi.waitFor(
+		() => {
+			const paths = events(frames).flatMap((frame) => frame.paths);
+			expect(paths).toContain(join("node_modules", "fresh.js"));
+			expect(paths).toContain(join("node_modules", "new-package"));
+		},
+		{ timeout: 5000 },
+	);
+	// Only the generated folder's own entries are followed, not its subfolders,
+	// and ordinary folders stay with the main watcher alone.
+	await writeFile(join(project, "node_modules", "left-pad", "index.js"), "x");
+	await new Promise((resolve) => setTimeout(resolve, 600));
+	const paths = events(frames).flatMap((frame) => frame.paths);
+	expect(paths).not.toContain(join("node_modules", "left-pad", "index.js"));
+});
+
+test("the hidden-files watcher runs only while someone asks for it", async () => {
+	await mkdir(join(project, "node_modules"));
+	const stopPlain = await watchers.subscribe(homeDir, "demo", () => {});
+	expect(watchers.size()).toBe(1);
+	const stopHidden = await watchers.subscribe(homeDir, "demo", () => {}, {
+		hidden: true,
+	});
+	expect(watchers.size()).toBe(2);
+	stopHidden();
+	expect(watchers.size()).toBe(1);
+	stopPlain();
+	expect(watchers.size()).toBe(0);
+});
+
 test("two subscribers share one watcher, which closes when both leave", async () => {
 	const first: (FsEvent | null)[] = [];
 	const second: (FsEvent | null)[] = [];

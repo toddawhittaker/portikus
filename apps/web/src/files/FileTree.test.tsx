@@ -14,6 +14,7 @@ import { createQueryClient } from "../api/queryClient.js";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { json, project, stubFetch, WORKSPACE } from "../test-utils.js";
 import { FileTreePane } from "./FileTree.js";
+import { fileKeys } from "./queries.js";
 import { useFileViewStore } from "./store.js";
 
 const PROJECT = project();
@@ -51,8 +52,7 @@ const NO_CHANGES = {
 /** What the stubbed API answers for Git status; a test may replace it. */
 let gitStatus: typeof NO_CHANGES = NO_CHANGES;
 
-function renderPane(store = createLayoutStore()) {
-	const client = createQueryClient();
+function renderPane(store = createLayoutStore(), client = createQueryClient()) {
 	render(
 		<QueryClientProvider client={client}>
 			<ToastProvider>
@@ -225,6 +225,37 @@ describe("the file tree", () => {
 		expect(readme.getAttribute("data-current")).toBeNull();
 	});
 
+	/** SPEC.md §25.8: the tree stays one Tab stop when its focused row is deleted elsewhere. */
+	it("moves the Tab stop when the focused row disappears from a refetch", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const folder = await screen.findByTestId("file-row-src");
+		folder.focus();
+		fireEvent.keyDown(folder, { key: "ArrowRight" });
+		const file = await screen.findByTestId("file-row-src/app.ts");
+		fireEvent.keyDown(folder, { key: "ArrowDown" });
+		await waitFor(() => expect(file.getAttribute("tabindex")).toBe("0"));
+
+		// A live file event refetches only the folder the file was in.
+		const before = SRC.entries;
+		SRC.entries = [];
+		onTestFinished(() => {
+			SRC.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, "src"),
+		});
+
+		await waitFor(() => expect(screen.queryByTestId("file-row-src/app.ts")).toBeNull());
+		await waitFor(() =>
+			expect(
+				screen
+					.getAllByRole("treeitem")
+					.filter((r) => r.getAttribute("tabindex") === "0"),
+			).toHaveLength(1),
+		);
+	});
+
 	/** Shift+Arrow and Ctrl+Space build a selection, like Shift- and Ctrl-click. */
 	it("builds a selection from the keyboard", async () => {
 		renderPane();
@@ -258,12 +289,72 @@ describe("the file tree", () => {
 		expect(region.getAttribute("aria-live")).toBe("polite");
 	});
 
-	it("says when a listing was cut short", async () => {
-		stubFetch(() => json(200, { entries: [entry("a.txt")], truncated: true }));
+	/** SPEC.md §11.2: the rest of a long directory is one click away. */
+	it("shows the rest of a long listing when Show more is pressed", async () => {
+		const urls: string[] = [];
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			urls.push(url);
+			if (url.includes("after=")) {
+				return json(200, { entries: [entry("b.txt")], truncated: false });
+			}
+			return json(200, { entries: [entry("a.txt")], truncated: true, next: "f/a.txt" });
+		});
 		renderPane();
 
-		expect((await screen.findByTestId("file-tree-truncated")).textContent).toBe(
-			"Showing the first 2000 entries",
+		expect((await screen.findByTestId("file-tree-truncated")).textContent).toContain(
+			"1 entry shown",
+		);
+		expect(screen.queryByText("b.txt")).toBeNull();
+		fireEvent.click(screen.getByTestId("file-tree-show-more"));
+
+		expect(await screen.findByText("b.txt")).toBeDefined();
+		expect(screen.getByText("a.txt")).toBeDefined();
+		expect(screen.queryByTestId("file-tree-truncated")).toBeNull();
+		expect(urls.at(-1)).toContain("after=f%2Fa.txt");
+	});
+
+	/** SPEC.md §25.8: Show more is a tree row the keyboard reaches and keeps focus on. */
+	it("loads more from the keyboard, focuses the first new row and says so", async () => {
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("after=")) {
+				return json(200, {
+					entries: [entry(".hidden"), entry("b.txt"), entry("c.txt")],
+					truncated: true,
+					next: "f/c.txt",
+				});
+			}
+			return json(200, {
+				entries: [entry(".env"), entry("a.txt")],
+				truncated: true,
+				next: "f/a.txt",
+			});
+		});
+		useFileViewStore.setState({
+			byProject: { [PROJECT.id]: { expanded: [], showHidden: false } },
+		});
+		renderPane();
+
+		const more = await screen.findByTestId("file-tree-show-more");
+		expect(more.getAttribute("role")).toBe("treeitem");
+		// Hidden entries are not counted.
+		expect(more.textContent).toContain("1 entry shown");
+		const first = await screen.findByTestId("file-row-a.txt");
+		first.focus();
+		fireEvent.keyDown(first, { key: "ArrowDown" });
+		expect(document.activeElement).toBe(more);
+		fireEvent.keyDown(more, { key: "Enter" });
+
+		const next = await screen.findByTestId("file-row-b.txt");
+		await waitFor(() => expect(document.activeElement).toBe(next));
+		expect(screen.getByTestId("files-announcement").textContent).toBe(
+			"Loaded 2 more entries",
+		);
+		expect(screen.getByTestId("file-row-a.txt").getAttribute("aria-selected")).toBe(
+			"false",
 		);
 	});
 
@@ -754,6 +845,103 @@ describe("the file tree", () => {
 		await waitFor(() =>
 			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
 		);
+	});
+
+	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */
+	it("asks before a rename replaces a file, then sends the replace flag", async () => {
+		const moves: { replace?: boolean }[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				const body = JSON.parse(String(init?.body));
+				moves.push(body);
+				if (body.replace) return json(204, null);
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: ".env" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		const confirm = await screen.findByTestId("dialog-replace-file");
+		expect(confirm.textContent).toContain("Replace .env?");
+		fireEvent.click(within(confirm).getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(moves).toEqual([
+				{ from: "README.md", to: ".env" },
+				{ from: "README.md", to: ".env", replace: true },
+			]),
+		);
+	});
+
+	it("does not offer to replace when a folder is renamed onto a taken name", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: "node_modules" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		await waitFor(() => expect(moves).toHaveLength(1));
+		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
+	});
+
+	/** SPEC.md §11.2: only a file replaces a file, so a folder in the way is not offered. */
+	it("does not offer to replace when a file is renamed onto a folder", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(409, {
+					code: "DIRECTORY_EXISTS",
+					message: "a folder has that name",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: "src" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		expect(
+			await screen.findByText("Something with that name already exists here"),
+		).toBeDefined();
+		expect(moves).toHaveLength(1);
+		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
 	});
 
 	it("does not offer a folder as a place to move itself", async () => {

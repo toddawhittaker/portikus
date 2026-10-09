@@ -312,6 +312,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Keep your workspace running while you are away",
 		"Terminals",
 		"Files and the editor",
+		"Recovery points",
 		"Previews",
 		"Container images with GitHub Actions",
 		"Checks",

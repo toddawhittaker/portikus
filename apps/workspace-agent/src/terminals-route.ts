@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentFailure, sendError } from "./errors.js";
 import { recordBaseline } from "./git.js";
+import type { PanePipes } from "./pane-pipes.js";
 import { readTerminalsExit, sendText, type TerminalRegistry } from "./terminals.js";
 import {
 	closeSession,
@@ -29,6 +30,7 @@ interface TerminalsRouteOptions {
 	homeDir: string;
 	tmuxServer: TmuxServer;
 	registry: TerminalRegistry;
+	panePipes?: PanePipes;
 	terminalsExitPath?: string;
 	build?: string;
 }
@@ -101,6 +103,7 @@ export async function terminalsRoutes(
 				{ terminalId: created.id, session: `pk-${created.id}` },
 				"tmux session created",
 			);
+			await options.panePipes?.start(created.id);
 			return reply.code(201).send({
 				id: created.id,
 				cwd: created.cwd,
@@ -121,6 +124,8 @@ export async function terminalsRoutes(
 				.send({ error: { code: "TERMINAL_NOT_FOUND", message: "no such terminal" } });
 		}
 		const { terminalId } = params.data;
+		// A terminal that already ended may still hold a pipe.
+		options.panePipes?.stop(terminalId);
 		try {
 			if (!(await hasSession(terminalId, tmuxServer))) {
 				throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");

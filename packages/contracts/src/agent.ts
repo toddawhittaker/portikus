@@ -165,6 +165,8 @@ export const AgentErrorCode = z.enum([
 	"PATH_INVALID",
 	"FILE_NOT_FOUND",
 	"FILE_EXISTS",
+	// A move whose target is a folder: nothing may replace it (SPEC.md §11.2).
+	"DIRECTORY_EXISTS",
 	"FILE_CHANGED",
 	"FILE_TOO_LARGE",
 	"NOT_A_DIRECTORY",

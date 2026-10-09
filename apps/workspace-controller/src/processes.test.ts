@@ -244,7 +244,7 @@ describe("readInstanceProcesses", () => {
 		expect(row(rows, 30)?.name).toBe("a) (b??[31mlong");
 	});
 
-	test("protects PID 1, other uids, and the main process of the agent and terminals units", async () => {
+	test("protects only PID 1 and other uids; a student program in a platform unit is not (the agent says which are)", async () => {
 		const agent = proc({
 			hostPid: 6010,
 			nsPid: 90,
@@ -287,9 +287,9 @@ describe("readInstanceProcesses", () => {
 		const prot = Object.fromEntries(rows.map((r) => [r.pid, r.protected]));
 		expect(prot).toEqual({
 			1: true,
-			90: true,
+			90: false,
 			91: false,
-			92: true,
+			92: false,
 			93: false,
 			94: false,
 			95: true,

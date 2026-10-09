@@ -26,7 +26,10 @@ import { join } from "node:path";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
-import type { AgentCreateRecoveryPointResponse } from "@portikus/contracts";
+import type {
+	AgentCreateRecoveryPointResponse,
+	AgentRecoveryArchiveList,
+} from "@portikus/contracts";
 import { AgentFailure, isNoSpace } from "./errors.js";
 import { projectsDir, resolveProject } from "./projects.js";
 import { loadRecoveryMatcher, type RecoveryMatcher } from "./workspace-ignore.js";
@@ -305,6 +308,53 @@ export async function deleteProjectRecoveryPoints(
 ): Promise<void> {
 	assertId(projectId);
 	await rm(join(recoveryRoot, projectId), { recursive: true, force: true });
+}
+
+const ARCHIVE_NAME =
+	/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.tar\.zst(\.partial)?$/i;
+
+/**
+ * Every archive and `.partial` file in uuid-named project folders, with its
+ * modification time. Other names and anything that is not a real file or
+ * directory are skipped, so a link is never followed.
+ */
+export async function listRecoveryArchives(
+	recoveryRoot: string,
+): Promise<AgentRecoveryArchiveList["archives"]> {
+	if (!(await isRealDirectory(recoveryRoot))) {
+		throw new AgentFailure("INTERNAL", "recovery storage is not available");
+	}
+	const archives: AgentRecoveryArchiveList["archives"] = [];
+	for (const project of await readdir(recoveryRoot, { withFileTypes: true })) {
+		if (!project.isDirectory() || !UUID.test(project.name)) continue;
+		const files = await readdirEntriesOrEmpty(join(recoveryRoot, project.name));
+		for (const file of files) {
+			const match = ARCHIVE_NAME.exec(file.name);
+			if (!file.isFile() || !match) continue;
+			let info: Awaited<ReturnType<typeof lstat>>;
+			try {
+				info = await lstat(join(recoveryRoot, project.name, file.name));
+			} catch (error) {
+				if (isMissing(error)) continue;
+				throw error;
+			}
+			archives.push({
+				projectId: project.name,
+				pointId: match[1] as string,
+				modifiedAt: info.mtime.toISOString(),
+			});
+		}
+	}
+	return archives;
+}
+
+async function readdirEntriesOrEmpty(path: string): Promise<Dirent[]> {
+	try {
+		return await readdir(path, { withFileTypes: true });
+	} catch (error) {
+		if (isMissing(error)) return [];
+		throw error;
+	}
 }
 
 const STAGING_PREFIX = ".portikus-restore-";

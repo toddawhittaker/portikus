@@ -5,6 +5,7 @@ import {
 	ExtractRequest,
 	MkdirRequest,
 	MoveRequest,
+	TreeAfter,
 } from "@portikus/contracts";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -37,6 +38,7 @@ const PathQuery = z.object({
 	download: z.string().optional(),
 	upload: z.string().optional(),
 	check: z.string().optional(),
+	after: TreeAfter.optional(),
 });
 
 function queryPath(request: FastifyRequest): {
@@ -44,6 +46,7 @@ function queryPath(request: FastifyRequest): {
 	download: boolean;
 	upload: boolean;
 	check: boolean;
+	after: string | undefined;
 } {
 	const parsed = PathQuery.safeParse(request.query ?? {});
 	if (!parsed.success) {
@@ -54,6 +57,7 @@ function queryPath(request: FastifyRequest): {
 		download: parsed.data.download === "1",
 		upload: parsed.data.upload === "1",
 		check: parsed.data.check === "1",
+		after: parsed.data.after,
 	};
 }
 
@@ -103,8 +107,8 @@ export async function filesRoutes(
 	instance.get("/projects/:slug/tree", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		try {
-			const { path } = queryPath(request);
-			return await listDir(homeDir, slug, path);
+			const { path, after } = queryPath(request);
+			return await listDir(homeDir, slug, path, after);
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}
@@ -234,7 +238,13 @@ export async function filesRoutes(
 			if (!parsed.success) {
 				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
-			await move(homeDir, slug, parsed.data.from, parsed.data.to);
+			await move(
+				homeDir,
+				slug,
+				parsed.data.from,
+				parsed.data.to,
+				parsed.data.replace ?? false,
+			);
 			await afterWrite(request.log, homeDir, slug, parsed.data.to);
 			return reply.code(204).send();
 		} catch (error) {

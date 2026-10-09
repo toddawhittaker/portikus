@@ -152,6 +152,8 @@ function refreshAll(client: QueryClient, workspaceId: string, projectId: string)
 export function useProjectEvents(
 	workspaceId: string,
 	projectId: string,
+	/** Hidden files are shown, so changes in generated folders matter too. */
+	showHidden: boolean,
 	onBrowserOpen?: (request: BrowserOpenRequest) => void,
 ): { limited: boolean } {
 	const client = useQueryClient();
@@ -196,9 +198,8 @@ export function useProjectEvents(
 
 		function connect(): void {
 			if (stopped) return;
-			const next = new WebSocket(
-				wsUrl(`/workspaces/${workspaceId}/projects/${projectId}/events`),
-			);
+			const path = `/workspaces/${workspaceId}/projects/${projectId}/events`;
+			const next = new WebSocket(wsUrl(showHidden ? `${path}?hidden=1` : path));
 			socket = next;
 			const startedAt = Date.now();
 
@@ -268,7 +269,7 @@ export function useProjectEvents(
 			stopFallback?.();
 			socket?.close();
 		};
-	}, [client, workspaceId, projectId]);
+	}, [client, workspaceId, projectId, showHidden]);
 
 	return { limited };
 }

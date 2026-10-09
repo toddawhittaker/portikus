@@ -63,7 +63,7 @@ spans = [tuple(int(p) for p in (s.split(\"-\") * 2)[:2]) for s in rules[0][\"des
 covered = lambda port: any(a <= port <= b for a, b in spans)
 sys.exit(0 if len(rules) == 1 and covered(443) and not covered(5000) and not covered(5001) else 1)"'
   check "the drop-all table closes the caches" \
-    ssh_cmd "grep -qx 'add rule inet portikus_egress input iifname \"portikus-ws\" tcp dport { 5000, 5001 } drop' /etc/portikus/egress-drop-all.nft"
+    ssh_cmd "grep -qx 'add rule inet portikus_egress input iifname \"portikus-ws\" tcp dport { 5000, 5001 } reject with tcp reset' /etc/portikus/egress-drop-all.nft"
   check_output "the notification token is readable by root and the worker only" "640 root portikus-worker" \
     ssh_cmd "sudo stat -c '%a %U %G' /etc/portikus/registry/events-token"
   check_output "the ghcr.io authority's key is root's alone" "600 root root" \

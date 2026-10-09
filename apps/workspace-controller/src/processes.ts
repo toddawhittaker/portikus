@@ -17,12 +17,6 @@ const CLOCK_TICKS = 100;
 /** The uid the kernel shows for a host uid outside the instance's map. */
 const OVERFLOW_UID = 65534;
 
-/** Units inside the container whose main process no stop may touch (ADR 0037). */
-const PROTECTED_UNITS = [
-	"system.slice/portikus-workspace-agent.service",
-	"system.slice/portikus-terminals.service",
-];
-
 const DIGITS = /^\d+$/;
 
 /**
@@ -135,15 +129,14 @@ export function parseStatus(text: string): StatusFields | null {
 }
 
 /**
- * Every process in an instance's cgroup tree, with the cgroup path it sits in
- * relative to the instance's root cgroup. Cgroups that vanish mid-walk are
- * skipped.
+ * The host PIDs of every process in an instance's cgroup tree. Cgroups that
+ * vanish mid-walk are skipped.
  */
 async function readCgroupMembers(
 	root: string,
 	signal?: AbortSignal,
-): Promise<Map<number, string>> {
-	const members = new Map<number, string>();
+): Promise<Set<number>> {
+	const members = new Set<number>();
 	const pending = [""];
 	let seen = 0;
 	while (pending.length > 0) {
@@ -161,7 +154,7 @@ async function readCgroupMembers(
 		const procs = await readFile(`${dir}/cgroup.procs`, "utf8").catch(() => "");
 		for (const line of procs.split("\n")) {
 			if (!DIGITS.test(line)) continue;
-			members.set(Number(line), rel);
+			members.add(Number(line));
 			if (members.size > MAX_PIDS) throw new Error("instance has too many processes");
 		}
 		for (const e of entries) {
@@ -175,14 +168,12 @@ interface HostProcess extends StatFields {
 	hostPid: number;
 	uid: number;
 	rssBytes: number;
-	cgroup: string;
 }
 
 /** Stat and status for one host PID, or null if it vanished or is malformed. */
 async function readHostProcess(
 	procRoot: string,
 	hostPid: number,
-	cgroup: string,
 	level: number,
 	idmap: IdmapEntry[],
 ): Promise<HostProcess | null> {
@@ -204,7 +195,6 @@ async function readHostProcess(
 		hostPid,
 		uid: mapHostUid(status.uid, idmap),
 		rssBytes: status.rssBytes,
-		cgroup,
 	};
 }
 
@@ -234,32 +224,12 @@ async function takeSample(src: HostProcessSource, level: number): Promise<Sample
 	if (!Number.isFinite(uptime)) throw new Error("host uptime is unreadable");
 	const members = await readCgroupMembers(src.cgroupDir, src.signal);
 	const processes: HostProcess[] = [];
-	for (const [hostPid, cgroup] of members) {
+	for (const hostPid of members) {
 		src.signal?.throwIfAborted();
-		const p = await readHostProcess(src.procRoot, hostPid, cgroup, level, src.idmap);
+		const p = await readHostProcess(src.procRoot, hostPid, level, src.idmap);
 		if (p) processes.push(p);
 	}
 	return { uptime, processes };
-}
-
-/** The main process of each protected unit: the oldest process in its cgroup. */
-function protectedUnitPids(processes: HostProcess[]): Set<number> {
-	const result = new Set<number>();
-	for (const unit of PROTECTED_UNITS) {
-		let oldest: HostProcess | null = null;
-		for (const p of processes) {
-			if (p.cgroup !== unit && !p.cgroup.startsWith(`${unit}/`)) continue;
-			if (
-				!oldest ||
-				p.startTicks < oldest.startTicks ||
-				(p.startTicks === oldest.startTicks && p.hostPid < oldest.hostPid)
-			) {
-				oldest = p;
-			}
-		}
-		if (oldest) result.add(oldest.hostPid);
-	}
-	return result;
 }
 
 /**
@@ -287,7 +257,6 @@ export async function readInstanceProcesses(
 	const before = new Map<string, number>();
 	for (const p of first.processes) before.set(`${p.hostPid}:${p.startTicks}`, p.ticks);
 	const elapsed = second.uptime - first.uptime > 0 ? second.uptime - first.uptime : 1;
-	const unitMains = protectedUnitPids(second.processes);
 
 	const rows: InstanceProcess[] = second.processes.map((p) => {
 		const used = Math.max(
@@ -302,7 +271,8 @@ export async function readInstanceProcesses(
 			startTicks: p.startTicks,
 			cpuPercent: Math.round(percent * 10) / 10,
 			residentBytes: p.rssBytes,
-			protected: p.pid === 1 || p.uid !== STUDENT_UID || unitMains.has(p.hostPid),
+			// The agent's own set is added by the worker (ADR 0037).
+			protected: p.pid === 1 || p.uid !== STUDENT_UID,
 		};
 	});
 
@@ -326,14 +296,14 @@ export async function readUnitStartTime(
 	procRoot: string,
 	unitCgroupDir: string,
 ): Promise<Date | null> {
-	let members: Map<number, string>;
+	let members: Set<number>;
 	try {
 		members = await readCgroupMembers(unitCgroupDir);
 	} catch {
 		return null;
 	}
 	let oldest: number | null = null;
-	for (const hostPid of members.keys()) {
+	for (const hostPid of members) {
 		const text = await readFile(`${procRoot}/${hostPid}/stat`, "utf8").catch(() => "");
 		const stat = parseStatLine(text.trim());
 		if (stat && stat.pid === hostPid && (oldest === null || stat.startTicks < oldest)) {

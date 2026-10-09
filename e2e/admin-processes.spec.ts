@@ -48,6 +48,16 @@ const AGENT = {
 	residentBytes: 2048,
 	protected: true,
 };
+/** A pane shell: the student's own uid, protected because the agent's stop refuses it (ADR 0037). */
+const PANE_SHELL = {
+	pid: 93,
+	uid: 1000,
+	name: "bash",
+	startTicks: 50,
+	cpuPercent: 0.1,
+	residentBytes: 1024,
+	protected: true,
+};
 
 /** A student signed in through a context of its own, so carol keeps her session. */
 async function studentIn(
@@ -98,7 +108,7 @@ async function answerRefresh(workspaceId: string): Promise<void> {
 		.toBe(1);
 	await query(
 		"update workspace_process_snapshots set taken_at = now(), processes = $2, error = null where workspace_id = $1",
-		[workspaceId, JSON.stringify([AGENT, STUBBORN, MINER])],
+		[workspaceId, JSON.stringify([AGENT, STUBBORN, MINER, PANE_SHELL])],
 	);
 }
 
@@ -146,6 +156,14 @@ test("an administrator reads the processes, stops one, and force-stops another",
 	await expect(section.getByTestId(`processes-protected-${AGENT.pid}`)).toHaveText(
 		"Protected: the system or Portikus needs this process, so it cannot be stopped here.",
 	);
+	// A pane shell is the student's, yet protected like the agent.
+	await expect(section.getByTestId(`process-row-${PANE_SHELL.pid}`)).toContainText(
+		"student",
+	);
+	await expect(section.getByRole("button", { name: /Stop bash/ })).toHaveCount(0);
+	await expect(
+		section.getByTestId(`processes-protected-${PANE_SHELL.pid}`),
+	).toBeVisible();
 	await expect(table.getByRole("columnheader", { name: "Memory" })).toHaveAttribute(
 		"aria-sort",
 		"descending",

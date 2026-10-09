@@ -3,6 +3,8 @@
  * SPEC.md §20.1): each pending Refresh is served once, from the
  * controller, and old snapshots are deleted.
  */
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { InstanceProcess, WorkspaceState } from "@portikus/contracts";
 import {
 	createTestDb,
@@ -16,6 +18,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import {
+	fetchProtectedProcesses,
 	PROCESS_SNAPSHOT_MAX_AGE_MS,
 	serveProcessSnapshots,
 	startProcessSnapshots,
@@ -59,6 +62,8 @@ async function workspace(state: WorkspaceState = "running"): Promise<string> {
 			label: `ws${Math.random().toString(36).slice(2, 8)}`,
 			owner_user_id: await insertTestUser(tdb.db),
 			incus_instance_name: `ws-${Math.random().toString(36).slice(2, 8)}`,
+			agent_address: "10.0.0.9",
+			agent_token: "tok",
 			state,
 		})
 		.returning("id")
@@ -103,19 +108,13 @@ test.skipIf(skip)("serves a request stored with microseconds", async () => {
 	await sql`insert into workspace_process_snapshots (workspace_id, requested_at)
 		values (${id}, '2026-09-26T10:00:00.123456Z')`.execute(tdb.db);
 	const { logger } = collectingLogger("debug");
-	await serveProcessSnapshots(
-		tdb.db,
-		controller,
-		logger,
-		() => new Date("2026-09-26T10:00:01Z"),
-	);
+	await serveProcessSnapshots(tdb.db, controller, logger, {
+		now: () => new Date("2026-09-26T10:00:01Z"),
+	});
 	expect(
-		await serveProcessSnapshots(
-			tdb.db,
-			controller,
-			logger,
-			() => new Date("2026-09-26T10:00:02Z"),
-		),
+		await serveProcessSnapshots(tdb.db, controller, logger, {
+			now: () => new Date("2026-09-26T10:00:02Z"),
+		}),
 	).toBe(0);
 });
 
@@ -169,7 +168,7 @@ test.skipIf(skip)("rows older than an hour are deleted", async () => {
 	await request(old, new Date(now.getTime() - PROCESS_SNAPSHOT_MAX_AGE_MS - 1000));
 	await request(fresh, now);
 	const { logger } = collectingLogger("debug");
-	await serveProcessSnapshots(tdb.db, controller, logger, () => now);
+	await serveProcessSnapshots(tdb.db, controller, logger, { now: () => now });
 	expect(await snapshot(old)).toBeUndefined();
 	expect(await snapshot(fresh)).toBeDefined();
 });
@@ -178,9 +177,87 @@ test.skipIf(skip)("the loop serves a request and stops cleanly", async () => {
 	const id = await workspace();
 	await request(id);
 	const { logger } = collectingLogger("debug");
-	const stop = startProcessSnapshots({ db: tdb.db, controller, logger });
+	const stop = startProcessSnapshots({ db: tdb.db, controller, logger, agentPort: 1 });
 	await expect
 		.poll(async () => (await snapshot(id))?.taken_at ?? null, { timeout: 5000 })
 		.not.toBeNull();
 	stop();
+});
+
+const SHELL: InstanceProcess = { ...ROW, pid: 93, name: "bash", startTicks: 50 };
+
+test.skipIf(skip)(
+	"the agent's protected set marks its processes protected",
+	async () => {
+		const id = await workspace();
+		await request(id);
+		controller.processesResult = [ROW, SHELL, { ...SHELL, pid: 94, startTicks: 51 }];
+		const asked: string[] = [];
+		const { logger } = collectingLogger("debug");
+		await serveProcessSnapshots(tdb.db, controller, logger, {
+			readProtected: async (a, t) => {
+				asked.push(`${a} ${t}`);
+				// 94 matches the PID of nothing; 93 with other start ticks is a reused PID.
+				return new Set(["93:50", "95:1", "94:7"]);
+			},
+		});
+		expect(asked).toEqual(["10.0.0.9 tok"]);
+		const rows = (await snapshot(id))?.processes as InstanceProcess[];
+		expect(Object.fromEntries(rows.map((r) => [r.pid, r.protected]))).toEqual({
+			4242: false,
+			93: true,
+			94: false,
+		});
+	},
+);
+
+test.skipIf(skip)("without the agent's set the controller's flags stand", async () => {
+	const id = await workspace();
+	await request(id);
+	controller.processesResult = [ROW, { ...SHELL, protected: true }];
+	const { logger } = collectingLogger("debug");
+	await serveProcessSnapshots(tdb.db, controller, logger, {
+		readProtected: async () => null,
+	});
+	const row = await snapshot(id);
+	expect(row?.error).toBeNull();
+	expect(row?.processes).toEqual([ROW, { ...SHELL, protected: true }]);
+});
+
+async function agentAnswering(status: number, body: string): Promise<Server> {
+	const server = createServer((req, res) => {
+		expect(req.url).toBe("/processes/protected");
+		expect(req.headers.authorization).toBe("Bearer tok");
+		res.writeHead(status, { "content-type": "application/json" }).end(body);
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	return server;
+}
+
+async function fetchFrom(server: Server) {
+	const { port } = server.address() as AddressInfo;
+	try {
+		return await fetchProtectedProcesses("127.0.0.1", port, "tok");
+	} finally {
+		server.close();
+	}
+}
+
+test("the agent's protected set is read by pid and start ticks", async () => {
+	const server = await agentAnswering(
+		200,
+		JSON.stringify({ processes: [{ pid: 93, startTicks: 50 }] }),
+	);
+	expect(await fetchFrom(server)).toEqual(new Set(["93:50"]));
+});
+
+test("an old agent's 404, a bad reply or no agent reads as no set", async () => {
+	expect(await fetchFrom(await agentAnswering(404, "{}"))).toBeNull();
+	expect(
+		await fetchFrom(await agentAnswering(200, '{"processes":[{"pid":0}]}')),
+	).toBeNull();
+	const closed = await agentAnswering(200, "{}");
+	const { port } = closed.address() as AddressInfo;
+	await new Promise((resolve) => closed.close(resolve));
+	expect(await fetchProtectedProcesses("127.0.0.1", port, "tok")).toBeNull();
 });

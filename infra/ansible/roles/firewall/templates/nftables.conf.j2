@@ -99,7 +99,7 @@ table inet filter {
 
     # The Docker caches on the bridge gateway (ADR 0045), from
     # workspaces only and with a cap per workspace.  The egress helper's
-    # gate in table inet portikus_egress drops them first when the policy
+    # gate in table inet portikus_egress refuses them first when the policy
     # does not let the registry names through.
     iifname "{{ incus_network_name }}" tcp dport { {{ registry_cache_hub_port }}, {{ registry_cache_ghcr_port }} } ct state new add @registry_conns { ip saddr ct count over {{ registry_cache_connections_per_source }} } reject with tcp reset
     iifname "{{ incus_network_name }}" tcp dport { {{ registry_cache_hub_port }}, {{ registry_cache_ghcr_port }} } accept
