@@ -38,6 +38,8 @@ export interface PaneWatcher {
 	remove: (terminalId: string, socket: WebSocket) => void;
 	/** How many sockets are being fed for one terminal. */
 	size: (terminalId: string) => number;
+	/** Tell a terminal's attachments its scrollback was erased, now. */
+	clear: (terminalId: string) => void;
 	/** Forget a terminal and everything attached to it. */
 	drop: (terminalId: string) => void;
 	stop: () => void;
@@ -61,7 +63,8 @@ function announceChanges(entry: Watched, state: PaneState): void {
 		}
 	}
 	// tmux empties its history on `clear` but does not pass the
-	// erase-scrollback on, so say it here (SPEC.md §9.7).
+	// erase-scrollback on. The pane pipes usually say so first; this catches
+	// a pane whose pipe a student replaced (SPEC.md §9.7).
 	if (last !== null && last.history > 0 && state.history === 0) {
 		for (const socket of entry.sockets) send(socket, { type: "clear" });
 	}
@@ -136,6 +139,14 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 			stopIfIdle();
 		},
 		size: (terminalId) => watched.get(terminalId)?.sockets.size ?? 0,
+		clear: (terminalId) => {
+			const entry = watched.get(terminalId);
+			if (!entry) return;
+			for (const socket of entry.sockets) send(socket, { type: "clear" });
+			// The poll would otherwise send a second clear for the same erase,
+			// wiping output printed since.
+			if (entry.last) entry.last = { ...entry.last, history: 0 };
+		},
 		drop: (terminalId) => {
 			watched.delete(terminalId);
 			stopIfIdle();

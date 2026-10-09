@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentFailure, sendError } from "./errors.js";
 import { recordBaseline } from "./git.js";
+import type { PanePipes } from "./pane-pipes.js";
 import { readTerminalsExit, sendText, type TerminalRegistry } from "./terminals.js";
 import {
 	closeSession,
@@ -29,6 +30,7 @@ interface TerminalsRouteOptions {
 	homeDir: string;
 	tmuxServer: TmuxServer;
 	registry: TerminalRegistry;
+	panePipes?: PanePipes;
 	terminalsExitPath?: string;
 	build?: string;
 }
@@ -101,6 +103,16 @@ export async function terminalsRoutes(
 				{ terminalId: created.id, session: `pk-${created.id}` },
 				"tmux session created",
 			);
+			// Without the pipe, the pane poll still catches most clears.
+			await options.panePipes?.start(created.id).catch((error: unknown) => {
+				request.log.warn(
+					{
+						terminalId: created.id,
+						error: error instanceof Error ? error.message : error,
+					},
+					"could not watch a terminal for clear",
+				);
+			});
 			return reply.code(201).send({
 				id: created.id,
 				cwd: created.cwd,
@@ -126,6 +138,7 @@ export async function terminalsRoutes(
 				throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 			}
 			const { stopped } = await closeSession(terminalId, tmuxServer);
+			options.panePipes?.stop(terminalId);
 			registry.closeAll(terminalId, 1000, "terminal deleted");
 			// Stragglers get their SIGKILL after the grace period, without
 			// holding the response (SPEC.md §9.7).
