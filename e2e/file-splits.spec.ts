@@ -256,8 +256,87 @@ test.describe("file panes in splits", () => {
 		expect(await panesIn(page, terminalId)).toEqual([`terminal-leaf-${terminalId}`]);
 		await expect(workTabs(page).getByRole("tab")).toHaveCount(1);
 		await expectConnected(page, terminalId);
-		// The keyboard is not dropped on the page.
-		await expect(page.locator("body")).not.toBeFocused();
+		// The keyboard goes to the terminal beside it, not to the page.
+		await expect(
+			page.getByTestId(`terminal-pane-${terminalId}`).locator(".xterm-helper-textarea"),
+		).toBeFocused();
+	});
+
+	test("closing the terminal beside a file hands the keyboard to the file", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { terminalId } = await fileAndTerminal(page, student, "Close terminal");
+		await page.getByTestId(`tab-${FILE_PANE}`).click();
+		await moveFileInto(page, terminalId);
+		await expect(page.getByTestId(`file-frame-${PATH}`)).toBeVisible();
+
+		await page.getByTestId(`terminal-actions-${terminalId}`).click();
+		await page.getByTestId("terminal-close").click();
+		await expect(page.getByTestId(`terminal-leaf-${terminalId}`)).toHaveCount(0, {
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId(`tab-${FILE_PANE}`)).toBeVisible();
+		await expect
+			.poll(() =>
+				page.evaluate(
+					(path) =>
+						document.activeElement?.closest(`[data-testid="file-frame-${path}"]`) !==
+						null,
+					PATH,
+				),
+			)
+			.toBe(true);
+	});
+
+	test("closing a tab whose file has unsaved edits asks first", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const res = await page.request.put("/me/settings", {
+			data: { autoSave: false },
+			headers: { origin: WEB_ORIGIN },
+		});
+		expect(res.status()).toBe(200);
+		const { projectId, slug, terminalId } = await fileAndTerminal(
+			page,
+			student,
+			"Close unsaved",
+		);
+		await page.getByTestId(`tab-${FILE_PANE}`).click();
+		await moveFileInto(page, terminalId);
+		await expect(page.getByTestId(`file-frame-${PATH}`)).toBeVisible();
+		await lines(page).click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" // unsaved");
+		await expect(page.getByTestId(`tab-${terminalId}-dirty`)).toBeVisible();
+
+		await page.getByTestId(`tab-${terminalId}`).focus();
+		await page.keyboard.press("Delete");
+		const dialog = page.getByRole("alertdialog", { name: "Close this tab?" });
+		await expect(dialog).toContainText(
+			"app.ts has changes that are not saved. Closing the tab discards them and ends its terminal.",
+		);
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			await expectNoViolations(page);
+			await page.screenshot({ path: `screenshots/close-unsaved-${colorScheme}.png` });
+		}
+		await page.setViewportSize({ width: 480, height: 800 });
+		await page.screenshot({ path: "screenshots/close-unsaved-narrow-dark.png" });
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(page.getByTestId(`file-frame-${PATH}`)).toBeVisible();
+		expect(await terminalIds(student.workspaceId, projectId)).toEqual([terminalId]);
+
+		await page.getByTestId(`tab-${terminalId}`).focus();
+		await page.keyboard.press("Delete");
+		await dialog.getByRole("button", { name: "Close tab" }).click();
+		await expect(workTabs(page).getByRole("tab")).toHaveCount(0, { timeout: 15_000 });
+		expect(await readSeededFile(student.workspaceId, slug, PATH)).toBe(
+			"const answer = 42;\n",
+		);
 	});
 
 	test("closing the tab closes the file and the terminal in it", async ({
