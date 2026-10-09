@@ -135,6 +135,52 @@ test.describe("tabs follow moved files", () => {
 		await expect(page.getByTestId("file-status-lib/app.js")).toHaveText("Saved");
 	});
 
+	test("a file renamed over an open file replaces that tab's editor with its unsaved text", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await setAutoSave(page, false);
+		const opened = await createProject(student.workspaceId, { name: "Replace open" });
+		await seedFile(student.workspaceId, opened.slug, "a.txt", "from a\n");
+		await seedFile(student.workspaceId, opened.slug, "b.txt", "from b\n");
+		await query("update projects set layout = $2 where id = $1", [
+			opened.id,
+			JSON.stringify({
+				tabs: [
+					{ id: "file:b.txt", root: { type: "file", path: "b.txt" } },
+					{ id: "file:a.txt", root: { type: "file", path: "a.txt" } },
+				],
+			}),
+		]);
+		await page.goto(workspacePath(student.workspaceId, opened.id));
+		// b.txt has edits of its own, which the replace throws away.
+		await page.getByTestId("tab-file:b.txt").click();
+		await expect(lines(page, "b.txt")).toContainText("from b", { timeout: 60_000 });
+		await typeAtEnd(page, "b.txt", " lost");
+		await page.getByTestId("tab-file:a.txt").click();
+		await expect(lines(page, "a.txt")).toContainText("from a", { timeout: 15_000 });
+		await typeAtEnd(page, "a.txt", " kept");
+		await expect(page.getByTestId("file-status-a.txt")).toHaveText("Unsaved");
+
+		await rename(page, "a.txt", "b.txt");
+		const replace = page.getByTestId("dialog-replace-file");
+		await expect(replace).toBeVisible();
+		await replace.getByRole("button", { name: "Replace" }).click();
+
+		await expect(page.getByTestId("tab-file:a.txt")).toHaveCount(0);
+		await expect(page.getByTestId("tab-file:b.txt")).toHaveCount(1);
+		await expect(lines(page, "b.txt")).toContainText("from a kept", {
+			timeout: 15_000,
+		});
+		await expect(lines(page, "b.txt")).not.toContainText("lost");
+		await expect(page.getByTestId("file-status-b.txt")).toHaveText("Unsaved");
+		// The move wrote nothing the student typed.
+		expect(await readSeededFile(student.workspaceId, opened.slug, "b.txt")).toBe(
+			"from a\n",
+		);
+	});
+
 	test("a renamed folder takes the open file inside it along", async ({
 		page,
 		context,
@@ -236,5 +282,48 @@ test.describe("download selection", () => {
 		await expect(refused).toBeVisible();
 		await expect(refused).toContainText("Download the folder that holds them instead");
 		expect(downloads).toBe(0);
+	});
+
+	test("a selection whose names are too long for one link says so before asking", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Long names" });
+		// Sixty 200-character names make a link past the safe length.
+		const names = Array.from(
+			{ length: 60 },
+			(_, index) => `${String(index).padStart(2, "0")}${"n".repeat(194)}.txt`,
+		);
+		await Promise.all(
+			names.map((name) =>
+				seedFile(student.workspaceId, project.slug, `long/${name}`, "x\n"),
+			),
+		);
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await row(page, "long").click({ timeout: 15_000 });
+		const first = `long/${names[0]}`;
+		const last = `long/${names[59]}`;
+		await row(page, first).click();
+		await row(page, last).click({ modifiers: ["Shift"] });
+		await expect(row(page, last)).toHaveAttribute("data-selected", "true");
+
+		const requests: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().includes("/download?")) requests.push(request.url());
+		});
+		await page.getByTestId(`file-menu-${last}`).click();
+		await page.getByRole("menuitem", { name: "Download 60 items as zip" }).click();
+		const refused = toast(page, "The selected names are too long for one download");
+		await expect(refused).toBeVisible();
+		await expect(refused).toContainText("Download the folder that holds them instead");
+		expect(requests).toEqual([]);
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			await expectNoViolations(page, ".pk-toast");
+			await page.screenshot({
+				path: `screenshots/selection-names-too-long-${colorScheme}.png`,
+			});
+		}
 	});
 });

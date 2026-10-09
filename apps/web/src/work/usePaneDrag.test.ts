@@ -24,11 +24,11 @@ const tabs: { id: string; root: SplitNode }[] = [
 
 const paneRect = { left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100 };
 
-function start(terminalId: string): DragStartEvent {
+function start(paneId: string): DragStartEvent {
 	return {
 		active: {
-			id: `pane-drag-${terminalId}`,
-			data: { current: { terminalId, title: "zsh" } },
+			id: `pane-drag-${paneId}`,
+			data: { current: { paneId, title: "zsh" } },
 		},
 	} as unknown as DragStartEvent;
 }
@@ -38,17 +38,17 @@ function move(
 	dragged: string,
 	x: number,
 	y: number,
-	over: { id: string; terminalId?: string } | null,
+	over: { id: string; paneId?: string } | null,
 ): DragMoveEvent {
 	return {
-		active: { data: { current: { terminalId: dragged } } },
+		active: { data: { current: { paneId: dragged } } },
 		activatorEvent: new MouseEvent("pointerdown", { clientX: 0, clientY: 0 }),
 		delta: { x, y },
 		over: over
 			? {
 					id: over.id,
 					rect: paneRect,
-					data: { current: { terminalId: over.terminalId } },
+					data: { current: { paneId: over.paneId } },
 				}
 			: null,
 	} as unknown as DragMoveEvent;
@@ -66,14 +66,14 @@ function setup(strip: HTMLElement | null = null) {
 test("dropping on another pane's edge moves the pane beside it in that tab", () => {
 	const { view, moveLeaf } = setup();
 	act(() => view.result.current.handlers.onDragStart(start("t1")));
-	expect(view.result.current.draggedPane).toEqual({ terminalId: "t1", title: "zsh" });
+	expect(view.result.current.draggedPane).toEqual({ paneId: "t1", title: "zsh" });
 	act(() =>
 		view.result.current.handlers.onDragMove(
-			move("t1", 95, 50, { id: "pane-drop-t3", terminalId: "t3" }),
+			move("t1", 95, 50, { id: "pane-drop-t3", paneId: "t3" }),
 		),
 	);
 	expect(view.result.current.dropTargetIn("tab-b")).toEqual({
-		terminalId: "t3",
+		paneId: "t3",
 		edge: "right",
 	});
 	expect(view.result.current.dropTargetIn("tab-a")).toBeNull();
@@ -88,7 +88,7 @@ test("a pane over itself, or over nothing, has nowhere to land", () => {
 	act(() => view.result.current.handlers.onDragStart(start("t2")));
 	act(() =>
 		view.result.current.handlers.onDragMove(
-			move("t2", 50, 50, { id: "pane-drop-t2", terminalId: "t2" }),
+			move("t2", 50, 50, { id: "pane-drop-t2", paneId: "t2" }),
 		),
 	);
 	expect(view.result.current.dragTarget).toBeNull();
@@ -137,7 +137,7 @@ test("a cancelled drag moves nothing", () => {
 	act(() => view.result.current.handlers.onDragStart(start("t1")));
 	act(() =>
 		view.result.current.handlers.onDragMove(
-			move("t1", 95, 50, { id: "pane-drop-t3", terminalId: "t3" }),
+			move("t1", 95, 50, { id: "pane-drop-t3", paneId: "t3" }),
 		),
 	);
 	act(() => view.result.current.handlers.onDragCancel());
@@ -175,7 +175,7 @@ test("a file pane can be dropped beside a terminal like any pane", () => {
 	act(() => view.result.current.handlers.onDragStart(start("file:src/app.ts")));
 	act(() =>
 		view.result.current.handlers.onDragMove(
-			move("file:src/app.ts", 95, 50, { id: "pane-drop-t1", terminalId: "t1" }),
+			move("file:src/app.ts", 95, 50, { id: "pane-drop-t1", paneId: "t1" }),
 		),
 	);
 	act(() => view.result.current.handlers.onDragEnd());

@@ -386,6 +386,16 @@ test("the file loads into the editor and shows Saved", async () => {
 	expect(status().textContent).toBe("Saved");
 });
 
+/** SPEC.md §24.6: the header draws the path without its bidirectional marks. */
+test("the header path never draws a bidirectional mark", async () => {
+	const path = "src/‮txt.js";
+	renderLeaf(() => {}, path);
+	await findEditor(path);
+	expect(
+		screen.getByTestId(`file-pane-${path}`).querySelector(".pk-file-path")?.textContent,
+	).toBe("src/txt.js");
+});
+
 test("typing autosaves with the etag it was read at", async () => {
 	renderLeaf();
 	await findEditor();

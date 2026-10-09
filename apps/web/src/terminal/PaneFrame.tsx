@@ -100,11 +100,11 @@ export function PaneFrame({
 	// (SPEC.md §9.3).
 	const drag = useDraggable({
 		id: paneDragId(terminalId),
-		data: { terminalId, title },
+		data: { paneId: terminalId, title },
 	});
 	const drop = useDroppable({
 		id: paneDropId(terminalId),
-		data: { terminalId },
+		data: { paneId: terminalId },
 	});
 	// Stable, so dnd-kit is not handed the node afresh on every render.
 	const setDropNode = drop.setNodeRef;

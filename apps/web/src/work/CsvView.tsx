@@ -6,7 +6,7 @@
 import { CsvError } from "@portikus/contracts";
 import { Button, EmptyState } from "@portikus/ui";
 import { useMemo } from "react";
-import { baseName } from "../files/paths.js";
+import { baseName, displayName } from "../files/paths.js";
 import { CSV_COLUMN_LIMIT, CSV_ROW_LIMIT, type CsvTable, csvTable } from "./csv.js";
 import "./csv.css";
 
@@ -50,7 +50,7 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 	if (table === null) {
 		return (
 			<EmptyState icon="file" title="This file is empty" actions={showText}>
-				{path} has no rows yet. Add some as text.
+				{displayName(path)} has no rows yet. Add some as text.
 			</EmptyState>
 		);
 	}
@@ -63,7 +63,7 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 			<div className="pk-csv-frame">
 				<section
 					className="pk-csv-scroll"
-					aria-label={`${baseName(path)} table`}
+					aria-label={`${displayName(baseName(path))} table`}
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region the keyboard must reach (WCAG 2.1.1)
 					tabIndex={0}
 				>

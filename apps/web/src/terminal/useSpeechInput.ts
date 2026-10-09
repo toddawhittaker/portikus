@@ -134,6 +134,8 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 			setInterim(pending);
 		};
 		rec.onerror = (event) => {
+			// A recognizer replaced by a quick re-press says nothing about the one listening now.
+			if (recognizer.current !== null && recognizer.current !== rec) return;
 			if (event.error === "aborted") return;
 			if (event.error === "network") {
 				networkFailed = true;

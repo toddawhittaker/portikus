@@ -26,11 +26,11 @@ export const TAB_STRIP_DROP_ID = "work-tab-strip";
 export const SPRING_OPEN_MS = 600;
 
 /**
- * Where a dragged pane would land, as the drag moves. `terminalId` is the
- * target's pane id: a terminal id, or `file:<path>` for a file.
+ * Where a dragged pane would land, as the drag moves. `paneId` is a
+ * terminal id, or `file:<path>` for a file.
  */
 export type DragTarget =
-	| { kind: "pane"; tabId: string; terminalId: string; edge: DropEdge }
+	| { kind: "pane"; tabId: string; paneId: string; edge: DropEdge }
 	| { kind: "strip"; index: number; markerX: number };
 
 export interface TabStripDropProps {
@@ -96,7 +96,7 @@ export function usePaneDrag({
 	activateTab,
 }: UsePaneDragOptions) {
 	const [draggedPane, setDraggedPane] = useState<{
-		terminalId: string;
+		paneId: string;
 		title: string;
 	} | null>(null);
 	const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
@@ -161,13 +161,13 @@ export function usePaneDrag({
 
 	function onDragStart(event: DragStartEvent) {
 		setDraggedPane({
-			terminalId: String(event.active.data.current?.terminalId ?? ""),
+			paneId: String(event.active.data.current?.paneId ?? ""),
 			title: String(event.active.data.current?.title ?? ""),
 		});
 	}
 
 	function onDragMove(event: DragMoveEvent) {
-		const dragged = String(event.active.data.current?.terminalId ?? "");
+		const dragged = String(event.active.data.current?.paneId ?? "");
 		const pointer = pointerOf(event);
 		const over = event.over;
 		if (!over || !pointer) {
@@ -181,23 +181,23 @@ export function usePaneDrag({
 			return;
 		}
 		restOn(null);
-		const terminalId = String(over.data.current?.terminalId ?? "");
-		const tab = tabs.find((item) => paneIds(item.root).includes(terminalId));
-		if (!terminalId || terminalId === dragged || !tab) {
+		const paneId = String(over.data.current?.paneId ?? "");
+		const tab = tabs.find((item) => paneIds(item.root).includes(paneId));
+		if (!paneId || paneId === dragged || !tab) {
 			setDragTarget(null);
 			return;
 		}
 		setDragTarget({
 			kind: "pane",
 			tabId: tab.id,
-			terminalId,
+			paneId,
 			edge: dropZone(over.rect, pointer.x, pointer.y),
 		});
 	}
 
 	function onDragEnd() {
 		restOn(null);
-		const dragged = draggedPane?.terminalId;
+		const dragged = draggedPane?.paneId;
 		const target = dragTarget;
 		setDraggedPane(null);
 		setDragTarget(null);
@@ -206,7 +206,7 @@ export function usePaneDrag({
 			moveLeafToNewTab(dragged, target.index);
 			return;
 		}
-		moveLeaf(target.tabId, dragged, target.terminalId, target.edge);
+		moveLeaf(target.tabId, dragged, target.paneId, target.edge);
 	}
 
 	function onDragCancel() {
@@ -216,9 +216,9 @@ export function usePaneDrag({
 	}
 
 	/** The pane in tab `tabId` a drag is over, and the zone it would drop into. */
-	function dropTargetIn(tabId: string): { terminalId: string; edge: DropEdge } | null {
+	function dropTargetIn(tabId: string): { paneId: string; edge: DropEdge } | null {
 		return dragTarget?.kind === "pane" && dragTarget.tabId === tabId
-			? { terminalId: dragTarget.terminalId, edge: dragTarget.edge }
+			? { paneId: dragTarget.paneId, edge: dragTarget.edge }
 			: null;
 	}
 

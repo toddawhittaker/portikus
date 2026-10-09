@@ -160,6 +160,18 @@ test("a quick second press starts a new recognizer while the first finishes", ()
 	expect(result.current.state).toBe("listening");
 });
 
+test("an error from a replaced recognizer does not stop the one listening now", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	act(() => result.current.start());
+	const first = fake();
+	act(() => result.current.stop());
+	act(() => result.current.start());
+	act(() => first.onerror?.({ error: "no-speech" }));
+	expect(result.current.state).toBe("listening");
+	expect(result.current.message).toBe("Listening…");
+});
+
 test("explain puts a hint in the message", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
 	const { result } = renderHook(() => useSpeechInput(vi.fn()));

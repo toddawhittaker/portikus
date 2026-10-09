@@ -472,6 +472,25 @@ test("ProjectLayout caps how deep a split tree may nest", () => {
 	).toBe(false);
 });
 
+test("ProjectLayout refuses a split tree nested far past the limit without overflowing the stack", () => {
+	// Built bottom-up so the test itself does not recurse. Ten thousand levels
+	// still fit in the API's 1 MiB body limit.
+	for (const depth of [1_000, 10_000]) {
+		let root: unknown = leaf(terminalA);
+		for (let i = 1; i < depth; i++) {
+			root = {
+				type: "split",
+				direction: "row",
+				sizes: [50, 50],
+				children: [root, leaf(terminalB)],
+			};
+		}
+		const parse = () => ProjectLayout.safeParse({ tabs: [{ id: "t", root }] });
+		expect(parse).not.toThrow();
+		expect(parse().success).toBe(false);
+	}
+});
+
 /** A folder name becomes the project's display name. */
 test("displayNameFromDirectory capitalises the words of a directory name", () => {
 	expect(displayNameFromDirectory("project-name")).toBe("Project Name");

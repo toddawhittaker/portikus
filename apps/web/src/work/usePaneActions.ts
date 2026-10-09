@@ -91,7 +91,7 @@ export function usePaneActions({
 			(candidate) => candidate.tabId === tabId,
 		);
 		if (!target) return;
-		store.getState().moveLeaf(tabId, paneId, target.terminalId, target.edge);
+		store.getState().moveLeaf(tabId, paneId, target.paneId, target.edge);
 		store.getState().setFocused(paneId);
 	}
 

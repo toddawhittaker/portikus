@@ -74,6 +74,8 @@ export function useGitDiff(
 		// change; a stale window would waste it. A point is read on Compare only.
 		refetchOnWindowFocus: !point,
 		staleTime: point ? Number.POSITIVE_INFINITY : 0,
+		// A point left for another is forgotten, so Compare on it later reads it again.
+		...(point ? { gcTime: 0 } : {}),
 		retry: false,
 		// Leaving a diff, or replacing it, cancels its read.
 		queryFn: ({ signal }): Promise<GitDiff> =>

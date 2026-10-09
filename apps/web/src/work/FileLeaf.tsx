@@ -11,10 +11,14 @@ import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
-import { baseName, parentOf } from "../files/paths.js";
+import { baseName, displayName, parentOf } from "../files/paths.js";
 import { fileInlineUrl, useTree } from "../files/queries.js";
 import { viewerKind, viewerVersion } from "../files/viewable.js";
-import { type PendingView, useEditorViewState } from "../layout/store.js";
+import {
+	type PendingView,
+	useEditorViewState,
+	useFileGeneration,
+} from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
 import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
@@ -96,7 +100,16 @@ export interface FileLeafProps {
 	baseline?: string | null;
 }
 
-export function FileLeaf({
+/**
+ * A move that replaces this file mounts the tab again, so the editor of the
+ * file that was overwritten does not stay on screen (SPEC.md §11.2).
+ */
+export function FileLeaf(props: FileLeafProps) {
+	const generation = useFileGeneration(props.path);
+	return <FileTab key={generation} {...props} />;
+}
+
+function FileTab({
 	path,
 	workspaceId,
 	projectId,
@@ -130,6 +143,7 @@ export function FileLeaf({
 	// read has no etag for; a change on disk refetches it.
 	const listing = useTree(workspaceId, projectId, parentOf(path), kind !== null);
 	const name = baseName(path);
+	const shownPath = displayName(path);
 	const listed = listing.data?.entries.find((entry) => entry.name === name);
 	const svg = kind === "svg";
 	const csv = isCsvPath(path);
@@ -272,8 +286,8 @@ export function FileLeaf({
 		return (
 			<EmptyState icon="file" title={title} actions={downloadButton}>
 				{size > 0
-					? `${path} is ${formatBytes(size)}. Download it to open it elsewhere.`
-					: `${path} cannot be shown here. Download it to open it elsewhere.`}
+					? `${shownPath} is ${formatBytes(size)}. Download it to open it elsewhere.`
+					: `${shownPath} cannot be shown here. Download it to open it elsewhere.`}
 			</EmptyState>
 		);
 	}
@@ -324,7 +338,7 @@ export function FileLeaf({
 						</Button>
 					}
 				>
-					{path} is no longer in the project.
+					{shownPath} is no longer in the project.
 				</EmptyState>
 			);
 		}
@@ -492,7 +506,7 @@ export function FileLeaf({
 				style={inDiff ? HIDDEN : undefined}
 			>
 				<div className="pk-file-header">
-					<span className="pk-file-path">{path}</span>
+					<span className="pk-file-path">{shownPath}</span>
 					{/* Only the view on screen draws the toggle, so the controls
 					    are never there twice. */}
 					{inDiff ? null : toggle}

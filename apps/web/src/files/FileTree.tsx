@@ -36,6 +36,7 @@ import {
 	fileErrorToast,
 	isFileExists,
 	selectionDownloadErrorToast,
+	selectionNamesTooLongToast,
 	selectionTooLongToast,
 	tooLargeToast,
 } from "./errors.js";
@@ -178,10 +179,10 @@ export function FileTreePane({
 	const rewriteExpanded = useFileViewStore((state) => state.rewriteExpanded);
 	const layoutStore = useLayoutStore(project.id);
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
-	const focusedTerminalId = useLayout(layoutStore, (state) => state.focusedTerminalId);
+	const focusedPaneId = useLayout(layoutStore, (state) => state.focusedPaneId);
 	const root = useTree(workspaceId, project.id, "");
 	const terminals = useTerminals(workspaceId, project.id, true);
-	const session = openAgentSession(terminals.terminals, focusedTerminalId);
+	const session = openAgentSession(terminals.terminals, focusedPaneId);
 	const [reviewSession, setReviewSession] = useState(false);
 	// The workspace shell holds the events socket (SPEC.md §11.4).
 	const watchLimited = useWatchLimited();
@@ -337,6 +338,10 @@ export function FileTreePane({
 				project.id,
 				nodes.map((item) => item.path),
 			);
+			if (href === null) {
+				toast.show(selectionNamesTooLongToast());
+				return;
+			}
 			startDownload(href, `${href}&check=1`, `${project.slug}.zip`).catch(
 				(error: unknown) => toast.show(selectionDownloadErrorToast(error)),
 			);

@@ -129,38 +129,41 @@ export function directoryDownloadUrl(
 }
 
 /**
+ * Longest selection link sent. Servers refuse a request line much past
+ * 16 KiB with a bare 431, which would tell the student nothing.
+ */
+const MAX_DOWNLOAD_URL_LENGTH = 12 * 1024;
+
+/**
  * The link that downloads several selected files and folders as one zip,
  * one `path` per selection (SPEC.md §11.2). Pass it, with `&check=1`
- * added, to startDownload as the size check.
+ * added, to startDownload as the size check. Null when the names are too
+ * long to fit in one link.
  */
 export function selectionDownloadUrl(
 	workspaceId: string,
 	projectId: string,
 	paths: readonly string[],
-): string {
+): string | null {
 	const search = new URLSearchParams();
 	for (const path of paths) search.append("path", path);
-	return `${base(workspaceId, projectId)}/download?${search.toString()}`;
+	const href = `${base(workspaceId, projectId)}/download?${search.toString()}`;
+	return href.length > MAX_DOWNLOAD_URL_LENGTH ? null : href;
 }
 
 /** How often a running extraction's progress is asked for. */
 const EXTRACT_PROGRESS_MS = 1000;
 
 /**
- * Entries written so far by a running "Extract here", polled while
- * `running` is true (SPEC.md §11.2). `total` is 0 until unzip has started.
+ * Entries written so far by a running "Extract here", polled while the
+ * caller is mounted (SPEC.md §11.2). `total` is 0 until unzip has started.
  */
-export function useExtractProgress(
-	workspaceId: string,
-	projectId: string,
-	running: boolean,
-) {
+export function useExtractProgress(workspaceId: string, projectId: string) {
 	return useQuery({
 		queryKey: ["extract-progress", workspaceId, projectId] as const,
 		queryFn: () =>
 			request(ExtractProgress, `${base(workspaceId, projectId)}/extract/progress`),
-		enabled: running,
-		refetchInterval: running ? EXTRACT_PROGRESS_MS : false,
+		refetchInterval: EXTRACT_PROGRESS_MS,
 		gcTime: 0,
 	});
 }

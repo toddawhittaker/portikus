@@ -36,7 +36,7 @@ export interface TerminalGroupProps extends PaneCallbacks {
 	projectId: string;
 	visible: boolean;
 	/** The pane the keyboard is in: a terminal id, or a file's pane id. */
-	focusedTerminalId: string | null;
+	focusedPaneId: string | null;
 	onResize: (path: number[], sizes: number[]) => void;
 	/** The other tabs a pane of this tab can join, by pane id. */
 	moveTargetsFor: (paneId: string) => { tabId: string; label: string }[];
@@ -55,7 +55,7 @@ export interface TerminalGroupProps extends PaneCallbacks {
 	/** Object id each file pane's diff compares against, by pane id; none means Git HEAD. */
 	diffBaselines: Record<string, string | null>;
 	/** The pane a drag is hovering, by pane id, and the zone it would drop into. */
-	dropTarget?: { terminalId: string; edge: DropEdge } | null;
+	dropTarget?: { paneId: string; edge: DropEdge } | null;
 }
 
 export function TerminalGroup(props: TerminalGroupProps) {
@@ -75,7 +75,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					projectId={props.projectId}
 					terminal={terminal}
 					visible={visible}
-					focused={props.focusedTerminalId === terminal.id}
+					focused={props.focusedPaneId === terminal.id}
 					onFocus={props.onFocus}
 					onSplit={props.onSplit}
 					onRename={props.onRename}
@@ -90,7 +90,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onResetSizes={resetSizes}
 					alone={root.type === "leaf"}
 					dropEdge={
-						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
+						props.dropTarget?.paneId === terminal.id ? props.dropTarget.edge : null
 					}
 				/>
 			);
@@ -106,8 +106,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					key={path}
 					path={path}
 					alone={root.type !== "split"}
-					focused={props.focusedTerminalId === id}
-					dropEdge={props.dropTarget?.terminalId === id ? props.dropTarget.edge : null}
+					focused={props.focusedPaneId === id}
+					dropEdge={props.dropTarget?.paneId === id ? props.dropTarget.edge : null}
 					moveTargets={props.moveTargetsFor(id)}
 					onFocus={props.onFocus}
 					onMoveToNewTab={props.onMoveToNewTab}

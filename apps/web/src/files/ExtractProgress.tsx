@@ -13,7 +13,7 @@ export function ExtractProgress({
 	workspaceId: string;
 	projectId: string;
 }) {
-	const progress = useExtractProgress(workspaceId, projectId, true);
+	const progress = useExtractProgress(workspaceId, projectId);
 	const done = progress.data?.done ?? 0;
 	const total = progress.data?.total ?? 0;
 	// unzip has not counted the entries yet, so the bar has nothing to fill.
