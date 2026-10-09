@@ -27,6 +27,7 @@ import {
 	createRecoveryPoint,
 	deleteProjectRecoveryPoints,
 	deleteRecoveryPoint,
+	listRecoveryArchives,
 	RecoveryLocks,
 	type RecoveryPaths,
 	removeRestoreLeftovers,
@@ -522,6 +523,39 @@ describe("deleting points", () => {
 		await expect(
 			deleteRecoveryPoint(paths.recoveryRoot, projectId, "../../x"),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+});
+
+describe("listing archives", () => {
+	test("lists archives and partial files in uuid folders, skipping other names and links", async () => {
+		const root = paths.recoveryRoot;
+		const projectId = randomUUID();
+		const done = randomUUID();
+		const partial = randomUUID();
+		await mkdir(join(root, projectId), { recursive: true });
+		await writeFile(join(root, projectId, `${done}.tar.zst`), "x");
+		await writeFile(join(root, projectId, `${partial}.tar.zst.partial`), "x");
+		await writeFile(join(root, projectId, "notes.txt"), "x");
+		await writeFile(join(root, projectId, `${randomUUID()}.zip`), "x");
+		// A link named like an archive, and a linked uuid folder, are never followed.
+		const away = join(base, "away");
+		const elsewhere = randomUUID();
+		await mkdir(away);
+		await writeFile(join(away, `${elsewhere}.tar.zst`), "x");
+		await symlink(
+			join(away, `${elsewhere}.tar.zst`),
+			join(root, projectId, `${randomUUID()}.tar.zst`),
+		);
+		await symlink(away, join(root, randomUUID()));
+		await mkdir(join(root, "not-a-uuid"));
+		await writeFile(join(root, "not-a-uuid", `${randomUUID()}.tar.zst`), "x");
+
+		const listed = await listRecoveryArchives(root);
+		expect(listed.map((a) => a.pointId).sort()).toEqual([done, partial].sort());
+		for (const a of listed) {
+			expect(a.projectId).toBe(projectId);
+			expect(Number.isNaN(Date.parse(a.modifiedAt))).toBe(false);
+		}
 	});
 });
 

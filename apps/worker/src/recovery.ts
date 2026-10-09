@@ -28,6 +28,9 @@ const SWEEP_CONCURRENCY = 4;
 
 const GIB = 1024 ** 3;
 
+/** An archive with no row is only removed once it is this old (SPEC.md §15.10). */
+const ORPHAN_MIN_AGE_MS = 60 * 60 * 1000;
+
 /** Operations that wait for a point of every active project, and the reason they record. */
 const BEFORE_OPERATION_REASON: Record<string, RecoveryReason> = {
 	rebuild: "before-rebuild",
@@ -111,6 +114,8 @@ export async function recoverySweep(
 		// Await first: `deleted += await` would read `deleted` before other lanes add to it.
 		const removed = await applyRetention(db, agent, ws.id, config, now, log);
 		deleted += removed;
+		const orphans = await removeOrphanArchives(db, agent, ws.id, now, log);
+		deleted += orphans;
 	};
 
 	let next = 0;
@@ -312,6 +317,67 @@ async function applyRetention(
 		}
 		await db.deleteFrom("recovery_points").where("id", "=", p.id).execute();
 		total -= allocated(p.size_bytes);
+		deleted++;
+	}
+	return deleted;
+}
+
+/**
+ * Delete archives no `recovery_points` row accounts for, such as one written
+ * by an agent whose caller crashed before recording it (SPEC.md §15.10).
+ * A file younger than an hour is left alone, since its row may still be on
+ * its way. A BUSY project is retried next sweep; an agent too old to list
+ * archives answers 404 and is skipped.
+ */
+async function removeOrphanArchives(
+	db: Kysely<Database>,
+	agent: RecoveryAgent,
+	workspaceId: string,
+	now: Date,
+	log: Logger,
+): Promise<number> {
+	let archives: Awaited<ReturnType<RecoveryAgent["listRecoveryArchives"]>>["archives"];
+	try {
+		archives = (await agent.listRecoveryArchives()).archives;
+	} catch (e) {
+		if ((e as { status?: number }).status === 404) return 0;
+		log.warn(
+			{ workspaceId, errorCode: (e as { code?: string }).code ?? "UNKNOWN" },
+			"recovery archive listing failed",
+		);
+		return 0;
+	}
+	const cutoff = now.getTime() - ORPHAN_MIN_AGE_MS;
+	// An archive and its `.partial` share one point id; one delete removes both.
+	const old = new Map<string, string>();
+	for (const a of archives) {
+		if (Date.parse(a.modifiedAt) < cutoff) old.set(a.pointId, a.projectId);
+	}
+	if (old.size === 0) return 0;
+	const known = await db
+		.selectFrom("recovery_points")
+		.select("id")
+		.where("id", "in", [...old.keys()])
+		.execute();
+	for (const row of known) old.delete(row.id);
+
+	let deleted = 0;
+	for (const [pointId, projectId] of old) {
+		try {
+			await agent.deleteRecoveryPoint(projectId, pointId);
+		} catch (e) {
+			log.warn(
+				{
+					workspaceId,
+					projectId,
+					pointId,
+					errorCode: (e as { code?: string }).code ?? "UNKNOWN",
+				},
+				"orphan recovery archive delete failed",
+			);
+			continue;
+		}
+		log.info({ workspaceId, projectId, pointId }, "orphan recovery archive deleted");
 		deleted++;
 	}
 	return deleted;

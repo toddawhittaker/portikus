@@ -3,6 +3,7 @@ import {
 	AgentCreateRecoveryPointRequest,
 	AgentCreateRecoveryPointResponse,
 	AgentDockerInventory,
+	AgentRecoveryArchiveList,
 } from "@portikus/contracts";
 
 export { AgentCallError };
@@ -10,6 +11,7 @@ export { AgentCallError };
 /** Archiving a large project is slow, but a hung agent must not hold the sweep for long. */
 const CREATE_TIMEOUT_MS = 2 * 60 * 1000;
 const DELETE_TIMEOUT_MS = 30 * 1000;
+const LIST_TIMEOUT_MS = 30 * 1000;
 
 /** The recovery operations the worker needs from a workspace agent (ADR 0020). */
 export interface RecoveryAgent {
@@ -18,6 +20,7 @@ export interface RecoveryAgent {
 		req: AgentCreateRecoveryPointRequest,
 	): Promise<AgentCreateRecoveryPointResponse>;
 	deleteRecoveryPoint(projectId: string, pointId: string): Promise<void>;
+	listRecoveryArchives(): Promise<AgentRecoveryArchiveList>;
 }
 
 /** Builds the agent client for one workspace from its address and token. */
@@ -55,6 +58,11 @@ export class HttpRecoveryAgent implements RecoveryAgent {
 			undefined,
 			this.timeouts.delete,
 		);
+	}
+
+	async listRecoveryArchives(): Promise<AgentRecoveryArchiveList> {
+		const body = await this.call("GET", "/recovery-points", undefined, LIST_TIMEOUT_MS);
+		return AgentRecoveryArchiveList.parse(body);
 	}
 
 	private call(
