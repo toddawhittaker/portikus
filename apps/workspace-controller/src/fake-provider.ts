@@ -391,7 +391,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { image, packages };
 	}
 
-	async keptVolumes(): Promise<KeptVolumesResponse> {
+	async keptVolumes(_signal?: AbortSignal): Promise<KeptVolumesResponse> {
 		this.checkError();
 		const result: KeptVolumesResponse = { snapshots: [], keptHomes: [] };
 		for (const [volume, info] of this.volumes) {
@@ -413,7 +413,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return result;
 	}
 
-	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+	async deleteSnapshot(
+		volume: string,
+		snapshot: string,
+		_signal?: AbortSignal,
+	): Promise<void> {
 		if (
 			!WorkspaceVolumeName.safeParse(volume).success ||
 			!PreChangeSnapshotName.safeParse(snapshot).success

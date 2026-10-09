@@ -144,9 +144,9 @@ export interface WorkspaceProvider {
 	/** The packages the student added, from the apt hook's list in their home. */
 	addedPackages(name: string, signal?: AbortSignal): Promise<AddedPackagesResponse>;
 	/** Pre-change snapshots and homes kept by Replace home. */
-	keptVolumes(): Promise<KeptVolumesResponse>;
+	keptVolumes(signal?: AbortSignal): Promise<KeptVolumesResponse>;
 	/** Delete one `pre-*` snapshot of a workspace volume. */
-	deleteSnapshot(volume: string, snapshot: string): Promise<void>;
+	deleteSnapshot(volume: string, snapshot: string, signal?: AbortSignal): Promise<void>;
 	/** Delete one kept home that nothing uses. */
 	deleteKeptHome(volume: string, signal?: AbortSignal): Promise<void>;
 	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
@@ -1392,10 +1392,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return { image, packages };
 	}
 
-	async keptVolumes(): Promise<KeptVolumesResponse> {
+	async keptVolumes(signal?: AbortSignal): Promise<KeptVolumesResponse> {
 		const volumes = (await this.client.request(
 			"GET",
 			`/1.0/storage-pools/${enc(this.pool)}/volumes/custom?recursion=1`,
+			undefined,
+			signal,
 		)) as Array<{ name: string; created_at?: string }>;
 		const result: KeptVolumesResponse = { snapshots: [], keptHomes: [] };
 		for (const volume of volumes) {
@@ -1411,6 +1413,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			const snapshots = (await this.client.request(
 				"GET",
 				`${volumePath(this.pool, volume.name)}/snapshots?recursion=1`,
+				undefined,
+				signal,
 			)) as Array<{ name: string; created_at?: string }>;
 			for (const snapshot of snapshots) {
 				// Incus may name a snapshot `<volume>/<snapshot>`.
@@ -1426,7 +1430,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return result;
 	}
 
-	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+	async deleteSnapshot(
+		volume: string,
+		snapshot: string,
+		signal?: AbortSignal,
+	): Promise<void> {
 		// Checked again here: the backup's own snapshot must never be deleted.
 		if (
 			!WorkspaceVolumeName.safeParse(volume).success ||
@@ -1437,6 +1445,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.client.request(
 			"DELETE",
 			`${volumePath(this.pool, volume)}/snapshots/${enc(snapshot)}`,
+			undefined,
+			signal,
 		);
 		this.log.info({ volume, snapshot }, "snapshot deleted");
 	}

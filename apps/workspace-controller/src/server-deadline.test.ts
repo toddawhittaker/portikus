@@ -7,6 +7,7 @@ import {
 	GROW_BUDGET_MS,
 	type GrowVolumesResponse,
 	INSTANCE_CREATE_BUDGET_MS,
+	type KeptVolumesResponse,
 	MAINTENANCE_BUDGET_MS,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
@@ -89,6 +90,12 @@ class GatedProvider extends FakeWorkspaceProvider {
 	}
 	override deleteKeptHome(_v: string, signal?: AbortSignal) {
 		return this.gateAbortable<void>(signal);
+	}
+	override deleteSnapshot(_v: string, _s: string, signal?: AbortSignal) {
+		return this.gateAbortable<void>(signal);
+	}
+	override keptVolumes(signal?: AbortSignal) {
+		return this.gateAbortable<KeptVolumesResponse>(signal);
 	}
 	override replaceHome(_n: string, signal?: AbortSignal) {
 		return this.gate<ReplaceHomeResponse>(signal);
@@ -394,6 +401,20 @@ const ROUTES = [
 		path: `/volumes/ws-${"0".repeat(24)}-home-replaced-1`,
 		budgetMs: MAINTENANCE_BUDGET_MS,
 		result: undefined,
+		shared: false,
+	},
+	{
+		method: "DELETE",
+		path: `/volumes/ws-${"0".repeat(24)}-home/snapshots/pre-restore-1`,
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: undefined,
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/volumes/kept",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: { snapshots: [], keptHomes: [] },
 		shared: false,
 	},
 ] as Array<{

@@ -507,11 +507,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
-	app.get("/volumes/kept", async (_request, reply) => {
+	app.get("/volumes/kept", async (request, reply) => {
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			return reply.code(200).send(await provider.keptVolumes());
+			return reply.code(200).send(await provider.keptVolumes(signal));
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -527,11 +528,12 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 				message: "only pre-change snapshots can be deleted",
 			});
 		}
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			await provider.deleteSnapshot(params.volume, params.snapshot);
+			await provider.deleteSnapshot(params.volume, params.snapshot, signal);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
