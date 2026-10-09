@@ -17,8 +17,9 @@ import {
 } from "@portikus/ui";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import type { SpeechInput } from "../voice/useSpeechInput.js";
+import { VoiceButton } from "../voice/VoiceButton.js";
 import { usePaneMenuFocus } from "../work/pointerDismiss.js";
-import type { SpeechInput } from "./useSpeechInput.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -64,6 +65,9 @@ export interface PaneFrameProps {
 	voice?: SpeechInput;
 	children: ReactNode;
 }
+
+const TERMINAL_HINT =
+	"Hold Space on this button, or Alt+Shift+M in the terminal, to talk.";
 
 export function PaneFrame({
 	terminalId,
@@ -184,10 +188,12 @@ export function PaneFrame({
 				)}
 				{voice ? (
 					<VoiceButton
-						terminalId={terminalId}
-						name={name}
+						testId={`terminal-voice-${terminalId}`}
+						statusTestId={`terminal-voice-status-${terminalId}`}
+						label={`Hold to talk into ${name}`}
+						hint={TERMINAL_HINT}
 						voice={voice}
-						focusTerminal={() =>
+						focusTarget={() =>
 							section.current
 								?.querySelector<HTMLElement>("textarea.xterm-helper-textarea")
 								?.focus()
@@ -305,100 +311,5 @@ export function PaneFrame({
 				/>
 			) : null}
 		</section>
-	);
-}
-
-const CLICK_HINT =
-	"Hold Space on this button, or Alt+Shift+M in the terminal, to talk.";
-
-function isVoiceShortcut(event: KeyboardEvent): boolean {
-	return event.altKey && event.shiftKey && event.code === "KeyM";
-}
-
-/**
- * Hold to talk: listening lasts while the pointer, Space/Enter, or
- * Alt+Shift+M is down (SPEC.md §25.10). The status region stays mounted,
- * even when voice turns out to be unsupported, so its changes are read.
- */
-function VoiceButton({
-	terminalId,
-	name,
-	voice,
-	focusTerminal,
-}: {
-	terminalId: string;
-	name: string;
-	voice: SpeechInput;
-	focusTerminal: () => void;
-}) {
-	const listening = voice.state === "listening";
-	const unsupported = voice.state === "unsupported";
-	const button = useRef<HTMLButtonElement | null>(null);
-	// The button is about to vanish under the keyboard; checked while it is
-	// still in the document, so focus can go to the terminal, not the page.
-	const refocus = useRef(false);
-	if (unsupported && button.current && document.activeElement === button.current) {
-		refocus.current = true;
-	}
-	useEffect(() => {
-		if (!unsupported || !refocus.current) return;
-		refocus.current = false;
-		focusTerminal();
-	});
-	return (
-		<>
-			{unsupported ? null : (
-				<IconButton
-					ref={button}
-					icon="mic"
-					label={`Hold to talk into ${name}`}
-					shortcut={["Alt", "Shift", "M"]}
-					size="sm"
-					aria-pressed={listening}
-					data-testid={`terminal-voice-${terminalId}`}
-					onPointerDown={(event) => {
-						if (event.button !== 0) return;
-						event.currentTarget.setPointerCapture?.(event.pointerId);
-						voice.start();
-					}}
-					onPointerUp={voice.stop}
-					onPointerCancel={voice.stop}
-					onLostPointerCapture={voice.stop}
-					onKeyDown={(event) => {
-						const hold = event.key === " " || event.key === "Enter";
-						if (!hold && !isVoiceShortcut(event.nativeEvent)) return;
-						event.preventDefault();
-						if (!event.repeat) voice.start();
-					}}
-					onKeyUp={(event) => {
-						const { key, code } = event;
-						if (key === " " || key === "Enter") {
-							// No click after a hold, so only a click from assistive
-							// technology reaches onClick below.
-							event.preventDefault();
-							voice.stop();
-						} else if (
-							listening &&
-							(code === "KeyM" || key === "Alt" || key === "Shift")
-						) {
-							voice.stop();
-						}
-					}}
-					onClick={(event) => {
-						// A click with no pointer press behind it cannot be held.
-						if (event.detail === 0) voice.explain(CLICK_HINT);
-					}}
-					onBlur={voice.stop}
-				/>
-			)}
-			<span
-				role="status"
-				aria-live="polite"
-				className="sr-only"
-				data-testid={`terminal-voice-status-${terminalId}`}
-			>
-				{voice.message}
-			</span>
-		</>
 	);
 }

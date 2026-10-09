@@ -14,6 +14,7 @@ import "./terminal.css";
 import { type MutableRefObject, type RefObject, useEffect, useRef } from "react";
 import { wrappedUrlsOnRow } from "../links.js";
 import { currentPlatform } from "../platform.js";
+import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { decide } from "./terminalClipboard.js";
 
 /** Quiet time after the pane's last size change before the size is sent. */
@@ -415,16 +416,10 @@ export function useXterm({
 
 		const platform = currentPlatform();
 		term.attachCustomKeyEventHandler((event) => {
-			// Alt+Shift+M listens while held. The code, not the key: Alt changes
-			// the character on a Mac.
+			// Alt+Shift+M listens while held.
 			const voice = handlers.current.onVoiceHold;
 			if (voice) {
-				if (
-					event.type === "keydown" &&
-					event.altKey &&
-					event.shiftKey &&
-					event.code === "KeyM"
-				) {
+				if (event.type === "keydown" && isVoiceShortcut(event)) {
 					event.preventDefault();
 					if (!voiceHeld) {
 						voiceHeld = true;
@@ -432,11 +427,7 @@ export function useXterm({
 					}
 					return false;
 				}
-				if (
-					event.type === "keyup" &&
-					voiceHeld &&
-					(event.code === "KeyM" || event.key === "Alt" || event.key === "Shift")
-				) {
+				if (event.type === "keyup" && voiceHeld && endsVoiceShortcut(event)) {
 					voiceHeld = false;
 					voice(false);
 					return false;
