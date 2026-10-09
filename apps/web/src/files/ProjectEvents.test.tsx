@@ -27,6 +27,7 @@ vi.mock("./useProjectEvents.js", () => ({
 	useProjectEvents: (
 		workspaceId: string,
 		projectId: string,
+		_showHidden: boolean,
 		onBrowserOpen: (request: BrowserOpenRequest) => void,
 	) => {
 		hook.calls.push({ workspaceId, projectId });

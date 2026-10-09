@@ -7,6 +7,7 @@ import type {
 	GitStatus,
 	SearchMatch,
 } from "@portikus/contracts";
+import { WATCH_SKIP_NAMES } from "@portikus/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import {
 	checkPath,
@@ -278,6 +279,22 @@ export function createFakeAgentState(token: string) {
 		return pushEvent(key, slug, { type: "fs", paths, git: false, truncated: false });
 	}
 
+	const SKIPPED_NAMES: ReadonlySet<string> = new Set(WATCH_SKIP_NAMES);
+	/** Event sockets opened with hidden=1, which also hear generated folders. */
+	const hiddenEventSockets = new WeakSet<WebSocket>();
+
+	/**
+	 * True for a path the real main watcher skips. The fake's hidden-files
+	 * subscribers hear every depth, a little more than the real agent's
+	 * narrow second watcher, which is enough for the browser tests.
+	 */
+	function insideSkipped(path: string): boolean {
+		return path
+			.split("/")
+			.slice(0, -1)
+			.some((segment) => segment !== ".git" && SKIPPED_NAMES.has(segment));
+	}
+
 	// Like the real watcher, a filesystem change becomes one coalesced
 	// "fs" frame to every subscriber of that project (SPEC.md 11.4).
 	const pendingFsPaths = new Map<string, Set<string>>();
@@ -293,12 +310,14 @@ export function createFakeAgentState(token: string) {
 			pendingFsTimers.delete(id);
 			const flushed = pendingFsPaths.get(id) ?? new Set<string>();
 			pendingFsPaths.delete(id);
-			pushEvent(key, slug, {
-				type: "fs",
-				paths: [...flushed],
-				git: false,
-				truncated: false,
-			});
+			const all = [...flushed];
+			const visible = all.filter((path) => !insideSkipped(path));
+			for (const peer of eventSockets.get(id) ?? []) {
+				if (peer.readyState !== peer.OPEN) continue;
+				const paths = hiddenEventSockets.has(peer) ? all : visible;
+				if (paths.length === 0) continue;
+				peer.send(JSON.stringify({ type: "fs", paths, git: false, truncated: false }));
+			}
 		}, 50);
 		timer.unref?.();
 		pendingFsTimers.set(id, timer);
@@ -342,6 +361,7 @@ export function createFakeAgentState(token: string) {
 		searchTruncated,
 		lastSearches,
 		eventSockets,
+		hiddenEventSockets,
 		watchFailures,
 		eventCloses,
 		pendingFsPaths,

@@ -121,7 +121,7 @@ function mountSocket() {
 	const invalidate = vi
 		.spyOn(client, "invalidateQueries")
 		.mockReturnValue(Promise.resolve());
-	const view = renderHook(() => useProjectEvents("ws", "pid"), {
+	const view = renderHook(() => useProjectEvents("ws", "pid", false), {
 		wrapper: ({ children }) => (
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
@@ -244,7 +244,7 @@ test("a browser open frame is handed up and does not refetch files", () => {
 	const invalidate = vi
 		.spyOn(client, "invalidateQueries")
 		.mockReturnValue(Promise.resolve());
-	renderHook(() => useProjectEvents("ws", "pid", onBrowserOpen), {
+	renderHook(() => useProjectEvents("ws", "pid", false, onBrowserOpen), {
 		wrapper: ({ children }) => (
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
@@ -270,7 +270,7 @@ test("a project too large to watch stops reconnecting and refreshes on focus and
 	const invalidate = vi
 		.spyOn(client, "invalidateQueries")
 		.mockReturnValue(Promise.resolve());
-	const view = renderHook(() => useProjectEvents("ws", "pid"), {
+	const view = renderHook(() => useProjectEvents("ws", "pid", false), {
 		wrapper: ({ children }) => (
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
@@ -319,4 +319,21 @@ test("a project too large to watch stops reconnecting and refreshes on focus and
 	invalidate.mockClear();
 	window.dispatchEvent(new Event("focus"));
 	expect(invalidate).not.toHaveBeenCalled();
+});
+
+/** SPEC.md §11.4: with hidden files shown, the socket asks for generated folders too. */
+test("the socket asks for hidden files while they are shown, and reopens when that changes", () => {
+	const client = new QueryClient();
+	const view = renderHook(({ hidden }) => useProjectEvents("ws", "pid", hidden), {
+		initialProps: { hidden: true },
+		wrapper: ({ children }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
+	expect(FakeWebSocket.last?.url).toMatch(/\/projects\/pid\/events\?hidden=1$/);
+
+	view.rerender({ hidden: false });
+	expect(FakeWebSocket.all).toHaveLength(2);
+	expect(FakeWebSocket.last?.url).toMatch(/\/projects\/pid\/events$/);
+	view.unmount();
 });
