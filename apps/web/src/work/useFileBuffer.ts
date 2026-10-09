@@ -321,6 +321,50 @@ export function useFileBuffer({
 		};
 	}, [store, path]);
 
+	/** A write landed as `etag`; anything typed meanwhile follows it. */
+	function saved(body: string, etag: string) {
+		known.current.add(etag);
+		dispatch({ type: "saveDone", etag, sent: body });
+		if (latest.current.text !== body) {
+			// With auto-save off the student asked for this save, so keystrokes
+			// that arrived during it go out at once.
+			scheduleSave(settingsRef.current.autoSave ? undefined : 0);
+		}
+	}
+
+	/**
+	 * The disk after a refusal. The refusal carries the version on disk but not
+	 * its text, and the conflict view needs both sides. A read already in
+	 * flight when the refusal came back answers the refetch with the version
+	 * from before it, so ask once more for the version the refusal named.
+	 */
+	async function diskAfterRefusal(refused: string) {
+		const fresh = await file.refetch();
+		if (fresh.data === undefined || fresh.data.etag === refused) return fresh.data;
+		return (await file.refetch()).data;
+	}
+
+	async function onRefused(body: string, error: FileConflictError, retried: boolean) {
+		const disk = await diskAfterRefusal(error.etag);
+		const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
+		if (readable && disk.text === body) {
+			// Another write of this same text got there first, such as the one a
+			// remounting pane sends on its way out: nothing to resolve.
+			saved(body, disk.etag);
+			return;
+		}
+		if (!retried && readable && isOwnVersion(disk, known.current, sent.current)) {
+			await write(body, disk.etag, true);
+			return;
+		}
+		dispatch({
+			type: "conflict",
+			version: readable
+				? { etag: disk.etag, text: disk.text }
+				: { etag: error.etag, text: "" },
+		});
+	}
+
 	async function write(body: string, against: string | null, retried = false) {
 		// Three covers the reads already on their way when this write went out.
 		sent.current = [...sent.current.slice(-2), body];
@@ -328,30 +372,10 @@ export function useFileBuffer({
 		dispatch({ type: "saveStart" });
 		try {
 			const result = await save.mutateAsync({ text: body, etag: against });
-			known.current.add(result.etag);
-			dispatch({ type: "saveDone", etag: result.etag, sent: body });
-			if (latest.current.text !== body) {
-				// With auto-save off the student asked for this save, so keystrokes
-				// that arrived during it go out at once.
-				scheduleSave(settingsRef.current.autoSave ? undefined : 0);
-			}
+			saved(body, result.etag);
 		} catch (error) {
 			if (error instanceof FileConflictError) {
-				// The refusal carries the version on disk but not its text, and the
-				// conflict view needs both sides.
-				const fresh = await file.refetch();
-				const disk = fresh.data;
-				const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
-				if (!retried && readable && isOwnVersion(disk, known.current, sent.current)) {
-					await write(body, disk.etag, true);
-					return;
-				}
-				dispatch({
-					type: "conflict",
-					version: readable
-						? { etag: disk.etag, text: disk.text }
-						: { etag: error.etag, text: "" },
-				});
+				await onRefused(body, error, retried);
 				return;
 			}
 			dispatch({
