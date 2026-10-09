@@ -14,6 +14,7 @@ import { createQueryClient } from "../api/queryClient.js";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { json, project, stubFetch, WORKSPACE } from "../test-utils.js";
 import { FileTreePane } from "./FileTree.js";
+import { fileKeys } from "./queries.js";
 import { useFileViewStore } from "./store.js";
 
 const PROJECT = project();
@@ -51,8 +52,7 @@ const NO_CHANGES = {
 /** What the stubbed API answers for Git status; a test may replace it. */
 let gitStatus: typeof NO_CHANGES = NO_CHANGES;
 
-function renderPane(store = createLayoutStore()) {
-	const client = createQueryClient();
+function renderPane(store = createLayoutStore(), client = createQueryClient()) {
 	render(
 		<QueryClientProvider client={client}>
 			<ToastProvider>
@@ -223,6 +223,37 @@ describe("the file tree", () => {
 		const readme = screen.getByTestId("file-row-README.md");
 		expect(readme.getAttribute("aria-selected")).toBe("true");
 		expect(readme.getAttribute("data-current")).toBeNull();
+	});
+
+	/** SPEC.md §25.8: the tree stays one Tab stop when its focused row is deleted elsewhere. */
+	it("moves the Tab stop when the focused row disappears from a refetch", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const folder = await screen.findByTestId("file-row-src");
+		folder.focus();
+		fireEvent.keyDown(folder, { key: "ArrowRight" });
+		const file = await screen.findByTestId("file-row-src/app.ts");
+		fireEvent.keyDown(folder, { key: "ArrowDown" });
+		await waitFor(() => expect(file.getAttribute("tabindex")).toBe("0"));
+
+		// A live file event refetches only the folder the file was in.
+		const before = SRC.entries;
+		SRC.entries = [];
+		onTestFinished(() => {
+			SRC.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, "src"),
+		});
+
+		await waitFor(() => expect(screen.queryByTestId("file-row-src/app.ts")).toBeNull());
+		await waitFor(() =>
+			expect(
+				screen
+					.getAllByRole("treeitem")
+					.filter((r) => r.getAttribute("tabindex") === "0"),
+			).toHaveLength(1),
+		);
 	});
 
 	/** Shift+Arrow and Ctrl+Space build a selection, like Shift- and Ctrl-click. */

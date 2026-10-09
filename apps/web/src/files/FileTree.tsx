@@ -49,6 +49,7 @@ import {
 	tooLargeToast,
 } from "./errors.js";
 import "./files.css";
+import { useStore } from "zustand";
 import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
 import {
@@ -129,6 +130,8 @@ interface TreeApi {
 	rowElements: () => HTMLElement[];
 	/** The rows on screen, in the order they are drawn. */
 	visibleNodes: () => FileNode[];
+	/** Moves the Tab stop to a row on screen if the focused one is gone. */
+	repairFocus: () => void;
 	clickRow: (path: string, modifiers: ClickModifiers) => void;
 	/** Shift+Arrow: run the selection from the anchor to `to`. */
 	extendTo: (from: string, to: string) => void;
@@ -407,6 +410,17 @@ export function FileTreePane({
 		});
 	}, [rowElements]);
 
+	/**
+	 * Keeps one row as the Tab stop when the focused row has vanished: it was
+	 * deleted, moved, or its parent closed (SPEC.md §25.8).
+	 */
+	const repairFocus = useCallback(() => {
+		const focusedPath = rowState.getState().focusedPath;
+		const rendered = rowElements().map((row) => row.getAttribute("data-path") ?? "");
+		const next = reseedFocus(focusedPath, rendered);
+		if (next !== focusedPath) setFocusedPath(next);
+	}, [rowState, rowElements, setFocusedPath]);
+
 	const clickRow = useCallback(
 		(path: string, modifiers: ClickModifiers) => {
 			const order = visibleNodes().map((node) => node.path);
@@ -596,6 +610,7 @@ export function FileTreePane({
 			setFocusedPath,
 			rowElements,
 			visibleNodes,
+			repairFocus,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -625,6 +640,7 @@ export function FileTreePane({
 			setFocusedPath,
 			rowElements,
 			visibleNodes,
+			repairFocus,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -951,18 +967,11 @@ function TreeRoot({ slug }: { slug: string }) {
 		return () => treeRef(null);
 	}, [treeRef]);
 
-	// The pane owns the one query for the rows on screen.
-	const rows = api.rowElements;
-
-	// A focused row can vanish: it was deleted, moved, or its parent closed.
-	// Checked after every render, because rows also arrive with a fetch.
-	const { rowState, setFocusedPath } = api;
-	useEffect(() => {
-		const focusedPath = rowState.getState().focusedPath;
-		const rendered = rows().map((row) => row.getAttribute("data-path") ?? "");
-		const next = reseedFocus(focusedPath, rendered);
-		if (next !== focusedPath) setFocusedPath(next);
-	});
+	// Moving the focus renders only the rows (rowState.ts); subscribing here
+	// re-runs the check below whenever it moves, even to a row not on screen.
+	useStore(api.rowState, (state) => state.focusedPath);
+	const { repairFocus } = api;
+	useEffect(() => repairFocus());
 
 	const onKeyDown = useTreeKeys(api);
 
@@ -999,7 +1008,12 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 	const moreFocused = useRowState(api.rowState, morePath).focused;
 	// The row to focus once the next page is drawn, so focus never drops to the page.
 	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
-	const { rowElements, setFocusedPath, announce, showHidden } = api;
+	const { rowElements, setFocusedPath, announce, showHidden, repairFocus } = api;
+
+	// A refetch can drop the focused row while rendering only this directory.
+	useEffect(() => {
+		if (query.data) repairFocus();
+	}, [query.data, repairFocus]);
 
 	useEffect(() => {
 		if (focusAfterLoad === null) return;
@@ -1169,7 +1183,10 @@ const Row = memo(function Row({
 			data-git={decoration?.kind ?? (dirty ? "dir" : undefined)}
 			data-ignored={ignored ? "true" : undefined}
 			className="pk-tree-item"
-			onFocus={() => api.setFocusedPath(path)}
+			onFocus={(event) => {
+				// Rows nest, so a child row's focus bubbles here too.
+				if (event.target === event.currentTarget) api.setFocusedPath(path);
+			}}
 			onContextMenu={(event) => {
 				// A keyboard context menu lands on the focused row itself; a pointer
 				// lands inside it and is handled by the right-click menu.
