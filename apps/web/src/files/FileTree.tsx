@@ -9,12 +9,7 @@
  * (SPEC.md §11.4, §12.3).
  */
 import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
-import {
-	MAX_TREE_ENTRIES,
-	MAX_UPLOAD_BYTES,
-	type Project,
-	type TreeEntry,
-} from "@portikus/contracts";
+import { MAX_UPLOAD_BYTES, type Project, type TreeEntry } from "@portikus/contracts";
 import {
 	Button,
 	ContextMenu,
@@ -32,6 +27,7 @@ import {
 } from "@portikus/ui";
 import {
 	createContext,
+	memo,
 	type ReactNode,
 	type Ref,
 	useCallback,
@@ -68,10 +64,12 @@ import { useWatchLimited } from "./ProjectEvents.js";
 import {
 	baseName,
 	displayName,
+	entryCount,
 	joinPath,
 	nameError,
 	parentOf,
 	reseedFocus,
+	showMorePath,
 	tabIdsUnder,
 	visibleEntries,
 	withoutNested,
@@ -86,6 +84,8 @@ import {
 	useTree,
 } from "./queries.js";
 import { useMoveAskingToReplace } from "./ReplaceFileConfirm.js";
+import { createRowStateStore, type RowStateStore, useRowState } from "./rowState.js";
+import { ShowMoreRow } from "./ShowMoreRow.js";
 import {
 	actionTargets,
 	type ClickModifiers,
@@ -93,7 +93,6 @@ import {
 	type FileNode,
 	orderedSelection,
 	pruneSelection,
-	type Selection,
 	selectionAfterClick,
 } from "./selection.js";
 import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
@@ -123,14 +122,13 @@ interface TreeApi {
 	remove: (node: FileNode) => void;
 	uploadInto: (dir: string, files: FileList | File[]) => void;
 	pickUpload: (dir: string) => void;
-	focusedPath: string | null;
+	/** The focused row and the selection, read per row (rowState.ts). */
+	rowState: RowStateStore;
 	setFocusedPath: (path: string | null) => void;
 	/** The row elements on screen, in the order they are drawn. */
 	rowElements: () => HTMLElement[];
 	/** The rows on screen, in the order they are drawn. */
 	visibleNodes: () => FileNode[];
-	/** The selected rows (SPEC.md §11.2). */
-	selection: Selection;
 	clickRow: (path: string, modifiers: ClickModifiers) => void;
 	/** Shift+Arrow: run the selection from the anchor to `to`. */
 	extendTo: (from: string, to: string) => void;
@@ -149,6 +147,8 @@ interface TreeApi {
 	/** The row whose ⋯ menu is open, so the keyboard can open it. */
 	menuPath: string | null;
 	setMenuPath: (path: string | null) => void;
+	/** Say something in the pane's polite status region. */
+	announce: (text: string) => void;
 }
 
 const TreeContext = createContext<TreeApi | null>(null);
@@ -328,9 +328,10 @@ export function FileTreePane({
 		[gitStatus.data],
 	);
 
-	const [focusedPath, setFocusedPath] = useState<string | null>(null);
-	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
+	const [rowState] = useState(createRowStateStore);
+	const { setFocusedPath, setSelection } = rowState.getState();
 	const [menuPath, setMenuPath] = useState<string | null>(null);
+	const [announcement, setAnnouncement] = useState("");
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
 		| { kind: "new"; dir: string; type: "file" | "dir" }
@@ -393,7 +394,10 @@ export function FileTreePane({
 
 	/** The rows on screen, as nodes. */
 	const visibleNodes = useCallback((): FileNode[] => {
-		return rowElements().map((row) => {
+		const rows = rowElements().filter(
+			(row) => row.getAttribute("data-kind") !== "more",
+		);
+		return rows.map((row) => {
 			const path = row.getAttribute("data-path") ?? "";
 			return {
 				path,
@@ -410,7 +414,7 @@ export function FileTreePane({
 				selectionAfterClick(pruneSelection(current, order), path, modifiers, order),
 			);
 		},
-		[visibleNodes],
+		[visibleNodes, setSelection],
 	);
 
 	const extendTo = useCallback(
@@ -420,7 +424,7 @@ export function FileTreePane({
 				selectionAfterExtend(pruneSelection(current, order), from, to, order),
 			);
 		},
-		[visibleNodes],
+		[visibleNodes, setSelection],
 	);
 
 	/** What an action on one row applies to: the selection, or just that row. */
@@ -430,7 +434,7 @@ export function FileTreePane({
 			const order = nodes.map((item) => item.path);
 			// A row inside a selected folder is already covered by that folder.
 			const paths = withoutNested(
-				actionTargets(pruneSelection(selection, order), node.path),
+				actionTargets(pruneSelection(rowState.getState().selection, order), node.path),
 			);
 			const byPath = new Map(nodes.map((item) => [item.path, item]));
 			const resolve = (path: string): FileNode =>
@@ -438,7 +442,7 @@ export function FileTreePane({
 			if (paths.length <= 1) return [paths[0] === undefined ? node : resolve(paths[0])];
 			return orderedSelection({ paths, anchor: null }, order).map(resolve);
 		},
-		[selection, visibleNodes],
+		[rowState, visibleNodes],
 	);
 
 	/**
@@ -588,11 +592,10 @@ export function FileTreePane({
 			remove: (node) => setDialog({ kind: "delete", nodes: targetsFor(node) }),
 			uploadInto,
 			pickUpload,
-			focusedPath,
+			rowState,
 			setFocusedPath,
 			rowElements,
 			visibleNodes,
-			selection,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -606,6 +609,7 @@ export function FileTreePane({
 			git,
 			menuPath,
 			setMenuPath,
+			announce: setAnnouncement,
 		}),
 		[
 			workspaceId,
@@ -617,10 +621,10 @@ export function FileTreePane({
 			openFile,
 			uploadInto,
 			pickUpload,
-			focusedPath,
+			rowState,
+			setFocusedPath,
 			rowElements,
 			visibleNodes,
-			selection,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -733,6 +737,11 @@ export function FileTreePane({
 								<p className="pk-watch-limited" data-testid="files-watch-limited">
 									This project is too large to update live. It refreshes when you return
 									to the window.
+								</p>
+							) : null}
+							{announcement ? (
+								<p className="pk-visually-hidden" data-testid="files-announcement">
+									{announcement}
 								</p>
 							) : null}
 						</div>
@@ -947,8 +956,9 @@ function TreeRoot({ slug }: { slug: string }) {
 
 	// A focused row can vanish: it was deleted, moved, or its parent closed.
 	// Checked after every render, because rows also arrive with a fetch.
-	const { focusedPath, setFocusedPath } = api;
+	const { rowState, setFocusedPath } = api;
 	useEffect(() => {
+		const focusedPath = rowState.getState().focusedPath;
 		const rendered = rows().map((row) => row.getAttribute("data-path") ?? "");
 		const next = reseedFocus(focusedPath, rendered);
 		if (next !== focusedPath) setFocusedPath(next);
@@ -985,6 +995,39 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 	const query = useTree(api.workspaceId, api.projectId, dir);
 	// Both agents return directories first, then files, each in name order.
 	const entries = query.data ? visibleEntries(query.data.entries, api.showHidden) : [];
+	const morePath = showMorePath(dir);
+	const moreFocused = useRowState(api.rowState, morePath).focused;
+	// The row to focus once the next page is drawn, so focus never drops to the page.
+	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
+	const { rowElements, setFocusedPath, announce, showHidden } = api;
+
+	useEffect(() => {
+		if (focusAfterLoad === null) return;
+		const row = rowElements().find(
+			(element) => element.getAttribute("data-path") === focusAfterLoad,
+		);
+		if (!row) return;
+		setFocusAfterLoad(null);
+		setFocusedPath(focusAfterLoad);
+		row.focus();
+	});
+
+	async function showMore() {
+		const before = entries.length;
+		const result = await query.fetchNextPage();
+		if (!result.data) return;
+		const after = visibleEntries(result.data.entries, showHidden);
+		const added = after.length - before;
+		announce(
+			result.data.truncated
+				? `Loaded ${added.toLocaleString("en")} more ${added === 1 ? "entry" : "entries"}`
+				: `All ${entryCount(after.length)} shown`,
+		);
+		// The first new row; with none visible and the Show more row gone, the last row.
+		const target =
+			added > 0 ? after[before] : result.data.truncated ? null : after.at(-1);
+		if (target) setFocusAfterLoad(joinPath(dir, target.name));
+	}
 
 	return (
 		<>
@@ -992,19 +1035,15 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 				<Row key={entry.name} dir={dir} entry={entry} level={level} />
 			))}
 			{query.data?.truncated ? (
-				// Not a treeitem: it is an action, outside the rows the arrow keys walk.
-				<div className="pk-tree-more" data-testid="file-tree-truncated">
-					<span>Showing {query.data.entries.length} entries.</span>{" "}
-					<Button
-						size="sm"
-						variant="secondary"
-						data-testid="file-tree-show-more"
-						disabled={query.isFetchingNextPage}
-						onClick={() => void query.fetchNextPage()}
-					>
-						Show {MAX_TREE_ENTRIES} more
-					</Button>
-				</div>
+				<ShowMoreRow
+					path={morePath}
+					level={level}
+					shown={entries.length}
+					focused={moreFocused}
+					loading={query.isFetchingNextPage}
+					onFocus={() => setFocusedPath(morePath)}
+					onActivate={() => void showMore()}
+				/>
 			) : null}
 		</>
 	);
@@ -1072,7 +1111,16 @@ function RowFace({
 	);
 }
 
-function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: number }) {
+// Memoised, so a render of the pane or a directory does not redraw thousands of rows.
+const Row = memo(function Row({
+	dir,
+	entry,
+	level,
+}: {
+	dir: string;
+	entry: TreeEntry;
+	level: number;
+}) {
 	const api = useTreeApi();
 	const path = joinPath(dir, entry.name);
 	const isDir = entry.type === "dir";
@@ -1090,7 +1138,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const status = rowStatus(decoration, dirty, ignored);
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
-	const selected = api.selection.paths.includes(path);
+	const { focused, selected, current } = useRowState(api.rowState, path);
 	const drag = useDraggable({ id: `row:${path}`, data: { isDir } });
 	// dnd-kit offers a button role and a tab stop; the row outside is the
 	// treeitem and the only thing the keyboard should reach.
@@ -1113,12 +1161,8 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			aria-expanded={isDir ? open : undefined}
 			aria-selected={selected}
 			data-selected={selected ? "true" : undefined}
-			data-current={
-				api.selection.paths.length === 0 && api.focusedPath === path
-					? "true"
-					: undefined
-			}
-			tabIndex={api.focusedPath === path ? 0 : -1}
+			data-current={current ? "true" : undefined}
+			tabIndex={focused ? 0 : -1}
 			data-path={path}
 			data-kind={isDir ? "dir" : "file"}
 			data-testid={`file-row-${path}`}
@@ -1227,7 +1271,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			) : null}
 		</div>
 	);
-}
+});
 
 /** New file and New folder, for the project root or for a directory. */
 function CreateMenuItems({
