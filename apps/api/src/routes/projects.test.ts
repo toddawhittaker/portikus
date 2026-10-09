@@ -1059,3 +1059,56 @@ test.skipIf(skip)("a listing with nothing new writes nothing", async () => {
 		insertInto.mockRestore();
 	}
 });
+
+/** Renames a project with the database write failing after the folder moved. */
+async function renameWithDbFailure(id: string, name: string) {
+	const transaction = vi.spyOn(testDb.db, "transaction").mockImplementationOnce(
+		() =>
+			({
+				execute: () => Promise.reject(new Error("database went away")),
+			}) as never,
+	);
+	try {
+		return await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${workspaceId}/projects/${id}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { name },
+		});
+	} finally {
+		transaction.mockRestore();
+	}
+}
+
+test.skipIf(skip)(
+	"a rename that crashes before the row update heals on the next listing",
+	async () => {
+		// Created and never listed, so the row has no directory identity yet.
+		const project = (
+			await createProject(alice, workspaceId, { name: "draft", source: "new" })
+		).json();
+		const failed = await renameWithDbFailure(project.id, "Final");
+		expect(failed.statusCode).toBe(500);
+		expect(agent.projects.has("final")).toBe(true);
+
+		const listed = (await listProjects(alice, workspaceId)).json().projects;
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(project.id);
+		expect(listed[0].slug).toBe("final");
+	},
+);
+
+test.skipIf(skip)(
+	"a folder moved by a crashed rename is not discovered as a second project",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "notes", source: "new" })
+		).json();
+		await renameWithDbFailure(project.id, "Notes Two");
+
+		await listProjects(alice, workspaceId);
+		const listed = (await listProjects(alice, workspaceId)).json().projects;
+		expect(listed.map((p: { id: string }) => p.id)).toEqual([project.id]);
+		expect(listed[0].missing).toBe(false);
+	},
+);
