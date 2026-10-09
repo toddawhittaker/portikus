@@ -15,7 +15,7 @@ import {
 	MenuSub,
 	MenuTrigger,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { usePaneMenuFocus } from "../work/pointerDismiss.js";
 import type { SpeechInput } from "./useSpeechInput.js";
@@ -106,6 +106,15 @@ export function PaneFrame({
 		id: paneDropId(terminalId),
 		data: { terminalId },
 	});
+	// Stable, so dnd-kit is not handed the node afresh on every render.
+	const setDropNode = drop.setNodeRef;
+	const sectionRef = useCallback(
+		(node: HTMLElement | null) => {
+			section.current = node;
+			setDropNode(node);
+		},
+		[setDropNode],
+	);
 
 	useEffect(() => {
 		if (!renaming) {
@@ -127,10 +136,7 @@ export function PaneFrame({
 
 	return (
 		<section
-			ref={(node) => {
-				section.current = node;
-				drop.setNodeRef(node);
-			}}
+			ref={sectionRef}
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminalId}`}
