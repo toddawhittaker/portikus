@@ -59,13 +59,11 @@ export function FilePane({
 	const shownPath = displayName(path);
 	const menu = usePaneMenuFocus();
 	const actions = useRef<HTMLButtonElement | null>(null);
-	// usePaneDrag reads the pane id from `terminalId`, the key a terminal's
-	// frame uses too.
 	const drag = useDraggable({
 		id: `pane-drag-${id}`,
-		data: { terminalId: id, title: name },
+		data: { paneId: id, title: name },
 	});
-	const drop = useDroppable({ id: `pane-drop-${id}`, data: { terminalId: id } });
+	const drop = useDroppable({ id: `pane-drop-${id}`, data: { paneId: id } });
 
 	// A move mounts the pane again in its new place; the keyboard follows it
 	// there rather than falling to the page. A remount while the keyboard is

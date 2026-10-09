@@ -9,7 +9,7 @@ import { type DropEdge, moveLeaf, paneIds } from "../layout/tree.js";
 export interface MoveIntoTarget {
 	tabId: string;
 	/** The pane the moved one lands beside: a terminal id or a file's pane id. */
-	terminalId: string;
+	paneId: string;
 	edge: DropEdge;
 }
 
@@ -26,7 +26,7 @@ export function moveIntoTargets(
 		const ids = paneIds(tab.root);
 		const last = ids.at(-1);
 		if (last === undefined || ids.includes(paneId)) return [];
-		const target: MoveIntoTarget = { tabId: tab.id, terminalId: last, edge: "right" };
+		const target: MoveIntoTarget = { tabId: tab.id, paneId: last, edge: "right" };
 		// The id is never used: only whether the move is allowed matters here.
 		const moved = moveLeaf(layout, tab.id, paneId, last, target.edge, () => "probe");
 		return moved === layout ? [] : [target];

@@ -67,10 +67,10 @@ test("a pane moves into another tab, or to a new tab after its own, and keeps th
 
 	panes.moveInto("b", "a");
 	expect(store.getState().layout.tabs).toHaveLength(1);
-	expect(store.getState().focusedTerminalId).toBe("b");
+	expect(store.getState().focusedPaneId).toBe("b");
 
 	panes = actions(store, () => {});
 	panes.moveToNewTab("b");
 	expect(store.getState().layout.tabs).toHaveLength(2);
-	expect(store.getState().focusedTerminalId).toBe("b");
+	expect(store.getState().focusedPaneId).toBe("b");
 });

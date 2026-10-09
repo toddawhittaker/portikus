@@ -116,7 +116,7 @@ export function WorkArea({
 	const store = useLayoutStore(projectId);
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
-	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
+	const focusedPaneId = useLayout(store, (state) => state.focusedPaneId);
 	const pendingView = useLayout(store, (state) => state.pendingView);
 	const diffBaseline = useLayout(store, (state) => state.diffBaseline);
 	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
@@ -492,7 +492,7 @@ export function WorkArea({
 							workspaceId={workspaceId}
 							projectId={projectId}
 							visible={tab.id === activeTabId}
-							focusedTerminalId={focusedTerminalId}
+							focusedPaneId={focusedPaneId}
 							onFocus={(id) => store.getState().setFocused(id)}
 							onSplit={(id, direction) => void split(id, direction)}
 							onRename={(id, name) => void terminals.rename(id, name)}

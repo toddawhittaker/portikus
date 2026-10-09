@@ -160,7 +160,7 @@ test("the active tab and the focused pane are not structural changes", () => {
 	layout.getState().setFocused("a");
 	expect(layout.getState().dirty).toBe(false);
 	expect(layout.getState().activeTabId).toBe("a");
-	expect(layout.getState().focusedTerminalId).toBe("a");
+	expect(layout.getState().focusedPaneId).toBe("a");
 });
 
 test("moving and resizing go through the tree and mark the layout dirty", () => {

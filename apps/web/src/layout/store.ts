@@ -30,7 +30,7 @@ export interface PendingView {
 export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
-	focusedTerminalId: string | null;
+	focusedPaneId: string | null;
 	/**
 	 * What each file pane was last asked to show, by its pane id
 	 * (`file:<path>`, wherever the pane sits): its diff or its editor, and
@@ -129,7 +129,7 @@ export interface LayoutState {
 	setZoom: (path: string, percent: number) => void;
 	/** Put back what this browser remembered for this project. */
 	restoreLocal: (local: LocalLayout) => void;
-	setFocused: (terminalId: string | null) => void;
+	setFocused: (paneId: string | null) => void;
 	/**
 	 * Follow a rename or move made from the files pane (SPEC.md §11.2): every
 	 * open file under `from` keeps its pane, now showing its place under
@@ -316,7 +316,7 @@ export function createLayoutStore() {
 		return {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
-			focusedTerminalId: null,
+			focusedPaneId: null,
 			pendingView: {},
 			diffBaseline: {},
 			viewStates: {},
@@ -524,7 +524,7 @@ export function createLayoutStore() {
 					};
 				}),
 
-			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
+			setFocused: (paneId) => set({ focusedPaneId: paneId }),
 
 			retargetTabs: (from, to) => {
 				// An open file the move lands on was overwritten on disk, so

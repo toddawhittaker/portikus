@@ -46,7 +46,7 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 	const [store] = useState(createLayoutStore);
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
-	const focusedId = useLayout(store, (state) => state.focusedTerminalId);
+	const focusedId = useLayout(store, (state) => state.focusedPaneId);
 	// Each shell's name, by id. Numbers count up for this page and are not reused.
 	const [names, setNames] = useState<Map<string, string>>(() => new Map());
 	const opened = useRef(0);
@@ -286,7 +286,7 @@ export function RootShellArea({ visible, onLoss }: RootShellAreaProps) {
 												ended={ended.has(id)}
 												focused={focusedId === id}
 												alone={tab.root.type === "leaf"}
-												dropEdge={drop?.terminalId === id ? drop.edge : null}
+												dropEdge={drop?.paneId === id ? drop.edge : null}
 												moveTargets={panes.moveTargetsFor(id)}
 												onFocus={(shellId) => store.getState().setFocused(shellId)}
 												onSplit={split}
