@@ -118,12 +118,16 @@ export type AgentRestoreRecoveryPointRequest = z.infer<
  * remove files no `recovery_points` row accounts for (SPEC.md §15.10).
  */
 export const AgentRecoveryArchiveList = z.object({
-	archives: z.array(
-		z.object({
-			projectId: z.string().uuid(),
-			pointId: z.string().uuid(),
-			modifiedAt: z.string().datetime(),
-		}),
-	),
+	// Far above any honest volume (200 points a project, each with at most
+	// one `.partial`), so only a hostile agent's list is refused.
+	archives: z
+		.array(
+			z.object({
+				projectId: z.string().uuid(),
+				pointId: z.string().uuid(),
+				modifiedAt: z.string().datetime(),
+			}),
+		)
+		.max(20_000),
 });
 export type AgentRecoveryArchiveList = z.infer<typeof AgentRecoveryArchiveList>;

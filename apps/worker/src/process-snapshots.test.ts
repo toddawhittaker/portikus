@@ -108,19 +108,13 @@ test.skipIf(skip)("serves a request stored with microseconds", async () => {
 	await sql`insert into workspace_process_snapshots (workspace_id, requested_at)
 		values (${id}, '2026-09-26T10:00:00.123456Z')`.execute(tdb.db);
 	const { logger } = collectingLogger("debug");
-	await serveProcessSnapshots(
-		tdb.db,
-		controller,
-		logger,
-		() => new Date("2026-09-26T10:00:01Z"),
-	);
+	await serveProcessSnapshots(tdb.db, controller, logger, {
+		now: () => new Date("2026-09-26T10:00:01Z"),
+	});
 	expect(
-		await serveProcessSnapshots(
-			tdb.db,
-			controller,
-			logger,
-			() => new Date("2026-09-26T10:00:02Z"),
-		),
+		await serveProcessSnapshots(tdb.db, controller, logger, {
+			now: () => new Date("2026-09-26T10:00:02Z"),
+		}),
 	).toBe(0);
 });
 
@@ -174,7 +168,7 @@ test.skipIf(skip)("rows older than an hour are deleted", async () => {
 	await request(old, new Date(now.getTime() - PROCESS_SNAPSHOT_MAX_AGE_MS - 1000));
 	await request(fresh, now);
 	const { logger } = collectingLogger("debug");
-	await serveProcessSnapshots(tdb.db, controller, logger, () => now);
+	await serveProcessSnapshots(tdb.db, controller, logger, { now: () => now });
 	expect(await snapshot(old)).toBeUndefined();
 	expect(await snapshot(fresh)).toBeDefined();
 });
@@ -200,10 +194,12 @@ test.skipIf(skip)(
 		controller.processesResult = [ROW, SHELL, { ...SHELL, pid: 94, startTicks: 51 }];
 		const asked: string[] = [];
 		const { logger } = collectingLogger("debug");
-		await serveProcessSnapshots(tdb.db, controller, logger, undefined, async (a, t) => {
-			asked.push(`${a} ${t}`);
-			// 94 matches the PID of nothing; 93 with other start ticks is a reused PID.
-			return new Set(["93:50", "95:1", "94:7"]);
+		await serveProcessSnapshots(tdb.db, controller, logger, {
+			readProtected: async (a, t) => {
+				asked.push(`${a} ${t}`);
+				// 94 matches the PID of nothing; 93 with other start ticks is a reused PID.
+				return new Set(["93:50", "95:1", "94:7"]);
+			},
 		});
 		expect(asked).toEqual(["10.0.0.9 tok"]);
 		const rows = (await snapshot(id))?.processes as InstanceProcess[];
@@ -220,7 +216,9 @@ test.skipIf(skip)("without the agent's set the controller's flags stand", async 
 	await request(id);
 	controller.processesResult = [ROW, { ...SHELL, protected: true }];
 	const { logger } = collectingLogger("debug");
-	await serveProcessSnapshots(tdb.db, controller, logger, undefined, async () => null);
+	await serveProcessSnapshots(tdb.db, controller, logger, {
+		readProtected: async () => null,
+	});
 	const row = await snapshot(id);
 	expect(row?.error).toBeNull();
 	expect(row?.processes).toEqual([ROW, { ...SHELL, protected: true }]);
