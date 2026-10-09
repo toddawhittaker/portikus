@@ -5,7 +5,7 @@ import {
 } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import { moveLeaf } from "../layout/tree.js";
-import { moveIntoTargets } from "./moveInto.js";
+import { fileDropTarget, moveIntoTargets } from "./moveInto.js";
 
 const leaf = (terminalId: string): SplitNode => ({ type: "leaf", terminalId });
 
@@ -94,6 +94,40 @@ test("a tab already at the depth limit is not offered", () => {
 		],
 	};
 	expect(moveIntoTargets(full, "t1")).toEqual([]);
+});
+
+test("a tree file dropped on a pane's edge lands beside that pane", () => {
+	expect(fileDropTarget(layout, "src/new.ts", "t3", "bottom")).toEqual({
+		tabId: "b",
+		paneId: "t3",
+		edge: "bottom",
+	});
+	expect(fileDropTarget(layout, "src/new.ts", "file:readme.md", "right")).toEqual({
+		tabId: "file:readme.md",
+		paneId: "file:readme.md",
+		edge: "right",
+	});
+});
+
+test("an already open file dropped on another pane's edge is a move", () => {
+	expect(fileDropTarget(layout, "readme.md", "t1", "left")).toEqual({
+		tabId: "a",
+		paneId: "t1",
+		edge: "left",
+	});
+});
+
+test("a tree file takes no drop on its own pane, the centre, or an unknown pane", () => {
+	expect(fileDropTarget(layout, "readme.md", "file:readme.md", "right")).toBeNull();
+	expect(fileDropTarget(layout, "src/new.ts", "t1", "center")).toBeNull();
+	expect(fileDropTarget(layout, "src/new.ts", "gone", "right")).toBeNull();
+});
+
+test("a tree file takes no drop that would split past the depth limit", () => {
+	const full: ProjectLayout = {
+		tabs: [{ id: "deep", root: deepest(MAX_SPLIT_DEPTH) }],
+	};
+	expect(fileDropTarget(full, "src/new.ts", "deep", "right")).toBeNull();
 });
 
 test("a pane with no other terminal tab has nowhere to go", () => {

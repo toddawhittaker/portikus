@@ -4,7 +4,14 @@
  * onto the right edge of that tab's last terminal would.
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { type DropEdge, moveLeaf, paneIds } from "../layout/tree.js";
+import {
+	type DropEdge,
+	fileTabId,
+	moveLeaf,
+	openFile,
+	paneIds,
+	tabOfPane,
+} from "../layout/tree.js";
 
 export interface MoveIntoTarget {
 	tabId: string;
@@ -31,4 +38,31 @@ export function moveIntoTargets(
 		const moved = moveLeaf(layout, tab.id, paneId, last, target.edge, () => "probe");
 		return moved === layout ? [] : [target];
 	});
+}
+
+/**
+ * Where a file dragged from the tree onto pane `overPaneId` lands (SPEC.md
+ * §9.3): beside that pane on `edge`, whether the file is new to the layout
+ * or already open elsewhere. The centre, the file's own pane, and a split
+ * past the depth limit take no drop.
+ */
+export function fileDropTarget(
+	layout: ProjectLayout,
+	path: string,
+	overPaneId: string,
+	edge: DropEdge,
+): MoveIntoTarget | null {
+	if (edge === "center") return null;
+	const tabId = tabOfPane(layout, overPaneId);
+	if (tabId === null) return null;
+	const opened = openFile(layout, path).layout;
+	const moved = moveLeaf(
+		opened,
+		tabId,
+		fileTabId(path),
+		overPaneId,
+		edge,
+		() => "probe",
+	);
+	return moved === opened ? null : { tabId, paneId: overPaneId, edge };
 }
