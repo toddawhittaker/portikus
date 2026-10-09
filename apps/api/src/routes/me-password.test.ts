@@ -422,7 +422,8 @@ describe.skipIf(skip)("POST /me/password", () => {
 			expect(res.statusCode).toBe(204);
 			current = next;
 		}
-	});
+		// Eleven changes are 22 bcrypt rounds at cost 10; a busy CI runner needs more than 5 s.
+	}, 30_000);
 
 	test("refuses a new password that is too short, over 72 bytes, or unchanged", async () => {
 		const jar = new CookieJar();
