@@ -771,7 +771,13 @@ The saved layout of §7.5 is one JSON document per project:
 ```
 
 A node is either a leaf naming one terminal or a split with a direction of
-`row` or `column`, one size per child, and at least two children. The browser
+`row` or `column`, one size per child, and at least two children. A node may
+also be a file (`{"type":"file","path":…}`), alone in its tab or inside a
+split beside terminals and other files; a preview is always a whole tab. A
+path appears at most once in a layout. A tab whose only pane is a file has
+the id `file:<path>`, and a split that collapses to one file takes that id
+back. The tree is checked for depth before the schema recurses, so a layout
+nested thousands deep is a 400, not a stack overflow. The browser
 owns this document and writes it back, at most once a second; the last write
 wins. Before it is used the browser reconciles it against the terminal list:
 a terminal with no leaf is added as a new tab, and a leaf whose terminal no
@@ -834,7 +840,11 @@ leftmost one. Closing a tab that is not selected does not change the selection.
 This selection history lasts only as long as the workspace is open in the
 browser; it is not saved.
 
-Terminal panes must additionally support splitting.
+Terminal panes must additionally support splitting. A file pane can join a
+terminal's split, by dragging its title bar onto a pane's edge or through its
+actions menu's "Move into"; resting a drag on a tab opens that tab. A tab
+shows the unsaved dot when any file in it has unsaved edits, and closing a
+tab that holds unsaved edits asks first.
 
 When a project has no tabs open, the centre pane says "No terminals open" and
 offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
@@ -1235,6 +1245,19 @@ P0 file-tree operations:
 - download directory/project as archive;
 - extract a zip into a new folder beside it (§11.6).
 
+Rows are dragged with the browser's own drag and drop. A drop that would
+leave the item where it is, or move a folder into itself, is refused and not
+highlighted; the Move to dialog is the keyboard alternative. A rename or move
+made in the files pane keeps the open tab of every file it moves, alone or in
+a split, at its new path, with its unsaved text, diff baseline, cursor and
+zoom; moves made by an agent or in a terminal are not followed. The project
+download takes a repeated path to zip a selection of up to 100 files and
+folders, named relative to their common folder (the menu's "Download N items
+as zip"); the same size cap applies, and a selection whose names are too long
+for one request is refused before it is sent. `GET .../extract/progress`
+reports `{done, total}` entries of a running extraction, and "Extract here"
+shows them on a progress bar.
+
 A directory listing returns at most 2,000 entries per page with a
 continuation token (the last entry sent, so a change between pages does not
 shift the rest); the tree offers **Show more** for the rest.
@@ -1310,6 +1333,12 @@ The implementation should use `ripgrep` or an equivalent fast workspace-local se
 - cancel superseded searches;
 - avoid blocking the workspace agent or browser on very large repositories;
 - enforce project confinement and not follow search paths outside the selected project.
+
+The panel offers Match case, Whole word and Regex. All three are off by
+default, which gives a case-insensitive literal search. A regular expression
+uses ripgrep's default engine, never PCRE2. A pattern ripgrep refuses (a parse
+error, or a regex too large to compile) is a 400 `PATTERN_INVALID`; a search
+that only met unreadable folders returns what it found.
 
 As built, the workspace agent runs at most four searches at once (one agent per workspace). A search past that is refused with 409 `BUSY`, and the search panel says too many searches are running in this workspace.
 
@@ -1476,7 +1505,7 @@ P0 does **not** require graphical controls for:
 
 Students may perform those operations through the coding agent or Git CLI. Any resulting changes must be reflected in the Changes surface and file tree.
 
-P1 may add comparison against a recovery point. P2 may allow selection of another Git commit or ref as the comparison baseline.
+A file's diff view has a "Compare with" choice: Last commit (the default), a Git ref the student types, or a recovery point. The ref is at most 256 characters, with no leading `-`, no control characters and no `..`, and is resolved to a commit with `rev-parse --end-of-options`. A recovery point is read only when the student presses Compare, because the read can take up to a minute (§15.8). The choice is local to the view and is never saved in the layout. There is no Changes list against a ref.
 
 ### 12.7 Agent-session change review
 
@@ -1500,7 +1529,7 @@ Portikus must make the minimum Git state needed to understand whether work has b
 
 P0 should show, when available:
 
-- current branch or detached-HEAD state;
+- current branch or detached-HEAD state (a detached HEAD shows its short commit id);
 - count of working-tree changes;
 - whether commits exist locally that are ahead of the configured upstream remote;
 - whether the local branch is behind its upstream;
@@ -1538,6 +1567,8 @@ The editor should prioritize:
 
 Large/binary files should open in a viewer or download flow rather than being forced through the text editor.
 
+A `.csv` file small enough to edit opens as a read-only table with View, Edit and Diff. The first record heads the columns. At most 1,000 rows and 200 columns are drawn, and the view says how many the file holds. A file that is not valid RFC 4180 CSV says so and offers its text.
+
 ### 13.3 External modification
 
 If a file changes on disk while open:
@@ -1562,6 +1593,8 @@ the two sides stay on the same line: whichever source line is first on the
 left is the first one showing on the right, and scrolling either side
 moves the other.
 
+Fenced code that names a language Monaco knows is highlighted with Monaco's tokenizer. The highlighter's HTML is never inserted: it is rebuilt from token classes and text only (§24.3).
+
 The tab's one Diff button replaces the whole split with this file's
 side-by-side diff against the last commit, the same way the Diff button
 works on every other file tab. Turning it off brings the split with the
@@ -1578,6 +1611,7 @@ The editor must:
 - use version-aware or equivalent conditional writes so stale browser content cannot silently overwrite a newer on-disk version;
 - coordinate with filesystem events so changes made by an agent or second browser are not silently overwritten;
 - preserve unsaved local text long enough to resolve a detected conflict;
+- keep unsaved text when a file pane remounts, as a move into or out of a split or a rename does, whether autosave is on or off (with autosave on it is saved at once; the undo history is not kept);
 - surface save failures clearly.
 
 A write that fails because the disk or quota is full (`ENOSPC` or `EDQUOT`)
@@ -1897,6 +1931,8 @@ Restoring a recovery point must:
 - not alter Git through hidden commits.
 
 A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
+
+A student can compare one file with its version in a recovery point. The agent reads only that file from the archive, checks the archive's recorded SHA-256 first, caps each side as Git diffs are capped (§12.6), and gives up after 60 seconds with `RECOVERY_READ_TIMEOUT`. Only one such comparison runs per workspace at a time; a second answers 429 `RATE_LIMITED` until the first ends.
 
 ### 15.9 File-level recovery history
 
@@ -2405,7 +2441,7 @@ One student's CPU, memory, storage, process count, or Docker workload must not m
 
 When a workspace reaches its memory limit, the kernel kills the biggest process in it, and only that process: both the workspace agent's unit and the terminals unit set `OOMPolicy=continue`, so the rest keep running.
 
-On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling. On images from 2026.10.1 Docker puts every container under `portikus-docker.slice` (the `cgroup-parent` in daemon.json, which the controller also writes before each start), capped at `TasksMax=1000`, so containers together cannot take the room the agent and the terminals need; each container's own scope stops at systemd's default of 15%, 300. The slice cap guards against accidents, not a determined student. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
+On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling. On images from 2026.10.1 Docker puts every container under `portikus-docker.slice` (the `cgroup-parent` in daemon.json, which the controller also writes before each start), capped at `TasksMax=1000`, so containers together cannot take the room the agent and the terminals need; each container's own scope stops at systemd's default of 15%, 300. The slice cap guards against accidents, not a determined student. A Check also runs under a 1,700-task limit (`RLIMIT_NPROC`, the same number as the terminals unit's `TasksMax`), so a fork bomb in a Check cannot starve the agent, which is not limited itself. The limit is per student user, not per Check: it counts every process the student owns, a Check will not start once the student already has 1,700, and terminals may starve while a bomb runs. Like the other caps it guards against accidents, not a determined student. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
 
 `/tmp` is a tmpfs capped at 512 MB and `/dev/shm` at 256 MB, so a big temporary file fails with "No space left on device" instead of using up the workspace's memory.
 
@@ -4109,12 +4145,15 @@ itself up.
   it uses more than twice the disk (at least 1 GiB) or ten times the
   file count (at least 100,000) of the median kept set, or cannot be
   measured, never following links, and warns on stderr. It leaves out
-  the newest unfinished set named for the last day while it changed in
-  the last 2 hours (a big set takes longer than the hourly run to
-  arrive), warning past four times the median, drops unfinished sets
+  the newest unfinished set (named at most an hour ahead) until it is
+  KEEP days old, so a big, stalled or late upload survives, warning past
+  four times the median, drops unfinished sets
   dated over a day ahead, and before any set is kept limits only non-set
-  entries. The operator's filesystem quota on the target account is the real bound on bursts
-  (docs/INSTALL.md).
+  entries. A run that adds a set warns when `quota` shows no disk or no file
+  limit for the account on that filesystem, or is not installed. The
+  operator's filesystem quota on the target account is the real bound on
+  bursts (docs/INSTALL.md); a broken-into server can keep one unfinished set
+  for up to KEEP days.
 
 ### 24.10 Transport security
 
@@ -4670,12 +4709,29 @@ explicitly, so an open modal does not silence them, and a modal in
 0047). No live region carries a ticking time. Every sortable table, Monitor
 included, announces each sort change politely. Every drag has a click
 alternative: a tab menu (right-click or Shift+F10) moves a tab left or
-right, a terminal pane's actions menu has "Move into" another tab, and
+right, a terminal or file pane's actions menu has "Move into" another tab, and
 "Reset pane sizes" evens out a tab's splits. The file tree is a
 multi-select tree (`aria-multiselectable`) with Home, End, type-ahead,
 Shift+Arrow to extend the selection and Ctrl+Space to toggle a row. The
 editor's text box is named after its file and the Ctrl+M way out of it
 (Ctrl+Shift+M on macOS).
+
+Added by Epic 39: when the focused file-tree row disappears, the Tab stop
+moves to its next sibling, else the row above it, else its folder, and the
+focus moves with it if the tree held it. The extraction toast's bar is a
+native progress element that carries its figure in `aria-valuetext`, inside a
+region with live announcements off, so the toast does not read every tick.
+The search, Compare with and CSV controls report state to screen readers (the
+option toggles with `aria-pressed`, the pattern error as the field's own
+error, one always-mounted polite status region for the slow recovery read,
+hidden "Column N" names for blank CSV headers).
+
+Voice input in a terminal is a deliberate exception to the click alternative
+for held actions. The microphone button and Alt+Shift+M listen only while held
+(pointer, Space or Enter on the button, or the shortcut), and there is no
+click-to-latch mode. The product owner chose this so the microphone is never
+left open by accident (ADR 0055). A click that cannot be held (keyboard or
+screen reader click) says in the status region how to hold.
 The app header and the Course page work down to 320 px.
 
 ### 25.9 Browser support
@@ -4695,6 +4751,8 @@ Collect only operationally necessary user information.
 Do not record coding-agent prompts, terminal command history, or project source centrally unless a specific feature requires it and users are informed.
 
 Institutional deployments must be able to define data-retention policy.
+
+Voice input uses the browser's own speech recognition. The audio goes to the browser vendor's service (Google for Chrome, Microsoft for Edge, Apple for Safari), not to Portikus. Portikus sends nothing to its server and logs nothing, and types only final phrases with every control character removed, so dictation never presses Enter. Errors and hints show on the pane and in a polite status region. A browser without the API, or whose service fails with a network error (Brave), shows no microphone and says so (ADR 0055).
 
 ## 26. Control-plane data model
 
