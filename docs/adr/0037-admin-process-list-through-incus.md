@@ -100,3 +100,18 @@ Epic 22 narrowed it to listeners owned by the student's own processes. The
 agent reads the uid and then `cmdline`, so a PID reused in between is a
 low-severity race, accepted while `/proc` has no `hidepid`. If `hidepid` is
 ever turned on, re-check the uid after the read (SPEC.md section 24.11).
+
+## Later note (Epic 38)
+
+The rule above for the agent and terminals units is replaced. The oldest
+process in a unit's cgroup is not what the agent's stop refuses: it missed
+the pane shells and the agent's attach clients, which the stop does refuse,
+and it marked a program a student had moved into the unit. Now the worker
+asks the agent's `GET /processes/protected` for the exact set its stop
+refuses (the agent, its attach clients, the tmux server and the pane
+shells, each with its start ticks) and marks those rows protected. The
+controller keeps only the host facts: PID 1 and any uid other than 1000.
+If the agent does not answer, or is an older agent without the route, the
+list shows the host facts alone. A student can still protect a program by
+running it as root, so the aim is a list that matches the stop, not one a
+sudo student cannot fool.

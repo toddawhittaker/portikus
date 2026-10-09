@@ -17,12 +17,6 @@ const CLOCK_TICKS = 100;
 /** The uid the kernel shows for a host uid outside the instance's map. */
 const OVERFLOW_UID = 65534;
 
-/** Units inside the container whose main process no stop may touch (ADR 0037). */
-const PROTECTED_UNITS = [
-	"system.slice/portikus-workspace-agent.service",
-	"system.slice/portikus-terminals.service",
-];
-
 const DIGITS = /^\d+$/;
 
 /**
@@ -242,26 +236,6 @@ async function takeSample(src: HostProcessSource, level: number): Promise<Sample
 	return { uptime, processes };
 }
 
-/** The main process of each protected unit: the oldest process in its cgroup. */
-function protectedUnitPids(processes: HostProcess[]): Set<number> {
-	const result = new Set<number>();
-	for (const unit of PROTECTED_UNITS) {
-		let oldest: HostProcess | null = null;
-		for (const p of processes) {
-			if (p.cgroup !== unit && !p.cgroup.startsWith(`${unit}/`)) continue;
-			if (
-				!oldest ||
-				p.startTicks < oldest.startTicks ||
-				(p.startTicks === oldest.startTicks && p.hostPid < oldest.hostPid)
-			) {
-				oldest = p;
-			}
-		}
-		if (oldest) result.add(oldest.hostPid);
-	}
-	return result;
-}
-
 /**
  * Read an instance's processes from the host (ADR 0037): walk its cgroup
  * tree, read each PID's stat and status twice, `wait` apart, and return CPU
@@ -287,7 +261,6 @@ export async function readInstanceProcesses(
 	const before = new Map<string, number>();
 	for (const p of first.processes) before.set(`${p.hostPid}:${p.startTicks}`, p.ticks);
 	const elapsed = second.uptime - first.uptime > 0 ? second.uptime - first.uptime : 1;
-	const unitMains = protectedUnitPids(second.processes);
 
 	const rows: InstanceProcess[] = second.processes.map((p) => {
 		const used = Math.max(
@@ -302,7 +275,8 @@ export async function readInstanceProcesses(
 			startTicks: p.startTicks,
 			cpuPercent: Math.round(percent * 10) / 10,
 			residentBytes: p.rssBytes,
-			protected: p.pid === 1 || p.uid !== STUDENT_UID || unitMains.has(p.hostPid),
+			// The agent's own set is added by the worker (ADR 0037).
+			protected: p.pid === 1 || p.uid !== STUDENT_UID,
 		};
 	});
 

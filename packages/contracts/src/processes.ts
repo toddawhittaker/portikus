@@ -30,3 +30,24 @@ export const ProcessStopErrorCode = z.enum([
 	"PROCESS_PROTECTED",
 ]);
 export type ProcessStopErrorCode = z.infer<typeof ProcessStopErrorCode>;
+
+/**
+ * The processes the agent's stop refuses beyond PID 1 and other users'
+ * processes (ADR 0037): the agent, its attach clients, tmux and the pane
+ * shells. The worker marks these protected in the administrator's list.
+ */
+export const AgentProtectedProcesses = z
+	.object({
+		processes: z
+			.array(
+				z
+					.object({
+						pid: z.number().int().positive(),
+						startTicks: z.number().int().nonnegative(),
+					})
+					.strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
+export type AgentProtectedProcesses = z.infer<typeof AgentProtectedProcesses>;

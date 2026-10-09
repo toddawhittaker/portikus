@@ -1,3 +1,5 @@
+import { callAgent } from "@portikus/agent-client";
+import { AgentProtectedProcesses, type InstanceProcess } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
@@ -9,6 +11,39 @@ const PROCESS_SNAPSHOT_TICK_MS = 1000;
 
 /** How long one controller read may take before it is recorded as a timeout. */
 const PROCESS_SNAPSHOT_TIMEOUT_MS = 10_000;
+
+/** How long the agent may take to name its protected processes. */
+const PROTECTED_TIMEOUT_MS = 3000;
+
+/** A protected process as "pid:startTicks", so a reused PID never matches. */
+type ProtectedSet = ReadonlySet<string>;
+type ReadProtected = (address: string, token: string) => Promise<ProtectedSet | null>;
+
+/**
+ * `GET /processes/protected` on one agent: the set its stop refuses. Any
+ * failure, including an old agent's 404, is null, and the list keeps the
+ * controller's own flags.
+ */
+export async function fetchProtectedProcesses(
+	address: string,
+	port: number,
+	token: string,
+): Promise<ProtectedSet | null> {
+	try {
+		const payload = await callAgent(
+			{ address, port, token },
+			"GET",
+			"/processes/protected",
+			undefined,
+			PROTECTED_TIMEOUT_MS,
+		);
+		const parsed = AgentProtectedProcesses.safeParse(payload);
+		if (!parsed.success) return null;
+		return new Set(parsed.data.processes.map((p) => `${p.pid}:${p.startTicks}`));
+	} catch {
+		return null;
+	}
+}
 
 /** Snapshots older than this are deleted, with their process names. */
 export const PROCESS_SNAPSHOT_MAX_AGE_MS = 60 * 60 * 1000;
@@ -23,6 +58,7 @@ export async function serveProcessSnapshots(
 	controller: ControllerClient,
 	logger: Logger,
 	now: () => Date = () => new Date(),
+	readProtected: ReadProtected = async () => null,
 ): Promise<number> {
 	await db
 		.deleteFrom("workspace_process_snapshots")
@@ -32,7 +68,14 @@ export async function serveProcessSnapshots(
 	const pending = await db
 		.selectFrom("workspace_process_snapshots as s")
 		.innerJoin("workspaces as w", "w.id", "s.workspace_id")
-		.select(["s.workspace_id", "s.requested_at", "w.state", "w.incus_instance_name"])
+		.select([
+			"s.workspace_id",
+			"s.requested_at",
+			"w.state",
+			"w.incus_instance_name",
+			"w.agent_address",
+			"w.agent_token",
+		])
 		.where((eb) =>
 			eb.or([
 				eb("s.taken_at", "is", null),
@@ -42,7 +85,7 @@ export async function serveProcessSnapshots(
 		.execute();
 
 	for (const row of pending) {
-		let processes: unknown = null;
+		let processes: InstanceProcess[] | null = null;
 		let error: string | null = null;
 		if (row.state !== "running" || !row.incus_instance_name) {
 			error = "WORKSPACE_NOT_RUNNING";
@@ -52,6 +95,16 @@ export async function serveProcessSnapshots(
 					row.incus_instance_name,
 					AbortSignal.timeout(PROCESS_SNAPSHOT_TIMEOUT_MS),
 				);
+				const agentSet =
+					row.agent_address && row.agent_token
+						? await readProtected(row.agent_address, row.agent_token)
+						: null;
+				if (agentSet) {
+					processes = processes.map((p) => ({
+						...p,
+						protected: p.protected || agentSet.has(`${p.pid}:${p.startTicks}`),
+					}));
+				}
 			} catch (e) {
 				error = e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
 				logger.warn(
@@ -85,13 +138,16 @@ export function startProcessSnapshots(options: {
 	db: Kysely<Database>;
 	controller: ControllerClient;
 	logger: Logger;
+	agentPort: number;
 }): () => void {
-	const { db, controller, logger } = options;
+	const { db, controller, logger, agentPort } = options;
 	return startLoop(
 		"process snapshot",
 		logger,
 		async () => {
-			await serveProcessSnapshots(db, controller, logger);
+			await serveProcessSnapshots(db, controller, logger, undefined, (address, token) =>
+				fetchProtectedProcesses(address, agentPort, token),
+			);
 		},
 		PROCESS_SNAPSHOT_TICK_MS,
 	);
