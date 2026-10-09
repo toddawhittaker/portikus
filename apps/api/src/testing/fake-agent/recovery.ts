@@ -125,6 +125,12 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		) {
 			return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
 		}
+		const hold = s.flags.diffHold;
+		s.flags.diffHold = null;
+		if (hold) {
+			hold.arrived();
+			await hold.released;
+		}
 		const failure = diffFailure.get(keyOf(request));
 		if (failure) return recoveryError(reply, failure[0], failure[1]);
 		const then = point.entries.get(`/${query.path}`);

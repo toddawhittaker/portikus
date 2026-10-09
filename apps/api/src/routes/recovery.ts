@@ -48,6 +48,8 @@ const GIB = 1024 ** 3;
 const DIFF_BUDGET_MS = RECOVERY_DIFF_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 /** At most one manual point per project this often. */
 const MANUAL_POINT_INTERVAL_MS = 30_000;
+/** Workspaces with a point diff in flight; per API process, like long-operation.ts. */
+const diffsRunning = new Set<string>();
 
 /** Answer 409 while a maintenance operation waits on the workspace. */
 async function refusePending(
@@ -285,50 +287,93 @@ export function registerRecoveryRoutes(
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
 
-			const query = {
-				projectId: project.id,
-				path: path.data,
-				sha256: point.sha256,
-			} satisfies AgentRecoveryDiffQuery;
-			let response: Response;
-			try {
-				response = await agent.fetchRaw(
-					"GET",
-					agentUrl(project.slug, `recovery-points/${point.id}/diff`, query),
-					{ signal: AbortSignal.timeout(DIFF_BUDGET_MS) },
-				);
-			} catch (error) {
-				return sendAgentError(reply, error);
-			}
-			if (!response.ok) {
-				const failure = await readAgentError(response);
-				if (failure.code === "RECOVERY_READ_TIMEOUT") {
-					return sendError(
-						reply,
-						504,
-						"RECOVERY_READ_TIMEOUT",
-						"Reading this file from the recovery point took too long. Try again, or restore the point to see it.",
-					);
-				}
-				return sendAgentError(reply, failure);
-			}
-			const parsed = GitDiff.safeParse(await readJson(response));
-			if (!parsed.success) {
-				// Only where the answer went wrong; the values are student content.
-				request.log.error(
-					{ issues: parsed.error.issues.map((issue) => issue.path.join(".")) },
-					"the workspace agent sent an answer the contract rejected",
-				);
+			// Each point diff reads a whole archive; one at a time per workspace
+			// keeps a student's clicks from stacking those reads (SPEC.md §15.8).
+			if (diffsRunning.has(scope.workspaceId)) {
 				return sendError(
 					reply,
-					503,
-					"AGENT_UNAVAILABLE",
-					"The workspace agent sent an answer we could not read.",
+					429,
+					"RATE_LIMITED",
+					"Another comparison with a recovery point is still running. Try again when it finishes.",
 				);
 			}
-			return parsed.data;
+			diffsRunning.add(scope.workspaceId);
+			// A browser that gives up stops the agent's read too.
+			const disconnected = new AbortController();
+			const onClose = () => disconnected.abort();
+			request.raw.on("close", onClose);
+			try {
+				return await pointDiff(request, reply, {
+					agent,
+					slug: project.slug,
+					pointId: point.id,
+					query: {
+						projectId: project.id,
+						path: path.data,
+						sha256: point.sha256,
+					},
+					signal: AbortSignal.any([
+						disconnected.signal,
+						AbortSignal.timeout(DIFF_BUDGET_MS),
+					]),
+				});
+			} finally {
+				request.raw.off("close", onClose);
+				diffsRunning.delete(scope.workspaceId);
+			}
 		},
 	);
+
+	/** Relay one point diff from the agent and check its answer. */
+	async function pointDiff(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		input: {
+			agent: AgentClient;
+			slug: string;
+			pointId: string;
+			query: AgentRecoveryDiffQuery;
+			signal: AbortSignal;
+		},
+	): Promise<GitDiff | FastifyReply> {
+		let response: Response;
+		try {
+			response = await input.agent.fetchRaw(
+				"GET",
+				agentUrl(input.slug, `recovery-points/${input.pointId}/diff`, input.query),
+				{ signal: input.signal },
+			);
+		} catch (error) {
+			return sendAgentError(reply, error);
+		}
+		if (!response.ok) {
+			const failure = await readAgentError(response);
+			if (failure.code === "RECOVERY_READ_TIMEOUT") {
+				return sendError(
+					reply,
+					504,
+					"RECOVERY_READ_TIMEOUT",
+					"Reading this file from the recovery point took too long. Try again, or restore the point to see it.",
+				);
+			}
+			return sendAgentError(reply, failure);
+		}
+		const parsed = GitDiff.safeParse(await readJson(response));
+		if (!parsed.success) {
+			// Only where the answer went wrong; the values are student content.
+			request.log.error(
+				{ issues: parsed.error.issues.map((issue) => issue.path.join(".")) },
+				"the workspace agent sent an answer the contract rejected",
+			);
+			return sendError(
+				reply,
+				503,
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent an answer we could not read.",
+			);
+		}
+		return parsed.data;
+	}
 
 	/** The slow half of a restore, so the slot is released on every exit. */
 	async function restore(

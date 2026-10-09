@@ -15,8 +15,6 @@ import { AgentFailure } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { runGit } from "./git-runner.js";
 
-/** How much of a side is sniffed for a NUL byte before it is called binary. */
-
 /** Somewhere to put git stderr that is not the response body (STACK.md §15). */
 export interface GitDebugLog {
 	debug: (details: object, message: string) => void;

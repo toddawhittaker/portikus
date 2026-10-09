@@ -481,14 +481,8 @@ export function archiveDir(
  * would store it twice. Paths are absolute and already resolved.
  */
 export function outermostPaths(paths: readonly string[]): string[] {
-	const sorted = [...new Set(paths)].sort();
-	const kept: string[] = [];
-	for (const path of sorted) {
-		const outer = kept.at(-1);
-		if (outer !== undefined && path.startsWith(`${outer}/`)) continue;
-		kept.push(path);
-	}
-	return kept;
+	const unique = [...new Set(paths)].sort();
+	return unique.filter((path) => !unique.some((other) => path.startsWith(`${other}/`)));
 }
 
 /** The deepest directory that holds every path of a non-empty list. */
@@ -531,7 +525,8 @@ async function archiveEntries(
 	const tempDir = await mkdtemp(join(tempBase, "portikus-archive-"));
 	const zipPath = join(tempDir, "archive.zip");
 	try {
-		const names = paths.map((path) => relative(parent, path));
+		// zip reads a bare "-" as stdin even after "--"; "./" keeps it a name.
+		const names = paths.map((path) => `./${relative(parent, path)}`);
 		await runZip(parent, names, zipPath, signal);
 		const stream = createReadStream(zipPath);
 		stream.once("close", () => {
