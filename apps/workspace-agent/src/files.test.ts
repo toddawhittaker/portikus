@@ -350,9 +350,36 @@ test("a directory past the cap is truncated", async () => {
 			writeFileFs(join(many, `f${String(index).padStart(5, "0")}.txt`), ""),
 		),
 	);
+	await mkdir(join(many, "zdir"));
 	const body = (await tree("many")).json();
 	expect(body.entries).toHaveLength(MAX_TREE_ENTRIES);
 	expect(body.truncated).toBe(true);
+	// Directories sort first, so the page ends one file short of the last.
+	expect(body.next).toBe(`f/f${String(MAX_TREE_ENTRIES - 2).padStart(5, "0")}.txt`);
+
+	// The next page carries on after that name, and is the last.
+	const rest = (
+		await app.inject({
+			method: "GET",
+			url: `/projects/alpha/tree?path=many&after=${encodeURIComponent(body.next)}`,
+			headers: auth(),
+		})
+	).json();
+	expect(rest.entries.map((entry: { name: string }) => entry.name)).toEqual([
+		`f${String(MAX_TREE_ENTRIES - 1).padStart(5, "0")}.txt`,
+		`f${String(MAX_TREE_ENTRIES).padStart(5, "0")}.txt`,
+	]);
+	expect(rest.truncated).toBe(false);
+	expect(rest.next).toBeUndefined();
+});
+
+test("a malformed listing token is refused", async () => {
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/alpha/tree?path=&after=x%2F..",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(400);
 });
 
 test("mkdir creates a directory and refuses a name already taken", async () => {
@@ -397,6 +424,30 @@ test("deleting with no path cannot remove the project itself", async () => {
 	expect(response.statusCode).toBe(400);
 	expect(response.json().error.code).toBe("PATH_INVALID");
 	expect(await readdir(projectsRoot)).toContain("alpha");
+});
+
+test("move with replace overwrites a file but never a directory", async () => {
+	await writeFileFs(join(project, "a.txt"), "new");
+	await writeFileFs(join(project, "b.txt"), "old");
+	await mkdir(join(project, "dir"));
+	await mkdir(join(project, "other"));
+	const move = (payload: object) =>
+		app.inject({
+			method: "POST",
+			url: "/projects/alpha/move",
+			headers: auth(),
+			payload,
+		});
+
+	const fileOnFile = await move({ from: "a.txt", to: "b.txt", replace: true });
+	expect(fileOnFile.statusCode).toBe(204);
+	expect(await readFileFs(join(project, "b.txt"), "utf8")).toBe("new");
+
+	const fileOnDir = await move({ from: "b.txt", to: "dir", replace: true });
+	expect(fileOnDir.statusCode).toBe(409);
+	const dirOnDir = await move({ from: "other", to: "dir", replace: true });
+	expect(dirOnDir.statusCode).toBe(409);
+	expect((await stat(join(project, "other"))).isDirectory()).toBe(true);
 });
 
 test("move renames within the project", async () => {

@@ -8,7 +8,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { MAX_EDITOR_FILE_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import {
+	MAX_EDITOR_FILE_BYTES,
+	MAX_TREE_ENTRIES,
+	MAX_UPLOAD_BYTES,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
@@ -184,6 +188,25 @@ test.skipIf(skip)("the owner reads a tree and a file with its etag", async () =>
 	expect(file.headers["cache-control"]).toBe("no-transform");
 	expect(file.headers["content-type"]).toBe("text/plain; charset=utf-8");
 	expect(file.headers["content-length"]).toBe("6");
+});
+
+test.skipIf(skip)("a long listing continues from the token it ends with", async () => {
+	for (let index = 0; index <= MAX_TREE_ENTRIES; index++) {
+		seed("lab", `f${String(index).padStart(5, "0")}.txt`, "");
+	}
+	const first = (await get(alice, "tree")).json();
+	expect(first.entries).toHaveLength(MAX_TREE_ENTRIES);
+	expect(first.truncated).toBe(true);
+
+	const rest = await get(alice, "tree", `?after=${encodeURIComponent(first.next)}`);
+	expect(rest.statusCode).toBe(200);
+	expect(rest.json().entries.map((entry: { name: string }) => entry.name)).toEqual([
+		`f${String(MAX_TREE_ENTRIES).padStart(5, "0")}.txt`,
+	]);
+	expect(rest.json().truncated).toBe(false);
+
+	const bad = await get(alice, "tree", "?after=..%2Fx");
+	expect(bad.statusCode).toBe(400);
 });
 
 test.skipIf(skip)("a missing file is a 404 and a directory is a 400", async () => {
@@ -444,6 +467,30 @@ test.skipIf(skip)("delete, mkdir and move work on the project tree", async () =>
 	expect(removed.statusCode).toBe(204);
 	expect(agent.files.has("lab/docs")).toBe(false);
 	expect(agent.files.has("lab/docs/new.md")).toBe(false);
+});
+
+test.skipIf(skip)("a move replaces a file only when asked to", async () => {
+	seed("lab", "a.md", "new\n");
+	seed("lab", "b.md", "old\n");
+	const move = (payload: object) =>
+		app.inject({
+			method: "POST",
+			url: url("move"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload,
+		});
+
+	const refused = await move({ from: "a.md", to: "b.md" });
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().code).toBe("FILE_EXISTS");
+
+	const replaced = await move({ from: "a.md", to: "b.md", replace: true });
+	expect(replaced.statusCode).toBe(204);
+	expect(agent.files.has("lab/a.md")).toBe(false);
+	expect(agent.files.get("lab/b.md")).toEqual({
+		type: "file",
+		content: Buffer.from("new\n"),
+	});
 });
 
 test.skipIf(skip)(

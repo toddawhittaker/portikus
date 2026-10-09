@@ -93,6 +93,38 @@ test("an image outside the project keeps react-markdown's own rules", () => {
 	);
 });
 
+test("reference-style links and images render, and their definitions draw nothing", () => {
+	const { container } = render(
+		<MarkdownPreview
+			text={
+				'See [the docs][docs] and [Spec][].\n\n![Diagram][pic]\n\n[docs]: https://example.invalid/docs\n[spec]: ./SPEC.md\n[pic]: ./diagram.png "A diagram"\n'
+			}
+			path="docs/README.md"
+			imageUrl={imageUrl}
+		/>,
+	);
+	expect(screen.getByRole("link", { name: "the docs" }).getAttribute("href")).toBe(
+		"https://example.invalid/docs",
+	);
+	expect(screen.getByRole("link", { name: "Spec" }).getAttribute("href")).toBe(
+		"./SPEC.md",
+	);
+	const image = screen.getByRole("img", { name: "Diagram" });
+	expect(image.getAttribute("src")).toBe("/file?path=docs%2Fdiagram.png");
+	expect(image.getAttribute("title")).toBe("A diagram");
+	// A definition is not a line of the document.
+	expect(container.textContent).not.toContain("[docs]:");
+	expect(container.textContent).not.toContain("example.invalid");
+	expect(container.querySelectorAll("p")).toHaveLength(2);
+});
+
+test("a reference-style link keeps the same scheme rules as an inline one", () => {
+	const { container } = render(
+		<MarkdownPreview text={"[click][bad]\n\n[bad]: javascript:alert(1)\n"} />,
+	);
+	expect(container.querySelector("a")?.getAttribute("href")).toBeFalsy();
+});
+
 test("a link is not rewritten to the file route, only an image", () => {
 	const { container } = render(
 		<MarkdownPreview

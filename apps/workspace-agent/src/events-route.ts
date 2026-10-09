@@ -38,6 +38,8 @@ export async function eventsRoute(
 		{ websocket: true },
 		async (socket: WebSocket, request) => {
 			const { slug } = request.params as { slug: string };
+			// The browser shows hidden and generated files (SPEC.md §11.3, §11.4).
+			const hidden = (request.query as { hidden?: string }).hidden === "1";
 
 			if (open >= maxSockets) {
 				send(socket, { type: "error", code: "EVENT_SOCKET_LIMIT" });
@@ -68,6 +70,7 @@ export async function eventsRoute(
 						send(socket, { type: "error", code: "WATCH_FAILED" });
 						socket.close(CloseCode.SERVER_ERROR, "WATCH_FAILED");
 					},
+					{ hidden },
 				);
 				// The socket may have closed while the watcher was starting.
 				if (closed) {

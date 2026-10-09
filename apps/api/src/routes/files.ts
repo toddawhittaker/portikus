@@ -8,6 +8,7 @@ import {
 	MkdirRequest,
 	MoveRequest,
 	ProjectPath,
+	TreeAfter,
 	TreeResponse,
 	WriteFileResponse,
 } from "@portikus/contracts";
@@ -211,12 +212,22 @@ export function registerFileRoutes(
 			if (!scope) return;
 			const path = queryPath(request, reply, { allowRoot: true });
 			if (path === null) return;
+			const rawAfter = (request.query as { after?: unknown }).after;
+			const after = rawAfter === undefined ? undefined : TreeAfter.safeParse(rawAfter);
+			if (after && !after.success) {
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"that listing token is not valid",
+				);
+			}
 
 			let response: Response;
 			try {
 				response = await scope.agent.fetchRaw(
 					"GET",
-					agentUrl(scope.slug, "tree", { path }),
+					agentUrl(scope.slug, "tree", after ? { path, after: after.data } : { path }),
 					{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
 				);
 			} catch (error) {

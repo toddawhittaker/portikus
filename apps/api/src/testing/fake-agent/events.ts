@@ -7,6 +7,7 @@ export function registerEventRoutes(app: FastifyInstance, s: FakeAgentState): vo
 	const {
 		flags,
 		eventSockets,
+		hiddenEventSockets,
 		watchFailures,
 		eventCloses,
 		answerKey,
@@ -48,6 +49,9 @@ export function registerEventRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			}
 			const peers = eventSockets.get(key) ?? new Set<WebSocket>();
 			peers.add(socket);
+			if ((request.query as { hidden?: string }).hidden === "1") {
+				hiddenEventSockets.add(socket);
+			}
 			eventSockets.set(key, peers);
 			socket.on("close", () => peers.delete(socket));
 			// The real agent says the watcher is live before anything else.

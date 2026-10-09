@@ -49,10 +49,34 @@ export const TreeEntry = z.object({
 });
 export type TreeEntry = z.infer<typeof TreeEntry>;
 
-/** Response body for a directory listing; `truncated` means the cap was hit. */
+/**
+ * Where the next page of a listing starts: the last entry sent, as "d/<name>"
+ * for a directory or "f/<name>" for anything else. A name, not an offset,
+ * so a file created or removed between pages does not shift the rest.
+ */
+export const TreeAfter = z
+	.string()
+	.max(257)
+	.regex(/^[df]\/[^/]+$/);
+
+/** The continuation token for a listing page that ended at this entry. */
+export function treeAfter(isDir: boolean, name: string): string {
+	return `${isDir ? "d" : "f"}/${name}`;
+}
+
+/** The entry a continuation token names. */
+export function parseTreeAfter(token: string): { isDir: boolean; name: string } {
+	return { isDir: token.startsWith("d/"), name: token.slice(2) };
+}
+
+/**
+ * Response body for one page of a directory listing (SPEC.md §11.2).
+ * `truncated` means more entries follow; `next` asks for them.
+ */
 export const TreeResponse = z.object({
 	entries: z.array(TreeEntry),
 	truncated: z.boolean(),
+	next: TreeAfter.optional(),
 });
 export type TreeResponse = z.infer<typeof TreeResponse>;
 
@@ -67,8 +91,13 @@ export type WriteFileResponse = z.infer<typeof WriteFileResponse>;
 export const MkdirRequest = z.object({ path: ProjectPath }).strict();
 export type MkdirRequest = z.infer<typeof MkdirRequest>;
 
-/** Request body for a move or rename inside one project (SPEC.md §11.2). */
-export const MoveRequest = z.object({ from: ProjectPath, to: ProjectPath }).strict();
+/**
+ * Request body for a move or rename inside one project (SPEC.md §11.2).
+ * `replace` lets a file overwrite an existing file; a directory is never replaced.
+ */
+export const MoveRequest = z
+	.object({ from: ProjectPath, to: ProjectPath, replace: z.boolean().optional() })
+	.strict();
 export type MoveRequest = z.infer<typeof MoveRequest>;
 
 /** Request body for "Extract here" on a zip file. */
@@ -85,7 +114,7 @@ export const MAX_EXTRACT_BYTES = 1024 * 1024 * 1024;
 /** Most entries a zip may hold and still be extracted. */
 export const MAX_EXTRACT_ENTRIES = 10_000;
 
-/** Most entries one directory listing returns before it is truncated. */
+/** Most entries one page of a directory listing returns. */
 export const MAX_TREE_ENTRIES = 2000;
 
 /** Largest file the editor will open or save (SPEC.md §13.5). */

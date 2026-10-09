@@ -85,6 +85,7 @@ import {
 	useFileMutations,
 	useTree,
 } from "./queries.js";
+import { useMoveAskingToReplace } from "./ReplaceFileConfirm.js";
 import {
 	actionTargets,
 	type ClickModifiers,
@@ -522,9 +523,13 @@ export function FileTreePane({
 		[toast, uploadOne],
 	);
 
+	const { moveAsking, confirm: replaceConfirm } = useMoveAskingToReplace(
+		mutations.move.mutateAsync,
+	);
+
 	const { sensors, dragged, dropDir, uploadDrag, dndHandlers, uploadHandlers } =
 		useTreeDragAndDrop({
-			moveFile: (from, to) => mutations.move.mutateAsync({ from, to }),
+			moveFile: moveAsking,
 			afterMove,
 			fail,
 			uploadInto,
@@ -808,9 +813,9 @@ export function FileTreePane({
 							onSubmit={(name) => {
 								const from = dialog.node.path;
 								const to = joinPath(parentOf(from), name);
-								void mutations.move
-									.mutateAsync({ from, to })
-									.then(() => {
+								void moveAsking(from, to, dialog.node.isDir)
+									.then((moved) => {
+										if (!moved) return;
 										afterMove(from, to);
 										setDialog({ kind: "none" });
 									})
@@ -833,8 +838,9 @@ export function FileTreePane({
 									try {
 										for (const node of dialog.nodes) {
 											const to = joinPath(destination, node.name);
-											await mutations.move.mutateAsync({ from: node.path, to });
-											afterMove(node.path, to);
+											if (await moveAsking(node.path, to, node.isDir)) {
+												afterMove(node.path, to);
+											}
 										}
 										if (destination !== "") api.setOpen(destination, true);
 										setSelection(EMPTY_SELECTION);
@@ -846,6 +852,7 @@ export function FileTreePane({
 							}}
 						/>
 					)}
+					{replaceConfirm}
 					{dialog.kind === "delete" && (
 						<DeleteFileConfirm
 							nodes={dialog.nodes}
@@ -985,8 +992,18 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 				<Row key={entry.name} dir={dir} entry={entry} level={level} />
 			))}
 			{query.data?.truncated ? (
+				// Not a treeitem: it is an action, outside the rows the arrow keys walk.
 				<div className="pk-tree-more" data-testid="file-tree-truncated">
-					Showing the first {MAX_TREE_ENTRIES} entries
+					<span>Showing {query.data.entries.length} entries.</span>{" "}
+					<Button
+						size="sm"
+						variant="secondary"
+						data-testid="file-tree-show-more"
+						disabled={query.isFetchingNextPage}
+						onClick={() => void query.fetchNextPage()}
+					>
+						Show {MAX_TREE_ENTRIES} more
+					</Button>
 				</div>
 			) : null}
 		</>

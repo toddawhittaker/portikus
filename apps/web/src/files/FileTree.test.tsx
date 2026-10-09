@@ -258,13 +258,30 @@ describe("the file tree", () => {
 		expect(region.getAttribute("aria-live")).toBe("polite");
 	});
 
-	it("says when a listing was cut short", async () => {
-		stubFetch(() => json(200, { entries: [entry("a.txt")], truncated: true }));
+	/** SPEC.md §11.2: the rest of a long directory is one click away. */
+	it("shows the rest of a long listing when Show more is pressed", async () => {
+		const urls: string[] = [];
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			urls.push(url);
+			if (url.includes("after=")) {
+				return json(200, { entries: [entry("b.txt")], truncated: false });
+			}
+			return json(200, { entries: [entry("a.txt")], truncated: true, next: "f/a.txt" });
+		});
 		renderPane();
 
-		expect((await screen.findByTestId("file-tree-truncated")).textContent).toBe(
-			"Showing the first 2000 entries",
+		expect((await screen.findByTestId("file-tree-truncated")).textContent).toContain(
+			"Showing 1 entries.",
 		);
+		expect(screen.queryByText("b.txt")).toBeNull();
+		fireEvent.click(screen.getByTestId("file-tree-show-more"));
+
+		expect(await screen.findByText("b.txt")).toBeDefined();
+		expect(screen.getByText("a.txt")).toBeDefined();
+		expect(screen.queryByTestId("file-tree-truncated")).toBeNull();
+		expect(urls.at(-1)).toContain("after=f%2Fa.txt");
 	});
 
 	/** SPEC.md §11.2: a deleted file leaves no tab behind. */
@@ -754,6 +771,71 @@ describe("the file tree", () => {
 		await waitFor(() =>
 			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
 		);
+	});
+
+	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */
+	it("asks before a rename replaces a file, then sends the replace flag", async () => {
+		const moves: { replace?: boolean }[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				const body = JSON.parse(String(init?.body));
+				moves.push(body);
+				if (body.replace) return json(204, null);
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: ".env" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		const confirm = await screen.findByTestId("dialog-replace-file");
+		expect(confirm.textContent).toContain("Replace .env?");
+		fireEvent.click(within(confirm).getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(moves).toEqual([
+				{ from: "README.md", to: ".env" },
+				{ from: "README.md", to: ".env", replace: true },
+			]),
+		);
+	});
+
+	it("does not offer to replace when a folder is renamed onto a taken name", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(409, {
+					code: "FILE_EXISTS",
+					message: "that name is already taken",
+				});
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-src"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-rename"));
+		const field = (await screen.findByTestId("field-file-name")) as HTMLInputElement;
+		fireEvent.change(field, { target: { value: "node_modules" } });
+		fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+		await waitFor(() => expect(moves).toHaveLength(1));
+		expect(screen.queryByTestId("dialog-replace-file")).toBeNull();
 	});
 
 	it("does not offer a folder as a place to move itself", async () => {
