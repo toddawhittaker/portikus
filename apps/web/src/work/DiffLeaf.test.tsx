@@ -204,7 +204,7 @@ test("a rename shows the old path and the new one", async () => {
 	answer = { status: 200, body: diff({ status: "R", oldPath: "src/old.ts" }) };
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
-	expect(screen.getByText(`Diff · src/old.ts → ${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId("diff-note").textContent).toBe("Renamed from src/old.ts");
 	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("Renamed");
 });
 
@@ -372,23 +372,39 @@ function stubRefServer(atRef: { status: number; body: unknown }) {
 	return urls;
 }
 
-function compareWith(ref: string) {
-	fireEvent.change(screen.getByLabelText("Compare with"), { target: { value: "ref" } });
-	fireEvent.change(screen.getByLabelText("Branch, tag, or commit"), {
+/** Opens the "Compare with" menu of the view at `index`. */
+async function openCompare(index = 0) {
+	const trigger = screen.getAllByRole("button", { name: "Compare with" })[index];
+	if (!trigger) throw new Error("no Compare with button");
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	return screen.findByRole("menu", { name: "Compare with" });
+}
+
+async function choose(
+	item: "Last commit" | "A Git ref…" | "A recovery point…",
+	index = 0,
+) {
+	await openCompare(index);
+	fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+async function compareWith(ref: string) {
+	await choose("A Git ref…");
+	fireEvent.change(await screen.findByLabelText("Branch, tag, or commit"), {
 		target: { value: ref },
 	});
 	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
 }
 
-test("the compare control offers the last commit and a Git ref, last commit first", async () => {
+test("the compare control is one small button whose menu offers the last commit first", async () => {
 	renderLeaf();
-	const select = screen.getByLabelText("Compare with") as HTMLSelectElement;
-	expect([...select.options].map((option) => option.text)).toEqual([
-		"Last commit",
-		"A Git ref…",
-		"A recovery point…",
-	]);
-	expect(select.value).toBe("head");
+	const menu = await openCompare();
+	expect(
+		[...menu.querySelectorAll("[role=menuitem]")].map((item) => item.textContent),
+	).toEqual(["Last commit", "A Git ref…", "A recovery point…"]);
+	// The control is in the header line, not a row of its own.
+	expect(screen.getByTestId("diff-compare").closest("header")).not.toBeNull();
+	expect(screen.queryByLabelText("Branch, tag, or commit")).toBeNull();
 });
 
 test("a typed ref is compared once submitted, and named on the left side", async () => {
@@ -396,18 +412,26 @@ test("a typed ref is compared once submitted, and named on the left side", async
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
 
-	compareWith("v1.0");
+	await compareWith("v1.0");
 
 	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("older\n"));
 	const wanted = `/workspaces/${WORKSPACE}/projects/${PROJECT}/git/diff?path=src%2Fapp.ts&ref=v1.0`;
 	expect(urls.some((url) => url.endsWith(wanted))).toBe(true);
 	expect(screen.getByTestId("diff-sides").textContent).toBe("v1.0Your changes");
-	expect(screen.getByText(`Diff with v1.0 · ${PATH}`)).toBeTruthy();
+	// Compare closes the dialog.
+	await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
+
+	// The dialog opens again on the ref compared with now.
+	await choose("A Git ref…");
+	expect(
+		((await screen.findByLabelText("Branch, tag, or commit")) as HTMLInputElement)
+			.value,
+	).toBe("v1.0");
+	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
 
 	// Going back to the last commit asks without a ref.
-	fireEvent.change(screen.getByLabelText("Compare with"), {
-		target: { value: "head" },
-	});
+	await choose("Last commit");
 	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("one\n"));
 	expect(screen.getByTestId("diff-sides").textContent).toBe("Last commitYour changes");
 });
@@ -418,7 +442,7 @@ test("a ref that could read as an option is refused before any request", async (
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	const before = urls.length;
 
-	compareWith("--output=/tmp/x");
+	await compareWith("--output=/tmp/x");
 
 	const alert = await screen.findByRole("alert");
 	expect(alert.textContent).toBe("Type a branch, tag, or commit id.");
@@ -440,7 +464,7 @@ test("a ref that names no commit is announced", async () => {
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
 
-	compareWith("nope");
+	await compareWith("nope");
 
 	const alert = await screen.findByRole("alert");
 	expect(alert.textContent).toBe("That Git ref does not name a commit.");
@@ -506,15 +530,14 @@ function stubPointServer(atPoint: Reply | Promise<Reply>, list: unknown = POINTS
 }
 
 async function choosePoints() {
-	fireEvent.change(screen.getByLabelText("Compare with"), {
-		target: { value: "point" },
-	});
+	await choose("A recovery point…");
 	return (await screen.findByLabelText("Recovery point")) as HTMLSelectElement;
 }
 
 async function comparePoint() {
 	await choosePoints();
 	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+	await waitFor(() => expect(screen.queryByTestId("diff-point-dialog")).toBeNull());
 }
 
 test("the point picker lists each point by time and trigger, and asks only on Compare", async () => {
@@ -538,7 +561,7 @@ test("the point picker lists each point by time and trigger, and asks only on Co
 	const wanted = `/workspaces/${WORKSPACE}/projects/${PROJECT}/recovery-points/${POINT_B}/diff?path=src%2Fapp.ts`;
 	expect(urls.some((url) => url.endsWith(wanted))).toBe(true);
 	expect(screen.getByTestId("diff-sides").textContent).toBe(`${labelB}Your changes`);
-	expect(screen.getByText(`Diff with recovery point ${labelB} · ${PATH}`)).toBeTruthy();
+	expect(screen.queryByTestId("diff-point-dialog")).toBeNull();
 });
 
 test("reading a point announces that it can take up to a minute", async () => {
@@ -558,7 +581,34 @@ test("reading a point announces that it can take up to a minute", async () => {
 	expect(region.textContent).toBe("");
 });
 
-test("one polite status region, always there, carries every wait and the empty list", async () => {
+test("the pane has one polite status region for a point's read, there before any wait", async () => {
+	let release: (reply: Reply) => void = () => {};
+	stubPointServer(
+		new Promise<Reply>((resolve) => {
+			release = resolve;
+		}),
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	// Mounted, and empty, before any wait, so the first change is announced.
+	const region = screen.getByTestId("diff-compare-status");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toBe("");
+
+	await comparePoint();
+	await waitFor(() => expect(region.textContent).toContain("up to a minute"));
+	await act(async () => release({ status: 200, body: diff({ before: "x\n" }) }));
+	await waitFor(() => expect(region.textContent).toBe(""));
+	// The same node all along: nothing was swapped in under the reader.
+	expect(screen.getByTestId("diff-compare-status")).toBe(region);
+});
+
+/**
+ * SPEC.md §25.8: a modal dialog hides the page behind it from screen readers,
+ * so the list's wait is said in one region inside the dialog.
+ */
+test("the point dialog says in one polite region while the list loads and when it is empty", async () => {
 	let releaseList: (reply: Reply) => void = () => {};
 	const listReply = new Promise<Reply>((resolve) => {
 		releaseList = resolve;
@@ -577,16 +627,13 @@ test("one polite status region, always there, carries every wait and the empty l
 	);
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
-	// Mounted, and empty, before any wait, so the first change is announced.
-	const region = screen.getByTestId("diff-compare-status");
+	await choose("A recovery point…");
+	const dialog = await screen.findByTestId("diff-point-dialog");
+	const region = await screen.findByTestId("diff-point-status");
+	expect(dialog.contains(region)).toBe(true);
 	expect(region.getAttribute("role")).toBe("status");
 	expect(region.getAttribute("aria-live")).toBe("polite");
-	expect(region.textContent).toBe("");
-
-	fireEvent.change(screen.getByLabelText("Compare with"), {
-		target: { value: "point" },
-	});
-	await waitFor(() => expect(region.textContent).toBe("Loading recovery points…"));
+	expect(region.textContent).toBe("Loading recovery points…");
 	await act(async () =>
 		releaseList({
 			status: 200,
@@ -596,11 +643,7 @@ test("one polite status region, always there, carries every wait and the empty l
 	await waitFor(() =>
 		expect(region.textContent).toBe("This project has no recovery points yet."),
 	);
-	// The same node all along: nothing was swapped in under the reader.
-	expect(screen.getByTestId("diff-compare-status")).toBe(region);
-	expect(screen.getAllByRole("status").filter((node) => node === region)).toHaveLength(
-		1,
-	);
+	expect(screen.getByTestId("diff-point-status")).toBe(region);
 });
 
 test("a save or a file event does not read the point again; Compare does", async () => {
@@ -630,7 +673,7 @@ test("a save or a file event does not read the point again; Compare does", async
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	expect(pointReads()).toBe(1);
 
-	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+	await comparePoint();
 	await waitFor(() => expect(pointReads()).toBe(2));
 });
 
@@ -640,8 +683,8 @@ test("Compare on a point viewed earlier reads it again", async () => {
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	const reads = (point: string) =>
 		urls.filter((url) => url.includes(`/${point}/diff?`)).length;
-	const select = await choosePoints();
 	const compareWith = async (point: string, times: number) => {
+		const select = await choosePoints();
 		fireEvent.change(select, { target: { value: point } });
 		fireEvent.click(screen.getByRole("button", { name: "Compare" }));
 		await waitFor(() => expect(reads(point)).toBe(times));
@@ -673,15 +716,14 @@ test("two views of one file give each control its own id", async () => {
 			<DiffLeaf path={PATH} workspaceId={WORKSPACE} projectId={PROJECT} />
 		</>,
 	);
-	const selects = screen.getAllByLabelText("Compare with");
-	expect(selects).toHaveLength(2);
-	expect(selects[0]?.id).not.toBe(selects[1]?.id);
-	for (const select of selects) {
-		fireEvent.change(select, { target: { value: "ref" } });
+	const ids: string[] = [];
+	for (const index of [0, 1]) {
+		await choose("A Git ref…", index);
+		ids.push((await screen.findByLabelText("Branch, tag, or commit")).id);
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
 	}
-	const refs = screen.getAllByLabelText("Branch, tag, or commit");
-	expect(refs).toHaveLength(2);
-	expect(refs[0]?.id).not.toBe(refs[1]?.id);
+	expect(ids[0]).not.toBe(ids[1]);
 });
 
 test("a point that timed out shows the server's message as an alert", async () => {
@@ -759,11 +801,9 @@ test("a project with no points says so and offers no Compare", async () => {
 	);
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
-	fireEvent.change(screen.getByLabelText("Compare with"), {
-		target: { value: "point" },
-	});
+	await choose("A recovery point…");
 	await waitFor(() =>
-		expect(screen.getByTestId("diff-compare-status").textContent).toBe(
+		expect(screen.getByTestId("diff-point-status").textContent).toBe(
 			"This project has no recovery points yet.",
 		),
 	);
@@ -797,7 +837,7 @@ test("a second read refused while another runs is said out loud, over the last d
 			message: "Another recovery point is being read. Try again when it finishes.",
 		},
 	};
-	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+	await comparePoint();
 	const alert = await screen.findByRole("alert");
 	expect(alert.getAttribute("data-testid")).toBe("diff-error");
 	expect(alert.textContent).toContain("Another recovery point is being read");

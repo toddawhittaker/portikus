@@ -136,9 +136,7 @@ test.describe("diff tab", () => {
 		});
 
 		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Renamed");
-		await expect(page.getByTestId(`diff-pane-${PATH}`)).toContainText(
-			`Diff · src/old.ts → ${PATH}`,
-		);
+		await expect(page.getByTestId("diff-note")).toHaveText("Renamed from src/old.ts");
 	});
 
 	test("an unresolved conflict says where the markers are", async ({
@@ -161,7 +159,8 @@ test.describe("diff tab", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const binaryPath = "assets/logo.png";
+		// Not an image: an image tab only ever shows the picture.
+		const binaryPath = "assets/data.bin";
 		await openDiffTab(
 			page,
 			student,
@@ -172,7 +171,7 @@ test.describe("diff tab", () => {
 
 		await expect(page.getByText("Binary file changed")).toBeVisible();
 		await expect(
-			page.getByRole("button", { name: "Download logo.png" }),
+			page.getByRole("button", { name: "Download data.bin" }),
 		).toHaveAttribute("data-testid", `diff-download-${binaryPath}`);
 		await expect(page.getByTestId(`diff-editor-${binaryPath}`)).toHaveCount(0);
 	});

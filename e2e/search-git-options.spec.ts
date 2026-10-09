@@ -180,39 +180,57 @@ test.describe("search options and Git refs", () => {
 		await expect(pane).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("diff-sides")).toHaveText("Last commitYour changes");
 
-		await pane.getByLabel("Compare with").selectOption("ref");
-		await pane.getByLabel("Branch, tag, or commit").fill("v1.0");
-		await pane.getByRole("button", { name: "Compare" }).click();
+		const dialog = page.getByTestId("diff-ref-dialog");
+		/** Choose "A Git ref…" from the compact Compare with menu, by keyboard. */
+		async function askForRef() {
+			await pane.getByRole("button", { name: "Compare with" }).focus();
+			await page.keyboard.press("Enter");
+			await page.getByRole("menuitem", { name: "A Git ref…" }).click();
+			await expect(dialog).toBeVisible();
+		}
+
+		await askForRef();
+		await dialog.getByLabel("Branch, tag, or commit").fill("v1.0");
+		await dialog.getByRole("button", { name: "Compare" }).click();
+		await expect(dialog).toHaveCount(0);
+		// The keyboard is back on the control that asked.
+		await expect(pane.getByRole("button", { name: "Compare with" })).toBeFocused();
 
 		await expect(page.getByTestId("diff-sides")).toHaveText("v1.0Your changes");
-		await expect(pane).toContainText(`Diff with v1.0 · ${FILE}`);
 		await expect(page.getByTestId(`diff-editor-${FILE}`)).toContainText(
 			"const answer = 0;",
 			{ timeout: 60_000 },
 		);
 
-		await pane.getByLabel("Branch, tag, or commit").fill("nope");
-		await pane.getByRole("button", { name: "Compare" }).click();
+		await askForRef();
+		await expect(dialog.getByLabel("Branch, tag, or commit")).toHaveValue("v1.0");
+		await dialog.getByLabel("Branch, tag, or commit").fill("nope");
+		await page.keyboard.press("Enter");
 		await expect(pane.getByRole("alert")).toHaveText(
 			"That Git ref does not name a commit.",
 		);
 
 		// A ref that would read as an option is refused in the page.
-		await pane.getByLabel("Branch, tag, or commit").fill("--output=x");
-		await pane.getByRole("button", { name: "Compare" }).click();
-		await expect(pane.getByRole("alert").first()).toBeVisible();
-		await expect(pane.getByLabel("Branch, tag, or commit")).toHaveAttribute(
+		await askForRef();
+		await dialog.getByLabel("Branch, tag, or commit").fill("--output=x");
+		await dialog.getByRole("button", { name: "Compare" }).click();
+		await expect(dialog.getByRole("alert")).toHaveText(
+			"Type a branch, tag, or commit id.",
+		);
+		await expect(dialog.getByLabel("Branch, tag, or commit")).toHaveAttribute(
 			"aria-invalid",
 			"true",
 		);
 
-		// SPEC.md §25.8: the compare control adds no violation to the diff header.
-		await expectNoViolations(page, "[data-testid=diff-compare]");
+		// SPEC.md §25.8: the compare dialog and the header add no violation.
+		await expectNoViolations(page, "[data-testid=diff-ref-dialog]");
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+		await expectNoViolations(page, `[data-testid="diff-pane-${FILE}"] .pk-file-header`);
 
 		// The choice is local: a reload compares with the last commit again.
 		await page.reload();
 		await page.getByTestId(`file-view-diff-${FILE}`).click();
 		await expect(page.getByTestId("diff-sides")).toHaveText("Last commitYour changes");
-		await expect(pane.getByLabel("Compare with")).toHaveValue("head");
 	});
 });

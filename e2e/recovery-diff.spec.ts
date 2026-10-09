@@ -79,9 +79,23 @@ test.describe("compare with a recovery point", () => {
 		const pane = page.getByTestId(`diff-pane-${FILE}`);
 		await expect(pane).toBeVisible({ timeout: 15_000 });
 
-		// The whole choice is made from the keyboard.
-		await pane.getByLabel("Compare with").selectOption("point");
-		const picker = pane.getByLabel("Recovery point");
+		// The whole choice is made from the keyboard, from the compact
+		// Compare with menu in the diff's header.
+		const compareWith = pane.getByRole("button", { name: "Compare with" });
+		const pointDialog = page.getByTestId("diff-point-dialog");
+		const picker = pointDialog.getByLabel("Recovery point");
+		async function askForPoint() {
+			await compareWith.focus();
+			await page.keyboard.press("Enter");
+			await expect(page.getByRole("menuitem", { name: "Last commit" })).toBeFocused();
+			await page.keyboard.press("End");
+			await expect(
+				page.getByRole("menuitem", { name: "A recovery point…" }),
+			).toBeFocused();
+			await page.keyboard.press("Enter");
+			await expect(pointDialog).toBeVisible();
+		}
+		await askForPoint();
 		await expect(picker.locator("option")).toHaveCount(2);
 		await expect(picker.locator("option").first()).toContainText("Made by you");
 		// Newest first, so the first draft is the second entry.
@@ -89,11 +103,13 @@ test.describe("compare with a recovery point", () => {
 		await picker.selectOption({ index: 1 });
 		const label = (await picker.locator("option").nth(1).textContent()) ?? "";
 		await page.keyboard.press("Tab");
-		await expect(pane.getByRole("button", { name: "Compare" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(pointDialog.getByRole("button", { name: "Compare" })).toBeFocused();
 		await page.keyboard.press("Enter");
+		await expect(pointDialog).toHaveCount(0);
+		await expect(compareWith).toBeFocused();
 
 		await expect(page.getByTestId("diff-sides")).toHaveText(`${label}Your changes`);
-		await expect(pane).toContainText(`Diff with recovery point ${label} · ${FILE}`);
 		await expect(page.getByTestId(`diff-editor-${FILE}`)).toContainText("first draft", {
 			timeout: 60_000,
 		});
@@ -124,14 +140,27 @@ test.describe("compare with a recovery point", () => {
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 		await page.waitForTimeout(500);
 		expect(pointReads).toBe(0);
-		await pane.getByRole("button", { name: "Compare" }).click();
-		await expect.poll(() => pointReads).toBe(1);
+		// The dialog opens on the point compared with now, and Compare reads it again.
+		await askForPoint();
+		await expect(picker).toHaveValue(
+			(await picker.locator("option").nth(1).getAttribute("value")) ?? "",
+		);
 
-		// SPEC.md §25.8: the picker adds no violation in either theme.
+		// SPEC.md §25.8: the picker and the header add no violation in either theme.
 		for (const scheme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: scheme });
 			const results = await (await settledAxe(page))
-				.include("[data-testid=diff-compare]")
+				.include("[data-testid=diff-point-dialog]")
+				.withTags(WCAG_TAGS)
+				.analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		}
+		await pointDialog.getByRole("button", { name: "Compare" }).click();
+		await expect.poll(() => pointReads).toBe(1);
+		for (const scheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme: scheme });
+			const results = await (await settledAxe(page))
+				.include(`[data-testid="diff-pane-${FILE}"] .pk-file-header`)
 				.withTags(WCAG_TAGS)
 				.analyze();
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
@@ -139,8 +168,9 @@ test.describe("compare with a recovery point", () => {
 
 		// A read that runs out of time says so out loud.
 		await failPointDiffs(student.workspaceId, "RECOVERY_READ_TIMEOUT");
+		await askForPoint();
 		await picker.selectOption({ index: 0 });
-		await pane.getByRole("button", { name: "Compare" }).click();
+		await pointDialog.getByRole("button", { name: "Compare" }).click();
 		await expect(pane.getByRole("alert")).toHaveText(
 			"Reading this file from the recovery point took too long. Try again, or restore the point to see it.",
 		);
@@ -149,6 +179,5 @@ test.describe("compare with a recovery point", () => {
 		await page.reload();
 		await page.getByTestId(`file-view-diff-${FILE}`).click();
 		await expect(page.getByTestId("diff-sides")).toHaveText("Last commitYour changes");
-		await expect(pane.getByLabel("Compare with")).toHaveValue("head");
 	});
 });
