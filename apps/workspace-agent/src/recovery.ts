@@ -233,7 +233,7 @@ export async function restoreRecoveryPoint(
 			"the recovery point does not match its record",
 		);
 	}
-	for (const name of listed.stdout.split("\n")) {
+	for (const name of listed.stdout.toString("utf8").split("\n")) {
 		if (name !== "" && !safeMemberName(name)) {
 			throw new AgentFailure(
 				"RECOVERY_POINT_INVALID",
@@ -391,7 +391,7 @@ export function safeMemberName(name: string): boolean {
 	return !name.startsWith("/") && !name.split("/").includes("..");
 }
 
-function assertId(id: string): void {
+export function assertId(id: string): void {
 	if (!UUID.test(id)) {
 		throw new AgentFailure("BAD_REQUEST", "invalid id");
 	}
@@ -401,7 +401,7 @@ function assertId(id: string): void {
  * The project's directory on the recovery volume, 0700. It must be a real
  * directory, so a symlink planted there cannot send archives elsewhere.
  */
-async function pointDirectory(
+export async function pointDirectory(
 	root: string,
 	projectId: string,
 	create: boolean,
@@ -486,15 +486,28 @@ async function writeArchive(
 	return { sizeBytes: tap.size(), sha256: tap.digest() };
 }
 
+/** What one pass over an archive produced. */
+export interface ArchiveRead {
+	sha256: string;
+	/** tar's output, cut at `maxStdoutBytes` when one was given. */
+	stdout: Buffer;
+	/** True when tar wrote more than `maxStdoutBytes`. */
+	overflow: boolean;
+	/** True when tar read the whole archive but a named member was not in it. */
+	missingMember: boolean;
+}
+
 /**
  * Stream the archive, hashing the compressed bytes, through zstd into tar
  * with the given arguments. The file is opened without following a link.
- * Any failure is `RECOVERY_POINT_INVALID`.
+ * Running past `timeoutMs` is `RECOVERY_READ_TIMEOUT`; any other failure is
+ * `RECOVERY_POINT_INVALID`.
  */
-async function readArchive(
+export async function readArchive(
 	archive: string,
 	tarArgs: string[],
-): Promise<{ sha256: string; stdout: string }> {
+	limits: { maxStdoutBytes?: number; timeoutMs?: number } = {},
+): Promise<ArchiveRead> {
 	let handle: Awaited<ReturnType<typeof open>>;
 	try {
 		handle = await open(archive, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -505,19 +518,32 @@ async function readArchive(
 		await handle.close();
 		throw new AgentFailure("RECOVERY_POINT_INVALID", "no such recovery point");
 	}
-	const child = spawn("tar", [...tarArgs, "--file=-"], {
+	// First, so a `--` in tarArgs cannot turn it into a member name.
+	const child = spawn("tar", ["--file=-", ...tarArgs], {
 		stdio: ["pipe", "pipe", "pipe"],
 		env: { ...process.env, LC_ALL: "C" },
 	});
-	let stdout = "";
+	const cap = limits.maxStdoutBytes ?? Number.POSITIVE_INFINITY;
+	const chunks: Buffer[] = [];
+	let kept = 0;
+	let overflow = false;
 	let stderr = "";
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk: string) => {
-		stdout += chunk;
+	child.stdout.on("data", (chunk: Buffer) => {
+		// Past the cap the rest is drained, not kept, so tar still reads the
+		// whole archive and the hash still covers all of it.
+		if (overflow) return;
+		if (kept + chunk.length > cap) {
+			chunks.push(chunk.subarray(0, cap - kept));
+			kept = cap;
+			overflow = true;
+			return;
+		}
+		chunks.push(chunk);
+		kept += chunk.length;
 	});
 	child.stderr.setEncoding("utf8");
 	child.stderr.on("data", (chunk: string) => {
-		// Only searched for the no-space message and never logged.
+		// Only searched for known messages and never logged.
 		stderr = (stderr + chunk).slice(-4096);
 	});
 	child.stdin.on("error", () => {
@@ -541,25 +567,50 @@ async function readArchive(
 		},
 	});
 	const tap = hashingTap();
+	const stop = new AbortController();
+	let timedOut = false;
+	const timer =
+		limits.timeoutMs === undefined
+			? undefined
+			: setTimeout(() => {
+					timedOut = true;
+					stop.abort();
+					child.kill("SIGKILL");
+				}, limits.timeoutMs);
 	const [streamed, exited] = await Promise.allSettled([
-		pipeline(handle.createReadStream(), tap.stream, createZstdDecompress(), toTar),
+		pipeline(handle.createReadStream(), tap.stream, createZstdDecompress(), toTar, {
+			signal: stop.signal,
+		}),
 		exitCode(child),
 	]);
-	if (streamed.status === "rejected") child.kill();
-	if (
-		streamed.status === "rejected" ||
-		exited.status === "rejected" ||
-		exited.value !== 0
-	) {
-		if (/No space left on device|Disk quota exceeded/.test(stderr)) {
-			throw new AgentFailure("STORAGE_FULL", "there is not enough space to restore");
-		}
+	clearTimeout(timer);
+	if (timedOut) {
 		throw new AgentFailure(
-			"RECOVERY_POINT_INVALID",
-			"the recovery point could not be read",
+			"RECOVERY_READ_TIMEOUT",
+			"reading the recovery point took too long",
 		);
 	}
-	return { sha256: tap.digest(), stdout };
+	if (streamed.status === "rejected") child.kill();
+	const read: ArchiveRead = {
+		sha256: tap.digest(),
+		stdout: Buffer.concat(chunks),
+		overflow,
+		missingMember: false,
+	};
+	if (streamed.status === "fulfilled" && exited.status === "fulfilled") {
+		if (exited.value === 0) return read;
+		// GNU tar reads to the end, then exits 2 when a named member is absent.
+		if (exited.value === 2 && /Not found in archive/.test(stderr)) {
+			return { ...read, missingMember: true };
+		}
+	}
+	if (/No space left on device|Disk quota exceeded/.test(stderr)) {
+		throw new AgentFailure("STORAGE_FULL", "there is not enough space to restore");
+	}
+	throw new AgentFailure(
+		"RECOVERY_POINT_INVALID",
+		"the recovery point could not be read",
+	);
 }
 
 function hashingTap(): { stream: Transform; size: () => number; digest: () => string } {

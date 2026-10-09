@@ -188,6 +188,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/recovery-points": owner,
 	"POST /workspaces/:id/projects/:pid/recovery-points": owner,
 	"POST /workspaces/:id/projects/:pid/recovery-points/:rpid/restore": owner,
+	"GET /workspaces/:id/projects/:pid/recovery-points/:rpid/diff": owner,
+	"HEAD /workspaces/:id/projects/:pid/recovery-points/:rpid/diff": owner,
 	"POST /workspaces/:id/reset-docker": { access: "owner-or-admin" },
 
 	"GET /courses": { access: "course-instructor" },

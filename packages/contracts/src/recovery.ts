@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProjectPath } from "./files.js";
 
 /** Why a recovery point was made (SPEC.md §15.6). */
 export const RecoveryReason = z.enum([
@@ -131,3 +132,23 @@ export const AgentRecoveryArchiveList = z.object({
 		.max(20_000),
 });
 export type AgentRecoveryArchiveList = z.infer<typeof AgentRecoveryArchiveList>;
+
+/**
+ * How long the agent may spend reading one file out of a recovery point for
+ * a comparison; the control plane budgets its own wait from this (SPEC.md
+ * §15.8, §12.6).
+ */
+export const RECOVERY_DIFF_TIMEOUT_MS = 60_000;
+
+/**
+ * Query for the agent's `GET /projects/:slug/recovery-points/:pointId/diff`.
+ * The archive must match `sha256`, as a restore checks (SPEC.md §24.6).
+ */
+export const AgentRecoveryDiffQuery = z
+	.object({
+		projectId: z.string().uuid(),
+		path: ProjectPath,
+		sha256: Sha256,
+	})
+	.strict();
+export type AgentRecoveryDiffQuery = z.infer<typeof AgentRecoveryDiffQuery>;

@@ -5,6 +5,7 @@
  */
 import {
 	AgentCreateRecoveryPointRequest,
+	AgentRecoveryDiffQuery,
 	AgentRestoreRecoveryPointRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
@@ -19,6 +20,7 @@ import {
 	type RecoveryPaths,
 	restoreRecoveryPoint,
 } from "./recovery.js";
+import { recoveryPointDiff } from "./recovery-diff.js";
 
 const SlugParams = z.object({ slug: z.string() });
 const RestoreParams = z.object({ slug: z.string(), pointId: z.string().uuid() });
@@ -113,6 +115,28 @@ export async function recoveryRoutes(
 			}
 			request.log.info({ projectId, pointId }, "recovery point restored");
 			return reply.code(204).send();
+		},
+	);
+
+	// Read-only, so it takes no project lock: a restore running beside it
+	// swaps the project, never the archive (SPEC.md §15.8).
+	instance.get(
+		"/projects/:slug/recovery-points/:pointId/diff",
+		async (request, reply) => {
+			const params = RestoreParams.safeParse(request.params);
+			const query = AgentRecoveryDiffQuery.safeParse(request.query);
+			if (!params.success || !query.success) {
+				return reply.code(400).send(badRequest());
+			}
+			try {
+				return await recoveryPointDiff(paths, {
+					slug: params.data.slug,
+					pointId: params.data.pointId,
+					...query.data,
+				});
+			} catch (error) {
+				return sendError(request, reply, error, "INTERNAL");
+			}
 		},
 	);
 

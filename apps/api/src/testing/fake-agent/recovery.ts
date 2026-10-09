@@ -11,6 +11,7 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		recoveryFull,
 		restoreIncomplete,
 		restoreFailure,
+		diffFailure,
 		projectNotFound,
 		keyOf,
 		dirs,
@@ -110,6 +111,37 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 			return reply.status(204).send();
 		},
 	);
+
+	app.get("/projects/:slug/recovery-points/:pointId/diff", async (request, reply) => {
+		const { slug, pointId } = request.params as { slug: string; pointId: string };
+		const query = request.query as { projectId: string; path: string; sha256: string };
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const point = recoveryPoints.get(pointId);
+		if (
+			!point ||
+			point.key !== keyOf(request) ||
+			point.projectId !== query.projectId ||
+			point.sha256 !== query.sha256
+		) {
+			return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
+		}
+		const failure = diffFailure.get(keyOf(request));
+		if (failure) return recoveryError(reply, failure[0], failure[1]);
+		const then = point.entries.get(`/${query.path}`);
+		const now = fsOf(request).get(`${slug}/${query.path}`);
+		const before = then?.type === "file" ? then.content.toString() : null;
+		const after = now?.type === "file" ? now.content.toString() : null;
+		if (before === null && after === null) {
+			return recoveryError(reply, 404, "FILE_NOT_FOUND");
+		}
+		return {
+			status: before === null ? "A" : after === null ? "D" : "M",
+			before,
+			after,
+			binary: false,
+			tooLarge: false,
+		};
+	});
 
 	app.delete("/recovery-points/:projectId/:pointId", async (request, reply) => {
 		const { pointId } = request.params as { pointId: string };

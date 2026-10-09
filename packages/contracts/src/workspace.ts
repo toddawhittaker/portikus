@@ -272,6 +272,7 @@ export const ApiErrorCode = z.enum([
 	"STORAGE_FULL",
 	"OPERATION_PENDING",
 	"BUSY",
+	"RECOVERY_READ_TIMEOUT",
 	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
 	// Dex user management (ADR 0028).

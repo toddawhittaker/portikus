@@ -112,6 +112,8 @@ export interface FakeAgent {
 	restoreIncomplete: Set<string>;
 	/** Workspace keys whose restores fail with this status and code. */
 	restoreFailure: Map<string, [number, string]>;
+	/** Workspace keys whose recovery-point diffs fail with this status and code. */
+	diffFailure: Map<string, [number, string]>;
 	/** Storage figures `/usage` reports, by workspace key; absent means null. */
 	storage: Map<string, FakeStorage>;
 	/** Processes `/usage` reports and `/processes/:pid/stop` stops, by workspace key. */
@@ -154,6 +156,7 @@ export async function startFakeAgent(
 		recoveryFull,
 		restoreIncomplete,
 		restoreFailure,
+		diffFailure,
 		storage,
 		processes,
 		authorized,
@@ -332,6 +335,7 @@ export async function startFakeAgent(
 		recoveryFull,
 		restoreIncomplete,
 		restoreFailure,
+		diffFailure,
 		storage,
 		processes,
 		get failForward() {
