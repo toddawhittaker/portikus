@@ -11,7 +11,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
-import { type RefObject, useEffect, useRef } from "react";
+import { type MutableRefObject, type RefObject, useEffect, useRef } from "react";
 import { wrappedUrlsOnRow } from "../links.js";
 import { currentPlatform } from "../platform.js";
 import { decide } from "./terminalClipboard.js";
@@ -180,6 +180,10 @@ export interface UseXtermOptions {
 	onLeave: () => void;
 	/** A URL in the output was activated. */
 	openUrl: (uri: string) => void;
+	/** Alt+Shift+M pressed (true) or released (false): hold to talk. */
+	onVoiceHold?: (held: boolean) => void;
+	/** Set to a function that types dictated text into this terminal. */
+	dictation?: MutableRefObject<((text: string) => void) | null>;
 	/** A paste that is a png or jpeg alone. Without this it is ignored. */
 	pasteImage?: (image: Blob, type: string) => void | Promise<void>;
 	/**
@@ -205,6 +209,8 @@ export function useXterm({
 	onLeave,
 	openUrl,
 	pasteImage,
+	onVoiceHold,
+	dictation,
 	attach,
 }: UseXtermOptions): void {
 	const xterm = useRef<Xterm | null>(null);
@@ -213,8 +219,26 @@ export function useXterm({
 
 	// Callbacks the long-lived effect reads through a ref, so that a new
 	// render does not tear down the terminal and what it is attached to.
-	const handlers = useRef({ onFocus, onLeave, openUrl, pasteImage, toast, name });
-	handlers.current = { onFocus, onLeave, openUrl, pasteImage, toast, name };
+	const handlers = useRef({
+		onFocus,
+		onLeave,
+		openUrl,
+		pasteImage,
+		onVoiceHold,
+		toast,
+		name,
+	});
+	handlers.current = {
+		onFocus,
+		onLeave,
+		openUrl,
+		pasteImage,
+		onVoiceHold,
+		toast,
+		name,
+	};
+	const dictationRef = useRef(dictation);
+	dictationRef.current = dictation;
 	const visibleRef = useRef(visible);
 	visibleRef.current = visible;
 	const focusOnMountRef = useRef(focusOnMount);
@@ -241,11 +265,18 @@ export function useXterm({
 		// True while the keyboard is in this pane; a copy nobody asked for is not
 		// allowed to reach the system clipboard (SPEC.md §24.2).
 		let focused = false;
+		// Alt+Shift+M is down; a keyup elsewhere would never reach this pane,
+		// so leaving the pane lets go too.
+		let voiceHeld = false;
 		const onFocusIn = () => {
 			focused = true;
 		};
 		const onFocusOut = () => {
 			focused = false;
+			if (voiceHeld) {
+				voiceHeld = false;
+				handlers.current.onVoiceHold?.(false);
+			}
 		};
 		container.addEventListener("focusin", onFocusIn);
 		container.addEventListener("focusout", onFocusOut);
@@ -378,8 +409,39 @@ export function useXterm({
 			}
 		}
 
+		// Dictated text is already free of control characters, so no Enter.
+		const dictationTarget = dictationRef.current;
+		if (dictationTarget) dictationTarget.current = (text) => term.paste(text);
+
 		const platform = currentPlatform();
 		term.attachCustomKeyEventHandler((event) => {
+			// Alt+Shift+M listens while held. The code, not the key: Alt changes
+			// the character on a Mac.
+			const voice = handlers.current.onVoiceHold;
+			if (voice) {
+				if (
+					event.type === "keydown" &&
+					event.altKey &&
+					event.shiftKey &&
+					event.code === "KeyM"
+				) {
+					event.preventDefault();
+					if (!voiceHeld) {
+						voiceHeld = true;
+						voice(true);
+					}
+					return false;
+				}
+				if (
+					event.type === "keyup" &&
+					voiceHeld &&
+					(event.code === "KeyM" || event.key === "Alt" || event.key === "Shift")
+				) {
+					voiceHeld = false;
+					voice(false);
+					return false;
+				}
+			}
 			if (
 				event.type === "keydown" &&
 				event.altKey &&
@@ -449,6 +511,8 @@ export function useXterm({
 		observer.observe(container);
 
 		return () => {
+			if (dictationTarget) dictationTarget.current = null;
+			if (voiceHeld) handlers.current.onVoiceHold?.(false);
 			session.dispose();
 			if (settle !== undefined) clearTimeout(settle);
 			observer.disconnect();
