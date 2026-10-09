@@ -19,6 +19,10 @@ const gate = (status = "completed") => ({
 });
 const build = (status: string) => ({ name: "Build the Debian package", status });
 const apt = (status: string) => ({ name: "Sign the apt repository", status });
+const pages = (status: string) => ({
+	name: "Deploy the apt repository to Pages",
+	status,
+});
 
 describe("otherWriters", () => {
 	test("a re-sign checks every unfinished release", () => {
@@ -46,6 +50,18 @@ describe("willSign", () => {
 		expect(willSign([gate(), build("in_progress"), apt("queued")])).toBe(true);
 		expect(willSign([gate(), build("completed"), apt("queued")])).toBe(true);
 		expect(willSign([gate(), build("completed"), apt("in_progress")])).toBe(true);
+	});
+
+	test("a release still deploying its signed index to Pages counts", () => {
+		expect(
+			willSign([gate(), build("completed"), apt("completed"), pages("queued")]),
+		).toBe(true);
+		expect(
+			willSign([gate(), build("completed"), apt("completed"), pages("in_progress")]),
+		).toBe(true);
+		expect(
+			willSign([gate(), build("completed"), apt("completed"), pages("completed")]),
+		).toBe(false);
 	});
 
 	test("a release whose apt job waits for approval does not count", () => {

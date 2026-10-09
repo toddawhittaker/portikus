@@ -26,6 +26,7 @@ const UNFINISHED = new Set([
 const GATE_JOB = "Decide whether this push is a release";
 const BUILD_JOB = "Build the Debian package";
 const APT_JOB = "Sign the apt repository";
+const PAGES_JOB = "Deploy the apt repository to Pages";
 
 export function otherWriters(runs, mode, selfId) {
 	return runs
@@ -45,6 +46,10 @@ export function willSign(jobs) {
 	if (gate?.status !== "completed") return true;
 	const build = job(BUILD_JOB);
 	if (build && UNFINISHED.has(build.status)) return true;
+	// Once signed, the new index is not live until Pages deploys it, so a
+	// re-sign before then would redeploy the old index over it.
+	const pages = job(PAGES_JOB);
+	if (pages && UNFINISHED.has(pages.status)) return true;
 	const apt = job(APT_JOB);
 	return Boolean(apt && UNFINISHED.has(apt.status) && apt.status !== "waiting");
 }
