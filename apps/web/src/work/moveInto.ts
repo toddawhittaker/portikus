@@ -4,30 +4,31 @@
  * onto the right edge of that tab's last terminal would.
  */
 import type { ProjectLayout } from "@portikus/contracts";
-import { type DropEdge, moveLeaf, terminalIds } from "../layout/tree.js";
+import { type DropEdge, moveLeaf, paneIds } from "../layout/tree.js";
 
 export interface MoveIntoTarget {
 	tabId: string;
-	/** The pane the moved one lands beside. */
+	/** The pane the moved one lands beside: a terminal id or a file's pane id. */
 	terminalId: string;
 	edge: DropEdge;
 }
 
 /**
- * Every other tab that can take this pane as a split, in tab order. A file or
- * preview tab holds no terminals, and a tab already at the depth limit
- * refuses the move, so neither is offered.
+ * Every other tab that can take this pane, a terminal or a file, as a split,
+ * in tab order. A preview tab holds no panes, and a tab already at the depth
+ * limit refuses the move, so neither is offered.
  */
 export function moveIntoTargets(
 	layout: ProjectLayout,
-	terminalId: string,
+	paneId: string,
 ): MoveIntoTarget[] {
 	return layout.tabs.flatMap((tab) => {
-		const ids = terminalIds(tab.root);
+		const ids = paneIds(tab.root);
 		const last = ids.at(-1);
-		if (last === undefined || ids.includes(terminalId)) return [];
+		if (last === undefined || ids.includes(paneId)) return [];
 		const target: MoveIntoTarget = { tabId: tab.id, terminalId: last, edge: "right" };
-		const moved = moveLeaf(layout, tab.id, terminalId, last, target.edge);
+		// The id is never used: only whether the move is allowed matters here.
+		const moved = moveLeaf(layout, tab.id, paneId, last, target.edge, () => "probe");
 		return moved === layout ? [] : [target];
 	});
 }

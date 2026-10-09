@@ -12,7 +12,7 @@ import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
-/** One request for a file tab: show the diff or the editor, maybe at a line. */
+/** One request for a file pane: show the diff or the editor, maybe at a line. */
 export interface PendingView {
 	mode: "diff" | "edit";
 	line?: number;
@@ -24,9 +24,10 @@ export interface LayoutState {
 	activeTabId: string | null;
 	focusedTerminalId: string | null;
 	/**
-	 * What each file tab was last asked to show, by tab id: its diff or its
-	 * editor, and optionally a line to jump to. `seq` makes a repeat of the
-	 * same request a new one. A one-off request from this browser, never saved.
+	 * What each file pane was last asked to show, by its pane id
+	 * (`file:<path>`, wherever the pane sits): its diff or its editor, and
+	 * optionally a line to jump to. `seq` makes a repeat of the same request a
+	 * new one. A one-off request from this browser, never saved.
 	 */
 	pendingView: Record<string, PendingView>;
 	/**
@@ -49,9 +50,10 @@ export interface LayoutState {
 	 */
 	tabHistory: string[];
 	/**
-	 * Which file tabs have edits that are not on disk, by tab id.
-	 * The tab strip shows a dot instead of the close button for these. It is
-	 * what the editor is holding right now, so it is never saved anywhere.
+	 * Which file panes have edits that are not on disk, by pane id. The tab
+	 * strip shows a dot instead of the close button on a tab holding any of
+	 * them. It is what the editor is holding right now, so it is never saved
+	 * anywhere.
 	 */
 	unsavedTabs: Record<string, boolean>;
 	dirty: boolean;
@@ -59,13 +61,14 @@ export interface LayoutState {
 	load: (layout: ProjectLayout) => void;
 	addTab: (terminalId: string) => void;
 	/**
-	 * Object id a file tab's diff compares against, or null for Git HEAD.
-	 * Local to this browser (SPEC.md §12.7).
+	 * Object id a file pane's diff compares against, or null for Git HEAD, by
+	 * pane id. Local to this browser (SPEC.md §12.7).
 	 */
 	diffBaseline: Record<string, string | null>;
 	/**
-	 * Open a file tab, or activate the one already open for this path. With
-	 * `diff` the tab is asked to show its diff rather than the editor.
+	 * Open a file tab, or activate the tab already showing this path, alone or
+	 * in a split. With `diff` the pane is asked to show its diff rather than
+	 * the editor.
 	 * `baseline` compares that diff with an object id instead
 	 * of Git HEAD. There is no limit on open tabs.
 	 */
@@ -80,27 +83,30 @@ export interface LayoutState {
 	openPreview: (port: number) => void;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
-	/** Record whether one file tab has unsaved edits. */
-	setTabUnsaved: (tabId: string, unsaved: boolean) => void;
-	/** Read and forget what a file tab was asked to show. */
-	consumePendingView: (tabId: string) => PendingView | undefined;
+	/** Close one file's pane, whether it is a tab of its own or in a split. */
+	closeFile: (path: string) => void;
+	/** Record whether one file pane, by pane id, has unsaved edits. */
+	setTabUnsaved: (paneId: string, unsaved: boolean) => void;
+	/** Read and forget what a file pane, by pane id, was asked to show. */
+	consumePendingView: (paneId: string) => PendingView | undefined;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
 		newTerminalId: string,
 	) => void;
-	removeLeaf: (terminalId: string) => void;
+	/** Drop one pane by its pane id: a terminal id, or `file:<path>`. */
+	removeLeaf: (paneId: string) => void;
 	replaceLeaf: (terminalId: string, newTerminalId: string) => void;
 	moveTab: (from: number, to: number) => void;
-	/** Drag one pane onto another (SPEC.md §9.3). */
+	/** Drag one pane, a terminal or a file, onto another (SPEC.md §9.3). */
 	moveLeaf: (
 		tabId: string,
-		terminalId: string,
-		targetTerminalId: string,
+		paneId: string,
+		targetPaneId: string,
 		edge: tree.DropEdge,
 	) => void;
 	/** Drag one pane out to the tab strip, where it becomes its own tab. */
-	moveLeafToNewTab: (terminalId: string, index: number) => void;
+	moveLeafToNewTab: (paneId: string, index: number) => void;
 	resize: (tabId: string, path: number[], sizes: number[]) => void;
 	setActive: (tabId: string) => void;
 	/** Remember where the cursor and scroll are in one open file. */
@@ -141,6 +147,41 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 }
 
 /**
+ * The id a tab has after a change. A tab can be renamed when a file's pane
+ * leaves it or joins it (tree.ts, settleTabIds), so a tab that is gone is
+ * followed through the panes it held. Unchanged when nothing matches.
+ */
+function followTab(before: ProjectLayout, after: ProjectLayout, tabId: string): string {
+	if (after.tabs.some((tab) => tab.id === tabId)) return tabId;
+	const old = before.tabs.find((tab) => tab.id === tabId);
+	if (!old) return tabId;
+	for (const id of tree.paneIds(old.root)) {
+		const now = tree.tabOfPane(after, id);
+		if (now !== null) return now;
+	}
+	return tabId;
+}
+
+/** Drop the per-file state of files that are no longer open. */
+function forgetFiles(
+	state: LayoutState,
+	paths: string[],
+): Pick<LayoutState, "pendingView" | "diffBaseline" | "viewStates" | "zooms"> {
+	const pendingView = { ...state.pendingView };
+	const diffBaseline = { ...state.diffBaseline };
+	const viewStates = { ...state.viewStates };
+	const zooms = { ...state.zooms };
+	for (const path of paths) {
+		const id = tree.fileTabId(path);
+		delete pendingView[id];
+		delete diffBaseline[id];
+		delete viewStates[path];
+		delete zooms[path];
+	}
+	return { pendingView, diffBaseline, viewStates, zooms };
+}
+
+/**
  * Keep the active tab pointing at a tab that still exists, preferring the one
  * that was active most recently.
  */
@@ -158,19 +199,37 @@ export function createLayoutStore() {
 		let seq = 0;
 		const nextSeq = () => ++seq;
 
+		/**
+		 * The active tab and history after a change, following a tab that was
+		 * renamed rather than dropping it.
+		 */
+		function settleActive(state: LayoutState, layout: ProjectLayout) {
+			const follow = (id: string) => followTab(state.layout, layout, id);
+			const history = pruneHistory(state.tabHistory.map(follow), layout);
+			const current = state.activeTabId === null ? null : follow(state.activeTabId);
+			const activeTabId = pickActive(layout, current, history);
+			return { activeTabId, tabHistory: remember(history, activeTabId) };
+		}
+
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
 				const layout = next(state.layout);
-				const history = pruneHistory(state.tabHistory, layout);
-				const activeTabId = pickActive(layout, state.activeTabId, history);
-				return {
-					layout,
-					activeTabId,
-					tabHistory: remember(history, activeTabId),
-					dirty: true,
-				};
+				return { layout, ...settleActive(state, layout), dirty: true };
 			});
+		}
+
+		/** Show the tab a moved pane landed in. */
+		function showMoved(state: LayoutState, layout: ProjectLayout, paneId: string) {
+			if (layout === state.layout) return state;
+			const settled = settleActive(state, layout);
+			const activeTabId = tree.tabOfPane(layout, paneId) ?? settled.activeTabId;
+			return {
+				layout,
+				activeTabId,
+				tabHistory: remember(settled.tabHistory, activeTabId),
+				dirty: true,
+			};
 		}
 
 		return {
@@ -219,17 +278,18 @@ export function createLayoutStore() {
 			openFile: (path, options) => {
 				const state = get();
 				const opened = tree.openFile(state.layout, path);
-				// Exactly one of diff and editor is asked for, so a tab left in diff
+				const pane = tree.fileTabId(path);
+				// Exactly one of diff and editor is asked for, so a pane left in diff
 				// view goes back to the editor when the file is opened again. A new
 				// request replaces the old one, line included.
 				const pendingView = { ...state.pendingView };
-				pendingView[opened.tabId] = {
+				pendingView[pane] = {
 					mode: options?.diff ? "diff" : "edit",
 					line: options?.line,
 					seq: nextSeq(),
 				};
 				const diffBaseline = { ...state.diffBaseline };
-				diffBaseline[opened.tabId] =
+				diffBaseline[pane] =
 					options?.diff && options.baseline ? options.baseline : null;
 				set({
 					layout: opened.layout,
@@ -273,33 +333,42 @@ export function createLayoutStore() {
 							layout.tabs[index - 1]?.id ??
 							layout.tabs[index]?.id ??
 							null);
-					const { [tabId]: _view, ...pendingView } = state.pendingView;
-					const { [tabId]: _baseline, ...diffBaseline } = state.diffBaseline;
-					const viewStates = { ...state.viewStates };
-					const zooms = { ...state.zooms };
-					// Nothing to put back next time: the file tab is gone.
-					if (closing.root.type === "file") {
-						delete viewStates[closing.root.path];
-						delete zooms[closing.root.path];
-					}
 					return {
 						layout,
 						activeTabId,
 						tabHistory: remember(tabHistory, activeTabId),
-						pendingView,
-						diffBaseline,
-						viewStates,
-						zooms,
+						// Nothing to put back next time: the files are gone.
+						...forgetFiles(state, tree.filePaths(closing.root)),
 						dirty: true,
 					};
 				});
 			},
 
-			consumePendingView: (tabId) => {
-				const view = get().pendingView[tabId];
+			closeFile: (path) => {
+				const pane = tree.fileTabId(path);
+				const tabId = tree.tabOfPane(get().layout, pane);
+				if (tabId === null) return;
+				// A file alone in its tab closes the way its tab does.
+				if (tabId === pane) {
+					get().closeTab(tabId);
+					return;
+				}
+				set((state) => {
+					const layout = tree.removeLeaf(state.layout, pane);
+					return {
+						layout,
+						...settleActive(state, layout),
+						...forgetFiles(state, [path]),
+						dirty: true,
+					};
+				});
+			},
+
+			consumePendingView: (paneId) => {
+				const view = get().pendingView[paneId];
 				if (view !== undefined) {
 					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingView;
+						const { [paneId]: _gone, ...rest } = state.pendingView;
 						return { pendingView: rest };
 					});
 				}
@@ -316,8 +385,7 @@ export function createLayoutStore() {
 					),
 				),
 
-			removeLeaf: (terminalId) =>
-				change((layout) => tree.removeLeaf(layout, terminalId)),
+			removeLeaf: (paneId) => change((layout) => tree.removeLeaf(layout, paneId)),
 
 			replaceLeaf: (terminalId, newTerminalId) =>
 				change((layout) =>
@@ -327,37 +395,22 @@ export function createLayoutStore() {
 			moveTab: (from, to) => change((layout) => tree.moveTab(layout, from, to)),
 
 			// A pane dragged into another tab follows the drag, so show that tab.
-			moveLeaf: (tabId, terminalId, targetTerminalId, edge) =>
-				set((state) => {
-					const layout = tree.moveLeaf(
-						state.layout,
-						tabId,
-						terminalId,
-						targetTerminalId,
-						edge,
-					);
-					if (layout === state.layout) return state;
-					return {
-						layout,
-						activeTabId: tabId,
-						tabHistory: remember(pruneHistory(state.tabHistory, layout), tabId),
-						dirty: true,
-					};
-				}),
+			moveLeaf: (tabId, paneId, targetPaneId, edge) =>
+				set((state) =>
+					showMoved(
+						state,
+						tree.moveLeaf(state.layout, tabId, paneId, targetPaneId, edge),
+						paneId,
+					),
+				),
 
-			moveLeafToNewTab: (terminalId, index) =>
+			moveLeafToNewTab: (paneId, index) =>
 				set((state) => {
 					// A fresh id: the tab this pane is leaving may already be named
 					// after the terminal, and two tabs cannot share an id.
 					const tabId = crypto.randomUUID();
-					const layout = tree.moveLeafToNewTab(state.layout, terminalId, index, tabId);
-					if (layout === state.layout) return state;
-					return {
-						layout,
-						activeTabId: tabId,
-						tabHistory: remember(pruneHistory(state.tabHistory, layout), tabId),
-						dirty: true,
-					};
+					const layout = tree.moveLeafToNewTab(state.layout, paneId, index, tabId);
+					return showMoved(state, layout, paneId);
 				}),
 
 			resize: (tabId, path, sizes) =>
@@ -393,22 +446,15 @@ export function createLayoutStore() {
 				set((state) => {
 					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) return state;
-					const history = pruneHistory(state.tabHistory, layout);
-					const activeTabId = pickActive(layout, state.activeTabId, history);
-					return {
-						layout,
-						activeTabId,
-						tabHistory: remember(history, activeTabId),
-						dirty: true,
-					};
+					return { layout, ...settleActive(state, layout), dirty: true };
 				}),
 
-			setTabUnsaved: (tabId, unsaved) =>
+			setTabUnsaved: (paneId, unsaved) =>
 				set((state) => {
-					if ((state.unsavedTabs[tabId] ?? false) === unsaved) return state;
+					if ((state.unsavedTabs[paneId] ?? false) === unsaved) return state;
 					const next = { ...state.unsavedTabs };
-					if (unsaved) next[tabId] = true;
-					else delete next[tabId];
+					if (unsaved) next[paneId] = true;
+					else delete next[paneId];
 					return { unsavedTabs: next };
 				}),
 

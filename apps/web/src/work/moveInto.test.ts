@@ -27,8 +27,10 @@ const layout: ProjectLayout = {
 	],
 };
 
-test("offers every other terminal tab, in tab order, beside its last pane", () => {
+test("offers every other tab with panes, in tab order, beside its last pane", () => {
+	// A file's tab takes a terminal beside it; a preview is always a whole tab.
 	expect(moveIntoTargets(layout, "t1")).toEqual([
+		{ tabId: "file:readme.md", terminalId: "file:readme.md", edge: "right" },
 		{ tabId: "b", terminalId: "t3", edge: "right" },
 		{ tabId: "c", terminalId: "t4", edge: "right" },
 	]);
@@ -37,8 +39,23 @@ test("offers every other terminal tab, in tab order, beside its last pane", () =
 test("never offers the pane's own tab", () => {
 	expect(moveIntoTargets(layout, "t2").map((target) => target.tabId)).toEqual([
 		"a",
+		"file:readme.md",
 		"c",
 	]);
+	expect(
+		moveIntoTargets(layout, "file:readme.md").map((target) => target.tabId),
+	).toEqual(["a", "b", "c"]);
+});
+
+test("a file moved into a terminal tab joins its split", () => {
+	const next = moveLeaf(layout, "a", "file:readme.md", "t1", "right");
+	expect(next.tabs.find((tab) => tab.id === "a")?.root).toEqual({
+		type: "split",
+		direction: "row",
+		sizes: [50, 50],
+		children: [leaf("t1"), { type: "file", path: "readme.md" }],
+	});
+	expect(next.tabs.map((tab) => tab.id)).not.toContain("file:readme.md");
 });
 
 test("moving into a target joins that tab's split, as the drag does", () => {

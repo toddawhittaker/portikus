@@ -400,18 +400,23 @@ export function splitDepth(node: SplitNode): number {
 }
 
 /**
- * True when a file, diff or preview node sits anywhere below the root of a
- * tab. Only terminals split (SPEC.md §8.3), so those are always whole tabs.
+ * True when a diff or preview node sits anywhere below the root of a tab.
+ * Terminals and files may share a split (SPEC.md §8.3); a preview is always a
+ * whole tab, and a diff node is an older layout's whole tab.
  */
-function hasNestedDocument(node: SplitNode): boolean {
+function hasNestedWholeTab(node: SplitNode): boolean {
 	if (node.type !== "split") return false;
 	return node.children.some(
 		(child) =>
-			child.type === "file" ||
-			child.type === "diff" ||
-			child.type === "preview" ||
-			hasNestedDocument(child),
+			child.type === "diff" || child.type === "preview" || hasNestedWholeTab(child),
 	);
+}
+
+/** Every file path in the subtree, wherever it sits. */
+function filePaths(node: SplitNode): string[] {
+	if (node.type === "file") return [node.path];
+	if (node.type !== "split") return [];
+	return node.children.flatMap(filePaths);
 }
 
 /**
@@ -452,6 +457,7 @@ export const ProjectLayout = z.object({
 		.superRefine((tabs, ctx) => {
 			const seen = new Set<string>();
 			const documents = new Set<string>();
+			const files = new Set<string>();
 			tabs.forEach((tab, index) => {
 				// Two tabs with one id render on top of each other in the browser.
 				if (seen.has(tab.id)) {
@@ -469,12 +475,24 @@ export const ProjectLayout = z.object({
 						message: `a split may be at most ${MAX_SPLIT_DEPTH} levels deep`,
 					});
 				}
-				if (hasNestedDocument(tab.root)) {
+				if (hasNestedWholeTab(tab.root)) {
 					ctx.addIssue({
 						code: "custom",
 						path: [index, "root"],
-						message: "only terminals may be split",
+						message: "only terminals and files may be split",
 					});
+				}
+				// One pane per file, whether it is a tab or sits in a split; two
+				// would edit the same file twice.
+				for (const path of filePaths(tab.root)) {
+					if (files.has(path)) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "root"],
+							message: "a file may only be open once in a layout",
+						});
+					}
+					files.add(path);
 				}
 				const document = documentTabId(tab.root);
 				if (document === null) {
