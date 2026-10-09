@@ -161,14 +161,20 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		return reply.status(204).send();
 	});
 
-	/** Make a workspace's recovery points fail as full, or its restores as partial. */
+	/**
+	 * Make a workspace's recovery points fail as full, its restores as
+	 * partial, or its point diffs fail with a given status and code.
+	 */
 	app.post("/__test/recovery", async (request, reply) => {
 		const body = (request.body ?? {}) as {
 			key?: string;
 			storageFull?: boolean;
 			restoreIncomplete?: boolean;
+			diffFailure?: [number, string] | null;
 		};
 		const key = body.key ?? "";
+		if (body.diffFailure) diffFailure.set(key, body.diffFailure);
+		else if (body.diffFailure === null) diffFailure.delete(key);
 		if (body.storageFull) recoveryFull.add(key);
 		else recoveryFull.delete(key);
 		if (body.restoreIncomplete) restoreIncomplete.add(key);

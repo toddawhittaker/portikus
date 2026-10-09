@@ -4,7 +4,7 @@
  * disk and no other member's name matters. File names never reach a log
  * line (ADR 0012).
  */
-import { lstat, open } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type GitDiff,
@@ -12,6 +12,7 @@ import {
 	ProjectPath,
 	RECOVERY_DIFF_TIMEOUT_MS,
 } from "@portikus/contracts";
+import { finishDiff, MISSING, readWorkingTree, type Side } from "./diff-side.js";
 import { AgentFailure } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import {
@@ -21,15 +22,6 @@ import {
 	readArchive,
 	safeMemberName,
 } from "./recovery.js";
-
-const SNIFF_BYTES = 8 * 1024;
-
-interface Side {
-	content: Buffer | null;
-	tooLarge: boolean;
-}
-
-const MISSING: Side = { content: null, tooLarge: false };
 
 export interface RecoveryDiffInput {
 	slug: string;
@@ -96,7 +88,7 @@ export async function recoveryPointDiff(
 			"no such file in the point or the project",
 		);
 	}
-	return finish(before, after);
+	return finishDiff(before, after, false, undefined);
 }
 
 /** The working copy, capped; absent when it or its folder is gone. */
@@ -113,34 +105,9 @@ async function readWorkingCopy(
 			return MISSING;
 		throw error;
 	}
+	// lstat, so a symlink at the leaf is refused rather than followed.
 	const info = await lstat(target.path).catch(() => null);
 	if (info === null) return MISSING;
 	if (!info.isFile()) throw new AgentFailure("PATH_INVALID", "not a file");
-	if (info.size > MAX_DIFF_SIDE_BYTES) return { content: null, tooLarge: true };
-	const handle = await open(target.path, "r");
-	try {
-		return { content: await handle.readFile(), tooLarge: false };
-	} finally {
-		await handle.close();
-	}
-}
-
-function isBinary(side: Side): boolean {
-	return side.content?.subarray(0, SNIFF_BYTES).includes(0) ?? false;
-}
-
-function finish(before: Side, after: Side): GitDiff {
-	const tooLarge = before.tooLarge || after.tooLarge;
-	const binary = !tooLarge && (isBinary(before) || isBinary(after));
-	let status: GitDiff["status"] = "M";
-	if (before.content === null && !before.tooLarge) status = "A";
-	else if (after.content === null && !after.tooLarge) status = "D";
-	const hide = tooLarge || binary;
-	return {
-		status,
-		before: hide || before.content === null ? null : before.content.toString("utf8"),
-		after: hide || after.content === null ? null : after.content.toString("utf8"),
-		binary,
-		tooLarge,
-	};
+	return readWorkingTree(target.path);
 }

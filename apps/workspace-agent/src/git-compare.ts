@@ -1,14 +1,7 @@
 import { type GitDiff, GitRef } from "@portikus/contracts";
+import { finishDiff, MISSING, readWorkingTree } from "./diff-side.js";
 import { AgentFailure } from "./errors.js";
-import {
-	diffablePath,
-	finishDiff,
-	type GitDebugLog,
-	MISSING,
-	OBJECT_ID,
-	readWorkingTree,
-	showFromRev,
-} from "./git.js";
+import { diffablePath, type GitDebugLog, OBJECT_ID, showFromRev } from "./git.js";
 import { runGit } from "./git-runner.js";
 
 /**
