@@ -167,6 +167,71 @@ else
   bad "a clean destroy leaves the cleanup successful"
 fi
 
+# ── workspace.sh destroy, with a fake incus ──────────────────────
+
+# The destroy the cleanup calls must fail when Incus cannot list instances
+# or volumes, never read that as "nothing there" and leave something behind.
+# FAKE_INCUS_FAIL names the listing that fails: instances or volumes.
+fake_bin="${work}/bin"
+mkdir -p "$fake_bin"
+cat >"${fake_bin}/incus" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FAKE_INCUS_LOG"
+if [ "$1" = query ]; then
+  case "$2" in
+    /1.0/instances\?*)
+      [ "${FAKE_INCUS_FAIL:-}" = instances ] && exit 1
+      printf '[\n\t"/1.0/instances/ws-ours?project=portikus"\n]\n'
+      ;;
+    /1.0/storage-pools/*)
+      [ "${FAKE_INCUS_FAIL:-}" = volumes ] && exit 1
+      printf '[\n\t"/1.0/storage-pools/workspace-data/volumes/custom/ws-ours-home?project=portikus",\n\t"/1.0/storage-pools/workspace-data/volumes/custom/ws-ours-docker?project=portikus"\n]\n'
+      ;;
+  esac
+fi
+EOF
+chmod +x "${fake_bin}/incus"
+incus_log="${work}/incus.log"
+
+# destroy_with FAIL -- runs the destroy against the fake; returns its status.
+destroy_with() {
+  : >"$incus_log"
+  PATH="${fake_bin}:${PATH}" FAKE_INCUS_LOG="$incus_log" FAKE_INCUS_FAIL="$1" \
+    bash "${here}/../incus/workspace.sh" destroy ws-ours >"${work}/destroy.txt" 2>&1
+}
+
+if destroy_with ""; then ok "destroy succeeds when Incus answers"; else bad "destroy succeeds when Incus answers"; fi
+if grep -qx "delete --force ws-ours --project portikus" "$incus_log" \
+  && grep -qx "storage volume delete workspace-data ws-ours-home --project portikus" "$incus_log" \
+  && grep -qx "storage volume delete workspace-data ws-ours-docker --project portikus" "$incus_log" \
+  && ! grep -q "ws-ours-recovery --project" "$incus_log"; then
+  ok "destroy deletes the instance and the listed volumes, and skips the unlisted one"
+else
+  bad "destroy deletes the instance and the listed volumes, and skips the unlisted one"
+fi
+
+if destroy_with instances; then
+  bad "a failed instance listing fails the destroy"
+else
+  ok "a failed instance listing fails the destroy"
+fi
+if grep -q "does not exist" "${work}/destroy.txt"; then
+  bad "a failed instance listing is not read as a missing instance"
+else
+  ok "a failed instance listing is not read as a missing instance"
+fi
+
+if destroy_with volumes; then
+  bad "a failed volume listing fails the destroy"
+else
+  ok "a failed volume listing fails the destroy"
+fi
+if grep -q "volume .* does not exist" "${work}/destroy.txt"; then
+  bad "a failed volume listing is not read as a missing volume"
+else
+  ok "a failed volume listing is not read as a missing volume"
+fi
+
 echo ""
 echo "--- Results: ${pass} passed, ${fail} failed ---"
 [ "$fail" -eq 0 ]

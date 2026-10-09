@@ -516,6 +516,7 @@ class RelayTest(unittest.TestCase):
         self.run_dir = os.path.join(self.dir, "run")
         self.stderr = os.path.join(self.dir, "stderr")
         self.client, server = socket.socketpair()
+        self.reader = None
         script = os.path.join(self.dir, "shell.sh")
         name = self._testMethodName
         # login's vhangup() leaves the terminal with no open end for a moment.
@@ -550,7 +551,13 @@ class RelayTest(unittest.TestCase):
         server.close()
 
     def tearDown(self):
+        # Ends the reader's recv and tells the helper the client left, so a
+        # failed assertion cannot leave either waiting out a timeout.
+        with contextlib.suppress(OSError):
+            self.client.shutdown(socket.SHUT_RDWR)
         self.client.close()
+        if self.reader is not None:
+            self.reader.join()
         if self.pid is not None:
             os.waitpid(self.pid, 0)
         shutil.rmtree(self.dir)
@@ -576,8 +583,8 @@ class RelayTest(unittest.TestCase):
                         return
                 except OSError:
                     return
-        reader = threading.Thread(target=read, daemon=True)
-        reader.start()
+        self.reader = threading.Thread(target=read, daemon=True)
+        self.reader.start()
         # Long enough for a busy runner; a helper that stopped reading still fails.
         self.client.settimeout(60)
         for frame in frames:
