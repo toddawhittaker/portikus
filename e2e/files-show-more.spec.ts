@@ -17,7 +17,8 @@ test.describe("long directory listings", () => {
 		page,
 		context,
 	}) => {
-		test.setTimeout(90_000);
+		// Seeding 2,003 files and axe over a 2,000-row tree are slow on a shared runner.
+		test.setTimeout(150_000);
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Many" });
 		const names = Array.from(
