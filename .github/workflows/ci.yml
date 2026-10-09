@@ -150,7 +150,7 @@ jobs:
         shard: [1, 2]
     services:
       postgres:
-        image: postgres:17
+        image: mirror.gcr.io/library/postgres:17
         env:
           POSTGRES_PASSWORD: portikus
           POSTGRES_DB: portikus_test
@@ -257,7 +257,7 @@ jobs:
         shard: [1, 2, 3, 4, 5]
     services:
       postgres:
-        image: postgres:17
+        image: mirror.gcr.io/library/postgres:17
         env:
           POSTGRES_PASSWORD: portikus
           POSTGRES_DB: portikus_test
@@ -352,7 +352,7 @@ jobs:
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.infra == 'true'
     services:
       postgres:
-        image: postgres:17
+        image: mirror.gcr.io/library/postgres:17
         env:
           POSTGRES_PASSWORD: portikus
           POSTGRES_DB: portikus_test
