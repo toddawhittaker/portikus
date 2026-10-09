@@ -182,12 +182,8 @@ export function FileHeader({ path, children }: { path: string; children?: ReactN
 					{displayName(baseName(path))}
 				</span>
 			)}
-			{/* One box, so in a narrow pane the controls and the menu move under
-			    the name together and the menu stays last. */}
-			<div className="pk-file-tools">
-				{children}
-				{chrome?.actions}
-			</div>
+			<div className="pk-file-tools">{children}</div>
+			{chrome?.actions}
 		</header>
 	);
 }

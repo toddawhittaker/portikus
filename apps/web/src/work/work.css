@@ -252,9 +252,11 @@
 	background: var(--terminal-muted);
 }
 
-/* A file tab: path and autosave state above the editor (SPEC.md §13.5). */
+/* A file tab: its header above the editor (SPEC.md §13.5). The header
+   lays itself out from the pane's width, not the window's. */
 .pk-file-leaf {
 	justify-content: flex-start;
+	container: file-pane / inline-size;
 }
 
 /* The tab's body. It is a box only so the conflict diff can hide it without
@@ -264,9 +266,9 @@
 }
 
 /* A file pane's one header line (SPEC.md §8.3): the name takes the free
-   space and truncates first. Only a pane too narrow for name and controls
-   side by side moves the controls under the name, rather than past the
-   pane's edge. */
+   space and truncates first. A pane too narrow for name and controls side
+   by side keeps the name and the menu on top and puts the controls under
+   them, rather than past the pane's edge. */
 .pk-file-header {
 	flex: none;
 	display: flex;
@@ -297,6 +299,31 @@
 	align-items: center;
 	gap: var(--space-1) var(--space-2);
 	margin-inline-start: auto;
+}
+
+/* An image has no controls, so it takes no room. */
+.pk-file-tools:empty {
+	display: none;
+}
+
+@container file-pane (width < 24rem) {
+	.pk-file-header {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	/* The actions menu, last in the header, shares the top row with the name. */
+	.pk-file-header > :last-child:not(.pk-file-tools) {
+		grid-row: 1;
+		grid-column: 2;
+	}
+
+	.pk-file-header > .pk-file-tools {
+		grid-row: 2;
+		grid-column: 1 / -1;
+		justify-content: flex-start;
+		margin-inline-start: 0;
+	}
 }
 
 .pk-file-status {
