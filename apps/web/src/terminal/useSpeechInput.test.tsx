@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+	MESSAGE_MS,
 	type Recognizer,
 	resetSpeechSupport,
 	sanitizeTranscript,
@@ -117,4 +118,51 @@ test("a blocked microphone is an error with a message", () => {
 	// Trying again listens again.
 	act(() => result.current.start());
 	expect(result.current.state).toBe("listening");
+});
+
+test("a network error says why and keeps saying it", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	act(() => result.current.start());
+	act(() => fake().onerror?.({ error: "network" }));
+	expect(result.current.state).toBe("unsupported");
+	expect(result.current.message).toBe("Voice input is not available in this browser.");
+});
+
+test("an error clears itself after a while", () => {
+	vi.useFakeTimers();
+	try {
+		vi.stubGlobal("SpeechRecognition", FakeRecognition);
+		const { result } = renderHook(() => useSpeechInput(vi.fn()));
+		act(() => result.current.start());
+		act(() => fake().onerror?.({ error: "audio-capture" }));
+		expect(result.current.message).toBe("No microphone was found.");
+		act(() => vi.advanceTimersByTime(MESSAGE_MS));
+		expect(result.current.message).toBe("");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a quick second press starts a new recognizer while the first finishes", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	act(() => result.current.start());
+	const first = fake();
+	act(() => result.current.stop());
+	expect(first.stopped).toBe(true);
+	act(() => result.current.start());
+	expect(fake()).not.toBe(first);
+	expect(fake().started).toBe(true);
+	expect(result.current.state).toBe("listening");
+	// The first one ending late does not end the second.
+	act(() => first.onend?.());
+	expect(result.current.state).toBe("listening");
+});
+
+test("explain puts a hint in the message", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	act(() => result.current.explain("Hold Space to talk."));
+	expect(result.current.message).toBe("Hold Space to talk.");
 });

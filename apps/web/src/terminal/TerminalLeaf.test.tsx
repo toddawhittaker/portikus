@@ -17,15 +17,26 @@ vi.mock("./TerminalPane", () => ({
 	TerminalPane: ({
 		terminal,
 		onCwd,
+		onVoiceHold,
 	}: {
 		terminal: Terminal;
 		onCwd: (path: string) => void;
+		onVoiceHold?: (held: boolean) => void;
 	}) => (
-		<button
-			type="button"
-			data-testid={`terminal-pane-${terminal.id}`}
-			onClick={() => onCwd("/home/student/projects/todo-api/src")}
-		/>
+		<>
+			<button
+				type="button"
+				data-testid={`terminal-pane-${terminal.id}`}
+				onClick={() => onCwd("/home/student/projects/todo-api/src")}
+			/>
+			{onVoiceHold ? (
+				<button
+					type="button"
+					data-testid="voice-shortcut"
+					onClick={() => onVoiceHold(true)}
+				/>
+			) : null}
+		</>
 	),
 }));
 
@@ -63,11 +74,11 @@ function renderLeaf(
 		onResetSizes: vi.fn(),
 		...handlers,
 	};
-	render(
+	const element = (next: Partial<Terminal>) => (
 		<TerminalLeaf
 			workspaceId={terminal.workspaceId}
 			projectId="33333333-3333-4333-8333-333333333333"
-			terminal={{ ...terminal, ...overrides }}
+			terminal={{ ...terminal, ...next }}
 			visible={true}
 			focused={false}
 			onFocus={props.onFocus}
@@ -83,9 +94,10 @@ function renderLeaf(
 			onMoveInto={props.onMoveInto}
 			onResetSizes={props.onResetSizes}
 			alone={alone}
-		/>,
+		/>
 	);
-	return props;
+	const { rerender } = render(element(overrides));
+	return { ...props, rerender: (next: Partial<Terminal>) => rerender(element(next)) };
 }
 
 test("the bar shows the name and the home-relative directory", () => {
@@ -333,4 +345,42 @@ test("each terminal scheme sets its own focus colour", async () => {
 	);
 	expect(theme).toContain("--focus-on-light: #1b7a86;");
 	expect(theme).toContain("--focus-on-dark: #5fc3cf;");
+});
+
+/** Enough of a recognizer to see it start and stop. */
+class FakeRecognition {
+	static last: FakeRecognition | null = null;
+	continuous = false;
+	interimResults = false;
+	lang = "";
+	onresult = null;
+	onerror = null;
+	onend = null;
+	stopped = false;
+	constructor() {
+		FakeRecognition.last = this;
+	}
+	start() {}
+	stop() {
+		this.stopped = true;
+	}
+	abort() {}
+}
+
+test("a terminal that ends while dictating stops listening", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	try {
+		const { rerender } = renderLeaf();
+		fireEvent.click(screen.getByTestId("voice-shortcut"));
+		expect(FakeRecognition.last?.stopped).toBe(false);
+		rerender({ endedAt: "2026-01-02T00:00:00.000Z" });
+		expect(FakeRecognition.last?.stopped).toBe(true);
+	} finally {
+		vi.unstubAllGlobals();
+	}
+});
+
+test("without speech support the terminal keeps Alt+Shift+M", () => {
+	renderLeaf();
+	expect(screen.queryByTestId("voice-shortcut")).toBeNull();
 });

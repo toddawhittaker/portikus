@@ -15,9 +15,9 @@ import {
 	MenuSub,
 	MenuTrigger,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
-import { usePointerDismiss } from "../work/pointerDismiss.js";
+import { usePaneMenuFocus } from "../work/pointerDismiss.js";
 import type { SpeechInput } from "./useSpeechInput.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
@@ -65,37 +65,6 @@ export interface PaneFrameProps {
 	children: ReactNode;
 }
 
-/**
- * Radix focuses a menu trigger when the menu closes, and that programmatic
- * focus paints the focus ring. A pointer dismiss leaves the trigger at rest;
- * a keyboard dismiss still focuses it.
- */
-function usePointerDismissFocus() {
-	const { pointer, track: onOpenChange } = usePointerDismiss();
-
-	// An action that moves the keyboard elsewhere runs once the menu has
-	// closed, instead of the trigger taking the keyboard back.
-	const afterClose = useRef<(() => void) | null>(null);
-	function thenFocus(action: () => void) {
-		afterClose.current = action;
-	}
-
-	function onCloseAutoFocus(event: Event) {
-		const action = afterClose.current;
-		if (action) {
-			afterClose.current = null;
-			event.preventDefault();
-			action();
-			return;
-		}
-		if (!pointer.current) return;
-		event.preventDefault();
-		pointer.current = false;
-	}
-
-	return { onOpenChange, onCloseAutoFocus, thenFocus };
-}
-
 export function PaneFrame({
 	terminalId,
 	name,
@@ -122,7 +91,8 @@ export function PaneFrame({
 	const [draft, setDraft] = useState(name);
 	const field = useRef<HTMLInputElement | null>(null);
 	const mountId = useRef(crypto.randomUUID());
-	const actionsMenu = usePointerDismissFocus();
+	const section = useRef<HTMLElement | null>(null);
+	const actionsMenu = usePaneMenuFocus();
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
@@ -136,6 +106,15 @@ export function PaneFrame({
 		id: paneDropId(terminalId),
 		data: { terminalId },
 	});
+	// Stable, so dnd-kit is not handed the node afresh on every render.
+	const setDropNode = drop.setNodeRef;
+	const sectionRef = useCallback(
+		(node: HTMLElement | null) => {
+			section.current = node;
+			setDropNode(node);
+		},
+		[setDropNode],
+	);
 
 	useEffect(() => {
 		if (!renaming) {
@@ -157,7 +136,7 @@ export function PaneFrame({
 
 	return (
 		<section
-			ref={drop.setNodeRef}
+			ref={sectionRef}
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminalId}`}
@@ -204,7 +183,16 @@ export function PaneFrame({
 					</span>
 				)}
 				{voice ? (
-					<VoiceButton terminalId={terminalId} name={name} voice={voice} />
+					<VoiceButton
+						terminalId={terminalId}
+						name={name}
+						voice={voice}
+						focusTerminal={() =>
+							section.current
+								?.querySelector<HTMLElement>("textarea.xterm-helper-textarea")
+								?.focus()
+						}
+					/>
 				) : null}
 				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
 					<MenuTrigger asChild={true}>
@@ -288,6 +276,16 @@ export function PaneFrame({
 				</MenuRoot>
 			</div>
 			{children}
+			{voice && voice.state !== "listening" && voice.message !== "" ? (
+				// The error seen as well as heard; the status region reads it.
+				<p
+					className="pk-term-voice-interim pk-term-voice-error"
+					aria-hidden="true"
+					data-testid={`terminal-voice-error-${terminalId}`}
+				>
+					{voice.message}
+				</p>
+			) : null}
 			{voice && voice.interim !== "" ? (
 				// Shown only: the status region says "Listening…" instead of
 				// reading every guess aloud.
@@ -310,24 +308,48 @@ export function PaneFrame({
 	);
 }
 
+const CLICK_HINT =
+	"Hold Space on this button, or Alt+Shift+M in the terminal, to talk.";
+
+function isVoiceShortcut(event: KeyboardEvent): boolean {
+	return event.altKey && event.shiftKey && event.code === "KeyM";
+}
+
 /**
- * Hold to talk: listening lasts while the pointer or Space/Enter is down
- * (SPEC.md §25.10). The status region stays mounted so its changes are read.
+ * Hold to talk: listening lasts while the pointer, Space/Enter, or
+ * Alt+Shift+M is down (SPEC.md §25.10). The status region stays mounted,
+ * even when voice turns out to be unsupported, so its changes are read.
  */
 function VoiceButton({
 	terminalId,
 	name,
 	voice,
+	focusTerminal,
 }: {
 	terminalId: string;
 	name: string;
 	voice: SpeechInput;
+	focusTerminal: () => void;
 }) {
 	const listening = voice.state === "listening";
+	const unsupported = voice.state === "unsupported";
+	const button = useRef<HTMLButtonElement | null>(null);
+	// The button is about to vanish under the keyboard; checked while it is
+	// still in the document, so focus can go to the terminal, not the page.
+	const refocus = useRef(false);
+	if (unsupported && button.current && document.activeElement === button.current) {
+		refocus.current = true;
+	}
+	useEffect(() => {
+		if (!unsupported || !refocus.current) return;
+		refocus.current = false;
+		focusTerminal();
+	});
 	return (
 		<>
-			{voice.state === "unsupported" ? null : (
+			{unsupported ? null : (
 				<IconButton
+					ref={button}
 					icon="mic"
 					label={`Hold to talk into ${name}`}
 					shortcut={["Alt", "Shift", "M"]}
@@ -343,22 +365,39 @@ function VoiceButton({
 					onPointerCancel={voice.stop}
 					onLostPointerCapture={voice.stop}
 					onKeyDown={(event) => {
-						if (event.key !== " " && event.key !== "Enter") return;
+						const hold = event.key === " " || event.key === "Enter";
+						if (!hold && !isVoiceShortcut(event.nativeEvent)) return;
 						event.preventDefault();
 						if (!event.repeat) voice.start();
 					}}
 					onKeyUp={(event) => {
-						if (event.key === " " || event.key === "Enter") voice.stop();
+						const { key, code } = event;
+						if (key === " " || key === "Enter") {
+							// No click after a hold, so only a click from assistive
+							// technology reaches onClick below.
+							event.preventDefault();
+							voice.stop();
+						} else if (
+							listening &&
+							(code === "KeyM" || key === "Alt" || key === "Shift")
+						) {
+							voice.stop();
+						}
+					}}
+					onClick={(event) => {
+						// A click with no pointer press behind it cannot be held.
+						if (event.detail === 0) voice.explain(CLICK_HINT);
 					}}
 					onBlur={voice.stop}
 				/>
 			)}
 			<span
 				role="status"
+				aria-live="polite"
 				className="sr-only"
 				data-testid={`terminal-voice-status-${terminalId}`}
 			>
-				{voice.state === "unsupported" ? "" : voice.message}
+				{voice.message}
 			</span>
 		</>
 	);
