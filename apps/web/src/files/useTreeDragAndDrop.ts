@@ -9,6 +9,7 @@ import { type DragEvent, useCallback, useRef, useState } from "react";
 import { moveForDrop } from "./paths.js";
 import type { RowStateStore } from "./rowState.js";
 import type { FileNode } from "./selection.js";
+import { setDraggedTreeNode } from "./treeDrag.js";
 
 /**
  * The type a dragged row carries. Private, so a row dropped on the editor, a
@@ -60,6 +61,7 @@ export function useTreeDragAndDrop({
 	const reset = useCallback(() => {
 		depth.current = 0;
 		dragged.current = null;
+		setDraggedTreeNode(null);
 		rowState.setState({ draggedPath: null, dropDir: null });
 		setUploadDrag(false);
 	}, [rowState]);
@@ -79,6 +81,7 @@ export function useTreeDragAndDrop({
 			event.dataTransfer.setData(TREE_DRAG_TYPE, node.path);
 			event.dataTransfer.effectAllowed = "move";
 			dragged.current = node;
+			setDraggedTreeNode(node);
 			rowState.setState({ draggedPath: node.path });
 		},
 		[rowState],
