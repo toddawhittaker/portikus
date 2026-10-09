@@ -171,6 +171,8 @@ export const AgentErrorCode = z.enum([
 	"FILE_TOO_LARGE",
 	"NOT_A_DIRECTORY",
 	"SEARCH_FAILED",
+	// A regular expression ripgrep cannot compile (SPEC.md §11.5).
+	"PATTERN_INVALID",
 	"WATCH_FAILED",
 	"EVENT_SOCKET_LIMIT",
 	"CHECK_NOT_FOUND",

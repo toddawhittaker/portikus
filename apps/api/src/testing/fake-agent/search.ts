@@ -1,4 +1,8 @@
-import { type SearchMatch, SearchQuery } from "@portikus/contracts";
+import {
+	PATTERN_INVALID_MESSAGE,
+	type SearchMatch,
+	SearchQuery,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { FakeFileError } from "./fs-model.js";
 import type { FakeAgentState } from "./state.js";
@@ -52,7 +56,13 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 			}
 		}
 		const key = answerKey(keyOf(request), slug);
-		lastSearches.set(key, { q: query.data.q, hidden: query.data.hidden });
+		lastSearches.set(key, query.data);
+		// JavaScript's parser stands in for ripgrep's refusing a bad pattern.
+		if (query.data.regex && !compiles(query.data.q)) {
+			return reply.status(400).send({
+				error: { code: "PATTERN_INVALID", message: PATTERN_INVALID_MESSAGE },
+			});
+		}
 		const matches = searchAnswers.get(key) ?? [];
 		return { matches, truncated: searchTruncated.get(key) ?? false };
 	});
@@ -75,4 +85,13 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 		const query = request.query as { key?: string; slug: string };
 		return lastSearches.get(answerKey(query.key ?? "", query.slug)) ?? null;
 	});
+}
+
+function compiles(pattern: string): boolean {
+	try {
+		new RegExp(pattern);
+		return true;
+	} catch {
+		return false;
+	}
 }

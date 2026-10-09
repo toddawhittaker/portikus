@@ -250,6 +250,8 @@ export const ApiErrorCode = z.enum([
 	"NOT_A_DIRECTORY",
 	"ARCHIVE_INVALID",
 	"SEARCH_FAILED",
+	// A regular expression ripgrep cannot compile (SPEC.md §11.5).
+	"PATTERN_INVALID",
 	"WATCH_FAILED",
 	"AGENT_UNAVAILABLE",
 	// The preview routes (BROWSER-HANDLING.md §9.1).

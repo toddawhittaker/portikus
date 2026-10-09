@@ -22,6 +22,9 @@ export async function searchRoutes(
 		try {
 			return await searchProject(options.homeDir, slug, parsed.data.q, {
 				hidden: parsed.data.hidden,
+				regex: parsed.data.regex,
+				caseSensitive: parsed.data.caseSensitive,
+				wholeWord: parsed.data.wholeWord,
 				signal,
 			});
 		} catch (error) {

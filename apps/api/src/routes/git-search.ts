@@ -1,6 +1,7 @@
 import {
 	GIT_TIMEOUT_MS,
 	GitDiff,
+	GitRef,
 	GitStatus,
 	GitStatusQuery,
 	MAX_SEARCH_MATCHES,
@@ -118,12 +119,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 	});
 
 	// HEAD against the working tree for one file
-	// (SPEC.md §12.6). The path is checked here as well as in the agent, so
+	// (SPEC.md §12.6), or a ref against the working tree. The path is checked here as well as in the agent, so
 	// a traversal attempt never leaves the control plane (SPEC.md §24.6).
 	app.get("/workspaces/:id/projects/:pid/git/diff", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
-		const path = ProjectPath.safeParse((request.query as { path?: unknown })?.path);
+		const query = (request.query ?? {}) as { path?: unknown; ref?: unknown };
+		const path = ProjectPath.safeParse(query.path);
 		if (!path.success) {
 			return sendError(
 				reply,
@@ -132,11 +134,20 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 				"that path is not inside the project",
 			);
 		}
+		// An optional ref compares with that commit instead of HEAD.
+		const params: Record<string, string> = { path: path.data };
+		if (query.ref !== undefined) {
+			const ref = GitRef.safeParse(query.ref);
+			if (!ref.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", "That Git ref is not valid.");
+			}
+			params.ref = ref.data;
+		}
 		return relay(
 			reply,
 			request.log,
 			scope.agent,
-			agentUrl(scope.slug, "git/diff", { path: path.data }),
+			agentUrl(scope.slug, "git/diff", params),
 			GitDiff,
 			AbortSignal.timeout(DIFF_BUDGET_MS),
 		);
@@ -232,6 +243,9 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 				agentUrl(scope.slug, "search", {
 					q: query.data.q,
 					hidden: String(query.data.hidden),
+					regex: String(query.data.regex),
+					caseSensitive: String(query.data.caseSensitive),
+					wholeWord: String(query.data.wholeWord),
 				}),
 				RelayedSearchResponse,
 				controller.signal,

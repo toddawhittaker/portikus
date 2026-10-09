@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { isAbsolute, relative } from "node:path";
 import {
 	MAX_SEARCH_MATCHES,
+	PATTERN_INVALID_MESSAGE,
 	SEARCH_TIMEOUT_MS,
 	type SearchMatch,
 	type SearchResponse,
@@ -11,6 +12,10 @@ import { resolveProject } from "./projects.js";
 
 export interface SearchOptions {
 	hidden: boolean;
+	/** A ripgrep regular expression rather than a literal. */
+	regex?: boolean;
+	caseSensitive?: boolean;
+	wholeWord?: boolean;
 	signal?: AbortSignal;
 	/** Test seam: receives the ripgrep child as soon as it is spawned. */
 	onChild?: (child: ChildProcess) => void;
@@ -36,14 +41,14 @@ interface RgLine {
 		path?: { text?: string };
 		lines?: { text?: string };
 		line_number?: number;
-		submatches?: { start?: number }[];
+		submatches?: { start?: number; end?: number }[];
 	};
 }
 
 /**
- * Search one project with ripgrep (STACK.md §10). The query is always a
- * literal and is passed as an argument, never through a shell, and neither
- * the query nor any match text is logged (STACK.md §15).
+ * Search one project with ripgrep (STACK.md §10). The query is passed as an
+ * argument after `--`, never through a shell, and neither the query nor any
+ * match text is logged (STACK.md §15).
  */
 export async function searchProject(
 	homeDir: string,
@@ -59,7 +64,7 @@ export async function searchProject(
 		return { matches: [], truncated: false };
 	}
 
-	const args = ["--json", "-F", "-S", "-C1", "--max-filesize", "1M", "--no-follow"];
+	const args = searchArgs(options);
 	if (options.hidden) {
 		args.push("-uu");
 	}
@@ -174,7 +179,7 @@ export async function searchProject(
 		matches.push({
 			path: relativePath,
 			line: data.line_number,
-			column: toColumn(fullText, data.submatches?.[0]?.start ?? 0),
+			...matchSpan(fullText, data.submatches?.[0]),
 			text,
 			before,
 			after: [],
@@ -207,7 +212,13 @@ export async function searchProject(
 			child.on("error", reject);
 			child.on("close", (exitCode) => resolve(exitCode));
 		});
-		// 0 means matches, 1 means none; anything else is a real failure.
+		// 0 means matches, 1 means none, 2 an error. ripgrep refuses a bad
+		// pattern before it reads any file, so a regex run that ends in 2 with
+		// nothing found is the student's pattern, not a server fault.
+		if (!stopped && code === 2 && options.regex && matches.length === 0) {
+			throw new AgentFailure("PATTERN_INVALID", PATTERN_INVALID_MESSAGE);
+		}
+		// Anything else is a real failure.
 		if (!stopped && code !== 0 && code !== 1) {
 			throw new AgentFailure("SEARCH_FAILED", "search failed");
 		}
@@ -223,6 +234,32 @@ export async function searchProject(
 	}
 
 	return { matches: matches.slice(0, MAX_SEARCH_MATCHES), truncated };
+}
+
+/**
+ * The ripgrep flags for one search, before `--` and the pattern. `-P` (PCRE2)
+ * is never used: its backtracking can run away on a hostile pattern, while
+ * the default engine is linear time (SPEC.md §11.5).
+ */
+export function searchArgs(options: SearchOptions): string[] {
+	const args = ["--json", "-C1", "--max-filesize", "1M", "--no-follow"];
+	if (!options.regex) args.push("-F");
+	args.push(options.caseSensitive ? "-s" : "-i");
+	if (options.wholeWord) args.push("-w");
+	return args;
+}
+
+/** Where the first submatch starts and how many characters it covers. */
+function matchSpan(
+	lineText: string,
+	submatch: { start?: number; end?: number } | undefined,
+): { column: number; length?: number } {
+	const start = submatch?.start ?? 0;
+	const column = toColumn(lineText, start);
+	// Without an end the browser falls back to the query's own length.
+	if (submatch?.end === undefined) return { column };
+	const end = Math.max(start, submatch.end);
+	return { column, length: toColumn(lineText, end) - column };
 }
 
 /**
