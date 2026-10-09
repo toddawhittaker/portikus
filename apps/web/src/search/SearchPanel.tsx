@@ -4,6 +4,7 @@
  * line number and the matching line, and opening one opens the file at that
  * line.
  */
+import { PATTERN_INVALID_MESSAGE } from "@portikus/contracts";
 import { Checkbox, EmptyState, TextField } from "@portikus/ui";
 import { type KeyboardEvent, useContext, useRef, useState } from "react";
 import { ApiError, SOMETHING_WENT_WRONG } from "../api/request.js";
@@ -23,6 +24,10 @@ const MAX_QUERY_LENGTH = 512;
 function searchErrorMessage(error: unknown): string {
 	if (error instanceof ApiError && error.code === "AGENT_UNAVAILABLE") {
 		return "The workspace is not responding. Try again in a moment.";
+	}
+	// Written by us, not the agent, so it is safe to show as it is.
+	if (error instanceof ApiError && error.code === "PATTERN_INVALID") {
+		return PATTERN_INVALID_MESSAGE;
 	}
 	if (error instanceof ApiError && error.code === "BUSY") {
 		return "Too many searches are running in this workspace. Try again in a moment.";
@@ -47,7 +52,15 @@ export interface SearchPanelProps {
 export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProps) {
 	const [query, setQuery] = useState("");
 	const [hidden, setHidden] = useState(false);
-	const { result, term } = useSearch(workspaceId, projectId, query, hidden);
+	const [regex, setRegex] = useState(false);
+	const [caseSensitive, setCaseSensitive] = useState(false);
+	const [wholeWord, setWholeWord] = useState(false);
+	const { result, term } = useSearch(workspaceId, projectId, query, {
+		hidden,
+		regex,
+		caseSensitive,
+		wholeWord,
+	});
 	const results = useRef<HTMLDivElement | null>(null);
 	// The panel sits inside the workspace provider, so it shares the work
 	// area's store and can open a file there.
@@ -101,7 +114,14 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 		}
 		if (result.isError) {
 			return (
-				<EmptyState icon="alert" title="The search failed">
+				<EmptyState
+					icon="alert"
+					title={
+						result.error instanceof ApiError && result.error.code === "PATTERN_INVALID"
+							? "Check the pattern"
+							: "The search failed"
+					}
+				>
 					<span data-testid="search-error">{searchErrorMessage(result.error)}</span>
 				</EmptyState>
 			);
@@ -134,7 +154,11 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 							{group.path}
 						</div>
 						{group.matches.map((match) => {
-							const parts = highlightParts(match.text, match.column, term.length);
+							const parts = highlightParts(
+								match.text,
+								match.column,
+								match.length ?? term.length,
+							);
 							return (
 								<div key={`${match.line}:${match.column}`}>
 									{match.before.map((text, index) => (
@@ -194,6 +218,33 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 					maxLength={MAX_QUERY_LENGTH}
 					onChange={(event) => setQuery(event.target.value)}
 				/>
+				<fieldset className="pk-segmented pk-search-options">
+					<legend className="pk-visually-hidden">Search options</legend>
+					<button
+						type="button"
+						aria-pressed={caseSensitive}
+						onClick={() => setCaseSensitive(!caseSensitive)}
+						data-testid="search-case"
+					>
+						Match case
+					</button>
+					<button
+						type="button"
+						aria-pressed={wholeWord}
+						onClick={() => setWholeWord(!wholeWord)}
+						data-testid="search-word"
+					>
+						Whole word
+					</button>
+					<button
+						type="button"
+						aria-pressed={regex}
+						onClick={() => setRegex(!regex)}
+						data-testid="search-regex"
+					>
+						Regex
+					</button>
+				</fieldset>
 				<Checkbox
 					label="Include hidden and generated files"
 					checked={hidden}

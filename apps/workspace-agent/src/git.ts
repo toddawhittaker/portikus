@@ -27,6 +27,7 @@ function emptyStatus(): GitStatus {
 		repo: false,
 		branch: null,
 		detached: false,
+		oid: null,
 		upstream: null,
 		ahead: 0,
 		behind: 0,
@@ -87,7 +88,10 @@ export function parsePorcelainV2(text: string): GitStatus {
 function readBranchHeader(status: GitStatus, record: string): void {
 	const [, key, ...rest] = record.split(" ");
 	const value = rest.join(" ");
-	if (key === "branch.head") {
+	if (key === "branch.oid") {
+		// "(initial)" means there is no commit yet.
+		status.oid = OBJECT_ID.test(value) ? value : null;
+	} else if (key === "branch.head") {
 		if (value === "(detached)") {
 			status.detached = true;
 		} else {
@@ -191,12 +195,12 @@ export async function gitStatus(
 	return parsePorcelainV2(result.stdout.toString());
 }
 
-interface Side {
+export interface Side {
 	content: Buffer | null;
 	tooLarge: boolean;
 }
 
-const MISSING: Side = { content: null, tooLarge: false };
+export const MISSING: Side = { content: null, tooLarge: false };
 
 /**
  * Read a blob out of HEAD, capped. A path HEAD does not have reads as null,
@@ -233,7 +237,7 @@ export async function showFromHead(
 }
 
 /** Read the working-tree side, capped the same way. */
-async function readWorkingTree(path: string): Promise<Side> {
+export async function readWorkingTree(path: string): Promise<Side> {
 	let info: Awaited<ReturnType<typeof stat>>;
 	try {
 		info = await stat(path);
@@ -301,7 +305,7 @@ async function pathState(dir: string, relPath: string): Promise<PathState> {
  * would show a tree listing as if it were the file's content. A missing path
  * is fine: the older side may still have it.
  */
-async function diffablePath(
+export async function diffablePath(
 	homeDir: string,
 	slug: string,
 	relPath: string,
@@ -858,7 +862,7 @@ export async function baselineDiff(
 }
 
 /** Read a blob out of an arbitrary object, with the same cap as HEAD. */
-async function showFromRev(
+export async function showFromRev(
 	dir: string,
 	rev: string,
 	path: string,
@@ -877,7 +881,7 @@ async function showFromRev(
 	return { content: result.stdout, tooLarge: false };
 }
 
-function finishDiff(
+export function finishDiff(
 	before: Side,
 	after: Side,
 	unmerged: boolean,

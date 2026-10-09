@@ -4,7 +4,7 @@
  * Monaco is replaced by a fake, so these tests are about the states.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
 import { renderWithQuery } from "../test-utils.js";
@@ -349,4 +349,108 @@ test("each side of the diff names the file", async () => {
 		original: { label: ORIGINAL_NAME, after: 1 },
 		modified: { label: MODIFIED_NAME, after: 1 },
 	});
+});
+
+/** Answer by URL: the ref route gets `atRef`, HEAD gets the usual diff. */
+function stubRefServer(atRef: { status: number; body: unknown }) {
+	const urls: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			urls.push(url);
+			const reply = url.includes("ref=") ? atRef : { status: 200, body: diff() };
+			return new Response(JSON.stringify(reply.body), {
+				status: reply.status,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	return urls;
+}
+
+function compareWith(ref: string) {
+	fireEvent.change(screen.getByLabelText("Compare with"), { target: { value: "ref" } });
+	fireEvent.change(screen.getByLabelText("Branch, tag, or commit"), {
+		target: { value: ref },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+}
+
+test("the compare control offers the last commit and a Git ref, last commit first", async () => {
+	renderLeaf();
+	const select = screen.getByLabelText("Compare with") as HTMLSelectElement;
+	expect([...select.options].map((option) => option.text)).toEqual([
+		"Last commit",
+		"A Git ref…",
+	]);
+	expect(select.value).toBe("head");
+});
+
+test("a typed ref is compared once submitted, and named on the left side", async () => {
+	const urls = stubRefServer({ status: 200, body: diff({ before: "older\n" }) });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+
+	compareWith("v1.0");
+
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("older\n"));
+	const wanted = `/workspaces/${WORKSPACE}/projects/${PROJECT}/git/diff?path=src%2Fapp.ts&ref=v1.0`;
+	expect(urls.some((url) => url.endsWith(wanted))).toBe(true);
+	expect(screen.getByTestId("diff-sides").textContent).toBe("v1.0Your changes");
+	expect(screen.getByText(`Diff with v1.0 · ${PATH}`)).toBeTruthy();
+
+	// Going back to the last commit asks without a ref.
+	fireEvent.change(screen.getByLabelText("Compare with"), {
+		target: { value: "head" },
+	});
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("one\n"));
+	expect(screen.getByTestId("diff-sides").textContent).toBe("Last commitYour changes");
+});
+
+test("a ref that could read as an option is refused before any request", async () => {
+	const urls = stubRefServer({ status: 200, body: diff() });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	const before = urls.length;
+
+	compareWith("--output=/tmp/x");
+
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("Type a branch, tag, or commit id.");
+	expect(
+		screen.getByLabelText("Branch, tag, or commit").getAttribute("aria-invalid"),
+	).toBe("true");
+	expect(urls.filter((url) => url.includes("ref=")).length).toBe(0);
+	expect(urls.length).toBe(before);
+});
+
+test("a ref that names no commit is announced", async () => {
+	stubRefServer({
+		status: 400,
+		body: {
+			code: "VALIDATION_FAILED",
+			message: "That Git ref does not name a commit.",
+		},
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+
+	compareWith("nope");
+
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("That Git ref does not name a commit.");
+});
+
+test("session review has no compare control", async () => {
+	renderWithQuery(
+		<DiffLeaf
+			path={PATH}
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			baseline="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		/>,
+	);
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	expect(screen.queryByTestId("diff-compare")).toBeNull();
 });

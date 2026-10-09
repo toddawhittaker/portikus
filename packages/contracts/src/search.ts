@@ -17,6 +17,11 @@ export const SearchMatch = z.object({
 	// the 300-character `text` slice below.
 	column: z.number().int().positive(),
 	text: z.string(),
+	/**
+	 * Characters the match spans from `column`: a regular expression's match
+	 * is not the query's length. Optional so an older agent still answers.
+	 */
+	length: z.number().int().nonnegative().optional(),
 	before: z.array(z.string()),
 	after: z.array(z.string()),
 });
@@ -29,13 +34,24 @@ export const SearchResponse = z.object({
 });
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
+/** The message a student sees for a regular expression ripgrep refuses. */
+export const PATTERN_INVALID_MESSAGE = "That regular expression is not valid.";
+
 /** True for a C0 control character or DEL. */
-function isControlCharacter(character: string): boolean {
+export function isControlCharacter(character: string): boolean {
 	const code = character.codePointAt(0) ?? 0;
 	return code < 0x20 || code === 0x7f;
 }
 
-/** Query string for `GET /projects/:slug/search` (SPEC.md §11.5). */
+const Flag = z
+	.enum(["true", "false"])
+	.default("false")
+	.transform((value) => value === "true");
+
+/**
+ * Query string for `GET /projects/:slug/search` (SPEC.md §11.5). With every
+ * option off the query is a case-insensitive literal.
+ */
 export const SearchQuery = z.object({
 	q: z
 		.string()
@@ -45,9 +61,9 @@ export const SearchQuery = z.object({
 		.refine((value) => ![...value].some(isControlCharacter), {
 			message: "query contains a control character",
 		}),
-	hidden: z
-		.enum(["true", "false"])
-		.default("false")
-		.transform((value) => value === "true"),
+	hidden: Flag,
+	regex: Flag,
+	caseSensitive: Flag,
+	wholeWord: Flag,
 });
 export type SearchQuery = z.infer<typeof SearchQuery>;

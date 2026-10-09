@@ -1,4 +1,4 @@
-import type { Workspace } from "@portikus/contracts";
+import type { Project, Workspace } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -744,4 +744,60 @@ test("a stopped workspace shows no meters", () => {
 	renderBar({ ...WORKSPACE, state: "stopped", desiredState: "stopped" });
 	expect(screen.queryByTestId("memory-meter")).toBeNull();
 	expect(screen.queryByTestId("disk-meter")).toBeNull();
+});
+
+/** The bar for one project whose Git status the server answers with `status`. */
+function renderWithGit(status: Record<string, unknown>) {
+	stubFetch((url) =>
+		String(url).includes("/git/status")
+			? json(200, {
+					repo: true,
+					branch: null,
+					detached: false,
+					upstream: null,
+					ahead: 0,
+					behind: 0,
+					conflicts: 0,
+					entries: [],
+					ignored: [],
+					truncated: false,
+					...status,
+				})
+			: json(202, { ok: true }),
+	);
+	const project = { id: "pr-1", slug: "essay", missing: false } as Project;
+	renderWithQuery(
+		<StatusBar
+			workspaceId={WORKSPACE.id}
+			project={project}
+			workspace={WORKSPACE}
+			dialog="closed"
+			onDialogChange={() => {}}
+		/>,
+	);
+}
+
+test("a detached HEAD is named by its short commit id (SPEC.md §12.8)", async () => {
+	renderWithGit({ detached: true, oid: "0123456789abcdef0123456789abcdef01234567" });
+	await waitFor(() =>
+		expect(screen.getByTestId("git-status").textContent).toBe(
+			"detached HEAD at 0123456 • 0 changes",
+		),
+	);
+});
+
+test("a branch shows no commit id, and an agent without one still reads", async () => {
+	renderWithGit({ branch: "main", oid: "0123456789abcdef0123456789abcdef01234567" });
+	await waitFor(() =>
+		expect(screen.getByTestId("git-status").textContent).toContain("main"),
+	);
+	expect(screen.getByTestId("git-status").textContent).not.toContain("0123456");
+	cleanup();
+
+	renderWithGit({ detached: true });
+	await waitFor(() =>
+		expect(screen.getByTestId("git-status").textContent).toBe(
+			"detached HEAD • 0 changes",
+		),
+	);
 });

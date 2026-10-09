@@ -345,3 +345,88 @@ test.skipIf(skip)("a cancelled search cancels it at the agent too", async () => 
 		.poll(() => agent.searchAborted, { timeout: 5000 })
 		.toBeGreaterThan(before);
 });
+
+test.skipIf(skip)("the search options reach the agent", async () => {
+	const response = await get(
+		alice,
+		workspaceId,
+		projectId,
+		"search",
+		"?q=hel%2Bo&regex=true&caseSensitive=true&wholeWord=false",
+	);
+	expect(response.statusCode).toBe(200);
+	const last = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/search/last?slug=${slug}`,
+	);
+	expect(await last.json()).toMatchObject({
+		q: "hel+o",
+		regex: true,
+		caseSensitive: true,
+		wholeWord: false,
+	});
+});
+
+test.skipIf(skip)(
+	"a pattern the agent refuses is a 400 the panel can name",
+	async () => {
+		const response = await get(
+			alice,
+			workspaceId,
+			projectId,
+			"search",
+			"?q=(&regex=true",
+		);
+		expect(response.statusCode).toBe(400);
+		expect(response.json()).toMatchObject({
+			code: "PATTERN_INVALID",
+			message: "That regular expression is not valid.",
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"a diff against a ref is relayed, and an unknown ref is a 400",
+	async () => {
+		const atRef: GitDiff = { ...DIFF, before: "older\n" };
+		agent.git.set(`/${slug}`, {
+			status: STATUS,
+			diffs: { "README.md": DIFF, "v1:README.md": atRef },
+		});
+		const ok = await get(
+			alice,
+			workspaceId,
+			projectId,
+			"git/diff",
+			"?path=README.md&ref=v1",
+		);
+		expect(ok.statusCode).toBe(200);
+		expect(ok.json()).toEqual(atRef);
+
+		const unknown = await get(
+			alice,
+			workspaceId,
+			projectId,
+			"git/diff",
+			"?path=README.md&ref=nope",
+		);
+		expect(unknown.statusCode).toBe(400);
+		expect(unknown.json().message).toBe("That Git ref does not name a commit.");
+	},
+);
+
+test.skipIf(skip)("a ref that could read as an option never leaves", async () => {
+	for (const ref of ["-x", "--output=/tmp/x", "a..b", "a\nb", "x".repeat(257)]) {
+		const response = await get(
+			alice,
+			workspaceId,
+			projectId,
+			"git/diff",
+			`?path=README.md&ref=${encodeURIComponent(ref)}`,
+		);
+		expect(response.statusCode).toBe(400);
+		expect(response.json()).toMatchObject({
+			code: "VALIDATION_FAILED",
+			message: "That Git ref is not valid.",
+		});
+	}
+});

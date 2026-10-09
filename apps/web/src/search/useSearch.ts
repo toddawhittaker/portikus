@@ -22,9 +22,26 @@ function useDebounced<T>(value: T, delay: number): T {
 	return held;
 }
 
+/** The panel's switches; every one is part of what a search asks. */
+export interface SearchFlags {
+	hidden: boolean;
+	regex: boolean;
+	caseSensitive: boolean;
+	wholeWord: boolean;
+}
+
 const searchKeys = {
-	search: (workspaceId: string, projectId: string, q: string, hidden: boolean) =>
-		["search", workspaceId, projectId, q, hidden] as const,
+	search: (workspaceId: string, projectId: string, q: string, flags: SearchFlags) =>
+		[
+			"search",
+			workspaceId,
+			projectId,
+			q,
+			flags.hidden,
+			flags.regex,
+			flags.caseSensitive,
+			flags.wholeWord,
+		] as const,
 };
 
 /** The URL of one project's search. */
@@ -32,9 +49,15 @@ function searchUrl(
 	workspaceId: string,
 	projectId: string,
 	q: string,
-	hidden: boolean,
+	flags: SearchFlags,
 ): string {
-	const query = new URLSearchParams({ q, hidden: String(hidden) });
+	const query = new URLSearchParams({
+		q,
+		hidden: String(flags.hidden),
+		regex: String(flags.regex),
+		caseSensitive: String(flags.caseSensitive),
+		wholeWord: String(flags.wholeWord),
+	});
 	return `/workspaces/${workspaceId}/projects/${projectId}/search?${query}`;
 }
 
@@ -42,11 +65,11 @@ export function useSearch(
 	workspaceId: string,
 	projectId: string,
 	query: string,
-	hidden: boolean,
+	flags: SearchFlags,
 ) {
 	const term = useDebounced(query, SEARCH_DEBOUNCE_MS).trim();
 	const result = useQuery({
-		queryKey: searchKeys.search(workspaceId, projectId, term, hidden),
+		queryKey: searchKeys.search(workspaceId, projectId, term, flags),
 		enabled: term.length > 0,
 		// Nothing is kept: a search is asked again when it is asked again, and
 		// dropping the old query is what aborts its request.
@@ -55,7 +78,7 @@ export function useSearch(
 		// Coming back to the tab must not re-run the search behind the student.
 		refetchOnWindowFocus: false,
 		queryFn: ({ signal }) =>
-			request(SearchResponse, searchUrl(workspaceId, projectId, term, hidden), {
+			request(SearchResponse, searchUrl(workspaceId, projectId, term, flags), {
 				signal,
 			}),
 	});

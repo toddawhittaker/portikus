@@ -159,7 +159,7 @@ test.describe("project search", () => {
 
 		await expect
 			.poll(() => lastSearch(student.workspaceId, project.slug).then((last) => last))
-			.toEqual({ q: "answer", hidden: true });
+			.toMatchObject({ q: "answer", hidden: true });
 	});
 
 	test("a search with no matches says so, and closing goes back to the files", async ({

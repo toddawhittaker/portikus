@@ -6,6 +6,7 @@ import type {
 	GitDiff,
 	GitStatus,
 	SearchMatch,
+	SearchQuery,
 } from "@portikus/contracts";
 import { WATCH_SKIP_NAMES } from "@portikus/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -21,6 +22,7 @@ import {
 /** What the fake answers the Git routes of one project with. */
 export interface FakeGitAnswer {
 	status?: GitStatus;
+	/** Keyed by path, or by `ref:path` for a comparison with a Git ref. */
 	diffs?: Record<string, GitDiff>;
 }
 
@@ -77,6 +79,7 @@ export function emptyStatus(): GitStatus {
 		repo: false,
 		branch: null,
 		detached: false,
+		oid: null,
 		upstream: null,
 		ahead: 0,
 		behind: 0,
@@ -130,7 +133,7 @@ export function createFakeAgentState(token: string) {
 	// Whether a seeded answer claims it was cut short, and the query string of
 	// the last search asked for, so a browser test can check what it sent.
 	const searchTruncated = new Map<string, boolean>();
-	const lastSearches = new Map<string, { q: string; hidden: boolean }>();
+	const lastSearches = new Map<string, SearchQuery>();
 	const eventSockets = new Map<string, Set<WebSocket>>();
 	const watchFailures = new Set<string>();
 	const eventCloses: Array<{ code: number; reason: string }> = [];

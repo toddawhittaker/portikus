@@ -60,6 +60,7 @@ const AGENT_ERROR_STATUS: Partial<
 	CHECK_NOT_FOUND: [404, "CHECK_NOT_FOUND"],
 	CHECK_RUNNING: [409, "CHECK_RUNNING"],
 	CHECK_NOT_RUNNING: [404, "CHECK_NOT_RUNNING"],
+	PATTERN_INVALID: [400, "PATTERN_INVALID"],
 	// Recovery points (SPEC.md §15, ADR 0020). There is no API code for a
 	// refused archive, so it reads as a request that cannot be carried out.
 	BUSY: [409, "BUSY"],

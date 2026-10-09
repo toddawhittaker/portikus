@@ -274,6 +274,7 @@ describe.skipIf(skip)("search", () => {
 					path: "src.txt",
 					line: 2,
 					column: 1,
+					length: 6,
 					text: "needle here",
 					before: ["first"],
 					after: ["last"],
