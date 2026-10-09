@@ -4694,9 +4694,26 @@ Delivered:
 - Root-shell zombies (#1318 F3): the sweep no longer counts a process
   that has exited but is not yet reaped, such as the helper's own login,
   so an ordinary closed shell logs no survivor and drops its record.
+- Slow tests and CI output (#1320 F4, #1324 F6): the password-throttle
+  test (22 bcrypt hashes) and the dex-import argument test (four child
+  processes) get 30-second timeouts, and the unit-test shards print
+  failing test names to the CI log as well as the blob report (#1314).
+- One reply per request (#1323 F5): since Epic 36's async onSend hooks,
+  every workspace start, stop and restart (and rebuild, Reset Docker,
+  project list, rename and download, recovery restore) logged a 500 with
+  "Reply was already sent", although the client got its 202. The three
+  onSend hooks are synchronous again, those handlers return the reply
+  they send, and a source-scan test forbids both mistakes.
 - Fold: SPEC and STATUS; the plan is deleted.
 
 Gaps left:
+
+- The F5 source-scan guard only matches a statement that starts with
+  `reply` and an inline async onSend hook; a split chain, a helper call
+  without `return`, or a named async hook would slip past it.
+- Flaky tests still open: a root-shell relay test can time out filling
+  its queue (#1321); smoke cleanup can race the final stop and leave a
+  workspace behind (#1322).
 
 - A service started with plain `systemd-run` from a root shell is only
   listed by setup, never stopped, because nothing ties it to the session.
