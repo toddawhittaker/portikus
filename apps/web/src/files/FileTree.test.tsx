@@ -16,6 +16,7 @@ import { json, project, stubFetch, WORKSPACE } from "../test-utils.js";
 import { FileTreePane } from "./FileTree.js";
 import { fileKeys } from "./queries.js";
 import { useFileViewStore } from "./store.js";
+import { TREE_DRAG_TYPE } from "./useTreeDragAndDrop.js";
 
 const PROJECT = project();
 
@@ -254,6 +255,56 @@ describe("the file tree", () => {
 					.filter((r) => r.getAttribute("tabindex") === "0"),
 			).toHaveLength(1),
 		);
+	});
+
+	/** SPEC.md §25.8: a removed row hands the keyboard focus to its neighbour, not the page. */
+	it("moves the focus to the next row when the focused row is removed", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const readme = await screen.findByTestId("file-row-README.md");
+		readme.focus();
+		await waitFor(() => expect(readme.getAttribute("tabindex")).toBe("0"));
+
+		const before = ROOT.entries;
+		ROOT.entries = before.filter((item) => item.name !== "README.md");
+		onTestFinished(() => {
+			ROOT.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, ""),
+		});
+
+		await waitFor(() => expect(screen.queryByTestId("file-row-README.md")).toBeNull());
+		const env = screen.getByTestId("file-row-.env");
+		await waitFor(() => expect(document.activeElement).toBe(env));
+		expect(env.getAttribute("tabindex")).toBe("0");
+	});
+
+	/** Focus that is elsewhere stays there; only the Tab stop moves. */
+	it("moves only the Tab stop when the tree did not have the focus", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const modules = await screen.findByTestId("file-row-node_modules");
+		modules.focus();
+		const button = screen.getByTestId("files-more");
+		button.focus();
+
+		const before = ROOT.entries;
+		ROOT.entries = before.filter((item) => item.name !== "node_modules");
+		onTestFinished(() => {
+			ROOT.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, ""),
+		});
+
+		await waitFor(() =>
+			expect(screen.queryByTestId("file-row-node_modules")).toBeNull(),
+		);
+		// The last row is gone, so the row above it takes the Tab stop.
+		const env = screen.getByTestId("file-row-.env");
+		await waitFor(() => expect(env.getAttribute("tabindex")).toBe("0"));
+		expect(document.activeElement).toBe(button);
 	});
 
 	/** Shift+Arrow and Ctrl+Space build a selection, like Shift- and Ctrl-click. */
@@ -845,6 +896,56 @@ describe("the file tree", () => {
 		await waitFor(() =>
 			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
 		);
+	});
+
+	/** SPEC.md §11.2: a row dragged onto a folder moves there, with the browser's own drag. */
+	it("moves a row dragged onto a folder, and refuses its own folder", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(204, null);
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		const readme = await screen.findByTestId("file-row-README.md");
+		const source = readme.querySelector(".pk-tree-row") as HTMLElement;
+		const folder = screen.getByTestId("file-row-src").querySelector(".pk-tree-row");
+		const carried = new Map<string, string>();
+		const dataTransfer = {
+			types: [TREE_DRAG_TYPE],
+			files: [],
+			setData: (type: string, value: string) => carried.set(type, value),
+			effectAllowed: "",
+			dropEffect: "",
+		};
+
+		expect(source.getAttribute("draggable")).toBe("true");
+		fireEvent.dragStart(source, { dataTransfer });
+		expect(carried.get(TREE_DRAG_TYPE)).toBe("README.md");
+		expect(source.getAttribute("data-dragging")).toBe("true");
+
+		// Over its own folder, the project root, nothing lights up.
+		fireEvent.dragEnter(screen.getByTestId("file-tree-space-drop"), { dataTransfer });
+		expect(
+			screen.getByTestId("file-tree-space-drop").getAttribute("data-drop-over"),
+		).toBeNull();
+
+		fireEvent.dragOver(folder as Element, { dataTransfer });
+		expect(folder?.className).toContain("is-drop-target");
+		fireEvent.drop(folder as Element, { dataTransfer });
+		fireEvent.dragEnd(source, { dataTransfer });
+
+		await waitFor(() =>
+			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
+		);
+		expect(folder?.className).not.toContain("is-drop-target");
+		expect(source.getAttribute("data-dragging")).toBeNull();
 	});
 
 	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */

@@ -60,9 +60,28 @@ test.describe("long directory listings", () => {
 			.locator(".pk-tree-row")
 			.evaluate((row) => getComputedStyle(row).outlineStyle);
 		expect(outline).not.toBe("none");
+		// Time from Enter to the focus landing on the first new row, in the page.
+		await page.evaluate(() => {
+			const timing = window as unknown as { pressed?: number; landed?: number };
+			const onKey = () => {
+				timing.pressed = performance.now();
+			};
+			document.addEventListener("keydown", onKey, { once: true, capture: true });
+			document.addEventListener("focusin", (event) => {
+				const target = event.target as HTMLElement;
+				if (target.dataset.path === "f02000.txt") timing.landed ??= performance.now();
+			});
+		});
 		await page.keyboard.press("Enter");
 
 		await expect(page.getByTestId("file-row-f02000.txt")).toBeFocused();
+		// Loading a page draws only the new rows. Redrawing all 2,000 rows
+		// took seconds; this is about a tenth of a second on a laptop.
+		const took = await page.evaluate(() => {
+			const timing = window as unknown as { pressed: number; landed: number };
+			return timing.landed - timing.pressed;
+		});
+		expect(took).toBeLessThan(1_500);
 		await expect(page.getByTestId(`file-row-${last}`)).toHaveCount(1);
 		await expect(more).toHaveCount(0);
 		await expect(page.getByTestId("files-announcement")).toHaveText(
