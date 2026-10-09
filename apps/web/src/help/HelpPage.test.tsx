@@ -153,6 +153,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 		"student-layout",
 		"student-keep-running",
 		"student-terminals",
+		"student-voice",
 		"student-files",
 		"student-recovery",
 		"student-previews",
@@ -178,6 +179,7 @@ test("the keyboard topic lists each key beside what it does", async () => {
 	);
 	expect(terms).toEqual([
 		"Alt+Shift+Q",
+		"Alt+Shift+M",
 		"Ctrl+M",
 		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		"Shift+F10",
@@ -194,8 +196,8 @@ test("the keyboard topic lists each key beside what it does", async () => {
 	const descriptions = Array.from(section.querySelectorAll("dl dd")).map(
 		(dd) => dd.textContent,
 	);
-	expect(descriptions[2]).toContain("A tab's menu also has Move left and Move right.");
-	expect(descriptions[3]).toMatch(/^Open the menu of the focused tab/);
+	expect(descriptions[3]).toContain("A tab's menu also has Move left and Move right.");
+	expect(descriptions[4]).toMatch(/^Open the menu of the focused tab/);
 });
 
 test("the terminals topic names the click alternatives to dragging", async () => {

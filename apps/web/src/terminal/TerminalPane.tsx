@@ -2,7 +2,7 @@ import { MAX_UPLOAD_BYTES, type Terminal as TerminalMeta } from "@portikus/contr
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import type { Terminal as Xterm } from "@xterm/xterm";
-import { useCallback, useId, useRef, useState } from "react";
+import { type MutableRefObject, useCallback, useId, useRef, useState } from "react";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { savePastedImage } from "../files/queries.js";
@@ -50,6 +50,10 @@ export interface TerminalPaneProps {
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
 	onLeave: () => void;
+	/** Alt+Shift+M held (true) or released (false), for voice input. */
+	onVoiceHold?: (held: boolean) => void;
+	/** Filled with a function that types dictated text into this terminal. */
+	dictation?: MutableRefObject<((text: string) => void) | null>;
 }
 
 /** How many names a paste tries before giving up, for pastes in one second. */
@@ -99,6 +103,8 @@ export function TerminalPane({
 	onCwd,
 	onFocus,
 	onLeave,
+	onVoiceHold,
+	dictation,
 }: TerminalPaneProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const channel = useRef<TerminalSocket | null>(null);
@@ -333,6 +339,8 @@ export function TerminalPane({
 		onLeave,
 		openUrl,
 		pasteImage,
+		onVoiceHold,
+		dictation,
 		attach,
 	});
 

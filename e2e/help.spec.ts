@@ -289,6 +289,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 	const topic = page.locator("section", { has: heading });
 	await expect(topic.locator("dl dt")).toHaveText([
 		"Alt+Shift+Q",
+		"Alt+Shift+M",
 		"Ctrl+M",
 		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		"Shift+F10",
@@ -298,10 +299,10 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
 	);
 	// The click ways to move a tab are written down beside the keys.
-	await expect(topic.locator("dl dd").nth(2)).toContainText(
+	await expect(topic.locator("dl dd").nth(3)).toContainText(
 		"A tab's menu also has Move left and Move right.",
 	);
-	await expect(topic.locator("dl dd").nth(3)).toContainText(
+	await expect(topic.locator("dl dd").nth(4)).toContainText(
 		"Open the menu of the focused tab",
 	);
 	const contents = page.getByRole("navigation", { name: "Help contents" });
@@ -311,6 +312,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"The workspace layout",
 		"Keep your workspace running while you are away",
 		"Terminals",
+		"Voice input in a terminal",
 		"Files and the editor",
 		"Recovery points",
 		"Previews",
