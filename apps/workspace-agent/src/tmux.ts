@@ -146,7 +146,8 @@ async function resolveCwd(cwd: string, homeDir: string): Promise<string> {
  * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
  * Without them tmux uses plain line feeds at the bottom of the screen, and
  * those do get saved. tmux never passes on the erase-scrollback that `clear`
- * sends, so the pane watcher tells the browser instead.
+ * sends, so the agent's pane pipes, with the pane watcher as a fallback,
+ * tell the browser instead.
  *
  * `history-limit` has to be global and set first: tmux reads it when a window
  * is created, so setting it on a session afterwards leaves that session's
@@ -475,6 +476,23 @@ export async function listPanes(server: TmuxServer): Promise<Map<string, PaneSta
 		});
 	}
 	return panes;
+}
+
+/**
+ * Copy a pane's output into a FIFO the agent reads (SPEC.md §9.7). Without
+ * `-o`, tmux closes any pipe the pane already has first, so this also
+ * replaces a dead pipe left by an earlier agent.
+ */
+export async function pipePane(
+	name: string,
+	fifo: string,
+	server: TmuxServer,
+): Promise<void> {
+	// tmux runs the command through sh, so the path is single-quoted.
+	if (fifo.includes("'")) {
+		throw new AgentFailure("TMUX_FAILED", "unsafe pipe path");
+	}
+	await tmux(["pipe-pane", "-O", "-t", name, `exec cat > '${fifo}'`], server);
 }
 
 export async function killSession(id: string, server: TmuxServer): Promise<void> {

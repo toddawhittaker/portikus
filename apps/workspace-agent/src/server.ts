@@ -25,6 +25,7 @@ import {
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
+import { PanePipes } from "./pane-pipes.js";
 import { protectedTree, tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 import { projectsRoutes } from "./projects-route.js";
@@ -32,7 +33,7 @@ import { recoveryRoutes } from "./recovery-routes.js";
 import { searchRoutes } from "./search-routes.js";
 import { TerminalRegistry } from "./terminals.js";
 import { terminalsRoutes } from "./terminals-route.js";
-import { serverPid, type TmuxServer } from "./tmux.js";
+import { listSessions, serverPid, type TmuxServer } from "./tmux.js";
 import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
 
@@ -56,6 +57,12 @@ export interface ServerOptions {
 	 * the broker; production passes `/run/portikus/browser.sock`.
 	 */
 	brokerSocketPath?: string;
+	/**
+	 * Directory for the FIFOs that carry each pane's output to the clear
+	 * scanner (SPEC.md §9.7). Unset in tests that do not exercise it;
+	 * production passes `/run/portikus/panes`.
+	 */
+	panePipeDir?: string;
 	/** Overrides where usage is read. For tests. */
 	usage?: UsageSamplerOptions;
 	/** Mount point of the recovery volume (ADR 0020). */
@@ -99,6 +106,32 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	};
 	const registry = new TerminalRegistry(options.homeDir, app.log, tmuxServer);
 	const watchers = options.watchers ?? new ProjectWatchers(app.log);
+	const panePipes = options.panePipeDir
+		? new PanePipes({
+				dir: options.panePipeDir,
+				server: tmuxServer,
+				onClear: (id) => registry.clearScrollback(id),
+				log: app.log,
+			})
+		: undefined;
+	if (panePipes) {
+		// Terminals outlive an agent restart, and the old agent's pipes died
+		// with its runtime directory (SPEC.md §9.7).
+		app.addHook("onReady", async () => {
+			try {
+				const sessions = await listSessions(tmuxServer);
+				await panePipes.adopt(sessions.map((session) => session.id));
+			} catch (error) {
+				app.log.warn(
+					{ error: error instanceof Error ? error.message : error },
+					"could not list terminals to watch for clear",
+				);
+			}
+		});
+		app.addHook("preClose", async () => {
+			panePipes.stopAll();
+		});
+	}
 
 	let closeBroker: () => Promise<void> = async () => {};
 	if (options.brokerSocketPath) {
@@ -218,6 +251,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			homeDir: options.homeDir,
 			tmuxServer,
 			registry,
+			panePipes,
 			terminalsExitPath: options.terminalsExitPath,
 			build: options.build,
 		});

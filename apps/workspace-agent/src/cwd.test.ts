@@ -70,3 +70,26 @@ test("history that starts empty or only shrinks sends no clear frame", async () 
 	const { sent } = await framesFor([0, 40, 30]);
 	expect(sent).not.toContainEqual({ type: "clear" });
 });
+
+function clears(sent: unknown[]): number {
+	return sent.filter((frame) => (frame as { type: string }).type === "clear").length;
+}
+
+test("a clear from the pane pipe is sent at once and the poll does not repeat it", async () => {
+	vi.useFakeTimers();
+	listPanes.mockResolvedValueOnce(pane(40));
+	listPanes.mockResolvedValue(pane(0));
+	const watcher = watchPanes(SERVER);
+	const { socket, sent } = fakeSocket();
+	const other = fakeSocket();
+	watcher.add(ID, socket);
+	watcher.add(OTHER, other.socket);
+	await vi.advanceTimersByTimeAsync(300);
+
+	watcher.clear(ID);
+	expect(clears(sent)).toBe(1);
+	await vi.advanceTimersByTimeAsync(1200);
+	watcher.stop();
+	expect(clears(sent)).toBe(1);
+	expect(clears(other.sent)).toBe(0);
+});
