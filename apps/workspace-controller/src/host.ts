@@ -50,24 +50,41 @@ export async function readHostSnapshot(
 		now?: () => Date;
 		/** Tests point this elsewhere. */
 		thinPoolStatusPath?: string;
+		signal?: AbortSignal;
 	},
 ): Promise<HostSnapshot> {
+	const { signal } = opts;
 	const loadAverage = await (opts.loadAverage ?? readLoadAverage)();
 	const now = (opts.now ?? (() => new Date()))();
 
-	const resources = (await client.request("GET", "/1.0/resources")) as {
+	const resources = (await client.request(
+		"GET",
+		"/1.0/resources",
+		undefined,
+		signal,
+	)) as {
 		cpu?: { total?: number };
 		memory?: { used?: number; total?: number };
 	};
-	const pool = await readPoolUse(client, opts.pool, now, opts.thinPoolStatusPath);
+	const pool = await readPoolUse(
+		client,
+		opts.pool,
+		now,
+		opts.thinPoolStatusPath,
+		signal,
+	);
 	const profile = (await client.request(
 		"GET",
 		`/1.0/profiles/${enc(opts.profile)}`,
+		undefined,
+		signal,
 	)) as { config?: Record<string, unknown> };
-	const image = await readCurrentImage(client, opts.imageAlias);
+	const image = await readCurrentImage(client, opts.imageAlias, signal);
 	const instances = (await client.request(
 		"GET",
 		"/1.0/instances?recursion=1",
+		undefined,
+		signal,
 	)) as Array<{
 		name: string;
 		config?: Record<string, unknown>;
@@ -153,12 +170,15 @@ export async function readPoolUse(
 export async function readCurrentImage(
 	client: IncusClient,
 	alias: string,
+	signal?: AbortSignal,
 ): Promise<HostSnapshot["image"]> {
 	let fingerprint: string;
 	try {
 		const target = (await client.request(
 			"GET",
 			`/1.0/images/aliases/${enc(alias)}`,
+			undefined,
+			signal,
 		)) as {
 			target?: unknown;
 		};
@@ -171,7 +191,12 @@ export async function readCurrentImage(
 		}
 		throw err;
 	}
-	const details = (await client.request("GET", `/1.0/images/${enc(fingerprint)}`)) as {
+	const details = (await client.request(
+		"GET",
+		`/1.0/images/${enc(fingerprint)}`,
+		undefined,
+		signal,
+	)) as {
 		properties?: Record<string, unknown>;
 	};
 	return { fingerprint, serial: str(details.properties?.serial) };

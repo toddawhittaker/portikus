@@ -103,7 +103,7 @@ export interface WorkspaceProvider {
 		opts: { timeoutSeconds: number },
 		signal?: AbortSignal,
 	): Promise<StopInstanceResponse>;
-	list(): Promise<InstanceStatus[]>;
+	list(signal?: AbortSignal): Promise<InstanceStatus[]>;
 	healthy(): Promise<boolean>;
 	/** Replace the Docker volume with a clean one; the instance must be stopped. */
 	resetDocker(
@@ -118,7 +118,7 @@ export interface WorkspaceProvider {
 		signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse>;
 	/** One read-only look at the host for the admin Health tab (SPEC.md §25.6). */
-	hostSnapshot(): Promise<HostSnapshot>;
+	hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot>;
 	/** Grow the home and Docker volumes; a smaller size is refused (SPEC.md §20.1). */
 	growVolumes(
 		name: string,
@@ -126,7 +126,7 @@ export interface WorkspaceProvider {
 		signal?: AbortSignal,
 	): Promise<GrowVolumesResponse>;
 	/** CPU time and memory of every running instance, from Incus (ADR 0032). */
-	usage(): Promise<InstanceUsage[]>;
+	usage(signal?: AbortSignal): Promise<InstanceUsage[]>;
 	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
 	setCpuAllowance(
 		name: string,
@@ -866,10 +866,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return state?.status;
 	}
 
-	async list(): Promise<InstanceStatus[]> {
+	async list(signal?: AbortSignal): Promise<InstanceStatus[]> {
 		const instances = (await this.client.request(
 			"GET",
 			"/1.0/instances?recursion=2",
+			undefined,
+			signal,
 		)) as Array<{
 			name: string;
 			status: string;
@@ -1069,10 +1071,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * One Incus listing for the resource guard (ADR 0032). Totals only: no
 	 * process, command line or file name is read (SPEC.md 20.1).
 	 */
-	async usage(): Promise<InstanceUsage[]> {
+	async usage(signal?: AbortSignal): Promise<InstanceUsage[]> {
 		const instances = (await this.client.request(
 			"GET",
 			"/1.0/instances?recursion=2",
+			undefined,
+			signal,
 		)) as Array<{
 			name: string;
 			status: string;
@@ -1293,12 +1297,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	async hostSnapshot(): Promise<HostSnapshot> {
+	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
 		return readHostSnapshot(this.client, {
 			pool: this.pool,
 			profile: this.profile,
 			imageAlias: this.imageAlias,
 			thinPoolStatusPath: this.thinPoolStatusPath,
+			signal,
 		});
 	}
 

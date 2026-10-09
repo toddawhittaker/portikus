@@ -400,30 +400,33 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
-	app.get("/instances", async (_request, reply) => {
+	app.get("/instances", async (request, reply) => {
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			const result = await provider.list();
+			const result = await provider.list(signal);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
 	// The worker samples this once a minute for the admin Health tab (SPEC.md §25.6).
-	app.get("/host", async (_request, reply) => {
+	app.get("/host", async (request, reply) => {
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			return reply.code(200).send(await provider.hostSnapshot());
+			return reply.code(200).send(await provider.hostSnapshot(signal));
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
 	// The worker samples this once a minute for the resource guard (ADR 0032).
-	app.get("/instances/usage", async (_request, reply) => {
+	app.get("/instances/usage", async (request, reply) => {
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			return reply.code(200).send({ instances: await provider.usage() });
+			return reply.code(200).send({ instances: await provider.usage(signal) });
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -591,15 +594,16 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		return reply.code(200).send(status);
 	});
 
-	app.get("/docker-seed", async (_request, reply) => {
+	app.get("/docker-seed", async (request, reply) => {
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			const seed = await provider.seedInfo();
+			const seed = await provider.seedInfo(signal);
 			if (!seed) {
 				return reply.code(404).send({ code: "NOT_FOUND", message: "no Docker seed" });
 			}
 			return reply.code(200).send(seed);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 

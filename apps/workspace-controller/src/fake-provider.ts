@@ -192,7 +192,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { forced: false };
 	}
 
-	async list(): Promise<InstanceStatus[]> {
+	async list(_signal?: AbortSignal): Promise<InstanceStatus[]> {
 		this.checkError();
 		return [...this.instances.values()].map((inst) => ({
 			name: inst.name,
@@ -242,7 +242,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return inst;
 	}
 
-	async hostSnapshot(): Promise<HostSnapshot> {
+	async hostSnapshot(_signal?: AbortSignal): Promise<HostSnapshot> {
 		this.checkError();
 		return {
 			observedAt: new Date().toISOString(),
@@ -284,7 +284,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return { ...inst.quota };
 	}
 
-	async usage(): Promise<InstanceUsage[]> {
+	async usage(_signal?: AbortSignal): Promise<InstanceUsage[]> {
 		this.checkError();
 		return [...this.instances.values()]
 			.filter((inst) => inst.status === "Running")
@@ -455,7 +455,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 	/** Holds the build at `prepareSeedBuilder` until resolved, when set. */
 	seedPrepareGate: Promise<void> | null = null;
 
-	async seedInfo(): Promise<SeedInfo | null> {
+	async seedInfo(_signal?: AbortSignal): Promise<SeedInfo | null> {
 		return this.seed;
 	}
 

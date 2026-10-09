@@ -6,11 +6,15 @@ import {
 	type CreateInstanceResponse,
 	GROW_BUDGET_MS,
 	type GrowVolumesResponse,
+	type HostSnapshot,
 	INSTANCE_CREATE_BUDGET_MS,
+	type InstanceStatus,
+	type InstanceUsage,
 	type KeptVolumesResponse,
 	MAINTENANCE_BUDGET_MS,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
+	type SeedInfo,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 	startBudgetMs,
@@ -96,6 +100,18 @@ class GatedProvider extends FakeWorkspaceProvider {
 	}
 	override keptVolumes(signal?: AbortSignal) {
 		return this.gateAbortable<KeptVolumesResponse>(signal);
+	}
+	override list(signal?: AbortSignal) {
+		return this.gateAbortable<InstanceStatus[]>(signal);
+	}
+	override hostSnapshot(signal?: AbortSignal) {
+		return this.gateAbortable<HostSnapshot>(signal);
+	}
+	override usage(signal?: AbortSignal) {
+		return this.gateAbortable<InstanceUsage[]>(signal);
+	}
+	override seedInfo(signal?: AbortSignal) {
+		return this.gateAbortable<SeedInfo | null>(signal);
 	}
 	override replaceHome(_n: string, signal?: AbortSignal) {
 		return this.gate<ReplaceHomeResponse>(signal);
@@ -415,6 +431,39 @@ const ROUTES = [
 		path: "/volumes/kept",
 		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
 		result: { snapshots: [], keptHomes: [] },
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/instances",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: [],
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/host",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: {},
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/instances/usage",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: [],
+		shared: false,
+	},
+	{
+		method: "GET",
+		path: "/docker-seed",
+		budgetMs: CONTROLLER_SHORT_BUDGET_MS,
+		result: {
+			images: [],
+			sizeBytes: 0,
+			imageVersion: "2026.10.1",
+			builtAt: "2026-10-01T00:00:00Z",
+		},
 		shared: false,
 	},
 ] as Array<{
