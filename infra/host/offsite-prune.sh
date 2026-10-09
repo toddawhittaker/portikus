@@ -30,14 +30,16 @@
 #     runs: a filesystem quota on this account is the real limit on a
 #     burst within the hour and on kept sets growing (docs/INSTALL.md).
 #     A large set takes longer than an hour to send, so two things are
-#     spared and left out of the measure: the newest unfinished set named
-#     for the last day (up to an hour ahead) while anything in it changed
-#     in the last 2 hours, with a warning when it passes four times the
-#     median, and, until a first set is kept, every set, since there is no
-#     median to size one by;
+#     spared and left out of the measure: the newest unfinished set (named
+#     up to an hour ahead) until it is KEEP days old, even while its upload
+#     stalls or when it starts late, with a warning when it passes four
+#     times the median, and, until a first set is kept, every set, since
+#     there is no median to size one by;
 #   - removes a set from DIR only when it is more than KEEP days old and
 #     KEEP newer sets are there, so a server that stops sending leaves the
-#     last KEEP sets in place.
+#     last KEEP sets in place;
+#   - on a run that adds a set, warns when quota shows no disk or no file
+#     limit for this account on DIR's filesystem, or is not installed.
 # KEEP defaults to 7.  Outside incoming, nothing but set folders is touched.
 set -eu
 # find fails when the caller's directory is unreadable to this account.
@@ -106,6 +108,29 @@ median() {
       done \
     | sort -n | awk '{ v[NR] = $1 } END { print NR ? v[int((NR + 1) / 2)] : 0 }'
 }
+# check_quota -- warns when this account has no disk or no file limit on
+# DIR's filesystem, the only real bound on a burst (docs/INSTALL.md).
+# quota exits non-zero when over a limit, so only its output is read.
+check_quota() {
+  command -v quota >/dev/null 2>&1 || {
+    warn "cannot check this account's filesystem quota: install the quota package"
+    return 0
+  }
+  _mnt=$(stat -c %m -- "$dir") || { warn "cannot find the filesystem of ${dir}"; return 0; }
+  _missing=$(quota -u -w -p -f "$_mnt" 2>/dev/null | awk '
+    NF >= 9 && $1 != "Filesystem" {
+      seen = 1
+      if ($3 + 0 == 0 && $4 + 0 == 0) b = 1
+      if ($7 + 0 == 0 && $8 + 0 == 0) i = 1
+    }
+    END {
+      if (!seen || (b && i)) print "disk or file"
+      else if (b) print "disk"
+      else if (i) print "file"
+    }') || true
+  [ -z "$_missing" ] \
+    || warn "this account has no ${_missing} limit on ${_mnt}; set one with setquota (docs/INSTALL.md)"
+}
 # day_kept YYYYMMDD -- DIR already holds a set from that UTC day.
 day_kept() {
   for e in "${dir}/${1}"T*Z; do
@@ -115,6 +140,7 @@ day_kept() {
 }
 
 before=$(median kib)
+added=""
 for marker in "${dir}"/incoming/*.done; do
   [ -e "$marker" ] || [ -L "$marker" ] || continue
   name=${marker##*/}
@@ -156,6 +182,7 @@ for marker in "${dir}"/incoming/*.done; do
     # Read-only, so a slip on this machine does not change it either.
     chmod -R a-w -- "${dir}/${name}" || warn "could not make ${name} read-only"
     echo "added ${name}"
+    added=1
     if size=$(kib "${dir}/${name}") && [ "$before" -gt 0 ] && [ "$size" -gt $((2 * before)) ]; then
       warn "${name} uses ${size} KiB, more than twice the median kept set (${before} KiB)"
     fi
@@ -180,23 +207,17 @@ max_entries=$((10 * $(median entries)))
 # Each measurement is tried twice: rsync renaming a file mid-walk can fail one.
 twice() { "$@" || "$@"; }
 kept=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Exc '[0-9]{8}T[0-9]{6}Z' || true)
-# The newest unfinished set named for the last day (an hour ahead allows
-# for clock skew), while anything in it changed in the last 2 hours.  The
-# name bounds it, so a folder kept touched cannot stay spared for ever.
-# The change time, because rsync gives files the source's modification time.
+# The newest unfinished set, at most an hour ahead for clock skew.  Not
+# only while it changes: an upload can stall, or start a day late, and
+# still be the genuine set.  The loop above drops it at KEEP days old.
 soon=$(date -u -d '+1 hour' +%Y%m%d%H%M%S)
 uploading=""
 for d in "${dir}"/incoming/*; do
   name=${d##*/}
-  if is_set "$name" && is_dir "$d" && [ ! -e "${d}.done" ] \
-    && [ "$(num "$name")" -ge "$dayago" ] && [ "$(num "$name")" -le "$soon" ]; then
+  if is_set "$name" && is_dir "$d" && [ ! -e "${d}.done" ] && [ "$(num "$name")" -le "$soon" ]; then
     uploading=$name
   fi
 done
-if [ -n "$uploading" ] \
-  && [ -z "$(find "${dir}/incoming/${uploading}" -newerct "$(date -d '-2 hours' +@%s)" -print -quit 2>/dev/null)" ]; then
-  uploading=""
-fi
 # Spared sets are listed by name, which never holds a space.  Before any set
 # is kept there is no median to size a set by, so every set is spared and
 # only the rest is limited.
@@ -260,3 +281,6 @@ for d in $(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Ex
   fi
   newer=$((newer + 1))
 done
+
+# Only on runs that add a set, so cron mails this about once a day.
+[ -z "$added" ] || check_quota
