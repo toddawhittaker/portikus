@@ -36,15 +36,18 @@ export function ShowMoreRow({
 			data-path={path}
 			data-kind="more"
 			data-testid="file-tree-show-more"
+			data-current={focused ? "true" : undefined}
 			className="pk-tree-item pk-tree-more"
-			style={{ paddingLeft: `${level * 16 - 8}px` }}
 			onFocus={onFocus}
 			onClick={() => {
 				if (!loading) onActivate();
 			}}
 		>
-			<span className="pk-tree-more-label">Show {MAX_TREE_ENTRIES} more…</span>{" "}
-			<span data-testid="file-tree-truncated">({entryCount(shown)} shown)</span>
+			{/* The inner row draws the focus ring and current-row bar, as for every row. */}
+			<div className="pk-tree-row" style={{ paddingLeft: `${level * 16 - 8}px` }}>
+				<span>Show {MAX_TREE_ENTRIES.toLocaleString("en")} more…</span>{" "}
+				<span data-testid="file-tree-truncated">({entryCount(shown)} shown)</span>
+			</div>
 		</div>
 	);
 }

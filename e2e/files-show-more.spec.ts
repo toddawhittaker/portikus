@@ -53,6 +53,12 @@ test.describe("long directory listings", () => {
 		await page.getByTestId("file-row-f01999.txt").focus();
 		await page.keyboard.press("ArrowDown");
 		await expect(more).toBeFocused();
+		await expect(more).toContainText("Show 2,000 more…");
+		// WCAG 2.4.7: the focused row draws a ring like every other row.
+		const outline = await more
+			.locator(".pk-tree-row")
+			.evaluate((row) => getComputedStyle(row).outlineStyle);
+		expect(outline).not.toBe("none");
 		await page.keyboard.press("Enter");
 
 		await expect(page.getByTestId("file-row-f02000.txt")).toBeFocused();
