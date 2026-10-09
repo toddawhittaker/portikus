@@ -7,7 +7,7 @@ import { CsvError } from "@portikus/contracts";
 import { Button, EmptyState } from "@portikus/ui";
 import { useMemo } from "react";
 import { baseName } from "../files/paths.js";
-import { CSV_ROW_LIMIT, type CsvTable, csvTable } from "./csv.js";
+import { CSV_COLUMN_LIMIT, CSV_ROW_LIMIT, type CsvTable, csvTable } from "./csv.js";
 import "./csv.css";
 
 export interface CsvViewProps {
@@ -55,7 +55,8 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 		);
 	}
 	// Short records are padded so every column lines up; a column past the
-	// header's last gets a name a screen reader can say.
+	// header's last, or under a blank header cell, gets a name a screen reader
+	// can say.
 	const columns = Array.from({ length: table.columns }, (_, at) => at);
 	return (
 		<div className="pk-csv" data-testid={`csv-view-${path}`}>
@@ -71,7 +72,7 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 							<tr>
 								{columns.map((at) => (
 									<th key={at} scope="col">
-										{at < table.header.length ? (
+										{table.header[at] ? (
 											table.header[at]
 										) : (
 											<span className="pk-visually-hidden">Column {at + 1}</span>
@@ -93,6 +94,12 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 					</table>
 				</section>
 			</div>
+			{table.totalColumns > CSV_COLUMN_LIMIT ? (
+				<p className="pk-file-note" data-testid="csv-column-cap">
+					Showing the first {CSV_COLUMN_LIMIT.toLocaleString("en")} of{" "}
+					{table.totalColumns.toLocaleString("en")} columns.
+				</p>
+			) : null}
 			{table.total > CSV_ROW_LIMIT ? (
 				<p className="pk-file-note" data-testid="csv-row-cap">
 					Showing the first {CSV_ROW_LIMIT.toLocaleString("en")} of{" "}
