@@ -30,7 +30,7 @@ test("a CSV file opens as a table, and Edit and View switch between table and te
 	const path = "marks.csv";
 	await openFileTab(page, student, "Csv", path, MARKS);
 
-	const region = page.getByRole("region", { name: path });
+	const region = page.getByRole("region", { name: `${path} table` });
 	const table = region.getByRole("table");
 	await expect(table).toBeVisible({ timeout: 15_000 });
 	await expect(table.getByRole("columnheader")).toHaveText([
@@ -64,7 +64,7 @@ test("the keyboard reaches the table and scrolls it", async ({ page, context }) 
 	const student = await createStudent(context);
 	const path = "long.csv";
 	await openFileTab(page, student, "Csv keys", path, rows(300));
-	const region = page.getByRole("region", { name: path });
+	const region = page.getByRole("region", { name: `${path} table` });
 	await expect(region.getByRole("table")).toBeVisible({ timeout: 15_000 });
 
 	// From the view buttons, Tab moves on into the table's scroll area.
@@ -91,7 +91,7 @@ test("a large file draws its first 1,000 rows and says how many there are", asyn
 	const student = await createStudent(context);
 	const path = "big.csv";
 	await openFileTab(page, student, "Csv big", path, rows(1500));
-	const region = page.getByRole("region", { name: path });
+	const region = page.getByRole("region", { name: `${path} table` });
 	await expect(region.getByRole("table")).toBeVisible({ timeout: 15_000 });
 	await expect(region.getByRole("row")).toHaveCount(1001);
 	await expect(page.getByTestId("csv-row-cap")).toHaveText(
@@ -131,11 +131,11 @@ for (const scheme of ["light", "dark"] as const) {
 		const student = await createStudent(context);
 		const path = "marks.csv";
 		await openFileTab(page, student, `A11y csv ${scheme}`, path, MARKS);
-		await expect(page.getByRole("region", { name: path })).toBeVisible({
+		await expect(page.getByRole("region", { name: `${path} table` })).toBeVisible({
 			timeout: 15_000,
 		});
 		await expectNoViolations(page);
-		await page.getByRole("region", { name: path }).focus();
+		await page.getByRole("region", { name: `${path} table` }).focus();
 		await expectNoViolations(page);
 	});
 
