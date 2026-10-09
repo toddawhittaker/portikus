@@ -106,6 +106,36 @@ test.describe("extract here", () => {
 		await expect(progress).toHaveCount(0);
 	});
 
+	test("the progress toast shows how many entries are out, without announcing each", async ({
+		page,
+		context,
+	}) => {
+		await withUploadedZip(page, context);
+		const release = await holdExtract(page);
+		let polls = 0;
+		await page.route("**/extract/progress", async (route) => {
+			polls += 1;
+			await route.fulfill({ json: { done: Math.min(polls * 2, 10), total: 10 } });
+		});
+		await page.getByTestId("file-menu-starter.zip").click();
+		await page.getByTestId("row-extract-starter.zip").click();
+
+		const progress = toast(page, "Extracting starter.zip…");
+		const bar = progress.getByRole("progressbar", { name: "Extraction progress" });
+		await expect(bar).toBeVisible();
+		await expect(bar).toHaveAttribute("max", "10");
+		// The poll moves it on about once a second.
+		await expect(bar).toHaveAttribute("aria-valuetext", /^([4-9]|10) of 10 items$/, {
+			timeout: 10_000,
+		});
+		await expect(progress.locator("[aria-live=off]")).toContainText("of 10 items");
+		await page.screenshot({ path: "screenshots/extract-progress.png" });
+
+		release();
+		await expect(toast(page, "Extracted starter.zip into starter")).toBeVisible();
+		await expect(progress).toHaveCount(0);
+	});
+
 	test("focus on the progress toast moves to the notifications list when it goes", async ({
 		page,
 		context,
@@ -137,10 +167,18 @@ test.describe("extract here", () => {
 			await page.emulateMedia({ colorScheme: scheme });
 			await withUploadedZip(page, context);
 			const release = await holdExtract(page);
+			await page.route("**/extract/progress", (route) =>
+				route.fulfill({ json: { done: 3, total: 10 } }),
+			);
 			await page.getByTestId("file-menu-starter.zip").click();
 			await page.getByTestId("row-extract-starter.zip").click();
-			await expect(toast(page, "Extracting starter.zip…")).toBeVisible();
+			const progress = toast(page, "Extracting starter.zip…");
+			await expect(progress.getByRole("progressbar")).toHaveAttribute(
+				"aria-valuetext",
+				"3 of 10 items",
+			);
 			await expectNoViolations(page);
+			await progress.screenshot({ path: `screenshots/extract-progress-${scheme}.png` });
 
 			release();
 			await expect(toast(page, "Extracted starter.zip into starter")).toBeVisible();

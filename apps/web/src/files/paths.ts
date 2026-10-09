@@ -119,17 +119,23 @@ export function prunePaths(paths: readonly string[], removed: string): string[] 
 	return paths.filter((path) => path !== removed && !isDescendant(path, removed));
 }
 
+/**
+ * Where `path` is after `from` moved to `to`: `from` itself or anything
+ * inside it moves with it. Null when it did not move.
+ */
+export function movedPath(path: string, from: string, to: string): string | null {
+	if (path === from) return to;
+	if (isDescendant(path, from)) return to + path.slice(from.length);
+	return null;
+}
+
 /** Rewrite `from` and everything under it to sit under `to` instead. */
 export function rewritePaths(
 	paths: readonly string[],
 	from: string,
 	to: string,
 ): string[] {
-	return paths.map((path) => {
-		if (path === from) return to;
-		if (isDescendant(path, from)) return to + path.slice(from.length);
-		return path;
-	});
+	return paths.map((path) => movedPath(path, from, to) ?? path);
 }
 
 /**
@@ -164,18 +170,6 @@ export function focusAfterRemoval(
 	}
 	const folder = parentOf(removed);
 	return now.has(folder) ? folder : (rendered[0] ?? null);
-}
-
-/** The ids of the tabs showing `path` itself or anything inside it. */
-export function tabIdsUnder(tabIds: readonly string[], path: string): string[] {
-	return tabIds.filter((id) => {
-		const cut = id.indexOf(":");
-		if (cut === -1) return false;
-		const kind = id.slice(0, cut);
-		if (kind !== "file" && kind !== "diff") return false;
-		const tabPath = id.slice(cut + 1);
-		return tabPath === path || isDescendant(tabPath, path);
-	});
 }
 
 /**

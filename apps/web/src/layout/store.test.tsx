@@ -1,6 +1,79 @@
 import { expect, test } from "vitest";
 import { createLayoutStore } from "./store";
-import { layoutTerminalIds, terminalIds } from "./tree";
+import { filePaths, layoutTerminalIds, terminalIds } from "./tree";
+
+/** SPEC.md §11.2: a rename or move from the files pane keeps the file's tab. */
+test("a renamed file keeps its tab, active, with what this browser kept for it", () => {
+	const layout = store();
+	layout.getState().addTab("t1");
+	layout.getState().openFile("a.txt", { diff: true, baseline: "abc123" });
+	layout.getState().setTabUnsaved("file:a.txt", true);
+	layout.getState().setViewState("a.txt", { cursor: 4 });
+	layout.getState().setZoom("a.txt", 120);
+	layout.getState().clearDirty();
+
+	layout.getState().retargetTabs("a.txt", "b.txt");
+	const state = layout.getState();
+	expect(state.layout.tabs.map((tab) => tab.id)).toEqual(["t1", "file:b.txt"]);
+	expect(state.activeTabId).toBe("file:b.txt");
+	expect(state.tabHistory).not.toContain("file:a.txt");
+	expect(state.diffBaseline).toEqual({ "file:b.txt": "abc123" });
+	expect(state.pendingView["file:b.txt"]?.mode).toBe("diff");
+	expect(state.pendingView["file:a.txt"]).toBeUndefined();
+	expect(state.unsavedTabs).toEqual({ "file:b.txt": true });
+	expect(state.viewStates).toEqual({ "b.txt": { cursor: 4 } });
+	expect(state.zooms).toEqual({ "b.txt": 120 });
+	expect(state.dirty).toBe(true);
+});
+
+test("a moved folder retargets the files inside it, a file in a split included", () => {
+	const layout = store();
+	layout.getState().addTab("t1");
+	layout.getState().openFile("src/a.ts");
+	layout.getState().openFile("src/deep/b.ts", { diff: true, baseline: "def456" });
+	layout.getState().openFile("srcx/c.ts");
+	layout.getState().moveLeaf("t1", "file:src/a.ts", "t1", "right");
+	layout.getState().setActive("t1");
+
+	layout.getState().retargetTabs("src", "lib");
+	const state = layout.getState();
+	expect(state.layout.tabs.flatMap((tab) => filePaths(tab.root))).toEqual([
+		"lib/a.ts",
+		"lib/deep/b.ts",
+		"srcx/c.ts",
+	]);
+	// The split tab keeps its id and stays active.
+	expect(state.activeTabId).toBe("t1");
+	expect(state.diffBaseline["file:lib/deep/b.ts"]).toBe("def456");
+	expect(state.diffBaseline["file:srcx/c.ts"]).toBeNull();
+	expect(Object.keys(state.diffBaseline).some((key) => key.includes("src/"))).toBe(
+		false,
+	);
+});
+
+test("a move hands an open editor's unsaved text to the file's new path", () => {
+	const layout = store();
+	layout.getState().openFile("src/a.ts");
+	const release = layout.getState().registerBuffer("src/a.ts", () => "unsaved text");
+	layout.getState().retargetTabs("src", "lib");
+	// The editor unmounting at the old path finds its text already taken.
+	expect(release()).toBe(false);
+	expect(layout.getState().takeBuffer("lib/a.ts")).toBe("unsaved text");
+	expect(layout.getState().takeBuffer("lib/a.ts")).toBeUndefined();
+});
+
+test("text kept across a remount is dropped once its file is closed", () => {
+	const layout = store();
+	layout.getState().openFile("a.txt");
+	const release = layout.getState().registerBuffer("a.txt", () => null);
+	expect(release()).toBe(true);
+	layout.getState().carryBuffer("a.txt", "kept");
+	layout.getState().closeFile("a.txt");
+	expect(layout.getState().takeBuffer("a.txt")).toBeUndefined();
+	// A file that is not open keeps nothing at all.
+	layout.getState().carryBuffer("a.txt", "kept");
+	expect(layout.getState().takeBuffer("a.txt")).toBeUndefined();
+});
 
 function store() {
 	return createLayoutStore();

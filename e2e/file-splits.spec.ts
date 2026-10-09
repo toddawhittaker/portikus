@@ -16,6 +16,7 @@ import {
 	terminalIds,
 	workTabs,
 } from "./helpers";
+import { WEB_ORIGIN } from "./ports";
 
 const PATH = "src/app.ts";
 const FILE_PANE = `file:${PATH}`;
@@ -188,6 +189,33 @@ test.describe("file panes in splits", () => {
 			})
 			.toContain("// moved");
 		await expect(lines(page)).toContainText("// moved", { timeout: 15_000 });
+	});
+
+	test("with auto-save off, a file moved into a split keeps its unsaved edits unwritten", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const res = await page.request.put("/me/settings", {
+			data: { autoSave: false },
+			headers: { origin: WEB_ORIGIN },
+		});
+		expect(res.status()).toBe(200);
+		const { slug, terminalId } = await fileAndTerminal(page, student, "Move off");
+		await page.getByTestId(`tab-${FILE_PANE}`).click();
+		await lines(page).click();
+		await page.keyboard.press("Control+Home");
+		await page.keyboard.press("End");
+		await page.keyboard.type(" // kept");
+		await moveFileInto(page, terminalId);
+
+		await expect(page.getByTestId(`file-frame-${PATH}`)).toBeVisible();
+		await expect(lines(page)).toContainText("// kept", { timeout: 15_000 });
+		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Unsaved");
+		await expect(page.getByTestId(`tab-${terminalId}-dirty`)).toBeVisible();
+		expect(await readSeededFile(student.workspaceId, slug, PATH)).toBe(
+			"const answer = 42;\n",
+		);
 	});
 
 	test("the tab shows the unsaved dot for a file inside it", async ({

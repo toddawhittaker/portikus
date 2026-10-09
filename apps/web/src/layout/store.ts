@@ -9,6 +9,7 @@ import type { ProjectLayout } from "@portikus/contracts";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { createStore, useStore } from "zustand";
 import { DEFAULT_ZOOM } from "../editor/zoom.js";
+import { isDescendant, movedPath } from "../files/paths.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
@@ -116,6 +117,28 @@ export interface LayoutState {
 	/** Put back what this browser remembered for this project. */
 	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (terminalId: string | null) => void;
+	/**
+	 * Follow a rename or move made from the files pane (SPEC.md §11.2): every
+	 * open file under `from` keeps its pane, now showing its place under
+	 * `to`, with its diff baseline, unsaved mark, view state, zoom and
+	 * unsaved text.
+	 */
+	retargetTabs: (from: string, to: string) => void;
+	/**
+	 * A mounted file pane's editor offers its unsaved text, so a move can carry
+	 * it to the pane's new path. `snapshot` answers null when nothing is
+	 * unsaved. The returned release answers false when a move already took the
+	 * text, so the unmounting editor leaves it alone.
+	 */
+	registerBuffer: (path: string, snapshot: () => unknown) => () => boolean;
+	/**
+	 * Keep one editor's unsaved text while its pane remounts, as a move into
+	 * or out of a split does (SPEC.md §13.5). Kept only while the file is
+	 * still open, so a closed tab leaves nothing behind.
+	 */
+	carryBuffer: (path: string, carried: unknown) => void;
+	/** Take the unsaved text kept for `path`, once. */
+	takeBuffer: (path: string) => unknown;
 	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
 	clearDirty: () => void;
 }
@@ -149,14 +172,20 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 /**
  * The id a tab has after a change. A tab can be renamed when a file's pane
  * leaves it or joins it (tree.ts, settleTabIds), so a tab that is gone is
- * followed through the panes it held. Unchanged when nothing matches.
+ * followed through the panes it held; `paneNow` gives a pane's id after the
+ * change, for a file that moved. Unchanged when nothing matches.
  */
-function followTab(before: ProjectLayout, after: ProjectLayout, tabId: string): string {
+function followTab(
+	before: ProjectLayout,
+	after: ProjectLayout,
+	tabId: string,
+	paneNow: (paneId: string) => string = (paneId) => paneId,
+): string {
 	if (after.tabs.some((tab) => tab.id === tabId)) return tabId;
 	const old = before.tabs.find((tab) => tab.id === tabId);
 	if (!old) return tabId;
 	for (const id of tree.paneIds(old.root)) {
-		const now = tree.tabOfPane(after, id);
+		const now = tree.tabOfPane(after, paneNow(id));
 		if (now !== null) return now;
 	}
 	return tabId;
@@ -182,6 +211,32 @@ function forgetFiles(
 }
 
 /**
+ * Rewrite the keys of a per-file record after `from` moved to `to`. `prefix`
+ * is what comes before the path in a key. Whatever was kept for a file the
+ * move replaced at `to` is dropped.
+ */
+function moveKeys<T>(
+	record: Record<string, T>,
+	prefix: string,
+	from: string,
+	to: string,
+): Record<string, T> {
+	const kept: Record<string, T> = {};
+	const moved: Record<string, T> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (!key.startsWith(prefix)) {
+			kept[key] = value;
+			continue;
+		}
+		const path = key.slice(prefix.length);
+		const now = movedPath(path, from, to);
+		if (now !== null) moved[prefix + now] = value;
+		else if (path !== to && !isDescendant(path, to)) kept[key] = value;
+	}
+	return { ...kept, ...moved };
+}
+
+/**
  * Keep the active tab pointing at a tab that still exists, preferring the one
  * that was active most recently.
  */
@@ -198,13 +253,26 @@ export function createLayoutStore() {
 	return createStore<LayoutState>()((set, get) => {
 		let seq = 0;
 		const nextSeq = () => ++seq;
+		// Editors' unsaved text, by path. It is what the editor holds right
+		// now, so it lives beside the state rather than in it, and is never saved.
+		const liveBuffers = new Map<string, () => unknown>();
+		const carried = new Map<string, unknown>();
+
+		/** Forget the unsaved text kept for files that were closed. */
+		function dropCarried(paths: string[]) {
+			for (const path of paths) carried.delete(path);
+		}
 
 		/**
 		 * The active tab and history after a change, following a tab that was
 		 * renamed rather than dropping it.
 		 */
-		function settleActive(state: LayoutState, layout: ProjectLayout) {
-			const follow = (id: string) => followTab(state.layout, layout, id);
+		function settleActive(
+			state: LayoutState,
+			layout: ProjectLayout,
+			paneNow?: (paneId: string) => string,
+		) {
+			const follow = (id: string) => followTab(state.layout, layout, id, paneNow);
 			const history = pruneHistory(state.tabHistory.map(follow), layout);
 			const current = state.activeTabId === null ? null : follow(state.activeTabId);
 			const activeTabId = pickActive(layout, current, history);
@@ -333,6 +401,7 @@ export function createLayoutStore() {
 							layout.tabs[index - 1]?.id ??
 							layout.tabs[index]?.id ??
 							null);
+					dropCarried(tree.filePaths(closing.root));
 					return {
 						layout,
 						activeTabId,
@@ -355,6 +424,7 @@ export function createLayoutStore() {
 				}
 				set((state) => {
 					const layout = tree.removeLeaf(state.layout, pane);
+					dropCarried([path]);
 					return {
 						layout,
 						...settleActive(state, layout),
@@ -441,6 +511,65 @@ export function createLayoutStore() {
 				}),
 
 			setFocused: (terminalId) => set({ focusedTerminalId: terminalId }),
+
+			retargetTabs: (from, to) => {
+				// The editors under `from` unmount once the layout changes, so
+				// their text is taken now and waits for the panes at the new paths.
+				for (const [path, snapshot] of [...liveBuffers]) {
+					const now = movedPath(path, from, to);
+					if (now === null) continue;
+					liveBuffers.delete(path);
+					const text = snapshot();
+					if (text !== null) carried.set(now, text);
+				}
+				for (const [path, text] of [...carried]) {
+					const now = movedPath(path, from, to);
+					if (now === null) continue;
+					carried.delete(path);
+					carried.set(now, text);
+				}
+				set((state) => {
+					const layout = tree.retargetFiles(state.layout, from, to);
+					const files = tree.fileTabId("");
+					// A lone file's tab is renamed with its file.
+					const paneNow = (pane: string): string => {
+						const moved = pane.startsWith(files)
+							? movedPath(pane.slice(files.length), from, to)
+							: null;
+						return moved === null ? pane : tree.fileTabId(moved);
+					};
+					return {
+						layout,
+						...settleActive(state, layout, paneNow),
+						pendingView: moveKeys(state.pendingView, files, from, to),
+						diffBaseline: moveKeys(state.diffBaseline, files, from, to),
+						unsavedTabs: moveKeys(state.unsavedTabs, files, from, to),
+						viewStates: moveKeys(state.viewStates, "", from, to),
+						zooms: moveKeys(state.zooms, "", from, to),
+						dirty: state.dirty || layout !== state.layout,
+					};
+				});
+			},
+
+			registerBuffer: (path, snapshot) => {
+				liveBuffers.set(path, snapshot);
+				return () => {
+					if (liveBuffers.get(path) !== snapshot) return false;
+					liveBuffers.delete(path);
+					return true;
+				};
+			},
+
+			carryBuffer: (path, text) => {
+				if (tree.tabOfPane(get().layout, tree.fileTabId(path)) === null) return;
+				carried.set(path, text);
+			},
+
+			takeBuffer: (path) => {
+				const text = carried.get(path);
+				carried.delete(path);
+				return text;
+			},
 
 			reconcile: (terminalIds, endedIds) =>
 				set((state) => {

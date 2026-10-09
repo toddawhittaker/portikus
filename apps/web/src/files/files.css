@@ -298,3 +298,37 @@
 	font-family: var(--font-mono);
 	font-size: 12px;
 }
+
+/* The "Extracting…" toast's bar, drawn like the Meter so the two read alike. */
+.pk-extract-progress {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	padding-block-start: var(--space-1);
+	min-width: 0;
+}
+.pk-extract-bar {
+	-webkit-appearance: none;
+	appearance: none;
+	flex: 1 1 8rem;
+	min-width: 6rem;
+	block-size: 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-xs);
+	background: var(--surface-hover);
+	overflow: hidden;
+}
+.pk-extract-bar::-webkit-progress-bar {
+	background: var(--surface-hover);
+}
+.pk-extract-bar::-webkit-progress-value {
+	background: var(--accent);
+}
+.pk-extract-bar::-moz-progress-bar {
+	background: var(--accent);
+}
+.pk-extract-figure {
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-muted);
+}
