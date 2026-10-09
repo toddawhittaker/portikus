@@ -217,6 +217,18 @@ test("only a regex parse error from ripgrep is the student's pattern", async () 
 	).rejects.toMatchObject({ code: "PATTERN_INVALID" });
 });
 
+test("a regex too big to compile is an invalid pattern, not no matches", async () => {
+	for (const line of [
+		"rg: compiled regex exceeds size limit of 104857600",
+		"rg: regex could not be compiled",
+	]) {
+		await useFakeRg(`echo "${line}" >&2\nexit 2\n`);
+		await expect(
+			searchProject(homeDir, "demo", "x", { hidden: false, regex: true }),
+		).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+	}
+});
+
 test("exit code 2 after matches returns the matches", async () => {
 	await useFakeRg(
 		`${matchStream()}\necho "rg: ./locked: Permission denied" >&2\nexit 2\n`,
