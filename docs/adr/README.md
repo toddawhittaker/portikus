@@ -82,3 +82,4 @@ has four sections:
 | [0052](0052-notification-settings.md) | Notification settings are set from the admin page and kept in a root-owned file (accepted, Epic 35) |
 | [0053](0053-signin-counters-in-postgresql.md) | Sign-in counters live in PostgreSQL, and a recovery code or passkey gets past the account lockout (accepted, Epic 36) |
 | [0054](0054-offline-breached-password-list.md) | Breached passwords are checked against an offline list from SecLists (accepted, Epic 36) |
+| [0055](0055-voice-input-web-speech.md) | Voice input uses the browser's Web Speech API, hold to talk only (accepted, Epic 39) |
