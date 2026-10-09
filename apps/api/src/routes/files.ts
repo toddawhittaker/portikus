@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { Readable, Transform } from "node:stream";
 import {
 	contentDisposition,
+	ExtractProgress,
 	ExtractRequest,
 	ExtractResponse,
 	MAX_UPLOAD_BYTES,
@@ -504,5 +505,36 @@ export function registerFileRoutes(
 				releaseLongOperation(scope.workspaceId);
 			}
 		});
+
+		// How far a running "Extract here" has got, polled by the browser while
+		// the extract request is still open. Only counts cross, never names.
+		instance.get(
+			"/workspaces/:id/projects/:pid/extract/progress",
+			async (request, reply) => {
+				const scope = await scopedProject(db, config, request, reply);
+				if (!scope) return;
+				let response: Response;
+				try {
+					response = await scope.agent.fetchRaw(
+						"GET",
+						agentUrl(scope.slug, "extract/progress"),
+						{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
+					);
+				} catch (error) {
+					return sendAgentError(reply, error);
+				}
+				if (!response.ok) return relayFailure(reply, response);
+				const parsed = ExtractProgress.safeParse(await readJson(response));
+				if (!parsed.success) {
+					return sendError(
+						reply,
+						503,
+						"AGENT_UNAVAILABLE",
+						"The workspace agent sent an answer we could not read.",
+					);
+				}
+				return parsed.data;
+			},
+		);
 	});
 }

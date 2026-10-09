@@ -6,7 +6,12 @@
  * the etag the browser last read so stale content cannot overwrite a newer
  * file on disk.
  */
-import { ExtractResponse, TreeResponse, WriteFileResponse } from "@portikus/contracts";
+import {
+	ExtractProgress,
+	ExtractResponse,
+	TreeResponse,
+	WriteFileResponse,
+} from "@portikus/contracts";
 import {
 	type InfiniteData,
 	type UseMutationResult,
@@ -121,6 +126,43 @@ export function directoryDownloadUrl(
 	path: string,
 ): string {
 	return `${base(workspaceId, projectId)}/download?path=${encodeURIComponent(path)}`;
+}
+
+/**
+ * The link that downloads several selected files and folders as one zip,
+ * one `path` per selection (SPEC.md §11.2). Pass it, with `&check=1`
+ * added, to startDownload as the size check.
+ */
+export function selectionDownloadUrl(
+	workspaceId: string,
+	projectId: string,
+	paths: readonly string[],
+): string {
+	const search = new URLSearchParams();
+	for (const path of paths) search.append("path", path);
+	return `${base(workspaceId, projectId)}/download?${search.toString()}`;
+}
+
+/** How often a running extraction's progress is asked for. */
+const EXTRACT_PROGRESS_MS = 1000;
+
+/**
+ * Entries written so far by a running "Extract here", polled while
+ * `running` is true (SPEC.md §11.2). `total` is 0 until unzip has started.
+ */
+export function useExtractProgress(
+	workspaceId: string,
+	projectId: string,
+	running: boolean,
+) {
+	return useQuery({
+		queryKey: ["extract-progress", workspaceId, projectId] as const,
+		queryFn: () =>
+			request(ExtractProgress, `${base(workspaceId, projectId)}/extract/progress`),
+		enabled: running,
+		refetchInterval: running ? EXTRACT_PROGRESS_MS : false,
+		gcTime: 0,
+	});
 }
 
 /**

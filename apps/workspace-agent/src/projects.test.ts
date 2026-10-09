@@ -721,7 +721,7 @@ test("a symlink to a file past the download cap is refused", async () => {
 	await mkdir(alpha, { recursive: true });
 	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
 	await symlink("big.bin", join(alpha, "link.bin"));
-	await expect(checkDownloadSize(join(alpha, "link.bin"))).rejects.toMatchObject({
+	await expect(checkDownloadSize([join(alpha, "link.bin")])).rejects.toMatchObject({
 		code: "FILE_TOO_LARGE",
 	});
 });

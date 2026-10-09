@@ -6,6 +6,7 @@ import {
 	DeleteProjectRequest,
 	DuplicateProjectRequest,
 	displayNameFromDirectory,
+	MAX_DOWNLOAD_PATHS,
 	type Project,
 	type ProjectList,
 	ProjectPath,
@@ -22,6 +23,7 @@ import {
 	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
 	AgentCallError,
 	type AgentClient,
+	archiveQuery,
 	readAgentError,
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -33,7 +35,6 @@ import {
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
 import {
-	agentUrl,
 	ownedProject as ownedProjectRow,
 	ownedScope,
 	type ProjectRow,
@@ -837,14 +838,14 @@ export function registerProjectRoutes(
 	async function checkDownloadSize(
 		agent: AgentClient,
 		slug: string,
-		subPath: string,
+		subPaths: readonly string[],
 		reply: FastifyReply,
 	) {
 		let checked: Response;
 		try {
 			checked = await agent.fetchRaw(
 				"GET",
-				agentUrl(slug, "archive", { path: subPath, check: "1" }),
+				`/projects/${encodeURIComponent(slug)}/archive${archiveQuery(subPaths, true)}`,
 				{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
 			);
 		} catch (error) {
@@ -856,7 +857,8 @@ export function registerProjectRoutes(
 	}
 
 	// The agent's zip, streamed.
-	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
+	// With `?path=` it is one directory inside the project; a repeated `path`
+	// is a selection of files and folders (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
 		const params = parseOr400(ProjectParam, request.params, reply);
 		if (!params) return;
@@ -869,25 +871,28 @@ export function registerProjectRoutes(
 
 		// The path is checked here as well as in the agent, so a traversal
 		// attempt never leaves the control plane (SPEC.md §11.1, §24.6).
-		const asked = (request.query as { path?: unknown }).path;
-		let subPath = "";
-		if (asked !== undefined && asked !== "") {
-			const parsed = typeof asked === "string" ? ProjectPath.safeParse(asked) : null;
-			if (!parsed?.success) {
-				return sendError(
-					reply,
-					400,
-					"VALIDATION_FAILED",
-					"that path is not inside the project",
-				);
-			}
-			subPath = parsed.data;
+		const subPaths = downloadPaths((request.query as { path?: unknown }).path);
+		if (subPaths === "too-many") {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				`a download can name at most ${MAX_DOWNLOAD_PATHS} paths`,
+			);
+		}
+		if (subPaths === null) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"that path is not inside the project",
+			);
 		}
 
 		// `check=1` asks only whether the download is under the size cap, so
 		// the browser can explain a refusal before it starts a download.
 		if ((request.query as { check?: unknown }).check === "1") {
-			return checkDownloadSize(agent, row.slug, subPath, reply);
+			return checkDownloadSize(agent, row.slug, subPaths, reply);
 		}
 
 		// Zipping runs while the response streams, so the slot is held until the
@@ -900,7 +905,7 @@ export function registerProjectRoutes(
 		reply.raw.once("close", () => cancel.abort());
 		let upstream: Response;
 		try {
-			upstream = await agent.downloadProject(row.slug, subPath, cancel.signal);
+			upstream = await agent.downloadProject(row.slug, subPaths, cancel.signal);
 		} catch (error) {
 			release();
 			return sendAgentError(reply, error);
@@ -914,13 +919,30 @@ export function registerProjectRoutes(
 		stream.on("close", release);
 		stream.on("error", release);
 
-		// The name is the slug, or the directory that was asked for; either way
-		// it is escaped rather than sent through as typed.
-		const name = subPath === "" ? row.slug : basename(subPath);
+		// The name is the slug, or the one directory that was asked for; either
+		// way it is escaped rather than sent through as typed.
+		const name = subPaths.length === 1 ? basename(subPaths[0] as string) : row.slug;
 		reply.header("content-type", "application/zip");
 		reply.header("content-disposition", contentDisposition(`${name}.zip`));
 		return reply.send(stream);
 	});
 
 	registerProjectLayoutRoutes(app, db, limitWrites, owned, ownedProject);
+}
+
+/**
+ * The download's `path` query: absent or "" is the whole project, one value
+ * a directory, a repeated one a selection. Each must be a project path.
+ */
+function downloadPaths(asked: unknown): string[] | null | "too-many" {
+	const values = Array.isArray(asked) ? asked : asked === undefined ? [] : [asked];
+	if (values.length > MAX_DOWNLOAD_PATHS) return "too-many";
+	if (values.length === 1 && values[0] === "") return [];
+	const paths: string[] = [];
+	for (const value of values) {
+		const parsed = ProjectPath.safeParse(value);
+		if (!parsed.success) return null;
+		paths.push(parsed.data);
+	}
+	return paths;
 }
