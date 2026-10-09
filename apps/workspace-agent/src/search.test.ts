@@ -350,16 +350,24 @@ test.skipIf(!haveRg)(
 );
 
 test.skipIf(!haveRg)(
-	"a valid regex that finds nothing beside an unreadable folder is not the student's pattern",
+	"no hits beside an unreadable folder is an empty result, not a failure",
 	async () => {
 		const dir = await lockedProject("locked-regex");
 		try {
-			const failure = await searchProject(homeDir, "locked-regex", "abs[e]nt", {
-				hidden: false,
-				regex: true,
-			}).catch((error: unknown) => error);
-			expect(failure).toBeInstanceOf(AgentFailure);
-			expect((failure as AgentFailure).code).toBe("SEARCH_FAILED");
+			for (const regex of [false, true]) {
+				const result = await searchProject(homeDir, "locked-regex", "abs[e]nt", {
+					hidden: false,
+					regex,
+				});
+				expect(result).toEqual({ matches: [], truncated: false });
+			}
+			const response = await app.inject({
+				method: "GET",
+				url: "/projects/locked-regex/search?q=absent",
+				headers: { authorization: `Bearer ${TOKEN}` },
+			});
+			expect(response.statusCode).toBe(200);
+			expect(response.json().matches).toEqual([]);
 		} finally {
 			await chmod(join(dir, "locked"), 0o755);
 		}

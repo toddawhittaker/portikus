@@ -220,15 +220,13 @@ export async function searchProject(
 			child.on("error", reject);
 			child.on("close", (exitCode) => resolve(exitCode));
 		});
-		// 0 means matches, 1 means none, 2 an error. An error can be a bad
-		// pattern, refused before any file is read, or a file or folder
-		// ripgrep could not open while it still searched the rest.
+		// 0 means matches, 1 means none, 2 an error. An error is either a bad
+		// pattern, refused before any file is read, or a path ripgrep could
+		// not open (a root-owned Docker volume, say) while it searched the
+		// rest; that search ran, so what it found is the answer.
 		if (!stopped && code === 2) {
 			if (options.regex && stderr.includes("regex parse error")) {
 				throw new AgentFailure("PATTERN_INVALID", PATTERN_INVALID_MESSAGE);
-			}
-			if (matches.length === 0) {
-				throw new AgentFailure("SEARCH_FAILED", "search failed");
 			}
 		} else if (!stopped && code !== 0 && code !== 1) {
 			throw new AgentFailure("SEARCH_FAILED", "search failed");

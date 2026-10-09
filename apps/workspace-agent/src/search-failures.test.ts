@@ -54,8 +54,15 @@ afterAll(async () => {
 	await rm(homeDir, { recursive: true, force: true });
 });
 
-test("ripgrep failing with exit code 2 is reported as SEARCH_FAILED", async () => {
-	await useFakeRg('echo "rg: broken" >&2\nexit 2\n');
+test("exit code 2 without a parse error is a normal, possibly empty, result", async () => {
+	await useFakeRg('echo "rg: ./x: Permission denied" >&2\nexit 2\n');
+	await expect(
+		searchProject(homeDir, "demo", "needle", { hidden: false }),
+	).resolves.toEqual({ matches: [], truncated: false });
+});
+
+test("an exit code other than 0, 1 or 2 is reported as SEARCH_FAILED", async () => {
+	await useFakeRg('echo "rg: broken" >&2\nexit 3\n');
 	await expect(
 		searchProject(homeDir, "demo", "needle", { hidden: false }),
 	).rejects.toMatchObject({ code: "SEARCH_FAILED" });
@@ -200,7 +207,7 @@ test("only a regex parse error from ripgrep is the student's pattern", async () 
 	await useFakeRg('echo "rg: ./x: Permission denied (os error 13)" >&2\nexit 2\n');
 	await expect(
 		searchProject(homeDir, "demo", "ne+dle", { hidden: false, regex: true }),
-	).rejects.toMatchObject({ code: "SEARCH_FAILED" });
+	).resolves.toEqual({ matches: [], truncated: false });
 
 	await useFakeRg(
 		'printf "rg: regex parse error:\\n    (\\nerror: unclosed group\\n" >&2\nexit 2\n',
