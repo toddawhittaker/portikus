@@ -103,16 +103,7 @@ export async function terminalsRoutes(
 				{ terminalId: created.id, session: `pk-${created.id}` },
 				"tmux session created",
 			);
-			// Without the pipe, the pane poll still catches most clears.
-			await options.panePipes?.start(created.id).catch((error: unknown) => {
-				request.log.warn(
-					{
-						terminalId: created.id,
-						error: error instanceof Error ? error.message : error,
-					},
-					"could not watch a terminal for clear",
-				);
-			});
+			await options.panePipes?.start(created.id);
 			return reply.code(201).send({
 				id: created.id,
 				cwd: created.cwd,
@@ -133,12 +124,13 @@ export async function terminalsRoutes(
 				.send({ error: { code: "TERMINAL_NOT_FOUND", message: "no such terminal" } });
 		}
 		const { terminalId } = params.data;
+		// A terminal that already ended may still hold a pipe.
+		options.panePipes?.stop(terminalId);
 		try {
 			if (!(await hasSession(terminalId, tmuxServer))) {
 				throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
 			}
 			const { stopped } = await closeSession(terminalId, tmuxServer);
-			options.panePipes?.stop(terminalId);
 			registry.closeAll(terminalId, 1000, "terminal deleted");
 			// Stragglers get their SIGKILL after the grace period, without
 			// holding the response (SPEC.md §9.7).

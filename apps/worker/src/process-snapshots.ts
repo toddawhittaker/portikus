@@ -57,9 +57,10 @@ export async function serveProcessSnapshots(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	logger: Logger,
-	now: () => Date = () => new Date(),
-	readProtected: ReadProtected = async () => null,
+	options: { now?: () => Date; readProtected?: ReadProtected } = {},
 ): Promise<number> {
+	const now = options.now ?? (() => new Date());
+	const readProtected = options.readProtected ?? (async () => null);
 	await db
 		.deleteFrom("workspace_process_snapshots")
 		.where("requested_at", "<", new Date(now().getTime() - PROCESS_SNAPSHOT_MAX_AGE_MS))
@@ -145,9 +146,10 @@ export function startProcessSnapshots(options: {
 		"process snapshot",
 		logger,
 		async () => {
-			await serveProcessSnapshots(db, controller, logger, undefined, (address, token) =>
-				fetchProtectedProcesses(address, agentPort, token),
-			);
+			await serveProcessSnapshots(db, controller, logger, {
+				readProtected: (address, token) =>
+					fetchProtectedProcesses(address, agentPort, token),
+			});
 		},
 		PROCESS_SNAPSHOT_TICK_MS,
 	);

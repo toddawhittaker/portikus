@@ -22,10 +22,17 @@ import { Socket } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
-import { pipePane, sessionName, type TmuxServer } from "./tmux.js";
+import { listSessions, pipePane, sessionName, type TmuxServer } from "./tmux.js";
 
 const run = promisify(execFile);
 const openFd = promisify(openCallback);
+
+/**
+ * How often to look for terminals whose shell exited on its own. Nothing
+ * else notices an unattached pane ending, and each one holds a reader, an fd
+ * and a FIFO until it is swept.
+ */
+const SWEEP_MS = 10_000;
 
 /** The erase-scrollback sequence `clear` sends. */
 const CLEAR_SCROLLBACK = [0x1b, 0x5b, 0x33, 0x4a];
@@ -63,19 +70,40 @@ export interface PanePipesOptions {
 	/** Called when a terminal's output erased its scrollback. */
 	onClear: (terminalId: string) => void;
 	log: FastifyBaseLogger;
+	/** How often to sweep ended terminals; tests shorten it. */
+	sweepMs?: number;
 }
 
 /** The FIFO readers for every terminal the agent knows about. */
 export class PanePipes {
 	private readonly readers = new Map<string, Socket>();
+	private readonly sweepTimer: NodeJS.Timeout;
 
-	constructor(private readonly options: PanePipesOptions) {}
+	constructor(private readonly options: PanePipesOptions) {
+		this.sweepTimer = setInterval(() => {
+			void this.sweep();
+		}, options.sweepMs ?? SWEEP_MS);
+		this.sweepTimer.unref();
+	}
 
 	/**
 	 * Start (or restart) the pipe for one terminal. Replaces any pipe the pane
 	 * already has, which after an agent restart is the old agent's dead one.
+	 * Never throws: without the pipe the pane poll still catches most clears.
 	 */
 	async start(terminalId: string): Promise<void> {
+		try {
+			await this.startPipe(terminalId);
+		} catch (error) {
+			this.stop(terminalId);
+			this.options.log.warn(
+				{ terminalId, error: error instanceof Error ? error.message : error },
+				"could not watch a terminal for clear",
+			);
+		}
+	}
+
+	private async startPipe(terminalId: string): Promise<void> {
 		const name = sessionName(terminalId);
 		this.stopReader(terminalId);
 		const path = join(this.options.dir, terminalId);
@@ -95,26 +123,12 @@ export class PanePipes {
 			// but there is nothing to say that the fallback does not cover.
 		});
 		this.readers.set(terminalId, reader);
-		try {
-			await pipePane(name, path, this.options.server);
-		} catch (error) {
-			this.stop(terminalId);
-			throw error;
-		}
+		await pipePane(name, path, this.options.server);
 	}
 
 	/** Start pipes for terminals that outlived the previous agent. */
 	async adopt(terminalIds: readonly string[]): Promise<void> {
-		for (const id of terminalIds) {
-			try {
-				await this.start(id);
-			} catch (error) {
-				this.options.log.warn(
-					{ terminalId: id, error: error instanceof Error ? error.message : error },
-					"could not watch a terminal for clear",
-				);
-			}
-		}
+		for (const id of terminalIds) await this.start(id);
 	}
 
 	/** Stop reading a closed terminal's FIFO and remove it. */
@@ -124,12 +138,26 @@ export class PanePipes {
 	}
 
 	stopAll(): void {
+		clearInterval(this.sweepTimer);
 		for (const id of [...this.readers.keys()]) this.stop(id);
 	}
 
-	/** Terminals with a live reader. For tests. */
-	watching(): string[] {
-		return [...this.readers.keys()];
+	/** Stop the pipes of terminals whose session has ended. */
+	async sweep(): Promise<void> {
+		if (this.readers.size === 0) return;
+		// Only readers that existed before the listing; a terminal started
+		// while it runs is missing from it but has not ended.
+		const before = new Map(this.readers);
+		let live: Set<string>;
+		try {
+			live = new Set((await listSessions(this.options.server)).map((s) => s.id));
+		} catch {
+			// A missed sweep only delays the cleanup to the next one.
+			return;
+		}
+		for (const [id, reader] of before) {
+			if (!live.has(id) && this.readers.get(id) === reader) this.stop(id);
+		}
 	}
 
 	private stopReader(terminalId: string): void {

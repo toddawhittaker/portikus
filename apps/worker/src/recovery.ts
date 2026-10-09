@@ -31,6 +31,12 @@ const GIB = 1024 ** 3;
 /** An archive with no row is only removed once it is this old (SPEC.md §15.10). */
 const ORPHAN_MIN_AGE_MS = 60 * 60 * 1000;
 
+/**
+ * Orphans deleted per workspace per sweep. Orphans are rare, so this only
+ * bounds how long one workspace's agent can hold up a sweep (SPEC.md §24).
+ */
+const ORPHAN_DELETES_PER_SWEEP = 20;
+
 /** Operations that wait for a point of every active project, and the reason they record. */
 const BEFORE_OPERATION_REASON: Record<string, RecoveryReason> = {
 	rebuild: "before-rebuild",
@@ -326,8 +332,10 @@ async function applyRetention(
  * Delete archives no `recovery_points` row accounts for, such as one written
  * by an agent whose caller crashed before recording it (SPEC.md §15.10).
  * A file younger than an hour is left alone, since its row may still be on
- * its way. A BUSY project is retried next sweep; an agent too old to list
- * archives answers 404 and is skipped.
+ * its way. At most ORPHAN_DELETES_PER_SWEEP go per sweep, and the first
+ * failed delete ends this workspace's pass, as a failed point delete does;
+ * the rest wait for the next sweep. An agent too old to list archives
+ * answers 404 and is skipped.
  */
 async function removeOrphanArchives(
 	db: Kysely<Database>,
@@ -363,6 +371,7 @@ async function removeOrphanArchives(
 
 	let deleted = 0;
 	for (const [pointId, projectId] of old) {
+		if (deleted >= ORPHAN_DELETES_PER_SWEEP) break;
 		try {
 			await agent.deleteRecoveryPoint(projectId, pointId);
 		} catch (e) {
@@ -375,7 +384,7 @@ async function removeOrphanArchives(
 				},
 				"orphan recovery archive delete failed",
 			);
-			continue;
+			return deleted;
 		}
 		log.info({ workspaceId, projectId, pointId }, "orphan recovery archive deleted");
 		deleted++;

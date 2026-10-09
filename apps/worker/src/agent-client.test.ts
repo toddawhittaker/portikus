@@ -151,4 +151,13 @@ test("the archive listing is fetched with GET and checked against the contract",
 		res.end(JSON.stringify({ archives: [{ ...archive, pointId: "../x" }] }));
 	};
 	await expect(agent().listRecoveryArchives()).rejects.toThrow();
+
+	// A list longer than any honest volume holds is refused (SPEC.md §24).
+	handler = (_req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(
+			JSON.stringify({ archives: Array.from({ length: 20_001 }, () => archive) }),
+		);
+	};
+	await expect(agent().listRecoveryArchives()).rejects.toThrow();
 });
