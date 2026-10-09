@@ -253,7 +253,7 @@ export function registerAdminWorkspaceRoutes(
 		request: FastifyRequest,
 		reply: FastifyReply,
 		archive: boolean,
-	): Promise<void> {
+	): Promise<FastifyReply | undefined> {
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
@@ -285,7 +285,7 @@ export function registerAdminWorkspaceRoutes(
 			});
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		reply.send(await workspaceView(db, config, updated));
+		return reply.send(await workspaceView(db, config, updated));
 	}
 
 	app.post("/admin/workspaces/:id/archive", adminOnly, async (request, reply) =>

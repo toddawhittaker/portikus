@@ -239,26 +239,26 @@ export async function disableUser(
 }
 
 /** The answer to a refused disable, shared by Disable and Remove. */
-export function sendDisableRefusal(reply: FastifyReply, reason: DisableRefusal): void {
+export function sendDisableRefusal(
+	reply: FastifyReply,
+	reason: DisableRefusal,
+): FastifyReply {
 	switch (reason) {
 		case "not_found":
-			sendError(reply, 404, "NOT_FOUND", "User not found");
-			return;
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
 		case "self":
-			sendError(
+			return sendError(
 				reply,
 				400,
 				"VALIDATION_FAILED",
 				"You cannot disable your own account.",
 			);
-			return;
 		case "last_administrator":
-			sendError(
+			return sendError(
 				reply,
 				400,
 				"VALIDATION_FAILED",
 				"At least one other enabled administrator must remain.",
 			);
-			return;
 	}
 }

@@ -82,19 +82,18 @@ const AGENT_ERROR_MESSAGE: Partial<
 };
 
 /** Report an agent failure to the browser; anything else is a real error. */
-export function sendAgentError(reply: FastifyReply, error: unknown): void {
+export function sendAgentError(reply: FastifyReply, error: unknown): FastifyReply {
 	if (!(error instanceof AgentCallError)) throw error;
 	const mapped = AGENT_ERROR_STATUS[error.code];
 	if (mapped) {
-		sendError(
+		return sendError(
 			reply,
 			mapped[0],
 			mapped[1],
 			AGENT_ERROR_MESSAGE[error.code] ?? error.message,
 		);
-		return;
 	}
-	sendError(
+	return sendError(
 		reply,
 		503,
 		"AGENT_UNAVAILABLE",
