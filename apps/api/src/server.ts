@@ -99,11 +99,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// These API paths are also browser page URLs, so a cached JSON reply
 	// could stand in for the page on Back; never let one be stored.
-	app.addHook("onSend", async (request, reply) => {
+	// Synchronous, like every onSend hook here: see registerRequestLogging.
+	app.addHook("onSend", (request, reply, payload, done) => {
 		const route = request.routeOptions.url ?? "";
 		if (route.startsWith("/admin") || route === "/workspaces/:id") {
 			reply.header("cache-control", "no-store");
 		}
+		done(null, payload);
 	});
 
 	registerPagePolicy(app);
@@ -196,8 +198,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 						? "The request body is too large."
 						: "The request was not valid.",
 			};
-			reply.status(status).send(body);
-			return;
+			return reply.status(status).send(body);
 		}
 		// A sign-in count that cannot be kept refuses the guess (ADR 0053).
 		if (error instanceof CounterUnavailable) {
@@ -206,8 +207,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 				code: "SERVICE_BUSY",
 				message: "The server is busy. Try again in a moment.",
 			};
-			reply.status(503).send(body);
-			return;
+			return reply.status(503).send(body);
 		}
 		if (isDatabaseUnavailable(error)) {
 			request.log.warn("no database connection was available");
@@ -215,21 +215,20 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 				code: "SERVICE_BUSY",
 				message: "The server is busy. Try again in a moment.",
 			};
-			reply.status(503).send(body);
-			return;
+			return reply.status(503).send(body);
 		}
 		request.log.error({ err: error }, "unhandled request error");
 		const body: ApiError = {
 			code: "INTERNAL",
 			message: "An unexpected error occurred. Please try again.",
 		};
-		reply.status(500).send(body);
+		return reply.status(500).send(body);
 	});
 
 	// Unmatched routes answer in the same shape as every other error.
 	app.setNotFoundHandler((_request, reply) => {
 		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
-		reply.status(404).send(body);
+		return reply.status(404).send(body);
 	});
 
 	const routeDeps = { ...deps, registry };

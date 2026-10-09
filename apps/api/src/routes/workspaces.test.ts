@@ -7,6 +7,7 @@ import {
 } from "@portikus/auth/testing";
 import { STOP_FAILED_ERROR_CODE } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
@@ -513,3 +514,41 @@ test.skipIf(skip)("only the owner may set or end a hold", async () => {
 	expect((await keepRunning(id, bob, "DELETE")).statusCode).toBe(404);
 	expect(await keepRunningAudits(id)).toEqual([]);
 });
+
+test.skipIf(skip)(
+	"start, stop, and restart answer 202 once, with no reply-already-sent error logged",
+	async () => {
+		// The async onSend hooks delay the real send, so a handler that sends
+		// without returning the reply used to be answered twice.
+		const { logger, lines } = collectingLogger();
+		const logged = buildTestServer(testDb.db, mock.issuer, {}, logger);
+		await logged.ready();
+		try {
+			const jar = new CookieJar();
+			await loginAs(logged, "carol", jar);
+			const id = (
+				await logged.inject({
+					method: "POST",
+					url: "/workspaces",
+					headers: csrfHeaders(jar, PUBLIC_URL),
+				})
+			).json().id;
+			for (const action of ["start", "stop", "restart"]) {
+				const res = await logged.inject({
+					method: "POST",
+					url: `/workspaces/${id}/${action}`,
+					headers: csrfHeaders(jar, PUBLIC_URL),
+				});
+				expect(res.statusCode).toBe(202);
+				expect(res.json()).toEqual({ ok: true });
+			}
+			const text = lines.map((line) => JSON.stringify(line)).join("\n");
+			expect(text).not.toContain("Reply was already sent");
+			expect(text).not.toContain("ERR_HTTP_HEADERS_SENT");
+			expect(lines.filter((line) => line.level === "error")).toEqual([]);
+			expect(lines.filter((line) => line.status === 500)).toEqual([]);
+		} finally {
+			await logged.close();
+		}
+	},
+);

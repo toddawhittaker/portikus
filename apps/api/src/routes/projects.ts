@@ -641,7 +641,7 @@ export function registerProjectRoutes(
 		row: ProjectRow,
 		agent: AgentClient,
 		userId: string,
-	): Promise<void> {
+	): Promise<FastifyReply | undefined> {
 		// A terminal created in the directory that is about to go must end
 		// first, or its shell keeps a deleted working directory (SPEC.md §9.3).
 		// `terminals.cwd` is only the directory it started in, so one that
@@ -710,7 +710,7 @@ export function registerProjectRoutes(
 			{ workspaceId: scope.workspaceId, projectId: row.id, slug: row.slug },
 			"project deleted",
 		);
-		reply.status(204).send();
+		return reply.status(204).send();
 	}
 
 	// SPEC.md §7.3.

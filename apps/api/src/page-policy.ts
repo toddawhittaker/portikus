@@ -21,12 +21,17 @@ export function previewPagePolicy(publicUrl: string): string {
  * sets the policy on its own pages itself.
  */
 export function registerPagePolicy(app: FastifyInstance): void {
-	app.addHook("onSend", async (request, reply) => {
-		if (request.routeOptions.url === DEX_PASSWORD_ROUTE) return;
-		if (reply.hasHeader("content-security-policy")) return;
+	// Synchronous, like every onSend hook here: see registerRequestLogging.
+	app.addHook("onSend", (request, reply, payload, done) => {
 		const type = reply.getHeader("content-type");
-		if (typeof type === "string" && type.toLowerCase().startsWith("text/html")) {
+		if (
+			request.routeOptions.url !== DEX_PASSWORD_ROUTE &&
+			!reply.hasHeader("content-security-policy") &&
+			typeof type === "string" &&
+			type.toLowerCase().startsWith("text/html")
+		) {
 			reply.header("content-security-policy", PAGE_POLICY);
 		}
+		done(null, payload);
 	});
 }

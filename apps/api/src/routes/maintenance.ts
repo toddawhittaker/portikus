@@ -24,7 +24,7 @@ export function registerMaintenanceRoutes(
 		operation: PendingOperation,
 		action: string,
 		metadata: Record<string, unknown>,
-	): Promise<void> {
+	): Promise<FastifyReply> {
 		const result = await requestPendingOperation(db, {
 			workspaceId,
 			userId,
@@ -33,7 +33,7 @@ export function registerMaintenanceRoutes(
 			metadata,
 		});
 		if (result !== "ok") return sendPendingOperationRefusal(reply, result);
-		reply.status(202).send({ ok: true });
+		return reply.status(202).send({ ok: true });
 	}
 
 	// The owner or an administrator.
