@@ -5,9 +5,16 @@
  */
 import { CsvError } from "@portikus/contracts";
 import { Button, EmptyState } from "@portikus/ui";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { baseName, displayName } from "../files/paths.js";
-import { CSV_COLUMN_LIMIT, CSV_ROW_LIMIT, type CsvTable, csvTable } from "./csv.js";
+import {
+	CSV_COLUMN_LIMIT,
+	CSV_ROW_LIMIT,
+	type CsvTable,
+	csvTable,
+	type SortDirection,
+	sortedOrder,
+} from "./csv.js";
 import "./csv.css";
 
 export interface CsvViewProps {
@@ -28,8 +35,38 @@ function read(text: string): Parsed {
 	}
 }
 
+interface Sort {
+	column: number;
+	direction: SortDirection;
+}
+
 export function CsvView({ path, text, onShowText }: CsvViewProps) {
 	const parsed = useMemo(() => read(text), [text]);
+	// A sorted view only: the file and the editor text are never touched.
+	// The sort belongs to one version of the text and lapses when it changes.
+	const [sort, setSort] = useState<{ text: string; by: Sort | null }>({
+		text,
+		by: null,
+	});
+	const by = sort.text === text ? sort.by : null;
+	const order = useMemo(() => {
+		if (!("table" in parsed) || parsed.table === null) return [];
+		const { rows } = parsed.table;
+		return by === null
+			? rows.map((_, at) => at)
+			: sortedOrder(rows, by.column, by.direction);
+	}, [parsed, by]);
+	const [announcement, setAnnouncement] = useState("");
+	const cycle = (column: number, name: string) => {
+		let next: Sort | null;
+		if (by?.column !== column) next = { column, direction: "ascending" };
+		else if (by.direction === "ascending") next = { column, direction: "descending" };
+		else next = null;
+		setSort({ text, by: next });
+		setAnnouncement(
+			next === null ? "Sorted in file order" : `Sorted by ${name}, ${next.direction}`,
+		);
+	};
 	const showText = (
 		<Button variant="primary" onClick={onShowText} data-testid="csv-show-text">
 			Show as text
@@ -70,23 +107,43 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 					<table className="pk-table pk-csv-table">
 						<thead>
 							<tr>
-								{columns.map((at) => (
-									<th key={at} scope="col">
-										{table.header[at] ? (
-											table.header[at]
-										) : (
-											<span className="pk-visually-hidden">Column {at + 1}</span>
-										)}
-									</th>
-								))}
+								<td className="pk-csv-rownum" aria-hidden="true" />
+								{columns.map((at) => {
+									const name = table.header[at] || `Column ${at + 1}`;
+									const active = by?.column === at ? by.direction : null;
+									return (
+										<th key={at} scope="col" aria-sort={active ?? "none"}>
+											<button
+												type="button"
+												className="pk-csv-sort"
+												onClick={() => cycle(at, name)}
+											>
+												{table.header[at] ? (
+													table.header[at]
+												) : (
+													<span className="pk-visually-hidden">{name}</span>
+												)}
+												<span aria-hidden="true" className="pk-csv-sort-mark">
+													{active === "ascending"
+														? "▲"
+														: active === "descending"
+															? "▼"
+															: ""}
+												</span>
+											</button>
+										</th>
+									);
+								})}
 							</tr>
 						</thead>
 						<tbody>
-							{table.rows.map((row, line) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: rows are the file's records in order and never move
-								<tr key={line}>
+							{order.slice(0, CSV_ROW_LIMIT).map((index) => (
+								<tr key={index}>
+									<th scope="row" className="pk-csv-rownum">
+										{index + 1}
+									</th>
 									{columns.map((at) => (
-										<td key={at}>{row[at]}</td>
+										<td key={at}>{table.rows[index]?.[at]}</td>
 									))}
 								</tr>
 							))}
@@ -94,6 +151,9 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 					</table>
 				</section>
 			</div>
+			<p className="pk-visually-hidden" role="status" aria-live="polite">
+				{announcement}
+			</p>
 			{table.totalColumns > CSV_COLUMN_LIMIT ? (
 				<p className="pk-file-note" data-testid="csv-column-cap">
 					Showing the first {CSV_COLUMN_LIMIT.toLocaleString("en")} of{" "}

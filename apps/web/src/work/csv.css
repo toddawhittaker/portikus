@@ -63,6 +63,36 @@
 	border-inline-end: 0;
 }
 
+/* The row number is a header for its row, kept narrow and out of the data. */
+.pk-csv-table .pk-csv-rownum {
+	inline-size: 1%;
+	text-align: end;
+	color: var(--ink-muted);
+	font-weight: normal;
+	white-space: nowrap;
+}
+
+.pk-csv-sort {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-csv-sort:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-csv-sort-mark {
+	font-size: 0.75em;
+}
+
 .pk-csv > .pk-file-note {
 	flex: none;
 	border-block-start: 1px solid var(--line);
