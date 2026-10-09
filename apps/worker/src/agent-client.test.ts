@@ -130,3 +130,25 @@ test("the docker inventory is null on a redirect, an oversize reply or a bad sha
 	};
 	await expect(fetchDockerInventory("127.0.0.1", port, "t")).resolves.toBeNull();
 });
+
+test("the archive listing is fetched with GET and checked against the contract", async () => {
+	const archive = {
+		projectId: crypto.randomUUID(),
+		pointId: crypto.randomUUID(),
+		modifiedAt: new Date().toISOString(),
+	};
+	let seen = "";
+	handler = (req, res) => {
+		seen = `${req.method} ${req.url}`;
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ archives: [archive] }));
+	};
+	expect(await agent().listRecoveryArchives()).toEqual({ archives: [archive] });
+	expect(seen).toBe("GET /recovery-points");
+
+	handler = (_req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ archives: [{ ...archive, pointId: "../x" }] }));
+	};
+	await expect(agent().listRecoveryArchives()).rejects.toThrow();
+});

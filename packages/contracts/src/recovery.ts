@@ -111,3 +111,19 @@ export const AgentRestoreRecoveryPointRequest = z
 export type AgentRestoreRecoveryPointRequest = z.infer<
 	typeof AgentRestoreRecoveryPointRequest
 >;
+
+/**
+ * Response body for the agent's `GET /recovery-points`: every archive and
+ * unfinished `.partial` file on the recovery volume, so the worker can
+ * remove files no `recovery_points` row accounts for (SPEC.md §15.10).
+ */
+export const AgentRecoveryArchiveList = z.object({
+	archives: z.array(
+		z.object({
+			projectId: z.string().uuid(),
+			pointId: z.string().uuid(),
+			modifiedAt: z.string().datetime(),
+		}),
+	),
+});
+export type AgentRecoveryArchiveList = z.infer<typeof AgentRecoveryArchiveList>;

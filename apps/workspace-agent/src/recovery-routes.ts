@@ -14,6 +14,7 @@ import {
 	createRecoveryPoint,
 	deleteProjectRecoveryPoints,
 	deleteRecoveryPoint,
+	listRecoveryArchives,
 	RecoveryLocks,
 	type RecoveryPaths,
 	restoreRecoveryPoint,
@@ -114,6 +115,15 @@ export async function recoveryRoutes(
 			return reply.code(204).send();
 		},
 	);
+
+	instance.get("/recovery-points", async (request, reply) => {
+		try {
+			const archives = await listRecoveryArchives(paths.recoveryRoot);
+			return reply.code(200).send({ archives });
+		} catch (error) {
+			return sendError(request, reply, error, "INTERNAL");
+		}
+	});
 
 	instance.delete("/recovery-points/:projectId/:pointId", async (request, reply) => {
 		const params = PointParams.safeParse(request.params);

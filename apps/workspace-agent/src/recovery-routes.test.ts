@@ -10,7 +10,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
-import { AgentCreateRecoveryPointResponse } from "@portikus/contracts";
+import {
+	AgentCreateRecoveryPointResponse,
+	AgentRecoveryArchiveList,
+} from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -101,6 +104,7 @@ test("every recovery route needs the token", async () => {
 		["POST", `/projects/alpha/recovery-points/${pointId}/restore`],
 		["DELETE", `/recovery-points/${projectId}/${pointId}`],
 		["DELETE", `/recovery-points/${projectId}`],
+		["GET", "/recovery-points"],
 	] as const) {
 		const response = await app.inject({ method, url, payload: {} });
 		expect(response.statusCode).toBe(401);
@@ -254,6 +258,24 @@ test("both deletes answer 204 when the point or the project directory is already
 	]) {
 		expect((await app.inject({ method: "DELETE", url, headers })).statusCode).toBe(204);
 	}
+});
+
+test("the listing names each archive by project and point with its time", async () => {
+	const projectId = randomUUID();
+	const pointId = randomUUID();
+	expect((await create({ projectId, pointId })).statusCode).toBe(201);
+	const response = await app.inject({
+		method: "GET",
+		url: "/recovery-points",
+		headers,
+	});
+	expect(response.statusCode).toBe(200);
+	const { archives } = AgentRecoveryArchiveList.parse(response.json());
+	expect(archives).toContainEqual({
+		projectId,
+		pointId,
+		modifiedAt: expect.any(String),
+	});
 });
 
 test("logs carry ids and sizes, never file names", () => {
