@@ -1,7 +1,8 @@
 /**
- * A small CSV reader for the account import (RFC 4180): quoted fields,
- * doubled quotes, commas and line breaks inside quotes, CRLF or LF line
- * ends, and a leading byte order mark. No dependency for one file format.
+ * A small CSV reader (RFC 4180) for the account import and the file tab's
+ * table view: quoted fields, doubled quotes, commas and line breaks inside
+ * quotes, CRLF or LF line ends, and a leading byte order mark. No dependency
+ * for one file format.
  */
 
 export class CsvError extends Error {}

@@ -72,6 +72,43 @@ export function languageForFile(
 }
 
 /**
+ * The language a Markdown fence names, by Monaco's ids, aliases or file
+ * extensions, so `js`, `JavaScript` and `bash` all find a highlighter. An
+ * unknown name gives null and the block stays plain.
+ */
+export function fenceLanguage(monaco: typeof Monaco, fence: string): string | null {
+	const name = fence.toLowerCase();
+	const languages = monaco.languages.getLanguages();
+	const byName = languages.find(
+		(language) =>
+			language.id.toLowerCase() === name ||
+			language.aliases?.some((alias) => alias.toLowerCase() === name),
+	);
+	if (byName) return byName.id;
+	const byExtension = languages.find((language) =>
+		language.extensions?.includes(`.${name}`),
+	);
+	return byExtension?.id ?? null;
+}
+
+/**
+ * A fenced block's code as Monaco's highlighted HTML, in the theme the page
+ * shows, or null when the fence names no language Monaco knows. The HTML is
+ * not safe to insert as it is; highlight.ts rebuilds it (SPEC.md §24.3).
+ */
+export async function colorizeFence(
+	code: string,
+	fence: string,
+): Promise<string | null> {
+	const monaco = await getMonaco();
+	const language = fenceLanguage(monaco, fence);
+	if (language === null) return null;
+	// The class names in the HTML index the colours of the theme set now.
+	monaco.editor.setTheme(currentThemeName());
+	return monaco.editor.colorize(code, language, { tabSize: 4 });
+}
+
+/**
  * The options every Portikus editor shares, so the file editor and the diff
  * editor cannot drift apart. Each editor adds its own theme and anything
  * particular to it.
@@ -213,6 +250,24 @@ export function currentThemeName(): string {
 	return dark ? DARK_THEME : LIGHT_THEME;
 }
 
+/** Call back whenever the page's light or dark choice may have changed. */
+export function onThemeChange(callback: () => void): () => void {
+	const observer = new MutationObserver(callback);
+	observer.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["data-theme"],
+	});
+	const media =
+		typeof matchMedia === "function"
+			? matchMedia("(prefers-color-scheme: dark)")
+			: null;
+	media?.addEventListener("change", callback);
+	return () => {
+		observer.disconnect();
+		media?.removeEventListener("change", callback);
+	};
+}
+
 let watching = false;
 
 /**
@@ -222,14 +277,7 @@ let watching = false;
 export function watchTheme(): void {
 	if (watching) return;
 	watching = true;
-	const apply = () => {
+	onThemeChange(() => {
 		void getMonaco().then((monaco) => monaco.editor.setTheme(currentThemeName()));
-	};
-	new MutationObserver(apply).observe(document.documentElement, {
-		attributes: true,
-		attributeFilter: ["data-theme"],
 	});
-	if (typeof matchMedia === "function") {
-		matchMedia("(prefers-color-scheme: dark)").addEventListener("change", apply);
-	}
 }
