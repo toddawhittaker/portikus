@@ -414,12 +414,22 @@ weekly run fails, fix the cause and rerun it from the Actions tab with
 "Re-run all jobs"; its gate checks the index's date again, so the rerun
 signs it. There are about three more Mondays before the index expires.
 
-Runs of this workflow never overlap, and GitHub keeps only one waiting run.
-When a new run is queued while one is running and another is waiting, the
-waiting one is cancelled, before its gate runs. A release cancelled by a
-later merge needs nothing, because the later release has its commits. A
-release cancelled by the Monday run publishes nothing: rerun it with
-"Re-run all jobs".
+Release runs never overlap, and GitHub keeps only one waiting run per
+concurrency group: when a new run is queued while one is running and
+another is waiting, the waiting one is cancelled before its gate runs. A
+release cancelled by a later merge needs nothing, because the later
+release has its commits. A release cancelled by a later manual run is
+replaced by that run, which builds from `main`.
+
+The Monday re-sign has a concurrency group of its own, so it can never
+cancel a waiting release. It still never writes the apt repository at the
+same time as a release. If any release run is queued or running when the
+re-sign's gate starts, the re-sign skips itself, because that release
+signs the index anyway. If a re-sign has already started when a release
+reaches its apt job, the release waits for it to finish, for up to 30
+minutes. A skipped re-sign needs nothing unless that release then fails;
+in that case fix the release and rerun it, or rerun the re-sign, before
+the index expires.
 
 ## Secret scanning
 
