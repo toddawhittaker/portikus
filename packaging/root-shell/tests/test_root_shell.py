@@ -220,11 +220,13 @@ class EndSessionsTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def process(self, pid, comm, cgroup, sessionid="4294967295"):
+    def process(self, pid, comm, cgroup, sessionid="4294967295", state=None):
         os.makedirs(os.path.join(self.proc, str(pid)))
         Path(self.proc, str(pid), "comm").write_text(comm + "\n")
         Path(self.proc, str(pid), "cgroup").write_text(cgroup + "\n")
         Path(self.proc, str(pid), "sessionid").write_text(sessionid)
+        if state is not None:
+            Path(self.proc, str(pid), "stat").write_text("%d (%s) %s 1 %d %d 0 -1\n" % (pid, comm, state, pid, pid))
 
     def test_kills_what_left_a_root_shell_session_but_keeps_its_audit_id(self):
         # Sessions 7 and 9 are root shells; 9 has ended because its last process left the scope.
@@ -420,6 +422,27 @@ class EndSessionsTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()) as journal:
             self.closing_shell(logind, "7").close("end:session_ended")
         self.assertEqual(os.listdir(self.run_dir), [SHELL])
+        self.assertIn("1 processes of session 7 survived", journal.getvalue())
+
+    def test_a_zombie_is_no_survivor_and_does_not_keep_the_record(self):
+        # login killed by terminate-session but not yet reaped by the helper; a ") S" in a name must not hide the state.
+        logind = FakeLogind(self.dir, {"7": "remote"})
+        self.process(10, "login) S", "0::/user.slice/user-0.slice/session-7.scope", "7", state="Z")
+        self.process(11, "sh", "0::/system.slice/run-u3.scope", "7", state="Z")
+        self.assertEqual(rs.session_pids("7", self.proc), [])
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            self.closing_shell(logind, "7").close("end:exit")
+        self.assertEqual(os.listdir(self.run_dir), [])
+        self.assertNotIn("survived", journal.getvalue())
+
+    def test_a_live_stray_beside_a_zombie_still_survives(self):
+        self.process(10, "login", "0::/user.slice/user-0.slice/session-7.scope", "7", state="Z")
+        self.process(20, "sh", "0::/system.slice/run-u3.scope", "7", state="S")
+        attempts = []
+        with contextlib.redirect_stderr(io.StringIO()) as journal:
+            result = rs.kill_strays("7", self.proc, lambda pid, session, proc: attempts.append(pid) or False)
+        self.assertEqual(result, (0, 1))
+        self.assertEqual(attempts, [20] * rs.KILL_ROUNDS)
         self.assertIn("1 processes of session 7 survived", journal.getvalue())
 
 class QueueTest(unittest.TestCase):

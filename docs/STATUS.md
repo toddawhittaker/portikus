@@ -4691,6 +4691,9 @@ Delivered:
   apply and then starts a fresh one; `postinst` clears the reinstall mark
   even without systemd running; ADR 0051 and OPERATIONS say the
   audit-id kill is best effort.
+- Root-shell zombies (#1318 F3): the sweep no longer counts a process
+  that has exited but is not yet reaped, such as the helper's own login,
+  so an ordinary closed shell logs no survivor and drops its record.
 - Fold: SPEC and STATUS; the plan is deleted.
 
 Gaps left:
