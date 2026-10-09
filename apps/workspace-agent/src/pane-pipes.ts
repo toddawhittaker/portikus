@@ -145,6 +145,9 @@ export class PanePipes {
 	/** Stop the pipes of terminals whose session has ended. */
 	async sweep(): Promise<void> {
 		if (this.readers.size === 0) return;
+		// Only readers that existed before the listing; a terminal started
+		// while it runs is missing from it but has not ended.
+		const before = new Map(this.readers);
 		let live: Set<string>;
 		try {
 			live = new Set((await listSessions(this.options.server)).map((s) => s.id));
@@ -152,8 +155,8 @@ export class PanePipes {
 			// A missed sweep only delays the cleanup to the next one.
 			return;
 		}
-		for (const id of [...this.readers.keys()]) {
-			if (!live.has(id)) this.stop(id);
+		for (const [id, reader] of before) {
+			if (!live.has(id) && this.readers.get(id) === reader) this.stop(id);
 		}
 	}
 
