@@ -16,11 +16,8 @@ const PRUNE_SECONDS = 24 * 60 * 60;
 const UPSERT_CHUNK = 500;
 const DAY_MS = 86_400_000;
 
-/**
- * Most boots stored per person and day. A real workspace restarts a few
- * times a day; a forged boot id on every poll would otherwise add rows forever.
- */
-export const MAX_AGENT_USAGE_BOOTS_PER_DAY = 5;
+/** Idle-stops restart a workspace often; the cap still stops a forged boot id on every poll. */
+export const MAX_AGENT_USAGE_BOOTS_PER_DAY = 48;
 
 type UsageReader = (address: string, token: string) => Promise<AgentUsageReport | null>;
 
