@@ -181,6 +181,12 @@ test("an instructor browses a shared project without its secrets", async ({
 		await expect(
 			page.getByTestId("shared-diff-src/app.js").locator(".modified .view-lines"),
 		).toContainText("42", { timeout: 15_000 });
+		// The right side is the student's, not the instructor's own (SPEC.md §25.8).
+		await expect(
+			page.getByTestId("shared-diff-src/app.js").getByRole("textbox").nth(1),
+		).toHaveAccessibleName(
+			"Diff, the student's version, src/app.js. Ctrl+M makes Tab leave the editor.",
+		);
 
 		await expect(page.getByTestId("shared-check-state-tests")).toHaveText("Passed");
 

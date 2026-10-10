@@ -148,6 +148,7 @@ describe.skipIf(skip)("a Deep Linking request", () => {
 		expect(stored).toHaveLength(1);
 		expect(stored[0]).toMatchObject({
 			platform_issuer: LTI_ISSUER,
+			subject: "ivy-1",
 			client_id: LTI_CLIENT_ID,
 			deployment_id: "dep-1",
 			return_url: RETURN_URL,
@@ -225,6 +226,8 @@ describe.skipIf(skip)("submitting the picker", () => {
 			.where("action", "=", "lti.deep_link")
 			.executeTakeFirstOrThrow();
 		expect(audit.result).toBe("ok");
+		// The LTI identity that picked, as users.oidc_issuer and oidc_subject hold it.
+		expect(audit.actor).toBe(`lti:${LTI_ISSUER}|ivy-1`);
 		expect(audit.metadata).toMatchObject({
 			platform: "Test LMS",
 			source: "template",

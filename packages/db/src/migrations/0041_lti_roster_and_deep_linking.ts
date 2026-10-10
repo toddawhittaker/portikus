@@ -24,6 +24,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`create table lti_deep_link_requests (
 		state_hash text primary key,
 		platform_issuer text not null,
+		subject text null,
 		client_id text not null,
 		deployment_id text not null,
 		return_url text not null,

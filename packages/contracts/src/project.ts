@@ -168,6 +168,11 @@ export const Project = z.object({
 	missing: z.boolean().nullable(),
 	createdAt: z.string().datetime(),
 	archivedAt: z.string().datetime().nullable(),
+	/**
+	 * When the project's open share with instructors ends, or null when it is
+	 * not shared (SPEC.md §5.2). Only the project list fills it.
+	 */
+	sharedUntil: z.string().datetime().nullable().optional(),
 });
 export type Project = z.infer<typeof Project>;
 

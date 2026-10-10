@@ -67,7 +67,12 @@ export async function resolveInProject(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	options: { mustExist: boolean; refuseSymlink?: boolean; linkOk?: boolean },
+	options: {
+		mustExist: boolean;
+		refuseSymlink?: boolean;
+		linkOk?: boolean;
+		noLinks?: boolean;
+	},
 ): Promise<ResolvedPath> {
 	const project = await resolveProject(slug, homeDir);
 	if (!project.exists) {
@@ -80,6 +85,7 @@ export async function resolveInProject(
 	if (!ProjectPath.safeParse(relPath).success) {
 		throw new AgentFailure("PATH_INVALID", "invalid path");
 	}
+	if (options.noLinks) await refuseLinkedComponents(root, relPath);
 
 	const requested = join(root, relPath);
 	let parent: string;
@@ -130,6 +136,28 @@ export async function resolveInProject(
 	}
 }
 
+/**
+ * Refuse a path when any of its components is a symlink, even one that
+ * stays inside the project. A link answers as a missing file, so the name
+ * gives nothing away. The walk ends at the first component that does not
+ * exist (SPEC.md §5.2, ADR 0057).
+ */
+async function refuseLinkedComponents(root: string, relPath: string): Promise<void> {
+	let current = root;
+	for (const segment of relPath.split("/")) {
+		current = join(current, segment);
+		const info = await lstat(current).catch((error: unknown) => {
+			const code = errorCode(error);
+			if (code === "ENOENT" || code === "ENOTDIR") return null;
+			throw new AgentFailure("PATH_INVALID", "invalid path");
+		});
+		if (!info) return;
+		if (info.isSymbolicLink()) {
+			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
+		}
+	}
+}
+
 function entryType(entry: {
 	isDirectory(): boolean;
 	isFile(): boolean;
@@ -144,14 +172,21 @@ function entryType(entry: {
 /** One collator for every listing; building one per sort call is slow. */
 const NAME_ORDER = new Intl.Collator("en");
 
-/** List a directory: directories first, then everything else, alphabetical. */
+/**
+ * List a directory: directories first, then everything else, alphabetical.
+ * With noLinks, symlinks are left out of the listing.
+ */
 export async function listDir(
 	homeDir: string,
 	slug: string,
 	relPath: string,
 	after?: string,
+	options: { noLinks?: boolean } = {},
 ): Promise<TreeResponse> {
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: true });
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: true,
+		noLinks: options.noLinks,
+	});
 	let dirents: Dirent[];
 	try {
 		// withFileTypes gives the kind without a stat call, so a huge
@@ -183,6 +218,7 @@ export async function listDir(
 		// lstat, so a symlink reports itself rather than what it points at.
 		const info = await lstat(join(target.path, dirent.name)).catch(() => null);
 		if (!info) continue;
+		if (options.noLinks && info.isSymbolicLink()) continue;
 		entries.push({
 			name: dirent.name,
 			type: entryType(info),
@@ -224,9 +260,13 @@ export async function readFile(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	options: { download?: boolean } = {},
+	options: { download?: boolean; noLinks?: boolean } = {},
 ): Promise<ReadFileResult> {
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: true });
+	const noLinks = options.noLinks ?? false;
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: true,
+		noLinks,
+	});
 	const info = await stat(target.path);
 	if (info.isDirectory()) {
 		throw new AgentFailure("BAD_REQUEST", "that path is a directory");
@@ -240,7 +280,7 @@ export async function readFile(
 	if (options.download) {
 		// One handle for both the size and the bytes, so Content-Length cannot
 		// disagree with what the stream then sends.
-		const handle = await open(target.path, "r");
+		const handle = await openForRead(target.path, noLinks);
 		try {
 			const current = await handle.stat();
 			if (current.size > MAX_DOWNLOAD_BYTES) {
@@ -265,7 +305,7 @@ export async function readFile(
 	if (info.size > MAX_EDITOR_FILE_BYTES) {
 		throw new AgentFailure("FILE_TOO_LARGE", "that file is too large to open here");
 	}
-	const handle = await open(target.path, "r");
+	const handle = await openForRead(target.path, noLinks);
 	let body: Buffer;
 	try {
 		body = await handle.readFile();
@@ -278,6 +318,22 @@ export async function readFile(
 		size: body.length,
 		body,
 	};
+}
+
+/**
+ * Open a file to read. With noLinks the open itself refuses a final symlink,
+ * so a link swapped in after the path check is still never followed.
+ */
+async function openForRead(path: string, noLinks: boolean) {
+	if (!noLinks) return open(path, "r");
+	try {
+		return await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+	} catch (error) {
+		if (errorCode(error) === "ELOOP") {
+			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
+		}
+		throw error;
+	}
 }
 
 export interface WriteOptions {

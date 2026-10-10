@@ -166,8 +166,43 @@ function completeRecords(text: string): string {
 	return end === -1 ? "" : text.slice(0, end + 1);
 }
 
-/** Read the repository status for one project (SPEC.md §12.1, §12.8). */
+/** True when the path inside `dir` is itself a symlink. */
+async function isLink(dir: string, relPath: string): Promise<boolean> {
+	const info = await lstat(join(dir, relPath)).catch(() => null);
+	return info?.isSymbolicLink() ?? false;
+}
+
+/**
+ * The status without symlinks. Git never lists a path beneath a symlinked
+ * directory, so only the last component needs checking (SPEC.md §5.2).
+ */
+async function withoutLinks(dir: string, status: GitStatus): Promise<GitStatus> {
+	const entries: GitEntry[] = [];
+	for (const entry of status.entries) {
+		if (!(await isLink(dir, entry.path))) entries.push(entry);
+	}
+	const ignored: string[] = [];
+	for (const path of status.ignored) {
+		if (!(await isLink(dir, path))) ignored.push(path);
+	}
+	return { ...status, entries, ignored };
+}
+
+/**
+ * Read the repository status for one project (SPEC.md §12.1, §12.8). With
+ * noLinks, symlinks are left out.
+ */
 export async function gitStatus(
+	homeDir: string,
+	slug: string,
+	options: { hidden: boolean; noLinks?: boolean; log?: GitDebugLog },
+): Promise<GitStatus> {
+	const status = await readStatus(homeDir, slug, options);
+	if (!options.noLinks || !status.repo) return status;
+	return withoutLinks(await projectDir(homeDir, slug), status);
+}
+
+async function readStatus(
 	homeDir: string,
 	slug: string,
 	options: { hidden: boolean; log?: GitDebugLog },
@@ -278,9 +313,13 @@ export async function diffablePath(
 	homeDir: string,
 	slug: string,
 	relPath: string,
+	options: { noLinks?: boolean } = {},
 ): Promise<{ dir: string; repo: boolean; target: { path: string } }> {
 	const dir = await projectDir(homeDir, slug);
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
+	const target = await resolveInProject(homeDir, slug, relPath, {
+		mustExist: false,
+		noLinks: options.noLinks,
+	});
 	const info = await lstat(target.path).catch(() => null);
 	if (info && !info.isFile()) {
 		throw new AgentFailure("PATH_INVALID", "not a file");
@@ -297,9 +336,11 @@ export async function gitDiff(
 	homeDir: string,
 	slug: string,
 	relPath: string,
-	options: { log?: GitDebugLog } = {},
+	options: { noLinks?: boolean; log?: GitDebugLog } = {},
 ): Promise<GitDiff> {
-	const { dir, repo, target } = await diffablePath(homeDir, slug, relPath);
+	const { dir, repo, target } = await diffablePath(homeDir, slug, relPath, {
+		noLinks: options.noLinks,
+	});
 	const state = repo ? await pathState(dir, relPath) : { unmerged: false };
 	const origPath = state.origPath;
 	const headPath = origPath ?? relPath;
