@@ -303,7 +303,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminAccountLinkRoutes(instance, deps);
 		registerAdminProxyHostRoutes(instance, deps);
 		registerAdminLmsRoutes(instance, deps);
-		registerAdminAddressRoutes(instance, deps);
+		registerAdminAddressRoutes(instance, deps, nonces, deps.certificateNet);
 		registerAdminSigninRoutes(instance, deps);
 		registerReinstallNoteRoutes(instance, deps);
 	});

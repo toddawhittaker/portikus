@@ -315,6 +315,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/certificate/preflight": { access: "admin" },
 	"GET /admin/certificate/root.crt": { access: "admin" },
 	"HEAD /admin/certificate/root.crt": { access: "admin" },
+	"GET /admin/address": { access: "admin" },
+	"HEAD /admin/address": { access: "admin" },
+	"POST /admin/address/plan": { access: "admin" },
+	"POST /admin/address/preflight": { access: "admin" },
+	"POST /admin/address/apply": { access: "admin" },
+	"POST /admin/address/keep": { access: "admin" },
+	"POST /admin/address/rollback": { access: "admin" },
 	// Shared Docker pull storage.
 	"GET /admin/docker": { access: "admin" },
 	"HEAD /admin/docker": { access: "admin" },

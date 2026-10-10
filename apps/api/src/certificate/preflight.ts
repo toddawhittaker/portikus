@@ -188,3 +188,75 @@ export async function runPreflight(options: {
 	}
 	return { ok: !checks.some((check) => check.result === "failed"), checks };
 }
+
+/**
+ * Pre-flight for moving the site to `host` (ADR 0059): the new name
+ * and a sample name under the new preview suffix must resolve, and every
+ * address each resolves to must answer a nonce sent there with the current
+ * site's name, which proves those addresses are this server. The new name is
+ * not served until the switch, so the probe cannot use it yet; Keep, pressed
+ * from the new address, proves the rest. Every failure blocks.
+ */
+export async function runAddressPreflight(options: {
+	config: ApiConfig;
+	net: PreflightNet;
+	nonces: NonceStore;
+	host: string;
+	previewSuffix: string;
+}): Promise<CertificatePreflight> {
+	const { config, net, nonces, host, previewSuffix } = options;
+	const nonce = nonces.issue();
+	const sample = `portikus-check-${nonce.slice(0, 8)}.${previewSuffix}`;
+	const url = `${config.PUBLIC_URL.replace(/\/$/, "")}${PREFLIGHT_PATH}${nonce}`;
+
+	async function reaches(addresses: string[]): Promise<boolean> {
+		if (addresses.length === 0) return false;
+		const bodies = await Promise.all(addresses.map((a) => net.probe(url, a)));
+		return bodies.every((body) => body === nonce);
+	}
+
+	const [siteAddresses, previewAddresses] = await Promise.all([
+		net.resolve(host),
+		net.resolve(sample),
+	]);
+	const [siteReached, previewReached] = await Promise.all([
+		reaches(siteAddresses),
+		reaches(previewAddresses),
+	]);
+	const check = (
+		name: PreflightCheck["name"],
+		passed: boolean,
+		yes: string,
+		no: string,
+	): PreflightCheck =>
+		passed
+			? { name, result: "passed", message: yes }
+			: { name, result: "failed", message: no };
+	const checks = [
+		check(
+			"dns-site",
+			siteAddresses.length > 0,
+			`${host} resolves.`,
+			`${host} does not resolve in DNS.`,
+		),
+		check(
+			"dns-preview",
+			previewAddresses.length > 0,
+			`Preview names such as ${sample} resolve.`,
+			`${sample} does not resolve in DNS. Add a wildcard record for *.${previewSuffix}.`,
+		),
+		check(
+			"reach-site",
+			siteReached,
+			`${host} points at this server.`,
+			`${host} does not point at this server at every address DNS gives.`,
+		),
+		check(
+			"reach-preview",
+			previewReached,
+			`*.${previewSuffix} points at this server.`,
+			`${sample} does not point at this server at every address DNS gives.`,
+		),
+	];
+	return { ok: checks.every((c) => c.result === "passed"), checks };
+}
