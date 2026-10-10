@@ -116,7 +116,7 @@ describe("writeAgentInstructions", () => {
 });
 
 describe("writeClaudeManagedSettings", () => {
-	const SETTINGS = '{"env": {"BROWSER": ""}}';
+	const SETTINGS = '{"env": {"BROWSER": "", "DISABLE_AUTOUPDATER": "1"}}';
 	let settingsPath: string;
 
 	beforeEach(() => {

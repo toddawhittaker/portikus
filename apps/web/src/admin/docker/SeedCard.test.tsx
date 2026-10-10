@@ -368,6 +368,7 @@ test("a seed built from an older image says so once: the drift notice's rebuild 
 					otherWorkspaces: 0,
 					job: null,
 					newerPublished: null,
+					codingAgents: null,
 					disk: null,
 				})
 			: undefined;

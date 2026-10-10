@@ -1476,7 +1476,7 @@ files:
   generator: dump
   mode: "0644"
   content: |-
-    {"env": {"BROWSER": ""}}
+    {"env": {"BROWSER": "", "DISABLE_AUTOUPDATER": "1"}}
 
 # Codex has no updater environment variable.  This is the system config
 # layer it reads on Linux, and the platform owns the version.
