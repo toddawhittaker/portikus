@@ -11,7 +11,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running, 0036_start_retries_and_controller_check, 0037_second_factor, 0038_account_invitations, 0039_notification_flags and 0040_signin_counters
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running, 0036_start_retries_and_controller_check, 0037_second_factor, 0038_account_invitations, 0039_notification_flags, 0040_signin_counters, 0041_lti_roster_and_deep_linking, 0042_project_shares and 0043_agent_usage_days
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -33,6 +33,12 @@ export interface Database {
 	lti_login_states: LtiLoginStatesTable;
 	lti_contexts: LtiContextsTable;
 	lti_memberships: LtiMembershipsTable;
+	lti_roster_members: LtiRosterMembersTable;
+	lti_deep_link_requests: LtiDeepLinkRequestsTable;
+	lti_starter_launches: LtiStarterLaunchesTable;
+	project_shares: ProjectSharesTable;
+	project_share_views: ProjectShareViewsTable;
+	agent_usage_days: AgentUsageDaysTable;
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
 	workspace_usage_samples: WorkspaceUsageSamplesTable;
@@ -440,6 +446,21 @@ interface LtiContextsTable {
 	context_id: string;
 	title: ColumnType<string, string | undefined, string>;
 	platform_name: string;
+	/** The tool's client id at this platform, from the latest launch (ADR 0058). */
+	platform_client_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** The NRPS memberships URL from the latest launch's claim. */
+	nrps_url: ColumnType<string | null, string | null | undefined, string | null>;
+	roster_synced_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** A `RosterSyncResult` from @portikus/contracts; null before the first sync. */
+	roster_sync_result: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -450,6 +471,81 @@ interface LtiMembershipsTable {
 	user_id: string;
 	role: string;
 	last_launch_at: ColumnType<Date, string, string>;
+}
+
+/** One person on a course's NRPS roster, replaced on each sync; never an email (ADR 0058). */
+interface LtiRosterMembersTable {
+	context_id: string;
+	/** The LTI subject at that course's platform. */
+	subject: string;
+	display_name: string;
+	role: string;
+}
+
+/** A pending Deep Linking picker: ten minutes, single use (ADR 0058). */
+interface LtiDeepLinkRequestsTable {
+	/** SHA-256 of the handle the picker page carries. */
+	state_hash: string;
+	/** The plain platform issuer, without `lti:`. */
+	platform_issuer: string;
+	client_id: string;
+	deployment_id: string;
+	return_url: string;
+	/** The request's opaque `data`, echoed back in the response. */
+	data: string | null;
+	expires_at: ColumnType<Date, string, string>;
+}
+
+/** A student's launch of a picked link, consumed when the project opens (ADR 0058). */
+interface LtiStarterLaunchesTable {
+	id: Generated<string>;
+	user_id: string;
+	project_name: string;
+	/** Exactly one of template and repository_url is set. */
+	template: string | null;
+	repository_url: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	expires_at: ColumnType<Date, string, string>;
+}
+
+/** A student's read-only share of one project; at most one open per project (ADR 0057). */
+interface ProjectSharesTable {
+	id: Generated<string>;
+	project_id: string;
+	started_at: ColumnType<Date, string | undefined, never>;
+	ends_at: ColumnType<Date, string, string>;
+	/** Set when the student stops it or a new share replaces an expired one. */
+	ended_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** An instructor who opened a share, for the student's viewer list. */
+interface ProjectShareViewsTable {
+	share_id: string;
+	viewer_user_id: string;
+	first_viewed_at: ColumnType<Date, string | undefined, never>;
+	last_viewed_at: ColumnType<Date, string | undefined, string>;
+}
+
+/**
+ * One workspace-agent boot's running coding-agent totals for one UTC day,
+ * agent and model (ADR 0057). Counts only. bigint and numeric arrive as strings.
+ */
+interface AgentUsageDaysTable {
+	user_id: string;
+	boot_id: string;
+	/** The UTC day, as YYYY-MM-DD on insert. */
+	day: ColumnType<Date, string, string>;
+	agent: "claude" | "codex";
+	model: string;
+	sessions: ColumnType<string, number | undefined, number>;
+	input_tokens: ColumnType<string, number | undefined, number>;
+	output_tokens: ColumnType<string, number | undefined, number>;
+	cache_read_tokens: ColumnType<string, number | undefined, number>;
+	cache_write_tokens: ColumnType<string, number | undefined, number>;
+	cost_usd: ColumnType<string | null, number | null | undefined, number | null>;
+	lines_added: ColumnType<string, number | undefined, number>;
+	lines_removed: ColumnType<string, number | undefined, number>;
+	updated_at: ColumnType<Date, string | undefined, string>;
 }
 
 /** A retired course account and the SSO account its launches now sign into. */

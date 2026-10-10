@@ -160,6 +160,7 @@ test.skipIf(skip)(
 			"displayName",
 			"lastLaunchAt",
 			"role",
+			"status",
 			"userId",
 			"workspaceState",
 		]);

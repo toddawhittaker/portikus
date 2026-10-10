@@ -1,4 +1,4 @@
-import type { CourseMember } from "@portikus/contracts";
+import type { ActiveCourseMember, CourseMember } from "@portikus/contracts";
 import { Button, PageIntro, StateBadge, Toggletip } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
@@ -121,15 +121,24 @@ const WIDE_ONLY = "@max-2xl:hidden";
 const NARROW_ONLY = "hidden @max-2xl:block";
 
 /** "23 Sep 2026, 14:05" in the browser's own locale and zone. */
-function launchText(iso: string): string {
+function launchText(iso: string | null): string {
+	if (iso === null) return "—";
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return "—";
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-/** Only students can be removed; instructors are the learning system's to change. */
-function canRemove(member: CourseMember, myId: string | null): boolean {
-	return member.role === "student" && member.userId !== myId;
+/**
+ * Only students who launched can be removed; instructors are the learning
+ * system's to change, and a roster-only person has no membership yet.
+ */
+function canRemove(
+	member: CourseMember,
+	myId: string | null,
+): member is ActiveCourseMember {
+	return (
+		member.status === "active" && member.role === "student" && member.userId !== myId
+	);
 }
 
 /** The member whose Remove button takes focus after one is removed: the next, else the previous. */
@@ -162,7 +171,7 @@ function CourseMembers() {
 	const members = useCourseMembers(courseId);
 	const me = useMe();
 	const myId = me.status === "authenticated" ? me.user.id : null;
-	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
+	const [removing, setRemoving] = React.useState<ActiveCourseMember | null>(null);
 	const [removedText, setRemovedText] = React.useState("");
 	const headingRef = React.useRef<HTMLHeadingElement>(null);
 	// Set by a successful removal so the closing dialog focuses what is left.
@@ -257,14 +266,14 @@ function CourseMembers() {
 											<span aria-hidden="true"> · </span>
 											<span className="sr-only">, </span>
 											Last launch{" "}
-											<time dateTime={member.lastLaunchAt}>
+											<time dateTime={member.lastLaunchAt ?? undefined}>
 												{launchText(member.lastLaunchAt)}
 											</time>
 										</span>
 									</th>
 									<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
 									<td className={WIDE_ONLY}>
-										<time dateTime={member.lastLaunchAt}>
+										<time dateTime={member.lastLaunchAt ?? undefined}>
 											{launchText(member.lastLaunchAt)}
 										</time>
 									</td>

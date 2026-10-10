@@ -604,6 +604,15 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0043_agent_usage_days",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0042_project_shares",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0041_lti_roster_and_deep_linking",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0040_signin_counters",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -739,6 +748,9 @@ describe("database migrations and schema", () => {
 					"0038_account_invitations",
 					"0039_notification_flags",
 					"0040_signin_counters",
+					"0041_lti_roster_and_deep_linking",
+					"0042_project_shares",
+					"0043_agent_usage_days",
 				]);
 				throw rollback;
 			}),
@@ -761,6 +773,15 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -908,6 +929,15 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1013,6 +1043,15 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -1423,6 +1462,15 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1541,6 +1589,15 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -2019,6 +2076,15 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2199,6 +2265,15 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2267,6 +2342,15 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -2560,6 +2644,15 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2629,10 +2722,16 @@ describe("resource guard migration", () => {
 						"0038_account_invitations",
 						"0039_notification_flags",
 						"0040_signin_counters",
+						"0041_lti_roster_and_deep_linking",
+						"0042_project_shares",
+						"0043_agent_usage_days",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0040 down to 0020, and 0018 (applied 0018, 0020 to 0040, 0019).
+					// Undo 0019, 0043 down to 0020, and 0018 (applied 0018, 0020 to 0043, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2683,6 +2782,9 @@ describe("resource guard migration", () => {
 						"0038_account_invitations",
 						"0039_notification_flags",
 						"0040_signin_counters",
+						"0041_lti_roster_and_deep_linking",
+						"0042_project_shares",
+						"0043_agent_usage_days",
 					]);
 					throw rollback;
 				}),
@@ -2716,6 +2818,15 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -2798,6 +2909,15 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2869,6 +2989,15 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2927,6 +3056,15 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -3035,6 +3173,15 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3098,6 +3245,9 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					await sql`update settings set docker_seed_images = '["redis:7"]'`.execute(
 						trx,
 					);
@@ -3109,9 +3259,15 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					await sql`update settings set docker_seed_images = '[]'`.execute(trx);
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					expect(await flag()).toBe(false);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -3156,6 +3312,15 @@ describe("resource guard migration", () => {
 						.values({ owner_user_id: user.id, label: "pulls", state: "stopped" })
 						.returning("id")
 						.executeTakeFirstOrThrow();
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -3212,6 +3377,9 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const folded = await sql<{ pulls: number }>`
 						select pulls from docker_image_pulls`.execute(trx);
 					expect(folded.rows).toEqual([{ pulls: 5 }]);
@@ -3232,6 +3400,15 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -3353,6 +3530,15 @@ describe("backups migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -3477,6 +3663,15 @@ describe("backups migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3574,6 +3769,15 @@ describe("api request samples migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
@@ -3786,6 +3990,15 @@ describe("throttle hold migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0043_agent_usage_days",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0042_project_shares",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0041_lti_roster_and_deep_linking",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0040_signin_counters",
 					);
