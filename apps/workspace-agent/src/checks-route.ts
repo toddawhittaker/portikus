@@ -196,7 +196,7 @@ export class CheckRunner {
 				// OOM killer); use the shell's 128 plus signal so it never passes.
 				const exitCode = signal ? 128 + signal : rawCode;
 				run.meta.exitCode = exitCode;
-				const stopped = run.stopRequested && Boolean(signal);
+				const stopped = run.stopRequested;
 				this.finish(
 					run,
 					stopped ? { type: "exit", exitCode, stopped } : { type: "exit", exitCode },

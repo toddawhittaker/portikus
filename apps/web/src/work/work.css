@@ -308,6 +308,7 @@
 .pk-file-dir {
 	flex: 0 1000 auto;
 	color: var(--ink-muted);
+	user-select: text;
 }
 
 .pk-file-tools {
@@ -607,7 +608,17 @@
 
 /* The bar's controls do not drag, so they do not show the grab cursor;
    zero specificity, so a control's own cursor still wins. */
-:where(.pk-filepane-handle) :where(button, a[href], input, select, textarea, label) {
+:where(.pk-filepane-handle)
+:where(
+	button,
+	a[href],
+	input,
+	select,
+	textarea,
+	label,
+	[role="button"],
+	[contenteditable]
+) {
 	cursor: default;
 }
 
