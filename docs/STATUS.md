@@ -5036,7 +5036,7 @@ Gaps left:
 
 Built on `epic/42-instructor` (plan #1425, task PRs #1427, #1428, #1430,
 #1434 to #1439, #1441, #1442, #1448 and #1449, review fixes #1450, #1452,
-#1453, #1454 and #1456, and this fold). Issues #1216, #1217, #1218 and #1219.
+#1453, #1454, #1456 and #1459, and this fold). Issues #1216, #1217, #1218 and #1219.
 Migrations 0041 to 0043. ADRs 0057 and 0058.
 
 Delivered:
@@ -5076,14 +5076,16 @@ Delivered:
   names the account; "Last tried" wording; the viewer rereads a file only
   when it changes; Codex input netted at report time. Security review:
   each workspace's usage read is isolated with a 5-second timeout; only
-  real days within 40 days back and one ahead are stored, and at most 5
-  boot ids per user per day; shared checks carry no command; the share
+  real days within 40 days back and one ahead are stored, and at most 48
+  boot ids per user per day (#1452, raised from 5 by #1459); shared checks carry no command; the share
   dialog names the audience; a roster that would leave no instructor is
   refused (`no_instructor`); shared reads refuse symlinks; archiving ends
   a share. Accessibility review: the Course page actions fit at 320 px,
   the viewer keeps focus and its place when the workspace stops, busy
   buttons stay focusable, share start and stop are announced, the picker
-  ties its error to the field, and check badges no longer chatter.
+  ties its error to the field, and check badges no longer chatter. Then
+  #1459: boot cap raised to 48; shared files past the first listing page
+  refresh by polling.
 - Fold: SPEC sections 5.2, 7.2, 24.1, 24.6, 24.11, 25.10, 26, 29 and 31,
   ADRs 0057 and 0058 accepted, ADMIN-GUIDE and OVERVIEW.
 
@@ -5096,9 +5098,10 @@ Verification:
 
 Gaps left:
 
-- The live help session with terminals (#1219 step 2) is left out.
+- The live help session with terminals (#1219 step 2) is left out
+  (#1461).
 - Codex's delta temporality is its documented default, not yet seen on a
-  real Codex turn; the rehearsal checks it. A real Claude Code export needs
+  real Codex turn; the rehearsal checks it (#1462). A real Claude Code export needs
   a signed-in session and is checked by hand.
 - Usage counts come from the student's own workspace and can be forged;
   they are for reporting only.
@@ -5111,5 +5114,6 @@ Gaps left:
   the taught-course lookup could move into `courses/membership.ts`; the
   mock LMS roster role action is unused; a starter whose folder exists
   without a project row shows a generic error, and its e2e test accepts
-  either outcome because discovery races the launch.
-- NRPS and Deep Linking are not in the smoke test.
+  either outcome because discovery races the launch. These, and a
+  `radiogroup` for the picker fieldset, are #1462.
+- NRPS and Deep Linking are not in the smoke test (#1463).

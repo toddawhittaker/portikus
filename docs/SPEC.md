@@ -4836,7 +4836,9 @@ model. Never a prompt, a response, a file name or code. Instructors see
 totals for their course members and administrators see everyone; there
 is no student view. Students are told in Help. The counts come from the
 student's own agents and can be forged, so they are for reporting, never
-enforcement. They are kept 365 days.
+enforcement. The worker stores only real days from 40 days back to one
+day ahead and at most 48 boot ids per user per day. They are kept 365
+days.
 
 ## 26. Control-plane data model
 

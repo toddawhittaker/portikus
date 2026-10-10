@@ -80,7 +80,7 @@ administrators get 404 (SPEC.md 5.2).
    - The worker reads each workspace on its own, with a 5-second timeout,
      so one bad report never stops the others. It keeps only rows whose
      day is a real date within 40 days back and one day ahead, and at
-     most 5 boot ids per user per day; a sixth boot that day is dropped
+     most 48 boot ids per user per day; a 49th boot that day is dropped
      with a warning that holds only counts. These bound what a forged
      report can store.
 7. **Who sees usage.** Instructors see totals for their course members,
