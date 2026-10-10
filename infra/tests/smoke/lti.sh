@@ -133,9 +133,10 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
       json_field "$instructor" course_titles
     lti_has_sam() { json_field "$instructor" member_names | tr ',' '\n' | grep -qx 'Sam Student'; }
     check "the course lists the student who launched before" lti_has_sam
-    # Members carry their user id so an instructor can remove them.
-    check_output "members carry only name, role, last launch, user id and workspace state" \
-      "displayName,lastLaunchAt,role,userId,workspaceState" json_field "$instructor" member_fields
+    # Members carry their user id so an instructor can remove them, and a
+    # roster status for people who never launched (ADR 0058); never an email.
+    check_output "members carry only name, role, last launch, status, user id and workspace state" \
+      "displayName,lastLaunchAt,role,status,userId,workspaceState" json_field "$instructor" member_fields
     check_output "the instructor gets 403 from the admin routes" "403" json_field "$instructor" admin
 
     # The accounts mock launches made stay; the operator decides what to do with them.
