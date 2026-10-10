@@ -5036,7 +5036,7 @@ Gaps left:
 
 Built on `epic/42-instructor` (plan #1425, task PRs #1427, #1428, #1430,
 #1434 to #1439, #1441, #1442, #1448 and #1449, review fixes #1450, #1452,
-#1453, #1454, #1456 and #1459, and this fold). Issues #1216, #1217, #1218 and #1219.
+#1453, #1454, #1456 and #1459, smoke fix #1471, and this fold). Issues #1216, #1217, #1218 and #1219.
 Migrations 0041 to 0043. ADRs 0057 and 0058.
 
 Delivered:
@@ -5094,7 +5094,19 @@ Verification:
 - code-reviewer, security-reviewer (no high findings) and a11y-reviewer
   ran on the epic head; every finding ruled for fixing was fixed in the
   review-fix PRs above, and each reviewer confirmed.
-- Rehearsal: pending.
+- Rehearsal: 0.1.1102+g29b1ed3f on the rehearsal VM, 2026-10-10. Setup
+  failed=0, migrations 0041 to 0043 applied, smoke 381 passed, 0 failed, 0
+  skipped with the Dex sign-in file and every LTI launch check (after the
+  smoke fix #1471). An OTLP payload posted inside a workspace reached
+  agent_usage_days with only allow-listed counts and no email or ids.
+  Shares passed every check: reads, the secret and symlink filter, 409 on
+  a stopped workspace that stayed stopped, and archive ending the share.
+  The Deep Linking round trip and starter launch passed. Roster sync could
+  not run on the VM: the egress proxy refuses the mock LMS's plain-http
+  token POST (real https platforms are unaffected; e2e covers it; #1472).
+  A real signed-in Claude Code or Codex turn is pending for Todd.
+- Pending for Todd: one real Claude Code or Codex turn to confirm usage
+  export (Codex delta temporality, #1462).
 
 Gaps left:
 
@@ -5117,3 +5129,5 @@ Gaps left:
   either outcome because discovery races the launch. These, and a
   `radiogroup` for the picker fieldset, are #1462.
 - NRPS and Deep Linking are not in the smoke test (#1463).
+- Roster sync cannot be rehearsed against the mock LMS on a VM: the
+  egress proxy refuses its plain-http token request (#1472).
