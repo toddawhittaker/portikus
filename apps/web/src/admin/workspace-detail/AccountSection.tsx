@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { timeAgo } from "../../text.js";
 import { DexUserActions } from "../DexUserDialogs.js";
-import { isCourseAccount, roleText, sourceText } from "../markers.js";
+import { isCourseAccount, issuerText, roleText, sourceText } from "../markers.js";
 import {
 	useSetDisabled,
 	useSetGrantedAdmin,
@@ -395,7 +395,7 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 				</dd>
 				<dt>Issuer</dt>
 				<dd className="pk-mono-small break-all" data-testid="detail-issuer">
-					{user.issuer ?? "—"}
+					{issuerText(user.issuer)}
 				</dd>
 			</dl>
 			<Link

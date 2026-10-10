@@ -1,3 +1,4 @@
+import { DEX_ACCOUNT_ISSUER } from "@portikus/auth";
 import {
 	ACCOUNT_IMPORT_COLUMNS,
 	ACCOUNT_IMPORT_MAX_BYTES,
@@ -141,7 +142,7 @@ function checkShape(row: ImportRow, dexEnabled: boolean): ValidImport | string {
  */
 export async function classifyImport(
 	db: Kysely<Database>,
-	opts: { issuer: string; dexEnabled: boolean },
+	opts: { dexEnabled: boolean },
 	rows: ImportRow[],
 ): Promise<ClassifiedRow[]> {
 	const shaped = rows.map((row) => ({ row, shape: checkShape(row, opts.dexEnabled) }));
@@ -184,7 +185,7 @@ export async function classifyImport(
 		const users = await db
 			.selectFrom("users")
 			.select(sql<string>`lower(preferred_username)`.as("username"))
-			.where("oidc_issuer", "=", opts.issuer)
+			.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 			.where(sql<string>`lower(preferred_username)`, "in", [...usernames])
 			.execute();
 		for (const u of users) takenDexUsernames.add(u.username);

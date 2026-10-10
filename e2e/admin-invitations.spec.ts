@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query } from "./helpers";
+import { DEX_ACCOUNT_ISSUER, loginAs, query } from "./helpers";
 
 /**
  * Nobody signs themselves up: an SSO account is made only by claiming an
@@ -34,7 +34,7 @@ test("an invited person signs in with the role the invitation gave", async ({
 	await query("delete from account_invitations where email = 'nina@example.edu'");
 	await query(
 		"update users set oidc_subject = $1 where oidc_issuer = $2 and oidc_subject = 'nina'",
-		[`nina-earlier-${crypto.randomUUID()}`, MOCK_ISSUER],
+		[`nina-earlier-${crypto.randomUUID()}`, DEX_ACCOUNT_ISSUER],
 	);
 
 	await openUsers(page);

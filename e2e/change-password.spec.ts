@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { writeDexGrpcCerts } from "../packages/auth/dist/testing/fake-dex-grpc.js";
-import { enrolSecondFactor, loginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import {
+	DEX_ACCOUNT_ISSUER,
+	enrolSecondFactor,
+	loginAs,
+	query,
+	WEB_ORIGIN,
+} from "./helpers";
 import { FAKE_DEX_GRPC_PORT } from "./ports";
 
 /**
@@ -37,7 +43,6 @@ function resetAdmin(): string {
 				DEX_GRPC_CA: certs.ca,
 				DEX_GRPC_CERT: certs.clientCert,
 				DEX_GRPC_KEY: certs.clientKey,
-				OIDC_ISSUER_URL: MOCK_ISSUER,
 				PUBLIC_URL: WEB_ORIGIN,
 			},
 			encoding: "utf8",
@@ -148,7 +153,7 @@ test("a good change lands on the administration page and Settings offers Passwor
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 	const [row] = await query<{ must_change_password: boolean; role: string }>(
 		"select must_change_password, role from users where oidc_issuer = $1 and email = $2",
-		[MOCK_ISSUER, "admin@example.edu"],
+		[DEX_ACCOUNT_ISSUER, "admin@example.edu"],
 	);
 	expect(row).toEqual({ must_change_password: false, role: "administrator" });
 

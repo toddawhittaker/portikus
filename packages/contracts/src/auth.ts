@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/**
+ * The issuer every Dex account is stored under, whatever URL Dex is served
+ * from, so an address move keeps each account (SPEC.md section 5.1; ADR 0031).
+ * Here so the admin pages can name it; @portikus/auth re-exports it.
+ */
+export const DEX_ACCOUNT_ISSUER = "urn:portikus:dex";
+
 /** Platform roles (SPEC.md §5.2; `instructor` from SPEC.md section 5.2). */
 export const Role = z.enum(["student", "instructor", "administrator"]);
 export type Role = z.infer<typeof Role>;

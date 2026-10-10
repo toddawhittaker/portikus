@@ -55,6 +55,10 @@ export interface Database {
 
 interface UsersTable {
 	id: Generated<string>;
+	/**
+	 * `urn:portikus:dex` for every Dex account whatever Dex's URL (since
+	 * 0044_dex_account_issuer), `lti:<platform issuer>` for a course account.
+	 */
 	oidc_issuer: string;
 	oidc_subject: string;
 	email: string | null;

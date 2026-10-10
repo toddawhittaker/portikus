@@ -29,7 +29,7 @@ export function registerAdminImportRoutes(
 	app: FastifyInstance,
 	deps: ServerDeps,
 ): void {
-	const { db, config } = deps;
+	const { db } = deps;
 	const adminOnly = { preHandler: requireRole("administrator") };
 
 	/** The checked rows of the uploaded text, or null after answering 400. */
@@ -43,11 +43,7 @@ export function registerAdminImportRoutes(
 		if (!parsed) return null;
 		try {
 			const rows = readImportFile(parsed.csv);
-			return await classifyImport(
-				db,
-				{ issuer: config.OIDC_ISSUER_URL, dexEnabled: deps.dex !== undefined },
-				rows,
-			);
+			return await classifyImport(db, { dexEnabled: deps.dex !== undefined }, rows);
 		} catch (err) {
 			if (!(err instanceof ImportFileError)) throw err;
 			sendError(reply, 400, "VALIDATION_FAILED", err.message);
@@ -130,7 +126,7 @@ export function registerAdminImportRoutes(
 		if (!dex) throw new Error("a password row passed without Dex");
 		try {
 			const created = await createDexAccount(
-				{ db, dex, issuer: config.OIDC_ISSUER_URL, log },
+				{ db, dex, log },
 				{ ...valid.body, actorId, metadata },
 			);
 			if (created === "exists") {

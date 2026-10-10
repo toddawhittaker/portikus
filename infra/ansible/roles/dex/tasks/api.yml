@@ -57,8 +57,6 @@
           - "{{ dex_import_script }}"
           - --input
           - "{{ dex_import_input }}"
-          - --issuer
-          - "{{ portikus_dex_issuer }}"
       environment:
         DATABASE_URL: "{{ portikus_database_url }}"
         DEX_GRPC_ADDR: "{{ dex_grpc_addr }}"

@@ -10,6 +10,7 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	apiLoginAs,
+	DEX_ACCOUNT_ISSUER,
 	enrolSecondFactor,
 	loginAs,
 	MOCK_ISSUER,
@@ -220,7 +221,7 @@ test("a link to an SSO identity with no account is refused", async ({ browser })
 		// Link mode created no account, and the course session is untouched.
 		const created = await query(
 			"select 1 from users where oidc_issuer = $1 and oidc_subject = $2",
-			[MOCK_ISSUER, NO_ACCOUNT],
+			[DEX_ACCOUNT_ISSUER, NO_ACCOUNT],
 		);
 		expect(created).toHaveLength(0);
 		expect((await me(page)).id).toBe(courseId);

@@ -78,3 +78,9 @@ to their provider, which asks for the second factor under its own rules.
   install first owns it, and several jurisdictions ban fixed default
   passwords in new products); keeping the direct paths beside Dex (every
   Dex-only feature built twice or missing for some sites).
+
+## Update, Epic 43
+
+Dex accounts are keyed by the logical issuer `urn:portikus:dex` and the
+Dex subject, not by Dex's URL, so an address move keeps every account
+(migration 0044 moves existing rows; SPEC.md section 5.1).

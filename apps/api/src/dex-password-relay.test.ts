@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { DEX_ACCOUNT_ISSUER } from "@portikus/auth";
 import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
@@ -377,7 +378,7 @@ describe.skipIf(skip)("the Dex password relay", () => {
 			const user = await testDb.db
 				.insertInto("users")
 				.values({
-					oidc_issuer: mock.issuer,
+					oidc_issuer: DEX_ACCOUNT_ISSUER,
 					oidc_subject: "alice-sub",
 					email: "Alice@example.edu",
 					display_name: "Alice",

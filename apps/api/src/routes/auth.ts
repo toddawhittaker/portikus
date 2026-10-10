@@ -2,6 +2,7 @@ import {
 	bindLinkIntent,
 	connectorCookieName,
 	connectorCookieOptions,
+	DEX_ACCOUNT_ISSUER,
 	deleteSession,
 	dexConnectorId,
 	findLinkIntent,
@@ -198,7 +199,7 @@ export function registerAuthRoutes(
 		reply: FastifyReply,
 		identity: { issuer: string; subject: string },
 	): void {
-		if (identity.issuer !== config.OIDC_ISSUER_URL) return;
+		if (identity.issuer !== DEX_ACCOUNT_ISSUER) return;
 		const connectorId = dexConnectorId(identity.subject);
 		if (connectorId) {
 			reply.setCookie(connectorCookie, connectorId, connectorCookieOptions(auth));
@@ -324,8 +325,7 @@ export function registerAuthRoutes(
 		// A Dex subject is an opaque blob, so prefer the username.
 		const signInName = row.preferred_username || row.oidc_subject;
 		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
-		const localPassword =
-			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
+		const localPassword = dex !== undefined && localDexUserId(row) !== null;
 		const { secondFactorApplies: _applies, ...user } = request.user;
 		const body: MeResponse = { ...user, signInName, localPassword };
 		return reply.send(body);

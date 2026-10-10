@@ -460,6 +460,9 @@ importers:
       '@grpc/proto-loader':
         specifier: 0.8.1
         version: 0.8.1
+      '@portikus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@portikus/db':
         specifier: workspace:*
         version: link:../db

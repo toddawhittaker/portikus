@@ -11,7 +11,7 @@ import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import type { DexApi } from "./dex-api.js";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { precreateDexAccount } from "./links.js";
 import { grantAdministrator, grantInstructor } from "./roles.js";
 
@@ -85,18 +85,17 @@ export function parseUsersFile(raw: unknown): ImportedUser[] {
  */
 async function grant(
 	trx: Kysely<Database>,
-	issuer: string,
 	user: ImportedUser & { role: "instructor" | "administrator" },
 ): Promise<"granted" | "precreated" | "unchanged"> {
 	const row = await trx
 		.selectFrom("users")
 		.select(["id", "granted_role", "disabled_at"])
-		.where("oidc_issuer", "=", issuer)
+		.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 		.where("oidc_subject", "=", dexLocalSubject(user.userId))
 		.forUpdate()
 		.executeTakeFirst();
 	if (!row) {
-		const id = await precreateDexAccount(trx, issuer, {
+		const id = await precreateDexAccount(trx, {
 			userId: user.userId,
 			email: user.email,
 			username: user.username,
@@ -156,7 +155,6 @@ function audit(
 export async function importUsersFile(
 	db: Kysely<Database>,
 	dex: DexApi,
-	issuer: string,
 	users: ImportedUser[],
 ): Promise<DexImportReport> {
 	const at = await importedAt(db);
@@ -190,7 +188,7 @@ export async function importUsersFile(
 			const precreated: string[] = [];
 			for (const user of users) {
 				if (user.role === "student") continue;
-				const result = await grant(trx, issuer, { ...user, role: user.role });
+				const result = await grant(trx, { ...user, role: user.role });
 				if (result === "granted") granted.push(user.username);
 				if (result === "precreated") precreated.push(user.username);
 			}

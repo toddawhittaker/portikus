@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { FAKE_AGENT_TOKEN, loginAs, MOCK_ISSUER, query } from "./helpers";
+import { DEX_ACCOUNT_ISSUER, FAKE_AGENT_TOKEN, loginAs, query } from "./helpers";
 import { resetRegistryJobs } from "./registry-jobs";
 
 /**
@@ -68,7 +68,7 @@ export async function makeWorkspace(): Promise<string> {
 	const [user] = await query<{ id: string }>(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, 'E2E Docker', 'student') returning id`,
-		[MOCK_ISSUER, subject, `${subject}@example.edu`],
+		[DEX_ACCOUNT_ISSUER, subject, `${subject}@example.edu`],
 	);
 	const id = randomUUID();
 	const short = id.replace(/-/g, "");

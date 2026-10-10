@@ -1,8 +1,10 @@
+import { DEX_ACCOUNT_ISSUER } from "@portikus/contracts";
 import { render } from "@testing-library/react";
 import { expect, test } from "vitest";
 import {
 	imageText,
 	isCourseAccount,
+	issuerText,
 	Markers,
 	markerLabels,
 	roleText,
@@ -89,6 +91,14 @@ test("an issuer is shortened to its host", () => {
 	expect(shortIssuer("not a url at all, and rather long")).toBe(
 		"not a url at all, and ra…",
 	);
+});
+
+test("the issuer names Portikus sign-in for a Dex account, and shows any other as it is", () => {
+	expect(issuerText(DEX_ACCOUNT_ISSUER)).toBe("Portikus sign-in");
+	expect(issuerText("lti:https://canvas.example.edu")).toBe(
+		"lti:https://canvas.example.edu",
+	);
+	expect(issuerText(null)).toBe("—");
 });
 
 test("the source is SSO, or Course with the platform host for a course account", () => {

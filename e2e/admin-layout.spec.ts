@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createSignedInUser,
+	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	loginAs,
-	MOCK_ISSUER,
 	query,
 	WEB_ORIGIN,
 } from "./helpers";
@@ -783,7 +783,7 @@ test.describe("admin layout", () => {
 			 select $1, 'e2e-' || $2 || '-' || n, 'focus-' || $2 || '-' || n || '@example.edu',
 			        'Focus ' || $2 || ' ' || lpad(n::text, 2, '0'), 'student', now()
 			 from generate_series(1, 40) as n`,
-			[MOCK_ISSUER, tag],
+			[DEX_ACCOUNT_ISSUER, tag],
 		);
 		await loginAs(page, "carol");
 		await page.goto("/admin");
