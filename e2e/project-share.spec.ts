@@ -130,6 +130,45 @@ test("a shared project has a Shared tag until the share ends", async ({
 	await expect(again.getByTestId("share-stop")).toBeVisible();
 });
 
+test("archiving a shared project ends the share, and unarchiving does not restart it", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Finished" });
+	const other = await createProject(student.workspaceId, { name: "Current" });
+	await page.goto(workspacePath(student.workspaceId, other.id));
+
+	const dialog = await openShare(page, project.id);
+	await dialog.getByTestId("share-start").click();
+	await expect(dialog.getByTestId("share-stop")).toBeVisible();
+	await dialog.getByRole("button", { name: "Close" }).first().click();
+	await expect(page.getByTestId(`project-shared-${project.id}`)).toHaveText("Shared");
+
+	await page.getByTestId(`project-menu-${project.id}`).click();
+	await page.getByRole("menuitem", { name: "Archive" }).click();
+	await page.getByTestId("dialog-confirm").click();
+	await expect(page.getByTestId(`project-item-${project.id}`)).toHaveCount(0);
+
+	await page.getByTestId("archived-projects").click();
+	await page.getByTestId(`project-unarchive-${project.id}`).click();
+	await expect
+		.poll(async () => {
+			const rows = await query<{ state: string }>(
+				"select state from projects where id = $1",
+				[project.id],
+			);
+			return rows[0]?.state;
+		})
+		.toBe("active");
+
+	await page.goto(workspacePath(student.workspaceId, other.id));
+	await expect(page.getByTestId(`project-item-${project.id}`)).toBeVisible();
+	await expect(page.getByTestId(`project-shared-${project.id}`)).toHaveCount(0);
+	const reopened = await openShare(page, project.id);
+	await expect(reopened.getByTestId("share-start")).toBeVisible();
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the share dialog has no axe violations (${colorScheme})`, async ({
 		page,

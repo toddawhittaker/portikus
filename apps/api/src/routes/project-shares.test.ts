@@ -3,7 +3,11 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { ProjectShareStatus, SHARE_DURATION_HOURS } from "@portikus/contracts";
+import {
+	ProjectList,
+	ProjectShareStatus,
+	SHARE_DURATION_HOURS,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -209,3 +213,73 @@ test.skipIf(skip)("nobody but the owner reaches the share routes", async () => {
 		ProjectShareStatus.parse((await asA("GET", shareUrl())).json()).share,
 	).not.toBe(null);
 });
+
+function setProjectState(state: "active" | "archived") {
+	return app.inject({
+		method: "PATCH",
+		url: `/workspaces/${world.a.workspaceId}/projects/${world.a.projectId}`,
+		headers: csrfHeaders(world.a.jar, PUBLIC_URL),
+		payload: { state },
+	});
+}
+
+test.skipIf(skip)(
+	"archiving ends the share, and unarchiving never brings it back",
+	async () => {
+		await asA("POST", shareUrl());
+		expect((await setProjectState("archived")).statusCode).toBe(200);
+		expect((await setProjectState("active")).statusCode).toBe(200);
+
+		expect(ProjectShareStatus.parse((await asA("GET", shareUrl())).json()).share).toBe(
+			null,
+		);
+		const open = await testDb.db
+			.selectFrom("project_shares")
+			.select("id")
+			.where("ended_at", "is", null)
+			.execute();
+		expect(open).toEqual([]);
+		const stopped = await testDb.db
+			.selectFrom("audit_events")
+			.select(["metadata"])
+			.where("action", "=", "project.share_stopped")
+			.execute();
+		expect(stopped).toHaveLength(1);
+		expect(stopped[0]?.metadata).toMatchObject({ reason: "archived" });
+		const view = await app.inject({
+			url: `/courses/${world.courseId}/shares/${world.a.projectId}/tree`,
+			headers: { cookie: world.instructor.cookieHeader() },
+		});
+		expect(view.statusCode).toBe(404);
+	},
+);
+
+test.skipIf(skip)(
+	"the project list says until when each project is shared",
+	async () => {
+		const sharedUntilOfA = async () => {
+			const res = await app.inject({
+				url: `/workspaces/${world.a.workspaceId}/projects`,
+				headers: { cookie: world.a.jar.cookieHeader() },
+			});
+			const body = ProjectList.parse(res.json());
+			return body.projects.find((one) => one.id === world.a.projectId)?.sharedUntil;
+		};
+		expect(await sharedUntilOfA()).toBe(null);
+
+		const status = ProjectShareStatus.parse((await asA("POST", shareUrl())).json());
+		expect(await sharedUntilOfA()).toBe(status.share?.endsAt);
+
+		// An expired share is not shown, even before anything closes it.
+		await testDb.db.deleteFrom("project_shares").execute();
+		await testDb.db
+			.insertInto("project_shares")
+			.values({
+				project_id: world.a.projectId,
+				started_at: new Date(Date.now() - 25 * HOUR_MS).toISOString(),
+				ends_at: new Date(Date.now() - HOUR_MS).toISOString(),
+			})
+			.execute();
+		expect(await sharedUntilOfA()).toBe(null);
+	},
+);

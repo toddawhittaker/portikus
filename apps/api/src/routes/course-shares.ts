@@ -1,5 +1,6 @@
 import {
 	type CourseSharesResponse,
+	NO_LINKS_QUERY,
 	ProjectPath,
 	SharedChecksResponse,
 	SharedGitDiffResponse,
@@ -35,6 +36,12 @@ import { sharedProject } from "../workspaces/shared-scope.js";
 
 /** A secret path answers as a missing file, so the name gives nothing away. */
 const HIDDEN_MESSAGE = "no such file or directory";
+
+/**
+ * Every tree, file and Git read asks the agent to refuse symlinks, so a link
+ * with an innocent name cannot show a secret's contents (SPEC.md §5.2).
+ */
+const NO_LINKS = { [NO_LINKS_QUERY]: "1" };
 
 /**
  * An instructor's read-only view of projects their students shared
@@ -108,7 +115,7 @@ export function registerCourseShareRoutes(
 					reply,
 					request.log,
 					scope.agent,
-					agentUrl(scope.slug, "tree", query),
+					agentUrl(scope.slug, "tree", { ...query, ...NO_LINKS }),
 					SharedTreeResponse,
 					AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				);
@@ -144,7 +151,11 @@ export function registerCourseShareRoutes(
 					response = await scope.agent.fetchRaw(
 						"GET",
 						// An inline file streams like a download, as the owner's viewer does.
-						agentUrl(scope.slug, "file", inline ? { path, download: "1" } : { path }),
+						agentUrl(
+							scope.slug,
+							"file",
+							inline ? { path, download: "1", ...NO_LINKS } : { path, ...NO_LINKS },
+						),
 						{ signal: deadline.signal },
 					);
 				} catch (error) {
@@ -174,7 +185,7 @@ export function registerCourseShareRoutes(
 					reply,
 					request.log,
 					scope.agent,
-					agentUrl(scope.slug, "git/status", { hidden: "false" }),
+					agentUrl(scope.slug, "git/status", { hidden: "false", ...NO_LINKS }),
 					SharedGitStatusResponse,
 					AbortSignal.timeout(GIT_STATUS_BUDGET_MS),
 				);
@@ -204,7 +215,7 @@ export function registerCourseShareRoutes(
 					reply,
 					request.log,
 					scope.agent,
-					agentUrl(scope.slug, "git/diff", { path: path.data }),
+					agentUrl(scope.slug, "git/diff", { path: path.data, ...NO_LINKS }),
 					SharedGitDiffResponse,
 					AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 				);

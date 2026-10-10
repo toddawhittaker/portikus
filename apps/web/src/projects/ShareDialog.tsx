@@ -25,7 +25,7 @@ export function ShareDialog({
 	project: Project;
 	onClose: () => void;
 }) {
-	const status = useProjectShare(workspaceId, project.id, { poll: true });
+	const status = useProjectShare(workspaceId, project.id);
 	const change = useChangeProjectShare(workspaceId, project.id);
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {

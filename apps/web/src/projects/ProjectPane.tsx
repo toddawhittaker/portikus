@@ -21,7 +21,6 @@ import { DuplicateDialog } from "./DuplicateDialog.js";
 import {
 	projectDownloadUrl,
 	useGitInitProject,
-	useProjectShare,
 	useProjects,
 	useProjectTemplates,
 	useUnarchiveProject,
@@ -30,17 +29,10 @@ import { RenameDialog } from "./RenameDialog.js";
 import { isOpenShare, ShareDialog } from "./ShareDialog.js";
 
 /** The "Shared" tag on a row while the project's share is open. */
-function ShareBadge({
-	workspaceId,
-	projectId,
-}: {
-	workspaceId: string;
-	projectId: string;
-}) {
-	const share = useProjectShare(workspaceId, projectId);
-	if (!isOpenShare(share.data?.share?.endsAt, Date.now())) return null;
+function ShareBadge({ project }: { project: Project }) {
+	if (!isOpenShare(project.sharedUntil ?? undefined, Date.now())) return null;
 	return (
-		<span className="pk-tag" data-testid={`project-shared-${projectId}`}>
+		<span className="pk-tag" data-testid={`project-shared-${project.id}`}>
 			Shared
 		</span>
 	);
@@ -166,9 +158,7 @@ export function ProjectPane({
 									{project.isGitRepo === false && !project.missing ? (
 										<span className="pk-tag">not a repo</span>
 									) : null}
-									{project.missing ? null : (
-										<ShareBadge workspaceId={workspaceId} projectId={project.id} />
-									)}
+									{project.missing ? null : <ShareBadge project={project} />}
 								</Link>
 								<MenuRoot>
 									<MenuTrigger asChild>

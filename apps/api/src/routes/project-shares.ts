@@ -10,20 +10,7 @@ import {
 	ownedScope,
 	type ProjectRow,
 } from "../workspaces/project-scope.js";
-
-/**
- * Close a share past its end time. The one-open-share index still counts it
- * until `ended_at` is set (migration 0042).
- */
-async function closeExpired(db: Kysely<Database>, projectId: string): Promise<void> {
-	await db
-		.updateTable("project_shares")
-		.set({ ended_at: sql<string>`ends_at` })
-		.where("project_id", "=", projectId)
-		.where("ended_at", "is", null)
-		.where("ends_at", "<=", sql<Date>`now()`)
-		.execute();
-}
+import { closeExpired, stopShare } from "../workspaces/project-share.js";
 
 /** The open, unexpired share of a project and who has looked, earliest first. */
 async function shareStatus(
@@ -146,25 +133,13 @@ export function registerProjectShareRoutes(
 		const user = requireUser(request);
 		const project = await ownProject(request, reply);
 		if (!project) return;
-		await db.transaction().execute(async (trx) => {
-			// A share that already ran out ended on its own; only a live one is stopped.
-			await closeExpired(trx, project.id);
-			const stopped = await trx
-				.updateTable("project_shares")
-				.set({ ended_at: sql<string>`now()` })
-				.where("project_id", "=", project.id)
-				.where("ended_at", "is", null)
-				.returning("id")
-				.executeTakeFirst();
-			if (!stopped) return;
-			await recordAudit(trx, {
+		await db.transaction().execute((trx) =>
+			stopShare(trx, {
+				projectId: project.id,
 				actor: `user:${user.id}`,
-				target: project.id,
-				action: "project.share_stopped",
-				result: "ok",
-				metadata: { shareId: stopped.id },
-			});
-		});
+				reason: "stopped",
+			}),
+		);
 		return shareStatus(db, project.id);
 	});
 }

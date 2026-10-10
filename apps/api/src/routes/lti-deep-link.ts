@@ -132,7 +132,11 @@ export function registerLtiDeepLinkRoutes(
 		});
 
 		await recordAudit(db, {
-			actor: "unknown",
+			// The picker has no session, so the actor is the LTI identity, written
+			// as users.oidc_issuer and oidc_subject would hold it (SPEC.md §24.11).
+			actor: taken.subject
+				? `lti:${taken.platform_issuer}|${taken.subject}`
+				: "unknown",
 			target: "unknown",
 			action: "lti.deep_link",
 			result: "ok",

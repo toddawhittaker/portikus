@@ -44,6 +44,7 @@ import {
 	sendAgentError,
 	toProject,
 } from "../workspaces/project-scope.js";
+import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
 import { registerProjectStarterRoute } from "./project-starter.js";
@@ -317,16 +318,22 @@ export function registerProjectRoutes(
 			"project listing",
 		);
 
+		// The pane's "Shared" tag reads this, not one share request per row.
+		const shares = await sharedUntil(
+			db,
+			rows.map((row) => row.id),
+		);
 		const body: ProjectList = {
-			projects: rows.map((row) =>
-				directories
+			projects: rows.map((row) => ({
+				...(directories
 					? toProject(
 							row,
 							directories.get(row.slug)?.isGitRepo ?? false,
 							!directories.has(row.slug),
 						)
-					: toProject(row, null, null),
-			),
+					: toProject(row, null, null)),
+				sharedUntil: shares.get(row.id) ?? null,
+			})),
 		};
 		return body;
 	});
@@ -515,20 +522,34 @@ export function registerProjectRoutes(
 						user.id,
 					);
 				}
-				current = await db
-					.updateTable("projects")
-					.set({
-						state: body.data.state,
-						archived_at: archiving ? new Date().toISOString() : null,
-					})
-					.where("id", "=", current.id)
-					.returningAll()
-					.executeTakeFirstOrThrow();
-				await recordAudit(db, {
-					actor: `user:${user.id}`,
-					target: current.id,
-					action: archiving ? "project.archived" : "project.unarchived",
-					result: "ok",
+				const state = body.data.state;
+				const projectId = current.id;
+				current = await db.transaction().execute(async (trx) => {
+					const updated = await trx
+						.updateTable("projects")
+						.set({
+							state,
+							archived_at: archiving ? new Date().toISOString() : null,
+						})
+						.where("id", "=", projectId)
+						.returningAll()
+						.executeTakeFirstOrThrow();
+					await recordAudit(trx, {
+						actor: `user:${user.id}`,
+						target: projectId,
+						action: archiving ? "project.archived" : "project.unarchived",
+						result: "ok",
+					});
+					// Archiving ends the share for good; unarchiving never reopens it
+					// (SPEC.md §5.2, ADR 0057).
+					if (archiving) {
+						await stopShare(trx, {
+							projectId,
+							actor: `user:${user.id}`,
+							reason: "archived",
+						});
+					}
+					return updated;
 				});
 			}
 

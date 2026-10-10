@@ -38,6 +38,11 @@ export interface DiffViewerProps {
 	onChange?: (value: string) => void;
 	/** The test id of the host element; the conflict view sets its own. */
 	testId?: string;
+	/**
+	 * What a screen reader calls the working-copy side. An instructor's view
+	 * of a student's project says whose version it is.
+	 */
+	modifiedLabel?: string;
 }
 
 export function DiffViewer({
@@ -48,6 +53,7 @@ export function DiffViewer({
 	editable = false,
 	onChange,
 	testId,
+	modifiedLabel = "your changes",
 }: DiffViewerProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -71,6 +77,8 @@ export function DiffViewer({
 	const screenReaderMode = useScreenReaderMode();
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;
+	const modifiedLabelRef = useRef(modifiedLabel);
+	modifiedLabelRef.current = modifiedLabel;
 
 	useEffect(() => {
 		let disposed = false;
@@ -101,7 +109,7 @@ export function DiffViewer({
 				renderOverviewRuler: false,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
-			nameSides(editor, path);
+			nameSides(editor, path, modifiedLabelRef.current);
 			editor.setModel(models);
 			if (editableRef.current) {
 				models.modified.onDidChangeContent(() => {
@@ -147,8 +155,8 @@ export function DiffViewer({
 		editor.updateOptions({
 			accessibilitySupport: accessibilitySupport(screenReaderMode),
 		});
-		nameSides(editor, path);
-	}, [screenReaderMode, path]);
+		nameSides(editor, path, modifiedLabel);
+	}, [screenReaderMode, path, modifiedLabel]);
 
 	// The theme follows the page's choice; one watcher serves every editor.
 	useEffect(() => {
@@ -170,11 +178,15 @@ export function DiffViewer({
  * every diff option update, its own first one included, that does not carry
  * `originalAriaLabel` and `modifiedAriaLabel`.
  */
-function nameSides(editor: Monaco.editor.IStandaloneDiffEditor, path: string): void {
+function nameSides(
+	editor: Monaco.editor.IStandaloneDiffEditor,
+	path: string,
+	modifiedLabel: string,
+): void {
 	editor
 		.getOriginalEditor()
 		.updateOptions({ ariaLabel: editorAriaLabel("Diff, earlier version", path) });
 	editor
 		.getModifiedEditor()
-		.updateOptions({ ariaLabel: editorAriaLabel("Diff, your changes", path) });
+		.updateOptions({ ariaLabel: editorAriaLabel(`Diff, ${modifiedLabel}`, path) });
 }

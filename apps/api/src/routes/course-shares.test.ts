@@ -215,6 +215,23 @@ describe.skipIf(skip)("shared reads", () => {
 		}
 	});
 
+	// The agent refuses and leaves out symlinks only when asked (SPEC.md §5.2).
+	test("every tree, file and Git read asks the agent to refuse symlinks", async () => {
+		await share(world.a.projectId);
+		await seedFile(world.a, "notes.txt", "hello");
+		const start = agent.requests.length;
+		for (const route of READS) await asInstructor(sharedUrl(route));
+		const urls = agent.requests
+			.slice(start)
+			.map((one) => one.url)
+			.filter((url) => !url.startsWith("/listening/events"));
+		const reads = urls.filter((url) => !url.includes("/checks"));
+		expect(reads).toHaveLength(4);
+		for (const url of reads) {
+			expect(new URL(url, "http://agent").searchParams.get("nolinks")).toBe("1");
+		}
+	});
+
 	test("never a download, and an inline file must be an image or PDF", async () => {
 		await share(world.a.projectId);
 		await seedFile(world.a, "notes.txt", "hello");

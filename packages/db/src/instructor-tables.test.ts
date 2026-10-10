@@ -283,6 +283,7 @@ describe("instructor feature tables", () => {
 			const row = {
 				state_hash: "a".repeat(64),
 				platform_issuer: "https://lms.test.invalid",
+				subject: "instructor-1",
 				client_id: "client-1",
 				deployment_id: "deployment-1",
 				return_url: "https://lms.test.invalid/deep-link/return",
@@ -290,6 +291,10 @@ describe("instructor feature tables", () => {
 				expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
 			};
 			await t.db.insertInto("lti_deep_link_requests").values(row).execute();
+			// The instructor's subject is kept for the audit actor.
+			expect(
+				await t.db.selectFrom("lti_deep_link_requests").select("subject").execute(),
+			).toEqual([{ subject: "instructor-1" }]);
 			await expect(
 				t.db.insertInto("lti_deep_link_requests").values(row).execute(),
 			).rejects.toThrow(/lti_deep_link_requests_pkey/);

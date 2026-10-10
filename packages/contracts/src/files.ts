@@ -50,6 +50,14 @@ export const TreeEntry = z.object({
 export type TreeEntry = z.infer<typeof TreeEntry>;
 
 /**
+ * The query flag, set to "1", that makes the agent's tree, file, Git status
+ * and Git diff routes refuse and leave out every symlink. A shared read sets
+ * it, so a link cannot show a secret under an innocent name (SPEC.md §5.2,
+ * ADR 0057).
+ */
+export const NO_LINKS_QUERY = "nolinks";
+
+/**
  * Where the next page of a listing starts: the last entry sent, as "d/<name>"
  * for a directory or "f/<name>" for anything else. A name, not an offset,
  * so a file created or removed between pages does not shift the rest.

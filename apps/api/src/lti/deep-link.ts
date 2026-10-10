@@ -34,6 +34,7 @@ export async function saveDeepLinkRequest(
 		.values({
 			state_hash: hashHandle(handle),
 			platform_issuer: launch.platform.issuer,
+			subject: launch.subject,
 			client_id: launch.platform.clientId,
 			deployment_id: launch.deploymentId,
 			return_url: launch.deepLinkReturnUrl,

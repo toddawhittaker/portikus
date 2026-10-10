@@ -177,6 +177,65 @@ test("a symlinked directory in the middle of the path is refused", async () => {
 	expect(response.json().error.code).toBe("PATH_INVALID");
 });
 
+// --- SPEC.md §5.2: a shared read never follows or lists a symlink --------
+
+/** A link with an innocent name to `.env`, and a directory link into `.git`. */
+async function plantSecretLinks(): Promise<void> {
+	await writeFileFs(join(project, ".env"), "SECRET=hunter2\n");
+	await mkdir(join(project, ".git"));
+	await writeFileFs(join(project, ".git", "config"), "[remote] token\n");
+	await writeFileFs(join(project, "readme.md"), "hello\n");
+	await symlink(".env", join(project, "notes.txt"));
+	await symlink(".git", join(project, "docs"));
+}
+
+test("a shared read refuses a symlink to .env as a missing file", async () => {
+	await plantSecretLinks();
+	for (const query of ["&nolinks=1", "&nolinks=1&download=1"]) {
+		const response = await readFile("notes.txt", query);
+		expect(response.statusCode).toBe(404);
+		expect(response.json().error.code).toBe("FILE_NOT_FOUND");
+		expect(response.body).not.toContain("hunter2");
+	}
+	expect((await readFile("readme.md", "&nolinks=1")).body).toBe("hello\n");
+});
+
+test("a shared read refuses a path through a symlinked directory into .git", async () => {
+	await plantSecretLinks();
+	const file = await readFile("docs/config", "&nolinks=1");
+	expect(file.statusCode).toBe(404);
+	expect(file.body).not.toContain("token");
+	const listing = await app.inject({
+		method: "GET",
+		url: "/projects/alpha/tree?path=docs&nolinks=1",
+		headers: auth(),
+	});
+	expect(listing.statusCode).toBe(404);
+});
+
+test("a shared listing leaves symlinks out", async () => {
+	await plantSecretLinks();
+	const response = await app.inject({
+		method: "GET",
+		url: "/projects/alpha/tree?path=&nolinks=1",
+		headers: auth(),
+	});
+	const names = response.json().entries.map((entry: { name: string }) => entry.name);
+	expect(names).toContain("readme.md");
+	expect(names).not.toContain("notes.txt");
+	expect(names).not.toContain("docs");
+});
+
+test("the owner's reads still follow a symlink inside the project", async () => {
+	await plantSecretLinks();
+	expect((await readFile("notes.txt")).body).toBe("SECRET=hunter2\n");
+	expect((await readFile("docs/config")).body).toBe("[remote] token\n");
+	const names = (await tree(""))
+		.json()
+		.entries.map((entry: { name: string }) => entry.name);
+	expect(names).toEqual(expect.arrayContaining(["notes.txt", "docs"]));
+});
+
 test("a move whose target escapes, or already exists, is refused", async () => {
 	await writeFileFs(join(project, "a.txt"), "a");
 	await writeFileFs(join(project, "b.txt"), "b");

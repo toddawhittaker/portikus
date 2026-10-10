@@ -137,6 +137,7 @@ export function SharedDiffView({ share, path }: { share: ShareRef; path: string 
 							modified={data.after ?? ""}
 							version={String(diff.dataUpdatedAt)}
 							testId={`shared-diff-${path}`}
+							modifiedLabel="the student's version"
 						/>
 					</Suspense>
 				</>

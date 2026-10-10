@@ -488,6 +488,8 @@ interface LtiDeepLinkRequestsTable {
 	state_hash: string;
 	/** The plain platform issuer, without `lti:`. */
 	platform_issuer: string;
+	/** The instructor's LTI subject, for the audit actor (SPEC.md §24.11). */
+	subject: string | null;
 	client_id: string;
 	deployment_id: string;
 	return_url: string;
