@@ -340,6 +340,11 @@ export const ApiErrorCode = z.enum([
 	"SEED_LIST_EMPTY",
 	// Keep running until.
 	"KEEP_RUNNING_OFF",
+	// The Sign-in tab's provider trial (ADR 0059).
+	"SITE_UNAVAILABLE",
+	"SITE_NO_OPEN_TRIAL",
+	"SIGNIN_SECRET_REQUIRED",
+	"SIGNIN_TEST_REQUIRED",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

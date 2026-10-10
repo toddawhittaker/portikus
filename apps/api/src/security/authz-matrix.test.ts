@@ -123,6 +123,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/certificate/preflight": 404,
 	"GET /admin/certificate/root.crt": 404,
 	"HEAD /admin/certificate/root.crt": 404,
+	// Tests set no SITE_JOBS_DIR, so the Site address section is off.
+	"GET /admin/address": 404,
+	"HEAD /admin/address": 404,
+	"POST /admin/address/plan": 404,
+	"POST /admin/address/preflight": 404,
+	"POST /admin/address/apply": 404,
+	"POST /admin/address/keep": 404,
+	"POST /admin/address/rollback": 404,
 	// Tests set no ALERTS_JOBS_DIR, so the Notifications section is off.
 	"GET /admin/proxy-hosts": 404,
 	"HEAD /admin/proxy-hosts": 404,
@@ -147,6 +155,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"HEAD /admin/docker/seed/jobs": 404,
 	"GET /admin/docker/usage": 404,
 	"HEAD /admin/docker/usage": 404,
+	// Tests set no SITE_JOBS_DIR, so the Sign-in tab's provider routes are off.
+	"GET /admin/signin": 404,
+	"HEAD /admin/signin": 404,
+	"POST /admin/signin": 404,
+	"POST /admin/signin/keep": 404,
+	"POST /admin/signin/rollback": 404,
+	"GET /admin/signin/test": 404,
+	"HEAD /admin/signin/test": 404,
 };
 
 // The smallest PNG: one transparent pixel.

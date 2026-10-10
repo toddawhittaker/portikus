@@ -23,7 +23,7 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { allJobs, changeSummary, channelsLeaving, queuedView } from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError, sendNoStoreError } from "../http.js";
+import { parseFieldsOr400, sendError, sendNoStoreError } from "../http.js";
 import {
 	currentJob,
 	removeStaleRequests,
@@ -102,17 +102,12 @@ export function registerAdminAlertRoutes(
 	app.put("/admin/notifications", adminOnly, async (request, reply) => {
 		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const admin = requireUser(request);
-		const body = NotificationSettingsUpdate.safeParse(request.body ?? {});
-		if (!body.success) {
-			// Zod's issues can quote the input; only the field paths are named.
-			const fields = [...new Set(body.error.issues.map((i) => i.path.join(".")))];
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				`Check these fields: ${fields.join(", ") || "settings"}.`,
-			);
-		}
+		const update = parseFieldsOr400(
+			NotificationSettingsUpdate,
+			request.body ?? {},
+			reply,
+		);
+		if (!update) return reply;
 		if (writing) return sendError(reply, 409, "NOTIFY_JOB_BUSY", BUSY_MESSAGE);
 		writing = true;
 		try {
@@ -131,7 +126,7 @@ export function registerAdminAlertRoutes(
 			});
 			const id = randomUUID();
 			const requestedAt = new Date().toISOString();
-			const summary = changeSummary(notificationSettingsView(current), body.data);
+			const summary = changeSummary(notificationSettingsView(current), update);
 			const audit = {
 				actor: `user:${admin.id}`,
 				target: id,
@@ -172,7 +167,7 @@ export function registerAdminAlertRoutes(
 				id,
 				requestedAt,
 				requestedBy: admin.id,
-				settings: body.data,
+				settings: update,
 			};
 			try {
 				await sweepTempRequests(jobsDir);
