@@ -57,6 +57,9 @@ GRANT SELECT, INSERT, DELETE ON docker_image_presence TO "portikus-worker";
 GRANT SELECT, INSERT, UPDATE, DELETE ON docker_seed TO "portikus-worker";
 GRANT SELECT, INSERT, UPDATE, DELETE ON docker_image_pulls TO "portikus-worker";
 
+-- Coding-agent usage counts (ADR 0057): upserted every 5 minutes, pruned daily.
+GRANT SELECT, INSERT, UPDATE, DELETE ON agent_usage_days TO "portikus-worker";
+
 GRANT USAGE ON SEQUENCE audit_events_id_seq, health_samples_id_seq,
 	workspace_usage_samples_id_seq TO "portikus-worker";
 

@@ -9,6 +9,12 @@ import {
 	silentLogger,
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import {
+	AgentUsage,
+	buildAgentUsageReceiver,
+	startAgentUsageReceiver,
+} from "./agent-usage.js";
+import { agentUsageRoute } from "./agent-usage-route.js";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
@@ -80,6 +86,13 @@ export interface ServerOptions {
 	checkMaxProcesses?: number;
 	/** Overrides how `docker` runs for the inventory route. For tests. */
 	dockerRunner?: DockerRunner;
+	/**
+	 * Loopback port for the coding agents' usage metrics (ADR 0057). Unset in
+	 * tests that do not exercise it; production passes AGENT_USAGE_PORT.
+	 */
+	agentUsagePort?: number;
+	/** Overrides the usage counters, so a test can feed them. For tests. */
+	agentUsage?: AgentUsage;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -204,6 +217,20 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		forwards.closeEverything();
 	});
 
+	// The receiver is its own loopback server: the coding agents cannot send
+	// this listener's token (ADR 0057).
+	const agentUsage = options.agentUsage ?? new AgentUsage();
+	const agentUsagePort = options.agentUsagePort;
+	if (agentUsagePort !== undefined) {
+		const receiver = buildAgentUsageReceiver(agentUsage);
+		app.addHook("onReady", async () => {
+			await startAgentUsageReceiver(receiver, agentUsagePort, app.log);
+		});
+		app.addHook("preClose", async () => {
+			await receiver.close();
+		});
+	}
+
 	// A terminal input frame is small; refuse anything far past that before it
 	// is buffered (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
@@ -276,6 +303,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			procRoot: options.usage?.procRoot,
 			protectedPids: () => protectedPids(true),
 		});
+		instance.register(agentUsageRoute, { usage: agentUsage });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,

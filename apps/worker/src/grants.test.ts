@@ -14,6 +14,7 @@ import {
 import { collectingLogger } from "@portikus/observability/testing";
 import { type Kysely, sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { pruneAgentUsage, storeAgentUsage } from "./agent-usage.js";
 import { createAlertSources } from "./alert-sources.js";
 import { createAlertForwarder } from "./alerts.js";
 import { backupVmTick, pullRequest } from "./backups.js";
@@ -295,6 +296,28 @@ describe.skipIf(skip)("the worker's role", () => {
 		await serveProcessSnapshots(worker, controller, logger);
 		await backupVmTick({ db: worker, controller, logger });
 		await pullRequest(worker, new Date());
+		// The usage upsert writes the same row twice, so its update path runs too.
+		const usage = {
+			bootId: crypto.randomUUID(),
+			rows: [
+				{
+					day: "2026-10-10",
+					agent: "claude" as const,
+					model: "claude-sonnet-5",
+					sessions: 1,
+					inputTokens: 1,
+					outputTokens: 1,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					costUsd: 0.01,
+					linesAdded: 0,
+					linesRemoved: 0,
+				},
+			],
+		};
+		await storeAgentUsage(worker, student, usage, new Date());
+		await storeAgentUsage(worker, student, usage, new Date());
+		await pruneAgentUsage(worker, new Date());
 		await createAlertSources({ db: worker, logger })();
 		await createAlertForwarder({
 			db: worker,

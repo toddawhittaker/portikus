@@ -3,6 +3,7 @@ import { createDb, type Database } from "@portikus/db";
 import { createLogger, errorMessage, readAlertChannels } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
+import { startAgentUsage } from "./agent-usage.js";
 import { startAlertSources } from "./alert-sources.js";
 import { startAlertForwarding } from "./alerts.js";
 import { startBackupVmLoop } from "./backups.js";
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
 	// Shared Docker pull storage.
 	startSeedJobs({ db, controller, logger });
 	startDockerUsage({ db, logger, agentPort: config.AGENT_PORT });
+	startAgentUsage({ db, logger, agentPort: config.AGENT_PORT });
 	startRegistryEvents({ db, logger, port: config.REGISTRY_EVENTS_PORT }).catch(
 		(e: Error) =>
 			logger.error({ error: e.message }, "registry events listener failed to listen"),

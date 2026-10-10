@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { AGENT_USAGE_METRICS_PATH, AGENT_USAGE_PORT } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
 import type { IncusClient } from "./incus.js";
 
@@ -29,12 +30,26 @@ export const CODEX_SYSTEM_PATH = "/etc/codex/config.toml";
 /** The line the image already ships in the Codex system config. */
 const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
 
+/**
+ * Codex's metrics go to the workspace agent's loopback receiver as OTLP JSON
+ * (ADR 0057). Metrics carry counts and the model, never prompts; logs and
+ * traces stay off, and so does the default export to OpenAI's Statsig.
+ */
+const CODEX_OTEL_TABLE =
+	"[otel]\n" +
+	"log_user_prompt = false\n" +
+	'exporter = "none"\n' +
+	'trace_exporter = "none"\n' +
+	`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}${AGENT_USAGE_METRICS_PATH}", protocol = "json" } }\n`;
+
 /** The Codex system config holding the template. A JSON string is a valid TOML basic string. */
 export function codexSystemConfig(template: string): string {
 	return (
 		"# Written by Portikus at every workspace start; edits do not last.\n" +
 		`${CODEX_UPDATE_LINE}\n` +
-		`developer_instructions = ${JSON.stringify(template)}\n`
+		`developer_instructions = ${JSON.stringify(template)}\n` +
+		// A TOML table ends the top-level keys, so it comes last.
+		`\n${CODEX_OTEL_TABLE}`
 	);
 }
 

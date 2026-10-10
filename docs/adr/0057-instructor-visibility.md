@@ -38,6 +38,33 @@ administrators get 404 (SPEC.md 5.2).
    agent and model, capped at 50 models a day. The worker reads them every
    5 minutes into `agent_usage_days` (migration 0043), keyed by a boot id
    so a repeated read overwrites. No OpenTelemetry SDK. Kept 365 days.
+   - The receiver listens on `127.0.0.1:7401` in the container
+     (`AGENT_USAGE_PORT`), next to the agent's 7400 and clear of the OTLP
+     defaults 4317 and 4318 that a student's own tools may use. It takes
+     `POST /v1/metrics` as JSON only, at most 1 MiB, and logs nothing. It
+     runs in the agent process, so the Running pane hides it as a system
+     listener.
+   - Claude Code exports through managed settings: metrics only, `http/json`,
+     delta temporality, logs and traces off, session and account ids off,
+     no prompt or tool content flags. Kept: `claude_code.session.count`
+     (not the `agents_view` dashboard), `claude_code.token.usage` by
+     `type`, `claude_code.cost.usage` and `claude_code.lines_of_code.count`.
+     The session count names no model, so it is kept under the model
+     `(none)`.
+   - Codex exports through the `[otel]` table of its system config:
+     `metrics_exporter` to the receiver as JSON, the log and trace
+     exporters off, `log_user_prompt = false`. This also stops Codex's
+     default metrics export to OpenAI. Kept: `codex.thread.started` as
+     sessions, and the sums of the `codex.turn.token_usage` histogram by
+     `token_type`; Codex counts cache reads inside input, so they are
+     subtracted. These are metrics, carrying only counts and the model,
+     so no event is needed. Codex reports no cost and no lines changed.
+   - Only delta points count, and the day is the receiver's UTC day on
+     arrival, never the sender's timestamp. The agent keeps its last 40
+     days in memory, so a report stays under its row cap.
+   - Both settings files are rewritten by the controller at every start,
+     but a student can still override them in their own config or post
+     counts by hand.
 7. **Who sees usage.** Instructors see totals for their course members,
    including use outside that course; administrators see everyone, in an
    "Agent usage" admin tab. Sessions, tokens, lines changed, and Claude
