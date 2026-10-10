@@ -22,6 +22,9 @@ Usage:
                             image and any newer portikus package (the daily timer)
   image-job local-build     build the shipped recipe and make it the default
                             (make build-workspace-image on a development VM)
+  image-job agents-links    postinst: make the shared folder and its bin links,
+                            before the services restart, so a workspace that
+                            starts before setup seeds the tools still gets them
   image-job agents-seed     setup: install the pinned Claude Code and Codex into
                             the shared folder for any tool with no current version
   image-job manifest ...    print a schema 1 manifest for a built rootfs
@@ -1115,7 +1118,20 @@ class Runner:
         except coding_agents.AgentError as err:
             raise Refused(str(err), job.kind)
         self.write_agents_state()
-        return f"{coding_agents.NAMES[tool]} rolled back to {version}."
+        return f"{coding_agents.NAMES[tool]} switched back to {version}."
+
+    def run_agents_links(self):
+        """Postinst: the folder and bin links only, no download, so it is quick and works offline.
+
+        No job lock: both steps are idempotent and atomic, and no job moves the bin links.
+        """
+        try:
+            coding_agents.ensure_store(self.agents_dir)
+            coding_agents.ensure_bin_links(self.agents_dir)
+        except (coding_agents.AgentError, OSError) as err:
+            print(f"agents-links: {err}", file=sys.stderr)
+            return 1
+        return 0
 
     def run_agents_seed(self, lock_path=LOCK_FILE):
         """Setup: install the pinned version of each tool that has no current one.
@@ -1464,6 +1480,8 @@ def main(argv):
         return Runner().run_check()
     if argv[1:] == ["local-build"]:
         return Runner().run_local_build()
+    if argv[1:] == ["agents-links"]:
+        return Runner().run_agents_links()
     if argv[1:] == ["agents-seed"]:
         return Runner().run_agents_seed()
     if argv[1:] in ([], ["run"]):

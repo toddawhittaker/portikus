@@ -69,27 +69,48 @@ print(" ".join(seen))')
   mock_issuer=$(printf '%s' "$lti_platforms" | python3 -c '
 import json, sys
 print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("mock") and p["name"] == "mock-lms"), ""))')
+  # The issuer is quoted for the remote shell; the probe prints the HTTP status.
+  mock_keyset_url=$(printf %q "${mock_issuer}/.well-known/jwks.json")
+  mock_probe() { ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${mock_keyset_url}"; }
+  mock_status=""
+  [ -n "$mock_issuer" ] && mock_status=$(mock_probe)
+  mock_log=""
+  mock_ready=1
   if [ -z "$mock_issuer" ]; then
     echo "No mock LMS is registered: skipping the launch checks."
+    mock_ready=0
+  elif [ "$mock_status" != "200" ] && ! command -v pnpm >/dev/null 2>&1; then
+    bad "pnpm not found: run nvm use and corepack enable"
+    echo "Skipping the launch checks: the mock LMS is not running and cannot be started without pnpm."
+    mock_ready=0
   else
     printf '\033[1;33mWARN\033[0m  the mock LMS is registered (mock-lms at %s): it can launch as anyone while it runs. Remove it with make lti-mock-unregister.\n' "$mock_issuer"
     mock_pid=""
-    if [ "$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 '${mock_issuer}/.well-known/jwks.json'")" != "200" ]; then
+    if [ "$mock_status" != "200" ]; then
       # Not running: start it here for this run, on the address it was registered with.
       mock_host=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname)' "$mock_issuer")
       mock_port=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).port)' "$mock_issuer")
       echo "Starting the mock LMS on ${mock_host}:${mock_port} for this run..."
       repo_root="$(cd "${TESTS_DIR}/../.." && pwd)"
+      mock_log=$(mktemp)
       setsid pnpm --silent --dir "${repo_root}/packages/mock-lms" start -- --tool-url "$API" --port "$mock_port" \
-        --bind 127.0.0.1 --bind "$mock_host" --issuer "$mock_issuer" >/dev/null 2>&1 &
+        --bind 127.0.0.1 --bind "$mock_host" --issuer "$mock_issuer" >"$mock_log" 2>&1 &
       mock_pid=$!
       for _ in $(seq 1 60); do
-        [ "$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 2 '${mock_issuer}/.well-known/jwks.json'")" = "200" ] && break
+        if ! kill -0 "$mock_pid" 2>/dev/null; then
+          bad "the mock LMS exited before it answered: $(tail -n 5 "$mock_log" | tr '\n' ' ')"
+          mock_ready=0
+          break
+        fi
+        [ "$(mock_probe)" = "200" ] && break
         sleep 1
       done
+      [ "$mock_ready" = 0 ] && echo "Skipping the launch checks: the mock LMS did not start."
+      rm -f "$mock_log"
     fi
-    check_output "the VM reaches the mock LMS keyset" "200" \
-      ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 '${mock_issuer}/.well-known/jwks.json'"
+  fi
+  if [ "$mock_ready" = 1 ]; then
+    check_output "the VM reaches the mock LMS keyset" "200" mock_probe
 
     student=$(lti_py launch "$mock_issuer" "$API" sam cs101)
     check_output "a student launch passes /lti/login, the mock and /lti/launch" "302 200 303" \

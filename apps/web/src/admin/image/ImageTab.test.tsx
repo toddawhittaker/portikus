@@ -435,7 +435,7 @@ test("a coding agent rollback job names its tool", async () => {
 		kind: "agents-rollback",
 		state: "succeeded",
 		step: "Done",
-		message: "Codex rolled back to 0.45.0.",
+		message: "Codex switched back to 0.45.0.",
 		request: { kind: "agents-rollback", tool: "codex" },
 	});
 	stubFetch((url) =>

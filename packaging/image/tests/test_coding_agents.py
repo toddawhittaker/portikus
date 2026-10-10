@@ -632,7 +632,7 @@ class FolderTest(Base):
         self.install("claude", "2.1.300", current=True)
         self.install("codex", "0.163.0", current=True)
         status = self.go({"kind": "agents-rollback", "tool": "claude"})
-        self.assertEqual((status["state"], status["message"]), ("succeeded", "Claude Code rolled back to 2.1.287."))
+        self.assertEqual((status["state"], status["message"]), ("succeeded", "Claude Code switched back to 2.1.287."))
         self.assertEqual((self.link("claude", "current"), self.link("claude", "previous")), ("2.1.287", "2.1.300"))
         self.assertEqual(self.link("codex", "current"), "0.163.0")
         self.assertEqual(self.state_file()["claude"]["current"], "2.1.287")
@@ -757,6 +757,28 @@ class SeedTest(Base):
         ca.free_bytes = lambda path: 1024 ** 3
         self.assertEqual(self.seed()[0], 1)
         self.assertEqual(self.host.downloads(), [])
+
+
+class LinksTest(Base):
+    def test_links_make_the_folder_and_bin_links_without_downloading(self):
+        self.assertEqual(self.runner.run_agents_links(), 0)
+        self.assertEqual(os.readlink(self.store / "bin" / "claude"), "../claude/current/claude")
+        self.assertEqual(os.readlink(self.store / "bin" / "codex"), "../codex/current/bin/codex")
+        self.assertEqual(self.host.calls, [])
+        self.assertFalse((self.images / "coding-agents.json").exists())
+
+    def test_links_leave_installed_versions_alone(self):
+        self.install("claude", "2.1.300", current=True)
+        self.assertEqual(self.runner.run_agents_links(), 0)
+        self.assertEqual(self.runner.run_agents_links(), 0)
+        self.assertEqual(self.link("claude", "current"), "2.1.300")
+        self.assertEqual((self.store / "bin" / "claude").read_bytes(), b"claude 2.1.300")
+
+    def test_links_refuse_a_planted_link_in_place_of_the_folder(self):
+        self.store.symlink_to(self.images)
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(self.runner.run_agents_links(), 1)
+        self.assertEqual(list(self.images.iterdir()), [])
 
 
 if __name__ == "__main__":

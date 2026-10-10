@@ -333,6 +333,15 @@ enable_units() {
 	rm -f "$REINSTALL_MARK"
 }
 
+# Before the controller restarts below: it gives a starting workspace its
+# claude and codex links only when the shared folder's bin exists, and setup,
+# which downloads the tools, runs minutes later (SPEC.md section 10.1).
+# The links resolve once setup has seeded the folder.
+IMAGE_JOB=/usr/lib/portikus/image-job
+if [ -x "$IMAGE_JOB" ] && ! "$IMAGE_JOB" agents-links; then
+	echo "portikus: could not make the shared coding-agents folder; setup makes it" >&2
+fi
+
 # Nothing to drive when systemd is not running, as in a container or chroot.
 if [ -d /run/systemd/system ]; then
 	# Note which units were running before the reload, so an upgrade restarts them.

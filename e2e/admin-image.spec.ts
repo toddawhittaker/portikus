@@ -614,7 +614,7 @@ test("roll back sends only the chosen tool, and the page shows the swap", async 
 		"succeeded",
 		"Done",
 		null,
-		"Codex rolled back to 0.46.0.",
+		"Codex switched back to 0.46.0.",
 	);
 	const card = agentsCard(page);
 	await expect(card.getByTestId("image-agents-current-codex")).toHaveText("0.46.0", {

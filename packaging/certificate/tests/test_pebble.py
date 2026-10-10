@@ -43,21 +43,6 @@ ID2 = "1b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
 USER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 
 
-def free_ports(count, kind=socket.SOCK_STREAM):
-    """count different free ports. All are held open until all are chosen: ports chosen one at a
-    time can repeat, which once sent the challenge to Pebble's own API port."""
-    sockets = []
-    try:
-        for _ in range(count):
-            s = socket.socket(socket.AF_INET, kind)
-            sockets.append(s)
-            s.bind(("127.0.0.1", 0))
-        return [s.getsockname()[1] for s in sockets]
-    finally:
-        for s in sockets:
-            s.close()
-
-
 def wait_for_port(port, seconds=20):
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -98,8 +83,8 @@ class Pebble(unittest.TestCase):
                         "-days", "30", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
                        check=True, capture_output=True)
         names = ("acme", "management", "http", "tls", "challtest", "https", "ask", "challenge")
-        cls.ports = dict(zip(names, free_ports(len(names))))
-        cls.ports["dns"] = free_ports(1, socket.SOCK_DGRAM)[0]
+        cls.ports = dict(zip(names, cj.free_ports(len(names))))
+        cls.ports["dns"] = cj.free_ports(1, socket.SOCK_DGRAM)[0]
         Path(d, "pebble.json").write_text(json.dumps({"pebble": {
             "listenAddress": f"127.0.0.1:{cls.ports['acme']}",
             "managementListenAddress": f"127.0.0.1:{cls.ports['management']}",

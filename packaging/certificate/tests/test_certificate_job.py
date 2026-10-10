@@ -15,6 +15,7 @@ import shutil
 import stat
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from helpers import REPO, SITE, SUFFIX, WILDCARD, Certificates, FakeResolver, HostTree, cj
@@ -51,6 +52,39 @@ class Clock:
 
     def sleep(self, seconds):
         self.now += seconds
+
+
+class LowestFreePort:
+    """Stands in for socket.socket: bind to port 0 gets the lowest pool port no open socket holds,
+    so a port closed a moment ago comes straight back, as the kernel sometimes does."""
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.held = set()
+
+    def __call__(self, *args, **kwargs):
+        kernel = self
+
+        class Socket:
+            port = None
+
+            def bind(self, address):
+                self.port = min(set(kernel.pool) - kernel.held)
+                kernel.held.add(self.port)
+
+            def getsockname(self):
+                return ("127.0.0.1", self.port)
+
+            def close(self):
+                kernel.held.discard(self.port)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.close()
+
+        return Socket()
 
 
 class FakeRun:
@@ -1216,6 +1250,37 @@ class ThrowawayCaddy(JobTest):
                      f"https://{SITE}, https://{WILDCARD} {{", "import portikus_tls_site"):
             self.assertIn(line, config)
         self.assertNotIn(TOKEN, config)
+
+    def test_the_throwaway_ports_differ_when_the_kernel_hands_a_port_straight_back(self):
+        # Caddy refuses https on its own http_port ("scheme and port violate convention").
+        fake_caddy = Path(self.tree.root, "fake-caddy")
+        fake_caddy.write_text("#!/bin/sh\ncp \"$3\" \"$(dirname \"$3\")/../captured\"\nexit 1\n")
+        fake_caddy.chmod(0o755)
+        challenge = 40000
+        runner = cj.Runner(root=self.tree.root, run_=self.fake, caddy=str(fake_caddy), timeouts={"issue": 1},
+                           test_http_port=challenge)
+        jobs_fd = os.open(runner.jobs_dir, os.O_RDONLY | os.O_DIRECTORY)
+        job = cj.Job(jobs_fd, ID, os.getgid(), runner.host)
+        captured = {}
+        original_rmtree = shutil.rmtree
+
+        def keep(path, *args, **kwargs):
+            if os.path.basename(path).startswith(".throwaway-"):
+                captured["config"] = Path(path, "Caddyfile").read_text()
+            return original_rmtree(path, *args, **kwargs)
+        cj.shutil.rmtree = keep
+        try:
+            with mock.patch.object(cj.socket, "socket", LowestFreePort([challenge, 40001, 40002, 40003])), \
+                    self.assertRaises(cj.JobFailed):
+                runner.issue_with_throwaway_caddy(job, acme(mode="http01"), [SITE], runner.state_dir)
+        finally:
+            cj.shutil.rmtree = original_rmtree
+            job.close()
+            os.close(jobs_fd)
+        ports = [int(line.split()[-1]) for line in captured["config"].splitlines()
+                 if line.split()[:1] in (["http_port"], ["https_port"], ["alt_http_port"])]
+        self.assertEqual(len(ports), 3, captured["config"])
+        self.assertEqual(len(set(ports)), 3, captured["config"])
 
     def test_a_generation_is_readable_by_caddy_under_the_units_umask(self):
         # SPEC.md section 20.1: the throwaway and live Caddy run as caddy and read the generation.
