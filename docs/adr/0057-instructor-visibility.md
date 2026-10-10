@@ -1,6 +1,6 @@
 # 0057. Instructors see a project only when the student shares it, and see agent usage as counts
 
-- **Status**: Proposed (Epic 42)
+- **Status**: Accepted (Epic 42)
 - **Date**: 2026-10-10
 - **References**: SPEC.md sections 5.2, 10, 20.2, 24.1, 24.6, 24.11, 25.10
   and 26; STACK.md section 15; ADR 0012, ADR 0025
@@ -25,11 +25,19 @@ administrators get 404 (SPEC.md 5.2).
 3. **Secrets are filtered in the API** on tree, file, status and diff: any
    `.git` segment, `.env` and `.env.*` except `.env.example`, `*.pem`,
    `*.key`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `.pypirc` and
-   `.portikus/`.
+   `.portikus/`. Shared reads also refuse any path with a symlink in any
+   component (answered as missing), open files with `O_NOFOLLOW`, and
+   leave symlinks out of tree listings and Git status. Shared check
+   results carry each check's name and latest run, never its command,
+   which may hold a secret.
 4. **Audit and notice.** Share started, share stopped, and each
    instructor's first view per share are audited, not every read. The
    student sees a "Shared" badge, a notification on each first view, and a
-   viewer list (`project_share_views`). No email or Pushover.
+   viewer list (`project_share_views`). No email or Pushover. Before a
+   share starts, the dialog names its audience: each course the student
+   belongs to and that course's instructors. A later view by the same
+   instructor moves `last_viewed_at` at most once a minute. Archiving a
+   project ends its share (`project.share_stopped`, reason `archived`).
 5. **A stopped workspace stays stopped.** The view says so, never starts
    it, and never counts as presence. The viewer polls every 10 seconds.
 6. **Agent usage is counts only.** A receiver inside the workspace agent,
@@ -65,6 +73,16 @@ administrators get 404 (SPEC.md 5.2).
    - Both settings files are rewritten by the controller at every start,
      but a student can still override them in their own config or post
      counts by hand.
+   - Codex's `[otel]` table has no temporality key; its exporters default
+     to delta, which the rehearsal VM confirms on a real Codex turn. Codex
+     input is netted against cache reads when the agent reports, not per
+     point.
+   - The worker reads each workspace on its own, with a 5-second timeout,
+     so one bad report never stops the others. It keeps only rows whose
+     day is a real date within 40 days back and one day ahead, and at
+     most 48 boot ids per user per day; a 49th boot that day is dropped
+     with a warning that holds only counts. These bound what a forged
+     report can store.
 7. **Who sees usage.** Instructors see totals for their course members,
    including use outside that course; administrators see everyone, in an
    "Agent usage" admin tab. Sessions, tokens, lines changed, and Claude
@@ -77,8 +95,9 @@ administrators get 404 (SPEC.md 5.2).
   shared.
 - Usage counts come from the student's own agents and can be forged. They
   are for reporting, never enforcement.
-- Codex appears only if its pinned version reports tokens through an
-  allow-listable event with prompts off.
+- Codex is included: its token counts arrive as metrics carrying only
+  counts and the model. Its delta temporality is a documented default,
+  confirmed on the rehearsal VM.
 
 ## Rejected
 

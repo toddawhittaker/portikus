@@ -5031,3 +5031,89 @@ Gaps left:
 - Registering the mock LMS on an apt-installed VM is a hand step: the
   platforms file must sit where setup reads it and setup must run, so the
   egress proxy allows the mock's keyset (#1423).
+
+## Epic 42 — Instructor features
+
+Built on `epic/42-instructor` (plan #1425, task PRs #1427, #1428, #1430,
+#1434 to #1439, #1441, #1442, #1448 and #1449, review fixes #1450, #1452,
+#1453, #1454, #1456 and #1459, and this fold). Issues #1216, #1217, #1218 and #1219.
+Migrations 0041 to 0043. ADRs 0057 and 0058.
+
+Delivered:
+
+- Shared projects (#1219; #1435, #1439, #1448): a student shares one
+  project, read-only, with the instructors of their courses, for 24 hours
+  or until they stop it or archive the project. The share dialog names who
+  can see it, lists who looked, and the student gets a notice on each
+  instructor's first view. The project row carries a Shared tag. The
+  instructor opens it from a Shared project link on the Course page and
+  sees the file tree, text and image files, Git status, diffs and the
+  latest check results, refreshed every 10 seconds. Secret-looking paths,
+  symlinks and check commands are never shown. A stopped workspace stays
+  stopped. Administrators still get 404.
+- Agent usage (#1216; #1434, #1438, #1441, #1449): a loopback receiver in
+  the workspace agent (127.0.0.1:7401) takes Claude Code's and Codex's
+  OpenTelemetry metrics and keeps only allow-listed counts per day, agent
+  and model. The worker stores them every 5 minutes in `agent_usage_days`
+  and prunes after 365 days. Instructors see their course members on the
+  Course page; administrators see everyone in a new Agent usage tab. Help
+  and the student guide tell students.
+- Roster sync (#1217; #1437, #1449): through NRPS (the LTI Names and Role
+  Provisioning Service), from a Sync roster button and an hourly refresh
+  the Course page starts when it opens. Roster people who never launched
+  show as Not started; people who left lose their membership. Platforms
+  accept an optional `authTokenUrl`, and setup allows its host through the
+  egress proxy.
+- Deep Linking (#1218; #1427, #1436, #1442): an instructor picks a
+  template or a public https repository in a script-free picker; a
+  student's launch of that link creates the project once and never
+  overwrites it.
+- Mock LMS (#1428): token endpoint, paged NRPS memberships, roster
+  changes, Deep Linking and saved-link launches, for the e2e tests.
+- Review fixes. Code review: the Course page drives the hourly refresh so
+  its result shows; e2e specs no longer share mock roster state; signing
+  derives the key id inside `@portikus/auth`; the `lti.deep_link` audit
+  names the account; "Last tried" wording; the viewer rereads a file only
+  when it changes; Codex input netted at report time. Security review:
+  each workspace's usage read is isolated with a 5-second timeout; only
+  real days within 40 days back and one ahead are stored, and at most 48
+  boot ids per user per day (#1452, raised from 5 by #1459); shared checks carry no command; the share
+  dialog names the audience; a roster that would leave no instructor is
+  refused (`no_instructor`); shared reads refuse symlinks; archiving ends
+  a share. Accessibility review: the Course page actions fit at 320 px,
+  the viewer keeps focus and its place when the workspace stops, busy
+  buttons stay focusable, share start and stop are announced, the picker
+  ties its error to the field, and check badges no longer chatter. Then
+  #1459: boot cap raised to 48; shared files past the first listing page
+  refresh by polling.
+- Fold: SPEC sections 5.2, 7.2, 24.1, 24.6, 24.11, 25.10, 26, 29 and 31,
+  ADRs 0057 and 0058 accepted, ADMIN-GUIDE and OVERVIEW.
+
+Verification:
+
+- code-reviewer, security-reviewer (no high findings) and a11y-reviewer
+  ran on the epic head; every finding ruled for fixing was fixed in the
+  review-fix PRs above, and each reviewer confirmed.
+- Rehearsal: pending.
+
+Gaps left:
+
+- The live help session with terminals (#1219 step 2) is left out
+  (#1461).
+- Codex's delta temporality is its documented default, not yet seen on a
+  real Codex turn; the rehearsal checks it (#1462). A real Claude Code export needs
+  a signed-in session and is checked by hand.
+- Usage counts come from the student's own workspace and can be forged;
+  they are for reporting only.
+- The secret filter is a deny list: a secret under another name is
+  visible while shared.
+- A roster sync runs only when an instructor opens the Course page or
+  presses Sync. A memberships host that is not a keyset or token host must
+  be added to `portikus_egress_extra_hosts` by the operator.
+- Deferred from code review: a view is recorded before the path check;
+  the taught-course lookup could move into `courses/membership.ts`; the
+  mock LMS roster role action is unused; a starter whose folder exists
+  without a project row shows a generic error, and its e2e test accepts
+  either outcome because discovery races the launch. These, and a
+  `radiogroup` for the picker fieldset, are #1462.
+- NRPS and Deep Linking are not in the smoke test (#1463).

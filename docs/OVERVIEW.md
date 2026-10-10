@@ -29,7 +29,11 @@ for `apt install portikus` (SPEC.md sections 21.12, 21.13 and 22.4). Epic 24 add
 administrator control of workspace internet access (an allow-list, or
 blocked sites in open mode), backups and single-workspace restores from
 the admin page, per-workspace limits, and HTTPS previews (SPEC.md
-sections 23.6 and 24.9, ADRs 0038 to 0043).
+sections 23.6 and 24.9, ADRs 0038 to 0043). Epic 42 added instructor
+features: a student can share one project read-only with their
+instructors, instructors and administrators see coding-agent usage as
+counts only, and the Course page syncs its roster from the LMS and offers
+starter projects through LTI Deep Linking (ADRs 0057 and 0058).
 
 ## Planned architecture
 

@@ -685,3 +685,92 @@ from the course, with their role, last launch and workspace state.
 **Remove** takes a student off the page. Their account, workspace and files
 stay, and they come back if they open Portikus from the course again. Only
 students can be removed; instructors are changed in your learning system.
+
+### Roster sync
+
+If the learning system's registration in the platforms file has an
+`authTokenUrl` (docs/OPERATIONS.md, "The platforms file"), the Course page
+can read the course roster from the learning system. **Sync roster** reads
+it at once, and opening the page reads it again when the last try is more
+than an hour old. The page shows when it last tried and how it went.
+
+- People on the roster who have never opened Portikus show as **Not
+  started**. They have no account or workspace yet.
+- People who left the course lose their place on the Course page,
+  instructors included. Their account, workspace and files stay.
+- A roster role changes only the course role. The account's role changes
+  at the person's next launch.
+- An empty roster, or one the learning system would not send, changes
+  nothing. A roster that would leave the course with no instructor who has
+  opened Portikus is refused and changes nothing.
+
+Without an `authTokenUrl`, the page says roster sync is unavailable.
+
+**For the operator.** Portikus reaches the learning system through its
+outgoing proxy. Setup allows each platform's keyset and token hosts. The
+roster address (the memberships URL) arrives in each launch, and on some
+systems it is on another host. If so, add that host to
+`portikus_egress_extra_hosts` (`PORTIKUS_EGRESS_EXTRA_HOSTS`, see
+docs/OPERATIONS.md, "Adding a host") and run setup again, or roster sync
+reports that it could not fetch the roster.
+
+### Starter projects from the learning system (Deep Linking)
+
+An instructor can add a Portikus link to a course that drops each student
+into a starter project. The learning system must have Portikus registered
+with its Deep Linking placement turned on (in Canvas, the Link Selection
+or Assignment Selection placement; in Moodle, "Supports Deep Linking" with
+the content selection URL `https://<site>/lti/launch`).
+
+1. In the learning system, add an external tool link and choose Portikus.
+   Portikus opens in a new tab with a picker. Only instructors may use it.
+2. Choose a project template, or type a public `https://` repository
+   address. Private repositories and `ssh` addresses are not offered.
+3. Name the project, then press **Return to your course**.
+
+A student who opens the link gets the project created in their workspace
+the first time. Later launches open the same project. If the student
+already has a project of that name, Portikus opens it and never overwrites
+it; if it is archived, the student is told so.
+
+### Agent usage
+
+Instructors see coding-agent use for the people in their courses on the
+Course page, and administrators see everyone in the **Agent usage** admin
+tab. Choose the last 7, 30 or 90 days. Each person's row shows sessions,
+input, output and cache tokens, lines added and removed, and, for Claude
+Code, an estimated API cost. That cost is what the same use would cost at
+API prices, not what a subscription pays. Codex shows no cost.
+
+These are counts only. Portikus never records prompts, answers, file
+names or code. The counts come from the student's own workspace, so a
+student can change them: use them to start a conversation, never to
+grade or enforce. They are kept for 365 days. Students are told about
+them in Help.
+
+A line you may want in your acceptable-use statement (on the Settings
+tab):
+
+> Portikus counts how much you use coding agents (sessions, tokens and
+> lines changed) and shows the totals to your instructors and
+> administrators. It never records your prompts or your code.
+
+### Shared projects
+
+A student can share one project with the instructors of their courses
+from the project's menu (**Share with my instructors…**). The share is
+read-only and ends after 24 hours, when the student stops it, or when the
+project is archived. While it is open, the Course page shows a **Shared
+project** link on that student's row.
+
+The shared view shows the project's files, Git status, changes and the
+latest check results, and refreshes every 10 seconds. It never shows
+terminals, previews, downloads or anything outside the project. Files that
+often hold secrets (such as `.env`, private keys and `.git`) and links to
+other places are hidden. If the workspace is stopped, the view says so and
+does not start it.
+
+The student sees who their share reaches before starting it, gets a
+notice the first time each instructor opens it, and can see the list of
+viewers. Starting, stopping and each instructor's first view are in the
+audit log. Administrators cannot open a shared project.
