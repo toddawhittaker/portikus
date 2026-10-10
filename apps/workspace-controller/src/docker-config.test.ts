@@ -76,7 +76,7 @@ class FakeFiles {
 		instance: string,
 		path: string,
 		body: string,
-		opts: { type?: "file" | "directory" },
+		opts: { type?: "file" | "directory" | "symlink" },
 	) {
 		expect(instance).toBe("ws-a");
 		const existing = this.files.get(path);

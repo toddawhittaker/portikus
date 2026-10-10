@@ -40,6 +40,7 @@ import {
 	writeClaudeManagedSettings,
 } from "./agent-instructions.js";
 import type { RunningAgent } from "./agent-restart.js";
+import { CODING_AGENTS_HOST_BIN, writeCodingAgentLinks } from "./coding-agent-links.js";
 import {
 	CACHE_OFF_HOST_PATH,
 	GHCR_CA_HOST_PATH,
@@ -247,6 +248,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly cacheOffPath: string;
 	private readonly agentInstructionsPath: string;
 	private readonly claudeManagedSettingsPath: string;
+	private readonly codingAgentsBinPath: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -270,7 +272,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		agentInstructionsPath?: string;
 		/** Claude Code's managed settings template on the host; tests point it elsewhere. */
 		claudeManagedSettingsPath?: string;
+		/** The shared coding-agent tools on the host; tests point it elsewhere. */
+		codingAgentsBinPath?: string;
 	}) {
+		this.codingAgentsBinPath = opts.codingAgentsBinPath ?? CODING_AGENTS_HOST_BIN;
 		this.agentInstructionsPath =
 			opts.agentInstructionsPath ?? AGENT_INSTRUCTIONS_HOST_PATH;
 		this.claudeManagedSettingsPath =
@@ -524,6 +529,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				"the coding-agent instructions template is missing; starting without them",
 			);
 		}
+
+		// Repointed at every start, so a workspace on an older image moves to the shared tools.
+		await this.optionalStep(
+			name,
+			signal,
+			"could not link the shared coding agents; starting with the image's own",
+			() => writeCodingAgentLinks(this.client, name, this.codingAgentsBinPath, signal),
+		);
 
 		// Rewritten at every start, so a deleted /etc/claude-code gets its settings back.
 		const settingsWritten = await this.optionalStep(
