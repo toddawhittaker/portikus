@@ -642,8 +642,8 @@ A change is a **trial**:
 
 1. Fill in the provider and choose **Apply as a trial**. Read the dialog:
    while a bad trial is open, students may not be able to sign in.
-2. Wait while setup applies it, then choose **Test sign-in**. A new window
-   takes you through the provider. A test never creates a user or a session.
+2. Wait while setup applies it, then choose **Test sign-in**. The same tab
+   takes you through the provider and brings you back. A test never creates a user or a session.
    It reports whether the sign-in worked and which role the person would get.
 3. When the test passes, choose **Keep**. For "Dex passwords only" there is
    nothing to test, so Keep is offered at once.
@@ -675,9 +675,10 @@ system".
 
 ## Allowed API hosts
 
-On **Network**, the group **Allowed API hosts** lets workspaces reach a host on
-the internet that the egress proxy would otherwise refuse, for example an AI
-provider's API. Type a **Host name** and add it. Use host names only: no IP
+On **Network**, the group **Allowed API hosts** lets the Portikus server itself
+reach a host on the internet that the egress proxy would otherwise refuse, for
+example an AI service or a sign-in provider. It does not open anything to
+workspaces: their rules are the group above it. Type a **Host name** and add it. Use host names only: no IP
 addresses, ports or web addresses. Each host is allowed on port 443 for HTTPS
 only. You can add up to 50. Hosts from the operator's own list show read-only,
 and each host you added has a remove button.
@@ -695,8 +696,7 @@ unreachable.
    renewed for the new name. Uploaded certificate files must already cover the
    new names, or the change is refused.
 2. **Checks.** The page tests that the new names resolve in DNS, that they
-   point at this server, and that port 80 answers. Fix DNS first when a check
-   fails.
+   point at this server. Fix DNS first when a check fails.
 3. **Trial.** Choose **Apply as a trial**. Setup moves the site. Open the new
    address in a new tab. If you do nothing, Portikus puts the old address back
    after 15 minutes.
@@ -705,8 +705,9 @@ unreachable.
 
 Running workspaces keep their old preview names until they next start. The
 page lists them, and nothing is restarted. If the new address stops working
-after you chose Keep, the way back is `sudo dpkg-reconfigure portikus`, or
-editing `portikus_public_port` in `/etc/portikus/portikus.yaml`; see
+after you chose Keep, the way back is `sudo dpkg-reconfigure portikus`. If the
+port changed, also edit `portikus_public_port` in
+`/etc/portikus/portikus.yaml` and run `sudo portikus setup`; see
 [OPERATIONS.md](OPERATIONS.md), "Changes made from the admin pages".
 
 ## Health, logs and audit

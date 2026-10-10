@@ -1066,7 +1066,9 @@ and address changes work only where `/etc/portikus/portikus.yaml` exists
 transient systemd timer that runs `site-job expire <id>` and puts the old
 answers back at the deadline: 30 minutes for sign-in, 15 for an address. Keep
 and roll back end a trial early. If setup fails during a trial, the job puts
-the old answers back and runs setup again. Only one trial can be open. See the
+the old answers back and runs setup again. A trial that is already overdue
+when the server boots is reverted inside the boot-time setup service, and
+`multi-user.target` waits for that setup to finish. Only one trial can be open. See the
 running timers with `systemctl list-timers`.
 
 **An address that is unreachable after Keep.** Keep ends the safety net. If the
