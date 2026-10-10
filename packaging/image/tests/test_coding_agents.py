@@ -308,6 +308,21 @@ class UpdateTest(Base):
         self.assertEqual(self.go({"kind": "agents-update"})["state"], "succeeded")
         self.assertEqual(len([c for c in self.host.ran("exec") if "systemctl" in c]), 4)
 
+    def test_a_container_that_never_boots_fails_within_one_deadline(self):
+        self.install("claude", "2.1.287", current=True)
+        self.install("codex", "0.162.1", current=True)
+        self.host.publish_claude("2.1.300")
+        self.host.publish_codex("0.163.0")
+        self.host.booting = 10 ** 6
+        now = [0.0]
+        self.runner.sleep = lambda s: now.__setitem__(0, now[0] + s + 10)
+        with mock.patch.object(ij.time, "monotonic", lambda: now[0]):
+            status = self.go({"kind": "agents-update"})
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("boot the container", status["message"])
+        self.assertLess(len([c for c in self.host.ran("exec") if "systemctl" in c]), 40)
+        self.assertEqual(self.host.instances, set())
+
     def test_a_tool_already_current_is_not_downloaded_again(self):
         self.install("claude", "2.1.300", current=True)
         self.install("codex", "0.163.0", current=True)
