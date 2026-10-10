@@ -2948,7 +2948,9 @@ describe("the Docker seed", () => {
 		serveIncus(state);
 		await own.start("ws-test", START);
 		const written = state.files.get("/etc/claude-code/managed-settings.json")?.content;
-		expect(JSON.parse(written ?? "")).toEqual({ env: { BROWSER: "" } });
+		expect(JSON.parse(written ?? "")).toEqual({
+			env: { BROWSER: "", DISABLE_AUTOUPDATER: "1" },
+		});
 
 		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
 		await expect(own.start("ws-test", START)).resolves.toBeDefined();

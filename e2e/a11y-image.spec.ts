@@ -70,6 +70,7 @@ const IMAGE = {
 	job: JOB,
 	// The notice at the top is checked with the rest of the page.
 	newerPublished: "2026.09.11",
+	codingAgents: null,
 	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
 
