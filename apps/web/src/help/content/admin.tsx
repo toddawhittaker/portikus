@@ -4,7 +4,7 @@ import type { HelpPart } from "./part.js";
 /**
  * Running the site, the administrator help. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
- * admin-logs, admin-audit, admin-network, admin-backups, admin-image,
+ * admin-logs, admin-audit, admin-agents, admin-network, admin-backups, admin-image,
  * admin-certificate, admin-docker, admin-settings, admin-notifications,
  * admin-shell.
  */
@@ -223,6 +223,27 @@ export const ADMIN_HELP: HelpPart = {
 					<code className="pk-mono-body">workspace.</code> in{" "}
 					<strong>Action starts with</strong> to see every workspace action.
 				</p>
+			),
+		},
+		{
+			id: "admin-agents",
+			title: "Agent usage",
+			body: (
+				<>
+					<p>
+						<strong>Agent usage</strong> shows, for each person and coding agent, the
+						sessions, the input, output and cache tokens, and the lines added and
+						removed over the last 7, 30 or 90 days. Daily totals for everyone follow
+						below. Usage counts never include prompts or code.
+					</p>
+					<p>
+						<strong>Estimated API cost</strong> is Claude Code's own figure at API
+						prices. It is not what a subscription pays, and Codex shows a dash. The
+						agents report from inside each student's workspace, so a student could
+						change the numbers: use them to see who is using the tools, not to enforce a
+						limit.
+					</p>
+				</>
 			),
 		},
 		{

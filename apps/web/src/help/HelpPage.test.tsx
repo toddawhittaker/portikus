@@ -123,6 +123,7 @@ test("every admin tab's intro has an anchor on the admin help to land on", () =>
 		"admin-health",
 		"admin-logs",
 		"admin-audit",
+		"admin-agents",
 		"admin-network",
 		"admin-backups",
 		"admin-image",
