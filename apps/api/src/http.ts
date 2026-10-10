@@ -47,6 +47,27 @@ export function parseOr400<T>(
 	return null;
 }
 
+/**
+ * parseOr400 for a body that may hold secrets: Zod's issues can quote the
+ * input, so the message names only the fields.
+ */
+export function parseFieldsOr400<T>(
+	schema: ZodType<T>,
+	value: unknown,
+	reply: FastifyReply,
+): T | null {
+	const parsed = schema.safeParse(value);
+	if (parsed.success) return parsed.data;
+	const fields = [...new Set(parsed.error.issues.map((i) => i.path.join(".")))];
+	sendError(
+		reply,
+		400,
+		"VALIDATION_FAILED",
+		`Check these fields: ${fields.join(", ") || "settings"}.`,
+	);
+	return null;
+}
+
 /** Escape text for an HTML body or a quoted attribute. */
 export function escapeHtml(value: string): string {
 	return value
