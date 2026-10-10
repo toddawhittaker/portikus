@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { errorMessage } from "@portikus/observability";
 import type { IncusClient } from "./incus.js";
 
-/** The shared coding-agent tools on the platform VM (SPEC.md §3). */
+/** The shared coding-agent tools on the platform VM (SPEC.md section 10). */
 export const CODING_AGENTS_HOST_BIN = "/var/lib/portikus/coding-agents/bin";
 
 /** Where the shared tools appear inside every workspace. */

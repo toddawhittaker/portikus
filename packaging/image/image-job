@@ -41,11 +41,14 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
 
 # Its sibling module, found the same way when tests or the workflow load this file by path.
+# No __pycache__ beside a packaged, root-run script.
+sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import coding_agents  # noqa: E402
 
@@ -80,7 +83,8 @@ DEB_VERSION_RE = re.compile(r"[0-9][A-Za-z0-9.+~:-]{0,99}", re.ASCII)
 
 NODE_CHOICES = ("24", "26")
 PYTHON_CHOICES = ("debian", "uv-3.14")
-TOOLS = ("node", "npm", "python3", "git", "docker", "claude", "codex")
+# Not claude or codex: they live in the shared coding-agents folder, which the build never mounts.
+TOOLS = ("node", "npm", "python3", "git", "docker")
 MAX_REQUEST_BYTES = 64 * 1024
 KEEP_JOBS = 20
 
@@ -487,8 +491,7 @@ def health_check(job, version, parameters, sleep=time.sleep):
         if code != 0:
             checks.append({"name": "start a container", "ok": False, "output": f"incus launch exited {code}"})
         else:
-            # Degraded is fine here; the checks below say what matters.
-            incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job, timeout=300)
+            wait_for_boot(job, name, sleep)
             for check_name, argv, accept in health_checks(parameters):
                 attempts = 18 if argv[0] == "docker" else 1
                 for attempt in range(attempts):
@@ -518,14 +521,15 @@ AGENTS_MOUNT = "/opt/portikus/coding-agents"
 def agent_checks(tool, version):
     """Checks that run a candidate by its path in the workspace mount, never the image's own copy."""
     folder = f"{AGENTS_MOUNT}/{tool}/{version}"
+    entry = f"{folder}/{coding_agents.ENTRY[tool]}"
     if tool == "claude":
         return [
-            ("claude --version", [f"{folder}/claude", "--version"], lambda out: out.startswith(f"{version} ")),
+            ("claude --version", [entry, "--version"], lambda out: out.startswith(f"{version} ")),
             # The candidate's folder leads PATH, so the login check runs it.
-            ("claude login flow", ["env", f"PATH={folder}:/usr/local/bin:/usr/bin:/bin", "sh", "-c",
-                                   CLAUDE_LOGIN_CHECK], lambda out: out == "paste-code"),
+            ("claude login flow", ["env", f"PATH={os.path.dirname(entry)}:/usr/local/bin:/usr/bin:/bin", "sh",
+                                   "-c", CLAUDE_LOGIN_CHECK], lambda out: out == "paste-code"),
         ]
-    return [("codex --version", [f"{folder}/bin/codex", "--version"], lambda out: out == f"codex-cli {version}")]
+    return [("codex --version", [entry, "--version"], lambda out: out == f"codex-cli {version}")]
 
 
 def wait_for_boot(job, name, sleep, tries=60):
@@ -999,9 +1003,9 @@ class Runner:
         return folder
 
     def agent_candidate(self, job, work, tool):
-        """(offered version, installed): installed is None when that version is current already,
-        "older" when it sorts below current, False when a kept folder has it, and True when
-        this job verified and placed it."""
+        """(offered version, outcome): "current" when that version is current already, "older" when
+        it sorts below current, "kept" when a kept folder has it, and "new" when this job verified
+        and placed it."""
         store = self.agents_dir
         if tool == "claude":
             version = coding_agents.claude_stable_version(self.fetch_text(
@@ -1011,20 +1015,20 @@ class Runner:
                 job, coding_agents.CODEX_LATEST, work, "codex-release", coding_agents.LISTING_MAX_BYTES))
         current = coding_agents.read_link(store, tool, "current")
         if version == current:
-            return version, None
+            return version, "current"
         # The stable pointer is unsigned, so an older signed release must never count as an update.
         if current and coding_agents.version_key(version) < coding_agents.version_key(current):
             return version, "older"
         target = os.path.join(coding_agents.tool_dir(store, tool), version)
         if os.path.isdir(target):
-            return version, False
+            return version, "kept"
         if tool == "claude":
             folder = self.stage_claude(job, work, version, self.verified_claude_sha(job, work, version))
         else:
             folder = self.stage_codex(job, work, version, self.verified_codex_sha(job, work, version, digest))
         # In place but not linked, so the health check can run it from the workspace mount.
         os.rename(folder, target)
-        return version, True
+        return version, "new"
 
     def write_agents_state(self):
         os.makedirs(self.images_dir, 0o755, exist_ok=True)
@@ -1048,35 +1052,34 @@ class Runner:
                 name = coding_agents.NAMES[tool]
                 job.status("running", f"Downloading {name}")
                 try:
-                    version, installed = self.agent_candidate(job, work, tool)
-                except (coding_agents.AgentError, JobFailed) as err:
+                    version, outcome = self.agent_candidate(job, work, tool)
+                except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
                     job.line(f"{name}: {err}")
                     said[tool] = f"{name} was not switched. {err}"
                     failed.add(tool)
                     continue
-                if installed is None:
+                if outcome == "current":
                     said[tool] = f"{name} is already at {version}."
-                elif installed == "older":
+                elif outcome == "older":
                     current = coding_agents.read_link(store, tool, "current")
                     said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
                     job.line(f"{name}: the vendor offered {version}, older than {current}")
                 else:
-                    pending[tool] = (version, installed)
+                    pending[tool] = (version, outcome)
             if pending:
                 job.status("running", "Checking the coding agents")
                 results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
-                for tool, (version, installed) in pending.items():
+                for tool, (version, outcome) in pending.items():
                     name = coding_agents.NAMES[tool]
                     if results[tool]:
                         said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
                                       "and was not switched.")
                         failed.add(tool)
-                        if installed:
+                        if outcome == "new":
                             coding_agents.remove_version(store, tool, version)
                         continue
                     coding_agents.switch(store, tool, version)
                     said[tool] = f"{name} switched to {version}."
-                    self.write_agents_state()
             job.status("running", "Removing old versions")
             running = coding_agents.running_files(self.proc_dir)
             for tool in coding_agents.TOOLS:

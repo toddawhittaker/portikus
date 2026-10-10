@@ -13,6 +13,7 @@ on:
     paths:
       - infra/workspace-image/**
       - packaging/image/image-job
+      - packaging/image/coding_agents.py
       - .github/workflows/workspace-image.yml
   workflow_dispatch:
 
