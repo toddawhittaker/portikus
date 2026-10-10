@@ -1,4 +1,8 @@
-import { WorkspaceState } from "@portikus/contracts";
+import {
+	ADMIN_USERS_PAGE_SIZE,
+	type AdminUser,
+	WorkspaceState,
+} from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
@@ -9,14 +13,14 @@ import {
 	Toggletip,
 } from "@portikus/ui";
 import { useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
 import { SortHeader } from "../table/SortHeader.js";
-import { sortText } from "../table/sort.js";
+import { type SortState, sortText } from "../table/sort.js";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
-import { ROLE_FILTERS, sortAccounts } from "./markers.js";
-import { useAdminUsers } from "./queries.js";
+import { ROLE_FILTERS } from "./markers.js";
+import { useAdminUsers, useAdminUsersPage } from "./queries.js";
 import { accountMenuTestId } from "./users/AccountMenu.js";
 import { AccountRow, rowButtonId } from "./users/AccountRow.js";
 import {
@@ -25,20 +29,18 @@ import {
 	type BulkConfirm,
 	olderImageTargets,
 } from "./users/BulkActions.js";
-import {
-	type AccountFilters,
-	filterAccounts,
-	isFiltered,
-	NO_FILTERS,
-} from "./users/filters.js";
+import { type AccountFilters, isFiltered, NO_FILTERS } from "./users/filters.js";
 import { ImportAccounts } from "./users/ImportAccounts.js";
 import { InvitedRows, InviteUser } from "./users/Invitations.js";
 import {
 	ACCOUNT_COLUMN_LABEL,
+	type AccountColumn,
 	DEFAULT_ACCOUNT_SORT,
-	sortAccountRows,
 } from "./users/sort.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
+
+/** How long typing pauses before the search is sent to the server. */
+const SEARCH_DELAY_MS = 250;
 
 const SELECT_CLASS = `${CONTROL_CLASS} w-44 cursor-pointer`;
 
@@ -50,12 +52,27 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 
 /** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
-	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
 	const { sort, setSort, announcement } = useAnnouncedSort(
 		DEFAULT_ACCOUNT_SORT,
 		ACCOUNT_COLUMN_LABEL,
 	);
+	const [page, setPage] = useState(0);
+	const [pageAnnouncement, setPageAnnouncement] = useState("");
+	const [searchText, setSearchText] = useState(filters.text);
+	useEffect(() => {
+		const timer = setTimeout(() => setSearchText(filters.text), SEARCH_DELAY_MS);
+		return () => clearTimeout(timer);
+	}, [filters.text]);
+	const sent = { ...filters, text: searchText };
+	const users = useAdminUsersPage(sent, sort, {
+		offset: page * ADMIN_USERS_PAGE_SIZE,
+		limit: ADMIN_USERS_PAGE_SIZE,
+	});
+	// "Rebuild all on older images" acts on every match, not only this page.
+	const olderMatches = useAdminUsersPage(sent, sort, undefined, {
+		enabled: filters.image === "older",
+	});
 	// The Health tab's resource guard list links here with ?user= (ADR 0032).
 	const search = useSearch({ strict: false }) as { user?: string };
 	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
@@ -63,17 +80,48 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	// The targets are fixed when the dialog opens, so a refetch cannot change them.
 	const [confirming, setConfirming] = useState<BulkConfirm | null>(null);
 
-	const all = sortAccounts(users.data?.users ?? []);
-	const rows = sortAccountRows(filterAccounts(all, filters), sort);
-	const selected = all.find((user) => user.id === selectedId) ?? null;
-	const running = all.filter((user) => user.workspace?.state === "running").length;
+	const rows = users.data?.users ?? [];
+	const total = users.data?.total ?? 0;
+	const pageCount = Math.max(1, Math.ceil(total / ADMIN_USERS_PAGE_SIZE));
+	// An open panel can belong to an account on another page; the full list finds it.
+	const onPage = rows.find((user) => user.id === selectedId);
+	const elsewhere = useAdminUsers({
+		poll: false,
+		enabled: selectedId !== null && users.isSuccess && !onPage,
+	});
+	const found = onPage ?? elsewhere.data?.users.find((user) => user.id === selectedId);
+	// The panel stays up while a filter moves its row off the page and the list loads.
+	const lastOpened = useRef<AdminUser | null>(null);
+	if (found) lastOpened.current = found;
+	const selected =
+		found ?? (lastOpened.current?.id === selectedId ? lastOpened.current : null);
 	const now = Date.now();
-	// Only rows on screen are acted on, so a filter never hides a target.
+	// A shrinking list can leave the page past the end.
+	useEffect(() => {
+		if (users.isSuccess && page >= pageCount) setPage(pageCount - 1);
+	}, [users.isSuccess, page, pageCount]);
+	// Only rows on screen are acted on, so a filter or page change never hides a target.
 	const checkedRows = rows.filter((user) => checked.has(user.id));
 	const allChecked = rows.length > 0 && checkedRows.length === rows.length;
 
 	function set(patch: Partial<AccountFilters>) {
 		setFilters((current) => ({ ...current, ...patch }));
+		setPage(0);
+	}
+
+	function sortBy(next: SortState<AccountColumn>) {
+		setSort(next);
+		setPage(0);
+	}
+
+	function goTo(next: number) {
+		setPage(next);
+		setChecked(new Set());
+		const first = next * ADMIN_USERS_PAGE_SIZE + 1;
+		const last = Math.min(total, (next + 1) * ADMIN_USERS_PAGE_SIZE);
+		setPageAnnouncement(
+			`Page ${next + 1} of ${pageCount}, accounts ${first} to ${last} of ${total}`,
+		);
 	}
 
 	function toggle(id: string, on: boolean) {
@@ -112,22 +160,18 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				helpAnchor: "admin-users",
 				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role. Nobody can sign up on their own: invite someone before their first sign-in.",
 			}}
-			count={
-				<span data-testid="admin-account-count">
-					{all.length} accounts · {running} running
-				</span>
-			}
+			count={<span data-testid="admin-account-count">{total} accounts</span>}
 			actions={
 				<>
 					{filters.image === "older" ? (
 						<Button
 							size="sm"
 							data-testid="rebuild-older"
-							disabled={olderImageTargets(rows).length === 0}
+							disabled={olderImageTargets(olderMatches.data?.users ?? []).length === 0}
 							onClick={() =>
 								setConfirming({
 									action: "rebuild",
-									users: olderImageTargets(rows),
+									users: olderImageTargets(olderMatches.data?.users ?? []),
 									resetDocker: false,
 								})
 							}
@@ -231,10 +275,10 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				</div>
 			</div>
 			<BulkActions
-				// The heading already counts everyone; this says what a filter left (N4).
+				// The heading counts the matches; this says how many are on this page (N4).
 				rowCount={
-					isFiltered(filters) || rows.length < all.length
-						? `Showing ${rows.length} of ${all.length}`
+					isFiltered(filters) || rows.length < total
+						? `Showing ${rows.length} of ${total}`
 						: ""
 				}
 				rows={checkedRows}
@@ -274,7 +318,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										column="account"
 										label="Account"
 										sort={sort}
-										onSort={setSort}
+										onSort={sortBy}
 									>
 										<Toggletip label="Account tags">
 											Stale is about the account, never the workspace: no sign-in for 30
@@ -285,7 +329,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 											in.
 										</Toggletip>
 									</SortHeader>
-									<SortHeader column="role" label="Role" sort={sort} onSort={setSort}>
+									<SortHeader column="role" label="Role" sort={sort} onSort={sortBy}>
 										<Toggletip label="Role">
 											From SSO means the role comes from your sign-in provider's groups.
 											Granted means an administrator gave it here, and only a granted
@@ -297,7 +341,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										column="workspace"
 										label="Workspace"
 										sort={sort}
-										onSort={setSort}
+										onSort={sortBy}
 									>
 										<Toggletip label="Old image">
 											Old image means the workspace runs an image other than the
@@ -309,7 +353,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										column="activity"
 										label="Activity"
 										sort={sort}
-										onSort={setSort}
+										onSort={sortBy}
 										first="descending"
 									>
 										<Toggletip label="Activity">
@@ -343,6 +387,32 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						{users.isSuccess && rows.length === 0 ? (
 							<p className="pk-text-body pk-muted p-4">No accounts match.</p>
 						) : null}
+						{total > ADMIN_USERS_PAGE_SIZE ? (
+							<nav
+								aria-label="Users pages"
+								className="flex items-center justify-end gap-3 p-3"
+							>
+								<Button
+									size="sm"
+									data-testid="admin-page-previous"
+									disabled={page === 0}
+									onClick={() => goTo(page - 1)}
+								>
+									Previous
+								</Button>
+								<span className="pk-text-body" data-testid="admin-page-label">
+									Page {page + 1} of {pageCount}
+								</span>
+								<Button
+									size="sm"
+									data-testid="admin-page-next"
+									disabled={page >= pageCount - 1}
+									onClick={() => goTo(page + 1)}
+								>
+									Next
+								</Button>
+							</nav>
+						) : null}
 					</div>
 					{selected ? (
 						<WorkspaceDetail
@@ -362,6 +432,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				</div>
 			</div>
 			<SortAnnouncement text={announcement} testId="admin-sort-announce" />
+			<SortAnnouncement text={pageAnnouncement} testId="admin-page-announce" />
 		</AdminSection>
 	);
 }

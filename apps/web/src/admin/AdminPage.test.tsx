@@ -9,6 +9,7 @@ import {
 	USER,
 	WORKSPACE,
 } from "../test-utils.js";
+import { isUsersList, usersBody } from "./users/testRows.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -116,8 +117,8 @@ function stubAdmin(
 			onWrite?.(url, body);
 			return json(200, { ...STUDENT_ROW, ...body });
 		}
-		if (url === "/admin/users") {
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [STUDENT_ROW, ADMIN_ROW], false);
 		}
 		if (url.startsWith("/admin/logs?")) {
 			return json(200, {
@@ -503,8 +504,8 @@ function stubAdminWithWorkspace(ensure: () => Response | Promise<Response>) {
 	return stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/workspaces" && init?.method === "POST") return ensure() as Response;
-		if (url === "/admin/users") {
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [STUDENT_ROW, ADMIN_ROW], false);
 		}
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
 		if (url.includes("/projects")) return json(200, { projects: [] });

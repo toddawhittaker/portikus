@@ -6,6 +6,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import { passwordsCsv, SAMPLE_IMPORT_CSV } from "./importCsv.js";
+import { isUsersList, usersBody } from "./testRows.js";
 
 /** Import from CSV in the Users view (SPEC.md section 5.1, "Add user"). */
 
@@ -76,7 +77,7 @@ function stub(previewGate?: Promise<void>) {
 			) as unknown as Response;
 		}
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: [], dexUsers: true });
+		if (isUsersList(url)) return usersBody(url, [], true);
 		if (url === "/admin/invitations") return json(200, { invitations: [] });
 		if (init?.method === "POST") {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
@@ -122,7 +123,7 @@ test("a file is previewed, confirmed with the same text, and the passwords offer
 test("a file refused whole shows the reason on the picker", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: [], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [], false);
 		if (url === "/admin/invitations") return json(200, { invitations: [] });
 		return json(400, {
 			code: "VALIDATION_FAILED",

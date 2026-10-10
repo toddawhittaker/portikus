@@ -1,4 +1,3 @@
-import type { AdminUser } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../api/request.js";
@@ -12,19 +11,22 @@ import {
 } from "./users/BulkActions.js";
 import {
 	activityText,
-	filterAccounts,
 	isFiltered,
 	NO_FILTERS,
+	usersQueryString,
 } from "./users/filters.js";
+import { DEFAULT_ACCOUNT_SORT } from "./users/sort.js";
 import {
 	ADMIN_ME,
 	account,
+	isUsersList,
 	listed,
 	NONE,
 	openTable,
 	ROWS,
 	stubUsers,
 	summary,
+	usersBody,
 	uuid,
 } from "./users/testRows.js";
 
@@ -45,52 +47,6 @@ const dave = account(
 		markers: { ...NONE, archived: true },
 	},
 );
-const all = [alice, bob, carol, dave];
-
-function names(users: AdminUser[]): string[] {
-	return users.map((user) => user.displayName);
-}
-
-test("archived rows are hidden unless asked for", () => {
-	expect(names(filterAccounts(all, NO_FILTERS))).toEqual(["Alice", "Bob", "Carol"]);
-	expect(names(filterAccounts(all, { ...NO_FILTERS, showArchived: true }))).toEqual([
-		"Alice",
-		"Bob",
-		"Carol",
-		"Dave",
-	]);
-});
-
-test("the text filter matches name, email, username and workspace label", () => {
-	expect(names(filterAccounts(all, { ...NO_FILTERS, text: "BOBBY" }))).toEqual(["Bob"]);
-	expect(names(filterAccounts(all, { ...NO_FILTERS, text: "carol@" }))).toEqual([
-		"Carol",
-	]);
-	expect(names(filterAccounts(all, { ...NO_FILTERS, text: "  " }))).toEqual([
-		"Alice",
-		"Bob",
-		"Carol",
-	]);
-});
-
-test("the state filter picks a state, or accounts with no workspace", () => {
-	expect(names(filterAccounts(all, { ...NO_FILTERS, state: "stopped" }))).toEqual([
-		"Bob",
-	]);
-	expect(names(filterAccounts(all, { ...NO_FILTERS, state: "none" }))).toEqual([
-		"Carol",
-	]);
-});
-
-test("the image filter picks current or older", () => {
-	expect(names(filterAccounts(all, { ...NO_FILTERS, image: "current" }))).toEqual([
-		"Alice",
-	]);
-	expect(names(filterAccounts(all, { ...NO_FILTERS, image: "older" }))).toEqual([
-		"Bob",
-	]);
-});
-
 test("activity is Now with the connection count while connected, otherwise the time since", () => {
 	const now = Date.parse("2026-09-22T12:00:00.000Z");
 	expect(activityText(summary({ activeConnections: 2 }), now)).toBe(
@@ -103,38 +59,6 @@ test("activity is Now with the connection count while connected, otherwise the t
 		activityText(summary({ lastActiveConnectionAt: "2026-09-22T11:56:00.000Z" }), now),
 	).toBe("4 minutes ago");
 	expect(activityText(summary(), now)).toBe("—");
-});
-
-test("the text filter also matches the username and the source", () => {
-	const course = account("Sam", null, {
-		preferredUsername: "sstudent",
-		issuer: "lti:https://canvas.example.edu",
-	});
-	const users = [alice, course];
-	expect(names(filterAccounts(users, { ...NO_FILTERS, text: "sstud" }))).toEqual([
-		"Sam",
-	]);
-	expect(names(filterAccounts(users, { ...NO_FILTERS, text: "canvas" }))).toEqual([
-		"Sam",
-	]);
-	expect(names(filterAccounts(users, { ...NO_FILTERS, text: "sso" }))).toEqual([
-		"Alice",
-	]);
-});
-
-test("the role filter keeps one effective role", () => {
-	const admin = account("Ann", null, { role: "administrator" });
-	const teacher = account("Ian", null, { role: "instructor" });
-	const users = [alice, admin, teacher];
-	expect(
-		names(filterAccounts(users, { ...NO_FILTERS, role: "administrator" })),
-	).toEqual(["Ann"]);
-	expect(names(filterAccounts(users, { ...NO_FILTERS, role: "instructor" }))).toEqual([
-		"Ian",
-	]);
-	expect(names(filterAccounts(users, { ...NO_FILTERS, role: "student" }))).toEqual([
-		"Alice",
-	]);
 });
 
 test("a bulk action applies only where it changes something", () => {
@@ -218,7 +142,7 @@ test("the heading row carries the account count", async () => {
 	stubUsers();
 	await openTable();
 	const heading = screen.getByRole("heading", { level: 2, name: "Users" });
-	expect(heading.parentElement?.textContent).toContain("5 accounts · 2 running");
+	expect(heading.parentElement?.textContent).toContain("5 accounts");
 });
 
 test("the table shows each account's role label", async () => {
@@ -238,6 +162,7 @@ test("the table shows each account's role label", async () => {
 		"admin-row-count",
 		"bulk-result",
 		"admin-sort-announce",
+		"admin-page-announce",
 	]);
 });
 
@@ -247,13 +172,17 @@ test("search and the role filter narrow the rendered rows", async () => {
 	// Nothing filtered and nothing hidden: the heading's count says it all (N4).
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "canvas" } });
-	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 1 of 5");
+	await waitFor(() =>
+		expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 1 of 1"),
+	);
 	expect(screen.getByTestId(`account-row-${uuid(3)}`)).toBeDefined();
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "" } });
 	fireEvent.change(screen.getByLabelText("Role"), {
 		target: { value: "administrator" },
 	});
-	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 2 of 5");
+	await waitFor(() =>
+		expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 2 of 2"),
+	);
 });
 
 test("select all ticks every shown row and each box is named by the account", async () => {
@@ -287,7 +216,9 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 		"Select accounts to act on several at once.",
 	);
 	fireEvent.change(screen.getByLabelText("Role"), { target: { value: "student" } });
-	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
+	await waitFor(() =>
+		expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 3"),
+	);
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
 	// The same row now holds the actions, and the count gives way to them.
 	expect(screen.getByTestId("admin-table-toolbar")).toBe(toolbar);
@@ -295,7 +226,7 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
 	expect(within(toolbar).queryByTestId("bulk-hint")).toBeNull();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
-	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
+	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 3");
 });
 
 test("bulk Enable is confirmed without the danger styling; Disable keeps it", async () => {
@@ -378,7 +309,7 @@ test("a bulk run refetches the list once, not once per row", async () => {
 	const listCalls = () =>
 		vi
 			.mocked(globalThis.fetch)
-			.mock.calls.filter(([url]) => String(url) === "/admin/users").length;
+			.mock.calls.filter(([url]) => String(url).includes("limit=")).length;
 	const before = listCalls();
 	for (const name of ["Alice Example", "Bob Student", "Sam Course"]) {
 		fireEvent.click(screen.getByRole("checkbox", { name: `Select ${name}` }));
@@ -452,8 +383,8 @@ test("a throttled or memory-flagged workspace carries its tags beside the name",
 	});
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") {
-			return json(200, { users: [throttled, ROWS[1]], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [throttled, ROWS[1]], false);
 		}
 		throw new Error(`unexpected request: ${url}`);
 	});
@@ -518,7 +449,7 @@ test("bulk Rebuild posts each workspace in turn and reports done and skipped", a
 	const posts: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, ROWS, false);
 		if (init?.method === "POST") {
 			posts.push({ url, body: JSON.parse(String(init.body)) });
 			if (url.includes(uuid(6))) {
@@ -561,7 +492,9 @@ test("Rebuild all on older images appears only under the Older filter", async ()
 	fireEvent.change(screen.getByTestId("admin-filter-image"), {
 		target: { value: "older" },
 	});
-	fireEvent.click(screen.getByTestId("rebuild-older"));
+	const button = screen.getByTestId("rebuild-older") as HTMLButtonElement;
+	await waitFor(() => expect(button.disabled).toBe(false));
+	fireEvent.click(button);
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Rebuild 1 workspace?",
 	});
@@ -574,7 +507,7 @@ test("Also reset Docker starts unticked on every opening and a tick is sent", as
 	const posts: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, ROWS, false);
 		if (init?.method === "POST") {
 			posts.push({ url, body: JSON.parse(String(init.body)) });
 			return json(202, { ok: true });
@@ -585,13 +518,18 @@ test("Also reset Docker starts unticked on every opening and a tick is sent", as
 	fireEvent.change(screen.getByTestId("admin-filter-image"), {
 		target: { value: "older" },
 	});
-	fireEvent.click(screen.getByRole("checkbox", { name: "Select Bob Student" }));
+	fireEvent.click(await screen.findByRole("checkbox", { name: "Select Bob Student" }));
 	fireEvent.click(screen.getByTestId("bulk-rebuild"));
 	let dialog = await screen.findByRole("alertdialog", { name: "Rebuild 1 workspace?" });
 	fireEvent.click(within(dialog).getByRole("checkbox", { name: "Also reset Docker" }));
 	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
+	await waitFor(() =>
+		expect((screen.getByTestId("rebuild-older") as HTMLButtonElement).disabled).toBe(
+			false,
+		),
+	);
 	fireEvent.click(screen.getByTestId("rebuild-older"));
 	dialog = await screen.findByRole("alertdialog", { name: "Rebuild 1 workspace?" });
 	const reset = within(dialog).getByRole("checkbox", {
@@ -636,5 +574,117 @@ test("each column with a rule behind it, the Image filter and Show archived have
 	expect(within(table).getAllByRole("columnheader")[1]?.textContent).toBe("Account");
 	expect(screen.getByTestId("intro-admin-users").textContent).toContain(
 		"Everyone who has signed in, with their workspace.",
+	);
+});
+
+test("the query string carries the filters, the sort and the page", () => {
+	expect(usersQueryString(NO_FILTERS, DEFAULT_ACCOUNT_SORT)).toBe(
+		"sort=account&dir=ascending",
+	);
+	expect(
+		usersQueryString(
+			{
+				text: " ada ",
+				state: "none",
+				image: "older",
+				role: "student",
+				showArchived: true,
+			},
+			{ column: "activity", direction: "descending" },
+			{ offset: 50, limit: 50 },
+		),
+	).toBe(
+		"q=ada&role=student&state=none&image=older&archived=1&sort=activity&dir=descending&limit=50&offset=50",
+	);
+});
+
+function manyId(n: number): string {
+	return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+
+/** 120 students, answered 50 at a time by the stand-in server. */
+function stubManyUsers() {
+	const many = Array.from({ length: 120 }, (_, n) =>
+		listed(n + 1, `Student ${String(n + 1).padStart(3, "0")}`, {
+			id: manyId(n + 1),
+		}),
+	);
+	const urls: string[] = [];
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (isUsersList(url)) {
+			urls.push(url);
+			return usersBody(url, many);
+		}
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	return urls;
+}
+
+test("the table asks for 50 accounts and pages with Previous and Next", async () => {
+	const urls = stubManyUsers();
+	renderApp("/admin");
+	await screen.findByTestId(`account-row-${manyId(1)}`);
+	expect(urls).toContain("/admin/users?sort=account&dir=ascending&limit=50&offset=0");
+	expect(screen.getAllByRole("row")).toHaveLength(51);
+	expect(screen.getByTestId("admin-account-count").textContent).toBe("120 accounts");
+	expect(screen.getByTestId("admin-page-label").textContent).toBe("Page 1 of 3");
+	expect(
+		(screen.getByTestId("admin-page-previous") as HTMLButtonElement).disabled,
+	).toBe(true);
+
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Student 001" }));
+	fireEvent.click(screen.getByTestId("admin-page-next"));
+	await screen.findByTestId(`account-row-${manyId(51)}`);
+	expect(urls).toContain("/admin/users?sort=account&dir=ascending&limit=50&offset=50");
+	expect(screen.queryByTestId(`account-row-${manyId(1)}`)).toBeNull();
+	expect(screen.getByTestId("admin-page-announce").textContent).toBe(
+		"Page 2 of 3, accounts 51 to 100 of 120",
+	);
+	// A selection belongs to its page.
+	expect(screen.queryByTestId("bulk-actions")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("admin-page-next"));
+	await screen.findByTestId(`account-row-${manyId(101)}`);
+	expect(screen.getAllByRole("row")).toHaveLength(21);
+	expect(screen.getByTestId("admin-page-announce").textContent).toBe(
+		"Page 3 of 3, accounts 101 to 120 of 120",
+	);
+	expect((screen.getByTestId("admin-page-next") as HTMLButtonElement).disabled).toBe(
+		true,
+	);
+});
+
+test("a filter or a sort sends the server a new query and returns to page one", async () => {
+	const urls = stubManyUsers();
+	renderApp("/admin");
+	await screen.findByTestId(`account-row-${manyId(1)}`);
+	fireEvent.click(screen.getByTestId("admin-page-next"));
+	await screen.findByTestId(`account-row-${manyId(51)}`);
+
+	fireEvent.change(screen.getByLabelText("Search"), {
+		target: { value: "student 01" },
+	});
+	await waitFor(() =>
+		expect(urls).toContain(
+			"/admin/users?q=student+01&sort=account&dir=ascending&limit=50&offset=0",
+		),
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("admin-account-count").textContent).toBe("10 accounts"),
+	);
+	// Ten matches fit on one page, so no pager.
+	expect(screen.queryByTestId("admin-page-next")).toBeNull();
+
+	fireEvent.click(
+		within(screen.getByTestId("admin-accounts")).getByRole("button", {
+			name: "Activity",
+		}),
+	);
+	await waitFor(() =>
+		expect(urls.some((url) => url.includes("sort=activity&dir=descending"))).toBe(true),
 	);
 });

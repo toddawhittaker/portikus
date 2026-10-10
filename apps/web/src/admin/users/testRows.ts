@@ -114,7 +114,7 @@ export function stubUsers(refuse: Record<string, string> = {}) {
 	const writes: string[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, ROWS, false);
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}
@@ -132,4 +132,57 @@ export function stubUsers(refuse: Record<string, string> = {}) {
 export async function openTable() {
 	renderApp("/admin");
 	await screen.findByTestId(`account-row-${uuid(1)}`);
+}
+
+/** True for the Users list URL, with or without the paging query. */
+export function isUsersList(url: string): boolean {
+	return url === "/admin/users" || url.startsWith("/admin/users?");
+}
+
+/**
+ * What the server answers for a Users list URL: the query's filters, then
+ * its page, as a response. A small stand-in for the API, which has its own tests.
+ */
+export function usersBody(url: string, all: readonly unknown[], dexUsers = false) {
+	const rows = all as AdminUser[];
+	const query = new URLSearchParams(url.split("?")[1] ?? "");
+	const needle = (query.get("q") ?? "").toLowerCase();
+	const pendingOnly = query.get("pending") === "1";
+	const matching = rows.filter((user) => {
+		if (pendingOnly) return Boolean(user.workspace?.pendingOperation);
+		if (!query.has("archived") && user.markers.archived) return false;
+		const role = query.get("role");
+		if (role && user.role !== role) return false;
+		const state = query.get("state");
+		if (state === "none" && user.workspace) return false;
+		if (state && state !== "none" && user.workspace?.state !== state) return false;
+		const image = query.get("image");
+		const current = user.workspace?.image.current;
+		if (image === "current" && current !== true) return false;
+		if (image === "older" && current !== false) return false;
+		return (
+			needle === "" ||
+			[user.displayName, user.email, user.preferredUsername, user.issuer].some(
+				(field) => field?.toLowerCase().includes(needle),
+			)
+		);
+	});
+	// Only the two orders the tests press; the API has the full set.
+	const byName = [...matching].sort((x, y) =>
+		x.displayName.localeCompare(y.displayName),
+	);
+	if (query.get("sort") === "activity") {
+		const connections = (user: AdminUser) => user.workspace?.activeConnections ?? 0;
+		byName.sort((x, y) => connections(y) - connections(x));
+	}
+	if (query.get("sort") === "account" && query.get("dir") === "descending") {
+		byName.reverse();
+	}
+	const offset = Number(query.get("offset") ?? 0);
+	const limit = query.has("limit") ? Number(query.get("limit")) : undefined;
+	return json(200, {
+		users: byName.slice(offset, limit === undefined ? undefined : offset + limit),
+		total: matching.length,
+		dexUsers,
+	});
 }
