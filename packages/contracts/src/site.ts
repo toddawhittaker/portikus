@@ -388,6 +388,7 @@ export const SiteJobCode = z.enum([
 	"rolled_back",
 	"write_failed",
 	"trial_superseded",
+	"api_unhealthy",
 ]);
 export type SiteJobCode = z.infer<typeof SiteJobCode>;
 
@@ -583,6 +584,11 @@ export const AddressPlan = z
 		certificateNote: z.string(),
 		/** The steps outside Portikus, in order, as plain sentences. */
 		checklist: z.array(z.string()),
+		/**
+		 * Set when sign-in goes through Entra, Google or another OIDC provider,
+		 * which must accept the new callback before Keep; null for Dex passwords or LDAP.
+		 */
+		signinWarning: z.string().nullable(),
 	})
 	.strict();
 export type AddressPlan = z.infer<typeof AddressPlan>;

@@ -11,6 +11,7 @@ Run: python3 -B -m unittest discover -s packaging/site/tests
 
 import contextlib
 import fcntl
+import http.server
 import importlib.machinery
 import importlib.util
 import io
@@ -141,13 +142,24 @@ class Host(unittest.TestCase):
         Path(self.path(sj.PROXY_DIR), "alerts.conf").write_text("# alerts\n")
         self.fake = FakeRun(self)
         self.clock = Clock()
+        # The API answers /health at once unless a test queues other answers; each wait moves the clock.
+        self.health = []
+        self.health_ports = []
         self.runner = sj.Runner(root=self.root, run_=self.fake, clock=self.clock,
                                 write_settings=str(REPO / "packaging/site/write-settings"),
-                                settings_keys=str(REPO / "packaging/debian/settings-keys"))
+                                settings_keys=str(REPO / "packaging/debian/settings-keys"),
+                                health=self.fake_health, sleep=self.fake_sleep)
         self.journal = io.StringIO()
 
     def path(self, absolute):
         return self.root + absolute
+
+    def fake_health(self, port):
+        self.health_ports.append(port)
+        return self.health.pop(0) if self.health else True
+
+    def fake_sleep(self, seconds):
+        self.clock.now += seconds
 
     def install(self, config=None, secrets=None):
         """An apt install's settings, as postinst wrote them."""
@@ -533,10 +545,48 @@ class LtiPlatforms(Host):
         self.assertNotIn("new.example.edu", self.include(sj.LTI_CONF))
 
 
+class HealthProbe(unittest.TestCase):
+    """The real probe against a throwaway loopback server."""
+
+    def serve(self, status):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(status if self.path == "/health" else 404)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server.server_address[1]
+
+    def test_ok_only_for_a_200_on_health(self):
+        self.assertTrue(sj.probe_health(self.serve(200)))
+        self.assertFalse(sj.probe_health(self.serve(503)))
+
+    def test_nothing_listening_is_not_healthy(self):
+        # Port 1 is privileged and unused, so the connection is refused.
+        self.assertFalse(sj.probe_health(1))
+
+    def test_the_port_comes_from_api_env(self):
+        root = tempfile.mkdtemp(prefix="sitejob-env-")
+        self.addCleanup(shutil.rmtree, root)
+        path = os.path.join(root, "api.env")
+        self.assertIsNone(sj.api_port(path))
+        Path(path).write_text("# PORT=1\nPUBLIC_URL=https://a.example.edu\nPORT=3000\n")
+        self.assertEqual(sj.api_port(path), 3000)
+        Path(path).write_text("PORT=three\n")
+        self.assertIsNone(sj.api_port(path))
+
+
 class Trials(Host):
     def setUp(self):
         super().setUp()
         self.install(secrets="portikus_alert_pushover_user_key: u1\n")
+        Path(self.path(sj.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
 
     def debconf(self):
         return "".join(self.fake.stdin)
@@ -638,6 +688,36 @@ class Trials(Host):
         self.assertEqual(self.config(), before)
         self.assertEqual(self.fake.seen_config[-1], before)
         self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+
+    def test_a_trial_opens_once_the_api_answers_health_on_its_own_port(self):
+        self.health = [False, False, True]
+        status = self.play("address", host="new.example.edu", port=443)
+        self.assertEqual((status["state"], status["code"]), ("trial", None))
+        self.assertEqual(self.health_ports, [3000, 3000, 3000])
+        self.assertEqual(self.fake.names().count("setup"), 1)
+
+    def test_an_api_that_never_answers_health_puts_the_old_answers_back(self):
+        before = self.config()
+        self.health = [False] * 1000
+        for kind, body in (("address", {"host": "new.example.edu", "port": 443}), ("signin", OIDC)):
+            with self.subTest(kind=kind):
+                start = self.clock.now
+                job_id = JOB if kind == "address" else JOB2
+                status = self.play(kind, job_id, **body)
+                self.assertEqual((status["state"], status["code"]), ("reverted", "api_unhealthy"))
+                # About a minute of asking, never much more.
+                self.assertGreaterEqual(self.clock.now - start, sj.HEALTH_WAIT)
+                self.assertLess(self.clock.now - start, sj.HEALTH_WAIT + 2 * sj.HEALTH_INTERVAL)
+                self.assertEqual(self.config(), before)
+                self.assertEqual(self.fake.seen_config[-1], before)
+                self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+                self.assertIn("did not answer /health", self.journal.getvalue())
+
+    def test_no_api_port_counts_as_unhealthy(self):
+        os.unlink(self.path(sj.API_ENV))
+        status = self.play("address", host="new.example.edu", port=443)
+        self.assertEqual((status["state"], status["code"]), ("reverted", "api_unhealthy"))
+        self.assertEqual(self.health_ports, [])
 
     def test_setup_failing_twice_is_a_failure(self):
         self.fake.setup = [1, 1]

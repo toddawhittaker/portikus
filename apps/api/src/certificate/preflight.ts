@@ -192,10 +192,12 @@ export async function runPreflight(options: {
 /**
  * Pre-flight for moving the site to `host` (ADR 0059): the new name
  * and a sample name under the new preview suffix must resolve, and every
- * address each resolves to must answer a nonce sent there with the current
+ * address each resolves to should answer a nonce sent there with the current
  * site's name, which proves those addresses are this server. The new name is
  * not served until the switch, so the probe cannot use it yet; Keep, pressed
- * from the new address, proves the rest. Every failure blocks.
+ * from the new address, proves the rest. A DNS failure blocks. A reach
+ * failure only warns: the API's sandbox lets it reach loopback and the
+ * workspace bridge only, so on a real server the probe cannot leave the host.
  */
 export async function runAddressPreflight(options: {
 	config: ApiConfig;
@@ -228,35 +230,42 @@ export async function runAddressPreflight(options: {
 		passed: boolean,
 		yes: string,
 		no: string,
+		bad: "warning" | "failed",
 	): PreflightCheck =>
 		passed
 			? { name, result: "passed", message: yes }
-			: { name, result: "failed", message: no };
+			: { name, result: bad, message: no };
+	const unconfirmed =
+		"Could not confirm from this server; the trial and Keep from the new address prove it.";
 	const checks = [
 		check(
 			"dns-site",
 			siteAddresses.length > 0,
 			`${host} resolves.`,
 			`${host} does not resolve in DNS.`,
+			"failed",
 		),
 		check(
 			"dns-preview",
 			previewAddresses.length > 0,
 			`Preview names such as ${sample} resolve.`,
 			`${sample} does not resolve in DNS. Add a wildcard record for *.${previewSuffix}.`,
+			"failed",
 		),
 		check(
 			"reach-site",
 			siteReached,
 			`${host} points at this server.`,
-			`${host} does not point at this server at every address DNS gives.`,
+			`${host}: ${unconfirmed}`,
+			"warning",
 		),
 		check(
 			"reach-preview",
 			previewReached,
 			`*.${previewSuffix} points at this server.`,
-			`${sample} does not point at this server at every address DNS gives.`,
+			`*.${previewSuffix}: ${unconfirmed}`,
+			"warning",
 		),
 	];
-	return { ok: checks.every((c) => c.result === "passed"), checks };
+	return { ok: !checks.some((c) => c.result === "failed"), checks };
 }

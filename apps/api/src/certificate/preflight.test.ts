@@ -226,25 +226,50 @@ describe("runAddressPreflight", () => {
 		).toBe(true);
 	});
 
-	test("refuses a new name whose DNS points at another server", async () => {
+	// The API's sandbox keeps the probe on the host, so a reach failure cannot block.
+	test("only warns when the new name's addresses do not answer the nonce", async () => {
 		const { result } = await run((name) =>
 			name === "code.example.edu" ? [ELSEWHERE] : [THIS_SERVER],
 		);
-		expect(result.ok).toBe(false);
+		expect(result.ok).toBe(true);
 		const site = result.checks.find((c) => c.name === "reach-site");
-		expect(site?.result).toBe("failed");
-		expect(site?.message).toContain("code.example.edu does not point at this server");
+		expect(site?.result).toBe("warning");
+		expect(site?.message).toBe(
+			"code.example.edu: Could not confirm from this server; the trial and Keep from the new address prove it.",
+		);
+		expect(result.checks.find((c) => c.name === "reach-preview")?.result).toBe(
+			"passed",
+		);
 	});
 
-	test("refuses when only one of the name's addresses is this server", async () => {
+	test("only warns when one of the name's addresses is not this server", async () => {
 		const { result } = await run(() => [THIS_SERVER, ELSEWHERE]);
+		expect(result.ok).toBe(true);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "passed"],
+			["dns-preview", "passed"],
+			["reach-site", "warning"],
+			["reach-preview", "warning"],
+		]);
+	});
+
+	test("refuses a new name that does not resolve, even when the preview names do", async () => {
+		const { result } = await run((name) =>
+			name === "code.example.edu" ? [] : [THIS_SERVER],
+		);
 		expect(result.ok).toBe(false);
+		expect(result.checks.find((c) => c.name === "dns-site")?.result).toBe("failed");
 	});
 
 	test("refuses names that do not resolve, naming the wildcard to add", async () => {
 		const { result } = await run(() => []);
 		expect(result.ok).toBe(false);
-		expect(result.checks.every((c) => c.result === "failed")).toBe(true);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "failed"],
+			["dns-preview", "failed"],
+			["reach-site", "warning"],
+			["reach-preview", "warning"],
+		]);
 		expect(result.checks.find((c) => c.name === "dns-preview")?.message).toContain(
 			"*.preview.code.example.edu",
 		);

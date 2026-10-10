@@ -127,6 +127,33 @@ describe("planAddress", () => {
 		expect(dex.checklist.some((s) => s.includes(dex.dexCallbackUrl))).toBe(false);
 	});
 
+	test("warns to register the new callback before Keep for an upstream provider only", () => {
+		for (const [provider, name] of [
+			["entra", "Microsoft Entra"],
+			["google", "Google"],
+			["oidc", "the sign-in provider"],
+		] as const) {
+			const plan = planAddress({
+				view: { ...view, provider },
+				target,
+				certificateStatus: null,
+				running,
+			});
+			expect(plan.signinWarning).toBe(
+				`Before you press Keep, add ${plan.dexCallbackUrl} as a redirect address in ${name}. Until you do, sign-in through ${name} fails. Local Portikus passwords keep working.`,
+			);
+		}
+		for (const provider of ["dex", "ldap"] as const) {
+			const plan = planAddress({
+				view: { ...view, provider },
+				target,
+				certificateStatus: null,
+				running,
+			});
+			expect(plan.signinWarning).toBeNull();
+		}
+	});
+
 	test("the checklist asks for the new port only when it changes", () => {
 		const moved = planAddress({ view, target, certificateStatus: null, running });
 		expect(moved.checklist.some((s) => s.includes("port 443"))).toBe(true);
