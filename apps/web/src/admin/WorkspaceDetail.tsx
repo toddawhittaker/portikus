@@ -5,6 +5,7 @@ import { errorText } from "../api/request.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { useAdminWorkspace } from "./queries.js";
 import { AccountSection } from "./workspace-detail/AccountSection.js";
+import { AgentLogSection } from "./workspace-detail/AgentLogSection.js";
 import { AuditSection } from "./workspace-detail/AuditSection.js";
 import { ErrorSection } from "./workspace-detail/ErrorSection.js";
 import { GuardSection } from "./workspace-detail/GuardSection.js";
@@ -106,6 +107,11 @@ export function WorkspaceDetail({
 						ownerName={user.displayName}
 					/>
 					<PortsSection detail={data} />
+					<AgentLogSection
+						key={`agent-log-${data.workspace.id}`}
+						workspaceId={data.workspace.id}
+						running={data.workspace.state === "running"}
+					/>
 				</>
 			) : null}
 			<AccountSection user={user} isSelf={isSelf} />

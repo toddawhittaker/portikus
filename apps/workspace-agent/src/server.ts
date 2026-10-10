@@ -24,6 +24,7 @@ import {
 	workspaceInterfaceAddress,
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
+import type { LogRing } from "./log-ring.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
 import { PanePipes } from "./pane-pipes.js";
 import { protectedTree, tmuxPidSource } from "./processes.js";
@@ -46,6 +47,8 @@ export interface ServerOptions {
 	tmuxExternalServer?: boolean;
 	/** The process logger. Tests default to one that writes nothing. */
 	logger?: Logger;
+	/** The agent's own recent warnings, served at `GET /log` (ADR 0060). */
+	logRing?: LogRing;
 	/** Overrides the cap on concurrent event sockets. For tests. */
 	maxEventSockets?: number;
 	/** Overrides the project watchers, so a test can break one. For tests. */
@@ -248,6 +251,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			applyLevel(rootLogger, startLevel, parsed.data.level);
 			return reply.code(204).send();
 		});
+
+		// The ring holds only allowlisted fields (ADR 0060).
+		instance.get("/log", async () => ({ lines: options.logRing?.lines() ?? [] }));
 
 		instance.register(terminalsRoutes, {
 			homeDir: options.homeDir,

@@ -3,15 +3,19 @@ import { fileURLToPath } from "node:url";
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
 import { createLogger } from "@portikus/observability";
 import { returnHomeInstructions } from "./agent-instructions.js";
+import { LogRing, teeToRing } from "./log-ring.js";
 import { removeStaleTemporaries } from "./projects.js";
 import { removeRestoreLeftovers } from "./recovery.js";
 import { buildServer } from "./server.js";
 
 const config = loadConfig(AgentConfigSchema);
+// The agent's recent warnings, for the admin workspace page (ADR 0060).
+const logRing = new LogRing();
 const logger = createLogger({
 	service: "workspace-agent",
 	level: config.LOG_LEVEL,
 	pretty: config.NODE_ENV === "development",
+	destination: teeToRing(logRing, process.stdout),
 });
 
 // A workspace stopped mid-clone leaves a half-finished directory behind.
@@ -51,6 +55,7 @@ const app = buildServer({
 	tmuxSocketName: config.TMUX_SOCKET_NAME,
 	tmuxExternalServer: config.TMUX_EXTERNAL_SERVER,
 	logger,
+	logRing,
 	brokerSocketPath: "/run/portikus/browser.sock",
 	panePipeDir: "/run/portikus/panes",
 	build,

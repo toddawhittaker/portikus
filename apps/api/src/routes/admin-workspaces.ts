@@ -1,6 +1,7 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminWorkspaceDetail,
+	type AgentLogResponse,
 	type AuditEvent,
 	allowanceFor,
 	type CpuThrottle,
@@ -26,7 +27,12 @@ import {
 	loadImageFacts,
 	toImageVersion,
 } from "../admin/workspace-summary.js";
-import { type AgentClient, agentClientFor, readJson } from "../agent-client.js";
+import {
+	AgentCallError,
+	type AgentClient,
+	agentClientFor,
+	readJson,
+} from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
@@ -606,5 +612,43 @@ export function registerAdminWorkspaceRoutes(
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
 		return workspaceView(db, config, updated);
+	});
+
+	/**
+	 * The workspace agent's own recent warnings, pulled on demand. The lines
+	 * come from inside the student's workspace, so they are shown as reported
+	 * by it, never as the platform's word (ADR 0060, SPEC.md 24.1).
+	 */
+	app.get("/admin/workspaces/:id/agent-log", adminOnly, async (request, reply) => {
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const row = await loadRow(params.id);
+		if (!row) {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		if (row.state !== "running") {
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_NOT_RUNNING",
+				"The workspace is not running",
+			);
+		}
+		const client = agentClientFor(row, config.AGENT_PORT);
+		if (!client) {
+			return sendError(
+				reply,
+				503,
+				"AGENT_UNAVAILABLE",
+				"The workspace agent is not reachable.",
+			);
+		}
+		try {
+			const body: AgentLogResponse = await client.readAgentLog();
+			return body;
+		} catch (error) {
+			if (!(error instanceof AgentCallError)) throw error;
+			return sendError(reply, 503, "AGENT_UNAVAILABLE", error.message);
+		}
 	});
 }
