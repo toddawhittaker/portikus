@@ -2,21 +2,9 @@
  * Automated accessibility checks (SPEC.md section 25.8) on the Course page
  * and both LTI fallback pages (ADR 0025).
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { expectNoViolations, query, WEB_ORIGIN } from "./helpers";
-import {
-	changeRoster,
-	launchAs,
-	ltiUsers,
-	openCourseTab,
-	startLaunch,
-} from "./lti-helpers";
-
-// The Course page syncs a stale roster when it opens and a sync drops anyone
-// the mock roster lacks, so Tom joins it first.
-test.beforeEach(async ({ request }) => {
-	await changeRoster(request, { action: "add", course: "cs240", person: "tom" });
-});
+import { launchAs, ltiUsers, openCourseTab, startLaunch } from "./lti-helpers";
 
 /** One day of Claude Code use for Tom, so the usage tables have a row. */
 async function seedTomUsage() {
@@ -76,6 +64,17 @@ for (const colorScheme of ["light", "dark"] as const) {
 /** A long display name with one long unbroken word, the worst case for a narrow table. */
 const LONG_NAME =
 	"Samantha Wolfeschlegelsteinhausenbergerdorffwelchevoralternwaren Student";
+const LONG_NAME_ID = "00000000-0000-4000-8000-00000000c0de";
+
+/** Whether an element sits wholly inside the members table's clipping wrap. */
+async function insideTableWrap(target: Locator) {
+	return target.evaluate((el) => {
+		const wrap = el.closest(".pk-table-wrap") as HTMLElement;
+		const box = el.getBoundingClientRect();
+		const clip = wrap.getBoundingClientRect();
+		return box.left >= clip.left - 0.5 && box.right <= clip.right + 0.5;
+	});
+}
 
 /** How far the page and the members table run past their boxes, in CSS pixels. */
 async function sidewaysOverflow(course: Page) {
@@ -112,13 +111,32 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const body = (await response.json()) as { members: unknown[] };
 			body.members.push({
 				status: "active",
-				userId: "00000000-0000-4000-8000-00000000c0de",
+				userId: LONG_NAME_ID,
 				displayName: LONG_NAME,
 				role: "student",
 				lastLaunchAt: new Date().toISOString(),
 				workspaceState: "stopped",
 			});
 			await route.fulfill({ response, json: body });
+		});
+		// They share a project, so their actions cell holds a link and Remove.
+		await context.route(/\/courses\/[^/]+\/shares$/, async (route) => {
+			const now = Date.now();
+			await route.fulfill({
+				json: {
+					shares: [
+						{
+							projectId: "00000000-0000-4000-8000-0000000005ae",
+							projectName: "todo-app",
+							userId: LONG_NAME_ID,
+							displayName: LONG_NAME,
+							startedAt: new Date(now).toISOString(),
+							endsAt: new Date(now + 8 * 60 * 60 * 1000).toISOString(),
+							workspaceState: "stopped",
+						},
+					],
+				},
+			});
 		});
 		try {
 			const page = await context.newPage();
@@ -168,6 +186,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const remove = samRow.getByRole("button", { name: /Remove/ });
 			await remove.scrollIntoViewIfNeeded();
 			await expect(remove).toBeInViewport({ ratio: 1 });
+			// The shared project link and Remove wrap in the actions cell, neither clipped.
+			const shared = samRow.getByRole("link", { name: /Shared project/ });
+			await shared.scrollIntoViewIfNeeded();
+			await expect(shared).toBeInViewport({ ratio: 1 });
+			expect(await insideTableWrap(shared)).toBe(true);
+			expect(await insideTableWrap(remove)).toBe(true);
 			await expectNoViolations(course);
 		} finally {
 			await context.close();

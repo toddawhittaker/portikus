@@ -201,9 +201,9 @@ describe("memberships endpoint", () => {
 			url = next?.replace(ISSUER, base);
 			pages++;
 		}
-		expect(pages).toBe(3);
-		expect(seen).toHaveLength(7);
-		expect(new Set(seen).size).toBe(7);
+		expect(pages).toBe(4);
+		expect(seen).toHaveLength(10);
+		expect(new Set(seen).size).toBe(10);
 	});
 
 	it("lists roster-only people, and shares no email", async () => {

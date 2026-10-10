@@ -4,21 +4,29 @@ import {
 	AgentUsageWindow,
 } from "@portikus/contracts";
 import { Select, Toggletip } from "@portikus/ui";
+import { useState } from "react";
 import { CODING_AGENT_NAME } from "../image/codingAgents.js";
 import { cost, count } from "./format.js";
 
 const WINDOWS: AgentUsageWindow[] = [7, 30, 90];
 
-/** The period choice above the usage tables. */
+/**
+ * The period choice above the usage tables. `ready` is true once the tables
+ * show the chosen period; a screen reader then hears which period it is.
+ */
 export function UsagePeriodSelect({
 	id,
 	days,
+	ready,
 	onChange,
 }: {
 	id: string;
 	days: AgentUsageWindow;
+	ready: boolean;
 	onChange: (days: AgentUsageWindow) => void;
 }) {
+	// Silent on first load; only a change of period is announced.
+	const [picked, setPicked] = useState(false);
 	return (
 		<div className="max-w-48">
 			<Select
@@ -26,8 +34,14 @@ export function UsagePeriodSelect({
 				label="Period"
 				value={String(days)}
 				options={WINDOWS.map((w) => ({ value: String(w), label: `Last ${w} days` }))}
-				onValueChange={(value) => onChange(AgentUsageWindow.parse(Number(value)))}
+				onValueChange={(value) => {
+					setPicked(true);
+					onChange(AgentUsageWindow.parse(Number(value)));
+				}}
 			/>
+			<span className="sr-only" role="status" data-testid={`${id}-status`}>
+				{picked && ready ? `Showing the last ${days} days.` : ""}
+			</span>
 		</div>
 	);
 }

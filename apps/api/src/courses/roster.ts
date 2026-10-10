@@ -15,9 +15,6 @@ import type { Kysely, Transaction } from "kysely";
 import type { LtiDeps } from "../lti/deps.js";
 import { toolJwks } from "../routes/lti.js";
 
-/** The Course page refreshes a roster at most this often (ADR 0058). */
-const ROSTER_REFRESH_MS = 60 * 60 * 1000;
-
 /** NRPS may leave a name out; the Course page still needs something to show. */
 export const UNNAMED_MEMBER = "Name not shared";
 
@@ -104,17 +101,6 @@ export function courseRoster(
 	};
 }
 
-/** True when the Course page should start a background refresh. */
-export function rosterIsStale(
-	lti: LtiDeps | undefined,
-	course: RosterCourse,
-	now = Date.now(),
-): boolean {
-	if (rosterSource(lti, course) === null || inFlight.has(course.id)) return false;
-	if (!course.roster_synced_at) return true;
-	return now - new Date(course.roster_synced_at).getTime() >= ROSTER_REFRESH_MS;
-}
-
 /** One membership and the LTI subjects that identify it at the course's platform. */
 export interface MembershipSubjects {
 	userId: string;
@@ -174,7 +160,9 @@ function failureResult(error: unknown): RosterSyncResult {
  * Apply an active, non-empty roster in one transaction (ADR 0058): delete
  * every membership whose subject is gone, instructors too; set each kept
  * membership's course role; replace the not-started rows. Accounts, their
- * roles and workspaces are never touched (ADR 0025).
+ * roles and workspaces are never touched (ADR 0025). A roster that would
+ * leave no launched instructor is refused before anything is written, so
+ * one bad LMS answer cannot lock every instructor out of the course.
  */
 async function applyRoster(
 	trx: Transaction<Database>,
@@ -182,13 +170,12 @@ async function applyRoster(
 	active: NrpsMember[],
 	actor: string,
 	now: string,
-): Promise<Counts> {
+): Promise<Counts | "no_instructor"> {
 	const roster = new Map(active.map((member) => [member.userId, member]));
 	const memberships = await membershipSubjects(trx, course.id, course.platform_issuer);
 	const onRoster = new Set<string>();
 	const gone: string[] = [];
-	let matched = 0;
-	let roleChanged = 0;
+	const kept: { userId: string; role: string; newRole: NrpsMember["role"] }[] = [];
 	for (const membership of memberships) {
 		const entry = membership.subjects
 			.map((subject) => roster.get(subject))
@@ -198,16 +185,26 @@ async function applyRoster(
 			continue;
 		}
 		for (const subject of membership.subjects) onRoster.add(subject);
-		matched += 1;
-		if (entry.role !== membership.role) {
-			await trx
-				.updateTable("lti_memberships")
-				.set({ role: entry.role })
-				.where("context_id", "=", course.id)
-				.where("user_id", "=", membership.userId)
-				.execute();
-			roleChanged += 1;
-		}
+		kept.push({
+			userId: membership.userId,
+			role: membership.role,
+			newRole: entry.role,
+		});
+	}
+	if (!kept.some((membership) => membership.newRole === "instructor")) {
+		return "no_instructor";
+	}
+
+	let roleChanged = 0;
+	for (const membership of kept) {
+		if (membership.newRole === membership.role) continue;
+		await trx
+			.updateTable("lti_memberships")
+			.set({ role: membership.newRole })
+			.where("context_id", "=", course.id)
+			.where("user_id", "=", membership.userId)
+			.execute();
+		roleChanged += 1;
 	}
 
 	if (gone.length > 0) {
@@ -247,7 +244,7 @@ async function applyRoster(
 	}
 
 	const counts: Counts = {
-		matched,
+		matched: kept.length,
 		notStarted: notStarted.length,
 		removed: gone.length,
 		roleChanged,
@@ -339,6 +336,11 @@ async function runSync(
 			.executeTakeFirstOrThrow();
 		return applyRoster(trx, locked, active, actor, new Date().toISOString());
 	});
+	if (counts === "no_instructor") {
+		log.warn({ courseId, result: counts }, "roster sync failed");
+		await recordFailure(db, courseId, counts, null, actor, new Date().toISOString());
+		return await finished(deps, courseId, NO_CHANGES);
+	}
 	log.info({ courseId, ...counts }, "roster synced");
 	return await finished(deps, courseId, counts);
 }

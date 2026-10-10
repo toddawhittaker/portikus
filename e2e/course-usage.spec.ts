@@ -6,14 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { openToggletip, query, WEB_ORIGIN } from "./helpers";
-import { changeRoster, launchAs, ltiUsers, openCourseTab } from "./lti-helpers";
+import { launchAs, ltiUsers, openCourseTab } from "./lti-helpers";
 
 test("an instructor sees member usage per agent, daily totals and a period choice", async ({
 	browser,
-	request,
 }) => {
-	// Tom teaches CS 240; a sync drops him unless the mock roster lists him.
-	await changeRoster(request, { action: "add", course: "cs240", person: "tom" });
 	const samContext = await browser.newContext({ baseURL: WEB_ORIGIN });
 	await launchAs(await samContext.newPage(), { person: "sam", course: "cs240" });
 	await samContext.close();

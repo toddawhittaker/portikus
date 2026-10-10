@@ -59,7 +59,8 @@ export type CourseMember = z.infer<typeof CourseMember>;
  * How the last roster sync went (ADR 0058). Anything but `ok` applied
  * nothing: `empty` is a roster with no active members, `token_failed` the
  * platform refused the tool's token request, `fetch_failed` a page could not
- * be fetched, and `invalid` the roster broke a size or shape limit.
+ * be fetched, `invalid` the roster broke a size or shape limit, and
+ * `no_instructor` it would have left no launched instructor in the course.
  */
 export const RosterSyncResult = z.enum([
 	"ok",
@@ -67,6 +68,7 @@ export const RosterSyncResult = z.enum([
 	"token_failed",
 	"fetch_failed",
 	"invalid",
+	"no_instructor",
 ]);
 export type RosterSyncResult = z.infer<typeof RosterSyncResult>;
 

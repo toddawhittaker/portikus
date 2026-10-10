@@ -20,8 +20,9 @@ export type PersonKey =
 	| "lin"
 	| "max"
 	| "rex"
-	| "una";
-type CourseKey = "cs101" | "cs240" | "cs350";
+	| "una"
+	| "roy";
+type CourseKey = "cs101" | "cs240" | "cs330" | "cs350";
 export type Defect =
 	| "bad_signature"
 	| "wrong_aud"
@@ -118,10 +119,6 @@ export async function changeRoster(
 	const res = await request.post(`${MOCK_LMS_ORIGIN}/roster`, { form: fields });
 	expect(res.status(), await res.text()).toBe(204);
 }
-
-/** Put every mock roster back to its seeded people. */
-export const resetRosters = (request: APIRequestContext) =>
-	changeRoster(request, { action: "reset" });
 
 /** The platform issuer the API stores LTI users under. */
 const LTI_ISSUER = `lti:${MOCK_LMS_ORIGIN}`;

@@ -10,15 +10,7 @@ import {
 	WCAG_TAGS,
 	WEB_ORIGIN,
 } from "./helpers";
-import { changeRoster, launchAs, openCourseTab } from "./lti-helpers";
-
-// The Course page syncs a stale roster when it opens, and a sync drops anyone
-// the mock roster lacks, so these two join it first.
-test.beforeEach(async ({ request }) => {
-	for (const person of ["rex", "una"]) {
-		await changeRoster(request, { action: "add", course: "cs350", person });
-	}
-});
+import { launchAs, openCourseTab } from "./lti-helpers";
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
 	browser,
@@ -82,37 +74,41 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 });
 
 test("another instructor in the course has no Remove button", async ({ browser }) => {
-	const rexContext = await browser.newContext({ baseURL: WEB_ORIGIN });
-	const otherContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
-		const rex = await rexContext.newPage();
-		await launchAs(rex, { person: "rex", course: "cs350" });
-		// A second instructor, made in the database so no seeded person gains a course.
-		const other = await createSignedInUser(otherContext, "student");
-		const name = `Co Teacher ${other.userId.slice(0, 8)}`;
-		await query("update users set display_name = $2 where id = $1", [
-			other.userId,
-			name,
-		]);
+		// A course of its own with no roster address, so no sync drops the
+		// co-teacher, who is made in the database and is on no LMS roster.
+		const me = await createSignedInUser(context, "student");
+		const tag = me.userId.slice(0, 8);
+		const name = `Co Teacher ${tag}`;
+		const [course] = await query<{ id: string }>(
+			`insert into lti_contexts (platform_issuer, context_id, title, platform_name)
+			 values ('e2e-coteach', $1, $2, 'E2E LMS') returning id`,
+			[`coteach-${tag}`, `Co-teach ${tag}`],
+		);
+		if (!course) throw new Error("could not create the course");
+		const [other] = await query<{ id: string }>(
+			`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
+			 values ('e2e-coteach', $1, $2, $3, 'student') returning id`,
+			[`coteach-${tag}`, `coteach-${tag}@example.edu`, name],
+		);
+		if (!other) throw new Error("could not create the co-teacher");
 		await query(
 			`insert into lti_memberships (context_id, user_id, role, last_launch_at)
-			 select m.context_id, $1, 'instructor', now()
-			 from lti_memberships m join lti_contexts c on c.id = m.context_id
-			 where c.context_id = 'mock-course-cs350' and m.role = 'instructor'
-			 limit 1`,
-			[other.userId],
+			 values ($1, $2, 'instructor', now()), ($1, $3, 'instructor', now())`,
+			[course.id, me.userId, other.id],
 		);
 
-		const course = await openCourseTab(rex);
-		const row = course
+		const page = await context.newPage();
+		await page.goto(`/course/${course.id}`);
+		const row = page
 			.getByTestId("course-members")
 			.getByRole("row", { name: new RegExp(name) });
 		await expect(row).toBeVisible();
 		await expect(row).toContainText("Instructor");
 		await expect(row.getByRole("button")).toHaveCount(0);
 	} finally {
-		await rexContext.close();
-		await otherContext.close();
+		await context.close();
 	}
 });
 

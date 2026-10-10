@@ -123,6 +123,12 @@ export function nextRemovable(
 	);
 }
 
+/** When a member last launched; someone on the roster who never has reads "Never". */
+function LastLaunch({ at }: { at: string | null }) {
+	if (at === null) return <>Never</>;
+	return <time dateTime={at}>{dateTimeText(at)}</time>;
+}
+
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
@@ -247,17 +253,12 @@ function CourseMembers() {
 												{ROLE_LABEL[member.role]}
 												<span aria-hidden="true"> · </span>
 												<span className="sr-only">, </span>
-												Last launch{" "}
-												<time dateTime={member.lastLaunchAt ?? undefined}>
-													{dateTimeText(member.lastLaunchAt)}
-												</time>
+												Last launch <LastLaunch at={member.lastLaunchAt} />
 											</span>
 										</th>
 										<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
 										<td className={WIDE_ONLY}>
-											<time dateTime={member.lastLaunchAt ?? undefined}>
-												{dateTimeText(member.lastLaunchAt)}
-											</time>
+											<LastLaunch at={member.lastLaunchAt} />
 										</td>
 										<td>
 											{member.workspaceState ? (
@@ -271,34 +272,37 @@ function CourseMembers() {
 											)}
 										</td>
 										<td className="pk-cell-actions">
-											{memberShares.map((share) => (
-												<Link
-													key={share.projectId}
-													to="/course/$courseId/shares/$projectId"
-													params={{ courseId, projectId: share.projectId }}
-													className="pk-focus-ring mr-3 rounded-sm font-semibold text-accent-text"
-												>
-													Shared project
-													<span className="sr-only">
-														: {share.projectName} by {member.displayName}
-													</span>
-												</Link>
-											))}
-											{!canRemove(member, myId) ? null : (
-												<Button
-													size="sm"
-													data-remove-id={member.userId}
-													onClick={() => {
-														removedNext.current = null;
-														setRemoving(member);
-													}}
-												>
-													Remove{" "}
-													<span className="sr-only">
-														{member.displayName} from course
-													</span>
-												</Button>
-											)}
+											{/* Wraps in a narrow table, so the link and Remove are never clipped. */}
+											<div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+												{memberShares.map((share) => (
+													<Link
+														key={share.projectId}
+														to="/course/$courseId/shares/$projectId"
+														params={{ courseId, projectId: share.projectId }}
+														className="pk-focus-ring rounded-sm font-semibold text-accent-text"
+													>
+														Shared project
+														<span className="sr-only">
+															: {share.projectName} by {member.displayName}
+														</span>
+													</Link>
+												))}
+												{!canRemove(member, myId) ? null : (
+													<Button
+														size="sm"
+														data-remove-id={member.userId}
+														onClick={() => {
+															removedNext.current = null;
+															setRemoving(member);
+														}}
+													>
+														Remove{" "}
+														<span className="sr-only">
+															{member.displayName} from course
+														</span>
+													</Button>
+												)}
+											</div>
 										</td>
 									</tr>
 								);

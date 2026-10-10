@@ -2,8 +2,8 @@
  * Roster sync from the Course page (SPEC.md section 8.6, ADR 0058): people on
  * the learning system's roster who never opened Portikus show as Not started,
  * and a person dropped from the roster leaves the page after the next sync.
- * Lee is this spec's own student in CS 101; the other roster people belong
- * to lti-mock-services.spec.ts.
+ * CS 330 and its instructor Roy belong to this spec alone, so its roster
+ * changes cannot reach another spec's course.
  */
 import { expect, test } from "@playwright/test";
 import { WEB_ORIGIN } from "./helpers";
@@ -13,7 +13,7 @@ test.describe.configure({ mode: "serial" });
 
 test.afterEach(async ({ request }) => {
 	// Undo only this spec's change; a full reset would undo other specs' drops.
-	await changeRoster(request, { action: "add", course: "cs101", person: "lee" });
+	await changeRoster(request, { action: "add", course: "cs330", person: "lee" });
 });
 
 test("an instructor syncs the roster: roster-only people read Not started and a dropped member vanishes", async ({
@@ -21,13 +21,13 @@ test("an instructor syncs the roster: roster-only people read Not started and a 
 	request,
 }) => {
 	const leeContext = await browser.newContext({ baseURL: WEB_ORIGIN });
-	const ivyContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const royContext = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
-		await launchAs(await leeContext.newPage(), { person: "lee", course: "cs101" });
+		await launchAs(await leeContext.newPage(), { person: "lee", course: "cs330" });
 
-		const ivy = await ivyContext.newPage();
-		await launchAs(ivy, { person: "ivy", course: "cs101" });
-		const course = await openCourseTab(ivy);
+		const roy = await royContext.newPage();
+		await launchAs(roy, { person: "roy", course: "cs330" });
+		const course = await openCourseTab(roy);
 		const table = course.getByTestId("course-members");
 		const status = course.getByTestId("roster-status");
 		const leeRow = table.getByRole("row", { name: /Lee Learner/ });
@@ -40,12 +40,13 @@ test("an instructor syncs the roster: roster-only people read Not started and a 
 		for (const name of [/Rosa Rosterly/, /Ned Notyet/]) {
 			const row = table.getByRole("row", { name });
 			await expect(row).toContainText("Not started");
+			await expect(row).toContainText("Never");
 			await expect(row.getByRole("button")).toHaveCount(0);
 		}
 		await expect(leeRow).toBeVisible();
 		await expect(leeRow).not.toContainText("Not started");
 
-		await changeRoster(request, { action: "drop", course: "cs101", person: "lee" });
+		await changeRoster(request, { action: "drop", course: "cs330", person: "lee" });
 		await course.getByRole("button", { name: "Sync roster" }).click();
 		await expect(leeRow).toHaveCount(0);
 		const announced = await course.getByTestId("roster-sync").textContent();
@@ -55,6 +56,6 @@ test("an instructor syncs the roster: roster-only people read Not started and a 
 		);
 	} finally {
 		await leeContext.close();
-		await ivyContext.close();
+		await royContext.close();
 	}
 });
