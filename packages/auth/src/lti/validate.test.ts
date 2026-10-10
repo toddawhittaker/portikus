@@ -129,7 +129,9 @@ describe("validateLaunchToken", () => {
 		expect(result).toEqual({
 			ok: true,
 			launch: {
+				kind: "resource_link",
 				platform,
+				deploymentId: "dep-1",
 				subject: "user-123",
 				displayName: "Ivy Instructor",
 				email: "ivy@example.edu",
@@ -137,6 +139,7 @@ describe("validateLaunchToken", () => {
 				role: "instructor",
 				context: { id: "ctx-1", title: "CS 101" },
 				targetLinkUri: `${PUBLIC_URL}/`,
+				membershipsUrl: null,
 			},
 		});
 	});
@@ -242,7 +245,8 @@ describe("validateLaunchToken", () => {
 		],
 		[
 			"wrong_message_type",
-			() => token({ ...claims(), [`${CLAIM}message_type`]: "LtiDeepLinkingRequest" }),
+			() =>
+				token({ ...claims(), [`${CLAIM}message_type`]: "LtiSubmissionReviewRequest" }),
 		],
 		["wrong_version", () => token({ ...claims(), [`${CLAIM}version`]: "1.1" })],
 		[
@@ -319,5 +323,181 @@ describe("validateLaunchToken", () => {
 	test("the key set source reuses one set per URL", () => {
 		const keySets = createKeySetSource();
 		expect(keySets(platform.keysetUrl)).toBe(keySets(platform.keysetUrl));
+	});
+});
+
+const DL = "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings";
+const NRPS = "https://purl.imsglobal.org/spec/lti-nrps/claim/namesroleservice";
+const RETURN_URL = "https://lms.example.edu/deep_links/return";
+
+/** A good Deep Linking request from an instructor: no resource link, settings present. */
+function deepLinkClaims(
+	settings: Record<string, unknown> = {},
+): Record<string, unknown> {
+	const c = claims();
+	delete c[`${CLAIM}resource_link`];
+	return {
+		...c,
+		[`${CLAIM}message_type`]: "LtiDeepLinkingRequest",
+		[DL]: {
+			deep_link_return_url: RETURN_URL,
+			accept_types: ["link", "ltiResourceLink"],
+			accept_presentation_document_targets: ["window"],
+			data: "opaque-123",
+			...settings,
+		},
+	};
+}
+
+describe("validateLaunchToken for Deep Linking", () => {
+	test("accepts an instructor's request and returns its return URL and data", async () => {
+		const result = await validate(token(deepLinkClaims()));
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.launch).toMatchObject({
+			kind: "deep_linking",
+			deploymentId: "dep-1",
+			subject: "user-123",
+			role: "instructor",
+			deepLinkReturnUrl: RETURN_URL,
+			deepLinkData: "opaque-123",
+		});
+	});
+
+	test("absent data is null", async () => {
+		const result = await validate(token(deepLinkClaims({ data: undefined })));
+		expect(result.ok && result.launch.kind === "deep_linking").toBe(true);
+		expect(
+			result.ok && result.launch.kind === "deep_linking" && result.launch.deepLinkData,
+		).toBeNull();
+	});
+
+	test("a mock platform may use an http return URL", async () => {
+		const url = "http://127.0.0.1:9/return";
+		const result = await validate(token(deepLinkClaims({ deep_link_return_url: url })));
+		expect(
+			result.ok &&
+				result.launch.kind === "deep_linking" &&
+				result.launch.deepLinkReturnUrl,
+		).toBe(url);
+	});
+
+	test("a real platform may not use an http return URL", async () => {
+		const result = await validateLaunchToken({
+			idToken: token(
+				deepLinkClaims({ deep_link_return_url: "http://lms.example.edu/r" }),
+			),
+			loginState,
+			platforms: [{ ...platform, mock: false }],
+			publicUrl: PUBLIC_URL,
+			keySets: createKeySetSource(),
+			now: NOW,
+		});
+		expect(!result.ok && result.reason).toBe("bad_deep_link_return_url");
+	});
+
+	// The shared checks still run first: signature, audience, nonce and the rest.
+	test.each<[LtiRefusal, () => string]>([
+		["bad_signature", () => token(deepLinkClaims(), { key: other.privateKey })],
+		["wrong_audience", () => token({ ...deepLinkClaims(), aud: "someone-else" })],
+		[
+			"unknown_issuer",
+			() => token({ ...deepLinkClaims(), iss: "https://evil.example.com" }),
+		],
+		["nonce_mismatch", () => token({ ...deepLinkClaims(), nonce: "replayed" })],
+		["expired", () => token({ ...deepLinkClaims(), exp: NOW_S - 61 })],
+		[
+			"wrong_target",
+			() =>
+				token({
+					...deepLinkClaims(),
+					[`${CLAIM}target_link_uri`]: "https://evil.example.com/",
+				}),
+		],
+		["bad_deep_link_settings", () => token({ ...deepLinkClaims(), [DL]: undefined })],
+		["bad_deep_link_settings", () => token({ ...deepLinkClaims(), [DL]: "settings" })],
+		["bad_deep_link_settings", () => token(deepLinkClaims({ data: 7 }))],
+		["bad_deep_link_settings", () => token(deepLinkClaims({ data: "x".repeat(4097) }))],
+		[
+			"bad_deep_link_return_url",
+			() => token(deepLinkClaims({ deep_link_return_url: undefined })),
+		],
+		[
+			"bad_deep_link_return_url",
+			() => token(deepLinkClaims({ deep_link_return_url: "not a url" })),
+		],
+		[
+			"bad_deep_link_return_url",
+			() => token(deepLinkClaims({ deep_link_return_url: "javascript:alert(1)" })),
+		],
+		[
+			"bad_deep_link_return_url",
+			() =>
+				token(
+					deepLinkClaims({
+						deep_link_return_url: `https://lms.example.edu/${"x".repeat(2048)}`,
+					}),
+				),
+		],
+		[
+			"resource_link_not_accepted",
+			() => token(deepLinkClaims({ accept_types: ["link"] })),
+		],
+		[
+			"resource_link_not_accepted",
+			() => token(deepLinkClaims({ accept_types: undefined })),
+		],
+		[
+			"not_instructor",
+			() =>
+				token({
+					...deepLinkClaims(),
+					[`${CLAIM}roles`]: [
+						"http://purl.imsglobal.org/vocab/lis/v2/membership#Learner",
+					],
+				}),
+		],
+		[
+			"not_instructor",
+			() => token({ ...deepLinkClaims(), [`${CLAIM}roles`]: undefined }),
+		],
+	])("refuses %s", async (reason, build) => {
+		expect(await refusal(build())).toBe(reason);
+	});
+
+	test("a resource-link launch still needs its resource link", async () => {
+		const c = claims();
+		delete c[`${CLAIM}resource_link`];
+		expect(await refusal(token(c))).toBe("missing_resource_link");
+	});
+});
+
+describe("the NRPS claim", () => {
+	const membershipsUrl = "https://lms.example.edu/api/lti/courses/1/names_and_roles";
+
+	test.each(["resource link", "deep linking"])(
+		"a %s launch returns the memberships URL",
+		async (kind) => {
+			const base = kind === "resource link" ? claims() : deepLinkClaims();
+			const nrps = {
+				context_memberships_url: membershipsUrl,
+				service_versions: ["2.0"],
+			};
+			const result = await validate(token({ ...base, [NRPS]: nrps }));
+			expect(result.ok && result.launch.membershipsUrl).toBe(membershipsUrl);
+		},
+	);
+
+	test.each<[string, unknown]>([
+		["a missing claim", undefined],
+		["a claim that is not an object", "url"],
+		["a missing URL", {}],
+		["a URL that is not a string", { context_memberships_url: 7 }],
+		["a URL that does not parse", { context_memberships_url: "not a url" }],
+		["a non-web URL", { context_memberships_url: "file:///etc/passwd" }],
+	])("%s gives null and the launch still succeeds", async (_label, value) => {
+		const result = await validate(token({ ...claims(), [NRPS]: value }));
+		expect(result.ok).toBe(true);
+		expect(result.ok && result.launch.membershipsUrl).toBeNull();
 	});
 });
