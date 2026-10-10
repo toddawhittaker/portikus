@@ -640,6 +640,8 @@ jobs:
         run: bash packaging/tests/agents-links-order-test.sh
       - name: Enabled units
         run: bash packaging/tests/enable-units-test.sh
+      - name: Units prerm stops
+        run: bash packaging/tests/prerm-units-test.sh
       - name: Secrets YAML
         run: bash packaging/tests/secrets-yaml-test.sh
       - name: Save the test image
