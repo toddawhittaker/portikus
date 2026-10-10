@@ -1,4 +1,3 @@
-import { requireUser } from "@portikus/auth";
 import {
 	type CourseSharesResponse,
 	ProjectPath,
@@ -10,9 +9,8 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import { z } from "zod";
 import { AGENT_TIMEOUT_MS, readAgentError } from "../agent-client.js";
-import { teachesCourse } from "../courses/membership.js";
+import { taughtCourseId } from "../courses/taught-course.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import {
@@ -34,8 +32,6 @@ import {
 	isSecretPath,
 } from "../workspaces/secret-paths.js";
 import { sharedProject } from "../workspaces/shared-scope.js";
-
-const CourseParam = z.object({ courseId: z.string().uuid() });
 
 /** A secret path answers as a missing file, so the name gives nothing away. */
 const HIDDEN_MESSAGE = "no such file or directory";
@@ -60,13 +56,8 @@ export function registerCourseShareRoutes(
 		});
 
 		instance.get("/courses/:courseId/shares", async (request, reply) => {
-			const user = requireUser(request);
-			const params = CourseParam.safeParse(request.params);
-			if (!params.success) return sendError(reply, 404, "NOT_FOUND", "Not found.");
-			const { courseId } = params.data;
-			if (!(await teachesCourse(db, { userId: user.id, courseId }))) {
-				return sendError(reply, 404, "NOT_FOUND", "Not found.");
-			}
+			const courseId = await taughtCourseId(db, request);
+			if (!courseId) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 			const rows = await db
 				.selectFrom("project_shares")
 				.innerJoin("projects", "projects.id", "project_shares.project_id")

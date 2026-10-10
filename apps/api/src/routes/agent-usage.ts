@@ -1,4 +1,4 @@
-import { requireRole, requireUser } from "@portikus/auth";
+import { requireRole } from "@portikus/auth";
 import {
 	AgentUsageQuery,
 	type AgentUsageResponse,
@@ -8,12 +8,9 @@ import {
 import type { Database } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { type Kysely, sql } from "kysely";
-import { z } from "zod";
-import { teachesCourse } from "../courses/membership.js";
+import { taughtCourseId } from "../courses/taught-course.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-
-const CourseParam = z.object({ courseId: z.string().uuid() });
 
 const DAY_MS = 86_400_000;
 
@@ -114,13 +111,8 @@ export function registerAgentUsageRoutes(
 	{ db }: ServerDeps,
 ): void {
 	app.get("/courses/:courseId/agent-usage", async (request, reply) => {
-		const user = requireUser(request);
-		const params = CourseParam.safeParse(request.params);
-		if (!params.success) return sendError(reply, 404, "NOT_FOUND", "Not found.");
-		const { courseId } = params.data;
-		if (!(await teachesCourse(db, { userId: user.id, courseId }))) {
-			return sendError(reply, 404, "NOT_FOUND", "Not found.");
-		}
+		const courseId = await taughtCourseId(db, request);
+		if (!courseId) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const query = AgentUsageQuery.safeParse(request.query);
 		if (!query.success)
 			return sendError(reply, 400, "VALIDATION_FAILED", "days must be 7, 30 or 90.");
