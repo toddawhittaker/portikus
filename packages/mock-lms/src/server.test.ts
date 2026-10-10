@@ -283,7 +283,7 @@ describe("mock LMS", () => {
 
 		it.each([
 			["unknown_deployment", "deployment_id", "unknown-deployment"],
-			["wrong_message_type", "message_type", "LtiDeepLinkingRequest"],
+			["wrong_message_type", "message_type", "LtiSubmissionReviewRequest"],
 			["wrong_version", "version", "1.1.0"],
 			["wrong_target", "target_link_uri", "https://elsewhere.invalid/"],
 		])("%s changes only %s", async (defect, claim, value) => {
@@ -375,6 +375,7 @@ describe("registration", () => {
 			clientId: "portikus-mock",
 			authLoginUrl: "http://10.100.0.1:8765/authorize",
 			keysetUrl: "http://10.100.0.1:8765/.well-known/jwks.json",
+			authTokenUrl: "http://10.100.0.1:8765/token",
 			deploymentIds: ["mock-deployment-1"],
 			mock: true,
 		});

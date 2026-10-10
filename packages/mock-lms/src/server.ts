@@ -1,23 +1,30 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { html, readForm, send } from "./http.js";
 import { autoPostPage, errorPage, framePage, launchPage } from "./pages.js";
+import { createRosters } from "./roster.js";
 import {
 	CLIENT_ID,
 	type Course,
 	DEPLOYMENT_ID,
 	findCourse,
 	findPerson,
+	findRosterPerson,
 	isRoleName,
 	type Person,
 	type RoleName,
 } from "./seed.js";
+import { createServices } from "./services.js";
 import {
+	type ContentLink,
+	type DeepLinkRequest,
 	type Defect,
 	isDefect,
 	launchClaims,
 	type Signer,
 	signLaunch,
 } from "./token.js";
+import { type FetchToolKeys, fetchKeysFrom } from "./tool.js";
 
 export interface MockLmsOptions {
 	issuer: string;
@@ -25,6 +32,8 @@ export interface MockLmsOptions {
 	signer: Signer;
 	log: (line: string) => void;
 	now?: () => number;
+	/** Where the tool's public keys come from; defaults to its /lti/jwks. */
+	fetchToolKeys?: FetchToolKeys;
 }
 
 interface PendingLaunch {
@@ -32,10 +41,11 @@ interface PendingLaunch {
 	course: Course;
 	role: RoleName;
 	defect?: Defect;
+	deepLink?: DeepLinkRequest;
+	link?: ContentLink;
 }
 
 const MAX_PENDING = 1000;
-const MAX_BODY_BYTES = 64 * 1024;
 
 export function registration(issuer: string) {
 	return {
@@ -43,6 +53,7 @@ export function registration(issuer: string) {
 		issuer,
 		clientId: CLIENT_ID,
 		authLoginUrl: `${issuer}/authorize`,
+		authTokenUrl: `${issuer}/token`,
 		keysetUrl: `${issuer}/.well-known/jwks.json`,
 		deploymentIds: [DEPLOYMENT_ID],
 		mock: true,
@@ -52,6 +63,14 @@ export function registration(issuer: string) {
 export function createHandler(options: MockLmsOptions) {
 	const { issuer, toolUrl, signer, log } = options;
 	const now = options.now ?? (() => Math.floor(Date.now() / 1000));
+	const rosters = createRosters();
+	const services = createServices({
+		issuer,
+		fetchKeys: options.fetchToolKeys ?? fetchKeysFrom(toolUrl),
+		now,
+		rosters,
+		log,
+	});
 	// Launches stay valid for the life of the process: the frame fallback re-submits the same hint.
 	const pending = new Map<string, PendingLaunch>();
 	let previousToken: string | undefined; // the last good launch's token
@@ -64,22 +83,11 @@ export function createHandler(options: MockLmsOptions) {
 		return given.length === expected.length && timingSafeEqual(given, expected);
 	};
 
-	function send(res: ServerResponse, status: number, type: string, body: string) {
-		res.writeHead(status, {
-			"content-type": type,
-			"cache-control": "no-store",
-			"referrer-policy": "no-referrer",
-		});
-		res.end(body);
-	}
-	const html = (res: ServerResponse, status: number, body: string) =>
-		send(res, status, "text/html; charset=utf-8", body);
-
 	function loginFields(id: string, launch: PendingLaunch): Record<string, string> {
 		return {
 			iss: issuer,
 			login_hint: launch.person.key,
-			target_link_uri: `${toolUrl}/`,
+			target_link_uri: launch.link?.url ?? `${toolUrl}/`,
 			lti_message_hint: id,
 			client_id: CLIENT_ID,
 			lti_deployment_id: DEPLOYMENT_ID,
@@ -112,19 +120,86 @@ export function createHandler(options: MockLmsOptions) {
 			role: roleParam === "" ? person.role : roleParam,
 			defect: defectParam === "" ? undefined : defectParam,
 		};
+		return begin(launch, params.get("frame") === "1", res);
+	}
+
+	function begin(launch: PendingLaunch, frameIt: boolean, res: ServerResponse) {
 		const id = randomUUID();
 		if (pending.size >= MAX_PENDING) {
 			const oldest = pending.keys().next().value;
 			if (oldest !== undefined) pending.delete(oldest);
 		}
 		pending.set(id, launch);
-		if (params.get("frame") === "1")
-			return html(res, 200, framePage(`/frame?launch=${id}`));
+		if (frameIt) return html(res, 200, framePage(`/frame?launch=${id}`));
 		return html(
 			res,
 			200,
 			autoPostPage(`${toolUrl}/lti/login`, loginFields(id, launch)),
 		);
+	}
+
+	function startDeepLink(params: URLSearchParams, res: ServerResponse) {
+		if (!formTokenOk(params.get("form_token"))) {
+			return html(res, 403, errorPage("Start from this mock's launch page."));
+		}
+		const person = findPerson(params.get("person") ?? "");
+		const course = findCourse(params.get("course") ?? "");
+		if (!person) return html(res, 400, errorPage("Choose a person from the list."));
+		if (!course) return html(res, 400, errorPage("Choose a course from the list."));
+		return begin(
+			{
+				person,
+				course,
+				role: person.role,
+				deepLink: {
+					returnUrl: `${issuer}/deeplink/return`,
+					data: services.newDeepLinkData(course.key),
+				},
+			},
+			false,
+			res,
+		);
+	}
+
+	function launchLink(params: URLSearchParams, res: ServerResponse) {
+		if (!formTokenOk(params.get("form_token"))) {
+			return html(res, 403, errorPage("Start from this mock's launch page."));
+		}
+		const person = findPerson(params.get("person") ?? "");
+		const link = services.links.get(params.get("link") ?? "");
+		const course = link ? findCourse(link.courseKey) : undefined;
+		if (!person) return html(res, 400, errorPage("Choose a person from the list."));
+		if (!link || !course) return html(res, 400, errorPage("Choose a saved link."));
+		return begin({ person, course, role: person.role, link }, false, res);
+	}
+
+	/** Test hook: change a course roster. Needs the same form token as a launch. */
+	function changeRoster(params: URLSearchParams, res: ServerResponse) {
+		if (!formTokenOk(params.get("form_token"))) {
+			return html(res, 403, errorPage("Start from this mock's launch page."));
+		}
+		const action = params.get("action");
+		if (action === "reset") {
+			rosters.reset();
+			return send(res, 204, "text/plain; charset=utf-8", "");
+		}
+		const courseKey = params.get("course") ?? "";
+		const personKey = params.get("person") ?? "";
+		const roleParam = params.get("role") ?? "";
+		const person = findRosterPerson(personKey);
+		if (roleParam !== "" && !isRoleName(roleParam)) {
+			return html(res, 400, errorPage("Choose a role from the list."));
+		}
+		let done = false;
+		if (action === "add" && person) {
+			done = rosters.add(courseKey, person, roleParam === "" ? person.role : roleParam);
+		} else if (action === "drop") {
+			done = rosters.drop(courseKey, personKey);
+		} else if (action === "role" && roleParam !== "") {
+			done = rosters.setRole(courseKey, personKey, roleParam);
+		}
+		if (!done) return html(res, 400, errorPage("That roster change names no one."));
+		return send(res, 204, "text/plain; charset=utf-8", "");
 	}
 
 	function frame(params: URLSearchParams, res: ServerResponse) {
@@ -196,6 +271,8 @@ export function createHandler(options: MockLmsOptions) {
 				person: launch.person,
 				course: launch.course,
 				role: launch.role,
+				deepLink: launch.deepLink,
+				link: launch.link,
 				nonce,
 				now: now(),
 				defect,
@@ -216,6 +293,30 @@ export function createHandler(options: MockLmsOptions) {
 		);
 	}
 
+	const getRoutes: Record<
+		string,
+		(params: URLSearchParams, res: ServerResponse) => void | Promise<void>
+	> = {
+		"/": (_params, res) =>
+			html(res, 200, launchPage(toolUrl, formToken, [...services.links.values()])),
+		"/.well-known/jwks.json": (_params, res) =>
+			send(res, 200, "application/json", JSON.stringify(signer.jwks)),
+		"/frame": frame,
+	};
+
+	// POST routes that take a form body.
+	const formRoutes: Record<
+		string,
+		(params: URLSearchParams, res: ServerResponse) => void | Promise<void>
+	> = {
+		"/start": start,
+		"/deeplink/start": startDeepLink,
+		"/deeplink/return": services.deepLinkReturn,
+		"/launch-link": launchLink,
+		"/roster": changeRoster,
+		"/token": services.token,
+	};
+
 	return async function handle(
 		req: IncomingMessage,
 		res: ServerResponse,
@@ -223,15 +324,12 @@ export function createHandler(options: MockLmsOptions) {
 		const url = new URL(req.url ?? "/", "http://mock-lms.invalid");
 		const method = req.method ?? "GET";
 		try {
-			if (method === "GET" && url.pathname === "/")
-				return html(res, 200, launchPage(toolUrl, formToken));
-			if (method === "GET" && url.pathname === "/.well-known/jwks.json") {
-				return send(res, 200, "application/json", JSON.stringify(signer.jwks));
-			}
-			if (method === "GET" && url.pathname === "/frame")
-				return frame(url.searchParams, res);
-			if (method === "POST" && url.pathname === "/start") {
-				return start(await readForm(req), res);
+			const getRoute = method === "GET" ? getRoutes[url.pathname] : undefined;
+			if (getRoute) return getRoute(url.searchParams, res);
+			const formRoute = method === "POST" ? formRoutes[url.pathname] : undefined;
+			if (formRoute) return await formRoute(await readForm(req), res);
+			if (method === "GET" && url.pathname.startsWith("/nrps/")) {
+				return services.memberships(req, url, res);
 			}
 			if (url.pathname === "/authorize" && (method === "GET" || method === "POST")) {
 				const params = method === "POST" ? await readForm(req) : new URLSearchParams();
@@ -245,15 +343,4 @@ export function createHandler(options: MockLmsOptions) {
 			return send(res, 400, "text/plain; charset=utf-8", "Bad request\n");
 		}
 	};
-}
-
-async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
-	const chunks: Buffer[] = [];
-	let size = 0;
-	for await (const chunk of req) {
-		size += (chunk as Buffer).length;
-		if (size > MAX_BODY_BYTES) throw new Error("body too large");
-		chunks.push(chunk as Buffer);
-	}
-	return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
 }

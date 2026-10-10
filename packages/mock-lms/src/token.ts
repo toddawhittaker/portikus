@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type CryptoKey, exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
+import { membershipsUrl, NRPS_CLAIM } from "./roster.js";
 import {
 	CLIENT_ID,
 	type Course,
@@ -55,6 +56,22 @@ export async function createSigner(): Promise<Signer> {
 	};
 }
 
+/** A stored Deep Linking content item the mock can launch. */
+export interface ContentLink {
+	id: string;
+	courseKey: string;
+	title: string;
+	url: string;
+	custom: Record<string, string>;
+}
+
+export interface DeepLinkRequest {
+	returnUrl: string;
+	data: string;
+}
+
+const DL = "https://purl.imsglobal.org/spec/lti-dl/claim/";
+
 export interface LaunchClaimsInput {
 	issuer: string;
 	toolUrl: string;
@@ -64,10 +81,22 @@ export interface LaunchClaimsInput {
 	nonce: string;
 	now: number;
 	defect?: Defect;
+	/** Makes this a Deep Linking request instead of a resource link launch. */
+	deepLink?: DeepLinkRequest;
+	/** Launches this stored link, with its URL and custom parameters. */
+	link?: ContentLink;
+}
+
+function messageType(defect: Defect | undefined, deepLink: boolean): string {
+	if (defect === "wrong_message_type") {
+		return "LtiSubmissionReviewRequest";
+	}
+	return deepLink ? "LtiDeepLinkingRequest" : "LtiResourceLinkRequest";
 }
 
 export function launchClaims(input: LaunchClaimsInput): Record<string, unknown> {
 	const { person, course, defect } = input;
+	const { deepLink, link } = input;
 	const iat = defect === "expired" ? input.now - 3600 : input.now;
 	return {
 		iss: input.issuer,
@@ -81,19 +110,39 @@ export function launchClaims(input: LaunchClaimsInput): Record<string, unknown> 
 		family_name: person.familyName,
 		email: person.email,
 		...(person.preferredUsername && { preferred_username: person.preferredUsername }),
-		...(person.customUsername && {
-			[`${LTI}custom`]: { username: person.customUsername },
+		...((person.customUsername || link) && {
+			[`${LTI}custom`]: {
+				...(person.customUsername && { username: person.customUsername }),
+				...link?.custom,
+			},
 		}),
-		[`${LTI}message_type`]:
-			defect === "wrong_message_type"
-				? "LtiDeepLinkingRequest"
-				: "LtiResourceLinkRequest",
+		[NRPS_CLAIM]: {
+			context_memberships_url: membershipsUrl(input.issuer, course.id),
+			service_versions: ["2.0"],
+		},
+		...(deepLink && {
+			[`${DL}deep_linking_settings`]: {
+				deep_link_return_url: deepLink.returnUrl,
+				accept_types: ["ltiResourceLink"],
+				accept_presentation_document_targets: ["window"],
+				accept_multiple: true,
+				auto_create: false,
+				data: deepLink.data,
+			},
+		}),
+		[`${LTI}message_type`]: messageType(defect, deepLink !== undefined),
 		[`${LTI}version`]: defect === "wrong_version" ? "1.1.0" : "1.3.0",
 		[`${LTI}deployment_id`]:
 			defect === "unknown_deployment" ? "unknown-deployment" : DEPLOYMENT_ID,
 		[`${LTI}target_link_uri`]:
-			defect === "wrong_target" ? "https://elsewhere.invalid/" : `${input.toolUrl}/`,
-		[`${LTI}resource_link`]: { id: `${course.id}-portikus`, title: "Portikus" },
+			defect === "wrong_target"
+				? "https://elsewhere.invalid/"
+				: (link?.url ?? `${input.toolUrl}/`),
+		...(!deepLink && {
+			[`${LTI}resource_link`]: link
+				? { id: link.id, title: link.title }
+				: { id: `${course.id}-portikus`, title: "Portikus" },
+		}),
 		[`${LTI}context`]: {
 			id: course.id,
 			label: course.label,

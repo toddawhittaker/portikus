@@ -100,6 +100,7 @@ register() { helper register --url http://10.100.0.1:8765; }
 register && register
 check "registering twice leaves one mock registration" [ "$(grep -c '"name": "mock-lms"' "${reg}")" = 1 ]
 accepts "the helper's file allows the mock's address" "${reg}" '{"on": true, "egress": ["10.100.0.1:8765"]}'
+check "the helper's registration carries the token URL" grep -q '"authTokenUrl": "http://10.100.0.1:8765/token"' "${reg}"
 
 helper unregister
 check "unregistering the only platform removes the file" [ ! -e "${reg}" ]
