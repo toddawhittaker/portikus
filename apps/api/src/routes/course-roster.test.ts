@@ -13,7 +13,7 @@ import {
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { UNNAMED_MEMBER } from "../courses/roster.js";
 import { buildServer } from "../server.js";
@@ -498,6 +498,27 @@ test.skipIf(skip)("a memberships page of the wrong shape applies nothing", () =>
 	}),
 );
 
+test.skipIf(skip)("a roster with no instructor who launched applies nothing", () =>
+	expectNothingApplied("no_instructor", () => {
+		lms.members = [
+			{ user_id: "sub-sam", name: "Sam Student", roles: [LEARNER] },
+			{ user_id: "sub-lee", name: "Lee Learner", roles: [LEARNER] },
+			// An instructor who never launched holds no membership to keep.
+			{ user_id: "sub-new", name: "New Teacher", roles: [INSTRUCTOR] },
+		];
+	}),
+);
+
+test.skipIf(skip)("a roster that demotes every instructor applies nothing", () =>
+	expectNothingApplied("no_instructor", () => {
+		lms.members = [
+			{ ...ivyEntry, roles: [LEARNER] },
+			{ user_id: "sub-tom", name: "Tom Assistant", roles: [LEARNER] },
+			{ user_id: "sub-sam", name: "Sam Student", roles: [LEARNER] },
+		];
+	}),
+);
+
 test.skipIf(skip)(
 	"a platform without a token URL offers no sync and calls nothing",
 	async () => {
@@ -554,41 +575,18 @@ test.skipIf(skip)("only one sync of a course runs at a time", async () => {
 });
 
 test.skipIf(skip)(
-	"opening the Course page refreshes a roster at most once an hour",
+	"opening the Course page never calls the LMS; the page asks for a sync itself",
 	async () => {
 		const { ivy, cs101 } = await seed();
-		const cookie = await cookieFor(ivy);
-		lms.members = [
-			ivyEntry,
-			{ user_id: "sub-rosa", name: "Rosa Roster", roles: [LEARNER] },
-		];
-
-		const first = CourseMembersResponse.parse((await members(cs101, cookie)).json());
-		// The page answers at once; the refresh runs behind it.
-		expect(first.roster.syncedAt).toBeNull();
-		await vi.waitFor(async () => {
-			expect((await courseRow(cs101)).roster_sync_result).toBe("ok");
-		});
-		expect(lms.tokenHits).toBe(1);
-
-		const second = CourseMembersResponse.parse((await members(cs101, cookie)).json());
-		expect(second.roster.result).toBe("ok");
-		expect(second.members.map((m) => m.displayName)).toContain("Rosa Roster");
-		expect(lms.tokenHits).toBe(1);
-
-		await testDb.db
-			.updateTable("lti_contexts")
-			.set({ roster_synced_at: new Date(Date.now() - 61 * 60 * 1000).toISOString() })
-			.where("id", "=", cs101)
-			.execute();
-		await members(cs101, cookie);
-		await vi.waitFor(() => expect(lms.tokenHits).toBe(2));
-		await vi.waitFor(async () => {
-			const row = await courseRow(cs101);
-			expect(Date.now() - new Date(row.roster_synced_at ?? 0).getTime()).toBeLessThan(
-				60_000,
-			);
-		});
+		lms.members = [ivyEntry];
+		const page = CourseMembersResponse.parse(
+			(await members(cs101, await cookieFor(ivy))).json(),
+		);
+		expect(page.roster).toEqual({ available: true, syncedAt: null, result: null });
+		// Give a stray background sync time to start before checking none did.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(lms.tokenHits + lms.memberHits).toBe(0);
+		expect(await audits("course.roster_synced")).toEqual([]);
 	},
 );
 

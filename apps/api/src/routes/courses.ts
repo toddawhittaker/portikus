@@ -13,9 +13,7 @@ import { teachesCourse } from "../courses/membership.js";
 import {
 	courseRoster,
 	membershipSubjects,
-	rosterIsStale,
 	selectRosterCourse,
-	syncCourseRoster,
 } from "../courses/roster.js";
 import { taughtCourseId } from "../courses/taught-course.js";
 import type { ServerDeps } from "../deps.js";
@@ -34,7 +32,7 @@ const MemberParam = z.object({
  */
 export function registerCourseRoutes(
 	app: FastifyInstance,
-	{ db, config, lti }: ServerDeps,
+	{ db, lti }: ServerDeps,
 ): void {
 	app.get("/courses", async (request, reply) => {
 		const user = requireUser(request);
@@ -55,24 +53,12 @@ export function registerCourseRoutes(
 	});
 
 	app.get("/courses/:courseId/members", async (request, reply) => {
-		const user = requireUser(request);
 		const courseId = await taughtCourseId(db, request);
 		if (!courseId) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 
 		const course = await selectRosterCourse(db, courseId)
 			.select(["title", "platform_name"])
 			.executeTakeFirstOrThrow();
-		// Opening the page refreshes a stale roster in the background (ADR 0058).
-		if (rosterIsStale(lti, course)) {
-			syncCourseRoster(
-				{ db, lti, proxyUrl: config.OUTBOUND_PROXY_URL ?? null, log: app.log },
-				courseId,
-				`user:${user.id}`,
-			).catch((error: unknown) =>
-				app.log.error({ err: error, courseId }, "roster refresh failed"),
-			);
-		}
-
 		const active = await db
 			.selectFrom("lti_memberships")
 			.innerJoin("users", "users.id", "lti_memberships.user_id")

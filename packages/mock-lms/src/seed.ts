@@ -91,6 +91,15 @@ export const PEOPLE: readonly Person[] = [
 		email: "una@mock-lms.test",
 		role: "Learner",
 	},
+	// Teaches only CS 330, the roster sync spec's own course.
+	{
+		key: "roy",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1701",
+		givenName: "Roy",
+		familyName: "Rostersync",
+		email: "roy@mock-lms.test",
+		role: "Instructor",
+	},
 	// Linking tests only: a link changes where every launch
 	// of a person lands, so no other spec may launch these two.
 	{
@@ -140,11 +149,16 @@ const ROSTER_ONLY: readonly Person[] = [
 	},
 ];
 
-/** The people on each course roster when the mock starts. */
+/**
+ * The people on each course roster when the mock starts. Everyone a test
+ * launches into a course is on its roster, because opening the Course page
+ * syncs and a sync drops anyone the roster lacks.
+ */
 export const INITIAL_ROSTERS: Record<string, readonly string[]> = {
-	cs101: ["ivy", "tom", "sam", "lee", "ros", "ned", "dro"],
-	cs240: ["ivy", "sam"],
-	cs350: ["ivy"],
+	cs101: ["ivy", "tom", "sam", "lee", "ada", "lin", "max", "ros", "ned", "dro"],
+	cs240: ["ivy", "sam", "tom"],
+	cs330: ["roy", "lee", "ros", "ned"],
+	cs350: ["ivy", "rex", "una"],
 };
 
 export const COURSES: readonly Course[] = [
@@ -159,6 +173,12 @@ export const COURSES: readonly Course[] = [
 		id: "mock-course-cs240",
 		label: "CS 240",
 		title: "CS 240 Data Structures",
+	},
+	{
+		key: "cs330",
+		id: "mock-course-cs330",
+		label: "CS 330",
+		title: "CS 330 Operating Systems",
 	},
 	{
 		key: "cs350",

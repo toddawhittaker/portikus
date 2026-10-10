@@ -57,13 +57,21 @@ test("shows per-person and daily tables and says counts never include prompts or
 	expect(screen.getByText(/never include prompts or code/)).toBeDefined();
 });
 
-test("choosing a longer period asks for it", async () => {
+test("choosing a longer period asks for it, and announces it once it shows", async () => {
+	let finish: (response: Response) => void = () => {};
 	const fetch = stubFetch((url) => {
 		const days = Number(new URL(url, "http://x").searchParams.get("days"));
-		return json(200, usage(days, true));
+		if (days === 7) return json(200, usage(days, true));
+		return new Promise<Response>((resolve) => {
+			finish = resolve;
+		});
 	});
 	renderWithQuery(<CourseUsage courseId={COURSE} />);
 	await screen.findByTestId("agent-usage-users");
+	const status = screen.getByTestId("course-usage-days-status");
+	expect(status.getAttribute("role")).toBe("status");
+	// The first load is not announced.
+	expect(status.textContent).toBe("");
 
 	fireEvent.click(screen.getByRole("combobox", { name: "Period" }));
 	fireEvent.click(await screen.findByRole("option", { name: "Last 90 days" }));
@@ -73,6 +81,10 @@ test("choosing a longer period asks for it", async () => {
 			expect.anything(),
 		),
 	);
+	// The old period's rows still show, so nothing is announced yet.
+	expect(status.textContent).toBe("");
+	finish(json(200, usage(90, true)));
+	await waitFor(() => expect(status.textContent).toBe("Showing the last 90 days."));
 });
 
 test("an empty period says so", async () => {

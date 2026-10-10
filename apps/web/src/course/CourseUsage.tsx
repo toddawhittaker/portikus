@@ -19,7 +19,12 @@ export function CourseUsage({ courseId }: { courseId: string }) {
 				this course. Counts never include prompts or code. The agents report them from
 				inside the workspace, so treat them as a guide, not proof.
 			</p>
-			<UsagePeriodSelect id="course-usage-days" days={days} onChange={setDays} />
+			<UsagePeriodSelect
+				id="course-usage-days"
+				days={days}
+				ready={usage.isSuccess && !usage.isPlaceholderData}
+				onChange={setDays}
+			/>
 			{usage.isError ? (
 				<p className="pk-error text-status-error m-0" role="alert">
 					{usage.error instanceof ApiError

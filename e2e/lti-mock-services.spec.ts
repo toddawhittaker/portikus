@@ -13,7 +13,6 @@ import {
 	changeRoster,
 	launchSavedLink,
 	MOCK_LMS_ORIGIN,
-	resetRosters,
 	startDeepLinking,
 } from "./lti-helpers";
 import { MOCK_LMS_PORT } from "./ports";
@@ -26,7 +25,8 @@ const keyFile = join(tmpdir(), `portikus-e2e-lti-${MOCK_LMS_PORT}`, "lti-tool-ke
 
 test.describe.configure({ mode: "serial" });
 test.afterEach(async ({ request }) => {
-	await resetRosters(request);
+	// Undo only this spec's own change; a full reset would race other specs.
+	await changeRoster(request, { action: "add", course: "cs101", person: "dro" });
 });
 
 const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");

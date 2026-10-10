@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { AgentUsageTab } from "./AgentUsageTab.js";
@@ -69,4 +69,19 @@ test("the intro says counts never include prompts or code", async () => {
 	renderWithQuery(<AgentUsageTab />);
 
 	expect(await screen.findByText(/never include prompts or code/)).toBeDefined();
+});
+
+test("a new period is announced once its totals show", async () => {
+	stubFetch((url) => {
+		const days = Number(new URL(url, "http://x").searchParams.get("days"));
+		return json(200, { ...USAGE, days });
+	});
+	renderWithQuery(<AgentUsageTab />);
+	await screen.findByRole("table", { name: /Agent usage per person/ });
+	const status = screen.getByTestId("agent-usage-days-status");
+	expect(status.textContent).toBe("");
+
+	fireEvent.click(screen.getByRole("combobox", { name: "Period" }));
+	fireEvent.click(await screen.findByRole("option", { name: "Last 30 days" }));
+	await waitFor(() => expect(status.textContent).toBe("Showing the last 30 days."));
 });

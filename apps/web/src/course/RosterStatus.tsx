@@ -4,6 +4,7 @@ import type {
 	RosterSyncResult,
 } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
+import * as React from "react";
 import { ApiError } from "../api/request.js";
 import { useSyncRoster } from "./queries.js";
 import { dateTimeText } from "./time.js";
@@ -18,7 +19,19 @@ const RESULT_TEXT: Record<RosterSyncResult, string> = {
 		"Portikus could not read the member list from your learning system, so nothing changed. Try again in a few minutes.",
 	invalid:
 		"The member list was larger or shaped differently than Portikus accepts, so nothing changed.",
+	no_instructor:
+		"The member list would have left this course with no instructor who has opened Portikus from it, so nothing changed. Check the course's instructors in your learning system.",
 };
+
+/** Opening the Course page syncs a roster older than this (ADR 0058). */
+const ROSTER_REFRESH_MS = 60 * 60 * 1000;
+
+/** Whether opening the page should sync: sync works and the last one is missing or old. */
+function rosterIsStale(roster: CourseRoster, now: number): boolean {
+	if (!roster.available) return false;
+	if (roster.syncedAt === null) return true;
+	return now - new Date(roster.syncedAt).getTime() >= ROSTER_REFRESH_MS;
+}
 
 /** The counts a sync changed, in plain words. */
 function countsText(sync: RosterSyncResponse): string {
@@ -42,6 +55,14 @@ export function RosterStatus({
 }) {
 	const sync = useSyncRoster(courseId);
 	const failure = sync.error;
+	const { mutate } = sync;
+	// One automatic sync per visit; the button covers the rest.
+	const autoSynced = React.useRef(false);
+	React.useEffect(() => {
+		if (autoSynced.current || !rosterIsStale(roster, Date.now())) return;
+		autoSynced.current = true;
+		mutate();
+	}, [roster, mutate]);
 	return (
 		<section
 			className="flex flex-col gap-2"
@@ -56,7 +77,7 @@ export function RosterStatus({
 					<p className="pk-text-body m-0">
 						{roster.syncedAt ? (
 							<>
-								Last synced{" "}
+								{roster.result === "ok" ? "Last synced" : "Last tried"}{" "}
 								<time dateTime={roster.syncedAt}>{dateTimeText(roster.syncedAt)}</time>.{" "}
 								{roster.result ? RESULT_TEXT[roster.result] : null}
 							</>
@@ -65,7 +86,7 @@ export function RosterStatus({
 						)}
 					</p>
 					<div>
-						<Button onClick={() => sync.mutate()} disabled={sync.isPending}>
+						<Button onClick={() => mutate()} loading={sync.isPending}>
 							{sync.isPending ? "Syncing roster…" : "Sync roster"}
 						</Button>
 					</div>
@@ -82,7 +103,8 @@ export function RosterStatus({
 				role="status"
 				data-testid="roster-sync"
 			>
-				{sync.data ? announcement(sync.data) : null}
+				{/* Emptied while a sync runs, so the same counts are heard again after it. */}
+				{sync.data && !sync.isPending ? announcement(sync.data) : null}
 			</p>
 			{failure ? (
 				<p className="pk-error text-status-error m-0" role="alert">

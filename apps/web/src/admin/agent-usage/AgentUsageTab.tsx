@@ -19,7 +19,12 @@ export function AgentUsageTab() {
 				helpAnchor: "admin-agents",
 			}}
 		>
-			<UsagePeriodSelect id="agent-usage-days" days={days} onChange={setDays} />
+			<UsagePeriodSelect
+				id="agent-usage-days"
+				days={days}
+				ready={usage.isSuccess && !usage.isPlaceholderData}
+				onChange={setDays}
+			/>
 			{usage.isError ? (
 				<p className="pk-error text-status-error" role="alert">
 					{usage.error instanceof ApiError
