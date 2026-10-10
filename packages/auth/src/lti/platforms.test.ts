@@ -51,9 +51,19 @@ describe("parsePlatformsFile", () => {
 			issuer: "http://10.100.0.1:8765",
 			authLoginUrl: "http://10.100.0.1:8765/authorize",
 			keysetUrl: "http://10.100.0.1:8765/.well-known/jwks.json",
+			authTokenUrl: "http://10.100.0.1:8765/token",
 			mock: true,
 		};
 		expect(parsePlatformsFile(file(mock))).toEqual([mock]);
+	});
+
+	test("keeps an https authTokenUrl and treats it as optional", () => {
+		const withToken = {
+			...canvas,
+			authTokenUrl: "https://sso.canvaslms.com/login/oauth2/token",
+		};
+		expect(parsePlatformsFile(file(withToken))).toEqual([withToken]);
+		expect(parsePlatformsFile(file(canvas))[0]?.authTokenUrl).toBeUndefined();
 	});
 
 	test.each([
@@ -89,6 +99,17 @@ describe("parsePlatformsFile", () => {
 			"an http keysetUrl without mock",
 			file({ ...canvas, keysetUrl: "http://sso.example.edu/k" }),
 			"platforms.0.keysetUrl",
+		],
+		["a bad authTokenUrl", file({ ...canvas, authTokenUrl: "nope" }), "authTokenUrl"],
+		[
+			"an http authTokenUrl without mock",
+			file({ ...canvas, authTokenUrl: "http://sso.example.edu/t" }),
+			"platforms.0.authTokenUrl",
+		],
+		[
+			"a non-web authTokenUrl even for a mock",
+			file({ ...canvas, authTokenUrl: "file:///etc/passwd", mock: true }),
+			"platforms.0.authTokenUrl",
 		],
 		[
 			"a non-web scheme even for a mock",
