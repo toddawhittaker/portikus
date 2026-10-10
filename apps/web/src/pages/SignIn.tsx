@@ -1,4 +1,4 @@
-import { Navigate } from "@tanstack/react-router";
+import { Navigate, useSearch } from "@tanstack/react-router";
 import { useEnsureWorkspace } from "../api/workspace.js";
 import { gatePath, useMe } from "../useMe.js";
 import { StandalonePage } from "./StandalonePage.js";
@@ -9,6 +9,8 @@ import { StandalonePage } from "./StandalonePage.js";
  */
 export function SignIn() {
 	const me = useMe();
+	// A starter launch survives the hop to the workspace (SPEC.md §7.2).
+	const { starter } = useSearch({ from: "/" });
 	// An administrator gets a workspace only by opening one (SPEC.md §6.1).
 	const isAdmin = me.status === "authenticated" && me.user.role === "administrator";
 	// The root route sends a gated account to its gate's page (SPEC.md section 5.3).
@@ -24,7 +26,12 @@ export function SignIn() {
 	if (me.status === "authenticated") {
 		if (workspace.data) {
 			return (
-				<Navigate to="/workspaces/$id" params={{ id: workspace.data.id }} replace />
+				<Navigate
+					to="/workspaces/$id"
+					params={{ id: workspace.data.id }}
+					search={starter ? { starter } : {}}
+					replace
+				/>
 			);
 		}
 		return <div className="pk-root" aria-busy="true" />;

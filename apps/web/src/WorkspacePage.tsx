@@ -1,6 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
 import { PaneHandle, Skeleton, useToast } from "@portikus/ui";
-import { Navigate, Outlet, useParams } from "@tanstack/react-router";
+import { Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
@@ -13,6 +13,7 @@ import { LaunchNotice } from "./link/LaunchNotice.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
+import { StarterLaunch } from "./projects/StarterLaunch.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
 import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice, disconnectAnnouncement } from "./shell/DisconnectNotice.js";
@@ -80,6 +81,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const project = projects.data?.find((item) => item.id === projectId);
 	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
+	const { starter } = useSearch({ from: "/workspaces/$id" });
 	// A stop ends the terminals, so the next start is not an upgrade (SPEC.md §22.5).
 	useEffect(() => {
 		if (workspace && !running) forgetAgentBuild(workspaceId);
@@ -117,6 +119,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				project={project}
 			/>
 			<LaunchNotice displayName={user.displayName} />
+			<StarterLaunch workspaceId={workspaceId} starterId={starter} running={running} />
 			<Group
 				className="pk-shell"
 				orientation="horizontal"
