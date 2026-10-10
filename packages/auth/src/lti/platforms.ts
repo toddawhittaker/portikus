@@ -8,6 +8,8 @@ export interface LtiPlatform {
 	clientId: string;
 	authLoginUrl: string;
 	keysetUrl: string;
+	/** Where the tool asks for an access token; without it roster sync is unavailable. */
+	authTokenUrl?: string;
 	deploymentIds: string[];
 	mock: boolean;
 }
@@ -18,6 +20,7 @@ const platformSchema = z.strictObject({
 	clientId: z.string().min(1),
 	authLoginUrl: z.url(),
 	keysetUrl: z.url(),
+	authTokenUrl: z.url().optional(),
 	deploymentIds: z.array(z.string().min(1)).min(1),
 	mock: z.boolean(),
 });
@@ -27,7 +30,7 @@ const fileSchema = z.strictObject({
 	platforms: z.array(platformSchema).min(1),
 });
 
-const URL_FIELDS = ["issuer", "authLoginUrl", "keysetUrl"] as const;
+const URL_FIELDS = ["issuer", "authLoginUrl", "keysetUrl", "authTokenUrl"] as const;
 
 /** Thrown when the platforms file is unreadable or wrong; the message names the problem. */
 export class PlatformsFileError extends Error {
@@ -57,7 +60,9 @@ export function parsePlatformsFile(data: unknown): LtiPlatform[] {
 	parsed.data.platforms.forEach((platform, index) => {
 		const where = `platforms.${index}`;
 		for (const field of URL_FIELDS) {
-			const protocol = new URL(platform[field]).protocol;
+			const value = platform[field];
+			if (value === undefined) continue;
+			const protocol = new URL(value).protocol;
 			const allowed = platform.mock ? ["https:", "http:"] : ["https:"];
 			if (!allowed.includes(protocol)) {
 				problems.push(

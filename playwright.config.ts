@@ -57,6 +57,7 @@ writeFileSync(
 				clientId: "portikus-mock",
 				authLoginUrl: `${MOCK_LMS_ORIGIN}/authorize`,
 				keysetUrl: `${MOCK_LMS_ORIGIN}/.well-known/jwks.json`,
+				authTokenUrl: `${MOCK_LMS_ORIGIN}/token`,
 				deploymentIds: ["mock-deployment-1"],
 				mock: true,
 			},

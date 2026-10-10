@@ -1,5 +1,5 @@
 import { COURSES, PEOPLE, ROLE_NAMES } from "./seed.js";
-import { DEFECTS } from "./token.js";
+import { type ContentLink, DEFECTS } from "./token.js";
 
 export function escapeHtml(value: string): string {
 	return value
@@ -25,7 +25,11 @@ ${body}
 `;
 }
 
-export function launchPage(toolUrl: string, formToken: string): string {
+export function launchPage(
+	toolUrl: string,
+	formToken: string,
+	links: readonly ContentLink[] = [],
+): string {
 	const people = PEOPLE.map(
 		(p) =>
 			`<option value="${p.key}">${escapeHtml(`${p.givenName} ${p.familyName} (${p.role})`)}</option>`,
@@ -53,6 +57,17 @@ export function launchPage(toolUrl: string, formToken: string): string {
 <label><input type="checkbox" name="frame" value="1"> Open inside a frame</label>
 <button type="submit">Launch Portikus</button>
 </form>
+<h2>Deep Linking</h2>
+<form method="post" action="/deeplink/start">
+<input type="hidden" name="form_token" value="${escapeHtml(formToken)}">
+<label for="dl-person">Instructor starting Deep Linking</label>
+<select id="dl-person" name="person">${people}</select>
+<label for="dl-course">Class for Deep Linking</label>
+<select id="dl-course" name="course">${courses}</select>
+<button type="submit">Start Deep Linking</button>
+</form>
+<h2>Saved links</h2>
+${linkForm(formToken, links, people)}
 </main>`,
 	);
 }
@@ -90,5 +105,34 @@ export function errorPage(message: string): string {
 	return page(
 		"Mock LMS error",
 		`<main><h1>Mock LMS refused this request</h1><p>${escapeHtml(message)}</p><p><a href="/">Back to the launch page</a></p></main>`,
+	);
+}
+
+function linkForm(
+	formToken: string,
+	links: readonly ContentLink[],
+	people: string,
+): string {
+	if (links.length === 0) return "<p>No links saved yet.</p>";
+	const options = links
+		.map(
+			(l) =>
+				`<option value="${escapeHtml(l.id)}">${escapeHtml(`${l.title} (${l.courseKey})`)}</option>`,
+		)
+		.join("");
+	return `<form method="post" action="/launch-link">
+<input type="hidden" name="form_token" value="${escapeHtml(formToken)}">
+<label for="link">Link</label>
+<select id="link" name="link">${options}</select>
+<label for="link-person">Launch as</label>
+<select id="link-person" name="person">${people.replace('value="sam"', 'value="sam" selected')}</select>
+<button type="submit">Launch saved link</button>
+</form>`;
+}
+
+export function savedLinksPage(count: number): string {
+	return page(
+		"Mock LMS saved links",
+		`<main><h1>Saved ${count} link${count === 1 ? "" : "s"}</h1><p><a href="/">Back to the launch page</a></p></main>`,
 	);
 }
