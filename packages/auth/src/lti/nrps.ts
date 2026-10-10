@@ -3,6 +3,7 @@ import { createOutboundFetch, type OutboundFetch } from "@portikus/observability
 import { SignJWT } from "jose";
 import { z } from "zod";
 import { type LtiRole, mapLtiRoles } from "./roles.js";
+import { toolKeyId } from "./tool-key.js";
 
 /** The only scope the tool asks for: reading a course's member list. */
 export const NRPS_SCOPE =
@@ -66,8 +67,6 @@ export interface NrpsTokenInput {
 	clientId: string;
 	/** The tool's RSA private key in PEM form. */
 	toolKeyPem: string;
-	/** The `kid` of that key in the tool keyset. */
-	kid: string;
 	/** The forward proxy for outbound requests (ADR 0027); none in development. */
 	proxyUrl?: string | null;
 	now?: Date;
@@ -131,9 +130,10 @@ async function send(
  * the roster only.
  */
 export async function requestNrpsToken(input: NrpsTokenInput): Promise<string> {
+	const kid = toolKeyId(input.toolKeyPem);
 	const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
 	const assertion = await new SignJWT({ jti: randomUUID() })
-		.setProtectedHeader({ alg: "RS256", typ: "JWT", kid: input.kid })
+		.setProtectedHeader({ alg: "RS256", typ: "JWT", kid })
 		.setIssuer(input.clientId)
 		.setSubject(input.clientId)
 		.setAudience(input.tokenUrl)

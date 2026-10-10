@@ -1,6 +1,7 @@
-import { signDeepLinkingResponse } from "@portikus/auth";
-import { recordAudit } from "@portikus/db";
+import { resolveIdentity, signDeepLinkingResponse } from "@portikus/auth";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Kysely } from "kysely";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import {
@@ -15,7 +16,6 @@ import {
 } from "../lti/deep-link.js";
 import { parseStarterChoice, starterCustomParameters } from "../lti/starter.js";
 import { requestMetadata } from "../sessions/start-session.js";
-import { toolJwks } from "./lti.js";
 
 /** The CSP of a picker or return page; a form may post only to `formAction`. */
 function cspFor(formAction: string): string {
@@ -26,6 +26,21 @@ function cspFor(formAction: string): string {
 		"base-uri 'none'",
 		"frame-ancestors 'none'",
 	].join("; ");
+}
+
+/**
+ * The picker has no session, so the audit actor is the account the LTI
+ * identity signs into, or its subject when it has never launched
+ * (SPEC.md §24.11).
+ */
+async function deepLinkActor(
+	db: Kysely<Database>,
+	platformIssuer: string,
+	subject: string | null,
+): Promise<string> {
+	if (!subject) return "unknown";
+	const account = await resolveIdentity(db, `lti:${platformIssuer}`, subject);
+	return account ? `user:${account.userId}` : `subject:${subject}`;
 }
 
 /** What the picker form chose, read as a starter choice's input. */
@@ -114,10 +129,8 @@ export function registerLtiDeepLinkRoutes(
 		// Taking the row makes the handle single use, even against a second submit.
 		const taken = await takeDeepLinkRequest(db, handle);
 		if (!taken) return expired();
-		const kid = toolJwks(lti.toolKeyPem).keys[0]?.kid ?? "";
 		const jwt = await signDeepLinkingResponse({
 			toolKeyPem: lti.toolKeyPem,
-			kid,
 			clientId: taken.client_id,
 			platformIssuer: taken.platform_issuer,
 			deploymentId: taken.deployment_id,
@@ -132,12 +145,8 @@ export function registerLtiDeepLinkRoutes(
 		});
 
 		await recordAudit(db, {
-			// The picker has no session, so the actor is the LTI identity, written
-			// as users.oidc_issuer and oidc_subject would hold it (SPEC.md §24.11).
-			actor: taken.subject
-				? `lti:${taken.platform_issuer}|${taken.subject}`
-				: "unknown",
-			target: "unknown",
+			actor: await deepLinkActor(db, taken.platform_issuer, taken.subject),
+			target: taken.platform_issuer,
 			action: "lti.deep_link",
 			result: "ok",
 			metadata: {

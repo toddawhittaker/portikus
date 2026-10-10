@@ -1,6 +1,12 @@
 import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { createOidcClient } from "@portikus/auth";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestLtiUser,
+	insertTestUser,
+	type TestDb,
+} from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -186,6 +192,60 @@ describe.skipIf(skip)("a Deep Linking request", () => {
 	});
 });
 
+/** Pick a template through the picker and return the lti.deep_link audit row. */
+async function pickAndAudit() {
+	const { handle } = await openPicker();
+	const res = await submit({ handle, choice: "template:Starter", project: "Lab One" });
+	expect(res.statusCode).toBe(200);
+	return testDb.db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "lti.deep_link")
+		.executeTakeFirstOrThrow();
+}
+
+describe.skipIf(skip)("the Deep Linking audit actor", () => {
+	test("is the course account the instructor's LTI identity signs into", async () => {
+		const courseId = await insertTestLtiUser(testDb.db, LTI_ISSUER, {
+			oidc_subject: "ivy-1",
+			role: "instructor",
+		});
+		const audit = await pickAndAudit();
+		expect(audit.actor).toBe(`user:${courseId}`);
+		expect(audit.target).toBe(LTI_ISSUER);
+	});
+
+	test("is the SSO account when the course account is linked to one", async () => {
+		const courseId = await insertTestLtiUser(testDb.db, LTI_ISSUER, {
+			oidc_subject: "ivy-1",
+			role: "instructor",
+		});
+		const ssoId = await insertTestUser(testDb.db, { role: "instructor" });
+		await testDb.db
+			.insertInto("account_links")
+			.values({
+				course_user_id: courseId,
+				user_id: ssoId,
+				platform_issuer: LTI_ISSUER,
+				archived_at: null,
+			})
+			.execute();
+		const audit = await pickAndAudit();
+		expect(audit.actor).toBe(`user:${ssoId}`);
+		expect(audit.target).toBe(LTI_ISSUER);
+	});
+
+	test("is the subject when no account has the identity", async () => {
+		// The same subject at another platform is a different identity.
+		await insertTestLtiUser(testDb.db, "https://other-lms.example", {
+			oidc_subject: "ivy-1",
+		});
+		const audit = await pickAndAudit();
+		expect(audit.actor).toBe("subject:ivy-1");
+		expect(audit.target).toBe(LTI_ISSUER);
+	});
+});
+
 describe.skipIf(skip)("submitting the picker", () => {
 	test("a template signs a response for the stored request and offers a button back", async () => {
 		const { handle } = await openPicker();
@@ -226,8 +286,9 @@ describe.skipIf(skip)("submitting the picker", () => {
 			.where("action", "=", "lti.deep_link")
 			.executeTakeFirstOrThrow();
 		expect(audit.result).toBe("ok");
-		// The LTI identity that picked, as users.oidc_issuer and oidc_subject hold it.
-		expect(audit.actor).toBe(`lti:${LTI_ISSUER}|ivy-1`);
+		// An instructor who has never launched has no account, only a subject.
+		expect(audit.actor).toBe("subject:ivy-1");
+		expect(audit.target).toBe(LTI_ISSUER);
 		expect(audit.metadata).toMatchObject({
 			platform: "Test LMS",
 			source: "template",

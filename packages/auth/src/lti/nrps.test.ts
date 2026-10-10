@@ -18,6 +18,7 @@ import {
 	nextLink,
 	requestNrpsToken,
 } from "./nrps.js";
+import { toolKeyId } from "./tool-key.js";
 
 const tool = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const toolKeyPem = tool.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -106,7 +107,6 @@ function token() {
 		tokenUrl: `${lms.url}/token`,
 		clientId: "client-1",
 		toolKeyPem,
-		kid: "tool-kid",
 	});
 }
 
@@ -142,7 +142,7 @@ describe("requestNrpsToken", () => {
 				audience: `${lms.url}/token`,
 			},
 		);
-		expect(protectedHeader.kid).toBe("tool-kid");
+		expect(protectedHeader.kid).toBe(toolKeyId(toolKeyPem));
 		expect(typeof payload.jti).toBe("string");
 		expect(payload.exp).toBe((payload.iat ?? 0) + 300);
 	});
@@ -179,7 +179,7 @@ describe("requestNrpsToken", () => {
 		const url = `${gone.url}/token`;
 		await new Promise((resolve) => gone.server.close(resolve));
 		const error = await failure(
-			requestNrpsToken({ tokenUrl: url, clientId: "c", toolKeyPem, kid: "k" }),
+			requestNrpsToken({ tokenUrl: url, clientId: "c", toolKeyPem }),
 		);
 		expect(error.kind).toBe("token_failed");
 		expect(error.status).toBeNull();

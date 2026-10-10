@@ -5,6 +5,7 @@ import {
 	type DeepLinkingResponseInput,
 	signDeepLinkingResponse,
 } from "./deep-linking.js";
+import { toolKeyId } from "./tool-key.js";
 
 const CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
 const DL_CLAIM = "https://purl.imsglobal.org/spec/lti-dl/claim/";
@@ -20,7 +21,6 @@ function input(
 ): DeepLinkingResponseInput {
 	return {
 		toolKeyPem,
-		kid: "tool-kid",
 		clientId: "client-1",
 		platformIssuer: "https://lms.example.edu",
 		deploymentId: "dep-1",
@@ -50,7 +50,11 @@ describe("signDeepLinkingResponse", () => {
 	test("the tool's public key verifies it, with the tool as issuer and the platform as audience", async () => {
 		const jwt = await signDeepLinkingResponse(input());
 		const { payload, protectedHeader } = await verify(jwt);
-		expect(protectedHeader).toEqual({ alg: "RS256", typ: "JWT", kid: "tool-kid" });
+		expect(protectedHeader).toEqual({
+			alg: "RS256",
+			typ: "JWT",
+			kid: toolKeyId(toolKeyPem),
+		});
 		expect(payload.iss).toBe("client-1");
 		expect(payload.aud).toBe("https://lms.example.edu");
 		expect(payload.iat).toBe(NOW_S);

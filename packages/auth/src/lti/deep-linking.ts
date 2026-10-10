@@ -1,5 +1,6 @@
 import { createPrivateKey, randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
+import { toolKeyId } from "./tool-key.js";
 
 /** One `ltiResourceLink` content item: the course link the LMS creates. */
 export interface DeepLinkResourceLink {
@@ -12,8 +13,6 @@ export interface DeepLinkResourceLink {
 export interface DeepLinkingResponseInput {
 	/** The tool's RSA private key in PEM form. */
 	toolKeyPem: string;
-	/** The `kid` of that key in the tool keyset, so the platform can find it. */
-	kid: string;
 	clientId: string;
 	platformIssuer: string;
 	deploymentId: string;
@@ -35,6 +34,7 @@ const RESPONSE_LIFETIME_SECONDS = 300;
 export async function signDeepLinkingResponse(
 	input: DeepLinkingResponseInput,
 ): Promise<string> {
+	const kid = toolKeyId(input.toolKeyPem);
 	const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
 	const claims: Record<string, unknown> = {
 		nonce: randomBytes(16).toString("base64url"),
@@ -50,7 +50,7 @@ export async function signDeepLinkingResponse(
 	};
 	if (input.data !== null) claims[`${DL_CLAIM}data`] = input.data;
 	return new SignJWT(claims)
-		.setProtectedHeader({ alg: "RS256", typ: "JWT", kid: input.kid })
+		.setProtectedHeader({ alg: "RS256", typ: "JWT", kid })
 		.setIssuer(input.clientId)
 		.setAudience(input.platformIssuer)
 		.setIssuedAt(nowSeconds)

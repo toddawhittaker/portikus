@@ -75,22 +75,23 @@ export function takeDeepLinkRequest(
 
 /**
  * A server-rendered page with no script, in the design tokens' colours,
- * light and dark, for the picker and the return step.
+ * light and dark, for the picker and the return step. A page showing an
+ * error says so first in its title, which is read before anything else.
  */
-export function deepLinkPage(heading: string, body: string): string {
+export function deepLinkPage(heading: string, body: string, error = false): string {
 	return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(heading)} - Portikus</title>
+<title>${error ? "Error: " : ""}${escapeHtml(heading)} - Portikus</title>
 <style>
 :root { color-scheme: light dark; --surface: #f6f4ef; --raised: #fdfcfa; --line: #dcd7cc; --ink: #23211d; --muted: #5a554c; --accent: #2c6a66; --accent-hover: #22524f; --on-accent: #ffffff; --danger: #a3341f; }
 @media (prefers-color-scheme: dark) { :root { --surface: #171614; --raised: #211f1c; --line: #35322d; --ink: #ece8df; --muted: #aba498; --accent: #7cc2b9; --accent-hover: #9bd3cb; --on-accent: #0f201e; --danger: #f0a08f; } }
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--surface); color: var(--ink); font: 16px/1.5 "Public Sans", system-ui, sans-serif; }
 main { max-width: 36rem; margin: 1.5rem; padding: 1.5rem; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
 h1 { margin: 0 0 0.5rem; font-size: 1.25rem; }
-p { margin: 0 0 0.75rem; color: var(--muted); }
+p { margin: 0 0 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
 .error { color: var(--danger); font-weight: 600; }
 form { margin-top: 1rem; display: grid; gap: 0.5rem; }
 fieldset { margin: 0 0 0.5rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: 6px; }
@@ -158,23 +159,31 @@ export function pickerPage(
 	const error = problem
 		? `<p class="error" id="picker-error">${escapeHtml(PROBLEMS[problem])}</p>\n`
 		: "";
+	// The field the error names is marked invalid and points at the error.
+	const field = problem === "template" ? "source" : problem;
+	const invalid = (name: StarterProblem) =>
+		field === name ? ' aria-invalid="true"' : "";
+	const describedBy = (name: StarterProblem, hint: string) =>
+		field === name ? `picker-error ${hint}` : hint;
+	const sourceError =
+		field === "source" ? ' aria-invalid="true" aria-describedby="picker-error"' : "";
 	const body = `<p>Students who open this link get the project in their Portikus workspace. A project they already have is opened as it is, never overwritten.</p>
 ${error}<form method="post" action="/lti/deep-link">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
-<fieldset>
+<fieldset${sourceError}>
 <legend>Start from</legend>
 ${radios}
 </fieldset>
 <label for="repository">Repository URL</label>
 <p class="hint" id="repository-hint">Only when you chose a repository. A public https URL, not ssh.</p>
-<input type="url" id="repository" name="repository" aria-describedby="repository-hint" value="${escapeHtml(values?.repositoryUrl ?? "")}">
+<input type="url" id="repository" name="repository"${invalid("repository")} aria-describedby="${describedBy("repository", "repository-hint")}" value="${escapeHtml(values?.repositoryUrl ?? "")}">
 <label for="project">Project name</label>
 <p class="hint" id="project-hint">Leave it blank to use the template's name or the repository's folder name.</p>
-<input type="text" id="project" name="project" maxlength="${MAX_PROJECT_NAME_LENGTH}" aria-describedby="project-hint" value="${escapeHtml(values?.projectName ?? "")}">
+<input type="text" id="project" name="project" maxlength="${MAX_PROJECT_NAME_LENGTH}"${invalid("name")} aria-describedby="${describedBy("name", "project-hint")}" value="${escapeHtml(values?.projectName ?? "")}">
 <button type="submit">Add the link</button>
 </form>
 `;
-	return deepLinkPage("Choose what this link opens", body);
+	return deepLinkPage("Choose what this link opens", body, problem !== null);
 }
 
 /** The return step: a button, never an auto-submitting script, posts the signed response. */
