@@ -140,8 +140,39 @@ describe("validateLaunchToken", () => {
 				context: { id: "ctx-1", title: "CS 101" },
 				targetLinkUri: `${PUBLIC_URL}/`,
 				membershipsUrl: null,
+				custom: {},
 			},
 		});
+	});
+
+	test("a resource-link launch keeps only string custom parameters within bounds", async () => {
+		const result = await validate(
+			token({
+				...claims(),
+				[`${CLAIM}custom`]: {
+					portikus_project: "Lab 1",
+					number: 7,
+					nested: { a: "b" },
+					long: "x".repeat(2049),
+					["n".repeat(101)]: "too long a name",
+				},
+			}),
+		);
+		expect(
+			result.ok && result.launch.kind === "resource_link" && result.launch.custom,
+		).toEqual({
+			portikus_project: "Lab 1",
+		});
+	});
+
+	test("at most 50 custom parameters are kept", async () => {
+		const many = Object.fromEntries(
+			Array.from({ length: 60 }, (_, i) => [`p${i}`, "v"]),
+		);
+		const result = await validate(token({ ...claims(), [`${CLAIM}custom`]: many }));
+		const custom =
+			result.ok && result.launch.kind === "resource_link" ? result.launch.custom : {};
+		expect(Object.keys(custom)).toHaveLength(50);
 	});
 
 	test("a launch with no context signs in with no course", async () => {

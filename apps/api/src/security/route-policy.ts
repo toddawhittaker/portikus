@@ -63,6 +63,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /lti/login": { access: "public" },
 	"POST /lti/login": { access: "public" },
 	"POST /lti/launch": { access: "public" },
+	// The Deep Linking picker's submit; its single-use handle is the
+	// authorization, and it starts no session (ADR 0058).
+	"POST /lti/deep-link": { access: "public" },
 	"GET /lti/jwks": { access: "public" },
 	"HEAD /lti/jwks": { access: "public" },
 
@@ -146,6 +149,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /workspaces/:id/projects/templates": owner,
 	"HEAD /workspaces/:id/projects/templates": owner,
 	"POST /workspaces/:id/projects": owner,
+	"POST /workspaces/:id/projects/starter": owner,
 	"PATCH /workspaces/:id/projects/:pid": owner,
 	"DELETE /workspaces/:id/projects/:pid": owner,
 	"POST /workspaces/:id/projects/:pid/duplicate": owner,
@@ -156,6 +160,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/layout": owner,
 	"PUT /workspaces/:id/projects/:pid/layout": owner,
 	"GET /workspaces/:id/projects/:pid/events": ownerSocket,
+	"GET /workspaces/:id/projects/:pid/share": owner,
+	"HEAD /workspaces/:id/projects/:pid/share": owner,
+	"POST /workspaces/:id/projects/:pid/share": owner,
+	"POST /workspaces/:id/projects/:pid/share/stop": owner,
 
 	"GET /workspaces/:id/projects/:pid/tree": owner,
 	"HEAD /workspaces/:id/projects/:pid/tree": owner,
@@ -200,6 +208,27 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /courses/:courseId/members": { access: "course-instructor" },
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
 	"POST /courses/:courseId/roster/sync": { access: "course-instructor" },
+	// A student's shared project, read-only (ADR 0057); only the reads below exist.
+	"GET /courses/:courseId/shares": { access: "course-instructor" },
+	"HEAD /courses/:courseId/shares": { access: "course-instructor" },
+	"GET /courses/:courseId/shares/:projectId/tree": { access: "course-instructor" },
+	"HEAD /courses/:courseId/shares/:projectId/tree": { access: "course-instructor" },
+	"GET /courses/:courseId/shares/:projectId/file": { access: "course-instructor" },
+	"HEAD /courses/:courseId/shares/:projectId/file": { access: "course-instructor" },
+	"GET /courses/:courseId/shares/:projectId/git/status": {
+		access: "course-instructor",
+	},
+	"HEAD /courses/:courseId/shares/:projectId/git/status": {
+		access: "course-instructor",
+	},
+	"GET /courses/:courseId/shares/:projectId/git/diff": { access: "course-instructor" },
+	"HEAD /courses/:courseId/shares/:projectId/git/diff": { access: "course-instructor" },
+	"GET /courses/:courseId/shares/:projectId/checks": { access: "course-instructor" },
+	"HEAD /courses/:courseId/shares/:projectId/checks": { access: "course-instructor" },
+	"GET /courses/:courseId/agent-usage": { access: "course-instructor" },
+	"HEAD /courses/:courseId/agent-usage": { access: "course-instructor" },
+	"GET /admin/agent-usage": { access: "admin" },
+	"HEAD /admin/agent-usage": { access: "admin" },
 
 	"GET /admin/workspaces": { access: "admin" },
 	// Root shells (ADR 0051); the socket has no HEAD twin.

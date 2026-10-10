@@ -171,6 +171,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		"Health",
 		"Logs",
 		"Audit",
+		"Agent usage",
 		"Network",
 		"Backups",
 		"Workspace image",
