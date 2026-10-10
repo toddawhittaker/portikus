@@ -245,6 +245,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/workspaces/:id/processes": { access: "admin" },
 	"POST /admin/workspaces/:id/processes/refresh": { access: "admin" },
 	"POST /admin/workspaces/:id/processes/:pid/stop": { access: "admin" },
+	"GET /admin/workspaces/:id/agent-log": { access: "admin" },
+	"HEAD /admin/workspaces/:id/agent-log": { access: "admin" },
 	// The workspace egress policy.
 	"GET /admin/egress": { access: "admin" },
 	"HEAD /admin/egress": { access: "admin" },
