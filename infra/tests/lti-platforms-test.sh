@@ -44,6 +44,11 @@ platform() {
     "$1" "$2" "$2" "$3" "$4"
 }
 
+# with_token PLATFORM-JSON TOKEN-URL — the platform with an authTokenUrl for roster sync.
+with_token() {
+  printf '%s,"authTokenUrl":"%s"}' "${1%\}}" "$2"
+}
+
 file() { # NAME PLATFORM-JSON...
   local name=$1
   shift
@@ -63,6 +68,17 @@ accepts "a hostname keyset is allowed by name on 443" \
   '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
 refuses "an IPv6 keyset address is refused" \
   "$(file v6 "$(platform v6 https://lms.example "https://[2001:db8::5]/jwks" false)")"
+accepts "a token endpoint host is allowed by name on 443" \
+  "$(file token "$(with_token "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)" \
+    https://canvas.instructure.com/login/oauth2/token)")" \
+  '{"on": true, "egress": ["sso.canvaslms.com:443", "canvas.instructure.com:443"]}'
+accepts "a token endpoint on the keyset's host is allowed once" \
+  "$(file token-shared "$(with_token "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)" \
+    http://10.100.0.1:8765/token)")" \
+  '{"on": true, "egress": ["10.100.0.1:8765"]}'
+refuses "an IPv6 token endpoint address is refused" \
+  "$(file token-v6 "$(with_token "$(platform v6 https://lms.example https://lms.example/jwks false)" \
+    "https://[2001:db8::5]/token")")"
 accepts "a keyset host shared by two platforms is allowed once" \
   "$(file shared "$(platform a https://one.example https://192.0.2.7/jwks false)" \
     "$(platform b https://two.example https://192.0.2.7/jwks false)")" \

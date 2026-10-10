@@ -207,6 +207,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /courses/:courseId/members": { access: "course-instructor" },
 	"HEAD /courses/:courseId/members": { access: "course-instructor" },
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
+	"POST /courses/:courseId/roster/sync": { access: "course-instructor" },
 	// A student's shared project, read-only (ADR 0057); only the reads below exist.
 	"GET /courses/:courseId/shares": { access: "course-instructor" },
 	"HEAD /courses/:courseId/shares": { access: "course-instructor" },

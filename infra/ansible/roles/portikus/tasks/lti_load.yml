@@ -1,7 +1,9 @@
 ---
 # Read the LTI platforms file on the machine that runs Ansible and derive
-# the egress proxy entries its keysets need (ADR 0025, ADR 0027).  The file
-# is validated by the API's own
+# the egress proxy entries its keysets and token endpoints need (ADR 0025,
+# ADR 0027, ADR 0058).  A course's memberships URL arrives in its launches,
+# so allowing its host, when it is not one of these, is the operator's job
+# (portikus_egress_extra_hosts).  The file is validated by the API's own
 # parser when lti.yml installs it, so there is one rule set.  Runs in the
 # play's pre_tasks.
 
@@ -30,29 +32,34 @@
       ansible.builtin.fail:
         msg: "The LTI platforms file {{ portikus_lti_platforms_file }} is not valid JSON."
 
-# The API fetches each keyset through the egress proxy, which needs its host
-# and port.  A keyset named by an IPv4 address, like the mock's, is allowed
-# exactly; a host name is allowed by name.
-- name: Derive the egress proxy entries for the keysets
+# The API fetches each keyset and asks each token endpoint through the
+# egress proxy, which needs its host and port.  One named by an IPv4
+# address, like the mock's, is allowed exactly; a host name is allowed by
+# name.
+- name: Derive the egress proxy entries for the keysets and token endpoints
   when: portikus_lti_platforms is not none
   run_once: true
   vars:
     # Tolerant of a malformed file: the install step refuses it with the API's message.
-    portikus_lti_keyset_urls: >-
+    portikus_lti_platform_list: >-
       {{ (portikus_lti_platforms.platforms | default([]) if portikus_lti_platforms is mapping else [])
-         | select('mapping') | selectattr('keysetUrl', 'defined') | map(attribute='keysetUrl')
+         | select('mapping') | list }}
+    portikus_lti_egress_urls: >-
+      {{ ((portikus_lti_platform_list | selectattr('keysetUrl', 'defined') | map(attribute='keysetUrl') | list)
+          + (portikus_lti_platform_list | selectattr('authTokenUrl', 'defined') | map(attribute='authTokenUrl') | list))
          | select('string') | select('match', '^https?://[^/]') | list }}
   block:
-    - name: Refuse a keyset at an IPv6 address, which the proxy's list cannot name
+    - name: Refuse an LMS URL at an IPv6 address, which the proxy's list cannot name
       ansible.builtin.fail:
-        msg: "The LMS keyset URL {{ item }} names an IPv6 address; use its host name instead."
-      loop: "{{ portikus_lti_keyset_urls | select('match', '^https?://\\[') | list }}"
+        msg: "The LMS URL {{ item }} names an IPv6 address; use its host name instead."
+      loop: "{{ portikus_lti_egress_urls | select('match', '^https?://\\[') | list }}"
 
-    - name: Allow each keyset host and port through the egress proxy
+    # The fact keeps its keyset name because site.yml reads it.
+    - name: Allow each keyset and token endpoint host and port through the egress proxy
       ansible.builtin.set_fact:
         portikus_lti_keyset_egress: >-
           {{ (portikus_lti_keyset_egress
               + [(item | urlsplit('hostname')) ~ ':'
                  ~ ((item | urlsplit('port')) or (80 if (item | urlsplit('scheme')) == 'http' else 443))])
              | unique }}
-      loop: "{{ portikus_lti_keyset_urls }}"
+      loop: "{{ portikus_lti_egress_urls }}"
