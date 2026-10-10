@@ -9,6 +9,7 @@ import {
 	createStudent,
 	endTerminal,
 	expectConnected,
+	openFileTab,
 	query,
 	settledAxe,
 	terminalIds,
@@ -367,3 +368,140 @@ for (const appearance of ["dark", "light"] as const) {
 		expect(failed.violations).toEqual([]);
 	});
 }
+
+/** Dictation into an open file (SPEC.md §25.10). */
+test.describe("voice input in a file", () => {
+	// Monaco is a large chunk the dev server transforms on first use.
+	test.describe.configure({ timeout: 90_000 });
+
+	const PATH = "src/app.ts";
+	const CONTENT = "const answer = 42;\n";
+
+	function lines(page: Page) {
+		return page.getByTestId(`editor-${PATH}`).locator(".view-lines");
+	}
+
+	/** A student with auto-save off, so "Unsaved" stays up to be seen. */
+	async function openFile(
+		page: Page,
+		context: Parameters<typeof createStudent>[0],
+		appearance?: "light" | "dark",
+	) {
+		const student = await createStudent(context);
+		await query(
+			"update users set editor_settings = editor_settings || $1::jsonb where id = $2",
+			[
+				JSON.stringify({ autoSave: false, ...(appearance ? { appearance } : {}) }),
+				student.userId,
+			],
+		);
+		await openFileTab(page, student, "Dictation", PATH, CONTENT);
+		await expect(lines(page)).toContainText("const answer = 42;", { timeout: 60_000 });
+		if (appearance) {
+			await expect(page.locator("html")).toHaveAttribute("data-theme", appearance);
+		}
+	}
+
+	test("holding the microphone replaces the selection, and one Ctrl+Z takes it all back", async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		await openFile(page, context);
+		const button = page.getByRole("button", { name: "Hold to dictate into app.ts" });
+		await expect(button).toHaveAttribute("data-testid", `file-voice-${PATH}`);
+
+		await lines(page).click();
+		await page.keyboard.press("Control+Home");
+		await page.keyboard.press("Shift+End");
+		await button.hover();
+		await page.mouse.down();
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await say(page, "let spoken = 1;", true);
+		await page.mouse.up();
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+
+		await expect(lines(page)).toContainText("let spoken = 1;");
+		await expect(lines(page)).not.toContainText("const answer");
+		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Unsaved");
+
+		await page.keyboard.press("Control+z");
+		await expect(lines(page)).toContainText("const answer = 42;");
+		await expect(lines(page)).not.toContainText("spoken");
+	});
+
+	test("Alt+Shift+M held in the editor dictates at the cursor", async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		await openFile(page, context);
+		await lines(page).click();
+		await page.keyboard.press("Control+Home");
+		await page.keyboard.press("End");
+
+		await page.keyboard.down("Alt");
+		await page.keyboard.down("Shift");
+		await page.keyboard.down("KeyM");
+		const button = page.getByTestId(`file-voice-${PATH}`);
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await say(page, " // said", true);
+		await page.keyboard.up("KeyM");
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+		await page.keyboard.up("Shift");
+		await page.keyboard.up("Alt");
+
+		expect(await speech(page)).toEqual({ started: 1, stopped: 1 });
+		await expect(lines(page)).toContainText("const answer = 42; // said");
+		// The shortcut itself types nothing.
+		await expect(lines(page)).not.toContainText(/[MÂ]/);
+		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Unsaved");
+	});
+
+	test("an image and a CSV table have no microphone", async ({ page, context }) => {
+		await fakeSpeech(page);
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Picture", "pic.png", "\u0000\u0001PNG\u0000");
+		await expect(page.getByTestId("file-pane-pic.png")).toBeVisible();
+		await expect(page.getByTestId("file-voice-pic.png")).toHaveCount(0);
+
+		await openFileTab(page, student, "Table", "data.csv", "a,b\n1,2\n");
+		await expect(page.getByTestId("file-view-view-data.csv")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(page.getByTestId("file-voice-data.csv")).toHaveCount(0);
+		await page.getByTestId("file-view-edit-data.csv").click();
+		await expect(page.getByTestId("file-voice-data.csv")).toBeVisible();
+	});
+
+	test("a browser without speech recognition shows no microphone on a file", async ({
+		page,
+		context,
+	}) => {
+		await noSpeech(page);
+		await openFile(page, context);
+		await expect(page.getByTestId(`file-voice-${PATH}`)).toHaveCount(0);
+	});
+
+	for (const appearance of ["dark", "light"] as const) {
+		test(`a file with its microphone passes axe, idle and listening (${appearance})`, async ({
+			page,
+			context,
+		}) => {
+			await fakeSpeech(page);
+			await openFile(page, context, appearance);
+			const idle = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			expect(idle.violations).toEqual([]);
+
+			await page.getByTestId(`file-voice-${PATH}`).hover();
+			await page.mouse.down();
+			await expect(page.getByTestId(`file-voice-status-${PATH}`)).toHaveText(
+				"Listening…",
+			);
+			const listening = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			await page.mouse.up();
+			expect(listening.violations).toEqual([]);
+		});
+	}
+});
