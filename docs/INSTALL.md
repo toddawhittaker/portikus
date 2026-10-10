@@ -364,11 +364,10 @@ also needs outgoing access from the server, now and later, to:
 
 - `downloads.claude.ai`, for Claude Code;
 - `api.github.com` and `github.com`, for Codex's release list and download;
-- the host GitHub sends release downloads to. It has been
-  `objects.githubusercontent.com` and is now
-  `release-assets.githubusercontent.com`. The job follows the redirect and
-  checks the file against GitHub's digest, so allow whichever name your
-  network sees.
+- `release-assets.githubusercontent.com`, where GitHub redirects release
+  downloads (seen on the rehearsal VM, 2026-10-10). The job follows the
+  redirect and checks the file against GitHub's digest, so if GitHub moves
+  it again, allow the new name.
 
 The firewall setup installs allows SSH, HTTP (port 80) and HTTPS (port
 443) in, and nothing else. For SSH it opens whichever ports the SSH server

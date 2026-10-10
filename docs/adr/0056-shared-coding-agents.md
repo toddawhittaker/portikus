@@ -89,5 +89,8 @@ sessions.
 - The server needs outgoing access to the vendors' download hosts
   (docs/INSTALL.md).
 - The folder is not backed up; it can be downloaded again.
+- Codex copies its own binary into the student's home when it starts
+  (`~/.codex/packages/app-server-daemon/releases/<version>/`) and runs its
+  app-server daemon from that copy, which does not follow `current`.
 - ADR 0030's statement that a rebuild installs pinned Claude Code and Codex
   no longer holds.
