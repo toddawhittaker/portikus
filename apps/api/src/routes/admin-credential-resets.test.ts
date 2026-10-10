@@ -1,6 +1,7 @@
 import {
 	createOidcClient,
 	createSession,
+	DEX_ACCOUNT_ISSUER,
 	dexLocalSubject,
 	LOCAL_ADMIN_USER_ID,
 	precreateDexAccount,
@@ -83,7 +84,7 @@ async function dexAccount(
 	email: string,
 	role: "student" | "administrator",
 ) {
-	const id = await precreateDexAccount(testDb.db, mock.issuer, {
+	const id = await precreateDexAccount(testDb.db, {
 		userId: dexUserId,
 		email,
 		username: email.split("@")[0] ?? "x",
@@ -261,7 +262,7 @@ describe.skipIf(skip)("Install administrator protection", () => {
 		await testDb.db
 			.updateTable("users")
 			.set({
-				oidc_issuer: mock.issuer,
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
 				oidc_subject: dexLocalSubject(LOCAL_ADMIN_USER_ID),
 			})
 			.where("id", "=", carolId)

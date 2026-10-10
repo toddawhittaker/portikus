@@ -1,9 +1,9 @@
 import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
 import {
+	DEX_ACCOUNT_ISSUER,
 	FAKE_AGENT_TOKEN,
 	loginAs,
-	MOCK_ISSUER,
 	query,
 	routeApi,
 	settledAxe,
@@ -20,7 +20,7 @@ async function insertStudent(name: string): Promise<string> {
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, $4, 'student') returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,

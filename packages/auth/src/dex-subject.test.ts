@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+	DEX_ACCOUNT_ISSUER,
 	dexConnectorId,
 	dexLocalSubject,
 	dexLocalUserId,
@@ -66,12 +67,12 @@ test("finds no user id in a subject from another connector or provider", () => {
 	expect(dexLocalUserId(`${dexLocalSubject("x")}AA`)).toBeNull();
 });
 
-test("a local Dex user only when the issuer is this site's Dex", () => {
+test("a local Dex user only under the logical Dex issuer", () => {
 	const id = "08a8684b-db88-4b73-90a9-3cd1661f5466";
-	const row = { oidc_issuer: "https://dex.example", oidc_subject: dexLocalSubject(id) };
-	expect(localDexUserId(row, "https://dex.example")).toBe(id);
-	expect(localDexUserId(row, "https://other.example")).toBeNull();
-	expect(
-		localDexUserId({ ...row, oidc_subject: "google-123" }, "https://dex.example"),
-	).toBeNull();
+	const row = { oidc_issuer: DEX_ACCOUNT_ISSUER, oidc_subject: dexLocalSubject(id) };
+	expect(localDexUserId(row)).toBe(id);
+	// A row still under a Dex URL, or an LMS, is not this site's Dex account.
+	expect(localDexUserId({ ...row, oidc_issuer: "https://dex.example/dex" })).toBeNull();
+	expect(localDexUserId({ ...row, oidc_issuer: "lti:https://lms.example" })).toBeNull();
+	expect(localDexUserId({ ...row, oidc_subject: "google-123" })).toBeNull();
 });

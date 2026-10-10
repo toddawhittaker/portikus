@@ -1,5 +1,6 @@
 import { createOutboundFetch } from "@portikus/observability";
 import * as client from "openid-client";
+import { DEX_ACCOUNT_ISSUER } from "./dex-subject.js";
 import type { OidcIdentity } from "./sessions.js";
 import type { AuthOptions } from "./types.js";
 
@@ -146,7 +147,9 @@ export function createOidcClient(opts: AuthOptions): OidcClient {
 
 			return {
 				identity: {
-					issuer: config.serverMetadata().issuer,
+					// openid-client has already checked `iss` against the discovered
+					// Dex URL; accounts are keyed by the logical issuer (SPEC.md 5.1).
+					issuer: DEX_ACCOUNT_ISSUER,
 					subject,
 					email,
 					displayName,

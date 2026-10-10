@@ -1,7 +1,8 @@
-import type {
-	AdminImageVersion,
-	AdminUser,
-	AdminWorkspaceSummary,
+import {
+	type AdminImageVersion,
+	type AdminUser,
+	type AdminWorkspaceSummary,
+	DEX_ACCOUNT_ISSUER,
 } from "@portikus/contracts";
 
 type AccountMarkers = AdminUser["markers"];
@@ -90,6 +91,12 @@ export function isCourseAccount(issuer: string | null | undefined): boolean {
 export function sourceText(issuer: string | null | undefined): string {
 	if (!issuer || !isCourseAccount(issuer)) return "SSO";
 	return `Course: ${shortIssuer(issuer.slice(LTI_PREFIX.length))}`;
+}
+
+/** The Issuer row: Dex accounts carry a logical issuer, named in words. */
+export function issuerText(issuer: string | null | undefined): string {
+	if (issuer === DEX_ACCOUNT_ISSUER) return "Portikus sign-in";
+	return issuer ?? "—";
 }
 
 export const ROLE_FILTERS = ["administrator", "instructor", "student"] as const;

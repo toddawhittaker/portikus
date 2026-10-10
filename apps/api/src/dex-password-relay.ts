@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { DEX_PASSWORD_ROUTE } from "@portikus/auth";
+import { DEX_ACCOUNT_ISSUER, DEX_PASSWORD_ROUTE } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -62,11 +62,7 @@ function cookieName(config: ApiConfig): string {
  * known-device cookie issued before it. The audit trail already records
  * both, which spares a column (SPEC.md section 24.13).
  */
-async function passwordStamp(
-	db: Kysely<Database>,
-	issuer: string,
-	login: string,
-): Promise<string> {
+async function passwordStamp(db: Kysely<Database>, login: string): Promise<string> {
 	const row = await db
 		.selectFrom("audit_events")
 		// Audit targets are text; user IDs are UUIDs.
@@ -74,7 +70,7 @@ async function passwordStamp(
 			join.on(sql<boolean>`audit_events.target = users.id::text`),
 		)
 		.select("audit_events.id")
-		.where("users.oidc_issuer", "=", issuer)
+		.where("users.oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 		.where(sql<string>`lower(users.email)`, "=", accountKey(login))
 		.where("audit_events.result", "=", "ok")
 		.where("audit_events.action", "in", [
@@ -355,7 +351,7 @@ export function registerDexPasswordRelay(
 	): Promise<FastifyReply> {
 		const { form, login, dexUrl } = post;
 		const target = `login:${accountKey(login)}`;
-		const stamp = await passwordStamp(db, config.OIDC_ISSUER_URL, login);
+		const stamp = await passwordStamp(db, login);
 		const knownDevice = isKnownDevice(request, config, login, stamp);
 		const receipts = await counted(request, login, target, knownDevice);
 		if (!receipts) return refuse(reply);

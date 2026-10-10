@@ -5,7 +5,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import bcrypt from "bcryptjs";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDexApi, type DexApi } from "./dex-api.js";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { LOCAL_ADMIN_USER_ID, runResetAdmin } from "./local-admin.js";
 import { createSession, hashSessionToken } from "./sessions.js";
 import {
@@ -20,10 +20,9 @@ import {
  * 5.1) against a database and the fake Dex gRPC server.
  */
 
-const ISSUER = "https://portikus.example.edu/dex";
 const PUBLIC_URL = "https://portikus.example.edu";
 const DEFAULT_EMAIL = "admin@portikus.example.edu";
-const ENV = { OIDC_ISSUER_URL: ISSUER, PUBLIC_URL };
+const ENV = { PUBLIC_URL };
 
 if (!hasTestDb()) {
 	console.log("TEST_DATABASE_URL is not set — skipping local-admin database tests.");
@@ -99,7 +98,7 @@ async function account() {
 	return t.db
 		.selectFrom("users")
 		.selectAll()
-		.where("oidc_issuer", "=", ISSUER)
+		.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 		.where("oidc_subject", "=", dexLocalSubject(LOCAL_ADMIN_USER_ID))
 		.executeTakeFirstOrThrow();
 }
@@ -212,6 +211,44 @@ describe.skipIf(!hasTestDb())("reset-admin", () => {
 		const cleared = await run("--if-missing");
 		expect(cleared.code).toBe(11);
 		expect(cleared.stdout).toBe("");
+	});
+
+	test("--if-missing after an address move finds the migrated account and keeps its password", async () => {
+		// The account as migration 0044 leaves it: same subject, logical issuer.
+		const { id } = await t.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
+				oidc_subject: dexLocalSubject(LOCAL_ADMIN_USER_ID),
+				email: DEFAULT_EMAIL,
+				display_name: "Local administrator",
+				role: "administrator",
+				granted_role: "administrator",
+				must_change_password: true,
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		await dex.createPassword({
+			email: DEFAULT_EMAIL,
+			username: "admin",
+			userId: LOCAL_ADMIN_USER_ID,
+			hash: "$2b$10$kept",
+		});
+		const update = vi.spyOn(dex, "updatePassword");
+		try {
+			const moved = await runResetAdmin(
+				["--if-missing"],
+				{ db: t.db, dex, env: { PUBLIC_URL: "https://moved.example.edu" } },
+				{ stdout: () => {}, stderr: () => {} },
+			);
+			expect(moved).toBe(10);
+			expect(update).not.toHaveBeenCalled();
+		} finally {
+			update.mockRestore();
+		}
+		expect(storedHash(DEFAULT_EMAIL)).toBe("$2b$10$kept");
+		const rows = await t.db.selectFrom("users").select("id").execute();
+		expect(rows).toEqual([{ id }]);
 	});
 
 	test("--if-missing leaves a removed (disabled) account alone", async () => {

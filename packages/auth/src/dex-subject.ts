@@ -1,3 +1,8 @@
+import { DEX_ACCOUNT_ISSUER } from "@portikus/contracts";
+
+// Dex subjects carry no host, so with this issuer an account survives an address move.
+export { DEX_ACCOUNT_ISSUER };
+
 /**
  * The subject Dex puts in an ID token: the protobuf
  * IDTokenSubject{user_id, conn_id}, base64url without padding (ADR 0023).
@@ -30,11 +35,13 @@ export function dexLocalSubject(userId: string): string {
  * The Dex user ID of an account that signs in with a Dex local password:
  * its subject is a local one from this site's own Dex. Null otherwise.
  */
-export function localDexUserId(
-	row: { oidc_issuer: string; oidc_subject: string },
-	issuer: string,
-): string | null {
-	return row.oidc_issuer === issuer ? dexLocalUserId(row.oidc_subject) : null;
+export function localDexUserId(row: {
+	oidc_issuer: string;
+	oidc_subject: string;
+}): string | null {
+	return row.oidc_issuer === DEX_ACCOUNT_ISSUER
+		? dexLocalUserId(row.oidc_subject)
+		: null;
 }
 
 /**

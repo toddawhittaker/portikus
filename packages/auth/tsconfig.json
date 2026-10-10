@@ -9,6 +9,7 @@
 	},
 	"include": ["src/**/*.ts"],
 	"references": [
+		{ "path": "../contracts" },
 		{ "path": "../db" },
 		{ "path": "../events" },
 		{ "path": "../observability" }

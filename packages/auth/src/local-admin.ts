@@ -1,7 +1,7 @@
 import { type Database, recordAudit } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { type DexApi, generateDexPassword, hashDexPassword } from "./dex-api.js";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { precreateDexAccount } from "./links.js";
 import { resetSecondFactor } from "./second-factor.js";
 
@@ -28,8 +28,6 @@ export class LocalAdminEmailTaken extends Error {
 interface ResetLocalAdminInput {
 	db: Kysely<Database>;
 	dex: DexApi;
-	/** The site's Dex issuer, OIDC_ISSUER_URL. */
-	issuer: string;
 	/** PUBLIC_URL, for the default email admin@<host>. */
 	publicUrl: string;
 	email?: string | undefined;
@@ -51,12 +49,12 @@ type ResetLocalAdminResult =
 export async function resetLocalAdmin(
 	input: ResetLocalAdminInput,
 ): Promise<ResetLocalAdminResult> {
-	const { db, dex, issuer } = input;
+	const { db, dex } = input;
 	const subject = dexLocalSubject(LOCAL_ADMIN_USER_ID);
 	const account = await db
 		.selectFrom("users")
 		.select(["id", "email", "must_change_password"])
-		.where("oidc_issuer", "=", issuer)
+		.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 		.where("oidc_subject", "=", subject)
 		.executeTakeFirst();
 	if (account && input.ifMissing) {
@@ -92,7 +90,7 @@ export async function resetLocalAdmin(
 				.where("id", "=", id)
 				.execute();
 		} else {
-			id = await precreateDexAccount(trx, issuer, {
+			id = await precreateDexAccount(trx, {
 				userId: LOCAL_ADMIN_USER_ID,
 				email,
 				username: "admin",
@@ -145,7 +143,7 @@ export interface ResetAdminIo {
 export interface ResetAdminDeps {
 	db: Kysely<Database>;
 	dex: DexApi;
-	env: { OIDC_ISSUER_URL?: string | undefined; PUBLIC_URL?: string | undefined };
+	env: { PUBLIC_URL?: string | undefined };
 }
 
 /**
@@ -165,16 +163,15 @@ export async function runResetAdmin(
 		io.stderr(`${parsed}\nusage: reset-admin [--if-missing] [--email <address>]\n`);
 		return 2;
 	}
-	const { OIDC_ISSUER_URL: issuer, PUBLIC_URL: publicUrl } = deps.env;
-	if (!issuer || !publicUrl) {
-		io.stderr("OIDC_ISSUER_URL and PUBLIC_URL must be set\n");
+	const { PUBLIC_URL: publicUrl } = deps.env;
+	if (!publicUrl) {
+		io.stderr("PUBLIC_URL must be set\n");
 		return 2;
 	}
 	try {
 		const result = await resetLocalAdmin({
 			db: deps.db,
 			dex: deps.dex,
-			issuer,
 			publicUrl,
 			email: parsed.email,
 			ifMissing: parsed.ifMissing,

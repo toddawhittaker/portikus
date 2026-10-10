@@ -42,6 +42,7 @@ import { down as down0037, up as up0037 } from "./0037_second_factor.js";
 import { down as down0038, up as up0038 } from "./0038_account_invitations.js";
 import { down as down0039, up as up0039 } from "./0039_notification_flags.js";
 import { down as down0040, up as up0040 } from "./0040_signin_counters.js";
+import { down as down0044, up as up0044 } from "./0044_dex_account_issuer.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -88,4 +89,5 @@ export const migrations: Record<string, Migration> = {
 	"0038_account_invitations": { up: up0038, down: down0038 },
 	"0039_notification_flags": { up: up0039, down: down0039 },
 	"0040_signin_counters": { up: up0040, down: down0040 },
+	"0044_dex_account_issuer": { up: up0044, down: down0044 },
 };

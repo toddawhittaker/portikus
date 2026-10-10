@@ -1,4 +1,8 @@
-import { dexLocalSubject, LOCAL_ADMIN_USER_ID } from "@portikus/auth";
+import {
+	DEX_ACCOUNT_ISSUER,
+	dexLocalSubject,
+	LOCAL_ADMIN_USER_ID,
+} from "@portikus/auth";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
@@ -9,16 +13,12 @@ export const INSTALL_ADMIN_REFUSAL =
 	"Only the install administrator can change the install administrator account. Recover it on the host with portikus reset-admin.";
 
 /** Whether `userId` is the install administrator (SPEC.md section 5.1). */
-async function isInstallAdmin(
-	db: Kysely<Database>,
-	issuer: string,
-	userId: string,
-): Promise<boolean> {
+async function isInstallAdmin(db: Kysely<Database>, userId: string): Promise<boolean> {
 	const row = await db
 		.selectFrom("users")
 		.select("id")
 		.where("id", "=", userId)
-		.where("oidc_issuer", "=", issuer)
+		.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 		.where("oidc_subject", "=", dexLocalSubject(LOCAL_ADMIN_USER_ID))
 		.executeTakeFirst();
 	return row !== undefined;
@@ -30,7 +30,6 @@ async function isInstallAdmin(
  */
 export async function refuseInstallAdminChange(
 	db: Kysely<Database>,
-	issuer: string,
 	input: {
 		request: FastifyRequest;
 		reply: FastifyReply;
@@ -41,7 +40,7 @@ export async function refuseInstallAdminChange(
 ): Promise<boolean> {
 	const { request, reply, actorId, targetId, action } = input;
 	if (actorId === targetId) return false;
-	if (!(await isInstallAdmin(db, issuer, targetId))) return false;
+	if (!(await isInstallAdmin(db, targetId))) return false;
 	await recordAudit(db, {
 		actor: `user:${actorId}`,
 		target: targetId,

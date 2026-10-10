@@ -7,9 +7,9 @@
 import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
 import {
+	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	loginAs,
-	MOCK_ISSUER,
 	openToggletip,
 	query,
 	routeApi,
@@ -21,7 +21,7 @@ async function insertUser(name: string, disabled: boolean): Promise<string> {
 		 values ($1, $2, $3, $4, 'student', now(), case when $5 then now() else null end)
 		 returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,
