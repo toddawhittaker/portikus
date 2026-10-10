@@ -36,7 +36,10 @@ Page-owned files, root:portikus 0640:
 An address or sign-in change is a trial: it writes the install answers
 (debconf, portikus.yaml and secrets.yaml, through write-settings) and reruns
 setup. Keep ends it; a rollback, a failed setup, or the transient timer at
-trialEndsAt puts the old answers back and reruns setup.
+trialEndsAt puts the old answers back and reruns setup. It does so only
+while portikus.yaml is still the file the trial wrote: once anything else
+has rewritten it with other answers, such as dpkg-reconfigure or a
+reinstall, the trial is forgotten as trial_superseded.
 
 Python standard library only, as the other root jobs (ADR 0030): strict
 validation, atomic writes, locks, and argument-list subprocesses.
@@ -52,6 +55,7 @@ Usage:
 import datetime
 import fcntl
 import grp
+import hashlib
 import json
 import os
 import pwd
@@ -67,7 +71,8 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from site_values import (  # noqa: E402
-    KINDS, UUID_RE, Refused, _keys, check_hosts, check_platforms, check_request, identity, parse_json, url_host,
+    KINDS, UUID_RE, Refused, _keys, check_hosts, check_platforms, check_request, identity, keyset_clash, parse_json,
+    url_host,
 )
 
 ETC = "/etc/portikus"
@@ -112,7 +117,7 @@ CODES = (
     "invalid_request", "invalid_value", "too_many", "duplicate", "operator_platform", "mock_platform",
     "reserved_port", "certificate_not_covering", "not_apt_install", "missing_secret", "trial_open", "busy",
     "no_open_trial", "proxy_config_rejected", "proxy_reload_failed", "api_restart_failed", "setup_failed",
-    "trial_expired", "rolled_back", "write_failed",
+    "trial_expired", "rolled_back", "write_failed", "trial_superseded",
 )
 
 # The debconf questions a trial may change, with their template types.
@@ -445,16 +450,16 @@ class Runner:
             journal("lti-platforms-admin.json is not a valid page file; reading it as empty")
             return []
 
-    def operator_pairs(self):
-        """(issuer, clientId) of every platform in the operator's file, which wins on a clash."""
+    def operator_platforms(self):
+        """The platforms in the operator's file, which wins on a clash."""
         raw = read_file(self.lti_operator_file)
         try:
             doc = parse_json(raw) if raw is not None else {}
         except Refused:
-            journal("the operator's LTI platforms file is not JSON; no pair is reserved")
-            return set()
+            journal("the operator's LTI platforms file is not JSON; no platform is reserved")
+            return []
         platforms = doc.get("platforms") if isinstance(doc, dict) else None
-        return {(p.get("issuer"), p.get("clientId")) for p in platforms or [] if isinstance(p, dict)}
+        return [p for p in platforms or [] if isinstance(p, dict)] if isinstance(platforms, list) else []
 
     def sync(self):
         """Bring admin.conf and lti.conf in line with the page files, as after a run cut short or a restore."""
@@ -478,8 +483,12 @@ class Runner:
 
     def do_lti_platforms(self, body):
         platforms = body["platforms"]
-        reserved = self.operator_pairs()
-        if any((p["issuer"], p["clientId"]) in reserved for p in platforms):
+        operator = self.operator_platforms()
+        reserved = {(p.get("issuer"), p.get("clientId")) for p in operator}
+        keysets = {}
+        for p in operator:
+            keysets.setdefault(p.get("issuer"), set()).add(p.get("keysetUrl"))
+        if any((p["issuer"], p["clientId"]) in reserved or keyset_clash(p, keysets) for p in platforms):
             raise Refused("operator_platform")
         check_name = "." + os.path.basename(self.lti_admin_file) + ".check"
         etc_fd = open_dir(os.path.dirname(self.lti_admin_file))
@@ -642,6 +651,11 @@ class Runner:
         finally:
             os.close(etc_fd)
 
+    def config_hash(self):
+        """portikus.yaml's SHA-256; write-settings writes the same bytes from the same answers."""
+        raw = read_file(self.config_file)
+        return None if raw is None else hashlib.sha256(raw).hexdigest()
+
     def forget(self, state_fd):
         for name in ("trial.json", "before-portikus.yaml", "before-secrets.yaml"):
             remove_at(state_fd, name)
@@ -668,7 +682,12 @@ class Runner:
             self.run(["systemctl", "stop", f"{TRIAL_UNIT}{trial_id}-{stage}.timer"])
 
     def revert(self, state_fd, trial, code):
-        """Put the answers from before trial back and rerun setup. Returns its status change."""
+        """Put the answers from before trial back and rerun setup. Returns its status change.
+
+        A trial with no hash died while writing its answers, so the snapshot is the last good state.
+        """
+        if "config" in trial and trial["config"] != self.config_hash():
+            return self.supersede(state_fd, trial)
         trial_secrets = self.secret_values()
         self.restore(state_fd)
         try:
@@ -682,6 +701,16 @@ class Runner:
         change.update(finishedAt=now_iso(self.clock), trialEndsAt=None)
         self.update_status(trial["id"], change)
         journal(f"trial {trial['id']} put back: {change['code']}" + ("" if ok else "; setup failed again"))
+        return change
+
+    def supersede(self, state_fd, trial):
+        """Someone else's answers now hold, so putting the snapshot back would undo them."""
+        self.forget(state_fd)
+        self.disarm(trial["id"])
+        change = {"state": "failed", "code": "trial_superseded", "finishedAt": now_iso(self.clock),
+                  "trialEndsAt": None}
+        self.update_status(trial["id"], change)
+        journal(f"trial {trial['id']} forgotten: portikus.yaml was changed outside it")
         return change
 
     def end_overdue(self, state_fd, trial):
@@ -733,6 +762,8 @@ class Runner:
             try:
                 self.set_debconf(new)
                 self.write_answers({**before, **changes}, secret, port)
+                trial["config"] = self.config_hash()
+                self.write_trial(lock, trial)
             except (OSError, JobFailed, subprocess.SubprocessError):
                 self.restore(lock)
                 try:
@@ -758,6 +789,10 @@ class Runner:
         host, port = body["host"], body["port"]
 
         def prepare(current):
+            # The site must never be a preview host (SPEC.md 14.3); with no suffix set by hand it is preview.<host>.
+            suffix = (current.get("previewSuffix") or "").lower()
+            if suffix and (host == suffix or host.endswith("." + suffix)):
+                raise Refused("invalid_value")
             self.check_certificate(host, current)
             return {"public_host": host}, port, None
 
@@ -833,8 +868,7 @@ class Runner:
             if trial is None or trial["id"] != body["trialId"] or trial.get("state") != "trial":
                 raise Refused("no_open_trial")
             change = self.revert(lock, trial, "rolled_back")
-            return {"state": "done"} if change["state"] == "reverted" else {"state": "failed",
-                                                                              "code": "setup_failed"}
+            return {"state": "done"} if change["state"] == "reverted" else {"state": "failed", "code": change["code"]}
         finally:
             os.close(lock)
 

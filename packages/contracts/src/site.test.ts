@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
 	AddressSettings,
@@ -243,6 +245,57 @@ describe("AdminLtiPlatform (ADR 0059)", () => {
 			true,
 		);
 	});
+});
+
+describe("one keyset per issuer", () => {
+	// Accounts are keyed by issuer and subject, so a second keyset could sign in as them.
+	test("a second platform of one issuer needs the same keyset", () => {
+		const other = { ...PLATFORM, name: "Canvas 2", clientId: "2" };
+		expect(LtiPlatformsUpdate.safeParse({ platforms: [PLATFORM, other] }).success).toBe(
+			true,
+		);
+		expect(
+			LtiPlatformsUpdate.safeParse({
+				platforms: [PLATFORM, { ...other, keysetUrl: "https://evil.example.com/jwks" }],
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("the values the root job agrees on (ADR 0059)", () => {
+	const fixture = JSON.parse(
+		readFileSync(
+			fileURLToPath(
+				new URL("../../../packaging/site/tests/fixtures/values.json", import.meta.url),
+			),
+			"utf8",
+		),
+	) as { fields: Record<string, { good: unknown[]; bad: unknown[] }> };
+
+	// Each fixture field, as a schema given a body holding the value.
+	const FIELDS: Record<string, (value: unknown) => boolean> = {
+		httpsUrl: (v) =>
+			AdminLtiPlatform.safeParse({ ...PLATFORM, authLoginUrl: v }).success,
+		keysetUrl: (v) => AdminLtiPlatform.safeParse({ ...PLATFORM, keysetUrl: v }).success,
+		oidcIssuer: (v) => SigninSettings.safeParse({ ...OIDC, oidcIssuer: v }).success,
+		proxyHost: (v) => ProxyHostsUpdate.safeParse({ hosts: [v] }).success,
+		siteHost: (v) => AddressSettings.safeParse({ host: v, port: 443 }).success,
+		sitePort: (v) =>
+			AddressSettings.safeParse({ host: "portikus.example.edu", port: v }).success,
+	};
+
+	for (const [field, accepts] of Object.entries(FIELDS)) {
+		test(`${field}: every good value passes and every bad one is refused`, () => {
+			const values = fixture.fields[field];
+			expect(values, field).toBeDefined();
+			for (const value of values?.good ?? []) {
+				expect(accepts(value), `good ${JSON.stringify(value)}`).toBe(true);
+			}
+			for (const value of values?.bad ?? []) {
+				expect(accepts(value), `bad ${JSON.stringify(value)}`).toBe(false);
+			}
+		});
+	}
 });
 
 describe("AddressSettings (ADR 0059)", () => {

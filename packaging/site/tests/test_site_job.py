@@ -304,6 +304,11 @@ class Requests(Host):
             ("signin", {**OIDC, "groups": {"student": "{{ 7*7 }}", "instructor": "i", "admin": "a"}},
              "invalid_value"),
             ("signin", {**OIDC, "groupsClaim": "{{ 7*7 }}"}, "invalid_value"),
+            ("signin", {**OIDC, "oidcIssuer": "https://169.254.169.254/latest"}, "invalid_value"),
+            ("signin", {**OIDC, "oidcIssuer": "https://login.example.edu:22"}, "invalid_value"),
+            ("lti-platforms", {"platforms": [platform(), platform(name="b", clientId="other",
+                                                                 keysetUrl="https://evil.example.com/jwks")]},
+             "duplicate"),
             ("signin", {"provider": "dex"}, "invalid_request"),
             ("keep", {"trialId": "not-a-uuid"}, "invalid_request"),
             ("rollback", {"trialId": JOB}, "no_open_trial"),
@@ -494,6 +499,16 @@ class LtiPlatforms(Host):
         status = self.play("lti-platforms", platforms=[platform()])
         self.assertEqual(status["code"], "operator_platform")
         self.assertEqual(self.fake.names(), [])
+
+    def test_an_operator_issuer_with_another_keyset_is_refused(self):
+        Path(self.path(sj.LTI_OPERATOR_FILE)).write_text(json.dumps({"version": 1, "platforms": [
+            {"name": "Canvas", "issuer": "https://canvas.example.edu", "clientId": "operator",
+             "keysetUrl": "https://keys.example.edu/jwks", "mock": False}]}))
+        status = self.play("lti-platforms", platforms=[platform(keysetUrl="https://evil.example.com/jwks")])
+        self.assertEqual(status["code"], "operator_platform")
+        self.assertEqual(self.fake.names(), [])
+        # Another client of the same platform, with the same keyset, is no impersonation.
+        self.assertEqual(self.play("lti-platforms", JOB2, platforms=[platform()])["state"], "done")
 
     def test_none_left_removes_the_file(self):
         self.play("lti-platforms", platforms=[platform()])
@@ -728,6 +743,15 @@ class Trials(Host):
         self.assertEqual(self.play("address", host="new.example.edu", port=443)["state"], "trial")
         self.assertIn("portikus_preview_suffix: apps.example.edu\n", self.config())
 
+    def test_the_site_is_never_under_a_hand_set_preview_suffix(self):
+        self.install(config=self.config() + "portikus_preview_suffix: apps.example.edu\n")
+        before = self.config()
+        for index, host in enumerate(["apps.example.edu", "portikus.apps.example.edu"]):
+            job_id = f"{index:08x}-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
+            self.assertEqual(self.play("address", job_id, host=host, port=443)["code"], "invalid_value")
+        self.assertEqual(self.config(), before)
+        self.assertNotIn("setup", self.fake.names())
+
     def test_the_internal_authority_and_acme_need_no_check(self):
         Path(self.path(sj.CERTIFICATE_SETTINGS)).write_text('{"source": "acme"}')
         self.assertEqual(self.play("address", host="new.example.edu", port=443)["state"], "trial")
@@ -736,6 +760,56 @@ class Trials(Host):
         self.install(config=self.config() + "portikus_public_port: 8443\n")
         self.play("address", host="portikus.example.edu", port=443)
         self.assertNotIn("portikus_public_port", self.config())
+
+    # ---- portikus.yaml changed outside the trial ----
+
+    def rewrite_answers(self, **changes):
+        """What postinst does on an upgrade, a reinstall or dpkg-reconfigure: write-settings from the answers."""
+        answers = self.runner.read_settings()["answers"]
+        self.runner.write_answers({**answers, **changes}, None, None)
+
+    def test_a_reconfigure_during_a_trial_is_never_undone(self):
+        self.play("address", host="new.example.edu", port=8443)
+        self.rewrite_answers(public_host="other.example.edu")
+        reconfigured = self.config()
+        self.clock.now += 15 * 60
+        self.expire()
+        self.assertEqual(self.config(), reconfigured)
+        trial = self.status()
+        self.assertEqual((trial["state"], trial["code"], trial["trialEndsAt"]), ("failed", "trial_superseded", None))
+        self.assertEqual(self.fake.names().count("setup"), 1)
+        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertIn(["systemctl", "stop", f"portikus-site-trial-{JOB}-trial.timer"], self.fake.argv("timer-stop"))
+
+    def test_a_rollback_after_a_reconfigure_reports_it(self):
+        self.play("signin", **OIDC)
+        self.rewrite_answers(provider="dex")
+        reconfigured = self.config()
+        status = self.play("rollback", JOB2, trialId=JOB)
+        self.assertEqual((status["state"], status["code"]), ("failed", "trial_superseded"))
+        self.assertEqual(self.config(), reconfigured)
+
+    def test_an_upgrade_that_writes_the_same_answers_keeps_the_trial(self):
+        before = self.config()
+        self.play("address", host="new.example.edu", port=8443)
+        trial_config = self.config()
+        self.rewrite_answers()
+        self.assertEqual(self.config(), trial_config)
+        self.clock.now += 15 * 60
+        self.expire()
+        self.assertEqual(self.config(), before)
+        self.assertEqual(self.status()["code"], "trial_expired")
+
+    def test_a_reinstall_with_other_answers_over_leftovers_is_never_undone(self):
+        self.play("signin", **OIDC)
+        # apt remove leaves /etc/portikus and the trial state; the reinstall writes its own answers.
+        self.rewrite_answers(provider="dex", public_host="reinstalled.example.edu")
+        reinstalled = self.config()
+        self.clock.now += 3600
+        self.run_pending()
+        self.assertEqual(self.config(), reinstalled)
+        self.assertEqual((self.status()["state"], self.status()["code"]), ("failed", "trial_superseded"))
+        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
 
     def test_a_failing_debconf_changes_nothing(self):
         before = self.config()
