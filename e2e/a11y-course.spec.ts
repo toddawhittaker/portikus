@@ -3,8 +3,32 @@
  * and both LTI fallback pages (ADR 0025).
  */
 import { expect, type Page, test } from "@playwright/test";
-import { expectNoViolations, WEB_ORIGIN } from "./helpers";
-import { launchAs, openCourseTab, startLaunch } from "./lti-helpers";
+import { expectNoViolations, query, WEB_ORIGIN } from "./helpers";
+import {
+	changeRoster,
+	launchAs,
+	ltiUsers,
+	openCourseTab,
+	startLaunch,
+} from "./lti-helpers";
+
+// The Course page syncs a stale roster when it opens and a sync drops anyone
+// the mock roster lacks, so Tom joins it first.
+test.beforeEach(async ({ request }) => {
+	await changeRoster(request, { action: "add", course: "cs240", person: "tom" });
+});
+
+/** One day of Claude Code use for Tom, so the usage tables have a row. */
+async function seedTomUsage() {
+	const [tomUser] = await ltiUsers("tom");
+	await query(
+		`insert into agent_usage_days
+		   (user_id, boot_id, day, agent, model, sessions, input_tokens, output_tokens,
+		    cache_read_tokens, cache_write_tokens, cost_usd, lines_added, lines_removed)
+		 values ($1, gen_random_uuid(), current_date, 'claude', 'opus', 2, 1200, 3400, 5600, 780, 4.5, 90, 12)`,
+		[tomUser?.id],
+	);
+}
 
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Course page has no automatic accessibility violations (${colorScheme})`, async ({
@@ -19,7 +43,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const page = await context.newPage();
 			await launchAs(page, { person: "tom", course: "cs240" });
 			const course = await openCourseTab(page);
-			const table = course.getByRole("table");
+			const table = course.getByTestId("course-members");
 			await expect(table).toBeVisible();
 			// The admin page's table and compact frame (SPEC.md section 20.1).
 			await expect(table).toHaveClass("pk-table pk-table--page");
@@ -32,6 +56,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 			);
 			// The intro explains Remove, so its column has no toggletip of its own.
 			await expect(course.getByRole("button", { name: "About Remove" })).toHaveCount(0);
+			await expectNoViolations(course);
+
+			// The roster status after a sync, and the usage tables with rows.
+			await course.getByRole("button", { name: "Sync roster" }).click();
+			await expect(course.getByTestId("roster-sync")).toContainText("Roster synced:");
+			await seedTomUsage();
+			await course.reload();
+			await expect(course.getByTestId("agent-usage-users")).toBeVisible();
+			await expect(course.getByTestId("agent-usage-daily")).toBeVisible();
+			await expect(course.getByTestId("roster-status")).toBeVisible();
 			await expectNoViolations(course);
 		} finally {
 			await context.close();
@@ -90,6 +124,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const page = await context.newPage();
 			await launchAs(page, { person: "tom", course: "cs240" });
 			const course = await openCourseTab(page);
+			await seedTomUsage();
+			await course.reload();
+			await expect(course.getByTestId("agent-usage-users")).toBeVisible();
 			const table = course.getByTestId("course-members");
 			await expect(table).toBeVisible();
 			const samRow = table.getByRole("row", { name: new RegExp(LONG_NAME) });
@@ -121,6 +158,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// At 320 px (400% zoom of a 1280 px window) nothing scrolls sideways either.
 			await course.setViewportSize({ width: 320, height: 900 });
 			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
+			// The wide usage table scrolls inside its own box, not the page.
+			const usageWrap = course.getByTestId("agent-usage-users").locator("..");
+			expect(await usageWrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
+				true,
+			);
 			await expect(samName.locator("time")).toBeVisible();
 			// Taller rows push it down the scrolling <main>, never off to the side.
 			const remove = samRow.getByRole("button", { name: /Remove/ });
