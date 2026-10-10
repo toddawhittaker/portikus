@@ -13,6 +13,7 @@ test("an exit frame carries its exit code", () => {
 	expect(decodeCheckFrame(JSON.stringify({ type: "exit", exitCode: 2 }))).toEqual({
 		kind: "exit",
 		exitCode: 2,
+		stopped: false,
 	});
 });
 
@@ -37,4 +38,10 @@ test("anything unreadable is ignored rather than thrown", () => {
 test("base64 that is not base64 becomes empty output rather than an error", () => {
 	const frame = decodeCheckFrame(JSON.stringify({ type: "output", data: "!!!!" }));
 	expect(frame).toEqual({ kind: "output", bytes: new Uint8Array() });
+});
+
+test("an exit frame from a Stop is marked stopped", () => {
+	expect(
+		decodeCheckFrame(JSON.stringify({ type: "exit", exitCode: 143, stopped: true })),
+	).toEqual({ kind: "exit", exitCode: 143, stopped: true });
 });

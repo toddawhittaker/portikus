@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	query,
 	seedFile,
 	type TestProject,
@@ -43,6 +44,27 @@ test.describe("check action colours", () => {
 		expect(await tokenColor(page, "--status-danger")).not.toBe(lightDanger);
 		await expectTint(page, "check-run-tests", "--status-running", "Run Tests");
 		await expectTint(page, "check-stop-watch", "--status-danger", "Stop Watch");
+	});
+
+	test("a stopped check reads Stopped and passes axe in both themes", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openChecks(page, student.workspaceId, "Stopped", {
+			checks: [{ id: "watch", name: "Watch", command: "sleep 120" }],
+		});
+		await page.getByTestId("check-run-watch").click();
+		await page.getByTestId("check-stop-watch").click({ timeout: 15_000 });
+		const state = page.getByTestId("check-state-watch");
+		await expect(state).toContainText("Stopped", { timeout: 15_000 });
+		await expect(state).not.toContainText("Failed");
+
+		for (const theme of ["light", "dark"] as const) {
+			await chooseTheme(page, student.userId, theme);
+			await expect(state).toContainText("Stopped", { timeout: 15_000 });
+			await expectNoViolations(page);
+		}
 	});
 });
 

@@ -18,7 +18,7 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		meta: CheckRun;
 		lines: string[];
 		sockets: Set<WebSocket>;
-		final: { type: "exit"; exitCode: number } | null;
+		final: { type: "exit"; exitCode: number; stopped?: boolean } | null;
 	}
 	const checkRuns = new Map<string, FakeCheckRun>();
 	let checkRunCounter = 0;
@@ -50,11 +50,13 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		return { checks: validated.data.checks, error: null };
 	}
 
-	function finishFakeRun(run: FakeCheckRun, exitCode: number): void {
-		run.meta.state = exitCode === 0 ? "passed" : "failed";
+	function finishFakeRun(run: FakeCheckRun, exitCode: number, stopped = false): void {
+		run.meta.state = stopped ? "stopped" : exitCode === 0 ? "passed" : "failed";
 		run.meta.exitCode = exitCode;
 		run.meta.endedAt = new Date().toISOString();
-		run.final = { type: "exit", exitCode };
+		run.final = stopped
+			? { type: "exit", exitCode, stopped }
+			: { type: "exit", exitCode };
 		for (const socket of run.sockets) {
 			if (socket.readyState !== socket.OPEN) continue;
 			socket.send(JSON.stringify(run.final));
@@ -123,7 +125,7 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			});
 		}
 		run.lines.push("stopped");
-		finishFakeRun(run, 130);
+		finishFakeRun(run, 130, true);
 		return reply.status(204).send();
 	});
 
