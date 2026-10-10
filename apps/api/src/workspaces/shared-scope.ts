@@ -99,7 +99,7 @@ export async function sharedProject(
 /**
  * Note one read by an instructor. The first view of each share by each
  * instructor is audited and tells the student; later ones only move
- * `last_viewed_at` (SPEC.md §24.11, ADR 0057).
+ * `last_viewed_at`, at most once a minute (SPEC.md §24.11, ADR 0057).
  */
 async function recordView(
 	db: Kysely<Database>,
@@ -120,11 +120,14 @@ async function recordView(
 			.returning("share_id")
 			.executeTakeFirst();
 		if (!first) {
+			// A page polls several reads every few seconds; a minute is fine
+			// enough for "last looked" and spares a write per read.
 			await trx
 				.updateTable("project_share_views")
 				.set({ last_viewed_at: sql<string>`now()` })
 				.where("share_id", "=", view.shareId)
 				.where("viewer_user_id", "=", view.viewer.id)
+				.where("last_viewed_at", "<", sql<Date>`now() - interval '1 minute'`)
 				.execute();
 			return;
 		}

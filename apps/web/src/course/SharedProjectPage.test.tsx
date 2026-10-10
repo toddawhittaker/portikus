@@ -1,8 +1,8 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../api/request.js";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { shareProblem } from "./shared/queries.js";
+import { SHARE_POLL_MS, shareProblem } from "./shared/queries.js";
 
 // Monaco does not run in jsdom; these stand-ins show what they were given.
 vi.mock("./shared/ReadOnlyText.js", () => ({
@@ -19,7 +19,10 @@ vi.mock("../editor/DiffViewer.js", () => ({
 	),
 }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
 
 const COURSE = "55555555-5555-4555-8555-555555555555";
 const PROJECT = "44444444-4444-4444-8444-444444444444";
@@ -55,24 +58,30 @@ const STATUS = {
 
 const CHECKS = {
 	checks: [
-		{ id: "tests", name: "Tests", command: "npm test" },
-		{ id: "lint", name: "Lint", command: "npm run lint" },
+		{
+			id: "tests",
+			name: "Tests",
+			lastRun: {
+				state: "passed",
+				startedAt: "2026-10-10T09:00:00.000Z",
+				endedAt: "2026-10-10T09:01:00.000Z",
+				exitCode: 0,
+			},
+		},
+		{ id: "lint", name: "Lint", lastRun: null },
 	],
 	error: null,
-	runs: [
-		{
-			id: "r1",
-			checkId: "tests",
-			state: "passed",
-			startedAt: "2026-10-10T09:00:00.000Z",
-			endedAt: "2026-10-10T09:01:00.000Z",
-			exitCode: 0,
-		},
-	],
 };
 
+/** Let one poll interval pass; the test must have called vi.useFakeTimers. */
+async function poll() {
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(SHARE_POLL_MS);
+	});
+}
+
 /** Answers the shared reads; `override` replaces one URL's answer. */
-function serve(override: Record<string, () => Response> = {}) {
+function serve(override: Record<string, () => Response | Promise<Response>> = {}) {
 	return stubFetch((url) => {
 		if (override[url]) return override[url]();
 		if (url === "/auth/me") return json(200, { ...USER, role: "instructor" });
@@ -217,6 +226,100 @@ test("a stopped workspace says so instead of the files", async () => {
 	const notice = await screen.findByTestId("shared-stopped");
 	expect(notice.textContent).toContain("The workspace is stopped");
 	expect(screen.queryByTestId("shared-tree")).toBeNull();
+});
+
+test("a workspace that stops is announced, keeps the reader's place, and comes back as it was", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	let running = true;
+	serve({
+		[`${BASE}/tree?path=`]: () =>
+			running
+				? json(200, { entries: [entry("README.md")], truncated: false })
+				: json(409, {
+						code: "WORKSPACE_NOT_RUNNING",
+						message: "The workspace is stopped",
+					}),
+	});
+	renderApp(PATH);
+
+	const status = await screen.findByTestId("shared-status");
+	const row = await screen.findByTestId("shared-row-README.md");
+	fireEvent.click(row);
+	await screen.findByTestId("shared-text-README.md");
+	row.focus();
+	expect(status.textContent).toBe("");
+
+	running = false;
+	await poll();
+	await screen.findByTestId("shared-stopped");
+	// One region throughout, so a screen reader hears the change.
+	expect(screen.getByTestId("shared-status")).toBe(status);
+	expect(status.textContent).toBe("The workspace is stopped");
+	expect(status.getAttribute("role")).toBe("status");
+	expect(screen.getByTestId("shared-stopped").getAttribute("role")).toBeNull();
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { level: 1, name: "todo-api" }),
+	);
+
+	running = true;
+	await poll();
+	// The file that was open is open again.
+	expect((await screen.findByTestId("shared-text-README.md")).textContent).toBe(
+		"# Todo API\n",
+	);
+	expect(status.textContent).toBe("");
+});
+
+test("an open file is read again only when the listing says it changed", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	let mtimeMs = 1000;
+	const fetch = serve({
+		[`${BASE}/tree?path=`]: () =>
+			json(200, { entries: [{ ...entry("README.md"), mtimeMs }], truncated: false }),
+	});
+	const fileReads = () =>
+		fetch.mock.calls.filter(([url]) => String(url) === `${BASE}/file?path=README.md`)
+			.length;
+	renderApp(PATH);
+
+	fireEvent.click(await screen.findByTestId("shared-row-README.md"));
+	await screen.findByTestId("shared-text-README.md");
+	expect(fileReads()).toBe(1);
+
+	await poll();
+	await waitFor(() =>
+		expect(
+			fetch.mock.calls.filter(([url]) => String(url) === `${BASE}/tree?path=`).length,
+		).toBeGreaterThan(1),
+	);
+	expect(fileReads()).toBe(1);
+
+	mtimeMs = 2000;
+	await poll();
+	await waitFor(() => expect(fileReads()).toBe(2));
+});
+
+test("Show more stays focusable while the next page loads", async () => {
+	let release: () => void = () => {};
+	serve({
+		[`${BASE}/tree?path=`]: () =>
+			json(200, { entries: [entry("a.txt")], truncated: true, next: "f/a.txt" }),
+		[`${BASE}/tree?path=&after=f%2Fa.txt`]: () =>
+			new Promise<Response>((resolve) => {
+				release = () =>
+					resolve(json(200, { entries: [entry("b.txt")], truncated: false }));
+			}),
+	});
+	renderApp(PATH);
+
+	const more = await screen.findByRole("button", { name: /Show more/ });
+	more.focus();
+	fireEvent.click(more);
+	await waitFor(() => expect(more.getAttribute("aria-disabled")).toBe("true"));
+	expect(more.hasAttribute("disabled")).toBe(false);
+	expect(document.activeElement).toBe(more);
+	release();
+	expect(await screen.findByTestId("shared-row-b.txt")).toBeDefined();
 });
 
 test("a share that ended says it is not available", async () => {

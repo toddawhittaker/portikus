@@ -87,7 +87,17 @@ async function auditActions(): Promise<string[]> {
 test.skipIf(skip)("nothing is shared until the owner starts a share", async () => {
 	const res = await asA("GET", shareUrl());
 	expect(res.statusCode).toBe(200);
-	expect(ProjectShareStatus.parse(res.json())).toEqual({ share: null, viewers: [] });
+	expect(ProjectShareStatus.parse(res.json())).toEqual({
+		share: null,
+		viewers: [],
+		audience: [
+			{
+				courseId: world.courseId,
+				courseTitle: "Test Course",
+				instructors: ["Ivy Instructor"],
+			},
+		],
+	});
 });
 
 test.skipIf(skip)("a share lasts 24 hours, and starting again keeps it", async () => {
@@ -146,7 +156,7 @@ test.skipIf(skip)("stopping ends the share and is audited once", async () => {
 	await asA("POST", shareUrl());
 	const stopped = await asA("POST", shareUrl("/stop"));
 	expect(stopped.statusCode).toBe(200);
-	expect(ProjectShareStatus.parse(stopped.json())).toEqual({
+	expect(ProjectShareStatus.parse(stopped.json())).toMatchObject({
 		share: null,
 		viewers: [],
 	});

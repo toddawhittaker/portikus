@@ -3,6 +3,7 @@ import { type ProjectShareStatus, SHARE_DURATION_HOURS } from "@portikus/contrac
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
+import { shareAudience } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, sendError } from "../http.js";
 import {
@@ -12,11 +13,16 @@ import {
 } from "../workspaces/project-scope.js";
 import { closeExpired, stopShare } from "../workspaces/project-share.js";
 
-/** The open, unexpired share of a project and who has looked, earliest first. */
+/**
+ * The open, unexpired share of a project, who has looked, earliest first,
+ * and who could look.
+ */
 async function shareStatus(
 	db: Kysely<Database>,
 	projectId: string,
+	ownerId: string,
 ): Promise<ProjectShareStatus> {
+	const audience = await shareAudience(db, ownerId);
 	const share = await db
 		.selectFrom("project_shares")
 		.select(["id", "started_at", "ends_at"])
@@ -24,7 +30,7 @@ async function shareStatus(
 		.where("ended_at", "is", null)
 		.where("ends_at", ">", sql<Date>`now()`)
 		.executeTakeFirst();
-	if (!share) return { share: null, viewers: [] };
+	if (!share) return { share: null, viewers: [], audience };
 	const viewers = await db
 		.selectFrom("project_share_views")
 		.innerJoin("users", "users.id", "project_share_views.viewer_user_id")
@@ -47,6 +53,7 @@ async function shareStatus(
 			firstViewedAt: new Date(row.first_viewed_at).toISOString(),
 			lastViewedAt: new Date(row.last_viewed_at).toISOString(),
 		})),
+		audience,
 	};
 }
 
@@ -77,9 +84,10 @@ export function registerProjectShareRoutes(
 	}
 
 	app.get("/workspaces/:id/projects/:pid/share", async (request, reply) => {
+		const user = requireUser(request);
 		const project = await ownProject(request, reply);
 		if (!project) return;
-		return shareStatus(db, project.id);
+		return shareStatus(db, project.id, user.id);
 	});
 
 	// Starting again while a share is open keeps that share as it is.
@@ -126,7 +134,7 @@ export function registerProjectShareRoutes(
 			// A second start that raced this one already opened the share.
 			if (!isUniqueViolation(error, "project_shares_one_open")) throw error;
 		}
-		return shareStatus(db, project.id);
+		return shareStatus(db, project.id, user.id);
 	});
 
 	app.post("/workspaces/:id/projects/:pid/share/stop", async (request, reply) => {
@@ -140,6 +148,6 @@ export function registerProjectShareRoutes(
 				reason: "stopped",
 			}),
 		);
-		return shareStatus(db, project.id);
+		return shareStatus(db, project.id, user.id);
 	});
 }

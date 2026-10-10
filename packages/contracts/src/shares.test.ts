@@ -1,5 +1,4 @@
 import { expect, test } from "vitest";
-import { ChecksResponse } from "./checks.js";
 import { TreeResponse } from "./files.js";
 import { GitDiff, GitStatus } from "./git.js";
 import {
@@ -27,12 +26,17 @@ test("a share status round-trips with its viewers", () => {
 				lastViewedAt: "2026-10-10T09:30:00.000Z",
 			},
 		],
+		audience: [
+			{
+				courseId: "850e8400-e29b-41d4-a716-446655440000",
+				courseTitle: "CS 101",
+				instructors: ["Ivy Instructor"],
+			},
+		],
 	};
 	expect(ProjectShareStatus.parse(body)).toEqual(body);
-	expect(ProjectShareStatus.parse({ share: null, viewers: [] })).toEqual({
-		share: null,
-		viewers: [],
-	});
+	const empty = { share: null, viewers: [], audience: [] };
+	expect(ProjectShareStatus.parse(empty)).toEqual(empty);
 });
 
 test("a viewer is shown by name only", () => {
@@ -47,6 +51,7 @@ test("a viewer is shown by name only", () => {
 				lastViewedAt: "2026-10-10T09:00:00Z",
 			},
 		],
+		audience: [],
 	});
 	expect(Object.keys(parsed.viewers[0] ?? {}).sort()).toEqual([
 		"displayName",
@@ -81,5 +86,24 @@ test("the shared reads answer in the owner's shapes", () => {
 	expect(SharedTreeResponse).toBe(TreeResponse);
 	expect(SharedGitStatusResponse).toBe(GitStatus);
 	expect(SharedGitDiffResponse).toBe(GitDiff);
-	expect(SharedChecksResponse).toBe(ChecksResponse);
+});
+
+test("a shared check carries its name and latest run, never its command", () => {
+	const body = {
+		checks: [
+			{
+				id: "tests",
+				name: "Tests",
+				lastRun: { state: "passed", startedAt: share.startedAt, exitCode: 0 },
+			},
+			{ id: "lint", name: "Lint", lastRun: null },
+		],
+		error: null,
+	};
+	expect(SharedChecksResponse.parse(body)).toEqual(body);
+	const withCommand = {
+		...body,
+		checks: [{ id: "lint", name: "Lint", command: "npm run lint", lastRun: null }],
+	};
+	expect(SharedChecksResponse.safeParse(withCommand).success).toBe(false);
 });

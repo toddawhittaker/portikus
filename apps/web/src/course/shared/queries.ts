@@ -10,8 +10,9 @@ import {
 	SharedGitStatusResponse,
 	SharedTreeResponse,
 } from "@portikus/contracts";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ApiError, request, toApiError } from "../../api/request.js";
+import { baseName, parentOf } from "../../files/paths.js";
 import { joinPages } from "../../files/queries.js";
 
 /** How often the view asks again (ADR 0057). */
@@ -29,7 +30,8 @@ const base = ({ courseId, projectId }: ShareRef) =>
 const keys = {
 	all: (ref: ShareRef) => ["shared-project", ref.courseId, ref.projectId] as const,
 	tree: (ref: ShareRef, dir: string) => [...keys.all(ref), "tree", dir] as const,
-	file: (ref: ShareRef, path: string) => [...keys.all(ref), "file", path] as const,
+	file: (ref: ShareRef, path: string, version: string | undefined) =>
+		[...keys.all(ref), "file", path, version] as const,
 	git: (ref: ShareRef) => [...keys.all(ref), "git"] as const,
 	diff: (ref: ShareRef, path: string) => [...keys.all(ref), "diff", path] as const,
 	checks: (ref: ShareRef) => [...keys.all(ref), "checks"] as const,
@@ -115,10 +117,27 @@ function fileUrl(ref: ShareRef, path: string): string {
 	return `${base(ref)}/file?${new URLSearchParams({ path })}`;
 }
 
-/** One file's text, read again on every poll. */
-export function useSharedFile(ref: ShareRef, path: string) {
+/**
+ * A file's size and modified time from the listing the tree already polls,
+ * so a changed file gets a new version and an unchanged one is not re-read.
+ * Undefined once the file is gone from its folder.
+ */
+export function useSharedFileVersion(ref: ShareRef, path: string): string | undefined {
+	const listing = useSharedTree(ref, parentOf(path));
+	const entry = listing.data?.entries.find((item) => item.name === baseName(path));
+	return entry ? `${entry.size}-${entry.mtimeMs}` : undefined;
+}
+
+/** One file's text, read again only when its version changes. */
+export function useSharedFile(
+	ref: ShareRef,
+	path: string,
+	version: string | undefined,
+) {
 	return useQuery({
-		queryKey: keys.file(ref, path),
+		queryKey: keys.file(ref, path, version),
+		// Keeps the old text on screen while a new version loads.
+		placeholderData: keepPreviousData,
 		queryFn: async (): Promise<SharedFileContent> => {
 			const response = await fetch(fileUrl(ref, path), { credentials: "same-origin" });
 			if (response.status === 413) return { text: "", tooLarge: true };
@@ -130,7 +149,6 @@ export function useSharedFile(ref: ShareRef, path: string) {
 			}
 			return { text: await response.text() };
 		},
-		refetchInterval: SHARE_POLL_MS,
 	});
 }
 

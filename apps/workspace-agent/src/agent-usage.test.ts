@@ -231,6 +231,36 @@ describe("the receiver", () => {
 		]);
 	});
 
+	test("Codex input and cached input sent in separate exports still net out", async () => {
+		const { usage, app } = receiver();
+		const codex = { model: "gpt-6-codex" };
+		const tokens = (type: string, value: number) =>
+			exportOf(
+				histogram("codex.turn.token_usage", [[{ ...codex, token_type: type }, value]]),
+			);
+		await post(app, tokens("input", 1000));
+		expect(usage.report().rows[0]).toMatchObject({
+			inputTokens: 1000,
+			cacheReadTokens: 0,
+		});
+		await post(app, tokens("cached_input", 600));
+		expect(usage.report().rows[0]).toMatchObject({
+			inputTokens: 400,
+			cacheReadTokens: 600,
+		});
+		// Cache reads ahead of their input never report a negative count.
+		await post(app, tokens("cached_input", 900));
+		expect(usage.report().rows[0]).toMatchObject({
+			inputTokens: 0,
+			cacheReadTokens: 1500,
+		});
+		await post(app, tokens("input", 2000));
+		expect(usage.report().rows[0]).toMatchObject({
+			inputTokens: 1500,
+			cacheReadTokens: 1500,
+		});
+	});
+
 	test("drops content-bearing payloads: prompt text, emails and session ids are never kept", async () => {
 		const { usage, app } = receiver();
 		const prompt = "please fix my secret-project.py";

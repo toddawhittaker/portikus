@@ -30,8 +30,11 @@ const PIXEL = Buffer.from(
 	"base64",
 );
 
+/** A command that looks like it holds a token, which an instructor must never see. */
+const SECRET_COMMAND = "npm test -- --token=e2e-ghp-NOT-FOR-INSTRUCTORS";
+
 const CHECKS = {
-	checks: [{ id: "tests", name: "Tests", command: "npm test" }],
+	checks: [{ id: "tests", name: "Tests", command: SECRET_COMMAND }],
 };
 
 function status(entries: { path: string; x: string; y: string }[]) {
@@ -189,6 +192,10 @@ test("an instructor browses a shared project without its secrets", async ({
 		);
 
 		await expect(page.getByTestId("shared-check-state-tests")).toHaveText("Passed");
+		await expect(page.getByTestId("shared-check-tests")).toContainText("Finished");
+		await expect(page.getByTestId("page-shared-project")).not.toContainText(
+			"NOT-FOR-INSTRUCTORS",
+		);
 
 		// The student's first-view notice and the viewer list (ADR 0057).
 		const viewers = await shared.student.request.get(
@@ -264,19 +271,33 @@ test("a change in the workspace shows up on the next refresh", async ({ browser 
 	}
 });
 
-test("a stopped workspace says so, and an ended share says it is gone", async ({
+test("a stopped workspace is announced and keeps the reader's place; an ended share says it is gone", async ({
 	browser,
 }) => {
 	const shared = await sharedProject(browser);
 	try {
 		const { page, owner, project, courseId } = shared;
+		const readme = page.getByTestId("shared-row-README.md");
+		await readme.click();
+		await expect(
+			page.getByTestId("shared-text-README.md").locator(".view-lines"),
+		).toContainText("Hello", { timeout: 15_000 });
+		await readme.focus();
+
+		// The next poll finds it stopped: announced, and the focus kept on the page.
 		await setWorkspaceState(owner.workspaceId, "stopped");
-		await page.reload();
 		await expect(page.getByTestId("shared-stopped")).toContainText(
 			"The workspace is stopped",
-			{ timeout: 15_000 },
+			{ timeout: 25_000 },
 		);
+		await expect(page.getByTestId("shared-status")).toHaveText(
+			"The workspace is stopped",
+		);
+		await expect(
+			page.getByRole("heading", { level: 1, name: project.name }),
+		).toBeFocused();
 		await expect(page.getByTestId("shared-tree")).toHaveCount(0);
+		await expectNoViolations(page);
 		// The view never starts it (ADR 0057).
 		const [row] = await query<{ state: string }>(
 			"select state from workspaces where id = $1",
@@ -284,7 +305,13 @@ test("a stopped workspace says so, and an ended share says it is gone", async ({
 		);
 		expect(row?.state).toBe("stopped");
 
+		// Started again, the file that was open is open again.
 		await setWorkspaceState(owner.workspaceId, "running");
+		await expect(
+			page.getByTestId("shared-text-README.md").locator(".view-lines"),
+		).toContainText("Hello", { timeout: 25_000 });
+		await expect(page.getByTestId("shared-status")).toHaveText("");
+
 		const stopped = await shared.student.request.post(
 			`/workspaces/${owner.workspaceId}/projects/${project.id}/share/stop`,
 			{ headers: { origin: WEB_ORIGIN } },
@@ -295,6 +322,10 @@ test("a stopped workspace says so, and an ended share says it is gone", async ({
 			"This share is not available",
 			{ timeout: 15_000 },
 		);
+		await expect(page.getByTestId("shared-status")).toHaveText(
+			"This share is not available",
+		);
+		await expectNoViolations(page);
 	} finally {
 		await close(shared);
 	}

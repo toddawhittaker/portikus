@@ -1,3 +1,4 @@
+import type { ShareAudienceCourse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 
@@ -39,4 +40,41 @@ export async function sharesCourseWith(
 		.where("member.user_id", "=", memberId)
 		.executeTakeFirst();
 	return row !== undefined;
+}
+
+/**
+ * Every course the user belongs to, by title, with the names of its other
+ * instructors: exactly who `sharesCourseWith` lets see the user's shared
+ * project (SPEC.md §5.2, ADR 0057).
+ */
+export async function shareAudience(
+	db: Kysely<Database>,
+	userId: string,
+): Promise<ShareAudienceCourse[]> {
+	const rows = await db
+		.selectFrom("lti_memberships as own")
+		.innerJoin("lti_contexts", "lti_contexts.id", "own.context_id")
+		.leftJoin("lti_memberships as teacher", (join) =>
+			join
+				.onRef("teacher.context_id", "=", "own.context_id")
+				.on("teacher.role", "=", "instructor")
+				.on("teacher.user_id", "!=", userId),
+		)
+		.leftJoin("users", "users.id", "teacher.user_id")
+		.select(["lti_contexts.id", "lti_contexts.title", "users.display_name"])
+		.where("own.user_id", "=", userId)
+		.orderBy("lti_contexts.title")
+		.orderBy("lti_contexts.id")
+		.orderBy("users.display_name")
+		.execute();
+	const courses = new Map<string, ShareAudienceCourse>();
+	for (const row of rows) {
+		let course = courses.get(row.id);
+		if (!course) {
+			course = { courseId: row.id, courseTitle: row.title, instructors: [] };
+			courses.set(row.id, course);
+		}
+		if (row.display_name !== null) course.instructors.push(row.display_name);
+	}
+	return [...courses.values()];
 }

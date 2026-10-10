@@ -56,7 +56,7 @@ async function mount(
 		if (url === "/auth/me") return json(200, USER);
 		if (url.endsWith("/share")) {
 			shareReads.push(url);
-			return json(200, { share: null, viewers: [] });
+			return json(200, { share: null, viewers: [], audience: [] });
 		}
 		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
 		if (url.endsWith("/duplicate")) return json(200, COPY);

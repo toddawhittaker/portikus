@@ -1,8 +1,9 @@
 import {
+	ChecksResponse,
 	type CourseSharesResponse,
 	NO_LINKS_QUERY,
 	ProjectPath,
-	SharedChecksResponse,
+	type SharedChecksResponse,
 	SharedGitDiffResponse,
 	SharedGitStatusResponse,
 	SharedTreeResponse,
@@ -233,14 +234,36 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
-				return relayJson(
+				const checks = await relayJson(
 					reply,
 					request.log,
 					scope.agent,
 					agentUrl(scope.slug, "checks"),
-					SharedChecksResponse,
+					ChecksResponse,
 					AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				);
+				if (!checks) return;
+				// Names and results only: a command may carry a token (SPEC.md §5.2).
+				const runs = new Map(checks.runs.map((run) => [run.checkId, run]));
+				const body: SharedChecksResponse = {
+					checks: checks.checks.map((check) => {
+						const run = runs.get(check.id);
+						return {
+							id: check.id,
+							name: check.name,
+							lastRun: run
+								? {
+										state: run.state,
+										startedAt: run.startedAt,
+										endedAt: run.endedAt,
+										exitCode: run.exitCode,
+									}
+								: null,
+						};
+					}),
+					error: checks.error,
+				};
+				return body;
 			},
 		);
 	});

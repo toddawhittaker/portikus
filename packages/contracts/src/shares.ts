@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ChecksResponse } from "./checks.js";
+import { CheckDefinition, CheckRun, MAX_CHECKS_PER_PROJECT } from "./checks.js";
 import { TreeResponse } from "./files.js";
 import { GitDiff, GitStatus } from "./git.js";
 import { WorkspaceState } from "./workspace.js";
@@ -28,14 +28,24 @@ export const ShareViewer = z.object({
 });
 export type ShareViewer = z.infer<typeof ShareViewer>;
 
+/** One course the student belongs to and its instructors' names: who a share reaches. */
+export const ShareAudienceCourse = z.object({
+	courseId: z.string().uuid(),
+	courseTitle: z.string(),
+	instructors: z.array(z.string().min(1)),
+});
+export type ShareAudienceCourse = z.infer<typeof ShareAudienceCourse>;
+
 /**
  * Response body for `GET`, `POST` and `POST …/stop` on
  * `/workspaces/:id/projects/:pid/share`. `share` is null when nothing is
- * open; `viewers` belong to the open share, earliest first.
+ * open; `viewers` belong to the open share, earliest first; `audience` is
+ * everyone who could look, by course title.
  */
 export const ProjectShareStatus = z.object({
 	share: ProjectShare.nullable(),
 	viewers: z.array(ShareViewer),
+	audience: z.array(ShareAudienceCourse),
 });
 export type ProjectShareStatus = z.infer<typeof ProjectShareStatus>;
 
@@ -59,8 +69,9 @@ export const CourseSharesResponse = z.object({
 export type CourseSharesResponse = z.infer<typeof CourseSharesResponse>;
 
 // The shared reads under `/courses/:courseId/shares/:projectId/` answer in
-// the owner's shapes, with secret paths filtered out. `file` streams the
-// bytes as the owner's file route does, so it has no JSON body.
+// the owner's shapes, with secret paths filtered out, except checks, which
+// leave out each command. `file` streams the bytes as the owner's file
+// route does, so it has no JSON body.
 
 /** `GET …/tree`. */
 export const SharedTreeResponse = TreeResponse;
@@ -74,6 +85,23 @@ export type SharedGitStatusResponse = GitStatus;
 export const SharedGitDiffResponse = GitDiff;
 export type SharedGitDiffResponse = GitDiff;
 
-/** `GET …/checks`. */
-export const SharedChecksResponse = ChecksResponse;
-export type SharedChecksResponse = ChecksResponse;
+/**
+ * One check as an instructor sees it: its name and what its latest run did.
+ * Never the command, which may carry a token (SPEC.md §5.2).
+ */
+export const SharedCheck = CheckDefinition.pick({ id: true, name: true }).extend({
+	lastRun: CheckRun.pick({
+		state: true,
+		startedAt: true,
+		endedAt: true,
+		exitCode: true,
+	}).nullable(),
+});
+export type SharedCheck = z.infer<typeof SharedCheck>;
+
+/** `GET …/checks`. `error` says why the checks file could not be used, or null. */
+export const SharedChecksResponse = z.object({
+	checks: z.array(SharedCheck).max(MAX_CHECKS_PER_PROJECT),
+	error: z.string().nullable(),
+});
+export type SharedChecksResponse = z.infer<typeof SharedChecksResponse>;
