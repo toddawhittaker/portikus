@@ -359,6 +359,17 @@ Setup needs outgoing internet access to:
   the workspace image;
 - the Go module proxy (`proxy.golang.org`), to build Dex;
 
+Updating Claude Code and Codex from the admin page (SPEC.md section 22.6)
+also needs outgoing access from the server, now and later, to:
+
+- `downloads.claude.ai`, for Claude Code;
+- `api.github.com` and `github.com`, for Codex's release list and download;
+- the host GitHub sends release downloads to. It has been
+  `objects.githubusercontent.com` and is now
+  `release-assets.githubusercontent.com`. The job follows the redirect and
+  checks the file against GitHub's digest, so allow whichever name your
+  network sees.
+
 The firewall setup installs allows SSH, HTTP (port 80) and HTTPS (port
 443) in, and nothing else. For SSH it opens whichever ports the SSH server
 itself reports through `sshd -T`, so a server that runs SSH on a port

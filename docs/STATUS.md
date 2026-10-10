@@ -503,7 +503,9 @@ browser by writing an OSC 52 escape instead (workspace image 2026.09.6)
 `/etc/profile.d/portikus-agents.sh`, which exports `DISABLE_AUTOUPDATER=1`
 so Claude Code stops trying to update itself into a root-owned npm prefix
 it cannot write; Codex has no equivalent environment variable, so its
-update check is left for Epic 9 (§10) (#127).
+update check is left for Epic 9 (§10) (#127). Epic 40 later moved both
+tools out of the image into a shared folder that an admin updates from
+the admin page; the image no longer installs them with npm (§10, §22.6).
 
 A security review of the batch found four issues in the web app, all now
 closed: an OSC 52 clipboard write can only change the system clipboard
@@ -4576,7 +4578,8 @@ Delivered:
   raises one warning alert per settings change and a Certificate-tab
   banner while it is in use. Verified on the rehearsal VM.
 - Pinned agents (#1194 H4, Fixes #1145): the admin image rebuild
-  installs the recipe's pinned Claude Code and Codex versions.
+  installs the recipe's pinned Claude Code and Codex versions. Epic 40
+  replaced this: a rebuild no longer touches either tool (§22.6).
 - Log alerts (#1199 H5): the API reads the journal each minute;
   outbound-limit hits raise one alert per workspace and reason an hour,
   naming the Incus instance; 20 or more errors in 15 minutes raise one
@@ -4920,7 +4923,71 @@ Gaps left:
 - The quota warning reads only user quotas, not group or project quotas.
 - A dragged tree row carries one item, not the selection. Touch dragging
   depends on the browser.
-- With a 200-character file name open, the editor's zoom buttons fail
-  axe's target-size rule.
-- Follow-up issues: #1350 (voice admin switch), #1360, #1366, #1371.
-  #1368 (Docker Hub limit) was fixed by H1.
+- Follow-up issues: #1350 (voice admin switch), #1360. #1368 (Docker Hub
+  limit) was fixed by H1. The zoom-button target size (#1371) and the
+  flaky layout test (#1366) were fixed in Epic 40.
+
+## Epic 40 — Update Claude Code and Codex without rebuilding images
+
+Built on `epic/40-agent-updates` (task PRs #1394 to #1396, #1398 to
+#1402, #1404 to #1409, and this fold). Issues #1215 (main feature), #1373,
+#1366, #1371, #1393 and #1403. No migration. SPEC.md sections 9.3, 10,
+18.1, 21.7, 22.4, 22.6, 24.1 and 29 gained text, and ADR 0056 records the
+decisions. The plan file was folded and deleted. Out of scope: a scheduled
+update check, choosing a version, per-course versions (#1246), Playwright
+browsers in the folder (#1361), and backups of the folder (it can be
+downloaded again).
+
+Delivered:
+
+- Shared coding agents (#1215): Claude Code and Codex live in
+  `/var/lib/portikus/coding-agents` on the server, not in the image. Every
+  workspace sees the folder read-only at `/opt/portikus/coding-agents`
+  through a `coding-agents` device on the workspace profile (#1401). Image
+  2026.10.2 links `/usr/local/bin/claude` and `codex` into it and no longer
+  installs them with npm. The controller writes the same two links into a
+  stopped workspace at each start, so workspaces on older images move to the
+  shared tools at their next start (#1400). The smoke test and the image
+  rehearsal cover the links, the read-only mount, the folder's modes, and
+  update and rollback.
+- Root job (#1402, #1404, #1408, #1409): `agents-update`,
+  `agents-rollback {tool}` and `agents-seed` in `image-job`, in a new module
+  `coding_agents.py`. Downloads are verified (Claude Code: `gpgv` against a
+  shipped keyring and the manifest's SHA-256; Codex: GitHub's digest against
+  `codex-package_SHA256SUMS`), unpacked safely into a staging folder and
+  health-checked as the student in a throwaway container. Each tool that
+  passes switches on its own. An update never moves a tool below its current
+  version. Pruning keeps three versions, and at most five when processes
+  still run older ones. The health check's boot wait has one five-minute
+  deadline (#1403). Setup seeds the pinned versions.
+- Contract and API (#1398): job kinds `agents-update` and
+  `agents-rollback`, `AdminImage.codingAgents`, and 409
+  `CODING_AGENT_NO_PREVIOUS`. Claude Code's managed settings set
+  `DISABLE_AUTOUPDATER`.
+- Admin page (#1405, #1409): a Coding agents card on the Workspace image
+  tab with Update coding agents and a Roll back button for each tool, the
+  not-set-up state, its own busy note, and a "Result" message after a job.
+  A refused request reloads the page data. New image manifests no longer
+  record claude or codex, and the compare view never lists them as removed.
+- Checks (#1395, #1399, #1406): a Check the student stops shows a neutral
+  Stopped state, even when its command exits 143 on its own. Any other
+  signal death stays Failed with exit code 128 plus the signal (#1373).
+- Work area (#1396, #1406, #1409): a file pane drags by its whole title bar
+  except its controls and the folder path, which can be selected and copied
+  (#1393). The editor's zoom buttons keep 24 px (#1371). The flaky layout
+  reload test waits for the full saved layout (#1366, #1394).
+- Review fixes: one tool's staging error no longer stops the other tool
+  switching; image health checks wait for boot; the stale text about
+  rebuilds bringing the latest Claude Code and Codex is gone from the admin
+  page, the help and the SPEC.
+- Fold: SPEC, STATUS, ADR 0056 (ADR 0030 marked), INSTALL and OPERATIONS.
+
+Gaps left:
+
+- The Coding agents card shows the version in use and the previous one, not
+  the other kept versions or when the folder last changed.
+- Codex downloads rely on GitHub's digest and the release's checksum file;
+  there is no signature check (an accepted risk, ADR 0056).
+- The axe check in `files-tabs-follow.spec.ts` is still limited to the toast.
+- The rehearsal-VM run (bootstrap to smoke, old-image restart, a live
+  update and rollback) is recorded in the epic pull request.
