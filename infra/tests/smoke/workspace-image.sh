@@ -72,6 +72,12 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
   check "claude --version"                      ws_student "claude --version"
+  # Both come from the shared folder the profile mounts, not the image
+  # (SPEC.md section 10), whatever else is on the PATH.
+  for tool in claude codex; do
+    check "${tool} resolves into the shared coding-agents folder" \
+      ws_student "case \$(readlink -f \$(command -v ${tool})) in /opt/portikus/coding-agents/${tool}/*) true ;; *) false ;; esac"
+  done
   # Browser opens are brokered, and Codex does not look for updates on
   # startup (BROWSER-HANDLING.md 18 and 25.2). These do not log in.
   check "portikus-open is executable"           ws_exec "test -x /usr/local/bin/portikus-open"

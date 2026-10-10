@@ -60,6 +60,8 @@ interface LiveRun {
 	watchers: Set<WebSocket>;
 	/** The frame that ended this run, replayed to a late watcher. */
 	final: CheckOutputFrame | null;
+	/** Set by a Stop request, so the exit is told apart from a stray signal. */
+	stopRequested: boolean;
 	/** Set while the PTY is paused for a slow watcher (SPEC.md §18.1). */
 	drainTimer: NodeJS.Timeout | null;
 }
@@ -131,6 +133,7 @@ export class CheckRunner {
 			ptyStart: Promise.resolve(null),
 			watchers: new Set(),
 			final: null,
+			stopRequested: false,
 			drainTimer: null,
 		};
 		// Re-inserting puts this check at the newest end of the map, which is
@@ -193,10 +196,11 @@ export class CheckRunner {
 				// OOM killer); use the shell's 128 plus signal so it never passes.
 				const exitCode = signal ? 128 + signal : rawCode;
 				run.meta.exitCode = exitCode;
+				const stopped = run.stopRequested && Boolean(signal);
 				this.finish(
 					run,
-					{ type: "exit", exitCode },
-					exitCode === 0 ? "passed" : "failed",
+					stopped ? { type: "exit", exitCode, stopped } : { type: "exit", exitCode },
+					stopped ? "stopped" : exitCode === 0 ? "passed" : "failed",
 				);
 			},
 		);
@@ -213,6 +217,7 @@ export class CheckRunner {
 		// The whole tree, so a background child cannot outlive the stop
 		// (SPEC.md §18.1); onExit still settles the run.
 		const pid = run.pty.pid;
+		run.stopRequested = true;
 		run.ptyStart
 			.then((start) => (start === null ? undefined : killProcessTree(pid, start)))
 			.catch((error: unknown) => {
@@ -318,7 +323,7 @@ export class CheckRunner {
 	private finish(
 		run: LiveRun,
 		frame: CheckOutputFrame,
-		state: "passed" | "failed" | "error",
+		state: CheckRun["state"],
 	): void {
 		this.stopDrain(run);
 		run.meta.state = state;

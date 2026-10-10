@@ -141,6 +141,30 @@ test("each check shows its name, its real command, and what it last did", async 
 	expect(screen.getByTestId("check-state-lint").textContent).toContain("Not run yet");
 });
 
+test("a stopped run shows a neutral Stopped badge, not Failed", async () => {
+	stubBrowserApis();
+	stubChecks({
+		checks: CHECKS,
+		error: null,
+		runs: [
+			{
+				id: "run-1",
+				checkId: "tests",
+				state: "stopped",
+				startedAt: "2026-01-01T00:00:00.000Z",
+				endedAt: "2026-01-01T00:00:01.000Z",
+				exitCode: 143,
+			},
+		],
+	});
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("checks-list")).toBeTruthy());
+	const text = screen.getByTestId("check-state-tests").textContent;
+	expect(text).toContain("Stopped");
+	expect(text).not.toContain("Failed");
+});
+
 test("the check whose output shows is marked current for screen readers", async () => {
 	stubBrowserApis();
 	stubChecks({ checks: CHECKS, error: null, runs: [] });

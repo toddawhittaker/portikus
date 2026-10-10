@@ -185,7 +185,7 @@ test("a second run of the same check while one is going is a 409", async () => {
 	const stopped = (await call("GET", `/projects/${SLUG}/checks`))
 		.json()
 		.runs.find((run: { checkId: string }) => run.checkId === "slow");
-	expect(stopped.state).toBe("failed");
+	expect(stopped.state).toBe("stopped");
 	expect(stopped.exitCode).not.toBe(0);
 });
 
@@ -287,7 +287,35 @@ test("the output socket of a check that never ran closes with 4404", async () =>
 	expect(code).toBe(4404);
 });
 
-test("a run ended by a signal is failed with the shell's 128 plus signal code, never passed", () => {
+test("a run ended by a Stop request is stopped, keeping the signal's exit code", () => {
+	let exit: ((status: { exitCode: number; signal?: number }) => void) | undefined;
+	const fakePty = {
+		pid: 0,
+		onData: () => {},
+		onExit: (fn: typeof exit) => {
+			exit = fn;
+		},
+		kill: () => {},
+	};
+	const runner = new CheckRunner(
+		quietLog,
+		(() => fakePty) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] &
+			never,
+	);
+	runner.start({
+		slug: SLUG,
+		check: { id: "slow", name: "Slow", command: "sleep 300" },
+		cwd: homeDir,
+	});
+	runner.kill(SLUG, "slow");
+	exit?.({ exitCode: 0, signal: 15 });
+	expect(runner.current(SLUG, "slow")).toMatchObject({
+		state: "stopped",
+		exitCode: 143,
+	});
+});
+
+test("a run ended by a signal is failed with the shell's 128 plus signal code when nobody asked for a Stop", () => {
 	let exit: ((status: { exitCode: number; signal?: number }) => void) | undefined;
 	const fakePty = {
 		onData: () => {},

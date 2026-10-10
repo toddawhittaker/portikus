@@ -33,6 +33,12 @@
 	background: none;
 	color: inherit;
 	cursor: pointer;
+	/* WCAG 2.5.8: a 24-pixel target by size alone, whatever sits beside it. */
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-inline-size: 24px;
+	min-block-size: 24px;
 	padding: 2px var(--space-1);
 	border-radius: var(--radius-sm);
 	font: inherit;

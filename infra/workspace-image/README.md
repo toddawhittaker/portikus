@@ -17,13 +17,16 @@ the shim reads what it is given and writes it to the terminal as an OSC 52
 escape sequence, which tmux passes through to the browser.
 Reading the clipboard is not possible, so `xclip -o` prints nothing.
 
-The recipe takes four build parameters from the environment: the Node
-major (24 or 26), Python (Debian's alone, or with Python 3.14 from uv), and
-the Claude Code and Codex versions. Unset, they give the pinned defaults CI
-publishes. The admin "rebuild" job (`packaging/image/image-job`) sets them
-from its dropdowns and asks for the latest Claude Code and Codex. The
-comment at the top of `portikus.yaml` lists them.
+The recipe takes two build parameters from the environment: the Node
+major (24 or 26) and Python (Debian's alone, or with Python 3.14 from uv).
+Unset, they give the pinned defaults CI publishes. The admin "rebuild" job
+(`packaging/image/image-job`) sets them from its dropdowns. The comment at
+the top of `portikus.yaml` lists them.
 
-To bump pinned tool versions, update the npm install action in `portikus.yaml`
-and the comment block at the top of the file. Run `npm view <pkg> version`
-to find the current release and record the date in the comment.
+Claude Code and Codex are not in the image. They live on the server in
+`/var/lib/portikus/coding-agents`, which every workspace mounts read-only at
+`/opt/portikus/coding-agents`. The image carries only an empty mount point
+and two links, `/usr/local/bin/claude` and `/usr/local/bin/codex`, to the
+folder's `bin` links. Setup installs a pinned version of each, and the
+admin page's **Update coding agents** job moves them to the newest release
+without an image rebuild (docs/SPEC.md section 10).

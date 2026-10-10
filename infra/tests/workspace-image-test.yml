@@ -2,7 +2,8 @@
 # The workspace_image role's first-install decision (docs/SPEC.md section 21.12,
 # ADR 0030), tried with no VM: stand-ins for incus and the
 # image job show when setup calls the job, and when a failed first install
-# fails setup or only warns.  `make infra-check` runs it.
+# fails setup or only warns.  Setup also seeds the coding agents (SPEC.md
+# section 10) and stops when either has no current version.  `make infra-check` runs it.
 - name: Check when setup installs the first workspace image
   hosts: localhost
   connection: local
@@ -24,6 +25,10 @@
           accept: false, called: true }
       - { name: a failed first install once a default exists, version: 2026.09.12, before: "{{ wi_none }}",
           job: fails-after-default, accept: true, called: true }
+      - { name: a failed coding-agent seed, version: 2026.09.12, before: "{{ wi_default }}", job: none,
+          agents: fails, accept: false, called: false }
+      - { name: a seed that leaves Codex out, version: 2026.09.12, before: "{{ wi_default }}", job: none,
+          agents: claude-only, accept: false, called: false }
 
   environment:
     PATH: "{{ wi_dir }}/bin:{{ lookup('env', 'PATH') }}"
@@ -40,8 +45,9 @@
         state: directory
         mode: "0755"
 
-    # incus prints the aliases file; the job records its call and, unless it
-    # fails before, sets a default as the real one does.
+    # incus prints the aliases file.  The job's agents-seed makes the
+    # current links the case asks for; any other call is recorded and,
+    # unless it fails before, sets a default as the real one does.
     - name: Write the stand-ins
       ansible.builtin.copy:
         dest: "{{ wi_dir }}/bin/{{ item.name }}"
@@ -55,6 +61,19 @@
         - name: image-job
           content: |
             #!/bin/sh
+            if [ "$1" = agents-seed ]; then
+              case "$(cat "{{ wi_dir }}/agents")" in
+                fails) echo "image-job: the Codex download failed" >&2; exit 1 ;;
+                claude-only) tools=claude ;;
+                *) tools="claude codex" ;;
+              esac
+              for t in $tools; do
+                mkdir -p "{{ wi_dir }}/agents-dir/$t"
+                ln -sfn 1.0.0 "{{ wi_dir }}/agents-dir/$t/current"
+              done
+              echo changed
+              exit 0
+            fi
             echo "$*" > "{{ wi_dir }}/called"
             case "$(cat "{{ wi_dir }}/job")" in
               fails) echo "image-job: the download failed" >&2; exit 1 ;;
