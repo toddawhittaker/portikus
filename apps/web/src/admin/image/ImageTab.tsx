@@ -57,6 +57,8 @@ const KIND_LABEL: Record<NonNullable<ImageJobView["kind"]>, string> = {
 	activate: "Make default",
 	rollback: "Roll back",
 	delete: "Delete an image",
+	"agents-update": "Update coding agents",
+	"agents-rollback": "Roll back coding agent",
 };
 
 const STATE_LABEL: Record<ImageJobView["state"], string> = {
