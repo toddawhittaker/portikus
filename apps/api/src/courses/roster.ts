@@ -13,7 +13,6 @@ import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyBaseLogger } from "fastify";
 import type { Kysely, Transaction } from "kysely";
 import type { LtiDeps } from "../lti/deps.js";
-import { toolJwks } from "../routes/lti.js";
 
 /** NRPS may leave a name out; the Course page still needs something to show. */
 export const UNNAMED_MEMBER = "Name not shared";
@@ -306,7 +305,6 @@ async function runSync(
 			tokenUrl: source.tokenUrl,
 			clientId: source.clientId,
 			toolKeyPem: source.toolKeyPem,
-			kid: toolJwks(source.toolKeyPem).keys[0]?.kid ?? "",
 			proxyUrl,
 		});
 		members = await fetchNrpsMembers({

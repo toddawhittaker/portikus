@@ -1,4 +1,3 @@
-import { createHash, createPublicKey } from "node:crypto";
 import {
 	checkLaunchState,
 	consumeLoginState,
@@ -14,6 +13,7 @@ import {
 	saveLoginState,
 	staleLtiStateCookies,
 	startLtiLogin,
+	toolJwks,
 	validateLaunchToken,
 } from "@portikus/auth";
 import { recordAudit } from "@portikus/db";
@@ -131,18 +131,6 @@ function loginParams(source: unknown): LtiLoginParams {
 		if (typeof value === "string") params[name] = value;
 	}
 	return params;
-}
-
-/** The public half of the tool key, with its SHA-256 thumbprint as `kid`. */
-export function toolJwks(pem: string | null): { keys: Record<string, string>[] } {
-	if (!pem) return { keys: [] };
-	const jwk = createPublicKey(pem).export({ format: "jwk" });
-	const { kty, n, e } = jwk as { kty: string; n: string; e: string };
-	// RFC 7638: the required members, in lexical order, no whitespace.
-	const kid = createHash("sha256")
-		.update(JSON.stringify({ e, kty, n }))
-		.digest("base64url");
-	return { keys: [{ kty, n, e, kid, alg: "RS256", use: "sig" }] };
 }
 
 /**

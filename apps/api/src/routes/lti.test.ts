@@ -24,7 +24,7 @@ import { toAuthOptions } from "../auth-options.js";
 import { loadLtiDeps } from "../lti/deps.js";
 import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../testing/test-support.js";
-import { targetPath, toolJwks } from "./lti.js";
+import { targetPath } from "./lti.js";
 
 /**
  * LTI 1.3 login and launch against a real database and a local keyset
@@ -1177,10 +1177,6 @@ describe.skipIf(skip)("the tool keyset", () => {
 		expect(keys[0]?.d).toBeUndefined();
 		expect(keys[0]?.kid).toMatch(/^[A-Za-z0-9_-]{43}$/);
 		expect(res.body).not.toContain(toolKeyPem.slice(40, 80));
-	});
-
-	test("with no key file the set is empty", () => {
-		expect(toolJwks(null)).toEqual({ keys: [] });
 	});
 });
 

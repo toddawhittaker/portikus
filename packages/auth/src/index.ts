@@ -75,6 +75,7 @@ export {
 	saveLoginState,
 	staleLtiStateCookies,
 } from "./lti/state.js";
+export { toolJwks, toolKeyId } from "./lti/tool-key.js";
 export {
 	createKeySetSource,
 	type LtiDeepLinkingLaunch,

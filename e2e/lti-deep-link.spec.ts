@@ -34,6 +34,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.getByLabel("Repository URL").fill("ssh://git@example.com/repo.git");
 		await page.getByRole("button", { name: "Add the link" }).click();
 		await expect(page.getByText("must be a public https URL")).toBeVisible();
+		await expect(page).toHaveTitle(/^Error: /);
+		const repository = page.getByLabel("Repository URL");
+		await expect(repository).toHaveAttribute("aria-invalid", "true");
+		await expect(repository).toHaveAccessibleDescription(/must be a public https URL/);
+		await expect(page.getByLabel("Project name")).not.toHaveAttribute("aria-invalid");
 		await expectNoAxeViolations(page);
 	});
 }
