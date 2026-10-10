@@ -10,5 +10,9 @@ ConditionPathExists=/etc/portikus/portikus.yaml
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/portikus setup
+# The play reads the operator's LTI platforms file from ~/.config, so a run
+# started here (an upgrade, or a site trial) sees the one `sudo portikus
+# setup` sees; without it a run here would turn LTI off (ADR 0025).
+Environment=HOME=/root
 # The first run builds Dex and imports the workspace image.
 TimeoutStartSec=90min

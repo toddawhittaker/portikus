@@ -10,8 +10,9 @@ export interface LtiDeps {
 }
 
 /**
- * Load the platforms file at start. Ansible always sets the variables, so a
- * missing file means LTI is off; a file that is there but wrong throws
+ * Load the platforms files at start. Ansible always sets the variables, and
+ * LTI is off only when neither the operator's file nor the page's names a
+ * platform. An operator file that is there but wrong throws
  * PlatformsFileError and stops the start.
  *
  * The platforms an administrator registered on the page are added after the
@@ -25,16 +26,18 @@ export async function loadLtiDeps(
 	onSkipped: (message: string) => void = () => {},
 ): Promise<LtiDeps | undefined> {
 	const file = config.LTI_PLATFORMS_FILE;
-	if (!file || !existsSync(file)) return undefined;
+	if (!file) return undefined;
 	const keyFile = config.LTI_TOOL_KEY_FILE;
-	const operator = await loadPlatformsFile(file);
+	const operator = existsSync(file) ? await loadPlatformsFile(file) : [];
 	const added = await loadPagePlatforms(config.LTI_ADMIN_PLATFORMS_FILE, onSkipped);
 	const taken = (p: LtiPlatform) =>
 		operator.some(
 			(o) => o.name === p.name || (o.issuer === p.issuer && o.clientId === p.clientId),
 		);
+	const platforms = [...operator, ...added.filter((p) => !taken(p))];
+	if (platforms.length === 0) return undefined;
 	return {
-		platforms: [...operator, ...added.filter((p) => !taken(p))],
+		platforms,
 		toolKeyPem: keyFile && existsSync(keyFile) ? readFileSync(keyFile, "utf8") : null,
 	};
 }

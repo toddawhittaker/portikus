@@ -103,13 +103,30 @@ describe("merging the page platforms file", () => {
 		expect(names).toEqual(["Operator LMS", "Fine"]);
 	});
 
-	test("with no operator file LTI stays off even when the page file is there", async () => {
+	// A server whose only LMS was registered on the page (ADMIN-GUIDE.md, "LMS platforms").
+	test("with no operator file the page's platforms alone turn LTI on", async () => {
 		await writeFile(pageFile, JSON.stringify({ version: 1, platforms: [added] }));
+		const lti = await loadLtiDeps({
+			LTI_PLATFORMS_FILE: join(dir, "missing.json"),
+			LTI_ADMIN_PLATFORMS_FILE: pageFile,
+		});
+		expect(lti?.platforms).toEqual([added]);
+	});
+
+	test("with neither file, or only a wrong page file, LTI stays off", async () => {
+		const missing = join(dir, "missing.json");
 		expect(
 			await loadLtiDeps({
-				LTI_PLATFORMS_FILE: join(dir, "missing.json"),
+				LTI_PLATFORMS_FILE: missing,
 				LTI_ADMIN_PLATFORMS_FILE: pageFile,
 			}),
+		).toBeUndefined();
+		await writeFile(pageFile, "not json");
+		expect(
+			await loadLtiDeps(
+				{ LTI_PLATFORMS_FILE: missing, LTI_ADMIN_PLATFORMS_FILE: pageFile },
+				() => {},
+			),
 		).toBeUndefined();
 	});
 });
