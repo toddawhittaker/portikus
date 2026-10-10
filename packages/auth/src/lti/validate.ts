@@ -33,11 +33,17 @@ export type LtiRefusal =
 	| "wrong_target"
 	| "missing_subject"
 	| "missing_resource_link"
-	| "bad_context";
+	| "bad_context"
+	| "bad_deep_link_settings"
+	| "bad_deep_link_return_url"
+	| "resource_link_not_accepted"
+	| "not_instructor";
 
 /** What a valid launch says about the person and the course. No token or raw claims. */
-export interface LtiLaunch {
+interface LtiLaunchCommon {
 	platform: LtiPlatform;
+	/** The deployment the message came through; a Deep Linking response must echo it. */
+	deploymentId: string;
 	subject: string;
 	/** `name`, else given and family name, else "LTI user". */
 	displayName: string;
@@ -49,7 +55,25 @@ export interface LtiLaunch {
 	/** Absent when the launch had no context claim: sign in, record no membership. */
 	context: { id: string; title: string } | null;
 	targetLinkUri: string;
+	/** The NRPS claim's `context_memberships_url`, or null when absent or unusable. */
+	membershipsUrl: string | null;
 }
+
+/** A resource-link launch: the person opens Portikus from a course link. */
+export interface LtiResourceLinkLaunch extends LtiLaunchCommon {
+	kind: "resource_link";
+}
+
+/** A Deep Linking request: an instructor picks what a new course link opens. */
+export interface LtiDeepLinkingLaunch extends LtiLaunchCommon {
+	kind: "deep_linking";
+	/** Where the signed response is posted; https, or http for a mock platform. */
+	deepLinkReturnUrl: string;
+	/** The opaque `data` value the response must echo, or null when none was sent. */
+	deepLinkData: string | null;
+}
+
+export type LtiLaunch = LtiResourceLinkLaunch | LtiDeepLinkingLaunch;
 
 export type LtiLaunchResult =
 	| { ok: true; launch: LtiLaunch }
@@ -59,6 +83,12 @@ export type LtiLaunchResult =
 export type KeySetSource = (keysetUrl: string) => JWTVerifyGetKey;
 
 const CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
+const DEEP_LINKING_SETTINGS =
+	"https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings";
+const NRPS_CLAIM = "https://purl.imsglobal.org/spec/lti-nrps/claim/namesroleservice";
+const MAX_URL_LENGTH = 2048;
+// The data value is echoed back verbatim, so an oversized one is refused rather than carried.
+const MAX_DEEP_LINK_DATA_LENGTH = 4096;
 const CLOCK_SKEW_SECONDS = 60;
 
 /**
@@ -202,6 +232,53 @@ function contextOf(claims: Record<string, unknown>): LtiLaunch["context"] | "bad
 	return { id: ctx.id, title: isString(ctx.title) ? ctx.title : "" };
 }
 
+/** An absolute URL of bounded length, https or (for a mock platform) http. */
+function platformUrl(value: unknown, platform: LtiPlatform): string | null {
+	if (!isString(value) || value.length > MAX_URL_LENGTH) return null;
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return null;
+	}
+	const allowed = platform.mock ? ["https:", "http:"] : ["https:"];
+	return allowed.includes(url.protocol) ? value : null;
+}
+
+/** The roster URL from the NRPS claim; an unusable one means no roster, not a refused launch. */
+function membershipsUrlOf(
+	claims: Record<string, unknown>,
+	platform: LtiPlatform,
+): string | null {
+	const nrps = objectClaim(claims[NRPS_CLAIM]);
+	return nrps ? platformUrl(nrps.context_memberships_url, platform) : null;
+}
+
+type DeepLinkSettings = { returnUrl: string; data: string | null };
+
+/** The deep-linking settings claim, or the refusal that says what is wrong with it. */
+function deepLinkSettingsOf(
+	claims: Record<string, unknown>,
+	platform: LtiPlatform,
+): DeepLinkSettings | LtiRefusal {
+	const settings = objectClaim(claims[DEEP_LINKING_SETTINGS]);
+	if (!settings) return "bad_deep_link_settings";
+	const data = settings.data;
+	if (
+		data !== undefined &&
+		(!isString(data) || data.length > MAX_DEEP_LINK_DATA_LENGTH)
+	) {
+		return "bad_deep_link_settings";
+	}
+	const returnUrl = platformUrl(settings.deep_link_return_url, platform);
+	if (!returnUrl) return "bad_deep_link_return_url";
+	const acceptTypes = settings.accept_types;
+	if (!Array.isArray(acceptTypes) || !acceptTypes.includes("ltiResourceLink")) {
+		return "resource_link_not_accepted";
+	}
+	return { returnUrl, data: isString(data) ? data : null };
+}
+
 /**
  * Check a launch's id_token against the login it answers. The signature is
  * checked (RS256 only, against the registration's keyset) before any claim
@@ -242,7 +319,11 @@ export async function validateLaunchToken(
 	if (!isString(deploymentId) || !platform.deploymentIds.includes(deploymentId)) {
 		return refuse("unknown_deployment");
 	}
-	if (claims[`${CLAIM}message_type`] !== "LtiResourceLinkRequest") {
+	const messageType = claims[`${CLAIM}message_type`];
+	if (
+		messageType !== "LtiResourceLinkRequest" &&
+		messageType !== "LtiDeepLinkingRequest"
+	) {
 		return refuse("wrong_message_type");
 	}
 	if (claims[`${CLAIM}version`] !== "1.3.0") return refuse("wrong_version");
@@ -257,25 +338,45 @@ export async function validateLaunchToken(
 		return refuse("missing_subject");
 	}
 
-	const resourceLink = objectClaim(claims[`${CLAIM}resource_link`]);
-	if (!resourceLink || !isString(resourceLink.id) || resourceLink.id === "") {
-		return refuse("missing_resource_link");
+	// A Deep Linking request has no resource link: it is how one gets made.
+	if (messageType === "LtiResourceLinkRequest") {
+		const resourceLink = objectClaim(claims[`${CLAIM}resource_link`]);
+		if (!resourceLink || !isString(resourceLink.id) || resourceLink.id === "") {
+			return refuse("missing_resource_link");
+		}
 	}
 
 	const context = contextOf(claims);
 	if (context === "bad") return refuse("bad_context");
 
+	const role = mapLtiRoles(claims[`${CLAIM}roles`]);
+	const common: LtiLaunchCommon = {
+		platform,
+		deploymentId,
+		subject: sub,
+		displayName: displayNameOf(claims),
+		email: isString(claims.email) && claims.email !== "" ? claims.email : null,
+		username: usernameOf(claims),
+		role,
+		context,
+		targetLinkUri: target,
+		membershipsUrl: membershipsUrlOf(claims, platform),
+	};
+	if (messageType === "LtiResourceLinkRequest") {
+		return { ok: true, launch: { ...common, kind: "resource_link" } };
+	}
+
+	const settings = deepLinkSettingsOf(claims, platform);
+	if (isString(settings)) return refuse(settings);
+	// Only teaching staff choose what a course link opens.
+	if (role !== "instructor") return refuse("not_instructor");
 	return {
 		ok: true,
 		launch: {
-			platform,
-			subject: sub,
-			displayName: displayNameOf(claims),
-			email: isString(claims.email) && claims.email !== "" ? claims.email : null,
-			username: usernameOf(claims),
-			role: mapLtiRoles(claims[`${CLAIM}roles`]),
-			context,
-			targetLinkUri: target,
+			...common,
+			kind: "deep_linking",
+			deepLinkReturnUrl: settings.returnUrl,
+			deepLinkData: settings.data,
 		},
 	};
 }

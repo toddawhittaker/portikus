@@ -940,7 +940,7 @@ describe.skipIf(skip)("refused launches", () => {
 		{ reason: "unknown_deployment", set: { [`${CLAIM}deployment_id`]: "dep-9" } },
 		{
 			reason: "wrong_message_type",
-			set: { [`${CLAIM}message_type`]: "LtiDeepLinkingRequest" },
+			set: { [`${CLAIM}message_type`]: "LtiSubmissionReviewRequest" },
 		},
 		{ reason: "wrong_version", set: { [`${CLAIM}version`]: "1.1.0" } },
 		{
