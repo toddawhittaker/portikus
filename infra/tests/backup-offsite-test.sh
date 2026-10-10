@@ -476,7 +476,8 @@ rm -rf "$up"
 # server was off or the link was down.
 slow="${work}/slow"
 mkdir -p "${slow}/incoming"
-for s in "$(stamp '-4 days')" "$(stamp '-3 days')" "$(stamp '-2 days')"; do
+# Days -5 to -3, so the -26 hour set never shares a day with a kept one.
+for s in "$(stamp '-5 days')" "$(stamp '-4 days')" "$(stamp '-3 days')"; do
   mkdir "${slow}/${s}"
   echo small >"${slow}/${s}/home.age"
 done
