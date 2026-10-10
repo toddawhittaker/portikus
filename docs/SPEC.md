@@ -846,7 +846,7 @@ actions menu's "Move into"; resting a drag on a tab opens that tab. A tab
 shows the unsaved dot when any file in it has unsaved edits, and closing a
 tab that holds unsaved edits asks first.
 
-A file pane has one header line, alone in its tab or in a split. The name, which is the drag handle, is at the start, followed by its parent folder in muted text. The save state and the view buttons come next, then the microphone (§25.10), and the actions menu is at the end. An image, a PDF, or a file that cannot be edited has no view buttons, and it shows itself even when its diff is asked for.
+A file pane has one header line, alone in its tab or in a split. The name, which is the drag handle, is at the start, followed by its parent folder in muted text. The save state and the view buttons come next, then the microphone (§25.10), and the actions menu is at the end. An image, a PDF, or a file that cannot be edited has no view buttons, and it shows itself even when its diff is asked for. The whole bar drags the pane, as a terminal's bar does, except its buttons, fields and menus and the folder path, which a student can select and copy. The editor's zoom buttons are at least 24 px by 24 px however long the name is (§25.8). Added by Epic 40.
 
 When a project has no tabs open, the centre pane says "No terminals open" and
 offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
@@ -1136,6 +1136,8 @@ P0:
 - Codex.
 
 The architecture should allow additional CLI agents without redesigning the terminal system.
+
+Added by Epic 40 (ADR 0056): Claude Code and Codex are not part of the workspace image. They live in one shared folder on the platform VM, `/var/lib/portikus/coding-agents`, which every workspace sees read-only at `/opt/portikus/coding-agents` through the `coding-agents` disk device of the workspace profile. The folder is mounted as a whole, because a bind mount of the `current` link would freeze it. `bin/claude` and `bin/codex` in the folder never change; they point at `claude/current` and `codex/current`. In images from 2026.10.2 on, `/usr/local/bin/claude` and `/usr/local/bin/codex` are links to those `bin` links. For older images the workspace controller writes the same two links into the stopped workspace at each start, by the replace-the-path rules of §24.1, so every workspace moves to the shared tools at its next start. `/usr/local/bin` comes before `/usr/bin` on the path. An administrator updates the tools from the admin page without a rebuild (§22.4, §22.6). Open sessions keep the version they started with.
 
 ### 10.2 Launch experience
 
@@ -2261,6 +2263,7 @@ Requirements:
 - test execution must obey ordinary workspace resource limits.
 - stopping a check stops its whole process tree as closing a terminal does
   (§9.7), and a check's output pauses for a slow watcher as a terminal's does.
+- a run the student ends with Stop is state `stopped`, shown with a neutral badge, even when its command catches the signal and exits on its own. Any other death by a signal (the out-of-memory killer, a `kill` from a shell) is `failed` with exit code 128 plus the signal number. The exit frame carries a `stopped` flag so the output panel can tell the two apart (Epic 40).
 
 P0 does not require a universal test-framework parser, per-test graphical explorer, code-coverage UI, or IDE-style test debugging.
 
@@ -3029,8 +3032,7 @@ It should include at least:
 - npm;
 - common build tools;
 - common command-line utilities;
-- Claude Code;
-- Codex;
+- links to the shared Claude Code and Codex (§10.1), which are not installed in the image;
 - tmux or the selected PTY persistence layer;
 - workspace-agent and service definition;
 - the terminals unit and its exit record (§9.7, §19.3).
@@ -3347,19 +3349,29 @@ language-aware editor".
   and health-checks it. When the newest is already the default or the
   previous image, the job ends with "Already up to date".
 - **Rebuild with latest packages** builds the shipped recipe on the
-  server with current Debian and vendor packages; Claude Code and Codex
-  stay at the versions the recipe pins. The only choices are
+  server with current Debian and vendor packages. It does not touch Claude
+  Code or Codex, which have their own update (§22.6). The only choices are
   two dropdowns, never free text: Node major 24 or 26, and Python
   "Debian's 3.13" or "Debian's plus 3.14 from uv" (in `/opt/python`,
   linked as `python3.14` and `python`; `/usr/bin/python3` stays Debian's).
 - **Manifest and diff.** Every image has a manifest: the `dpkg-query`
-  list, the versions of node, npm, python3, git, docker, claude and
-  codex, the build choices, the source (`published` or `local`) and the
+  list, the versions of node, npm, python3, git and docker, the build
+  choices, the source (`published` or `local`) and the
   recipe VERSION. The page shows added, removed and changed packages and
   tools against the default.
+- **Coding agents.** A card on the tab shows each tool's version in use and
+  its previous one. **Update coding agents**, behind a confirmation, and a
+  **Roll back** button for each tool start the jobs of §22.6. A rollback
+  with no previous version is refused (409 `CODING_AGENT_NO_PREVIOUS`) and
+  its button says why. While any image job runs every button is off. After a
+  rollback the next update moves forward to the newest version again. Until
+  setup has seeded the folder the card says so. New image manifests do not
+  list claude or codex; older ones that do are not shown as changed or
+  removed.
 - **Health check.** A throwaway `imgcheck-<hex>` container with the
   workspace profile must run `node`, `python3`, `git`, `docker info`,
-  `claude` and `codex` (and `python3.14` for the uv choice). `docker info`
+  `claude` and `codex` (and `python3.14` for the uv choice). The last two
+  run from the shared folder (§22.6). `docker info`
   must report the overlay2 driver in `/var/lib/docker`, so images land on
   the workspace's Docker volume rather than in Docker 29's default
   containerd image store on the root disk. The root job
@@ -3468,6 +3480,18 @@ whose agent started before the installed agent files last changed.
   running, so it still toasts. When a reconnecting terminal reports a different one, the
   page shows one neutral toast: "Portikus was updated. Your terminals are
   still running." A page opened after the upgrade shows nothing.
+
+### 22.6 Coding agents
+
+Added by Epic 40 (ADR 0056). The root image job (§22.4) gained three commands under its existing lock. The API may ask only for `agents-update` and `agents-rollback {tool}`; the request is strict, with `tool` one of `claude` or `codex` and no version, URL or other field.
+
+- **`agents-update`.** Refused when there is no default image or less than 2 GiB is free. Claude Code takes the version from the `stable` channel at `downloads.claude.ai`. Its `manifest.json` is checked with `gpgv` against a keyring shipped in the package, and the job requires the signature to come from the pinned fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. The binary must match the manifest's SHA-256. Codex takes the latest GitHub release with a plain `rust-v<x.y.z>` tag, builds the download URL itself, and requires GitHub's asset digest to equal the hash in `codex-package_SHA256SUMS`. Downloads have size caps. Archives unpack into a `0700` staging folder, `.staging-<job id>`, with only regular files and folders (no links, devices, setuid or setgid files, absolute paths or `..`), capped in members and size, then set to `root:root` with mode 0755 or 0644. A version name must match `[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}` before it joins a path.
+- **Health check and switch.** One throwaway `imgcheck-<hex>` container from the default image, with the workspace profile, runs each candidate by its absolute path as the student (uid 1000), plus the Claude login check. Boot is awaited for at most five minutes in total. Each tool that passes switches on its own, by writing a temporary relative link and renaming it over `current`; the old `current` becomes `previous`. A failed candidate is deleted, and the job fails with a message that says which tools switched. An error while staging one tool does not stop the other. An update never moves a tool below its current version: the stable pointer is unsigned, so an older offer leaves the tool as it is and the message says so.
+- **`agents-rollback {tool}`.** Swaps `current` and `previous` for that tool with no health check, and leaves the other tool alone. Refused when there is no previous version.
+- **`agents-seed`.** Runs from setup only, never as a job. For any tool with no `current` it installs the version pinned in `image-job`, checked against a SHA-256 pinned there, and prints `changed` or `unchanged`. Setup stops, naming the tool, if either tool is still missing.
+- **Pruning.** Three versions are kept per tool. A version a running process uses (matched by device and inode through `/proc/<pid>/exe`) is kept too, but never more than five folders per tool, and the job log says when it removed one still running. `current` and `previous` are never removed. Recovery removes stale `.staging-*` folders.
+- **State.** The job writes `images/coding-agents.json`: `{claude: {current, previous, kept[]}, codex: {...}, updatedAt}`; the API reads it for `AdminImage.codingAgents`, which is null before the first seed. The audit rows are `image.job_requested` and `image.job_finished` with the kind in the metadata.
+- **Network.** The server needs outgoing access to `downloads.claude.ai`, `api.github.com`, `github.com` and the host GitHub redirects release assets to (docs/INSTALL.md).
 
 ## 23. Networking
 
@@ -3739,6 +3763,8 @@ accounts and the 12-hour provider-role limit. The API still never runs
 as root, and the helper accepts only the `portikus` user on its socket.
 The API may also add any alert host name to the egress proxy through
 the alerts job (ADR 0052); each change is audited and announced.
+
+Added by Epic 40 (ADR 0056): the root image job now writes a folder, `/var/lib/portikus/coding-agents`, whose programs every workspace executes. That makes the job's checks part of the trust boundary: the API's request names only a job kind and a tool; downloads are verified (§22.6); archives unpack with no links, devices or setuid files; everything is owned by root. Workspaces see the folder read-only through the profile device; a container root cannot remount it read-write, and unmounting it only uncovers the container's own empty folder. The Codex download is trusted on GitHub's digest and the release's checksum file, with no signature (accepted risk, ADR 0056). The controller writes the two links into `/usr/local/bin` by the replace rules below, and a failure never stops a start.
 
 As built (Epic 29): the API and the worker reach the workspace agent
 through one shared client, `packages/agent-client`. It keeps the size cap
@@ -6047,7 +6073,7 @@ Includes:
   bypass for the holder;
 - refusing the internal certificate authority on a public address unless
   allowed;
-- pinned coding-agent versions in the admin image rebuild;
+- pinned coding-agent versions in the admin image rebuild (replaced by Epic 40);
 - journal-based alerts for outbound limits and error spikes;
 - restore-mode tests, an off-site quota, a full content security policy
   on API pages, a cap on kept notices, and help and text fixes.
@@ -6058,6 +6084,24 @@ Acceptance:
 - a holder locked out by others' wrong codes still signs in with a
   recovery code or passkey;
 - the internal authority is refused for a public name without the flag.
+
+### Epic 40 — Update Claude Code and Codex without rebuilding images
+
+Built on `epic/40-agent-updates`, issues #1215, #1366, #1371, #1373, #1393 and #1403. No migration. See sections 9.3, 10.1, 18.1, 22.4, 22.6 and 24.1 and ADR 0056.
+
+Includes:
+
+- a shared, read-only coding agents folder on the server, mounted into every workspace, with links written at each start for older images;
+- Update coding agents and a per-tool Roll back on the Workspace image tab, run by the root image job with verified downloads, a health check as the student, and a switch for each tool on its own;
+- a Check the student stops shows as Stopped;
+- a file pane drags by its whole title bar, and the editor zoom buttons keep a 24 px target.
+
+Acceptance:
+
+- an open `claude` session survives an update and a new one runs the new version;
+- a workspace on an older image runs the shared tools after its next start;
+- a failed health check leaves the tool at its old version;
+- a rollback of one tool leaves the other alone.
 
 ### Estimated total
 
