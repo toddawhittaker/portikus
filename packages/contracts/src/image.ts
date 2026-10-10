@@ -179,9 +179,6 @@ export type ImageAliasesFile = z.infer<typeof ImageAliasesFile>;
 export const ImageSizeFile = z.object({ bytes: z.number().int().nonnegative() });
 export type ImageSizeFile = z.infer<typeof ImageSizeFile>;
 
-/** The tools the manifest names by version; null when the tool is missing. */
-export const IMAGE_TOOLS = ["node", "npm", "python3", "git", "docker"] as const;
-
 const ToolVersion = z.string().max(200).nullable();
 
 /** `images/<version>/manifest.json`. */

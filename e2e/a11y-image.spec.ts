@@ -111,6 +111,25 @@ const FAILED_JOB = {
 	message: "The image signature did not match the published key.",
 };
 
+const AGENTS_RUNNING_JOB = {
+	...JOB,
+	kind: "agents-update",
+	state: "running",
+	step: "Checking Claude Code",
+	version: null,
+	finishedAt: null,
+	request: { kind: "agents-update" },
+};
+
+const AGENTS_DONE_JOB = {
+	...AGENTS_RUNNING_JOB,
+	state: "succeeded",
+	step: "Done",
+	finishedAt: "2026-09-28T10:04:00.000Z",
+	message:
+		"Claude Code was left at 2.1.5: the vendor offered 2.1.3, which is older. Codex switched to 0.47.0.",
+};
+
 async function routeImage(page: Page, job: object) {
 	await routeApi(page, "**/admin/image", (route) =>
 		route.fulfill({ json: { ...IMAGE, job } }),
@@ -282,6 +301,51 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.goto("/admin/image");
 		// The status region carries the reason, so a screen reader hears why.
 		await expect(page.getByTestId("image-job-state")).toContainText(FAILED_JOB.message);
+		await expectNoViolations(page);
+	});
+
+	test(`a running coding agents update turns the section's buttons off and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, AGENTS_RUNNING_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/image");
+		await expect(page.getByTestId("image-job-state")).toContainText(
+			"Checking Claude Code",
+		);
+		const card = page.getByTestId("image-agents");
+		const note = card.locator("#image-agents-busy-note");
+		await expect(note).toHaveText(
+			"An image job is waiting or running. Wait until it finishes.",
+		);
+		for (const name of ["Update coding agents", "Roll back Claude Code"]) {
+			const button = card.getByRole("button", { name });
+			await expect(button).toHaveAttribute("aria-disabled", "true");
+			await expect(button).toHaveAttribute(
+				"aria-describedby",
+				"image-agents-busy-note",
+			);
+		}
+		await expectNoViolations(page);
+		await card.screenshot({
+			path: `screenshots/coding-agents-busy-${colorScheme}.png`,
+		});
+	});
+
+	test(`a finished coding agents update shows its result and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, AGENTS_DONE_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/image");
+		await expect(page.getByText("Result", { exact: true })).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId("image-job-message")).toHaveText(
+			AGENTS_DONE_JOB.message,
+		);
 		await expectNoViolations(page);
 	});
 

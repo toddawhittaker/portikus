@@ -664,7 +664,7 @@ test("before setup writes the shared folder, Coding agents says how to set it up
 	await expect(card.getByRole("button")).toHaveCount(0);
 });
 
-test("an image that runs the agents from the shared folder says Shared folder in its changes", async ({
+test("comparing an older image with one that has no claude or codex leaves the agents out", async ({
 	page,
 }) => {
 	await putImage({
@@ -672,13 +672,12 @@ test("an image that runs the agents from the shared folder says Shared folder in
 		fingerprint: fingerprint(),
 		health: "passed",
 		sharedAgents: true,
+		nodeVersion: "v24.9.0",
 	});
 	await open(page);
 	await page.getByRole("button", { name: `Show changes in ${NEWEST}` }).click();
-	const tools = page.getByTestId("image-diff-dialog").getByTestId("image-diff-tools");
-	await expect(tools).toContainText(
-		"Changed claude: 2.0.1 (Claude Code) to Shared folder",
-	);
-	await expect(tools).toContainText("Changed codex: codex-cli 0.40.0 to Shared folder");
-	await expect(tools).not.toContainText("Removed");
+	const diff = page.getByTestId("image-diff-dialog").getByTestId("image-diff");
+	await expect(diff.getByTestId("image-diff-tools")).toContainText("Changed node");
+	await expect(diff).not.toContainText("claude");
+	await expect(diff).not.toContainText("codex");
 });

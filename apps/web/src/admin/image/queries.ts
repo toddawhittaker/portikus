@@ -60,6 +60,7 @@ export function useRequestImageJob() {
 		mutationFn: (body: ImageJobRequest) =>
 			sendJson(ImageJobView, "/admin/image/jobs", body),
 		// Waiting for the refetch lets a confirm dialog return focus to the new job heading.
-		onSuccess: () => client.invalidateQueries({ queryKey: imageKey }),
+		// A refusal (say, a rollback with no previous version) means the page was stale, so reload then too.
+		onSettled: () => client.invalidateQueries({ queryKey: imageKey }),
 	});
 }

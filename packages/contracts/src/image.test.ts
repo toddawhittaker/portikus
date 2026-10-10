@@ -6,7 +6,6 @@
 import { describe, expect, test } from "vitest";
 import {
 	compareImageVersions,
-	IMAGE_TOOLS,
 	ImageAliasesFile,
 	ImageHealth,
 	ImageJobRequest,
@@ -162,7 +161,6 @@ describe("the files the root job writes", () => {
 			const both = { ...manifest, tools: { ...tools, claude: value, codex: value } };
 			expect(ImageManifest.safeParse(both).success).toBe(true);
 		}
-		expect(IMAGE_TOOLS).toEqual(["node", "npm", "python3", "git", "docker"]);
 	});
 
 	test("a health result is passed or failed", () => {

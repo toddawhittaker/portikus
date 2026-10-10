@@ -24,7 +24,7 @@ interface FakeImage {
 	nodeVersion?: string;
 	/** Written as size.json, as the root job records it. */
 	sizeBytes?: number;
-	/** No claude or codex of its own: the image runs them from the shared folder. */
+	/** A newer manifest: no claude or codex, which now live in the shared folder. */
 	sharedAgents?: boolean;
 }
 
@@ -70,8 +70,9 @@ export async function putImage(image: FakeImage): Promise<void> {
 				python3: "Python 3.13.5",
 				git: "git version 2.47.3",
 				docker: "Docker version 28.4.0",
-				claude: image.sharedAgents ? null : "2.0.1 (Claude Code)",
-				codex: image.sharedAgents ? null : "codex-cli 0.40.0",
+				...(image.sharedAgents
+					? {}
+					: { claude: "2.0.1 (Claude Code)", codex: "codex-cli 0.40.0" }),
 			},
 			packages: image.packages ?? { curl: "8.14.1-2", git: "1:2.47.3-0" },
 		}),

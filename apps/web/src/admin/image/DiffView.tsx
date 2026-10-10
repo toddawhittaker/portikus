@@ -1,7 +1,6 @@
 import type { ImageDiff } from "@portikus/contracts";
 import { Skeleton } from "@portikus/ui";
 import { errorText } from "../../api/request.js";
-import { sharedFolderTools } from "./codingAgents.js";
 import { useImageDiff } from "./queries.js";
 
 /** heading is the level of Tools and Packages under wherever the diff is shown. */
@@ -28,7 +27,7 @@ export function DiffView({
 			<DiffPart
 				title="Tools"
 				heading={heading}
-				part={sharedFolderTools(diff.data.tools)}
+				part={diff.data.tools}
 				testId="image-diff-tools"
 			/>
 			<DiffPart

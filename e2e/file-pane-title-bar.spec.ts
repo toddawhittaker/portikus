@@ -161,6 +161,24 @@ for (const colorScheme of ["light", "dark"] as const) {
 			});
 			await expect(page.getByTestId("pane-drag-overlay")).toHaveCount(0);
 			await page.mouse.up();
+
+			// Press-dragging across the folder path selects it, so it can be copied,
+			// and starts no drag.
+			const dir = page.getByTestId(`file-header-dir-${PATH}`);
+			const folder = await dir.boundingBox();
+			if (!folder) throw new Error("the folder path is not on screen");
+			const middle = folder.y + folder.height / 2;
+			await page.mouse.move(folder.x + 1, middle);
+			await page.mouse.down();
+			await page.mouse.move(folder.x + folder.width - 1, middle, { steps: 8 });
+			await expect(page.getByTestId("pane-drag-overlay")).toHaveCount(0);
+			await page.mouse.up();
+			expect(
+				await page.evaluate(() => window.getSelection()?.toString() ?? ""),
+			).toMatch(/sr/);
+			await page.evaluate(() => window.getSelection()?.removeAllRanges());
+			await expect(dir).toHaveCSS("cursor", "text");
+
 			// A click on a header button still does its job.
 			await page.getByTestId(`file-view-diff-${PATH}`).click();
 			await expect(page.getByTestId(`diff-pane-${PATH}`)).toBeVisible();
