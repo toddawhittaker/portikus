@@ -199,6 +199,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /courses/:courseId/members": { access: "course-instructor" },
 	"HEAD /courses/:courseId/members": { access: "course-instructor" },
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
+	"GET /courses/:courseId/agent-usage": { access: "course-instructor" },
+	"HEAD /courses/:courseId/agent-usage": { access: "course-instructor" },
+	"GET /admin/agent-usage": { access: "admin" },
+	"HEAD /admin/agent-usage": { access: "admin" },
 
 	"GET /admin/workspaces": { access: "admin" },
 	// Root shells (ADR 0051); the socket has no HEAD twin.
