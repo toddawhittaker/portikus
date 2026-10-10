@@ -53,7 +53,9 @@ function treeUrl(
 }
 
 /** Every page fetched so far as one listing; `truncated` means more can be fetched. */
-function joinPages(data: InfiniteData<TreeResponse, string | undefined>): TreeResponse {
+export function joinPages(
+	data: InfiniteData<TreeResponse, string | undefined>,
+): TreeResponse {
 	const last = data.pages.at(-1);
 	return {
 		entries: data.pages.flatMap((page) => page.entries),

@@ -1,24 +1,12 @@
-import type { CheckRun, CheckState, Project } from "@portikus/contracts";
+import type { CheckRun, Project } from "@portikus/contracts";
 import { Button, EmptyState, IconButton, StateBadge, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { CheckOutput } from "./CheckOutput.js";
+import { CHECK_BADGE } from "./checkBadge.js";
 import "./checks.css";
 import { PaneSplit } from "../shell/paneSplit.js";
 import { EditChecksDialog } from "./EditChecksDialog.js";
 import { useChecks, useRunCheck, useStopCheck } from "./queries.js";
-
-/** What a check's badge says, and which colour it borrows (DESIGN.md §6). */
-const BADGE: Record<
-	CheckState | "idle",
-	{ state: "stopped" | "starting" | "running" | "error"; label: string }
-> = {
-	idle: { state: "stopped", label: "Not run yet" },
-	running: { state: "starting", label: "Running" },
-	passed: { state: "running", label: "Passed" },
-	failed: { state: "error", label: "Failed" },
-	error: { state: "error", label: "Could not run" },
-	stopped: { state: "stopped", label: "Stopped" },
-};
 
 /**
  * The Checks pane (SPEC.md §18.1): the commands `.portikus/checks.json`
@@ -140,7 +128,7 @@ export function ChecksPane({
 						<ul className="pk-list pk-check-list" data-testid="checks-list">
 							{definitions.map((check) => {
 								const state = runs.get(check.id)?.state ?? "idle";
-								const badge = BADGE[state];
+								const badge = CHECK_BADGE[state];
 								const running = state === "running";
 								return (
 									<li
