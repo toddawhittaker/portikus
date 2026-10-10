@@ -490,8 +490,10 @@ def health_check(job, version, parameters, sleep=time.sleep):
                         log=job, capture=False, timeout=600)
         if code != 0:
             checks.append({"name": "start a container", "ok": False, "output": f"incus launch exited {code}"})
+        elif not wait_for_boot(job, name, sleep):
+            checks.append({"name": "boot the container", "ok": False,
+                           "output": f"not booted within {BOOT_DEADLINE // 60} minutes"})
         else:
-            wait_for_boot(job, name, sleep)
             for check_name, argv, accept in health_checks(parameters):
                 attempts = 18 if argv[0] == "docker" else 1
                 for attempt in range(attempts):
@@ -532,17 +534,25 @@ def agent_checks(tool, version):
     return [("codex --version", [entry, "--version"], lambda out: out == f"codex-cli {version}")]
 
 
-def wait_for_boot(job, name, sleep, tries=60):
-    """Wait until systemd in the container answers.
+BOOT_DEADLINE = 300
+
+
+def wait_for_boot(job, name, sleep):
+    """Wait until systemd in the container answers; False if it does not within BOOT_DEADLINE seconds.
 
     Asked too early, systemctl cannot reach systemd and returns at once; a check
     run then loses its files when boot mounts a fresh /tmp.
     """
-    for _ in range(tries):
-        _, out = incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job, timeout=300)
+    deadline = time.monotonic() + BOOT_DEADLINE
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        _, out = incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job,
+                       timeout=max(1, int(remaining)))
         # Degraded is fine here; the checks say what matters.
         if out.strip():
-            return
+            return True
         sleep(2)
 
 
@@ -558,7 +568,9 @@ def agents_health_check(job, candidates, sleep=time.sleep):
         code, _ = incus("launch", ALIAS_DEFAULT, name, "--profile", PROFILE, log=job, capture=False, timeout=600)
         if code != 0:
             return {tool: ["start a container"] for tool in candidates}
-        wait_for_boot(job, name, sleep)
+        if not wait_for_boot(job, name, sleep):
+            job.line(f"The container did not finish booting within {BOOT_DEADLINE // 60} minutes.")
+            return {tool: ["boot the container"] for tool in candidates}
         for tool, version in candidates.items():
             for check_name, argv, accept in agent_checks(tool, version):
                 code, out = incus("exec", name, "--user", STUDENT_UID, "--group", STUDENT_UID,
