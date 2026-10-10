@@ -34,7 +34,7 @@ test("an instructor sees the student who launched before on the Course page", as
 		).toBeVisible();
 
 		const table = course.getByRole("table", {
-			name: "People who have opened Portikus from this course",
+			name: "People in this course",
 		});
 		const samRow = table.getByRole("row", { name: /Sam Student/ });
 		await expect(samRow).toBeVisible();

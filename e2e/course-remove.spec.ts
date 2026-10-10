@@ -10,7 +10,15 @@ import {
 	WCAG_TAGS,
 	WEB_ORIGIN,
 } from "./helpers";
-import { launchAs, openCourseTab } from "./lti-helpers";
+import { changeRoster, launchAs, openCourseTab } from "./lti-helpers";
+
+// The Course page syncs a stale roster when it opens, and a sync drops anyone
+// the mock roster lacks, so these two join it first.
+test.beforeEach(async ({ request }) => {
+	for (const person of ["rex", "una"]) {
+		await changeRoster(request, { action: "add", course: "cs350", person });
+	}
+});
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
 	browser,

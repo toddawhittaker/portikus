@@ -6,8 +6,12 @@ import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
 import { useMe } from "../useMe.js";
 import { CourseFrame } from "./CourseFrame.js";
+import { CourseUsage } from "./CourseUsage.js";
 import { useCourseMembers, useCourses } from "./queries.js";
 import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
+import { RosterStatus } from "./RosterStatus.js";
+import { useCourseShares } from "./shared/queries.js";
+import { dateTimeText } from "./time.js";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
@@ -90,14 +94,6 @@ function CourseList() {
 const WIDE_ONLY = "@max-2xl:hidden";
 const NARROW_ONLY = "hidden @max-2xl:block";
 
-/** "23 Sep 2026, 14:05" in the browser's own locale and zone. */
-function launchText(iso: string | null): string {
-	if (iso === null) return "—";
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "—";
-	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
 /**
  * Only students who launched can be removed; instructors are the learning
  * system's to change, and a roster-only person has no membership yet.
@@ -139,6 +135,7 @@ export function CourseMembersPage() {
 function CourseMembers() {
 	const { courseId } = useParams({ from: "/course/$courseId" });
 	const members = useCourseMembers(courseId);
+	const shares = useCourseShares(courseId);
 	const me = useMe();
 	const myId = me.status === "authenticated" ? me.user.id : null;
 	const [removing, setRemoving] = React.useState<ActiveCourseMember | null>(null);
@@ -147,6 +144,8 @@ function CourseMembers() {
 	// Set by a successful removal so the closing dialog focuses what is left.
 	const removedNext = React.useRef<{ next: string | null } | null>(null);
 	const data = members.data;
+	// An instructor sees each member's open shares; a failed shares read just shows no links.
+	const openShares = shares.data?.shares ?? [];
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
 
@@ -164,10 +163,21 @@ function CourseMembers() {
 					summary="About the Course page"
 					helpHref="/help#instructor-course"
 				>
-					Everyone who has opened Portikus from this course. Remove takes a student off
-					this page. Their account, workspace and files stay, and they come back if they
-					open Portikus from the course again.
+					People who have opened Portikus from this course, and, when roster sync is on,
+					people on the course roster who have not yet. Remove takes a student off this
+					page. Their account, workspace and files stay, and they come back if they open
+					Portikus from the course again.
 				</PageIntro>
+			</div>
+			{data ? (
+				<div className="mt-6">
+					<RosterStatus courseId={courseId} roster={data.roster} />
+				</div>
+			) : null}
+			<div className="mt-8">
+				<h2 className="pk-text-heading m-0" id="members-title">
+					Members
+				</h2>
 			</div>
 			<Status>
 				{members.isError ? (
@@ -192,9 +202,7 @@ function CourseMembers() {
 				// A narrow wrap folds Role and Last launch under the name, so nothing scrolls sideways.
 				<div className="pk-table-wrap @container mt-4 overflow-clip">
 					<table className="pk-table pk-table--page" data-testid="course-members">
-						<caption className="sr-only">
-							People who have opened Portikus from this course
-						</caption>
+						<caption className="sr-only">People in this course</caption>
 						<thead>
 							<tr>
 								<th scope="col">Name</th>
@@ -217,66 +225,91 @@ function CourseMembers() {
 							</tr>
 						</thead>
 						<tbody>
-							{data.members.map((member) => (
-								<tr key={member.userId}>
-									{/* Named by the name alone, so the other cells' row header is not
+							{data.members.map((member, index) => {
+								// A roster-only person has no account id yet; the list is replaced on each sync.
+								const rowId = member.userId ?? `roster-${index}`;
+								const memberShares = openShares.filter(
+									(share) => share.userId === member.userId,
+								);
+								return (
+									<tr key={rowId}>
+										{/* Named by the name alone, so the other cells' row header is not
 									    read with the role and launch folded under it. */}
-									<th
-										scope="row"
-										className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
-										aria-labelledby={`member-name-${member.userId}`}
-									>
-										<span id={`member-name-${member.userId}`}>
-											{member.displayName}
-										</span>
-										<span
-											className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
+										<th
+											scope="row"
+											className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
+											aria-labelledby={`member-name-${rowId}`}
 										>
-											{ROLE_LABEL[member.role]}
-											<span aria-hidden="true"> · </span>
-											<span className="sr-only">, </span>
-											Last launch{" "}
-											<time dateTime={member.lastLaunchAt ?? undefined}>
-												{launchText(member.lastLaunchAt)}
-											</time>
-										</span>
-									</th>
-									<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
-									<td className={WIDE_ONLY}>
-										<time dateTime={member.lastLaunchAt ?? undefined}>
-											{launchText(member.lastLaunchAt)}
-										</time>
-									</td>
-									<td>
-										{member.workspaceState ? (
-											<StateBadge state={member.workspaceState} statusRole={false} />
-										) : (
-											<span className="pk-cell-muted">No workspace</span>
-										)}
-									</td>
-									<td className="pk-cell-actions">
-										{!canRemove(member, myId) ? null : (
-											<Button
-												size="sm"
-												data-remove-id={member.userId}
-												onClick={() => {
-													removedNext.current = null;
-													setRemoving(member);
-												}}
+											<span id={`member-name-${rowId}`}>{member.displayName}</span>
+											<span
+												className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
 											>
-												Remove{" "}
-												<span className="sr-only">
-													{member.displayName} from course
+												{ROLE_LABEL[member.role]}
+												<span aria-hidden="true"> · </span>
+												<span className="sr-only">, </span>
+												Last launch{" "}
+												<time dateTime={member.lastLaunchAt ?? undefined}>
+													{dateTimeText(member.lastLaunchAt)}
+												</time>
+											</span>
+										</th>
+										<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
+										<td className={WIDE_ONLY}>
+											<time dateTime={member.lastLaunchAt ?? undefined}>
+												{dateTimeText(member.lastLaunchAt)}
+											</time>
+										</td>
+										<td>
+											{member.workspaceState ? (
+												<StateBadge state={member.workspaceState} statusRole={false} />
+											) : (
+												<span className="pk-cell-muted">
+													{member.status === "not_started"
+														? "Not started"
+														: "No workspace"}
 												</span>
-											</Button>
-										)}
-									</td>
-								</tr>
-							))}
+											)}
+										</td>
+										<td className="pk-cell-actions">
+											{memberShares.map((share) => (
+												<Link
+													key={share.projectId}
+													to="/course/$courseId/shares/$projectId"
+													params={{ courseId, projectId: share.projectId }}
+													className="pk-focus-ring mr-3 rounded-sm font-semibold text-accent-text"
+												>
+													Shared project
+													<span className="sr-only">
+														: {share.projectName} by {member.displayName}
+													</span>
+												</Link>
+											))}
+											{!canRemove(member, myId) ? null : (
+												<Button
+													size="sm"
+													data-remove-id={member.userId}
+													onClick={() => {
+														removedNext.current = null;
+														setRemoving(member);
+													}}
+												>
+													Remove{" "}
+													<span className="sr-only">
+														{member.displayName} from course
+													</span>
+												</Button>
+											)}
+										</td>
+									</tr>
+								);
+							})}
 						</tbody>
 					</table>
 				</div>
 			) : null}
+			<div className="mt-8">
+				<CourseUsage courseId={courseId} />
+			</div>
 			{data && removing ? (
 				<RemoveMemberConfirm
 					courseId={courseId}
