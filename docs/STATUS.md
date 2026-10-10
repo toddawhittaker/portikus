@@ -4994,8 +4994,8 @@ Gaps left:
 
 ## Epic 41 — Fix batch after Epic 40
 
-Built on `epic/41-fixes` (task PRs #1418 to #1420, a review-fix PR, and this
-fold). Issues #1360, #1412, #1413, #1415 and #1417. No migration.
+Built on `epic/41-fixes` (task PRs #1418 to #1420, review fixes #1422, and
+this fold). Issues #1360, #1412, #1413, #1415 and #1417. No migration.
 
 Delivered:
 
@@ -5011,7 +5011,7 @@ Delivered:
   once setup has seeded the folder. A new packaging test checks the order.
 - Rollback message (#1413, #1418): the per-tool rollback says "switched back
   to X".
-- LTI smoke test (#1417, #1418 and a review-fix PR): it fails one named
+- LTI smoke test (#1417, #1418 and #1422): it fails one named
   check when pnpm is missing and stops waiting if the mock LMS exits. After
   review it probes the keyset once and escapes the issuer URL. A mock LMS
   that dies is reported as one failure with its last output lines, and the
@@ -5028,4 +5028,6 @@ Gaps left:
 - The throwaway Caddy's ports are released before Caddy binds them. This is
   accepted: only a process on the VM could take one, and then the job fails
   and can be run again.
-- The new LTI smoke path was not run against a VM.
+- Registering the mock LMS on an apt-installed VM is a hand step: the
+  platforms file must sit where setup reads it and setup must run, so the
+  egress proxy allows the mock's keyset (#1423).
