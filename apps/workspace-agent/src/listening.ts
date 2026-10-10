@@ -50,8 +50,14 @@ const HTTP_PORTS: ReadonlySet<number> = new Set([
 	9000,
 ]);
 
-/** How long one probe may take, HTTP question and TLS handshake together. */
-const TLS_PROBE_TIMEOUT_MS = 1000;
+/** The HTTP question gets most of the budget: a first compile can be slow. */
+const HTTP_STEP_TIMEOUT_MS = 2000;
+
+/** A TLS server answers plain HTTP at once, so the handshake step is short. */
+const TLS_STEP_TIMEOUT_MS = 1000;
+
+/** How long one probe may take, both steps together. */
+const PROBE_TIMEOUT_MS = HTTP_STEP_TIMEOUT_MS + TLS_STEP_TIMEOUT_MS;
 
 /** Bytes read while looking for the end of an HTTP status line. */
 const STATUS_LINE_CAP = 128;
@@ -65,16 +71,16 @@ export type TlsProbe = (host: string, port: number) => Promise<boolean>;
  * Whether a listener speaks HTTPS. It is asked in plain HTTP first, so a plain
  * HTTP server answers a normal request instead of logging a TLS handshake as
  * a garbled bad request; only a listener that does not answer in HTTP gets the
- * handshake. Each step has half the budget.
+ * handshake. The HTTP step gets two thirds of the budget, the handshake one third.
  */
 export async function probeTls(
 	host: string,
 	port: number,
-	timeoutMs = TLS_PROBE_TIMEOUT_MS,
+	timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<boolean> {
-	const half = timeoutMs / 2;
-	if (await answersHttp(host, port, half)) return false;
-	return completesTlsHandshake(host, port, half);
+	const httpStep = (timeoutMs * HTTP_STEP_TIMEOUT_MS) / PROBE_TIMEOUT_MS;
+	if (await answersHttp(host, port, httpStep)) return false;
+	return completesTlsHandshake(host, port, timeoutMs - httpStep);
 }
 
 /**
