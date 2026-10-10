@@ -141,6 +141,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"HEAD /admin/docker/seed/jobs": 404,
 	"GET /admin/docker/usage": 404,
 	"HEAD /admin/docker/usage": 404,
+	// Tests set no SITE_JOBS_DIR, so the Sign-in tab's provider routes are off.
+	"GET /admin/signin": 404,
+	"HEAD /admin/signin": 404,
+	"POST /admin/signin": 404,
+	"POST /admin/signin/keep": 404,
+	"POST /admin/signin/rollback": 404,
+	"GET /admin/signin/test": 404,
+	"HEAD /admin/signin/test": 404,
 };
 
 // The smallest PNG: one transparent pixel.

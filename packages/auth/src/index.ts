@@ -17,6 +17,7 @@ export {
 	dexConnectorId,
 	dexLocalSubject,
 	dexLocalUserId,
+	dexSubject,
 	localDexUserId,
 } from "./dex-subject.js";
 export {

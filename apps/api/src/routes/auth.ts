@@ -29,6 +29,7 @@ import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import { completeSignIn, requestMetadata } from "../sessions/start-session.js";
+import { finishSigninTest, signinTestOf } from "../site/signin.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -86,21 +87,24 @@ export function registerAuthRoutes(
 		return reply.redirect(url, 302);
 	});
 
+	/** The state the login cookie carries, or null when it is missing, forged or unreadable. */
+	function readLoginState(request: FastifyRequest): LoginState | null {
+		const raw = request.cookies[loginCookie];
+		const unsigned = raw ? request.unsignCookie(raw) : null;
+		if (!unsigned?.valid || !unsigned.value) return null;
+		try {
+			return JSON.parse(unsigned.value) as LoginState;
+		} catch {
+			return null;
+		}
+	}
+
 	app.get("/auth/callback", async (request, reply) => {
 		if (!oidc) {
 			return fail(reply, 500, "INTERNAL", "Login is not configured");
 		}
 
-		const raw = request.cookies[loginCookie];
-		const unsigned = raw ? request.unsignCookie(raw) : null;
-		let loginState: LoginState | null = null;
-		if (unsigned?.valid && unsigned.value) {
-			try {
-				loginState = JSON.parse(unsigned.value) as LoginState;
-			} catch {
-				loginState = null;
-			}
-		}
+		const loginState = readLoginState(request);
 		if (!loginState) {
 			// A link attempt whose cookie is gone still belongs on the link page.
 			const { state } = request.query as { state?: unknown };
@@ -118,6 +122,19 @@ export function registerAuthRoutes(
 		reply.clearCookie(loginCookie, loginCookieOptions(auth));
 
 		const callbackUrl = new URL(request.url, auth.publicUrl);
+
+		// An administrator's test of the sign-in provider (ADR 0059): it signs no one in.
+		const test = signinTestOf(loginState);
+		if (test) {
+			const to = await finishSigninTest(
+				{ db, oidc, auth },
+				request,
+				callbackUrl,
+				loginState,
+				test,
+			);
+			return reply.redirect(to, 302);
+		}
 
 		// A stored intent under this state means the course account asked to
 		// link (ADR 0026); otherwise a sign-in.
