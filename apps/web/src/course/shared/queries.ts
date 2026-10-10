@@ -138,6 +138,8 @@ export function useSharedFile(
 		queryKey: keys.file(ref, path, version),
 		// Keeps the old text on screen while a new version loads.
 		placeholderData: keepPreviousData,
+		// No version means the listing page is not loaded, so poll instead.
+		refetchInterval: version === undefined ? SHARE_POLL_MS : false,
 		queryFn: async (): Promise<SharedFileContent> => {
 			const response = await fetch(fileUrl(ref, path), { credentials: "same-origin" });
 			if (response.status === 413) return { text: "", tooLarge: true };
