@@ -252,9 +252,11 @@
 	background: var(--terminal-muted);
 }
 
-/* A file tab: path and autosave state above the editor (SPEC.md §13.5). */
+/* A file tab: its header above the editor (SPEC.md §13.5). The header
+   lays itself out from the pane's width, not the window's. */
 .pk-file-leaf {
 	justify-content: flex-start;
+	container: file-pane / inline-size;
 }
 
 /* The tab's body. It is a box only so the conflict diff can hide it without
@@ -263,22 +265,65 @@
 	display: contents;
 }
 
+/* A file pane's one header line (SPEC.md §8.3): the name takes the free
+   space and truncates first. A pane too narrow for name and controls side
+   by side keeps the name and the menu on top and puts the controls under
+   them, rather than past the pane's edge. */
 .pk-file-header {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-	padding: var(--space-1) var(--space-3);
+	gap: var(--space-1) var(--space-2);
+	min-height: 32px;
+	padding: 2px var(--space-1) 2px var(--space-3);
 	border-bottom: 1px solid var(--line);
 	font-size: 12px;
+	line-height: 16px;
 	color: var(--ink-muted);
 }
 
-.pk-file-path {
+.pk-file-name {
+	flex: 1 1 8rem;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.pk-file-tools {
+	flex: 0 1 auto;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	margin-inline-start: auto;
+}
+
+/* An image has no controls, so it takes no room. */
+.pk-file-tools:empty {
+	display: none;
+}
+
+@container file-pane (width < 24rem) {
+	.pk-file-header {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	/* The actions menu, last in the header, shares the top row with the name. */
+	.pk-file-header > :last-child:not(.pk-file-tools) {
+		grid-row: 1;
+		grid-column: 2;
+	}
+
+	.pk-file-header > .pk-file-tools {
+		grid-row: 2;
+		grid-column: 1 / -1;
+		justify-content: flex-start;
+		margin-inline-start: 0;
+	}
 }
 
 .pk-file-status {
@@ -434,9 +479,12 @@
 	min-width: 0;
 }
 
+/* In a narrow pane a value wraps under its own column, not over Download. */
 .pk-file-viewer-facts > div {
 	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-1);
+	min-width: 0;
 }
 
 .pk-file-viewer-facts dt {
@@ -447,23 +495,35 @@
 	margin: 0;
 }
 
-/* The Diff control on a Markdown tab (SPEC.md §13.4), and the
-   Edit | Diff control on every other file tab. The look is the
-   shared .pk-segmented; here it only sits at the right of the file bar. */
-.pk-segmented.pk-view-modes {
-	margin-left: auto;
+/* "Compare with" in the diff's header (SPEC.md §15.8), drawn like the
+   Edit | Diff buttons beside it so the two read as one row of controls. */
+.pk-diff-compare {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: 2px var(--space-1) 2px var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: 6px;
+	background: var(--surface);
+	color: var(--ink-muted);
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-diff-compare:hover,
+.pk-diff-compare[data-state="open"] {
+	background: var(--surface-hover);
+}
+
+.pk-diff-compare:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
 }
 
 /* The change badge on a diff tab, lettered and styled by the same kinds the
    tree and the Changes list use (SPEC.md §12.6). */
-/* The path and its status word stay together; the toolbar keeps the end. */
-.pk-diff-title {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	min-width: 0;
-}
-
 .pk-diff-status {
 	flex: none;
 	padding: 0 var(--space-1\.5);
@@ -506,7 +566,7 @@
 }
 
 /* A file's pane, alone in its tab or in a split beside terminals (SPEC.md
-   §8.3). Its bar matches a terminal pane's, on the page's own colours. */
+   §8.3). Its header line carries the name, which is the drag handle. */
 .pk-filepane {
 	position: relative;
 	flex: 1;
@@ -518,30 +578,12 @@
 	color: var(--ink);
 }
 
-.pk-filepane-bar {
-	flex: none;
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: 28px;
-	padding: 0 var(--space-1) 0 var(--space-3);
-	border-bottom: 1px solid var(--line);
-	color: var(--ink-muted);
-	font-size: 12px;
-	line-height: 16px;
-}
-
-.pk-filepane-title {
-	flex: 1;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+.pk-filepane-handle {
 	cursor: grab;
 	touch-action: none;
 	user-select: none;
 }
 
-.pk-filepane.is-dragged .pk-filepane-bar {
+.pk-filepane.is-dragged .pk-file-header {
 	opacity: 0.6;
 }

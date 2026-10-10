@@ -7,7 +7,20 @@
  * editor.
  */
 import { type GitDiff, GitRef, type RecoveryPoint } from "@portikus/contracts";
-import { Button, CONTROL_CLASS, EmptyState, LABEL_CLASS } from "@portikus/ui";
+import {
+	Button,
+	CONTROL_CLASS,
+	Dialog,
+	DialogRoot,
+	EmptyState,
+	FIELD_CLASS,
+	Icon,
+	LABEL_CLASS,
+	Menu,
+	MenuItem,
+	MenuRoot,
+	MenuTrigger,
+} from "@portikus/ui";
 import {
 	type FormEvent,
 	lazy,
@@ -24,6 +37,7 @@ import { displayName } from "../files/paths.js";
 import { type DiffBase, useGitDiff } from "../files/useGitDiff.js";
 import { pointTime, REASON_LABEL } from "../recovery/labels.js";
 import { useRecoveryPoints } from "../recovery/queries.js";
+import { FileHeader } from "./FilePane.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a diff tab
 // is actually opened (STACK.md §3).
@@ -38,235 +52,273 @@ const STATUS_NOTE: Record<string, string> = {
 	U: "Unresolved merge conflict; the working-tree side shows the conflict markers",
 };
 
-/**
- * What the "Compare with" control offers. Each choice is local to this view
- * and never saved in the layout: reopening a file compares with HEAD again.
- */
-type CompareChoice = "head" | "ref" | "point";
-
-const COMPARE_LABELS: Record<CompareChoice, string> = {
-	head: "Last commit",
-	ref: "A Git ref…",
-	point: "A recovery point…",
-};
-
 /** The note under the header; under a base it is that base, not Git HEAD. */
-function statusNote(
-	status: GitDiff["status"],
-	base: DiffBase | undefined,
-): string | null {
+function statusNote(data: GitDiff, base: DiffBase | undefined): string | null {
+	const { status } = data;
 	if (status === "A" && base?.kind === "baseline")
 		return "New since this session started";
 	if (status === "A" && base?.kind === "ref") return `New file (not in ${base.ref})`;
 	if (status === "A" && base?.kind === "point")
 		return "New file (not in this recovery point)";
+	if (status === "R" && data.oldPath)
+		return `Renamed from ${displayName(data.oldPath)}`;
 	return STATUS_NOTE[status] ?? null;
 }
 
-function diffTitle(
-	path: string,
-	base: DiffBase | undefined,
-	data: GitDiff | undefined,
-) {
-	const shown = displayName(path);
-	if (base?.kind === "baseline") return `Diff since session baseline · ${shown}`;
-	if (base?.kind === "ref") return `Diff with ${base.ref} · ${shown}`;
-	if (base?.kind === "point")
-		return `Diff with recovery point ${base.label} · ${shown}`;
-	if (data?.status === "R" && data.oldPath)
-		return `Diff · ${displayName(data.oldPath)} → ${shown}`;
-	return `Diff · ${shown}`;
-}
-
-/** A point as the picker and the diff header name it: time and trigger. */
+/** A point as the picker and the diff's left side name it: time and trigger. */
 function pointLabel(point: RecoveryPoint): string {
 	return `${pointTime(point.createdAt)}, ${REASON_LABEL[point.reason]}`;
 }
 
-/** The wait or the empty list, said in the compare control's one live region. */
 const POINTS_LOADING = "Loading recovery points…";
 const POINTS_NONE = "This project has no recovery points yet.";
 const POINT_READING =
 	"Reading this file from the recovery point. This can take up to a minute…";
 
 /**
- * The project's recovery points, newest first, and a Compare button.
- * Arrowing through the list does not start a slow archive read per point:
- * only Compare does. The control above loads the list and says when it is
- * loading or empty.
+ * Asks for a branch, tag or commit. The ref is only sent once it is
+ * submitted, so typing does not send a request per keystroke.
  */
-function PointPicker({
-	points,
+function RefDialog({
+	initial,
 	onCompare,
+	onClose,
 }: {
-	points: RecoveryPoint[];
+	initial: string;
 	onCompare: (base: DiffBase) => void;
+	onClose: () => void;
 }) {
 	const id = useId();
-	const [picked, setPicked] = useState("");
-	const point = points.find((p) => p.id === picked) ?? points[0];
-	if (!point) return null;
-	return (
-		<>
-			<div className="grid gap-1">
-				<label className={LABEL_CLASS} htmlFor={id}>
-					Recovery point
-				</label>
-				<select
-					id={id}
-					className={`${CONTROL_CLASS} w-72 cursor-pointer`}
-					data-testid="diff-point"
-					value={point.id}
-					onChange={(event) => setPicked(event.target.value)}
-				>
-					{points.map((each) => (
-						<option key={each.id} value={each.id}>
-							{pointLabel(each)}
-						</option>
-					))}
-				</select>
-			</div>
-			<Button
-				type="button"
-				data-testid="diff-point-go"
-				onClick={() =>
-					onCompare({ kind: "point", pointId: point.id, label: pointLabel(point) })
-				}
-			>
-				Compare
-			</Button>
-		</>
-	);
-}
-
-/**
- * The "Compare with" control. A ref is only asked for once it is submitted,
- * so typing does not send a request per keystroke. The points list loads only
- * once that choice is made.
- */
-function CompareWith({
-	workspaceId,
-	projectId,
-	reading,
-	onCompare,
-}: {
-	workspaceId: string;
-	projectId: string;
-	/** A recovery point's file is being read. */
-	reading: boolean;
-	onCompare: (base: DiffBase | undefined) => void;
-}) {
-	const [choice, setChoice] = useState<CompareChoice>("head");
-	const [draftRef, setDraftRef] = useState("");
+	const [draft, setDraft] = useState(initial);
 	const [problem, setProblem] = useState<string | null>(null);
-	const list = useRecoveryPoints(workspaceId, projectId, choice === "point");
-	const id = useId();
-
-	function choose(next: CompareChoice) {
-		setChoice(next);
-		setProblem(null);
-		if (next === "head") onCompare(undefined);
-	}
 
 	function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		const typed = draftRef.trim();
+		const typed = draft.trim();
 		if (!GitRef.safeParse(typed).success) {
 			setProblem("Type a branch, tag, or commit id.");
 			return;
 		}
-		setProblem(null);
 		onCompare({ kind: "ref", ref: typed });
-	}
-
-	let wait = "";
-	if (reading) wait = POINT_READING;
-	else if (choice === "point" && !list.error) {
-		if (!list.data) wait = POINTS_LOADING;
-		else if (list.data.points.length === 0) wait = POINTS_NONE;
+		onClose();
 	}
 
 	const errorId = `${id}-ref-err`;
 	return (
-		<form
-			className="flex shrink-0 flex-wrap items-end gap-2 px-3 py-2"
-			onSubmit={submit}
-			data-testid="diff-compare"
-		>
-			<div className="grid gap-1">
-				<label className={LABEL_CLASS} htmlFor={`${id}-choice`}>
-					Compare with
-				</label>
-				<select
-					id={`${id}-choice`}
-					className={`${CONTROL_CLASS} w-40 cursor-pointer`}
-					data-testid="diff-compare-choice"
-					value={choice}
-					onChange={(event) => choose(event.target.value as CompareChoice)}
-				>
-					{(Object.keys(COMPARE_LABELS) as CompareChoice[]).map((value) => (
-						<option key={value} value={value}>
-							{COMPARE_LABELS[value]}
-						</option>
-					))}
-				</select>
-			</div>
-			{choice === "ref" ? (
-				<>
-					<div className="grid gap-1">
-						<label className={LABEL_CLASS} htmlFor={`${id}-ref`}>
-							Branch, tag, or commit
-						</label>
-						<input
-							id={`${id}-ref`}
-							className={`${CONTROL_CLASS} w-48 font-mono`}
-							data-testid="diff-ref"
-							value={draftRef}
-							maxLength={256}
-							spellCheck={false}
-							autoComplete="off"
-							aria-invalid={problem !== null || undefined}
-							aria-describedby={problem ? errorId : undefined}
-							onChange={(event) => setDraftRef(event.target.value)}
-						/>
-					</div>
-					<Button type="submit" data-testid="diff-ref-go">
-						Compare
-					</Button>
-				</>
-			) : null}
-			{choice === "point" && list.data ? (
-				<PointPicker points={list.data.points} onCompare={onCompare} />
-			) : null}
-			{choice === "point" && list.error ? (
-				<p
-					className="pk-error m-0 basis-full text-[12px] text-status-error"
-					role="alert"
-				>
-					{errorText(list.error, "The recovery points could not be loaded.")}
-				</p>
-			) : null}
-			{problem ? (
-				<p
-					className="pk-error m-0 basis-full text-[12px] text-status-error"
-					id={errorId}
-					role="alert"
-				>
-					{problem}
-				</p>
-			) : null}
-			{/* Always mounted, so each change of text is announced, not missed. */}
-			<p
-				className={
-					wait ? "m-0 basis-full text-[13px] text-ink-muted" : "pk-visually-hidden"
+		<DialogRoot open={true} onOpenChange={(open) => !open && onClose()}>
+			<Dialog
+				testId="diff-ref-dialog"
+				title="Compare with a Git ref"
+				description="The left side shows this file as it is at that branch, tag, or commit."
+				footer={
+					<>
+						<Button variant="secondary" onClick={onClose}>
+							Cancel
+						</Button>
+						<Button
+							variant="primary"
+							type="submit"
+							form={`${id}-form`}
+							data-testid="diff-ref-go"
+						>
+							Compare
+						</Button>
+					</>
 				}
-				role="status"
-				aria-live="polite"
-				data-testid="diff-compare-status"
 			>
-				{wait}
-			</p>
-		</form>
+				<form id={`${id}-form`} className={FIELD_CLASS} onSubmit={submit}>
+					<label className={LABEL_CLASS} htmlFor={`${id}-ref`}>
+						Branch, tag, or commit
+					</label>
+					<input
+						id={`${id}-ref`}
+						className={`${CONTROL_CLASS} font-mono`}
+						data-testid="diff-ref"
+						value={draft}
+						maxLength={256}
+						spellCheck={false}
+						autoComplete="off"
+						autoFocus={true}
+						aria-invalid={problem !== null || undefined}
+						aria-describedby={problem ? errorId : undefined}
+						onChange={(event) => setDraft(event.target.value)}
+					/>
+					{problem ? (
+						<p
+							className="pk-error m-0 text-[12px] text-status-error"
+							id={errorId}
+							role="alert"
+						>
+							{problem}
+						</p>
+					) : null}
+				</form>
+			</Dialog>
+		</DialogRoot>
+	);
+}
+
+/**
+ * The project's recovery points, newest first, and a Compare button. The
+ * list loads only once this opens, and arrowing through it does not start
+ * a slow archive read per point: only Compare does.
+ */
+function PointDialog({
+	workspaceId,
+	projectId,
+	initial,
+	onCompare,
+	onClose,
+}: {
+	workspaceId: string;
+	projectId: string;
+	/** The point compared with now, picked again when the dialog opens. */
+	initial: string | null;
+	onCompare: (base: DiffBase) => void;
+	onClose: () => void;
+}) {
+	const id = useId();
+	const list = useRecoveryPoints(workspaceId, projectId, true);
+	const points = list.data?.points ?? [];
+	const [picked, setPicked] = useState(initial ?? "");
+	const point = points.find((each) => each.id === picked) ?? points[0];
+
+	let wait = "";
+	if (!list.error) {
+		if (!list.data) wait = POINTS_LOADING;
+		else if (points.length === 0) wait = POINTS_NONE;
+	}
+
+	function submit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (!point) return;
+		onCompare({ kind: "point", pointId: point.id, label: pointLabel(point) });
+		onClose();
+	}
+
+	return (
+		<DialogRoot open={true} onOpenChange={(open) => !open && onClose()}>
+			<Dialog
+				testId="diff-point-dialog"
+				title="Compare with a recovery point"
+				description="Reading a file from a recovery point can take up to a minute."
+				footer={
+					<>
+						<Button variant="secondary" onClick={onClose}>
+							Cancel
+						</Button>
+						{point ? (
+							<Button
+								variant="primary"
+								type="submit"
+								form={`${id}-form`}
+								data-testid="diff-point-go"
+							>
+								Compare
+							</Button>
+						) : null}
+					</>
+				}
+			>
+				<form id={`${id}-form`} className="grid gap-2" onSubmit={submit}>
+					{point ? (
+						<div className={FIELD_CLASS}>
+							<label className={LABEL_CLASS} htmlFor={`${id}-point`}>
+								Recovery point
+							</label>
+							<select
+								id={`${id}-point`}
+								className={`${CONTROL_CLASS} cursor-pointer`}
+								data-testid="diff-point"
+								value={point.id}
+								onChange={(event) => setPicked(event.target.value)}
+							>
+								{points.map((each) => (
+									<option key={each.id} value={each.id}>
+										{pointLabel(each)}
+									</option>
+								))}
+							</select>
+						</div>
+					) : null}
+					{list.error ? (
+						<p className="pk-error m-0 text-[12px] text-status-error" role="alert">
+							{errorText(list.error, "The recovery points could not be loaded.")}
+						</p>
+					) : null}
+					{/* The page behind a dialog is hidden from screen readers, so the
+					    list's wait has its own region here, mounted with the dialog. */}
+					<p
+						className={wait ? "m-0 text-ink-muted" : "pk-visually-hidden"}
+						role="status"
+						aria-live="polite"
+						data-testid="diff-point-status"
+					>
+						{wait}
+					</p>
+				</form>
+			</Dialog>
+		</DialogRoot>
+	);
+}
+
+/**
+ * The "Compare with" control: a small button in the diff's header that
+ * opens a menu of what to compare with. The choice is local to this view and
+ * never saved in the layout: reopening a file compares with HEAD again.
+ */
+function CompareWith({
+	workspaceId,
+	projectId,
+	base,
+	onCompare,
+}: {
+	workspaceId: string;
+	projectId: string;
+	/** What the diff compares with now; the last commit when undefined. */
+	base: DiffBase | undefined;
+	onCompare: (base: DiffBase | undefined) => void;
+}) {
+	const [asking, setAsking] = useState<"ref" | "point" | null>(null);
+	const close = () => setAsking(null);
+	return (
+		<>
+			<MenuRoot>
+				<MenuTrigger asChild={true}>
+					<button type="button" className="pk-diff-compare" data-testid="diff-compare">
+						Compare with
+						<Icon name="chevron-down" size="sm" />
+					</button>
+				</MenuTrigger>
+				<Menu label="Compare with">
+					<MenuItem testId="diff-compare-head" onSelect={() => onCompare(undefined)}>
+						Last commit
+					</MenuItem>
+					<MenuItem testId="diff-compare-ref" onSelect={() => setAsking("ref")}>
+						A Git ref…
+					</MenuItem>
+					<MenuItem testId="diff-compare-point" onSelect={() => setAsking("point")}>
+						A recovery point…
+					</MenuItem>
+				</Menu>
+			</MenuRoot>
+			{asking === "ref" ? (
+				<RefDialog
+					initial={base?.kind === "ref" ? base.ref : ""}
+					onCompare={onCompare}
+					onClose={close}
+				/>
+			) : null}
+			{asking === "point" ? (
+				<PointDialog
+					workspaceId={workspaceId}
+					projectId={projectId}
+					initial={base?.kind === "point" ? base.pointId : null}
+					onCompare={onCompare}
+					onClose={close}
+				/>
+			) : null}
+		</>
 	);
 }
 
@@ -341,7 +393,7 @@ export function DiffLeaf({
 			);
 		}
 		if (!data) {
-			// The compare control's live region explains a point's long read.
+			// The status line above explains a point's long read.
 			if (pointBase !== null) return null;
 			return <p className="pk-file-note">Loading…</p>;
 		}
@@ -411,38 +463,43 @@ export function DiffLeaf({
 		);
 	}
 
-	const status = data?.status;
-	const note = status === undefined ? null : statusNote(status, base);
+	const note = data === undefined ? null : statusNote(data, base);
 	// The badge comes from the same table the tree and the Changes list use,
 	// so one file never wears two letters (SPEC.md §12.6).
-	const kind = status === undefined ? null : DIFF_KIND[status];
+	const kind = data === undefined ? null : DIFF_KIND[data.status];
 
 	return (
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`diff-pane-${path}`}>
-			<div className="pk-file-header">
-				<span className="pk-diff-title">
-					<span className="pk-file-path">{diffTitle(path, base, data)}</span>
-					{kind !== null ? (
-						<span
-							className="pk-diff-status"
-							data-testid={`diff-status-${path}`}
-							data-git={kind}
-						>
-							{WORD[kind]}
-						</span>
-					) : null}
-				</span>
+			<FileHeader path={path}>
+				{kind !== null ? (
+					<span
+						className="pk-diff-status"
+						data-testid={`diff-status-${path}`}
+						data-git={kind}
+					>
+						{WORD[kind]}
+					</span>
+				) : null}
+				{/* Session review always compares with its baseline (SPEC.md §12.7). */}
+				{baseline ? null : (
+					<CompareWith
+						workspaceId={workspaceId}
+						projectId={projectId}
+						base={chosen}
+						onCompare={compare}
+					/>
+				)}
 				{toolbar}
-			</div>
-			{/* Session review always compares with its baseline (SPEC.md §12.7). */}
-			{baseline ? null : (
-				<CompareWith
-					workspaceId={workspaceId}
-					projectId={projectId}
-					reading={reading}
-					onCompare={compare}
-				/>
-			)}
+			</FileHeader>
+			{/* Always mounted, so each change of text is announced, not missed. */}
+			<p
+				className={reading ? "pk-file-banner" : "pk-visually-hidden"}
+				role="status"
+				aria-live="polite"
+				data-testid="diff-compare-status"
+			>
+				{reading ? POINT_READING : ""}
+			</p>
 			{diff.error && data ? (
 				// A point's failure, such as another read already running, is
 				// something the student asked for and must hear.

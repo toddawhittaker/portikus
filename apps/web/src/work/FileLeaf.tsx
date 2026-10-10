@@ -22,6 +22,7 @@ import {
 import { formatBytes } from "../monitor/format.js";
 import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
+import { FileHeader } from "./FilePane.js";
 import { ImageView, PdfView } from "./FileViewer.js";
 import { type BufferStatus, useFileBuffer } from "./useFileBuffer.js";
 
@@ -216,6 +217,10 @@ function FileTab({
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
+	// An image, a PDF, or a file too large or not text is only looked at: it
+	// has no other view, and its diff would only say it changed in binary.
+	// A raster image or PDF is known by its name before it loads.
+	const viewOnly = viewer || kind === "image" || kind === "pdf";
 
 	// The two sides of the Markdown split follow each other by source line:
 	// the first line showing on the left is the first line showing on the
@@ -429,7 +434,7 @@ function FileTab({
 	const note = banner();
 	// The diff replaces the whole tab on every file, Markdown included
 	// (SPEC.md §13.4).
-	const inDiff = view === "diff";
+	const inDiff = view === "diff" && !viewOnly;
 	// The version on disk on the left, the student's own text on the right and
 	// still editable. The editor below is hidden rather than
 	// unmounted, so it keeps its undo history while the diff is up.
@@ -447,55 +452,17 @@ function FileTab({
 				/>
 			</Suspense>
 		) : null;
-	// A Markdown tab has one Diff button that turns the diff on and off;
-	// every other tab swaps between the editor and the diff, so it needs both.
-	const toggle = markdown ? (
-		<fieldset className="pk-segmented pk-view-modes">
-			<legend className="pk-visually-hidden">File view</legend>
-			<button
-				type="button"
-				ref={viewButtonRef("diff")}
-				aria-pressed={inDiff}
-				onClick={() => pressView(inDiff ? "edit" : "diff", "diff")}
-				data-testid={`file-view-diff-${path}`}
-			>
-				Diff
-			</button>
-		</fieldset>
-	) : (
-		<fieldset className="pk-segmented pk-view-modes">
-			<legend className="pk-visually-hidden">File view</legend>
-			{viewModes ? (
-				<button
-					type="button"
-					ref={viewButtonRef("view")}
-					aria-pressed={view === "view"}
-					onClick={() => pressView("view")}
-					data-testid={`file-view-view-${path}`}
-				>
-					View
-				</button>
-			) : null}
-			<button
-				type="button"
-				ref={viewButtonRef("edit")}
-				aria-pressed={!inDiff && !(viewModes && view === "view")}
-				onClick={() => pressView("edit")}
-				data-testid={`file-view-edit-${path}`}
-			>
-				{/* An image or PDF shown in place is looked at, not edited. */}
-				{viewer && kind !== null ? "View" : "Edit"}
-			</button>
-			<button
-				type="button"
-				ref={viewButtonRef("diff")}
-				aria-pressed={inDiff}
-				onClick={() => pressView("diff")}
-				data-testid={`file-view-diff-${path}`}
-			>
-				Diff
-			</button>
-		</fieldset>
+	// A file that is only looked at has no other view to switch to.
+	const toggle = viewOnly ? null : (
+		<ViewButtons
+			path={path}
+			markdown={markdown}
+			viewModes={viewModes}
+			view={view}
+			inDiff={inDiff}
+			onPress={pressView}
+			buttonRef={viewButtonRef}
+		/>
 	);
 
 	return (
@@ -505,13 +472,16 @@ function FileTab({
 				data-testid={`file-pane-${path}`}
 				style={inDiff ? HIDDEN : undefined}
 			>
-				<div className="pk-file-header">
-					<span className="pk-file-path">{shownPath}</span>
-					{/* Only the view on screen draws the toggle, so the controls
-					    are never there twice. */}
-					{inDiff ? null : toggle}
-					{showStatus ? <StatusPill path={path} status={status} /> : null}
-				</div>
+				{/* Only the view on screen draws the header, so its controls,
+				    the drag handle and the actions menu are never there twice.
+				    The status sits before the toggle so its changing width
+				    never moves the buttons. */}
+				{inDiff ? null : (
+					<FileHeader path={path}>
+						{showStatus ? <StatusPill path={path} status={status} /> : null}
+						{toggle}
+					</FileHeader>
+				)}
 				{conflict !== null ? (
 					<ConflictBar
 						showConflict={showConflict}
@@ -544,6 +514,82 @@ function FileTab({
 				/>
 			) : null}
 		</>
+	);
+}
+
+/**
+ * The view buttons in the file header. A Markdown tab has one Diff button
+ * that turns the diff on and off; every other tab swaps between its views
+ * and the diff, so it needs a button for each.
+ */
+function ViewButtons({
+	path,
+	markdown,
+	viewModes,
+	view,
+	inDiff,
+	onPress,
+	buttonRef,
+}: {
+	path: string;
+	markdown: boolean;
+	/** The file also has a picture or table view. */
+	viewModes: boolean;
+	view: View;
+	inDiff: boolean;
+	onPress: (next: View, button?: View) => void;
+	buttonRef: (which: View) => (button: HTMLButtonElement | null) => void;
+}) {
+	if (markdown) {
+		return (
+			<fieldset className="pk-segmented">
+				<legend className="pk-visually-hidden">File view</legend>
+				<button
+					type="button"
+					ref={buttonRef("diff")}
+					aria-pressed={inDiff}
+					onClick={() => onPress(inDiff ? "edit" : "diff", "diff")}
+					data-testid={`file-view-diff-${path}`}
+				>
+					Diff
+				</button>
+			</fieldset>
+		);
+	}
+	const viewing = viewModes && view === "view";
+	return (
+		<fieldset className="pk-segmented">
+			<legend className="pk-visually-hidden">File view</legend>
+			{viewModes ? (
+				<button
+					type="button"
+					ref={buttonRef("view")}
+					aria-pressed={viewing}
+					onClick={() => onPress("view")}
+					data-testid={`file-view-view-${path}`}
+				>
+					View
+				</button>
+			) : null}
+			<button
+				type="button"
+				ref={buttonRef("edit")}
+				aria-pressed={!inDiff && !viewing}
+				onClick={() => onPress("edit")}
+				data-testid={`file-view-edit-${path}`}
+			>
+				Edit
+			</button>
+			<button
+				type="button"
+				ref={buttonRef("diff")}
+				aria-pressed={inDiff}
+				onClick={() => onPress("diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
 	);
 }
 
