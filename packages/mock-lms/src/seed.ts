@@ -109,6 +109,15 @@ export const PEOPLE: readonly Person[] = [
 		email: "max@mock-lms.test",
 		role: "Learner",
 	},
+	// Administrator linking only: the admin links and unlinks this account.
+	{
+		key: "kit",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a1008",
+		givenName: "Kit",
+		familyName: "Joiner",
+		email: "kit@mock-lms.test",
+		role: "Learner",
+	},
 ];
 
 export const COURSES: readonly Course[] = [

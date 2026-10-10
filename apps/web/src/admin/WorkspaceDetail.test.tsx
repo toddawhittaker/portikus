@@ -356,6 +356,7 @@ test("the panel's sections come in their set order", async () => {
 		"H4 Processes",
 		"H4 Ports and connections",
 		"H4 Account",
+		"H5 Linked course accounts",
 		"H4 Recent audit events",
 	]);
 });
