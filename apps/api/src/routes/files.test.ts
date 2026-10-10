@@ -23,7 +23,7 @@ import {
 	startFakeAgent,
 } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { INLINE_CSP, inlineType } from "./files.js";
+import { INLINE_CSP, inlineType } from "../workspaces/file-relay.js";
 
 /**
  * File routes (SPEC.md §11.1, §11.2, §13.5). The control plane brokers every

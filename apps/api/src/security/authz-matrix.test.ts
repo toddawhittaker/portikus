@@ -261,6 +261,15 @@ async function withWorld(
 				expires_at: new Date(Date.now() + 86_400_000).toISOString(),
 			})
 			.execute();
+		// A has shared the project, so every owner route below is shown to
+		// refuse the instructor even while a share is open (ADR 0057).
+		await testDb.db
+			.insertInto("project_shares")
+			.values({
+				project_id: world.a.projectId,
+				ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+			})
+			.execute();
 		await run(app, world);
 	} finally {
 		await app.close();
@@ -283,6 +292,8 @@ interface Sample {
 const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/file": "?path=notes.txt",
 	"/workspaces/:id/projects/:pid/git/diff": "?path=notes.txt",
+	"/courses/:courseId/shares/:projectId/file": "?path=notes.txt",
+	"/courses/:courseId/shares/:projectId/git/diff": "?path=notes.txt",
 	"/workspaces/:id/projects/:pid/recovery-points/:rpid/diff": "?path=notes.txt",
 	"/workspaces/:id/projects/:pid/baseline-status": `?object=${"a".repeat(40)}`,
 	"/workspaces/:id/projects/:pid/baseline-diff": `?object=${"a".repeat(40)}&path=notes.txt`,
@@ -384,6 +395,7 @@ function sampleFor(
 		// A process id is a number inside the workspace, not a project.
 		.replace("/processes/:pid/", "/processes/7/")
 		.replace(":pid", ids.projectId)
+		.replace(":projectId", ids.projectId)
 		.replace(":tid", ids.terminalId)
 		.replace(":checkId", "lint")
 		.replace(":courseId", world.courseId)
