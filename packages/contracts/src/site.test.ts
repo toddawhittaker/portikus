@@ -254,11 +254,13 @@ describe("one keyset per issuer", () => {
 		expect(LtiPlatformsUpdate.safeParse({ platforms: [PLATFORM, other] }).success).toBe(
 			true,
 		);
-		expect(
-			LtiPlatformsUpdate.safeParse({
-				platforms: [PLATFORM, { ...other, keysetUrl: "https://evil.example.com/jwks" }],
-			}).success,
-		).toBe(false);
+		const refused = LtiPlatformsUpdate.safeParse({
+			platforms: [PLATFORM, { ...other, keysetUrl: "https://evil.example.com/jwks" }],
+		});
+		expect(refused.success).toBe(false);
+		expect(refused.error?.issues.map((i) => i.path.join("."))).toEqual([
+			"platforms.1.keysetUrl",
+		]);
 	});
 });
 
