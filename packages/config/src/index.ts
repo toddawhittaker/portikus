@@ -229,6 +229,26 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "ALERTS_JOBS_DIR must be an absolute path")
 		.optional(),
+	/** Where the API drops root site job requests and reads their status (ADR 0059); unset turns the site routes off. */
+	SITE_JOBS_DIR: z
+		.string()
+		.regex(/^\/./, "SITE_JOBS_DIR must be an absolute path")
+		.optional(),
+	/** The secret-free view of the install settings that setup writes (ADR 0059); a missing file reads as not set up. */
+	SITE_VIEW_FILE: z
+		.string()
+		.regex(/^\/./, "SITE_VIEW_FILE must be an absolute path")
+		.default("/etc/portikus/site-view.json"),
+	/** The page-owned list of hosts the API may reach through the egress proxy (ADR 0059). */
+	PROXY_HOSTS_FILE: z
+		.string()
+		.regex(/^\/./, "PROXY_HOSTS_FILE must be an absolute path")
+		.default("/etc/portikus/proxy-hosts.json"),
+	/** The page-owned LMS platforms, read beside LTI_PLATFORMS_FILE (ADR 0059). */
+	LTI_ADMIN_PLATFORMS_FILE: z
+		.string()
+		.regex(/^\/./, "LTI_ADMIN_PLATFORMS_FILE must be an absolute path")
+		.default("/etc/portikus/lti-platforms-admin.json"),
 	/** Where the API drops Docker cache helper requests and reads its status; unset turns the Docker admin routes off. */
 	REGISTRY_JOBS_DIR: z
 		.string()

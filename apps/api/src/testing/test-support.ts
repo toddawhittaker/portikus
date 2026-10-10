@@ -64,6 +64,10 @@ export function testConfig(
 		// Root shells off, and no settings file, so every alert is off.
 		ROOT_SHELL_SOCKET: "",
 		NOTIFY_FILE: "/nonexistent/notify.json",
+		// No site job and no page-owned files (ADR 0059).
+		SITE_VIEW_FILE: "/nonexistent/site-view.json",
+		PROXY_HOSTS_FILE: "/nonexistent/proxy-hosts.json",
+		LTI_ADMIN_PLATFORMS_FILE: "/nonexistent/lti-platforms-admin.json",
 		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};

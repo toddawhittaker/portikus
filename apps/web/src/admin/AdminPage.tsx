@@ -8,6 +8,7 @@ import { gatePath, useMe } from "../useMe.js";
 import { AdminNav } from "./AdminNav.js";
 import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
+import { AddressTab } from "./address/AddressTab.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
 import { CertificateTab } from "./certificate/CertificateTab.js";
@@ -19,6 +20,7 @@ import { NetworkTab } from "./network/NetworkTab.js";
 import { RootShellTab } from "./root-shell/RootShellTab.js";
 import { useRootShellStatus } from "./root-shell/status.js";
 import { SettingsTab } from "./SettingsTab.js";
+import { SignInTab } from "./signin/SignInTab.js";
 import {
 	ADMIN_HELP_TAB,
 	DEFAULT_ADMIN_TAB,
@@ -108,6 +110,8 @@ export function AdminPage() {
 							{view === "image" ? <ImageTab /> : null}
 							{view === "certificate" ? <CertificateTab /> : null}
 							{view === "docker" ? <DockerTab /> : null}
+							{view === "signin" ? <SignInTab /> : null}
+							{view === "address" ? <AddressTab /> : null}
 							{view === "settings" ? <SettingsTab /> : null}
 							<RootShellTab shown={shellTab} status={rootShell} />
 						</div>

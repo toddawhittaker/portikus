@@ -12,6 +12,12 @@ import {
 /** One row of the tab strip: a tab and the rule above it, as the workspace strip. */
 const TAB_ROW = 36;
 
+/**
+ * The narrowest window tested to hold every admin tab on one row. All 14
+ * tabs must fit here, the Agents tab (about 80 px) included, with room left.
+ */
+const ONE_ROW_WIDTH = 1366;
+
 /** The strip with `rows` rows: its first rule lies on the header's line, and its own rule closes the last row. */
 const stripHeight = (rows: number) => rows * TAB_ROW + 1;
 
@@ -29,6 +35,8 @@ const ADMIN_TAB_NAMES = [
 	"Workspace image",
 	"Certificate",
 	"Docker",
+	"Sign-in",
+	"Site address",
 	"Settings",
 	"Root shell",
 ];
@@ -184,7 +192,7 @@ test.describe("admin layout", () => {
 		}
 	});
 
-	for (const width of [1920, 1366, 1024]) {
+	for (const width of [1920, ONE_ROW_WIDTH]) {
 		test(`the header holds the mark, the context and the account, and the strip under it shows every tab whole at ${width} px`, async ({
 			page,
 			context,
@@ -311,7 +319,7 @@ test.describe("admin layout", () => {
 		});
 	}
 
-	for (const width of [900, 768]) {
+	for (const width of [1024, 900, 768]) {
 		test(`at ${width} px the tabs wrap to two rows whole and in order, nothing scrolls sideways, and the account menu opens`, async ({
 			page,
 			context,
@@ -330,6 +338,10 @@ test.describe("admin layout", () => {
 				"page",
 				{ timeout: 15_000 },
 			);
+			// The Root shell tab arrives with its status fetch; measure the full strip.
+			await expect(nav.getByRole("link")).toHaveCount(ADMIN_TAB_NAMES.length, {
+				timeout: 15_000,
+			});
 
 			const { headerBox, stripBox, frameBox, mainBox } = await frameLayout(page);
 			expect(headerBox.height).toBe(48);
@@ -556,14 +568,17 @@ test.describe("admin layout", () => {
 		test(`the Users detail panel fits the framed content with ${rows === 1 ? "one tab row" : "two tab rows"}`, async ({
 			page,
 		}) => {
-			await page.setViewportSize({ width: 1024, height: 600 });
+			// The tabs wrap below ONE_ROW_WIDTH, so 1024 px gives two rows.
+			await page.setViewportSize({
+				width: rows === 1 ? ONE_ROW_WIDTH : 1024,
+				height: 600,
+			});
 			await loginAs(page, "carol");
 			await page.goto("/admin/users");
 			await page
 				.getByTestId("page-admin")
 				.getByRole("button", { name: /^Show details for Carol Admin/ })
 				.click({ timeout: 15_000 });
-			if (rows === 2) await page.addStyleTag({ content: TEXT_SPACING });
 			expect((await frameLayout(page)).stripBox.height).toBe(stripHeight(rows));
 			const panel = page.getByTestId("workspace-detail");
 			await expect(panel).toBeVisible();
