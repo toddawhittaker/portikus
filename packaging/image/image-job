@@ -999,8 +999,9 @@ class Runner:
         return folder
 
     def agent_candidate(self, job, work, tool):
-        """(newest version, installed): installed is None when that version is current already,
-        False when a kept folder has it, and True when this job verified and placed it."""
+        """(offered version, installed): installed is None when that version is current already,
+        "older" when it sorts below current, False when a kept folder has it, and True when
+        this job verified and placed it."""
         store = self.agents_dir
         if tool == "claude":
             version = coding_agents.claude_stable_version(self.fetch_text(
@@ -1008,8 +1009,12 @@ class Runner:
         else:
             version, digest = coding_agents.codex_release(self.fetch_text(
                 job, coding_agents.CODEX_LATEST, work, "codex-release", coding_agents.LISTING_MAX_BYTES))
-        if version == coding_agents.read_link(store, tool, "current"):
+        current = coding_agents.read_link(store, tool, "current")
+        if version == current:
             return version, None
+        # The stable pointer is unsigned, so an older signed release must never count as an update.
+        if current and coding_agents.version_key(version) < coding_agents.version_key(current):
+            return version, "older"
         target = os.path.join(coding_agents.tool_dir(store, tool), version)
         if os.path.isdir(target):
             return version, False
@@ -1051,6 +1056,10 @@ class Runner:
                     continue
                 if installed is None:
                     said[tool] = f"{name} is already at {version}."
+                elif installed == "older":
+                    current = coding_agents.read_link(store, tool, "current")
+                    said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
+                    job.line(f"{name}: the vendor offered {version}, older than {current}")
                 else:
                     pending[tool] = (version, installed)
             if pending:
@@ -1071,8 +1080,9 @@ class Runner:
             job.status("running", "Removing old versions")
             running = coding_agents.running_files(self.proc_dir)
             for tool in coding_agents.TOOLS:
-                for version in coding_agents.prune(store, tool, running):
-                    job.line(f"removed {coding_agents.NAMES[tool]} {version}")
+                for version, was_in_use in coding_agents.prune(store, tool, running):
+                    note = " while a process still ran it" if was_in_use else ""
+                    job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
         finally:
             shutil.rmtree(work, ignore_errors=True)
             self.write_agents_state()

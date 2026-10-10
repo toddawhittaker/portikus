@@ -49,6 +49,8 @@ VERSION_RE = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}", re.ASCII)
 SHA256_RE = re.compile(r"[0-9a-f]{64}", re.ASCII)
 
 KEEP = 3
+# A version a process runs is kept past KEEP, but never past this many folders per tool.
+MAX_KEPT = 5
 MIN_FREE_BYTES = 2 * 1024 ** 3
 # Caps well above today's sizes (a 233 MiB binary, a 155 MiB archive of 54 files unpacking to 432 MiB).
 SMALL_MAX_BYTES = 1024 * 1024
@@ -298,14 +300,28 @@ def in_use(store, tool, version, running):
 
 
 def prune(store, tool, running):
-    """Keep KEEP versions, never current, previous or one a process runs. Returns those removed."""
+    """Keep KEEP versions, never current or previous, and one a process runs only up to MAX_KEPT.
+
+    Returns (version, was in use) for each removed. Deleting a running binary
+    is safe: Linux keeps an unlinked file alive until its process exits.
+    """
     protected = {read_link(store, tool, "current"), read_link(store, tool, "previous")} - {None}
     others = [v for v in versions(store, tool) if v not in protected]
     removed = []
+    kept_in_use = []
     for version in others[max(0, KEEP - len(protected)):]:
-        if not in_use(store, tool, version, running):
+        if in_use(store, tool, version, running):
+            kept_in_use.append(version)
+        else:
             remove_version(store, tool, version)
-            removed.append(version)
+            removed.append((version, False))
+    excess = len(versions(store, tool)) - MAX_KEPT
+    for version in reversed(kept_in_use):
+        if excess <= 0:
+            break
+        remove_version(store, tool, version)
+        removed.append((version, True))
+        excess -= 1
     return removed
 
 
