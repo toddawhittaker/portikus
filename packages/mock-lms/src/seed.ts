@@ -111,6 +111,42 @@ export const PEOPLE: readonly Person[] = [
 	},
 ];
 
+// On a course roster but never able to launch: Portikus knows them only from the roster service.
+const ROSTER_ONLY: readonly Person[] = [
+	{
+		key: "ros",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a2001",
+		givenName: "Rosa",
+		familyName: "Rosterly",
+		email: "rosa@mock-lms.test",
+		role: "Learner",
+	},
+	{
+		key: "ned",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a2002",
+		givenName: "Ned",
+		familyName: "Notyet",
+		email: "ned@mock-lms.test",
+		role: "Learner",
+	},
+	// Tests drop this person from the roster and expect the drop to show up.
+	{
+		key: "dro",
+		sub: "5d0c1c7e-1f7a-4c1e-9a51-0b8e6f3a2003",
+		givenName: "Drew",
+		familyName: "Dropme",
+		email: "drew@mock-lms.test",
+		role: "Learner",
+	},
+];
+
+/** The people on each course roster when the mock starts. */
+export const INITIAL_ROSTERS: Record<string, readonly string[]> = {
+	cs101: ["ivy", "tom", "sam", "lee", "ros", "ned", "dro"],
+	cs240: ["ivy", "sam"],
+	cs350: ["ivy"],
+};
+
 export const COURSES: readonly Course[] = [
 	{
 		key: "cs101",
@@ -145,4 +181,9 @@ export function findCourse(key: string): Course | undefined {
 
 export function isRoleName(value: string): value is RoleName {
 	return (ROLE_NAMES as string[]).includes(value);
+}
+
+/** Anyone who can be on a roster: launchable people and roster-only people. */
+export function findRosterPerson(key: string): Person | undefined {
+	return findPerson(key) ?? ROSTER_ONLY.find((p) => p.key === key);
 }
