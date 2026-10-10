@@ -27,7 +27,7 @@ else
 	cp "$repo_root/infra/ansible/roles/portikus/files/worker-grants.sql" \
 		"$pkg/usr/share/portikus/ansible/roles/portikus/files/"
 	mkdir -p "$pkg/usr/lib/portikus"
-	cp "$repo_root/packaging/alerts/alerts-job" "$pkg/usr/lib/portikus/"
+	cp "$repo_root/packaging/alerts/alerts-job" "$repo_root/packaging/site/write-settings" "$pkg/usr/lib/portikus/"
 	cat >"$pkg/DEBIAN/control" <<EOF
 Package: portikus
 Version: 0.0.0+debconf-test

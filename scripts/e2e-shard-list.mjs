@@ -42,7 +42,7 @@ export function parseTimings(log) {
 	const timings = {};
 	const plain = stripVTControlCharacters(log);
 	const line =
-		/\[(?:chromium|docker)\] › e2e\/(\S+?):\d+:\d+ › .*\((\d+(?:\.\d+)?)(m?s)\)\s*$/;
+		/\[(?:chromium|docker|site)\] › e2e\/(\S+?):\d+:\d+ › .*\((\d+(?:\.\d+)?)(m?s)\)\s*$/;
 	for (const text of plain.split("\n")) {
 		const match = line.exec(text);
 		if (!match) continue;

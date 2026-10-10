@@ -1,0 +1,259 @@
+#!/usr/bin/python3
+"""Turn the install answers into /etc/portikus/portikus.yaml and secrets.yaml.
+
+postinst runs it after debconf, and the root site job runs it after an
+address or sign-in change from the admin page (SPEC.md section 21.12, ADR
+0059), so both write the same keys from the same answers.
+
+Usage:
+  write-settings [--etc DIR] [--public-port PORT]
+      Read the answers from the environment: PK_<question> for each question
+      in settings-keys, and PK_OWNED and PK_SECRET_KEYS, the keys this owns.
+      Values come through the environment so no secret is ever an argument.
+      Writes both files, keeping every key it does not own, and prints what
+      is still missing, one item per line. --public-port sets
+      portikus_public_port, which no question asks (443 removes it).
+  write-settings [--etc DIR] [--keys FILE] read
+      Print the answers portikus.yaml holds, as JSON, the way the debconf
+      config script reads them back: {"answers": {question: text},
+      "publicPort", "previewSuffix", "secretsSet": [secret keys with a value]}.
+      Never a secret's value.
+"""
+
+import json
+import os
+import sys
+
+import yaml
+
+ETC = "/etc/portikus"
+KEYS_FILE = "/usr/share/portikus/settings-keys"
+
+
+def answer(name):
+    return os.environ.get("PK_" + name, "").strip()
+
+
+def words(name):
+    return answer(name).replace(",", " ").split()
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write(path, data, mode, header):
+    tmp = path + ".dpkg-new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w") as f:
+        f.write(header)
+        if not data:
+            # Ansible refuses a comment-only extra-vars file, so `{}` stays.
+            f.write("# To add a setting, replace the {} line below with key: \"value\" lines.\n")
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=True)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def write_answers(etc, public_port=None, out=sys.stdout):
+    config_file = etc + "/portikus.yaml"
+    secrets_file = etc + "/secrets.yaml"
+    tls = answer("tls") or "internal"
+    # After the first setup the admin page owns the certificate, and setup no
+    # longer reads the TLS answers, so none of them is missing.  Any file the
+    # root job writes counts, as setup and the job itself check, except while
+    # the local administrator waits for the public certificate (SPEC.md 24.10).
+    certificate_seeded = any(os.path.lexists(etc + "/certificate/" + name)
+                             for name in ("settings.json", "tls.caddy", "secrets")) \
+        and not os.path.lexists(etc + "/certificate/admin-pending")
+    provider = answer("provider") or "dex"
+    storage = answer("storage")
+
+    settings = {
+        "portikus_public_host": answer("public_host"),
+        "portikus_admin_email": answer("admin_email"),
+        "portikus_tls": tls,
+        "portikus_dex_upstream": "none" if provider == "dex" else provider,
+        "portikus_storage": storage,
+    }
+    if tls == "letsencrypt":
+        settings["portikus_acme_email"] = answer("acme_email")
+    if tls == "files":
+        settings["portikus_tls_cert"] = answer("tls_cert")
+        settings["portikus_tls_key"] = answer("tls_key")
+    if provider in ("entra", "google", "oidc"):
+        settings["portikus_dex_upstream_client_id"] = answer("client_id")
+    if provider == "entra":
+        settings["portikus_entra_tenant_id"] = answer("entra_tenant_id")
+    if provider == "google":
+        settings["portikus_google_domains"] = words("google_domains")
+    if provider == "oidc":
+        settings["portikus_dex_upstream_issuer"] = answer("oidc_issuer")
+        settings["portikus_oidc_upstream_groups_claim"] = answer("oidc_groups_claim") or "groups"
+    if provider == "ldap":
+        for name in ("host", "schema", "bind_dn", "user_base_dn", "user_filter",
+                     "group_base_dn", "root_ca"):
+            settings["portikus_ldap_" + name] = answer("ldap_" + name)
+        settings["portikus_ldap_ip_allow"] = words("ldap_ip_allow")
+    if provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")):
+        for role in ("student", "instructor", "admin"):
+            settings["portikus_oidc_%s_group" % role] = answer(role + "_group")
+    if storage.startswith("/dev/"):
+        settings["portikus_storage_confirm"] = answer("storage_confirm") == "true"
+    if storage == "file" and answer("storage_size").isdigit():
+        settings["portikus_storage_size"] = int(answer("storage_size"))
+    if answer("registry_cache_gib").isdigit() and int(answer("registry_cache_gib")) >= 1:
+        settings["portikus_registry_cache_gib"] = int(answer("registry_cache_gib"))
+
+    # Keys that follow from the answers; a key here that no longer applies is
+    # removed, so switching providers leaves no stale settings behind.
+    owned = os.environ["PK_OWNED"].split()
+    config = load(config_file)
+    for key in owned:
+        config.pop(key, None)
+    config.update(settings)
+    if public_port == 443:
+        config.pop("portikus_public_port", None)
+    elif public_port is not None:
+        config["portikus_public_port"] = public_port
+
+    # A blank password keeps the stored secret.  Once setup has seeded the
+    # certificate, the root job keeps the Cloudflare token, so none stays here.
+    current = load(secrets_file)
+    wanted = {}
+    if tls == "letsencrypt" and not certificate_seeded:
+        wanted["portikus_cloudflare_api_token"] = answer("cloudflare_api_token")
+    if provider in ("entra", "google", "oidc"):
+        wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
+    if provider == "ldap":
+        wanted["portikus_ldap_bind_password"] = answer("ldap_bind_password")
+    secret_keys = os.environ["PK_SECRET_KEYS"].split()
+    secrets = {k: v for k, v in current.items() if k not in secret_keys}
+    for key, value in wanted.items():
+        if value:
+            secrets[key] = value
+        elif current.get(key):
+            secrets[key] = current[key]
+
+    os.makedirs(etc, mode=0o755, exist_ok=True)
+    write(config_file, config, 0o644,
+          "# Portikus settings: Ansible variables for `portikus setup`.\n"
+          "# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\n")
+    write(secrets_file, secrets, 0o600,
+          "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\n")
+
+    needed = {
+        "portikus_public_host": "the web address (public_host)",
+        "portikus_admin_email": "the administrator's email (admin_email)",
+    }
+    if tls == "letsencrypt" and not certificate_seeded:
+        needed["portikus_acme_email"] = "the email for Let's Encrypt (acme_email)"
+    if tls == "files" and not certificate_seeded:
+        needed["portikus_tls_cert"] = "the certificate file (tls_cert)"
+        needed["portikus_tls_key"] = "the private key file (tls_key)"
+    if provider in ("entra", "google", "oidc"):
+        needed["portikus_dex_upstream_client_id"] = "the client ID (client_id)"
+    if provider == "entra":
+        needed["portikus_entra_tenant_id"] = "the Entra tenant ID (entra_tenant_id)"
+    if provider == "google":
+        needed["portikus_google_domains"] = "the Google Workspace domains (google_domains)"
+    if provider == "oidc":
+        needed["portikus_dex_upstream_issuer"] = "the provider's issuer URL (oidc_issuer)"
+    if provider == "ldap":
+        needed["portikus_ldap_host"] = "the directory server (ldap_host)"
+        needed["portikus_ldap_ip_allow"] = "the directory server addresses (ldap_ip_allow)"
+        needed["portikus_ldap_bind_dn"] = "the service account (ldap_bind_dn)"
+        needed["portikus_ldap_user_base_dn"] = "where people are (ldap_user_base_dn)"
+        needed["portikus_ldap_user_filter"] = "who may sign in (ldap_user_filter)"
+    if storage == "file":
+        needed["portikus_storage_size"] = "the size of the storage file (storage_size)"
+    for key, text in needed.items():
+        if not config.get(key):
+            print("- " + text, file=out)
+    if not storage:
+        print("- where to keep student files (storage)", file=out)
+    elif storage.startswith("/dev/") and config.get("portikus_storage_confirm") is not True:
+        print("- confirmation that everything on %s may be erased (storage_confirm)" % storage, file=out)
+    names = {
+        "portikus_cloudflare_api_token": "the Cloudflare API token (cloudflare_api_token)",
+        "portikus_dex_upstream_client_secret": "the client secret (client_secret)",
+        "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
+    }
+    for key in wanted:
+        if not secrets.get(key):
+            print("- " + names[key], file=out)
+
+
+def read_keys(path):
+    """(question, key, kind) for each line of settings-keys."""
+    rows = []
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) == 3 and not parts[0].startswith("#"):
+                rows.append(tuple(parts))
+    return rows
+
+
+def read_answers(etc, keys_file):
+    """The answers portikus.yaml holds, as packaging/debian/config reads them back."""
+    config = load(etc + "/portikus.yaml")
+    answers = {}
+    for question, key, kind in read_keys(keys_file):
+        if kind != "setting" or config.get(key) is None:
+            continue
+        value = config[key]
+        if isinstance(value, list):
+            value = " ".join(str(v) for v in value)
+        elif isinstance(value, bool):
+            value = "true" if value else "false"
+        else:
+            value = str(value)
+        if question == "provider" and value == "none":
+            value = "dex"
+        if "\n" in value or "\t" in value:
+            continue
+        answers[question] = value
+    secrets = load(etc + "/secrets.yaml")
+    port = config.get("portikus_public_port")
+    suffix = config.get("portikus_preview_suffix")
+    return {
+        "answers": answers,
+        "publicPort": port if type(port) is int else None,
+        "previewSuffix": suffix if isinstance(suffix, str) and suffix else None,
+        "secretsSet": sorted(key for _, key, kind in read_keys(keys_file)
+                             if kind == "secret" and secrets.get(key)),
+    }
+
+
+def main(argv):
+    etc, keys_file, public_port, args = ETC, KEYS_FILE, None, argv[1:]
+    while args and args[0].startswith("--") and len(args) > 1:
+        flag, value, args = args[0], args[1], args[2:]
+        if flag == "--etc":
+            etc = value
+        elif flag == "--keys":
+            keys_file = value
+        elif flag == "--public-port" and value.isdigit():
+            public_port = int(value)
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+    if args == ["read"]:
+        json.dump(read_answers(etc, keys_file), sys.stdout)
+        print()
+        return 0
+    if args:
+        print(__doc__, file=sys.stderr)
+        return 2
+    write_answers(etc, public_port)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

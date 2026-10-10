@@ -588,7 +588,11 @@ class Runner:
         return self.apply(self.stored() or OFF, write_file=False)
 
     def locked(self):
-        """An exclusive lock on the include folder, held for each whole command."""
+        """An exclusive lock on the include folder, held for each whole command.
+
+        The site job takes the same lock before it changes its own includes,
+        so Squid never parses or reloads while either is mid-swap (ADR 0059).
+        """
         fd = self.proxy_fd()
         fcntl.flock(fd, fcntl.LOCK_EX)
         return fd

@@ -23,3 +23,6 @@ portikus_registry_jobs_dir: /var/lib/portikus/registry-jobs
 
 # The root notification settings job's request directory (ADR 0052).
 portikus_alerts_jobs_dir: /var/lib/portikus/alerts-jobs
+
+# The root site job's request directory (ADR 0059).
+portikus_site_jobs_dir: /var/lib/portikus/site-jobs

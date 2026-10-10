@@ -129,6 +129,10 @@ check "no built app tree on the VM"    ssh_cmd test ! -e /var/lib/portikus/app
 check "portikus-api is active"        ssh_cmd systemctl is-active portikus-api
 check "portikus-worker is active"     ssh_cmd systemctl is-active portikus-worker
 check "portikus-controller is active" ssh_cmd systemctl is-active portikus-controller
+# The admin page's site changes reach the root site job (ADR 0059).
+check "the site job's path unit is enabled" ssh_cmd systemctl is-enabled portikus-site-job.path
+check "the site job's path unit is active"  ssh_cmd systemctl is-active portikus-site-job.path
+check "setup wrote the site view"           ssh_cmd test -s /etc/portikus/site-view.json
 check "controller /health returns 200" \
   ssh_cmd "test \$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/health) = 200"
 check "controller rejects unauthenticated requests" \

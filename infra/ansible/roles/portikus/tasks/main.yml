@@ -192,6 +192,9 @@
 - name: Set up the notification settings
   ansible.builtin.import_tasks: alerts.yml
 
+- name: Set up the site job and the site view
+  ansible.builtin.import_tasks: site.yml
+
 - name: Deploy controller environment file
   ansible.builtin.template:
     src: controller.env.j2

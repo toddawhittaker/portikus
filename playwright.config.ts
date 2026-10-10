@@ -28,6 +28,12 @@ import {
 } from "./e2e/ports";
 import { REGISTRY_JOBS_DIR } from "./e2e/registry-jobs";
 import { ROOT_SHELL_SOCKET } from "./e2e/root-shell";
+import {
+	LTI_ADMIN_PLATFORMS_FILE,
+	PROXY_HOSTS_FILE,
+	SITE_JOBS_DIR,
+	SITE_VIEW_FILE,
+} from "./e2e/site-jobs";
 import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
@@ -86,6 +92,9 @@ mkdirSync(REGISTRY_JOBS_DIR, { recursive: true });
 // The Notifications section's job directory (e2e/notify-jobs.ts); no
 // notify.json yet, so every alert channel starts off.
 mkdirSync(ALERTS_JOBS_DIR, { recursive: true });
+// The site pages' job directory (e2e/site-jobs.ts); no view file, so the
+// address and sign-in settings start unavailable, as off an apt install.
+mkdirSync(SITE_JOBS_DIR, { recursive: true });
 
 // The API's standard output, copied here, is the journal the fake journalctl
 // reads for the Logs tab (docs/adr/0036). It is emptied when the API starts.
@@ -100,6 +109,9 @@ writeFileSync(
 );
 
 const DOCKER_SPECS = /admin-docker(-seed)?\.spec\.ts$/;
+// The site page specs share the fake site job's directory, view and page
+// files (e2e/site-jobs.ts), so they run one file at a time.
+const SITE_SPECS = /(admin-(lms|proxy-hosts|address|signin)|site-jobs)\.spec\.ts$/;
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -116,7 +128,7 @@ export default defineConfig({
 		{ name: "setup", testMatch: /environment\.setup\.ts$/ },
 		{
 			name: "chromium",
-			testIgnore: DOCKER_SPECS,
+			testIgnore: [DOCKER_SPECS, SITE_SPECS],
 			use: { ...devices["Desktop Chrome"] },
 			dependencies: ["setup"],
 		},
@@ -125,6 +137,13 @@ export default defineConfig({
 			// fake cache helper's directory, so they run one file at a time.
 			name: "docker",
 			testMatch: DOCKER_SPECS,
+			workers: 1,
+			use: { ...devices["Desktop Chrome"] },
+			dependencies: ["setup"],
+		},
+		{
+			name: "site",
+			testMatch: SITE_SPECS,
 			workers: 1,
 			use: { ...devices["Desktop Chrome"] },
 			dependencies: ["setup"],
@@ -224,6 +243,12 @@ export default defineConfig({
 				// and the settings file it writes (ADR 0052).
 				NOTIFY_FILE,
 				ALERTS_JOBS_DIR,
+				// A fake site job directory, view and page files the site page tests
+				// play the root site job in (ADR 0059).
+				SITE_JOBS_DIR,
+				SITE_VIEW_FILE,
+				PROXY_HOSTS_FILE,
+				LTI_ADMIN_PLATFORMS_FILE,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
 				// A fake certificate job directory the admin-certificate tests play the root job in;
