@@ -1030,6 +1030,59 @@ Then run `sudo portikus setup`. Setup checks and installs the file the
 same way. To turn LTI off, delete the file and run setup again. The pilot
 was set up this way on 2026-09-29.
 
+### Changes made from the admin pages
+
+Four admin pages change the server for you: the single sign-on group and the
+LMS group on **Sign-in**, **Allowed API hosts** on **Network**, and **Site
+address** (design in ADR 0059). The API never runs as root, so each change is
+a request file that a root job, `site-job`, picks up.
+
+**Files.** Pages write their own files beside the operator's and never touch
+the operator's:
+
+- `/etc/portikus/proxy-hosts.json` holds the hosts added on the Network page.
+- `/etc/portikus/lti-platforms-admin.json` holds the LMS platforms added on
+  the Sign-in page. It is removed when the list is empty.
+- `/etc/portikus/egress-proxy.d/admin.conf` and `lti.conf` are the matching
+  Squid includes.
+- `/etc/portikus/site-view.json` is written by setup. It tells the pages what
+  the server is set to now. It never holds a secret, only whether a client
+  secret exists.
+
+The operator's Squid list and `portikus_lti_platforms_file` stay yours, and
+the pages show them read-only. Page files are root:portikus, mode 0640.
+
+**The job and its units.** `portikus-site-job.path` watches
+`/var/lib/portikus/site-jobs/` and starts `portikus-site-job.service`. The
+request file is deleted first, whatever the outcome. Each job writes
+`status/<id>.json` and `status/<id>.log` there. Neither holds a secret; the
+log is setup's output. Read the service with
+`journalctl -u portikus-site-job`. A job that has been queued or running for
+more than 45 minutes counts as dead and no longer blocks a new one. Sign-in
+and address changes work only where `/etc/portikus/portikus.yaml` exists
+(apt installs). Elsewhere the job refuses and the pages say so.
+
+**Trials.** A sign-in or address change is a trial. Opening one starts a
+transient systemd timer that runs `site-job expire <id>` and puts the old
+answers back at the deadline: 30 minutes for sign-in, 15 for an address. Keep
+and roll back end a trial early. If setup fails during a trial, the job puts
+the old answers back and runs setup again. Only one trial can be open. See the
+running timers with `systemctl list-timers`.
+
+**An address that is unreachable after Keep.** Keep ends the safety net. If the
+new address does not work after all, sign in over SSH and run:
+
+```
+sudo dpkg-reconfigure portikus
+```
+
+Correct the web address and say Yes on the summary. If the port is the problem,
+edit `portikus_public_port` in `/etc/portikus/portikus.yaml` and run
+`sudo portikus setup`. A certificate problem on its own is fixed as in "The
+site certificate". A sign-in provider that is wrong after Keep is fixed the
+same way, or by signing in with the local administrator's Dex password, which
+always works, and using the Sign-in page again.
+
 ### Egress to the LMS
 
 Portikus fetches each platform's keyset to check a launch's signature. It

@@ -340,3 +340,18 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.context().close();
 	});
 }
+
+test("the Sign-in and Site address anchors land on their admin help topics", async ({
+	page,
+}) => {
+	await loginAs(page, "carol");
+	for (const [anchor, title] of [
+		["admin-signin", "Sign-in and learning systems"],
+		["admin-address", "Changing the site address"],
+	]) {
+		await page.goto(`/admin/help#${anchor}`);
+		const heading = page.getByRole("heading", { level: 3, name: title });
+		await expect(heading).toBeInViewport({ timeout: 15_000 });
+		await expect(heading).toBeFocused();
+	}
+});

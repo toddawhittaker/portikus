@@ -827,6 +827,10 @@ sets each service's default level and the `settings.log_level` row overrides it
 at runtime without a restart (ADR 0012). `pino-pretty` is used only when
 `NODE_ENV=development`.
 
+The workspace agent keeps a small in-memory ring of its own warning lines,
+with allowlisted fields only, and the API pulls it on demand for the admin
+page (ADR 0060). It is never written to disk or to the platform's logs.
+
 Do not log:
 
 - API keys;
