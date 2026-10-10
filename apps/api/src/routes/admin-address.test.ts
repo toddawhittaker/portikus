@@ -321,7 +321,7 @@ describe.skipIf(skip)("admin address routes", () => {
 		await app.close();
 	});
 
-	test("pre-flight refuses a name whose DNS does not point here", async () => {
+	test("pre-flight only warns when a name's addresses do not answer the probe", async () => {
 		const app = server(
 			{},
 			fakeNet((name) => name !== NEW.host),
@@ -329,8 +329,18 @@ describe.skipIf(skip)("admin address routes", () => {
 		const call = await as(app, "carol");
 		const res = await call("POST", "/admin/address/preflight", NEW);
 		const result = CertificatePreflight.parse(res.json());
+		expect(result.ok).toBe(true);
+		expect(result.checks.find((c) => c.name === "reach-site")?.result).toBe("warning");
+		await app.close();
+	});
+
+	test("pre-flight refuses a name that does not resolve", async () => {
+		const app = server({}, { resolve: async () => [], probe: async () => null });
+		const call = await as(app, "carol");
+		const res = await call("POST", "/admin/address/preflight", NEW);
+		const result = CertificatePreflight.parse(res.json());
 		expect(result.ok).toBe(false);
-		expect(result.checks.find((c) => c.name === "reach-site")?.result).toBe("failed");
+		expect(result.checks.find((c) => c.name === "dns-site")?.result).toBe("failed");
 		await app.close();
 	});
 

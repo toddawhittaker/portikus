@@ -180,7 +180,13 @@ export function PlanForm({ current, blocked }: { current: Current; blocked: bool
 						confirmLabel="Apply"
 						pending={ask.isPending}
 						onConfirm={apply}
-					/>
+					>
+						{fresh.plan.signinWarning ? (
+							<Notice tone="warning" testId="address-apply-signin-warning">
+								{fresh.plan.signinWarning}
+							</Notice>
+						) : null}
+					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
 		</form>
@@ -188,16 +194,19 @@ export function PlanForm({ current, blocked }: { current: Current; blocked: bool
 }
 
 function Checks({ result }: { result: CertificatePreflight }) {
-	const failed = result.checks.filter((c) => c.result !== "passed").length;
+	const failed = result.checks.filter((c) => c.result === "failed").length;
+	const warned = result.checks.filter((c) => c.result === "warning").length;
 	return (
 		<>
 			<h4
 				className="pk-text-compact m-0 font-semibold"
 				data-testid="address-preflight-summary"
 			>
-				{failed === 0
-					? "All DNS checks passed."
-					: `${failed} ${failed === 1 ? "check" : "checks"} failed. Fix DNS and check again.`}
+				{failed > 0
+					? `${failed} ${failed === 1 ? "check" : "checks"} failed. Fix DNS and check again.`
+					: warned > 0
+						? `The DNS checks passed. ${warned === 1 ? "One check" : `${warned} checks`} could not be confirmed from this server; the trial and Keep from the new address prove ${warned === 1 ? "it" : "them"}.`
+						: "All DNS checks passed."}
 			</h4>
 			<ul className="m-0 grid list-none gap-2 p-0 text-[13px]">
 				{result.checks.map((check) => (
@@ -207,9 +216,20 @@ function Checks({ result }: { result: CertificatePreflight }) {
 						data-testid={`address-check-${check.name}`}
 					>
 						<span
-							className={`w-18 justify-center ${check.result === "passed" ? "pk-tag" : "pk-tag pk-tag--error"}`}
+							// One width for all three words, so the check names line up.
+							className={`w-18 justify-center ${
+								check.result === "failed"
+									? "pk-tag pk-tag--error"
+									: check.result === "warning"
+										? "pk-tag pk-tag--warning"
+										: "pk-tag"
+							}`}
 						>
-							{check.result === "passed" ? "Passed" : "Failed"}
+							{check.result === "failed"
+								? "Failed"
+								: check.result === "warning"
+									? "Warning"
+									: "Passed"}
 						</span>
 						<span>
 							<span className="font-semibold">
@@ -238,6 +258,11 @@ function PlanPart({ plan }: { plan: AddressPlan }) {
 	];
 	return (
 		<Group id="address-plan-title" level={4} title="What changes" testId="address-plan">
+			{plan.signinWarning ? (
+				<Notice tone="warning" testId="address-plan-signin-warning">
+					{plan.signinWarning}
+				</Notice>
+			) : null}
 			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
 				{values.map(([label, value, id]) => (
 					<div key={id} className="contents">

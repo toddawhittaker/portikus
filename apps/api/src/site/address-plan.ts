@@ -123,6 +123,10 @@ export function planAddress(options: {
 		keysetUrl: `${url}/lti/jwks`,
 	};
 
+	const upstream =
+		view.provider === "entra" || view.provider === "google" || view.provider === "oidc"
+			? UPSTREAM_NAME[view.provider]
+			: null;
 	const checklist = [
 		`Before you apply, point ${target.host} and *.${previewSuffix} at this server in DNS.`,
 	];
@@ -131,13 +135,9 @@ export function planAddress(options: {
 			`Open port ${target.port} in any firewall or port forward in front of this server. Portikus opens it on the server itself.`,
 		);
 	}
-	if (
-		view.provider === "entra" ||
-		view.provider === "google" ||
-		view.provider === "oidc"
-	) {
+	if (upstream) {
 		checklist.push(
-			`In ${UPSTREAM_NAME[view.provider]}, add ${dexCallbackUrl} as a redirect address of the Portikus app registration. Keep the old one until you press Keep.`,
+			`In ${upstream}, add ${dexCallbackUrl} as a redirect address of the Portikus app registration. Keep the old one until you press Keep.`,
 		);
 	}
 	checklist.push(
@@ -159,5 +159,8 @@ export function planAddress(options: {
 		dnsNames: [target.host, `*.${previewSuffix}`],
 		certificateNote: certificateNote(source, allowed, target.host, previewSuffix),
 		checklist,
+		signinWarning: upstream
+			? `Before you press Keep, add ${dexCallbackUrl} as a redirect address in ${upstream}. Until you do, sign-in through ${upstream} fails. Local Portikus passwords keep working.`
+			: null,
 	};
 }

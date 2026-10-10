@@ -33,6 +33,9 @@ describe("jobText", () => {
 			"changed outside this page",
 		);
 		expect(jobText(job("reverted", "setup_failed"), target)).toContain("Setup failed");
+		expect(jobText(job("reverted", "api_unhealthy"), target)).toBe(
+			"Portikus did not answer after the move to https://code.example.edu, so the old address was put back.",
+		);
 		expect(jobText(job("reverted", "rolled_back"), target)).toContain("rolled back");
 	});
 

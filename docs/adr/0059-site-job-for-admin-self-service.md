@@ -116,7 +116,10 @@ provider never receives an old secret.
   for `signin`. An expired trial is put back (`reverted`,
   `trial_expired`).
 - **Failure.** When setup fails during a trial, the job puts the old
-  answers back and reruns setup (`reverted`, `setup_failed`).
+  answers back and reruns setup (`reverted`, `setup_failed`). It does the
+  same when the API has not answered `/health` on loopback a minute after
+  setup succeeded (`reverted`, `api_unhealthy`), since Keep is pressed on
+  the API's page.
 - **Apt installs only.** `address` and `signin` work only where
   `/etc/portikus/portikus.yaml` exists; elsewhere the job refuses with
   `not_apt_install` and the page says the settings are unavailable.
