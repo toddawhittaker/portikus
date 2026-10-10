@@ -195,6 +195,9 @@ export function jobText(job: SiteJobView): string {
 		case "kept":
 			return "The new sign-in settings were kept.";
 		case "reverted":
+			if ((job.code as string | null) === "trial_superseded") {
+				return "The trial ended because the settings were changed outside this page.";
+			}
 			return job.code === "trial_expired"
 				? "Nobody kept the trial in time, so the earlier sign-in settings were put back."
 				: job.code === "setup_failed"

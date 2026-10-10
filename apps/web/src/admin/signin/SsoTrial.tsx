@@ -23,6 +23,8 @@ function resultText(test: SigninTestResult): string {
 	return `Test sign-in failed ${longTime(test.at)}: the sign-in did not come through this provider.`;
 }
 
+export const TRIAL_TEXT_ID = "sso-trial-text";
+
 /** An open sign-in trial: time left, Test sign-in, its result, Keep and Roll back (ADR 0059). */
 export function SsoTrial({
 	job,
@@ -78,7 +80,7 @@ export function SsoTrial({
 
 	return (
 		<div className="grid gap-4" data-testid="sso-trial">
-			<p className="pk-text-body m-0">
+			<p id={TRIAL_TEXT_ID} tabIndex={-1} className="pk-text-body m-0 outline-none">
 				<span className="font-semibold">
 					{view ? PROVIDER_LABEL[view.provider] : "The new settings"}
 				</span>{" "}
@@ -103,12 +105,11 @@ export function SsoTrial({
 			<div className="grid gap-2">
 				<div className="pk-actions">
 					{dexOnly ? null : (
-						<Button
-							data-testid="sso-test"
-							onClick={() => window.location.assign(TEST_SIGNIN_URL)}
-						>
-							Test sign-in
-						</Button>
+						<form method="post" action={TEST_SIGNIN_URL}>
+							<Button type="submit" data-testid="sso-test">
+								Test sign-in
+							</Button>
+						</form>
 					)}
 					<Button
 						variant="primary"

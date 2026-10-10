@@ -632,9 +632,11 @@ test("the table asks for 50 accounts and pages with Previous and Next", async ()
 	expect(screen.getAllByRole("row")).toHaveLength(51);
 	expect(screen.getByTestId("admin-account-count").textContent).toBe("120 accounts");
 	expect(screen.getByTestId("admin-page-label").textContent).toBe("Page 1 of 3");
-	expect(
-		(screen.getByTestId("admin-page-previous") as HTMLButtonElement).disabled,
-	).toBe(true);
+	expect(screen.getByTestId("admin-page-previous").getAttribute("aria-disabled")).toBe(
+		"true",
+	);
+	fireEvent.click(screen.getByTestId("admin-page-previous"));
+	expect(screen.getByTestId("admin-page-label").textContent).toBe("Page 1 of 3");
 
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Student 001" }));
 	fireEvent.click(screen.getByTestId("admin-page-next"));
@@ -653,8 +655,8 @@ test("the table asks for 50 accounts and pages with Previous and Next", async ()
 	expect(screen.getByTestId("admin-page-announce").textContent).toBe(
 		"Page 3 of 3, accounts 101 to 120 of 120",
 	);
-	expect((screen.getByTestId("admin-page-next") as HTMLButtonElement).disabled).toBe(
-		true,
+	expect(screen.getByTestId("admin-page-next").getAttribute("aria-disabled")).toBe(
+		"true",
 	);
 });
 
