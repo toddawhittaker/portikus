@@ -48,6 +48,17 @@ async function mount(
 ) {
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/share")) {
+			// Only NOTES is shared.
+			const share = url.includes(NOTES.id)
+				? {
+						id: "99999999-9999-4999-8999-999999999999",
+						startedAt: "2026-10-10T00:00:00.000Z",
+						endsAt: new Date(Date.now() + 3_600_000).toISOString(),
+					}
+				: null;
+			return json(200, { share, viewers: [] });
+		}
 		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
 		if (url.endsWith("/duplicate")) return json(200, COPY);
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
@@ -113,6 +124,29 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.getByTestId("project-archive")).toBeDefined();
 	expect(screen.getByTestId("project-recovery").textContent).toBe("Recovery points…");
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
+});
+
+test("only a shared project has the Shared tag", async () => {
+	await mount();
+
+	expect(await screen.findByTestId(`project-shared-${NOTES.id}`)).toBeDefined();
+	expect(screen.queryByTestId(`project-shared-${TODO.id}`)).toBeNull();
+	expect(screen.queryByTestId(`project-shared-${GONE.id}`)).toBeNull();
+});
+
+test("Share with my instructors opens the share dialog for that project", async () => {
+	await mount();
+	openMenu(TODO.id);
+
+	fireEvent.keyDown(
+		screen.getByRole("menuitem", { name: "Share with my instructors…" }),
+		{
+			key: "Enter",
+		},
+	);
+
+	const dialog = await screen.findByTestId("dialog-share-project");
+	expect(dialog.textContent).toContain("Share todo-api with my instructors");
 });
 
 /** Enter on the download item must start the download itself. */

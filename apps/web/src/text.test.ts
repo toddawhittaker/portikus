@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { joinWords, plural, shortId, shortTime, timeAgo } from "./text.js";
+import { joinWords, plural, shortId, shortTime, timeAgo, timeLeft } from "./text.js";
 
 const NOW = Date.parse("2026-09-22T12:00:00.000Z");
 
@@ -42,4 +42,14 @@ test("IDs shorten to their first 8 characters, keeping a prefix", () => {
 	expect(shortId("user:11111111-1111-4111-8111-111111111111")).toBe("user:11111111");
 	expect(shortId("worker")).toBe("worker");
 	expect(shortId("subject:not-a-uuid")).toBe("subject:not-a-uuid");
+});
+
+test("timeLeft counts down in minutes, then hours, and says Ended once past", () => {
+	const at = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString();
+	expect(timeLeft(at(-1), NOW)).toBe("Ended");
+	expect(timeLeft(at(0.5), NOW)).toBe("Less than a minute left");
+	expect(timeLeft(at(1), NOW)).toBe("1 minute left");
+	expect(timeLeft(at(40), NOW)).toBe("40 minutes left");
+	expect(timeLeft(at(60), NOW)).toBe("1 hour left");
+	expect(timeLeft(at(24 * 60), NOW)).toBe("24 hours left");
 });
