@@ -632,7 +632,7 @@ class FolderTest(Base):
         self.install("claude", "2.1.300", current=True)
         self.install("codex", "0.163.0", current=True)
         status = self.go({"kind": "agents-rollback", "tool": "claude"})
-        self.assertEqual((status["state"], status["message"]), ("succeeded", "Claude Code rolled back to 2.1.287."))
+        self.assertEqual((status["state"], status["message"]), ("succeeded", "Claude Code switched back to 2.1.287."))
         self.assertEqual((self.link("claude", "current"), self.link("claude", "previous")), ("2.1.287", "2.1.300"))
         self.assertEqual(self.link("codex", "current"), "0.163.0")
         self.assertEqual(self.state_file()["claude"]["current"], "2.1.287")

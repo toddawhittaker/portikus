@@ -1115,7 +1115,7 @@ class Runner:
         except coding_agents.AgentError as err:
             raise Refused(str(err), job.kind)
         self.write_agents_state()
-        return f"{coding_agents.NAMES[tool]} rolled back to {version}."
+        return f"{coding_agents.NAMES[tool]} switched back to {version}."
 
     def run_agents_seed(self, lock_path=LOCK_FILE):
         """Setup: install the pinned version of each tool that has no current one.

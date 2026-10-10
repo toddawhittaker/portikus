@@ -71,6 +71,10 @@ import json, sys
 print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("mock") and p["name"] == "mock-lms"), ""))')
   if [ -z "$mock_issuer" ]; then
     echo "No mock LMS is registered: skipping the launch checks."
+  elif [ "$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 '${mock_issuer}/.well-known/jwks.json'")" != "200" ] \
+    && ! command -v pnpm >/dev/null 2>&1; then
+    bad "pnpm not found: run nvm use and corepack enable"
+    echo "Skipping the launch checks: the mock LMS is not running and cannot be started without pnpm."
   else
     printf '\033[1;33mWARN\033[0m  the mock LMS is registered (mock-lms at %s): it can launch as anyone while it runs. Remove it with make lti-mock-unregister.\n' "$mock_issuer"
     mock_pid=""
@@ -84,6 +88,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
         --bind 127.0.0.1 --bind "$mock_host" --issuer "$mock_issuer" >/dev/null 2>&1 &
       mock_pid=$!
       for _ in $(seq 1 60); do
+        if ! kill -0 "$mock_pid" 2>/dev/null; then echo "The mock LMS process exited before it answered."; break; fi
         [ "$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 2 '${mock_issuer}/.well-known/jwks.json'")" = "200" ] && break
         sleep 1
       done
