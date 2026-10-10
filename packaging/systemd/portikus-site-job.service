@@ -1,0 +1,41 @@
+# Portikus site job (ADR 0059). Started by portikus-site-job.path for each
+# request the admin page writes, and once at boot to put back a trial whose
+# deadline timer the reboot lost. It writes the page's proxy hosts and LMS
+# platforms with their egress proxy includes, and for an address or sign-in
+# trial the install answers, then reruns setup through portikus-setup.service.
+[Unit]
+Description=Portikus site job
+After=squid.service
+ConditionPathIsDirectory=/var/lib/portikus/site-jobs
+ConditionPathIsDirectory=/var/lib/portikus/site-state
+# The path unit starts this once per request; see portikus-image-job.service.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/site-job
+# A trial runs setup, and a failed one runs it again to put the old answers back.
+TimeoutStartSec=190min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+# The settings, the page files and the include folder in /etc/portikus, the
+# job directory, the trial's root-only state, and debconf's answers.
+ReadWritePaths=/etc/portikus /var/lib/portikus/site-jobs /var/lib/portikus/site-state /var/cache/debconf
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# systemctl, systemd-run and the journal use local sockets; squid's parse
+# opens an IPv6 socket to see whether the host has IPv6. Nothing leaves the host.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

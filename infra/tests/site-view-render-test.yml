@@ -1,0 +1,77 @@
+---
+# The site view setup writes for the admin page (ADR 0059) with no VM: each
+# sign-in provider renders the keys packages/contracts SiteView names, and
+# the client secret appears only as clientSecretSet.  `make infra-check` runs it.
+- name: Check the site view
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    site_view_keys: [version, apt, host, port, previewSuffix, previewSuffixSetByHand, provider, entraTenantId,
+                     googleDomains, oidcIssuer, clientId, clientSecretSet, groupsClaim, groups, certificateSource]
+    site_view_secret: fake-client-secret-0123456789
+    # What site.yml and the play give the template on an apt install.
+    portikus_site_answers: { stat: { exists: true } }
+    portikus_site_certificate: { failed: true }
+    portikus_tls: internal
+    portikus_public_host: portikus.example.edu
+    portikus_public_port: "8443"
+    portikus_preview_suffix: preview.portikus.example.edu
+    portikus_dex_upstream: none
+    portikus_entra_tenant_id: ""
+    portikus_google_domains: []
+    portikus_dex_upstream_issuer: ""
+    portikus_dex_upstream_client_id: ""
+    portikus_dex_upstream_client_secret: ""
+    portikus_oidc_upstream_groups_claim: groups
+    portikus_oidc_student_group: portikus-students
+    portikus_oidc_instructor_group: portikus-instructors
+    portikus_oidc_admin_group: portikus-administrators
+    portikus_ldap_host: ""
+    site_view_template: ../ansible/roles/portikus/templates/site-view.json.j2
+
+  tasks:
+    - name: Render Dex passwords only on the internal authority
+      ansible.builtin.set_fact:
+        site_view_dex: "{{ lookup('ansible.builtin.template', site_view_template) | from_json }}"
+
+    - name: Render generic OIDC on an ACME certificate with a hand-set preview suffix
+      ansible.builtin.set_fact:
+        site_view_oidc: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_dex_upstream': 'oidc',
+               'portikus_dex_upstream_issuer': 'https://login.example.edu/realms/main',
+               'portikus_dex_upstream_client_id': 'portikus-dex',
+               'portikus_dex_upstream_client_secret': site_view_secret,
+               'portikus_preview_suffix': 'apps.example.edu',
+               'portikus_site_certificate': {'content': '{"source": "acme"}' | b64encode}}) | from_json }}
+
+    - name: Render LDAP off an apt install, with Let's Encrypt not yet seeded
+      ansible.builtin.set_fact:
+        site_view_ldap: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_dex_upstream': 'ldap',
+               'portikus_ldap_host': 'ldap.example.edu:636',
+               'portikus_tls': 'letsencrypt',
+               'portikus_site_answers': {'stat': {'exists': false}}}) | from_json }}
+
+    - name: Check each view
+      ansible.builtin.assert:
+        that:
+          - site_view_dex.keys() | sort == site_view_keys | sort
+          - site_view_dex.version == 1 and site_view_dex.apt and site_view_dex.port == 8443
+          - site_view_dex.provider == 'dex' and site_view_dex.clientId is none and not site_view_dex.clientSecretSet
+          - not site_view_dex.previewSuffixSetByHand
+          - site_view_dex.certificateSource == 'internal'
+          - site_view_oidc.keys() | sort == site_view_keys | sort
+          - site_view_oidc.provider == 'oidc' and site_view_oidc.clientSecretSet
+          - site_view_oidc.oidcIssuer == 'https://login.example.edu/realms/main'
+          - site_view_oidc.groupsClaim == 'groups' and site_view_oidc.groups.admin == 'portikus-administrators'
+          - site_view_oidc.previewSuffixSetByHand and site_view_oidc.certificateSource == 'acme'
+          - site_view_secret not in (site_view_oidc | to_json)
+          - site_view_ldap.keys() | sort == (site_view_keys + ['ldapHost']) | sort
+          - site_view_ldap.provider == 'ldap' and site_view_ldap.ldapHost == 'ldap.example.edu:636'
+          - not site_view_ldap.apt and site_view_ldap.certificateSource == 'acme'
+        quiet: true

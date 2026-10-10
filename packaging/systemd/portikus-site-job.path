@@ -1,0 +1,12 @@
+# Portikus site job trigger (ADR 0059). The API writes request-<id>.json
+# into the job directory; this starts the root job, which takes every
+# request before it exits.
+[Unit]
+Description=Portikus site settings requests
+
+[Path]
+PathExistsGlob=/var/lib/portikus/site-jobs/request-*.json
+Unit=portikus-site-job.service
+
+[Install]
+WantedBy=paths.target

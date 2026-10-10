@@ -1,0 +1,74 @@
+---
+# The admin page's site settings (ADR 0059): the root job that applies the
+# page's proxy hosts, LMS platforms, site address and sign-in provider, and
+# the secret-free view of the install answers the page shows.
+
+# A package from before the site job has neither job nor units.
+- name: Look for the site job
+  ansible.builtin.stat:
+    path: /usr/lib/portikus/site-job
+  register: portikus_site_job
+
+# The API writes requests here, and the root job started by the path unit
+# reads them and writes their status beside them.
+- name: Create the site job directory
+  ansible.builtin.file:
+    path: "{{ portikus_site_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+
+# Root only: an open trial's record and the settings files it would put back.
+- name: Create the site job's state directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/site-state
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# Address and sign-in changes work only where the install answers live.
+- name: Look for the install answers
+  ansible.builtin.stat:
+    path: /etc/portikus/portikus.yaml
+  register: portikus_site_answers
+
+- name: Read the certificate source for the site view
+  ansible.builtin.slurp:
+    path: /etc/portikus/certificate/settings.json
+  register: portikus_site_certificate
+  failed_when: false
+
+# World-readable: it holds no secret, only whether the client secret is set.
+- name: Write the site view
+  ansible.builtin.template:
+    src: site-view.json.j2
+    dest: /etc/portikus/site-view.json
+    owner: root
+    group: root
+    mode: "0644"
+
+# After the egress proxy role wrote squid.conf.  Puts the page's include
+# files back in line with its page files, as after a backup restore.
+- name: Bring the page's egress proxy rules in line with its files
+  ansible.builtin.command:
+    argv: [/usr/lib/portikus/site-job, sync]
+  register: portikus_site_sync
+  changed_when: "'includes changed' in portikus_site_sync.stdout"
+  when: portikus_site_job.stat.exists
+
+- name: Enable and start the site job's path unit
+  ansible.builtin.systemd_service:
+    name: portikus-site-job.path
+    enabled: true
+    state: started
+  when: portikus_site_job.stat.exists
+
+# Enabled for boot too: a reboot loses a trial's deadline timer, and the
+# job's first run puts an overdue trial back or arms the timer again.
+- name: Enable the site job's service for boot
+  ansible.builtin.systemd_service:
+    name: portikus-site-job.service
+    enabled: true
+  when: portikus_site_job.stat.exists

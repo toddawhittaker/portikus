@@ -10,6 +10,7 @@ keys="$repo_root/packaging/debian/settings-keys"
 templates="$repo_root/packaging/debian/templates"
 config="$repo_root/packaging/debian/config"
 postinst="$repo_root/packaging/scripts/postinst"
+writer="$repo_root/packaging/site/write-settings"
 site="$repo_root/infra/ansible/site.yml"
 failures=0
 
@@ -45,13 +46,17 @@ while read -r key; do
 	grep -q "\"$key\":" "$config" || fail "$key is not read back by packaging/debian/config"
 done < <(awk '$3 == "setting" { print $2 }' <<<"$list")
 
-# Every key postinst names is in the list. portikus_public_port is only
-# read, portikus_allow_internal_ca_on_public_address only named in a
-# message, and a name ending in _ is a prefix postinst completes in a loop.
+# Every key postinst and its settings writer name is in the list.
+# portikus_public_port is set only by the site job's --public-port, the
+# preview suffix only read, portikus_allow_internal_ca_on_public_address
+# only named in a message, and a name ending in _ is a prefix the writer
+# completes in a loop.
 while read -r key; do
-	case "$key" in portikus_public_port | portikus_allow_internal_ca_on_public_address | *_) continue ;; esac
-	grep -q " $key " <<<"$list" || fail "postinst names $key, which is not in settings-keys"
-done < <(grep -oE 'portikus_[a-z_]+' "$postinst" | sort -u)
+	case "$key" in
+	portikus_public_port | portikus_preview_suffix | portikus_allow_internal_ca_on_public_address | *_) continue ;;
+	esac
+	grep -q " $key " <<<"$list" || fail "postinst or write-settings names $key, which is not in settings-keys"
+done < <(grep -ohE 'portikus_[a-z_]+' "$postinst" "$writer" | sort -u)
 
 # postinst's reads of the list skip comment lines, as the reads above do.
 probe=$(mktemp)
@@ -67,19 +72,21 @@ while read -r program; do
 	fi
 done < <(grep -oE "awk '[^']+'" "$postinst" | sed -e "s/^awk '//" -e "s/'\$//")
 
-# postinst's writer, run on a scratch /etc/portikus, keeps a key set by hand
+# postinst runs the packaged settings writer (ADR 0059).
+# shellcheck disable=SC2016  # the line as postinst holds it, not to expand
+grep -qxF 'missing=$(python3 /usr/lib/portikus/write-settings)' "$postinst" ||
+	fail "postinst does not run /usr/lib/portikus/write-settings"
+
+# The writer, run on a scratch /etc/portikus, keeps a key set by hand
 # that no question owns (docs/SPEC.md section 24.10).
 etc=$(mktemp -d)
 trap 'rm -f "$probe"; rm -rf "$etc"' EXIT
 printf 'portikus_allow_internal_ca_on_public_address: true\nportikus_public_host: old.example.edu\n' \
 	>"$etc/portikus.yaml"
-sed -n "/^missing=\$(python3 - <<'PY'\$/,/^PY\$/p" "$postinst" | sed '1d;$d' |
-	sed "s|/etc/portikus|$etc|g" >"$etc/write.py"
-[ -s "$etc/write.py" ] || fail "postinst has no settings writer to run"
 if ! PK_OWNED="$(awk '!/^#/ && $3 == "setting" { print $2 }' "$keys")" \
 	PK_SECRET_KEYS="$(awk '!/^#/ && $3 == "secret" { print $2 }' "$keys")" \
 	PK_public_host=new.example.edu PK_admin_email=admin@example.edu PK_tls=internal PK_storage=file \
-	python3 "$etc/write.py" >/dev/null; then
+	python3 "$writer" --etc "$etc" >/dev/null; then
 	fail "postinst's settings writer failed"
 fi
 grep -qx 'portikus_allow_internal_ca_on_public_address: true' "$etc/portikus.yaml" ||

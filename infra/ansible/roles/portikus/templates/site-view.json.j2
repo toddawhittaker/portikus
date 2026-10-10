@@ -1,0 +1,33 @@
+{#- The install settings the admin page shows (ADR 0059; packages/contracts SiteView).
+    Never a secret: the client secret appears only as clientSecretSet. -#}
+{%- set provider = 'dex' if portikus_dex_upstream == 'none' else portikus_dex_upstream -%}
+{%- set upstream = provider in ['entra', 'google', 'oidc'] -%}
+{%- set certificate = portikus_site_certificate.content | default('e30=') | b64decode | from_json -%}
+{%- set certificate_source = certificate.source
+      if certificate.source | default('') in ['internal', 'acme', 'files']
+      else {'letsencrypt': 'acme', 'files': 'files'}.get(portikus_tls, 'internal') -%}
+{%- set view = {
+      'version': 1,
+      'apt': portikus_site_answers.stat.exists,
+      'host': portikus_public_host,
+      'port': portikus_public_port | int,
+      'previewSuffix': portikus_preview_suffix,
+      'previewSuffixSetByHand': portikus_preview_suffix != 'preview.' ~ portikus_public_host,
+      'provider': provider,
+      'entraTenantId': portikus_entra_tenant_id if provider == 'entra' else none,
+      'googleDomains': portikus_google_domains if provider == 'google' else [],
+      'oidcIssuer': portikus_dex_upstream_issuer if provider == 'oidc' else none,
+      'clientId': portikus_dex_upstream_client_id if upstream else none,
+      'clientSecretSet': upstream and (portikus_dex_upstream_client_secret | default('') | length > 0),
+      'groupsClaim': portikus_oidc_upstream_groups_claim if provider == 'oidc' else none,
+      'groups': {
+        'student': portikus_oidc_student_group,
+        'instructor': portikus_oidc_instructor_group,
+        'admin': portikus_oidc_admin_group,
+      },
+      'certificateSource': certificate_source,
+    } -%}
+{%- if provider == 'ldap' -%}
+{%-   set view = view | combine({'ldapHost': portikus_ldap_host}) -%}
+{%- endif -%}
+{{ view | to_nice_json(indent=2) }}

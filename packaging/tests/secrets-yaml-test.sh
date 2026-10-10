@@ -6,7 +6,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-postinst="$repo_root/packaging/scripts/postinst"
+writer="$repo_root/packaging/site/write-settings"
 portikus="$repo_root/packaging/bin/portikus"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -17,10 +17,10 @@ fail() {
 	failures=$((failures + 1))
 }
 
-# postinst's write() run on an empty mapping, as for a site with no secrets.
+# The settings writer's write() run on an empty mapping, as for a site with no secrets.
 {
 	echo "import os, yaml"
-	sed -n '/^def write(/,/^$/p' "$postinst"
+	sed -n '/^def write(/,/^$/p' "$writer"
 	echo "write('$work/secrets.yaml', {}, 0o600, '# header' + chr(10))"
 } >"$work/write.py"
 python3 "$work/write.py"

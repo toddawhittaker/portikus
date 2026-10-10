@@ -1,0 +1,215 @@
+{
+	"_about": "Install answers, and the files the postinst settings writer made from them before it moved to packaging/site/write-settings. write-settings must give the same bytes (SPEC.md section 21.12).",
+	"scenarios": [
+		{
+			"name": "first install, Dex passwords only",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "internal",
+				"provider": "dex",
+				"storage": "file",
+				"storage_size": "100"
+			},
+			"before": {},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: none\nportikus_public_host: portikus.example.edu\nportikus_storage: file\nportikus_storage_size: 100\nportikus_tls: internal\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\n# To add a setting, replace the {} line below with key: \"value\" lines.\n{}\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		},
+		{
+			"name": "generic OIDC with groups, keeping hand-set keys",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "internal",
+				"provider": "oidc",
+				"storage": "file",
+				"storage_size": "100",
+				"oidc_issuer": "https://login.example.edu/realms/main",
+				"client_id": "portikus-dex",
+				"client_secret": "fake-oidc-client-secret-0123",
+				"oidc_groups_claim": "",
+				"student_group": "students",
+				"instructor_group": "staff",
+				"admin_group": "it admins",
+				"registry_cache_gib": "30"
+			},
+			"before": {
+				"portikus.yaml": "portikus_allow_internal_ca_on_public_address: true\nportikus_public_port: 8443\nportikus_ldap_host: old.example.edu\nportikus_dex_upstream: ldap\n",
+				"secrets.yaml": "portikus_alert_webhook_url: https://hooks.example.com/x\nportikus_ldap_bind_password: fake-old-bind\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_allow_internal_ca_on_public_address: true\nportikus_dex_upstream: oidc\nportikus_dex_upstream_client_id: portikus-dex\nportikus_dex_upstream_issuer: https://login.example.edu/realms/main\nportikus_oidc_admin_group: it admins\nportikus_oidc_instructor_group: staff\nportikus_oidc_student_group: students\nportikus_oidc_upstream_groups_claim: groups\nportikus_public_host: portikus.example.edu\nportikus_public_port: 8443\nportikus_registry_cache_gib: 30\nportikus_storage: file\nportikus_storage_size: 100\nportikus_tls: internal\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\nportikus_alert_webhook_url: https://hooks.example.com/x\nportikus_dex_upstream_client_secret: fake-oidc-client-secret-0123\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		},
+		{
+			"name": "LDAP with groups, a blank password keeps the stored one",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "internal",
+				"provider": "ldap",
+				"storage": "file",
+				"storage_size": "100",
+				"ldap_host": "ldap.example.edu:636",
+				"ldap_schema": "openldap",
+				"ldap_ip_allow": "10.0.0.5/32, 10.0.0.6/32",
+				"ldap_bind_dn": "cn=svc,dc=example,dc=edu",
+				"ldap_user_base_dn": "ou=people,dc=example,dc=edu",
+				"ldap_user_filter": "(objectClass=person)",
+				"ldap_group_base_dn": "ou=groups,dc=example,dc=edu",
+				"ldap_root_ca": "",
+				"student_group": "s",
+				"instructor_group": "i",
+				"admin_group": "a"
+			},
+			"before": {
+				"secrets.yaml": "portikus_ldap_bind_password: fake-stored-bind-password\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: ldap\nportikus_ldap_bind_dn: cn=svc,dc=example,dc=edu\nportikus_ldap_group_base_dn: ou=groups,dc=example,dc=edu\nportikus_ldap_host: ldap.example.edu:636\nportikus_ldap_ip_allow:\n- 10.0.0.5/32\n- 10.0.0.6/32\nportikus_ldap_root_ca: ''\nportikus_ldap_schema: openldap\nportikus_ldap_user_base_dn: ou=people,dc=example,dc=edu\nportikus_ldap_user_filter: (objectClass=person)\nportikus_oidc_admin_group: a\nportikus_oidc_instructor_group: i\nportikus_oidc_student_group: s\nportikus_public_host: portikus.example.edu\nportikus_storage: file\nportikus_storage_size: 100\nportikus_tls: internal\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\nportikus_ldap_bind_password: fake-stored-bind-password\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		},
+		{
+			"name": "Entra and Let's Encrypt before the certificate is seeded",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "letsencrypt",
+				"provider": "entra",
+				"storage": "file",
+				"storage_size": "100",
+				"entra_tenant_id": "12345678-90ab-cdef-1234-567890abcdef",
+				"client_id": "abc-client",
+				"client_secret": "",
+				"acme_email": "ops@example.edu",
+				"cloudflare_api_token": "fake-cloudflare-token-01234"
+			},
+			"before": {
+				"secrets.yaml": "portikus_dex_upstream_client_secret: fake-stored-entra-secret\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_acme_email: ops@example.edu\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: entra\nportikus_dex_upstream_client_id: abc-client\nportikus_entra_tenant_id: 12345678-90ab-cdef-1234-567890abcdef\nportikus_public_host: portikus.example.edu\nportikus_storage: file\nportikus_storage_size: 100\nportikus_tls: letsencrypt\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\nportikus_cloudflare_api_token: fake-cloudflare-token-01234\nportikus_dex_upstream_client_secret: fake-stored-entra-secret\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		},
+		{
+			"name": "Google on a whole disk, certificate seeded",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "letsencrypt",
+				"provider": "google",
+				"storage": "/dev/sdb",
+				"storage_size": "",
+				"google_domains": "a.example.edu,b.example.edu",
+				"client_id": "g-client",
+				"client_secret": "fake-google-secret-0123456",
+				"acme_email": "ops@example.edu",
+				"storage_confirm": "true"
+			},
+			"before": {
+				"certificate/settings.json": "{}\n",
+				"secrets.yaml": "portikus_cloudflare_api_token: fake-old-cloudflare\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_acme_email: ops@example.edu\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: google\nportikus_dex_upstream_client_id: g-client\nportikus_google_domains:\n- a.example.edu\n- b.example.edu\nportikus_public_host: portikus.example.edu\nportikus_storage: /dev/sdb\nportikus_storage_confirm: true\nportikus_tls: letsencrypt\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\nportikus_dex_upstream_client_secret: fake-google-secret-0123456\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		},
+		{
+			"name": "uploaded files and missing answers",
+			"answers": {
+				"public_host": "",
+				"admin_email": "admin@example.edu",
+				"tls": "files",
+				"provider": "oidc",
+				"storage": "/dev/sdc",
+				"storage_size": "100",
+				"oidc_issuer": "",
+				"client_id": "",
+				"tls_cert": "",
+				"tls_key": "",
+				"storage_confirm": "false"
+			},
+			"before": {
+				"portikus.yaml": "{}\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: oidc\nportikus_dex_upstream_client_id: ''\nportikus_dex_upstream_issuer: ''\nportikus_oidc_admin_group: ''\nportikus_oidc_instructor_group: ''\nportikus_oidc_student_group: ''\nportikus_oidc_upstream_groups_claim: groups\nportikus_public_host: ''\nportikus_storage: /dev/sdc\nportikus_storage_confirm: false\nportikus_tls: files\nportikus_tls_cert: ''\nportikus_tls_key: ''\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\n# To add a setting, replace the {} line below with key: \"value\" lines.\n{}\n",
+					"mode": "600"
+				}
+			},
+			"stdout": "- the web address (public_host)\n- the certificate file (tls_cert)\n- the private key file (tls_key)\n- the client ID (client_id)\n- the provider's issuer URL (oidc_issuer)\n- confirmation that everything on /dev/sdc may be erased (storage_confirm)\n- the client secret (client_secret)\n"
+		},
+		{
+			"name": "back to Dex passwords drops the client secret",
+			"answers": {
+				"public_host": "portikus.example.edu",
+				"admin_email": "admin@example.edu",
+				"tls": "internal",
+				"provider": "dex",
+				"storage": "lvm:pool",
+				"storage_size": "100"
+			},
+			"before": {
+				"portikus.yaml": "portikus_dex_upstream: oidc\nportikus_dex_upstream_issuer: https://x.example.edu\n",
+				"secrets.yaml": "portikus_dex_upstream_client_secret: fake-stored-oidc-secret\nportikus_alert_pushover_user_key: u1\n"
+			},
+			"after": {
+				"portikus.yaml": {
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: none\nportikus_public_host: portikus.example.edu\nportikus_storage: lvm:pool\nportikus_tls: internal\n",
+					"mode": "644"
+				},
+				"secrets.yaml": {
+					"text": "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\nportikus_alert_pushover_user_key: u1\n",
+					"mode": "600"
+				}
+			},
+			"stdout": ""
+		}
+	]
+}

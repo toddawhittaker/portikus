@@ -1,0 +1,194 @@
+{
+	"_about": "Values the root site job and the API's schemas (packages/contracts/src/site.ts) must agree on, field by field: every good value is accepted and every bad value refused (ADR 0059). packaging/site/tests checks the job; the API's route tests check the schemas. An entry's 'where' names the request fields that use it.",
+	"fields": {
+		"proxyHost": {
+			"where": "proxy-hosts hosts[]",
+			"good": [
+				"api.example.com",
+				"API.Example.com",
+				"localhost",
+				"a-b.example.co.uk",
+				"x1.example.org"
+			],
+			"bad": [
+				"",
+				"1.2.3.4",
+				"api.example.com:443",
+				"https://api.example.com",
+				"*.example.com",
+				".example.com",
+				"example.com.",
+				"a..b",
+				"-a.example.com",
+				"exa mple.com",
+				"example.com\n",
+				"{{ 7*7 }}",
+				"{api}.example.com",
+				"x.123",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+				"例え.jp"
+			]
+		},
+		"siteHost": {
+			"where": "address host, signin googleDomains[]",
+			"good": [
+				"portikus.example.edu",
+				"a.b",
+				"pilot.portikus.thewhittakers.org",
+				"portikus.192.168.10.48.nip.io"
+			],
+			"bad": [
+				"",
+				"Portikus.example.edu",
+				"localhost",
+				"1.2.3.4",
+				"portikus.example.edu:443",
+				"https://portikus.example.edu",
+				"portikus.example.edu.",
+				"x.123",
+				"{{ 7*7 }}",
+				"portikus .example.edu",
+				"portikus.example.edu\u0000"
+			]
+		},
+		"sitePort": {
+			"where": "address port",
+			"good": [443, 1024, 8443, 65535],
+			"bad": [
+				80,
+				0,
+				-1,
+				1023,
+				65536,
+				3000,
+				3128,
+				5432,
+				5556,
+				7400,
+				8792,
+				8443.5,
+				"8443",
+				true,
+				null
+			]
+		},
+		"httpsUrl": {
+			"where": "lti-platforms platforms[].issuer, platforms[].authLoginUrl",
+			"good": [
+				"https://lms.example.edu",
+				"https://lms.example.edu/",
+				"https://lms.example.edu:8443/login",
+				"https://lms.example.edu/a/b?c=d",
+				"https://LMS.Example.edu/x"
+			],
+			"bad": [
+				"",
+				"http://lms.example.edu",
+				"ftp://lms.example.edu",
+				"lms.example.edu",
+				"https://user:pw@lms.example.edu/",
+				"https://user@lms.example.edu/",
+				"https://10.0.0.1/x",
+				"https://lms.example.edu/{{ 7*7 }}",
+				"https://lms.example.edu/\u0007",
+				"https://"
+			]
+		},
+		"keysetUrl": {
+			"where": "lti-platforms platforms[].keysetUrl, platforms[].authTokenUrl",
+			"good": [
+				"https://lms.example.edu/jwks",
+				"https://lms.example.edu:443/jwks",
+				"https://keys.example.edu/.well-known/jwks.json"
+			],
+			"bad": [
+				"https://lms.example.edu:8443/jwks",
+				"http://lms.example.edu/jwks",
+				"https://10.0.0.1/jwks",
+				"https://user@lms.example.edu/jwks",
+				"https://lms.example.edu/{{ 7*7 }}"
+			]
+		},
+		"identifier": {
+			"where": "lti-platforms platforms[].clientId, platforms[].deploymentIds[], signin clientId",
+			"good": [
+				"portikus",
+				"a",
+				"abc-123_x.y~z:@/+=",
+				"00000000-0000-0000-0000-000000000000"
+			],
+			"bad": ["", "a b", "a\"b", "a'b", "{{ 7*7 }}", "café", "a\nb"]
+		},
+		"groupName": {
+			"where": "signin groups.student, groups.instructor, groups.admin",
+			"good": [
+				"students",
+				"Portikus.Student",
+				"IT admins (all)",
+				"cn=staff,ou=groups",
+				"a"
+			],
+			"bad": ["", " leading", "-dash", "a\"b", "a'b", "{{ 7*7 }}", "tab\there"]
+		},
+		"tenantId": {
+			"where": "signin entraTenantId",
+			"good": [
+				"12345678-90ab-cdef-1234-567890abcdef",
+				"12345678-90AB-CDEF-1234-567890ABCDEF"
+			],
+			"bad": [
+				"",
+				"12345678-90ab-cdef-1234-567890abcde",
+				"1234567890abcdef1234567890abcdef",
+				"{{ 7*7 }}",
+				"12345678-90ab-cdef-1234-567890abcdef "
+			]
+		},
+		"oidcIssuer": {
+			"where": "signin oidcIssuer",
+			"good": [
+				"https://login.example.edu",
+				"https://login.example.edu/realms/main",
+				"https://login.example.edu:8443/x/"
+			],
+			"bad": [
+				"",
+				"http://login.example.edu",
+				"https://login.example.edu/a?b",
+				"https://login.example.edu/#x",
+				"https://login.example.edu/a b",
+				"https://user@login.example.edu",
+				"https://login.example.edu/{{ 7*7 }}",
+				"login.example.edu"
+			]
+		},
+		"groupsClaim": {
+			"where": "signin groupsClaim",
+			"good": ["groups", "roles", "https://example.edu/claims/groups", "a_b.c-d"],
+			"bad": ["", "my groups", "a\"b", "{{ 7*7 }}", "g{x}"]
+		},
+		"clientSecret": {
+			"where": "signin clientSecret",
+			"good": ["0123456789abcdef", "with spaces and \"quotes\" and 'more' ok!"],
+			"bad": [
+				"",
+				"short",
+				"0123456789abcde",
+				"{{ 7*7 }}-0123456789abcdef",
+				"0123456789abcdef\n",
+				"0123456789abcdef\u0085"
+			]
+		},
+		"platformName": {
+			"where": "lti-platforms platforms[].name",
+			"good": ["Canvas", "Moodle (test)", "D2L Brightspace"],
+			"bad": [
+				"",
+				"   ",
+				"{{ 7*7 }}",
+				"a\tb",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			]
+		}
+	}
+}

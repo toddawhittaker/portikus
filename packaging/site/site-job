@@ -1,0 +1,1055 @@
+#!/usr/bin/python3
+"""The root site job, run as root by portikus-site-job.service (ADR 0059).
+
+It applies the admin page's site changes: page-added proxy hosts, page
+registered LMS platforms, the site address and the sign-in provider.
+
+Request files. The API writes request-<id>.json, mode 0600, into the job
+directory, and the path unit starts this job. packages/contracts/src/site.ts
+(SiteJobRequest) is the schema; every value is checked again here:
+
+  {"version": 1, "id": "<uuid>", "kind": K, "requestedAt": "<ISO time>", ...}
+  proxy-hosts    {"hosts": [host name, ...]}
+  lti-platforms  {"platforms": [{name, issuer, clientId, authLoginUrl, keysetUrl,
+                  authTokenUrl?, deploymentIds, mock: false}, ...]}
+  address        {"host", "port"}
+  signin         {"provider": dex|entra|google|oidc, "entraTenantId"?,
+                  "googleDomains"?, "oidcIssuer"?, "clientId"?,
+                  "clientSecret": string|null, "groupsClaim"?,
+                  "groups"?: {"student", "instructor", "admin"}}
+  keep           {"trialId"}
+  rollback       {"trialId"}
+
+Status. Each request gets status/<id>.json in the job directory:
+
+  {"id", "kind", "state": "running" | "trial" | "kept" | "reverted" | "done" | "failed",
+   "code": null | one of CODES, "startedAt", "finishedAt", "trialEndsAt"}
+
+and status/<id>.log, setup's output for an address or sign-in trial. Neither
+ever holds a secret.
+
+Page-owned files, root:portikus 0640:
+  /etc/portikus/proxy-hosts.json          {"version": 1, "hosts": [...]}
+  /etc/portikus/lti-platforms-admin.json  {"version": 1, "platforms": [...]},
+                                          removed when the list is empty
+
+An address or sign-in change is a trial: it writes the install answers
+(debconf, portikus.yaml and secrets.yaml, through write-settings) and reruns
+setup. Keep ends it; a rollback, a failed setup, or the transient timer at
+trialEndsAt puts the old answers back and reruns setup.
+
+Python standard library only, as the other root jobs (ADR 0030): strict
+validation, atomic writes, locks, and argument-list subprocesses.
+
+Usage:
+  site-job              recover a trial a restart cut short, then take and
+                        apply pending requests (the path unit)
+  site-job expire ID    the trial timer: put trial ID back if still open
+  site-job sync         setup: bring admin.conf and lti.conf in line with
+                        the page-owned files
+"""
+
+import datetime
+import fcntl
+import grp
+import json
+import os
+import pwd
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import time
+
+# Its sibling module, found the same way when tests load this file by path.
+# No __pycache__ beside a packaged, root-run script.
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from site_values import (  # noqa: E402
+    KINDS, UUID_RE, Refused, _keys, check_hosts, check_platforms, check_request, identity, parse_json, url_host,
+)
+
+ETC = "/etc/portikus"
+CONFIG_FILE = ETC + "/portikus.yaml"
+PROXY_HOSTS_FILE = ETC + "/proxy-hosts.json"
+LTI_ADMIN_FILE = ETC + "/lti-platforms-admin.json"
+LTI_OPERATOR_FILE = ETC + "/lti-platforms.json"
+CERTIFICATE_SETTINGS = ETC + "/certificate/settings.json"
+# The egress proxy includes every *.conf here. The alerts job owns alerts.conf.
+PROXY_DIR = ETC + "/egress-proxy.d"
+ADMIN_CONF = "admin.conf"
+LTI_CONF = "lti.conf"
+# Shared with the alerts job: present from before a rule change until Squid has reloaded.
+RELOAD_PENDING = "reload-pending"
+SQUID_CONF = "/etc/squid/squid.conf"
+SQUID_UNIT = "squid.service"
+JOBS_DIR = "/var/lib/portikus/site-jobs"
+# Root only: the open trial and the settings files it would put back, secrets.yaml included.
+STATE_DIR = "/var/lib/portikus/site-state"
+SITE_JOB = "/usr/lib/portikus/site-job"
+WRITE_SETTINGS = "/usr/lib/portikus/write-settings"
+SETTINGS_KEYS = "/usr/share/portikus/settings-keys"
+NODE = "/usr/lib/portikus/node/bin/node"
+PLATFORMS_CHECK = "/usr/lib/portikus/api/node_modules/@portikus/auth/dist/lti/platforms-check-main.js"
+SETUP_UNIT = "portikus-setup.service"
+API_UNIT = "portikus-api.service"
+API_USER = "portikus"
+API_GROUP = "portikus"
+TRIAL_UNIT = "portikus-site-trial-"
+
+TRIAL_SECONDS = {"address": 15 * 60, "signin": 30 * 60}
+# portikus-setup.service's own TimeoutStartSec, plus a margin.
+SETUP_TIMEOUT = 91 * 60
+MAX_REQUEST_BYTES = 512 * 1024
+MAX_FILE_BYTES = 512 * 1024
+KEEP_JOBS = 50
+LOG_LINES = 2000
+LOG_LINE_LENGTH = 500
+
+# Every code a status file or the journal may carry; packages/contracts SiteJobCode.
+CODES = (
+    "invalid_request", "invalid_value", "too_many", "duplicate", "operator_platform", "mock_platform",
+    "reserved_port", "certificate_not_covering", "not_apt_install", "missing_secret", "trial_open", "busy",
+    "no_open_trial", "proxy_config_rejected", "proxy_reload_failed", "api_restart_failed", "setup_failed",
+    "trial_expired", "rolled_back", "write_failed",
+)
+
+# The debconf questions a trial may change, with their template types.
+QUESTION_TYPES = {
+    "public_host": "string", "provider": "select", "entra_tenant_id": "string", "google_domains": "string",
+    "oidc_issuer": "string", "client_id": "string", "oidc_groups_claim": "string", "student_group": "string",
+    "instructor_group": "string", "admin_group": "string",
+}
+
+REQUEST_NAME_RE = re.compile(r"request-(.*)\.json", re.ASCII | re.DOTALL)
+STATUS_NAME_RE = re.compile(r"([0-9a-f-]{36})\.(json|log)", re.ASCII)
+INVOCATION_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
+# One `key: value` line of secrets.yaml as yaml.safe_dump writes it.
+SECRET_VALUE_RE = re.compile(r"[a-z_]+:\s*(.+)", re.ASCII)
+# A setup log line that names a secret by its key keeps only the key.
+SECRET_LINE_RE = re.compile(r"(?i)((secret|password|token)[A-Za-z_]*[\"']?\s*[:=]\s*).*")
+
+
+class JobFailed(Exception):
+    """A valid request that could not be put in force; `code` is one of CODES."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def now_iso(clock=time.time):
+    stamp = datetime.datetime.fromtimestamp(clock(), datetime.timezone.utc)
+    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def iso_seconds(text):
+    try:
+        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+
+
+def journal(message):
+    print(f"site-job: {message}", file=sys.stderr, flush=True)
+
+
+# ---- What the proxy allows ----
+
+def render_include(acl, source, hosts):
+    """CONNECT to port 443 of each host, after squid.conf's address denies (ADR 0027)."""
+    lines = [f"# Written by the site job from {source} (ADR 0059); do not edit.",
+             "# CONNECT only, port 443 only."]
+    if hosts:
+        lines += [f"acl {acl} dstdomain -n {' '.join(hosts)}",
+                  f"acl {acl}_port port 443",
+                  f"http_access allow portikus_connect {acl} {acl}_port"]
+    return "\n".join(lines) + "\n"
+
+
+def render_admin(hosts):
+    return render_include("portikus_site_hosts", PROXY_HOSTS_FILE, sorted({h.lower() for h in hosts}))
+
+
+def platform_hosts(platforms):
+    hosts = set()
+    for platform in platforms:
+        hosts.add(url_host(platform["keysetUrl"]))
+        if "authTokenUrl" in platform:
+            hosts.add(url_host(platform["authTokenUrl"]))
+    return sorted(hosts)
+
+
+def render_lti(platforms):
+    return render_include("portikus_site_lti", LTI_ADMIN_FILE, platform_hosts(platforms))
+
+
+def covers(names, host):
+    """True when a certificate's names include host itself or a one-label wildcard over it."""
+    host = host.lower()
+    for name in names:
+        if name == host:
+            return True
+        if name.startswith("*.") and "." in host and host.split(".", 1)[1] == name[2:]:
+            return True
+    return False
+
+
+def redact(text, secrets):
+    """Setup's output for the page: no secret, no control character, bounded."""
+    lines = []
+    for line in text.splitlines():
+        for secret in secrets:
+            if secret:
+                line = line.replace(secret, "[secret]")
+        line = SECRET_LINE_RE.sub(r"\1[secret]", line)
+        line = "".join(c for c in line if c == "\t" or (ord(c) >= 0x20 and not 0x7F <= ord(c) <= 0x9F))
+        lines.append(line[:LOG_LINE_LENGTH])
+    return lines
+
+
+# ---- Commands ----
+
+def run(argv, timeout=60, stdin=None):
+    """Run argv without a shell; returns (exit code, standard output). 124 on a timeout, 127 when it cannot start."""
+    try:
+        done = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              stdin=None if stdin is not None else subprocess.DEVNULL, text=True,
+                              errors="replace", timeout=timeout,
+                              env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+    except subprocess.TimeoutExpired:
+        return 124, ""
+    except OSError:
+        return 127, ""
+    if done.returncode != 0 and done.stderr:
+        # Squid's, debconf's and the platforms check's own error lines hold no secret.
+        for line in done.stderr.strip().splitlines()[-3:]:
+            journal(f"{os.path.basename(argv[0])}: {line[:300]}")
+    return done.returncode, done.stdout
+
+
+# ---- Files ----
+
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
+def write_at(dir_fd, name, data, mode, uid, gid, own):
+    """Write name inside dir_fd atomically (temporary file, then rename), never following a link."""
+    temp = f".{name}.tmp"
+    try:
+        os.unlink(temp, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=dir_fd)
+    try:
+        if own:
+            os.fchown(fd, uid, gid)
+        os.fchmod(fd, mode)
+        os.write(fd, data.encode() if isinstance(data, str) else data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.rename(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def read_at(dir_fd, name, limit):
+    """A regular file's bytes inside dir_fd, or None for anything else, a link included."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit + 1)
+        return data if len(data) <= limit else None
+    finally:
+        os.close(fd)
+
+
+def remove_at(dir_fd, name):
+    try:
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(st.st_mode):
+        shutil.rmtree(name, dir_fd=dir_fd)
+    else:
+        os.unlink(name, dir_fd=dir_fd)
+# jscpd:ignore-end
+
+
+def open_dir(path):
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+
+def make_dir(path, mode):
+    try:
+        os.mkdir(path, mode)
+    except FileExistsError:
+        pass
+    return open_dir(path)
+
+
+def read_file(path, limit=MAX_FILE_BYTES):
+    try:
+        fd = open_dir(os.path.dirname(path))
+    except OSError:
+        return None
+    try:
+        return read_at(fd, os.path.basename(path), limit)
+    finally:
+        os.close(fd)
+
+
+# ---- The job ----
+
+class Runner:
+    def __init__(self, root="", run_=None, clock=time.time, write_settings=WRITE_SETTINGS,
+                 settings_keys=SETTINGS_KEYS):
+        self.root = root
+        self.etc = root + ETC
+        self.config_file = root + CONFIG_FILE
+        self.proxy_hosts_file = root + PROXY_HOSTS_FILE
+        self.lti_admin_file = root + LTI_ADMIN_FILE
+        self.lti_operator_file = root + LTI_OPERATOR_FILE
+        self.certificate_settings = root + CERTIFICATE_SETTINGS
+        self.proxy_dir = root + PROXY_DIR
+        self.squid_conf = root + SQUID_CONF
+        self.jobs_dir = root + JOBS_DIR
+        self.state_dir = root + STATE_DIR
+        self.write_settings = write_settings
+        self.settings_keys = settings_keys
+        # Looked up at call time, so a test that replaces the module's run catches every command.
+        self.run = run_ if run_ is not None else (lambda argv, timeout=60, stdin=None: run(argv, timeout, stdin))
+        self.clock = clock
+        self.own = os.geteuid() == 0
+        self.jobs_gid = os.getegid()
+
+    def api_gid(self):
+        if not self.own:
+            return os.getegid()
+        try:
+            return grp.getgrnam(API_GROUP).gr_gid
+        except KeyError:
+            journal(f"the {API_GROUP} group is missing; reinstall the portikus package")
+            raise JobFailed("write_failed")
+
+    def api_uid(self):
+        if not self.own:
+            return os.geteuid()
+        try:
+            return pwd.getpwnam(API_USER).pw_uid
+        except KeyError:
+            return None
+
+    # -- the egress proxy's includes: swap, parse, roll back (ADR 0052) --
+
+    def proxy_fd(self):
+        return make_dir(self.proxy_dir, 0o755)
+
+    def squid_locked(self):
+        """The alerts job takes the same lock on the include folder before it changes alerts.conf."""
+        fd = self.proxy_fd()
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+
+    def squid_parses(self):
+        if not os.path.exists(self.squid_conf):
+            return True
+        return self.run(["squid", "-k", "parse", "-f", SQUID_CONF])[0] == 0
+
+    def put_back(self, dir_fd, name, old):
+        if old is None:
+            remove_at(dir_fd, name)
+        else:
+            write_at(dir_fd, name, old, 0o644, 0, 0, self.own)
+
+    def reload_proxy(self):
+        if os.path.exists(self.squid_conf) \
+                and self.run(["systemctl", "try-reload-or-restart", SQUID_UNIT])[0] != 0:
+            raise JobFailed("proxy_reload_failed")
+
+    def apply_include(self, name, content, commit=None):
+        """Put content in force as include `name`, then commit() the page file, then reload Squid.
+
+        Squid reads the include only on a reload, so it never runs a file that
+        does not parse; a failed parse or commit puts the old file back.
+        Returns True when the include changed. The caller holds the Squid lock.
+        """
+        dir_fd = self.proxy_fd()
+        try:
+            old = read_at(dir_fd, name, MAX_FILE_BYTES)
+            changed = old is None or old.decode("utf-8", "replace") != content
+            pending = read_at(dir_fd, RELOAD_PENDING, 0) is not None
+            if changed and not pending:
+                write_at(dir_fd, RELOAD_PENDING, "", 0o644, 0, 0, self.own)
+            try:
+                if changed:
+                    write_at(dir_fd, name, content, 0o644, 0, 0, self.own)
+                    if not self.squid_parses():
+                        self.put_back(dir_fd, name, old)
+                        raise JobFailed("proxy_config_rejected")
+                if commit is not None:
+                    try:
+                        commit()
+                    except (OSError, JobFailed):
+                        if changed:
+                            self.put_back(dir_fd, name, old)
+                        raise JobFailed("write_failed")
+            except JobFailed:
+                if changed and not pending:
+                    remove_at(dir_fd, RELOAD_PENDING)
+                raise
+            if changed or pending:
+                self.reload_proxy()
+                remove_at(dir_fd, RELOAD_PENDING)
+            return changed
+        finally:
+            os.close(dir_fd)
+
+    # -- page-owned files --
+
+    def write_page_file(self, path, doc):
+        fd = open_dir(os.path.dirname(path))
+        try:
+            write_at(fd, os.path.basename(path), json.dumps(doc, indent=2) + "\n", 0o640, 0, self.api_gid(),
+                     self.own)
+        finally:
+            os.close(fd)
+
+    def stored_hosts(self):
+        raw = read_file(self.proxy_hosts_file)
+        if raw is None:
+            return []
+        try:
+            doc = parse_json(raw)
+            _keys(doc, ["version", "hosts"])
+            if doc["version"] != 1:
+                raise Refused("invalid_request")
+            return check_hosts(doc["hosts"])
+        except Refused:
+            journal("proxy-hosts.json is not a valid page file; reading it as empty")
+            return []
+
+    def stored_platforms(self):
+        raw = read_file(self.lti_admin_file)
+        if raw is None:
+            return []
+        try:
+            doc = parse_json(raw)
+            _keys(doc, ["version", "platforms"])
+            if doc["version"] != 1:
+                raise Refused("invalid_request")
+            return check_platforms(doc["platforms"])
+        except Refused:
+            journal("lti-platforms-admin.json is not a valid page file; reading it as empty")
+            return []
+
+    def operator_pairs(self):
+        """(issuer, clientId) of every platform in the operator's file, which wins on a clash."""
+        raw = read_file(self.lti_operator_file)
+        try:
+            doc = parse_json(raw) if raw is not None else {}
+        except Refused:
+            journal("the operator's LTI platforms file is not JSON; no pair is reserved")
+            return set()
+        platforms = doc.get("platforms") if isinstance(doc, dict) else None
+        return {(p.get("issuer"), p.get("clientId")) for p in platforms or [] if isinstance(p, dict)}
+
+    def sync(self):
+        """Bring admin.conf and lti.conf in line with the page files, as after a run cut short or a restore."""
+        lock = self.squid_locked()
+        try:
+            changed = self.apply_include(ADMIN_CONF, render_admin(self.stored_hosts()))
+            return self.apply_include(LTI_CONF, render_lti(self.stored_platforms())) or changed
+        finally:
+            os.close(lock)
+
+    def do_proxy_hosts(self, body):
+        hosts = body["hosts"]
+        lock = self.squid_locked()
+        try:
+            self.apply_include(ADMIN_CONF, render_admin(hosts),
+                               lambda: self.write_page_file(self.proxy_hosts_file, {"version": 1, "hosts": hosts}))
+        finally:
+            os.close(lock)
+        journal(f"proxy hosts now {', '.join(hosts) or 'none'}")
+        return {"state": "done"}
+
+    def do_lti_platforms(self, body):
+        platforms = body["platforms"]
+        reserved = self.operator_pairs()
+        if any((p["issuer"], p["clientId"]) in reserved for p in platforms):
+            raise Refused("operator_platform")
+        check_name = "." + os.path.basename(self.lti_admin_file) + ".check"
+        etc_fd = open_dir(os.path.dirname(self.lti_admin_file))
+        try:
+            if platforms:
+                write_at(etc_fd, check_name, json.dumps({"version": 1, "platforms": platforms}, indent=2) + "\n",
+                         0o640, 0, self.api_gid(), self.own)
+                check = os.path.join(os.path.dirname(self.lti_admin_file), check_name)
+                if self.run([NODE, PLATFORMS_CHECK, check])[0] != 0:
+                    remove_at(etc_fd, check_name)
+                    raise Refused("invalid_value")
+
+            def commit():
+                if platforms:
+                    os.rename(check_name, os.path.basename(self.lti_admin_file),
+                              src_dir_fd=etc_fd, dst_dir_fd=etc_fd)
+                else:
+                    # The platforms file needs at least one platform, so none is no file.
+                    remove_at(etc_fd, os.path.basename(self.lti_admin_file))
+
+            lock = self.squid_locked()
+            try:
+                self.apply_include(LTI_CONF, render_lti(platforms), commit)
+            finally:
+                os.close(lock)
+                remove_at(etc_fd, check_name)
+        finally:
+            os.close(etc_fd)
+        journal(f"LMS platforms now {', '.join(p['name'] for p in platforms) or 'none'}")
+        # The API reads the platforms only when it starts (ADR 0059).
+        if self.run(["systemctl", "try-restart", API_UNIT])[0] != 0:
+            raise JobFailed("api_restart_failed")
+        return {"state": "done"}
+
+    # -- install answers --
+
+    def read_settings(self):
+        """write-settings read: the answers portikus.yaml holds, which secrets are set, the port."""
+        done = subprocess.run([sys.executable, "-I", self.write_settings, "--etc", self.etc, "--keys",
+                               self.settings_keys, "read"], stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=60, env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"})
+        if done.returncode != 0:
+            journal("could not read the install answers")
+            raise JobFailed("write_failed")
+        return json.loads(done.stdout)
+
+    def write_answers(self, answers, secret, port):
+        """write-settings: the answers reach it through its environment, the client secret too."""
+        env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"}
+        owned, secret_keys = [], []
+        with open(self.settings_keys) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) != 3 or parts[0].startswith("#"):
+                    continue
+                question, key, kind = parts
+                (owned if kind == "setting" else secret_keys).append(key)
+                env["PK_" + question] = answers.get(question, "") if kind == "setting" else ""
+        env["PK_OWNED"] = "\n".join(owned)
+        env["PK_SECRET_KEYS"] = "\n".join(secret_keys)
+        if secret is not None:
+            env["PK_client_secret"] = secret
+        argv = [sys.executable, "-I", self.write_settings, "--etc", self.etc]
+        if port is not None:
+            argv += ["--public-port", str(port)]
+        done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, env=env)
+        if done.returncode != 0 or done.stdout.strip():
+            journal("the install answers were not complete; nothing changed")
+            raise JobFailed("write_failed")
+
+    def set_debconf(self, values):
+        """So `dpkg-reconfigure portikus` shows the page's answers. Never a secret."""
+        if not values:
+            return
+        text = "".join(f"portikus portikus/{q} {QUESTION_TYPES[q]} {v}\n" for q, v in sorted(values.items()))
+        if self.run(["debconf-set-selections"], stdin=text)[0] != 0:
+            raise JobFailed("write_failed")
+
+    def setup_running(self):
+        rc, out = self.run(["systemctl", "show", "-P", "ActiveState", SETUP_UNIT])
+        return rc == 0 and out.strip() in ("active", "activating", "reloading")
+
+    def run_setup(self, log_id, secrets):
+        """portikus-setup.service, as postinst starts it; its output goes to log_id's log."""
+        # Starting a running unit only waits for that run, which read the answers before this change.
+        waited = 0
+        while self.setup_running() and waited < SETUP_TIMEOUT:
+            time.sleep(5)
+            waited += 5
+        rc = self.run(["systemctl", "start", SETUP_UNIT], timeout=SETUP_TIMEOUT)[0]
+        _, invocation = self.run(["systemctl", "show", "-P", "InvocationID", SETUP_UNIT])
+        invocation = invocation.strip()
+        if INVOCATION_RE.fullmatch(invocation):
+            _, text = self.run(["journalctl", "--no-pager", "-o", "cat", f"_SYSTEMD_INVOCATION_ID={invocation}"],
+                               timeout=120)
+            self.append_log(log_id, redact(text, list(secrets) + self.secret_values()))
+        return rc == 0
+
+    def secret_values(self):
+        """Every value secrets.yaml holds, and held before the trial, so setup's log never shows one."""
+        found = []
+        for path in (self.etc + "/secrets.yaml", self.state_dir + "/before-secrets.yaml"):
+            raw = read_file(path) or b""
+            for line in raw.decode("utf-8", "replace").splitlines():
+                match = SECRET_VALUE_RE.fullmatch(line.strip())
+                value = match.group(1).strip().strip("'\"") if match else ""
+                if len(value) >= 4:
+                    found.append(value)
+        # Longest first, so a secret that holds another is hidden whole.
+        return sorted(set(found), key=len, reverse=True)
+
+    # -- the open trial --
+
+    def state_fd(self):
+        return make_dir(self.state_dir, 0o700)
+
+    def trial_locked(self, wait):
+        """The one lock every trial step takes; None when another holds it and wait is false."""
+        fd = self.state_fd()
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return None
+        return fd
+
+    def read_trial(self, state_fd):
+        raw = read_at(state_fd, "trial.json", MAX_FILE_BYTES)
+        if raw is None:
+            return None
+        try:
+            trial = json.loads(raw)
+        except ValueError:
+            return None
+        return trial if isinstance(trial, dict) and UUID_RE.fullmatch(str(trial.get("id"))) else None
+
+    def write_trial(self, state_fd, trial):
+        write_at(state_fd, "trial.json", json.dumps(trial) + "\n", 0o600, 0, 0, self.own)
+
+    def snapshot(self, state_fd):
+        etc_fd = open_dir(self.etc)
+        try:
+            for name in ("portikus.yaml", "secrets.yaml"):
+                data = read_at(etc_fd, name, MAX_FILE_BYTES)
+                remove_at(state_fd, "before-" + name)
+                if data is not None:
+                    write_at(state_fd, "before-" + name, data, 0o600, 0, 0, self.own)
+        finally:
+            os.close(etc_fd)
+
+    def restore(self, state_fd):
+        etc_fd = open_dir(self.etc)
+        try:
+            for name, mode in (("portikus.yaml", 0o644), ("secrets.yaml", 0o600)):
+                data = read_at(state_fd, "before-" + name, MAX_FILE_BYTES)
+                if data is not None:
+                    write_at(etc_fd, name, data, mode, 0, 0, self.own)
+                elif name == "secrets.yaml":
+                    remove_at(etc_fd, name)
+        finally:
+            os.close(etc_fd)
+
+    def forget(self, state_fd):
+        for name in ("trial.json", "before-portikus.yaml", "before-secrets.yaml"):
+            remove_at(state_fd, name)
+
+    def arm(self, trial_id, seconds, stage):
+        """A transient timer that runs `site-job expire <id>`; False when systemd would not start it.
+
+        The setup stage's timer stands in while setup runs, should this job die;
+        the trial stage's replaces it once the trial opens. Each has its own
+        unit name, so arming one never collides with the other's running expire.
+        """
+        unit = f"{TRIAL_UNIT}{trial_id}-{stage}"
+        self.disarm(trial_id)
+        self.run(["systemctl", "reset-failed", unit + ".service"])
+        rc = self.run(["systemd-run", f"--unit={unit}", f"--on-active={max(1, int(seconds))}s",
+                       "--timer-property=AccuracySec=1s", "--description=Portikus site trial deadline",
+                       SITE_JOB, "expire", trial_id])[0]
+        if rc != 0:
+            journal(f"could not start the deadline timer for trial {trial_id}")
+        return rc == 0
+
+    def disarm(self, trial_id):
+        for stage in ("setup", "trial"):
+            self.run(["systemctl", "stop", f"{TRIAL_UNIT}{trial_id}-{stage}.timer"])
+
+    def revert(self, state_fd, trial, code):
+        """Put the answers from before trial back and rerun setup. Returns its status change."""
+        trial_secrets = self.secret_values()
+        self.restore(state_fd)
+        try:
+            self.set_debconf(trial.get("old") or {})
+        except JobFailed:
+            journal(f"could not put the debconf answers of trial {trial['id']} back; portikus.yaml is back")
+        ok = self.run_setup(trial["id"], trial_secrets)
+        self.forget(state_fd)
+        self.disarm(trial["id"])
+        change = {"state": "reverted", "code": code} if ok else {"state": "failed", "code": "setup_failed"}
+        change.update(finishedAt=now_iso(self.clock), trialEndsAt=None)
+        self.update_status(trial["id"], change)
+        journal(f"trial {trial['id']} put back: {change['code']}" + ("" if ok else "; setup failed again"))
+        return change
+
+    def end_overdue(self, state_fd, trial):
+        """Recover a trial no job is working on: put it back if overdue or cut short, else rearm its timer."""
+        ends = iso_seconds(trial.get("endsAt"))
+        if trial.get("state") != "trial":
+            self.revert(state_fd, trial, "setup_failed")
+        # The timer fires within a second of the deadline; a reboot loses it.
+        elif ends is None or ends <= self.clock() + 5:
+            self.revert(state_fd, trial, "trial_expired")
+        elif self.run(["systemctl", "is-active", "--quiet", f"{TRIAL_UNIT}{trial['id']}-trial.timer"])[0] != 0:
+            self.arm(trial["id"], ends - self.clock(), "trial")
+
+    def recover(self):
+        lock = self.trial_locked(wait=False)
+        if lock is None:
+            return
+        try:
+            trial = self.read_trial(lock)
+            if trial is not None:
+                self.end_overdue(lock, trial)
+        finally:
+            os.close(lock)
+
+    def open_trial(self, job_id, kind, prepare):
+        """Write the new answers, rerun setup and open a trial that Keep ends (ADR 0059)."""
+        if not os.path.isfile(self.config_file):
+            raise Refused("not_apt_install")
+        lock = self.trial_locked(wait=False)
+        if lock is None:
+            raise Refused("busy")
+        try:
+            if self.read_trial(lock) is not None:
+                raise Refused("trial_open")
+            if self.setup_running():
+                raise Refused("busy")
+            current = self.read_settings()
+            changes, port, secret = prepare(current)
+            before = current["answers"]
+            old = {q: before.get(q, "") for q, v in changes.items() if before.get(q, "") != v}
+            new = {q: changes[q] for q in old}
+            self.snapshot(lock)
+            trial = {"id": job_id, "kind": kind, "state": "running", "old": old}
+            self.write_trial(lock, trial)
+            # Should this job die during setup, the timer still puts the old answers back.
+            if not self.arm(job_id, SETUP_TIMEOUT + TRIAL_SECONDS[kind], "setup"):
+                self.forget(lock)
+                raise JobFailed("write_failed")
+            try:
+                self.set_debconf(new)
+                self.write_answers({**before, **changes}, secret, port)
+            except (OSError, JobFailed, subprocess.SubprocessError):
+                self.restore(lock)
+                try:
+                    self.set_debconf(old)
+                except JobFailed:
+                    journal("could not put the debconf answers back; portikus.yaml is back")
+                self.forget(lock)
+                self.disarm(job_id)
+                raise JobFailed("write_failed")
+            if not self.run_setup(job_id, [secret] if secret else []):
+                return self.revert(lock, trial, "setup_failed")
+            ends = self.clock() + TRIAL_SECONDS[kind]
+            trial.update(state="trial", endsAt=now_iso(lambda: ends))
+            self.write_trial(lock, trial)
+            if not self.arm(job_id, TRIAL_SECONDS[kind], "trial"):
+                return self.revert(lock, trial, "write_failed")
+            journal(f"trial {job_id} ({kind}) open until {trial['endsAt']}")
+            return {"state": "trial", "trialEndsAt": trial["endsAt"]}
+        finally:
+            os.close(lock)
+
+    def do_address(self, job_id, body):
+        host, port = body["host"], body["port"]
+
+        def prepare(current):
+            self.check_certificate(host, current)
+            return {"public_host": host}, port, None
+
+        return self.open_trial(job_id, "address", prepare)
+
+    def check_certificate(self, host, current):
+        """Uploaded certificate files must cover the new names; the internal authority and ACME issue them."""
+        raw = read_file(self.certificate_settings)
+        try:
+            settings = json.loads(raw) if raw is not None else None
+        except ValueError:
+            settings = None
+        if not isinstance(settings, dict):
+            if current["answers"].get("tls") == "files":
+                raise Refused("certificate_not_covering")
+            return
+        if settings.get("source") != "files":
+            return
+        names = []
+        for part in ("site", "preview"):
+            certificate = (settings.get(part) or {}).get("certificate") or {}
+            names += [n for n in certificate.get("names") or [] if isinstance(n, str)]
+        sample = None if current.get("previewSuffix") else f"x.preview.{host}"
+        if not covers(names, host) or (sample and not covers(names, sample)):
+            raise Refused("certificate_not_covering")
+
+    def do_signin(self, job_id, body):
+        provider = body["provider"]
+        secret = body["clientSecret"]
+
+        def prepare(current):
+            answers = current["answers"]
+            changes = {"provider": provider}
+            if provider == "entra":
+                changes.update(entra_tenant_id=body["entraTenantId"], client_id=body["clientId"])
+            elif provider == "google":
+                changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"])
+            elif provider == "oidc":
+                groups = body.get("groups") or {}
+                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"],
+                               oidc_groups_claim=body.get("groupsClaim", ""),
+                               student_group=groups.get("student", ""),
+                               instructor_group=groups.get("instructor", ""),
+                               admin_group=groups.get("admin", ""))
+            if provider != "dex" and secret is None:
+                # A changed provider never receives an old secret (ADR 0059).
+                stored = "portikus_dex_upstream_client_secret" in current["secretsSet"]
+                if not stored or identity(answers) != identity({**answers, **changes}):
+                    raise Refused("missing_secret")
+            return changes, None, secret
+
+        return self.open_trial(job_id, "signin", prepare)
+
+    def do_keep(self, body):
+        lock = self.trial_locked(wait=True)
+        try:
+            trial = self.read_trial(lock)
+            if trial is None or trial["id"] != body["trialId"] or trial.get("state") != "trial":
+                raise Refused("no_open_trial")
+            self.forget(lock)
+            self.disarm(trial["id"])
+            self.update_status(trial["id"], {"state": "kept", "code": None, "finishedAt": now_iso(self.clock),
+                                             "trialEndsAt": None})
+            journal(f"trial {trial['id']} kept")
+            return {"state": "done"}
+        finally:
+            os.close(lock)
+
+    def do_rollback(self, body):
+        lock = self.trial_locked(wait=True)
+        try:
+            trial = self.read_trial(lock)
+            if trial is None or trial["id"] != body["trialId"] or trial.get("state") != "trial":
+                raise Refused("no_open_trial")
+            change = self.revert(lock, trial, "rolled_back")
+            return {"state": "done"} if change["state"] == "reverted" else {"state": "failed",
+                                                                              "code": "setup_failed"}
+        finally:
+            os.close(lock)
+
+    def run_expire(self, trial_id):
+        lock = self.trial_locked(wait=True)
+        try:
+            trial = self.read_trial(lock)
+            if trial is None or trial["id"] != trial_id:
+                journal(f"trial {trial_id} is no longer open")
+                return 0
+            self.jobs_gid = self.status_gid()
+            self.end_overdue(lock, trial)
+            return 0
+        finally:
+            os.close(lock)
+
+    # -- status files --
+
+    def status_gid(self):
+        try:
+            return os.stat(self.jobs_dir).st_gid
+        except OSError:
+            return os.getegid()
+
+    def status_fd(self):
+        fd = make_dir(os.path.join(self.jobs_dir, "status"), 0o750)
+        if self.own:
+            os.fchown(fd, 0, self.jobs_gid)
+        os.fchmod(fd, 0o750)
+        return fd
+
+    def write_status(self, record):
+        fd = self.status_fd()
+        try:
+            write_at(fd, f"{record['id']}.json", json.dumps(record, indent=2) + "\n", 0o640, 0, self.jobs_gid,
+                     self.own)
+        finally:
+            os.close(fd)
+
+    def update_status(self, job_id, change):
+        fd = self.status_fd()
+        try:
+            raw = read_at(fd, f"{job_id}.json", MAX_FILE_BYTES)
+        finally:
+            os.close(fd)
+        try:
+            record = json.loads(raw) if raw is not None else None
+        except ValueError:
+            record = None
+        if not isinstance(record, dict):
+            journal(f"the status of {job_id} is missing")
+            return
+        record.update(change)
+        self.write_status(record)
+
+    def append_log(self, job_id, lines):
+        fd = self.status_fd()
+        try:
+            name = f"{job_id}.log"
+            old = read_at(fd, name, MAX_FILE_BYTES * 4) or b""
+            kept = (old.decode("utf-8", "replace").splitlines() + lines)[-LOG_LINES:]
+            write_at(fd, name, "".join(line + "\n" for line in kept), 0o640, 0, self.jobs_gid, self.own)
+        finally:
+            os.close(fd)
+
+    # -- requests --
+
+    # jscpd:ignore-start -- each root job is a standalone script, so this stays a copy of the alerts job's.
+    def pending(self, jobs_fd):
+        names = []
+        for name in os.listdir(jobs_fd):
+            if REQUEST_NAME_RE.fullmatch(name):
+                try:
+                    st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                names.append((st.st_mtime_ns, name))
+        return [name for _, name in sorted(names)]
+
+    def take(self, jobs_fd, name):
+        """Read one request file and delete it at once, whatever it holds. Returns (id, raw or None)."""
+        raw = None
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=jobs_fd)
+            try:
+                st = os.fstat(fd)
+                if stat.S_ISREG(st.st_mode) and st.st_uid == self.api_uid():
+                    raw = os.read(fd, MAX_REQUEST_BYTES + 1)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        # A signin request may hold the client secret, so it leaves the job directory before anything
+        # else, and whatever it is, or the path unit would start this job again at once.
+        try:
+            remove_at(jobs_fd, name)
+        except OSError:
+            pass
+        return REQUEST_NAME_RE.fullmatch(name).group(1), raw
+    # jscpd:ignore-end
+
+    def handle(self, jobs_fd, name):
+        job_id, raw = self.take(jobs_fd, name)
+        if not UUID_RE.fullmatch(job_id):
+            journal("dropped a request file whose name is not a job id")
+            return
+        fd = self.status_fd()
+        try:
+            seen = read_at(fd, f"{job_id}.json", MAX_FILE_BYTES) is not None
+        finally:
+            os.close(fd)
+        if seen:
+            journal(f"dropped request {job_id}: it already has a status")
+            return
+        doc = None
+        if raw is not None and len(raw) <= MAX_REQUEST_BYTES:
+            try:
+                doc = parse_json(raw)
+            except Refused:
+                pass
+        kind = doc.get("kind") if isinstance(doc, dict) else None
+        if kind not in KINDS:
+            # The status file names the kind, so with none to name only the journal hears of it.
+            journal(f"refused request {job_id}: invalid_request")
+            return
+        record = {"id": job_id, "kind": kind, "state": "running", "code": None,
+                  "startedAt": now_iso(self.clock), "finishedAt": None, "trialEndsAt": None}
+        self.write_status(record)
+        try:
+            record.update(self.perform(job_id, kind, doc))
+        except Exception as err:  # noqa: BLE001 - a status left "running" would never end
+            journal(f"request {job_id} failed: {type(err).__name__}")
+            record.update(state="failed", code="write_failed")
+        if record["state"] != "trial":
+            record["finishedAt"] = now_iso(self.clock)
+        self.write_status(record)
+
+    def perform(self, job_id, kind, doc):
+        try:
+            body = check_request(doc, job_id)
+            if kind == "proxy-hosts":
+                return self.do_proxy_hosts(body)
+            if kind == "lti-platforms":
+                return self.do_lti_platforms(body)
+            if kind == "address":
+                return self.do_address(job_id, body)
+            if kind == "signin":
+                return self.do_signin(job_id, body)
+            if kind == "keep":
+                return self.do_keep(body)
+            return self.do_rollback(body)
+        except Refused as err:
+            journal(f"refused request {job_id} ({kind}): {err.code}")
+            return {"state": "failed", "code": err.code}
+        except JobFailed as err:
+            journal(f"request {job_id} ({kind}) failed: {err.code}")
+            return {"state": "failed", "code": err.code}
+
+    def prune(self, keep_id):
+        fd = self.status_fd()
+        try:
+            jobs = {}
+            for name in os.listdir(fd):
+                match = STATUS_NAME_RE.fullmatch(name)
+                if match and match.group(1) != keep_id:
+                    st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    jobs[match.group(1)] = max(jobs.get(match.group(1), 0), st.st_mtime_ns)
+            for job_id, _ in sorted(jobs.items(), key=lambda item: item[1])[:-KEEP_JOBS]:
+                remove_at(fd, f"{job_id}.json")
+                remove_at(fd, f"{job_id}.log")
+        finally:
+            os.close(fd)
+
+    def open_trial_id(self):
+        fd = self.state_fd()
+        try:
+            trial = self.read_trial(fd)
+        finally:
+            os.close(fd)
+        return trial["id"] if trial else None
+
+    def run_pending(self):
+        jobs_fd = open_dir(self.jobs_dir)
+        try:
+            self.jobs_gid = os.fstat(jobs_fd).st_gid
+            self.recover()
+            # Requests written while one runs are taken in the next pass.
+            while True:
+                names = self.pending(jobs_fd)
+                if not names:
+                    break
+                for name in names:
+                    self.handle(jobs_fd, name)
+            self.prune(self.open_trial_id())
+        finally:
+            os.close(jobs_fd)
+        return 0
+
+
+def main(argv):
+    if argv[1:] in ([], ["run"]):
+        return Runner().run_pending()
+    if len(argv) == 3 and argv[1] == "expire" and UUID_RE.fullmatch(argv[2]):
+        return Runner().run_expire(argv[2])
+    if argv[1:] == ["sync"]:
+        try:
+            changed = Runner().sync()
+        except JobFailed as err:
+            journal(f"sync: {err.code}")
+            return 1
+        print(f"includes {'changed' if changed else 'unchanged'}")
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
