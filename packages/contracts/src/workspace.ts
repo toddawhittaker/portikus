@@ -323,6 +323,7 @@ export const ApiErrorCode = z.enum([
 	"IMAGE_NOT_HEALTHY",
 	"IMAGE_ALREADY_DEFAULT",
 	"IMAGE_NO_PREVIOUS",
+	"CODING_AGENT_NO_PREVIOUS",
 	// Delete refused for the default or previous image.
 	"IMAGE_IN_USE",
 	"CERTIFICATE_JOB_BUSY",
