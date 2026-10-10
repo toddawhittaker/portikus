@@ -53,6 +53,9 @@ const HTTP_PORTS: ReadonlySet<number> = new Set([
 /** How long one probe may take, HTTP question and TLS handshake together. */
 const TLS_PROBE_TIMEOUT_MS = 1000;
 
+/** Bytes read while looking for the end of an HTTP status line. */
+const STATUS_LINE_CAP = 128;
+
 /** Ports below this are never probed. */
 const FIRST_PROBED_PORT = 1024;
 
@@ -74,7 +77,10 @@ export async function probeTls(
 	return completesTlsHandshake(host, port, half);
 }
 
-/** Whether a listener answers a minimal HTTP request with an HTTP status line. */
+/**
+ * Whether a listener answers a minimal HTTP request as a plain HTTP server.
+ * A 400 is inconclusive: Go and nginx HTTPS servers send one to plain HTTP.
+ */
 function answersHttp(host: string, port: number, timeoutMs: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		let settled = false;
@@ -94,8 +100,16 @@ function answersHttp(host: string, port: number, timeoutMs: number): Promise<boo
 		);
 		socket.on("data", (chunk: Buffer) => {
 			received += chunk.toString("latin1");
-			// Five bytes are enough to tell "HTTP/" from anything else.
-			if (received.length >= 5) finish(received.startsWith("HTTP/"));
+			const end = received.indexOf("\r\n");
+			if (end >= 0) {
+				const status = /^HTTP\/\d(?:\.\d)? (\d{3})/.exec(received.slice(0, end));
+				finish(status !== null && status[1] !== "400");
+			} else if (
+				received.length >= STATUS_LINE_CAP ||
+				!"HTTP/".startsWith(received.slice(0, 5))
+			) {
+				finish(false);
+			}
 		});
 		socket.once("error", () => finish(false));
 		socket.once("close", () => finish(false));

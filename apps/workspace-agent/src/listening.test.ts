@@ -1014,6 +1014,30 @@ test("the probe asks a plain HTTP server in HTTP and never sends it a TLS handsh
 	}
 });
 
+test("a 400 answer to the HTTP question falls through to the TLS handshake", async () => {
+	// Go and nginx HTTPS servers answer a plain request with a 400 status line.
+	let tlsAttempted = false;
+	const server = createNetServer((socket) =>
+		socket.once("data", (chunk: Buffer) => {
+			if (chunk[0] === 0x16) {
+				tlsAttempted = true;
+				socket.destroy();
+				return;
+			}
+			socket.end(
+				"HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n",
+			);
+		}),
+	);
+	try {
+		const port = await listenOn(server);
+		expect(await probeTls("127.0.0.1", port)).toBe(false);
+		expect(tlsAttempted).toBe(true);
+	} finally {
+		server.close();
+	}
+});
+
 test("a silent listener is not HTTPS and the probe stays within its budget", async () => {
 	const silent = createNetServer(() => {});
 	try {
