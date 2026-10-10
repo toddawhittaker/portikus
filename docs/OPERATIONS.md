@@ -125,8 +125,8 @@ They live in `/var/lib/portikus/coding-agents` on the server, which setup
 creates and fills (ADR 0056, SPEC.md section 22.6). The Workspace image tab
 has **Update coding agents** and a **Roll back** button for each tool. The
 server needs outgoing access to `downloads.claude.ai`, `api.github.com`,
-`github.com` and GitHub's release-asset host (`objects.githubusercontent.com`
-or `release-assets.githubusercontent.com`; the job follows the redirect).
+`github.com` and `release-assets.githubusercontent.com`, where GitHub
+redirects release downloads (the job follows the redirect).
 Workspace images 2026.10.2 and later no longer contain the tools, so they
 need a Portikus package from Epic 40 or later: install the package first,
 then the image. Workspaces on older images run the shared tools after their
