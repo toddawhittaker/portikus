@@ -24,6 +24,8 @@ interface FakeImage {
 	nodeVersion?: string;
 	/** Written as size.json, as the root job records it. */
 	sizeBytes?: number;
+	/** No claude or codex of its own: the image runs them from the shared folder. */
+	sharedAgents?: boolean;
 }
 
 /** Write then rename, as the root job does, so the API never reads half a file. */
@@ -68,8 +70,8 @@ export async function putImage(image: FakeImage): Promise<void> {
 				python3: "Python 3.13.5",
 				git: "git version 2.47.3",
 				docker: "Docker version 28.4.0",
-				claude: "2.0.1 (Claude Code)",
-				codex: "codex-cli 0.40.0",
+				claude: image.sharedAgents ? null : "2.0.1 (Claude Code)",
+				codex: image.sharedAgents ? null : "codex-cli 0.40.0",
 			},
 			packages: image.packages ?? { curl: "8.14.1-2", git: "1:2.47.3-0" },
 		}),
@@ -92,6 +94,28 @@ export async function putImage(image: FakeImage): Promise<void> {
 			}),
 		);
 	}
+}
+
+interface FakeAgent {
+	current: string | null;
+	previous: string | null;
+}
+
+/** `coding-agents.json`, as the job writes it after an update, a rollback or setup's seed. */
+export async function putCodingAgents(agents: {
+	claude: FakeAgent;
+	codex: FakeAgent;
+}): Promise<void> {
+	const kept = (a: FakeAgent) =>
+		[a.previous, a.current].filter((v): v is string => v !== null);
+	await writeAtomic(
+		join(IMAGES_DIR, "coding-agents.json"),
+		JSON.stringify({
+			claude: { ...agents.claude, kept: kept(agents.claude) },
+			codex: { ...agents.codex, kept: kept(agents.codex) },
+			updatedAt: new Date().toISOString(),
+		}),
+	);
 }
 
 /** Wait for the API's request file and take it, as the root job does first. */
