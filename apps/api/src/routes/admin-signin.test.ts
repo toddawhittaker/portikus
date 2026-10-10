@@ -158,7 +158,7 @@ async function testSignIn(app: FastifyInstance, jar: CookieJar, who: string) {
 	const testJar = new CookieJar();
 	testJar.capture(jar.cookieHeader().split("; "));
 	testJar.capture(start);
-	const authorize = new URL(String(start.headers.location));
+	const authorize = new URL(String(start.json().location));
 	authorize.searchParams.set("user", who);
 	const chosen = await fetch(authorize, { redirect: "manual" });
 	const callback = new URL(String(chosen.headers.get("location")));
@@ -215,7 +215,7 @@ describe.skipIf(skip)("access", () => {
 		expect(back.statusCode).toBe(403);
 		const start = await send("POST", "/admin/signin/test");
 		expect(start.statusCode).toBe(403);
-		expect(start.headers.location).toBeUndefined();
+		expect(start.json().location).toBeUndefined();
 		expect(await requests()).toEqual([]);
 		await app.close();
 	});
@@ -480,8 +480,8 @@ describe.skipIf(skip)("the test sign-in", () => {
 			url: "/admin/signin/test",
 			headers: csrfHeaders(jar, PUBLIC_URL),
 		});
-		expect(start.statusCode).toBe(303);
-		const to = new URL(String(start.headers.location));
+		expect(start.statusCode).toBe(200);
+		const to = new URL(String(start.json().location));
 		expect(to.searchParams.get("connector_id")).toBe("oidc");
 		expect(to.searchParams.get("prompt")).toBe("login");
 		await app.close();
@@ -497,7 +497,7 @@ describe.skipIf(skip)("the test sign-in", () => {
 			headers: { cookie: jar.cookieHeader(), "sec-fetch-site": "cross-site" },
 		});
 		expect(start.statusCode).toBe(403);
-		expect(start.headers.location).toBeUndefined();
+		expect(start.json().location).toBeUndefined();
 		expect(start.headers["set-cookie"]).toBeUndefined();
 		await app.close();
 	});
@@ -518,7 +518,7 @@ describe.skipIf(skip)("the test sign-in", () => {
 		const state = JSON.parse(String(unsigned.value));
 		const broken = { ...state, signinTest: { adminId: "not-a-uuid" } };
 		const cookie = `${name}=${encodeURIComponent(app.signCookie(JSON.stringify(broken)))}`;
-		const authorize = new URL(String(start.headers.location));
+		const authorize = new URL(String(start.json().location));
 		authorize.searchParams.set("user", "olga");
 		const chosen = await fetch(authorize, { redirect: "manual" });
 		const callback = new URL(String(chosen.headers.get("location")));
@@ -668,7 +668,7 @@ describe.skipIf(skip)("the test sign-in", () => {
 		// Only the login cookie, as if the session had ended.
 		const bare = new CookieJar();
 		bare.capture(start);
-		const authorize = new URL(String(start.headers.location));
+		const authorize = new URL(String(start.json().location));
 		authorize.searchParams.set("user", "olga");
 		const chosen = await fetch(authorize, { redirect: "manual" });
 		const callback = new URL(String(chosen.headers.get("location")));

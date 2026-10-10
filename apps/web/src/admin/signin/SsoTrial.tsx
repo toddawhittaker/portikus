@@ -3,7 +3,7 @@ import { Button, HINT_CLASS, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { longTime } from "../backups/model.js";
-import { TEST_SIGNIN_URL, useEndTrial } from "./queries.js";
+import { useEndTrial, useStartTestSignin } from "./queries.js";
 import { PROVIDER_LABEL, timeLeft } from "./ssoForm.js";
 
 const ROLE_WORD = {
@@ -37,6 +37,7 @@ export function SsoTrial({
 }) {
 	const toast = useToast();
 	const end = useEndTrial();
+	const startTest = useStartTestSignin();
 	const now = useNow();
 	const resultRef = useRef<HTMLParagraphElement>(null);
 	const test = lastTest?.trialId === job.id ? lastTest : null;
@@ -105,11 +106,17 @@ export function SsoTrial({
 			<div className="grid gap-2">
 				<div className="pk-actions">
 					{dexOnly ? null : (
-						<form method="post" action={TEST_SIGNIN_URL}>
-							<Button type="submit" data-testid="sso-test">
-								Test sign-in
-							</Button>
-						</form>
+						<Button
+							data-testid="sso-test"
+							loading={startTest.isPending}
+							onClick={() =>
+								startTest.mutate(undefined, {
+									onSuccess: ({ location }) => window.location.assign(location),
+								})
+							}
+						>
+							Test sign-in
+						</Button>
 					)}
 					<Button
 						variant="primary"
@@ -129,6 +136,15 @@ export function SsoTrial({
 						Roll back
 					</Button>
 				</div>
+				{startTest.isError ? (
+					<p
+						className="pk-text-compact m-0 text-status-error"
+						role="alert"
+						data-testid="sso-test-error"
+					>
+						{errorText(startTest.error)}
+					</p>
+				) : null}
 				{canKeep ? null : (
 					<p id="sso-keep-note" className={HINT_CLASS}>
 						Keep turns on after a test sign-in passes.

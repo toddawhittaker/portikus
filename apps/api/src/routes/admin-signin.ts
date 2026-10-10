@@ -141,9 +141,10 @@ export function registerAdminSigninRoutes(
 	/**
 	 * Start a test sign-in through the provider in force, the trial's while one
 	 * is open. The callback sees the marker in the signed login cookie and
-	 * signs no one in (ADR 0059). A POST, since it sets the login cookie: the
-	 * page submits a plain form, which follows the 303 to the provider, and
-	 * the CSRF check covers it.
+	 * signs no one in (ADR 0059). A POST, since it sets the login cookie, and
+	 * the CSRF check covers it. It answers the provider's address as JSON
+	 * rather than a redirect, because the page policy's form-action 'self'
+	 * would stop a form post from following a redirect off the site.
 	 */
 	app.post("/admin/signin/test", adminOnly, async (request, reply) => {
 		if (!jobsDir || !oidc) return sendError(reply, 404, "NOT_FOUND", "Not found.");
@@ -171,6 +172,6 @@ export function registerAdminSigninRoutes(
 				signed: true,
 			},
 		);
-		return reply.header("cache-control", "no-store").redirect(url, 303);
+		return reply.header("cache-control", "no-store").send({ location: url });
 	});
 }
