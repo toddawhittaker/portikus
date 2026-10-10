@@ -590,6 +590,125 @@ because the reset command falls back to it.
 - Give each DNS credential the least access that works, and revoke the
   old one after you replace it.
 
+## Users: search and paging
+
+The **Users** tab shows 50 people at a time. Search, the filters and the sort
+run on the server, so they cover everyone, not just the page you see. A line
+above the table says "Showing 50 of 312". **Next** and **Previous** move
+between pages. Choosing a filter or typing a search goes back to the first
+page. Bulk actions apply only to the rows you ticked on the page you are on.
+
+## Link accounts for someone else
+
+A person may have an SSO account and a course account (from a learning
+system) and need both to open the same workspace. Normally they link the two
+themselves. When they cannot, open the person's panel on **Users**. Under
+**Linked course accounts**, choose to link a course account, search for it,
+pick it and confirm. Portikus applies the same checks as when a person links
+their own accounts, and refuses what they would refuse.
+
+**Unlink** next to a linked account takes the link away. It works for any link,
+even when the SSO account has since been disabled. Both actions are written to
+the audit log with you as the actor, and the holder of the SSO account gets a
+notification.
+
+## The agent log
+
+If a workspace misbehaves in a way its state does not explain, open its panel
+on **Users** and read the **Agent log**. It shows the workspace agent's own
+recent warnings and errors. The agent keeps them only in memory inside the
+workspace, so a restart clears them, and the workspace must be running. Only a
+few fields are shown: time, level, message and a short list of safe details.
+Treat the lines as hints. The owner of a workspace can change what the agent
+reports, so they are not proof of anything.
+
+## Sign-in
+
+The **Sign-in** tab has two groups. The first is **Single sign-on**, which
+chooses who vouches for your users. You can pick Microsoft Entra ID, Google
+Workspace, another OpenID Connect provider, or "Dex passwords only", which
+means accounts that have a Portikus password and no outside provider. The
+fields for each provider are the same questions `dpkg-reconfigure portikus`
+asks. A client secret is never shown again once saved: leave the box empty to
+keep the stored one. If you change the tenant, issuer or client ID, you must
+type a new secret, because Portikus will not send an old secret to a different
+place.
+
+If the server uses LDAP, the page shows that as read-only. LDAP is still
+changed with `sudo dpkg-reconfigure portikus`. You can switch from LDAP to
+another provider on the page.
+
+A change is a **trial**:
+
+1. Fill in the provider and choose **Apply as a trial**. Read the dialog:
+   while a bad trial is open, students may not be able to sign in.
+2. Wait while setup applies it, then choose **Test sign-in**. A new window
+   takes you through the provider. A test never creates a user or a session.
+   It reports whether the sign-in worked and which role the person would get.
+3. When the test passes, choose **Keep**. For "Dex passwords only" there is
+   nothing to test, so Keep is offered at once.
+4. If you roll back, do nothing for 30 minutes, or setup fails, Portikus puts
+   the old settings back.
+
+The local administrator's Dex password always works, so you cannot lock
+yourself out. Only one trial can be open at a time, and a trial cannot start
+while another change is running. This works only on servers installed with
+apt.
+
+## LMS platforms
+
+The second group on **Sign-in**, **Learning management systems**, registers the
+learning systems (Canvas, Moodle and others) that may open Portikus through
+LTI. Choose to add a platform and fill in the name, issuer, client ID, login
+address, keyset address, an optional token address (needed for roster sync)
+and the deployment IDs, one per line. Addresses must be HTTPS on the default
+port. A platform whose issuer and client ID are already in the operator's file
+(see [OPERATIONS.md](OPERATIONS.md), "The platforms file") is refused. You can
+add up to 20. Platforms from the operator's file show read-only.
+
+Saving restarts the API so it reads the new list. Root shells end and open
+sockets reconnect, and the dialog warns you first. Portikus also lets the
+servers behind the new addresses through the egress proxy, on port 443 only.
+The registration steps inside the learning system are in
+[OPERATIONS.md](OPERATIONS.md), "Signing in from a learning management
+system".
+
+## Allowed API hosts
+
+On **Network**, the group **Allowed API hosts** lets workspaces reach a host on
+the internet that the egress proxy would otherwise refuse, for example an AI
+provider's API. Type a **Host name** and add it. Use host names only: no IP
+addresses, ports or web addresses. Each host is allowed on port 443 for HTTPS
+only. You can add up to 50. Hosts from the operator's own list show read-only,
+and each host you added has a remove button.
+
+## Site address
+
+The **Site address** tab changes the host name and port people use to reach
+Portikus. It is a guided switch, because a wrong address can make the site
+unreachable.
+
+1. **Plan.** Enter the **New host name** and **Port**. The page shows what
+   will change: the site name, the preview names (`preview.<host>`, unless an
+   operator set the suffix by hand, in which case it stays), and the
+   certificate. A certificate from Caddy's internal authority or from ACME is
+   renewed for the new name. Uploaded certificate files must already cover the
+   new names, or the change is refused.
+2. **Checks.** The page tests that the new names resolve in DNS, that they
+   point at this server, and that port 80 answers. Fix DNS first when a check
+   fails.
+3. **Trial.** Choose **Apply as a trial**. Setup moves the site. Open the new
+   address in a new tab. If you do nothing, Portikus puts the old address back
+   after 15 minutes.
+4. **Keep.** Sign in at the new address and choose **Keep** there. It must be
+   pressed from the new address, which proves the address works for you.
+
+Running workspaces keep their old preview names until they next start. The
+page lists them, and nothing is restarted. If the new address stops working
+after you chose Keep, the way back is `sudo dpkg-reconfigure portikus`, or
+editing `portikus_public_port` in `/etc/portikus/portikus.yaml`; see
+[OPERATIONS.md](OPERATIONS.md), "Changes made from the admin pages".
+
 ## Health, logs and audit
 
 **Health** shows the host and the platform now and over time. Read it first

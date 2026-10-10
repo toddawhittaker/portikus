@@ -6,7 +6,7 @@ import type { HelpPart } from "./part.js";
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
  * admin-logs, admin-audit, admin-network, admin-backups, admin-image,
  * admin-certificate, admin-docker, admin-settings, admin-notifications,
- * admin-shell.
+ * admin-shell, admin-signin, admin-address.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -21,7 +21,9 @@ export const ADMIN_HELP: HelpPart = {
 					workspace, open it from the account menu. The <strong>Users</strong> tab lists
 					everyone who has signed in. Search by name, email, username or workspace
 					label, and choose a name to open its panel. The panel shows the workspace's
-					state and storage, and every action for it.
+					state and storage, and every action for it. The list shows 50 people at a
+					time; search and filters cover everyone, and <strong>Next</strong> and{" "}
+					<strong>Previous</strong> change page.
 				</p>
 			),
 		},
@@ -140,6 +142,95 @@ export const ADMIN_HELP: HelpPart = {
 					would be allowed or refused. <strong>Refused names</strong> shows what
 					workspaces tried and failed to reach over the last 7 days, for the whole site,
 					never per student.
+				</p>
+			),
+		},
+		{
+			id: "admin-proxy-hosts",
+			title: "Allowed API hosts",
+			body: (
+				<p>
+					On <strong>Network</strong>, <strong>Allowed API hosts</strong> lets
+					workspaces reach one more host on the internet, such as an AI provider's API.
+					Type a host name only: no IP address, port or web address. Each host is
+					allowed on port 443 for HTTPS only, and you can add up to 50. Hosts from the
+					operator's own list show read-only.
+				</p>
+			),
+		},
+		{
+			id: "admin-signin",
+			title: "Sign-in and learning systems",
+			body: (
+				<>
+					<p>
+						<strong>Single sign-on</strong> chooses Microsoft Entra ID, Google
+						Workspace, another OpenID Connect provider, or Dex passwords only. A change
+						is a trial. Choose <strong>Apply as a trial</strong>, then{" "}
+						<strong>Test sign-in</strong>, then <strong>Keep</strong> once the test
+						passes. A trial that is not kept is put back after 30 minutes. While a bad
+						trial is open, students may not be able to sign in; the local
+						administrator's Dex password always works. A saved client secret is never
+						shown: leave the box empty to keep it, and type a new one if you change the
+						tenant, issuer or client ID. LDAP shows read-only and is changed with{" "}
+						<code>sudo dpkg-reconfigure portikus</code>.
+					</p>
+					<p>
+						<strong>Learning management systems</strong> registers the platforms that
+						may open Portikus through LTI: name, issuer, client ID, login, keyset and
+						optional token addresses (all HTTPS on the default port) and deployment IDs.
+						Saving restarts the API, which ends root shells and reconnects sockets. You
+						can add up to 20; the operator's own platforms show read-only.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-address",
+			title: "Changing the site address",
+			body: (
+				<>
+					<p>
+						<strong>Site address</strong> moves Portikus to a new host name or port in
+						steps. Enter the new name and port to see the plan: the preview names, the
+						certificate and the workspaces that keep their old preview names until they
+						next start. The page checks DNS, that the names point at this server and
+						that port 80 answers. <strong>Apply as a trial</strong> moves the site. Open
+						the new address, sign in there and choose <strong>Keep</strong>. Without
+						Keep, the old address comes back after 15 minutes.
+					</p>
+					<p>
+						If the new address stops working after Keep, run{" "}
+						<code>sudo dpkg-reconfigure portikus</code> on the server, or edit{" "}
+						<code>portikus_public_port</code> in{" "}
+						<code>/etc/portikus/portikus.yaml</code>.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-linking",
+			title: "Linking accounts for someone else",
+			body: (
+				<p>
+					In a person's panel on <strong>Users</strong>,{" "}
+					<strong>Linked course accounts</strong> lists the course accounts joined to
+					their SSO account. Link a course account by searching for it and confirming,
+					or unlink one. The usual refusals apply, unlinking works even when the SSO
+					account is disabled, the audit log records you as the actor, and the account's
+					holder gets a notification.
+				</p>
+			),
+		},
+		{
+			id: "admin-agent-log",
+			title: "The agent log",
+			body: (
+				<p>
+					A running workspace's panel can show the <strong>Agent log</strong>: the
+					workspace agent's recent warnings and errors, kept in memory only and cleared
+					by a restart. The owner of a workspace can change what its agent reports, so
+					treat the lines as hints, not proof.
 				</p>
 			),
 		},
