@@ -68,6 +68,8 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
+			{/* Before the egress grid: its sticky side column must end the page. */}
+			<ProxyHostsGroup />
 			<div className="@container grid gap-4" data-testid="egress-tab">
 				<ModeCard view={view} />
 				<div className="grid gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -96,7 +98,6 @@ export function NetworkTab() {
 					</section>
 				</div>
 			</div>
-			<ProxyHostsGroup />
 			{draft ? (
 				<EntryDialog
 					draft={draft}
