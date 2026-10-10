@@ -14,7 +14,7 @@ import {
 	readOutcomes,
 	useOperationEndToasts,
 } from "./operationEnd.js";
-import { ADMIN_ME, listed, summary, uuid } from "./testRows.js";
+import { ADMIN_ME, isUsersList, listed, summary, usersBody, uuid } from "./testRows.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -378,8 +378,7 @@ test("the Users view announces a rebuild that ends while no panel is open", asyn
 	let pending: PendingOperation | null = "rebuild";
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users")
-			return json(200, { users: rows(pending), dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, rows(pending), false);
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}
@@ -411,9 +410,9 @@ test("the Users view announces a rebuild that ends while no panel is open", asyn
 function stubList(list: () => AdminUser[]) {
 	const calls = { users: 0 };
 	stubFetch((url) => {
-		if (url === "/admin/users") {
+		if (isUsersList(url)) {
 			calls.users += 1;
-			return json(200, { users: list(), dexUsers: false });
+			return usersBody(url, list(), false);
 		}
 		if (url.startsWith("/admin/audit?")) {
 			return json(200, {

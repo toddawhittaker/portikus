@@ -137,6 +137,8 @@ export type AdminUser = z.infer<typeof AdminUser>;
 
 export const AdminUserList = z.object({
 	users: z.array(AdminUser),
+	/** Accounts the query matched, before paging. */
+	total: z.number().int().nonnegative(),
 	/** True when the site runs Dex's gRPC API, so Add user is offered (ADR 0028). */
 	dexUsers: z.boolean(),
 });

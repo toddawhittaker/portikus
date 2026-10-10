@@ -1,6 +1,7 @@
-import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
+import type { AdminWorkspaceSummary } from "@portikus/contracts";
+import type { SortState } from "../../table/sort.js";
 import { timeAgo } from "../../text.js";
-import { sourceText } from "../markers.js";
+import type { AccountColumn } from "./sort.js";
 
 export interface AccountFilters {
 	text: string;
@@ -21,35 +22,30 @@ export const NO_FILTERS: AccountFilters = {
 	showArchived: false,
 };
 
-/** The rows the filters leave. Archived rows are hidden unless asked for. */
-export function filterAccounts(
-	users: AdminUser[],
+/**
+ * The query string for the Users list: one page when `page` is given, else
+ * the whole filtered list. The server does the filtering and sorting
+ * (SPEC.md section 20.1).
+ */
+export function usersQueryString(
 	filters: AccountFilters,
-): AdminUser[] {
-	const needle = filters.text.trim().toLowerCase();
-	return users.filter((user) => {
-		const workspace = user.workspace;
-		if (!filters.showArchived && user.markers.archived) return false;
-		if (filters.state === "none" && workspace) return false;
-		if (filters.state !== "all" && filters.state !== "none") {
-			if (workspace?.state !== filters.state) return false;
-		}
-		if (filters.role !== "all" && user.role !== filters.role) return false;
-		if (filters.image !== "all") {
-			const current = workspace?.image.current;
-			if (filters.image === "current" && current !== true) return false;
-			if (filters.image === "older" && current !== false) return false;
-		}
-		if (needle === "") return true;
-		return [
-			user.displayName,
-			user.email,
-			user.preferredUsername,
-			sourceText(user.issuer),
-			workspace?.label,
-			workspace?.id,
-		].some((field) => field?.toLowerCase().includes(needle));
-	});
+	sort: SortState<AccountColumn>,
+	page?: { offset: number; limit: number },
+): string {
+	const params = new URLSearchParams();
+	const text = filters.text.trim();
+	if (text !== "") params.set("q", text);
+	if (filters.role !== "all") params.set("role", filters.role);
+	if (filters.state !== "all") params.set("state", filters.state);
+	if (filters.image !== "all") params.set("image", filters.image);
+	if (filters.showArchived) params.set("archived", "1");
+	params.set("sort", sort.column);
+	params.set("dir", sort.direction);
+	if (page) {
+		params.set("limit", String(page.limit));
+		params.set("offset", String(page.offset));
+	}
+	return params.toString();
 }
 
 /** The Activity column: "Now, 2 connections" while connected, else when a browser last connected. */

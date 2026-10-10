@@ -394,7 +394,7 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 	// Image currency comes from the worker's host sample, which e2e has none of,
 	// so the list answer says the image is old until the fake rebuild finishes.
 	let rebuilt = false;
-	await routeApi(page, "**/admin/users", async (route) => {
+	await routeApi(page, "**/admin/users?**", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
 		for (const user of body.users) {
@@ -602,15 +602,18 @@ test.describe("the Users table layout", () => {
 		await insertUser(`shift-${tag}-2@example.edu`, `Shift ${tag} 2`, 0);
 		await openAdmin(page);
 		// Nothing hidden and nothing filtered: the heading already counts everyone.
-		const [{ archived }] = await query<{ archived: string }>(
-			"select count(*) as archived from workspaces where archived_at is not null",
+		const [{ shown }] = await query<{ shown: string }>(
+			`select count(*) as shown from users u
+			 left join workspaces w on w.owner_user_id = u.id
+			 where w.archived_at is null`,
 		);
-		if (Number(archived) === 0) {
-			await expect(page.getByTestId("admin-row-count")).toHaveText("");
-		}
+		// A list longer than a page says how much of it is on screen.
+		await expect(page.getByTestId("admin-row-count")).toHaveText(
+			Number(shown) > 50 ? `Showing 50 of ${shown}` : "",
+		);
 		await filterTo(page, `Shift ${tag}`);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
-		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
+		await expect(page.getByTestId("admin-row-count")).toHaveText("Showing 2 of 2");
 
 		const table = page.getByTestId("admin-accounts");
 		const before = await table.boundingBox();
@@ -652,7 +655,7 @@ test.describe("the Users table layout", () => {
 			);
 		}
 		// Every tag and the Old image tag at once, on the longest row.
-		await routeApi(page, "**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users?**", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {

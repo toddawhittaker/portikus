@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../api/request.js";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
+import { isUsersList, usersBody } from "../users/testRows.js";
 import { emptyText } from "./filters.js";
 import { linesText, partialText, refreshNote } from "./LogResults.js";
 import { levelTagClass, levelText, messageOf } from "./line.js";
@@ -109,8 +110,7 @@ function stubLogs(
 			requested.push(params);
 			return answer(params);
 		}
-		if (url === "/admin/users")
-			return json(200, { users: [ALICE_ROW], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [ALICE_ROW], false);
 		if (url === "/admin/settings" && init?.method === "PUT") {
 			const body = JSON.parse(String(init.body)) as Record<string, unknown>;
 			return onWrite?.(body) ?? json(200, { ...SETTINGS, ...body });
@@ -519,8 +519,7 @@ test("a name typed before the people list loads asks to wait, not to choose agai
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url.startsWith("/admin/logs?")) return json(200, page([]));
 		// The people list never arrives.
-		if (url === "/admin/users")
-			return new Promise<Response>(() => {}) as unknown as Response;
+		if (isUsersList(url)) return new Promise<Response>(() => {}) as unknown as Response;
 		if (url === "/admin/settings") return json(200, SETTINGS);
 		return json(200, {});
 	});

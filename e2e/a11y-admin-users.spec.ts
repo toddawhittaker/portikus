@@ -53,7 +53,7 @@ for (const scheme of ["light", "dark"] as const) {
 			],
 		);
 		// Every tag the table can draw, on one row.
-		await routeApi(page, "**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users?**", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {
@@ -91,7 +91,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("admin-filter-text").fill(`Axe ${tag}`);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
 		await expect(page.getByTestId(`account-image-${active}`)).toBeVisible();
-		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
+		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of 2$/);
 		await expectNoViolations(page);
 
 		// The page intro is open, and a column's help is shown over the sticky header.

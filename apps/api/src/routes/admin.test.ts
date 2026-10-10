@@ -1609,3 +1609,57 @@ test.skipIf(skip)(
 		expect(rows[0]?.metadata).toMatchObject({ from: 12, to: 0 });
 	},
 );
+
+test.skipIf(skip)(
+	"GET /admin/users pages and filters on the server, with markers over every account",
+	async () => {
+		const carol = await adminJar();
+		await testDb.db
+			.insertInto("users")
+			.values([
+				{
+					oidc_issuer: "https://old.example",
+					oidc_subject: "bob-old",
+					email: "bob@example.edu",
+					display_name: "Zed Bob Old",
+					role: "student",
+					last_login_at: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+				},
+				{
+					oidc_issuer: "https://new.example",
+					oidc_subject: "bob-new",
+					email: "bob@example.edu",
+					display_name: "Bob New",
+					role: "student",
+					last_login_at: new Date().toISOString(),
+				},
+			])
+			.execute();
+		const get = (query: string) =>
+			app.inject({
+				method: "GET",
+				url: `/admin/users${query}`,
+				headers: { cookie: carol.cookieHeader() },
+			});
+
+		const whole = await get("");
+		expect(whole.json().total).toBe(3);
+		expect(whole.json().users).toHaveLength(3);
+
+		// Only the search match comes back, yet its twin still marks it.
+		const searched = await get("?q=zed");
+		expect(searched.json().total).toBe(1);
+		const [zed] = searched.json().users as AdminUser[];
+		expect(zed?.markers.duplicateEmail).toBe(true);
+		expect(zed?.markers.stale).toBe(true);
+
+		const page = await get("?limit=2&offset=2&sort=account&dir=ascending");
+		expect(page.json().total).toBe(3);
+		expect((page.json().users as AdminUser[]).map((u) => u.displayName)).toEqual([
+			"Carol Admin",
+		]);
+
+		expect((await get("?limit=0")).statusCode).toBe(400);
+		expect((await get("?role=teacher")).statusCode).toBe(400);
+	},
+);
