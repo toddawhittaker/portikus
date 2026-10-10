@@ -129,22 +129,40 @@ describe.skipIf(!hasTestDb())("migration 0044_dex_account_issuer", () => {
 		expect(await issuerOf(other)).toBe("https://idp.example.edu");
 	});
 
-	test("of one subject under two addresses, only the latest-used row moves", async () => {
-		// The newer address was created later but never signed into.
-		const used = await dexRow(OLD, "a", { last_login_at: "2026-10-05T00:00:00Z" });
+	test("of one subject under two addresses, the row signed into last moves", async () => {
+		// A newer, never-signed-in row loses to the row in use.
+		const used = await dexRow(OLD, "a", { last_login_at: "2026-09-01T00:00:00Z" });
 		const unused = await dexRow(NEW, "a", { created_at: "2026-10-01T00:00:00Z" });
-		// Here the newer address is the later one.
-		const before = await dexRow(OLD, "b", { last_login_at: "2026-09-01T00:00:00Z" });
-		const after = await dexRow(NEW, "b", { created_at: "2026-10-01T00:00:00Z" });
+		// Both signed in: the later sign-in wins, whatever the creation order.
+		const earlier = await dexRow(NEW, "b", { last_login_at: "2026-09-01T00:00:00Z" });
+		const later = await dexRow(OLD, "b", { last_login_at: "2026-10-05T00:00:00Z" });
 		const alone = await dexRow(NEW, "c");
 
 		await migrate();
 
 		expect(await issuerOf(used)).toBe(DEX);
 		expect(await issuerOf(unused)).toBe(NEW);
-		expect(await issuerOf(after)).toBe(DEX);
-		expect(await issuerOf(before)).toBe(OLD);
+		expect(await issuerOf(later)).toBe(DEX);
+		expect(await issuerOf(earlier)).toBe(NEW);
 		expect(await issuerOf(alone)).toBe(DEX);
+	});
+
+	test("with no sign-ins, a row that owns a workspace beats a newer one, then the newest wins", async () => {
+		const owner = await dexRow(OLD, "w", { created_at: "2026-09-01T00:00:00Z" });
+		const empty = await dexRow(NEW, "w", { created_at: "2026-10-01T00:00:00Z" });
+		await t.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: owner, label: "w", state: "stopped" })
+			.execute();
+		const older = await dexRow(OLD, "n", { created_at: "2026-09-01T00:00:00Z" });
+		const newer = await dexRow(NEW, "n", { created_at: "2026-10-01T00:00:00Z" });
+
+		await migrate();
+
+		expect(await issuerOf(owner)).toBe(DEX);
+		expect(await issuerOf(empty)).toBe(NEW);
+		expect(await issuerOf(newer)).toBe(DEX);
+		expect(await issuerOf(older)).toBe(OLD);
 	});
 
 	test("running twice changes nothing more", async () => {

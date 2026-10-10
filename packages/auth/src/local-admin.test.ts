@@ -1,8 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createDb } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import bcrypt from "bcryptjs";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDexApi, type DexApi } from "./dex-api.js";
 import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
@@ -249,6 +251,69 @@ describe.skipIf(!hasTestDb())("reset-admin", () => {
 		expect(storedHash(DEFAULT_EMAIL)).toBe("$2b$10$kept");
 		const rows = await t.db.selectFrom("users").select("id").execute();
 		expect(rows).toEqual([{ id }]);
+	});
+
+	test("--if-missing before the API has migrated applies 0044 first and keeps the administrator", async () => {
+		// An upgraded site whose API has not restarted: the row still under Dex's URL, 0044 pending.
+		const { id } = await t.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: "https://old.example.edu/dex",
+				oidc_subject: dexLocalSubject(LOCAL_ADMIN_USER_ID),
+				email: DEFAULT_EMAIL,
+				display_name: "Local administrator",
+				role: "administrator",
+				granted_role: "administrator",
+				must_change_password: false,
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		await sql`delete from kysely_migration where name = '0044_dex_account_issuer'`.execute(
+			t.db,
+		);
+		await dex.createPassword({
+			email: DEFAULT_EMAIL,
+			username: "admin",
+			userId: LOCAL_ADMIN_USER_ID,
+			hash: "$2b$10$kept",
+		});
+		const update = vi.spyOn(dex, "updatePassword");
+		const err: string[] = [];
+		try {
+			const code = await runResetAdmin(
+				["--if-missing"],
+				{ db: t.db, dex, env: ENV },
+				{ stdout: () => {}, stderr: (text) => err.push(text) },
+			);
+			expect(code).toBe(11);
+			expect(update).not.toHaveBeenCalled();
+		} finally {
+			update.mockRestore();
+		}
+		expect(err.join("")).toContain("Applied migrations: 0044_dex_account_issuer");
+		expect(storedHash(DEFAULT_EMAIL)).toBe("$2b$10$kept");
+		expect(await t.db.selectFrom("users").select("id").execute()).toEqual([{ id }]);
+		expect((await account()).id).toBe(id);
+	});
+
+	test("refuses, and changes nothing, when the schema cannot be brought up to date", async () => {
+		// Nothing listens on port 1, so the migrator's first query fails.
+		const unreachable = createDb("postgres://portikus@127.0.0.1:1/portikus", 1);
+		const err: string[] = [];
+		let code: number;
+		try {
+			code = await runResetAdmin(
+				[],
+				{ db: unreachable, dex, env: ENV },
+				{ stdout: () => {}, stderr: (text) => err.push(text) },
+			);
+		} finally {
+			await unreachable.destroy();
+		}
+		expect(code).toBe(1);
+		expect(err.join("")).toContain("could not be brought up to date");
+		expect(fake.passwords.size).toBe(0);
+		expect(await t.db.selectFrom("users").select("id").execute()).toEqual([]);
 	});
 
 	test("--if-missing leaves a removed (disabled) account alone", async () => {

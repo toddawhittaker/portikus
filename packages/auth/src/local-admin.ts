@@ -1,4 +1,4 @@
-import { type Database, recordAudit } from "@portikus/db";
+import { type Database, migrateToLatest, recordAudit } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { type DexApi, generateDexPassword, hashDexPassword } from "./dex-api.js";
 import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
@@ -151,7 +151,8 @@ export interface ResetAdminDeps {
  * carries only the password, which the caller pipes into the root-only
  * file; every other message goes to standard error. Returns the exit code:
  * 0 with a new password, 10 or 11 when `--if-missing` found the account
- * with the flag set or clear, 1 on failure, 2 for bad arguments.
+ * with the flag set or clear, 1 on failure, 2 for bad arguments. It
+ * applies any pending migrations first, as the API does when it starts.
  */
 export async function runResetAdmin(
 	args: string[],
@@ -167,6 +168,17 @@ export async function runResetAdmin(
 	if (!publicUrl) {
 		io.stderr("PUBLIC_URL must be set\n");
 		return 2;
+	}
+	// After an upgrade the API may not have migrated yet; on an old schema the
+	// lookup would miss the administrator and reset its password (SPEC.md 5.1).
+	try {
+		const applied = await migrateToLatest(deps.db);
+		if (applied.length > 0) io.stderr(`Applied migrations: ${applied.join(", ")}\n`);
+	} catch {
+		io.stderr(
+			"The database schema could not be brought up to date; nothing changed. Start the API (systemctl start portikus-api), then try again.\n",
+		);
+		return 1;
 	}
 	try {
 		const result = await resetLocalAdmin({

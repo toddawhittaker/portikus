@@ -9,18 +9,23 @@ import { type Kysely, sql } from "kysely";
  * a migration must never change after it ships; the code reads it from
  * DEX_ACCOUNT_ISSUER in @portikus/auth.
  *
- * A site already moved has one row per address for the same subject; the
- * one signed into last takes the logical issuer and the others stay as they
- * are. A row already under the logical issuer wins, so a second run changes
- * nothing.
+ * A site already moved has one row per address for the same subject. One
+ * takes the logical issuer and the others stay as they are: the one signed
+ * into last, then one that owns a workspace, then the newest, then the
+ * lowest id. A row already under the logical issuer wins, so a second run
+ * changes nothing.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
 		update users set oidc_issuer = 'urn:portikus:dex'
 		where id in (
-			select distinct on (oidc_subject) id from users
-			where oidc_issuer like 'http%/dex'
-			order by oidc_subject, coalesce(last_login_at, created_at) desc, id
+			select distinct on (u.oidc_subject) u.id from users u
+			where u.oidc_issuer like 'http%/dex'
+			order by u.oidc_subject,
+				u.last_login_at desc nulls last,
+				exists (select 1 from workspaces w where w.owner_user_id = u.id) desc,
+				u.created_at desc,
+				u.id
 		)
 		and not exists (
 			select 1 from users kept
