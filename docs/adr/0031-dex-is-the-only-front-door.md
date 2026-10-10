@@ -78,3 +78,12 @@ to their provider, which asks for the second factor under its own rules.
   install first owns it, and several jurisdictions ban fixed default
   passwords in new products); keeping the direct paths beside Dex (every
   Dex-only feature built twice or missing for some sites).
+
+## Update, Epic 43
+
+The consequence that the admin area could manage Dex connectors only through
+Dex's API no longer holds (ADR 0059). The Sign-in tab sets the provider
+through the same install answers as `dpkg-reconfigure portikus` and reruns
+setup, as a 30-minute trial checked by a test sign-in and kept by hand. Dex
+stays the only front door, and the local administrator's Dex password keeps
+working throughout, which is the way back from a bad trial.
