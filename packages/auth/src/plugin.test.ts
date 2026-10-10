@@ -111,7 +111,13 @@ describe("the LTI exemptions", () => {
 		app = Fastify();
 		// No request here carries a session cookie, so the database is never touched.
 		await app.register(authPlugin, { db: {} as Kysely<Database>, auth: opts });
-		for (const url of ["/lti/login", "/lti/launch", "/lti/launchx", "/lti/jwks"]) {
+		for (const url of [
+			"/lti/login",
+			"/lti/launch",
+			"/lti/launchx",
+			"/lti/jwks",
+			"/lti/deep-link",
+		]) {
 			app.get(url, async () => "ok");
 			app.post(url, async () => "ok");
 		}
@@ -130,7 +136,7 @@ describe("the LTI exemptions", () => {
 		},
 	);
 
-	test.each(["/lti/jwks", "/lti/launchx"])(
+	test.each(["/lti/jwks", "/lti/launchx", "/lti/deep-link"])(
 		"a cross-site POST %s is still refused",
 		async (url) => {
 			const res = await app.inject({ method: "POST", url, headers: CROSS_SITE });
@@ -149,6 +155,21 @@ describe("the LTI exemptions", () => {
 
 	test.each(["/lti/login", "/lti/jwks"])("GET %s needs no session", async (url) => {
 		expect((await app.inject({ method: "GET", url })).statusCode).toBe(200);
+	});
+
+	test("a same-origin POST /lti/deep-link needs no session", async () => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/lti/deep-link",
+			headers: { "sec-fetch-site": "same-origin" },
+		});
+		expect(res.statusCode).toBe(200);
+	});
+
+	test("GET /lti/deep-link still needs a session", async () => {
+		expect(
+			(await app.inject({ method: "GET", url: "/lti/deep-link" })).statusCode,
+		).toBe(401);
 	});
 
 	test("any other /lti path still needs a session", async () => {

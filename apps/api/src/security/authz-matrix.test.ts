@@ -55,6 +55,8 @@ const KNOWN_VULN: Record<string, string> = {};
  */
 const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/start": 400,
+	// No course launch has left a starter in the matrix world.
+	"POST /workspaces/:id/projects/starter": 404,
 	"GET /me/links/pending": 404,
 	"HEAD /me/links/pending": 404,
 	"POST /me/links/confirm": 404,
@@ -334,6 +336,7 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/terminals": { name: "another" },
 	"PATCH /workspaces/:id/terminals/:tid": { name: "renamed" },
 	"POST /workspaces/:id/projects": { name: "another", source: "new" },
+	"POST /workspaces/:id/projects/starter": { starterId: crypto.randomUUID() },
 	"PATCH /workspaces/:id/projects/:pid": { name: "renamed" },
 	"POST /workspaces/:id/projects/:pid/duplicate": { name: "copy" },
 	"PUT /workspaces/:id/projects/:pid/layout": {
