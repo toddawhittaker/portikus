@@ -636,6 +636,12 @@ jobs:
         run: bash packaging/tests/debconf-test.sh
       - name: Settings keys agree
         run: bash packaging/tests/settings-keys-test.sh
+      - name: Agent links order
+        run: bash packaging/tests/agents-links-order-test.sh
+      - name: Enabled units
+        run: bash packaging/tests/enable-units-test.sh
+      - name: Secrets YAML
+        run: bash packaging/tests/secrets-yaml-test.sh
       - name: Save the test image
         if: steps.image.outputs.cache-hit != 'true'
         run: mkdir -p ~/.cache/portikus && docker save -o ~/.cache/portikus/debconf-test-image.tar portikus-debconf-test:2
