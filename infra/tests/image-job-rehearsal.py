@@ -16,7 +16,7 @@ the point is that the root job refuses them.  The steps:
    3. a tampered download is refused: a SHA256SUMS changed after signing,
       and a file that does not match its signed checksum;
    4. build with Node 26 and Python 3.14 from uv;
-   5. a broken recipe (Codex removed) fails its health check, and the image
+   5. a broken recipe (no Codex link) fails its health check, and the image
       cannot be made the default, by the API or by a hand-written request;
    6. make default;
    7. a new workspace gets the new image, an old one keeps its image until
@@ -25,7 +25,10 @@ the point is that the root job refuses them.  The steps:
    9. bad hand-written requests are refused;
   10. with the path unit stopped a request waits; a job stopped mid-run is
       marked failed, and a retry succeeds;
-  11. pruning keeps the default, the previous and the two newest candidates.
+  11. pruning keeps the default, the previous and the two newest candidates;
+  12. the coding agents (SPEC.md section 10): setup seeded both, bad
+      hand-written requests are refused, an update and a rollback of each
+      tool switch the shared folder's links, and a workspace runs them.
 
 Never run it on a host with real users: it makes throwaway students,
 rewrites the shipped recipe for one build and puts it back.
@@ -45,6 +48,7 @@ import uuid
 JAR = "/root/portikus-install-test/jar"
 JOBS = "/var/lib/portikus/image-jobs"
 IMAGES = "/var/lib/portikus/images"
+AGENTS = "/var/lib/portikus/coding-agents"
 RECIPE = "/usr/share/portikus/workspace-image/portikus.yaml"
 CA = "/etc/portikus/caddy-root.crt"
 ISSUER = "urn:portikus:image-rehearsal"
@@ -307,8 +311,8 @@ def steps(args):
     shutil.copy2(RECIPE, saved)
     try:
         text = open(RECIPE).read()
-        cut = text.replace(' \\\n      "@openai/codex@${codex_version}"', "")
-        check("the recipe was stripped of Codex", cut != text)
+        cut = text.replace("\n    ln -sfn /opt/portikus/coding-agents/bin/codex /usr/local/bin/codex", "")
+        check("the recipe was stripped of its Codex link", cut != text)
         with open(RECIPE, "w") as f:
             f.write(cut)
         broken = run_job(api, {"kind": "build", "node": "24", "python": "debian"}, timeout=150 * 60)
@@ -431,6 +435,91 @@ def steps(args):
     check("and from the image store", bad not in on_disk)
     check("the default, the previous, the two newest candidates and the new one are kept",
           known == keep and on_disk == keep, sorted(known))
+
+    coding_agents(api, [ws_a["incusInstanceName"], ws_b["incusInstanceName"]])
+
+
+def agents_on_disk(tool):
+    """The version the tool's current link names, and what its bin link resolves to."""
+    current = os.readlink(os.path.join(AGENTS, tool, "current"))
+    return current, os.path.realpath(os.path.join(AGENTS, "bin", tool))
+
+
+def coding_agents(api, instances):
+    heading("12. The coding agents")
+    tools = ("claude", "codex")
+    seeded = api.image().get("codingAgents") or {}
+    for tool in tools:
+        view = seeded.get(tool) or {}
+        check(f"setup seeded {tool}", bool(view.get("current")), view, stop=True)
+        current, real = agents_on_disk(tool)
+        check(f"the page's {tool} version is the current link's", view["current"] == current, f"{view} {current}")
+        check(f"bin/{tool} resolves into {tool}/{current}",
+              real.startswith(os.path.join(AGENTS, tool, current) + "/"), real)
+    check("the status file is in the image store", os.path.exists(os.path.join(IMAGES, "coding-agents.json")))
+
+    for tool in tools:
+        if (seeded.get(tool) or {}).get("previous") is None:
+            code, data = api.job({"kind": "agents-rollback", "tool": tool})
+            check(f"a {tool} rollback with no previous version is refused (409 CODING_AGENT_NO_PREVIOUS)",
+                  code == 409 and "CODING_AGENT_NO_PREVIOUS" in json.dumps(data), f"{code} {data}")
+
+    cases = [
+        ("a rollback of an unknown tool", {"kind": "agents-rollback", "tool": "bash"}),
+        ("a rollback naming a version", {"kind": "agents-rollback", "tool": "claude", "version": "1.0.0"}),
+        ("an update naming a URL", {"kind": "agents-update", "url": "https://example.com/claude"}),
+        ("agents-seed asked for as a job", {"kind": "agents-seed"}),
+    ]
+    for label, request in cases:
+        status = hand_status(hand_request(request))
+        check(f"{label} is refused", status is not None and status["state"] == "refused", status)
+    check("the refused requests changed no link",
+          all(agents_on_disk(t)[0] == seeded[t]["current"] for t in tools))
+
+    job = run_job(api, {"kind": "agents-update"})
+    check("Update coding agents succeeded", job["state"] == "succeeded", job.get("message"), stop=True)
+    updated = api.image()["codingAgents"]
+    for tool in tools:
+        before, after = seeded[tool]["current"], updated[tool]["current"]
+        print(f"      {tool}: {before} -> {after}", flush=True)
+        check(f"the {tool} current link matches the page", agents_on_disk(tool)[0] == after)
+        if after != before:
+            check(f"{tool}'s previous is the seeded version", updated[tool]["previous"] == before, updated[tool])
+    check("no staging folder is left", not [n for n in os.listdir(AGENTS) if n.startswith(".staging-")])
+    check("no health-check container is left",
+          not [n for n in sh("incus", "--project", "portikus", "list", "-c", "n", "-f", "csv").split()
+               if n.startswith("imgcheck-")])
+    loose = sh("find", AGENTS, "!", "-type", "l", "-perm", "/022")
+    check("nothing in the folder is group- or world-writable", not loose.strip(), loose[:300])
+    special = sh("find", AGENTS, "-perm", "/6000")
+    check("nothing in the folder is setuid or setgid", not special.strip(), special[:300])
+
+    running = [n for n in instances
+               if sh("incus", "--project", "portikus", "list", n, "-c", "s", "-f", "csv").strip() == "RUNNING"]
+    check("a rehearsal workspace is running to try the tools in", bool(running), instances)
+    for name in running[:1]:
+        for tool in tools:
+            out = sh("incus", "--project", "portikus", "exec", name, "--", "su", "-l", "student", "-c",
+                     f"readlink -f $(command -v {tool}) && {tool} --version", check_rc=False)
+            check(f"{name} runs {tool} {updated[tool]['current']} from the shared folder",
+                  out.startswith(f"/opt/portikus/coding-agents/{tool}/{updated[tool]['current']}/")
+                  and updated[tool]["current"] in out, out.strip()[:200])
+
+    for tool in tools:
+        previous = updated[tool].get("previous")
+        if previous is None:
+            print(f"      {tool} has no previous version to roll back to", flush=True)
+            continue
+        job = run_job(api, {"kind": "agents-rollback", "tool": tool})
+        after = api.image()["codingAgents"][tool]
+        check(f"{tool} rollback succeeded", job["state"] == "succeeded", job.get("message"))
+        check(f"{tool} current and previous swapped",
+              after["current"] == previous and after["previous"] == updated[tool]["current"], after)
+        check(f"bin/{tool} now resolves into {tool}/{previous}",
+              agents_on_disk(tool)[1].startswith(os.path.join(AGENTS, tool, previous) + "/"))
+        other = next(t for t in tools if t != tool)
+        check(f"rolling back {tool} left {other} alone",
+              api.image()["codingAgents"][other]["current"] == agents_on_disk(other)[0])
 
 
 def main():

@@ -117,6 +117,31 @@
   when: "'agent' not in (portikus_workspace_profile_yaml.devices | default({}))"
   changed_when: true
 
+# Claude Code and Codex live in one shared folder that the root image job
+# updates without an image rebuild (SPEC.md section 10).  The whole folder is
+# mounted, not its `current` links, which a bind mount would freeze.  Only
+# root on the VM writes it; the mount is read-only and idmap-shifted, so
+# neither the student nor container root can change it.  Incus adds the new
+# device to running workspaces too, whatever image they started from.
+- name: Create the shared coding-agents folder
+  ansible.builtin.file:
+    path: "{{ portikus_coding_agents_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Attach the shared coding-agents folder to profile
+  ansible.builtin.command:
+    cmd: >-
+      incus profile device add workspace coding-agents disk
+      source={{ portikus_coding_agents_dir }}
+      path=/opt/portikus/coding-agents
+      readonly=true
+      --project {{ incus_project_name }}
+  when: "'coding-agents' not in (portikus_workspace_profile_yaml.devices | default({}))"
+  changed_when: true
+
 # Anti-spoofing on the bridged NIC (SPEC.md 23.5): a student must not be
 # able to take another workspace's address and impersonate its agent.
 # Incus installs the filter rules from the address it manages for the NIC.
