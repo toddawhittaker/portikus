@@ -1014,6 +1014,23 @@ test("the probe asks a plain HTTP server in HTTP and never sends it a TLS handsh
 	}
 });
 
+test("a plain server that answers HEAD after 800 ms gets no TLS handshake", async () => {
+	const firstBytes: number[] = [];
+	const slow = createNetServer((socket) =>
+		socket.on("data", (chunk: Buffer) => {
+			firstBytes.push(chunk[0] ?? -1);
+			setTimeout(() => socket.end("HTTP/1.0 200 OK\r\n\r\n"), 800);
+		}),
+	);
+	try {
+		const port = await listenOn(slow);
+		expect(await probeTls("127.0.0.1", port)).toBe(false);
+		expect(firstBytes).not.toContain(0x16);
+	} finally {
+		slow.close();
+	}
+});
+
 test("a 400 answer to the HTTP question falls through to the TLS handshake", async () => {
 	// Go and nginx HTTPS servers answer a plain request with a 400 status line.
 	let tlsAttempted = false;
