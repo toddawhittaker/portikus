@@ -442,6 +442,12 @@ describe("AdminUsersQuery", () => {
 		});
 	});
 
+	test("unlinkedCourse is a 1 flag", () => {
+		expect(AdminUsersQuery.parse({ unlinkedCourse: "1" })).toEqual({
+			unlinkedCourse: "1",
+		});
+	});
+
 	test("bad limits, roles, states and sorts are refused", () => {
 		for (const bad of [
 			{ limit: "0" },
@@ -452,6 +458,7 @@ describe("AdminUsersQuery", () => {
 			{ sort: "email" },
 			{ dir: "up" },
 			{ archived: "0" },
+			{ unlinkedCourse: "true" },
 			{ q: "x".repeat(201) },
 		]) {
 			expect(AdminUsersQuery.safeParse(bad).success).toBe(false);

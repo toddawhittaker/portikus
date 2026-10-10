@@ -96,9 +96,9 @@ export function registerAdminSigninRoutes(
 		adminId: string,
 		body: SiteJobBody,
 	) {
-		const out = await submitSiteJob(db, dir, `user:${adminId}`, body);
-		if ("refused" in out) return sendError(reply, 409, "SITE_JOB_BUSY", out.refused);
-		return reply.status(202).send(out.job);
+		const job = await submitSiteJob(reply, db, dir, `user:${adminId}`, body);
+		if (!job) return reply;
+		return reply.status(202).send(job);
 	}
 
 	app.post("/admin/signin", adminOnly, async (request, reply) => {
@@ -141,9 +141,11 @@ export function registerAdminSigninRoutes(
 	/**
 	 * Start a test sign-in through the provider in force, the trial's while one
 	 * is open. The callback sees the marker in the signed login cookie and
-	 * signs no one in (ADR 0059).
+	 * signs no one in (ADR 0059). A POST, since it sets the login cookie: the
+	 * page submits a plain form, which follows the 303 to the provider, and
+	 * the CSRF check covers it.
 	 */
-	app.get("/admin/signin/test", adminOnly, async (request, reply) => {
+	app.post("/admin/signin/test", adminOnly, async (request, reply) => {
 		if (!jobsDir || !oidc) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const admin = requireUser(request);
 		const view = await readSiteView(config.SITE_VIEW_FILE);
@@ -169,6 +171,6 @@ export function registerAdminSigninRoutes(
 				signed: true,
 			},
 		);
-		return reply.header("cache-control", "no-store").redirect(url, 302);
+		return reply.header("cache-control", "no-store").redirect(url, 303);
 	});
 }

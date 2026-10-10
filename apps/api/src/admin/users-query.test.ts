@@ -120,6 +120,21 @@ test("pending keeps only accounts with an operation pending, archived or not", (
 	expect(names(queryAdminUsers(all, { pending: "1" }))).toEqual(["Dee"]);
 });
 
+test("unlinkedCourse keeps only course accounts with no link, whatever the search", () => {
+	const eve = account("Eve", null, {
+		issuer: "lti:https://lms.example.edu",
+		markers: { ...NONE, linked: true },
+	});
+	const accounts = [...all, eve];
+	expect(names(queryAdminUsers(accounts, { unlinkedCourse: "1" }))).toEqual(["Cy"]);
+	expect(
+		names(queryAdminUsers(accounts, { unlinkedCourse: "1", q: "course" })),
+	).toEqual(["Cy"]);
+	expect(names(queryAdminUsers(accounts, { unlinkedCourse: "1", q: "ben" }))).toEqual(
+		[],
+	);
+});
+
 test("sorts by account, role, workspace and activity, blanks last either way", () => {
 	expect(names(queryAdminUsers(all, { dir: "descending" }))).toEqual([
 		"Cy",

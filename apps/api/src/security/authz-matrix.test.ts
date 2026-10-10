@@ -161,8 +161,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/signin": 404,
 	"POST /admin/signin/keep": 404,
 	"POST /admin/signin/rollback": 404,
-	"GET /admin/signin/test": 404,
-	"HEAD /admin/signin/test": 404,
+	"POST /admin/signin/test": 404,
 };
 
 // The smallest PNG: one transparent pixel.

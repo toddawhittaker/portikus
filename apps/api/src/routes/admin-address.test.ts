@@ -262,7 +262,7 @@ describe.skipIf(skip)("admin address routes", () => {
 		for (const path of ["plan", "preflight", "apply"]) {
 			const res = await call("POST", `/admin/address/${path}`, NEW);
 			expect(res.statusCode).toBe(409);
-			expect(res.json().code).toBe("NOT_IMPLEMENTED");
+			expect(res.json().code).toBe("SITE_UNAVAILABLE");
 		}
 		await rm(viewFile);
 		expect((await call("POST", "/admin/address/apply", NEW)).statusCode).toBe(409);
@@ -455,11 +455,17 @@ describe.skipIf(skip)("admin address routes", () => {
 	test("Keep and roll back need an open trial", async () => {
 		const app = server();
 		const call = await as(app, "carol");
-		expect((await call("POST", "/admin/address/rollback")).statusCode).toBe(409);
-		expect(
-			(await call("POST", "/admin/address/keep", undefined, "code.example.edu"))
-				.statusCode,
-		).toBe(409);
+		const rollback = await call("POST", "/admin/address/rollback");
+		expect(rollback.statusCode).toBe(409);
+		expect(rollback.json().code).toBe("SITE_NO_OPEN_TRIAL");
+		const keep = await call(
+			"POST",
+			"/admin/address/keep",
+			undefined,
+			"code.example.edu",
+		);
+		expect(keep.statusCode).toBe(409);
+		expect(keep.json().code).toBe("SITE_NO_OPEN_TRIAL");
 		expect(await requests()).toEqual([]);
 		await app.close();
 	});
