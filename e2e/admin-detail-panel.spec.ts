@@ -27,6 +27,7 @@ const SECTIONS = [
 	"Resource guard",
 	"Processes",
 	"Ports and connections",
+	"Agent log, reported by the workspace",
 	"Account",
 	"Recent audit events",
 ];
@@ -103,9 +104,9 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	).toHaveCount(0);
 
 	for (const section of SECTIONS) {
-		await expect(panel.getByRole("heading", { level: 4, name: section })).toHaveCount(
-			1,
-		);
+		await expect(
+			panel.getByRole("heading", { level: 4, name: section, exact: true }),
+		).toHaveCount(1);
 	}
 	const order = await panel
 		.getByRole("heading", { level: 4 })
