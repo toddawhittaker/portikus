@@ -106,7 +106,11 @@ export function fetchDockerInventory(
 	);
 }
 
-const AGENT_USAGE_TIMEOUT_MS = 30 * 1000;
+/**
+ * The agent answers from memory, so a healthy read takes milliseconds. The
+ * poll reads workspaces in turn; this bounds what one stalled agent costs it.
+ */
+const AGENT_USAGE_TIMEOUT_MS = 5 * 1000;
 /** A full report (MAX_AGENT_USAGE_REPORT_ROWS rows of about 300 bytes) stays well below this. */
 const AGENT_USAGE_JSON_LIMIT_BYTES = 4 * 1024 * 1024;
 

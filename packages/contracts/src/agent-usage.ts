@@ -27,10 +27,14 @@ export const MAX_AGENT_USAGE_MODELS_PER_DAY = 50;
 export const AGENT_USAGE_RETENTION_DAYS = 365;
 
 /**
- * Most rows one report may carry: two agents at the model cap for 40
- * days, more than a workspace agent stays up between restarts.
+ * Days back a report reaches, more than a workspace agent stays up between
+ * restarts. The receiver keeps no older day and the worker stores none.
  */
-export const MAX_AGENT_USAGE_REPORT_ROWS = 2 * MAX_AGENT_USAGE_MODELS_PER_DAY * 40;
+export const AGENT_USAGE_REPORT_DAYS = 40;
+
+/** Most rows one report may carry: two agents at the model cap for every reported day. */
+export const MAX_AGENT_USAGE_REPORT_ROWS =
+	2 * MAX_AGENT_USAGE_MODELS_PER_DAY * AGENT_USAGE_REPORT_DAYS;
 
 /** A model name as the agent tool reports it: printable ASCII, no spaces. */
 export const AgentUsageModel = z

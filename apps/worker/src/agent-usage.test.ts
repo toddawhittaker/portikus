@@ -24,6 +24,7 @@ import { fetchAgentUsage } from "./agent-client.js";
 import {
 	AGENT_USAGE_POLL_SECONDS,
 	createAgentUsagePoll,
+	MAX_AGENT_USAGE_BOOTS_PER_DAY,
 	pruneAgentUsage,
 	storeAgentUsage,
 } from "./agent-usage.js";
@@ -228,16 +229,118 @@ describe.skipIf(skip)("storing and pruning usage", () => {
 		expect(await totals(running)).toHaveLength(1);
 	});
 
+	async function storedDays(userId: string) {
+		const rows = await tdb.db
+			.selectFrom("agent_usage_days")
+			.select(sql<string>`to_char(day, 'YYYY-MM-DD')`.as("day"))
+			.where("user_id", "=", userId)
+			.orderBy("day")
+			.execute();
+		return rows.map((r) => r.day);
+	}
+
+	test("a forged report with an impossible day costs no other workspace its rows", async () => {
+		const forger = await workspace("10.200.0.30");
+		const broken = await workspace("10.200.0.31");
+		const honest = await workspace("10.200.0.32");
+		const { logger, lines } = collectingLogger();
+		const tick = createAgentUsagePoll({
+			db: tdb.db,
+			logger,
+			readUsage: async (address) => {
+				if (address === "10.200.0.30") {
+					return report([
+						row({ day: "2026-02-31" }),
+						row({ day: "2026-13-01" }),
+						row(),
+					]);
+				}
+				if (address === "10.200.0.31") throw new Error("agent fell over");
+				return report([row()]);
+			},
+			now: () => NOW,
+		});
+		await tick();
+		expect(await storedDays(honest)).toEqual([DAY]);
+		// The forger's real day is kept; only the impossible ones go.
+		expect(await storedDays(forger)).toEqual([DAY]);
+		expect(await storedDays(broken)).toEqual([]);
+		expect(lines).toContainEqual(
+			expect.objectContaining({ msg: "agent usage rows refused", outsideWindow: 2 }),
+		);
+		expect(lines).toContainEqual(
+			expect.objectContaining({ msg: "agent usage read", read: 2, failed: 1 }),
+		);
+	});
+
+	test("a day outside [today - 40, today + 1] is refused", async () => {
+		const userId = await workspace("10.200.0.33");
+		const dayFrom = (n: number) =>
+			new Date(NOW.getTime() + n * 86_400_000).toISOString().slice(0, 10);
+		const result = await storeAgentUsage(
+			tdb.db,
+			userId,
+			report([
+				row({ day: dayFrom(-41) }),
+				row({ day: dayFrom(-40) }),
+				row({ day: dayFrom(1) }),
+				row({ day: dayFrom(2) }),
+				row({ day: "9999-12-31" }),
+			]),
+			NOW,
+		);
+		expect(result).toEqual({ outsideWindow: 3, overBootCap: 0 });
+		expect(await storedDays(userId)).toEqual([dayFrom(-40), dayFrom(1)]);
+	});
+
+	test(`a ${MAX_AGENT_USAGE_BOOTS_PER_DAY + 1}th boot id on one day is refused; known boots still update`, async () => {
+		const userId = await workspace("10.200.0.34");
+		const boots = Array.from({ length: MAX_AGENT_USAGE_BOOTS_PER_DAY }, () =>
+			randomUUID(),
+		);
+		for (const bootId of boots) {
+			await storeAgentUsage(tdb.db, userId, report([row()], bootId), NOW);
+		}
+		const yesterday = "2026-10-09";
+		const extra = await storeAgentUsage(
+			tdb.db,
+			userId,
+			report([row({ sessions: 9 }), row({ day: yesterday })]),
+			NOW,
+		);
+		// Only today is full, so the new boot's row for yesterday is kept.
+		expect(extra).toEqual({ outsideWindow: 0, overBootCap: 1 });
+		expect(await totals(userId)).toEqual([
+			expect.objectContaining({ sessions: MAX_AGENT_USAGE_BOOTS_PER_DAY + 1 }),
+		]);
+		const known = await storeAgentUsage(
+			tdb.db,
+			userId,
+			report([row({ sessions: 3 })], boots[0]),
+			NOW,
+		);
+		expect(known).toEqual({ outsideWindow: 0, overBootCap: 0 });
+		expect(await totals(userId)).toEqual([
+			expect.objectContaining({ sessions: MAX_AGENT_USAGE_BOOTS_PER_DAY + 3 }),
+		]);
+		// Another person's boots do not count against this one.
+		const other = await workspace("10.200.0.35");
+		expect(await storeAgentUsage(tdb.db, other, report([row()]), NOW)).toEqual({
+			outsideWindow: 0,
+			overBootCap: 0,
+		});
+	});
+
 	test("the prune deletes days older than 365 and keeps the rest", async () => {
 		const userId = await workspace("10.200.0.24");
 		const dayAgo = (n: number) =>
 			new Date(NOW.getTime() - n * 86_400_000).toISOString().slice(0, 10);
-		await storeAgentUsage(
-			tdb.db,
-			userId,
-			report([row({ day: dayAgo(366) }), row({ day: dayAgo(365) }), row({ day: DAY })]),
-			NOW,
-		);
+		// Stored a year ago, when these days were inside the report window.
+		const bootId = randomUUID();
+		for (const day of [dayAgo(366), dayAgo(365), DAY]) {
+			const then = new Date(`${day}T12:00:00Z`);
+			await storeAgentUsage(tdb.db, userId, report([row({ day })], bootId), then);
+		}
 		await pruneAgentUsage(tdb.db, NOW);
 		const days = await tdb.db
 			.selectFrom("agent_usage_days")

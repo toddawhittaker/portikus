@@ -34,6 +34,7 @@ const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
  * Codex's metrics go to the workspace agent's loopback receiver as OTLP JSON
  * (ADR 0057). Metrics carry counts and the model, never prompts; logs and
  * traces stay off, and so does the default export to OpenAI's Statsig.
+ * Codex has no `[otel]` temporality key; its OTLP exporters default to delta.
  */
 const CODEX_OTEL_TABLE =
 	"[otel]\n" +
