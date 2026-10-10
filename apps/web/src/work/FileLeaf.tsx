@@ -20,6 +20,8 @@ import {
 	useFileGeneration,
 } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
+import { type SpeechInput, useSpeechInput } from "../voice/useSpeechInput.js";
+import { VoiceButton } from "../voice/VoiceButton.js";
 import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 import { FileHeader } from "./FilePane.js";
@@ -62,6 +64,10 @@ const HIDDEN = { display: "none" } as const;
 const SAME_PLACE = 1;
 /** Lines closer together than this are the same place; lines are fractional. */
 const SAME_LINE = 0.01;
+
+/** Said when a click with no pointer press behind it cannot be held. */
+const FILE_VOICE_HINT =
+	"Hold Space on this button, or Alt+Shift+M in the editor, to dictate.";
 
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
@@ -172,13 +178,22 @@ function FileTab({
 	// The two sides of the Markdown split keep the same top line.
 	// Each side remembers the place it last put the other one at, so it can
 	// recognise that side's answering scroll event and not send it back.
-	const editorScroll = useRef<CodeEditorHandle | null>(null);
+	// Also how dictation types into the file (SPEC.md §25.10).
+	const editorHandle = useRef<CodeEditorHandle | null>(null);
 	const previewScroll = useRef<HTMLDivElement | null>(null);
 	const sentPreviewTop = useRef<number | null>(null);
 	const sentEditorLine = useRef<number | null>(null);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
+	// Each final phrase is typed at the cursor as one undo step, so it marks
+	// the file unsaved as typing does (SPEC.md §25.10).
+	const speech = useSpeechInput((phrase) => editorHandle.current?.insertText(phrase));
+	const leafRef = useRef<HTMLDivElement | null>(null);
+	function holdVoice(held: boolean) {
+		if (held) speech.start();
+		else speech.stop();
+	}
 
 	// A file can be opened again while its tab is already there, so the
 	// request is taken every time the store gets a new one, not only on mount.
@@ -259,7 +274,7 @@ function FileTab({
 		sentPreviewTop.current = null;
 		const line = lineForTop(readBlocks(node), node.scrollTop);
 		sentEditorLine.current = line;
-		editorScroll.current?.setTopLine(line);
+		editorHandle.current?.setTopLine(line);
 	}
 
 	function banner() {
@@ -393,8 +408,9 @@ function FileTab({
 					revealNonce={reveal?.nonce}
 					viewState={viewState.initial}
 					onViewState={viewState.save}
-					ref={markdown ? editorScroll : undefined}
+					ref={editorHandle}
 					onTopLine={markdown ? followEditor : undefined}
+					onVoiceHold={voiceOn ? holdVoice : undefined}
 				/>
 			</Suspense>
 		);
@@ -452,6 +468,18 @@ function FileTab({
 				/>
 			</Suspense>
 		) : null;
+	// Dictation is offered only where the student is editing the text itself.
+	const editing =
+		!viewOnly &&
+		!inDiff &&
+		!(viewModes && view === "view") &&
+		text !== null &&
+		conflictDiff === null;
+	const voiceOn = editing && speech.state !== "unsupported";
+	const stopSpeech = speech.stop;
+	useEffect(() => {
+		if (!editing) stopSpeech();
+	}, [editing, stopSpeech]);
 	// A file that is only looked at has no other view to switch to.
 	const toggle = viewOnly ? null : (
 		<ViewButtons
@@ -470,6 +498,7 @@ function FileTab({
 			<div
 				className="pk-doc-leaf pk-file-leaf"
 				data-testid={`file-pane-${path}`}
+				ref={leafRef}
 				style={inDiff ? HIDDEN : undefined}
 			>
 				{/* Only the view on screen draws the header, so its controls,
@@ -480,6 +509,20 @@ function FileTab({
 					<FileHeader path={path}>
 						{showStatus ? <StatusPill path={path} status={status} /> : null}
 						{toggle}
+						{editing ? (
+							<VoiceButton
+								testId={`file-voice-${path}`}
+								statusTestId={`file-voice-status-${path}`}
+								label={`Hold to dictate into ${displayName(name)}`}
+								hint={FILE_VOICE_HINT}
+								voice={speech}
+								focusTarget={() =>
+									leafRef.current
+										?.querySelector<HTMLElement>(".monaco-editor textarea")
+										?.focus()
+								}
+							/>
+						) : null}
 					</FileHeader>
 				)}
 				{conflict !== null ? (
@@ -495,6 +538,7 @@ function FileTab({
 						{note}
 					</div>
 				) : null}
+				<VoiceError path={path} voice={speech} shown={editing} />
 				{conflictDiff}
 				<div
 					className="pk-file-body"
@@ -590,6 +634,28 @@ function ViewButtons({
 				Diff
 			</button>
 		</fieldset>
+	);
+}
+
+/** A voice error, seen as well as heard; the status region reads it. */
+function VoiceError({
+	path,
+	voice,
+	shown,
+}: {
+	path: string;
+	voice: SpeechInput;
+	shown: boolean;
+}) {
+	if (!shown || voice.state === "listening" || voice.message === "") return null;
+	return (
+		<p
+			className="pk-file-banner"
+			aria-hidden="true"
+			data-testid={`file-voice-error-${path}`}
+		>
+			{voice.message}
+		</p>
 	);
 }
 
