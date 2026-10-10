@@ -176,10 +176,17 @@ test("a second run of the same check while one is going is a 409", async () => {
 	await vi.waitFor(
 		async () => {
 			const runs = (await call("GET", `/projects/${SLUG}/checks`)).json().runs;
-			expect(runs[0].state).not.toBe("running");
+			expect(
+				runs.find((r: { checkId: string }) => r.checkId === "slow").state,
+			).not.toBe("running");
 		},
 		{ timeout: 10_000 },
 	);
+	const stopped = (await call("GET", `/projects/${SLUG}/checks`))
+		.json()
+		.runs.find((run: { checkId: string }) => run.checkId === "slow");
+	expect(stopped.state).toBe("failed");
+	expect(stopped.exitCode).not.toBe(0);
 });
 
 test("stopping a check that is not running is a 404", async () => {
@@ -278,6 +285,33 @@ test("the output socket of a check that never ran closes with 4404", async () =>
 		ws.addEventListener("close", (event) => resolve(event.code), { once: true });
 	});
 	expect(code).toBe(4404);
+});
+
+test("a run ended by a signal is failed with the shell's 128 plus signal code, never passed", () => {
+	let exit: ((status: { exitCode: number; signal?: number }) => void) | undefined;
+	const fakePty = {
+		onData: () => {},
+		onExit: (fn: typeof exit) => {
+			exit = fn;
+		},
+		kill: () => {},
+	};
+	const runner = new CheckRunner(
+		quietLog,
+		(() => fakePty) as unknown as Parameters<typeof CheckRunner.prototype.start>[0] &
+			never,
+	);
+	runner.start({
+		slug: SLUG,
+		check: { id: "slow", name: "Slow", command: "sleep 300" },
+		cwd: homeDir,
+	});
+	// node-pty reports exit code 0 for a process a signal killed.
+	exit?.({ exitCode: 0, signal: 15 });
+	expect(runner.current(SLUG, "slow")).toMatchObject({
+		state: "failed",
+		exitCode: 143,
+	});
 });
 
 test("a long-lived agent forgets its oldest finished runs", () => {
