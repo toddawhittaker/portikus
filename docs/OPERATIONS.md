@@ -130,8 +130,10 @@ redirects release downloads (the job follows the redirect).
 Workspace images 2026.10.2 and later no longer contain the tools, so they
 need a Portikus package from Epic 40 or later: install the package first,
 then the image. Workspaces on older images run the shared tools after their
-next start. The folder is not backed up; setup or an update downloads it
-again.
+next start. The package makes the folder's `bin` links before it restarts
+the services, so a workspace that starts while setup is still downloading
+the tools gets its links, which work once the download ends. The folder is
+not backed up; setup or an update downloads it again.
 
 **Releases.** The signed apt repository (SPEC.md section 21.13) carries
 the ten newest versions of the current major.minor line and the newest
