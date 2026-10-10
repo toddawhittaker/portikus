@@ -101,8 +101,10 @@ def write_answers(etc, public_port=None, out=sys.stdout):
             settings["portikus_ldap_" + name] = answer("ldap_" + name)
         settings["portikus_ldap_ip_allow"] = words("ldap_ip_allow")
     if provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")):
+        # A blank group leaves the play's default: the API refuses an empty one and stops.
         for role in ("student", "instructor", "admin"):
-            settings["portikus_oidc_%s_group" % role] = answer(role + "_group")
+            if answer(role + "_group"):
+                settings["portikus_oidc_%s_group" % role] = answer(role + "_group")
     if storage.startswith("/dev/"):
         settings["portikus_storage_confirm"] = answer("storage_confirm") == "true"
     if storage == "file" and answer("storage_size").isdigit():
