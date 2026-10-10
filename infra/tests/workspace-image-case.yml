@@ -8,11 +8,13 @@
   loop:
     - { file: aliases.json, content: "{{ wi_case.before }}" }
     - { file: job, content: "{{ wi_case.job }}" }
+    - { file: agents, content: "{{ wi_case.agents | default('ok') }}" }
 
-- name: Forget the last case's call
+- name: Forget the last case's call and coding agents
   ansible.builtin.file:
-    path: "{{ wi_dir }}/called"
+    path: "{{ wi_dir }}/{{ item }}"
     state: absent
+  loop: [called, agents-dir]
 
 - name: Run the role ({{ wi_case.name }})
   block:
@@ -23,6 +25,7 @@
         incus_project_name: portikus
         portikus_incus_image_alias: portikus
         workspace_image_job: "{{ wi_dir }}/bin/image-job"
+        portikus_coding_agents_dir: "{{ wi_dir }}/agents-dir"
 
     - name: Note that the role finished
       ansible.builtin.set_fact:

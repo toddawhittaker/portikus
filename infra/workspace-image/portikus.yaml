@@ -2,10 +2,13 @@
 # Target: build-incus (container only)
 # Base: Debian trixie amd64
 #
-# Pinned tool versions (checked 2026-09-15 via npm view):
-#   @anthropic-ai/claude-code  2.1.273
-#   @openai/codex              0.154.0
+# Pinned tool versions:
 #   uv                         0.12.19 (checked 2026-09-28, used only for Python 3.14)
+#
+# Claude Code and Codex are not in the image.  They live in a shared folder
+# on the server that every workspace mounts read-only at
+# /opt/portikus/coding-agents, and the admin page updates them without a
+# rebuild (SPEC.md section 10).  The image only links to them.
 #
 # Build parameters, read from the environment (docs/SPEC.md section
 # 22.4). Unset, they give the pinned defaults CI publishes; the admin
@@ -14,8 +17,6 @@
 #   PORTIKUS_PYTHON          debian (default), or uv-3.14: Debian's Python plus
 #                            Python 3.14 from uv in /opt/python, linked as
 #                            python3.14 and python; /usr/bin/python3 stays Debian's
-#   PORTIKUS_CLAUDE_VERSION  the pinned version above (default), or latest
-#   PORTIKUS_CODEX_VERSION   the pinned version above (default), or latest
 #
 # Third-party APT repository GPG key fingerprints, verified from vendor docs:
 #   Docker:     9DC858229FC7DD38854AE2D88D81803C0EBFCD88
@@ -1440,17 +1441,17 @@ files:
   content: |-
     student ALL=(ALL) NOPASSWD:ALL
 
-# Coding-agent settings for every student login shell.  The CLIs are
-# installed system-wide at pinned versions, so the student cannot write the
-# npm prefix; Claude Code's updater would fail on every launch.  Versions
-# move with image rebuilds instead (SPEC.md 10).  BROWSER sends
+# Coding-agent settings for every student login shell.  The CLIs come from
+# the read-only shared folder, so Claude Code's updater would fail on every
+# launch.  Versions move with the admin page's update job instead
+# (SPEC.md 10).  BROWSER sends
 # link opens to the workspace agent (BROWSER-HANDLING.md 18).  The claude and
 # codex functions clear the terminal first (SPEC.md 10.2).
 - path: /etc/profile.d/portikus-agents.sh
   generator: dump
   mode: "0644"
   content: |-
-    # Claude Code self-update is disabled: the image owns the version.
+    # Claude Code self-update is disabled: the platform owns the version.
     export DISABLE_AUTOUPDATER=1
     # CLIs that honor BROWSER open links through the workspace broker.
     export BROWSER=/usr/local/bin/portikus-open
@@ -1478,7 +1479,7 @@ files:
     {"env": {"BROWSER": ""}}
 
 # Codex has no updater environment variable.  This is the system config
-# layer it reads on Linux, and the image owns the version.
+# layer it reads on Linux, and the platform owns the version.
 # A student's own ~/.codex stays untouched; nothing here copies auth.json.
 # The workspace controller rewrites this whole file at every start, adding
 # the platform's agent instructions (SPEC.md 3), so a setting
@@ -1488,7 +1489,7 @@ files:
   generator: dump
   mode: "0644"
   content: |-
-    # The image owns the Codex version, same as Claude Code's updater.
+    # The platform owns the Codex version, same as Claude Code's updater.
     check_for_update_on_startup = false
 
 # A student's own git init starts on main, like the platform's.
@@ -2227,26 +2228,18 @@ actions:
     mkdir -p /home/student/projects
     chown 1000:1000 /home/student/projects
 
-# Install Claude Code and Codex globally via npm
+# Claude Code and Codex come from the shared folder the workspace profile
+# mounts read-only here (SPEC.md section 10).  The links never change; the
+# folder's own bin links follow its current versions.  /usr/local/bin is
+# ahead of /usr/bin on every PATH, so these win over anything apt installs.
 - trigger: post-packages
   action: |-
     #!/bin/sh
     set -eux
 
-    # Pinned versions checked 2026-09-15 via npm view; only the admin
-    # "rebuild" job sets these to latest (ADR 0030).
-    claude_version="${PORTIKUS_CLAUDE_VERSION:-2.1.273}"
-    codex_version="${PORTIKUS_CODEX_VERSION:-0.154.0}"
-    for v in "$claude_version" "$codex_version"; do
-      if ! printf '%s' "$v" | grep -Eqx 'latest|[0-9]+\.[0-9]+\.[0-9]+'; then
-        echo "FATAL: a tool version must be latest or x.y.z"; exit 1
-      fi
-    done
-    # npm 11 skips package install scripts unless allowed; Claude Code's
-    # postinstall fetches its native binary, so allow that one package.
-    npm install -g --allow-scripts=@anthropic-ai/claude-code \
-      "@anthropic-ai/claude-code@${claude_version}" \
-      "@openai/codex@${codex_version}"
+    mkdir -p /opt/portikus/coding-agents
+    ln -sfn /opt/portikus/coding-agents/bin/claude /usr/local/bin/claude
+    ln -sfn /opt/portikus/coding-agents/bin/codex /usr/local/bin/codex
 
 # Python 3.14 from uv, only when PORTIKUS_PYTHON=uv-3.14.
 # uv installs a checksum-verified standalone build; /usr/bin/python3 stays
