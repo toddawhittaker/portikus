@@ -8,7 +8,7 @@
  */
 
 import { access, readdir, readFile, readlink } from "node:fs/promises";
-import { isIP } from "node:net";
+import { isIP, connect as tcpConnect } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
@@ -50,7 +50,7 @@ const HTTP_PORTS: ReadonlySet<number> = new Set([
 	9000,
 ]);
 
-/** How long one TLS probe may take before the listener counts as not HTTPS. */
+/** How long one probe may take, HTTP question and TLS handshake together. */
 const TLS_PROBE_TIMEOUT_MS = 1000;
 
 /** Ports below this are never probed. */
@@ -59,15 +59,58 @@ const FIRST_PROBED_PORT = 1024;
 export type TlsProbe = (host: string, port: number) => Promise<boolean>;
 
 /**
- * Whether a listener completes a TLS handshake. Certificate
- * checks are off because a development server's certificate is self-signed;
- * nothing is sent after the handshake. A plain HTTP server logs the handshake
- * as a bad request, so it runs only when a preview asks.
+ * Whether a listener speaks HTTPS. It is asked in plain HTTP first, so a plain
+ * HTTP server answers a normal request instead of logging a TLS handshake as
+ * a garbled bad request; only a listener that does not answer in HTTP gets the
+ * handshake. Each step has half the budget.
  */
-export function probeTls(
+export async function probeTls(
 	host: string,
 	port: number,
 	timeoutMs = TLS_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+	const half = timeoutMs / 2;
+	if (await answersHttp(host, port, half)) return false;
+	return completesTlsHandshake(host, port, half);
+}
+
+/** Whether a listener answers a minimal HTTP request with an HTTP status line. */
+function answersHttp(host: string, port: number, timeoutMs: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		let settled = false;
+		let received = "";
+		const socket = tcpConnect({ host, port });
+		const finish = (http: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.destroy();
+			resolve(http);
+		};
+		const timer = setTimeout(() => finish(false), timeoutMs);
+		const hostHeader = isIP(host) === 6 ? `[${host}]:${port}` : `${host}:${port}`;
+		socket.once("connect", () =>
+			socket.write(`HEAD / HTTP/1.0\r\nHost: ${hostHeader}\r\n\r\n`),
+		);
+		socket.on("data", (chunk: Buffer) => {
+			received += chunk.toString("latin1");
+			// Five bytes are enough to tell "HTTP/" from anything else.
+			if (received.length >= 5) finish(received.startsWith("HTTP/"));
+		});
+		socket.once("error", () => finish(false));
+		socket.once("close", () => finish(false));
+	});
+}
+
+/**
+ * Whether a listener completes a TLS handshake. Certificate checks are off
+ * because a development server's certificate is self-signed; nothing is sent
+ * after the handshake.
+ */
+function completesTlsHandshake(
+	host: string,
+	port: number,
+	timeoutMs: number,
 ): Promise<boolean> {
 	return new Promise((resolve) => {
 		let settled = false;
