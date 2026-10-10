@@ -23,6 +23,10 @@ function stubEgress(
 	stubFetch((url, init) => {
 		const method = init?.method ?? "GET";
 		if (method === "GET" && url === "/admin/egress") return json(200, view);
+		// The proxy hosts group has its own tests; here the site job is off.
+		if (url === "/admin/proxy-hosts") {
+			return json(404, { code: "NOT_FOUND", message: "Not found." });
+		}
 		const call = {
 			method,
 			url,

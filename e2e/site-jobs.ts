@@ -36,7 +36,8 @@ export const LTI_ADMIN_PLATFORMS_FILE = join(
 	"etc/portikus/lti-platforms-admin.json",
 );
 const INSTALL_ANSWERS = join(SITE_ROOT, "etc/portikus/portikus.yaml");
-const SQUID_CONF = join(SITE_ROOT, "etc/squid/squid.conf");
+/** Where the fake Squid configuration lives; the operator's hosts are read from it. */
+export const SQUID_CONF = join(SITE_ROOT, "etc/squid/squid.conf");
 
 const repo = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const SITE_JOB = repo("packaging/site/site-job");

@@ -483,9 +483,22 @@ export const AdminProxyHosts = z
 	.strict();
 export type AdminProxyHosts = z.infer<typeof AdminProxyHosts>;
 
+/** The tool's own LTI addresses, which an administrator enters in the LMS to register Portikus. */
+export const LtiToolUrls = z
+	.object({
+		loginUrl: z.string(),
+		launchUrl: z.string(),
+		keysetUrl: z.string(),
+		/** Portikus answers Deep Linking requests at its launch address. */
+		deepLinkingUrl: z.string(),
+	})
+	.strict();
+export type LtiToolUrls = z.infer<typeof LtiToolUrls>;
+
 /** `GET /admin/lms`. */
 export const AdminLmsPlatforms = z
 	.object({
+		toolUrls: LtiToolUrls,
 		/** The operator's platforms file, read-only on the page. */
 		operatorPlatforms: z.array(OperatorLtiPlatform),
 		platforms: z.array(AdminLtiPlatform),

@@ -244,6 +244,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "PROXY_HOSTS_FILE must be an absolute path")
 		.default("/etc/portikus/proxy-hosts.json"),
+	/** Ansible's Squid configuration, read to show the operator's allowed hosts on the Network tab (ADR 0059). */
+	SQUID_CONF_FILE: z
+		.string()
+		.regex(/^\/./, "SQUID_CONF_FILE must be an absolute path")
+		.default("/etc/squid/squid.conf"),
 	/** The page-owned LMS platforms, read beside LTI_PLATFORMS_FILE (ADR 0059). */
 	LTI_ADMIN_PLATFORMS_FILE: z
 		.string()

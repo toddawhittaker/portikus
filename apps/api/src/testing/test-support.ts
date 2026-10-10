@@ -68,6 +68,7 @@ export function testConfig(
 		SITE_VIEW_FILE: "/nonexistent/site-view.json",
 		PROXY_HOSTS_FILE: "/nonexistent/proxy-hosts.json",
 		LTI_ADMIN_PLATFORMS_FILE: "/nonexistent/lti-platforms-admin.json",
+		SQUID_CONF_FILE: "/nonexistent/squid.conf",
 		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};
