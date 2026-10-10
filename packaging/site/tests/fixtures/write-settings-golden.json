@@ -175,7 +175,7 @@
 			},
 			"after": {
 				"portikus.yaml": {
-					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: oidc\nportikus_dex_upstream_client_id: ''\nportikus_dex_upstream_issuer: ''\nportikus_oidc_admin_group: ''\nportikus_oidc_instructor_group: ''\nportikus_oidc_student_group: ''\nportikus_oidc_upstream_groups_claim: groups\nportikus_public_host: ''\nportikus_storage: /dev/sdc\nportikus_storage_confirm: false\nportikus_tls: files\nportikus_tls_cert: ''\nportikus_tls_key: ''\n",
+					"text": "# Portikus settings: Ansible variables for `portikus setup`.\n# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\nportikus_admin_email: admin@example.edu\nportikus_dex_upstream: oidc\nportikus_dex_upstream_client_id: ''\nportikus_dex_upstream_issuer: ''\nportikus_oidc_upstream_groups_claim: groups\nportikus_public_host: ''\nportikus_storage: /dev/sdc\nportikus_storage_confirm: false\nportikus_tls: files\nportikus_tls_cert: ''\nportikus_tls_key: ''\n",
 					"mode": "644"
 				},
 				"secrets.yaml": {

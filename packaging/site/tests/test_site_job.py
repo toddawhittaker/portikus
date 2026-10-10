@@ -555,6 +555,18 @@ class Trials(Host):
         self.assertEqual((state / "before-portikus.yaml").read_text(), before_config)
         self.assertEqual((state / "before-secrets.yaml").read_text(), before_secrets)
 
+    def test_a_signin_without_groups_keeps_the_stored_ones_and_never_writes_a_blank(self):
+        # The API refuses an empty group name and stops (packages/config), so no trial may write one.
+        bare = {k: v for k, v in OIDC.items() if k != "groups"}
+        self.play("signin", **bare)
+        self.assertNotIn("_group: ''", self.config())
+        self.assertNotIn("portikus portikus/admin_group string \n", self.debconf())
+        self.play("rollback", JOB2, trialId=JOB)
+        self.install(config=self.config().replace("portikus_dex_upstream: none\n", "portikus_dex_upstream: none\n"
+                                                  "portikus_oidc_admin_group: it admins\n"))
+        self.play("signin", JOB3, **bare)
+        self.assertIn("portikus_oidc_admin_group: it admins\n", self.config())
+
     def test_no_secret_reaches_status_log_journal_debconf_or_arguments(self):
         self.play("signin", **OIDC)
         self.assertIn("TASK [dex] ok", self.log())

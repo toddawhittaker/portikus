@@ -2,7 +2,7 @@
 
 postinst and the root site job both turn install answers into portikus.yaml
 and secrets.yaml with it. The golden file holds what postinst's own writer made
-before it moved here, so the move changes no byte.
+before it moved here, except that a blank group name is no longer written.
 Run: python3 -B -m unittest discover -s packaging/site/tests
 """
 
