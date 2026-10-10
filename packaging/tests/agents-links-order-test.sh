@@ -8,7 +8,7 @@ set -euo pipefail
 
 postinst="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/postinst}"
 
-links=$(grep -n '"\$IMAGE_JOB" agents-links' "$postinst" | head -1 | cut -d: -f1 || true)
+links=$(grep -n 'IMAGE_JOB" agents-links' "$postinst" | head -1 | cut -d: -f1 || true)
 restart=$(grep -nE 'systemctl (try-)?restart' "$postinst" | head -1 | cut -d: -f1 || true)
 [ -n "$links" ] || { echo "agents-links-order: postinst never runs image-job agents-links" >&2; exit 1; }
 [ -n "$restart" ] || { echo "agents-links-order: postinst restarts no service" >&2; exit 1; }
