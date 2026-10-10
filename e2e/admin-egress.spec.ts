@@ -86,6 +86,8 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 		"Workspace image",
 		"Certificate",
 		"Docker",
+		"Sign-in",
+		"Site address",
 		"Settings",
 		"Root shell",
 	]);
