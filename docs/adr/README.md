@@ -84,5 +84,5 @@ has four sections:
 | [0054](0054-offline-breached-password-list.md) | Breached passwords are checked against an offline list from SecLists (accepted, Epic 36) |
 | [0055](0055-voice-input-web-speech.md) | Voice input uses the browser's Web Speech API, hold to talk only (accepted, Epic 39) |
 | [0056](0056-shared-coding-agents.md) | Claude Code and Codex live in a shared read-only folder, updated by the root image job (accepted, Epic 40) |
-| [0057](0057-instructor-visibility.md) | Instructors see a project only when the student shares it, and see agent usage as counts (proposed, Epic 42) |
-| [0058](0058-lti-roster-and-deep-linking.md) | LTI roster sync through NRPS, and Deep Linking to a template or public repository (proposed, Epic 42) |
+| [0057](0057-instructor-visibility.md) | Instructors see a project only when the student shares it, and see agent usage as counts (accepted, Epic 42) |
+| [0058](0058-lti-roster-and-deep-linking.md) | LTI roster sync through NRPS, and Deep Linking to a template or public repository (accepted, Epic 42) |
