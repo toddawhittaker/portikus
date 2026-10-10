@@ -339,6 +339,29 @@ export const UpdateProjectRequest = z
 	);
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
 
+/**
+ * Request body for `POST /workspaces/:id/projects/starter` (ADR 0058): the
+ * id a Deep Linking launch handed this user, which names the project and
+ * its template or repository.
+ */
+export const StarterProjectRequest = z
+	.object({
+		starterId: z.string().uuid(),
+	})
+	.strict();
+export type StarterProjectRequest = z.infer<typeof StarterProjectRequest>;
+
+/**
+ * Response body for the starter route. `created` is false when a project
+ * with that slug already existed and was opened as it is; an existing one is
+ * never overwritten. An archived one comes back with state `archived`.
+ */
+export const StarterProjectResponse = z.object({
+	project: Project,
+	created: z.boolean(),
+});
+export type StarterProjectResponse = z.infer<typeof StarterProjectResponse>;
+
 /** Request body for `POST /workspaces/:id/projects/:projectId/duplicate`. */
 export const DuplicateProjectRequest = z
 	.object({

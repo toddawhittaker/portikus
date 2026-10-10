@@ -77,6 +77,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const response = await route.fetch();
 			const body = (await response.json()) as { members: unknown[] };
 			body.members.push({
+				status: "active",
 				userId: "00000000-0000-4000-8000-00000000c0de",
 				displayName: LONG_NAME,
 				role: "student",

@@ -241,6 +241,20 @@ test("the Logs tab's filters come from the URL, and unknown values are dropped (
 	expect(params.has("workspace")).toBe(false);
 });
 
+test("a shared project has its own course page path", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "instructor" });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	const courseId = "55555555-5555-4555-8555-555555555555";
+	const projectId = "66666666-6666-4666-8666-666666666666";
+
+	renderApp(`/course/${courseId}/shares/${projectId}`);
+
+	expect(await screen.findByTestId("page-shared-project")).toBeTruthy();
+	expect(document.title).toBe("Shared project, Portikus");
+});
+
 test("a lazy page whose chunk resolves undefined keeps loading instead of failing", async () => {
 	const Page = lazyPage<{ Page: () => ReactNode }>(
 		() => Promise.resolve(undefined),

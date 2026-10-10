@@ -52,6 +52,10 @@ const CourseMembersPage = lazyPage(
 	() => import("./course/CoursePage.js"),
 	(module) => module.CourseMembersPage,
 );
+const SharedProjectPage = lazyPage(
+	() => import("./course/SharedProjectPage.js"),
+	(module) => module.SharedProjectPage,
+);
 const HelpPage = lazyPage(
 	() => import("./help/HelpPage.js"),
 	(module) => module.HelpPage,
@@ -255,6 +259,17 @@ const courseMembersRoute = createRoute({
 	),
 });
 
+/** A project a student shared with this course's instructors (ADR 0057). */
+const sharedProjectRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course/$courseId/shares/$projectId",
+	component: () => (
+		<Lazy>
+			<SharedProjectPage />
+		</Lazy>
+	),
+});
+
 /** The workspace help; the instructor part shows by role or teaching. */
 const helpRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -391,6 +406,7 @@ export const routeTree = rootRoute.addChildren([
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,
+	sharedProjectRoute,
 	helpRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,

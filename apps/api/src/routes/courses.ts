@@ -80,7 +80,10 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 				title: course.title,
 				platformName: course.platform_name,
 			},
+			// Roster sync is not wired yet, so no course offers it (ADR 0058).
+			roster: { available: false, syncedAt: null, result: null },
 			members: members.map((row) => ({
+				status: "active" as const,
 				userId: row.id,
 				displayName: row.display_name,
 				role: CourseMemberRole.parse(row.role),
