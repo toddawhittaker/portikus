@@ -991,6 +991,65 @@ test("the probe finds a real TLS listener and not a plain HTTP one", async () =>
 	}
 });
 
+test("the probe asks a plain HTTP server in HTTP and never sends it a TLS handshake", async () => {
+	const firstBytes: number[] = [];
+	let clientErrors = 0;
+	const plainServer = createHttpServer((_req, res) => res.end("plain"));
+	plainServer.on("connection", (socket) =>
+		socket.once("data", (chunk: Buffer) => firstBytes.push(chunk[0] ?? -1)),
+	);
+	plainServer.on("clientError", (error: NodeJS.ErrnoException, socket) => {
+		// A probe hanging up after the status line is a reset, not a bad request.
+		if (error.code !== "ECONNRESET") clientErrors += 1;
+		socket.destroy();
+	});
+	try {
+		const port = await listenOn(plainServer);
+		expect(await probeTls("127.0.0.1", port)).toBe(false);
+		expect(clientErrors).toBe(0);
+		expect(firstBytes).not.toContain(0x16);
+		expect(firstBytes.length).toBeGreaterThan(0);
+	} finally {
+		plainServer.close();
+	}
+});
+
+test("a 400 answer to the HTTP question falls through to the TLS handshake", async () => {
+	// Go and nginx HTTPS servers answer a plain request with a 400 status line.
+	let tlsAttempted = false;
+	const server = createNetServer((socket) =>
+		socket.once("data", (chunk: Buffer) => {
+			if (chunk[0] === 0x16) {
+				tlsAttempted = true;
+				socket.destroy();
+				return;
+			}
+			socket.end(
+				"HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n",
+			);
+		}),
+	);
+	try {
+		const port = await listenOn(server);
+		expect(await probeTls("127.0.0.1", port)).toBe(false);
+		expect(tlsAttempted).toBe(true);
+	} finally {
+		server.close();
+	}
+});
+
+test("a silent listener is not HTTPS and the probe stays within its budget", async () => {
+	const silent = createNetServer(() => {});
+	try {
+		const port = await listenOn(silent);
+		const started = Date.now();
+		expect(await probeTls("127.0.0.1", port, 400)).toBe(false);
+		expect(Date.now() - started).toBeLessThan(800);
+	} finally {
+		silent.close();
+	}
+});
+
 test("the probe gives up on a listener that never answers", async () => {
 	const silent = createNetServer(() => {});
 	try {
