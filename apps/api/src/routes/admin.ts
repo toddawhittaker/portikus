@@ -9,6 +9,7 @@ import {
 } from "@portikus/auth";
 import {
 	type AdminUserList,
+	AdminUsersQuery,
 	type AdminWorkspaceList,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 	LogLevel,
@@ -27,6 +28,7 @@ import {
 	sendDisableRefusal,
 	USER_COLUMNS,
 } from "../admin/users.js";
+import { queryAdminUsers } from "../admin/users-query.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
@@ -274,9 +276,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return toPlatformSettings(updated);
 	});
 
-	app.get("/admin/users", adminOnly, async () => {
-		const list = await listAdminUsers(deps);
-		const body: AdminUserList = { users: list, dexUsers: deps.dex !== undefined };
+	app.get("/admin/users", adminOnly, async (request, reply) => {
+		const query = AdminUsersQuery.safeParse(request.query);
+		if (!query.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid users query");
+		}
+		// Markers are computed over every account; only then does a page cut the list.
+		const page = queryAdminUsers(await listAdminUsers(deps), query.data);
+		const body: AdminUserList = { ...page, dexUsers: deps.dex !== undefined };
 		return body;
 	});
 

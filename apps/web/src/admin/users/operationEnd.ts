@@ -201,7 +201,7 @@ export function OperationEndToasts() {
 
 /**
  * Toast when a rebuild, Reset Docker or Replace home ends, for any workspace
- * in the Users list, whether or not its panel is still open (SPEC.md §20.1).
+ * in the pending list, whether or not its panel is still open (SPEC.md §20.1).
  */
 export function useOperationEndToasts(users: AdminUser[] | undefined) {
 	const toast = useToast();
@@ -259,11 +259,11 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 
 		const ended: Watched[] = [];
 		for (const [workspaceId, watched] of pending.current) {
-			const user = listed.get(workspaceId);
-			if (user?.workspace?.pendingOperation) continue;
+			if (listed.get(workspaceId)?.workspace?.pendingOperation) continue;
 			pending.current.delete(workspaceId);
-			// A workspace that left the list was deleted; there is nothing to say.
-			if (user) ended.push(watched);
+			// The list holds only pending accounts, so a missing one has ended. A
+			// deleted workspace has no result and its retries end quietly.
+			ended.push(watched);
 		}
 		if (ended.length > 0) void announce(ended);
 		for (const [workspaceId, user] of listed) {

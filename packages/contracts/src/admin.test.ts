@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+	AdminUsersQuery,
 	AdminWorkspaceDetail,
 	AdminWorkspaceSummary,
 	AuditPage,
@@ -10,6 +11,7 @@ import {
 	isQuotaGrowOnly,
 	MAX_QUOTA_GIB,
 	STALE_AFTER_DAYS,
+	sortRows,
 	UpdateGuardRequest,
 	UpdateLimitsRequest,
 	UpdateQuotaRequest,
@@ -426,4 +428,46 @@ describe("process snapshot (ADR 0037)", () => {
 		const empty = { requestedAt: null, takenAt: null, processes: [], error: null };
 		expect(AdminProcessSnapshot.parse(empty)).toEqual(empty);
 	});
+});
+
+describe("AdminUsersQuery", () => {
+	test("an empty query is allowed and means the whole list", () => {
+		expect(AdminUsersQuery.parse({})).toEqual({});
+	});
+
+	test("numbers arrive as strings and become numbers", () => {
+		expect(AdminUsersQuery.parse({ limit: "50", offset: "100" })).toEqual({
+			limit: 50,
+			offset: 100,
+		});
+	});
+
+	test("bad limits, roles, states and sorts are refused", () => {
+		for (const bad of [
+			{ limit: "0" },
+			{ limit: "501" },
+			{ offset: "-1" },
+			{ role: "teacher" },
+			{ state: "sleeping" },
+			{ sort: "email" },
+			{ dir: "up" },
+			{ archived: "0" },
+			{ q: "x".repeat(201) },
+		]) {
+			expect(AdminUsersQuery.safeParse(bad).success).toBe(false);
+		}
+	});
+});
+
+test("sortRows keeps ties in order and puts blanks last either way", () => {
+	const rows = [
+		{ n: "a", v: 2 },
+		{ n: "b", v: null },
+		{ n: "c", v: 1 },
+		{ n: "d", v: 2 },
+	];
+	const names = (direction: "ascending" | "descending") =>
+		sortRows(rows, (row) => row.v, direction).map((row) => row.n);
+	expect(names("ascending")).toEqual(["c", "a", "d", "b"]);
+	expect(names("descending")).toEqual(["a", "d", "c", "b"]);
 });

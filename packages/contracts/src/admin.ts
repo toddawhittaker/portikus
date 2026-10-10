@@ -11,6 +11,7 @@ import {
 	PendingOperation,
 	ThrottleSharePercent,
 	Workspace,
+	WorkspaceState,
 } from "./workspace.js";
 
 /** The shared workspace profile's limits, as Incus spells them. */
@@ -28,6 +29,68 @@ export const AliasImage = z.object({
 
 /** An account with no sign-in for this many days is marked stale. */
 export const STALE_AFTER_DAYS = 30;
+
+export type SortDirection = "ascending" | "descending";
+
+/** A row's value in the sorted column; null when the row has none. */
+export type SortKey = string | number | null;
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * The rows ordered by one value. Ties keep their incoming order, and rows
+ * with no value go last either way, so flipping never brings blanks to the top.
+ */
+export function sortRows<T>(
+	rows: readonly T[],
+	key: (row: T) => SortKey,
+	direction: SortDirection,
+): T[] {
+	const sign = direction === "ascending" ? 1 : -1;
+	return [...rows].sort((a, b) => {
+		const left = key(a);
+		const right = key(b);
+		if (left === null || right === null) {
+			if (left === right) return 0;
+			return left === null ? 1 : -1;
+		}
+		const order =
+			typeof left === "number" && typeof right === "number"
+				? left - right
+				: collator.compare(String(left), String(right));
+		return sign * order;
+	});
+}
+
+/** Accounts per page in the Users view (SPEC.md section 20.1). */
+export const ADMIN_USERS_PAGE_SIZE = 50;
+
+export const ACCOUNT_SORT_COLUMNS = [
+	"account",
+	"role",
+	"workspace",
+	"activity",
+] as const;
+
+/**
+ * The query string of `GET /admin/users`. Without `limit` the whole list
+ * comes back, for the person pickers and the older-image rebuild;
+ * `pending` keeps only the accounts with an operation pending.
+ */
+export const AdminUsersQuery = z.object({
+	q: z.string().max(200).optional(),
+	role: Role.optional(),
+	/** A workspace state, or "none" for accounts with no workspace. */
+	state: z.union([WorkspaceState, z.literal("none")]).optional(),
+	image: z.enum(["current", "older"]).optional(),
+	archived: z.literal("1").optional(),
+	sort: z.enum(ACCOUNT_SORT_COLUMNS).optional(),
+	dir: z.enum(["ascending", "descending"]).optional(),
+	limit: z.coerce.number().int().min(1).max(500).optional(),
+	offset: z.coerce.number().int().min(0).optional(),
+	pending: z.literal("1").optional(),
+});
+export type AdminUsersQuery = z.infer<typeof AdminUsersQuery>;
 
 /** Largest home or Docker volume an administrator may set, in GiB. */
 export const MAX_QUOTA_GIB = 1024;
