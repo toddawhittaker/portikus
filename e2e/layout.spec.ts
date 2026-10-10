@@ -142,7 +142,8 @@ test.describe("work area layout", () => {
 			.toBe(3);
 		const ids = await terminalIds(student.workspaceId, projectId);
 
-		// The layout is saved a second after it changes.
+		// The layout is saved a second after it changes. Wait for the one that
+		// holds all three terminals in order and the split, not just any save.
 		await expect
 			.poll(
 				async () => {
@@ -150,11 +151,18 @@ test.describe("work area layout", () => {
 						"select layout from projects where id = $1",
 						[projectId],
 					);
-					return rows[0]?.layout === null ? null : "saved";
+					const saved = JSON.stringify(rows[0]?.layout ?? null);
+					const at = ids.map((id) => saved.indexOf(id));
+					return (
+						at.every((index) => index >= 0) &&
+						(at[0] as number) < (at[1] as number) &&
+						(at[1] as number) < (at[2] as number) &&
+						saved.includes('"direction":"row"')
+					);
 				},
-				{ timeout: 10_000 },
+				{ timeout: 15_000 },
 			)
-			.toBe("saved");
+			.toBe(true);
 
 		await page.reload();
 
