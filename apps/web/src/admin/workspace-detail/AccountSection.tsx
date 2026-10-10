@@ -12,6 +12,8 @@ import {
 	useSetGrantedAdmin,
 	useSetGrantedInstructor,
 } from "../queries.js";
+import { LinkDialog } from "./LinkDialog.js";
+import { useAccountLinks, useChangeLink } from "./linkQueries.js";
 import { PANEL_HELP, SECTION_HEADING, WithTip } from "./shared.js";
 
 /** Why Promote or Demote is off for this account, or null when it is on (ADR 0026). */
@@ -205,6 +207,115 @@ function InstructorChange({ user }: { user: AdminUser }) {
 	);
 }
 
+/** The course accounts linked to an SSO account, with Unlink and Link (SPEC.md §20.1, ADR 0026). */
+function LinkedAccounts({ user }: { user: AdminUser }) {
+	const toast = useToast();
+	const links = useAccountLinks(user.id);
+	const change = useChangeLink(user.id);
+	const [linking, setLinking] = useState(false);
+	const [unlinking, setUnlinking] = useState<{
+		courseUserId: string;
+		displayName: string;
+		platformName: string;
+	} | null>(null);
+
+	function unlink() {
+		if (!unlinking || change.isPending) return;
+		const target = unlinking;
+		change.mutate(
+			{ courseUserId: target.courseUserId, unlink: true },
+			{
+				onSuccess: () => {
+					toast.show({
+						tone: "success",
+						title: `${target.displayName} unlinked from ${user.displayName}`,
+					});
+					setUnlinking(null);
+				},
+			},
+		);
+	}
+
+	return (
+		<div className="flex flex-col gap-2" data-testid="detail-links">
+			<h5 id={`links-${user.id}`} className={SECTION_HEADING}>
+				Linked course accounts
+			</h5>
+			{links.data && links.data.links.length > 0 ? (
+				<ul
+					aria-labelledby={`links-${user.id}`}
+					className="m-0 flex flex-col gap-1 p-0"
+				>
+					{links.data.links.map((link) => (
+						<li
+							key={link.courseUserId}
+							className="pk-text-compact flex list-none items-center justify-between gap-2"
+						>
+							<span>
+								{link.displayName}
+								<span className="pk-muted">{` — ${link.platformName}`}</span>
+							</span>
+							<Button
+								size="sm"
+								data-testid={`unlink-${link.courseUserId}`}
+								aria-label={`Unlink ${link.displayName} from ${user.displayName}`}
+								onClick={() => {
+									change.reset();
+									setUnlinking(link);
+								}}
+							>
+								Unlink…
+							</Button>
+						</li>
+					))}
+				</ul>
+			) : (
+				<p className="pk-text-compact pk-muted m-0">
+					{links.isLoading ? "Loading…" : "No course accounts are linked."}
+				</p>
+			)}
+			<div className="pk-actions">
+				<Button size="sm" data-testid="detail-link" onClick={() => setLinking(true)}>
+					Link a course account…
+				</Button>
+			</div>
+			<LinkDialog user={user} open={linking} onOpenChange={setLinking} />
+			<ConfirmDialogRoot
+				open={unlinking !== null}
+				onOpenChange={(next) => {
+					if (!next && !change.isPending) setUnlinking(null);
+				}}
+			>
+				<ConfirmDialog
+					id="unlink-dialog"
+					testId="unlink-dialog"
+					title="Unlink these accounts?"
+					description={
+						<>
+							<span className="block">
+								{`${unlinking?.displayName ?? ""} (${unlinking?.platformName ?? ""}) will no longer be linked to ${user.displayName}. Anyone signed in through that link is signed out, and the course account can sign in on its own again.`}
+							</span>
+							{change.error ? (
+								<span
+									className="mt-2 block text-status-error"
+									role="alert"
+									data-testid="unlink-error"
+								>
+									{errorText(change.error)}
+								</span>
+							) : null}
+						</>
+					}
+					confirmLabel="Unlink"
+					destructive
+					pending={change.isPending}
+					onConfirm={unlink}
+				/>
+			</ConfirmDialogRoot>
+		</div>
+	);
+}
+
 /** Disable or enable the account (SPEC.md §6.4, §20.1). */
 export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
@@ -298,6 +409,7 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 				<InstructorChange user={user} />
 				{user.dexLocal ? <DexUserActions user={user} isSelf={isSelf} /> : null}
 			</div>
+			{isCourseAccount(user.issuer) ? null : <LinkedAccounts user={user} />}
 			{/* Disabling is the heaviest action, so it sits alone and last. */}
 			<div className="pk-actions">
 				<WithTip

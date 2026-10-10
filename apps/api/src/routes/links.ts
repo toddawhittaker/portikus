@@ -34,6 +34,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
+import { platformNameOf } from "../lti/platform-name.js";
 import type { SecondFactorThrottle } from "../second-factor-throttle.js";
 import { requestMetadata, startSession } from "../sessions/start-session.js";
 
@@ -152,12 +153,7 @@ export function registerLinkRoutes(
 		return "passed";
 	}
 
-	/** The LTI registration's name, or the issuer's host when it is no longer registered. */
-	function platformName(platformIssuer: string): string {
-		const registered = lti?.platforms.find((p) => p.issuer === platformIssuer);
-		if (registered) return registered.name;
-		return URL.canParse(platformIssuer) ? new URL(platformIssuer).host : platformIssuer;
-	}
+	const platformName = (platformIssuer: string) => platformNameOf(lti, platformIssuer);
 
 	function sessionId(request: FastifyRequest): string {
 		// The auth plugin sets the token with the user, so a signed-in route has it.

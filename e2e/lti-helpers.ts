@@ -20,7 +20,8 @@ export type PersonKey =
 	| "lin"
 	| "max"
 	| "rex"
-	| "una";
+	| "una"
+	| "kit";
 type CourseKey = "cs101" | "cs240" | "cs350";
 export type Defect =
 	| "bad_signature"

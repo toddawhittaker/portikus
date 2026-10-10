@@ -61,6 +61,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/:courseUserId/unlink": 404,
 	"POST /admin/users/:id/demote": 400,
 	"POST /admin/users/:id/remove-instructor": 400,
+	"POST /admin/users/:id/links": 400,
+	"DELETE /admin/users/:id/links/:courseUserId": 404,
 	"POST /admin/dex-users": 404,
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/reset-second-factor": 404,
