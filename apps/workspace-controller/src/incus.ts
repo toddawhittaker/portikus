@@ -145,7 +145,12 @@ export class IncusClient {
 		instance: string,
 		filePath: string,
 		body: string,
-		opts: { uid: number; gid: number; mode: string; type?: "file" | "directory" },
+		opts: {
+			uid: number;
+			gid: number;
+			mode: string;
+			type?: "file" | "directory" | "symlink";
+		},
 		signal?: AbortSignal,
 	): Promise<void> {
 		await this.rawRequest(
@@ -185,7 +190,8 @@ export class IncusClient {
 	 * Put `body` at `filePath` without opening what is there: a student can
 	 * leave a named pipe, and opening one blocks an Incus thread (SPEC.md
 	 * §24). Deleting first replaces a pipe, link or file alike; anything that
-	 * cannot be deleted, such as a non-empty directory, is refused. Use it
+	 * cannot be deleted, such as a non-empty directory, is refused. A symlink's
+	 * `body` is its target. Use it
 	 * only on a stopped instance: in a running one a student's process could
 	 * put a pipe back between the two requests.
 	 */
@@ -193,7 +199,7 @@ export class IncusClient {
 		instance: string,
 		filePath: string,
 		body: string,
-		owner: { uid: number; gid: number; mode: string },
+		owner: { uid: number; gid: number; mode: string; type?: "file" | "symlink" },
 		signal?: AbortSignal,
 	): Promise<void> {
 		try {
