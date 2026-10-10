@@ -400,18 +400,52 @@ export function splitDepth(node: SplitNode): number {
 }
 
 /**
- * True when a file, diff or preview node sits anywhere below the root of a
- * tab. Only terminals split (SPEC.md §8.3), so those are always whole tabs.
+ * How deep raw JSON nests its `children`, counted with a loop and stopping
+ * once past the limit. The recursive schema would overflow the stack on a
+ * hostile layout nested thousands deep, so this runs before it (SPEC.md §7.5).
  */
-function hasNestedDocument(node: SplitNode): boolean {
+function rawSplitDepth(value: unknown): number {
+	let deepest = 0;
+	const pending: Array<{ node: unknown; depth: number }> = [{ node: value, depth: 1 }];
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		deepest = Math.max(deepest, next.depth);
+		if (deepest > MAX_SPLIT_DEPTH) break;
+		const children =
+			typeof next.node === "object" && next.node !== null
+				? (next.node as { children?: unknown }).children
+				: undefined;
+		if (!Array.isArray(children)) continue;
+		for (const child of children) pending.push({ node: child, depth: next.depth + 1 });
+	}
+	return deepest;
+}
+
+/** A tab's root: depth is checked on the raw value before the tree is parsed. */
+const TabRoot = z
+	.custom<unknown>(
+		(value) => rawSplitDepth(value) <= MAX_SPLIT_DEPTH,
+		`a split may be at most ${MAX_SPLIT_DEPTH} levels deep`,
+	)
+	.pipe(SplitNode);
+
+/**
+ * True when a diff or preview node sits anywhere below the root of a tab.
+ * Terminals and files may share a split (SPEC.md §8.3); a preview is always a
+ * whole tab, and a diff node is an older layout's whole tab.
+ */
+function hasNestedWholeTab(node: SplitNode): boolean {
 	if (node.type !== "split") return false;
 	return node.children.some(
 		(child) =>
-			child.type === "file" ||
-			child.type === "diff" ||
-			child.type === "preview" ||
-			hasNestedDocument(child),
+			child.type === "diff" || child.type === "preview" || hasNestedWholeTab(child),
 	);
+}
+
+/** Every file path in the subtree, wherever it sits. */
+export function filePaths(node: SplitNode): string[] {
+	if (node.type === "file") return [node.path];
+	if (node.type !== "split") return [];
+	return node.children.flatMap(filePaths);
 }
 
 /**
@@ -446,12 +480,13 @@ export const ProjectLayout = z.object({
 				// Long enough for a file or diff tab id, which is a kind prefix
 				// and a project path.
 				id: z.string().min(1).max(1_100),
-				root: SplitNode,
+				root: TabRoot,
 			}),
 		)
 		.superRefine((tabs, ctx) => {
 			const seen = new Set<string>();
 			const documents = new Set<string>();
+			const files = new Set<string>();
 			tabs.forEach((tab, index) => {
 				// Two tabs with one id render on top of each other in the browser.
 				if (seen.has(tab.id)) {
@@ -462,19 +497,24 @@ export const ProjectLayout = z.object({
 					});
 				}
 				seen.add(tab.id);
-				if (splitDepth(tab.root) > MAX_SPLIT_DEPTH) {
+				if (hasNestedWholeTab(tab.root)) {
 					ctx.addIssue({
 						code: "custom",
 						path: [index, "root"],
-						message: `a split may be at most ${MAX_SPLIT_DEPTH} levels deep`,
+						message: "only terminals and files may be split",
 					});
 				}
-				if (hasNestedDocument(tab.root)) {
-					ctx.addIssue({
-						code: "custom",
-						path: [index, "root"],
-						message: "only terminals may be split",
-					});
+				// One pane per file, whether it is a tab or sits in a split; two
+				// would edit the same file twice.
+				for (const path of filePaths(tab.root)) {
+					if (files.has(path)) {
+						ctx.addIssue({
+							code: "custom",
+							path: [index, "root"],
+							message: "a file may only be open once in a layout",
+						});
+					}
+					files.add(path);
 				}
 				const document = documentTabId(tab.root);
 				if (document === null) {

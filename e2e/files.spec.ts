@@ -246,7 +246,7 @@ test.describe("file tree", () => {
 		await row(page, "src").click();
 		await expect(row(page, "src/app.ts")).toBeVisible();
 
-		// The pointer sensor needs a few pixels of movement before it starts.
+		// The browser needs a few pixels of movement before a drag starts.
 		const source = await row(page, "src/app.ts").boundingBox();
 		const target = await page.getByTestId("file-tree-root-drop").boundingBox();
 		if (!source || !target) throw new Error("the drag needs both boxes");
@@ -265,8 +265,34 @@ test.describe("file tree", () => {
 		);
 	});
 
+	test("dragging a file onto a folder moves it into the folder", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openProject(page, student.workspaceId, "Dragfolder");
+
+		const source = await row(page, "README.md").boundingBox();
+		const folder = row(page, "src").locator(":scope > .pk-tree-row");
+		const target = await folder.boundingBox();
+		if (!source || !target) throw new Error("the drag needs both boxes");
+		await page.mouse.move(source.x + 20, source.y + source.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(source.x + 30, source.y + source.height / 2, { steps: 5 });
+		await page.mouse.move(target.x + 40, target.y + target.height / 2, { steps: 10 });
+		await expect(folder).toHaveClass(/is-drop-target/);
+		await page.mouse.up();
+
+		await expect(row(page, "README.md")).toHaveCount(0);
+		await row(page, "src").click();
+		await expect(row(page, "src/README.md")).toBeVisible();
+		expect(
+			await readSeededFile(student.workspaceId, project.slug, "src/README.md"),
+		).toBe("# hello\n");
+	});
+
 	/** The drag is visible, and the empty pane is a root target. */
-	test("a drag shows what it carries and drops on the empty pane", async ({
+	test("a drag marks what it carries and drops on the empty pane", async ({
 		page,
 		context,
 	}) => {
@@ -283,10 +309,9 @@ test.describe("file tree", () => {
 		await page.mouse.down();
 		await page.mouse.move(source.x + 30, source.y + source.height / 2, { steps: 5 });
 
-		// Something follows the pointer and says what is being dragged.
-		const overlay = page.getByTestId("file-drag-overlay");
-		await expect(overlay).toBeVisible();
-		await expect(overlay).toHaveText("app.ts");
+		// The browser draws the row under the pointer; the row itself is marked.
+		const dragging = row(page, "src/app.ts").locator(":scope > .pk-tree-row");
+		await expect(dragging).toHaveAttribute("data-dragging", "true");
 
 		await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
 			steps: 10,
@@ -297,8 +322,8 @@ test.describe("file tree", () => {
 		);
 		await page.mouse.up();
 
-		await expect(overlay).toHaveCount(0);
 		await expect(row(page, "app.ts")).toBeVisible();
+		await expect(page.locator("[data-dragging]")).toHaveCount(0);
 		await expect(row(page, "src/app.ts")).toHaveCount(0);
 		expect(await readSeededFile(student.workspaceId, project.slug, "app.ts")).toBe(
 			"export const a = 1;\n",

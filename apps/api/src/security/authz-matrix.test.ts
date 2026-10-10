@@ -283,6 +283,7 @@ interface Sample {
 const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/file": "?path=notes.txt",
 	"/workspaces/:id/projects/:pid/git/diff": "?path=notes.txt",
+	"/workspaces/:id/projects/:pid/recovery-points/:rpid/diff": "?path=notes.txt",
 	"/workspaces/:id/projects/:pid/baseline-status": `?object=${"a".repeat(40)}`,
 	"/workspaces/:id/projects/:pid/baseline-diff": `?object=${"a".repeat(40)}&path=notes.txt`,
 	"/workspaces/:id/projects/:pid/search": "?q=secret",

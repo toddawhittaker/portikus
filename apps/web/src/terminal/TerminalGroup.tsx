@@ -7,9 +7,10 @@ import { tabDomId, tabPanelDomId } from "@portikus/ui";
 import type { ReactNode } from "react";
 import { type LeafNode, SplitTree } from "../layout/SplitTree.js";
 import type { PendingView } from "../layout/store.js";
-import type { DropEdge } from "../layout/tree.js";
+import { type DropEdge, fileTabId } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
 import { FileLeaf } from "../work/FileLeaf.js";
+import { FilePane } from "../work/FilePane.js";
 import { TerminalLeaf, type TerminalLeafProps } from "./TerminalLeaf.js";
 
 /** The pane callbacks a group hands down to each terminal unchanged. */
@@ -34,26 +35,27 @@ export interface TerminalGroupProps extends PaneCallbacks {
 	workspaceId: string;
 	projectId: string;
 	visible: boolean;
-	focusedTerminalId: string | null;
+	/** The pane the keyboard is in: a terminal id, or a file's pane id. */
+	focusedPaneId: string | null;
 	onResize: (path: number[], sizes: number[]) => void;
-	/** The other tabs a pane of this tab can join. */
-	moveTargetsFor: (terminalId: string) => { tabId: string; label: string }[];
-	/** Close this whole tab: a file tab offers it when the file is gone. */
-	onCloseTab: () => void;
-	/** What this file tab was last asked to show, or undefined for nothing. */
-	pendingView: PendingView | undefined;
-	/** Read and forget that request. */
-	consumePendingView: () => PendingView | undefined;
+	/** The other tabs a pane of this tab can join, by pane id. */
+	moveTargetsFor: (paneId: string) => { tabId: string; label: string }[];
+	/** Close one file's pane: from its menu, or when the file is gone. */
+	onCloseFile: (path: string) => void;
+	/** What each file pane was last asked to show, by pane id. */
+	pendingViews: Record<string, PendingView>;
+	/** Read and forget the request for one file pane. */
+	consumePendingView: (paneId: string) => PendingView | undefined;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
 	/** Pick another port in place of this preview tab's refused one. */
 	onChoosePreviewPort: () => void;
-	/** A file tab reporting whether its edits are on disk. */
-	onUnsavedChange?: (unsaved: boolean) => void;
-	/** Object id this file tab's diff compares against, or null for Git HEAD. */
-	diffBaseline?: string | null;
-	/** The pane a drag is hovering, and the zone it would drop into. */
-	dropTarget?: { terminalId: string; edge: DropEdge } | null;
+	/** A file pane, by pane id, reporting whether its edits are on disk. */
+	onUnsavedChange: (paneId: string, unsaved: boolean) => void;
+	/** Object id each file pane's diff compares against, by pane id; none means Git HEAD. */
+	diffBaselines: Record<string, string | null>;
+	/** The pane a drag is hovering, by pane id, and the zone it would drop into. */
+	dropTarget?: { paneId: string; edge: DropEdge } | null;
 }
 
 export function TerminalGroup(props: TerminalGroupProps) {
@@ -73,7 +75,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					projectId={props.projectId}
 					terminal={terminal}
 					visible={visible}
-					focused={props.focusedTerminalId === terminal.id}
+					focused={props.focusedPaneId === terminal.id}
 					onFocus={props.onFocus}
 					onSplit={props.onSplit}
 					onRename={props.onRename}
@@ -88,7 +90,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onResetSizes={resetSizes}
 					alone={root.type === "leaf"}
 					dropEdge={
-						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
+						props.dropTarget?.paneId === terminal.id ? props.dropTarget.edge : null
 					}
 				/>
 			);
@@ -97,19 +99,34 @@ export function TerminalGroup(props: TerminalGroupProps) {
 		// a layout saved before that still names one, and it opens as
 		// the file it shows.
 		if (node.type === "file" || node.type === "diff") {
+			const path = node.path;
+			const id = fileTabId(path);
 			return (
-				<FileLeaf
-					key={node.path}
-					path={node.path}
-					workspaceId={props.workspaceId}
-					projectId={props.projectId}
-					visible={visible}
-					onClose={props.onCloseTab}
-					pendingView={props.pendingView}
-					consumePendingView={props.consumePendingView}
-					onUnsavedChange={props.onUnsavedChange}
-					baseline={props.diffBaseline}
-				/>
+				<FilePane
+					key={path}
+					path={path}
+					alone={root.type !== "split"}
+					focused={props.focusedPaneId === id}
+					dropEdge={props.dropTarget?.paneId === id ? props.dropTarget.edge : null}
+					moveTargets={props.moveTargetsFor(id)}
+					onFocus={props.onFocus}
+					onMoveToNewTab={props.onMoveToNewTab}
+					onMoveInto={props.onMoveInto}
+					onResetSizes={resetSizes}
+					onClose={props.onCloseFile}
+				>
+					<FileLeaf
+						path={path}
+						workspaceId={props.workspaceId}
+						projectId={props.projectId}
+						visible={visible}
+						onClose={() => props.onCloseFile(path)}
+						pendingView={props.pendingViews[id]}
+						consumePendingView={() => props.consumePendingView(id)}
+						onUnsavedChange={(unsaved) => props.onUnsavedChange(id, unsaved)}
+						baseline={props.diffBaselines[id] ?? null}
+					/>
+				</FilePane>
 			);
 		}
 		return (

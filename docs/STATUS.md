@@ -4824,3 +4824,103 @@ Gaps left:
 - No Playwright test covers the real agent's pipe-pane clear; the end-to-end
   environment uses the fake agent.
 - Aside folders have no delete button yet (#1243).
+
+## Epic 39 — Bug fixes and student workspace polish
+
+Built on `epic/39-workspace-polish` (task PRs #1348, #1349, #1351 to
+#1359, #1362 to #1365, #1367, #1369, #1370, and this fold). Fifteen
+issues: bug fixes and small features for the work area. No migration.
+SPEC.md sections 7.5, 8.3, 11.2, 11.5, 12.6, 12.8, 13.2, 13.4, 13.5,
+15.8, 19.3, 24.9, 25.8 and 25.10 gained a sentence or two each, and ADR
+0055 records the voice input choice. The plan file was folded and deleted.
+Out of scope: #1276 (its own epic later) and #1215 (Epic 40).
+
+Delivered:
+
+- Off-site backups (#1349 T1): the prune script spares the newest
+  unfinished set until it is KEEP days old, so a stalled or late upload
+  survives (#1302), and a run that adds a set warns when the target
+  account has no disk or file quota or `quota` is missing (#1303).
+- Checks (#1348 T2, #1359 T2b): a Check runs under the terminals' 1,700
+  process cap, so a fork bomb in a Check cannot starve the agent (#1331).
+  Real-agent check tests set the cap above the host's load.
+- Search and Git (#1354 T3, #1362 F2, #1367 G1): Match case, Whole word
+  and Regex options, with a bad or oversized pattern a named 400 (#1224);
+  the status bar names a detached HEAD by its short id (#1232); a file's
+  diff compares with a typed Git ref (#1227, ref half).
+- Recovery diff (#1351 T4, #1358 T4b): a file compares with its version in
+  a recovery point, read only on Compare, with a keyboard picker and an
+  announced slow-read state (#1227, recovery half). One comparison runs at
+  a time per workspace.
+- Viewers (#1353 T5): fenced code in the Markdown preview is highlighted
+  through a sanitising rebuild of Monaco's colorize (#1233); a `.csv` file
+  opens as a read-only table (#1265). The CSV reader moved to
+  `@portikus/contracts`.
+- Voice input (#1355 T6, #1363 F1a): hold-to-talk microphone button and
+  Alt+Shift+M in each terminal, through the browser's speech recognition.
+  Final text is pasted without control characters or Enter (#1346, ADR
+  0055).
+- Selection zip and extraction progress (#1352 T7, #1365 T10): several
+  selected rows download as one zip, 100 at most (#1234); "Extract here"
+  shows a progress bar (#1266).
+- File tree (#1356 T8, #1365 T10): rows use the browser's drag and drop, so
+  Show more draws only the new rows, in about 70 ms instead of 4 to 5
+  seconds (#1340); a removed focused row hands the Tab stop and focus to
+  its neighbour (#1343).
+- File tabs (#1357 T9, #1365 T10): a file pane joins a split beside a
+  terminal by drag or "Move into" (#1225); a rename or move in the files
+  pane keeps the file's tab, with unsaved text, baseline, view state and
+  zoom (#1228). Unsaved text survives any remount.
+- Review fixes (#1362 F2, #1363 F1a, #1364 F1b, #1370 G2): search beside
+  unreadable folders, nested and "-" names in selection zips, a killed Git
+  type check, voice input errors and focus, recovery diff queries, CSV
+  column cap, labels and ids, bidirectional marks in file names, deep
+  saved layouts refused, a close-tab prompt for unsaved edits, Replace onto
+  an open file, neighbour focus, overlong selection names.
+- CI (#1369 H1): Postgres and the apt test image come from
+  `mirror.gcr.io`, so Docker Hub's anonymous pull limit no longer fails
+  jobs (#1368).
+- Pilot-feedback additions (#1380, #1381, #1382, #1385, #1387 to #1390):
+  - CSV view has row numbers and sortable columns, a view only that is
+    never saved (#1378).
+  - Voice input reaches open files: a hold-to-talk microphone in the file
+    header, or Alt+Shift+M held in the editor, types at the cursor as one
+    undo step with a leading-space rule; hidden for viewers, diffs and
+    browsers without speech recognition (#1375, ADR 0055 addendum).
+  - Tree file rows drop onto pane edges to open or move the file into a
+    split there; a moved pane keeps its Diff view. Folders and multi-row
+    drags are not accepted (#1376).
+  - A file pane has one header line (name and drag handle, parent folder,
+    save state, view buttons, actions menu). Images and other view-only
+    files have no view buttons. The diff's Compare with is a small header
+    button with a menu and dialogs (#1379, #1377).
+  - The preview protocol probe asks in plain HTTP before TLS (2 s HTTP,
+    1 s TLS), so plain dev servers no longer log a garbled 400 (#1386).
+  - Review fixes: dictation keeps the mic held, blank CSV headers show
+    "Column N", Compare with meets the target size.
+- Fold: SPEC, STATUS and ADR 0055. The design system README now says
+  Monaco's background is `surface`.
+
+Gaps left:
+
+- In a pane under 24rem wide the file header's controls sit on a second
+  row. The header fallback outside a file pane stays.
+- Moves made by an agent or in a terminal do not retarget open tabs; the
+  events stream reports a delete and a create (#1228).
+- Undo history is lost when an editor remounts; only the text is carried.
+- A move that replaces a file open elsewhere with its own unsaved edits
+  shows the arriving file's text.
+- CSV is read-only, with sorting but no filtering, and draws 1,000 rows and
+  200 columns.
+- Voice input on Safari is unconfirmed on a real Mac. There is no admin
+  switch to turn it off (#1350).
+- The Checks process cap counts all the student's processes, so a bomb can
+  starve terminals while it runs. The fork-bomb check on the rehearsal VM
+  is pending.
+- The quota warning reads only user quotas, not group or project quotas.
+- A dragged tree row carries one item, not the selection. Touch dragging
+  depends on the browser.
+- With a 200-character file name open, the editor's zoom buttons fail
+  axe's target-size rule.
+- Follow-up issues: #1350 (voice admin switch), #1360, #1366, #1371.
+  #1368 (Docker Hub limit) was fixed by H1.

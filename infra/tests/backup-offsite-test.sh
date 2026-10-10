@@ -28,13 +28,17 @@
 #     day, mode-000 folders and hidden or oddly named entries included,
 #     without following a symlink, and a warning goes to stderr; one huge
 #     kept set does not raise the limit, and keeping it warns too;
-#   - the newest unfinished set named for the last day, while it changed
-#     in the last 2 hours, is left out of that limit and only warned about,
-#     as is every set before the first is kept; a second recent set and one stalled for over 2
-#     hours or named over an hour ahead count as usual, junk is still
-#     removed, and an unfinished set dated over a day ahead is dropped;
+#   - the newest unfinished set is left out of that limit and only warned
+#     about, even when it stalls for over 2 hours or starts arriving over a
+#     day after its name, as is every set before the first is kept; a
+#     second recent set and one named over an hour ahead count as usual,
+#     junk is still removed, and an unfinished set dated over a day ahead
+#     is dropped;
 #   - a finished set holding hard links is not kept, and mode-000 folders
-#     inside a kept set or an old one being removed do not stop the run.
+#     inside a kept set or an old one being removed do not stop the run;
+#   - a run that adds a set warns when a fake quota shows no disk or no
+#     file limit on DIR's filesystem, or when quota is not installed, and
+#     a run that adds nothing does not.
 #
 # Usage: ./infra/tests/backup-offsite-test.sh
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
@@ -74,6 +78,23 @@ age-keygen -o "$key" 2>/dev/null
 recipient=$(age-keygen -y "$key")
 export PORTIKUS_OFFSITE_DIR="$conf" PORTIKUS_OFFSITE_STATE="${work}/state" \
   PORTIKUS_BACKUP_DIR="$backups" PORTIKUS_BACKUP_KEY="$key"
+
+# A fake quota on PATH for every prune run: it prints quota.report and
+# records its arguments.  The default report has both limits set.
+mkdir "${work}/fakebin"
+cat >"${work}/fakebin/quota" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >"${work}/quota.args"
+cat "${work}/quota.report"
+EOF
+chmod +x "${work}/fakebin/quota"
+limits() { # BLOCK-SOFT BLOCK-HARD FILE-SOFT FILE-HARD
+  printf 'Disk quotas for user x (uid 1000): \n%15s %8s %7s %7s %7s %8s %7s %7s %7s\n' \
+    Filesystem blocks quota limit grace files quota limit grace >"${work}/quota.report"
+  printf '%15s %8s %7s %7s %7s %8s %7s %7s %7s\n' /dev/vdb 20 "$1" "$2" 0 5 "$3" "$4" 0 >>"${work}/quota.report"
+}
+limits 1000 1000 100 100
+export PATH="${work}/fakebin:${PATH}"
 
 # stamp DATE -- a set name for a date(1) expression, such as "-2 days".
 stamp() { date -u -d "$1" +%Y%m%dT%H%M%SZ; }
@@ -447,9 +468,30 @@ EOF
 chmod +x "${work}/later/date"
 PATH="${work}/later:${PATH}" sh "$prune" "$up" 3 >/dev/null 2>"${work}/up.err"
 expect_eq "prune with a stalled set succeeds" 0 "$?"
-check "a set stalled for over 2 hours is removed when over the limit" \
-  bash -c "test ! -e '${up}/incoming/${newest_up}' && grep -q 'emptying' '${work}/up.err'"
+check "a genuine set stalled for over 2 hours survives over the limit" \
+  test -f "${up}/incoming/${newest_up}/home.age"
+check "and the run warns that it is four times the median" grep -q "${newest_up} is still uploading" "${work}/up.err"
 rm -rf "$up"
+# A set that began arriving more than a day after its name, as when the
+# server was off or the link was down.
+slow="${work}/slow"
+mkdir -p "${slow}/incoming"
+# Days -5 to -3, so the -26 hour set never shares a day with a kept one.
+for s in "$(stamp '-5 days')" "$(stamp '-4 days')" "$(stamp '-3 days')"; do
+  mkdir "${slow}/${s}"
+  echo small >"${slow}/${s}/home.age"
+done
+late_up=$(stamp '-26 hours')
+mkdir "${slow}/incoming/${late_up}"
+fallocate -l 1100M "${slow}/incoming/${late_up}/home.age"
+sh "$prune" "$slow" 3 >/dev/null 2>"${work}/slow.err"
+expect_eq "prune with a set named over a day ago still uploading succeeds" 0 "$?"
+check "the late set survives over the limit" test -f "${slow}/incoming/${late_up}/home.age"
+: >"${slow}/incoming/${late_up}.done"
+sh "$prune" "$slow" 3 >/dev/null 2>&1
+check "and once finished it is kept" test -f "${slow}/${late_up}/home.age"
+chmod -R u+rwX "$slow"
+rm -rf "$slow"
 # Hard links and mode-000 folders inside finished and old sets.
 odd="${work}/odd"
 opened=$(stamp '-2 days')
@@ -476,6 +518,55 @@ expect_eq "prune removing an old set with a mode-000 folder succeeds" 0 "$?"
 check "and the old set is gone" test ! -e "${odd}/${aged}"
 chmod -R u+rwX "$odd"
 rm -rf "$odd"
+
+echo "== the account's quota"
+qd="${work}/qd"
+mkdir -p "${qd}/incoming"
+# add_set -- a finished set for a day not yet kept, so the next run adds it.
+qday=0
+add_set() {
+  qday=$((qday + 1))
+  local s
+  s=$(stamp "-${qday} days")
+  mkdir "${qd}/incoming/${s}"
+  : >"${qd}/incoming/${s}.done"
+}
+add_set
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+expect_eq "with disk and file limits, adding a set warns nothing" "" "$(cat "${work}/qd.err")"
+expect_eq "quota is asked about DIR's filesystem" "-u -w -p -f $(stat -c %m "$qd")" "$(cat "${work}/quota.args")"
+printf 'Disk quotas for user x (uid 1000): none\n' >"${work}/quota.report"
+add_set
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+expect_eq "with no quota, a run that adds a set still succeeds" 0 "$?"
+check "and warns there is no disk or file limit" grep -q "no disk or file limit" "${work}/qd.err"
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+expect_eq "a run that adds nothing does not warn" "" "$(cat "${work}/qd.err")"
+limits 1000 1000 0 0
+add_set
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+check "with only a disk limit, it warns there is no file limit" grep -q "no file limit" "${work}/qd.err"
+limits 0 0 100 0
+add_set
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+check "with only a file soft limit, it warns there is no disk limit" grep -q "no disk limit" "${work}/qd.err"
+# Over a limit, quota exits non-zero but still reports the limits.
+limits 10 10 100 100
+printf 'exit 1\n' >>"${work}/fakebin/quota"
+add_set
+sh "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+expect_eq "over a limit, quota failing does not warn of a missing limit" "" "$(cat "${work}/qd.err")"
+# A PATH holding only what the script uses, without quota.
+mkdir "${work}/noquota"
+for t in sh date tr du find awk sort chmod rm mv basename grep stat; do
+  ln -s "$(command -v "$t")" "${work}/noquota/${t}"
+done
+add_set
+PATH="${work}/noquota" "$(command -v sh)" "$prune" "$qd" 30 >/dev/null 2>"${work}/qd.err"
+expect_eq "with quota not installed, a run that adds a set still succeeds" 0 "$?"
+check "and says to install the quota package" grep -q "install the quota package" "${work}/qd.err"
+chmod -R u+rwX "$qd"
+rm -rf "$qd"
 
 echo "== failures"
 settings "${me}@127.0.0.1:${work}/target/missing"

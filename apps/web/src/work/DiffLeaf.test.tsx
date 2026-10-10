@@ -4,9 +4,12 @@
  * Monaco is replaced by a fake, so these tests are about the states.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
+import { fileKeys } from "../files/queries.js";
+import { applyInvalidations } from "../files/useProjectEvents.js";
+import { pointTime } from "../recovery/labels.js";
 import { renderWithQuery } from "../test-utils.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 
@@ -201,7 +204,7 @@ test("a rename shows the old path and the new one", async () => {
 	answer = { status: 200, body: diff({ status: "R", oldPath: "src/old.ts" }) };
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
-	expect(screen.getByText(`Diff · src/old.ts → ${PATH}`)).not.toBeNull();
+	expect(screen.getByTestId("diff-note").textContent).toBe("Renamed from src/old.ts");
 	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("Renamed");
 });
 
@@ -349,4 +352,512 @@ test("each side of the diff names the file", async () => {
 		original: { label: ORIGINAL_NAME, after: 1 },
 		modified: { label: MODIFIED_NAME, after: 1 },
 	});
+});
+
+/** Answer by URL: the ref route gets `atRef`, HEAD gets the usual diff. */
+function stubRefServer(atRef: { status: number; body: unknown }) {
+	const urls: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			urls.push(url);
+			const reply = url.includes("ref=") ? atRef : { status: 200, body: diff() };
+			return new Response(JSON.stringify(reply.body), {
+				status: reply.status,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	return urls;
+}
+
+/** Opens the "Compare with" menu of the view at `index`. */
+async function openCompare(index = 0) {
+	const trigger = screen.getAllByRole("button", { name: "Compare with" })[index];
+	if (!trigger) throw new Error("no Compare with button");
+	fireEvent.keyDown(trigger, { key: "Enter" });
+	return screen.findByRole("menu", { name: "Compare with" });
+}
+
+async function choose(
+	item: "Last commit" | "A Git ref…" | "A recovery point…",
+	index = 0,
+) {
+	await openCompare(index);
+	fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+async function compareWith(ref: string) {
+	await choose("A Git ref…");
+	fireEvent.change(await screen.findByLabelText("Branch, tag, or commit"), {
+		target: { value: ref },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+}
+
+test("the compare control is one small button whose menu offers the last commit first", async () => {
+	renderLeaf();
+	const menu = await openCompare();
+	expect(
+		[...menu.querySelectorAll("[role=menuitem]")].map((item) => item.textContent),
+	).toEqual(["Last commit", "A Git ref…", "A recovery point…"]);
+	// The control is in the header line, not a row of its own.
+	expect(screen.getByTestId("diff-compare").closest("header")).not.toBeNull();
+	expect(screen.queryByLabelText("Branch, tag, or commit")).toBeNull();
+});
+
+test("a typed ref is compared once submitted, and named on the left side", async () => {
+	const urls = stubRefServer({ status: 200, body: diff({ before: "older\n" }) });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+
+	await compareWith("v1.0");
+
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("older\n"));
+	const wanted = `/workspaces/${WORKSPACE}/projects/${PROJECT}/git/diff?path=src%2Fapp.ts&ref=v1.0`;
+	expect(urls.some((url) => url.endsWith(wanted))).toBe(true);
+	expect(screen.getByTestId("diff-sides").textContent).toBe("v1.0Your changes");
+	// Compare closes the dialog.
+	await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
+
+	// The dialog opens again on the ref compared with now.
+	await choose("A Git ref…");
+	expect(
+		((await screen.findByLabelText("Branch, tag, or commit")) as HTMLInputElement)
+			.value,
+	).toBe("v1.0");
+	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
+
+	// Going back to the last commit asks without a ref.
+	await choose("Last commit");
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("one\n"));
+	expect(screen.getByTestId("diff-sides").textContent).toBe("Last commitYour changes");
+});
+
+test("a ref that could read as an option is refused before any request", async () => {
+	const urls = stubRefServer({ status: 200, body: diff() });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	const before = urls.length;
+
+	await compareWith("--output=/tmp/x");
+
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("Type a branch, tag, or commit id.");
+	expect(
+		screen.getByLabelText("Branch, tag, or commit").getAttribute("aria-invalid"),
+	).toBe("true");
+	expect(urls.filter((url) => url.includes("ref=")).length).toBe(0);
+	expect(urls.length).toBe(before);
+});
+
+test("a ref that names no commit is announced", async () => {
+	stubRefServer({
+		status: 400,
+		body: {
+			code: "VALIDATION_FAILED",
+			message: "That Git ref does not name a commit.",
+		},
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+
+	await compareWith("nope");
+
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("That Git ref does not name a commit.");
+});
+
+test("session review has no compare control", async () => {
+	renderWithQuery(
+		<DiffLeaf
+			path={PATH}
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			baseline="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		/>,
+	);
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	expect(screen.queryByTestId("diff-compare")).toBeNull();
+});
+
+const POINT_A = "11111111-1111-4111-8111-111111111111";
+const POINT_B = "22222222-2222-4222-8222-222222222222";
+const POINTS = {
+	points: [
+		{
+			id: POINT_A,
+			projectId: "33333333-3333-4333-8333-333333333333",
+			createdAt: "2026-10-09T10:00:00.000Z",
+			reason: "manual",
+			sizeBytes: 10,
+			expiresAt: "2026-11-09T10:00:00.000Z",
+		},
+		{
+			id: POINT_B,
+			projectId: "33333333-3333-4333-8333-333333333333",
+			createdAt: "2026-10-08T10:00:00.000Z",
+			reason: "periodic",
+			sizeBytes: 10,
+			expiresAt: "2026-11-08T10:00:00.000Z",
+		},
+	],
+	usage: { usedBytes: 20, quotaBytes: 100 },
+};
+
+type Reply = { status: number; body: unknown };
+
+/** Serves the point list, and `atPoint` (or a promise of it) for a point's diff. */
+function stubPointServer(atPoint: Reply | Promise<Reply>, list: unknown = POINTS) {
+	const urls: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			urls.push(url);
+			let reply: Reply = { status: 200, body: diff() };
+			if (url.endsWith("/recovery-points")) reply = { status: 200, body: list };
+			else if (url.includes("/recovery-points/")) reply = await atPoint;
+			return new Response(JSON.stringify(reply.body), {
+				status: reply.status,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	return urls;
+}
+
+async function choosePoints() {
+	await choose("A recovery point…");
+	return (await screen.findByLabelText("Recovery point")) as HTMLSelectElement;
+}
+
+async function comparePoint() {
+	await choosePoints();
+	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+	await waitFor(() => expect(screen.queryByTestId("diff-point-dialog")).toBeNull());
+}
+
+test("the point picker lists each point by time and trigger, and asks only on Compare", async () => {
+	const urls = stubPointServer({ status: 200, body: diff({ before: "saved\n" }) });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	// The list is not fetched until the student asks for points.
+	expect(urls.some((url) => url.endsWith("/recovery-points"))).toBe(false);
+
+	const select = await choosePoints();
+	const labelA = `${pointTime("2026-10-09T10:00:00.000Z")}, Made by you`;
+	const labelB = `${pointTime("2026-10-08T10:00:00.000Z")}, Every 15 minutes`;
+	expect([...select.options].map((option) => option.text)).toEqual([labelA, labelB]);
+	fireEvent.change(select, { target: { value: POINT_B } });
+	expect(urls.some((url) => url.includes("/diff?") && url.includes(POINT_B))).toBe(
+		false,
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("saved\n"));
+	const wanted = `/workspaces/${WORKSPACE}/projects/${PROJECT}/recovery-points/${POINT_B}/diff?path=src%2Fapp.ts`;
+	expect(urls.some((url) => url.endsWith(wanted))).toBe(true);
+	expect(screen.getByTestId("diff-sides").textContent).toBe(`${labelB}Your changes`);
+	expect(screen.queryByTestId("diff-point-dialog")).toBeNull();
+});
+
+test("reading a point announces that it can take up to a minute", async () => {
+	let release: (reply: Reply) => void = () => {};
+	stubPointServer(
+		new Promise<Reply>((resolve) => {
+			release = resolve;
+		}),
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	const region = screen.getByTestId("diff-compare-status");
+	await waitFor(() => expect(region.textContent).toContain("up to a minute"));
+	await act(async () => release({ status: 200, body: diff({ before: "x\n" }) }));
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("x\n"));
+	expect(region.textContent).toBe("");
+});
+
+test("the pane has one polite status region for a point's read, there before any wait", async () => {
+	let release: (reply: Reply) => void = () => {};
+	stubPointServer(
+		new Promise<Reply>((resolve) => {
+			release = resolve;
+		}),
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	// Mounted, and empty, before any wait, so the first change is announced.
+	const region = screen.getByTestId("diff-compare-status");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toBe("");
+
+	await comparePoint();
+	await waitFor(() => expect(region.textContent).toContain("up to a minute"));
+	await act(async () => release({ status: 200, body: diff({ before: "x\n" }) }));
+	await waitFor(() => expect(region.textContent).toBe(""));
+	// The same node all along: nothing was swapped in under the reader.
+	expect(screen.getByTestId("diff-compare-status")).toBe(region);
+});
+
+/**
+ * SPEC.md §25.8: a modal dialog hides the page behind it from screen readers,
+ * so the list's wait is said in one region inside the dialog.
+ */
+test("the point dialog says in one polite region while the list loads and when it is empty", async () => {
+	let releaseList: (reply: Reply) => void = () => {};
+	const listReply = new Promise<Reply>((resolve) => {
+		releaseList = resolve;
+	});
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const reply = String(input).endsWith("/recovery-points")
+				? await listReply
+				: { status: 200, body: diff() };
+			return new Response(JSON.stringify(reply.body), {
+				status: reply.status,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await choose("A recovery point…");
+	const dialog = await screen.findByTestId("diff-point-dialog");
+	const region = await screen.findByTestId("diff-point-status");
+	expect(dialog.contains(region)).toBe(true);
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toBe("Loading recovery points…");
+	await act(async () =>
+		releaseList({
+			status: 200,
+			body: { points: [], usage: { usedBytes: 0, quotaBytes: 1 } },
+		}),
+	);
+	await waitFor(() =>
+		expect(region.textContent).toBe("This project has no recovery points yet."),
+	);
+	expect(screen.getByTestId("diff-point-status")).toBe(region);
+});
+
+test("a save or a file event does not read the point again; Compare does", async () => {
+	const urls = stubPointServer({ status: 200, body: diff({ before: "saved\n" }) });
+	const client = renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("saved\n"));
+	const pointReads = () =>
+		urls.filter((url) => url.includes(`/${POINT_A}/diff?`)).length;
+	expect(pointReads()).toBe(1);
+
+	// What a save does, then what the project events socket does.
+	await act(async () => {
+		await client.invalidateQueries({
+			queryKey: fileKeys.diff(WORKSPACE, PROJECT, PATH),
+		});
+		applyInvalidations(client, WORKSPACE, PROJECT, {
+			git: true,
+			all: true,
+			trees: [],
+			files: [PATH],
+		});
+		window.dispatchEvent(new Event("visibilitychange"));
+		window.dispatchEvent(new Event("focus"));
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(pointReads()).toBe(1);
+
+	await comparePoint();
+	await waitFor(() => expect(pointReads()).toBe(2));
+});
+
+test("Compare on a point viewed earlier reads it again", async () => {
+	const urls = stubPointServer({ status: 200, body: diff({ before: "saved\n" }) });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	const reads = (point: string) =>
+		urls.filter((url) => url.includes(`/${point}/diff?`)).length;
+	const compareWith = async (point: string, times: number) => {
+		const select = await choosePoints();
+		fireEvent.change(select, { target: { value: point } });
+		fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+		await waitFor(() => expect(reads(point)).toBe(times));
+	};
+
+	await compareWith(POINT_A, 1);
+	await compareWith(POINT_B, 1);
+	await compareWith(POINT_A, 2);
+});
+
+test("a point read carries an abort signal, so leaving it cancels the read", async () => {
+	stubPointServer({ status: 200, body: diff() });
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	const calls = vi.mocked(fetch).mock.calls;
+	await waitFor(() =>
+		expect(calls.some(([url]) => String(url).includes(`/${POINT_A}/diff?`))).toBe(true),
+	);
+	const [, init] =
+		calls.find(([url]) => String(url).includes(`/${POINT_A}/diff?`)) ?? [];
+	expect(init?.signal).toBeInstanceOf(AbortSignal);
+});
+
+test("two views of one file give each control its own id", async () => {
+	renderWithQuery(
+		<>
+			<DiffLeaf path={PATH} workspaceId={WORKSPACE} projectId={PROJECT} />
+			<DiffLeaf path={PATH} workspaceId={WORKSPACE} projectId={PROJECT} />
+		</>,
+	);
+	const ids: string[] = [];
+	for (const index of [0, 1]) {
+		await choose("A Git ref…", index);
+		ids.push((await screen.findByLabelText("Branch, tag, or commit")).id);
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByTestId("diff-ref-dialog")).toBeNull());
+	}
+	expect(ids[0]).not.toBe(ids[1]);
+});
+
+test("a point that timed out shows the server's message as an alert", async () => {
+	stubPointServer({
+		status: 504,
+		body: {
+			code: "RECOVERY_READ_TIMEOUT",
+			message: "Reading the recovery point took too long. Try again.",
+		},
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe(
+		"Reading the recovery point took too long. Try again.",
+	);
+});
+
+test("a file the point lacked is called new since the point", async () => {
+	stubPointServer({
+		status: 200,
+		body: diff({ status: "A", before: null, after: "n\n" }),
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	await waitFor(() =>
+		expect(screen.getByTestId("diff-note").textContent).toBe(
+			"New file (not in this recovery point)",
+		),
+	);
+	expect(editorState.models?.original.getValue()).toBe("");
+});
+
+test("a file deleted since the point shows the point's side", async () => {
+	stubPointServer({
+		status: 200,
+		body: diff({ status: "D", before: "was\n", after: null }),
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("was\n"));
+	expect(screen.getByTestId("diff-note").textContent).toBe(
+		"Deleted from the working tree",
+	);
+});
+
+test("a binary or too large file at a point shows no diff", async () => {
+	stubPointServer({
+		status: 200,
+		body: diff({ before: null, after: null, binary: true }),
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	expect(await screen.findByText("Binary file changed")).toBeTruthy();
+	cleanup();
+
+	stubPointServer({
+		status: 200,
+		body: diff({ before: null, after: null, tooLarge: true }),
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	expect(await screen.findByText("This diff is too large to show here")).toBeTruthy();
+});
+
+test("a project with no points says so and offers no Compare", async () => {
+	stubPointServer(
+		{ status: 200, body: diff() },
+		{ points: [], usage: { usedBytes: 0, quotaBytes: 1 } },
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await choose("A recovery point…");
+	await waitFor(() =>
+		expect(screen.getByTestId("diff-point-status").textContent).toBe(
+			"This project has no recovery points yet.",
+		),
+	);
+	expect(screen.queryByRole("button", { name: "Compare" })).toBeNull();
+});
+
+test("a second read refused while another runs is said out loud, over the last diff", async () => {
+	let reply: Reply = { status: 200, body: diff({ before: "saved\n" }) };
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			let answerFor: Reply = { status: 200, body: diff() };
+			if (url.endsWith("/recovery-points")) answerFor = { status: 200, body: POINTS };
+			else if (url.includes("/recovery-points/")) answerFor = reply;
+			return new Response(JSON.stringify(answerFor.body), {
+				status: answerFor.status,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	await waitFor(() => expect(editorState.models?.original.getValue()).toBe("saved\n"));
+
+	reply = {
+		status: 429,
+		body: {
+			code: "RATE_LIMITED",
+			message: "Another recovery point is being read. Try again when it finishes.",
+		},
+	};
+	await comparePoint();
+	const alert = await screen.findByRole("alert");
+	expect(alert.getAttribute("data-testid")).toBe("diff-error");
+	expect(alert.textContent).toContain("Another recovery point is being read");
+	// The last good diff stays to read.
+	expect(editorState.models?.original.getValue()).toBe("saved\n");
+});
+
+test("a first read refused while another runs is an alert", async () => {
+	stubPointServer({
+		status: 429,
+		body: {
+			code: "RATE_LIMITED",
+			message: "Another recovery point is being read. Try again when it finishes.",
+		},
+	});
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await comparePoint();
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe(
+		"Another recovery point is being read. Try again when it finishes.",
+	);
 });

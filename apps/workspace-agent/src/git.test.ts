@@ -162,6 +162,7 @@ test("a project that is not a repository reports repo false", async () => {
 		repo: false,
 		branch: null,
 		detached: false,
+		oid: null,
 		upstream: null,
 		ahead: 0,
 		behind: 0,
@@ -300,6 +301,14 @@ test("a detached HEAD reports no branch", async () => {
 	const status = await gitStatus(homeDir, SLUG, { hidden: false });
 	expect(status.detached).toBe(true);
 	expect(status.branch).toBeNull();
+	// The commit is named, so the status bar can show it (SPEC.md §12.8).
+	expect(status.oid).toBe(head);
+});
+
+test("the commit id is read from the branch header, and null before a commit", () => {
+	const oid = "0123456789abcdef0123456789abcdef01234567";
+	expect(parsePorcelainV2([`# branch.oid ${oid}`, ""].join("\0")).oid).toBe(oid);
+	expect(parsePorcelainV2(["# branch.oid (initial)", ""].join("\0")).oid).toBeNull();
 });
 
 test("ignored files appear only when hidden files are shown", async () => {

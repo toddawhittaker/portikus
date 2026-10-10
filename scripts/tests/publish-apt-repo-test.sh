@@ -121,7 +121,7 @@ retention_case build-suffix \
 cp -r "$WORK/repo" "$WORK/tampered"
 sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/tampered/dists/trixie/Release" "$WORK/tampered/dists/trixie/InRelease"
 
-docker run --rm -i -v "$WORK:/w:ro" debian:trixie bash -euo pipefail <<'INNER'
+docker run --rm -i -v "$WORK:/w:ro" mirror.gcr.io/library/debian:trixie bash -euo pipefail <<'INNER'
 export DEBIAN_FRONTEND=noninteractive
 rm -f /etc/apt/sources.list.d/*
 cp /w/repo/portikus-archive-keyring.gpg /usr/share/keyrings/

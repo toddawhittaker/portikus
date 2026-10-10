@@ -106,14 +106,18 @@
 	background: var(--surface-sunken);
 	font-family: "JetBrains Mono", ui-monospace, monospace;
 	font-size: 12.5px;
+	/* Code reads literally, as in the editor (DESIGN.md, "Type"). */
+	font-variant-ligatures: none;
 }
 
+/* A code block takes the editor's own background (monaco.ts), which every
+   highlighted token colour is checked against for contrast (SPEC.md 25.8). */
 .pk-markdown pre {
 	margin: 0 0 var(--space-3);
 	padding: var(--space-3);
 	border: 1px solid var(--line);
 	border-radius: 6px;
-	background: var(--surface-sunken);
+	background: var(--surface);
 	overflow: auto;
 }
 

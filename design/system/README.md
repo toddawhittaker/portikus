@@ -32,7 +32,7 @@ Lines: `line` is a decorative hairline between panes and rows. Any control bound
 
 Accent: `accent` (verdigris) marks the active tab's top edge, checked boxes and progress. `accent-text` is for links. Use accent sparingly; a screen should read as neutral at a glance.
 
-Terminal: `terminal-bg`, `terminal-fg`, `terminal-cursor`, `terminal-selection`, `terminal-muted` and the sixteen `ansi-*` tokens form the xterm.js theme. They are the same in both themes, because a terminal is always dark. Every ANSI foreground meets 4.5:1 on `terminal-bg`. Monaco uses its own `vs` and `vs-dark` themes with the background set to `surface-raised`; do not restyle its syntax colours.
+Terminal: `terminal-bg`, `terminal-fg`, `terminal-cursor`, `terminal-selection`, `terminal-muted` and the sixteen `ansi-*` tokens form the xterm.js theme. They are the same in both themes, because a terminal is always dark. Every ANSI foreground meets 4.5:1 on `terminal-bg`. Monaco uses its own `vs` and `vs-dark` themes with the background set to `surface`; do not restyle its syntax colours.
 
 ## Workspace states and status colour
 

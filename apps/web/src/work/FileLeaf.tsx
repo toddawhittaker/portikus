@@ -11,12 +11,22 @@ import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
-import { baseName, parentOf } from "../files/paths.js";
+import { baseName, displayName, parentOf } from "../files/paths.js";
 import { fileInlineUrl, useTree } from "../files/queries.js";
 import { viewerKind, viewerVersion } from "../files/viewable.js";
-import { type PendingView, useEditorViewState } from "../layout/store.js";
+import {
+	type PendingView,
+	useEditorViewState,
+	useFileGeneration,
+	useFileView,
+	type FileView as View,
+} from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
+import { type SpeechInput, useSpeechInput } from "../voice/useSpeechInput.js";
+import { VoiceButton } from "../voice/VoiceButton.js";
+import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
+import { FileHeader } from "./FilePane.js";
 import { ImageView, PdfView } from "./FileViewer.js";
 import { type BufferStatus, useFileBuffer } from "./useFileBuffer.js";
 
@@ -39,12 +49,6 @@ const DiffViewer = lazy(() =>
 	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
 );
 
-/**
- * The editor, or this file's changes against the last commit.
- * An SVG also has the picture it draws.
- */
-type View = "view" | "edit" | "diff";
-
 /** The tab is hidden, not unmounted, so the editor keeps its undo history. */
 const HIDDEN = { display: "none" } as const;
 
@@ -57,10 +61,19 @@ const SAME_PLACE = 1;
 /** Lines closer together than this are the same place; lines are fractional. */
 const SAME_LINE = 0.01;
 
+/** Said when a click with no pointer press behind it cannot be held. */
+const FILE_VOICE_HINT =
+	"Hold Space on this button, or Alt+Shift+M in the editor, to dictate.";
+
 /** True for the file names that open as Markdown. */
 function isMarkdownPath(path: string): boolean {
 	const lower = path.toLowerCase();
 	return lower.endsWith(".md") || lower.endsWith(".markdown");
+}
+
+/** True for the file names that open as a table. */
+function isCsvPath(path: string): boolean {
+	return path.toLowerCase().endsWith(".csv");
 }
 
 const STATUS_LABEL: Record<BufferStatus, string> = {
@@ -90,7 +103,16 @@ export interface FileLeafProps {
 	baseline?: string | null;
 }
 
-export function FileLeaf({
+/**
+ * A move that replaces this file mounts the tab again, so the editor of the
+ * file that was overwritten does not stay on screen (SPEC.md §11.2).
+ */
+export function FileLeaf(props: FileLeafProps) {
+	const generation = useFileGeneration(props.path);
+	return <FileTab key={generation} {...props} />;
+}
+
+function FileTab({
 	path,
 	workspaceId,
 	projectId,
@@ -124,12 +146,16 @@ export function FileLeaf({
 	// read has no etag for; a change on disk refetches it.
 	const listing = useTree(workspaceId, projectId, parentOf(path), kind !== null);
 	const name = baseName(path);
+	const shownPath = displayName(path);
 	const listed = listing.data?.entries.find((entry) => entry.name === name);
 	const svg = kind === "svg";
-	// Which view this tab shows. It belongs to this browser and is not saved.
-	// An SVG opens as its picture; its text is one button away.
-	const firstView: View = svg ? "view" : "edit";
-	const [view, setView] = useState<View>(firstView);
+	const csv = isCsvPath(path);
+	// Which view this tab shows. It belongs to this browser, is not saved, and
+	// survives a move to another place in the layout.
+	// An SVG opens as its picture and a CSV file as its table; the text is
+	// one button away.
+	const firstView: View = svg || csv ? "view" : "edit";
+	const [view, setView] = useFileView(path, firstView);
 	// The pressed button is replaced by its twin in the other header, so the
 	// keyboard is handed to the twin as it mounts.
 	const focusView = useRef<View | null>(null);
@@ -149,13 +175,22 @@ export function FileLeaf({
 	// The two sides of the Markdown split keep the same top line.
 	// Each side remembers the place it last put the other one at, so it can
 	// recognise that side's answering scroll event and not send it back.
-	const editorScroll = useRef<CodeEditorHandle | null>(null);
+	// Also how dictation types into the file (SPEC.md §25.10).
+	const editorHandle = useRef<CodeEditorHandle | null>(null);
 	const previewScroll = useRef<HTMLDivElement | null>(null);
 	const sentPreviewTop = useRef<number | null>(null);
 	const sentEditorLine = useRef<number | null>(null);
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
+	// Each final phrase is typed at the cursor as one undo step, so it marks
+	// the file unsaved as typing does (SPEC.md §25.10).
+	const speech = useSpeechInput((phrase) => editorHandle.current?.insertText(phrase));
+	const leafRef = useRef<HTMLDivElement | null>(null);
+	function holdVoice(held: boolean) {
+		if (held) speech.start();
+		else speech.stop();
+	}
 
 	// A file can be opened again while its tab is already there, so the
 	// request is taken every time the store gets a new one, not only on mount.
@@ -188,9 +223,16 @@ export function FileLeaf({
 		(data !== undefined && (kind === "image" || kind === "pdf"));
 	// An SVG small enough to edit has a picture view and a text view.
 	const svgModes = svg && !viewer;
+	// So does a CSV file: its table and its text.
+	const csvModes = csv && !viewer;
+	const viewModes = svgModes || csvModes;
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
+	// An image, a PDF, or a file too large or not text is only looked at: it
+	// has no other view, and its diff would only say it changed in binary.
+	// A raster image or PDF is known by its name before it loads.
+	const viewOnly = viewer || kind === "image" || kind === "pdf";
 
 	// The two sides of the Markdown split follow each other by source line:
 	// the first line showing on the left is the first line showing on the
@@ -229,7 +271,7 @@ export function FileLeaf({
 		sentPreviewTop.current = null;
 		const line = lineForTop(readBlocks(node), node.scrollTop);
 		sentEditorLine.current = line;
-		editorScroll.current?.setTopLine(line);
+		editorHandle.current?.setTopLine(line);
 	}
 
 	function banner() {
@@ -261,8 +303,8 @@ export function FileLeaf({
 		return (
 			<EmptyState icon="file" title={title} actions={downloadButton}>
 				{size > 0
-					? `${path} is ${formatBytes(size)}. Download it to open it elsewhere.`
-					: `${path} cannot be shown here. Download it to open it elsewhere.`}
+					? `${shownPath} is ${formatBytes(size)}. Download it to open it elsewhere.`
+					: `${shownPath} cannot be shown here. Download it to open it elsewhere.`}
 			</EmptyState>
 		);
 	}
@@ -313,7 +355,7 @@ export function FileLeaf({
 						</Button>
 					}
 				>
-					{path} is no longer in the project.
+					{shownPath} is no longer in the project.
 				</EmptyState>
 			);
 		}
@@ -346,6 +388,9 @@ export function FileLeaf({
 				/>
 			);
 		}
+		if (csvModes && view === "view") {
+			return <CsvView path={path} text={text} onShowText={() => pressView("edit")} />;
+		}
 		const editor = (
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
 				<CodeEditor
@@ -360,8 +405,9 @@ export function FileLeaf({
 					revealNonce={reveal?.nonce}
 					viewState={viewState.initial}
 					onViewState={viewState.save}
-					ref={markdown ? editorScroll : undefined}
+					ref={editorHandle}
 					onTopLine={markdown ? followEditor : undefined}
+					onVoiceHold={voiceOn ? holdVoice : undefined}
 				/>
 			</Suspense>
 		);
@@ -401,7 +447,7 @@ export function FileLeaf({
 	const note = banner();
 	// The diff replaces the whole tab on every file, Markdown included
 	// (SPEC.md §13.4).
-	const inDiff = view === "diff";
+	const inDiff = view === "diff" && !viewOnly;
 	// The version on disk on the left, the student's own text on the right and
 	// still editable. The editor below is hidden rather than
 	// unmounted, so it keeps its undo history while the diff is up.
@@ -419,55 +465,29 @@ export function FileLeaf({
 				/>
 			</Suspense>
 		) : null;
-	// A Markdown tab has one Diff button that turns the diff on and off;
-	// every other tab swaps between the editor and the diff, so it needs both.
-	const toggle = markdown ? (
-		<fieldset className="pk-segmented pk-view-modes">
-			<legend className="pk-visually-hidden">File view</legend>
-			<button
-				type="button"
-				ref={viewButtonRef("diff")}
-				aria-pressed={inDiff}
-				onClick={() => pressView(inDiff ? "edit" : "diff", "diff")}
-				data-testid={`file-view-diff-${path}`}
-			>
-				Diff
-			</button>
-		</fieldset>
-	) : (
-		<fieldset className="pk-segmented pk-view-modes">
-			<legend className="pk-visually-hidden">File view</legend>
-			{svgModes ? (
-				<button
-					type="button"
-					ref={viewButtonRef("view")}
-					aria-pressed={view === "view"}
-					onClick={() => pressView("view")}
-					data-testid={`file-view-view-${path}`}
-				>
-					View
-				</button>
-			) : null}
-			<button
-				type="button"
-				ref={viewButtonRef("edit")}
-				aria-pressed={!inDiff && !(svgModes && view === "view")}
-				onClick={() => pressView("edit")}
-				data-testid={`file-view-edit-${path}`}
-			>
-				{/* An image or PDF shown in place is looked at, not edited. */}
-				{viewer && kind !== null ? "View" : "Edit"}
-			</button>
-			<button
-				type="button"
-				ref={viewButtonRef("diff")}
-				aria-pressed={inDiff}
-				onClick={() => pressView("diff")}
-				data-testid={`file-view-diff-${path}`}
-			>
-				Diff
-			</button>
-		</fieldset>
+	// Dictation is offered only where the student is editing the text itself.
+	const editing =
+		!viewOnly &&
+		!inDiff &&
+		!(viewModes && view === "view") &&
+		text !== null &&
+		conflictDiff === null;
+	const voiceOn = editing && speech.state !== "unsupported";
+	const stopSpeech = speech.stop;
+	useEffect(() => {
+		if (!editing) stopSpeech();
+	}, [editing, stopSpeech]);
+	// A file that is only looked at has no other view to switch to.
+	const toggle = viewOnly ? null : (
+		<ViewButtons
+			path={path}
+			markdown={markdown}
+			viewModes={viewModes}
+			view={view}
+			inDiff={inDiff}
+			onPress={pressView}
+			buttonRef={viewButtonRef}
+		/>
 	);
 
 	return (
@@ -475,15 +495,33 @@ export function FileLeaf({
 			<div
 				className="pk-doc-leaf pk-file-leaf"
 				data-testid={`file-pane-${path}`}
+				ref={leafRef}
 				style={inDiff ? HIDDEN : undefined}
 			>
-				<div className="pk-file-header">
-					<span className="pk-file-path">{path}</span>
-					{/* Only the view on screen draws the toggle, so the controls
-					    are never there twice. */}
-					{inDiff ? null : toggle}
-					{showStatus ? <StatusPill path={path} status={status} /> : null}
-				</div>
+				{/* Only the view on screen draws the header, so its controls,
+				    the drag handle and the actions menu are never there twice.
+				    The status sits before the toggle so its changing width
+				    never moves the buttons. */}
+				{inDiff ? null : (
+					<FileHeader path={path}>
+						{showStatus ? <StatusPill path={path} status={status} /> : null}
+						{toggle}
+						{editing ? (
+							<VoiceButton
+								testId={`file-voice-${path}`}
+								statusTestId={`file-voice-status-${path}`}
+								label={`Hold to dictate into ${displayName(name)}`}
+								hint={FILE_VOICE_HINT}
+								voice={speech}
+								focusTarget={() =>
+									leafRef.current
+										?.querySelector<HTMLElement>(".monaco-editor textarea")
+										?.focus()
+								}
+							/>
+						) : null}
+					</FileHeader>
+				)}
 				{conflict !== null ? (
 					<ConflictBar
 						showConflict={showConflict}
@@ -497,6 +535,7 @@ export function FileLeaf({
 						{note}
 					</div>
 				) : null}
+				<VoiceError path={path} voice={speech} shown={editing} />
 				{conflictDiff}
 				<div
 					className="pk-file-body"
@@ -516,6 +555,104 @@ export function FileLeaf({
 				/>
 			) : null}
 		</>
+	);
+}
+
+/**
+ * The view buttons in the file header. A Markdown tab has one Diff button
+ * that turns the diff on and off; every other tab swaps between its views
+ * and the diff, so it needs a button for each.
+ */
+function ViewButtons({
+	path,
+	markdown,
+	viewModes,
+	view,
+	inDiff,
+	onPress,
+	buttonRef,
+}: {
+	path: string;
+	markdown: boolean;
+	/** The file also has a picture or table view. */
+	viewModes: boolean;
+	view: View;
+	inDiff: boolean;
+	onPress: (next: View, button?: View) => void;
+	buttonRef: (which: View) => (button: HTMLButtonElement | null) => void;
+}) {
+	if (markdown) {
+		return (
+			<fieldset className="pk-segmented">
+				<legend className="pk-visually-hidden">File view</legend>
+				<button
+					type="button"
+					ref={buttonRef("diff")}
+					aria-pressed={inDiff}
+					onClick={() => onPress(inDiff ? "edit" : "diff", "diff")}
+					data-testid={`file-view-diff-${path}`}
+				>
+					Diff
+				</button>
+			</fieldset>
+		);
+	}
+	const viewing = viewModes && view === "view";
+	return (
+		<fieldset className="pk-segmented">
+			<legend className="pk-visually-hidden">File view</legend>
+			{viewModes ? (
+				<button
+					type="button"
+					ref={buttonRef("view")}
+					aria-pressed={viewing}
+					onClick={() => onPress("view")}
+					data-testid={`file-view-view-${path}`}
+				>
+					View
+				</button>
+			) : null}
+			<button
+				type="button"
+				ref={buttonRef("edit")}
+				aria-pressed={!inDiff && !viewing}
+				onClick={() => onPress("edit")}
+				data-testid={`file-view-edit-${path}`}
+			>
+				Edit
+			</button>
+			<button
+				type="button"
+				ref={buttonRef("diff")}
+				aria-pressed={inDiff}
+				onClick={() => onPress("diff")}
+				data-testid={`file-view-diff-${path}`}
+			>
+				Diff
+			</button>
+		</fieldset>
+	);
+}
+
+/** A voice error, seen as well as heard; the status region reads it. */
+function VoiceError({
+	path,
+	voice,
+	shown,
+}: {
+	path: string;
+	voice: SpeechInput;
+	shown: boolean;
+}) {
+	if (!shown || voice.state === "listening" || voice.message === "") return null;
+	return (
+		<p
+			className="pk-file-banner"
+			aria-hidden="true"
+			data-testid={`file-voice-error-${path}`}
+		>
+			{voice.message}
+		</p>
 	);
 }
 

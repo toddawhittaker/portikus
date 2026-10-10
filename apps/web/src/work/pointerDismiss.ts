@@ -38,3 +38,34 @@ export function usePointerDismiss(): {
 
 	return { pointer, track };
 }
+
+/**
+ * Focus handling for a pane's actions menu. Radix focuses the trigger when
+ * the menu closes, and that programmatic focus paints the focus ring, so a
+ * pointer dismiss leaves the trigger at rest; a keyboard dismiss still
+ * focuses it. `thenFocus` runs an action once the menu has closed instead,
+ * for an action that moves the keyboard elsewhere or removes the pane.
+ */
+export function usePaneMenuFocus() {
+	const { pointer, track: onOpenChange } = usePointerDismiss();
+	const afterClose = useRef<(() => void) | null>(null);
+
+	function thenFocus(action: () => void) {
+		afterClose.current = action;
+	}
+
+	function onCloseAutoFocus(event: Event) {
+		const action = afterClose.current;
+		if (action) {
+			afterClose.current = null;
+			event.preventDefault();
+			action();
+			return;
+		}
+		if (!pointer.current) return;
+		event.preventDefault();
+		pointer.current = false;
+	}
+
+	return { onOpenChange, onCloseAutoFocus, thenFocus };
+}

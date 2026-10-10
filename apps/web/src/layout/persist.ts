@@ -13,6 +13,7 @@ import { ApiError, request, sendJson } from "../api/request.js";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { readLocalLayout, writeLocalLayout } from "./local.js";
 import type { LayoutStore } from "./store.js";
+import { filePaths } from "./tree.js";
 
 const SAVE_DEBOUNCE_MS = 1_000;
 const LOCAL_SAVE_DEBOUNCE_MS = 300;
@@ -68,18 +69,14 @@ export function useLayoutPersistence(
 		// Every later change retries the save, so the limit is told only once.
 		let limitShown = false;
 
-		/** Keep only the view states of the file tabs that are still open. */
+		/** Keep only the view states of the files still open, in a tab or a split. */
 		function saveLocal() {
 			localTimer = undefined;
 			const state = store.getState();
 			// Before the saved layout arrives there are no tabs to compare
 			// against, and pruning then would throw away what was remembered.
 			if (state.layout.tabs.length === 0) return;
-			const open = new Set(
-				state.layout.tabs.flatMap((tab) =>
-					tab.root.type === "file" ? [tab.root.path] : [],
-				),
-			);
+			const open = new Set(state.layout.tabs.flatMap((tab) => filePaths(tab.root)));
 			const viewStates: Record<string, unknown> = {};
 			for (const [path, viewState] of Object.entries(state.viewStates)) {
 				if (open.has(path)) viewStates[path] = viewState;

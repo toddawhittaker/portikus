@@ -8,7 +8,7 @@ import type { SplitNode } from "@portikus/contracts";
 import { PaneHandle } from "@portikus/ui";
 import { Fragment, type ReactNode, useRef } from "react";
 import { Group, type GroupImperativeHandle, Panel } from "react-resizable-panels";
-import { evenSizes } from "./tree.js";
+import { evenSizes, paneId } from "./tree.js";
 
 /** Any node that is not a split. */
 export type LeafNode = Exclude<SplitNode, { type: "split" }>;
@@ -77,13 +77,13 @@ export function SplitTree({ tabId, root, onResize, renderLeaf }: SplitTreeProps)
 				}}
 			>
 				{node.children.map((child, index) => (
-					// Keyed by the terminal, not the position, so swapping two panes
-					// moves them instead of remounting both terminals.
-					<Fragment key={child.type === "leaf" ? child.terminalId : ids[index]}>
+					// Keyed by the pane, not the position, so swapping two panes moves
+					// them instead of remounting both terminals or editors.
+					<Fragment key={paneId(child) ?? ids[index]}>
 						{index > 0 ? (
 							<PaneHandle
 								orientation={orientation === "horizontal" ? "vertical" : "horizontal"}
-								label="Resize terminal"
+								label="Resize panes"
 							/>
 						) : null}
 						<Panel id={ids[index]} minSize="10%" className="pk-split-panel">

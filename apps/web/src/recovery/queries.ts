@@ -7,15 +7,38 @@ import { request, sendJson } from "../api/request.js";
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
 
-const recoveryKeys = {
+/** One file of a point against its working copy (SPEC.md §15.8, §12.6). */
+export function recoveryPointDiffUrl(
+	workspaceId: string,
+	projectId: string,
+	pointId: string,
+	path: string,
+): string {
+	const query = new URLSearchParams({ path });
+	return `${base(workspaceId, projectId)}/${pointId}/diff?${query}`;
+}
+
+export const recoveryKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["recovery-points", workspaceId, projectId] as const,
+	/**
+	 * Outside the "git-diff" keys on purpose: a save or a file event must not
+	 * start another archive read of up to a minute (SPEC.md §15.8).
+	 */
+	pointDiff: (workspaceId: string, projectId: string, pointId: string, path: string) =>
+		["recovery-point-diff", workspaceId, projectId, pointId, path] as const,
 };
 
-export function useRecoveryPoints(workspaceId: string, projectId: string) {
+/** The project's points; `enabled` holds the request until they are wanted. */
+export function useRecoveryPoints(
+	workspaceId: string,
+	projectId: string,
+	enabled = true,
+) {
 	return useQuery({
 		queryKey: recoveryKeys.list(workspaceId, projectId),
 		queryFn: () => request(RecoveryPointList, base(workspaceId, projectId)),
+		enabled,
 	});
 }
 

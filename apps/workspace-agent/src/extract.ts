@@ -21,7 +21,11 @@ import {
 	statfs,
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { MAX_EXTRACT_BYTES, MAX_EXTRACT_ENTRIES } from "@portikus/contracts";
+import {
+	type ExtractProgress,
+	MAX_EXTRACT_BYTES,
+	MAX_EXTRACT_ENTRIES,
+} from "@portikus/contracts";
 import { AgentFailure, errorCode, isNoSpace, saysNoSpace } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { resolveProject } from "./projects.js";
@@ -47,6 +51,30 @@ const SPACE_MARGIN_BYTES = 16 * 1024 * 1024;
 const SPACE_POLL_MS = 1000;
 const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
+
+/** Each running extraction's progress, by project slug (SPEC.md §11.2). */
+const progress = new Map<string, ExtractProgress>();
+
+/** How far the project's running extraction has got; total 0 when none runs. */
+export function extractProgress(slug: string): ExtractProgress {
+	return { ...(progress.get(slug) ?? { done: 0, total: 0 }) };
+}
+
+/**
+ * unzip prints one line per entry it writes. Only the count is kept: the
+ * names are student content and are never logged (STACK.md §15, ADR 0012).
+ */
+const ENTRY_LINE = /^\s*(creating|inflating|extracting|linking):/;
+
+/** Count unzip's per-entry lines across chunks that may split a line. */
+export function entryCounter(onEntry: () => void): (chunk: string) => void {
+	let partial = "";
+	return (chunk) => {
+		const lines = (partial + chunk).split("\n");
+		partial = lines.pop() ?? "";
+		for (const line of lines) if (ENTRY_LINE.test(line)) onEntry();
+	};
+}
 
 function invalid(message: string): AgentFailure {
 	return new AgentFailure("ARCHIVE_INVALID", message);
@@ -239,16 +267,21 @@ export async function checkExtracted(dir: string): Promise<number> {
  * a free-space watch caps the total, since sizes in headers can lie. unzip
  * runs in its own process group so a kill stops it whole.
  */
-async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise<void> {
+async function runUnzip(
+	fd: number,
+	dest: string,
+	onEntry: () => void,
+	signal?: AbortSignal,
+): Promise<void> {
 	const startFree = await freeBytes(dest);
 	return new Promise((resolvePromise, reject) => {
 		const child = spawn(
 			"prlimit",
-			[`--fsize=${MAX_EXTRACT_BYTES}`, "--", "unzip", "-qq", "-n", "/proc/self/fd/3"],
+			[`--fsize=${MAX_EXTRACT_BYTES}`, "--", "unzip", "-n", "/proc/self/fd/3"],
 			{
 				cwd: dest,
 				detached: true,
-				stdio: ["ignore", "ignore", "pipe", fd],
+				stdio: ["ignore", "pipe", "pipe", fd],
 				env: { ...process.env, LC_ALL: "C" },
 			},
 		);
@@ -278,6 +311,8 @@ async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise
 		signal?.addEventListener("abort", onAbort, { once: true });
 		if (signal?.aborted) onAbort();
 
+		child.stdout?.setEncoding("utf8");
+		child.stdout?.on("data", entryCounter(onEntry));
 		let stderr = "";
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
@@ -355,7 +390,17 @@ export async function extractZip(
 			folderNameFor(target.path.split("/").pop() ?? ""),
 		);
 		dest = join(parent, name);
-		await runUnzip(handle.fd, dest, signal);
+		const state = { done: 0, total: entries.length };
+		progress.set(slug, state);
+		// A header can claim fewer entries than unzip reports, so the count stops at the total.
+		await runUnzip(
+			handle.fd,
+			dest,
+			() => {
+				state.done = Math.min(state.done + 1, state.total);
+			},
+			signal,
+		);
 		if ((await checkExtracted(dest)) > MAX_EXTRACT_BYTES) throw tooLarge();
 		return relative(project.path, dest);
 	} catch (error) {
@@ -366,6 +411,7 @@ export async function extractZip(
 		}
 		throw error;
 	} finally {
+		progress.delete(slug);
 		await handle.close();
 	}
 }

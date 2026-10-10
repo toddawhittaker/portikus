@@ -64,6 +64,7 @@ beforeEach(async () => {
 	agent.recoveryFull.clear();
 	agent.restoreIncomplete.clear();
 	agent.restoreFailure.clear();
+	agent.diffFailure.clear();
 	agent.recoveryDeletes.length = 0;
 	logLines = [];
 	const logger = createLogger({
@@ -606,4 +607,130 @@ test.skipIf(skip)("a leftover rollback copy refuses the restore", async () => {
 	expect(refused.json().message).toBe(
 		`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${pointId}. Copy back anything you need, delete that folder in a terminal, then restore again. You can restore a different point in the meantime.`,
 	);
+});
+
+function diff(jar: CookieJar, pointId: string, path = "notes-about-exam.txt") {
+	return app.inject({
+		method: "GET",
+		url: `${base()}/${pointId}/diff?${new URLSearchParams({ path })}`,
+		headers: { cookie: jar.cookieHeader() },
+	});
+}
+
+test.skipIf(skip)("the owner compares a file with a point's version", async () => {
+	const pointId = (await create(alice)).json().id;
+	writeFile("second draft");
+	const compared = await diff(alice, pointId);
+	expect(compared.statusCode).toBe(200);
+	expect(compared.json()).toEqual({
+		status: "M",
+		before: "first draft",
+		after: "second draft",
+		binary: false,
+		tooLarge: false,
+	});
+});
+
+test.skipIf(skip)(
+	"another student's point id is 404 in the owner's project",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobWorkspace = (
+			await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(bob, PUBLIC_URL),
+			})
+		).json().id;
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "running", agent_address: "127.0.0.1", agent_token: AGENT_TOKEN })
+			.where("id", "=", bobWorkspace)
+			.execute();
+		const bobProject = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${bobWorkspace}/projects`,
+				headers: csrfHeaders(bob, PUBLIC_URL),
+				payload: { name: "bobs-work", source: "new" },
+			})
+		).json().id;
+		const bobPoint = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${bobWorkspace}/projects/${bobProject}/recovery-points`,
+				headers: csrfHeaders(bob, PUBLIC_URL),
+			})
+		).json().id;
+		expect(bobPoint).toMatch(/^[0-9a-f-]{36}$/);
+
+		const refused = await diff(alice, bobPoint);
+		expect(refused.statusCode).toBe(404);
+		expect(refused.json().code).toBe("NOT_FOUND");
+
+		// Alice's own point is 404 to another student and to an administrator.
+		const alicePoint = (await create(alice)).json().id;
+		for (const name of ["bob", "carol"]) {
+			const jar = new CookieJar();
+			await loginAs(app, name, jar);
+			const response = await diff(jar, alicePoint);
+			expect(response.statusCode).toBe(404);
+			expect(response.json().code).toBe("WORKSPACE_NOT_FOUND");
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a path that leaves the project is refused before the agent",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		for (const path of ["../other/x", "/etc/passwd", "a/./b", ""]) {
+			const refused = await diff(alice, pointId, path);
+			expect(refused.statusCode).toBe(400);
+			expect(refused.json().code).toBe("VALIDATION_FAILED");
+		}
+	},
+);
+
+test.skipIf(skip)("the recorded hash is the one the agent checks", async () => {
+	const pointId = (await create(alice)).json().id;
+	await testDb.db
+		.updateTable("recovery_points")
+		.set({ sha256: "f".repeat(64) })
+		.where("id", "=", pointId)
+		.execute();
+	const refused = await diff(alice, pointId);
+	expect(refused.statusCode).toBe(422);
+});
+
+test.skipIf(skip)("a slow read becomes a timeout the browser can explain", async () => {
+	const pointId = (await create(alice)).json().id;
+	agent.diffFailure.set("", [504, "RECOVERY_READ_TIMEOUT"]);
+	const slow = await diff(alice, pointId);
+	expect(slow.statusCode).toBe(504);
+	expect(slow.json().code).toBe("RECOVERY_READ_TIMEOUT");
+});
+
+test.skipIf(skip)(
+	"a second point diff while one runs is refused, then allowed once it ends",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const held = agent.holdNextDiff();
+		const first = diff(alice, pointId);
+		await held.reached;
+		const second = await diff(alice, pointId);
+		expect(second.statusCode).toBe(429);
+		expect(second.json().code).toBe("RATE_LIMITED");
+		held.release();
+		expect((await first).statusCode).toBe(200);
+		expect((await diff(alice, pointId)).statusCode).toBe(200);
+	},
+);
+
+test.skipIf(skip)("a file in neither the point nor the project is 404", async () => {
+	const pointId = (await create(alice)).json().id;
+	const missing = await diff(alice, pointId, "never-there.txt");
+	expect(missing.statusCode).toBe(404);
+	expect(missing.json().code).toBe("FILE_NOT_FOUND");
 });

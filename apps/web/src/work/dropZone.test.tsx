@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { dropZone, insertionIndex } from "./dropZone";
+import { dropZone, insertionIndex, tabUnder } from "./dropZone";
 
 const pane = { left: 0, top: 0, width: 200, height: 100 };
 
@@ -40,4 +40,16 @@ test("the insertion index counts the tab midpoints the pointer has passed", () =
 	expect(insertionIndex(tabs, 160)).toBe(2);
 	expect(insertionIndex(tabs, 900)).toBe(3);
 	expect(insertionIndex([], 50)).toBe(0);
+});
+
+test("the tab under the pointer is the one whose box holds it", () => {
+	const tabs = [
+		{ left: 0, top: 0, width: 100, height: 30 },
+		{ left: 100, top: 0, width: 100, height: 30 },
+	];
+	expect(tabUnder(tabs, 50, 10)).toBe(0);
+	expect(tabUnder(tabs, 100, 10)).toBe(1);
+	// Past the last tab, or below the strip, is no tab at all.
+	expect(tabUnder(tabs, 250, 10)).toBe(-1);
+	expect(tabUnder(tabs, 50, 40)).toBe(-1);
 });

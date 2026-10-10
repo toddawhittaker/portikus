@@ -92,18 +92,14 @@ export function canMoveInto(from: string, toDir: string): boolean {
 }
 
 /**
- * The move a finished drag asks for, or null when it asks for nothing. The
- * dragged row carries a `row:` id and the directory under it a `dir:` id.
+ * The move a drop of `from` on the directory `dir` asks for, or null when it
+ * asks for nothing; null `dir` is a drop on no folder at all.
  */
 export function moveForDrop(
-	activeId: string,
-	overId: string | null,
+	from: string,
+	dir: string | null,
 ): { from: string; to: string } | null {
-	if (!activeId.startsWith("row:")) return null;
-	if (overId === null || !overId.startsWith("dir:")) return null;
-	const from = activeId.slice("row:".length);
-	const dir = overId.slice("dir:".length);
-	if (!canMoveInto(from, dir)) return null;
+	if (dir === null || !canMoveInto(from, dir)) return null;
 	return { from, to: joinPath(dir, baseName(from)) };
 }
 
@@ -123,42 +119,57 @@ export function prunePaths(paths: readonly string[], removed: string): string[] 
 	return paths.filter((path) => path !== removed && !isDescendant(path, removed));
 }
 
+/**
+ * Where `path` is after `from` moved to `to`: `from` itself or anything
+ * inside it moves with it. Null when it did not move.
+ */
+export function movedPath(path: string, from: string, to: string): string | null {
+	if (path === from) return to;
+	if (isDescendant(path, from)) return to + path.slice(from.length);
+	return null;
+}
+
 /** Rewrite `from` and everything under it to sit under `to` instead. */
 export function rewritePaths(
 	paths: readonly string[],
 	from: string,
 	to: string,
 ): string[] {
-	return paths.map((path) => {
-		if (path === from) return to;
-		if (isDescendant(path, from)) return to + path.slice(from.length);
-		return path;
-	});
+	return paths.map((path) => movedPath(path, from, to) ?? path);
 }
 
 /**
- * The focused row after a render: keep it when it is still on screen, and
- * otherwise fall back to the first row, so the keyboard always has a place
- * to start from.
+ * The focused row after a render. It stays when still on screen. When it is
+ * gone, the keyboard user keeps their place (SPEC.md §25.8): the row now
+ * drawn in its place when that is a sibling, else the row above it, else its
+ * folder. `previous` is the order the rows were drawn in before the change.
  */
-export function reseedFocus(
+export function focusAfterRemoval(
 	focused: string | null,
+	previous: readonly string[],
 	rendered: readonly string[],
 ): string | null {
-	if (focused !== null && rendered.includes(focused)) return focused;
-	return rendered[0] ?? null;
-}
-
-/** The ids of the tabs showing `path` itself or anything inside it. */
-export function tabIdsUnder(tabIds: readonly string[], path: string): string[] {
-	return tabIds.filter((id) => {
-		const cut = id.indexOf(":");
-		if (cut === -1) return false;
-		const kind = id.slice(0, cut);
-		if (kind !== "file" && kind !== "diff") return false;
-		const tabPath = id.slice(cut + 1);
-		return tabPath === path || isDescendant(tabPath, path);
-	});
+	if (focused === null) return rendered[0] ?? null;
+	const now = new Set(rendered);
+	if (now.has(focused)) return focused;
+	// A row inside a deleted folder goes with it; the folder is what was removed.
+	let removed = focused;
+	while (parentOf(removed) !== "" && !now.has(parentOf(removed))) {
+		removed = parentOf(removed);
+	}
+	const at = previous.indexOf(removed);
+	let above: string | undefined;
+	for (let index = at - 1; index >= 0 && above === undefined; index -= 1) {
+		if (now.has(previous[index] as string)) above = previous[index];
+	}
+	if (at !== -1) {
+		const next =
+			above === undefined ? rendered[0] : rendered[rendered.indexOf(above) + 1];
+		if (next !== undefined && parentOf(next) === parentOf(removed)) return next;
+		if (above !== undefined) return above;
+	}
+	const folder = parentOf(removed);
+	return now.has(folder) ? folder : (rendered[0] ?? null);
 }
 
 /**

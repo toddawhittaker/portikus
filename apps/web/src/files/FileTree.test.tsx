@@ -16,6 +16,7 @@ import { json, project, stubFetch, WORKSPACE } from "../test-utils.js";
 import { FileTreePane } from "./FileTree.js";
 import { fileKeys } from "./queries.js";
 import { useFileViewStore } from "./store.js";
+import { TREE_DRAG_TYPE } from "./useTreeDragAndDrop.js";
 
 const PROJECT = project();
 
@@ -254,6 +255,56 @@ describe("the file tree", () => {
 					.filter((r) => r.getAttribute("tabindex") === "0"),
 			).toHaveLength(1),
 		);
+	});
+
+	/** SPEC.md §25.8: a removed row hands the keyboard focus to its neighbour, not the page. */
+	it("moves the focus to the next row when the focused row is removed", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const readme = await screen.findByTestId("file-row-README.md");
+		readme.focus();
+		await waitFor(() => expect(readme.getAttribute("tabindex")).toBe("0"));
+
+		const before = ROOT.entries;
+		ROOT.entries = before.filter((item) => item.name !== "README.md");
+		onTestFinished(() => {
+			ROOT.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, ""),
+		});
+
+		await waitFor(() => expect(screen.queryByTestId("file-row-README.md")).toBeNull());
+		const env = screen.getByTestId("file-row-.env");
+		await waitFor(() => expect(document.activeElement).toBe(env));
+		expect(env.getAttribute("tabindex")).toBe("0");
+	});
+
+	/** Focus that is elsewhere stays there; only the Tab stop moves. */
+	it("moves only the Tab stop when the tree did not have the focus", async () => {
+		const client = createQueryClient();
+		renderPane(createLayoutStore(), client);
+		const modules = await screen.findByTestId("file-row-node_modules");
+		modules.focus();
+		const button = screen.getByTestId("files-more");
+		button.focus();
+
+		const before = ROOT.entries;
+		ROOT.entries = before.filter((item) => item.name !== "node_modules");
+		onTestFinished(() => {
+			ROOT.entries = before;
+		});
+		await client.invalidateQueries({
+			queryKey: fileKeys.tree(WORKSPACE.id, PROJECT.id, ""),
+		});
+
+		await waitFor(() =>
+			expect(screen.queryByTestId("file-row-node_modules")).toBeNull(),
+		);
+		// The last row is gone, so the row above it takes the Tab stop.
+		const env = screen.getByTestId("file-row-.env");
+		await waitFor(() => expect(env.getAttribute("tabindex")).toBe("0"));
+		expect(document.activeElement).toBe(button);
 	});
 
 	/** Shift+Arrow and Ctrl+Space build a selection, like Shift- and Ctrl-click. */
@@ -674,12 +725,109 @@ describe("the file tree", () => {
 		expect(link.download).toBe("README.md");
 	});
 
+	/** SPEC.md §11.2: several selected rows come down as one zip. */
+	it("downloads a selection as one zip, one path per selected row", async () => {
+		const checks: string[] = [];
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("check=1")) {
+				checks.push(url);
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		const click = vi
+			.spyOn(HTMLAnchorElement.prototype, "click")
+			.mockImplementation(() => {});
+		onTestFinished(() => click.mockRestore());
+		fireEvent.click(await screen.findByText("README.md"));
+		fireEvent.click(screen.getByText("src"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(screen.getByTestId("file-row-src").getAttribute("data-selected")).toBe(
+				"true",
+			),
+		);
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Download 2 items as zip"));
+
+		await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+		const link = click.mock.contexts[0] as HTMLAnchorElement;
+		const base = `/workspaces/${WORKSPACE.id}/projects/${PROJECT.id}/download`;
+		expect(link.getAttribute("href")).toBe(`${base}?path=src&path=README.md`);
+		expect(link.download).toBe(`${PROJECT.slug}.zip`);
+		expect(checks).toEqual([`${base}?path=src&path=README.md&check=1`]);
+	});
+
+	it("says a selection over the size cap is too big, and what to do", async () => {
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("check=1")) {
+				return json(413, { code: "FILE_TOO_LARGE", message: "too large" });
+			}
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.click(await screen.findByText("README.md"));
+		fireEvent.click(screen.getByText("src"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(screen.getByTestId("file-row-src").getAttribute("data-selected")).toBe(
+				"true",
+			),
+		);
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByText("Download 2 items as zip"));
+
+		expect(await screen.findByText("Downloads are limited to 1 GB")).toBeDefined();
+		expect(screen.getByText(/Select fewer items/)).toBeDefined();
+	});
+
+	/** SPEC.md §11.2: a file moved from the tree keeps its open tab. */
+	it("keeps a moved file's tab open at its new path", async () => {
+		stubFetch((url) => {
+			if (url.endsWith("/move")) return json(204, null);
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		const store = renderPane();
+		fireEvent.click(await screen.findByText("README.md"));
+		await waitFor(() =>
+			expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+				"file:README.md",
+			]),
+		);
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByTestId("row-move"));
+		const dialog = await screen.findByTestId("dialog-move-file");
+		fireEvent.click(await within(dialog).findByTestId("move-folder-src"));
+		fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
+
+		await waitFor(() =>
+			expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
+				"file:src/README.md",
+			]),
+		);
+		expect(store.getState().activeTabId).toBe("file:src/README.md");
+	});
+
 	/** "Extract here" is offered on a zip, and only on a zip. */
-	function stubZipTree(extract: () => Response) {
+	function stubZipTree(
+		extract: () => Response | Promise<Response>,
+		progress = { done: 0, total: 0 },
+	) {
 		const calls: string[] = [];
 		stubFetch((url, init) => {
 			if (url.includes("/terminals")) return json(200, { terminals: [] });
 			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.endsWith("/extract/progress")) return json(200, progress);
 			if (url.endsWith("/extract")) {
 				calls.push(String(init?.body));
 				return extract();
@@ -711,6 +859,35 @@ describe("the file tree", () => {
 		// The progress toast gives way to the result rather than overlapping it.
 		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
 		expect(calls).toEqual([JSON.stringify({ path: "starter.zip" })]);
+	});
+
+	/** SPEC.md §11.2, §25.8: the bar's figure stays out of the toast's live region. */
+	it("shows how far a running extraction has got on a bar", async () => {
+		let answer: (response: Response) => void = () => {};
+		stubZipTree(
+			() =>
+				new Promise<Response>((resolve) => {
+					answer = resolve;
+				}),
+			{ done: 3, total: 10 },
+		);
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-starter.zip"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-extract-starter.zip"));
+
+		const bar = await screen.findByRole("progressbar", { name: "Extraction progress" });
+		await waitFor(() =>
+			expect(bar.getAttribute("aria-valuetext")).toBe("3 of 10 items"),
+		);
+		expect(bar.getAttribute("value")).toBe("3");
+		expect(bar.getAttribute("max")).toBe("10");
+		expect(bar.closest("[aria-live]")?.getAttribute("aria-live")).toBe("off");
+
+		answer(json(201, { path: "starter" }));
+		expect(await screen.findByText("Extracted starter.zip into starter")).toBeDefined();
+		expect(screen.queryByRole("progressbar")).toBeNull();
 	});
 
 	it("explains a zip that was refused", async () => {
@@ -845,6 +1022,56 @@ describe("the file tree", () => {
 		await waitFor(() =>
 			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
 		);
+	});
+
+	/** SPEC.md §11.2: a row dragged onto a folder moves there, with the browser's own drag. */
+	it("moves a row dragged onto a folder, and refuses its own folder", async () => {
+		const moves: unknown[] = [];
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(204, null);
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		const readme = await screen.findByTestId("file-row-README.md");
+		const source = readme.querySelector(".pk-tree-row") as HTMLElement;
+		const folder = screen.getByTestId("file-row-src").querySelector(".pk-tree-row");
+		const carried = new Map<string, string>();
+		const dataTransfer = {
+			types: [TREE_DRAG_TYPE],
+			files: [],
+			setData: (type: string, value: string) => carried.set(type, value),
+			effectAllowed: "",
+			dropEffect: "",
+		};
+
+		expect(source.getAttribute("draggable")).toBe("true");
+		fireEvent.dragStart(source, { dataTransfer });
+		expect(carried.get(TREE_DRAG_TYPE)).toBe("README.md");
+		expect(source.getAttribute("data-dragging")).toBe("true");
+
+		// Over its own folder, the project root, nothing lights up.
+		fireEvent.dragEnter(screen.getByTestId("file-tree-space-drop"), { dataTransfer });
+		expect(
+			screen.getByTestId("file-tree-space-drop").getAttribute("data-drop-over"),
+		).toBeNull();
+
+		fireEvent.dragOver(folder as Element, { dataTransfer });
+		expect(folder?.className).toContain("is-drop-target");
+		fireEvent.drop(folder as Element, { dataTransfer });
+		fireEvent.dragEnd(source, { dataTransfer });
+
+		await waitFor(() =>
+			expect(moves).toEqual([{ from: "README.md", to: "src/README.md" }]),
+		);
+		expect(folder?.className).not.toContain("is-drop-target");
+		expect(source.getAttribute("data-dragging")).toBeNull();
 	});
 
 	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */

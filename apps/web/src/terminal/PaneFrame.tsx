@@ -15,9 +15,11 @@ import {
 	MenuSub,
 	MenuTrigger,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
-import { usePointerDismiss } from "../work/pointerDismiss.js";
+import type { SpeechInput } from "../voice/useSpeechInput.js";
+import { VoiceButton } from "../voice/VoiceButton.js";
+import { usePaneMenuFocus } from "../work/pointerDismiss.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -59,39 +61,13 @@ export interface PaneFrameProps {
 	onRename?: (terminalId: string, name: string) => void;
 	/** Offers the light terminal switch in the menu when given with `theme`. */
 	onSetTheme?: (terminalId: string, theme: TerminalTheme) => void;
+	/** Offers the hold-to-talk microphone when given (SPEC.md §25.10). */
+	voice?: SpeechInput;
 	children: ReactNode;
 }
 
-/**
- * Radix focuses a menu trigger when the menu closes, and that programmatic
- * focus paints the focus ring. A pointer dismiss leaves the trigger at rest;
- * a keyboard dismiss still focuses it.
- */
-function usePointerDismissFocus() {
-	const { pointer, track: onOpenChange } = usePointerDismiss();
-
-	// An action that moves the keyboard elsewhere runs once the menu has
-	// closed, instead of the trigger taking the keyboard back.
-	const afterClose = useRef<(() => void) | null>(null);
-	function thenFocus(action: () => void) {
-		afterClose.current = action;
-	}
-
-	function onCloseAutoFocus(event: Event) {
-		const action = afterClose.current;
-		if (action) {
-			afterClose.current = null;
-			event.preventDefault();
-			action();
-			return;
-		}
-		if (!pointer.current) return;
-		event.preventDefault();
-		pointer.current = false;
-	}
-
-	return { onOpenChange, onCloseAutoFocus, thenFocus };
-}
+const TERMINAL_HINT =
+	"Hold Space on this button, or Alt+Shift+M in the terminal, to talk.";
 
 export function PaneFrame({
 	terminalId,
@@ -112,13 +88,15 @@ export function PaneFrame({
 	onClose,
 	onRename,
 	onSetTheme,
+	voice,
 	children,
 }: PaneFrameProps) {
 	const [renaming, setRenaming] = useState(false);
 	const [draft, setDraft] = useState(name);
 	const field = useRef<HTMLInputElement | null>(null);
 	const mountId = useRef(crypto.randomUUID());
-	const actionsMenu = usePointerDismissFocus();
+	const section = useRef<HTMLElement | null>(null);
+	const actionsMenu = usePaneMenuFocus();
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
@@ -126,12 +104,21 @@ export function PaneFrame({
 	// (SPEC.md §9.3).
 	const drag = useDraggable({
 		id: paneDragId(terminalId),
-		data: { terminalId, title },
+		data: { paneId: terminalId, title },
 	});
 	const drop = useDroppable({
 		id: paneDropId(terminalId),
-		data: { terminalId },
+		data: { paneId: terminalId },
 	});
+	// Stable, so dnd-kit is not handed the node afresh on every render.
+	const setDropNode = drop.setNodeRef;
+	const sectionRef = useCallback(
+		(node: HTMLElement | null) => {
+			section.current = node;
+			setDropNode(node);
+		},
+		[setDropNode],
+	);
 
 	useEffect(() => {
 		if (!renaming) {
@@ -153,7 +140,7 @@ export function PaneFrame({
 
 	return (
 		<section
-			ref={drop.setNodeRef}
+			ref={sectionRef}
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`Terminal: ${title}`}
 			data-testid={`terminal-leaf-${terminalId}`}
@@ -199,6 +186,20 @@ export function PaneFrame({
 						{title}
 					</span>
 				)}
+				{voice ? (
+					<VoiceButton
+						testId={`terminal-voice-${terminalId}`}
+						statusTestId={`terminal-voice-status-${terminalId}`}
+						label={`Hold to talk into ${name}`}
+						hint={TERMINAL_HINT}
+						voice={voice}
+						focusTarget={() =>
+							section.current
+								?.querySelector<HTMLElement>("textarea.xterm-helper-textarea")
+								?.focus()
+						}
+					/>
+				) : null}
 				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
 					<MenuTrigger asChild={true}>
 						<IconButton
@@ -281,6 +282,27 @@ export function PaneFrame({
 				</MenuRoot>
 			</div>
 			{children}
+			{voice && voice.state !== "listening" && voice.message !== "" ? (
+				// The error seen as well as heard; the status region reads it.
+				<p
+					className="pk-term-voice-interim pk-term-voice-error"
+					aria-hidden="true"
+					data-testid={`terminal-voice-error-${terminalId}`}
+				>
+					{voice.message}
+				</p>
+			) : null}
+			{voice && voice.interim !== "" ? (
+				// Shown only: the status region says "Listening…" instead of
+				// reading every guess aloud.
+				<p
+					className="pk-term-voice-interim"
+					aria-hidden="true"
+					data-testid={`terminal-voice-interim-${terminalId}`}
+				>
+					{voice.interim}
+				</p>
+			) : null}
 			{dropEdge ? (
 				<div
 					className={`pk-term-drop pk-term-drop--${dropEdge}`}

@@ -1,15 +1,21 @@
 /**
  * Pure operations on a project's saved layout (SPEC.md §7.5, §9.3, §9.6).
  * A layout is a list of tabs, each holding a tree of splits whose leaves are
- * terminal ids. Nothing here touches React or the network, so every rule
- * about splitting, collapsing and reconciling can be tested on its own.
+ * terminals and files; a preview is always a whole tab. Nothing here touches
+ * React or the network, so every rule about splitting, collapsing and
+ * reconciling can be tested on its own.
  */
 import {
+	filePaths,
 	MAX_SPLIT_DEPTH,
 	type ProjectLayout,
 	type SplitNode,
 	splitDepth,
 } from "@portikus/contracts";
+import { movedPath } from "../files/paths.js";
+
+// One definition, shared with the layout schema that rejects a file open twice.
+export { filePaths } from "@portikus/contracts";
 
 export type SplitDirection = "row" | "column";
 
@@ -27,6 +33,79 @@ export function terminalIds(node: SplitNode): string[] {
 /** Every terminal id in the layout, in tab order. */
 export function layoutTerminalIds(layout: ProjectLayout): string[] {
 	return layout.tabs.flatMap((tab) => terminalIds(tab.root));
+}
+
+/**
+ * The id of a file's pane. It is also the id of the file's tab while the file
+ * is alone in it, so opening the file finds that tab.
+ */
+export function fileTabId(path: string): string {
+	return `file:${path}`;
+}
+
+/**
+ * The id a pane is moved and closed by: its terminal id, or `file:<path>`.
+ * A preview, and a diff node from an older layout, are whole tabs and have none.
+ */
+export function paneId(node: SplitNode): string | null {
+	if (node.type === "leaf") return node.terminalId;
+	if (node.type === "file") return fileTabId(node.path);
+	return null;
+}
+
+/** Every pane id in the subtree, terminals and files, in visual order. */
+export function paneIds(node: SplitNode): string[] {
+	if (node.type === "split") return node.children.flatMap(paneIds);
+	const id = paneId(node);
+	return id === null ? [] : [id];
+}
+
+/** The id of the tab that holds this pane, or null when no tab does. */
+export function tabOfPane(layout: ProjectLayout, id: string): string | null {
+	return layout.tabs.find((tab) => paneIds(tab.root).includes(id))?.id ?? null;
+}
+
+/** The pane node with this id, wherever it sits. */
+function findPane(layout: ProjectLayout, id: string): SplitNode | null {
+	function walk(node: SplitNode): SplitNode | null {
+		if (node.type === "split") {
+			for (const child of node.children) {
+				const found = walk(child);
+				if (found) return found;
+			}
+			return null;
+		}
+		return paneId(node) === id ? node : null;
+	}
+	for (const tab of layout.tabs) {
+		const found = walk(tab.root);
+		if (found) return found;
+	}
+	return null;
+}
+
+function randomTabId(): string {
+	return crypto.randomUUID();
+}
+
+/**
+ * A file alone in a tab is that file's tab, so the tab takes the id
+ * `file:<path>` and opening the file finds it. Any other tab gives up a file
+ * id it was left holding, because the saved layout ties that id to a lone
+ * file (SPEC.md §7.5).
+ */
+function settleTabIds(
+	tabs: ProjectLayout["tabs"],
+	newTabId: () => string,
+): ProjectLayout["tabs"] {
+	return tabs.map((tab) => {
+		if (tab.root.type === "file") {
+			const id = fileTabId(tab.root.path);
+			return tab.id === id ? tab : { ...tab, id };
+		}
+		if (tab.id.startsWith("file:")) return { ...tab, id: newTabId() };
+		return tab;
+	});
 }
 
 function round2(value: number): number {
@@ -120,19 +199,13 @@ export function splitLeaf(
 	};
 }
 
-/** `"unchanged"` when this subtree did not hold the terminal, null when it is now empty. */
-function removeFromNode(
-	node: SplitNode,
-	terminalId: string,
-): SplitNode | null | "unchanged" {
-	if (node.type === "leaf") {
-		return node.terminalId === terminalId ? null : "unchanged";
-	}
-	if (node.type !== "split") return "unchanged";
+/** `"unchanged"` when this subtree did not hold the pane, null when it is now empty. */
+function removeFromNode(node: SplitNode, id: string): SplitNode | null | "unchanged" {
+	if (node.type !== "split") return paneId(node) === id ? null : "unchanged";
 	for (let i = 0; i < node.children.length; i++) {
 		const child = node.children[i];
 		if (child === undefined) continue;
-		const result = removeFromNode(child, terminalId);
+		const result = removeFromNode(child, id);
 		if (result === "unchanged") continue;
 		const children = [...node.children];
 		const sizes = [...node.sizes];
@@ -150,14 +223,11 @@ function removeFromNode(
 	return "unchanged";
 }
 
-/**
- * Drop one terminal. A split left with a single child collapses into it, and
- * a tab left with nothing disappears.
- */
-export function removeLeaf(layout: ProjectLayout, terminalId: string): ProjectLayout {
+/** Drop one pane, leaving the tab ids as they were. */
+function withoutPane(layout: ProjectLayout, id: string): ProjectLayout {
 	const tabs: ProjectLayout["tabs"] = [];
 	for (const tab of layout.tabs) {
-		const root = removeFromNode(tab.root, terminalId);
+		const root = removeFromNode(tab.root, id);
 		if (root === "unchanged") {
 			tabs.push(tab);
 			continue;
@@ -166,6 +236,19 @@ export function removeLeaf(layout: ProjectLayout, terminalId: string): ProjectLa
 		tabs.push({ ...tab, root });
 	}
 	return { tabs };
+}
+
+/**
+ * Drop one pane, a terminal or a file, by its pane id. A split left with a
+ * single child collapses into it, and a tab left with nothing disappears. A
+ * split that collapses to one file becomes that file's tab again.
+ */
+export function removeLeaf(
+	layout: ProjectLayout,
+	id: string,
+	newTabId: () => string = randomTabId,
+): ProjectLayout {
+	return { tabs: settleTabIds(withoutPane(layout, id).tabs, newTabId) };
 }
 
 /** Swap one terminal id for another, keeping the pane where it is (SPEC.md §6.8). */
@@ -268,16 +351,16 @@ function withinDepth(layout: ProjectLayout): boolean {
 	return layout.tabs.every((tab) => splitDepth(tab.root) <= MAX_SPLIT_DEPTH);
 }
 
-/** Exchange the places of two leaves, wherever in the layout they sit. */
-function swapLeaves(layout: ProjectLayout, a: string, b: string): ProjectLayout {
+/** Exchange the places of two panes, wherever in the layout they sit. */
+function swapLeaves(layout: ProjectLayout, a: SplitNode, b: SplitNode): ProjectLayout {
+	const idA = paneId(a);
+	const idB = paneId(b);
 	function walk(node: SplitNode): SplitNode {
-		if (node.type === "leaf") {
-			if (node.terminalId === a) return { type: "leaf", terminalId: b };
-			if (node.terminalId === b) return { type: "leaf", terminalId: a };
-			return node;
-		}
-		if (node.type !== "split") return node;
-		return { ...node, children: node.children.map(walk) };
+		if (node.type === "split") return { ...node, children: node.children.map(walk) };
+		const id = paneId(node);
+		if (id === idA) return b;
+		if (id === idB) return a;
+		return node;
 	}
 	return { tabs: layout.tabs.map((tab) => ({ ...tab, root: walk(tab.root) })) };
 }
@@ -286,13 +369,12 @@ function swapLeaves(layout: ProjectLayout, a: string, b: string): ProjectLayout 
 function insertBeside(
 	node: SplitNode,
 	targetId: string,
-	terminalId: string,
+	moved: SplitNode,
 	direction: SplitDirection,
 	before: boolean,
 ): SplitNode | null {
-	if (node.type === "leaf") {
-		if (node.terminalId !== targetId) return null;
-		const moved: SplitNode = { type: "leaf", terminalId };
+	if (node.type !== "split") {
+		if (paneId(node) !== targetId) return null;
 		return {
 			type: "split",
 			direction,
@@ -300,19 +382,16 @@ function insertBeside(
 			children: before ? [moved, node] : [node, moved],
 		};
 	}
-	if (node.type !== "split") return null;
-	const index = node.children.findIndex(
-		(child) => child.type === "leaf" && child.terminalId === targetId,
-	);
+	const index = node.children.findIndex((child) => paneId(child) === targetId);
 	if (index >= 0 && node.direction === direction) {
 		const children = [...node.children];
-		children.splice(before ? index : index + 1, 0, { type: "leaf", terminalId });
+		children.splice(before ? index : index + 1, 0, moved);
 		return { ...node, children, sizes: evenSizes(children.length) };
 	}
 	for (let i = 0; i < node.children.length; i++) {
 		const child = node.children[i];
 		if (child === undefined) continue;
-		const replaced = insertBeside(child, targetId, terminalId, direction, before);
+		const replaced = insertBeside(child, targetId, moved, direction, before);
 		if (!replaced) continue;
 		const children = [...node.children];
 		children[i] = replaced;
@@ -322,48 +401,48 @@ function insertBeside(
 }
 
 /**
- * Drag one pane onto another (SPEC.md §9.3). The edge says where it lands:
- * left and top insert before the target, right and bottom after, and centre
- * swaps the two panes. A tab left empty by the move disappears. A move that
- * would make a tab deeper than `MAX_SPLIT_DEPTH` is refused, and the layout
- * comes back unchanged.
+ * Drag one pane, a terminal or a file, onto another (SPEC.md §8.3, §9.3).
+ * The edge says where it lands: left and top insert before the target, right
+ * and bottom after, and centre swaps the two panes. A tab left empty by the
+ * move disappears. A move that would make a tab deeper than `MAX_SPLIT_DEPTH`
+ * is refused, and the layout comes back unchanged. A file's tab that gains a
+ * second pane takes a fresh id from `newTabId`, so the tab that holds the
+ * pane may not be `tabId` afterwards; `tabOfPane` finds it.
  */
 export function moveLeaf(
 	layout: ProjectLayout,
 	tabId: string,
-	terminalId: string,
-	targetTerminalId: string,
+	id: string,
+	targetId: string,
 	edge: DropEdge,
+	newTabId: () => string = randomTabId,
 ): ProjectLayout {
-	if (terminalId === targetTerminalId) return layout;
-	const present = new Set(layoutTerminalIds(layout));
-	if (!present.has(terminalId) || !present.has(targetTerminalId)) return layout;
+	if (id === targetId) return layout;
+	const moved = findPane(layout, id);
+	const targetNode = findPane(layout, targetId);
+	if (!moved || !targetNode) return layout;
 	const target = layout.tabs.find(
-		(tab) => tab.id === tabId && terminalIds(tab.root).includes(targetTerminalId),
+		(tab) => tab.id === tabId && paneIds(tab.root).includes(targetId),
 	);
 	if (!target) return layout;
 
-	if (edge === "center") return swapLeaves(layout, terminalId, targetTerminalId);
+	if (edge === "center") {
+		return { tabs: settleTabIds(swapLeaves(layout, moved, targetNode).tabs, newTabId) };
+	}
 
 	const direction: SplitDirection =
 		edge === "left" || edge === "right" ? "row" : "column";
 	const before = edge === "left" || edge === "top";
 	let inserted = false;
-	const tabs = removeLeaf(layout, terminalId).tabs.map((tab) => {
+	const tabs = withoutPane(layout, id).tabs.map((tab) => {
 		if (tab.id !== tabId) return tab;
-		const root = insertBeside(
-			tab.root,
-			targetTerminalId,
-			terminalId,
-			direction,
-			before,
-		);
+		const root = insertBeside(tab.root, targetId, moved, direction, before);
 		if (!root) return tab;
 		inserted = true;
 		return { ...tab, root };
 	});
 	if (!inserted) return layout;
-	const next = { tabs };
+	const next = { tabs: settleTabIds(tabs, newTabId) };
 	return withinDepth(next) ? next : layout;
 }
 
@@ -371,42 +450,36 @@ export function moveLeaf(
  * Drag one pane out to the tab strip (SPEC.md §8.3): it leaves its tab and
  * becomes a tab of its own at `index`, under the `tabId` the caller supplies.
  * The id comes from the caller because the terminal id is already in use as
- * the name of the tab this pane is leaving. A tab left empty disappears.
+ * the name of the tab this pane is leaving. A file's new tab is named after
+ * the file instead. A tab left empty disappears.
  */
 export function moveLeafToNewTab(
 	layout: ProjectLayout,
-	terminalId: string,
+	id: string,
 	index: number,
 	tabId: string,
 ): ProjectLayout {
-	if (!layoutTerminalIds(layout).includes(terminalId)) return layout;
-	const tabs = removeLeaf(layout, terminalId).tabs;
-	const next = [...tabs];
-	next.splice(Math.min(Math.max(index, 0), next.length), 0, {
-		id: tabId,
-		root: { type: "leaf", terminalId },
-	});
-	return { tabs: next };
+	const moved = findPane(layout, id);
+	if (!moved) return layout;
+	const next = [...withoutPane(layout, id).tabs];
+	next.splice(Math.min(Math.max(index, 0), next.length), 0, { id: tabId, root: moved });
+	return { tabs: settleTabIds(next, randomTabId) };
 }
 
 /**
- * Open `path` as a tab of its own (SPEC.md §8.3). A path already open is not
- * opened twice; the caller activates the tab it gets back. A diff is a view
- * of this tab, not a tab of its own.
+ * Open `path` as a tab of its own (SPEC.md §8.3). A path already open, as a
+ * tab or inside a split, is not opened twice; the caller activates the tab it
+ * gets back. A diff is a view of this pane, not a pane of its own.
  */
 export function openFile(
 	layout: ProjectLayout,
 	path: string,
 ): { layout: ProjectLayout; tabId: string } {
+	const open = tabOfPane(layout, fileTabId(path));
+	if (open !== null) return { layout, tabId: open };
 	const tabId = fileTabId(path);
-	if (layout.tabs.some((tab) => tab.id === tabId)) return { layout, tabId };
 	const node: SplitNode = { type: "file", path };
 	return { layout: { tabs: [...layout.tabs, { id: tabId, root: node }] }, tabId };
-}
-
-/** The id of the one tab that shows `path`. */
-function fileTabId(path: string): string {
-	return `file:${path}`;
 }
 
 /** The id of the one tab that previews `port` (SPEC.md §14.6). */
@@ -443,6 +516,12 @@ export function migrateDiffTabs(layout: ProjectLayout): {
 	}
 	const tabs: ProjectLayout["tabs"] = [];
 	const diffTabIds: string[] = [];
+	// A file already open inside a split keeps that pane instead.
+	const inSplits = new Set(
+		layout.tabs.flatMap((tab) =>
+			tab.root.type === "split" ? filePaths(tab.root) : [],
+		),
+	);
 	for (const tab of layout.tabs) {
 		if (tab.root.type !== "diff") {
 			if (!tabs.some((kept) => kept.id === tab.id)) tabs.push(tab);
@@ -451,10 +530,45 @@ export function migrateDiffTabs(layout: ProjectLayout): {
 		const id = fileTabId(tab.root.path);
 		diffTabIds.push(id);
 		// The same path may already have a file tab; it keeps its place.
-		if (tabs.some((kept) => kept.id === id)) continue;
+		if (tabs.some((kept) => kept.id === id) || inSplits.has(tab.root.path)) continue;
 		tabs.push({ id, root: { type: "file", path: tab.root.path } });
 	}
 	return { layout: { tabs }, diffTabIds };
+}
+
+/**
+ * Point every file pane under `from` at its new place under `to`, wherever
+ * it sits, after a rename or move (SPEC.md §11.2). A pane already open at a
+ * destination was replaced on disk by the move, so it goes. Tabs keep their
+ * places; a lone file's tab takes its new `file:<path>` id.
+ */
+export function retargetFiles(
+	layout: ProjectLayout,
+	from: string,
+	to: string,
+): ProjectLayout {
+	const open = layout.tabs.flatMap((tab) => filePaths(tab.root));
+	const arriving = new Set(
+		open.flatMap((path) => {
+			const moved = movedPath(path, from, to);
+			return moved === null ? [] : [moved];
+		}),
+	);
+	if (arriving.size === 0) return layout;
+	let next = layout;
+	for (const path of open) {
+		if (arriving.has(path) && movedPath(path, from, to) === null) {
+			next = { tabs: withoutPane(next, fileTabId(path)).tabs };
+		}
+	}
+	function walk(node: SplitNode): SplitNode {
+		if (node.type === "split") return { ...node, children: node.children.map(walk) };
+		if (node.type !== "file") return node;
+		const moved = movedPath(node.path, from, to);
+		return moved === null ? node : { ...node, path: moved };
+	}
+	const tabs = next.tabs.map((tab) => ({ ...tab, root: walk(tab.root) }));
+	return { tabs: settleTabIds(tabs, randomTabId) };
 }
 
 /** Drop one whole tab. Terminal tabs are closed by closing their terminals. */

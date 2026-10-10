@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import {
 	contentDisposition,
 	ExtractRequest,
+	MAX_DOWNLOAD_PATHS,
 	MkdirRequest,
 	MoveRequest,
 	TreeAfter,
@@ -10,7 +11,7 @@ import {
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentFailure, abortOnDisconnect, sendError } from "./errors.js";
-import { extractZip } from "./extract.js";
+import { extractProgress, extractZip } from "./extract.js";
 import {
 	listDir,
 	mkdir,
@@ -28,7 +29,9 @@ import {
 import {
 	archiveDir,
 	archiveProject,
+	archiveSelection,
 	checkDownloadSize,
+	outermostPaths,
 	resolveProject,
 } from "./projects.js";
 
@@ -60,6 +63,17 @@ function queryPath(request: FastifyRequest): {
 		after: parsed.data.after,
 	};
 }
+
+/** The archive route takes `path` once, or repeated for a selection (SPEC.md §11.2). */
+const ArchiveQuery = z.object({
+	path: z
+		.union([
+			z.string().max(1024),
+			z.array(z.string().max(1024)).max(MAX_DOWNLOAD_PATHS),
+		])
+		.optional(),
+	check: z.string().optional(),
+});
 
 /** Strip the quotes an HTTP entity tag is usually sent with. */
 function unquote(value: string): string {
@@ -252,29 +266,49 @@ export async function filesRoutes(
 		}
 	});
 
+	instance.get("/projects/:slug/extract/progress", async (request) => {
+		const { slug } = request.params as { slug: string };
+		return extractProgress(slug);
+	});
+
 	instance.get("/projects/:slug/archive", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		let archive: Readable;
 		// A download the browser gave up on must not leave zip running.
 		const signal = abortOnDisconnect(reply);
 		try {
-			const { path, check } = queryPath(request);
-			if (check) {
-				// Only the size check, so the browser can explain a refusal
-				// before it starts a download.
-				const target = await resolveInProject(homeDir, slug, path, {
-					mustExist: true,
-				});
-				await checkDownloadSize(target.path);
-				return reply.code(204).send();
+			const parsed = ArchiveQuery.safeParse(request.query ?? {});
+			if (!parsed.success) {
+				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
-			if (path === "") {
-				archive = await archiveProject(slug, homeDir, signal);
+			const asked = parsed.data.path;
+			const check = parsed.data.check === "1";
+			if (Array.isArray(asked) && asked.length > 1) {
+				const paths = await resolveSelection(homeDir, slug, asked);
+				if (check) {
+					await checkDownloadSize(outermostPaths(paths));
+					return reply.code(204).send();
+				}
+				archive = await archiveSelection(paths, signal);
 			} else {
-				const target = await resolveInProject(homeDir, slug, path, {
-					mustExist: true,
-				});
-				archive = await archiveDir(target.path, signal);
+				const path = (Array.isArray(asked) ? asked[0] : asked) ?? "";
+				if (check) {
+					// Only the size check, so the browser can explain a refusal
+					// before it starts a download.
+					const target = await resolveInProject(homeDir, slug, path, {
+						mustExist: true,
+					});
+					await checkDownloadSize([target.path]);
+					return reply.code(204).send();
+				}
+				if (path === "") {
+					archive = await archiveProject(slug, homeDir, signal);
+				} else {
+					const target = await resolveInProject(homeDir, slug, path, {
+						mustExist: true,
+					});
+					archive = await archiveDir(target.path, signal);
+				}
 			}
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
@@ -282,4 +316,24 @@ export async function filesRoutes(
 		request.log.debug({ slug, operation: "archive" }, "project operation");
 		return reply.type("application/zip").send(archive);
 	});
+}
+
+/**
+ * Confine each selected path to the project, keeping a selected symlink as
+ * the link itself, which `zip -y` stores without following (SPEC.md §24.6).
+ */
+async function resolveSelection(
+	homeDir: string,
+	slug: string,
+	relPaths: readonly string[],
+): Promise<string[]> {
+	const paths: string[] = [];
+	for (const relPath of relPaths) {
+		const target = await resolveInProject(homeDir, slug, relPath, {
+			mustExist: true,
+			linkOk: true,
+		});
+		paths.push(target.path);
+	}
+	return paths;
 }

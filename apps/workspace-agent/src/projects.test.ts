@@ -491,6 +491,25 @@ test.skipIf(!haveZip)("archive streams a zip that unzip accepts", async () => {
 	await rm(archive, { force: true });
 });
 
+test.skipIf(!haveZip)("a folder named - zips its contents, not stdin", async () => {
+	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
+	const dash = join(projectsRoot, "alpha", "-");
+	await mkdir(dash, { recursive: true });
+	await writeFile(join(dash, "file.txt"), "content\n");
+	try {
+		const stream = await archiveDir(dash, new AbortController().signal, tempBase);
+		const chunks: Buffer[] = [];
+		for await (const chunk of stream) chunks.push(chunk as Buffer);
+		const archive = join(homeDir, "dash.zip");
+		await writeFile(archive, Buffer.concat(chunks));
+		const { stdout } = await run("zipinfo", ["-1", archive]);
+		await rm(archive, { force: true });
+		expect(stdout.trim().split("\n").sort()).toEqual(["-/", "-/file.txt"]);
+	} finally {
+		await rm(tempBase, { recursive: true, force: true });
+	}
+});
+
 test.skipIf(!haveZip)("a finished archive leaves no temporary zip behind", async () => {
 	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
 	const alpha = join(projectsRoot, "alpha");
@@ -721,7 +740,7 @@ test("a symlink to a file past the download cap is refused", async () => {
 	await mkdir(alpha, { recursive: true });
 	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
 	await symlink("big.bin", join(alpha, "link.bin"));
-	await expect(checkDownloadSize(join(alpha, "link.bin"))).rejects.toMatchObject({
+	await expect(checkDownloadSize([join(alpha, "link.bin")])).rejects.toMatchObject({
 		code: "FILE_TOO_LARGE",
 	});
 });

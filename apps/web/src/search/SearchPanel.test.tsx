@@ -273,3 +273,84 @@ test("a result is named by its file, line and text", async () => {
 	});
 	expect(row.getAttribute("data-testid")).toBe("search-result-src/app.ts-3");
 });
+
+test("the three options are toggles, off at first, and each one is sent", async () => {
+	const urls = stubSearch({ matches: [] });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+	const names = ["Match case", "Whole word", "Regex"];
+	for (const name of names) {
+		expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
+			"false",
+		);
+	}
+
+	type("answer");
+	await waitFor(() => expect(urls).toHaveLength(1));
+	expect(urls[0]).toContain("regex=false");
+
+	for (const name of names) fireEvent.click(screen.getByRole("button", { name }));
+	for (const name of names) {
+		expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
+			"true",
+		);
+	}
+	await waitFor(() =>
+		expect(urls.at(-1)).toMatch(/regex=true&caseSensitive=true&wholeWord=true/),
+	);
+});
+
+test("a refused pattern is named and announced", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						code: "PATTERN_INVALID",
+						message: "That regular expression is not valid.",
+					}),
+					{ status: 400, headers: { "content-type": "application/json" } },
+				),
+		),
+	);
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Regex" }));
+	type("(");
+
+	await waitFor(() =>
+		expect(screen.getByTestId("search-error").textContent).toBe(
+			"That regular expression is not valid.",
+		),
+	);
+	expect(screen.getByRole("status").textContent).toBe(
+		"That regular expression is not valid.",
+	);
+	// The field itself is marked wrong and points at the message.
+	const input = screen.getByLabelText("Find in files");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	const described = input.getAttribute("aria-describedby") ?? "";
+	expect(document.getElementById(described)?.textContent).toBe(
+		"That regular expression is not valid.",
+	);
+});
+
+test("a regex match is highlighted for its own length, not the query's", async () => {
+	stubSearch({
+		matches: [match({ column: 7, length: 6, text: "const answer = 42;" })],
+	});
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+	type("a\\w+");
+
+	await waitFor(() =>
+		expect(
+			screen.getByTestId("search-result-src/app.ts-3").querySelector("mark")
+				?.textContent,
+		).toBe("answer"),
+	);
+});

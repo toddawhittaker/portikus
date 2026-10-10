@@ -5,11 +5,12 @@ import {
 	type AccountImportPreviewRow,
 	CreateDexUserRequest,
 	CreateInvitationRequest,
+	CsvError,
+	parseCsv,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import type { ZodError } from "zod";
-import { CsvError, parseCsv } from "./csv.js";
 
 /**
  * Reading and checking an account import file (SPEC.md section 5.1, "Add

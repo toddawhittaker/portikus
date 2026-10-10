@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -199,6 +199,15 @@ test.skipIf(!haveRg)("no match is an empty result, not an error", async () => {
 	expect(result).toEqual({ matches: [], truncated: false });
 });
 
+test.skipIf(!haveRg)("a regex too big to compile is an invalid pattern", async () => {
+	await expect(
+		searchProject(homeDir, "demo", String.raw`\w{1000}{1000}`, {
+			hidden: false,
+			regex: true,
+		}),
+	).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+});
+
 test.skipIf(!haveRg)("an unknown project is not found", async () => {
 	await expect(searchProject(homeDir, "nope", "a", { hidden: false })).rejects.toThrow(
 		AgentFailure,
@@ -318,3 +327,58 @@ test("the route needs the bearer token", async () => {
 	});
 	expect(response.statusCode).toBe(401);
 });
+
+/** A project with one readable match and one folder ripgrep cannot open. */
+async function lockedProject(slug: string): Promise<string> {
+	const dir = join(homeDir, "projects", slug);
+	await mkdir(join(dir, "locked"), { recursive: true });
+	await writeFile(join(dir, "open.txt"), "lockterm here\n");
+	await writeFile(join(dir, "locked", "inside.txt"), "lockterm hidden\n");
+	await chmod(join(dir, "locked"), 0o000);
+	return dir;
+}
+
+test.skipIf(!haveRg)(
+	"an unreadable folder in the project still returns the other matches",
+	async () => {
+		const dir = await lockedProject("locked-literal");
+		try {
+			const result = await searchProject(homeDir, "locked-literal", "lockterm", {
+				hidden: false,
+			});
+			expect(result.matches.map((match) => match.path)).toEqual(["open.txt"]);
+			const regex = await searchProject(homeDir, "locked-literal", "lock.erm", {
+				hidden: false,
+				regex: true,
+			});
+			expect(regex.matches.map((match) => match.path)).toEqual(["open.txt"]);
+		} finally {
+			await chmod(join(dir, "locked"), 0o755);
+		}
+	},
+);
+
+test.skipIf(!haveRg)(
+	"no hits beside an unreadable folder is an empty result, not a failure",
+	async () => {
+		const dir = await lockedProject("locked-regex");
+		try {
+			for (const regex of [false, true]) {
+				const result = await searchProject(homeDir, "locked-regex", "abs[e]nt", {
+					hidden: false,
+					regex,
+				});
+				expect(result).toEqual({ matches: [], truncated: false });
+			}
+			const response = await app.inject({
+				method: "GET",
+				url: "/projects/locked-regex/search?q=absent",
+				headers: { authorization: `Bearer ${TOKEN}` },
+			});
+			expect(response.statusCode).toBe(200);
+			expect(response.json().matches).toEqual([]);
+		} finally {
+			await chmod(join(dir, "locked"), 0o755);
+		}
+	},
+);

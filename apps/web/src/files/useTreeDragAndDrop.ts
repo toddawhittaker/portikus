@@ -1,130 +1,135 @@
 /**
  * Drag and drop for the file tree (SPEC.md §11.2): rows dragged onto a folder
  * move there, and files dragged in from the desktop upload into the folder
- * under the pointer.
+ * under the pointer. Both use the browser's own drag and drop, so a row costs
+ * no per-row registration and loading more rows redraws none of the others.
+ * The Move to dialog is the keyboard way to do the same (WCAG 2.5.7).
  */
-import {
-	type DragEndEvent,
-	type DragStartEvent,
-	PointerSensor,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
-import { type DragEvent, useRef, useState } from "react";
+import { type DragEvent, useCallback, useRef, useState } from "react";
 import { moveForDrop } from "./paths.js";
-
-/** The droppable id of a directory; the project root is the empty path. */
-export const dropId = (dir: string) => `dir:${dir}`;
+import type { RowStateStore } from "./rowState.js";
+import type { FileNode } from "./selection.js";
+import { draggedTreeNode, setDraggedTreeNode } from "./treeDrag.js";
 
 /**
- * The empty area below the tree is a second way into the project root.
- * It is its own element rather than the pane body, so it never
- * overlaps a row and the pointer can only be over one of the two.
+ * The type a dragged row carries. Private, so a row dropped on the editor, a
+ * terminal or another site inserts nothing; the browser lower-cases types.
  */
-export const ROOT_SPACE_DROP_ID = "root-space";
+export const TREE_DRAG_TYPE = "application/x-portikus-tree-path";
 
-/** Which directory a desktop drag is over, from the row under the pointer. */
-function dirUnder(target: EventTarget | null): string {
+/** The folder under the pointer, from the nearest `data-drop-dir`; null over none. */
+function dirUnder(target: EventTarget | null): string | null {
 	const element = target instanceof Element ? target.closest("[data-drop-dir]") : null;
-	return element?.getAttribute("data-drop-dir") ?? "";
+	return element?.getAttribute("data-drop-dir") ?? null;
+}
+
+function dragKind(event: DragEvent): "move" | "upload" | null {
+	const { types } = event.dataTransfer;
+	if (types.includes(TREE_DRAG_TYPE)) return "move";
+	if (types.includes("Files")) return "upload";
+	return null;
 }
 
 export function useTreeDragAndDrop({
+	rowState,
 	moveFile,
 	afterMove,
 	fail,
 	uploadInto,
 }: {
+	rowState: RowStateStore;
 	/** Resolves false when the student declined to replace a file. */
 	moveFile: (from: string, to: string, isDir: boolean) => Promise<boolean>;
 	afterMove: (from: string, to: string) => void;
 	fail: (error: unknown) => void;
 	uploadInto: (dir: string, files: FileList) => void;
 }) {
-	const [dropDir, setDropDir] = useState<string | null>(null);
 	const [uploadDrag, setUploadDrag] = useState(false);
-	// How many pane elements the upload drag is currently inside. Moving onto a
-	// child row fires a leave for the element behind it, so counting is the only
-	// way to tell "moved within the pane" from "left the pane".
-	const uploadDepth = useRef(0);
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-	);
-	// What the pointer is carrying, so the drag has something visible to show.
-	// dnd-kit draws it in a DragOverlay at the pointer.
-	const [dragged, setDragged] = useState<{ path: string; isDir: boolean } | null>(null);
+	// How many pane elements the drag is currently inside. Moving onto a child
+	// row fires a leave for the element behind it, so counting is the only way
+	// to tell "moved within the pane" from "left the pane".
+	const depth = useRef(0);
 
-	function onDragStart(event: DragStartEvent) {
-		const id = String(event.active.id);
-		if (!id.startsWith("row:")) return;
-		setDragged({
-			path: id.slice("row:".length),
-			isDir: event.active.data.current?.isDir === true,
-		});
+	function setDropDir(dropDir: string | null) {
+		if (rowState.getState().dropDir !== dropDir) rowState.setState({ dropDir });
 	}
 
-	function onDragEnd(event: DragEndEvent) {
-		setDropDir(null);
-		setDragged(null);
-		const over = event.over ? String(event.over.id) : null;
-		const move = moveForDrop(
-			String(event.active.id),
-			// The empty space below the tree means the project root.
-			over === ROOT_SPACE_DROP_ID ? dropId("") : over,
-		);
-		if (!move) return;
-		const { from, to } = move;
-		const isDir = event.active.data.current?.isDir === true;
-		void moveFile(from, to, isDir)
-			.then((moved) => {
-				if (moved) afterMove(from, to);
-			})
-			.catch(fail);
+	// Stable, like startMove, because every row is handed it.
+	const reset = useCallback(() => {
+		depth.current = 0;
+		setDraggedTreeNode(null);
+		rowState.setState({ draggedPath: null, dropDir: null });
+		setUploadDrag(false);
+	}, [rowState]);
+
+	/** The folder a drag over `target` would land in, or null where it cannot land. */
+	function landing(kind: "move" | "upload", target: EventTarget | null): string | null {
+		const dir = dirUnder(target);
+		// An upload anywhere else in the pane goes to the project root.
+		if (kind === "upload") return dir ?? "";
+		const from = draggedTreeNode();
+		return from && moveForDrop(from.path, dir) ? dir : null;
 	}
 
-	function onDragCancel() {
-		setDropDir(null);
-		setDragged(null);
-	}
-
-	/** Desktop drag-and-drop upload onto the pane body. */
-	const uploadHandlers = {
-		onDragOver: (event: DragEvent) => {
-			if (!event.dataTransfer.types.includes("Files")) return;
-			event.preventDefault();
-			setUploadDrag(true);
-			setDropDir(dirUnder(event.target));
+	/** On a row: start carrying it. */
+	const startMove = useCallback(
+		(event: DragEvent, node: FileNode) => {
+			event.dataTransfer.setData(TREE_DRAG_TYPE, node.path);
+			event.dataTransfer.effectAllowed = "move";
+			setDraggedTreeNode(node);
+			rowState.setState({ draggedPath: node.path });
 		},
+		[rowState],
+	);
+
+	/** On the pane: where a drag is, and what a drop does. */
+	const paneHandlers = {
 		onDragEnter: (event: DragEvent) => {
-			if (!event.dataTransfer.types.includes("Files")) return;
-			uploadDepth.current += 1;
-			setUploadDrag(true);
-			setDropDir(dirUnder(event.target));
+			const kind = dragKind(event);
+			if (!kind) return;
+			depth.current += 1;
+			if (kind === "upload") setUploadDrag(true);
+			setDropDir(landing(kind, event.target));
+		},
+		onDragOver: (event: DragEvent) => {
+			const kind = dragKind(event);
+			if (!kind) return;
+			const dir = landing(kind, event.target);
+			setDropDir(dir);
+			// Only a place that accepts the drop cancels the browser's refusal.
+			if (dir === null) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = kind === "move" ? "move" : "copy";
 		},
 		onDragLeave: () => {
-			if (uploadDepth.current === 0) return;
-			uploadDepth.current -= 1;
-			if (uploadDepth.current > 0) return;
+			if (depth.current === 0) return;
+			depth.current -= 1;
+			if (depth.current > 0) return;
 			setDropDir(null);
 			setUploadDrag(false);
 		},
 		onDrop: (event: DragEvent) => {
-			if (!event.dataTransfer.files.length) return;
+			const kind = dragKind(event);
+			if (!kind) return;
+			const dir = landing(kind, event.target);
+			const node = draggedTreeNode();
+			reset();
+			if (dir === null) return;
 			event.preventDefault();
-			const dir = dirUnder(event.target);
-			uploadDepth.current = 0;
-			setDropDir(null);
-			setUploadDrag(false);
-			uploadInto(dir, event.dataTransfer.files);
+			if (kind === "upload") {
+				if (event.dataTransfer.files.length) uploadInto(dir, event.dataTransfer.files);
+				return;
+			}
+			const move = node ? moveForDrop(node.path, dir) : null;
+			if (!node || !move) return;
+			void moveFile(move.from, move.to, node.isDir)
+				.then((moved) => {
+					if (moved) afterMove(move.from, move.to);
+				})
+				.catch(fail);
 		},
 	};
 
-	return {
-		sensors,
-		dragged,
-		dropDir,
-		uploadDrag,
-		dndHandlers: { onDragStart, onDragEnd, onDragCancel },
-		uploadHandlers,
-	};
+	// A drag ends on its source row, dropped or not.
+	return { uploadDrag, startMove, endMove: reset, paneHandlers };
 }

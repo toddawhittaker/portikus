@@ -4,8 +4,9 @@ import {
 	type SplitNode,
 } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { createLayoutStore } from "../layout/store.js";
 import { moveLeaf } from "../layout/tree.js";
-import { moveIntoTargets } from "./moveInto.js";
+import { dropTreeFile, fileDropTarget, moveIntoTargets } from "./moveInto.js";
 
 const leaf = (terminalId: string): SplitNode => ({ type: "leaf", terminalId });
 
@@ -27,24 +28,41 @@ const layout: ProjectLayout = {
 	],
 };
 
-test("offers every other terminal tab, in tab order, beside its last pane", () => {
+test("offers every other tab with panes, in tab order, beside its last pane", () => {
+	// A file's tab takes a terminal beside it; a preview is always a whole tab.
 	expect(moveIntoTargets(layout, "t1")).toEqual([
-		{ tabId: "b", terminalId: "t3", edge: "right" },
-		{ tabId: "c", terminalId: "t4", edge: "right" },
+		{ tabId: "file:readme.md", paneId: "file:readme.md", edge: "right" },
+		{ tabId: "b", paneId: "t3", edge: "right" },
+		{ tabId: "c", paneId: "t4", edge: "right" },
 	]);
 });
 
 test("never offers the pane's own tab", () => {
 	expect(moveIntoTargets(layout, "t2").map((target) => target.tabId)).toEqual([
 		"a",
+		"file:readme.md",
 		"c",
 	]);
+	expect(
+		moveIntoTargets(layout, "file:readme.md").map((target) => target.tabId),
+	).toEqual(["a", "b", "c"]);
+});
+
+test("a file moved into a terminal tab joins its split", () => {
+	const next = moveLeaf(layout, "a", "file:readme.md", "t1", "right");
+	expect(next.tabs.find((tab) => tab.id === "a")?.root).toEqual({
+		type: "split",
+		direction: "row",
+		sizes: [50, 50],
+		children: [leaf("t1"), { type: "file", path: "readme.md" }],
+	});
+	expect(next.tabs.map((tab) => tab.id)).not.toContain("file:readme.md");
 });
 
 test("moving into a target joins that tab's split, as the drag does", () => {
 	const [target] = moveIntoTargets(layout, "t4").filter((t) => t.tabId === "b");
 	if (!target) throw new Error("tab b was not offered");
-	const next = moveLeaf(layout, target.tabId, "t4", target.terminalId, target.edge);
+	const next = moveLeaf(layout, target.tabId, "t4", target.paneId, target.edge);
 	expect(next.tabs.find((tab) => tab.id === "b")?.root).toEqual({
 		type: "split",
 		direction: "row",
@@ -77,6 +95,67 @@ test("a tab already at the depth limit is not offered", () => {
 		],
 	};
 	expect(moveIntoTargets(full, "t1")).toEqual([]);
+});
+
+test("a tree file dropped on a pane's edge lands beside that pane", () => {
+	expect(fileDropTarget(layout, "src/new.ts", "t3", "bottom")).toEqual({
+		tabId: "b",
+		paneId: "t3",
+		edge: "bottom",
+	});
+	expect(fileDropTarget(layout, "src/new.ts", "file:readme.md", "right")).toEqual({
+		tabId: "file:readme.md",
+		paneId: "file:readme.md",
+		edge: "right",
+	});
+});
+
+test("an already open file dropped on another pane's edge is a move", () => {
+	expect(fileDropTarget(layout, "readme.md", "t1", "left")).toEqual({
+		tabId: "a",
+		paneId: "t1",
+		edge: "left",
+	});
+});
+
+test("a tree file takes no drop on its own pane, the centre, or an unknown pane", () => {
+	expect(fileDropTarget(layout, "readme.md", "file:readme.md", "right")).toBeNull();
+	expect(fileDropTarget(layout, "src/new.ts", "t1", "center")).toBeNull();
+	expect(fileDropTarget(layout, "src/new.ts", "gone", "right")).toBeNull();
+});
+
+test("a tree file takes no drop that would split past the depth limit", () => {
+	const full: ProjectLayout = {
+		tabs: [{ id: "deep", root: deepest(MAX_SPLIT_DEPTH) }],
+	};
+	expect(fileDropTarget(full, "src/new.ts", "deep", "right")).toBeNull();
+});
+
+test("dropping an open file from the tree keeps its Diff view and baseline", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	store.getState().openFile("readme.md", { diff: true, baseline: "HEAD~1" });
+	const before = store.getState();
+	const view = before.pendingView["file:readme.md"];
+	dropTreeFile(before, "readme.md", { tabId: "a", paneId: "t1", edge: "right" });
+	const after = store.getState();
+	expect(after.pendingView["file:readme.md"]).toBe(view);
+	expect(after.diffBaseline["file:readme.md"]).toBe("HEAD~1");
+	expect(after.layout.tabs.map((tab) => tab.id)).toEqual(["a"]);
+	expect(after.focusedPaneId).toBe("file:readme.md");
+});
+
+test("dropping a file not yet open from the tree opens it beside the target", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	dropTreeFile(store.getState(), "src/new.ts", {
+		tabId: "a",
+		paneId: "t1",
+		edge: "right",
+	});
+	const root = store.getState().layout.tabs[0]?.root;
+	expect(root?.type).toBe("split");
+	expect(store.getState().pendingView["file:src/new.ts"]?.mode).toBe("edit");
 });
 
 test("a pane with no other terminal tab has nowhere to go", () => {

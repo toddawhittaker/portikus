@@ -1,5 +1,9 @@
 import { requireUser } from "@portikus/auth";
 import {
+	type AgentRecoveryDiffQuery,
+	GitDiff,
+	ProjectPath,
+	RECOVERY_DIFF_TIMEOUT_MS,
 	type RecoveryPoint,
 	type RecoveryPointList,
 	type RecoveryReason,
@@ -9,7 +13,13 @@ import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
-import { AgentCallError, type AgentClient } from "../agent-client.js";
+import {
+	AGENT_TIMEOUT_MS,
+	AgentCallError,
+	type AgentClient,
+	readAgentError,
+	readJson,
+} from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import {
@@ -17,6 +27,7 @@ import {
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
 import {
+	agentUrl,
 	ownedProject,
 	ownedScope,
 	type ProjectRow,
@@ -33,8 +44,12 @@ import {
 const PointParam = ProjectParam.extend({ rpid: z.string().uuid() });
 
 const GIB = 1024 ** 3;
+/** The agent's read budget plus the time a healthy agent needs to answer. */
+const DIFF_BUDGET_MS = RECOVERY_DIFF_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 /** At most one manual point per project this often. */
 const MANUAL_POINT_INTERVAL_MS = 30_000;
+/** Workspaces with a point diff in flight; per API process, like long-operation.ts. */
+const diffsRunning = new Set<string>();
 
 /** Answer 409 while a maintenance operation waits on the workspace. */
 async function refusePending(
@@ -88,6 +103,30 @@ export function registerRecoveryRoutes(
 		const project = await ownedProject(db, scope.workspaceId, params.data.pid, reply);
 		if (!project) return null;
 		return { scope, project };
+	}
+
+	/**
+	 * The point, only when it belongs to this project of this workspace;
+	 * otherwise answers 404 and returns null.
+	 */
+	async function ownedPoint(
+		pointId: string,
+		projectId: string,
+		workspaceId: string,
+		reply: FastifyReply,
+	): Promise<RecoveryPointRow | null> {
+		const point = await db
+			.selectFrom("recovery_points")
+			.selectAll()
+			.where("id", "=", pointId)
+			.where("project_id", "=", projectId)
+			.where("workspace_id", "=", workspaceId)
+			.executeTakeFirst();
+		if (!point) {
+			sendError(reply, 404, "NOT_FOUND", "Recovery point not found");
+			return null;
+		}
+		return point;
 	}
 
 	// Works while the workspace is stopped.
@@ -199,17 +238,8 @@ export function registerRecoveryRoutes(
 			if (!found) return;
 			const { scope, project } = found;
 
-			// The point must belong to this project of this workspace.
-			const point = await db
-				.selectFrom("recovery_points")
-				.selectAll()
-				.where("id", "=", params.rpid)
-				.where("project_id", "=", project.id)
-				.where("workspace_id", "=", scope.workspaceId)
-				.executeTakeFirst();
-			if (!point) {
-				return sendError(reply, 404, "NOT_FOUND", "Recovery point not found");
-			}
+			const point = await ownedPoint(params.rpid, project.id, scope.workspaceId, reply);
+			if (!point) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
 			// Claimed before the pending check; see the create route.
@@ -229,6 +259,121 @@ export function registerRecoveryRoutes(
 			}
 		},
 	);
+
+	// One file of a point against its working copy (SPEC.md §15.8, §12.6).
+	// Read-only, so it neither claims the long-operation slot nor waits on
+	// a pending one.
+	app.get(
+		"/workspaces/:id/projects/:pid/recovery-points/:rpid/diff",
+		async (request, reply) => {
+			const params = parseOr400(PointParam, request.params, reply);
+			if (!params) return;
+			const found = await scoped(request, reply);
+			if (!found) return;
+			const { scope, project } = found;
+			// Checked here as well as in the agent, so a traversal attempt
+			// never leaves the control plane (SPEC.md §24.6).
+			const path = ProjectPath.safeParse((request.query as { path?: unknown })?.path);
+			if (!path.success) {
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"that path is not inside the project",
+				);
+			}
+			const point = await ownedPoint(params.rpid, project.id, scope.workspaceId, reply);
+			if (!point) return;
+			const agent = requireAgent(scope, reply);
+			if (!agent) return;
+
+			// Each point diff reads a whole archive; one at a time per workspace
+			// keeps a student's clicks from stacking those reads (SPEC.md §15.8).
+			if (diffsRunning.has(scope.workspaceId)) {
+				return sendError(
+					reply,
+					429,
+					"RATE_LIMITED",
+					"Another comparison with a recovery point is still running. Try again when it finishes.",
+				);
+			}
+			diffsRunning.add(scope.workspaceId);
+			// A browser that gives up stops the agent's read too.
+			const disconnected = new AbortController();
+			const onClose = () => disconnected.abort();
+			request.raw.on("close", onClose);
+			try {
+				return await pointDiff(request, reply, {
+					agent,
+					slug: project.slug,
+					pointId: point.id,
+					query: {
+						projectId: project.id,
+						path: path.data,
+						sha256: point.sha256,
+					},
+					signal: AbortSignal.any([
+						disconnected.signal,
+						AbortSignal.timeout(DIFF_BUDGET_MS),
+					]),
+				});
+			} finally {
+				request.raw.off("close", onClose);
+				diffsRunning.delete(scope.workspaceId);
+			}
+		},
+	);
+
+	/** Relay one point diff from the agent and check its answer. */
+	async function pointDiff(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		input: {
+			agent: AgentClient;
+			slug: string;
+			pointId: string;
+			query: AgentRecoveryDiffQuery;
+			signal: AbortSignal;
+		},
+	): Promise<GitDiff | FastifyReply> {
+		let response: Response;
+		try {
+			response = await input.agent.fetchRaw(
+				"GET",
+				agentUrl(input.slug, `recovery-points/${input.pointId}/diff`, input.query),
+				{ signal: input.signal },
+			);
+		} catch (error) {
+			return sendAgentError(reply, error);
+		}
+		if (!response.ok) {
+			const failure = await readAgentError(response);
+			if (failure.code === "RECOVERY_READ_TIMEOUT") {
+				return sendError(
+					reply,
+					504,
+					"RECOVERY_READ_TIMEOUT",
+					"Reading this file from the recovery point took too long. Try again, or restore the point to see it.",
+				);
+			}
+			return sendAgentError(reply, failure);
+		}
+		const parsed = GitDiff.safeParse(await readJson(response));
+		if (!parsed.success) {
+			// Only where the answer went wrong; the values are student content.
+			request.log.error(
+				{ issues: parsed.error.issues.map((issue) => issue.path.join(".")) },
+				"the workspace agent sent an answer the contract rejected",
+			);
+			return sendError(
+				reply,
+				503,
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent an answer we could not read.",
+			);
+		}
+		return parsed.data;
+	}
 
 	/** The slow half of a restore, so the slot is released on every exit. */
 	async function restore(

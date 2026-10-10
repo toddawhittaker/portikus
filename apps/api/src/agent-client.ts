@@ -309,11 +309,12 @@ export class AgentClient {
 	 * The upstream zip response, still streaming. The agent builds the zip
 	 * before it sends headers, so the header budget is long; once bytes are
 	 * flowing there is no further cap. Aborting `cancel` drops the upstream
-	 * request, which makes the agent stop zipping.
+	 * request, which makes the agent stop zipping. No paths is the whole
+	 * project, one is a directory, several are a selection (SPEC.md §11.2).
 	 */
 	async downloadProject(
 		slug: string,
-		relPath = "",
+		relPaths: readonly string[] = [],
 		cancel?: AbortSignal,
 	): Promise<Response> {
 		const controller = new AbortController();
@@ -325,7 +326,7 @@ export class AgentClient {
 		try {
 			response = await fetch(
 				`http://${this.address}:${this.port}/projects/${slug}/archive` +
-					(relPath === "" ? "" : `?path=${encodeURIComponent(relPath)}`),
+					archiveQuery(relPaths),
 				{
 					method: "GET",
 					headers: { authorization: this.authHeader() },
@@ -427,4 +428,13 @@ export function agentClientFor(
 	const { agent_address: address, agent_token: token } = row;
 	if (!address || !token) return null;
 	return new AgentClient(address, agentPort, token);
+}
+
+/** `?path=a&path=b` for an archive request; empty for the whole project. */
+export function archiveQuery(relPaths: readonly string[], check = false): string {
+	const search = new URLSearchParams();
+	for (const path of relPaths) search.append("path", path);
+	if (check) search.set("check", "1");
+	const text = search.toString();
+	return text === "" ? "" : `?${text}`;
 }

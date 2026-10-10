@@ -8,14 +8,13 @@
  * socket open, so a change made in a terminal shows here on its own
  * (SPEC.md §11.4, §12.3).
  */
-import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
-import { MAX_UPLOAD_BYTES, type Project, type TreeEntry } from "@portikus/contracts";
+import {
+	MAX_DOWNLOAD_PATHS,
+	MAX_UPLOAD_BYTES,
+	type Project,
+} from "@portikus/contracts";
 import {
 	Button,
-	ContextMenu,
-	ContextMenuTrigger,
-	EmptyState,
-	Icon,
 	IconButton,
 	Menu,
 	MenuCheckboxItem,
@@ -25,53 +24,36 @@ import {
 	MenuTrigger,
 	useToast,
 } from "@portikus/ui";
-import {
-	createContext,
-	memo,
-	type ReactNode,
-	type Ref,
-	useCallback,
-	useContext,
-	useEffect,
-	useId,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
+import { filePaths } from "../layout/tree.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
+import { ExtractProgress } from "./ExtractProgress.js";
 import {
 	downloadErrorToast,
 	extractErrorToast,
 	fileErrorToast,
 	isFileExists,
+	selectionDownloadErrorToast,
+	selectionNamesTooLongToast,
+	selectionTooLongToast,
 	tooLargeToast,
 } from "./errors.js";
 import "./files.css";
 import { useStore } from "zustand";
 import { ChangesList } from "./ChangesList.js";
-import { fileIconName } from "./fileIcon.js";
-import {
-	decorations as buildDecorations,
-	type GitDecoration,
-	type GitDecorations,
-	isIgnored,
-	NO_DECORATIONS,
-} from "./gitStatus.js";
+import { decorations as buildDecorations, NO_DECORATIONS } from "./gitStatus.js";
 import { MoveDialog } from "./MoveDialog.js";
 import { NameDialog } from "./NameDialog.js";
 import { useWatchLimited } from "./ProjectEvents.js";
 import {
 	baseName,
 	displayName,
-	entryCount,
+	isDescendant,
 	joinPath,
 	nameError,
 	parentOf,
-	reseedFocus,
-	showMorePath,
-	tabIdsUnder,
 	visibleEntries,
 	withoutNested,
 } from "./paths.js";
@@ -80,13 +62,13 @@ import {
 	downloadCheckUrl,
 	type FileMutations,
 	fileDownloadUrl,
+	selectionDownloadUrl,
 	startDownload,
 	useFileMutations,
 	useTree,
 } from "./queries.js";
 import { useMoveAskingToReplace } from "./ReplaceFileConfirm.js";
-import { createRowStateStore, type RowStateStore, useRowState } from "./rowState.js";
-import { ShowMoreRow } from "./ShowMoreRow.js";
+import { createRowStateStore } from "./rowState.js";
 import {
 	actionTargets,
 	type ClickModifiers,
@@ -98,69 +80,14 @@ import {
 } from "./selection.js";
 import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
-import { selectionAfterExtend, useTreeKeys } from "./treeKeys.js";
+import { CreateMenuItems, RootDropZone, TreeListing } from "./TreeRows.js";
+import { type TreeApi, TreeContext } from "./treeApi.js";
+import { selectionAfterExtend, useFocusRepair } from "./treeKeys.js";
 import { useGitStatus } from "./useGitStatus.js";
-import {
-	dropId,
-	ROOT_SPACE_DROP_ID,
-	useTreeDragAndDrop,
-} from "./useTreeDragAndDrop.js";
+import { useTreeDragAndDrop } from "./useTreeDragAndDrop.js";
 
 /** How many uploads are in flight at once, so a big drop stays polite. */
 const UPLOAD_CONCURRENCY = 4;
-
-interface TreeApi {
-	workspaceId: string;
-	projectId: string;
-	showHidden: boolean;
-	expanded: string[];
-	toggle: (path: string) => void;
-	setOpen: (path: string, open: boolean) => void;
-	openFile: (node: FileNode) => void;
-	newIn: (dir: string, kind: "file" | "dir") => void;
-	rename: (node: FileNode) => void;
-	move: (node: FileNode) => void;
-	remove: (node: FileNode) => void;
-	uploadInto: (dir: string, files: FileList | File[]) => void;
-	pickUpload: (dir: string) => void;
-	/** The focused row and the selection, read per row (rowState.ts). */
-	rowState: RowStateStore;
-	setFocusedPath: (path: string | null) => void;
-	/** The row elements on screen, in the order they are drawn. */
-	rowElements: () => HTMLElement[];
-	/** The rows on screen, in the order they are drawn. */
-	visibleNodes: () => FileNode[];
-	/** Moves the Tab stop to a row on screen if the focused one is gone. */
-	repairFocus: () => void;
-	clickRow: (path: string, modifiers: ClickModifiers) => void;
-	/** Shift+Arrow: run the selection from the anchor to `to`. */
-	extendTo: (from: string, to: string) => void;
-	/** The rows an action on `path` applies to: the selection, or that row. */
-	targetsFor: (node: FileNode) => FileNode[];
-	download: (nodes: readonly FileNode[]) => void;
-	/** "Extract here" on a zip, into a new folder beside it. */
-	extract: (node: FileNode) => void;
-	/** The element holding the rows, so the drawn order can be read back. */
-	treeRef: (element: HTMLElement | null) => void;
-	dropDir: string | null;
-	/** A desktop file drag is over the pane (SPEC.md §11.2). */
-	uploadDrag: boolean;
-	/** Git decorations for the rows (SPEC.md §12.1). */
-	git: GitDecorations;
-	/** The row whose ⋯ menu is open, so the keyboard can open it. */
-	menuPath: string | null;
-	setMenuPath: (path: string | null) => void;
-	/** Say something in the pane's polite status region. */
-	announce: (text: string) => void;
-}
-
-const TreeContext = createContext<TreeApi | null>(null);
-
-function useTreeApi(): TreeApi {
-	const api = useContext(TreeContext);
-	if (!api) throw new Error("the file tree row is outside its tree");
-	return api;
-}
 
 /** Run `job` over `items`, never more than `limit` of them at once. */
 async function runWithLimit<T>(
@@ -228,66 +155,6 @@ function PaneChanges({
 	);
 }
 
-/** What the tree area shows: an error, an empty project, or the tree itself. */
-function TreeListing({
-	project,
-	failed,
-	allHidden,
-	empty,
-	onRetry,
-	onNewFile,
-}: {
-	project: Project;
-	failed: boolean;
-	allHidden: boolean;
-	empty: boolean;
-	onRetry: () => void;
-	onNewFile: () => void;
-}) {
-	if (failed) {
-		return (
-			<EmptyState
-				icon="alert"
-				title="The files could not be listed"
-				actions={
-					<Button size="sm" data-testid="file-tree-retry" onClick={onRetry}>
-						Retry
-					</Button>
-				}
-			>
-				The workspace did not answer. Try again in a moment.
-			</EmptyState>
-		);
-	}
-	if (allHidden) {
-		return (
-			<EmptyState icon="file" title="Nothing to show">
-				Everything here is hidden. Turn on Show hidden files to see it.
-			</EmptyState>
-		);
-	}
-	if (empty) {
-		return (
-			<EmptyState
-				icon="file"
-				title="No files yet"
-				actions={
-					<Button size="sm" data-testid="files-empty-new-file" onClick={onNewFile}>
-						New file
-					</Button>
-				}
-			>
-				Create a file, upload one, or use a terminal.
-			</EmptyState>
-		);
-	}
-	return (
-		<>
-			<TreeRoot slug={project.slug} />
-			<RootSpaceDropZone name={project.name} />
-		</>
-	);
-}
 export function FileTreePane({
 	workspaceId,
 	project,
@@ -312,10 +179,10 @@ export function FileTreePane({
 	const rewriteExpanded = useFileViewStore((state) => state.rewriteExpanded);
 	const layoutStore = useLayoutStore(project.id);
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
-	const focusedTerminalId = useLayout(layoutStore, (state) => state.focusedTerminalId);
+	const focusedPaneId = useLayout(layoutStore, (state) => state.focusedPaneId);
 	const root = useTree(workspaceId, project.id, "");
 	const terminals = useTerminals(workspaceId, project.id, true);
-	const session = openAgentSession(terminals.terminals, focusedTerminalId);
+	const session = openAgentSession(terminals.terminals, focusedPaneId);
 	const [reviewSession, setReviewSession] = useState(false);
 	// The workspace shell holds the events socket (SPEC.md §11.4).
 	const watchLimited = useWatchLimited();
@@ -357,33 +224,26 @@ export function FileTreePane({
 		[toast],
 	);
 
-	/** A file that is gone, or that moved, takes its tabs with it. */
-	const closeTabsUnder = useCallback(
-		(path: string) => {
-			const state = layoutStore.getState();
-			const ids = tabIdsUnder(
-				state.layout.tabs.map((tab) => tab.id),
-				path,
-			);
-			for (const id of ids) state.closeTab(id);
-		},
-		[layoutStore],
-	);
-
+	/** A deleted file or folder closes the panes of everything in it, in splits too. */
 	const afterRemove = useCallback(
 		(path: string) => {
 			pruneExpanded(project.id, path);
-			closeTabsUnder(path);
+			const state = layoutStore.getState();
+			const open = state.layout.tabs.flatMap((tab) => filePaths(tab.root));
+			for (const file of open) {
+				if (file === path || isDescendant(file, path)) state.closeFile(file);
+			}
 		},
-		[closeTabsUnder, project.id, pruneExpanded],
+		[layoutStore, project.id, pruneExpanded],
 	);
 
+	/** A file moved from here keeps its tab and its unsaved text (SPEC.md §11.2). */
 	const afterMove = useCallback(
 		(from: string, to: string) => {
 			rewriteExpanded(project.id, from, to);
-			closeTabsUnder(from);
+			layoutStore.getState().retargetTabs(from, to);
 		},
-		[closeTabsUnder, project.id, rewriteExpanded],
+		[layoutStore, project.id, rewriteExpanded],
 	);
 
 	/** The row elements, read back from the tree in the order they are drawn. */
@@ -410,16 +270,7 @@ export function FileTreePane({
 		});
 	}, [rowElements]);
 
-	/**
-	 * Keeps one row as the Tab stop when the focused row has vanished: it was
-	 * deleted, moved, or its parent closed (SPEC.md §25.8).
-	 */
-	const repairFocus = useCallback(() => {
-		const focusedPath = rowState.getState().focusedPath;
-		const rendered = rowElements().map((row) => row.getAttribute("data-path") ?? "");
-		const next = reseedFocus(focusedPath, rendered);
-		if (next !== focusedPath) setFocusedPath(next);
-	}, [rowState, rowElements, setFocusedPath]);
+	const { repairFocus, treeFocusHandlers } = useFocusRepair(rowState, rowElements);
 
 	const clickRow = useCallback(
 		(path: string, modifiers: ClickModifiers) => {
@@ -460,25 +311,42 @@ export function FileTreePane({
 	);
 
 	/**
-	 * Download a selection. The download endpoint takes one path, so several
-	 * rows become one zip each, a moment apart so the browser keeps them all.
-	 * Each is checked against the size cap first.
+	 * Download one row as itself (a folder as a zip), or several selected
+	 * rows as one zip named after the project (SPEC.md §11.2). The size cap
+	 * is checked first, so a refusal is explained here.
 	 */
 	const download = useCallback(
 		(nodes: readonly FileNode[]) => {
-			nodes.forEach((node, index) => {
-				setTimeout(() => {
-					startDownload(
-						node.isDir
-							? directoryDownloadUrl(workspaceId, project.id, node.path)
-							: fileDownloadUrl(workspaceId, project.id, node.path),
-						downloadCheckUrl(workspaceId, project.id, node.path),
-						node.isDir ? `${node.name}.zip` : node.name,
-					).catch((error: unknown) => toast.show(downloadErrorToast(error)));
-				}, index * 150);
-			});
+			const node = nodes[0];
+			if (node === undefined) return;
+			if (nodes.length === 1) {
+				startDownload(
+					node.isDir
+						? directoryDownloadUrl(workspaceId, project.id, node.path)
+						: fileDownloadUrl(workspaceId, project.id, node.path),
+					downloadCheckUrl(workspaceId, project.id, node.path),
+					node.isDir ? `${node.name}.zip` : node.name,
+				).catch((error: unknown) => toast.show(downloadErrorToast(error)));
+				return;
+			}
+			if (nodes.length > MAX_DOWNLOAD_PATHS) {
+				toast.show(selectionTooLongToast());
+				return;
+			}
+			const href = selectionDownloadUrl(
+				workspaceId,
+				project.id,
+				nodes.map((item) => item.path),
+			);
+			if (href === null) {
+				toast.show(selectionNamesTooLongToast());
+				return;
+			}
+			startDownload(href, `${href}&check=1`, `${project.slug}.zip`).catch(
+				(error: unknown) => toast.show(selectionDownloadErrorToast(error)),
+			);
 		},
-		[project.id, workspaceId, toast],
+		[project.id, project.slug, workspaceId, toast],
 	);
 
 	const uploadOne: (dir: string, file: File, replace: boolean) => Promise<void> =
@@ -545,13 +413,13 @@ export function FileTreePane({
 		mutations.move.mutateAsync,
 	);
 
-	const { sensors, dragged, dropDir, uploadDrag, dndHandlers, uploadHandlers } =
-		useTreeDragAndDrop({
-			moveFile: moveAsking,
-			afterMove,
-			fail,
-			uploadInto,
-		});
+	const { uploadDrag, startMove, endMove, paneHandlers } = useTreeDragAndDrop({
+		rowState,
+		moveFile: moveAsking,
+		afterMove,
+		fail,
+		uploadInto,
+	});
 
 	const openFile = useCallback(
 		(node: FileNode) => {
@@ -566,6 +434,7 @@ export function FileTreePane({
 			// A large zip takes minutes, so the progress toast stays until the request settles.
 			const dismissProgress = toast.show({
 				title: `Extracting ${name}…`,
+				children: <ExtractProgress workspaceId={workspaceId} projectId={project.id} />,
 				persistent: true,
 			});
 			mutationsRef.current.extract
@@ -583,7 +452,7 @@ export function FileTreePane({
 					toast.show(extractErrorToast(name, error));
 				});
 		},
-		[project.id, setExpandedIn, toast],
+		[project.id, setExpandedIn, toast, workspaceId],
 	);
 
 	const pickUpload = useCallback((dir: string) => {
@@ -611,6 +480,7 @@ export function FileTreePane({
 			rowElements,
 			visibleNodes,
 			repairFocus,
+			treeFocusHandlers,
 			clickRow,
 			extendTo,
 			targetsFor,
@@ -619,8 +489,8 @@ export function FileTreePane({
 			treeRef: (element) => {
 				treeElement.current = element;
 			},
-			dropDir,
-			uploadDrag,
+			startMove,
+			endMove,
 			git,
 			menuPath,
 			setMenuPath,
@@ -641,13 +511,14 @@ export function FileTreePane({
 			rowElements,
 			visibleNodes,
 			repairFocus,
+			treeFocusHandlers,
 			clickRow,
 			extendTo,
 			targetsFor,
 			download,
 			extract,
-			dropDir,
-			uploadDrag,
+			startMove,
+			endMove,
 			git,
 			menuPath,
 		],
@@ -656,716 +527,248 @@ export function FileTreePane({
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
 	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
-	const uploadToRoot = uploadDrag && (dropDir === "" || dropDir === null);
+	const overRoot = useStore(rowState, (state) => state.dropDir === "");
+	const uploadToRoot = uploadDrag && overRoot;
 
 	return (
-		// The context wraps the header too, so a file can be dragged back to
-		// the project root (SPEC.md §11.2).
-		<DndContext
-			sensors={sensors}
-			onDragStart={dndHandlers.onDragStart}
-			onDragEnd={dndHandlers.onDragEnd}
-			onDragCancel={dndHandlers.onDragCancel}
-		>
-			<TreeContext.Provider value={api}>
-				<aside className="pk-pane pk-pane--right" aria-label="Files">
-					<div className="pk-pane-head pk-pane-head--actions">
-						<h2 className="sr-only">Files</h2>
-						<MenuRoot>
-							<MenuTrigger asChild>
-								<IconButton
-									icon="plus"
-									label="New file or folder"
-									size="sm"
-									data-testid="files-new"
-								/>
-							</MenuTrigger>
-							<Menu label="New file or folder">
-								<CreateMenuItems dir="" testIdPrefix="files" />
-							</Menu>
-						</MenuRoot>
-						<IconButton
-							icon="search"
-							label="Find in files"
-							size="sm"
-							data-testid="search-open"
-							ref={searchButtonRef}
-							onClick={onSearch}
-						/>
-						<MenuRoot>
-							<MenuTrigger asChild>
-								<IconButton
-									icon="more"
-									label="More file actions"
-									size="sm"
-									data-testid="files-more"
-								/>
-							</MenuTrigger>
-							<Menu label="More file actions">
-								{/* The same create actions as a row's menu, on the project
+		<TreeContext.Provider value={api}>
+			{/* The whole pane takes drags, so a file can go back to the project
+			    root by the path line under the header (SPEC.md §11.2). */}
+			<aside
+				className="pk-pane pk-pane--right"
+				aria-label="Files"
+				onDragEnter={paneHandlers.onDragEnter}
+				onDragOver={paneHandlers.onDragOver}
+				onDragLeave={paneHandlers.onDragLeave}
+				onDrop={paneHandlers.onDrop}
+			>
+				<div className="pk-pane-head pk-pane-head--actions">
+					<h2 className="sr-only">Files</h2>
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="plus"
+								label="New file or folder"
+								size="sm"
+								data-testid="files-new"
+							/>
+						</MenuTrigger>
+						<Menu label="New file or folder">
+							<CreateMenuItems dir="" testIdPrefix="files" />
+						</Menu>
+					</MenuRoot>
+					<IconButton
+						icon="search"
+						label="Find in files"
+						size="sm"
+						data-testid="search-open"
+						ref={searchButtonRef}
+						onClick={onSearch}
+					/>
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<IconButton
+								icon="more"
+								label="More file actions"
+								size="sm"
+								data-testid="files-more"
+							/>
+						</MenuTrigger>
+						<Menu label="More file actions">
+							{/* The same create actions as a row's menu, on the project
 							    root, so a project with no files still has them. */}
-								<CreateMenuItems dir="" testIdPrefix="files-more" />
-								<MenuSeparator />
-								<MenuCheckboxItem
-									checked={showHidden}
-									onCheckedChange={() => toggleShowHidden(project.id)}
-									testId="files-show-hidden"
-								>
-									Show hidden and generated files
-								</MenuCheckboxItem>
-								<MenuSeparator />
-								<MenuItem onSelect={() => api.pickUpload("")}>
-									<span data-testid="files-upload">Upload files…</span>
-								</MenuItem>
-								<MenuItem
-									onSelect={() =>
-										download([{ path: "", name: project.slug, isDir: true }])
-									}
-									testId="files-download-project"
-								>
-									Download project
-								</MenuItem>
-							</Menu>
-						</MenuRoot>
-					</div>
+							<CreateMenuItems dir="" testIdPrefix="files-more" />
+							<MenuSeparator />
+							<MenuCheckboxItem
+								checked={showHidden}
+								onCheckedChange={() => toggleShowHidden(project.id)}
+								testId="files-show-hidden"
+							>
+								Show hidden and generated files
+							</MenuCheckboxItem>
+							<MenuSeparator />
+							<MenuItem onSelect={() => api.pickUpload("")}>
+								<span data-testid="files-upload">Upload files…</span>
+							</MenuItem>
+							<MenuItem
+								onSelect={() =>
+									download([{ path: "", name: project.slug, isDir: true }])
+								}
+								testId="files-download-project"
+							>
+								Download project
+							</MenuItem>
+						</Menu>
+					</MenuRoot>
+				</div>
 
-					<RootDropZone slug={project.slug} />
+				<RootDropZone slug={project.slug} />
 
-					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
+				<div
+					className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
+					data-upload-root={uploadToRoot ? "true" : undefined}
+					data-testid="file-tree-body"
+				>
+					{/* The live region exists before its text, so the text is announced. */}
+					{/* aria-live as well, so an open dialog's aria-hidden does not silence it. */}
 					<div
-						className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
-						data-upload-root={uploadToRoot ? "true" : undefined}
-						data-testid="file-tree-body"
-						onDragOver={uploadHandlers.onDragOver}
-						onDragEnter={uploadHandlers.onDragEnter}
-						onDragLeave={uploadHandlers.onDragLeave}
-						onDrop={uploadHandlers.onDrop}
+						role="status"
+						aria-live="polite"
+						data-testid="files-watch-limited-region"
 					>
-						{/* The live region exists before its text, so the text is announced. */}
-						{/* aria-live as well, so an open dialog's aria-hidden does not silence it. */}
-						<div
-							role="status"
-							aria-live="polite"
-							data-testid="files-watch-limited-region"
-						>
-							{watchLimited ? (
-								<p className="pk-watch-limited" data-testid="files-watch-limited">
-									This project is too large to update live. It refreshes when you return
-									to the window.
-								</p>
-							) : null}
-							{announcement ? (
-								<p className="pk-visually-hidden" data-testid="files-announcement">
-									{announcement}
-								</p>
-							) : null}
-						</div>
-						{uploadToRoot ? (
-							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
-								Drop to upload to {project.name}
+						{watchLimited ? (
+							<p className="pk-watch-limited" data-testid="files-watch-limited">
+								This project is too large to update live. It refreshes when you return
+								to the window.
 							</p>
 						) : null}
-						<TreeListing
-							project={project}
-							failed={root.isError}
-							allHidden={allHidden}
-							empty={empty}
-							onRetry={() => void root.refetch()}
-							onNewFile={() => api.newIn("", "file")}
-						/>
+						{announcement ? (
+							<p className="pk-visually-hidden" data-testid="files-announcement">
+								{announcement}
+							</p>
+						) : null}
 					</div>
-
-					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-					<PaneChanges
-						workspaceId={workspaceId}
+					{uploadToRoot ? (
+						<p className="pk-upload-hint" data-testid="file-tree-root-hint">
+							Drop to upload to {project.name}
+						</p>
+					) : null}
+					<TreeListing
 						project={project}
-						session={session}
-						reviewSession={reviewSession}
-						setReviewSession={setReviewSession}
-						gitStatus={gitStatus}
-						baselineStatus={baselineStatus}
-						openFileTab={openFileTab}
+						failed={root.isError}
+						allHidden={allHidden}
+						empty={empty}
+						onRetry={() => void root.refetch()}
+						onNewFile={() => api.newIn("", "file")}
 					/>
-
-					{/* One hidden input serves every upload action. */}
-					<input
-						ref={uploadInput}
-						type="file"
-						multiple
-						className="hidden"
-						data-testid="files-upload-input"
-						onChange={(event) => {
-							const files = event.target.files;
-							if (files && files.length > 0) uploadInto(uploadDir.current, files);
-							event.target.value = "";
-						}}
-					/>
-
-					{dialog.kind === "new" && (
-						<NameDialog
-							title={dialog.type === "file" ? "New file" : "New folder"}
-							description={
-								dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
-							}
-							label="Name"
-							confirmLabel="Create"
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onSubmit={(name) => {
-								const path = joinPath(dialog.dir, name);
-								const run =
-									dialog.type === "file"
-										? mutations.createFile.mutateAsync(path)
-										: mutations.createDirectory.mutateAsync(path);
-								void run
-									.then(() => {
-										if (dialog.dir !== "") api.setOpen(dialog.dir, true);
-										setDialog({ kind: "none" });
-									})
-									.catch(fail);
-							}}
-						/>
-					)}
-					{dialog.kind === "rename" && (
-						<NameDialog
-							title={`Rename ${displayName(dialog.node.name)}`}
-							label="New name"
-							confirmLabel="Rename"
-							initial={dialog.node.name}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onSubmit={(name) => {
-								const from = dialog.node.path;
-								const to = joinPath(parentOf(from), name);
-								void moveAsking(from, to, dialog.node.isDir)
-									.then((moved) => {
-										if (!moved) return;
-										afterMove(from, to);
-										setDialog({ kind: "none" });
-									})
-									.catch(fail);
-							}}
-						/>
-					)}
-					{dialog.kind === "move" && (
-						<MoveDialog
-							workspaceId={workspaceId}
-							projectId={project.id}
-							slug={project.slug}
-							nodes={dialog.nodes}
-							showHidden={showHidden}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onMove={(destination) => {
-								// One at a time, so a failure stops the rest and is reported once.
-								void (async () => {
-									try {
-										for (const node of dialog.nodes) {
-											const to = joinPath(destination, node.name);
-											if (await moveAsking(node.path, to, node.isDir)) {
-												afterMove(node.path, to);
-											}
-										}
-										if (destination !== "") api.setOpen(destination, true);
-										setSelection(EMPTY_SELECTION);
-										setDialog({ kind: "none" });
-									} catch (error) {
-										fail(error);
-									}
-								})();
-							}}
-						/>
-					)}
-					{replaceConfirm}
-					{dialog.kind === "delete" && (
-						<DeleteFileConfirm
-							nodes={dialog.nodes}
-							pending={mutations.pending}
-							onClose={() => setDialog({ kind: "none" })}
-							onConfirm={() => {
-								const paths = dialog.nodes.map((node) => node.path);
-								// One at a time, so a failure stops the rest and is reported once.
-								void (async () => {
-									try {
-										for (const path of paths) {
-											await mutations.remove.mutateAsync(path);
-											afterRemove(path);
-										}
-										setSelection(EMPTY_SELECTION);
-										setDialog({ kind: "none" });
-									} catch (error) {
-										fail(error);
-									}
-								})();
-							}}
-						/>
-					)}
-				</aside>
-			</TreeContext.Provider>
-			{/* The row stays where it is; a small copy of it follows the
-			    pointer, so it is clear what is being dragged. */}
-			<DragOverlay dropAnimation={null}>
-				{dragged ? (
-					<div className="pk-tree-drag" data-testid="file-drag-overlay">
-						<Icon
-							name={dragged.isDir ? "folder" : fileIconName(baseName(dragged.path))}
-							size="sm"
-						/>
-						<span>{displayName(baseName(dragged.path))}</span>
-					</div>
-				) : null}
-			</DragOverlay>
-		</DndContext>
-	);
-}
-
-/**
- * The empty area below the last row. Dropping a file here moves it to the
- * project root, which is otherwise only reachable through the path line
- * (SPEC.md §11.2).
- */
-function RootSpaceDropZone({ name }: { name: string }) {
-	const drop = useDroppable({ id: ROOT_SPACE_DROP_ID });
-	return (
-		<div
-			className={`pk-tree-space${drop.isOver ? " is-drop-target" : ""}`}
-			ref={drop.setNodeRef}
-			data-drop-dir=""
-			data-testid="file-tree-space-drop"
-			data-drop-over={drop.isOver ? "true" : undefined}
-		>
-			{drop.isOver ? <span>Move to {name}</span> : null}
-		</div>
-	);
-}
-
-/** The path line under the header, and the drop target for the project root. */
-function RootDropZone({ slug }: { slug: string }) {
-	const drop = useDroppable({ id: dropId("") });
-	return (
-		<div
-			className="pk-pane-sub"
-			ref={drop.setNodeRef}
-			data-drop-dir=""
-			data-testid="file-tree-root-drop"
-			data-drop-over={drop.isOver ? "true" : undefined}
-		>
-			~/projects/{slug}
-		</div>
-	);
-}
-
-/** The tree itself: the root listing plus whatever is expanded under it. */
-function TreeRoot({ slug }: { slug: string }) {
-	const api = useTreeApi();
-	const ref = useRef<HTMLDivElement | null>(null);
-	const helpId = useId();
-	const { treeRef } = api;
-	useEffect(() => {
-		treeRef(ref.current);
-		return () => treeRef(null);
-	}, [treeRef]);
-
-	// Moving the focus renders only the rows (rowState.ts); subscribing here
-	// re-runs the check below whenever it moves, even to a row not on screen.
-	useStore(api.rowState, (state) => state.focusedPath);
-	const { repairFocus } = api;
-	useEffect(() => repairFocus());
-
-	const onKeyDown = useTreeKeys(api);
-
-	return (
-		// The ARIA tree pattern on plain elements: the roles carry the meaning.
-		<div
-			ref={ref}
-			role="tree"
-			aria-multiselectable="true"
-			aria-label={`Files in ${slug}`}
-			aria-describedby={helpId}
-			className="pk-tree"
-			data-testid="file-tree"
-			onKeyDown={onKeyDown}
-		>
-			<span id={helpId} className="pk-visually-hidden">
-				Arrow keys move and open folders, Home and End go to the first and last row, and
-				typing a name jumps to it. Shift with an arrow extends the selection, Ctrl+Space
-				adds or removes a row. Enter opens a file, Shift+F10 or the Menu key opens the
-				actions for a row, Delete deletes it.
-			</span>
-			<Directory dir="" level={1} />
-		</div>
-	);
-}
-
-/** One directory's rows. Mounted only while the directory is open. */
-function Directory({ dir, level }: { dir: string; level: number }) {
-	const api = useTreeApi();
-	const query = useTree(api.workspaceId, api.projectId, dir);
-	// Both agents return directories first, then files, each in name order.
-	const entries = query.data ? visibleEntries(query.data.entries, api.showHidden) : [];
-	const morePath = showMorePath(dir);
-	const moreFocused = useRowState(api.rowState, morePath).focused;
-	// The row to focus once the next page is drawn, so focus never drops to the page.
-	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
-	const { rowElements, setFocusedPath, announce, showHidden, repairFocus } = api;
-
-	// A refetch can drop the focused row while rendering only this directory.
-	useEffect(() => {
-		if (query.data) repairFocus();
-	}, [query.data, repairFocus]);
-
-	useEffect(() => {
-		if (focusAfterLoad === null) return;
-		const row = rowElements().find(
-			(element) => element.getAttribute("data-path") === focusAfterLoad,
-		);
-		if (!row) return;
-		setFocusAfterLoad(null);
-		setFocusedPath(focusAfterLoad);
-		row.focus();
-	});
-
-	async function showMore() {
-		const before = entries.length;
-		const result = await query.fetchNextPage();
-		if (!result.data) return;
-		const after = visibleEntries(result.data.entries, showHidden);
-		const added = after.length - before;
-		announce(
-			result.data.truncated
-				? `Loaded ${added.toLocaleString("en")} more ${added === 1 ? "entry" : "entries"}`
-				: `All ${entryCount(after.length)} shown`,
-		);
-		// The first new row; with none visible and the Show more row gone, the last row.
-		const target =
-			added > 0 ? after[before] : result.data.truncated ? null : after.at(-1);
-		if (target) setFocusAfterLoad(joinPath(dir, target.name));
-	}
-
-	return (
-		<>
-			{entries.map((entry) => (
-				<Row key={entry.name} dir={dir} entry={entry} level={level} />
-			))}
-			{query.data?.truncated ? (
-				<ShowMoreRow
-					path={morePath}
-					level={level}
-					shown={entries.length}
-					focused={moreFocused}
-					loading={query.isFetchingNextPage}
-					onFocus={() => setFocusedPath(morePath)}
-					onActivate={() => void showMore()}
-				/>
-			) : null}
-		</>
-	);
-}
-
-/** What a row's Git letter, dot and muted colour say, in words. */
-function rowStatus(
-	decoration: GitDecoration | undefined,
-	dirty: boolean,
-	ignored: boolean,
-): string | null {
-	if (decoration) return decoration.title;
-	if (dirty) return "contains changes";
-	if (ignored) return "ignored";
-	return null;
-}
-
-/** A row's twisty, icon, name and Git marks, inside the right-click trigger's span. */
-function RowFace({
-	name,
-	shown,
-	isDir,
-	open,
-	status,
-	decoration,
-	dirty,
-	ignored,
-}: {
-	name: string;
-	shown: string;
-	isDir: boolean;
-	open: boolean;
-	status: string | null;
-	decoration: GitDecoration | undefined;
-	dirty: boolean;
-	ignored: boolean;
-}) {
-	const folderIcon = open ? "folder-open" : "folder";
-	return (
-		<>
-			<span className="pk-tree-twisty">
-				{isDir ? (
-					<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
-				) : null}
-			</span>
-			<Icon name={isDir ? folderIcon : fileIconName(name)} size="md" />
-			<span className="pk-tree-name">{shown}</span>
-			{status ? <span className="pk-visually-hidden">, {status}</span> : null}
-			{ignored && !decoration && !dirty ? (
-				<span className="pk-tree-tag" aria-hidden="true">
-					ignored
-				</span>
-			) : null}
-			{decoration ? (
-				<>
-					{decoration.kind === "conflict" ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-git-letter" aria-hidden="true">
-						{decoration.letter}
-					</span>
-				</>
-			) : dirty ? (
-				<span className="pk-git-dot" aria-hidden="true" />
-			) : null}
-		</>
-	);
-}
-
-// Memoised, so a render of the pane or a directory does not redraw thousands of rows.
-const Row = memo(function Row({
-	dir,
-	entry,
-	level,
-}: {
-	dir: string;
-	entry: TreeEntry;
-	level: number;
-}) {
-	const api = useTreeApi();
-	const path = joinPath(dir, entry.name);
-	const isDir = entry.type === "dir";
-	const node: FileNode = { path, name: entry.name, isDir };
-	const open = isDir && api.expanded.includes(path);
-	// A name is drawn without the characters that could disguise it.
-	const shown = displayName(entry.name);
-	// Git state: the file's own letter, or a dot when a directory holds a
-	// change (SPEC.md §12.1).
-	const decoration = api.git.byPath.get(path);
-	const dirty = isDir && api.git.changedDirs.has(path);
-	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
-	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
-	// What the letter, the dot and the muted colour say, in words.
-	const status = rowStatus(decoration, dirty, ignored);
-	const rowRef = useRef<HTMLDivElement | null>(null);
-
-	const { focused, selected, current } = useRowState(api.rowState, path);
-	const drag = useDraggable({ id: `row:${path}`, data: { isDir } });
-	// dnd-kit offers a button role and a tab stop; the row outside is the
-	// treeitem and the only thing the keyboard should reach.
-	const { role: _role, tabIndex: _tabIndex, ...dragAttributes } = drag.attributes;
-	const drop = useDroppable({ id: dropId(path), disabled: !isDir });
-	const over = isDir && (drop.isOver || api.dropDir === path);
-
-	function activate() {
-		api.setFocusedPath(path);
-		if (isDir) api.toggle(path);
-		else api.openFile(node);
-	}
-
-	return (
-		// biome-ignore lint/a11y/useKeyWithClickEvents: the tree handles keys for every row
-		<div
-			ref={rowRef}
-			role="treeitem"
-			aria-level={level}
-			aria-expanded={isDir ? open : undefined}
-			aria-selected={selected}
-			data-selected={selected ? "true" : undefined}
-			data-current={current ? "true" : undefined}
-			tabIndex={focused ? 0 : -1}
-			data-path={path}
-			data-kind={isDir ? "dir" : "file"}
-			data-testid={`file-row-${path}`}
-			data-git={decoration?.kind ?? (dirty ? "dir" : undefined)}
-			data-ignored={ignored ? "true" : undefined}
-			className="pk-tree-item"
-			onFocus={(event) => {
-				// Rows nest, so a child row's focus bubbles here too.
-				if (event.target === event.currentTarget) api.setFocusedPath(path);
-			}}
-			onContextMenu={(event) => {
-				// A keyboard context menu lands on the focused row itself; a pointer
-				// lands inside it and is handled by the right-click menu.
-				if (event.target !== event.currentTarget) return;
-				event.preventDefault();
-				api.setMenuPath(path);
-			}}
-			onClick={(event) => {
-				// A click inside a nested row belongs to that row, not this one.
-				const row =
-					event.target instanceof Element
-						? event.target.closest("[role=treeitem]")
-						: null;
-				if (row !== event.currentTarget) return;
-				const modifiers = {
-					toggle: event.ctrlKey || event.metaKey,
-					range: event.shiftKey,
-				};
-				api.clickRow(path, modifiers);
-				// Holding a modifier is about the selection, not about opening.
-				if (modifiers.toggle || modifiers.range) {
-					api.setFocusedPath(path);
-					return;
-				}
-				activate();
-			}}
-		>
-			<div
-				ref={(element) => {
-					drag.setNodeRef(element);
-					if (isDir) drop.setNodeRef(element);
-				}}
-				{...drag.listeners}
-				{...dragAttributes}
-				className={`pk-tree-row${over ? " is-drop-target" : ""}${
-					drag.isDragging ? " is-dragging" : ""
-				}${ignored ? " is-ignored" : ""}`}
-				title={title}
-				style={{ paddingLeft: `${level * 16 - 8}px` }}
-				data-drop-dir={isDir ? path : dir}
-			>
-				{/* The right-click menu covers the row itself, not its ⋯ button:
-				    the two menu families cannot be nested. */}
-				<ContextMenu>
-					<ContextMenuTrigger asChild>
-						<span className="pk-tree-face">
-							<RowFace
-								name={entry.name}
-								shown={shown}
-								isDir={isDir}
-								open={open}
-								status={status}
-								decoration={decoration}
-								dirty={dirty}
-								ignored={ignored}
-							/>
-						</span>
-					</ContextMenuTrigger>
-					<Menu label={`Actions for ${shown}`}>
-						<RowMenuItems node={node} />
-					</Menu>
-				</ContextMenu>
-				<MenuRoot
-					open={api.menuPath === path}
-					onOpenChange={(value) => api.setMenuPath(value ? path : null)}
-				>
-					<MenuTrigger asChild>
-						{/* Not a Tab stop: the row is, and Shift+F10 opens this. */}
-						<IconButton
-							icon="more"
-							label={`Actions for ${shown}`}
-							size="sm"
-							tabIndex={-1}
-							className="pk-tree-actions"
-							data-testid={`file-menu-${path}`}
-							onClick={(event) => event.stopPropagation()}
-							// A dialog opened from this menu returns focus here on close;
-							// hand it on to the row, the tree's Tab stop.
-							onFocus={() => rowRef.current?.focus()}
-						/>
-					</MenuTrigger>
-					<Menu
-						label={`Actions for ${shown}`}
-						onCloseAutoFocus={(event) => {
-							// Back to the row, the tree's one Tab stop, not the hidden button.
-							event.preventDefault();
-							rowRef.current?.focus();
-						}}
-					>
-						<RowMenuItems node={node} />
-					</Menu>
-				</MenuRoot>
-			</div>
-			{open ? (
-				/* biome-ignore lint/a11y/useSemanticElements: the ARIA tree pattern wants a group */
-				<div role="group" className="pk-tree-group">
-					<Directory dir={path} level={level + 1} />
 				</div>
-			) : null}
-		</div>
-	);
-});
 
-/** New file and New folder, for the project root or for a directory. */
-function CreateMenuItems({
-	dir,
-	testIdPrefix,
-}: {
-	dir: string;
-	testIdPrefix: string;
-}): ReactNode {
-	const api = useTreeApi();
-	return (
-		<>
-			<MenuItem onSelect={() => api.newIn(dir, "file")}>
-				<span data-testid={`${testIdPrefix}-new-file`}>New file…</span>
-			</MenuItem>
-			<MenuItem onSelect={() => api.newIn(dir, "dir")}>
-				<span data-testid={`${testIdPrefix}-new-folder`}>New folder…</span>
-			</MenuItem>
-		</>
-	);
-}
+				{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
+				<PaneChanges
+					workspaceId={workspaceId}
+					project={project}
+					session={session}
+					reviewSession={reviewSession}
+					setReviewSession={setReviewSession}
+					gitStatus={gitStatus}
+					baselineStatus={baselineStatus}
+					openFileTab={openFileTab}
+				/>
 
-/** The same actions on the right-click menu and on the row's ⋯ button. */
-function RowMenuItems({ node }: { node: FileNode }): ReactNode {
-	const api = useTreeApi();
-	// A new file or folder goes inside a directory, or beside a file.
-	const dir = node.isDir ? node.path : parentOf(node.path);
-	// A menu opened on a selected row acts on the whole selection.
-	const targets = api.targetsFor(node);
-	const many = targets.length > 1;
+				{/* One hidden input serves every upload action. */}
+				<input
+					ref={uploadInput}
+					type="file"
+					multiple
+					className="hidden"
+					data-testid="files-upload-input"
+					onChange={(event) => {
+						const files = event.target.files;
+						if (files && files.length > 0) uploadInto(uploadDir.current, files);
+						event.target.value = "";
+					}}
+				/>
 
-	return (
-		<>
-			<CreateMenuItems dir={dir} testIdPrefix="row" />
-			<MenuSeparator />
-			{many ? null : (
-				<MenuItem onSelect={() => api.rename(node)}>
-					<span data-testid="row-rename">Rename…</span>
-				</MenuItem>
-			)}
-			<MenuItem onSelect={() => api.move(node)}>
-				<span data-testid="row-move">
-					{many ? `Move ${targets.length} items to…` : "Move to…"}
-				</span>
-			</MenuItem>
-			{many ? (
-				<MenuItem onSelect={() => api.download(targets)}>
-					<span data-testid="row-download-selection">
-						Download {targets.length} items
-					</span>
-				</MenuItem>
-			) : (
-				<MenuItem
-					onSelect={() => api.download([node])}
-					testId={`row-download-${node.path}`}
-				>
-					Download
-				</MenuItem>
-			)}
-			{!many && !node.isDir && /\.zip$/i.test(node.name) ? (
-				<MenuItem
-					onSelect={() => api.extract(node)}
-					testId={`row-extract-${node.path}`}
-				>
-					Extract here
-				</MenuItem>
-			) : null}
-			{/* The picker belongs to the pane, because the menu closes on select. */}
-			<MenuItem onSelect={() => api.pickUpload(dir)}>
-				<span data-testid="row-upload">Upload files…</span>
-			</MenuItem>
-			<MenuSeparator />
-			<MenuItem danger onSelect={() => api.remove(node)}>
-				<span data-testid="row-delete">
-					{many ? `Delete ${targets.length} items…` : "Delete…"}
-				</span>
-			</MenuItem>
-		</>
+				{dialog.kind === "new" && (
+					<NameDialog
+						title={dialog.type === "file" ? "New file" : "New folder"}
+						description={
+							dialog.dir === "" ? "In the project root." : `In ${dialog.dir}.`
+						}
+						label="Name"
+						confirmLabel="Create"
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const path = joinPath(dialog.dir, name);
+							const run =
+								dialog.type === "file"
+									? mutations.createFile.mutateAsync(path)
+									: mutations.createDirectory.mutateAsync(path);
+							void run
+								.then(() => {
+									if (dialog.dir !== "") api.setOpen(dialog.dir, true);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+				{dialog.kind === "rename" && (
+					<NameDialog
+						title={`Rename ${displayName(dialog.node.name)}`}
+						label="New name"
+						confirmLabel="Rename"
+						initial={dialog.node.name}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onSubmit={(name) => {
+							const from = dialog.node.path;
+							const to = joinPath(parentOf(from), name);
+							void moveAsking(from, to, dialog.node.isDir)
+								.then((moved) => {
+									if (!moved) return;
+									afterMove(from, to);
+									setDialog({ kind: "none" });
+								})
+								.catch(fail);
+						}}
+					/>
+				)}
+				{dialog.kind === "move" && (
+					<MoveDialog
+						workspaceId={workspaceId}
+						projectId={project.id}
+						slug={project.slug}
+						nodes={dialog.nodes}
+						showHidden={showHidden}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onMove={(destination) => {
+							// One at a time, so a failure stops the rest and is reported once.
+							void (async () => {
+								try {
+									for (const node of dialog.nodes) {
+										const to = joinPath(destination, node.name);
+										if (await moveAsking(node.path, to, node.isDir)) {
+											afterMove(node.path, to);
+										}
+									}
+									if (destination !== "") api.setOpen(destination, true);
+									setSelection(EMPTY_SELECTION);
+									setDialog({ kind: "none" });
+								} catch (error) {
+									fail(error);
+								}
+							})();
+						}}
+					/>
+				)}
+				{replaceConfirm}
+				{dialog.kind === "delete" && (
+					<DeleteFileConfirm
+						nodes={dialog.nodes}
+						pending={mutations.pending}
+						onClose={() => setDialog({ kind: "none" })}
+						onConfirm={() => {
+							const paths = dialog.nodes.map((node) => node.path);
+							// One at a time, so a failure stops the rest and is reported once.
+							void (async () => {
+								try {
+									for (const path of paths) {
+										await mutations.remove.mutateAsync(path);
+										afterRemove(path);
+									}
+									setSelection(EMPTY_SELECTION);
+									setDialog({ kind: "none" });
+								} catch (error) {
+									fail(error);
+								}
+							})();
+						}}
+					/>
+				)}
+			</aside>
+		</TreeContext.Provider>
 	);
 }

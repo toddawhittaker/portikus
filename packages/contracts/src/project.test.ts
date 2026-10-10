@@ -361,22 +361,58 @@ test("ProjectLayout holds a file tab and a diff tab of the same path", () => {
 	expect(ProjectLayout.parse(layout)).toEqual(layout);
 });
 
-test("ProjectLayout refuses a file node inside a split", () => {
-	// Only terminals split (SPEC.md §8.3).
-	const nested = {
+/** A tab named `id` holding a row split of `children`. */
+function splitTab(id: string, children: unknown[]) {
+	const size = 100 / children.length;
+	return {
+		id,
+		root: {
+			type: "split",
+			direction: "row",
+			sizes: children.map(() => size),
+			children,
+		},
+	};
+}
+
+test("ProjectLayout lets a file share a split with a terminal", () => {
+	// A student reads code beside the shell that builds it (SPEC.md §8.3).
+	const mixed = {
+		tabs: [splitTab("tab-1", [leaf(terminalA), { type: "file", path: "src/app.ts" }])],
+	};
+	expect(ProjectLayout.parse(mixed)).toEqual(mixed);
+});
+
+test("ProjectLayout keeps previews and diff nodes out of splits", () => {
+	for (const whole of [
+		{ type: "preview", port: 3000 },
+		{ type: "diff", path: "src/app.ts" },
+	]) {
+		const nested = { tabs: [splitTab("tab-1", [leaf(terminalA), whole])] };
+		expect(ProjectLayout.safeParse(nested).success).toBe(false);
+	}
+});
+
+test("ProjectLayout refuses one path in a split and in a tab of its own", () => {
+	const twice = {
 		tabs: [
-			{
-				id: "tab-1",
-				root: {
-					type: "split",
-					direction: "row",
-					sizes: [50, 50],
-					children: [leaf(terminalA), { type: "file", path: "src/app.ts" }],
-				},
-			},
+			splitTab("tab-1", [leaf(terminalA), { type: "file", path: "src/app.ts" }]),
+			{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
 		],
 	};
-	expect(ProjectLayout.safeParse(nested).success).toBe(false);
+	expect(ProjectLayout.safeParse(twice).success).toBe(false);
+});
+
+test("ProjectLayout refuses one path twice in the same split", () => {
+	const twice = {
+		tabs: [
+			splitTab("tab-1", [
+				{ type: "file", path: "src/app.ts" },
+				{ type: "file", path: "src/app.ts" },
+			]),
+		],
+	};
+	expect(ProjectLayout.safeParse(twice).success).toBe(false);
 });
 
 test("ProjectLayout refuses the same path open twice as a file", () => {
@@ -434,6 +470,25 @@ test("ProjectLayout caps how deep a split tree may nest", () => {
 		ProjectLayout.safeParse({ tabs: [{ id: "t", root: nest(MAX_SPLIT_DEPTH + 1) }] })
 			.success,
 	).toBe(false);
+});
+
+test("ProjectLayout refuses a split tree nested far past the limit without overflowing the stack", () => {
+	// Built bottom-up so the test itself does not recurse. Ten thousand levels
+	// still fit in the API's 1 MiB body limit.
+	for (const depth of [1_000, 10_000]) {
+		let root: unknown = leaf(terminalA);
+		for (let i = 1; i < depth; i++) {
+			root = {
+				type: "split",
+				direction: "row",
+				sizes: [50, 50],
+				children: [root, leaf(terminalB)],
+			};
+		}
+		const parse = () => ProjectLayout.safeParse({ tabs: [{ id: "t", root }] });
+		expect(parse).not.toThrow();
+		expect(parse().success).toBe(false);
+	}
 });
 
 /** A folder name becomes the project's display name. */

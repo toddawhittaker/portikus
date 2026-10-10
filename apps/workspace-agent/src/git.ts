@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, mkdtemp, open, readdir, readlink, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,12 +10,10 @@ import {
 	MAX_DIFF_SIDE_BYTES,
 	MAX_GIT_ENTRIES,
 } from "@portikus/contracts";
+import { finishDiff, MISSING, readWorkingTree, type Side } from "./diff-side.js";
 import { AgentFailure } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { runGit } from "./git-runner.js";
-
-/** How much of a side is sniffed for a NUL byte before it is called binary. */
-const SNIFF_BYTES = 8 * 1024;
 
 /** Somewhere to put git stderr that is not the response body (STACK.md §15). */
 export interface GitDebugLog {
@@ -27,6 +25,7 @@ function emptyStatus(): GitStatus {
 		repo: false,
 		branch: null,
 		detached: false,
+		oid: null,
 		upstream: null,
 		ahead: 0,
 		behind: 0,
@@ -87,7 +86,10 @@ export function parsePorcelainV2(text: string): GitStatus {
 function readBranchHeader(status: GitStatus, record: string): void {
 	const [, key, ...rest] = record.split(" ");
 	const value = rest.join(" ");
-	if (key === "branch.head") {
+	if (key === "branch.oid") {
+		// "(initial)" means there is no commit yet.
+		status.oid = OBJECT_ID.test(value) ? value : null;
+	} else if (key === "branch.head") {
 		if (value === "(detached)") {
 			status.detached = true;
 		} else {
@@ -191,13 +193,6 @@ export async function gitStatus(
 	return parsePorcelainV2(result.stdout.toString());
 }
 
-interface Side {
-	content: Buffer | null;
-	tooLarge: boolean;
-}
-
-const MISSING: Side = { content: null, tooLarge: false };
-
 /**
  * Read a blob out of HEAD, capped. A path HEAD does not have reads as null,
  * but only when git said so itself: a killed git is an error, not an add.
@@ -230,28 +225,6 @@ export async function showFromHead(
 		return { content: null, tooLarge: true };
 	}
 	return { content: result.stdout, tooLarge: false };
-}
-
-/** Read the working-tree side, capped the same way. */
-async function readWorkingTree(path: string): Promise<Side> {
-	let info: Awaited<ReturnType<typeof stat>>;
-	try {
-		info = await stat(path);
-	} catch {
-		return MISSING;
-	}
-	if (!info.isFile()) return MISSING;
-	if (info.size > MAX_DIFF_SIDE_BYTES) return { content: null, tooLarge: true };
-	const handle = await open(path, "r");
-	try {
-		return { content: await handle.readFile(), tooLarge: false };
-	} finally {
-		await handle.close();
-	}
-}
-
-function isBinary(side: Side): boolean {
-	return side.content?.subarray(0, SNIFF_BYTES).includes(0) ?? false;
 }
 
 interface PathState {
@@ -301,7 +274,7 @@ async function pathState(dir: string, relPath: string): Promise<PathState> {
  * would show a tree listing as if it were the file's content. A missing path
  * is fine: the older side may still have it.
  */
-async function diffablePath(
+export async function diffablePath(
 	homeDir: string,
 	slug: string,
 	relPath: string,
@@ -858,7 +831,7 @@ export async function baselineDiff(
 }
 
 /** Read a blob out of an arbitrary object, with the same cap as HEAD. */
-async function showFromRev(
+export async function showFromRev(
 	dir: string,
 	rev: string,
 	path: string,
@@ -875,29 +848,4 @@ async function showFromRev(
 		return { content: null, tooLarge: true };
 	}
 	return { content: result.stdout, tooLarge: false };
-}
-
-function finishDiff(
-	before: Side,
-	after: Side,
-	unmerged: boolean,
-	origPath: string | undefined,
-): GitDiff {
-	const tooLarge = before.tooLarge || after.tooLarge;
-	const binary = !tooLarge && (isBinary(before) || isBinary(after));
-	let status: GitDiff["status"];
-	if (unmerged) status = "U";
-	else if (origPath) status = "R";
-	else if (before.content === null && !before.tooLarge) status = "A";
-	else if (after.content === null && !after.tooLarge) status = "D";
-	else status = "M";
-	const hide = tooLarge || binary;
-	return {
-		status,
-		...(origPath ? { oldPath: origPath } : {}),
-		before: hide || before.content === null ? null : before.content.toString("utf8"),
-		after: hide || after.content === null ? null : after.content.toString("utf8"),
-		binary,
-		tooLarge,
-	};
 }

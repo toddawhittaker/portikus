@@ -499,6 +499,16 @@ test.skipIf(skip)("a move replaces a file only when asked to", async () => {
 	expect(onFolder.json().code).toBe("DIRECTORY_EXISTS");
 });
 
+test.skipIf(skip)("extract progress is relayed from the agent", async () => {
+	const progress = await app.inject({
+		method: "GET",
+		url: url("extract/progress"),
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(progress.statusCode).toBe(200);
+	expect(progress.json()).toEqual({ done: 0, total: 0 });
+});
+
 test.skipIf(skip)(
 	"extract unpacks a zip into a new folder and relays a refusal",
 	async () => {

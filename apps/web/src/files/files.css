@@ -49,23 +49,6 @@
 .pk-tree-row.is-dragging {
 	opacity: 0.5;
 }
-/* What follows the pointer during a drag. */
-.pk-tree-drag {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	max-width: 240px;
-	padding: var(--space-1) var(--space-2);
-	border-radius: var(--radius-sm);
-	background: var(--surface-raised);
-	box-shadow: var(--shadow-md);
-	color: var(--ink);
-	font-size: 13px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	pointer-events: none;
-}
 /* A flex column so the empty area below the tree can take whatever height
    is left over. Only the files pane; other panes are unchanged. */
 .pk-pane--right > .pk-pane-body {
@@ -314,4 +297,38 @@
 	white-space: nowrap;
 	font-family: var(--font-mono);
 	font-size: 12px;
+}
+
+/* The "Extracting…" toast's bar, drawn like the Meter so the two read alike. */
+.pk-extract-progress {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	padding-block-start: var(--space-1);
+	min-width: 0;
+}
+.pk-extract-bar {
+	-webkit-appearance: none;
+	appearance: none;
+	flex: 1 1 8rem;
+	min-width: 6rem;
+	block-size: 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-xs);
+	background: var(--surface-hover);
+	overflow: hidden;
+}
+.pk-extract-bar::-webkit-progress-bar {
+	background: var(--surface-hover);
+}
+.pk-extract-bar::-webkit-progress-value {
+	background: var(--accent);
+}
+.pk-extract-bar::-moz-progress-bar {
+	background: var(--accent);
+}
+.pk-extract-figure {
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-muted);
 }

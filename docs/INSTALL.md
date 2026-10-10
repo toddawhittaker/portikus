@@ -623,9 +623,9 @@ days old and 30 newer sets are there. Nothing else in the folder is touched.
 If `incoming` grows past twice the disk of a typical kept set (at least
 1 GiB) or past ten times its file count (at least 100,000), the next run
 empties it and the warning reaches you by cron mail. A big set can take
-longer than an hour to arrive, so the newest unfinished set named for
-the last day is left alone while anything in it changed in the last 2
-hours; a run warns when it grows past four times a typical kept set. An
+longer than an hour to arrive, and its upload can stall or start late,
+so the newest unfinished set is left alone until it is KEEP days old; a
+run warns when it grows past four times a typical kept set. An
 unfinished set dated more than a day ahead is dropped.
 Until the first set is kept there is nothing to size a set by, so no
 set in `incoming` is removed for size, only other files. That only limits
@@ -639,7 +639,11 @@ the `usrquota` mount option), for example 200 GiB and 2 million files:
 sudo setquota -u backups 200G 200G 2000000 2000000 /srv
 ```
 
-Size it to hold KEEP sets plus a few spare. Watch a server run with
+Size it to hold KEEP sets plus a few spare. A run that adds a set warns
+by cron mail when `quota` shows no disk or no file limit for the account
+on that filesystem, or when the `quota` package is not installed. When
+you update Portikus, copy `portikus-offsite-prune` to the target again,
+since the copy there does not update itself. Watch a server run with
 `sudo systemctl start portikus-backup-offsite.service` and `sudo
 journalctl -u portikus-backup-offsite.service`; a failed run sends an
 alert when alerts are set up. To turn it off, set

@@ -10,6 +10,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createLayoutStore, LayoutStoreContext } from "../layout/store";
 import { WorkArea } from "./WorkArea";
 
 vi.mock("../terminal/TerminalPane", () => ({
@@ -127,18 +128,22 @@ function renderArea(props: { openPath?: string; openLine?: number } = {}) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
-	return render(
+	const store = createLayoutStore();
+	const view = render(
 		<QueryClientProvider client={client}>
 			<ToastProvider>
-				<WorkArea
-					workspaceId={WORKSPACE}
-					projectId={PROJECT}
-					projectPath="~/projects/todo-api"
-					{...props}
-				/>
+				<LayoutStoreContext.Provider value={store}>
+					<WorkArea
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						projectPath="~/projects/todo-api"
+						{...props}
+					/>
+				</LayoutStoreContext.Provider>
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
+	return { ...view, store };
 }
 
 afterEach(() => {
@@ -623,4 +628,88 @@ test("the empty work area opens a terminal or Claude Code from its buttons", asy
 		const post = second.fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
 		expect(JSON.parse(String(post?.[1]?.body))).toEqual({ projectId: PROJECT });
 	});
+});
+
+/** SPEC.md §24.6: a bidirectional mark in a file name never reaches the screen. */
+test("file tabs and file panes draw names without bidirectional marks", async () => {
+	const lone = "src/gpj.‮txt";
+	const inSplit = "src/‮evil.ts";
+	stubFetch({
+		layout: {
+			tabs: [
+				{ id: `file:${lone}`, root: { type: "file", path: lone } },
+				{
+					id: "tab1",
+					root: {
+						type: "split",
+						direction: "row",
+						sizes: [50, 50],
+						children: [
+							{ type: "leaf", terminalId: ONE },
+							{ type: "file", path: inSplit },
+						],
+					},
+				},
+			],
+		},
+		terminals: [terminal(ONE, "zsh")],
+	});
+	renderArea();
+
+	const tab = await screen.findByTestId(`tab-file:${lone}`);
+	expect(tab.textContent).toBe("gpj.txt");
+	expect(tab.getAttribute("title")).toBe("src/gpj.txt");
+	const frame = await screen.findByTestId(`file-frame-${inSplit}`);
+	expect(screen.getByTestId(`file-frame-handle-${inSplit}`).textContent).toBe(
+		"evil.ts",
+	);
+	expect(frame.getAttribute("aria-label")).not.toContain("‮");
+	expect(
+		screen.getByTestId(`file-frame-actions-${inSplit}`).getAttribute("aria-label"),
+	).toBe("Actions for evil.ts");
+});
+
+/** Closing a tab never throws away edits that are not on disk. */
+test("closing a tab that holds a file with unsaved edits asks first", async () => {
+	const path = "src/app.ts";
+	const lone = "src/lib.ts";
+	stubFetch({
+		layout: {
+			tabs: [
+				{
+					id: "tab1",
+					root: {
+						type: "split",
+						direction: "row",
+						sizes: [50, 50],
+						children: [
+							{ type: "leaf", terminalId: ONE },
+							{ type: "file", path },
+						],
+					},
+				},
+				{ id: `file:${lone}`, root: { type: "file", path: lone } },
+			],
+		},
+		terminals: [terminal(ONE, "zsh")],
+	});
+	const { store } = renderArea();
+	await screen.findByTestId("tab-tab1-close");
+	// What an editor reports when auto-save is off and the student types.
+	act(() => store.getState().setTabUnsaved(`file:${path}`, true));
+	act(() => store.getState().setTabUnsaved(`file:${lone}`, true));
+
+	fireEvent.click(screen.getByTestId("tab-tab1-close"));
+	expect(screen.getByRole("alertdialog").textContent).toContain(
+		"app.ts has changes that are not saved.",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
+
+	fireEvent.click(screen.getByTestId(`tab-file:${lone}-close`));
+	expect(screen.getByRole("alertdialog").textContent).toContain(
+		"lib.ts has changes that are not saved.",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
+	await waitFor(() => expect(screen.queryByTestId(`tab-file:${lone}`)).toBeNull());
 });

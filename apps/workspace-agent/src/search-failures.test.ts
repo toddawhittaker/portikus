@@ -54,8 +54,15 @@ afterAll(async () => {
 	await rm(homeDir, { recursive: true, force: true });
 });
 
-test("ripgrep failing with exit code 2 is reported as SEARCH_FAILED", async () => {
-	await useFakeRg('echo "rg: broken" >&2\nexit 2\n');
+test("exit code 2 without a parse error is a normal, possibly empty, result", async () => {
+	await useFakeRg('echo "rg: ./x: Permission denied" >&2\nexit 2\n');
+	await expect(
+		searchProject(homeDir, "demo", "needle", { hidden: false }),
+	).resolves.toEqual({ matches: [], truncated: false });
+});
+
+test("an exit code other than 0, 1 or 2 is reported as SEARCH_FAILED", async () => {
+	await useFakeRg('echo "rg: broken" >&2\nexit 3\n');
 	await expect(
 		searchProject(homeDir, "demo", "needle", { hidden: false }),
 	).rejects.toMatchObject({ code: "SEARCH_FAILED" });
@@ -192,6 +199,40 @@ test("a search past the running cap is refused as BUSY, and the slot frees", asy
 	await Promise.all(running);
 
 	await useFakeRg(`${matchStream()}\nexit 0\n`);
+	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
+	expect(result.matches).toHaveLength(1);
+});
+
+test("only a regex parse error from ripgrep is the student's pattern", async () => {
+	await useFakeRg('echo "rg: ./x: Permission denied (os error 13)" >&2\nexit 2\n');
+	await expect(
+		searchProject(homeDir, "demo", "ne+dle", { hidden: false, regex: true }),
+	).resolves.toEqual({ matches: [], truncated: false });
+
+	await useFakeRg(
+		'printf "rg: regex parse error:\\n    (\\nerror: unclosed group\\n" >&2\nexit 2\n',
+	);
+	await expect(
+		searchProject(homeDir, "demo", "(", { hidden: false, regex: true }),
+	).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+});
+
+test("a regex too big to compile is an invalid pattern, not no matches", async () => {
+	for (const line of [
+		"rg: compiled regex exceeds size limit of 104857600",
+		"rg: regex could not be compiled",
+	]) {
+		await useFakeRg(`echo "${line}" >&2\nexit 2\n`);
+		await expect(
+			searchProject(homeDir, "demo", "x", { hidden: false, regex: true }),
+		).rejects.toMatchObject({ code: "PATTERN_INVALID" });
+	}
+});
+
+test("exit code 2 after matches returns the matches", async () => {
+	await useFakeRg(
+		`${matchStream()}\necho "rg: ./locked: Permission denied" >&2\nexit 2\n`,
+	);
 	const result = await searchProject(homeDir, "demo", "needle", { hidden: false });
 	expect(result.matches).toHaveLength(1);
 });

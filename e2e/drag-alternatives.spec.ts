@@ -217,7 +217,7 @@ test("Reset pane sizes shares a split out evenly again", async ({ page, context 
 
 	// Make the split uneven with the splitter's own End key, which gives the
 	// first pane all the room the second pane's minimum leaves.
-	await page.getByRole("separator", { name: "Resize terminal" }).focus();
+	await page.getByRole("separator", { name: "Resize panes" }).focus();
 	await page.keyboard.press("End");
 	const widths = async () =>
 		Promise.all(

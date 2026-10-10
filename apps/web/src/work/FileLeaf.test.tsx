@@ -10,6 +10,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { baseName } from "../files/paths.js";
 import type { FileContent } from "../files/queries.js";
 import {
 	createLayoutStore,
@@ -386,6 +387,16 @@ test("the file loads into the editor and shows Saved", async () => {
 	expect(status().textContent).toBe("Saved");
 });
 
+/** SPEC.md §24.6: the header draws the name without its bidirectional marks. */
+test("the header name never draws a bidirectional mark", async () => {
+	const path = "src/‮txt.js";
+	renderLeaf(() => {}, path);
+	await findEditor(path);
+	expect(
+		screen.getByTestId(`file-pane-${path}`).querySelector(".pk-file-name")?.textContent,
+	).toBe("txt.js");
+});
+
 test("typing autosaves with the etag it was read at", async () => {
 	renderLeaf();
 	await findEditor();
@@ -662,8 +673,45 @@ test("a binary image is shown fit to the tab, not offered as a download", async 
 	expect(screen.queryByText("Not a text file")).toBeNull();
 	expect(screen.getByText("4 B")).not.toBeNull();
 	expect(screen.getByTestId("file-download")).not.toBeNull();
-	// An image is looked at, so the first view button says View.
-	expect(screen.getByTestId("file-view-edit-assets/logo.png").textContent).toBe("View");
+	// An image is only looked at, so it has no View, Edit or Diff buttons.
+	expect(screen.queryByRole("group", { name: "File view" })).toBeNull();
+	expect(screen.queryByTestId("file-view-edit-assets/logo.png")).toBeNull();
+	expect(screen.queryByTestId("file-view-diff-assets/logo.png")).toBeNull();
+});
+
+/** SPEC.md §8.3: an image asked for its diff, as from the Changes list, shows the image. */
+test("an image asked for its diff still shows the image, with no toggle", async () => {
+	seed = {
+		text: "\u0000PNG",
+		etag: "etag-img",
+		contentType: "application/octet-stream",
+	};
+	renderWithQuery(
+		<FileLeaf
+			path="assets/logo.png"
+			workspaceId={WORKSPACE}
+			projectId={PROJECT}
+			onClose={() => {}}
+			pendingView={{ mode: "diff", seq: 1 }}
+			consumePendingView={() => ({ mode: "diff", seq: 1 })}
+		/>,
+	);
+	expect(await screen.findByRole("img", { name: "logo.png" })).not.toBeNull();
+	expect(screen.queryByTestId("diff-pane-assets/logo.png")).toBeNull();
+	expect(screen.queryByRole("group", { name: "File view" })).toBeNull();
+});
+
+/** SPEC.md §8.3: one header line holds the name, the save state and the view buttons. */
+test("a code file has one header with its name, Saved, and Edit and Diff", async () => {
+	renderLeaf();
+	await findEditor();
+	const headers = screen.getByTestId(`file-pane-${PATH}`).querySelectorAll("header");
+	expect(headers).toHaveLength(1);
+	const header = headers[0] as HTMLElement;
+	expect(header.querySelector(".pk-file-name")?.textContent).toBe(baseName(PATH));
+	expect(header.contains(status())).toBe(true);
+	expect(header.contains(screen.getByTestId(`file-view-edit-${PATH}`))).toBe(true);
+	expect(header.contains(screen.getByTestId(`file-view-diff-${PATH}`))).toBe(true);
 });
 
 test("an image that will not decode falls back to the download panel", async () => {
@@ -700,6 +748,34 @@ test("an SVG opens as its picture, drawn from the tab's text through img", async
 	expect(screen.queryByRole("img", { name: "logo.svg" })).toBeNull();
 	fireEvent.click(screen.getByTestId("file-view-view-logo.svg"));
 	expect(await screen.findByRole("img", { name: "logo.svg" })).not.toBeNull();
+});
+
+test("a CSV file opens as its table, and its text is one button away", async () => {
+	seed = { text: "name,score\nAnn,9\n", etag: "etag-csv" };
+	renderLeaf(() => {}, "marks.csv");
+	expect(await screen.findByRole("columnheader", { name: "score" })).not.toBeNull();
+	expect(screen.getByRole("cell", { name: "Ann" })).not.toBeNull();
+	expect(screen.queryByTestId("editor-marks.csv")).toBeNull();
+	expect(
+		screen.getByTestId("file-view-view-marks.csv").getAttribute("aria-pressed"),
+	).toBe("true");
+
+	fireEvent.click(screen.getByTestId("file-view-edit-marks.csv"));
+	await findEditor("marks.csv");
+	expect(screen.queryByRole("table")).toBeNull();
+	fireEvent.click(screen.getByTestId("file-view-view-marks.csv"));
+	expect(await screen.findByRole("table")).not.toBeNull();
+});
+
+test("a CSV file that cannot be read offers its text instead", async () => {
+	seed = { text: 'name\n"never closed\n', etag: "etag-csv" };
+	renderLeaf(() => {}, "broken.csv");
+	await screen.findByText("This file could not be read as CSV");
+	fireEvent.click(screen.getByRole("button", { name: "Show as text" }));
+	await findEditor("broken.csv");
+	expect(
+		screen.getByTestId("file-view-edit-broken.csv").getAttribute("aria-pressed"),
+	).toBe("true");
 });
 
 test("a PDF opens in the browser's viewer from a copy held in the page", async () => {

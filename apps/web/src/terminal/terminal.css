@@ -17,3 +17,23 @@
 	width: 6px !important;
 	border-radius: var(--radius-full);
 }
+
+/* Words heard while dictating, before they settle and are typed (SPEC.md §25.10). */
+.pk-term-voice-interim {
+	position: absolute;
+	inset-inline: 8px;
+	bottom: 8px;
+	margin: 0;
+	padding: 4px 8px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: 12px;
+	z-index: 1;
+	pointer-events: none;
+}
+
+/* A voice error or hint, shown as well as announced; full ink so it reads. */
+.pk-term-voice-error {
+	color: var(--ink);
+}
