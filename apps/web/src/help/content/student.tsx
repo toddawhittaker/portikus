@@ -372,6 +372,55 @@ export const STUDENT_HELP: HelpPart = {
 			),
 		},
 		{
+			id: "student-sharing",
+			title: "Sharing a project with your instructors",
+			body: (
+				<>
+					<p>
+						Your instructors cannot see your work unless you choose to share it. To
+						share one project, open its three-dots menu and choose{" "}
+						<strong>Share with my instructors…</strong>, then{" "}
+						<strong>Start sharing</strong>.
+					</p>
+					<ul>
+						<li>
+							The instructors of the courses you belong to can then look at that project
+							and nothing else. They cannot change anything.
+						</li>
+						<li>
+							They see the project's files, its Git status and changes, and the latest
+							check results. They never see your terminals, your previews, or secret
+							files such as <code>.env</code>, <code>.env.local</code>, keys and{" "}
+							<code>.npmrc</code>.
+						</li>
+						<li>
+							The share ends by itself after 24 hours. <strong>Stop sharing</strong> in
+							the same dialog ends it at once. A shared project has a{" "}
+							<strong>Shared</strong> tag in the project list.
+						</li>
+						<li>
+							The dialog lists each instructor who has looked and when they last did.
+							Portikus also sends you a notification the first time an instructor opens
+							the project.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
+			id: "student-agent-usage",
+			title: "What your instructors can see about coding agents",
+			body: (
+				<p>
+					Instructors of your courses, and administrators, can see counts of your use of
+					Claude Code and Codex: how many sessions you ran, how many tokens they used,
+					the estimated cost, and how many lines were added and removed. They never see
+					your prompts, the agents' answers, or your code. These counts do not need you
+					to share anything.
+				</p>
+			),
+		},
+		{
 			id: "student-settings",
 			title: "Settings",
 			body: (
