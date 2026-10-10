@@ -1066,10 +1066,17 @@ and address changes work only where `/etc/portikus/portikus.yaml` exists
 transient systemd timer that runs `site-job expire <id>` and puts the old
 answers back at the deadline: 30 minutes for sign-in, 15 for an address. Keep
 and roll back end a trial early. If setup fails during a trial, the job puts
-the old answers back and runs setup again. A trial that is already overdue
-when the server boots is reverted inside the boot-time setup service, and
-`multi-user.target` waits for that setup to finish. Only one trial can be open. See the
-running timers with `systemctl list-timers`.
+the old answers back and runs setup again. A reboot loses the deadline timer,
+so `portikus-site-job.service` also runs once at boot and puts back a trial
+that is already overdue. If something else, such as `dpkg-reconfigure
+portikus` or an upgrade, wrote different answers while a trial was open, the
+job does not put the trial back: it marks it failed with `trial_superseded`
+and keeps the newer answers. Only one trial can be open. See the running
+timers with `systemctl list-timers`.
+
+A sign-in provider's discovery document may name endpoints on other hosts.
+The egress proxy allows those only as host names on port 443; list any
+endpoint on another port in `egress_proxy_hosts`.
 
 **An address that is unreachable after Keep.** Keep ends the safety net. If the
 new address does not work after all, sign in over SSH and run:

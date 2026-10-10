@@ -68,3 +68,10 @@ from the journal after every API restart, and the first requests after a
 restart may report `complete: false` while they catch up. Lines that are not
 Portikus JSON, and the workspace agents' logs inside containers, are not
 shown.
+
+## Update, Epic 43
+
+The workspace agents' own warnings are now readable from the admin
+workspace panel, pulled on demand from a small in-memory ring in each agent
+(ADR 0060). They are labelled as reported by the workspace and are still not
+part of the Logs tab.

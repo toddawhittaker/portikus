@@ -5031,3 +5031,77 @@ Gaps left:
 - Registering the mock LMS on an apt-installed VM is a hand step: the
   platforms file must sit where setup reads it and setup must run, so the
   egress proxy allows the mock's keyset (#1423).
+
+## Epic 43 — Admin self-service
+
+Built on `epic/43-admin-self-service` (plan #1426, task PRs #1429, #1431 to
+#1433, #1440, #1444 to #1447 and #1451, review fixes #1455, #1457 and
+#1458, and this fold). Issues #1250, #1220, #935, #1252, #1251 and #1256.
+No migration; ADRs 0059 and 0060.
+
+Delivered:
+
+- Root site job (#1432, #1440; ADR 0059): `portikus-site-job.path` and
+  `.service` apply page proxy hosts and LMS platforms (page-owned files and
+  Squid includes, swapped and rolled back on a bad parse), and address and
+  sign-in changes as trials. A trial writes the same install answers as
+  `dpkg-reconfigure portikus` and reruns setup. It is put back after 15
+  minutes (address) or 30 (sign-in) unless kept, and once at boot if
+  overdue. Setup writes a secret-free `site-view.json` for the pages.
+  Postinst's settings writer moved to `write-settings`.
+- Users paging (#1251, #1429): search, filters and sort run on the server,
+  50 rows a page, markers still computed over all accounts.
+- Admin linking (#1252, #1444): an administrator links or unlinks a course
+  account from an SSO account's detail panel, with the holder's refusals,
+  an audit row with `by: "administrator"` and a notice to the holder.
+- Agent log (#1256, #1433; ADR 0060): the workspace agent keeps its last
+  200 warnings in memory, and the admin detail panel reads them, labelled
+  as reported by the workspace.
+- LMS platforms and allowed API hosts (#1250, #1431, #1445): the Sign-in tab
+  adds LTI platforms and the Network tab adds host names the server may
+  reach on port 443; the operator's entries show read-only.
+- Sign-in provider (#1220, #1446): Entra, Google, generic OIDC or Dex
+  passwords only, as a trial, checked by a test sign-in that signs no one
+  in, then kept. LDAP is read-only.
+- Site address (#935, #1447): plan, DNS pre-flight, and a trial kept only
+  from the new address. Uploaded certificates must cover the new names.
+- Docs and help (#1451) for every new page.
+
+Review fixes (code, security and accessibility reviews at 914dc043):
+
+- #1458: the OIDC issuer on the page must be a host name on port 443, and
+  discovery-document hosts reach Squid only as host names on 443; a page
+  LMS issuer cannot be reused with another keyset; trials keep a hash of
+  the answers they wrote and end as `trial_superseded`, never reverting,
+  when something else changed them; a changed provider with no new secret
+  is refused with `missing_secret`; https URLs are ASCII only on both
+  sides; the address job checks the site is not under the preview suffix.
+- #1457: page-only LMS platforms turn LTI on; the test sign-in is a `POST`
+  returning `{location}` and a bad marker refuses the callback; admin
+  linking refuses a higher-role SSO account; the link dialog uses
+  `unlinkedCourse=1`; stale requests are swept on every submit; error
+  codes are unified; the accessibility fixes (paging buttons, trial
+  announcements, focus after self-removing actions, disabled-button
+  reasons, one status region in the link dialog).
+- #1455: wording in the guide and help (page proxy hosts are for the server
+  only), and a steady Users count test.
+- This fold: the page checks that the test sign-in address is https (or
+  http on loopback, for development and e2e) before sending the browser
+  there.
+
+All three reviewers confirmed the fixes at ac1c6bb7.
+
+Gaps left:
+
+- `previewSuffixSetByHand` is wrong when `portikus.yaml` sets exactly
+  `preview.<host>` by hand, and the Network page reads the operator's
+  proxy hosts from Squid's configuration (#1464).
+- Setup fetches the discovery document directly as root, not through
+  Squid; accepted for now (ADR 0059, #1464).
+- A `dpkg-reconfigure` or an upgrade that writes different answers during
+  a trial ends it without putting it back; recovery is the local
+  administrator's password or `dpkg-reconfigure portikus`.
+- The address pre-flight cannot test the new port before the switch, and
+  apply does not rerun it on the server.
+
+Rehearsal: pending.

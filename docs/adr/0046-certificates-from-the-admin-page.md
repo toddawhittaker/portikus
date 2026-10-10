@@ -118,3 +118,10 @@ Portikus before it requests a certificate for each new preview name.
   a certificate change does not drop terminals, but a connection older
   than that hour after a reload is closed and the page reconnects.
 - Changing the site's address stays out of scope (#935).
+
+## Update, Epic 43
+
+Changing the site's address is now done from the Site address tab (#935,
+ADR 0059), as a 15-minute trial kept from the new address. It is allowed
+when the certificate comes from Caddy's internal authority or ACME, and
+refused for uploaded files that do not cover the new names.
