@@ -11,6 +11,7 @@ import {
 	newTerminal,
 	readSeededFile,
 	seedFile,
+	seedGit,
 	type TestStudent,
 	terminalIds,
 	workspacePath,
@@ -150,6 +151,48 @@ test.describe("tree file dragged onto a pane edge", () => {
 			.poll(() => panesIn(page, terminalId))
 			.toEqual([`terminal-leaf-${terminalId}`, "file-frame-notes.md"]);
 		await expect(page.getByTestId("file-frame-notes.md")).toHaveCount(1);
+	});
+
+	test("an open file in Diff view dropped on a pane edge stays in Diff view", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { project, terminalId } = await setUp(page, student, "Tree diff move");
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: {
+				"notes.md": {
+					status: "M",
+					before: "# old\n",
+					after: "# notes\n",
+					binary: false,
+					tooLarge: false,
+				},
+			},
+		});
+
+		await row(page, "notes.md").click();
+		await page.getByTestId("file-view-diff-notes.md").click();
+		await expect(page.getByTestId("diff-editor-notes.md")).toBeVisible({
+			timeout: 60_000,
+		});
+		await page.getByTestId(`tab-${terminalId}`).click();
+		await expect(page.getByTestId(`terminal-group-${terminalId}`)).toBeVisible();
+
+		await carryRow(
+			page,
+			"notes.md",
+			await rightEdgeOf(page, `terminal-leaf-${terminalId}`),
+		);
+		await page.mouse.up();
+
+		await expect
+			.poll(() => panesIn(page, terminalId))
+			.toEqual([`terminal-leaf-${terminalId}`, "file-frame-notes.md"]);
+		const group = page.getByTestId(`terminal-group-${terminalId}`);
+		await expect(group.getByTestId("diff-editor-notes.md")).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 
 	test("a folder row gives no pane edge, and a tree folder drop still moves the file", async ({

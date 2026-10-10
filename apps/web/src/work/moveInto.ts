@@ -4,6 +4,7 @@
  * onto the right edge of that tab's last terminal would.
  */
 import type { ProjectLayout } from "@portikus/contracts";
+import type { LayoutState } from "../layout/store.js";
 import {
 	type DropEdge,
 	fileTabId,
@@ -65,4 +66,16 @@ export function fileDropTarget(
 		() => "probe",
 	);
 	return moved === opened ? null : { tabId, paneId: overPaneId, edge };
+}
+
+/**
+ * Drop a file dragged from the tree beside `target` (SPEC.md §9.3). A file
+ * already open only moves, so its pane keeps its Diff view and baseline;
+ * opening it again would reset both to the editor.
+ */
+export function dropTreeFile(state: LayoutState, path: string, target: MoveIntoTarget) {
+	const pane = fileTabId(path);
+	if (tabOfPane(state.layout, pane) === null) state.openFile(path);
+	state.moveLeaf(target.tabId, pane, target.paneId, target.edge);
+	state.setFocused(pane);
 }

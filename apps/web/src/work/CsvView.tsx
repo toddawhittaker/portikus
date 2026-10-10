@@ -121,7 +121,7 @@ export function CsvView({ path, text, onShowText }: CsvViewProps) {
 												{table.header[at] ? (
 													table.header[at]
 												) : (
-													<span className="pk-visually-hidden">{name}</span>
+													<span className="pk-csv-blank">{name}</span>
 												)}
 												<span aria-hidden="true" className="pk-csv-sort-mark">
 													{active === "ascending"

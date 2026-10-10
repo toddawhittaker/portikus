@@ -11,6 +11,7 @@ import {
 	expectConnected,
 	openFileTab,
 	query,
+	readSeededFile,
 	settledAxe,
 	terminalIds,
 	WCAG_TAGS,
@@ -395,11 +396,12 @@ test.describe("voice input in a file", () => {
 				student.userId,
 			],
 		);
-		await openFileTab(page, student, "Dictation", PATH, CONTENT);
+		const project = await openFileTab(page, student, "Dictation", PATH, CONTENT);
 		await expect(lines(page)).toContainText("const answer = 42;", { timeout: 60_000 });
 		if (appearance) {
 			await expect(page.locator("html")).toHaveAttribute("data-theme", appearance);
 		}
+		return { workspaceId: student.workspaceId, slug: project.slug };
 	}
 
 	test("holding the microphone replaces the selection, and one Ctrl+Z takes it all back", async ({
@@ -425,9 +427,62 @@ test.describe("voice input in a file", () => {
 		await expect(lines(page)).not.toContainText("const answer");
 		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Unsaved");
 
+		// Dictation leaves focus on the microphone, so go back to the editor.
+		await lines(page).click();
 		await page.keyboard.press("Control+z");
 		await expect(lines(page)).toContainText("const answer = 42;");
 		await expect(lines(page)).not.toContainText("spoken");
+	});
+
+	test("one hold of the microphone types every phrase said, spaced apart", async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		await openFile(page, context);
+		await lines(page).click();
+		await page.keyboard.press("Control+End");
+		const button = page.getByTestId(`file-voice-${PATH}`);
+		await button.hover();
+		await page.mouse.down();
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await say(page, "let first", true);
+		// Typing the first phrase must not take focus and so end the hold.
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await say(page, "= 2;", true);
+		await page.mouse.up();
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+		await expect(lines(page)).toContainText("let first = 2;");
+	});
+
+	test("Space held on the file's microphone types no spaces into the file", async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		const file = await openFile(page, context);
+		await lines(page).click();
+		await page.keyboard.press("Control+End");
+		const button = page.getByTestId(`file-voice-${PATH}`);
+		await button.focus();
+		await page.keyboard.down("Space");
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await say(page, "said", true);
+		// A held key repeats; each repeat must still land on the button.
+		await page.keyboard.down("Space");
+		await page.keyboard.down("Space");
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await expect(button).toBeFocused();
+		await page.keyboard.up("Space");
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+		await expect(lines(page)).toContainText("said");
+		// Save, then read what was stored: the phrase alone, no repeated spaces.
+		await lines(page).click();
+		await page.keyboard.press("Control+s");
+		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Saved");
+		expect(await readSeededFile(file.workspaceId, file.slug, PATH)).toBe(
+			`${CONTENT}said`,
+		);
 	});
 
 	test("Alt+Shift+M held in the editor dictates at the cursor", async ({
@@ -445,7 +500,7 @@ test.describe("voice input in a file", () => {
 		await page.keyboard.down("KeyM");
 		const button = page.getByTestId(`file-voice-${PATH}`);
 		await expect(button).toHaveAttribute("aria-pressed", "true");
-		await say(page, " // said", true);
+		await say(page, "// said", true);
 		await page.keyboard.up("KeyM");
 		await expect(button).toHaveAttribute("aria-pressed", "false");
 		await page.keyboard.up("Shift");

@@ -87,8 +87,29 @@ test("the name and the pane's label never draw a bidirectional mark", () => {
 	expect(screen.getByTestId("file-frame-handle-src/‮txt.js").textContent).toBe("txt.js");
 });
 
-test("outside a file pane the header shows the name and no menu", () => {
+test("outside a file pane the header shows the name and folder and no menu", () => {
 	render(<FileHeader path="notes/todo.md" />);
 	expect(screen.getByText("todo.md").getAttribute("title")).toBe("notes/todo.md");
+	expect(screen.getByTestId("file-header-dir-notes/todo.md").textContent).toBe("notes");
 	expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("the header shows the folder, muted, after the name", () => {
+	renderPane("src/lib/app.ts");
+	const handle = screen.getByTestId("file-frame-handle-src/lib/app.ts");
+	const folder = screen.getByTestId("file-header-dir-src/lib/app.ts");
+	expect(handle.textContent).toBe("app.ts");
+	expect(folder.textContent).toBe("src/lib");
+	expect(folder.className).toBe("pk-file-dir");
+	expect(handle.nextElementSibling).toBe(folder);
+});
+
+test("a file at the project root shows no folder", () => {
+	renderPane("README.md");
+	expect(screen.queryByTestId("file-header-dir-README.md")).toBeNull();
+});
+
+test("the folder is drawn without direction controls", () => {
+	renderPane("‮evil/app.ts");
+	expect(screen.getByTestId("file-header-dir-‮evil/app.ts").textContent).toBe("evil");
 });

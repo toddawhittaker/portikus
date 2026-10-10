@@ -88,6 +88,17 @@ async function expectOneHeader(
 	await expect(header.getByTestId(`file-frame-handle-${path}`)).toHaveText(
 		nameOf(path),
 	);
+	// The folder follows the name, so two files of one name can be told apart.
+	const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
+	const dir = header.getByTestId(`file-header-dir-${path}`);
+	if (folder) {
+		await expect(dir).toHaveText(folder);
+		const nameBox = await header.getByTestId(`file-frame-handle-${path}`).boundingBox();
+		const dirBox = await dir.boundingBox();
+		expect(nameBox?.x ?? 0).toBeLessThan(dirBox?.x ?? 0);
+	} else {
+		await expect(dir).toHaveCount(0);
+	}
 	const actions = header.getByRole("button", { name: `Actions for ${nameOf(path)}` });
 	await expect(actions).toBeVisible();
 	await expect(header.getByRole("group", { name: "File view" })).toHaveCount(
@@ -150,6 +161,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const header = page.getByTestId(`diff-pane-${CODE}`).locator("header");
 			const compare = header.getByRole("button", { name: "Compare with" });
 			await expect(compare).toBeVisible();
+			// WCAG 2.5.8: a target at least 24 pixels tall.
+			expect((await compare.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(24);
 			await expect(page.getByTestId(`diff-editor-${CODE}`)).toContainText(
 				"const answer",
 				{ timeout: 60_000 },

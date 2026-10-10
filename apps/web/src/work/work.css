@@ -283,12 +283,31 @@
 	color: var(--ink-muted);
 }
 
-.pk-file-name {
+/* The name, then its folder. The folder gives up its room first, so the name
+   keeps its place at the start of the line. */
+.pk-file-title {
 	flex: 1 1 8rem;
+	min-width: 0;
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+.pk-file-name,
+.pk-file-dir {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.pk-file-name {
+	flex: 0 1 auto;
+}
+
+.pk-file-dir {
+	flex: 0 1000 auto;
+	color: var(--ink-muted);
 }
 
 .pk-file-tools {
@@ -510,6 +529,8 @@
 	white-space: nowrap;
 	cursor: pointer;
 	transition: background-color var(--duration-fast) var(--ease-standard);
+	/* The WCAG 2.5.8 minimum target size. */
+	min-height: 24px;
 }
 
 .pk-diff-compare:hover,

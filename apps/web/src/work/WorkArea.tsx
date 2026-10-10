@@ -38,7 +38,7 @@ import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import type { MoveIntoTarget } from "./moveInto.js";
+import { dropTreeFile, type MoveIntoTarget } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TreeFileDrop } from "./TreeFileDrop.js";
 import { usePaneActions } from "./usePaneActions.js";
@@ -146,13 +146,6 @@ export function WorkArea({
 	const [treeTarget, setTreeTarget] = useState<MoveIntoTarget | null>(null);
 
 	/** Open a file dragged from the tree beside a pane, or move its open pane there. */
-	function dropTreeFile(path: string, target: MoveIntoTarget) {
-		const state = store.getState();
-		state.openFile(path);
-		state.moveLeaf(target.tabId, fileTabId(path), target.paneId, target.edge);
-		state.setFocused(fileTabId(path));
-	}
-
 	function dropTargetIn(tabId: string) {
 		const fromPane = drag.dropTargetIn(tabId);
 		if (fromPane) return fromPane;
@@ -411,7 +404,7 @@ export function WorkArea({
 				area={area}
 				layout={layout}
 				onTarget={setTreeTarget}
-				onDrop={dropTreeFile}
+				onDrop={(path, target) => dropTreeFile(store.getState(), path, target)}
 			/>
 			<div className="pk-work-area" data-testid="work-area" ref={area}>
 				<TabStripDrop strip={strip} testId="work-tabs" target={dragTarget}>

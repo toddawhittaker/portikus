@@ -89,6 +89,12 @@
 	outline-offset: var(--ring-offset-inset);
 }
 
+/* A blank header gets a stand-in name, muted so it does not read as data. */
+.pk-csv-blank {
+	color: var(--ink-muted);
+	font-weight: normal;
+}
+
 .pk-csv-sort-mark {
 	font-size: 0.75em;
 }
