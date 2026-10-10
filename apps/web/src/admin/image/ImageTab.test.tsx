@@ -391,3 +391,106 @@ test("while a job runs, each row action points at the one busy note instead of r
 		screen.getAllByText("An image job is waiting or running. Wait until it finishes."),
 	).toHaveLength(1);
 });
+
+test("Coding agents follows the current image, and a running job turns its buttons off", async () => {
+	stubFetch((url) =>
+		url.startsWith("/admin/image/jobs/")
+			? json(200, { job: job(), log: [] })
+			: json(
+					200,
+					data({
+						job: job(),
+						codingAgents: {
+							claude: { current: "2.1.5", previous: "2.1.4", kept: [] },
+							codex: { current: "0.46.0", previous: "0.45.0", kept: [] },
+							updatedAt: "2026-10-10T10:00:00.000Z",
+						},
+					}),
+				),
+	);
+	renderWithQuery(<ImageTab />);
+	const update = await screen.findByRole("button", { name: "Update coding agents" });
+	const headings = screen
+		.getAllByRole("heading", { level: 3 })
+		.map((h) => h.textContent);
+	expect(headings.slice(0, 3)).toEqual([
+		"Current image",
+		"Coding agents",
+		"Latest job",
+	]);
+	expect(update.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		screen
+			.getByRole("button", { name: "Roll back Codex" })
+			.getAttribute("aria-disabled"),
+	).toBe("true");
+	expect(document.getElementById("image-busy-note")).not.toBeNull();
+});
+
+test("a coding agent rollback job names its tool", async () => {
+	const rolled = job({
+		kind: "agents-rollback",
+		state: "succeeded",
+		step: "Done",
+		message: "Codex rolled back to 0.45.0.",
+		request: { kind: "agents-rollback", tool: "codex" },
+	});
+	stubFetch((url) =>
+		url.startsWith("/admin/image/jobs/")
+			? json(200, { job: rolled, log: [] })
+			: json(200, data({ job: rolled })),
+	);
+	renderWithQuery(<ImageTab />);
+	expect((await screen.findByTestId("image-job-kind")).textContent).toBe(
+		"Roll back Codex",
+	);
+});
+
+test("an update that left one tool as it was shows and announces why", async () => {
+	const message =
+		"Claude Code was left at 2.1.5: the vendor offered 2.1.3, which is older. Codex switched to 0.46.0.";
+	const done = job({
+		kind: "agents-update",
+		state: "succeeded",
+		step: "Done",
+		message,
+		request: { kind: "agents-update" },
+	});
+	stubFetch((url) =>
+		url.startsWith("/admin/image/jobs/")
+			? json(200, { job: done, log: [] })
+			: json(200, data({ job: done })),
+	);
+	renderWithQuery(<ImageTab />);
+	expect((await screen.findByTestId("image-job-kind")).textContent).toBe(
+		"Update coding agents",
+	);
+	expect(screen.getByTestId("image-job-message").textContent).toBe(message);
+	expect(screen.getByText("Result")).toBeTruthy();
+	expect(screen.getByTestId("image-job-state").textContent).toContain(message);
+});
+
+test("the diff says Shared folder for an image without its own claude", async () => {
+	const done = job({ state: "succeeded", step: "Done", version: "2026.09.12" });
+	stubFetch((url) => {
+		if (url.startsWith("/admin/image/diff"))
+			return json(200, {
+				...DIFF,
+				tools: {
+					added: [],
+					removed: [{ name: "claude", version: "2.0.1" }],
+					changed: [],
+				},
+			});
+		if (url.startsWith("/admin/image/jobs/")) return json(200, { job: done, log: [] });
+		return json(
+			200,
+			data({ job: done, images: [...data().images, image("2026.09.12")] }),
+		);
+	});
+	renderWithQuery(<ImageTab />);
+	const tools = await screen.findByTestId("image-diff-tools");
+	await waitFor(() =>
+		expect(tools.textContent).toBe("ToolsChanged claude: 2.0.1 to Shared folder"),
+	);
+});

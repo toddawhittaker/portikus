@@ -235,9 +235,9 @@ export const ADMIN_HELP: HelpPart = {
 						. <strong>Update to latest published</strong> downloads the newest image the
 						project has published and checks its signature.{" "}
 						<strong>Rebuild with latest packages</strong> builds a new image on this
-						host with today's Debian packages and the latest Claude Code and Codex, and
-						lets you pick Node 24 or 26 and whether to add Python 3.14. A rebuild takes
-						about 20 minutes. The page shows each step and the log while the job runs.
+						host with today's Debian packages, and lets you pick Node 24 or 26 and
+						whether to add Python 3.14. A rebuild takes about 20 minutes. The page shows
+						each step and the log while the job runs.
 					</p>
 					<p>
 						Each new image gets a health check, and you see what changed against the
@@ -245,6 +245,20 @@ export const ADMIN_HELP: HelpPart = {
 						becomes the previous image, and <strong>Roll back</strong> swaps them again.
 						Existing workspaces keep the image they were made from until you rebuild
 						each one; the list shows how many workspaces run each image.
+					</p>
+					<p>
+						Claude Code and Codex are not part of the image. They run from a shared
+						folder on this host that every workspace reads, so{" "}
+						<strong>Coding agents</strong> updates them without a new image.{" "}
+						<strong>Update coding agents</strong> downloads the newest version of each,
+						checks its signature or checksum, and tries it in a throwaway workspace.
+						Each tool that passes switches on its own, so one can update while the other
+						stays as it is; the job says which and why. Students get the new version the
+						next time they start the tool, and open sessions keep the version they
+						started with. <strong>Roll back</strong> on a tool's row goes back to its
+						previous version. A rollback holds only until the next{" "}
+						<strong>Update coding agents</strong>, which moves forward again to the
+						newest version.
 					</p>
 					<p>
 						<strong>Delete</strong> removes an image you no longer need and frees its
