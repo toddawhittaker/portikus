@@ -186,15 +186,20 @@ export class CheckRunner {
 			this.applyBackpressure(run);
 		});
 
-		pty.onExit(({ exitCode }: { exitCode: number }) => {
-			run.pty = null;
-			run.meta.exitCode = exitCode;
-			this.finish(
-				run,
-				{ type: "exit", exitCode },
-				exitCode === 0 ? "passed" : "failed",
-			);
-		});
+		pty.onExit(
+			({ exitCode: rawCode, signal }: { exitCode: number; signal?: number }) => {
+				run.pty = null;
+				// node-pty reports 0 for a process a signal killed (a Stop, the
+				// OOM killer); use the shell's 128 plus signal so it never passes.
+				const exitCode = signal ? 128 + signal : rawCode;
+				run.meta.exitCode = exitCode;
+				this.finish(
+					run,
+					{ type: "exit", exitCode },
+					exitCode === 0 ? "passed" : "failed",
+				);
+			},
+		);
 
 		return run.meta;
 	}
