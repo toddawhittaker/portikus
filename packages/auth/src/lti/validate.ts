@@ -62,6 +62,8 @@ interface LtiLaunchCommon {
 /** A resource-link launch: the person opens Portikus from a course link. */
 export interface LtiResourceLinkLaunch extends LtiLaunchCommon {
 	kind: "resource_link";
+	/** The link's custom parameters that are strings and within bounds; untrusted input. */
+	custom: Record<string, string>;
 }
 
 /** A Deep Linking request: an instructor picks what a new course link opens. */
@@ -90,6 +92,8 @@ const MAX_URL_LENGTH = 2048;
 // The data value is echoed back verbatim, so an oversized one is refused rather than carried.
 const MAX_DEEP_LINK_DATA_LENGTH = 4096;
 const CLOCK_SKEW_SECONDS = 60;
+const MAX_CUSTOM_PARAMETERS = 50;
+const MAX_CUSTOM_NAME_LENGTH = 100;
 
 /**
  * One remote JWKS per keyset URL, kept for the life of the process: keys
@@ -143,6 +147,22 @@ function displayNameOf(claims: Record<string, unknown>): string {
 		.map((p) => p.trim())
 		.filter((p) => p !== "");
 	return parts.length > 0 ? parts.join(" ") : "LTI user";
+}
+
+/**
+ * The custom claim's string parameters. Anything else, and anything past the
+ * bounds, is dropped rather than refusing the launch.
+ */
+function customOf(claims: Record<string, unknown>): Record<string, string> {
+	const custom: Record<string, string> = {};
+	const source = objectClaim(claims[`${CLAIM}custom`]);
+	if (!source) return custom;
+	for (const [name, value] of Object.entries(source).slice(0, MAX_CUSTOM_PARAMETERS)) {
+		if (name.length > MAX_CUSTOM_NAME_LENGTH) continue;
+		if (!isString(value) || value.length > MAX_URL_LENGTH) continue;
+		custom[name] = value;
+	}
+	return custom;
 }
 
 /** LTI 1.3 has no username claim, so an LMS may send one as a custom parameter. */
@@ -363,7 +383,10 @@ export async function validateLaunchToken(
 		membershipsUrl: membershipsUrlOf(claims, platform),
 	};
 	if (messageType === "LtiResourceLinkRequest") {
-		return { ok: true, launch: { ...common, kind: "resource_link" } };
+		return {
+			ok: true,
+			launch: { ...common, kind: "resource_link", custom: customOf(claims) },
+		};
 	}
 
 	const settings = deepLinkSettingsOf(claims, platform);

@@ -125,6 +125,9 @@ function isExempt(request: FastifyRequest): boolean {
 	if (url.startsWith("/auth/")) return true;
 	// An LTI launch is how an LMS user gets a session in the first place.
 	if (url === "/lti/login" || url === "/lti/launch" || url === "/lti/jwks") return true;
+	// The Deep Linking picker's submit: its single-use handle authorizes it,
+	// and the instructor never gets a session (ADR 0058).
+	if (request.method === "POST" && url === "/lti/deep-link") return true;
 	// Dex's password form, relayed by the API, is how a session starts.
 	if (request.method === "POST" && url === DEX_PASSWORD_ROUTE) return true;
 	// The preview host never carries the main session cookie, and the edge

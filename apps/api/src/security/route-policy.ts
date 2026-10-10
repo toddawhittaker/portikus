@@ -63,6 +63,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /lti/login": { access: "public" },
 	"POST /lti/login": { access: "public" },
 	"POST /lti/launch": { access: "public" },
+	// The Deep Linking picker's submit; its single-use handle is the
+	// authorization, and it starts no session (ADR 0058).
+	"POST /lti/deep-link": { access: "public" },
 	"GET /lti/jwks": { access: "public" },
 	"HEAD /lti/jwks": { access: "public" },
 
@@ -146,6 +149,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /workspaces/:id/projects/templates": owner,
 	"HEAD /workspaces/:id/projects/templates": owner,
 	"POST /workspaces/:id/projects": owner,
+	"POST /workspaces/:id/projects/starter": owner,
 	"PATCH /workspaces/:id/projects/:pid": owner,
 	"DELETE /workspaces/:id/projects/:pid": owner,
 	"POST /workspaces/:id/projects/:pid/duplicate": owner,
