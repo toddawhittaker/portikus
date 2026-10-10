@@ -1,4 +1,8 @@
-import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
+import {
+	csrfHeaders,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import {
 	CourseSharesResponse,
 	type GitStatus,
@@ -21,6 +25,7 @@ import {
 	buildTestServer,
 	MATRIX_MOCK_USERS,
 	type MatrixWorld,
+	PUBLIC_URL,
 } from "../testing/test-support.js";
 import { SHARE_VIEWED_TITLE } from "../workspaces/shared-scope.js";
 
@@ -213,6 +218,40 @@ describe.skipIf(skip)("shared reads", () => {
 		for (const res of [tree, file, status, diff, checks]) {
 			expect(res.headers["cache-control"]).toBe("no-store");
 		}
+	});
+
+	test("checks show names and the latest run, never the command", async () => {
+		await share(world.a.projectId);
+		const secret = "DEPLOY_PASSWORD=TOPSECRET ./deploy.sh";
+		await seedFile(
+			world.a,
+			".portikus/checks.json",
+			JSON.stringify({
+				checks: [
+					{ id: "deploy", name: "Deploy", command: secret },
+					{ id: "tests", name: "Tests", command: "true" },
+				],
+			}),
+		);
+		// The owner runs one, so a latest run is there to relay.
+		const run = await app.inject({
+			method: "POST",
+			url: `/workspaces/${world.a.workspaceId}/projects/${world.a.projectId}/checks/tests/runs`,
+			headers: csrfHeaders(world.a.jar, PUBLIC_URL),
+		});
+		expect(run.statusCode).toBeLessThan(300);
+
+		const res = await asInstructor(sharedUrl("checks"));
+		expect(res.statusCode).toBe(200);
+		expect(res.body).not.toContain("TOPSECRET");
+		expect(res.body).not.toContain("command");
+		const body = SharedChecksResponse.parse(res.json());
+		expect(body.checks.map((check) => [check.id, check.name])).toEqual([
+			["deploy", "Deploy"],
+			["tests", "Tests"],
+		]);
+		expect(body.checks[0]?.lastRun).toBe(null);
+		expect(body.checks[1]?.lastRun).toMatchObject({ state: "passed", exitCode: 0 });
 	});
 
 	// The agent refuses and leaves out symlinks only when asked (SPEC.md §5.2).
@@ -550,6 +589,36 @@ describe.skipIf(skip)("the view and the student's workspace", () => {
 			.where("action", "=", "project.share_viewed")
 			.execute();
 		expect(again).toHaveLength(2);
+	});
+
+	test("a later view moves the last-looked time at most once a minute", async () => {
+		const shareId = await share(world.a.projectId);
+		await asInstructor(sharedUrl("tree"));
+		async function setLastViewed(msAgo: number): Promise<string> {
+			const at = new Date(Date.now() - msAgo).toISOString();
+			await testDb.db
+				.updateTable("project_share_views")
+				.set({ last_viewed_at: at })
+				.where("share_id", "=", shareId)
+				.execute();
+			return at;
+		}
+		async function lastViewed(): Promise<number> {
+			const row = await testDb.db
+				.selectFrom("project_share_views")
+				.select("last_viewed_at")
+				.where("share_id", "=", shareId)
+				.executeTakeFirstOrThrow();
+			return new Date(row.last_viewed_at).getTime();
+		}
+
+		const recent = await setLastViewed(30_000);
+		for (const route of READS) await asInstructor(sharedUrl(route));
+		expect(await lastViewed()).toBe(new Date(recent).getTime());
+
+		const old = await setLastViewed(90_000);
+		await asInstructor(sharedUrl("tree"));
+		expect(await lastViewed()).toBeGreaterThan(new Date(old).getTime() + 60_000);
 	});
 
 	test("the share list alone is not a view", async () => {

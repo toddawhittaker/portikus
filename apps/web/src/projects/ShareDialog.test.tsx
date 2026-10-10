@@ -16,8 +16,21 @@ const OPEN = {
 			lastViewedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
 		},
 	],
+	audience: [] as unknown[],
 };
-const NONE = { share: null, viewers: [] };
+const AUDIENCE = [
+	{
+		courseId: "88888888-8888-4888-8888-888888888881",
+		courseTitle: "CS 101",
+		instructors: ["Ian Instructor", "Ivy Instructor"],
+	},
+	{
+		courseId: "88888888-8888-4888-8888-888888888882",
+		courseTitle: "Algorithms Lab",
+		instructors: [],
+	},
+];
+const NONE = { share: null, viewers: [], audience: AUDIENCE };
 
 function mount(initial: unknown, calls: string[] = []) {
 	let current = initial;
@@ -51,6 +64,62 @@ test("before sharing it says who sees what and offers Start sharing", async () =
 	expect(screen.getByTestId("share-start")).toBeDefined();
 	expect(screen.queryByTestId("share-stop")).toBeNull();
 	expect(screen.queryByTestId("share-viewers")).toBeNull();
+});
+
+test("before Start sharing it names each course and its instructors", async () => {
+	mount(NONE);
+
+	const audience = await screen.findByTestId("share-audience");
+	const items = within(audience)
+		.getAllByRole("listitem")
+		.map((item) => item.textContent);
+	expect(items).toEqual([
+		"CS 101: Ian Instructor, Ivy Instructor",
+		"Algorithms Lab: no instructor yet",
+	]);
+});
+
+test("a student in no course is told no instructor can see it", async () => {
+	mount({ ...NONE, audience: [] });
+
+	expect((await screen.findByTestId("share-audience")).textContent).toContain(
+		"You are in no course yet",
+	);
+});
+
+test("starting and stopping are announced in a status that is always there", async () => {
+	mount(NONE);
+
+	const status = screen.getByTestId("share-status");
+	expect(status.getAttribute("role")).toBe("status");
+	expect(status.textContent).toBe("");
+	fireEvent.click(await screen.findByTestId("share-start"));
+	await waitFor(() => expect(status.textContent).toMatch(/^Sharing until .+\.$/));
+	fireEvent.click(await screen.findByTestId("share-stop"));
+	await waitFor(() => expect(status.textContent).toBe("Sharing stopped."));
+	// The same node throughout: a region mounted with its text is not read out.
+	expect(screen.getByTestId("share-status")).toBe(status);
+});
+
+test("a busy button stays focusable and says it is busy", async () => {
+	let release: () => void = () => {};
+	stubFetch((_url, init) =>
+		init?.method === "POST"
+			? new Promise((resolve) => {
+					release = () => resolve(json(200, { ...OPEN, audience: AUDIENCE }));
+				})
+			: json(200, NONE),
+	);
+	renderWithQuery(
+		<ShareDialog workspaceId={WORKSPACE.id} project={project()} onClose={vi.fn()} />,
+	);
+
+	const start = await screen.findByTestId("share-start");
+	fireEvent.click(start);
+	await waitFor(() => expect(start.getAttribute("aria-disabled")).toBe("true"));
+	expect(start.hasAttribute("disabled")).toBe(false);
+	release();
+	await screen.findByTestId("share-stop");
 });
 
 test("Start sharing posts to the share route and then shows the time left", async () => {

@@ -55,6 +55,9 @@ test("start, see a viewer after an instructor reads, then stop", async ({
 		"The instructors of the courses you belong to",
 	);
 	await expect(dialog.getByTestId("share-terms")).toContainText("Never");
+	await expect(dialog.getByTestId("share-audience")).toContainText(
+		"You are in no course yet",
+	);
 	await expect(dialog.getByTestId("share-time")).toHaveText(
 		"24 hours, or until you stop it.",
 	);
@@ -62,6 +65,7 @@ test("start, see a viewer after an instructor reads, then stop", async ({
 
 	await dialog.getByTestId("share-start").click();
 	await expect(dialog.getByTestId("share-stop")).toBeVisible();
+	await expect(dialog.getByTestId("share-status")).toContainText("Sharing until");
 	await expect(dialog.getByTestId("share-time")).toContainText("24 hours left");
 	await expect(dialog.getByTestId("share-no-viewers")).toBeVisible();
 
@@ -89,12 +93,45 @@ test("start, see a viewer after an instructor reads, then stop", async ({
 
 	await dialog.getByTestId("share-stop").click();
 	await expect(dialog.getByTestId("share-start")).toBeVisible();
+	await expect(dialog.getByTestId("share-status")).toHaveText("Sharing stopped.");
 	await expect(dialog.getByTestId("share-viewers")).toHaveCount(0);
 	const [row] = await query<{ ended_at: string | null }>(
 		"select ended_at from project_shares where project_id = $1",
 		[project.id],
 	);
 	expect(row?.ended_at).not.toBeNull();
+});
+
+test("before Start sharing the dialog names each course and its instructors", async ({
+	page,
+	context,
+	browser,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Audience" });
+	const instructorContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	let courseTitle: string;
+	try {
+		const instructor = await createSignedInUser(instructorContext, "student");
+		await query("update users set display_name = 'Ivy Teacher' where id = $1", [
+			instructor.userId,
+		]);
+		const courseId = await courseWith(student.userId, instructor.userId);
+		const [course] = await query<{ title: string }>(
+			"select title from lti_contexts where id = $1",
+			[courseId],
+		);
+		courseTitle = course?.title ?? "";
+	} finally {
+		await instructorContext.close();
+	}
+	await page.goto(workspacePath(student.workspaceId, project.id));
+
+	const dialog = await openShare(page, project.id);
+	await expect(dialog.getByTestId("share-audience").getByRole("listitem")).toHaveText([
+		`${courseTitle}: Ivy Teacher`,
+	]);
+	await expect(dialog.getByTestId("share-start")).toBeVisible();
 });
 
 test("a shared project has a Shared tag until the share ends", async ({
