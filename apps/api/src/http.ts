@@ -58,7 +58,15 @@ export function parseFieldsOr400<T>(
 ): T | null {
 	const parsed = schema.safeParse(value);
 	if (parsed.success) return parsed.data;
-	const fields = [...new Set(parsed.error.issues.map((i) => i.path.join(".")))];
+	// Only our own custom messages are shown; Zod's built-in ones can quote the input.
+	const fields = [
+		...new Set(
+			parsed.error.issues.map((i) => {
+				const path = i.path.join(".");
+				return i.code === "custom" ? `${path} (${i.message})` : path;
+			}),
+		),
+	];
 	sendError(
 		reply,
 		400,

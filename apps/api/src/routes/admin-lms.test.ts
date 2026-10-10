@@ -266,7 +266,9 @@ describe.skipIf(skip)("admin LMS routes (ADR 0059)", () => {
 			await writeFile(operatorFile, JSON.stringify({ version: 1, platforms: [] }));
 			const split = await call("PUT", "/admin/lms", { platforms: twoKeys });
 			expect(split.statusCode).toBe(400);
-			expect(split.json().message).toContain("key set URL");
+			expect(split.json().message).toContain("platforms.1.keysetUrl");
+			expect(split.json().message).toContain("two key set URLs");
+			expect(JSON.stringify(split.json())).not.toContain("other-jwks");
 			expect(await requests()).toEqual([]);
 		});
 	});
