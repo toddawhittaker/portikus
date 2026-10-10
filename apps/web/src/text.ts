@@ -13,6 +13,15 @@ export function timeAgo(iso: string | null | undefined, now: number): string {
 	return `${plural(Math.floor(hours / 24), "day")} ago`;
 }
 
+/** "24 hours left", "40 minutes left"; "Ended" once the time has passed. */
+export function timeLeft(iso: string, now: number): string {
+	const minutes = Math.floor((Date.parse(iso) - now) / 60_000);
+	if (minutes < 0) return "Ended";
+	if (minutes < 1) return "Less than a minute left";
+	if (minutes < 60) return `${plural(minutes, "minute")} left`;
+	return `${plural(Math.round(minutes / 60), "hour")} left`;
+}
+
 /** A short date and time, such as "Sep 26, 10:00" (SPEC.md section 20.1). */
 export function shortTime(iso: string): string {
 	return new Date(iso).toLocaleString(undefined, {
