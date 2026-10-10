@@ -831,12 +831,12 @@ class Runner:
             elif provider == "google":
                 changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"])
             elif provider == "oidc":
-                groups = body.get("groups") or {}
-                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"],
-                               oidc_groups_claim=body.get("groupsClaim", ""),
-                               student_group=groups.get("student", ""),
-                               instructor_group=groups.get("instructor", ""),
-                               admin_group=groups.get("admin", ""))
+                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"])
+                # Left out means keep what is stored; write-settings drops a blank group.
+                if "groupsClaim" in body:
+                    changes["oidc_groups_claim"] = body["groupsClaim"]
+                if "groups" in body:
+                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
             if provider != "dex" and secret is None:
                 # A changed provider never receives an old secret (ADR 0059).
                 stored = "portikus_dex_upstream_client_secret" in current["secretsSet"]
