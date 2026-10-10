@@ -419,12 +419,15 @@ test("Coding agents follows the current image, and a running job turns its butto
 		"Latest job",
 	]);
 	expect(update.getAttribute("aria-disabled")).toBe("true");
-	expect(
-		screen
-			.getByRole("button", { name: "Roll back Codex" })
-			.getAttribute("aria-disabled"),
-	).toBe("true");
+	const rollback = screen.getByRole("button", { name: "Roll back Codex" });
+	expect(rollback.getAttribute("aria-disabled")).toBe("true");
 	expect(document.getElementById("image-busy-note")).not.toBeNull();
+	// The busy note is said inside the Coding agents card too, next to its buttons.
+	const agentsNote = document.getElementById("image-agents-busy-note");
+	expect(screen.getByTestId("image-agents").contains(agentsNote)).toBe(true);
+	for (const button of [update, rollback]) {
+		expect(button.getAttribute("aria-describedby")).toBe("image-agents-busy-note");
+	}
 });
 
 test("a coding agent rollback job names its tool", async () => {
@@ -470,27 +473,43 @@ test("an update that left one tool as it was shows and announces why", async () 
 	expect(screen.getByTestId("image-job-state").textContent).toContain(message);
 });
 
-test("the diff says Shared folder for an image without its own claude", async () => {
-	const done = job({ state: "succeeded", step: "Done", version: "2026.09.12" });
-	stubFetch((url) => {
-		if (url.startsWith("/admin/image/diff"))
-			return json(200, {
-				...DIFF,
-				tools: {
-					added: [],
-					removed: [{ name: "claude", version: "2.0.1" }],
-					changed: [],
-				},
+test("a refused request still reloads the page's data, so a stale Roll back corrects itself", async () => {
+	let refused = false;
+	const fetch = stubFetch((_url, init) => {
+		if (init?.method === "POST") {
+			refused = true;
+			return json(409, {
+				code: "CODING_AGENT_NO_PREVIOUS",
+				message: "Claude Code has no previous version to roll back to.",
 			});
-		if (url.startsWith("/admin/image/jobs/")) return json(200, { job: done, log: [] });
+		}
 		return json(
 			200,
-			data({ job: done, images: [...data().images, image("2026.09.12")] }),
+			data({
+				codingAgents: {
+					claude: { current: "2.1.5", previous: refused ? null : "2.1.4", kept: [] },
+					codex: { current: "0.46.0", previous: null, kept: [] },
+					updatedAt: "2026-10-10T10:00:00.000Z",
+				},
+			}),
 		);
 	});
 	renderWithQuery(<ImageTab />);
-	const tools = await screen.findByTestId("image-diff-tools");
-	await waitFor(() =>
-		expect(tools.textContent).toBe("ToolsChanged claude: 2.0.1 to Shared folder"),
+	fireEvent.click(await screen.findByRole("button", { name: "Roll back Claude Code" }));
+	fireEvent.click(
+		within(await screen.findByTestId("image-agents-confirm")).getByRole("button", {
+			name: "Roll back",
+		}),
 	);
+	expect(await screen.findByText("Could not start the image job")).toBeTruthy();
+	expect(
+		screen.getByText("Claude Code has no previous version to roll back to."),
+	).toBeTruthy();
+	await waitFor(() =>
+		expect(screen.getByTestId("image-agents-previous-claude").textContent).toBe("None"),
+	);
+	const reads = fetch.mock.calls.filter(
+		([url, init]) => url === "/admin/image" && init?.method !== "POST",
+	);
+	expect(reads.length).toBeGreaterThanOrEqual(2);
 });

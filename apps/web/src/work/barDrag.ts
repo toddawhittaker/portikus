@@ -5,15 +5,16 @@
  */
 import type { DraggableSyntheticListeners } from "@dnd-kit/core";
 
-/** What a press in the title bar must leave to the control it lands on. */
+/** What a press in the title bar must leave to the control or text it lands on. */
 const BAR_CONTROL =
-	'button, a[href], input, select, textarea, label, [role="button"], [contenteditable]';
+	'button, a[href], input, select, textarea, label, [role="button"], [contenteditable], .pk-file-dir';
 
 /**
  * The drag listeners for the whole bar, minus presses on its buttons and
- * fields, so those still click and a held voice button never drags. A menu
- * the bar opens is portalled out of it, yet React still bubbles its events
- * here, so a press outside the bar's own DOM is left alone too.
+ * fields, so those still click, a held voice button never drags, and the
+ * folder path can be selected. A menu the bar opens is portalled out of it,
+ * yet React still bubbles its events here, so a press outside the bar's own
+ * DOM is left alone too.
  */
 export function fromEmptySpace(
 	listeners: DraggableSyntheticListeners,

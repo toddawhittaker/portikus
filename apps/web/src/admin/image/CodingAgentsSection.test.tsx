@@ -72,12 +72,16 @@ test("Roll back is off, with its reason, for a tool with no previous version", (
 	expect(submit).not.toHaveBeenCalled();
 });
 
-test("while an image job runs, every button is off and points at the busy note", () => {
+test("while an image job runs, every button is off and points at the section's own busy note", () => {
 	const submit = renderSection({ busy: true });
 	for (const name of ["Update coding agents", "Roll back Claude Code"]) {
 		const button = screen.getByRole("button", { name });
 		expect(button.getAttribute("aria-disabled")).toBe("true");
-		expect(button.getAttribute("aria-describedby")).toBe("image-busy-note");
+		const note = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+		expect(note?.textContent).toBe(
+			"An image job is waiting or running. Wait until it finishes.",
+		);
+		expect(screen.getByTestId("image-agents").contains(note)).toBe(true);
 		fireEvent.click(button);
 	}
 	expect(screen.queryByTestId("image-agents-confirm")).toBeNull();

@@ -30,12 +30,12 @@ import { CODING_AGENT_NAME } from "./codingAgents.js";
 import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { isActive, useAdminImage, useImageJob, useRequestImageJob } from "./queries.js";
-import { RowAction } from "./RowAction.js";
+import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const INTRO = {
 	id: "admin-image",
 	helpAnchor: "admin-image",
-	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Claude Code and Codex update on their own, under Coding agents. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
+	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Claude Code and Codex are updated separately, under Coding agents. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
 };
 
 const NODE_LABEL: Record<ImageNodeChoice, string> = {
@@ -65,8 +65,6 @@ const STATE_LABEL: Record<ImageJobView["state"], string> = {
 	failed: "Failed",
 	refused: "Refused",
 };
-
-const BUSY_REASON = "An image job is waiting or running. Wait until it finishes.";
 
 /** The Workspace image tab of the admin page (docs/SPEC.md section 22.4; ADR 0030). */
 export function ImageTab() {
@@ -205,7 +203,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 			>
 				{busy ? (
 					<p id="image-busy-note" className="pk-muted m-0 text-[13px]">
-						{BUSY_REASON}
+						{IMAGE_BUSY_REASON}
 					</p>
 				) : null}
 				{!data.previous ? (

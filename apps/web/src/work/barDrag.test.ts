@@ -8,7 +8,7 @@ afterEach(() => {
 function bar(): HTMLElement {
 	const header = document.createElement("header");
 	header.innerHTML =
-		'<span class="name">app.ts</span><div class="tools"><button type="button"><svg></svg></button><label>Wrap <input type="checkbox"></label></div>';
+		'<span class="name">app.ts</span><span class="pk-file-dir">src</span><div class="tools"><button type="button"><svg></svg></button><label>Wrap <input type="checkbox"></label></div>';
 	document.body.append(header);
 	return header;
 }
@@ -32,11 +32,11 @@ test("a press on the bar, its name or the space between its controls reaches the
 	expect(onPointerDown).toHaveBeenCalledTimes(3);
 });
 
-test("a press on a button, inside one, or on a field is left to that control", () => {
+test("a press on a button, inside one, on a field or on the folder path is left alone", () => {
 	const onPointerDown = vi.fn();
 	const header = bar();
 	const listeners = fromEmptySpace({ onPointerDown });
-	for (const selector of ["button", "svg", "label", "input"]) {
+	for (const selector of ["button", "svg", "label", "input", ".pk-file-dir"]) {
 		press(listeners, header.querySelector(selector), header);
 	}
 	expect(onPointerDown).not.toHaveBeenCalled();

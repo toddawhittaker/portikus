@@ -7,9 +7,11 @@ import { Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import { useState } from "react";
 import { AdminGroup as Group } from "../AdminSection.js";
 import { CODING_AGENT_NAME } from "./codingAgents.js";
-import { RowAction } from "./RowAction.js";
+import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const TOOLS: CodingAgentTool[] = ["claude", "codex"];
+
+const BUSY_NOTE = "image-agents-busy-note";
 
 type Confirming =
 	| { kind: "agents-update" }
@@ -26,7 +28,7 @@ export function CodingAgentsSection({
 	submit,
 }: {
 	agents: CodingAgentsFile | null;
-	/** An image job is queued or running; its note is `image-busy-note`. */
+	/** An image job is queued or running. */
 	busy: boolean;
 	pending: boolean;
 	submit: (body: ImageJobRequest, done: () => void) => void;
@@ -44,7 +46,7 @@ export function CodingAgentsSection({
 						variant="primary"
 						data-testid="image-agents-update"
 						aria-disabled={busy ? true : undefined}
-						aria-describedby={busy ? "image-busy-note" : undefined}
+						aria-describedby={busy ? BUSY_NOTE : undefined}
 						onClick={() =>
 							busy ? undefined : setConfirming({ kind: "agents-update" })
 						}
@@ -54,6 +56,11 @@ export function CodingAgentsSection({
 				) : null
 			}
 		>
+			{agents && busy ? (
+				<p id={BUSY_NOTE} className="pk-muted m-0 text-[13px]">
+					{IMAGE_BUSY_REASON}
+				</p>
+			) : null}
 			{agents ? (
 				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="image-agents-table">
@@ -94,6 +101,7 @@ export function CodingAgentsSection({
 												testId={`image-agents-rollback-${tool}`}
 												reason={previous ? null : "No previous version."}
 												busy={busy}
+												busyNoteId={BUSY_NOTE}
 												onPress={() => setConfirming({ kind: "agents-rollback", tool })}
 											/>
 										</td>

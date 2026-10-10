@@ -622,6 +622,11 @@
 	cursor: default;
 }
 
+/* The folder path is selectable text, not a drag handle. */
+:where(.pk-filepane-handle) :where(.pk-file-dir) {
+	cursor: text;
+}
+
 .pk-filepane.is-dragged .pk-file-header {
 	opacity: 0.6;
 }
