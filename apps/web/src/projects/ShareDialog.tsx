@@ -3,7 +3,7 @@ import { SHARE_DURATION_HOURS } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Skeleton } from "@portikus/ui";
 import { useEffect, useState } from "react";
 import { DialogError } from "../common/DialogError.js";
-import { timeAgo, timeLeft } from "../text.js";
+import { shortTime, timeAgo, timeLeft } from "../text.js";
 import { useChangeProjectShare, useProjectShare } from "./queries.js";
 
 /** True while the share is open: the server drops an ended one at the next read. */
@@ -36,6 +36,13 @@ export function ShareDialog({
 	const share = status.data?.share ?? null;
 	const sharing = isOpenShare(share?.endsAt, now);
 	const viewers = status.data?.viewers ?? [];
+	const audience = status.data?.audience ?? [];
+	// Says what the last Start or Stop did; empty until one succeeds.
+	const changed = change.isSuccess
+		? change.data.share
+			? `Sharing until ${shortTime(change.data.share.endsAt)}.`
+			: "Sharing stopped."
+		: "";
 
 	return (
 		<DialogRoot open onOpenChange={(open) => !open && onClose()}>
@@ -55,7 +62,6 @@ export function ShareDialog({
 									data-testid="share-stop"
 									variant="secondary"
 									loading={change.isPending}
-									disabled={change.isPending}
 									onClick={() => change.mutate("stop")}
 								>
 									Stop sharing
@@ -65,7 +71,6 @@ export function ShareDialog({
 									data-testid="share-start"
 									variant="primary"
 									loading={change.isPending}
-									disabled={change.isPending}
 									onClick={() => change.mutate("start")}
 								>
 									Start sharing
@@ -74,6 +79,10 @@ export function ShareDialog({
 					</>
 				}
 			>
+				{/* Always mounted, so the change is announced. */}
+				<p className="pk-visually-hidden" role="status" data-testid="share-status">
+					{changed}
+				</p>
 				{status.isPending ? (
 					<Skeleton />
 				) : status.isError ? (
@@ -82,7 +91,25 @@ export function ShareDialog({
 					<>
 						<dl className="pk-dl" data-testid="share-terms">
 							<dt>Who can see it</dt>
-							<dd>The instructors of the courses you belong to.</dd>
+							<dd data-testid="share-audience">
+								{audience.length === 0 ? (
+									"The instructors of the courses you belong to. You are in no course yet, so no instructor can see it."
+								) : (
+									<>
+										The instructors of the courses you belong to:
+										<ul className="m-0 mt-1 pl-0 list-none">
+											{audience.map((course) => (
+												<li key={course.courseId}>
+													{course.courseTitle}:{" "}
+													{course.instructors.length === 0
+														? "no instructor yet"
+														: course.instructors.join(", ")}
+												</li>
+											))}
+										</ul>
+									</>
+								)}
+							</dd>
 							<dt>What they see</dt>
 							<dd>
 								The project's files, its Git status and changes, and the latest check

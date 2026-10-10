@@ -13,6 +13,7 @@ import {
 	type ShareRef,
 	sharedInlineUrl,
 	useSharedFile,
+	useSharedFileVersion,
 	useSharedTree,
 } from "./queries.js";
 
@@ -52,8 +53,7 @@ function SharedPicture({
 }) {
 	const listing = useSharedTree(share, parentOf(path));
 	const entry = listing.data?.entries.find((item) => item.name === baseName(path));
-	const version = entry ? `${entry.size}-${entry.mtimeMs}` : undefined;
-	const src = sharedInlineUrl(share, path, version);
+	const src = sharedInlineUrl(share, path, useSharedFileVersion(share, path));
 	return pdf ? (
 		<PdfView url={src} path={path} download={null} fallback={fallback} />
 	) : (
@@ -68,7 +68,7 @@ function SharedPicture({
 }
 
 function SharedText({ share, path }: { share: ShareRef; path: string }) {
-	const file = useSharedFile(share, path);
+	const file = useSharedFile(share, path, useSharedFileVersion(share, path));
 	const name = displayName(baseName(path));
 	if (file.error && !file.data) {
 		const missing =

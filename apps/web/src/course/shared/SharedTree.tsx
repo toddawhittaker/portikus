@@ -73,8 +73,11 @@ function Directory(props: SharedTreeProps & { dir: string; level: number }) {
 						type="button"
 						className="pk-changes-row"
 						style={indent}
-						disabled={query.isFetchingNextPage}
-						onClick={() => void query.fetchNextPage()}
+						// Stays focusable while loading, so the focus is not dropped (SPEC.md §25.8).
+						aria-disabled={query.isFetchingNextPage ? true : undefined}
+						onClick={() => {
+							if (!query.isFetchingNextPage) void query.fetchNextPage();
+						}}
 					>
 						<span className="pk-changes-path">
 							{entryCount(entries.length)} shown. Show more
