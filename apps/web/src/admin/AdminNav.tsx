@@ -12,6 +12,8 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	image: "layers",
 	certificate: "lock",
 	docker: "box",
+	signin: "sign-in",
+	address: "map-pin",
 	settings: "settings",
 	shell: "terminal",
 };

@@ -84,3 +84,4 @@ has four sections:
 | [0054](0054-offline-breached-password-list.md) | Breached passwords are checked against an offline list from SecLists (accepted, Epic 36) |
 | [0055](0055-voice-input-web-speech.md) | Voice input uses the browser's Web Speech API, hold to talk only (accepted, Epic 39) |
 | [0056](0056-shared-coding-agents.md) | Claude Code and Codex live in a shared read-only folder, updated by the root image job (accepted, Epic 40) |
+| [0059](0059-site-job-for-admin-self-service.md) | One root site job applies the admin page's site changes: proxy hosts, LMS platforms, the site address and the sign-in provider (accepted, Epic 43) |

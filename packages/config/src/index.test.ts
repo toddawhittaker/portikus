@@ -783,6 +783,28 @@ test("the API and the worker read alert settings from notify.json, an absolute p
 	).toThrow(/ALERTS_JOBS_DIR/);
 });
 
+// The root site job's paths (ADR 0059): unset SITE_JOBS_DIR turns the site routes off.
+test("the site job settings default to /etc/portikus and must be absolute", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	const config = loadConfig(ApiConfigSchema, base);
+	expect(config.SITE_JOBS_DIR).toBeUndefined();
+	expect(config.SITE_VIEW_FILE).toBe("/etc/portikus/site-view.json");
+	expect(config.PROXY_HOSTS_FILE).toBe("/etc/portikus/proxy-hosts.json");
+	expect(config.LTI_ADMIN_PLATFORMS_FILE).toBe(
+		"/etc/portikus/lti-platforms-admin.json",
+	);
+	for (const key of [
+		"SITE_JOBS_DIR",
+		"SITE_VIEW_FILE",
+		"PROXY_HOSTS_FILE",
+		"LTI_ADMIN_PLATFORMS_FILE",
+	]) {
+		expect(() => loadConfig(ApiConfigSchema, { ...base, [key]: "relative" })).toThrow(
+			new RegExp(key),
+		);
+	}
+});
+
 // The worker unit reaches nothing outside but the egress proxy (ADR 0027).
 test("the worker reads the egress proxy for its alerts, and unset means none", () => {
 	const base = { DATABASE_URL: "postgres://localhost/portikus" };

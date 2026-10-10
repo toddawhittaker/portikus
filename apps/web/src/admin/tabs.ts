@@ -14,6 +14,8 @@ export const ADMIN_TABS = [
 	"image",
 	"certificate",
 	"docker",
+	"signin",
+	"address",
 	"settings",
 	// One lowercase word, as Caddy's and Vite's page rules expect, and apart
 	// from the API's /admin/root-shell.
@@ -32,6 +34,8 @@ export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	image: "Workspace image",
 	certificate: "Certificate",
 	docker: "Docker",
+	signin: "Sign-in",
+	address: "Site address",
 	settings: "Settings",
 	shell: "Root shell",
 };

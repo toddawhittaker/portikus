@@ -29,6 +29,8 @@ const ADMIN_TAB_NAMES = [
 	"Workspace image",
 	"Certificate",
 	"Docker",
+	"Sign-in",
+	"Site address",
 	"Settings",
 	"Root shell",
 ];
