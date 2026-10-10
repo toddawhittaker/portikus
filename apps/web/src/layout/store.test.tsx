@@ -357,6 +357,19 @@ test("closing a file tab forgets the editor request it was waiting for", () => {
 	expect(layout.getState().pendingView).toEqual({});
 });
 
+test("a file's view is kept across a move and a rename, and dropped with the tab", () => {
+	const layout = store();
+	layout.getState().addTab("t1");
+	layout.getState().openFile("src/app.ts");
+	layout.getState().setFileView("src/app.ts", "diff");
+	layout.getState().moveLeaf("t1", "file:src/app.ts", "t1", "right");
+	expect(layout.getState().fileViews).toEqual({ "src/app.ts": "diff" });
+	layout.getState().retargetTabs("src/app.ts", "src/main.ts");
+	expect(layout.getState().fileViews).toEqual({ "src/main.ts": "diff" });
+	layout.getState().closeFile("src/main.ts");
+	expect(layout.getState().fileViews).toEqual({});
+});
+
 test("a file's zoom is kept for the session and dropped with the tab", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");

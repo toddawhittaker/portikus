@@ -9,7 +9,7 @@ import { type DragEvent, useCallback, useRef, useState } from "react";
 import { moveForDrop } from "./paths.js";
 import type { RowStateStore } from "./rowState.js";
 import type { FileNode } from "./selection.js";
-import { setDraggedTreeNode } from "./treeDrag.js";
+import { draggedTreeNode, setDraggedTreeNode } from "./treeDrag.js";
 
 /**
  * The type a dragged row carries. Private, so a row dropped on the editor, a
@@ -49,9 +49,6 @@ export function useTreeDragAndDrop({
 	// row fires a leave for the element behind it, so counting is the only way
 	// to tell "moved within the pane" from "left the pane".
 	const depth = useRef(0);
-	// The row in flight. The drag data cannot be read until the drop, so the
-	// folder under the pointer is checked against this instead.
-	const dragged = useRef<FileNode | null>(null);
 
 	function setDropDir(dropDir: string | null) {
 		if (rowState.getState().dropDir !== dropDir) rowState.setState({ dropDir });
@@ -60,7 +57,6 @@ export function useTreeDragAndDrop({
 	// Stable, like startMove, because every row is handed it.
 	const reset = useCallback(() => {
 		depth.current = 0;
-		dragged.current = null;
 		setDraggedTreeNode(null);
 		rowState.setState({ draggedPath: null, dropDir: null });
 		setUploadDrag(false);
@@ -71,7 +67,7 @@ export function useTreeDragAndDrop({
 		const dir = dirUnder(target);
 		// An upload anywhere else in the pane goes to the project root.
 		if (kind === "upload") return dir ?? "";
-		const from = dragged.current;
+		const from = draggedTreeNode();
 		return from && moveForDrop(from.path, dir) ? dir : null;
 	}
 
@@ -80,7 +76,6 @@ export function useTreeDragAndDrop({
 		(event: DragEvent, node: FileNode) => {
 			event.dataTransfer.setData(TREE_DRAG_TYPE, node.path);
 			event.dataTransfer.effectAllowed = "move";
-			dragged.current = node;
 			setDraggedTreeNode(node);
 			rowState.setState({ draggedPath: node.path });
 		},
@@ -117,7 +112,7 @@ export function useTreeDragAndDrop({
 			const kind = dragKind(event);
 			if (!kind) return;
 			const dir = landing(kind, event.target);
-			const node = dragged.current;
+			const node = draggedTreeNode();
 			reset();
 			if (dir === null) return;
 			event.preventDefault();

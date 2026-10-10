@@ -18,6 +18,8 @@ import {
 	type PendingView,
 	useEditorViewState,
 	useFileGeneration,
+	useFileView,
+	type FileView as View,
 } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
 import { type SpeechInput, useSpeechInput } from "../voice/useSpeechInput.js";
@@ -46,12 +48,6 @@ const MarkdownPreview = lazy(() =>
 const DiffViewer = lazy(() =>
 	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
 );
-
-/**
- * The editor, or this file's changes against the last commit.
- * An SVG also has the picture it draws, and a CSV file its table.
- */
-type View = "view" | "edit" | "diff";
 
 /** The tab is hidden, not unmounted, so the editor keeps its undo history. */
 const HIDDEN = { display: "none" } as const;
@@ -154,11 +150,12 @@ function FileTab({
 	const listed = listing.data?.entries.find((entry) => entry.name === name);
 	const svg = kind === "svg";
 	const csv = isCsvPath(path);
-	// Which view this tab shows. It belongs to this browser and is not saved.
+	// Which view this tab shows. It belongs to this browser, is not saved, and
+	// survives a move to another place in the layout.
 	// An SVG opens as its picture and a CSV file as its table; the text is
 	// one button away.
 	const firstView: View = svg || csv ? "view" : "edit";
-	const [view, setView] = useState<View>(firstView);
+	const [view, setView] = useFileView(path, firstView);
 	// The pressed button is replaced by its twin in the other header, so the
 	// keyboard is handed to the twin as it mounts.
 	const focusView = useRef<View | null>(null);

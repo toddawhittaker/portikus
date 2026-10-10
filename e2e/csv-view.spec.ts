@@ -3,8 +3,12 @@ import {
 	createStudent,
 	expectNoViolations,
 	openFileTab,
+	query,
 	readSeededFile,
 } from "./helpers";
+
+/** The shortest auto-save delay, so a test can wait past it cheaply. */
+const AUTOSAVE_DELAY_SECONDS = 1;
 
 /**
  * A CSV file opens as a read-only table with its text one button away
@@ -70,6 +74,10 @@ test("column headers sort a view of the table and the file keeps its order", asy
 }) => {
 	test.setTimeout(90_000);
 	const student = await createStudent(context);
+	await query(
+		"update users set editor_settings = editor_settings || $1::jsonb where id = $2",
+		[JSON.stringify({ autoSaveDelaySeconds: AUTOSAVE_DELAY_SECONDS }), student.userId],
+	);
 	const path = "scores.csv";
 	const content = "name,score\nAnn,10\nBo,9\nCy,\nDee,2\n";
 	const project = await openFileTab(page, student, "Csv sort", path, content);
@@ -100,6 +108,17 @@ test("column headers sort a view of the table and the file keeps its order", asy
 	await expect(names).toHaveText(["Ann", "Bo", "Cy", "Dee"]);
 
 	await score.getByRole("button").click();
+	// Sorting is not an edit: nothing is unsaved, and once a save would have
+	// fired the file on disk is still the original.
+	await expect(page.getByTestId(`file-status-${path}`)).toHaveAttribute(
+		"data-status",
+		"saved",
+	);
+	await page.waitForTimeout(AUTOSAVE_DELAY_SECONDS * 1000 + 1000);
+	await expect(page.getByTestId(`file-status-${path}`)).toHaveAttribute(
+		"data-status",
+		"saved",
+	);
 	expect(await readSeededFile(student.workspaceId, project.slug, path)).toBe(content);
 });
 
@@ -164,6 +183,17 @@ test("a very wide file draws its first 200 columns and names blank headers", asy
 	await expect(
 		region.getByRole("columnheader", { name: "Column 2", exact: true }),
 	).toHaveCount(1);
+	// The stand-in name is shown, and its button is big enough to show a ring.
+	const blank = region
+		.getByRole("columnheader", { name: "Column 2", exact: true })
+		.getByRole("button");
+	await expect(blank).toHaveText("Column 2");
+	await blank.focus();
+	const size = await blank.boundingBox();
+	expect(size?.width ?? 0).toBeGreaterThan(20);
+	expect(await blank.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe(
+		"solid",
+	);
 	await expect(page.getByTestId("csv-column-cap")).toHaveText(
 		"Showing the first 200 of 1,000,001 columns.",
 	);

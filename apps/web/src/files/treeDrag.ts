@@ -1,6 +1,6 @@
 /**
- * The tree row being dragged right now, for drop areas outside the tree
- * (SPEC.md §9.3). A browser hides drag data until the drop, so a pane edge
+ * The tree row being dragged right now: the one record, read by the tree and
+ * by drop areas outside it (SPEC.md §9.3). A browser hides drag data until the drop, so a pane edge
  * could not otherwise tell a file from a folder while the drag is over it.
  */
 import type { FileNode } from "./selection.js";

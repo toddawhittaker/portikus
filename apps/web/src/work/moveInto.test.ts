@@ -4,8 +4,9 @@ import {
 	type SplitNode,
 } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { createLayoutStore } from "../layout/store.js";
 import { moveLeaf } from "../layout/tree.js";
-import { fileDropTarget, moveIntoTargets } from "./moveInto.js";
+import { dropTreeFile, fileDropTarget, moveIntoTargets } from "./moveInto.js";
 
 const leaf = (terminalId: string): SplitNode => ({ type: "leaf", terminalId });
 
@@ -128,6 +129,33 @@ test("a tree file takes no drop that would split past the depth limit", () => {
 		tabs: [{ id: "deep", root: deepest(MAX_SPLIT_DEPTH) }],
 	};
 	expect(fileDropTarget(full, "src/new.ts", "deep", "right")).toBeNull();
+});
+
+test("dropping an open file from the tree keeps its Diff view and baseline", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	store.getState().openFile("readme.md", { diff: true, baseline: "HEAD~1" });
+	const before = store.getState();
+	const view = before.pendingView["file:readme.md"];
+	dropTreeFile(before, "readme.md", { tabId: "a", paneId: "t1", edge: "right" });
+	const after = store.getState();
+	expect(after.pendingView["file:readme.md"]).toBe(view);
+	expect(after.diffBaseline["file:readme.md"]).toBe("HEAD~1");
+	expect(after.layout.tabs.map((tab) => tab.id)).toEqual(["a"]);
+	expect(after.focusedPaneId).toBe("file:readme.md");
+});
+
+test("dropping a file not yet open from the tree opens it beside the target", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	dropTreeFile(store.getState(), "src/new.ts", {
+		tabId: "a",
+		paneId: "t1",
+		edge: "right",
+	});
+	const root = store.getState().layout.tabs[0]?.root;
+	expect(root?.type).toBe("split");
+	expect(store.getState().pendingView["file:src/new.ts"]?.mode).toBe("edit");
 });
 
 test("a pane with no other terminal tab has nowhere to go", () => {

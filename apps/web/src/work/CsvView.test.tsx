@@ -86,6 +86,10 @@ test("a header with nothing under it says so", () => {
 test("a blank header cell still names its column for a screen reader", () => {
 	render(<CsvView path="x.csv" text={"a,,c\n1,2,3\n"} onShowText={() => {}} />);
 	expect(screen.getByRole("columnheader", { name: "Column 2" })).not.toBeNull();
+	// Shown, not only read out, so a sighted keyboard user sees what is focused.
+	const label = screen.getByText("Column 2");
+	expect(label.className).toBe("pk-csv-blank");
+	expect(label.closest("button")).not.toBeNull();
 });
 
 test("a very wide file draws the first 200 columns and says how many there are", () => {

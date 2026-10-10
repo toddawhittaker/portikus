@@ -17,7 +17,7 @@ import {
 	MenuTrigger,
 } from "@portikus/ui";
 import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
-import { baseName, displayName } from "../files/paths.js";
+import { baseName, displayName, parentOf } from "../files/paths.js";
 import { type DropEdge, fileTabId } from "../layout/tree.js";
 import { usePaneMenuFocus } from "./pointerDismiss.js";
 
@@ -168,20 +168,29 @@ export function FilePane({
 /**
  * A file pane's one header line: the name at the start, the view's own
  * controls between, and the actions menu at the end (SPEC.md §8.3). Only the
- * view on screen draws it, so the drag handle and the menu exist once.
+ * view on screen draws it, so the drag handle and the menu exist once. The
+ * folder follows the name, muted, so two files of one name can be told apart.
  * Outside a FilePane the name is plain text and there is no menu.
  */
 export function FileHeader({ path, children }: { path: string; children?: ReactNode }) {
 	const chrome = useContext(FilePaneChrome);
+	const folder = parentOf(path);
 	return (
 		<header className="pk-file-header">
-			{chrome ? (
-				chrome.handle
-			) : (
-				<span className="pk-file-name" title={displayName(path)}>
-					{displayName(baseName(path))}
-				</span>
-			)}
+			<span className="pk-file-title">
+				{chrome ? (
+					chrome.handle
+				) : (
+					<span className="pk-file-name" title={displayName(path)}>
+						{displayName(baseName(path))}
+					</span>
+				)}
+				{folder ? (
+					<span className="pk-file-dir" data-testid={`file-header-dir-${path}`}>
+						{displayName(folder)}
+					</span>
+				) : null}
+			</span>
 			<div className="pk-file-tools">{children}</div>
 			{chrome?.actions}
 		</header>

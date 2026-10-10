@@ -27,6 +27,9 @@ export interface PendingView {
 	seq: number;
 }
 
+/** What a file pane shows: a picture or table, the editor, or the diff. */
+export type FileView = "view" | "edit" | "diff";
+
 export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
@@ -50,6 +53,11 @@ export interface LayoutState {
 	 * never written to this browser's storage.
 	 */
 	zooms: Record<string, number>;
+	/**
+	 * Which view each open file shows, by project-relative path, so a pane
+	 * moved to a new place keeps showing its diff. Like zoom, session only.
+	 */
+	fileViews: Record<string, FileView>;
 	/**
 	 * The tabs that have been active, newest first, so closing a tab can go
 	 * back to the one before it the way a browser does. It only
@@ -127,6 +135,8 @@ export interface LayoutState {
 	setViewState: (path: string, viewState: unknown) => void;
 	/** Remember the editor zoom of one open file for this session. */
 	setZoom: (path: string, percent: number) => void;
+	/** Remember which view one open file shows for this session. */
+	setFileView: (path: string, view: FileView) => void;
 	/** Put back what this browser remembered for this project. */
 	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (paneId: string | null) => void;
@@ -208,19 +218,24 @@ function followTab(
 function forgetFiles(
 	state: LayoutState,
 	paths: string[],
-): Pick<LayoutState, "pendingView" | "diffBaseline" | "viewStates" | "zooms"> {
+): Pick<
+	LayoutState,
+	"pendingView" | "diffBaseline" | "viewStates" | "zooms" | "fileViews"
+> {
 	const pendingView = { ...state.pendingView };
 	const diffBaseline = { ...state.diffBaseline };
 	const viewStates = { ...state.viewStates };
 	const zooms = { ...state.zooms };
+	const fileViews = { ...state.fileViews };
 	for (const path of paths) {
 		const id = tree.fileTabId(path);
 		delete pendingView[id];
 		delete diffBaseline[id];
 		delete viewStates[path];
 		delete zooms[path];
+		delete fileViews[path];
 	}
-	return { pendingView, diffBaseline, viewStates, zooms };
+	return { pendingView, diffBaseline, viewStates, zooms, fileViews };
 }
 
 /**
@@ -321,6 +336,7 @@ export function createLayoutStore() {
 			diffBaseline: {},
 			viewStates: {},
 			zooms: {},
+			fileViews: {},
 			tabHistory: [],
 			unsavedTabs: {},
 			fileGenerations: {},
@@ -512,6 +528,9 @@ export function createLayoutStore() {
 			setZoom: (path, percent) =>
 				set((state) => ({ zooms: { ...state.zooms, [path]: percent } })),
 
+			setFileView: (path, view) =>
+				set((state) => ({ fileViews: { ...state.fileViews, [path]: view } })),
+
 			// The saved layout usually arrives after this, and its load keeps an
 			// active tab that still exists, so the remembered tab survives.
 			restoreLocal: (local) =>
@@ -576,6 +595,7 @@ export function createLayoutStore() {
 						unsavedTabs: moveKeys(state.unsavedTabs, files, from, to),
 						viewStates: moveKeys(state.viewStates, "", from, to),
 						zooms: moveKeys(state.zooms, "", from, to),
+						fileViews: moveKeys(state.fileViews, "", from, to),
 						dirty: state.dirty || layout !== state.layout,
 					};
 				});
@@ -704,6 +724,27 @@ export function useEditorZoom(path: string): [number, (percent: number) => void]
 		[store, path],
 	);
 	return [zoom, set];
+}
+
+/**
+ * Which view one open file shows. It is held in the layout store so a pane
+ * that moves, and so mounts again, keeps showing what it showed (SPEC.md
+ * §9.3). A file tab rendered outside a workspace keeps its own.
+ */
+export function useFileView(
+	path: string,
+	first: FileView,
+): [FileView, (view: FileView) => void] {
+	const store = useContext(LayoutStoreContext);
+	const [view, setLocal] = useState(() => store?.getState().fileViews[path] ?? first);
+	const set = useCallback(
+		(next: FileView) => {
+			setLocal(next);
+			store?.getState().setFileView(path, next);
+		},
+		[store, path],
+	);
+	return [view, set];
 }
 
 /** Read one slice of a layout store. */
