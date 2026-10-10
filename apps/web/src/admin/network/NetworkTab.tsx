@@ -6,6 +6,7 @@ import { BlockedCard } from "./BlockedCard.js";
 import { BlockedSitesCard } from "./BlockedSitesCard.js";
 import { EntryDialog, type EntryDraft } from "./EntryDialog.js";
 import { ModeCard } from "./ModeCard.js";
+import { ProxyHostsGroup } from "./ProxyHostsGroup.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
 
@@ -95,6 +96,7 @@ export function NetworkTab() {
 					</section>
 				</div>
 			</div>
+			<ProxyHostsGroup />
 			{draft ? (
 				<EntryDialog
 					draft={draft}

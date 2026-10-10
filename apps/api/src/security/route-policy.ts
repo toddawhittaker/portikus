@@ -263,6 +263,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/egress/blocked-sites": { access: "admin" },
 	"PUT /admin/egress/blocked-sites/:id": { access: "admin" },
 	"DELETE /admin/egress/blocked-sites/:id": { access: "admin" },
+	// Page-added proxy hosts and LMS platforms (ADR 0059).
+	"GET /admin/proxy-hosts": { access: "admin" },
+	"HEAD /admin/proxy-hosts": { access: "admin" },
+	"PUT /admin/proxy-hosts": { access: "admin" },
+	"GET /admin/lms": { access: "admin" },
+	"HEAD /admin/lms": { access: "admin" },
+	"PUT /admin/lms": { access: "admin" },
 	"GET /admin/audit": { access: "admin" },
 	"HEAD /admin/audit": { access: "admin" },
 	"GET /admin/logs": { access: "admin" },

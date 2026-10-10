@@ -333,6 +333,8 @@ export const ApiErrorCode = z.enum([
 	"CERTIFICATE_SECRET_REQUIRED",
 	// Notification settings (ADR 0052).
 	"NOTIFY_JOB_BUSY",
+	// The root site job (ADR 0059): one is waiting or running, or a trial is open.
+	"SITE_JOB_BUSY",
 	// Shared Docker pull storage.
 	"SEED_JOB_RUNNING",
 	"SEED_LIST_EMPTY",

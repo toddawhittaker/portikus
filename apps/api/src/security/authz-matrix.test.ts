@@ -124,6 +124,12 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"GET /admin/certificate/root.crt": 404,
 	"HEAD /admin/certificate/root.crt": 404,
 	// Tests set no ALERTS_JOBS_DIR, so the Notifications section is off.
+	"GET /admin/proxy-hosts": 404,
+	"HEAD /admin/proxy-hosts": 404,
+	"PUT /admin/proxy-hosts": 404,
+	"GET /admin/lms": 404,
+	"HEAD /admin/lms": 404,
+	"PUT /admin/lms": 404,
 	"GET /admin/notifications": 404,
 	"HEAD /admin/notifications": 404,
 	"PUT /admin/notifications": 404,
