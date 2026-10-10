@@ -746,10 +746,23 @@ def read_api_env(path):
     return site, port, suffix
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def free_ports(count, kind=socket.SOCK_STREAM, avoid=()):
+    """count different free loopback ports, none in avoid. Every socket stays open until all are
+    chosen, because the kernel may hand a just-closed port straight back."""
+    sockets = []
+    ports = []
+    try:
+        while len(ports) < count:
+            s = socket.socket(socket.AF_INET, kind)
+            sockets.append(s)
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            if port not in avoid:
+                ports.append(port)
+        return ports
+    finally:
+        for s in sockets:
+            s.close()
 
 
 # ---- Where the site name points (SPEC.md 24.10) ----
@@ -1423,12 +1436,12 @@ class Runner:
         # itself, before it tells the authority the challenge is ready, so validation cannot arrive
         # before the listener does.
         challenge_port = self.test_http_port or CHALLENGE_PORT
-        http_port = free_port()
+        http_port, https_port = free_ports(2, avoid=(challenge_port,))
         tls = snippets(settings, base, alt_http_port=challenge_port if http01 else None)
         config = (
             "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
             f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
-            f"\thttp_port {http_port}\n\thttps_port {free_port()}\n"
+            f"\thttp_port {http_port}\n\thttps_port {https_port}\n"
             "\tauto_https disable_redirects\n\tdefault_bind 127.0.0.1\n}\n\n"
             + tls.replace(SNIPPET_HEADER, "")
             + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
