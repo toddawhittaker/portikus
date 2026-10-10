@@ -649,13 +649,13 @@ s.sendall(bytes([0x81, 0x80 | len(payload)]) + mask + bytes(b ^ mask[i % 4] for 
 frame = s.recv(2); print(s.recv(frame[1] & 0x7F).decode())
 PY
 
-  free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
-  live_public="$(free_port)"
-  live_http="$(free_port)"
-  live_api="$(free_port)"
-  live_plain="$(free_port)"
-  live_tls="$(free_port)"
-  live_challenge="$(free_port)"
+  # All six sockets stay open until all are chosen: the kernel may hand a just-closed port straight back.
+  read -r live_public live_http live_api live_plain live_tls live_challenge < <(python3 -c '
+import socket
+held = [socket.socket() for _ in range(6)]
+for s in held:
+    s.bind(("127.0.0.1", 0))
+print(*(s.getsockname()[1] for s in held))')
 
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
     -keyout "${work}/up.key" -out "${work}/up.crt" >/dev/null 2>&1
