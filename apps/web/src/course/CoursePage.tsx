@@ -4,8 +4,8 @@ import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
-import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
+import { CourseFrame } from "./CourseFrame.js";
 import { useCourseMembers, useCourses } from "./queries.js";
 import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
 
@@ -13,36 +13,6 @@ const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
 	instructor: "Instructor",
 };
-
-/**
- * Checks the session, draws the header, and puts the page body in a labelled
- * main. The body mounts only once signed in, so it fetches nothing before.
- */
-function CourseFrame({ children }: { children: React.ReactNode }) {
-	const me = useMe();
-	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
-	if (me.status === "anonymous") return <Navigate to="/" />;
-	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
-	return (
-		// Unlike the workspace and admin pages, the Course page works in a narrow
-		// window beside the learning system, so it drops the shell's 1024 px floor.
-		<div className="pk-root min-w-0!">
-			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
-			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
-			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
-			    Remove clear of the sticky table header. A phone-width window
-			    gives the table the padding's room back. */}
-			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
-				data-testid="page-course"
-				data-density="compact"
-				aria-labelledby="course-title"
-			>
-				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
-			</main>
-		</div>
-	);
-}
 
 /**
  * One live region that stays mounted under the heading, so a screen reader
@@ -59,7 +29,7 @@ function Status({ children }: { children: React.ReactNode }) {
 /** `/course`: the courses the caller teaches, or straight into the only one. */
 export function CourseListPage() {
 	return (
-		<CourseFrame>
+		<CourseFrame testId="page-course" labelledBy="course-title">
 			<CourseList />
 		</CourseFrame>
 	);
@@ -160,7 +130,7 @@ export function nextRemovable(
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
-		<CourseFrame>
+		<CourseFrame testId="page-course" labelledBy="course-title">
 			<CourseMembers />
 		</CourseFrame>
 	);
