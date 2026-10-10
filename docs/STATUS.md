@@ -4991,3 +4991,41 @@ Gaps left:
 - The axe check in `files-tabs-follow.spec.ts` is still limited to the toast.
 - The rehearsal-VM run (bootstrap to smoke, old-image restart, a live
   update and rollback) is recorded in the epic pull request.
+
+## Epic 41 — Fix batch after Epic 40
+
+Built on `epic/41-fixes` (task PRs #1418 to #1420, a review-fix PR, and this
+fold). Issues #1360, #1412, #1413, #1415 and #1417. No migration.
+
+Delivered:
+
+- Certificate job (#1360, #1420): the throwaway Caddy picks its HTTP and
+  HTTPS ports together, which removes a rare startup failure ("scheme and
+  port violate convention") that showed up as a flaky Pebble test. The Caddy
+  preview test picks its ports the same way.
+- Upgrade order for the shared coding agents (#1415, #1419): the package's
+  install script runs `image-job agents-links` before it restarts any
+  service. It makes `/var/lib/portikus/coding-agents` and its `bin` links
+  and downloads nothing. A workspace that starts while setup is still
+  downloading the tools gets its `claude` and `codex` links, and they work
+  once setup has seeded the folder. A new packaging test checks the order.
+- Rollback message (#1413, #1418): the per-tool rollback says "switched back
+  to X".
+- LTI smoke test (#1417, #1418 and a review-fix PR): it fails one named
+  check when pnpm is missing and stops waiting if the mock LMS exits. After
+  review it probes the keyset once and escapes the issuer URL. A mock LMS
+  that dies is reported as one failure with its last output lines, and the
+  launch checks are skipped. CI now also runs
+  `packaging/tests/agents-links-order-test.sh`, `enable-units-test.sh` and
+  `secrets-yaml-test.sh`.
+- #1412 was ruled working as designed: creating a workspace only provisions
+  it and leaves it stopped (SPEC.md sections 6.2 and 6.3). No code change.
+
+Gaps left:
+
+- The tools still arrive only when setup runs, about two minutes after an
+  upgrade restart.
+- The throwaway Caddy's ports are released before Caddy binds them. This is
+  accepted: only a process on the VM could take one, and then the job fails
+  and can be run again.
+- The new LTI smoke path was not run against a VM.

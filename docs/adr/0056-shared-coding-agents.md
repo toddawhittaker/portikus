@@ -89,6 +89,9 @@ sessions.
 - The server needs outgoing access to the vendors' download hosts
   (docs/INSTALL.md).
 - The folder is not backed up; it can be downloaded again.
+- On an upgrade the package's install script creates the folder and its `bin`
+  links (`image-job agents-links`) before the services restart. Setup
+  downloads the tools afterwards, so the links work about two minutes later.
 - Codex copies its own binary into the student's home when it starts
   (`~/.codex/packages/app-server-daemon/releases/<version>/`) and runs its
   app-server daemon from that copy, which does not follow `current`.
