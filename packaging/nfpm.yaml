@@ -150,6 +150,20 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # Its shared Claude Code and Codex folder logic, imported from beside it.
+  - src: ./packaging/image/coding_agents.py
+    dst: /usr/lib/portikus/coding_agents.py
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
+  # The Claude Code release key, dearmored by build-deb.sh.
+  - src: ./dist/deploy/claude-code.gpg
+    dst: /usr/share/portikus/keyrings/claude-code.gpg
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
   # The root site certificate job, its trigger and the hourly check (ADR 0046).
   # Enabled by Ansible, which creates the directories they need.
   - src: ./packaging/systemd/portikus-certificate-job.path

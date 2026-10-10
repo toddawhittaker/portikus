@@ -162,6 +162,8 @@ if [ "$keyring" != packaging/portikus-archive-keyring.asc ]; then
 	echo "build-deb: this package trusts $keyring, not the Portikus archive key" >&2
 fi
 gpg --dearmor < "$keyring" > dist/deploy/portikus-archive-keyring.gpg
+# The Claude Code release key, which the image job checks Claude Code's manifest against (SPEC.md 22.4).
+gpg --dearmor < packaging/image/claude-code-keyring.asc > dist/deploy/claude-code.gpg
 
 mkdir -p dist/deb
 echo "$version" > dist/deb/VERSION
