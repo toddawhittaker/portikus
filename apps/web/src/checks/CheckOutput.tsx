@@ -92,9 +92,11 @@ export function CheckOutput({
 			}
 			if (frame.kind === "exit") {
 				xterm.writeln(
-					frame.exitCode === 0
-						? "\r\n[portikus] check passed (exit code 0)"
-						: `\r\n[portikus] check failed (exit code ${frame.exitCode})`,
+					frame.stopped
+						? `\r\n[portikus] check stopped (exit code ${frame.exitCode})`
+						: frame.exitCode === 0
+							? "\r\n[portikus] check passed (exit code 0)"
+							: `\r\n[portikus] check failed (exit code ${frame.exitCode})`,
 				);
 				finished.current();
 				return;

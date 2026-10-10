@@ -52,9 +52,10 @@ export type ChecksFile = z.infer<typeof ChecksFile>;
 /**
  * What a check is doing. "failed" is a command that ran and gave a non-zero
  * exit code; "error" is a command that could not be started at all, which is
- * a different thing to tell the student (SPEC.md §18.1, §28).
+ * a different thing to tell the student (SPEC.md §18.1, §28). "stopped" is a
+ * run the student ended with Stop, which is not a failure.
  */
-export const CheckState = z.enum(["running", "passed", "failed", "error"]);
+export const CheckState = z.enum(["running", "passed", "failed", "error", "stopped"]);
 export type CheckState = z.infer<typeof CheckState>;
 
 /** One execution of one check ("Check result metadata", SPEC.md §25). */
@@ -93,7 +94,12 @@ export const MAX_CHECK_OUTPUT_BYTES = 1024 * 1024;
  */
 export const CheckOutputFrame = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("output"), data: z.string() }),
-	z.object({ type: z.literal("exit"), exitCode: z.number().int() }),
+	z.object({
+		type: z.literal("exit"),
+		exitCode: z.number().int(),
+		/** True when the student's Stop ended the run. */
+		stopped: z.boolean().optional(),
+	}),
 	z.object({ type: z.literal("error"), code: z.string() }),
 ]);
 export type CheckOutputFrame = z.infer<typeof CheckOutputFrame>;
