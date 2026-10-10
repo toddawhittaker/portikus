@@ -5,6 +5,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AGENT_USAGE_PORT } from "@portikus/contracts";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
 	CLAUDE_MANAGED_SETTINGS_PATH,
@@ -180,6 +181,21 @@ describe("codexSystemConfig", () => {
 			'developer_instructions = "Use \\"portikus-open\\".\\nA \\\\ backslash.\\n"\n',
 		);
 	});
+
+	test("sends metrics, and only metrics, to the usage receiver as JSON with prompts off", () => {
+		const config = codexSystemConfig(TEMPLATE);
+		const otel = config.split("\n[otel]\n")[1] ?? "";
+		// Every top-level key comes before the table, or TOML would read it as an otel key.
+		expect(config.indexOf("developer_instructions")).toBeLessThan(
+			config.indexOf("[otel]"),
+		);
+		expect(otel).toContain("log_user_prompt = false\n");
+		expect(otel).toContain('exporter = "none"\n');
+		expect(otel).toContain('trace_exporter = "none"\n');
+		expect(otel).toContain(
+			`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}/v1/metrics", protocol = "json" } }\n`,
+		);
+	});
 });
 
 describe("the shipped template", () => {
@@ -210,5 +226,32 @@ describe("the shipped managed settings", () => {
 			recipe.split("- path: /etc/claude-code/managed-settings.json")[1] ?? "";
 		const imageContent = entry.split("content: |-\n")[1]?.split("\n")[0]?.trim();
 		expect(JSON.parse(shipped)).toEqual(JSON.parse(imageContent ?? ""));
+	});
+
+	test("export usage metrics to the loopback receiver, and no logs or prompts", () => {
+		const { env } = JSON.parse(
+			readFileSync(
+				join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
+				"utf8",
+			),
+		) as { env: Record<string, string> };
+		expect(env).toMatchObject({
+			CLAUDE_CODE_ENABLE_TELEMETRY: "1",
+			OTEL_METRICS_EXPORTER: "otlp",
+			OTEL_LOGS_EXPORTER: "none",
+			OTEL_EXPORTER_OTLP_PROTOCOL: "http/json",
+			OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${AGENT_USAGE_PORT}`,
+			OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "delta",
+		});
+		// Prompt and tool content stay off; their absence is the default.
+		for (const key of [
+			"OTEL_LOG_USER_PROMPTS",
+			"OTEL_LOG_ASSISTANT_RESPONSES",
+			"OTEL_LOG_TOOL_DETAILS",
+			"OTEL_LOG_TOOL_CONTENT",
+			"OTEL_LOG_RAW_API_BODIES",
+		]) {
+			expect(env).not.toHaveProperty(key);
+		}
 	});
 });

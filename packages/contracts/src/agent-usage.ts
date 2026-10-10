@@ -7,6 +7,16 @@ import { CodingAgent } from "./terminal.js";
  * they are for reporting, never enforcement.
  */
 
+/**
+ * The loopback port inside a workspace where the workspace agent takes the
+ * coding agents' OpenTelemetry metrics (ADR 0057). Next to the agent's own
+ * 7400, clear of the OTLP defaults 4317 and 4318 a student's tools may use.
+ */
+export const AGENT_USAGE_PORT = 7401;
+
+/** The OTLP/HTTP metrics path, the standard one both agents post to. */
+export const AGENT_USAGE_METRICS_PATH = "/v1/metrics";
+
 /** Longest model name kept; the database checks the same bound. */
 export const MAX_AGENT_USAGE_MODEL_LENGTH = 100;
 

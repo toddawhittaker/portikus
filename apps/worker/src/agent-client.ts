@@ -4,6 +4,7 @@ import {
 	AgentCreateRecoveryPointResponse,
 	AgentDockerInventory,
 	AgentRecoveryArchiveList,
+	AgentUsageReport,
 } from "@portikus/contracts";
 
 export { AgentCallError };
@@ -90,14 +91,56 @@ const INVENTORY_JSON_LIMIT_BYTES = 8 * 1024 * 1024;
  * `GET /docker/inventory` on one agent. Any failure, including
  * a reply that fails the schema, is null: no data.
  */
-export async function fetchDockerInventory(
+export function fetchDockerInventory(
 	address: string,
 	port: number,
 	token: string,
 	timeoutMs = INVENTORY_TIMEOUT_MS,
 ): Promise<AgentDockerInventory | null> {
+	return getAgentJson(
+		`http://${address}:${port}/docker/inventory`,
+		token,
+		AgentDockerInventory,
+		INVENTORY_JSON_LIMIT_BYTES,
+		timeoutMs,
+	);
+}
+
+const AGENT_USAGE_TIMEOUT_MS = 30 * 1000;
+/** A full report (MAX_AGENT_USAGE_REPORT_ROWS rows of about 300 bytes) stays well below this. */
+const AGENT_USAGE_JSON_LIMIT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * `GET /agent-usage` on one agent (ADR 0057). Any failure, including a reply
+ * that fails the schema, is null: no data.
+ */
+export function fetchAgentUsage(
+	address: string,
+	port: number,
+	token: string,
+	timeoutMs = AGENT_USAGE_TIMEOUT_MS,
+): Promise<AgentUsageReport | null> {
+	return getAgentJson(
+		`http://${address}:${port}/agent-usage`,
+		token,
+		AgentUsageReport,
+		AGENT_USAGE_JSON_LIMIT_BYTES,
+		timeoutMs,
+	);
+}
+
+/** A GET whose every failure, a reply outside `schema` included, is null. */
+async function getAgentJson<T>(
+	url: string,
+	token: string,
+	schema: {
+		safeParse(value: unknown): { success: true; data: T } | { success: false };
+	},
+	limitBytes: number,
+	timeoutMs: number,
+): Promise<T | null> {
 	try {
-		const res = await fetch(`http://${address}:${port}/docker/inventory`, {
+		const res = await fetch(url, {
 			headers: { Authorization: `Bearer ${token}` },
 			signal: AbortSignal.timeout(timeoutMs),
 			redirect: "manual",
@@ -106,9 +149,7 @@ export async function fetchDockerInventory(
 			res.body?.cancel().catch(() => {});
 			return null;
 		}
-		const parsed = AgentDockerInventory.safeParse(
-			await readJson(res, INVENTORY_JSON_LIMIT_BYTES),
-		);
+		const parsed = schema.safeParse(await readJson(res, limitBytes));
 		return parsed.success ? parsed.data : null;
 	} catch {
 		return null;
