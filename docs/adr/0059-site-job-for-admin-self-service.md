@@ -200,6 +200,47 @@ Number 15 is not here: the workspace agent's own log is decided in ADR 0060.
    reads the newest. A test sign-in never creates a user, a session or a
    role.
 
+### Settled in review
+
+The epic's code and security reviews tightened these rules. They hold as
+written here.
+
+- **Missing secret.** A `signin` request that changes the provider, the
+  issuer, the tenant or the client ID and sends no new secret is refused
+  with `missing_secret`, rather than clearing the stored one. "Dex
+  passwords only" needs no secret and drops the stored one.
+- **ASCII URLs.** Every https URL holds printable ASCII only and no
+  backslash. The contract's schema and the job refuse the same values,
+  pinned by one shared fixture.
+- **Trial hash.** `trial.json` keeps a hash of the `portikus.yaml` the
+  trial wrote. Expiry or rollback puts the old answers back only while
+  the file still matches. If anything else wrote different bytes in the
+  meantime, the job forgets the trial and marks it failed with
+  `trial_superseded`. So a `dpkg-reconfigure portikus` or an upgrade that
+  writes different answers during a trial ends the trial without putting
+  it back; the way back is then the local administrator's password or
+  `dpkg-reconfigure portikus`. An upgrade that writes the same answers
+  keeps the trial.
+- **OIDC issuer.** On the page the issuer must be a host name on port
+  443: no IP address and no other port. The `dpkg-reconfigure` question
+  still accepts other ports and stays the way to set such a provider.
+- **Discovery hosts.** The hosts setup reads from a discovery document
+  reach Squid only as host names on port 443. An endpoint on another
+  port, or an IP address, must be listed in `egress_proxy_hosts` by the
+  operator.
+- **One keyset per issuer.** A page LMS platform cannot reuse an issuer
+  already registered, by the operator or on the page, with a different
+  `keysetUrl`. The job, the API and the API's merge of the two files all
+  refuse it; the merge logs and skips the page platform.
+- **Test sign-in.** Starting a test sign-in is a `POST` that returns JSON
+  `{location}`, and the page's script sends the browser there after
+  checking it is an https address. A form post to the provider would need
+  the Content Security Policy's `form-action` widened, so it is not used.
+- **Accepted risk.** Setup fetches the discovery document directly as
+  root, not through Squid, because it runs before Squid's allow list is
+  written. The issuer rule above limits what it can reach; moving the
+  fetch behind Squid is left to #1464.
+
 ## Consequences
 
 - **Amends ADR 0031.** Its consequence "Setting up SSO in the admin area
