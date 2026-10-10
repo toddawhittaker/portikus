@@ -2948,7 +2948,9 @@ describe("the Docker seed", () => {
 		serveIncus(state);
 		await own.start("ws-test", START);
 		const written = state.files.get("/etc/claude-code/managed-settings.json")?.content;
-		expect(JSON.parse(written ?? "")).toEqual({ env: { BROWSER: "" } });
+		expect(JSON.parse(written ?? "")).toEqual({
+			env: { BROWSER: "", DISABLE_AUTOUPDATER: "1" },
+		});
 
 		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
 		await expect(own.start("ws-test", START)).resolves.toBeDefined();
@@ -2957,6 +2959,57 @@ describe("the Docker seed", () => {
 				String(l.msg).includes("could not write Claude Code's managed settings"),
 			),
 		).toBe(true);
+	});
+
+	test("start links the shared coding agents, and a refusal does not stop it", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const hostBin = fs.mkdtempSync(path.join(os.tmpdir(), "coding-agents-"));
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			codingAgentsBinPath: hostBin,
+			logger,
+		});
+		serveIncus(state);
+		state.files.set("/usr/local/bin/claude", { type: "file", content: "npm shim" });
+		await own.start("ws-test", START);
+		expect(state.files.get("/usr/local/bin/claude")).toEqual({
+			type: "symlink",
+			content: "/opt/portikus/coding-agents/bin/claude",
+		});
+		expect(state.files.get("/usr/local/bin/codex")?.content).toBe(
+			"/opt/portikus/coding-agents/bin/codex",
+		);
+
+		state.status = "Stopped";
+		state.files.set("/usr/local/bin", { type: "file", content: "student" });
+		await expect(own.start("ws-test", START)).resolves.toBeDefined();
+		expect(
+			lines.some((l) =>
+				String(l.msg).includes("could not link the shared coding agents"),
+			),
+		).toBe(true);
+	});
+
+	test("start without the shared coding-agents folder writes no links", async () => {
+		const state = fakeIncus();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			codingAgentsBinPath: path.join(os.tmpdir(), "no-such-coding-agents-e40"),
+		});
+		serveIncus(state);
+		await own.start("ws-test", START);
+		expect(state.files.has("/usr/local/bin/claude")).toBe(false);
 	});
 
 	test("start writes the registry settings before the instance starts", async () => {

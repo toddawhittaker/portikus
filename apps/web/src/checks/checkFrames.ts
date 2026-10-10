@@ -9,7 +9,7 @@ import { unparsedFrame } from "../frameFallback.js";
 
 export type CheckFrame =
 	| { kind: "output"; bytes: Uint8Array }
-	| { kind: "exit"; exitCode: number }
+	| { kind: "exit"; exitCode: number; stopped: boolean }
 	| { kind: "error"; code: string }
 	| { kind: "ignored" };
 
@@ -40,7 +40,11 @@ export function decodeCheckFrame(data: unknown): CheckFrame {
 		case "output":
 			return { kind: "output", bytes: decodeBase64(frame.data) };
 		case "exit":
-			return { kind: "exit", exitCode: frame.exitCode };
+			return {
+				kind: "exit",
+				exitCode: frame.exitCode,
+				stopped: frame.stopped === true,
+			};
 		case "error":
 			return { kind: "error", code: frame.code };
 	}

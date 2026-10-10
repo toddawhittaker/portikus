@@ -33,6 +33,10 @@ import { z } from "zod";
  *     job rewrite it whenever they move an alias.
  *   - `<version>/manifest.json` (`ImageManifest`): what is in the image.
  *   - `<version>/health.json` (`ImageHealth`): the job's health check.
+ *   - `coding-agents.json` (`CodingAgentsFile`): the Claude Code and Codex
+ *     versions in the shared folder `/var/lib/portikus/coding-agents/`
+ *     (current, previous, and every kept one). The job rewrites it after
+ *     `agents-update`, `agents-rollback` and setup's seed.
  *   - `<version>/size.json` (`ImageSizeFile`): the image's size in Incus,
  *     rewritten after every job that finishes.
  *   - The image files themselves, which the API ignores.
@@ -67,8 +71,33 @@ export const ImageJobKind = z.enum([
 	"activate",
 	"rollback",
 	"delete",
+	"agents-update",
+	"agents-rollback",
 ]);
 export type ImageJobKind = z.infer<typeof ImageJobKind>;
+
+export const CodingAgentTool = z.enum(["claude", "codex"]);
+export type CodingAgentTool = z.infer<typeof CodingAgentTool>;
+
+/** A Claude Code or Codex version in the shared folder; the job enforces the same pattern. */
+export const CODING_AGENT_VERSION_PATTERN = /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$/;
+export const CodingAgentVersion = z.string().regex(CODING_AGENT_VERSION_PATTERN);
+export type CodingAgentVersion = z.infer<typeof CodingAgentVersion>;
+
+const CodingAgentState = z.object({
+	current: CodingAgentVersion.nullable(),
+	previous: CodingAgentVersion.nullable(),
+	/** Every version on disk, including current and previous. */
+	kept: z.array(CodingAgentVersion),
+});
+
+/** `images/coding-agents.json`. */
+export const CodingAgentsFile = z.object({
+	claude: CodingAgentState,
+	codex: CodingAgentState,
+	updatedAt: z.string().datetime(),
+});
+export type CodingAgentsFile = z.infer<typeof CodingAgentsFile>;
 
 /** The body of `POST /admin/image/jobs`: nothing beyond the fixed kinds and choices. */
 export const ImageJobRequest = z.discriminatedUnion("kind", [
@@ -83,6 +112,8 @@ export const ImageJobRequest = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("activate"), version: ImageVersion }).strict(),
 	z.object({ kind: z.literal("rollback") }).strict(),
 	z.object({ kind: z.literal("delete"), version: ImageVersion }).strict(),
+	z.object({ kind: z.literal("agents-update") }).strict(),
+	z.object({ kind: z.literal("agents-rollback"), tool: CodingAgentTool }).strict(),
 ]);
 export type ImageJobRequest = z.infer<typeof ImageJobRequest>;
 
@@ -148,17 +179,6 @@ export type ImageAliasesFile = z.infer<typeof ImageAliasesFile>;
 export const ImageSizeFile = z.object({ bytes: z.number().int().nonnegative() });
 export type ImageSizeFile = z.infer<typeof ImageSizeFile>;
 
-/** The tools the manifest names by version; null when the tool is missing. */
-export const IMAGE_TOOLS = [
-	"node",
-	"npm",
-	"python3",
-	"git",
-	"docker",
-	"claude",
-	"codex",
-] as const;
-
 const ToolVersion = z.string().max(200).nullable();
 
 /** `images/<version>/manifest.json`. */
@@ -182,8 +202,9 @@ export const ImageManifest = z.object({
 		python3: ToolVersion,
 		git: ToolVersion,
 		docker: ToolVersion,
-		claude: ToolVersion,
-		codex: ToolVersion,
+		// Only older manifests carry these; the agents now live in the shared folder (SPEC.md section 10).
+		claude: ToolVersion.optional(),
+		codex: ToolVersion.optional(),
 	}),
 	/** `dpkg-query -W -f '${binary:Package}\t${Version}\n'`, as package to version. */
 	packages: z.record(z.string().min(1).max(200), z.string().max(200)),
@@ -299,6 +320,8 @@ export const AdminImage = z.object({
 	job: ImageJobView.nullable(),
 	/** A published image newer than every image on the server. */
 	newerPublished: ImageVersion.nullable(),
+	/** The shared Claude Code and Codex versions; null when the job has not written the file. */
+	codingAgents: CodingAgentsFile.nullable(),
 	/** Free and total bytes of the disk holding the images, null when it cannot be read. */
 	disk: z
 		.object({

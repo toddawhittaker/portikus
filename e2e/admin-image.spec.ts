@@ -5,6 +5,7 @@ import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
 import {
 	IMAGE_JOBS_DIR,
 	IMAGES_DIR,
+	putCodingAgents,
 	putImage,
 	resetImageStore,
 	setAliases,
@@ -486,4 +487,197 @@ test("a newer published image shows a notice and notifies the administrator once
 		timeout: 15_000,
 	});
 	await expect(notice).toHaveCount(0);
+});
+
+/*
+ * Coding agents: Claude Code and Codex in the shared folder, updated and
+ * rolled back without a new image (docs/SPEC.md sections 21.7 and 22.4).
+ */
+
+function agentsCard(page: Page) {
+	return page.getByTestId("image-agents");
+}
+
+function agentsConfirm(page: Page) {
+	return page.getByTestId("image-agents-confirm");
+}
+
+test("update coding agents: confirm, progress with every action off, then the new versions and why one stayed", async ({
+	page,
+}) => {
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: "2.1.4" },
+		codex: { current: "0.46.0", previous: "0.45.0" },
+	});
+	await open(page);
+	const card = agentsCard(page);
+	await expect(card.getByTestId("image-agents-current-claude")).toHaveText("2.1.5");
+	await expect(card.getByTestId("image-agents-previous-codex")).toHaveText("0.45.0");
+
+	await card.getByRole("button", { name: "Update coding agents" }).click();
+	await expect(agentsConfirm(page)).toContainText(
+		"Students get the new version the next time they start it. Open sessions keep the version they started with.",
+	);
+	await agentsConfirm(page).getByRole("button", { name: "Update" }).click();
+	const { id, request } = await takeRequest();
+	expect(request).toEqual({ kind: "agents-update" });
+	await writeStatus(id, "agents-update", "running", "Downloading Codex", null);
+	await writeLog(id, ["Claude Code: the vendor offered 2.1.3, older than 2.1.5"]);
+
+	const job = page.getByTestId("image-job");
+	await expect(job.getByTestId("image-job-kind")).toHaveText("Update coding agents");
+	await expect(job.getByTestId("image-job-state")).toContainText("Downloading Codex");
+	// Like the image actions, nothing can be asked for while the job runs.
+	for (const name of [
+		"Update coding agents",
+		"Roll back Claude Code",
+		"Roll back Codex",
+		"Rebuild with latest packages",
+	]) {
+		const button = page.getByRole("button", { name, exact: true });
+		await expect(button).toHaveAttribute("aria-disabled", "true");
+		await expect(button).toHaveAccessibleDescription(
+			"An image job is waiting or running. Wait until it finishes.",
+		);
+	}
+	await page
+		.getByRole("button", { name: "Update coding agents" })
+		.click({ force: true });
+	await expect(agentsConfirm(page)).toHaveCount(0);
+
+	const message =
+		"Claude Code was left at 2.1.5: the vendor offered 2.1.3, which is older. Codex switched to 0.47.0.";
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: "2.1.4" },
+		codex: { current: "0.47.0", previous: "0.46.0" },
+	});
+	await writeStatus(id, "agents-update", "succeeded", "Done", null, message);
+	await expect(job.getByTestId("image-job-message")).toHaveText(message, {
+		timeout: 5_000,
+	});
+	await expect(job.getByTestId("image-job-state")).toContainText(message);
+	await expect(card.getByTestId("image-agents-current-codex")).toHaveText("0.47.0");
+	await expect(card.getByTestId("image-agents-previous-codex")).toHaveText("0.46.0");
+	await expect(
+		page.getByRole("button", { name: "Update coding agents" }),
+	).not.toHaveAttribute("aria-disabled");
+});
+
+test("an update where one tool failed its check shows the job failed and what switched", async ({
+	page,
+}) => {
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: "2.1.4" },
+		codex: { current: "0.47.0", previous: "0.46.0" },
+	});
+	const id = crypto.randomUUID();
+	await mkdir(join(IMAGE_JOBS_DIR, id), { recursive: true });
+	const message =
+		"Claude Code switched to 2.1.5. Codex 0.48.0 failed its health check (codex --version) and was not switched.";
+	await writeStatus(
+		id,
+		"agents-update",
+		"failed",
+		"Checking the coding agents",
+		null,
+		message,
+	);
+	await open(page);
+	const job = page.getByTestId("image-job");
+	await expect(job.getByTestId("image-job-state")).toContainText("Failed");
+	await expect(job.getByTestId("image-job-message")).toHaveText(message);
+});
+
+test("roll back sends only the chosen tool, and the page shows the swap", async ({
+	page,
+}) => {
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: "2.1.4" },
+		codex: { current: "0.47.0", previous: "0.46.0" },
+	});
+	await open(page);
+	await page.getByRole("button", { name: "Roll back Codex" }).click();
+	await expect(agentsConfirm(page)).toContainText("Roll back Codex to 0.46.0?");
+	await agentsConfirm(page).getByRole("button", { name: "Roll back" }).click();
+	const { id, request } = await takeRequest();
+	expect(request).toEqual({ kind: "agents-rollback", tool: "codex" });
+	// The confirmed button stays, so focus goes back to it.
+	await expect(page.getByRole("button", { name: "Roll back Codex" })).toBeFocused();
+
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: "2.1.4" },
+		codex: { current: "0.46.0", previous: "0.47.0" },
+	});
+	await writeStatus(
+		id,
+		"agents-rollback",
+		"succeeded",
+		"Done",
+		null,
+		"Codex rolled back to 0.46.0.",
+	);
+	const card = agentsCard(page);
+	await expect(card.getByTestId("image-agents-current-codex")).toHaveText("0.46.0", {
+		timeout: 5_000,
+	});
+	await expect(card.getByTestId("image-agents-previous-codex")).toHaveText("0.47.0");
+	await expect(card.getByTestId("image-agents-current-claude")).toHaveText("2.1.5");
+	await expect(page.getByTestId("image-job-kind")).toHaveText("Roll back Codex");
+});
+
+test("roll back is off for a tool with no previous version, in the page and the API", async ({
+	page,
+}) => {
+	await putCodingAgents({
+		claude: { current: "2.1.5", previous: null },
+		codex: { current: "0.47.0", previous: "0.46.0" },
+	});
+	await open(page);
+	const button = page.getByRole("button", { name: "Roll back Claude Code" });
+	await expect(button).toHaveAttribute("aria-disabled", "true");
+	await expect(button).toHaveAccessibleDescription("No previous version.");
+	await expect(agentsCard(page).getByTestId("image-agents-previous-claude")).toHaveText(
+		"None",
+	);
+	await button.click({ force: true });
+	await expect(agentsConfirm(page)).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Roll back Codex" }),
+	).not.toHaveAttribute("aria-disabled");
+	const res = await page.request.post("/admin/image/jobs", {
+		headers: { origin: WEB_ORIGIN },
+		data: { kind: "agents-rollback", tool: "claude" },
+	});
+	expect(res.status()).toBe(409);
+	expect((await res.json()).code).toBe("CODING_AGENT_NO_PREVIOUS");
+	expect(await requestFiles()).toEqual([]);
+});
+
+test("before setup writes the shared folder, Coding agents says how to set it up", async ({
+	page,
+}) => {
+	await open(page);
+	const card = agentsCard(page);
+	await expect(card.getByTestId("image-agents-none")).toContainText(
+		"sudo portikus setup",
+	);
+	await expect(card.getByRole("button")).toHaveCount(0);
+});
+
+test("comparing an older image with one that has no claude or codex leaves the agents out", async ({
+	page,
+}) => {
+	await putImage({
+		version: NEWEST,
+		fingerprint: fingerprint(),
+		health: "passed",
+		sharedAgents: true,
+		nodeVersion: "v24.9.0",
+	});
+	await open(page);
+	await page.getByRole("button", { name: `Show changes in ${NEWEST}` }).click();
+	const diff = page.getByTestId("image-diff-dialog").getByTestId("image-diff");
+	await expect(diff.getByTestId("image-diff-tools")).toContainText("Changed node");
+	await expect(diff).not.toContainText("claude");
+	await expect(diff).not.toContainText("codex");
 });

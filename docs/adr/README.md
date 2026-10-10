@@ -83,3 +83,4 @@ has four sections:
 | [0053](0053-signin-counters-in-postgresql.md) | Sign-in counters live in PostgreSQL, and a recovery code or passkey gets past the account lockout (accepted, Epic 36) |
 | [0054](0054-offline-breached-password-list.md) | Breached passwords are checked against an offline list from SecLists (accepted, Epic 36) |
 | [0055](0055-voice-input-web-speech.md) | Voice input uses the browser's Web Speech API, hold to talk only (accepted, Epic 39) |
+| [0056](0056-shared-coding-agents.md) | Claude Code and Codex live in a shared read-only folder, updated by the root image job (accepted, Epic 40) |

@@ -25,6 +25,22 @@ if [ -n "${WS_NAME:-}" ]; then
   check "agent tree is not writable by student" \
     ws_student "! test -w /opt/portikus/workspace-agent/bin/workspace-agent"
 
+  # The shared Claude Code and Codex folder (SPEC.md section 10) is
+  # read-only for everyone in the workspace, container root included, and
+  # nothing in it on the server is writable by others or setuid.
+  check "student cannot write the coding-agents folder" \
+    ws_student "! touch /opt/portikus/coding-agents/.smoke 2>/dev/null"
+  check "container root cannot write the coding-agents folder" \
+    ws_exec "! touch /opt/portikus/coding-agents/.smoke 2>/dev/null"
+  check "container root cannot remount the coding-agents folder read-write" \
+    ws_exec "! mount -o remount,rw /opt/portikus/coding-agents 2>/dev/null && findmnt -n -o OPTIONS /opt/portikus/coding-agents | grep -q '^ro,'"
+  check "the server's coding-agents folder exists" \
+    ssh_cmd "test -d /var/lib/portikus/coding-agents/bin"
+  check_zero_lines "nothing in the server's coding-agents folder is group- or world-writable" \
+    ssh_cmd "sudo find /var/lib/portikus/coding-agents ! -type l -perm /022 || echo find-failed"
+  check_zero_lines "nothing in the server's coding-agents folder is setuid or setgid" \
+    ssh_cmd "sudo find /var/lib/portikus/coding-agents -perm /6000 || echo find-failed"
+
   # The API dials the agent over the workspace bridge, so probe the same way.
   ws_ip=$(workspace_ip "${WS_NAME}")
   if [ -n "$ws_ip" ]; then

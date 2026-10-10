@@ -1,1 +1,1 @@
-{ "env": { "BROWSER": "" } }
+{ "env": { "BROWSER": "", "DISABLE_AUTOUPDATER": "1" } }

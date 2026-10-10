@@ -22,6 +22,8 @@ Usage:
                             image and any newer portikus package (the daily timer)
   image-job local-build     build the shipped recipe and make it the default
                             (make build-workspace-image on a development VM)
+  image-job agents-seed     setup: install the pinned Claude Code and Codex into
+                            the shared folder for any tool with no current version
   image-job manifest ...    print a schema 1 manifest for a built rootfs
                             (also used by .github/workflows/workspace-image.yml)
 """
@@ -39,9 +41,16 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
+
+# Its sibling module, found the same way when tests or the workflow load this file by path.
+# No __pycache__ beside a packaged, root-run script.
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import coding_agents  # noqa: E402
 
 JOBS_DIR = "/var/lib/portikus/image-jobs"
 IMAGES_DIR = "/var/lib/portikus/images"
@@ -74,7 +83,8 @@ DEB_VERSION_RE = re.compile(r"[0-9][A-Za-z0-9.+~:-]{0,99}", re.ASCII)
 
 NODE_CHOICES = ("24", "26")
 PYTHON_CHOICES = ("debian", "uv-3.14")
-TOOLS = ("node", "npm", "python3", "git", "docker", "claude", "codex")
+# Not claude or codex: they live in the shared coding-agents folder, which the build never mounts.
+TOOLS = ("node", "npm", "python3", "git", "docker")
 MAX_REQUEST_BYTES = 64 * 1024
 KEEP_JOBS = 20
 
@@ -85,6 +95,8 @@ REQUEST_KEYS = {
     "activate": ({"kind", "version"}, set()),
     "rollback": ({"kind"}, set()),
     "delete": ({"kind", "version"}, set()),
+    "agents-update": ({"kind"}, set()),
+    "agents-rollback": ({"kind", "tool"}, set()),
 }
 
 
@@ -162,6 +174,9 @@ def validate_request(raw, file_id):
             raise Refused("unknown Node choice", kind)
         if not isinstance(request["python"], str) or request["python"] not in PYTHON_CHOICES:
             raise Refused("unknown Python choice", kind)
+    if kind == "agents-rollback":
+        if not isinstance(request["tool"], str) or request["tool"] not in coding_agents.TOOLS:
+            raise Refused("unknown coding agent", kind)
     return doc
 # jscpd:ignore-end
 
@@ -475,9 +490,10 @@ def health_check(job, version, parameters, sleep=time.sleep):
                         log=job, capture=False, timeout=600)
         if code != 0:
             checks.append({"name": "start a container", "ok": False, "output": f"incus launch exited {code}"})
+        elif not wait_for_boot(job, name, sleep):
+            checks.append({"name": "boot the container", "ok": False,
+                           "output": f"not booted within {BOOT_DEADLINE // 60} minutes"})
         else:
-            # Degraded is fine here; the checks below say what matters.
-            incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job, timeout=300)
             for check_name, argv, accept in health_checks(parameters):
                 attempts = 18 if argv[0] == "docker" else 1
                 for attempt in range(attempts):
@@ -496,6 +512,78 @@ def health_check(job, version, parameters, sleep=time.sleep):
         "checkedAt": now_iso(),
         "checks": checks,
     }
+
+
+# The workspace's student and where every workspace mounts the shared coding-agents folder.
+STUDENT_UID = "1000"
+STUDENT_HOME = "/home/student"
+AGENTS_MOUNT = "/opt/portikus/coding-agents"
+
+
+def agent_checks(tool, version):
+    """Checks that run a candidate by its path in the workspace mount, never the image's own copy."""
+    folder = f"{AGENTS_MOUNT}/{tool}/{version}"
+    entry = f"{folder}/{coding_agents.ENTRY[tool]}"
+    if tool == "claude":
+        return [
+            ("claude --version", [entry, "--version"], lambda out: out.startswith(f"{version} ")),
+            # The candidate's folder leads PATH, so the login check runs it.
+            ("claude login flow", ["env", f"PATH={os.path.dirname(entry)}:/usr/local/bin:/usr/bin:/bin", "sh",
+                                   "-c", CLAUDE_LOGIN_CHECK], lambda out: out == "paste-code"),
+        ]
+    return [("codex --version", [entry, "--version"], lambda out: out == f"codex-cli {version}")]
+
+
+BOOT_DEADLINE = 300
+
+
+def wait_for_boot(job, name, sleep):
+    """Wait until systemd in the container answers; False if it does not within BOOT_DEADLINE seconds.
+
+    Asked too early, systemctl cannot reach systemd and returns at once; a check
+    run then loses its files when boot mounts a fresh /tmp.
+    """
+    deadline = time.monotonic() + BOOT_DEADLINE
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        _, out = incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job,
+                       timeout=max(1, int(remaining)))
+        # Degraded is fine here; the checks say what matters.
+        if out.strip():
+            return True
+        sleep(2)
+
+
+def agents_health_check(job, candidates, sleep=time.sleep):
+    """Run each candidate {tool: version} as the student in one container from the default image.
+
+    Returns {tool: [names of failed checks]}; an empty list passed.
+    """
+    remove_leftover_checks(job)
+    name = f"imgcheck-{secrets.token_hex(4)}"
+    failed = {tool: [] for tool in candidates}
+    try:
+        code, _ = incus("launch", ALIAS_DEFAULT, name, "--profile", PROFILE, log=job, capture=False, timeout=600)
+        if code != 0:
+            return {tool: ["start a container"] for tool in candidates}
+        if not wait_for_boot(job, name, sleep):
+            job.line(f"The container did not finish booting within {BOOT_DEADLINE // 60} minutes.")
+            return {tool: ["boot the container"] for tool in candidates}
+        for tool, version in candidates.items():
+            for check_name, argv, accept in agent_checks(tool, version):
+                code, out = incus("exec", name, "--user", STUDENT_UID, "--group", STUDENT_UID,
+                                  "--cwd", STUDENT_HOME, "--env", f"HOME={STUDENT_HOME}", "--", *argv,
+                                  log=job, timeout=120)
+                output = first_line(out) or f"exited {code}"
+                ok = code == 0 and accept(output)
+                job.line(f"{check_name} {version}: {'ok' if ok else 'FAILED'}: {output}")
+                if not ok:
+                    failed[tool].append(check_name)
+    finally:
+        incus("delete", "--force", name, log=job)
+    return failed
 
 
 # ---- Manifest ----
@@ -580,12 +668,16 @@ def check_manifest(manifest, version, source):
 
 class Runner:
     def __init__(self, jobs_dir=JOBS_DIR, images_dir=IMAGES_DIR, recipe_dir=RECIPE_DIR,
-                 keyring=KEYRING, sleep=time.sleep):
+                 keyring=KEYRING, sleep=time.sleep, agents_dir=coding_agents.STORE,
+                 agents_keyring=coding_agents.KEYRING, proc_dir="/proc"):
         self.jobs_dir = jobs_dir
         self.images_dir = images_dir
         self.recipe_dir = recipe_dir
         self.keyring = keyring
         self.sleep = sleep
+        self.agents_dir = agents_dir
+        self.agents_keyring = agents_keyring
+        self.proc_dir = proc_dir
 
     # -- shared steps --
 
@@ -860,6 +952,208 @@ class Runner:
         write_aliases(self.images_dir, alias_map())
         return f"Deleted image {version}."
 
+    # -- coding agents: the shared Claude Code and Codex folder --
+
+    def download_capped(self, job, url, path, max_bytes):
+        self.download(job, url, path, max_bytes=max_bytes)
+        if os.path.getsize(path) > max_bytes:
+            raise coding_agents.AgentError(f"The download is larger than the job accepts: {url}")
+
+    def fetch_text(self, job, url, work, name, max_bytes):
+        path = os.path.join(work, name)
+        self.download_capped(job, url, path, max_bytes)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    def verified_claude_sha(self, job, work, version):
+        """The binary's SHA-256 from a manifest signed by the pinned Claude Code key."""
+        base = f"{coding_agents.CLAUDE_BASE}/{version}"
+        manifest, signature = os.path.join(work, "manifest.json"), os.path.join(work, "manifest.json.sig")
+        self.download_capped(job, f"{base}/manifest.json", manifest, coding_agents.SMALL_MAX_BYTES)
+        self.download_capped(job, f"{base}/manifest.json.sig", signature, coding_agents.SMALL_MAX_BYTES)
+        code, out = run(["gpgv", "--status-fd", "1", "--keyring", self.agents_keyring, signature, manifest],
+                        log=job, capture=True)
+        if code != 0 or not coding_agents.check_signature(out):
+            raise coding_agents.AgentError("The Claude Code manifest's signature does not verify.")
+        with open(manifest, encoding="utf-8", errors="replace") as f:
+            return coding_agents.claude_binary_sha(f.read(), version)
+
+    def verified_codex_sha(self, job, work, version, digest):
+        """GitHub's digest for the package, when the release's own checksum file agrees."""
+        sums = self.fetch_text(job, f"{coding_agents.CODEX_DOWNLOAD}/rust-v{version}/{coding_agents.CODEX_SUMS}",
+                               work, "codex-sums", coding_agents.SMALL_MAX_BYTES)
+        if coding_agents.codex_sums_sha(sums) != digest:
+            raise coding_agents.AgentError("GitHub's digest for the Codex package does not match its checksum file.")
+        return digest
+
+    def stage_claude(self, job, work, version, sha):
+        """Download the binary into a private folder under work and check it; returns the folder."""
+        folder = os.path.join(work, f"claude-{version}")
+        os.mkdir(folder, 0o700)
+        binary = os.path.join(folder, "claude")
+        self.download_capped(job, f"{coding_agents.CLAUDE_BASE}/{version}/linux-x64/claude", binary,
+                             coding_agents.BINARY_MAX_BYTES)
+        if sha256(binary) != sha:
+            raise coding_agents.AgentError("The Claude Code binary's checksum does not match.")
+        os.chmod(binary, 0o755)
+        coding_agents.normalise(folder)
+        return folder
+
+    def stage_codex(self, job, work, version, sha):
+        """Download the package, check it and unpack it into a folder under work; returns the folder."""
+        archive = os.path.join(work, f"codex-{version}.tar.gz")
+        url = f"{coding_agents.CODEX_DOWNLOAD}/rust-v{version}/{coding_agents.CODEX_ASSET}"
+        self.download_capped(job, url, archive, coding_agents.BINARY_MAX_BYTES)
+        if sha256(archive) != sha:
+            raise coding_agents.AgentError("The Codex package's checksum does not match.")
+        folder = os.path.join(work, f"codex-{version}")
+        os.mkdir(folder, 0o700)
+        coding_agents.unpack(archive, folder)
+        os.unlink(archive)
+        if not os.path.isfile(os.path.join(folder, "bin", "codex")):
+            raise coding_agents.AgentError("The Codex package has no bin/codex.")
+        return folder
+
+    def agent_candidate(self, job, work, tool):
+        """(offered version, outcome): "current" when that version is current already, "older" when
+        it sorts below current, "kept" when a kept folder has it, and "new" when this job verified
+        and placed it."""
+        store = self.agents_dir
+        if tool == "claude":
+            version = coding_agents.claude_stable_version(self.fetch_text(
+                job, f"{coding_agents.CLAUDE_BASE}/stable", work, "claude-stable", coding_agents.SMALL_MAX_BYTES))
+        else:
+            version, digest = coding_agents.codex_release(self.fetch_text(
+                job, coding_agents.CODEX_LATEST, work, "codex-release", coding_agents.LISTING_MAX_BYTES))
+        current = coding_agents.read_link(store, tool, "current")
+        if version == current:
+            return version, "current"
+        # The stable pointer is unsigned, so an older signed release must never count as an update.
+        if current and coding_agents.version_key(version) < coding_agents.version_key(current):
+            return version, "older"
+        target = os.path.join(coding_agents.tool_dir(store, tool), version)
+        if os.path.isdir(target):
+            return version, "kept"
+        if tool == "claude":
+            folder = self.stage_claude(job, work, version, self.verified_claude_sha(job, work, version))
+        else:
+            folder = self.stage_codex(job, work, version, self.verified_codex_sha(job, work, version, digest))
+        # In place but not linked, so the health check can run it from the workspace mount.
+        os.rename(folder, target)
+        return version, "new"
+
+    def write_agents_state(self):
+        os.makedirs(self.images_dir, 0o755, exist_ok=True)
+        write_json(os.path.join(self.images_dir, "coding-agents.json"),
+                   {**coding_agents.state(self.agents_dir), "updatedAt": now_iso()})
+
+    def agents_update(self, job, request):
+        """Download, verify and health-check both tools, then switch each that passed on its own."""
+        if ALIAS_DEFAULT not in alias_map():
+            raise Refused("There is no default workspace image to check the coding agents in.", job.kind)
+        store = self.agents_dir
+        coding_agents.ensure_store(store)
+        if coding_agents.free_bytes(store) < coding_agents.MIN_FREE_BYTES:
+            raise Refused("Less than 2 GiB is free on the disk that holds the coding agents.", job.kind)
+        coding_agents.ensure_bin_links(store)
+        work = os.path.join(store, f".staging-{job.id}")
+        os.mkdir(work, 0o700)
+        said, failed, pending = {}, set(), {}
+        try:
+            for tool in coding_agents.TOOLS:
+                name = coding_agents.NAMES[tool]
+                job.status("running", f"Downloading {name}")
+                try:
+                    version, outcome = self.agent_candidate(job, work, tool)
+                except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
+                    job.line(f"{name}: {err}")
+                    said[tool] = f"{name} was not switched. {err}"
+                    failed.add(tool)
+                    continue
+                if outcome == "current":
+                    said[tool] = f"{name} is already at {version}."
+                elif outcome == "older":
+                    current = coding_agents.read_link(store, tool, "current")
+                    said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
+                    job.line(f"{name}: the vendor offered {version}, older than {current}")
+                else:
+                    pending[tool] = (version, outcome)
+            if pending:
+                job.status("running", "Checking the coding agents")
+                results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
+                for tool, (version, outcome) in pending.items():
+                    name = coding_agents.NAMES[tool]
+                    if results[tool]:
+                        said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
+                                      "and was not switched.")
+                        failed.add(tool)
+                        if outcome == "new":
+                            coding_agents.remove_version(store, tool, version)
+                        continue
+                    coding_agents.switch(store, tool, version)
+                    said[tool] = f"{name} switched to {version}."
+            job.status("running", "Removing old versions")
+            running = coding_agents.running_files(self.proc_dir)
+            for tool in coding_agents.TOOLS:
+                for version, was_in_use in coding_agents.prune(store, tool, running):
+                    note = " while a process still ran it" if was_in_use else ""
+                    job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+            self.write_agents_state()
+        message = " ".join(said[tool] for tool in coding_agents.TOOLS)
+        if failed:
+            raise JobFailed(message)
+        return message
+
+    def agents_rollback(self, job, request):
+        """Swap current and previous for one tool. No health check: the previous one ran before."""
+        tool = request["tool"]
+        job.status("running", "Rolling back")
+        try:
+            version = coding_agents.rollback(self.agents_dir, tool)
+        except coding_agents.AgentError as err:
+            raise Refused(str(err), job.kind)
+        self.write_agents_state()
+        return f"{coding_agents.NAMES[tool]} rolled back to {version}."
+
+    def run_agents_seed(self, lock_path=LOCK_FILE):
+        """Setup: install the pinned version of each tool that has no current one.
+
+        Prints "changed" or "unchanged" for Ansible. A tool with a current
+        version is left to the admin page, so setup never moves it.
+        """
+        with self.job_lock(lock_path):
+            store = self.agents_dir
+            coding_agents.ensure_store(store)
+            changed = coding_agents.ensure_bin_links(store)
+            missing = [t for t in coding_agents.TOOLS if coding_agents.read_link(store, t, "current") is None]
+            if missing and coding_agents.free_bytes(store) < coding_agents.MIN_FREE_BYTES:
+                journal("agents-seed: less than 2 GiB is free on the disk that holds the coding agents")
+                return 1
+            work = os.path.join(store, f".staging-seed-{secrets.token_hex(4)}")
+            os.mkdir(work, 0o700)
+            try:
+                for tool in missing:
+                    version, sha = coding_agents.SEED[tool]
+                    stage = self.stage_claude if tool == "claude" else self.stage_codex
+                    folder = stage(None, work, version, sha)
+                    # A folder no link names is replaced, not trusted.
+                    coding_agents.remove_version(store, tool, version)
+                    os.rename(folder, os.path.join(coding_agents.tool_dir(store, tool), version))
+                    coding_agents.switch(store, tool, version)
+                    journal(f"agents-seed: installed {coding_agents.NAMES[tool]} {version}")
+                    changed = True
+            except (coding_agents.AgentError, JobFailed) as err:
+                journal(f"agents-seed: {err}")
+                return 1
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+                if changed or not os.path.exists(os.path.join(self.images_dir, "coding-agents.json")):
+                    self.write_agents_state()
+            print("changed" if changed else "unchanged")
+            return 0
+
     # -- the queue --
 
     def pending(self, jobs_fd):
@@ -933,7 +1227,7 @@ class Runner:
         job.version = request.get("version")
         try:
             job.status("running", "Starting")
-            message = getattr(self, job.kind)(job, request)
+            message = getattr(self, job.kind.replace("-", "_"))(job, request)
             self.record_sizes()
             job.status("succeeded", "Done", message=message)
             journal(f"{job.kind} job {job.id} succeeded")
@@ -984,6 +1278,7 @@ class Runner:
         for name in os.listdir(self.images_dir):
             if name.startswith(".work-") or name.startswith(".manifest-"):
                 safe_rmtree(os.path.join(self.images_dir, name))
+        coding_agents.remove_staging(self.agents_dir)
     # jscpd:ignore-end
 
     # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
@@ -1073,18 +1368,24 @@ class Runner:
         return 0
 
     @contextlib.contextmanager
-    def locked_jobs_dir(self, lock_path):
-        """Wait for the job lock, then yield the jobs directory's fd and its group."""
+    def job_lock(self, lock_path):
+        """Wait for the job lock, so nothing here runs beside a job."""
         lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(lock_fd)
+
+    @contextlib.contextmanager
+    def locked_jobs_dir(self, lock_path):
+        """Wait for the job lock, then yield the jobs directory's fd and its group."""
+        with self.job_lock(lock_path):
             jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
                 yield jobs_fd, os.fstat(jobs_fd).st_gid
             finally:
                 os.close(jobs_fd)
-        finally:
-            os.close(lock_fd)
 
     def run_first_install(self, version, lock_path=LOCK_FILE):
         """Setup's first install: fetch version and activate it, as two jobs the admin page lists.
@@ -1163,6 +1464,8 @@ def main(argv):
         return Runner().run_check()
     if argv[1:] == ["local-build"]:
         return Runner().run_local_build()
+    if argv[1:] == ["agents-seed"]:
+        return Runner().run_agents_seed()
     if argv[1:] in ([], ["run"]):
         return Runner().run_pending()
     print(__doc__, file=sys.stderr)

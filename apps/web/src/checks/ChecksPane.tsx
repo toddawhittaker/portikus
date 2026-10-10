@@ -17,6 +17,7 @@ const BADGE: Record<
 	passed: { state: "running", label: "Passed" },
 	failed: { state: "error", label: "Failed" },
 	error: { state: "error", label: "Could not run" },
+	stopped: { state: "stopped", label: "Stopped" },
 };
 
 /**

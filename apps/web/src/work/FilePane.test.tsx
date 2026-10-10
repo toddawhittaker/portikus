@@ -72,12 +72,16 @@ test("the pane has one header: the name as drag handle, the view's controls, the
 	expect(actions.getAttribute("aria-label")).toBe("Actions for app.ts");
 });
 
-/** The drag handle is not a focus stop; the keyboard moves the pane through the menu. */
-test("the drag handle takes no tab stop", () => {
+/** SPEC.md §9.3: the whole bar is the drag handle, but no focus stop; the keyboard moves the pane through the menu. */
+test("the whole title bar is the drag handle and takes no tab stop", () => {
 	renderPane();
-	const handle = screen.getByTestId("file-frame-handle-src/app.ts");
-	expect(handle.hasAttribute("tabindex")).toBe(false);
-	expect(handle.tagName).toBe("SPAN");
+	const pane = screen.getByRole("region", { name: "File: src/app.ts" });
+	const header = pane.querySelector("header");
+	expect(header?.classList.contains("pk-filepane-handle")).toBe(true);
+	expect(header?.hasAttribute("tabindex")).toBe(false);
+	expect(header?.hasAttribute("role")).toBe(false);
+	const name = screen.getByTestId("file-frame-handle-src/app.ts");
+	expect(name.hasAttribute("tabindex")).toBe(false);
 });
 
 /** SPEC.md §24.6: neither the name nor the pane's label draws a bidirectional mark. */
@@ -88,7 +92,8 @@ test("the name and the pane's label never draw a bidirectional mark", () => {
 });
 
 test("outside a file pane the header shows the name and folder and no menu", () => {
-	render(<FileHeader path="notes/todo.md" />);
+	const { container } = render(<FileHeader path="notes/todo.md" />);
+	expect(container.querySelector("header")?.className).toBe("pk-file-header");
 	expect(screen.getByText("todo.md").getAttribute("title")).toBe("notes/todo.md");
 	expect(screen.getByTestId("file-header-dir-notes/todo.md").textContent).toBe("notes");
 	expect(screen.queryByRole("button")).toBeNull();

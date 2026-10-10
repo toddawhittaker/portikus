@@ -42,6 +42,11 @@
     incus_network_name: portikus-ws
     incus_network_cidr: "10.200.0.1/24"
     incus_project_name: portikus
+    # Claude Code and Codex, kept by the image job and mounted read-only in
+    # every workspace (SPEC.md section 10).  The image job names it too.
+    # Not configurable: the image job and controller hard-code this path;
+    # only tests override it.
+    portikus_coding_agents_dir: /var/lib/portikus/coding-agents
     workspace_root_disk_quota: 10GB
     # Lower than SPEC 19.1's suggested 4 vCPU and 6 GiB so that several
     # workspaces fit on a small VM; the development VM has 8 GiB in all.

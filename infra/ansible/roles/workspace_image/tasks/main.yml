@@ -6,6 +6,40 @@
 # page owns the image, and setup never touches it again.
 # `make build-workspace-image` builds one with the image job for development.
 
+# Workspaces run Claude Code and Codex from the shared folder (SPEC.md
+# section 10), so each needs a version before any workspace starts.  The
+# job installs the pinned version of a tool that has none and leaves an
+# installed one alone.
+- name: Install any missing coding agent with the image job
+  ansible.builtin.command:
+    argv: ["{{ workspace_image_job }}", agents-seed]
+  register: workspace_image_agents_seed
+  changed_when: "'changed' in workspace_image_agents_seed.stdout_lines"
+  # The task below fails with a plain message instead.
+  failed_when: false
+
+- name: Look for each coding agent's current version
+  ansible.builtin.stat:
+    path: "{{ portikus_coding_agents_dir }}/{{ item }}/current"
+  loop: [claude, codex]
+  register: workspace_image_agents_current
+  check_mode: false
+
+- name: Refuse to go on without both coding agents
+  ansible.builtin.fail:
+    msg: >-
+      Setup could not install Claude Code and Codex for the workspaces.
+      {{ ('Missing: ' ~ (workspace_image_agents_missing | join(' and ')) ~ '.') if workspace_image_agents_missing else '' }}
+      The image job said:
+      {{ workspace_image_agents_seed.stderr | default('') | trim or 'nothing' }}.
+      Fix the cause and run setup again.
+  vars:
+    workspace_image_agents_missing: >-
+      {{ workspace_image_agents_current.results | rejectattr('stat.exists') | map(attribute='item') | list }}
+  when:
+    - not ansible_check_mode
+    - workspace_image_agents_seed.rc != 0 or workspace_image_agents_missing | length > 0
+
 - name: Read the image aliases
   ansible.builtin.command:
     argv: [incus, image, alias, list, --project, "{{ incus_project_name }}", --format, json]

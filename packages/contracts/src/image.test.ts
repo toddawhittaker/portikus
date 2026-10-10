@@ -131,6 +131,38 @@ describe("the files the root job writes", () => {
 		).toBe(false);
 	});
 
+	test("a newer manifest may leave out claude and codex, which live in the shared folder", () => {
+		const {
+			claude: _c,
+			codex: _x,
+			...tools
+		} = {
+			node: "v24.8.0",
+			npm: "11.6.0",
+			python3: "Python 3.13.5",
+			git: "git version 2.47.3",
+			docker: "Docker version 28.4.0",
+			claude: null,
+			codex: null,
+		};
+		const manifest = {
+			schema: 1,
+			version: "2026.10.2",
+			recipeVersion: "2026.10.2",
+			source: "local",
+			builtAt: "2026-10-10T10:00:00Z",
+			fingerprint: null,
+			parameters: { node: "24", python: "debian" },
+			tools,
+			packages: {},
+		};
+		expect(ImageManifest.safeParse(manifest).success).toBe(true);
+		for (const value of [null, "2.0.1 (Claude Code)"]) {
+			const both = { ...manifest, tools: { ...tools, claude: value, codex: value } };
+			expect(ImageManifest.safeParse(both).success).toBe(true);
+		}
+	});
+
 	test("a health result is passed or failed", () => {
 		const health = { result: "passed", checkedAt: "2026-09-28T10:00:00Z", checks: [] };
 		expect(ImageHealth.safeParse(health).success).toBe(true);

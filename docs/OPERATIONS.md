@@ -120,6 +120,19 @@ controller logs it at warn with "runs the old workspace agent", and it
 gets the new agent at its next start. A `make deploy-app` or
 `configure-vm` restarts the controller too, so the same applies there.
 
+**Claude Code and Codex are updated from the admin page, not by an image.**
+They live in `/var/lib/portikus/coding-agents` on the server, which setup
+creates and fills (ADR 0056, SPEC.md section 22.6). The Workspace image tab
+has **Update coding agents** and a **Roll back** button for each tool. The
+server needs outgoing access to `downloads.claude.ai`, `api.github.com`,
+`github.com` and `release-assets.githubusercontent.com`, where GitHub
+redirects release downloads (the job follows the redirect).
+Workspace images 2026.10.2 and later no longer contain the tools, so they
+need a Portikus package from Epic 40 or later: install the package first,
+then the image. Workspaces on older images run the shared tools after their
+next start. The folder is not backed up; setup or an update downloads it
+again.
+
 **Releases.** The signed apt repository (SPEC.md section 21.13) carries
 the ten newest versions of the current major.minor line and the newest
 version of each earlier line. A GitHub release carries the tag and the release

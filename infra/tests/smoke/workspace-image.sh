@@ -72,6 +72,23 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
   check "claude --version"                      ws_student "claude --version"
+  # Both come from the shared folder the profile mounts, not the image
+  # (SPEC.md section 10), whatever else is on the PATH.
+  # workspace.sh skips the controller, which is what links the tools into
+  # /usr/local/bin on images older than 2026.10.2 (SPEC.md section 10).
+  image_version=$(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null || true)
+  image_base=${image_version%%-*}
+  if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
+    && [[ $(printf '%s\n' "${image_base}" 2026.10.2 | sort -V | head -n 1) != 2026.10.2 ]]; then
+    for tool in claude codex; do
+      echo "SKIP  ${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
+    done
+  else
+    for tool in claude codex; do
+      check "${tool} resolves into the shared coding-agents folder" \
+        ws_student "case \$(readlink -f \$(command -v ${tool})) in /opt/portikus/coding-agents/${tool}/*) true ;; *) false ;; esac"
+    done
+  fi
   # Browser opens are brokered, and Codex does not look for updates on
   # startup (BROWSER-HANDLING.md 18 and 25.2). These do not log in.
   check "portikus-open is executable"           ws_exec "test -x /usr/local/bin/portikus-open"
@@ -185,7 +202,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "python3 --version"                     ws_student "python3 --version"
 
   # 17a. The image turns off the Claude Code self-updater, which cannot
-  # write the system-wide npm prefix (SPEC.md 10).
+  # write the read-only shared coding-agents folder (SPEC.md 10).
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 

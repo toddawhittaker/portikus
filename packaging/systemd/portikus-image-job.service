@@ -2,7 +2,8 @@
 # Started by portikus-image-job.path for each request the API writes, and
 # once at boot to mark a job the host lost as failed, so the admin page is
 # never left waiting on it. It fetches, builds, activates or rolls back the
-# workspace image.
+# workspace image, and updates or rolls back the shared coding agents
+# (Claude Code and Codex, SPEC.md section 10).
 [Unit]
 Description=Portikus workspace image job
 After=incus.service network-online.target

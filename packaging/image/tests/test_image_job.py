@@ -60,6 +60,7 @@ class FakeHost:
         self.distrobuilder_rc = 0
         self.chroot_rc = 0
         self.dev_link = False
+        self.booting = 0
         self.installed = "0.1.695"
         self.candidate = "0.1.695"
 
@@ -164,7 +165,12 @@ class FakeHost:
         if args[:1] == ["exec"]:
             cmd = args[args.index("--") + 1:]
             if cmd[0] == "systemctl":
+                if self.booting:
+                    self.booting -= 1
+                    return 1, ""
                 return 0, "running\n"
+            if self.booting:
+                raise AssertionError("a check ran before the container finished booting")
             default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n",
                        "docker": "29.8.0 overlay2 /var/lib/docker\n",
                        "sh": "paste-code\n"}.get(cmd[0], f"{cmd[0]} ok\n")
@@ -470,6 +476,14 @@ class FetchTest(Base):
         self.assertEqual(self.status()["state"], "failed")
         self.assertFalse(self.host.ran("import"))
 
+    def test_the_health_checks_wait_until_systemd_answers(self):
+        self.host.publish("2026.09.12")
+        self.host.booting = 3
+        self.request({"kind": "fetch", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "succeeded", self.log())
+        self.assertEqual(len([c for c in self.host.ran("exec") if "systemctl" in c]), 4)
+
     def test_a_failed_health_check_is_recorded_and_the_job_fails(self):
         self.host.publish("2026.09.12")
         self.host.exec_results["codex"] = (127, "")
@@ -558,9 +572,6 @@ class BuildTest(Base):
         self.assertRegex(status["version"], r"^2026\.09\.12-local\.[0-9]{12}$")
         env = self.host.env
         self.assertEqual((env["PORTIKUS_NODE_MAJOR"], env["PORTIKUS_PYTHON"]), ("26", "uv-3.14"))
-        # Unset, so the recipe's own pinned coding-agent versions apply.
-        self.assertNotIn("PORTIKUS_CLAUDE_VERSION", env)
-        self.assertNotIn("PORTIKUS_CODEX_VERSION", env)
         self.assertEqual(env["PORTIKUS_IMAGE_VERSION"], status["version"])
         build = self.host.ran("distrobuilder")[0]
         self.assertEqual(build[1:3], ["build-incus", str(self.recipe / "portikus.yaml")])
@@ -571,6 +582,8 @@ class BuildTest(Base):
         self.assertEqual(manifest["parameters"], {"node": "26", "python": "uv-3.14"})
         self.assertEqual(manifest["packages"], {"curl": "8.14.1-2", "libc6:amd64": "2.41-12"})
         self.assertEqual(manifest["tools"]["node"], "node version 9.9")
+        # The coding agents live in the shared folder, which the build never mounts.
+        self.assertEqual(set(manifest["tools"]), {"node", "npm", "python3", "git", "docker"})
         self.assertRegex(manifest["fingerprint"], r"^[0-9a-f]{64}$")
         health = json.loads((self.images / status["version"] / "health.json").read_text())
         self.assertIn("python3.14 --version", [c["name"] for c in health["checks"]])

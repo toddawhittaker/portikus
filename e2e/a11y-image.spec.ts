@@ -70,6 +70,12 @@ const IMAGE = {
 	job: JOB,
 	// The notice at the top is checked with the rest of the page.
 	newerPublished: "2026.09.11",
+	// Codex has no previous version, so the scans cover a Roll back that is off with its reason.
+	codingAgents: {
+		claude: { current: "2.1.5", previous: "2.1.4", kept: ["2.1.4", "2.1.5"] },
+		codex: { current: "0.47.0", previous: null, kept: ["0.47.0"] },
+		updatedAt: "2026-10-10T10:00:00.000Z",
+	},
 	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
 
@@ -103,6 +109,25 @@ const FAILED_JOB = {
 	state: "failed",
 	step: "Checking the signature",
 	message: "The image signature did not match the published key.",
+};
+
+const AGENTS_RUNNING_JOB = {
+	...JOB,
+	kind: "agents-update",
+	state: "running",
+	step: "Checking Claude Code",
+	version: null,
+	finishedAt: null,
+	request: { kind: "agents-update" },
+};
+
+const AGENTS_DONE_JOB = {
+	...AGENTS_RUNNING_JOB,
+	state: "succeeded",
+	step: "Done",
+	finishedAt: "2026-09-28T10:04:00.000Z",
+	message:
+		"Claude Code was left at 2.1.5: the vendor offered 2.1.3, which is older. Codex switched to 0.47.0.",
 };
 
 async function routeImage(page: Page, job: object) {
@@ -197,7 +222,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Escape");
 		await expect(diff).toHaveCount(0);
 
-		await page.getByRole("button", { name: "Roll back" }).click();
+		await page.getByRole("button", { name: "Roll back", exact: true }).click();
 		await expect(page.getByTestId("image-confirm")).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
@@ -212,6 +237,44 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
 		await expect(remove).toBeFocused();
+
+		for (const name of ["Update coding agents", "Roll back Claude Code"]) {
+			const opener = page.getByRole("button", { name });
+			await opener.click();
+			await expect(page.getByTestId("image-agents-confirm")).toBeVisible();
+			await expectNoViolations(page);
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("image-agents-confirm")).toHaveCount(0);
+			await expect(opener).toBeFocused();
+		}
+	});
+
+	test(`Coding agents, set up or not, has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await openTab(page, colorScheme);
+		const card = page.getByTestId("image-agents");
+		await expect(card.getByTestId("image-agents-current-claude")).toHaveText("2.1.5");
+		await expectNoViolations(page);
+		await card.screenshot({
+			path: `screenshots/coding-agents-wide-${colorScheme}.png`,
+		});
+		// A narrow window, to show how the table holds up.
+		await page.setViewportSize({ width: 480, height: 900 });
+		await expectNoViolations(page);
+		await card.screenshot({
+			path: `screenshots/coding-agents-narrow-${colorScheme}.png`,
+		});
+		await routeApi(page, "**/admin/image", (route) =>
+			route.fulfill({ json: { ...IMAGE, codingAgents: null } }),
+		);
+		await page.reload();
+		const none = page.getByTestId("image-agents-none");
+		await expect(none).toBeVisible({ timeout: 15_000 });
+		await expectNoViolations(page);
+		await page
+			.getByTestId("image-agents")
+			.screenshot({ path: `screenshots/coding-agents-none-${colorScheme}.png` });
 	});
 }
 
@@ -238,6 +301,51 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.goto("/admin/image");
 		// The status region carries the reason, so a screen reader hears why.
 		await expect(page.getByTestId("image-job-state")).toContainText(FAILED_JOB.message);
+		await expectNoViolations(page);
+	});
+
+	test(`a running coding agents update turns the section's buttons off and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, AGENTS_RUNNING_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/image");
+		await expect(page.getByTestId("image-job-state")).toContainText(
+			"Checking Claude Code",
+		);
+		const card = page.getByTestId("image-agents");
+		const note = card.locator("#image-agents-busy-note");
+		await expect(note).toHaveText(
+			"An image job is waiting or running. Wait until it finishes.",
+		);
+		for (const name of ["Update coding agents", "Roll back Claude Code"]) {
+			const button = card.getByRole("button", { name });
+			await expect(button).toHaveAttribute("aria-disabled", "true");
+			await expect(button).toHaveAttribute(
+				"aria-describedby",
+				"image-agents-busy-note",
+			);
+		}
+		await expectNoViolations(page);
+		await card.screenshot({
+			path: `screenshots/coding-agents-busy-${colorScheme}.png`,
+		});
+	});
+
+	test(`a finished coding agents update shows its result and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, AGENTS_DONE_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/image");
+		await expect(page.getByText("Result", { exact: true })).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId("image-job-message")).toHaveText(
+			AGENTS_DONE_JOB.message,
+		);
 		await expectNoViolations(page);
 	});
 

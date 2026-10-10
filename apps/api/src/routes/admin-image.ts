@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminImage,
 	type ApiError,
+	CodingAgentsFile,
 	IMAGE_JOB_STALE_MS,
 	IMAGE_LOG_LINES,
 	ImageAliasesFile,
@@ -235,6 +236,10 @@ export function registerAdminImageRoutes(
 				published?.image ?? null,
 				images.map((image) => image.version),
 			),
+			codingAgents: await readJson(
+				join(imagesDir, "coding-agents.json"),
+				CodingAgentsFile,
+			),
 			disk: await diskOf(imagesDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
@@ -331,6 +336,19 @@ export function registerAdminImageRoutes(
 				code: "IMAGE_NO_PREVIOUS",
 				message: "There is no previous image to roll back to.",
 			};
+		}
+		if (wanted.kind === "agents-rollback") {
+			const agents = await readJson(
+				join(imagesDir, "coding-agents.json"),
+				CodingAgentsFile,
+			);
+			if (!agents?.[wanted.tool].previous) {
+				return {
+					status: 409,
+					code: "CODING_AGENT_NO_PREVIOUS",
+					message: "There is no previous version of that tool to roll back to.",
+				};
+			}
 		}
 		return null;
 	}

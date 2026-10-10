@@ -1,6 +1,5 @@
 import type {
 	AdminImage,
-	ImageDiff,
 	ImageJobRequest,
 	ImageJobView,
 	ImageNodeChoice,
@@ -26,19 +25,17 @@ import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
+import { CodingAgentsSection } from "./CodingAgentsSection.js";
+import { CODING_AGENT_NAME } from "./codingAgents.js";
+import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
-import {
-	isActive,
-	useAdminImage,
-	useImageDiff,
-	useImageJob,
-	useRequestImageJob,
-} from "./queries.js";
+import { isActive, useAdminImage, useImageJob, useRequestImageJob } from "./queries.js";
+import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const INTRO = {
 	id: "admin-image",
 	helpAnchor: "admin-image",
-	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
+	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Claude Code and Codex are updated separately, under Coding agents. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
 };
 
 const NODE_LABEL: Record<ImageNodeChoice, string> = {
@@ -57,6 +54,8 @@ const KIND_LABEL: Record<NonNullable<ImageJobView["kind"]>, string> = {
 	activate: "Make default",
 	rollback: "Roll back",
 	delete: "Delete an image",
+	"agents-update": "Update coding agents",
+	"agents-rollback": "Roll back coding agent",
 };
 
 const STATE_LABEL: Record<ImageJobView["state"], string> = {
@@ -66,8 +65,6 @@ const STATE_LABEL: Record<ImageJobView["state"], string> = {
 	failed: "Failed",
 	refused: "Refused",
 };
-
-const BUSY_REASON = "An image job is waiting or running. Wait until it finishes.";
 
 /** The Workspace image tab of the admin page (docs/SPEC.md section 22.4; ADR 0030). */
 export function ImageTab() {
@@ -206,7 +203,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 			>
 				{busy ? (
 					<p id="image-busy-note" className="pk-muted m-0 text-[13px]">
-						{BUSY_REASON}
+						{IMAGE_BUSY_REASON}
 					</p>
 				) : null}
 				{!data.previous ? (
@@ -216,6 +213,13 @@ function ImageSections({ data }: { data: AdminImage }) {
 				) : null}
 				<CurrentList data={data} defaultImage={defaultImage} />
 			</Group>
+
+			<CodingAgentsSection
+				agents={data.codingAgents}
+				busy={busy}
+				pending={ask.isPending}
+				submit={submit}
+			/>
 
 			{data.job ? (
 				<JobGroup
@@ -401,6 +405,8 @@ function jobTitle(job: ImageJobView): string {
 	}
 	if (job.kind === "activate" && job.version) return `Make ${job.version} the default`;
 	if (job.kind === "delete" && job.version) return `Delete ${job.version}`;
+	if (request?.kind === "agents-rollback")
+		return `Roll back ${CODING_AGENT_NAME[request.tool]}`;
 	return job.kind ? KIND_LABEL[job.kind] : "Unknown request";
 }
 
@@ -442,15 +448,16 @@ function JobGroup({
 				<dd className="m-0">
 					<span role="status" data-testid="image-job-state">
 						<span className={tone}>{STATE_LABEL[shown.state]}</span> {shown.step}
-						{shown.message &&
-						(shown.state === "failed" || shown.state === "refused") ? (
+						{shown.message && !isActive(shown.state) ? (
 							<span className="sr-only">. {shown.message}</span>
 						) : null}
 					</span>
 				</dd>
 				{shown.message ? (
 					<>
-						<dt className="pk-muted">Reason</dt>
+						<dt className="pk-muted">
+							{shown.state === "succeeded" ? "Result" : "Reason"}
+						</dt>
 						<dd
 							className="m-0 [overflow-wrap:anywhere]"
 							data-testid="image-job-message"
@@ -499,50 +506,6 @@ function deleteOff(image: ImageView): string | null {
 	return null;
 }
 
-/**
- * A row action that is off for a reason of its own, shown under it, or off
- * while a job runs, pointing at the one busy note above the list.
- */
-function RowAction({
-	label,
-	ariaLabel,
-	testId,
-	primary,
-	reason,
-	busy,
-	onPress,
-}: {
-	label: string;
-	ariaLabel: string;
-	testId: string;
-	primary?: boolean;
-	reason: string | null;
-	busy: boolean;
-	onPress: () => void;
-}) {
-	const noteId = `${testId}-note`;
-	const off = reason !== null || busy;
-	return (
-		<span className="inline-flex flex-col items-start gap-1">
-			<Button
-				variant={primary ? "primary" : "secondary"}
-				data-testid={testId}
-				aria-label={ariaLabel}
-				aria-disabled={off ? true : undefined}
-				aria-describedby={reason ? noteId : busy ? "image-busy-note" : undefined}
-				onClick={() => (off ? undefined : onPress())}
-			>
-				{label}
-			</Button>
-			{reason ? (
-				<span id={noteId} className="pk-muted text-[12px]">
-					{reason}
-				</span>
-			) : null}
-		</span>
-	);
-}
-
 function MakeDefaultButton({
 	image,
 	busy,
@@ -585,8 +548,6 @@ function DeleteButton({
 		/>
 	);
 }
-
-/** The main disk turns to the warning colour from this share used (DESIGN.md, status colour). */
 
 /** The main disk's space, in the meter style of the Docker tab. */
 function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
@@ -747,83 +708,6 @@ function ImagesGroup({
 	);
 }
 
-/** heading is the level of Tools and Packages under wherever the diff is shown. */
-function DiffView({
-	from,
-	to,
-	heading,
-}: {
-	from: string;
-	to: string;
-	heading: "h3" | "h5";
-}) {
-	const diff = useImageDiff(from, to);
-	if (diff.isError) {
-		return (
-			<p className="text-status-error m-0 text-[13px]" role="alert">
-				{errorText(diff.error)}
-			</p>
-		);
-	}
-	if (!diff.data) return <Skeleton variant="block" height={80} />;
-	return (
-		<div className="grid gap-4 text-[13px]" data-testid="image-diff">
-			<DiffPart
-				title="Tools"
-				heading={heading}
-				part={diff.data.tools}
-				testId="image-diff-tools"
-			/>
-			<DiffPart
-				title="Packages"
-				heading={heading}
-				part={diff.data.packages}
-				testId="image-diff-packages"
-			/>
-		</div>
-	);
-}
-
-function DiffPart({
-	title,
-	heading: Heading,
-	part,
-	testId,
-}: {
-	title: string;
-	heading: "h3" | "h5";
-	part: ImageDiff["tools"];
-	testId: string;
-}) {
-	const none = part.added.length + part.removed.length + part.changed.length === 0;
-	return (
-		<div data-testid={testId}>
-			<Heading className="m-0 mb-1 text-[13px] font-semibold">{title}</Heading>
-			{none ? (
-				<p className="pk-muted m-0">No changes.</p>
-			) : (
-				<ul className="m-0 grid list-none gap-1 p-0">
-					{part.changed.map((c) => (
-						<li key={`c-${c.name}`}>
-							Changed <strong>{c.name}</strong>: {c.from} to {c.to}
-						</li>
-					))}
-					{part.added.map((a) => (
-						<li key={`a-${a.name}`}>
-							Added <strong>{a.name}</strong> {a.version}
-						</li>
-					))}
-					{part.removed.map((r) => (
-						<li key={`r-${r.name}`}>
-							Removed <strong>{r.name}</strong> {r.version}
-						</li>
-					))}
-				</ul>
-			)}
-		</div>
-	);
-}
-
 function RebuildDialog({
 	open,
 	pending,
@@ -849,7 +733,7 @@ function RebuildDialog({
 				<Dialog
 					testId="image-rebuild-dialog"
 					title="Rebuild with latest packages"
-					description="The host builds a new image from the same recipe with today's Debian packages and the latest Claude Code and Codex. It takes about 20 minutes. Nothing changes for workspaces until you make it the default."
+					description="The host builds a new image from the same recipe with today's Debian packages. It takes about 20 minutes. Nothing changes for workspaces until you make it the default."
 					footer={
 						<>
 							<Button onClick={onClose}>Cancel</Button>

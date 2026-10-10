@@ -1,12 +1,17 @@
 /**
- * The frame around one file's pane: the file's name, which is also the drag
- * handle, an actions menu with the click ways to move the pane, and the drop
- * area (SPEC.md §8.3, §9.3, §25.8). A file can share a split with terminals
- * and other files; what the pane shows is the caller's. The name and the menu
- * are drawn in the view's own header through FileHeader, so a file pane has
- * one header line whether it is alone in its tab or in a split.
+ * The frame around one file's pane: the title bar, which is the drag handle
+ * as a terminal's bar is, an actions menu with the click ways to move the
+ * pane, and the drop area (SPEC.md §8.3, §9.3, §25.8). A file can share a
+ * split with terminals and other files; what the pane shows is the caller's.
+ * The name and the menu are drawn in the view's own header through
+ * FileHeader, so a file pane has one header line whether it is alone in its
+ * tab or in a split.
  */
-import { useDraggable, useDroppable } from "@dnd-kit/core";
+import {
+	type DraggableSyntheticListeners,
+	useDraggable,
+	useDroppable,
+} from "@dnd-kit/core";
 import {
 	IconButton,
 	Menu,
@@ -19,6 +24,7 @@ import {
 import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
 import { baseName, displayName, parentOf } from "../files/paths.js";
 import { type DropEdge, fileTabId } from "../layout/tree.js";
+import { fromEmptySpace } from "./barDrag.js";
 import { usePaneMenuFocus } from "./pointerDismiss.js";
 
 export interface FilePaneProps {
@@ -44,10 +50,14 @@ export interface FilePaneProps {
 }
 
 interface FilePaneChromeValue {
-	/** The file's name, which is also the pane's drag handle. */
+	/** The file's name. */
 	handle: ReactNode;
 	/** The pane's actions menu. */
 	actions: ReactNode;
+	/** Makes the header the pane's drag handle. */
+	dragRef: (node: HTMLElement | null) => void;
+	/** The drag listeners, which leave a press on a control in the bar alone. */
+	dragListeners: DraggableSyntheticListeners;
 }
 
 const FilePaneChrome = createContext<FilePaneChromeValue | null>(null);
@@ -87,14 +97,10 @@ export function FilePane({
 	}, []);
 
 	const handle = (
-		// Only the drag listeners: dnd-kit's attributes would add a focus stop.
-		// The keyboard moves the pane through the actions menu instead.
 		<span
-			ref={drag.setNodeRef}
-			className="pk-file-name pk-filepane-handle"
+			className="pk-file-name"
 			title={shownPath}
 			data-testid={`file-frame-handle-${path}`}
-			{...drag.listeners}
 		>
 			{name}
 		</span>
@@ -151,7 +157,14 @@ export function FilePane({
 			data-testid={`file-frame-${path}`}
 			onFocusCapture={() => onFocus(id)}
 		>
-			<FilePaneChrome.Provider value={{ handle, actions: actionsMenu }}>
+			<FilePaneChrome.Provider
+				value={{
+					handle,
+					actions: actionsMenu,
+					dragRef: drag.setNodeRef,
+					dragListeners: fromEmptySpace(drag.listeners),
+				}}
+			>
 				{children}
 			</FilePaneChrome.Provider>
 			{dropEdge ? (
@@ -167,16 +180,23 @@ export function FilePane({
 
 /**
  * A file pane's one header line: the name at the start, the view's own
- * controls between, and the actions menu at the end (SPEC.md §8.3). Only the
- * view on screen draws it, so the drag handle and the menu exist once. The
- * folder follows the name, muted, so two files of one name can be told apart.
+ * controls between, and the actions menu at the end (SPEC.md §8.3). The bar
+ * is the pane's drag handle, as a terminal's is. Only the view on screen
+ * draws it, so the drag handle and the menu exist once. The folder follows
+ * the name, muted, so two files of one name can be told apart.
  * Outside a FilePane the name is plain text and there is no menu.
  */
 export function FileHeader({ path, children }: { path: string; children?: ReactNode }) {
 	const chrome = useContext(FilePaneChrome);
 	const folder = parentOf(path);
 	return (
-		<header className="pk-file-header">
+		// Only the drag listeners: dnd-kit's attributes would make the bar a
+		// focus stop. The keyboard moves the pane through the actions menu.
+		<header
+			ref={chrome?.dragRef}
+			className={chrome ? "pk-file-header pk-filepane-handle" : "pk-file-header"}
+			{...chrome?.dragListeners}
+		>
 			<span className="pk-file-title">
 				{chrome ? (
 					chrome.handle

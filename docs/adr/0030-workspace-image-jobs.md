@@ -36,3 +36,9 @@ has passed; the previous default is kept for a one-step rollback.
   door); a polkit rule letting the API start the unit over D-Bus (one
   more daemon on a minimal host); free-text versions or package lists
   (arbitrary code as root).
+
+## Update, Epic 40
+
+The job also updates Claude Code and Codex in a shared folder, outside the
+image (ADR 0056). That supersedes the recipe pinning those versions: an
+image rebuild no longer installs or changes them.

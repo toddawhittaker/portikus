@@ -191,7 +191,7 @@ test.describe("checks", () => {
 		});
 
 		await page.getByTestId("check-stop-watch").click();
-		await expect(page.getByTestId("check-state-watch")).toContainText("Failed", {
+		await expect(page.getByTestId("check-state-watch")).toContainText("Stopped", {
 			timeout: 15_000,
 		});
 	});
