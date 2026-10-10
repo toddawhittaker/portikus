@@ -4,11 +4,12 @@ type DiffPart = ImageDiff["packages"];
 
 /** Compare two name-to-version maps; a null version counts as absent. */
 function diffMaps(
-	from: Record<string, string | null>,
-	to: Record<string, string | null>,
+	from: Record<string, string | null | undefined>,
+	to: Record<string, string | null | undefined>,
+	names = [...new Set([...Object.keys(from), ...Object.keys(to)])],
 ): DiffPart {
 	const part: DiffPart = { added: [], removed: [], changed: [] };
-	const names = [...new Set([...Object.keys(from), ...Object.keys(to)])].sort();
+	names.sort();
 	for (const name of names) {
 		const before = from[name] ?? null;
 		const after = to[name] ?? null;
@@ -28,7 +29,12 @@ export function diffManifests(from: ImageManifest, to: ImageManifest): ImageDiff
 	return {
 		from: from.version,
 		to: to.version,
-		tools: diffMaps(from.tools, to.tools),
+		// Only tools both manifests name: newer ones leave out the shared-folder coding agents.
+		tools: diffMaps(
+			from.tools,
+			to.tools,
+			Object.keys(from.tools).filter((name) => name in to.tools),
+		),
 		packages: diffMaps(from.packages, to.packages),
 	};
 }

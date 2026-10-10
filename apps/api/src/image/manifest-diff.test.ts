@@ -62,3 +62,19 @@ test("a tool that appears or goes missing is added or removed; a new version is 
 		changed: [{ name: "node", from: "v24.8.0", to: "v26.0.0" }],
 	});
 });
+
+test("claude and codex missing from one side are not reported as removed or added", () => {
+	const { claude: _c, codex: _x, ...newer } = manifest().tools;
+	const older = manifest();
+	const without = manifest({ version: "2026.10.2", tools: newer });
+	expect(diffManifests(older, without).tools).toEqual({
+		added: [],
+		removed: [],
+		changed: [],
+	});
+	expect(diffManifests(without, older).tools).toEqual({
+		added: [],
+		removed: [],
+		changed: [],
+	});
+});

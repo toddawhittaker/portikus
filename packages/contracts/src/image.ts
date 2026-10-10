@@ -180,15 +180,7 @@ export const ImageSizeFile = z.object({ bytes: z.number().int().nonnegative() })
 export type ImageSizeFile = z.infer<typeof ImageSizeFile>;
 
 /** The tools the manifest names by version; null when the tool is missing. */
-export const IMAGE_TOOLS = [
-	"node",
-	"npm",
-	"python3",
-	"git",
-	"docker",
-	"claude",
-	"codex",
-] as const;
+export const IMAGE_TOOLS = ["node", "npm", "python3", "git", "docker"] as const;
 
 const ToolVersion = z.string().max(200).nullable();
 
@@ -213,8 +205,9 @@ export const ImageManifest = z.object({
 		python3: ToolVersion,
 		git: ToolVersion,
 		docker: ToolVersion,
-		claude: ToolVersion,
-		codex: ToolVersion,
+		// Only older manifests carry these; the agents now live in the shared folder (SPEC.md section 10).
+		claude: ToolVersion.optional(),
+		codex: ToolVersion.optional(),
 	}),
 	/** `dpkg-query -W -f '${binary:Package}\t${Version}\n'`, as package to version. */
 	packages: z.record(z.string().min(1).max(200), z.string().max(200)),

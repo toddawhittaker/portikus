@@ -387,6 +387,24 @@ class UpdateTest(Base):
         self.assertEqual(self.link("codex", "current"), "0.163.0")
         self.assertEqual(self.state_file()["claude"]["kept"], ["2.1.287"])
 
+    def assert_staging_error_switches_the_other(self, bad, good, err):
+        self.install("claude", "2.1.287", current=True)
+        self.install("codex", "0.162.1", current=True)
+        self.host.publish_claude("2.1.300")
+        self.host.publish_codex("0.163.0")
+        with mock.patch.object(self.runner, f"stage_{bad}", side_effect=err):
+            status = self.go({"kind": "agents-update"})
+        self.assertEqual(status["state"], "failed")
+        self.assertIn(f"was not switched. {err}", status["message"])
+        self.assertIsNone(self.link(bad, "previous"))
+        self.assertEqual(self.link(good, "current"), {"claude": "2.1.300", "codex": "0.163.0"}[good])
+
+    def test_an_os_error_staging_claude_still_switches_codex(self):
+        self.assert_staging_error_switches_the_other("claude", "codex", OSError("disk full"))
+
+    def test_a_tar_error_staging_codex_still_switches_claude(self):
+        self.assert_staging_error_switches_the_other("codex", "claude", tarfile.TarError("truncated"))
+
     def test_a_container_that_cannot_start_switches_nothing(self):
         self.install("claude", "2.1.287", current=True)
         self.install("codex", "0.162.1", current=True)

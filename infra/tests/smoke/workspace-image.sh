@@ -191,7 +191,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "python3 --version"                     ws_student "python3 --version"
 
   # 17a. The image turns off the Claude Code self-updater, which cannot
-  # write the system-wide npm prefix (SPEC.md 10).
+  # write the read-only shared coding-agents folder (SPEC.md 10).
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
