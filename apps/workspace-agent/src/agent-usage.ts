@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
 	AGENT_USAGE_METRICS_PATH,
+	AGENT_USAGE_REPORT_DAYS,
 	type AgentUsageCounts,
 	AgentUsageModel,
 	type AgentUsageReport,
 	type AgentUsageReportRow,
 	type CodingAgent,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
-	MAX_AGENT_USAGE_REPORT_ROWS,
 } from "@portikus/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -26,9 +26,6 @@ export const MAX_AGENT_USAGE_BODY_BYTES = 1024 * 1024;
 
 /** The model bucket for counters that name none, such as Claude Code's session count. */
 export const NO_MODEL = "(none)";
-
-/** Days kept in memory, so a report never passes its row cap. */
-const KEPT_DAYS = MAX_AGENT_USAGE_REPORT_ROWS / (2 * MAX_AGENT_USAGE_MODELS_PER_DAY);
 
 // The OTLP JSON shapes read here. Zod strips every key not named, so
 // resource attributes, scopes, exemplars and unknown attribute kinds go.
@@ -80,7 +77,7 @@ type Attribute = z.infer<typeof Attribute>;
 
 type CountField = Exclude<keyof AgentUsageCounts, "costUsd">;
 
-/** A counter a data point feeds. Codex's raw input is netted against cache reads first. */
+/** A counter a data point feeds. Codex's raw input is netted against cache reads at report time. */
 type Field = CountField | "costUsd" | "codexRawInput";
 
 const CLAUDE_TOKEN_TYPES: Record<string, Field> = {
@@ -192,6 +189,16 @@ function emptyCounts(agent: CodingAgent): AgentUsageCounts {
 	};
 }
 
+/**
+ * A row and, for Codex, its running raw input. Codex counts cache reads
+ * inside input and may send the two in different exports, so the
+ * subtraction waits for report().
+ */
+interface KeptRow {
+	row: AgentUsageReportRow;
+	codexRawInput: number;
+}
+
 export interface AgentUsageOptions {
 	now?: () => Date;
 }
@@ -201,7 +208,7 @@ export class AgentUsage {
 	/** Picked at start, so the worker can tell this run's totals from the last. */
 	readonly bootId = randomUUID();
 	private readonly now: () => Date;
-	private readonly days = new Map<string, Map<string, AgentUsageReportRow>>();
+	private readonly days = new Map<string, Map<string, KeptRow>>();
 
 	constructor(options: AgentUsageOptions = {}) {
 		this.now = options.now ?? (() => new Date());
@@ -211,25 +218,16 @@ export class AgentUsage {
 	ingest(request: OtlpMetricsRequest): void {
 		// The day is when the export arrived; a sender's timestamps are not trusted.
 		const day = utcDay(this.now());
-		// Codex reports input including cache reads; Claude Code excludes them.
-		const codexInput = new Map<string, { input: number; cached: number }>();
 		for (const resource of request.resourceMetrics ?? []) {
 			for (const scope of resource.scopeMetrics ?? []) {
 				for (const metric of scope.metrics ?? []) {
-					this.ingestMetric(day, metric, codexInput);
+					this.ingestMetric(day, metric);
 				}
 			}
 		}
-		for (const [model, { input, cached }] of codexInput) {
-			this.add(day, "codex", model, "inputTokens", Math.max(0, input - cached));
-		}
 	}
 
-	private ingestMetric(
-		day: string,
-		metric: Metric,
-		codexInput: Map<string, { input: number; cached: number }>,
-	): void {
+	private ingestMetric(day: string, metric: Metric): void {
 		const agent = agentOf(metric.name);
 		if (!agent) return;
 		for (const point of deltaPoints(metric)) {
@@ -237,42 +235,20 @@ export class AgentUsage {
 			const model = modelOf(point.attributes);
 			const value = amount(point.value);
 			if (!field || !model || value === undefined) continue;
+			const kept = this.row(day, agent, model);
+			if (!kept) continue;
 			if (field === "costUsd") {
-				const row = this.row(day, agent, model);
-				if (row) row.costUsd = addCapped(row.costUsd ?? 0, value);
-				continue;
+				kept.row.costUsd = addCapped(kept.row.costUsd ?? 0, value);
+			} else if (field === "codexRawInput") {
+				kept.codexRawInput = addCapped(kept.codexRawInput, Math.round(value));
+			} else {
+				kept.row[field] = addCapped(kept.row[field], Math.round(value));
 			}
-			const count = Math.round(value);
-			if (
-				agent === "codex" &&
-				(field === "codexRawInput" || field === "cacheReadTokens")
-			) {
-				const pending = codexInput.get(model) ?? { input: 0, cached: 0 };
-				if (field === "codexRawInput") pending.input += count;
-				else pending.cached += count;
-				codexInput.set(model, pending);
-			}
-			if (field !== "codexRawInput") this.add(day, agent, model, field, count);
 		}
 	}
 
-	private add(
-		day: string,
-		agent: CodingAgent,
-		model: string,
-		field: CountField,
-		value: number,
-	): void {
-		const row = this.row(day, agent, model);
-		if (row) row[field] = addCapped(row[field], value);
-	}
-
 	/** The row for a day, agent and model, or undefined past the model cap. */
-	private row(
-		day: string,
-		agent: CodingAgent,
-		model: string,
-	): AgentUsageReportRow | undefined {
+	private row(day: string, agent: CodingAgent, model: string): KeptRow | undefined {
 		let rows = this.days.get(day);
 		if (!rows) {
 			rows = new Map();
@@ -284,16 +260,19 @@ export class AgentUsage {
 		const existing = rows.get(key);
 		if (existing) return existing;
 		let models = 0;
-		for (const row of rows.values()) if (row.agent === agent) models++;
+		for (const kept of rows.values()) if (kept.row.agent === agent) models++;
 		if (models >= MAX_AGENT_USAGE_MODELS_PER_DAY) return undefined;
-		const row: AgentUsageReportRow = { day, agent, model, ...emptyCounts(agent) };
-		rows.set(key, row);
-		return row;
+		const kept: KeptRow = {
+			row: { day, agent, model, ...emptyCounts(agent) },
+			codexRawInput: 0,
+		};
+		rows.set(key, kept);
+		return kept;
 	}
 
 	/** The worker has long since read a day this old; drop it to bound the report. */
 	private forgetOldDays(): void {
-		while (this.days.size > KEPT_DAYS) {
+		while (this.days.size > AGENT_USAGE_REPORT_DAYS) {
 			const oldest = [...this.days.keys()].sort()[0];
 			if (oldest === undefined) return;
 			this.days.delete(oldest);
@@ -303,7 +282,13 @@ export class AgentUsage {
 	report(): AgentUsageReport {
 		const rows: AgentUsageReportRow[] = [];
 		for (const day of this.days.values()) {
-			for (const row of day.values()) rows.push({ ...row });
+			for (const { row, codexRawInput } of day.values()) {
+				rows.push(
+					row.agent === "codex"
+						? { ...row, inputTokens: Math.max(0, codexRawInput - row.cacheReadTokens) }
+						: { ...row },
+				);
+			}
 		}
 		return { bootId: this.bootId, rows };
 	}
