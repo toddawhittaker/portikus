@@ -19,6 +19,10 @@ function sourceText(issuer: string | null): string {
 	}
 }
 
+function isCourseAccount(user: AdminUser): boolean {
+	return user.issuer?.startsWith(LTI_PREFIX) ?? false;
+}
+
 function matchesText(user: AdminUser, needle: string): boolean {
 	return [
 		user.displayName,
@@ -39,6 +43,9 @@ function matches(user: AdminUser, query: AdminUsersQuery): boolean {
 		return false;
 	}
 	if (query.role && user.role !== query.role) return false;
+	if (query.unlinkedCourse && (!isCourseAccount(user) || user.markers.linked)) {
+		return false;
+	}
 	if (query.image) {
 		const current = workspace?.image.current;
 		if (query.image === "current" && current !== true) return false;

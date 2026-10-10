@@ -395,8 +395,10 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								<Button
 									size="sm"
 									data-testid="admin-page-previous"
-									disabled={page === 0}
-									onClick={() => goTo(page - 1)}
+									aria-disabled={page === 0 ? true : undefined}
+									onClick={() => {
+										if (page > 0) goTo(page - 1);
+									}}
 								>
 									Previous
 								</Button>
@@ -406,8 +408,10 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								<Button
 									size="sm"
 									data-testid="admin-page-next"
-									disabled={page >= pageCount - 1}
-									onClick={() => goTo(page + 1)}
+									aria-disabled={page >= pageCount - 1 ? true : undefined}
+									onClick={() => {
+										if (page < pageCount - 1) goTo(page + 1);
+									}}
 								>
 									Next
 								</Button>

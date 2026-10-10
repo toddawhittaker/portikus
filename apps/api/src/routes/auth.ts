@@ -125,6 +125,14 @@ export function registerAuthRoutes(
 
 		// An administrator's test of the sign-in provider (ADR 0059): it signs no one in.
 		const test = signinTestOf(loginState);
+		if (test === "invalid") {
+			return fail(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"The test sign-in request is not valid. Start the test again.",
+			);
+		}
 		if (test) {
 			const to = await finishSigninTest(
 				{ db, oidc, auth },

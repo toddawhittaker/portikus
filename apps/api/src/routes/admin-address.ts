@@ -3,6 +3,7 @@ import {
 	AddressSettings,
 	type AdminAddress,
 	SITE_JOB_STALE_MS,
+	type SiteJobBody,
 	type SiteJobView,
 	type SiteView,
 } from "@portikus/contracts";
@@ -20,7 +21,7 @@ import {
 } from "../certificate/preflight.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import { currentJob, removeStaleRequests } from "../job-files.js";
+import { currentJob } from "../job-files.js";
 import {
 	addressRefusal,
 	hostHeader,
@@ -71,7 +72,7 @@ export function registerAdminAddressRoutes(
 		sendError(
 			reply,
 			409,
-			"NOT_IMPLEMENTED",
+			"SITE_UNAVAILABLE",
 			"The site address can be changed here only on a server installed with apt. Use the install's own tools instead.",
 		);
 		return null;
@@ -151,21 +152,14 @@ export function registerAdminAddressRoutes(
 	}
 
 	/** Write a request through the shared site-job lock, or answer why it must wait. */
-	async function submit(
-		reply: FastifyReply,
-		actor: string,
-		body: Parameters<typeof submitSiteJob>[3],
-	) {
+	async function submit(reply: FastifyReply, actor: string, body: SiteJobBody) {
 		if (!jobsDir) return;
-		await removeStaleRequests(jobsDir, await allSiteJobs(jobsDir), SITE_JOB_STALE_MS);
-		const result = await submitSiteJob(db, jobsDir, actor, body);
-		if ("refused" in result) {
-			return sendError(reply, 409, "SITE_JOB_BUSY", result.refused);
-		}
+		const job = await submitSiteJob(reply, db, jobsDir, actor, body);
+		if (!job) return reply;
 		return reply
 			.status(202)
 			.header("cache-control", "no-store")
-			.send({ ...result.job, kind: body.kind });
+			.send({ ...job, kind: body.kind });
 	}
 
 	/** Write a keep or rollback request for the open address trial. */
@@ -178,7 +172,7 @@ export function registerAdminAddressRoutes(
 		const admin = requireUser(request);
 		const trial = await addressJob(await allSiteJobs(jobsDir));
 		if (trial?.job.state !== "trial") {
-			return sendError(reply, 409, "NOT_FOUND", "No address trial is open.");
+			return sendError(reply, 409, "SITE_NO_OPEN_TRIAL", "No address trial is open.");
 		}
 		if (kind === "keep") {
 			// Keep proves the browser reaches the new address (ADR 0059).

@@ -307,6 +307,9 @@ function LinkedAccounts({ user }: { user: AdminUser }) {
 						</>
 					}
 					confirmLabel="Unlink"
+					returnFocusTo={() =>
+						document.querySelector<HTMLElement>('[data-testid="detail-link"]')
+					}
 					destructive
 					pending={change.isPending}
 					onConfirm={unlink}

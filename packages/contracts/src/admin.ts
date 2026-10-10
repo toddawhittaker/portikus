@@ -89,6 +89,8 @@ export const AdminUsersQuery = z.object({
 	limit: z.coerce.number().int().min(1).max(500).optional(),
 	offset: z.coerce.number().int().min(0).optional(),
 	pending: z.literal("1").optional(),
+	/** Only course accounts with no link to an SSO account, for the link dialog. */
+	unlinkedCourse: z.literal("1").optional(),
 });
 export type AdminUsersQuery = z.infer<typeof AdminUsersQuery>;
 

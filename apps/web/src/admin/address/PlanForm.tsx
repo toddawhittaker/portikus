@@ -212,7 +212,9 @@ function Checks({ result }: { result: CertificatePreflight }) {
 							{check.result === "passed" ? "Passed" : "Failed"}
 						</span>
 						<span>
-							<span className="font-semibold">{CHECK_LABEL[check.name]}</span>
+							<span className="font-semibold">
+								{CHECK_LABEL[check.name] ?? check.name}
+							</span>
 							<span className="block text-ink-muted [overflow-wrap:anywhere]">
 								{check.message}
 							</span>

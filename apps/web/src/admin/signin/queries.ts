@@ -6,12 +6,20 @@ import {
 	SiteJobView,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import { request, sendJson } from "../../api/request.js";
 
 const signinKey = ["admin", "signin"] as const;
 
-/** Where the browser goes to start a test sign-in; it comes back to the Sign-in tab. */
-export const TEST_SIGNIN_URL = "/admin/signin/test";
+const TestSigninStart = z.object({ location: z.string() });
+
+/** Start a test sign-in; the caller sends the browser to the returned address, and it comes back to the Sign-in tab. */
+export function useStartTestSignin() {
+	return useMutation({
+		mutationFn: () =>
+			request(TestSigninStart, "/admin/signin/test", { method: "POST" }),
+	});
+}
 
 /** A waiting or running job is polled every two seconds, as the certificate page does. */
 const ACTIVE_POLL_MS = 2000;

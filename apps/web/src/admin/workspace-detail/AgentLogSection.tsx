@@ -70,9 +70,7 @@ export function AgentLogSection({
 						Press Read log to ask the workspace for its recent warnings.
 					</p>
 				) : reading.phase === "waiting" ? (
-					<p className="pk-text-compact pk-muted m-0" aria-busy="true">
-						Reading the log…
-					</p>
+					<p className="pk-text-compact pk-muted m-0">Reading the log…</p>
 				) : reading.phase === "failed" ? (
 					<p
 						className="pk-text-compact m-0 text-status-error"

@@ -151,14 +151,14 @@ async function clearRequests(): Promise<void> {
  */
 async function testSignIn(app: FastifyInstance, jar: CookieJar, who: string) {
 	const start = await app.inject({
-		method: "GET",
+		method: "POST",
 		url: "/admin/signin/test",
-		headers: { cookie: jar.cookieHeader() },
+		headers: csrfHeaders(jar, PUBLIC_URL),
 	});
 	const testJar = new CookieJar();
 	testJar.capture(jar.cookieHeader().split("; "));
 	testJar.capture(start);
-	const authorize = new URL(String(start.headers.location));
+	const authorize = new URL(String(start.json().location));
 	authorize.searchParams.set("user", who);
 	const chosen = await fetch(authorize, { redirect: "manual" });
 	const callback = new URL(String(chosen.headers.get("location")));
@@ -198,7 +198,7 @@ describe.skipIf(skip)("access", () => {
 		const { send } = await signIn(app, "carol");
 		expect((await send("GET", "/admin/signin")).statusCode).toBe(404);
 		expect((await send("POST", "/admin/signin", OIDC)).statusCode).toBe(404);
-		expect((await send("GET", "/admin/signin/test")).statusCode).toBe(404);
+		expect((await send("POST", "/admin/signin/test")).statusCode).toBe(404);
 		await app.close();
 	});
 
@@ -213,9 +213,9 @@ describe.skipIf(skip)("access", () => {
 		expect(keep.statusCode).toBe(403);
 		const back = await send("POST", "/admin/signin/rollback", { trialId: TRIAL });
 		expect(back.statusCode).toBe(403);
-		const start = await send("GET", "/admin/signin/test");
+		const start = await send("POST", "/admin/signin/test");
 		expect(start.statusCode).toBe(403);
-		expect(start.headers.location).toBeUndefined();
+		expect(start.json().location).toBeUndefined();
 		expect(await requests()).toEqual([]);
 		await app.close();
 	});
@@ -476,14 +476,62 @@ describe.skipIf(skip)("the test sign-in", () => {
 		const app = server();
 		const { jar } = await signIn(app, "carol");
 		const start = await app.inject({
-			method: "GET",
+			method: "POST",
 			url: "/admin/signin/test",
-			headers: { cookie: jar.cookieHeader() },
+			headers: csrfHeaders(jar, PUBLIC_URL),
 		});
-		expect(start.statusCode).toBe(302);
-		const to = new URL(String(start.headers.location));
+		expect(start.statusCode).toBe(200);
+		const to = new URL(String(start.json().location));
 		expect(to.searchParams.get("connector_id")).toBe("oidc");
 		expect(to.searchParams.get("prompt")).toBe("login");
+		await app.close();
+	});
+
+	test("a cross-site post cannot start one", async () => {
+		await putView();
+		const app = server();
+		const { jar } = await signIn(app, "carol");
+		const start = await app.inject({
+			method: "POST",
+			url: "/admin/signin/test",
+			headers: { cookie: jar.cookieHeader(), "sec-fetch-site": "cross-site" },
+		});
+		expect(start.statusCode).toBe(403);
+		expect(start.json().location).toBeUndefined();
+		expect(start.headers["set-cookie"]).toBeUndefined();
+		await app.close();
+	});
+
+	test("a login cookie with a wrong test marker is refused, never taken as a sign-in", async () => {
+		await putView();
+		const app = server();
+		const { jar } = await signIn(app, "carol");
+		const start = await app.inject({
+			method: "POST",
+			url: "/admin/signin/test",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+		});
+		// Re-sign the login cookie with the marker broken, as only the server could.
+		const [pair] = String(start.headers["set-cookie"]).split(";");
+		const [name, raw] = (pair ?? "").split(/=(.*)/s) as [string, string];
+		const unsigned = app.unsignCookie(decodeURIComponent(raw));
+		const state = JSON.parse(String(unsigned.value));
+		const broken = { ...state, signinTest: { adminId: "not-a-uuid" } };
+		const cookie = `${name}=${encodeURIComponent(app.signCookie(JSON.stringify(broken)))}`;
+		const authorize = new URL(String(start.json().location));
+		authorize.searchParams.set("user", "olga");
+		const chosen = await fetch(authorize, { redirect: "manual" });
+		const callback = new URL(String(chosen.headers.get("location")));
+		const before = await counts();
+		const done = await app.inject({
+			method: "GET",
+			url: `${callback.pathname}${callback.search}`,
+			headers: { cookie: `${jar.cookieHeader()}; ${cookie}` },
+		});
+		expect(done.statusCode).toBe(400);
+		expect(String(done.headers["set-cookie"] ?? "")).not.toContain("portikus_session=");
+		expect(await counts()).toEqual(before);
+		expect(await testRows()).toEqual([]);
 		await app.close();
 	});
 
@@ -613,14 +661,14 @@ describe.skipIf(skip)("the test sign-in", () => {
 		const app = server();
 		const { jar } = await signIn(app, "carol");
 		const start = await app.inject({
-			method: "GET",
+			method: "POST",
 			url: "/admin/signin/test",
-			headers: { cookie: jar.cookieHeader() },
+			headers: csrfHeaders(jar, PUBLIC_URL),
 		});
 		// Only the login cookie, as if the session had ended.
 		const bare = new CookieJar();
 		bare.capture(start);
-		const authorize = new URL(String(start.headers.location));
+		const authorize = new URL(String(start.json().location));
 		authorize.searchParams.set("user", "olga");
 		const chosen = await fetch(authorize, { redirect: "manual" });
 		const callback = new URL(String(chosen.headers.get("location")));

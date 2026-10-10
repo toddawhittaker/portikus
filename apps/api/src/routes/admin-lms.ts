@@ -6,8 +6,9 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseFieldsOr400, sendError } from "../http.js";
 import { currentJob } from "../job-files.js";
+import { keysetConflict, repeatsPlatform } from "../lti/deps.js";
 import { allSiteJobs, noteSiteJobsFinished } from "../site/jobs.js";
 import { readOperatorPlatforms, readPagePlatforms } from "../site/page-files.js";
 import { submitSiteJob } from "../site/submit.js";
@@ -48,23 +49,10 @@ export function registerAdminLmsRoutes(
 	app.put("/admin/lms", adminOnly, async (request, reply) => {
 		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const admin = requireUser(request);
-		const body = LtiPlatformsUpdate.safeParse(request.body ?? {});
-		if (!body.success) {
-			const fields = [...new Set(body.error.issues.map((i) => i.path.join(".")))];
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				`Check these fields: ${fields.join(", ") || "platforms"}.`,
-			);
-		}
+		const body = parseFieldsOr400(LtiPlatformsUpdate, request.body ?? {}, reply);
+		if (!body) return reply;
 		const operator = await readOperatorPlatforms(config.LTI_PLATFORMS_FILE);
-		const clash = body.data.platforms.find((p) =>
-			operator.some(
-				(o) =>
-					o.name === p.name || (o.issuer === p.issuer && o.clientId === p.clientId),
-			),
-		);
+		const clash = body.platforms.find((p) => repeatsPlatform(p, operator));
 		if (clash) {
 			return sendError(
 				reply,
@@ -73,13 +61,22 @@ export function registerAdminLmsRoutes(
 				`${clash.name}: the operator's file already registers this name, or this issuer and client ID.`,
 			);
 		}
-		const result = await submitSiteJob(db, jobsDir, `user:${admin.id}`, {
-			kind: "lti-platforms",
-			platforms: body.data.platforms,
-		});
-		if ("refused" in result) {
-			return sendError(reply, 409, "SITE_JOB_BUSY", result.refused);
+		const keyset = body.platforms.find((p) =>
+			keysetConflict(p, [...operator, ...body.platforms]),
+		);
+		if (keyset) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				`${keyset.name}: this issuer is already registered with another key set URL. One issuer has one key set.`,
+			);
 		}
-		return reply.status(202).send(result.job);
+		const job = await submitSiteJob(reply, db, jobsDir, `user:${admin.id}`, {
+			kind: "lti-platforms",
+			platforms: body.platforms,
+		});
+		if (!job) return reply;
+		return reply.status(202).send(job);
 	});
 }

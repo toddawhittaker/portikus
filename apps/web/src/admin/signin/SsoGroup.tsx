@@ -19,7 +19,7 @@ import { AdminGroup } from "../AdminSection.js";
 import { Notice } from "../Notice.js";
 import { useAdminSignin, useApplySignin } from "./queries.js";
 import { SsoFields } from "./SsoFields.js";
-import { SsoTrial } from "./SsoTrial.js";
+import { SsoTrial, TRIAL_TEXT_ID } from "./SsoTrial.js";
 import {
 	FIELD_ID,
 	initialForm,
@@ -73,12 +73,29 @@ export function SsoGroup() {
 function SsoBody({ data }: { data: AdminSignin }) {
 	const view = data.current;
 	const trial = openTrial(data.job);
+	const hadTrial = useRef(trial !== null);
+	// A trial starting takes the form away, and a trial ending takes Keep away:
+	// focus goes to the new content rather than being lost (SPEC.md section 25.8).
+	useEffect(() => {
+		const has = trial !== null;
+		if (has && !hadTrial.current) {
+			document.getElementById(TRIAL_TEXT_ID)?.focus();
+		} else if (!has && hadTrial.current) {
+			const lost = !document.activeElement || document.activeElement === document.body;
+			if (lost) document.getElementById("admin-signin-sso")?.focus();
+		}
+		hadTrial.current = has;
+	}, [trial]);
 	return (
 		<div className="grid gap-5">
 			{view ? <CurrentSettings view={view} /> : null}
 			{/* Always mounted, so each change of the job's state is read out (SPEC.md section 25.8). */}
 			<div role="status" data-testid="sso-job">
-				{data.job && !trial ? <JobLine job={data.job} /> : null}
+				{trial ? (
+					<span className="sr-only">{jobText(trial)}</span>
+				) : data.job ? (
+					<JobLine job={data.job} />
+				) : null}
 			</div>
 			{!view ? (
 				<p className="pk-text-compact m-0" data-testid="sso-unavailable">

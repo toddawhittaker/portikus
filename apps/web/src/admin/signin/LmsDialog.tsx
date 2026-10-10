@@ -57,6 +57,7 @@ export function LmsDialog({
 	error,
 	onSave,
 	onClose,
+	returnFocusTo,
 }: {
 	title: string;
 	initial: LmsDraft;
@@ -66,6 +67,7 @@ export function LmsDialog({
 	error: string | null;
 	onSave: (platform: AdminLtiPlatform) => void;
 	onClose: () => void;
+	returnFocusTo: () => HTMLElement | null;
 }) {
 	const [draft, setDraft] = useState(initial);
 	const [errors, setErrors] = useState<LmsErrors>({});
@@ -92,6 +94,7 @@ export function LmsDialog({
 		<DialogRoot open onOpenChange={(open) => (open ? null : onClose())}>
 			<Dialog
 				testId="lms-dialog"
+				returnFocusTo={returnFocusTo}
 				title={title}
 				description="Register Portikus in the LMS first, then enter what the LMS gave you."
 				footer={
