@@ -571,6 +571,14 @@ class HealthProbe(unittest.TestCase):
         # Port 1 is privileged and unused, so the connection is refused.
         self.assertFalse(sj.probe_health(1))
 
+    def test_the_unit_lets_the_probe_reach_the_api_on_loopback(self):
+        # A private network namespace has its own loopback, where no API listens.
+        unit = (REPO / "packaging" / "systemd" / "portikus-site-job.service").read_text()
+        settings = [line.strip() for line in unit.splitlines() if not line.lstrip().startswith("#")]
+        self.assertNotIn("PrivateNetwork=yes", settings)
+        self.assertIn("IPAddressDeny=any", settings)
+        self.assertIn("IPAddressAllow=localhost", settings)
+
     def test_the_port_comes_from_api_env(self):
         root = tempfile.mkdtemp(prefix="sitejob-env-")
         self.addCleanup(shutil.rmtree, root)
