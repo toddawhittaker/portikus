@@ -137,7 +137,9 @@ test.describe("markdown tab", () => {
 		});
 
 		// The code side has a scrollbar slider with real height, inside its
-		// own panel rather than past its right edge.
+		// own panel rather than past its right edge. Monaco hides its
+		// scrollbars until the pointer is over the editor, as a person's is.
+		await editor.locator(".view-lines").hover();
 		const slider = editor.locator(".scrollbar.vertical .slider").first();
 		await expect(slider).toBeVisible();
 		const sliderBox = await slider.boundingBox();
