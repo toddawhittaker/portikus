@@ -29,6 +29,9 @@ describe("jobText", () => {
 		expect(jobText(job("reverted", "trial_expired"), target)).toContain(
 			"Nobody pressed Keep",
 		);
+		expect(jobText(job("reverted", "trial_superseded" as never), target)).toContain(
+			"changed outside this page",
+		);
 		expect(jobText(job("reverted", "setup_failed"), target)).toContain("Setup failed");
 		expect(jobText(job("reverted", "rolled_back"), target)).toContain("rolled back");
 	});

@@ -238,6 +238,55 @@ describe.skipIf(skip)("admin LMS routes (ADR 0059)", () => {
 		});
 	});
 
+	test("an issuer registered with another key set URL is refused", async () => {
+		await withApp(async (call) => {
+			await writeFile(
+				operatorFile,
+				JSON.stringify({
+					version: 1,
+					platforms: [{ ...operatorPlatform, issuer: canvas.issuer }],
+				}),
+			);
+			const otherKeys = {
+				...canvas,
+				keysetUrl: "https://attacker.example.com/jwks",
+			};
+			const refused = await call("PUT", "/admin/lms", { platforms: [otherKeys] });
+			expect(refused.statusCode).toBe(400);
+			expect(refused.json().message).toContain("key set URL");
+			const twoKeys = [
+				{
+					...canvas,
+					name: "A",
+					clientId: "a",
+					keysetUrl: "https://canvas.example.edu/other-jwks",
+				},
+				{ ...canvas, name: "B", clientId: "b" },
+			];
+			await writeFile(operatorFile, JSON.stringify({ version: 1, platforms: [] }));
+			const split = await call("PUT", "/admin/lms", { platforms: twoKeys });
+			expect(split.statusCode).toBe(400);
+			expect(split.json().message).toContain("key set URL");
+			expect(await requests()).toEqual([]);
+		});
+	});
+
+	test("an operator issuer with the same key set URL and its own client ID is accepted", async () => {
+		await withApp(async (call) => {
+			await writeFile(
+				operatorFile,
+				JSON.stringify({
+					version: 1,
+					platforms: [
+						{ ...operatorPlatform, issuer: canvas.issuer, keysetUrl: canvas.keysetUrl },
+					],
+				}),
+			);
+			const res = await call("PUT", "/admin/lms", { platforms: [canvas] });
+			expect(res.statusCode).toBe(202);
+		});
+	});
+
 	test("repeated names, repeated pairs and more than the limit are refused", async () => {
 		await withApp(async (call) => {
 			expect(

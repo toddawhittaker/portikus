@@ -3,7 +3,15 @@
  * administrator-only, values checked against the shared fixture the root
  * job also uses, one request file in, the audit row on request.
  */
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +24,7 @@ import {
 import {
 	AdminProxyHosts,
 	MAX_PROXY_HOSTS,
+	SITE_JOB_STALE_MS,
 	SiteJobRequest,
 	SiteJobView,
 } from "@portikus/contracts";
@@ -248,6 +257,23 @@ describe.skipIf(skip)("admin proxy host routes (ADR 0059)", () => {
 				kind: "proxy-hosts",
 				hosts: ["api.example.com"],
 			});
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("a dead waiting request is removed so the new one runs instead", async () => {
+		const dead = "request-0b6f1e2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b.json";
+		await writeFile(join(jobsDir, dead), "{}");
+		const old = new Date(Date.now() - SITE_JOB_STALE_MS - 60_000);
+		await utimes(join(jobsDir, dead), old, old);
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			const res = await call("PUT", "/admin/proxy-hosts", { hosts: [] });
+			expect(res.statusCode).toBe(202);
+			expect(await requests()).toEqual([`request-${res.json().id}.json`]);
 		} finally {
 			await app.close();
 		}

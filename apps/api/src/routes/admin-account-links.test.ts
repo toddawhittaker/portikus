@@ -324,6 +324,35 @@ describe.skipIf(skip)("Administrator linking", () => {
 		expect(denied.every((a) => a.actor === `user:${carol.id}`)).toBe(true);
 	});
 
+	test("refuses an SSO account whose role is above the course account's last launch", async () => {
+		const carol = await signIn("carol");
+		const alice = await signIn("alice");
+		await testDb.db
+			.updateTable("users")
+			.set({ role: "instructor", granted_role: "instructor" })
+			.where("id", "=", alice.id)
+			.execute();
+		const course = await courseAccount();
+		const url = `/admin/users/${alice.id}/links`;
+
+		const refused = await call(carol.jar, "POST", url, { courseUserId: course.id });
+		expect(refused.statusCode).toBe(400);
+		expect(refused.json().message).toContain("higher role");
+		const [denied] = (await audits("user.linked")).filter((a) => a.result === "denied");
+		expect(denied?.metadata).toMatchObject({ reason: "role_higher" });
+		const links = await testDb.db.selectFrom("account_links").selectAll().execute();
+		expect(links).toEqual([]);
+
+		// The same person launching as an instructor may be linked.
+		await testDb.db
+			.updateTable("users")
+			.set({ provider_role: "instructor", role: "instructor" })
+			.where("id", "=", course.id)
+			.execute();
+		const linked = await call(carol.jar, "POST", url, { courseUserId: course.id });
+		expect(linked.statusCode).toBe(200);
+	});
+
 	test("unlinking a link that does not exist is 404", async () => {
 		const carol = await signIn("carol");
 		const alice = await signIn("alice");

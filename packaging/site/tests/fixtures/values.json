@@ -91,7 +91,11 @@
 				"https://10.0.0.1/x",
 				"https://lms.example.edu/{{ 7*7 }}",
 				"https://lms.example.edu/\u0007",
-				"https://"
+				"https://",
+				"https://lms.example.edu/a b",
+				"https://lms.example.edu/café",
+				"https://lms.example.edu/a\\b",
+				"https://lms.example.edu\\@evil.example.com/"
 			]
 		},
 		"keysetUrl": {
@@ -106,7 +110,10 @@
 				"http://lms.example.edu/jwks",
 				"https://10.0.0.1/jwks",
 				"https://user@lms.example.edu/jwks",
-				"https://lms.example.edu/{{ 7*7 }}"
+				"https://lms.example.edu/{{ 7*7 }}",
+				"https://lms.example.edu/jw ks",
+				"https://lms.example.edu/jwks-é",
+				"https://lms.example.edu/a\\jwks"
 			]
 		},
 		"identifier": {
@@ -145,13 +152,21 @@
 			]
 		},
 		"oidcIssuer": {
-			"where": "signin oidcIssuer",
+			"where": "signin oidcIssuer, a host name on port 443 only",
 			"good": [
 				"https://login.example.edu",
 				"https://login.example.edu/realms/main",
-				"https://login.example.edu:8443/x/"
+				"https://login.example.edu:443/x/"
 			],
 			"bad": [
+				"https://login.example.edu:8443/x/",
+				"https://login.example.edu:22",
+				"https://10.100.0.1:22",
+				"https://169.254.169.254:80/latest",
+				"https://169.254.169.254",
+				"https://127.0.0.1/",
+				"https://2130706433",
+				"https://0x7f.1",
 				"",
 				"http://login.example.edu",
 				"https://login.example.edu/a?b",

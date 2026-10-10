@@ -45,12 +45,17 @@ const SigninTestMarker = z
 	.strict();
 export type SigninTestMarker = z.infer<typeof SigninTestMarker>;
 
-/** The test marker in a login cookie's state, or null for an ordinary sign-in. */
-export function signinTestOf(state: LoginState): SigninTestMarker | null {
-	const marker = (state as { signinTest?: unknown }).signinTest;
-	if (marker === undefined) return null;
-	const parsed = SigninTestMarker.safeParse(marker);
-	return parsed.success ? parsed.data : null;
+/**
+ * The test marker in a login cookie's state, null for an ordinary sign-in,
+ * or "invalid" when a marker is there but wrong. The caller refuses an
+ * invalid one: a broken test must never finish as a real sign-in.
+ */
+export function signinTestOf(state: LoginState): SigninTestMarker | "invalid" | null {
+	if (!Object.hasOwn(state, "signinTest")) return null;
+	const parsed = SigninTestMarker.safeParse(
+		(state as { signinTest?: unknown }).signinTest,
+	);
+	return parsed.success ? parsed.data : "invalid";
 }
 
 /** Dex's connector ID for each provider; "dex" means only local passwords. */

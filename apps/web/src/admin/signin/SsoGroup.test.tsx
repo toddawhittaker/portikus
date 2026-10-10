@@ -125,7 +125,8 @@ test("in a trial, Keep stays off until a test of this trial passes", async () =>
 	const keep = await screen.findByTestId("sso-keep");
 	expect(keep.getAttribute("aria-disabled")).toBe("true");
 	expect(screen.getByTestId("sso-trial-left").textContent).toMatch(/^2[89]:\d\d$/);
-	expect(screen.getByTestId("sso-test")).toBeTruthy();
+	expect(screen.getByTestId("sso-test").closest("form")).toBeNull();
+	expect(screen.getByTestId("sso-job").textContent).toContain("on trial");
 	expect(screen.queryByTestId("sso-apply")).toBeNull();
 });
 

@@ -103,8 +103,7 @@ describe("merging the page platforms file", () => {
 		expect(names).toEqual(["Operator LMS", "Fine"]);
 	});
 
-	// A server whose only LMS was registered on the page (ADMIN-GUIDE.md, "LMS platforms").
-	test("with no operator file the page's platforms alone turn LTI on", async () => {
+	test("with no operator file the page platforms alone turn LTI on", async () => {
 		await writeFile(pageFile, JSON.stringify({ version: 1, platforms: [added] }));
 		const lti = await loadLtiDeps({
 			LTI_PLATFORMS_FILE: join(dir, "missing.json"),
@@ -113,7 +112,7 @@ describe("merging the page platforms file", () => {
 		expect(lti?.platforms).toEqual([added]);
 	});
 
-	test("with neither file, or only a wrong page file, LTI stays off", async () => {
+	test("LTI is off only when neither file holds a platform", async () => {
 		const missing = join(dir, "missing.json");
 		expect(
 			await loadLtiDeps({
@@ -121,12 +120,49 @@ describe("merging the page platforms file", () => {
 				LTI_ADMIN_PLATFORMS_FILE: pageFile,
 			}),
 		).toBeUndefined();
-		await writeFile(pageFile, "not json");
+		await writeFile(pageFile, JSON.stringify({ version: 1, platforms: [] }));
 		expect(
-			await loadLtiDeps(
-				{ LTI_PLATFORMS_FILE: missing, LTI_ADMIN_PLATFORMS_FILE: pageFile },
-				() => {},
-			),
+			await loadLtiDeps({
+				LTI_PLATFORMS_FILE: missing,
+				LTI_ADMIN_PLATFORMS_FILE: pageFile,
+			}),
 		).toBeUndefined();
+	});
+
+	test("a page entry naming a registered issuer with another key set is skipped and reported", async () => {
+		await writeFile(
+			pageFile,
+			JSON.stringify({
+				version: 1,
+				platforms: [
+					{
+						...added,
+						name: "Impostor",
+						issuer: operator.issuer,
+						clientId: "other-client",
+						keysetUrl: "https://evil.example.com/jwks",
+					},
+					{
+						...added,
+						name: "Second Canvas",
+						clientId: "c2",
+						keysetUrl: "https://x.example/jwks",
+					},
+					added,
+					{ ...added, name: "Canvas again", clientId: "c3" },
+					{
+						...added,
+						name: "Operator twin",
+						clientId: "c4",
+						issuer: operator.issuer,
+						keysetUrl: operator.keysetUrl,
+					},
+				],
+			}),
+		);
+		const names = (await load())?.platforms.map((p) => p.name);
+		expect(names).toEqual(["Operator LMS", "Second Canvas", "Operator twin"]);
+		expect(skipped).toHaveLength(3);
+		expect(skipped.join(" ")).toContain("Impostor");
 	});
 });

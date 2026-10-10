@@ -12,6 +12,12 @@ import { SiteJobLine, useSiteList } from "../site-job.js";
 import { LmsDialog, RESTART_WARNING } from "./LmsDialog.js";
 import { draftOf, EMPTY_DRAFT } from "./lms-form.js";
 
+const BUSY_NOTE = "A change is being applied. Wait until it ends.";
+const BUSY_NOTE_ID = "lms-busy-note";
+const GROUP_ID = "admin-signin-lms";
+
+const groupHeading = () => document.getElementById(GROUP_ID);
+
 type Editing = { index: number | null; platform: AdminLtiPlatform | null };
 
 /**
@@ -81,6 +87,7 @@ export function LmsGroup() {
 						iconStart="plus"
 						data-testid="lms-add"
 						aria-disabled={busy ? true : undefined}
+						aria-describedby={busy ? BUSY_NOTE_ID : undefined}
 						onClick={() => {
 							if (!busy) setEditing({ index: null, platform: null });
 						}}
@@ -110,6 +117,11 @@ export function LmsGroup() {
 					<div role="status" data-testid="lms-job">
 						<SiteJobLine job={job} />
 					</div>
+					{busy ? (
+						<p id={BUSY_NOTE_ID} className="pk-text-compact pk-muted m-0">
+							{BUSY_NOTE}
+						</p>
+					) : null}
 					<PlatformTable
 						platforms={data.platforms}
 						busy={busy}
@@ -149,6 +161,13 @@ export function LmsGroup() {
 					pending={save.isPending}
 					error={save.isError ? errorText(save.error) : null}
 					onSave={(platform) => replaceAt(editing.index, platform)}
+					returnFocusTo={() =>
+						(editing.platform &&
+							document.querySelector<HTMLElement>(
+								`[aria-label="Edit ${CSS.escape(editing.platform.name)}"]`,
+							)) ||
+						groupHeading()
+					}
 					onClose={close}
 				/>
 			) : null}
@@ -166,6 +185,7 @@ export function LmsGroup() {
 						description={`Launches from it stop working. ${RESTART_WARNING}`}
 						confirmLabel="Remove and restart"
 						pending={save.isPending}
+						returnFocusTo={groupHeading}
 						onConfirm={() =>
 							save.mutate(
 								data.platforms.filter((_, i) => i !== removing),
@@ -231,6 +251,7 @@ function PlatformTable({
 									variant="quiet"
 									aria-label={`Edit ${p.name}`}
 									aria-disabled={busy ? true : undefined}
+									aria-describedby={busy ? BUSY_NOTE_ID : undefined}
 									onClick={() => {
 										if (!busy) onEdit(index);
 									}}
@@ -242,6 +263,7 @@ function PlatformTable({
 									variant="quiet"
 									aria-label={`Remove ${p.name}`}
 									aria-disabled={busy ? true : undefined}
+									aria-describedby={busy ? BUSY_NOTE_ID : undefined}
 									onClick={() => {
 										if (!busy) onRemove(index);
 									}}

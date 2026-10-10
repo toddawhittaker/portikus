@@ -2,7 +2,7 @@ import type { AdminUser } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { errorText } from "../../api/request.js";
-import { isCourseAccount, sourceText } from "../markers.js";
+import { sourceText } from "../markers.js";
 import { useChangeLink, useCourseAccountSearch } from "./linkQueries.js";
 
 /**
@@ -24,10 +24,7 @@ export function LinkDialog({
 	const [pickedId, setPickedId] = useState<string | null>(null);
 	const [confirming, setConfirming] = useState(false);
 	const search = useCourseAccountSearch(text, open);
-	// Already linked accounts are archived and hidden by the list; the route refuses the rest.
-	const found = (search.data?.users ?? []).filter(
-		(candidate) => isCourseAccount(candidate.issuer) && !candidate.markers.linked,
-	);
+	const found = search.data?.users ?? [];
 	const picked = found.find((candidate) => candidate.id === pickedId) ?? null;
 
 	function close(next: boolean) {
@@ -98,6 +95,7 @@ export function LinkDialog({
 								variant="primary"
 								data-testid="link-next"
 								aria-disabled={picked ? undefined : true}
+								aria-describedby={picked ? undefined : "link-next-note"}
 								onClick={() => (picked ? setConfirming(true) : undefined)}
 							>
 								Continue
@@ -106,6 +104,11 @@ export function LinkDialog({
 					}
 				>
 					<div className="flex flex-col gap-3">
+						{picked ? null : (
+							<p id="link-next-note" className="sr-only">
+								Choose a course account first.
+							</p>
+						)}
 						<TextField
 							id="link-search"
 							label="Search course accounts"
@@ -135,14 +138,22 @@ export function LinkDialog({
 									</span>
 								</label>
 							))}
-							{found.length === 0 ? (
-								<p className="pk-text-compact pk-muted m-0" role="status">
-									{search.isLoading
-										? "Searching…"
-										: "No unlinked course accounts match."}
-								</p>
-							) : null}
 						</fieldset>
+						<p
+							className={
+								found.length === 0
+									? "pk-text-compact pk-muted m-0"
+									: "pk-text-compact sr-only"
+							}
+							role="status"
+							data-testid="link-status"
+						>
+							{search.isLoading
+								? "Searching…"
+								: found.length === 0
+									? "No unlinked course accounts match."
+									: `${found.length} course ${found.length === 1 ? "account matches" : "accounts match"}.`}
+						</p>
 					</div>
 				</Dialog>
 			)}

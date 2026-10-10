@@ -1,11 +1,14 @@
 import { AdminProxyHosts, ProxyHostName, SiteJobView } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, errorText, sendJson } from "../../api/request.js";
 import { announced } from "../../common/announced.js";
 import { AdminGroup } from "../AdminSection.js";
 import { SiteJobLine, useSiteList } from "../site-job.js";
+
+const BUSY_NOTE = "A change is being applied. Wait until it ends.";
+const BUSY_NOTE_ID = "proxy-hosts-busy-note";
 
 /** The contracts' message for a host name, or null when the API would take it. */
 function hostError(
@@ -45,6 +48,17 @@ export function ProxyHostsGroup() {
 	const [value, setValue] = useState("");
 	const [checked, setChecked] = useState(false);
 	const data = query.data;
+
+	// A removed host takes its Remove button with it: focus goes to the name field.
+	const hostCount = useRef(data?.hosts.length ?? 0);
+	const count = data?.hosts.length ?? 0;
+	useEffect(() => {
+		const lost = !document.activeElement || document.activeElement === document.body;
+		if (count < hostCount.current && lost) {
+			document.getElementById("proxy-host-value")?.focus();
+		}
+		hostCount.current = count;
+	}, [count]);
 
 	// Without the site job (a development install) the group is left out.
 	const off = query.error instanceof ApiError && query.error.status === 404;
@@ -105,10 +119,16 @@ export function ProxyHostsGroup() {
 					data-testid="proxy-host-add"
 					loading={save.isPending}
 					aria-disabled={busy ? true : undefined}
+					aria-describedby={busy ? BUSY_NOTE_ID : undefined}
 				>
 					Allow host
 				</Button>
 			</form>
+			{busy || save.isPending ? (
+				<p id={BUSY_NOTE_ID} className="pk-text-compact pk-muted m-0">
+					{BUSY_NOTE}
+				</p>
+			) : null}
 			{save.isError ? (
 				<p className="pk-text-compact m-0 text-status-error" role="alert">
 					{errorText(save.error)}
@@ -181,6 +201,7 @@ function HostList({
 									variant="quiet"
 									aria-label={`Remove ${host}`}
 									aria-disabled={busy ? true : undefined}
+									aria-describedby={busy ? BUSY_NOTE_ID : undefined}
 									onClick={() => {
 										if (!busy) onRemove(host);
 									}}

@@ -1,5 +1,6 @@
 import type { AddressSettings, AdminAddress, SiteJobView } from "@portikus/contracts";
 import { Button, EmptyState, Skeleton, useToast } from "@portikus/ui";
+import { useEffect, useRef } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { useCountdown } from "../../shell/useCountdown.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
@@ -113,6 +114,16 @@ function JobGroup({ data, job }: { data: AdminAddress; job: SiteJobView }) {
 	const ask = useAddressJob();
 	const countdown = useCountdown(job.state === "trial" ? job.trialEndsAt : null);
 	const target = data.target;
+	const inTrial = job.state === "trial";
+	const wasTrial = useRef(inTrial);
+	// Keep and Roll back remove themselves when the trial ends: focus goes to the group heading.
+	useEffect(() => {
+		if (wasTrial.current && !inTrial) {
+			const lost = !document.activeElement || document.activeElement === document.body;
+			if (lost) document.getElementById("address-job-title")?.focus();
+		}
+		wasTrial.current = inTrial;
+	}, [inTrial]);
 
 	function end(kind: "keep" | "rollback") {
 		ask.mutate(
@@ -147,6 +158,7 @@ function JobGroup({ data, job }: { data: AdminAddress; job: SiteJobView }) {
 				<TrialPart
 					target={target}
 					clock={countdown?.clock ?? null}
+					at={countdown?.at ?? null}
 					pending={ask.isPending ? (ask.variables?.kind ?? null) : null}
 					onKeep={() => end("keep")}
 					onRollback={() => end("rollback")}
@@ -159,12 +171,14 @@ function JobGroup({ data, job }: { data: AdminAddress; job: SiteJobView }) {
 function TrialPart({
 	target,
 	clock,
+	at,
 	pending,
 	onKeep,
 	onRollback,
 }: {
 	target: AddressSettings;
 	clock: string | null;
+	at: string | null;
 	pending: "apply" | "keep" | "rollback" | null;
 	onKeep: () => void;
 	onRollback: () => void;
@@ -178,8 +192,8 @@ function TrialPart({
 					The old address comes back in{" "}
 					<span role="timer" className="font-semibold" data-testid="address-countdown">
 						{clock}
-					</span>{" "}
-					unless you press Keep.
+					</span>
+					{at ? `, at ${at},` : ""} unless you press Keep.
 				</p>
 			) : null}
 			{here ? null : (

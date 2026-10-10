@@ -150,11 +150,12 @@ export const ADMIN_HELP: HelpPart = {
 			title: "Allowed API hosts",
 			body: (
 				<p>
-					On <strong>Network</strong>, <strong>Allowed API hosts</strong> lets
-					workspaces reach one more host on the internet, such as an AI provider's API.
-					Type a host name only: no IP address, port or web address. Each host is
-					allowed on port 443 for HTTPS only, and you can add up to 50. Hosts from the
-					operator's own list show read-only.
+					On <strong>Network</strong>, <strong>Allowed API hosts</strong> lets the
+					Portikus server itself reach one more host on the internet, such as an AI
+					service or a sign-in provider. It does not open anything to workspaces. Type a
+					host name only: no IP address, port or web address. Each host is allowed on
+					port 443 for HTTPS only, and you can add up to 50. Hosts from the operator's
+					own list show read-only.
 				</p>
 			),
 		},
@@ -194,15 +195,15 @@ export const ADMIN_HELP: HelpPart = {
 						<strong>Site address</strong> moves Portikus to a new host name or port in
 						steps. Enter the new name and port to see the plan: the preview names, the
 						certificate and the workspaces that keep their old preview names until they
-						next start. The page checks DNS, that the names point at this server and
-						that port 80 answers. <strong>Apply as a trial</strong> moves the site. Open
-						the new address, sign in there and choose <strong>Keep</strong>. Without
-						Keep, the old address comes back after 15 minutes.
+						next start. The page checks DNS and that the names point at this server.{" "}
+						<strong>Apply as a trial</strong> moves the site. Open the new address, sign
+						in there and choose <strong>Keep</strong>. Without Keep, the old address
+						comes back after 15 minutes.
 					</p>
 					<p>
 						If the new address stops working after Keep, run{" "}
-						<code>sudo dpkg-reconfigure portikus</code> on the server, or edit{" "}
-						<code>portikus_public_port</code> in{" "}
+						<code>sudo dpkg-reconfigure portikus</code> on the server. If the port
+						changed, also edit <code>portikus_public_port</code> in{" "}
 						<code>/etc/portikus/portikus.yaml</code>.
 					</p>
 				</>

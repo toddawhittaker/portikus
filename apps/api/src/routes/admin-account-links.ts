@@ -5,9 +5,10 @@ import {
 	requireUser,
 	unlinkAccount,
 } from "@portikus/auth";
-import { type AdminAccountLinks, AdminLinkRequest } from "@portikus/contracts";
-import { recordAudit } from "@portikus/db";
+import { type AdminAccountLinks, AdminLinkRequest, Role } from "@portikus/contracts";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
+import type { Kysely } from "kysely";
 import { z } from "zod";
 import { notifyLinkChange } from "../admin/link-notice.js";
 import type { ServerDeps } from "../deps.js";
@@ -27,7 +28,32 @@ const REFUSALS = {
 	not_sso_account: "The other account must be an SSO account.",
 	not_authorized: "An administrator or disabled account cannot be linked to.",
 	already_linked: "One of these accounts is already linked.",
+	role_higher:
+		"This SSO account has a higher role than the course account last launched with, so linking would give the course account's person that role. Link only accounts that belong to the same person.",
 } as const;
+
+/**
+ * True when the SSO account's role is above the course account's role from
+ * its last launch (`provider_role`): an administrator's link must never
+ * hand a student an instructor's account (SPEC.md section 24).
+ */
+async function ssoRoleIsHigher(
+	db: Kysely<Database>,
+	courseUserId: string,
+	userId: string,
+): Promise<boolean> {
+	const rows = await db
+		.selectFrom("users")
+		.select(["id", "role", "provider_role"])
+		.where("id", "in", [courseUserId, userId])
+		.execute();
+	const course = rows.find((r) => r.id === courseUserId);
+	const sso = rows.find((r) => r.id === userId);
+	// linkAccounts refuses an administrator with its own reason.
+	if (!course || !sso || sso.role === "administrator") return false;
+	const rank = (role: string) => Role.options.indexOf(role as Role);
+	return rank(sso.role) > rank(course.provider_role);
+}
 
 /** Linking and unlinking a course account and an SSO account for someone else (SPEC.md 20.1, ADR 0026). */
 export function registerAdminAccountLinkRoutes(
@@ -80,6 +106,9 @@ export function registerAdminAccountLinkRoutes(
 		const course = { displayName: await displayNameOf(courseUserId) };
 
 		const outcome = await db.transaction().execute(async (trx) => {
+			if (await ssoRoleIsHigher(trx, courseUserId, params.id)) {
+				return { ok: false as const, reason: "role_higher" as const };
+			}
 			const linked = await linkAccounts(trx, { courseUserId, userId: params.id });
 			if (!linked.ok) return linked;
 			const platformName = platformNameOf(lti, linked.platformIssuer);

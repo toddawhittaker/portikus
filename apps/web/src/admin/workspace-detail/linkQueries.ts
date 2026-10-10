@@ -8,9 +8,6 @@ import {
 import { request } from "../../api/request.js";
 import { adminKeys } from "../queries.js";
 
-/** What the search lists for a blank box: the Source column's text for a course account. */
-const COURSE_SEARCH = "Course:";
-
 const linksKey = (userId: string) => ["admin", "links", userId] as const;
 
 /** The course accounts linked to one SSO account (ADR 0026). */
@@ -23,8 +20,9 @@ export function useAccountLinks(userId: string) {
 
 /** One page of accounts for the link dialog, found by the server (SPEC.md section 20.1). */
 export function useCourseAccountSearch(text: string, enabled: boolean) {
-	const q = text.trim() === "" ? COURSE_SEARCH : text.trim();
-	const params = new URLSearchParams({ q, limit: "50" });
+	const q = text.trim();
+	const params = new URLSearchParams({ unlinkedCourse: "1", limit: "50" });
+	if (q !== "") params.set("q", q);
 	return useQuery({
 		queryKey: [...adminKeys.users, "link-search", q],
 		queryFn: () => request(AdminUserList, `/admin/users?${params.toString()}`),

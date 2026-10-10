@@ -6,7 +6,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseFieldsOr400, sendError } from "../http.js";
 import { currentJob } from "../job-files.js";
 import { allSiteJobs, noteSiteJobsFinished } from "../site/jobs.js";
 import { readOperatorProxyHosts, readPageProxyHosts } from "../site/page-files.js";
@@ -41,25 +41,14 @@ export function registerAdminProxyHostRoutes(
 	app.put("/admin/proxy-hosts", adminOnly, async (request, reply) => {
 		if (!jobsDir) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const admin = requireUser(request);
-		const body = ProxyHostsUpdate.safeParse(request.body ?? {});
-		if (!body.success) {
-			// Zod's issues can quote the input; only the field paths are named.
-			const fields = [...new Set(body.error.issues.map((i) => i.path.join(".")))];
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				`Check these fields: ${fields.join(", ") || "hosts"}.`,
-			);
-		}
-		const hosts = [...new Set(body.data.hosts.map((host) => host.toLowerCase()))];
-		const result = await submitSiteJob(db, jobsDir, `user:${admin.id}`, {
+		const body = parseFieldsOr400(ProxyHostsUpdate, request.body ?? {}, reply);
+		if (!body) return reply;
+		const hosts = [...new Set(body.hosts.map((host) => host.toLowerCase()))];
+		const job = await submitSiteJob(reply, db, jobsDir, `user:${admin.id}`, {
 			kind: "proxy-hosts",
 			hosts,
 		});
-		if ("refused" in result) {
-			return sendError(reply, 409, "SITE_JOB_BUSY", result.refused);
-		}
-		return reply.status(202).send(result.job);
+		if (!job) return reply;
+		return reply.status(202).send(job);
 	});
 }

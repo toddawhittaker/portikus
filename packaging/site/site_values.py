@@ -38,7 +38,7 @@ CLAIM_RE = re.compile(r"[A-Za-z0-9_.:/-]+", re.ASCII)
 # JavaScript's \s, which the contract's patterns and String.prototype.trim use.
 JS_SPACE = "".join(chr(c) for c in (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0xA0, 0x1680, *range(0x2000, 0x200B),
                                      0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF))
-OIDC_ISSUER_RE = re.compile(r"https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^" + re.escape(JS_SPACE) + r"?#]*)?")
+OIDC_ISSUER_RE = re.compile(r"https://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?(/[^" + re.escape(JS_SPACE) + r"?#]*)?")
 # Printable ASCII: stricter than the browser's URL parser, which would percent-encode the rest.
 URL_RE = re.compile(r"https://[!-~]+", re.ASCII)
 
@@ -151,7 +151,9 @@ def check_tenant(value):
 
 
 def check_oidc_issuer(value):
-    if not OIDC_ISSUER_RE.fullmatch(site_text(value, 500)):
+    """Setup fetches its discovery document as root and the proxy opens its hosts, so a host name on 443 only."""
+    match = OIDC_ISSUER_RE.fullmatch(site_text(value, 500))
+    if not match or not is_host_name(match.group(1)) or match.group(3) not in (None, "443"):
         raise Refused("invalid_value")
     return value
 
@@ -227,10 +229,23 @@ def check_platform(platform):
     return out
 
 
+def keyset_clash(platform, registered):
+    """True when `registered` (issuer to keyset URLs) holds the platform's issuer with other keysets only.
+
+    Accounts are keyed by issuer and subject, so a second keyset for one issuer could sign in as its users.
+    """
+    return platform["issuer"] in registered and platform["keysetUrl"] not in registered[platform["issuer"]]
+
+
 def check_platforms(value):
     platforms = [check_platform(p) for p in _list(value, MAX_PLATFORMS)]
     _unique([p["name"] for p in platforms])
     _unique([(p["issuer"], p["clientId"]) for p in platforms])
+    keysets = {}
+    for p in platforms:
+        if keyset_clash(p, keysets):
+            raise Refused("duplicate")
+        keysets.setdefault(p["issuer"], {p["keysetUrl"]})
     return platforms
 
 

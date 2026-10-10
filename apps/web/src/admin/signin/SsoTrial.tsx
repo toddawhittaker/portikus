@@ -3,7 +3,7 @@ import { Button, HINT_CLASS, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { longTime } from "../backups/model.js";
-import { TEST_SIGNIN_URL, useEndTrial } from "./queries.js";
+import { useEndTrial, useStartTestSignin } from "./queries.js";
 import { PROVIDER_LABEL, timeLeft } from "./ssoForm.js";
 
 const ROLE_WORD = {
@@ -23,6 +23,8 @@ function resultText(test: SigninTestResult): string {
 	return `Test sign-in failed ${longTime(test.at)}: the sign-in did not come through this provider.`;
 }
 
+export const TRIAL_TEXT_ID = "sso-trial-text";
+
 /** An open sign-in trial: time left, Test sign-in, its result, Keep and Roll back (ADR 0059). */
 export function SsoTrial({
 	job,
@@ -35,6 +37,7 @@ export function SsoTrial({
 }) {
 	const toast = useToast();
 	const end = useEndTrial();
+	const startTest = useStartTestSignin();
 	const now = useNow();
 	const resultRef = useRef<HTMLParagraphElement>(null);
 	const test = lastTest?.trialId === job.id ? lastTest : null;
@@ -78,7 +81,7 @@ export function SsoTrial({
 
 	return (
 		<div className="grid gap-4" data-testid="sso-trial">
-			<p className="pk-text-body m-0">
+			<p id={TRIAL_TEXT_ID} tabIndex={-1} className="pk-text-body m-0 outline-none">
 				<span className="font-semibold">
 					{view ? PROVIDER_LABEL[view.provider] : "The new settings"}
 				</span>{" "}
@@ -105,7 +108,12 @@ export function SsoTrial({
 					{dexOnly ? null : (
 						<Button
 							data-testid="sso-test"
-							onClick={() => window.location.assign(TEST_SIGNIN_URL)}
+							loading={startTest.isPending}
+							onClick={() =>
+								startTest.mutate(undefined, {
+									onSuccess: ({ location }) => window.location.assign(location),
+								})
+							}
 						>
 							Test sign-in
 						</Button>
@@ -128,6 +136,15 @@ export function SsoTrial({
 						Roll back
 					</Button>
 				</div>
+				{startTest.isError ? (
+					<p
+						className="pk-text-compact m-0 text-status-error"
+						role="alert"
+						data-testid="sso-test-error"
+					>
+						{errorText(startTest.error)}
+					</p>
+				) : null}
 				{canKeep ? null : (
 					<p id="sso-keep-note" className={HINT_CLASS}>
 						Keep turns on after a test sign-in passes.

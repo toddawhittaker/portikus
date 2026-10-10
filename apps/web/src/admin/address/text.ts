@@ -12,12 +12,11 @@ export const SOURCE_LABEL: Record<SiteView["certificateSource"], string> = {
 	files: "Uploaded certificate",
 };
 
-export const CHECK_LABEL: Record<PreflightCheck["name"], string> = {
+export const CHECK_LABEL: Partial<Record<PreflightCheck["name"], string>> = {
 	"dns-site": "The new name resolves",
 	"dns-preview": "The new preview names resolve",
 	"reach-site": "The new name points at this server",
 	"reach-preview": "The new preview names point at this server",
-	"http-port-80": "Port 80 answers",
 };
 
 /** `https://host`, with the port unless it is 443, as the browser shows it. */
@@ -49,6 +48,9 @@ export function jobText(job: SiteJobView, target: AddressSettings | null): strin
 		case "reverted":
 			if (job.code === "trial_expired") {
 				return `Nobody pressed Keep at ${to} in time, so the old address was put back.`;
+			}
+			if ((job.code as string | null) === "trial_superseded") {
+				return "The trial ended because the settings were changed outside this page.";
 			}
 			if (job.code === "setup_failed") {
 				return `Setup failed while moving to ${to}, so the old address was put back.`;
