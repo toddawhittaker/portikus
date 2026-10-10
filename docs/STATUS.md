@@ -4880,17 +4880,37 @@ Delivered:
 - CI (#1369 H1): Postgres and the apt test image come from
   `mirror.gcr.io`, so Docker Hub's anonymous pull limit no longer fails
   jobs (#1368).
+- Pilot-feedback additions (#1380, #1381, #1382, #1385, #1387 to #1390):
+  - CSV view has row numbers and sortable columns, a view only that is
+    never saved (#1378).
+  - Voice input reaches open files: a hold-to-talk microphone in the file
+    header, or Alt+Shift+M held in the editor, types at the cursor as one
+    undo step with a leading-space rule; hidden for viewers, diffs and
+    browsers without speech recognition (#1375, ADR 0055 addendum).
+  - Tree file rows drop onto pane edges to open or move the file into a
+    split there; a moved pane keeps its Diff view. Folders and multi-row
+    drags are not accepted (#1376).
+  - A file pane has one header line (name and drag handle, parent folder,
+    save state, view buttons, actions menu). Images and other view-only
+    files have no view buttons. The diff's Compare with is a small header
+    button with a menu and dialogs (#1379, #1377).
+  - The preview protocol probe asks in plain HTTP before TLS (2 s HTTP,
+    1 s TLS), so plain dev servers no longer log a garbled 400 (#1386).
+  - Review fixes: dictation keeps the mic held, blank CSV headers show
+    "Column N", Compare with meets the target size.
 - Fold: SPEC, STATUS and ADR 0055. The design system README now says
   Monaco's background is `surface`.
 
 Gaps left:
 
+- In a pane under 24rem wide the file header's controls sit on a second
+  row. The header fallback outside a file pane stays.
 - Moves made by an agent or in a terminal do not retarget open tabs; the
   events stream reports a delete and a create (#1228).
 - Undo history is lost when an editor remounts; only the text is carried.
 - A move that replaces a file open elsewhere with its own unsaved edits
   shows the arriving file's text.
-- CSV is read-only, with no sorting or filtering, and draws 1,000 rows and
+- CSV is read-only, with sorting but no filtering, and draws 1,000 rows and
   200 columns.
 - Voice input on Safari is unconfirmed on a real Mac. There is no admin
   switch to turn it off (#1350).

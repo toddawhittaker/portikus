@@ -841,10 +841,12 @@ This selection history lasts only as long as the workspace is open in the
 browser; it is not saved.
 
 Terminal panes must additionally support splitting. A file pane can join a
-terminal's split, by dragging its title bar onto a pane's edge or through its
+terminal's split, by dragging its name onto a pane's edge or through its
 actions menu's "Move into"; resting a drag on a tab opens that tab. A tab
 shows the unsaved dot when any file in it has unsaved edits, and closing a
 tab that holds unsaved edits asks first.
+
+A file pane has one header line, alone in its tab or in a split. The name, which is the drag handle, is at the start, followed by its parent folder in muted text. The save state and the view buttons come next, then the microphone (§25.10), and the actions menu is at the end. An image, a PDF, or a file that cannot be edited has no view buttons, and it shows itself even when its diff is asked for.
 
 When a project has no tabs open, the centre pane says "No terminals open" and
 offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
@@ -955,6 +957,8 @@ Users must be able to:
 - resize splits;
 - rearrange terminal panes/tabs;
 - close a terminal.
+
+A file row dragged from the file tree onto a pane's edge opens that file in a split on that edge, or moves its pane there when it is already open. Folders do not drop on panes. The keyboard alternative is the pane's Move into menu. A file pane keeps the view it shows (editor, diff, or picture/table) when it is moved, for the session.
 
 A shell that exits, whether by `exit`, Ctrl+D, or any other route, closes its
 terminal and removes its pane, and closes the tab when it was the last pane in
@@ -1505,7 +1509,7 @@ P0 does **not** require graphical controls for:
 
 Students may perform those operations through the coding agent or Git CLI. Any resulting changes must be reflected in the Changes surface and file tree.
 
-A file's diff view has a "Compare with" choice: Last commit (the default), a Git ref the student types, or a recovery point. The ref is at most 256 characters, with no leading `-`, no control characters and no `..`, and is resolved to a commit with `rev-parse --end-of-options`. A recovery point is read only when the student presses Compare, because the read can take up to a minute (§15.8). The choice is local to the view and is never saved in the layout. There is no Changes list against a ref.
+A file's diff view has a small "Compare with" button in the file header. It opens a menu: Last commit (the default), A Git ref…, or A recovery point…. A ref or a point is asked for in a small dialog. The ref the student types The ref is at most 256 characters, with no leading `-`, no control characters and no `..`, and is resolved to a commit with `rev-parse --end-of-options`. A recovery point is read only when the student presses Compare, because the read can take up to a minute (§15.8). The choice is local to the view and is never saved in the layout. There is no Changes list against a ref.
 
 ### 12.7 Agent-session change review
 
@@ -1567,7 +1571,7 @@ The editor should prioritize:
 
 Large/binary files should open in a viewer or download flow rather than being forced through the text editor.
 
-A `.csv` file small enough to edit opens as a read-only table with View, Edit and Diff. The first record heads the columns. At most 1,000 rows and 200 columns are drawn, and the view says how many the file holds. A file that is not valid RFC 4180 CSV says so and offers its text.
+A `.csv` file small enough to edit opens as a read-only table with View, Edit and Diff. The first record heads the columns. Each row shows its data-row number as a row header, and the column headers sort a view of the whole file (ascending, descending, file order). Sorting never changes the file and never saves. At most 1,000 rows and 200 columns are drawn, and the view says how many the file holds. A file that is not valid RFC 4180 CSV says so and offers its text.
 
 ### 13.3 External modification
 
@@ -4723,10 +4727,10 @@ native progress element that carries its figure in `aria-valuetext`, inside a
 region with live announcements off, so the toast does not read every tick.
 The search, Compare with and CSV controls report state to screen readers (the
 option toggles with `aria-pressed`, the pattern error as the field's own
-error, one always-mounted polite status region for the slow recovery read,
-hidden "Column N" names for blank CSV headers).
+error, one always-mounted polite status region for the slow recovery read and, in the recovery point dialog, one polite region for the list's wait,
+visible muted "Column N" names for blank CSV headers, sortable headers as buttons with `aria-sort`).
 
-Voice input in a terminal is a deliberate exception to the click alternative
+Voice input in a terminal or an open file is a deliberate exception to the click alternative
 for held actions. The microphone button and Alt+Shift+M listen only while held
 (pointer, Space or Enter on the button, or the shortcut), and there is no
 click-to-latch mode. The product owner chose this so the microphone is never
@@ -4752,7 +4756,7 @@ Do not record coding-agent prompts, terminal command history, or project source 
 
 Institutional deployments must be able to define data-retention policy.
 
-Voice input uses the browser's own speech recognition. The audio goes to the browser vendor's service (Google for Chrome, Microsoft for Edge, Apple for Safari), not to Portikus. Portikus sends nothing to its server and logs nothing, and types only final phrases with every control character removed, so dictation never presses Enter. Errors and hints show on the pane and in a polite status region. A browser without the API, or whose service fails with a network error (Brave), shows no microphone and says so (ADR 0055).
+Voice input uses the browser's own speech recognition, in terminals and in editable text files. In a file, the microphone sits in the file header and Alt+Shift+M held in the editor does the same. Each final phrase is inserted at the cursor, replacing any selection, as one undo step, and marks the file unsaved as typing does. It gets one leading space when the character before it is not whitespace and not the start of a line. A Markdown tab dictates into the editor side. There is no microphone on images, view-only files, the CSV table, the SVG picture, the diff or conflict view. Errors also show as a visible line under the file header. The audio goes to the browser vendor's service (Google for Chrome, Microsoft for Edge, Apple for Safari), not to Portikus. Portikus sends nothing to its server and logs nothing, and types only final phrases with every control character removed, so dictation never presses Enter. Errors and hints show on the pane and in a polite status region. A browser without the API, or whose service fails with a network error (Brave), shows no microphone and says so (ADR 0055).
 
 ## 26. Control-plane data model
 
@@ -5834,7 +5838,7 @@ Includes:
   stop, with a site cap and a per-workspace override;
 - platform agent instructions as system files the controller rewrites at
   every start;
-- a TLS probe only when a preview first asks;
+- a protocol probe only when a preview first asks, which asks in plain HTTP first and tries a TLS handshake only when the answer is not an HTTP status line, or is a 400;
 - Docker tab sizes and meters, the cache-off reason, a 120-day usage
   window, and a seed matched to the default image's Node and Python;
 - deleting workspace images, a smaller automatic keep, and image sizes;

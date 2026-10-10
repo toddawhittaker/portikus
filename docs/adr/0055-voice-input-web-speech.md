@@ -2,7 +2,7 @@
 
 - **Status**: Accepted (Epic 39)
 - **Date**: 2026-10-09
-- **References**: SPEC.md sections 25.8 and 25.10; issues #1346 and #1350
+- **References**: SPEC.md sections 25.8 and 25.10; issues #1346, #1350 and #1375
 
 ## Context
 
@@ -40,3 +40,12 @@ Whisper running in the browser, and Whisper running on the server.
   show no microphone.
 - Safari should work but has not been confirmed on a real Mac.
 - Recognition quality and languages depend on the browser vendor.
+
+## Addendum, 2026-10-09 (issue #1375)
+
+Decision 1 covers file editors as well as terminals. An editable text file
+has the same hold-to-talk microphone in its header and the same
+Alt+Shift+M. Decisions 4 and 5 apply unchanged: hold to talk only, and
+final phrases only. In a file the text is inserted at the cursor, replacing
+any selection, as one undo step, with a leading space when needed. The microphone is hidden for images,
+view-only files, the CSV table, the diff and the conflict view.
