@@ -195,6 +195,29 @@
           - egress_proxy_allowed == ['keys.example.edu:443', 'sso.example.edu:443', 'userinfo.example.edu:443']
         fail_msg: "{{ egress_proxy_allowed }}"
 
+    # A provider's document must never open the management network or the
+    # metadata service; only the operator's own list may name an address.
+    - name: Build an allow list from a hostile discovery document
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/allow_list.yml
+      vars:
+        egress_proxy_hosts: [192.168.10.48:8765]
+        egress_proxy_discovery_documents:
+          results:
+            - item: "{{ egress_discovery.oidc[0] }}"
+              json:
+                issuer: https://10.100.0.1:22
+                authorization_endpoint: http://169.254.169.254:80/latest/meta-data
+                token_endpoint: https://169.254.169.254/token
+                jwks_uri: https://sso.example.edu:8443/keys
+                userinfo_endpoint: https://[fd00::1]/userinfo
+
+    - name: Check a discovery document adds no address and no other port
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_allowed == ['192.168.10.48:8765']
+        fail_msg: "{{ egress_proxy_allowed }}"
+
     - name: Remove the working directory
       ansible.builtin.file:
         path: "{{ egress_workdir.path }}"

@@ -54,7 +54,8 @@ export const ProxyHostName = SiteText(253).refine(
  */
 const HttpsUrl = (defaultPort: boolean) =>
 	SiteText(500).refine((value) => {
-		if (!value.startsWith("https://")) return false;
+		// Printable ASCII and no backslash, as the root job checks; the URL parser would rewrite the rest.
+		if (!/^https:\/\/[!-~]+$/.test(value) || value.includes("\\")) return false;
 		try {
 			const url = new URL(value);
 			return (
@@ -87,11 +88,20 @@ const TenantId = z
 		"must look like 12345678-90ab-cdef-1234-567890abcdef",
 	);
 
-const OidcIssuer = SiteField(
-	500,
-	/^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[^\s?#]*)?$/,
-	"must be an https address such as https://login.example.edu/realms/main",
-);
+const OIDC_ISSUER_RE = /^https:\/\/([A-Za-z0-9.-]+)(:([0-9]{1,5}))?(\/[^\s?#]*)?$/;
+
+/**
+ * Setup fetches the issuer's discovery document as root and the egress proxy
+ * opens its hosts, so a host name on port 443 only, never an address.
+ */
+const OidcIssuer = SiteText(500).refine((value) => {
+	const match = OIDC_ISSUER_RE.exec(value);
+	return (
+		match !== null &&
+		isHostName(match[1] ?? "") &&
+		(match[3] === undefined || match[3] === "443")
+	);
+}, "must be an https address on port 443 such as https://login.example.edu/realms/main");
 
 const GroupsClaim = SiteField(
 	100,
@@ -172,6 +182,19 @@ export const AdminLtiPlatform = z
 	.strict();
 export type AdminLtiPlatform = z.infer<typeof AdminLtiPlatform>;
 
+/** Accounts are keyed by issuer and subject, so a second keyset could sign in as the issuer's users. */
+function oneKeysetPerIssuer(
+	list: readonly { issuer: string; keysetUrl: string }[],
+): boolean {
+	const keysets = new Map<string, string>();
+	for (const p of list) {
+		const known = keysets.get(p.issuer);
+		if (known !== undefined && known !== p.keysetUrl) return false;
+		keysets.set(p.issuer, p.keysetUrl);
+	}
+	return true;
+}
+
 /** `PUT /admin/lms`: the whole page-owned list, which replaces the old one. */
 export const LtiPlatformsUpdate = z
 	.object({
@@ -182,6 +205,10 @@ export const LtiPlatformsUpdate = z
 			.refine(
 				(list) => unique(list.map((p) => JSON.stringify([p.issuer, p.clientId]))),
 				"must not repeat an issuer and client ID",
+			)
+			.refine(
+				oneKeysetPerIssuer,
+				"must not give one issuer two keyset URLs: accounts are keyed by issuer",
 			),
 	})
 	.strict();
@@ -360,6 +387,7 @@ export const SiteJobCode = z.enum([
 	"trial_expired",
 	"rolled_back",
 	"write_failed",
+	"trial_superseded",
 ]);
 export type SiteJobCode = z.infer<typeof SiteJobCode>;
 
