@@ -33,7 +33,7 @@ vi.mock("../editor/CodeEditor.js", () => ({
 vi.mock("../editor/MarkdownPreview.js", () => ({ MarkdownPreview: () => null }));
 
 type Handler = ((event: unknown) => void) | null;
-let recognizer: { onresult: Handler; onend: Handler } | null = null;
+let recognizer: { onresult: Handler; onerror: Handler; onend: Handler } | null = null;
 
 class FakeRecognition {
 	continuous = false;
@@ -142,4 +142,18 @@ test("no microphone where the browser has no speech recognition", async () => {
 	await screen.findByTestId("editor-src/app.ts");
 	expect(screen.queryByTestId("file-voice-src/app.ts")).toBeNull();
 	expect(voiceHold).toBeUndefined();
+});
+
+test("a voice error is shown on the file as well as announced", async () => {
+	renderLeaf("src/app.ts");
+	const button = await screen.findByTestId("file-voice-src/app.ts");
+	fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+	act(() => {
+		recognizer?.onerror?.({ error: "not-allowed" });
+		recognizer?.onend?.(undefined);
+	});
+	const message =
+		"Microphone access is blocked. Allow it in the browser's site settings.";
+	expect(screen.getByTestId("file-voice-error-src/app.ts").textContent).toBe(message);
+	expect(screen.getByTestId("file-voice-status-src/app.ts").textContent).toBe(message);
 });

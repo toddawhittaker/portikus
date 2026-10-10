@@ -20,7 +20,7 @@ import {
 	useFileGeneration,
 } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
-import { useSpeechInput } from "../voice/useSpeechInput.js";
+import { type SpeechInput, useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
 import { CsvView } from "./CsvView.js";
 import { DiffLeaf } from "./DiffLeaf.js";
@@ -538,6 +538,7 @@ function FileTab({
 						{note}
 					</div>
 				) : null}
+				<VoiceError path={path} voice={speech} shown={editing} />
 				{conflictDiff}
 				<div
 					className="pk-file-body"
@@ -633,6 +634,28 @@ function ViewButtons({
 				Diff
 			</button>
 		</fieldset>
+	);
+}
+
+/** A voice error, seen as well as heard; the status region reads it. */
+function VoiceError({
+	path,
+	voice,
+	shown,
+}: {
+	path: string;
+	voice: SpeechInput;
+	shown: boolean;
+}) {
+	if (!shown || voice.state === "listening" || voice.message === "") return null;
+	return (
+		<p
+			className="pk-file-banner"
+			aria-hidden="true"
+			data-testid={`file-voice-error-${path}`}
+		>
+			{voice.message}
+		</p>
 	);
 }
 

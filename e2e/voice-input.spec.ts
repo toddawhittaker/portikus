@@ -458,6 +458,35 @@ test.describe("voice input in a file", () => {
 		await expect(page.getByTestId(`file-status-${PATH}`)).toHaveText("Unsaved");
 	});
 
+	test("a voice error shows on the file, is announced, and leaves focus in the editor", async ({
+		page,
+		context,
+	}) => {
+		await fakeSpeech(page);
+		await openFile(page, context);
+		await lines(page).click();
+		await page.keyboard.down("Alt");
+		await page.keyboard.down("Shift");
+		await page.keyboard.down("KeyM");
+		await expect(page.getByTestId(`file-voice-${PATH}`)).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.fail("no-speech"),
+		);
+		await page.keyboard.up("KeyM");
+		await page.keyboard.up("Shift");
+		await page.keyboard.up("Alt");
+		await expect(page.getByTestId(`file-voice-error-${PATH}`)).toHaveText(
+			"No speech was heard.",
+		);
+		await expect(page.getByTestId(`file-voice-status-${PATH}`)).toHaveText(
+			"No speech was heard.",
+		);
+		await expect(page.getByTestId(`editor-${PATH}`).getByRole("textbox")).toBeFocused();
+	});
+
 	test("an image and a CSV table have no microphone", async ({ page, context }) => {
 		await fakeSpeech(page);
 		const student = await createStudent(context);
