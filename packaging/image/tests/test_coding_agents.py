@@ -319,6 +319,33 @@ class UpdateTest(Base):
         self.assertEqual(self.host.downloads(), [f"{ca.CLAUDE_BASE}/stable", ca.CODEX_LATEST])
         self.assertEqual(self.host.ran("launch"), [])
 
+    def test_an_older_offered_version_is_never_installed(self):
+        # The stable pointer is unsigned, so an older signed release must not count as an update.
+        self.install("claude", "2.1.300", current=True)
+        self.install("codex", "0.163.0", current=True)
+        self.host.publish_claude("2.1.299")
+        self.host.publish_codex("0.99.9")
+        status = self.go({"kind": "agents-update"})
+        self.assertEqual(status["state"], "succeeded")
+        self.assertEqual(status["message"],
+                         "Claude Code was left at 2.1.300: the vendor offered 2.1.299, which is older. "
+                         "Codex was left at 0.163.0: the vendor offered 0.99.9, which is older.")
+        self.assertEqual((self.link("claude", "current"), self.link("codex", "current")), ("2.1.300", "0.163.0"))
+        self.assertEqual(ca.versions(str(self.store), "claude"), ["2.1.300"])
+        self.assertEqual(self.host.downloads(), [f"{ca.CLAUDE_BASE}/stable", ca.CODEX_LATEST])
+        self.assertEqual(self.host.ran("launch"), [])
+
+    def test_an_older_kept_version_is_not_switched_back_to(self):
+        self.install("claude", "2.1.287", previous=True)
+        self.install("claude", "2.1.300", current=True)
+        self.install("codex", "0.163.0", current=True)
+        self.host.publish_claude("2.1.287")
+        self.host.publish_codex("0.163.0")
+        status = self.go({"kind": "agents-update"})
+        self.assertEqual(status["state"], "succeeded")
+        self.assertEqual((self.link("claude", "current"), self.link("claude", "previous")), ("2.1.300", "2.1.287"))
+        self.assertEqual(self.host.ran("launch"), [])
+
     def test_a_kept_version_is_checked_again_and_reused(self):
         self.install("claude", "2.1.300")
         self.install("claude", "2.1.287", current=True)
@@ -597,7 +624,7 @@ class FolderTest(Base):
         (self.proc / "self").mkdir()
         (self.proc / "78").mkdir()  # a process that ended: no exe
         running = ca.running_files(str(self.proc))
-        self.assertEqual(ca.prune(str(self.store), "claude", running), ["2.1.3", "2.1.1"])
+        self.assertEqual(ca.prune(str(self.store), "claude", running), [("2.1.3", False), ("2.1.1", False)])
         self.assertEqual(ca.versions(str(self.store), "claude"), ["2.1.6", "2.1.5", "2.1.4", "2.1.2"])
 
     def test_prune_never_removes_an_old_current_or_previous(self):
@@ -605,8 +632,23 @@ class FolderTest(Base):
         self.install("codex", "0.1.2", previous=True)
         for version in ("0.1.3", "0.1.4", "0.1.5"):
             self.install("codex", version)
-        self.assertEqual(ca.prune(str(self.store), "codex", set()), ["0.1.4", "0.1.3"])
+        self.assertEqual(ca.prune(str(self.store), "codex", set()), [("0.1.4", False), ("0.1.3", False)])
         self.assertEqual(ca.versions(str(self.store), "codex"), ["0.1.5", "0.1.2", "0.1.1"])
+
+    def test_versions_in_use_are_capped_at_five_folders(self):
+        # A student running old binaries must not grow the folder without limit.
+        running = set()
+        for version in ("2.1.1", "2.1.2", "2.1.3", "2.1.4", "2.1.5", "2.1.6"):
+            st = os.stat(self.install("claude", version))
+            running.add((st.st_dev, st.st_ino))
+        self.install("claude", "2.1.7", previous=True)
+        self.install("claude", "2.1.8", current=True)
+        # Previous is old too and must survive even at the cap.
+        self.install("codex", "0.1.1", previous=True)
+        self.install("codex", "0.1.9", current=True)
+        removed = ca.prune(str(self.store), "claude", running)
+        self.assertEqual(removed, [("2.1.1", True), ("2.1.2", True), ("2.1.3", True)])
+        self.assertEqual(ca.versions(str(self.store), "claude"), ["2.1.8", "2.1.7", "2.1.6", "2.1.5", "2.1.4"])
 
     def test_recover_removes_staging_and_leaves_versions(self):
         self.install("claude", "2.1.287", current=True)

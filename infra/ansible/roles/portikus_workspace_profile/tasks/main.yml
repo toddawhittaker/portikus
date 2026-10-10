@@ -120,8 +120,10 @@
 # Claude Code and Codex live in one shared folder that the root image job
 # updates without an image rebuild (SPEC.md section 10).  The whole folder is
 # mounted, not its `current` links, which a bind mount would freeze.  Only
-# root on the VM writes it; the mount is read-only and idmap-shifted, so
-# neither the student nor container root can change it.  Incus adds the new
+# root on the VM writes it.  The mount is read-only and not shifted, so its
+# host-root files appear owned by nobody inside the workspace; neither the
+# student nor container root can change them, and their world-readable modes
+# let students run them.  Incus adds the new
 # device to running workspaces too, whatever image they started from.
 - name: Create the shared coding-agents folder
   ansible.builtin.file:
