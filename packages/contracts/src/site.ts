@@ -504,6 +504,10 @@ export const AdminAddress = z
 			previewSuffixSetByHand: true,
 			certificateSource: true,
 		}).nullable(),
+		/** True on an apt install, where the address can be changed here. */
+		apt: z.boolean(),
+		/** The address the shown job asked for, from its audit row; null with no job. */
+		target: AddressSettings.nullable(),
 		job: SiteJobView.nullable(),
 	})
 	.strict();
@@ -532,6 +536,12 @@ export const AddressPlan = z
 		workspacesKeepingOldSuffix: z.array(
 			z.object({ id: z.string(), label: z.string(), ownerName: z.string() }).strict(),
 		),
+		/** The DNS names that must point at this server before the switch. */
+		dnsNames: z.array(z.string()),
+		/** What happens to the certificate, in one or two sentences. */
+		certificateNote: z.string(),
+		/** The steps outside Portikus, in order, as plain sentences. */
+		checklist: z.array(z.string()),
 	})
 	.strict();
 export type AddressPlan = z.infer<typeof AddressPlan>;

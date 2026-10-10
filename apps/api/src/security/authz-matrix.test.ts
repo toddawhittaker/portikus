@@ -123,6 +123,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/certificate/preflight": 404,
 	"GET /admin/certificate/root.crt": 404,
 	"HEAD /admin/certificate/root.crt": 404,
+	// Tests set no SITE_JOBS_DIR, so the Site address section is off.
+	"GET /admin/address": 404,
+	"HEAD /admin/address": 404,
+	"POST /admin/address/plan": 404,
+	"POST /admin/address/preflight": 404,
+	"POST /admin/address/apply": 404,
+	"POST /admin/address/keep": 404,
+	"POST /admin/address/rollback": 404,
 	// Tests set no ALERTS_JOBS_DIR, so the Notifications section is off.
 	"GET /admin/notifications": 404,
 	"HEAD /admin/notifications": 404,
