@@ -4,7 +4,7 @@
  * with the real agent's checks; `ignoresTerm` survives a plain stop.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, expectNoViolations, workspacePath } from "./helpers";
+import { createStudent, expectNoViolations, toast, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function seedProcesses(workspaceId: string, processes: unknown[]): Promise<void> {
@@ -282,12 +282,11 @@ test("Lower its priority instead lowers the tree once, then says it is already l
 	let dialog = await openStop(page, "busy (PID 42)");
 	await dialog.getByRole("button", { name: "Lower its priority instead" }).click();
 	await expect(dialog).toHaveCount(0);
-	await expect(page.getByText("Lowered the priority of busy (PID 42).")).toBeVisible();
-	await expect(
-		page.getByText(
-			"3 processes now run after everything else. One process Portikus needs was left alone.",
-		),
-	).toBeVisible();
+	const lowered = toast(page, "Lowered the priority of busy (PID 42).");
+	await expect(lowered).toBeVisible();
+	await expect(lowered).toContainText(
+		"3 processes now run after everything else. One process Portikus needs was left alone.",
+	);
 	// Every row stays; nothing was stopped, and focus is back on Stop.
 	await expect(page.getByTestId("monitor-process-42")).toBeVisible();
 	await expect(page.getByRole("button", { name: "Stop busy (PID 42)" })).toBeFocused();
@@ -295,7 +294,7 @@ test("Lower its priority instead lowers the tree once, then says it is already l
 	dialog = await openStop(page, "busy (PID 42)");
 	await dialog.getByRole("button", { name: "Lower its priority instead" }).click();
 	await expect(
-		page.getByText(/busy \(PID 42\) already runs at the lowest priority\./),
+		toast(page, "busy (PID 42) already runs at the lowest priority."),
 	).toBeVisible();
 
 	// A process without children offers no checkbox, only the priority.
