@@ -31,13 +31,18 @@ const SITE_ROOT = join(tmpdir(), `portikus-e2e-site-${API_PORT}`);
 export const SITE_JOBS_DIR = join(SITE_ROOT, "var/lib/portikus/site-jobs");
 export const SITE_VIEW_FILE = join(SITE_ROOT, "etc/portikus/site-view.json");
 export const PROXY_HOSTS_FILE = join(SITE_ROOT, "etc/portikus/proxy-hosts.json");
+/** The operator's host list, which Ansible writes on a real host. */
+export const OPERATOR_PROXY_HOSTS_FILE = join(
+	SITE_ROOT,
+	"etc/portikus/operator-proxy-hosts.json",
+);
 export const LTI_ADMIN_PLATFORMS_FILE = join(
 	SITE_ROOT,
 	"etc/portikus/lti-platforms-admin.json",
 );
 const INSTALL_ANSWERS = join(SITE_ROOT, "etc/portikus/portikus.yaml");
-/** Where the fake Squid configuration lives; the operator's hosts are read from it. */
-export const SQUID_CONF = join(SITE_ROOT, "etc/squid/squid.conf");
+/** The fake Squid configuration the site job checks before a reload. */
+const SQUID_CONF = join(SITE_ROOT, "etc/squid/squid.conf");
 
 const repo = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const SITE_JOB = repo("packaging/site/site-job");

@@ -167,3 +167,26 @@ test("Dex only can be kept at once, with no test", async () => {
 	expect(keep.getAttribute("aria-disabled")).toBeNull();
 	expect(screen.queryByTestId("sso-test")).toBeNull();
 });
+
+// A trial starting moves focus to its sentence only from the body or this group (SPEC.md section 25.8).
+test.each([
+	["the body", false, true],
+	["another group", true, false],
+])("a trial starting with focus on %s", async (_where, outside, moves) => {
+	let page: AdminSignin = { current: CURRENT, job: null, lastTest: null };
+	stubFetch(() => json(200, page));
+	const client = renderWithQuery(
+		<>
+			<button type="button">Elsewhere</button>
+			<SsoGroup />
+		</>,
+	);
+	await screen.findByTestId("sso-current");
+	if (outside) screen.getByRole("button", { name: "Elsewhere" }).focus();
+	page = { ...page, job: trialJob() };
+	await client.invalidateQueries();
+	await screen.findByTestId("sso-keep");
+	const text = document.getElementById("sso-trial-text");
+	await waitFor(() => expect(document.activeElement === text).toBe(moves));
+	if (!moves) expect(document.activeElement?.textContent).toBe("Elsewhere");
+});

@@ -22,7 +22,8 @@ import {
  */
 test.describe.configure({ mode: "serial" });
 
-const NEW_HOST = "code.example.edu";
+// Apply checks real DNS on the server; systemd-resolved answers *.localhost.
+const NEW_HOST = "code.localhost";
 const NEW_URL = `https://${NEW_HOST}`;
 
 const VIEW: SiteView = {
@@ -244,6 +245,29 @@ test("with an outside sign-in provider the plan and the confirmation say to regi
 	await expect(page.getByTestId("address-plan-signin-warning")).toHaveText(warning);
 	await page.getByTestId("address-apply").click();
 	await expect(page.getByTestId("address-apply-signin-warning")).toHaveText(warning);
+	await expectNoViolations(page);
+});
+
+test("Apply is refused when the new name does not resolve, and the page says why", async ({
+	page,
+}) => {
+	await open(page);
+	// The page's own pre-flight is faked to pass; the server repeats the DNS check.
+	await page.route("**/admin/address/preflight", (route) =>
+		route.fulfill({ json: PASSED }),
+	);
+	await page.getByTestId("address-host").fill("nowhere.invalid");
+	await page.getByTestId("address-port").fill("443");
+	await page.getByTestId("address-check").click();
+	await expect(page.getByTestId("address-preflight-summary")).toBeVisible();
+	await page.getByTestId("address-apply").click();
+	await page
+		.getByTestId("address-apply-confirm")
+		.getByRole("button", { name: "Apply" })
+		.click();
+	await expect(page.getByTestId("address-error")).toContainText(
+		"nowhere.invalid does not resolve in DNS.",
+	);
 	await expectNoViolations(page);
 });
 

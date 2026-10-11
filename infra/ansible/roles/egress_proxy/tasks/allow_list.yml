@@ -42,3 +42,9 @@
     fail_msg: "Egress allow list entry '{{ item }}' is not host or host:port."
     quiet: true
   loop: "{{ egress_proxy_allowed }}"
+
+# Squid matches these by name and the rest exactly by address; the admin
+# page shows these as the operator's hosts.
+- name: Pick out the host names from the addresses
+  ansible.builtin.set_fact:
+    egress_proxy_host_entries: "{{ egress_proxy_allowed | reject('match', '^[0-9]{1,3}([.][0-9]{1,3}){3}:') | list }}"

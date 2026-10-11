@@ -22,6 +22,20 @@
     group: root
     mode: "0755"
 
+# The egress_proxy role's host names, readable by the API only, like the
+# page's own proxy-hosts.json (ADR 0059).  Here because the package makes
+# the portikus group; tagged like that role so every run that changes the
+# list rewrites it, and skipped by a run that never built the list.
+- name: Write the operator's proxy hosts for the admin page
+  ansible.builtin.template:
+    src: operator-proxy-hosts.json.j2
+    dest: /etc/portikus/operator-proxy-hosts.json
+    owner: root
+    group: portikus
+    mode: "0640"
+  when: egress_proxy_host_entries is defined
+  tags: [egress_proxy, lti]
+
 # ── Controller token (generated once) ────────────────────────────
 
 - name: Generate controller token

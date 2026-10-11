@@ -694,7 +694,8 @@ egress rules.
   `PORTIKUS_EGRESS_EXTRA_HOSTS`. The site's own
   name is allowed at `127.0.0.1` only, because the API reaches its issuer
   through Caddy on the same VM. The play prints the list, and it is in
-  `/etc/squid/squid.conf` on the VM.
+  `/etc/squid/squid.conf` on the VM. The Network page reads the same list
+  from `/etc/portikus/operator-proxy-hosts.json`.
 - **Adding a host.** List it with its port if that is not 443, separated
   by commas, and run the play again:
   `make configure-vm PORTIKUS_EGRESS_EXTRA_HOSTS=keys.example.edu,192.0.2.10:8443`.

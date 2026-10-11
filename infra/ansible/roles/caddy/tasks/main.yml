@@ -37,15 +37,35 @@
 
 # The API fetches the identity provider's discovery document over the public
 # host name.  This entry keeps that fetch on loopback, where the units'
-# IPAddressAllow permits it.
+# IPAddressAllow permits it.  The marker, not the name, finds the line, so
+# an address move replaces it.
 - name: Resolve the public host name to loopback on the VM
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    regexp: '^127\.0\.0\.1\s+{{ portikus_public_host | regex_escape }}$'
-    line: "127.0.0.1 {{ portikus_public_host }}"
+    regexp: '\s# portikus site address$'
+    line: "127.0.0.1 {{ portikus_public_host }} # portikus site address"
     owner: root
     group: root
     mode: "0644"
+
+# Earlier setups wrote the line with no marker.  The site view the last run
+# wrote names the host it pinned, so only lines Portikus wrote are removed.
+- name: Read the site address the last setup pinned
+  ansible.builtin.slurp:
+    path: /etc/portikus/site-view.json
+  register: caddy_previous_site_view
+  failed_when: false
+
+- name: Remove unmarked loopback lines for the site address
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.0\.1\s+{{ item | regex_escape }}$'
+    state: absent
+  loop: >-
+    {{ ([portikus_public_host]
+        + ([(caddy_previous_site_view.content | b64decode | from_json).host | default('')]
+           if caddy_previous_site_view.content is defined else []))
+       | select | unique | list }}
 
 - name: Create the portikus configuration directory
   ansible.builtin.file:

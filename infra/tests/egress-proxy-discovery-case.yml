@@ -1,0 +1,31 @@
+---
+# One case of egress-proxy-render-test.yml: a curl result in
+# egress_refused_fetch.fetch must be refused, with egress_refused_fetch.message.
+- name: Try a provider whose fetch gave {{ egress_refused_fetch.message }}
+  block:
+    - name: Read the provider's answer
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/discovery_documents.yml
+      vars:
+        egress_proxy_via_squid: false
+        egress_proxy_discovery: [{issuer: https://sso.example.edu, userinfo: true}]
+        egress_proxy_discovery_fetches:
+          results:
+            - "{{ {'item': {'item': {'issuer': 'https://sso.example.edu', 'userinfo': true}}} | combine(egress_refused_fetch.fetch) }}"
+
+    - name: Note that it was accepted
+      ansible.builtin.set_fact:
+        egress_fetch_accepted: true
+  rescue:
+    - name: Note that it was refused
+      ansible.builtin.set_fact:
+        egress_fetch_accepted: false
+        egress_fetch_message: "{{ ansible_failed_result.results | default([ansible_failed_result]) | map(attribute='msg') | join(' ') }}"
+
+- name: Require the refusal
+  ansible.builtin.assert:
+    that:
+      - not egress_fetch_accepted
+      - egress_fetch_message is search('Setup could not read the discovery document of ')
+      - egress_refused_fetch.message in egress_fetch_message
+    fail_msg: "A fetch giving {{ egress_refused_fetch.fetch | to_json }} was accepted, or refused for another reason: {{ egress_fetch_message | default('') }}"
+    quiet: true

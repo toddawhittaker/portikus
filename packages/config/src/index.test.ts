@@ -790,7 +790,9 @@ test("the site job settings default to /etc/portikus and must be absolute", () =
 	expect(config.SITE_JOBS_DIR).toBeUndefined();
 	expect(config.SITE_VIEW_FILE).toBe("/etc/portikus/site-view.json");
 	expect(config.PROXY_HOSTS_FILE).toBe("/etc/portikus/proxy-hosts.json");
-	expect(config.SQUID_CONF_FILE).toBe("/etc/squid/squid.conf");
+	expect(config.OPERATOR_PROXY_HOSTS_FILE).toBe(
+		"/etc/portikus/operator-proxy-hosts.json",
+	);
 	expect(config.LTI_ADMIN_PLATFORMS_FILE).toBe(
 		"/etc/portikus/lti-platforms-admin.json",
 	);
@@ -799,7 +801,7 @@ test("the site job settings default to /etc/portikus and must be absolute", () =
 		"SITE_VIEW_FILE",
 		"PROXY_HOSTS_FILE",
 		"LTI_ADMIN_PLATFORMS_FILE",
-		"SQUID_CONF_FILE",
+		"OPERATOR_PROXY_HOSTS_FILE",
 	]) {
 		expect(() => loadConfig(ApiConfigSchema, { ...base, [key]: "relative" })).toThrow(
 			new RegExp(key),

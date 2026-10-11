@@ -1,0 +1,29 @@
+---
+# One case of egress-proxy-render-test.yml: a provider whose lookup gave
+# egress_refused_lines must be refused by the role's address check.
+- name: Try a provider that resolves to {{ egress_refused_lines | map('split') | map('first') | join(', ') or 'nothing' }}
+  block:
+    - name: Check the provider's addresses
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/issuer_check.yml
+      vars:
+        egress_proxy_issuer_lookups:
+          results:
+            - item: {issuer: https://sso.example.edu}
+              stdout_lines: "{{ egress_refused_lines }}"
+
+    - name: Note that it was accepted
+      ansible.builtin.set_fact:
+        egress_issuer_accepted: true
+  rescue:
+    - name: Note that it was refused
+      ansible.builtin.set_fact:
+        egress_issuer_accepted: false
+        egress_issuer_message: "{{ ansible_failed_result.results | default([ansible_failed_result]) | map(attribute='msg') | join(' ') }}"
+
+- name: Require the refusal
+  ansible.builtin.assert:
+    that:
+      - not egress_issuer_accepted
+      - egress_issuer_message is search('The sign-in provider https://sso.example.edu ')
+    fail_msg: "A provider at {{ egress_refused_lines }} was accepted, or refused for another reason: {{ egress_issuer_message | default('') }}"
+    quiet: true

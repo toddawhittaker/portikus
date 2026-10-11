@@ -20,6 +20,8 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-certificate-job.path portikus-certificate-job.service \
 		portikus-certificate-check.timer portikus-certificate-check.service \
 		'portikus-backup-key@*.service' 'portikus-alert@*.service' || true
+	# A timer's run cut off by the stop ends failed, which would outlive the package.
+	systemctl reset-failed 'portikus-*' >/dev/null 2>&1 || true
 	# Setup enables these; left enabled, their links dangle once the unit files are gone.
 	systemctl disable portikus-image-job.path portikus-egress-apply.path \
 		portikus-image-check.timer portikus-backup.timer portikus-backup-channel.timer \

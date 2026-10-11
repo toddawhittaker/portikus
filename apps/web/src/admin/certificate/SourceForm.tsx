@@ -344,6 +344,20 @@ function applyText(settings: CertificateSettings, siteName: string): string {
 	return `This server checks the names, gets a certificate for ${siteName} and its preview names in a separate copy of Caddy, and switches the site to it only once it exists. Until then the site keeps its current certificate. ${undo}`;
 }
 
+/** Why the warnings do not block, naming only the kinds of check that warned. */
+function warningReason(checks: CertificatePreflight): string {
+	const names = checks.checks.filter((c) => c.result === "warning").map((c) => c.name);
+	const dns = names.some((n) => n.startsWith("dns-"));
+	const reach = names.some((n) => !n.startsWith("dns-"));
+	const reachText =
+		"this server cannot reach itself from inside its sandbox, so the reach checks are advisory";
+	const dnsText = "a DNS-01 certificate does not depend on the names resolving here";
+	if (dns && reach) return `Warnings do not block: ${reachText}, and ${dnsText}.`;
+	if (dns) return `Warnings do not block: ${dnsText}.`;
+	if (reach) return `Warnings do not block: ${reachText}.`;
+	return "Warnings do not block.";
+}
+
 function PreflightList({ checks }: { checks: CertificatePreflight }) {
 	const failed = checks.checks.filter((c) => c.result === "failed").length;
 	const warned = checks.checks.filter((c) => c.result === "warning").length;
@@ -351,7 +365,7 @@ function PreflightList({ checks }: { checks: CertificatePreflight }) {
 		failed > 0
 			? `${failed} ${failed === 1 ? "check" : "checks"} failed. Fix ${failed === 1 ? "it" : "them"} and try again.`
 			: warned > 0
-				? `The checks passed with ${warned} ${warned === 1 ? "warning" : "warnings"}. A DNS-01 certificate does not depend on them.`
+				? `The checks passed with ${warned} ${warned === 1 ? "warning" : "warnings"}. ${warningReason(checks)}`
 				: "All checks passed.";
 	return (
 		<>

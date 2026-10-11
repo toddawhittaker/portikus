@@ -98,7 +98,7 @@ const PASSED: CertificatePreflight = {
 	],
 };
 
-// Only HTTP-01 fails a check; DNS-01 turns the same finding into a warning.
+// Only a DNS check under HTTP-01 fails; every other finding is a warning.
 const FAILED: CertificatePreflight = {
 	ok: false,
 	checks: [
@@ -369,7 +369,7 @@ test("Test only runs the checks, then asks for a test with the stored secret kep
 	renderWithQuery(<CertificateTab />);
 	fireEvent.click(await screen.findByTestId("cert-test"));
 	expect((await screen.findByTestId("cert-preflight-summary")).textContent).toBe(
-		"The checks passed with 1 warning. A DNS-01 certificate does not depend on them.",
+		"The checks passed with 1 warning. Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory.",
 	);
 	expect(screen.getByTestId("cert-check-reach-preview").textContent).toContain(
 		"Did not answer in time.",
@@ -407,6 +407,25 @@ test("a failed HTTP-01 check blocks Apply and names the name that is wrong", asy
 	expect(screen.queryByTestId("cert-apply-confirm")).toBeNull();
 	expect(posted(fetch, "/admin/certificate/preflight")).toEqual([{ mode: "http01" }]);
 	expect(posted(fetch, "/admin/certificate/jobs")).toEqual([]);
+});
+
+test("HTTP-01 reach and port-80 warnings do not block Apply", async () => {
+	serve(data(), {
+		preflight: {
+			ok: true,
+			checks: [
+				{ name: "reach-site", result: "warning", message: "Did not answer." },
+				{ name: "http-port-80", result: "warning", message: "Did not answer." },
+			],
+		},
+	});
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-mode-http01"));
+	fireEvent.click(screen.getByTestId("cert-apply"));
+	expect((await screen.findByTestId("cert-preflight-summary")).textContent).toContain(
+		"Warnings do not block",
+	);
+	expect(await screen.findByTestId("cert-apply-confirm")).toBeTruthy();
 });
 
 /** Every variable any mutation in the cache still holds, as text. */
@@ -769,4 +788,36 @@ test("Roll back's reason sits with the buttons, not above the certificate", asyn
 		Node.DOCUMENT_POSITION_FOLLOWING,
 	);
 	expect(rollback.parentElement?.parentElement?.contains(note)).toBe(true);
+});
+
+const REACH_ONLY =
+	"Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory.";
+const DNS_ONLY =
+	"Warnings do not block: a DNS-01 certificate does not depend on the names resolving here.";
+
+// The summary gives the reason that matches the checks that warned.
+test.each([
+	["only reach checks", ["reach-site", "http-port-80"], REACH_ONLY],
+	["only a DNS check", ["dns-preview"], DNS_ONLY],
+	[
+		"both kinds",
+		["dns-site", "reach-preview"],
+		"Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory, and a DNS-01 certificate does not depend on the names resolving here.",
+	],
+] as const)("the warning summary with %s", async (_label, names, reason) => {
+	serve(data(), {
+		preflight: {
+			ok: true,
+			checks: names.map((name) => ({ name, result: "warning", message: "Odd." })),
+		},
+	});
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-test"));
+	const summary = (await screen.findByTestId("cert-preflight-summary")).textContent;
+	expect(summary).toBe(
+		`The checks passed with 2 warnings. ${reason}`.replace(
+			"2 warnings",
+			names.length === 1 ? "1 warning" : "2 warnings",
+		),
+	);
 });
