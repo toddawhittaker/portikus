@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import { NO_FILTERS } from "./filters.js";
 import { filterInvitations } from "./Invitations.js";
+import { isUsersList, usersBody } from "./testRows.js";
 
 test("the search and role filters apply to invitations; workspace filters hide them", () => {
 	const sam: Invitation = {
@@ -47,7 +48,7 @@ function stub(start: Invitation[] = []) {
 	let invitations = start;
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: [], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [], false);
 		if (url === "/admin/invitations" && init?.method !== "POST") {
 			return json(200, { invitations });
 		}

@@ -1,9 +1,9 @@
 import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
 import {
+	DEX_ACCOUNT_ISSUER,
 	FAKE_AGENT_TOKEN,
 	loginAs,
-	MOCK_ISSUER,
 	query,
 	routeApi,
 	settledAxe,
@@ -20,7 +20,7 @@ async function insertStudent(name: string): Promise<string> {
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, $4, 'student') returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,
@@ -172,13 +172,24 @@ test("Rebuild all on older images offers exactly the older rows", async ({ page 
 	const oldWs = await insertWorkspace(await insertStudent(oldName), "stopped");
 	await insertWorkspace(await insertStudent(newName), "stopped");
 	// Image currency comes from the worker's host sample, which e2e has none of
-	// (the API test covers it), so mark the rows in the list answer.
-	await routeApi(page, "**/admin/users", async (route) => {
-		const response = await route.fetch();
+	// (the API tests cover it), so mark the rows in the list answer and apply
+	// the Older filter here, as the API would.
+	await routeApi(page, "**/admin/users?**", async (route, request) => {
+		const url = new URL(request.url());
+		const older = url.searchParams.get("image") === "older";
+		url.searchParams.delete("image");
+		const response = await route.fetch({ url: url.toString() });
 		const body = await response.json();
 		for (const user of body.users) {
 			if (!user.workspace) continue;
 			user.workspace.image.current = user.workspace.id !== oldWs;
+		}
+		if (older) {
+			body.users = body.users.filter(
+				(user: { workspace: { image: { current: boolean } } | null }) =>
+					user.workspace?.image.current === false,
+			);
+			body.total = body.users.length;
 		}
 		await route.fulfill({ response, json: body });
 	});

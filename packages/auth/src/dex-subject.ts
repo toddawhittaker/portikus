@@ -1,15 +1,22 @@
+import { DEX_ACCOUNT_ISSUER } from "@portikus/contracts";
+
+// Dex subjects carry no host, so with this issuer an account survives an address move.
+export { DEX_ACCOUNT_ISSUER };
+
 /**
- * The subject Dex puts in an ID token for a static-password user: the
- * protobuf IDTokenSubject{user_id, conn_id: "local"}, base64url without
- * padding (ADR 0023).
+ * The subject Dex puts in an ID token: the protobuf
+ * IDTokenSubject{user_id, conn_id}, base64url without padding (ADR 0023).
  */
-export function dexLocalSubject(userId: string): string {
+export function dexSubject(userId: string, connectorId: string): string {
 	const id = Buffer.from(userId, "utf8");
+	const conn = Buffer.from(connectorId, "utf8");
 	// A single length byte only works below 128; a UUID is 36.
 	if (id.length === 0 || id.length >= 128) {
 		throw new Error("userId must be 1 to 127 bytes");
 	}
-	const conn = Buffer.from("local", "utf8");
+	if (conn.length === 0 || conn.length >= 128) {
+		throw new Error("connectorId must be 1 to 127 bytes");
+	}
 	const bytes = Buffer.concat([
 		Buffer.from([0x0a, id.length]),
 		id,
@@ -19,15 +26,22 @@ export function dexLocalSubject(userId: string): string {
 	return bytes.toString("base64url");
 }
 
+/** The subject of a Dex static-password user. */
+export function dexLocalSubject(userId: string): string {
+	return dexSubject(userId, "local");
+}
+
 /**
  * The Dex user ID of an account that signs in with a Dex local password:
  * its subject is a local one from this site's own Dex. Null otherwise.
  */
-export function localDexUserId(
-	row: { oidc_issuer: string; oidc_subject: string },
-	issuer: string,
-): string | null {
-	return row.oidc_issuer === issuer ? dexLocalUserId(row.oidc_subject) : null;
+export function localDexUserId(row: {
+	oidc_issuer: string;
+	oidc_subject: string;
+}): string | null {
+	return row.oidc_issuer === DEX_ACCOUNT_ISSUER
+		? dexLocalUserId(row.oidc_subject)
+		: null;
 }
 
 /**

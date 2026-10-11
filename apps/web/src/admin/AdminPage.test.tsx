@@ -9,6 +9,7 @@ import {
 	USER,
 	WORKSPACE,
 } from "../test-utils.js";
+import { isUsersList, usersBody } from "./users/testRows.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -116,8 +117,8 @@ function stubAdmin(
 			onWrite?.(url, body);
 			return json(200, { ...STUDENT_ROW, ...body });
 		}
-		if (url === "/admin/users") {
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [STUDENT_ROW, ADMIN_ROW], false);
 		}
 		if (url.startsWith("/admin/logs?")) {
 			return json(200, {
@@ -177,6 +178,8 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		"Workspace image",
 		"Certificate",
 		"Docker",
+		"Sign-in",
+		"Site address",
 		"Settings",
 	]);
 	expect(
@@ -222,6 +225,34 @@ test("the tab comes from the address", async () => {
 		"Settings",
 	);
 	expect(screen.queryByTestId("admin-accounts")).toBeNull();
+});
+
+test("the Sign-in and Site address tabs have their own paths and headings (ADR 0059)", async () => {
+	stubAdmin(600);
+
+	const { router } = renderApp("/admin/signin");
+
+	expect(
+		await screen.findByRole("heading", { level: 2, name: "Sign-in" }),
+	).toBeDefined();
+	expect(
+		screen.getByRole("heading", { level: 3, name: "Single sign-on" }),
+	).toBeDefined();
+	expect(
+		screen.getByRole("heading", { level: 3, name: "Learning management systems" }),
+	).toBeDefined();
+	const nav = screen.getByRole("navigation", { name: "Administration" });
+	expect(within(nav).getByRole("link", { current: "page" }).textContent).toBe(
+		"Sign-in",
+	);
+	await waitFor(() => expect(document.title).toBe("Sign-in, Administration, Portikus"));
+
+	fireEvent.click(within(nav).getByRole("link", { name: "Site address" }));
+	expect(
+		await screen.findByRole("heading", { level: 2, name: "Site address" }),
+	).toBeDefined();
+	expect(router.state.location.pathname).toBe("/admin/address");
+	expect(screen.queryByRole("heading", { level: 2, name: "Sign-in" })).toBeNull();
 });
 
 test("an old ?tab= link moves to the tab's path and keeps the other keys", async () => {
@@ -474,8 +505,8 @@ function stubAdminWithWorkspace(ensure: () => Response | Promise<Response>) {
 	return stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/workspaces" && init?.method === "POST") return ensure() as Response;
-		if (url === "/admin/users") {
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [STUDENT_ROW, ADMIN_ROW], false);
 		}
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
 		if (url.includes("/projects")) return json(200, { projects: [] });

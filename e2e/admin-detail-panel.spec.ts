@@ -3,10 +3,10 @@ import { expect, type Page, test } from "@playwright/test";
 import { backupSet, hostStatus } from "./backup-channel";
 import {
 	createStudent,
+	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	finishOperation,
 	loginAs,
-	MOCK_ISSUER,
 	openToggletip,
 	query,
 	recordToasts,
@@ -27,6 +27,7 @@ const SECTIONS = [
 	"Resource guard",
 	"Processes",
 	"Ports and connections",
+	"Agent log, reported by the workspace",
 	"Account",
 	"Recent audit events",
 ];
@@ -77,7 +78,7 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 		 select $1, 'e2e-' || $2 || '-' || n, 'panel-' || $2 || '-' || n || '@example.edu',
 		        'Panel ' || $2 || ' ' || lpad(n::text, 2, '0'), 'student', now()
 		 from generate_series(1, 40) as n`,
-		[MOCK_ISSUER, tag],
+		[DEX_ACCOUNT_ISSUER, tag],
 	);
 
 	await loginAs(page, "carol");
@@ -91,6 +92,8 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	const heading = panel.getByRole("heading", { level: 3, name });
 	await expect(heading).toBeFocused();
 	await expect(panel.getByTestId("detail-quota")).toBeVisible({ timeout: 15_000 });
+	// A Dex account's logical issuer is named, not shown raw (SPEC.md section 5.1).
+	await expect(panel.getByTestId("detail-issuer")).toHaveText("Portikus sign-in");
 
 	// A running workspace offers Stop and Restart, in view without scrolling the panel.
 	for (const action of ["Stop", "Restart"]) {
@@ -103,9 +106,9 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	).toHaveCount(0);
 
 	for (const section of SECTIONS) {
-		await expect(panel.getByRole("heading", { level: 4, name: section })).toHaveCount(
-			1,
-		);
+		await expect(
+			panel.getByRole("heading", { level: 4, name: section, exact: true }),
+		).toHaveCount(1);
 	}
 	const order = await panel
 		.getByRole("heading", { level: 4 })
@@ -176,7 +179,7 @@ test.describe("at 1280 px", () => {
 		await query(
 			`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
 			 values ($1, $2, $3, $4, 'student', now())`,
-			[MOCK_ISSUER, `e2e-${tag}-dup`, email, `Fit ${tag} Twin`],
+			[DEX_ACCOUNT_ISSUER, `e2e-${tag}-dup`, email, `Fit ${tag} Twin`],
 		);
 
 		await loginAs(page, "carol");

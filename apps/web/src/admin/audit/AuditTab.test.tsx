@@ -9,6 +9,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { shortTime } from "../../text.js";
+import { isUsersList, usersBody } from "../users/testRows.js";
 import {
 	AuditTab,
 	filtersFromSearch,
@@ -58,7 +59,7 @@ const PEOPLE = [
 /** Answers the people list, and every other request with `audit`. */
 function stubAudit(audit: (url: string) => Response) {
 	return stubFetch((url) => {
-		if (url === "/admin/users") return json(200, { users: PEOPLE, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, PEOPLE, false);
 		return audit(url);
 	});
 }

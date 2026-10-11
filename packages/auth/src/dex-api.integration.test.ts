@@ -202,7 +202,6 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 				env: {
 					...process.env,
 					DATABASE_URL: API_DATABASE_URL,
-					OIDC_ISSUER_URL: ISSUER,
 					PUBLIC_URL: API,
 				},
 				encoding: "utf8",

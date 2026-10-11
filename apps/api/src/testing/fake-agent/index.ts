@@ -2,6 +2,7 @@ import type { AddressInfo } from "node:net";
 import websocket from "@fastify/websocket";
 import {
 	type AgentListeningService,
+	type AgentLogLine,
 	MAX_UPLOAD_BYTES,
 	type SearchMatch,
 } from "@portikus/contracts";
@@ -28,6 +29,23 @@ import { registerTerminalRoutes } from "./terminals.js";
 import { registerUsageRoutes } from "./usage.js";
 
 export { oneFileZip } from "./fs-model.js";
+
+/** What the fake's `GET /log` answers: two lines a real ring could hold. */
+export const FAKE_AGENT_LOG: AgentLogLine[] = [
+	{
+		time: "2026-10-10T09:00:00.000Z",
+		level: "warn",
+		msg: "could not tidy the coding-agent instructions files",
+	},
+	{
+		time: "2026-10-10T09:05:00.000Z",
+		level: "error",
+		msg: "request failed",
+		code: "INTERNAL",
+		status: 500,
+		durationMs: 12,
+	},
+];
 
 /**
  * A stand-in for the workspace agent, used by the API tests. It checks the
@@ -257,6 +275,8 @@ export async function startFakeAgent(
 		logLevels.push((request.body as { level: string | null }).level);
 		return reply.status(204).send();
 	});
+
+	app.get("/log", async () => ({ lines: FAKE_AGENT_LOG }));
 
 	registerTerminalRoutes(app, s);
 	registerProjectRoutes(app, s);

@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
 import { PASSWORD_ONCE_TEXT } from "./DexUserDialogs.js";
+import { isUsersList, usersBody } from "./users/testRows.js";
 
 /** The Dex user dialogs in the Users view (ADR 0028). */
 
@@ -70,7 +71,7 @@ function stub({ dexUsers = true, refusal }: Options = {}) {
 	let users = [DANA, CAROL, SSO];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users, dexUsers });
+		if (isUsersList(url)) return usersBody(url, users, dexUsers);
 		if (url === "/admin/settings") {
 			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
 		}

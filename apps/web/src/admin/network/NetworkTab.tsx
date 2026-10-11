@@ -6,6 +6,7 @@ import { BlockedCard } from "./BlockedCard.js";
 import { BlockedSitesCard } from "./BlockedSitesCard.js";
 import { EntryDialog, type EntryDraft } from "./EntryDialog.js";
 import { ModeCard } from "./ModeCard.js";
+import { ProxyHostsGroup } from "./ProxyHostsGroup.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
 
@@ -67,6 +68,8 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
+			{/* Before the egress grid: its sticky side column must end the page. */}
+			<ProxyHostsGroup />
 			<div className="@container grid gap-4" data-testid="egress-tab">
 				<ModeCard view={view} />
 				<div className="grid gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

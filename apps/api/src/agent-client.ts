@@ -6,6 +6,7 @@ import {
 	throwOnRedirect,
 } from "@portikus/agent-client";
 import {
+	AGENT_LOG_MAX_REPLY_BYTES,
 	AgentCreateProjectRequest,
 	AgentCreateRecoveryPointRequest,
 	AgentCreateRecoveryPointResponse,
@@ -14,6 +15,7 @@ import {
 	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	AgentListeningService,
+	AgentLogResponse,
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
@@ -227,6 +229,35 @@ export class AgentClient {
 		await this.call("PUT", "/log-level", SetLogLevelRequest.parse({ level }));
 	}
 
+	/**
+	 * The agent's own recent warnings (ADR 0060). The agent is untrusted: the
+	 * reply is read under a cap, control characters are removed from every
+	 * string, and anything off the schema is refused (SPEC.md 24.1).
+	 */
+	async readAgentLog(): Promise<AgentLogResponse> {
+		const response = await this.fetchRaw("GET", "/log", {
+			signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+		});
+		if (!response.ok) throw await readAgentError(response);
+		let payload: unknown;
+		try {
+			payload = await readCappedJson(response, AGENT_LOG_MAX_REPLY_BYTES);
+		} catch {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a log that is too large to read.",
+			);
+		}
+		const parsed = AgentLogResponse.safeParse(stripControlCharacters(payload));
+		if (!parsed.success) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a log we could not read.",
+			);
+		}
+		return parsed.data;
+	}
+
 	async listProjects(): Promise<AgentProjectList> {
 		return AgentProjectList.parse(await this.call("GET", "/projects"));
 	}
@@ -406,6 +437,28 @@ export class AgentClient {
 			timeoutMs,
 		);
 	}
+}
+
+// C0 and C1 controls and DEL: an agent must not be able to forge a line
+// break or a terminal escape in the admin page.
+function isControl(code: number): boolean {
+	return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+}
+
+/** A copy of a JSON value with control characters removed from every string. */
+function stripControlCharacters(value: unknown): unknown {
+	if (typeof value === "string") {
+		return Array.from(value)
+			.filter((char) => !isControl(char.codePointAt(0) ?? 0))
+			.join("");
+	}
+	if (Array.isArray(value)) return value.map(stripControlCharacters);
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, inner]) => [key, stripControlCharacters(inner)]),
+		);
+	}
+	return value;
 }
 
 /**

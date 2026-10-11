@@ -163,7 +163,7 @@ test("pressing a column header sorts the rows and says so in the caption", async
 
 	fireEvent.click(within(table).getByRole("button", { name: "Account" }));
 	expect(account.getAttribute("aria-sort")).toBe("descending");
-	expect(order()[0]).toBe("Sam Course");
+	await waitFor(() => expect(order()[0]).toBe("Sam Course"));
 	expect(table.querySelector("caption")?.textContent).toContain(
 		"sorted by Account, descending",
 	);
@@ -179,5 +179,5 @@ test("pressing a column header sorts the rows and says so in the caption", async
 			.getByRole("columnheader", { name: /^Activity/ })
 			.getAttribute("aria-sort"),
 	).toBe("descending");
-	expect(order()[0]).toBe("Alice Example");
+	await waitFor(() => expect(order()[0]).toBe("Alice Example"));
 });

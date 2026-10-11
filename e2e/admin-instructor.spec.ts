@@ -2,9 +2,9 @@ import * as crypto from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	loginAs,
-	MOCK_ISSUER,
 	query,
 	WEB_ORIGIN,
 } from "./helpers";
@@ -137,7 +137,7 @@ test("a granted administrator must be demoted before being made an instructor", 
 		`insert into users
 		   (oidc_issuer, oidc_subject, email, display_name, role, provider_role, granted_role)
 		 values ($1, $2, null, $3, 'administrator', 'student', 'administrator')`,
-		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, name],
+		[DEX_ACCOUNT_ISSUER, `e2e-${crypto.randomUUID()}`, name],
 	);
 	await openUsers(page);
 	const panel = await openDetail(page, name);

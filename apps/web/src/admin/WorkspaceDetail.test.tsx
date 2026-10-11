@@ -16,6 +16,7 @@ import {
 	graceValueText,
 } from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
+import { isUsersList, usersBody } from "./users/testRows.js";
 import {
 	instructorChangeNote,
 	roleChangeNote,
@@ -219,7 +220,7 @@ function stubDetail(
 	const writes: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, users);
 		if (url === "/admin/settings") {
 			return json(200, SETTINGS);
 		}
@@ -354,7 +355,9 @@ test("the panel's sections come in their set order", async () => {
 		"H4 Resource guard",
 		"H4 Processes",
 		"H4 Ports and connections",
+		"H4 Agent log, reported by the workspace",
 		"H4 Account",
+		"H5 Linked course accounts",
 		"H4 Recent audit events",
 	]);
 });
@@ -676,8 +679,7 @@ test.each([
 		});
 		stubFetch((url, init) => {
 			if (url === "/auth/me") return json(200, ADMIN);
-			if (url === "/admin/users")
-				return json(200, { users: [row(), ADMIN_ROW], dexUsers: false });
+			if (isUsersList(url)) return usersBody(url, [row(), ADMIN_ROW], false);
 			if (url === "/admin/settings") return json(200, SETTINGS);
 			if (url === "/admin/health") return json(200, HEALTH);
 			if (init?.method === "POST") {
@@ -1092,11 +1094,12 @@ test("closing a panel whose row is filtered out focuses the table caption (Gate 
 	fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
 		target: { value: "nobody-matches" },
 	});
-	expect(screen.queryByTestId(`account-row-${USER.id}`)).toBeNull();
+	await waitFor(() =>
+		expect(screen.queryByTestId(`account-row-${USER.id}`)).toBeNull(),
+	);
 	fireEvent.click(
 		within(panel).getByRole("button", { name: "Close details for Alice Example" }),
 	);
-
 	await waitFor(() =>
 		expect(document.activeElement?.id).toBe("admin-accounts-caption"),
 	);
@@ -1107,8 +1110,7 @@ test("the disconnect grace shows the site setting, and its dialog takes minutes 
 	let row = { ...ALICE_ROW };
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users")
-			return json(200, { users: [row, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [row, ADMIN_ROW], false);
 		if (url === "/admin/settings") {
 			return json(200, SETTINGS);
 		}
@@ -1182,8 +1184,7 @@ test("the disconnect grace shows the site setting, and its dialog takes minutes 
 test("without the site settings, the grace claims no value it does not know", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users")
-			return json(200, { users: [ALICE_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [ALICE_ROW, ADMIN_ROW], false);
 		if (url === "/admin/settings") {
 			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
 		}
@@ -1254,7 +1255,7 @@ function stubRoles(refusal?: string) {
 	const writes: string[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") return json(200, { users: ROLE_ROWS, dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, ROLE_ROWS, false);
 		if (url === "/admin/settings") {
 			return json(200, SETTINGS);
 		}
@@ -1420,8 +1421,8 @@ function stubInstructors(refusal?: string) {
 	const writes: string[] = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users") {
-			return json(200, { users: [...ROLE_ROWS, TEACHER_ROW], dexUsers: false });
+		if (isUsersList(url)) {
+			return usersBody(url, [...ROLE_ROWS, TEACHER_ROW], false);
 		}
 		if (url === "/admin/settings") {
 			return json(200, SETTINGS);
@@ -1814,6 +1815,7 @@ test("the panel's toggletips are named after what they explain and open on click
 		"About High memory",
 		"About Last input",
 		"About Preview column",
+		"About Agent log",
 		"About Promote",
 		"About Make instructor",
 		"About Disable account",
@@ -1826,8 +1828,7 @@ test("the panel's toggletips are named after what they explain and open on click
 test("Restore from backup opens the restore dialog preset to this workspace", async () => {
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users")
-			return json(200, { users: [ALICE_ROW, ADMIN_ROW], dexUsers: false });
+		if (isUsersList(url)) return usersBody(url, [ALICE_ROW, ADMIN_ROW], false);
 		if (url === "/admin/settings") return json(200, SETTINGS);
 		if (url === "/admin/health") return json(200, HEALTH);
 		if (url === "/admin/backups" && !init?.method) {

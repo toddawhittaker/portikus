@@ -14,6 +14,7 @@ export type HealthResponse = z.infer<typeof HealthResponse>;
 
 export * from "./admin.js";
 export * from "./agent.js";
+export * from "./agent-log.js";
 export * from "./agent-usage.js";
 export * from "./alerts.js";
 export * from "./auth.js";
@@ -49,6 +50,7 @@ export * from "./root-shell.js";
 export * from "./search.js";
 export * from "./settings.js";
 export * from "./shares.js";
+export * from "./site.js";
 export * from "./terminal.js";
 export * from "./usage.js";
 export * from "./workspace.js";

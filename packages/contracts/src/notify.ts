@@ -1,21 +1,11 @@
 import { z } from "zod";
+import { HostName, isHostName } from "./host-name.js";
 
 /**
  * The notification settings file, `/etc/portikus/notify.json` (ADR 0052,
  * version 1). Each block may be null, meaning off. The root alerts job
  * validates the same rules independently before writing the file.
  */
-
-// Labels of at most 63 characters, as the root alerts job checks (ADR 0052).
-const HOST_NAME_RE =
-	/^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
-
-/** A host name the egress proxy may list: labels only, never an address. */
-function isHostName(value: string): boolean {
-	return HOST_NAME_RE.test(value) && !/^[0-9]+$/.test(value.split(".").at(-1) ?? "");
-}
-
-const HostName = z.string().max(253).refine(isHostName, "must be a host name");
 
 // The egress proxy opens only port 443 for alert hosts (ADR 0052).
 const AlertUrl = z

@@ -1,6 +1,6 @@
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { precreateDexAccount } from "./links.js";
 import {
 	createSession,
@@ -121,7 +121,7 @@ describe("users and sessions", () => {
 		"the first Dex sign-in keeps the name Add user stored (SPEC.md section 5.1)",
 		async () => {
 			const userId = "2f6c1f0e-5b1a-4c55-9d11-000000000547";
-			const id = await precreateDexAccount(t.db, identity.issuer, {
+			const id = await precreateDexAccount(t.db, {
 				userId,
 				email: "erin@example.edu",
 				username: "erin",
@@ -133,7 +133,7 @@ describe("users and sessions", () => {
 			const user = await upsertUser(
 				t.db,
 				{
-					issuer: identity.issuer,
+					issuer: DEX_ACCOUNT_ISSUER,
 					subject: dexLocalSubject(userId),
 					email: "erin@example.edu",
 					displayName: "erin",

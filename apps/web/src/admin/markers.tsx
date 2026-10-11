@@ -1,7 +1,8 @@
-import type {
-	AdminImageVersion,
-	AdminUser,
-	AdminWorkspaceSummary,
+import {
+	type AdminImageVersion,
+	type AdminUser,
+	type AdminWorkspaceSummary,
+	DEX_ACCOUNT_ISSUER,
 } from "@portikus/contracts";
 
 type AccountMarkers = AdminUser["markers"];
@@ -92,6 +93,12 @@ export function sourceText(issuer: string | null | undefined): string {
 	return `Course: ${shortIssuer(issuer.slice(LTI_PREFIX.length))}`;
 }
 
+/** The Issuer row: Dex accounts carry a logical issuer, named in words. */
+export function issuerText(issuer: string | null | undefined): string {
+	if (issuer === DEX_ACCOUNT_ISSUER) return "Portikus sign-in";
+	return issuer ?? "—";
+}
+
 export const ROLE_FILTERS = ["administrator", "instructor", "student"] as const;
 
 /** The Role column: an administrator says where the role came from (ADR 0026). */
@@ -115,27 +122,4 @@ export function shortIssuer(issuer: string | null | undefined): string {
 	} catch {
 		return issuer.length > 24 ? `${issuer.slice(0, 24)}…` : issuer;
 	}
-}
-
-/**
- * Sorted by name, with every account that shares an email placed straight
- * after the first of them, so duplicates sit together.
- */
-export function sortAccounts(users: AdminUser[]): AdminUser[] {
-	const byName = [...users].sort((a, b) => a.displayName.localeCompare(b.displayName));
-	const placed = new Set<string>();
-	const sorted: AdminUser[] = [];
-	for (const user of byName) {
-		if (placed.has(user.id)) continue;
-		const email = user.email?.toLowerCase();
-		const group =
-			user.markers?.duplicateEmail && email
-				? byName.filter((other) => other.email?.toLowerCase() === email)
-				: [user];
-		for (const member of group) {
-			placed.add(member.id);
-			sorted.push(member);
-		}
-	}
-	return sorted;
 }

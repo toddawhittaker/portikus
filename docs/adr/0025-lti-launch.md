@@ -119,3 +119,14 @@ registered. Its launch form carries a token made fresh for each process.
   session-granting value would travel in a URL. A `frame-ancestors` list
   built from the registered sign-in URLs, because it does not match Canvas
   cloud.
+
+## Update, Epic 43
+
+An administrator can register LMS platforms from the Sign-in tab, beside the
+operator's `LTI_PLATFORMS_FILE` (ADR 0059). Page platforms live in
+`/etc/portikus/lti-platforms-admin.json`, written by the root site job, and
+the API merges the two files at start; saving restarts the API. Page
+platforms are HTTPS only, never `mock`, at most 20, and may not reuse an
+operator issuer and client ID pair or an already registered issuer with a
+different `keysetUrl`. The operator's file wins on a clash, and a page file
+that does not parse is logged and skipped. Page platforms alone turn LTI on.

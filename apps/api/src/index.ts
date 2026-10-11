@@ -22,7 +22,9 @@ const db = createDb(config.DATABASE_URL, undefined, (error) =>
 	logger.warn({ err: error }, "database connection lost"),
 );
 const oidc = createOidcClient(toAuthOptions(config));
-const lti = await loadLtiDeps(config);
+const lti = await loadLtiDeps(config, (message) =>
+	logger.warn({ message }, "page-registered LMS platforms skipped"),
+);
 if (lti) logger.info({ platforms: lti.platforms.length }, "lti enabled");
 const dex = await loadDexApi(config);
 if (dex) logger.info("dex user management enabled");

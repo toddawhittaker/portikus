@@ -21,6 +21,7 @@ export type PersonKey =
 	| "max"
 	| "rex"
 	| "una"
+	| "kit"
 	| "roy";
 type CourseKey = "cs101" | "cs240" | "cs330" | "cs350";
 export type Defect =

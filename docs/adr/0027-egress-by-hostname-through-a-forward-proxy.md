@@ -46,3 +46,14 @@ uses the same proxy through `HTTPS_PROXY` for an upstream connector.
   setting `HTTPS_PROXY` for the whole API process (the agent client's
   workspace addresses would need a `NO_PROXY` list, which Node does not
   read as address ranges).
+
+## Update, Epic 43
+
+Squid now reads two more includes written by the root site job (ADR 0059):
+`egress-proxy.d/admin.conf` for host names an administrator adds on the
+Network tab, and `lti.conf` for the keyset and token hosts of page LMS
+platforms. Both allow host names on port 443 with CONNECT only, never IP
+addresses. The site job and the alerts job share one lock before changing
+any include. Hosts read from an OIDC discovery document are allowed only as
+host names on port 443; other endpoints must be listed in
+`egress_proxy_hosts`.

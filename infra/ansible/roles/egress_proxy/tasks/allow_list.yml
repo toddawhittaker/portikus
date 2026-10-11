@@ -7,13 +7,24 @@
   ansible.builtin.set_fact:
     egress_proxy_allowed: "{{ egress_proxy_hosts }}"
 
-- name: Add the hosts the discovery documents name
+# A discovery document is the provider's word, not the operator's, so only
+# its host names on port 443 count.  An address or another port, such as the
+# metadata service or SSH on the management network, would get past the
+# proxy's address denies; only egress_proxy_hosts may list those (ADR 0027).
+- name: Add the host names the discovery documents name, on port 443 only
   ansible.builtin.set_fact:
-    egress_proxy_allowed: "{{ egress_proxy_allowed + (egress_proxy_urls | map('urlsplit', 'netloc') | list) }}"
+    egress_proxy_allowed: >-
+      {{ egress_proxy_allowed
+         + (egress_proxy_urls | map('urlsplit') | selectattr('port', 'in', [none, 443])
+            | map(attribute='hostname') | select('string') | map('lower')
+            | select('match', egress_proxy_name_re) | reject('match', egress_proxy_number_re) | list) }}
   loop: "{{ egress_proxy_discovery_documents.results }}"
   loop_control:
     label: "{{ item.item.issuer }}"
   vars:
+    egress_proxy_name_re: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)*$'
+    # A last label of digits is an address, as packages/contracts host-name.ts rules.
+    egress_proxy_number_re: '^(.*[.])?[0-9]+$'
     egress_proxy_urls: >-
       {{ [item.json.issuer, item.json.authorization_endpoint, item.json.token_endpoint, item.json.jwks_uri]
          + ([item.json.userinfo_endpoint] if item.item.userinfo and item.json.userinfo_endpoint is defined else []) }}

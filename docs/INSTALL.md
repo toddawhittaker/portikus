@@ -776,6 +776,11 @@ address, such as `https://portikus.example.edu:8443`. To set it before
 the first setup runs, write the line to `/etc/portikus/portikus.yaml`
 before `apt install portikus`.
 
+Some of these answers can also be changed later from the administration
+pages: the sign-in provider on **Sign-in** and the host name and port on
+**Site address**. Each starts as a trial that Portikus puts back unless you
+keep it (see ADMIN-GUIDE.md). LDAP is still set only here.
+
 ## Upgrades
 
 ```

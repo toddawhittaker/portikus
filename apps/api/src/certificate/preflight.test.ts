@@ -6,7 +6,13 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ApiConfig } from "@portikus/config";
 import { afterEach, describe, expect, test } from "vitest";
-import { NonceStore, type PreflightNet, runPreflight, systemNet } from "./preflight.js";
+import {
+	NonceStore,
+	type PreflightNet,
+	runAddressPreflight,
+	runPreflight,
+	systemNet,
+} from "./preflight.js";
 
 const config = {
 	PUBLIC_URL: "https://portikus.example.edu:8443",
@@ -176,5 +182,96 @@ describe("systemNet.probe", () => {
 
 	test("answers null when nothing listens", async () => {
 		expect(await systemNet.probe("http://site.invalid:1/x", "127.0.0.1")).toBeNull();
+	});
+});
+
+describe("runAddressPreflight", () => {
+	const THIS_SERVER = "192.0.2.10";
+	const ELSEWHERE = "198.51.100.7";
+
+	/** Only this server answers the nonce; another machine answers nothing. */
+	function onlyHere(url: string, address: string, nonces: NonceStore): string | null {
+		return address === THIS_SERVER ? honest(url, address, nonces) : null;
+	}
+
+	async function run(resolves: (name: string) => string[]) {
+		const nonces = new NonceStore();
+		const net = fakeNet(resolves, onlyHere, nonces);
+		const result = await runAddressPreflight({
+			config,
+			net,
+			nonces,
+			host: "code.example.edu",
+			previewSuffix: "preview.code.example.edu",
+		});
+		return { result, net };
+	}
+
+	test("passes when the new names point here, probing through the current site", async () => {
+		const { result, net } = await run(() => [THIS_SERVER]);
+		expect(result.ok).toBe(true);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "passed"],
+			["dns-preview", "passed"],
+			["reach-site", "passed"],
+			["reach-preview", "passed"],
+		]);
+		// The new name is not served yet, so the nonce goes to its addresses under the current one.
+		expect(
+			net.urls.every((u) =>
+				u.startsWith(
+					"https://portikus.example.edu:8443/.well-known/portikus-preflight/",
+				),
+			),
+		).toBe(true);
+	});
+
+	// The API's sandbox keeps the probe on the host, so a reach failure cannot block.
+	test("only warns when the new name's addresses do not answer the nonce", async () => {
+		const { result } = await run((name) =>
+			name === "code.example.edu" ? [ELSEWHERE] : [THIS_SERVER],
+		);
+		expect(result.ok).toBe(true);
+		const site = result.checks.find((c) => c.name === "reach-site");
+		expect(site?.result).toBe("warning");
+		expect(site?.message).toBe(
+			"code.example.edu: Could not confirm from this server; the trial and Keep from the new address prove it.",
+		);
+		expect(result.checks.find((c) => c.name === "reach-preview")?.result).toBe(
+			"passed",
+		);
+	});
+
+	test("only warns when one of the name's addresses is not this server", async () => {
+		const { result } = await run(() => [THIS_SERVER, ELSEWHERE]);
+		expect(result.ok).toBe(true);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "passed"],
+			["dns-preview", "passed"],
+			["reach-site", "warning"],
+			["reach-preview", "warning"],
+		]);
+	});
+
+	test("refuses a new name that does not resolve, even when the preview names do", async () => {
+		const { result } = await run((name) =>
+			name === "code.example.edu" ? [] : [THIS_SERVER],
+		);
+		expect(result.ok).toBe(false);
+		expect(result.checks.find((c) => c.name === "dns-site")?.result).toBe("failed");
+	});
+
+	test("refuses names that do not resolve, naming the wildcard to add", async () => {
+		const { result } = await run(() => []);
+		expect(result.ok).toBe(false);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "failed"],
+			["dns-preview", "failed"],
+			["reach-site", "warning"],
+			["reach-preview", "warning"],
+		]);
+		expect(result.checks.find((c) => c.name === "dns-preview")?.message).toContain(
+			"*.preview.code.example.edu",
+		);
 	});
 });

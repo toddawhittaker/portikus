@@ -9,9 +9,8 @@ import {
 	importUsersFile,
 	parseUsersFile,
 } from "./dex-import.js";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 
-const DEX = "https://portikus.example.edu:8443/dex";
 const HASH = "$2b$12$MGOrI4Vq522K69kyskhWsetEom1fjLdaDyzNB.G7ktesUbWKQEFfG";
 
 function user(username: string, role: ImportedUser["role"], n: number): ImportedUser {
@@ -110,10 +109,8 @@ function run(args: string[], env: Record<string, string | undefined> = {}) {
 // Four child processes; with coverage on a busy CI runner they can pass 5 seconds.
 test("the command refuses bad arguments and missing settings", () => {
 	expect(run([]).stderr).toContain("--input is required");
-	expect(run(["--input", "x.json"]).stderr).toContain("--issuer is required");
-	expect(run(["--input", "x.json", "--issuer", DEX]).stderr).toContain(
-		"DATABASE_URL is not set",
-	);
+	expect(run(["--issuer", "https://dex.example"]).status).toBe(2);
+	expect(run(["--input", "x.json"]).stderr).toContain("DATABASE_URL is not set");
 	expect(run(["--bogus"]).status).toBe(2);
 }, 30_000);
 
@@ -138,7 +135,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 		return t.db
 			.insertInto("users")
 			.values({
-				oidc_issuer: DEX,
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
 				oidc_subject: dexLocalSubject(u.userId),
 				email: u.email,
 				display_name: u.username,
@@ -153,7 +150,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 		return t.db
 			.selectFrom("users")
 			.select(["id", "role", "provider_role", "granted_role"])
-			.where("oidc_issuer", "=", DEX)
+			.where("oidc_issuer", "=", DEX_ACCOUNT_ISSUER)
 			.where("oidc_subject", "=", dexLocalSubject(u.userId))
 			.executeTakeFirst();
 	}
@@ -161,7 +158,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("every entry reaches Dex with its own user ID and hash, so every subject stays", async () => {
 		const { dex, passwords } = fakeDex();
 		const ids = [await account(carol, "administrator"), await account(alice)];
-		const report = await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		const report = await importUsersFile(t.db, dex, [carol, alice]);
 		expect(report).toEqual({
 			status: "imported",
 			usernames: ["carol", "alice"],
@@ -183,7 +180,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("an administrator from the file keeps administrator by grant once Dex sends no groups", async () => {
 		const { dex } = fakeDex();
 		await account(carol, "administrator");
-		await importUsersFile(t.db, dex, DEX, [carol]);
+		await importUsersFile(t.db, dex, [carol]);
 		expect(await row(carol)).toMatchObject({
 			role: "administrator",
 			provider_role: "administrator",
@@ -209,7 +206,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 
 	test("an instructor who never signed in gets an account holding the grant; students get nothing", async () => {
 		const { dex } = fakeDex();
-		const report = await importUsersFile(t.db, dex, DEX, [ivy, alice]);
+		const report = await importUsersFile(t.db, dex, [ivy, alice]);
 		expect(report).toMatchObject({ precreated: ["ivy"], granted: [] });
 		expect(await row(ivy)).toMatchObject({
 			role: "instructor",
@@ -227,7 +224,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 			.set({ granted_role: "administrator" })
 			.where("id", "=", id)
 			.execute();
-		await importUsersFile(t.db, dex, DEX, [ivy]);
+		await importUsersFile(t.db, dex, [ivy]);
 		expect(await row(ivy)).toMatchObject({
 			role: "administrator",
 			granted_role: "administrator",
@@ -237,9 +234,9 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("a second run imports nothing and changes nothing", async () => {
 		const { dex, passwords } = fakeDex();
 		await account(carol, "administrator");
-		await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		await importUsersFile(t.db, dex, [carol, alice]);
 		await t.db.updateTable("users").set({ granted_role: null }).execute();
-		const again = await importUsersFile(t.db, dex, DEX, [carol, alice, ivy]);
+		const again = await importUsersFile(t.db, dex, [carol, alice, ivy]);
 		expect(again).toMatchObject({ status: "already_imported" });
 		expect(passwords.size).toBe(2);
 		expect((await row(carol))?.granted_role).toBeNull();
@@ -249,7 +246,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("a failure part way leaves an empty Dex and no grants, so the next run starts over", async () => {
 		const { dex, passwords } = fakeDex(2);
 		await account(carol, "administrator");
-		await expect(importUsersFile(t.db, dex, DEX, [carol, alice])).rejects.toThrow(
+		await expect(importUsersFile(t.db, dex, [carol, alice])).rejects.toThrow(
 			"unavailable",
 		);
 		expect(passwords.size).toBe(0);
@@ -260,7 +257,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("an email Dex already holds stops the import and undoes it", async () => {
 		const { dex, passwords } = fakeDex();
 		const twin = { ...alice, username: "alice2", userId: ivy.userId };
-		await expect(importUsersFile(t.db, dex, DEX, [alice, twin])).rejects.toThrow(
+		await expect(importUsersFile(t.db, dex, [alice, twin])).rejects.toThrow(
 			"already has a password for alice2",
 		);
 		expect(passwords.size).toBe(0);
@@ -268,9 +265,9 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 
 	test("a run after an administrator removed every Dex user still imports nothing", async () => {
 		const { dex, passwords } = fakeDex();
-		await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		await importUsersFile(t.db, dex, [carol, alice]);
 		passwords.clear();
-		const again = await importUsersFile(t.db, dex, DEX, [carol, alice]);
+		const again = await importUsersFile(t.db, dex, [carol, alice]);
 		expect(again).toMatchObject({ status: "already_imported" });
 		expect(formatImportReport(again)).toContain("already imported");
 		expect(passwords.size).toBe(0);
@@ -279,7 +276,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("a Dex that already holds passwords is left alone even before any import", async () => {
 		const { dex, passwords } = fakeDex();
 		await dex.createPassword({ ...alice, hash: HASH });
-		const report = await importUsersFile(t.db, dex, DEX, [carol]);
+		const report = await importUsersFile(t.db, dex, [carol]);
 		expect(report).toEqual({ status: "skipped", passwordsInDex: 1 });
 		expect(passwords.size).toBe(1);
 	});
@@ -287,9 +284,9 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("a skipped run marks the site imported, so a later empty Dex never imports", async () => {
 		const { dex, passwords } = fakeDex();
 		await dex.createPassword({ ...alice, hash: HASH });
-		await importUsersFile(t.db, dex, DEX, [carol]);
+		await importUsersFile(t.db, dex, [carol]);
 		passwords.clear();
-		const again = await importUsersFile(t.db, dex, DEX, [carol]);
+		const again = await importUsersFile(t.db, dex, [carol]);
 		expect(again).toMatchObject({ status: "already_imported" });
 		expect(passwords.size).toBe(0);
 	});
@@ -302,7 +299,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 			.set({ disabled_at: new Date().toISOString() })
 			.where("id", "=", id)
 			.execute();
-		const report = await importUsersFile(t.db, dex, DEX, [carol]);
+		const report = await importUsersFile(t.db, dex, [carol]);
 		expect(report).toMatchObject({ granted: [], precreated: [] });
 		expect(await row(carol)).toMatchObject({ role: "student", granted_role: null });
 	});
@@ -310,7 +307,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	test("an instructor entry raises a student account by grant", async () => {
 		const { dex } = fakeDex();
 		await account(ivy);
-		const report = await importUsersFile(t.db, dex, DEX, [ivy]);
+		const report = await importUsersFile(t.db, dex, [ivy]);
 		expect(report).toMatchObject({ granted: ["ivy"] });
 		expect(await row(ivy)).toMatchObject({
 			role: "instructor",
@@ -320,7 +317,7 @@ describe.skipIf(!hasTestDb())("importUsersFile", () => {
 
 	test("a cleanup that fails names the Dex passwords left behind", async () => {
 		const { dex, passwords } = fakeDex(2, true);
-		await expect(importUsersFile(t.db, dex, DEX, [carol, alice])).rejects.toThrow(
+		await expect(importUsersFile(t.db, dex, [carol, alice])).rejects.toThrow(
 			"could not remove these Dex passwords again, delete them before the next run: carol",
 		);
 		expect(passwords.size).toBe(1);

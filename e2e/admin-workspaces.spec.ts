@@ -2,8 +2,8 @@ import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	DEX_ACCOUNT_ISSUER,
 	finishOperation,
-	MOCK_ISSUER,
 	openAdmin,
 	openToggletip,
 	query,
@@ -43,7 +43,7 @@ async function insertUser(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
 		 values ($1, $2, $3, $4, 'student', now() - make_interval(days => $5))
 		 returning id`,
-		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, email, name, lastLoginDaysAgo],
+		[DEX_ACCOUNT_ISSUER, `e2e-${crypto.randomUUID()}`, email, name, lastLoginDaysAgo],
 	);
 	if (!row) throw new Error("could not create the user");
 	return row.id;
@@ -106,7 +106,12 @@ test("a just-created account is not Stale and says Not signed in yet", async ({
 	const [row] = await query<{ id: string }>(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, $4, 'student') returning id`,
-		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, `new-${tag}@example.edu`, `New ${tag}`],
+		[
+			DEX_ACCOUNT_ISSUER,
+			`e2e-${crypto.randomUUID()}`,
+			`new-${tag}@example.edu`,
+			`New ${tag}`,
+		],
 	);
 	if (!row) throw new Error("could not create the user");
 
@@ -394,7 +399,7 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 	// Image currency comes from the worker's host sample, which e2e has none of,
 	// so the list answer says the image is old until the fake rebuild finishes.
 	let rebuilt = false;
-	await routeApi(page, "**/admin/users", async (route) => {
+	await routeApi(page, "**/admin/users?**", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
 		for (const user of body.users) {
@@ -602,15 +607,19 @@ test.describe("the Users table layout", () => {
 		await insertUser(`shift-${tag}-2@example.edu`, `Shift ${tag} 2`, 0);
 		await openAdmin(page);
 		// Nothing hidden and nothing filtered: the heading already counts everyone.
-		const [{ archived }] = await query<{ archived: string }>(
-			"select count(*) as archived from workspaces where archived_at is not null",
+		const [{ shown }] = await query<{ shown: string }>(
+			`select count(*) as shown from users u
+			 left join workspaces w on w.owner_user_id = u.id
+			 where w.archived_at is null`,
 		);
-		if (Number(archived) === 0) {
-			await expect(page.getByTestId("admin-row-count")).toHaveText("");
-		}
+		// A list longer than a page says how much of it is on screen.
+		await expect(page.getByTestId("admin-row-count")).toHaveText(
+			// Parallel workers add users, so the total is checked by shape only.
+			Number(shown) > 50 ? /^Showing 50 of \d+$/ : "",
+		);
 		await filterTo(page, `Shift ${tag}`);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
-		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
+		await expect(page.getByTestId("admin-row-count")).toHaveText("Showing 2 of 2");
 
 		const table = page.getByTestId("admin-accounts");
 		const before = await table.boundingBox();
@@ -652,7 +661,7 @@ test.describe("the Users table layout", () => {
 			);
 		}
 		// Every tag and the Old image tag at once, on the longest row.
-		await routeApi(page, "**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users?**", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {

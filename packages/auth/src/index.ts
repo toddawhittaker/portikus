@@ -14,9 +14,11 @@ export {
 	loadDexApi,
 } from "./dex-api.js";
 export {
+	DEX_ACCOUNT_ISSUER,
 	dexConnectorId,
 	dexLocalSubject,
 	dexLocalUserId,
+	dexSubject,
 	localDexUserId,
 } from "./dex-subject.js";
 export {

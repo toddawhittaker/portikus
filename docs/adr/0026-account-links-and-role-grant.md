@@ -90,3 +90,17 @@ both use it.
   could not fix it); a general identities table (moves every sign-in
   lookup for one feature); an admin-only boolean grant (Google would
   need another migration).
+
+## Update, Epic 43
+
+An administrator can now link and unlink on behalf of the SSO account's
+holder, from the account's detail panel (SPEC.md section 20.1). The routes
+are `GET` and `POST /admin/users/:id/links` and `DELETE
+/admin/users/:id/links/:courseUserId`. They call the same `linkAccounts` and
+`unlinkAccount` as the holder's own flow, so every refusal and every side
+effect (archive, unarchive, ending sessions) is the same. The audit rows
+`user.linked` and `user.unlinked` name the administrator as actor and carry
+`by: "administrator"`, and the holder gets a kept notification. Unlink works
+on any link, even when the SSO account is now disabled or an administrator,
+so a link made before a promotion can still be removed. Link still refuses
+an administrator or a disabled SSO account.

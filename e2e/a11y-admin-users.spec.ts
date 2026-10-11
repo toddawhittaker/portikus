@@ -7,9 +7,9 @@
 import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
 import {
+	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	loginAs,
-	MOCK_ISSUER,
 	openToggletip,
 	query,
 	routeApi,
@@ -21,7 +21,7 @@ async function insertUser(name: string, disabled: boolean): Promise<string> {
 		 values ($1, $2, $3, $4, 'student', now(), case when $5 then now() else null end)
 		 returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,
@@ -53,7 +53,7 @@ for (const scheme of ["light", "dark"] as const) {
 			],
 		);
 		// Every tag the table can draw, on one row.
-		await routeApi(page, "**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users?**", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {
@@ -91,7 +91,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("admin-filter-text").fill(`Axe ${tag}`);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
 		await expect(page.getByTestId(`account-image-${active}`)).toBeVisible();
-		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
+		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of 2$/);
 		await expectNoViolations(page);
 
 		// The page intro is open, and a column's help is shown over the sticky header.

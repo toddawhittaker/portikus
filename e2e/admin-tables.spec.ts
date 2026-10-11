@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query, toast } from "./helpers";
+import { DEX_ACCOUNT_ISSUER, loginAs, query, toast } from "./helpers";
 
 /**
  * The admin tables (SPEC.md sections 20.1 and 25.8): sortable column
@@ -12,7 +12,7 @@ async function insertStudent(name: string, state: string | null): Promise<string
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
 		 values ($1, $2, $3, $4, 'student', now()) returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,
@@ -57,7 +57,9 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 	await openUsers(page, `Sort ${tag}`);
 	const short = (list: string[]) => list.map((name) => name.split(" ").at(-1));
 	await expect(names(page)).toHaveCount(3);
-	expect(short(await names(page).allTextContents())).toEqual(["Ann", "Bea", "Cal"]);
+	await expect
+		.poll(async () => short(await names(page).allTextContents()))
+		.toEqual(["Ann", "Bea", "Cal"]);
 
 	const table = page.getByTestId("admin-accounts");
 	const account = table.getByRole("columnheader", { name: /^Account/ });
@@ -71,7 +73,9 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 	// Mouse: a second press on the sorted column flips it.
 	await table.getByRole("button", { name: "Account", exact: true }).click();
 	await expect(account).toHaveAttribute("aria-sort", "descending");
-	expect(short(await names(page).allTextContents())).toEqual(["Cal", "Bea", "Ann"]);
+	await expect
+		.poll(async () => short(await names(page).allTextContents()))
+		.toEqual(["Cal", "Bea", "Ann"]);
 	await expect(announce).toHaveText("Sorted by Account, descending");
 
 	// Keyboard: Tab past the column's help button to the next header, and press it.
@@ -99,12 +103,16 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 	await expect(workspaceHeader).toHaveAttribute("aria-sort", "ascending");
 	await expect(account).not.toHaveAttribute("aria-sort", /./);
 	// Running, then Stopped; no workspace stays last either way.
-	expect(short(await names(page).allTextContents())).toEqual(["Ann", "Cal", "Bea"]);
+	await expect
+		.poll(async () => short(await names(page).allTextContents()))
+		.toEqual(["Ann", "Cal", "Bea"]);
 	// A repeat press on the same header is announced too.
 	await page.keyboard.press("Space");
 	await expect(announce).toHaveText("Sorted by Workspace, descending");
 	await expect(workspaceHeader).toHaveAttribute("aria-sort", "descending");
-	expect(short(await names(page).allTextContents())).toEqual(["Cal", "Ann", "Bea"]);
+	await expect
+		.poll(async () => short(await names(page).allTextContents()))
+		.toEqual(["Cal", "Ann", "Bea"]);
 	await expect(workspace).toBeFocused();
 	await expect(table.locator("caption")).toContainText(
 		"sorted by Workspace, descending",
@@ -123,7 +131,7 @@ test("the Users toolbar row says what it is for until accounts are ticked", asyn
 	await expect(hint).toHaveText("Select accounts to act on several at once.");
 	// Filtered, the count comes first and the hint follows on the same line.
 	const count = page.getByTestId("admin-row-count");
-	await expect(count).toHaveText(/^Showing 1 of \d+$/);
+	await expect(count).toHaveText(/^Showing 1 of 1$/);
 	const [countBox, hintBox] = [await count.boundingBox(), await hint.boundingBox()];
 	if (!countBox || !hintBox) throw new Error("the toolbar text has no box");
 	expect(hintBox.x).toBeGreaterThan(countBox.x + countBox.width);

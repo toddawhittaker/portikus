@@ -2,6 +2,7 @@ import {
 	bindLinkIntent,
 	connectorCookieName,
 	connectorCookieOptions,
+	DEX_ACCOUNT_ISSUER,
 	deleteSession,
 	dexConnectorId,
 	findLinkIntent,
@@ -29,6 +30,7 @@ import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import { completeSignIn, requestMetadata } from "../sessions/start-session.js";
+import { finishSigninTest, signinTestOf } from "../site/signin.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -86,21 +88,24 @@ export function registerAuthRoutes(
 		return reply.redirect(url, 302);
 	});
 
+	/** The state the login cookie carries, or null when it is missing, forged or unreadable. */
+	function readLoginState(request: FastifyRequest): LoginState | null {
+		const raw = request.cookies[loginCookie];
+		const unsigned = raw ? request.unsignCookie(raw) : null;
+		if (!unsigned?.valid || !unsigned.value) return null;
+		try {
+			return JSON.parse(unsigned.value) as LoginState;
+		} catch {
+			return null;
+		}
+	}
+
 	app.get("/auth/callback", async (request, reply) => {
 		if (!oidc) {
 			return fail(reply, 500, "INTERNAL", "Login is not configured");
 		}
 
-		const raw = request.cookies[loginCookie];
-		const unsigned = raw ? request.unsignCookie(raw) : null;
-		let loginState: LoginState | null = null;
-		if (unsigned?.valid && unsigned.value) {
-			try {
-				loginState = JSON.parse(unsigned.value) as LoginState;
-			} catch {
-				loginState = null;
-			}
-		}
+		const loginState = readLoginState(request);
 		if (!loginState) {
 			// A link attempt whose cookie is gone still belongs on the link page.
 			const { state } = request.query as { state?: unknown };
@@ -118,6 +123,27 @@ export function registerAuthRoutes(
 		reply.clearCookie(loginCookie, loginCookieOptions(auth));
 
 		const callbackUrl = new URL(request.url, auth.publicUrl);
+
+		// An administrator's test of the sign-in provider (ADR 0059): it signs no one in.
+		const test = signinTestOf(loginState);
+		if (test === "invalid") {
+			return fail(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"The test sign-in request is not valid. Start the test again.",
+			);
+		}
+		if (test) {
+			const to = await finishSigninTest(
+				{ db, oidc, auth },
+				request,
+				callbackUrl,
+				loginState,
+				test,
+			);
+			return reply.redirect(to, 302);
+		}
 
 		// A stored intent under this state means the course account asked to
 		// link (ADR 0026); otherwise a sign-in.
@@ -173,7 +199,7 @@ export function registerAuthRoutes(
 		reply: FastifyReply,
 		identity: { issuer: string; subject: string },
 	): void {
-		if (identity.issuer !== config.OIDC_ISSUER_URL) return;
+		if (identity.issuer !== DEX_ACCOUNT_ISSUER) return;
 		const connectorId = dexConnectorId(identity.subject);
 		if (connectorId) {
 			reply.setCookie(connectorCookie, connectorId, connectorCookieOptions(auth));
@@ -299,8 +325,7 @@ export function registerAuthRoutes(
 		// A Dex subject is an opaque blob, so prefer the username.
 		const signInName = row.preferred_username || row.oidc_subject;
 		// Settings offers Password only where POST /me/password can work (SPEC.md section 5.3).
-		const localPassword =
-			dex !== undefined && localDexUserId(row, config.OIDC_ISSUER_URL) !== null;
+		const localPassword = dex !== undefined && localDexUserId(row) !== null;
 		const { secondFactorApplies: _applies, ...user } = request.user;
 		const body: MeResponse = { ...user, signInName, localPassword };
 		return reply.send(body);

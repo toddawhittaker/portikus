@@ -78,6 +78,7 @@ describe("instructor feature tables", () => {
 					provider: { getMigrations: async () => migrations },
 				});
 				for (const name of [
+					"0044_dex_account_issuer",
 					"0043_agent_usage_days",
 					"0042_project_shares",
 					"0041_lti_roster_and_deep_linking",
@@ -95,6 +96,7 @@ describe("instructor feature tables", () => {
 					"0041_lti_roster_and_deep_linking",
 					"0042_project_shares",
 					"0043_agent_usage_days",
+					"0044_dex_account_issuer",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);

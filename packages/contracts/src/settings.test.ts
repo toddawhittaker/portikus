@@ -307,7 +307,11 @@ test("AdminUser rejects a bad id, a bad role and a negative override", () => {
 });
 
 test("AdminUserList parses a list of users", () => {
-	const parsed = AdminUserList.parse({ users: [sampleAdminUser], dexUsers: false });
+	const parsed = AdminUserList.parse({
+		users: [sampleAdminUser],
+		total: 1,
+		dexUsers: false,
+	});
 	expect(parsed.users).toHaveLength(1);
 });
 

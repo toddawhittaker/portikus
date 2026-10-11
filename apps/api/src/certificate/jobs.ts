@@ -7,8 +7,9 @@ import {
 	type CertificateSettings,
 	type CertificateSettingsView,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
-import { type Kysely, sql } from "kysely";
+import type { Database } from "@portikus/db";
+import type { Kysely } from "kysely";
+import { recordAuditOnce } from "../audit-once.js";
 import { fileTime, listDir, readJson } from "../job-files.js";
 
 const REQUEST_FILE = /^request-([0-9a-f-]{36})\.json$/;
@@ -107,42 +108,24 @@ export async function allJobs(dir: string): Promise<CertificateJobView[]> {
 /**
  * Write certificate.job_finished the first time the API sees each job
  * finished, `reset` included (SPEC.md 24.8). A page load and the hourly
- * tick can race; the lock makes the check and the insert one step.
+ * tick can race.
  */
 export async function noteFinished(
 	db: Kysely<Database>,
 	jobs: CertificateJobView[],
 ): Promise<void> {
-	const finished = jobs.filter(isFinished);
-	if (finished.length === 0) return;
-	await db.transaction().execute(async (trx) => {
-		await sql`select pg_advisory_xact_lock(hashtext('portikus.certificate-job-finished'))`.execute(
-			trx,
-		);
-		const seen = await trx
-			.selectFrom("audit_events")
-			.select("target")
-			.where("action", "=", "certificate.job_finished")
-			.where(
-				"target",
-				"in",
-				finished.map((job) => job.id),
-			)
-			.execute();
-		const seenIds = new Set(seen.map((row) => row.target));
-		for (const job of finished) {
-			if (seenIds.has(job.id)) continue;
-			await recordAudit(trx, {
-				actor: job.kind === "reset" ? "reset-certificate" : "certificate-job",
-				target: job.id,
-				action: "certificate.job_finished",
-				result: job.state === "succeeded" ? "ok" : "failed",
-				metadata: {
-					kind: job.kind,
-					...auditSummary(job.request?.settings ?? null),
-					state: job.state,
-				},
-			});
-		}
-	});
+	await recordAuditOnce(
+		db,
+		"certificate.job_finished",
+		jobs.filter(isFinished).map((job) => ({
+			actor: job.kind === "reset" ? "reset-certificate" : "certificate-job",
+			target: job.id,
+			result: job.state === "succeeded" ? "ok" : "failed",
+			metadata: {
+				kind: job.kind,
+				...auditSummary(job.request?.settings ?? null),
+				state: job.state,
+			},
+		})),
+	);
 }

@@ -1,14 +1,14 @@
-import type { AdminUser } from "@portikus/contracts";
+import { DEX_ACCOUNT_ISSUER } from "@portikus/contracts";
 import { render } from "@testing-library/react";
 import { expect, test } from "vitest";
 import {
 	imageText,
 	isCourseAccount,
+	issuerText,
 	Markers,
 	markerLabels,
 	roleText,
 	shortIssuer,
-	sortAccounts,
 	sourceText,
 } from "./markers.js";
 
@@ -20,30 +20,6 @@ const NONE = {
 	notSignedInYet: false,
 	linked: false,
 };
-
-function account(
-	id: string,
-	displayName: string,
-	email: string | null,
-	markers = NONE,
-): AdminUser {
-	return {
-		id,
-		displayName,
-		email,
-		role: "student",
-		providerRole: "student",
-		grantedRole: null,
-		disabledAt: null,
-		shutdownGraceSeconds: null,
-		dexLocal: false,
-		preferredUsername: null,
-		issuer: null,
-		lastLoginAt: null,
-		markers,
-		workspace: null,
-	};
-}
 
 test("marker labels come in a fixed order and only when set", () => {
 	expect(markerLabels(undefined)).toEqual([]);
@@ -94,22 +70,6 @@ test("a throttled or memory-flagged workspace adds its tags after the account's"
 	expect(markerLabels(NONE, null)).toEqual([]);
 });
 
-test("accounts that share an email sit together, whatever their names", () => {
-	const dup = { ...NONE, duplicateEmail: true };
-	const sorted = sortAccounts([
-		account("1", "Zed Old", "Bob@Example.edu", dup),
-		account("2", "Alice", "alice@example.edu"),
-		account("3", "Bob New", "bob@example.edu", dup),
-		account("4", "Carol", null),
-	]);
-	expect(sorted.map((user) => user.displayName)).toEqual([
-		"Alice",
-		"Bob New",
-		"Zed Old",
-		"Carol",
-	]);
-});
-
 test("the image reads as current, older, or just its label", () => {
 	expect(imageText({ label: "2026.09.9", fingerprint: "abc", current: true })).toBe(
 		"2026.09.9 · current",
@@ -131,6 +91,14 @@ test("an issuer is shortened to its host", () => {
 	expect(shortIssuer("not a url at all, and rather long")).toBe(
 		"not a url at all, and ra…",
 	);
+});
+
+test("the issuer names Portikus sign-in for a Dex account, and shows any other as it is", () => {
+	expect(issuerText(DEX_ACCOUNT_ISSUER)).toBe("Portikus sign-in");
+	expect(issuerText("lti:https://canvas.example.edu")).toBe(
+		"lti:https://canvas.example.edu",
+	);
+	expect(issuerText(null)).toBe("—");
 });
 
 test("the source is SSO, or Course with the platform host for a course account", () => {

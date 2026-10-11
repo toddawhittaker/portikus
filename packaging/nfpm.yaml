@@ -198,6 +198,33 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # The root site job, its value rules and its trigger (ADR 0059).
+  # Enabled by Ansible, which creates the job and state directories.
+  - src: ./packaging/systemd/portikus-site-job.path
+    dst: /usr/lib/systemd/system/portikus-site-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-site-job.service
+    dst: /usr/lib/systemd/system/portikus-site-job.service
+    file_info: *unit_info
+  - src: ./packaging/site/site-job
+    dst: /usr/lib/portikus/site-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
+  - src: ./packaging/site/site_values.py
+    dst: /usr/lib/portikus/site_values.py
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
+  # Install answers to portikus.yaml and secrets.yaml, for postinst and the site job.
+  - src: ./packaging/site/write-settings
+    dst: /usr/lib/portikus/write-settings
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # The Docker pull-through caches and their root helper.
   # Enabled by Ansible, which installs docker-registry and makes their
   # filesystem, user and certificates.

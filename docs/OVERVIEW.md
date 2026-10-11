@@ -33,7 +33,11 @@ sections 23.6 and 24.9, ADRs 0038 to 0043). Epic 42 added instructor
 features: a student can share one project read-only with their
 instructors, instructors and administrators see coding-agent usage as
 counts only, and the Course page syncs its roster from the LMS and offers
-starter projects through LTI Deep Linking (ADRs 0057 and 0058).
+starter projects through LTI Deep Linking (ADRs 0057 and 0058). Epic 43 lets an administrator
+change the sign-in provider, the site address, LMS platforms and the
+server's allowed internet hosts from the admin page, through one root site
+job with trials that are put back unless kept (SPEC.md section 20.1, ADRs
+0059 and 0060).
 
 ## Planned architecture
 

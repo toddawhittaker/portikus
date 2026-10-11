@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutboundFetch } from "@portikus/observability";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { DEX_ACCOUNT_ISSUER } from "./dex-subject.js";
 import { createKeySetSource } from "./lti/validate.js";
 import { createOidcClient } from "./oidc.js";
 import {
@@ -110,7 +111,7 @@ describe("OIDC through the outbound proxy", () => {
 
 		const { identity } = await oidc.completeLogin(await callbackFor(url), state);
 		expect(identity.subject).toBe("alice");
-		expect(identity.issuer).toBe(ISSUER);
+		expect(identity.issuer).toBe(DEX_ACCOUNT_ISSUER);
 		// The callback made more requests, and every one used the proxy.
 		expect(proxied.length).toBeGreaterThan(proxiedBeforeCallback);
 		expect(new Set(proxied)).toEqual(new Set(["idp.invalid:80"]));

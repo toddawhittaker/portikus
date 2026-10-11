@@ -166,6 +166,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash packaging/tests/settings-keys-test.sh
 	bash packaging/tests/secrets-yaml-test.sh
 	bash packaging/tests/enable-units-test.sh
+	bash packaging/tests/prerm-units-test.sh
 	bash packaging/tests/agents-links-order-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
@@ -181,6 +182,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/setup-settings-test.yml
 	ansible-playbook infra/tests/certificate-seed-test.yml
 	ansible-playbook infra/tests/alerts-render-test.yml
+	ansible-playbook infra/tests/site-view-render-test.yml
 	ansible-playbook infra/tests/apt-failures-test.yml
 	ansible-playbook infra/tests/workspace-image-test.yml
 	ansible-playbook infra/tests/registry-cache-size-test.yml

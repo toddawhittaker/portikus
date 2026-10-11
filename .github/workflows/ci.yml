@@ -495,13 +495,13 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
-          # The command imports @portikus/db and @portikus/observability from
+          # The command imports @portikus/contracts, @portikus/db and @portikus/observability from
           # their builds, as on the VM.
-          pnpm exec tsc -b packages/db packages/observability
+          pnpm exec tsc -b packages/contracts packages/db packages/observability
           pnpm exec tsx packages/db/src/migrate.ts
           run_import() {
             pnpm exec tsx packages/auth/src/dex-import-main.ts \
-              --input infra/tests/fixtures/users.sample.json --issuer http://127.0.0.1:5556/dex
+              --input infra/tests/fixtures/users.sample.json
           }
           run_import | tee "$DEX_DIR/import-1.txt"
           grep -qx 'Imported into Dex: carol, alice' "$DEX_DIR/import-1.txt"
@@ -640,6 +640,8 @@ jobs:
         run: bash packaging/tests/agents-links-order-test.sh
       - name: Enabled units
         run: bash packaging/tests/enable-units-test.sh
+      - name: Units prerm stops
+        run: bash packaging/tests/prerm-units-test.sh
       - name: Secrets YAML
         run: bash packaging/tests/secrets-yaml-test.sh
       - name: Save the test image
@@ -691,6 +693,9 @@ jobs:
       - name: Alert settings and failure units
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/alerts-render-test.yml
+      - name: Site view
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/site-view-render-test.yml
       - name: Apt refresh failure decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/apt-failures-test.yml
@@ -753,6 +758,10 @@ jobs:
       - name: Notification settings job
         if: needs.changes.outputs.infra == 'true'
         run: python3 -B -m unittest discover -s packaging/alerts/tests
+      # squid, systemctl, debconf and setup are stubbed; write-settings is the real one.
+      - name: Site job
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/site/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy

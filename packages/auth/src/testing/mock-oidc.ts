@@ -7,7 +7,7 @@ import {
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger } from "fastify";
 import { exportJWK, generateKeyPair, type JWK, type KeyObject, SignJWT } from "jose";
-import { dexLocalSubject } from "../dex-subject.js";
+import { dexLocalSubject, dexSubject } from "../dex-subject.js";
 
 /**
  * A small OIDC provider for tests, local development, and the pilot VM.
@@ -109,6 +109,15 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		sub: dexLocalSubject("e2e-link-two-step"),
 		email: "lars@example.edu",
 		name: "Lars Student",
+		groups: [MOCK_GROUPS.student],
+	},
+	// A person from an upstream provider behind Dex's "oidc" connector, for
+	// the admin page's test sign-in (e2e/admin-signin.spec.ts). She must never
+	// get an account: a test sign-in creates none.
+	olga: {
+		sub: dexSubject("e2e-upstream-olga", "oidc"),
+		email: "olga@example.edu",
+		name: "Olga Upstream",
 		groups: [MOCK_GROUPS.student],
 	},
 	// The local administrator's Dex subject (SPEC.md section 5.1), for

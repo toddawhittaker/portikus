@@ -18,10 +18,18 @@ import {
 	type UpdateLimitsRequest,
 	type UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import type { SortState } from "../table/sort.js";
+import { type AccountFilters, usersQueryString } from "./users/filters.js";
+import type { AccountColumn } from "./users/sort.js";
 
 /** The admin caches' query keys, also used by writes elsewhere that change them. */
 export const adminKeys = {
@@ -49,31 +57,54 @@ export function usePlatformSettings() {
 	});
 }
 
-const usersQuery = {
-	queryKey: adminKeys.users,
-	queryFn: () => request(AdminUserList, "/admin/users"),
-};
-
-/** Every account, and whether the site manages Dex users (ADR 0028). */
-export function useAdminUsers({ poll = true }: { poll?: boolean } = {}) {
+/** Every account (the person pickers), and whether the site manages Dex users (ADR 0028). */
+export function useAdminUsers({
+	poll = true,
+	enabled = true,
+}: {
+	poll?: boolean;
+	enabled?: boolean;
+} = {}) {
 	return useQuery({
-		...usersQuery,
-		// A Person list needs no 5-second refresh; the Users table does.
+		queryKey: [...adminKeys.users, "all"],
+		queryFn: () => request(AdminUserList, "/admin/users"),
+		enabled,
+		// A Person list needs no 5-second refresh.
 		refetchInterval: poll ? ADMIN_REFRESH_MS : false,
 	});
 }
 
 /**
- * The same list, refreshed only while some workspace has an operation
- * pending, so every admin tab can hear it end without polling all the time.
+ * One page of the Users table, or with no `page` every account the filters
+ * leave. The server filters, sorts and pages (SPEC.md section 20.1).
+ */
+export function useAdminUsersPage(
+	filters: AccountFilters,
+	sort: SortState<AccountColumn>,
+	page: { offset: number; limit: number } | undefined,
+	{ enabled = true }: { enabled?: boolean } = {},
+) {
+	const query = usersQueryString(filters, sort, page);
+	return useQuery({
+		queryKey: [...adminKeys.users, "page", query],
+		queryFn: () => request(AdminUserList, `/admin/users?${query}`),
+		enabled,
+		refetchInterval: ADMIN_REFRESH_MS,
+		// The old page stays up while the next loads, so the table does not blink.
+		placeholderData: keepPreviousData,
+	});
+}
+
+/**
+ * Only the accounts with an operation pending, refreshed while there are
+ * any, so every admin tab can hear one end without polling all the time.
  */
 export function useAdminUsersWhilePending() {
 	return useQuery({
-		...usersQuery,
+		queryKey: [...adminKeys.users, "pending"],
+		queryFn: () => request(AdminUserList, "/admin/users?pending=1"),
 		refetchInterval: (query) =>
-			query.state.data?.users.some((user) => user.workspace?.pendingOperation)
-				? ADMIN_REFRESH_MS
-				: false,
+			query.state.data?.users.length ? ADMIN_REFRESH_MS : false,
 	});
 }
 

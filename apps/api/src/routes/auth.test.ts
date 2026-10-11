@@ -1,4 +1,8 @@
-import { createOidcClient, ELEVATED_SESSION_MAX_SECONDS } from "@portikus/auth";
+import {
+	createOidcClient,
+	DEX_ACCOUNT_ISSUER,
+	ELEVATED_SESSION_MAX_SECONDS,
+} from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -63,6 +67,31 @@ test.skipIf(skip)("a student can sign in and see themselves", async () => {
 	expect(me.json().role).toBe("student");
 	expect(me.json().displayName).toBeTruthy();
 	expect(me.json().signInName).toBe("alice");
+});
+
+test.skipIf(skip)("after an address move Dex signs into the same account", async () => {
+	// The site moves: Dex is served from a new URL (SPEC.md section 5.1).
+	const moved = await startMockOidcProvider({
+		redirectUris: [`${PUBLIC_URL}/auth/callback`],
+	});
+	const movedApp = buildTestServer(testDb.db, moved.issuer);
+	try {
+		await movedApp.ready();
+		expect(moved.issuer).not.toBe(mock.issuer);
+		expect((await loginAs(app, "alice", new CookieJar())).location).toBe("/");
+		const before = await testDb.db.selectFrom("users").select("id").execute();
+		expect((await loginAs(movedApp, "alice", new CookieJar())).location).toBe("/");
+		const after = await testDb.db
+			.selectFrom("users")
+			.select(["id", "oidc_issuer", "oidc_subject"])
+			.execute();
+		expect(after).toEqual([
+			{ id: before[0]?.id, oidc_issuer: DEX_ACCOUNT_ISSUER, oidc_subject: "alice" },
+		]);
+	} finally {
+		await movedApp.close();
+		await moved.close();
+	}
 });
 
 test.skipIf(skip)(
@@ -484,7 +513,7 @@ test.skipIf(skip)(
 		await testDb.db
 			.insertInto("users")
 			.values({
-				oidc_issuer: mock.issuer,
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
 				oidc_subject: "someone-else",
 				email: "dave@example.edu",
 				display_name: "Existing",

@@ -15,6 +15,14 @@ export const AccountLink = z.object({
 });
 export type AccountLink = z.infer<typeof AccountLink>;
 
+/** `GET`, `POST` and `DELETE` on `/admin/users/:id/links`: the links the SSO account holds after the call. */
+export const AdminAccountLinks = z.object({ links: z.array(AccountLink) });
+export type AdminAccountLinks = z.infer<typeof AdminAccountLinks>;
+
+/** `POST /admin/users/:id/links`: the course account to link to the SSO account in the path. */
+export const AdminLinkRequest = z.object({ courseUserId: z.string().uuid() }).strict();
+export type AdminLinkRequest = z.infer<typeof AdminLinkRequest>;
+
 /** `GET /me/links`. */
 export const MyLinks = z.object({
 	source: z.enum(["sso", "course"]),

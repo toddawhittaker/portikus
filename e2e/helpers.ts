@@ -11,7 +11,10 @@ import {
 	type Route,
 } from "@playwright/test";
 import pg from "pg";
-import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
+import {
+	DEX_ACCOUNT_ISSUER,
+	dexLocalSubject,
+} from "../packages/auth/dist/dex-subject.js";
 import { base32Decode, totpCode, totpStep } from "../packages/auth/dist/totp.js";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
@@ -37,6 +40,7 @@ export type MockUser =
 	| "lena"
 	| "lars"
 	| "nina"
+	| "olga"
 	| "rita"
 	| "admin";
 
@@ -76,7 +80,7 @@ export async function apiLoginAs(
  * the workspace at the fake workspace agent that playwright.config.ts starts.
  */
 
-export { API_ORIGIN, MOCK_ISSUER, WEB_ORIGIN };
+export { API_ORIGIN, DEX_ACCOUNT_ISSUER, MOCK_ISSUER, WEB_ORIGIN };
 
 /** Matches the fake agent started by playwright.config.ts. */
 export const FAKE_AGENT_TOKEN = "e2e-agent-token";
@@ -146,7 +150,7 @@ export async function createSignedInUser(
 	const [user] = await query<{ id: string }>(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, $4, $5) returning id`,
-		[MOCK_ISSUER, subject, `${subject}@example.edu`, name, role],
+		[DEX_ACCOUNT_ISSUER, subject, `${subject}@example.edu`, name, role],
 	);
 	if (!user) throw new Error("could not create the test user");
 	const sessionToken = await addSession(context, user.id);
@@ -186,7 +190,7 @@ export async function createLocalPasswordAdmin(
 		 values ($1, $2, $3, $4, 'administrator', 'administrator', $5)
 		 returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			dexLocalSubject(id),
 			`${id}@example.edu`,
 			options.displayName,

@@ -188,3 +188,84 @@ export async function runPreflight(options: {
 	}
 	return { ok: !checks.some((check) => check.result === "failed"), checks };
 }
+
+/**
+ * Pre-flight for moving the site to `host` (ADR 0059): the new name
+ * and a sample name under the new preview suffix must resolve, and every
+ * address each resolves to should answer a nonce sent there with the current
+ * site's name, which proves those addresses are this server. The new name is
+ * not served until the switch, so the probe cannot use it yet; Keep, pressed
+ * from the new address, proves the rest. A DNS failure blocks. A reach
+ * failure only warns: the API's sandbox lets it reach loopback and the
+ * workspace bridge only, so on a real server the probe cannot leave the host.
+ */
+export async function runAddressPreflight(options: {
+	config: ApiConfig;
+	net: PreflightNet;
+	nonces: NonceStore;
+	host: string;
+	previewSuffix: string;
+}): Promise<CertificatePreflight> {
+	const { config, net, nonces, host, previewSuffix } = options;
+	const nonce = nonces.issue();
+	const sample = `portikus-check-${nonce.slice(0, 8)}.${previewSuffix}`;
+	const url = `${config.PUBLIC_URL.replace(/\/$/, "")}${PREFLIGHT_PATH}${nonce}`;
+
+	async function reaches(addresses: string[]): Promise<boolean> {
+		if (addresses.length === 0) return false;
+		const bodies = await Promise.all(addresses.map((a) => net.probe(url, a)));
+		return bodies.every((body) => body === nonce);
+	}
+
+	const [siteAddresses, previewAddresses] = await Promise.all([
+		net.resolve(host),
+		net.resolve(sample),
+	]);
+	const [siteReached, previewReached] = await Promise.all([
+		reaches(siteAddresses),
+		reaches(previewAddresses),
+	]);
+	const check = (
+		name: PreflightCheck["name"],
+		passed: boolean,
+		yes: string,
+		no: string,
+		bad: "warning" | "failed",
+	): PreflightCheck =>
+		passed
+			? { name, result: "passed", message: yes }
+			: { name, result: bad, message: no };
+	const unconfirmed =
+		"Could not confirm from this server; the trial and Keep from the new address prove it.";
+	const checks = [
+		check(
+			"dns-site",
+			siteAddresses.length > 0,
+			`${host} resolves.`,
+			`${host} does not resolve in DNS.`,
+			"failed",
+		),
+		check(
+			"dns-preview",
+			previewAddresses.length > 0,
+			`Preview names such as ${sample} resolve.`,
+			`${sample} does not resolve in DNS. Add a wildcard record for *.${previewSuffix}.`,
+			"failed",
+		),
+		check(
+			"reach-site",
+			siteReached,
+			`${host} points at this server.`,
+			`${host}: ${unconfirmed}`,
+			"warning",
+		),
+		check(
+			"reach-preview",
+			previewReached,
+			`*.${previewSuffix} points at this server.`,
+			`*.${previewSuffix}: ${unconfirmed}`,
+			"warning",
+		),
+	];
+	return { ok: !checks.some((c) => c.result === "failed"), checks };
+}
