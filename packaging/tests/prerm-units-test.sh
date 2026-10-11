@@ -14,7 +14,7 @@
 #   - purge stops and disables Squid, which setup configured only for
 #     Portikus, and deletes setup's helpers under /usr/local, which postrm
 #     lists exactly as the roles install them, and /usr/local/share/portikus
-#     (SPEC.md section 21.13).
+#     (SPEC.md section 21.12).
 # Usage: packaging/tests/prerm-units-test.sh
 set -euo pipefail
 

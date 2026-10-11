@@ -73,7 +73,7 @@ if ssh_cmd test -d /var/lib/portikus/incus; then
 else
   WORKSPACE_SCRIPT="/tmp/portikus-smoke-workspace.sh"
   ssh_cmd_stdin "cat >${WORKSPACE_SCRIPT}" <"${TESTS_DIR}/../incus/workspace.sh"
-  echo "SKIP  the VM's workspace.sh (a packaged host has none; this run uses ${WORKSPACE_SCRIPT})"
+  skip "the VM's workspace.sh (a packaged host has none; this run uses ${WORKSPACE_SCRIPT})"
 fi
 
 echo ""

@@ -88,9 +88,8 @@ MOCK_LMS_HOST ?= $(MOCK_LMS_BRIDGE_IP)
 MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_BRIDGE_IP)
 # Served over https, so roster sync reaches its token endpoint through the
 # egress proxy's CONNECT as it reaches a real LMS (ADR 0027); the smoke test
-# starts it with a certificate from the VM's Caddy root. Override wins over
-# the plain-http default set further down.
-override MOCK_LMS_URL = https://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
+# starts it with a certificate from the VM's Caddy root.
+MOCK_LMS_SCHEME = https
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
@@ -213,7 +212,11 @@ infra-apply: ## Create or update the platform VM and disks (TOFU_ENV=rehearsal-l
 # state has none after an apply that only started a stopped VM, so fall back
 # to libvirt's DHCP lease for the domain this environment's state names.
 vm_lease_cmd = virsh -q -c qemu:///system domifaddr --source lease '$(TOFU_VM_NAME)' 2>/dev/null | awk '$$3 == "ipv4" { sub("/.*", "", $$4); print $$4; exit }'
-VM_IP ?= $(or $(call tofu_output,vm_ip),$(if $(TOFU_VM_NAME),$(shell $(vm_lease_cmd))))
+STATE_VM_IP = $(or $(call tofu_output,vm_ip),$(if $(TOFU_VM_NAME),$(shell $(vm_lease_cmd))))
+VM_IP ?= $(STATE_VM_IP)
+# The rehearsal VM's address as its own state names it, never VM_IP; the smoke
+# test lets only that VM's Caddy root sign the https mock LMS a certificate.
+REHEARSAL_VM_IP = $(if $(filter rehearsal-libvirt,$(TOFU_ENV)),$(if $(filter-out portikus,$(TOFU_VM_NAME)),$(STATE_VM_IP)))
 MANAGEMENT_CIDR ?= $(call tofu_output,management_cidr)
 
 # The host's own LAN address, taken from its default route.
@@ -313,7 +316,8 @@ PORTIKUS_LTI_PLATFORMS_FILE ?= $(HOME)/.config/portikus/lti-platforms.json
 # it defaults to the host's LAN address, the same one the public site uses.
 MOCK_LMS_PORT ?= 8765
 MOCK_LMS_HOST ?= $(HOST_IP)
-MOCK_LMS_URL = http://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
+MOCK_LMS_SCHEME ?= http
+MOCK_LMS_URL = $(MOCK_LMS_SCHEME)://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
 # The host's first address on the VM network, 10.100.0.1 for the pilot.
 MOCK_LMS_BRIDGE_IP ?= $(or $(shell python3 -c 'import ipaddress, sys; print(next(ipaddress.ip_network(sys.argv[1]).hosts()))' '$(MANAGEMENT_CIDR)' 2>/dev/null),10.100.0.1)
 MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_BRIDGE_IP) $(MOCK_LMS_HOST)
@@ -321,6 +325,7 @@ PORTIKUS_PUBLIC_URL = https://$(PORTIKUS_PUBLIC_HOST)$(if $(filter 443,$(PORTIKU
 LTI_MOCK_CLI = python3 infra/host/lti-mock-registration.py --file "$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
 mock-lms: ## Run the mock LMS on this host in the foreground at the LAN address (MOCK_LMS_HOST, MOCK_LMS_BIND, MOCK_LMS_PORT); it is trusted only while lti-mock-register is in effect
+	@test "$(TOFU_ENV)" != rehearsal-libvirt || { echo "mock-lms: the rehearsal's https mock LMS needs a certificate; make smoke-test TOFU_ENV=rehearsal-libvirt starts it"; exit 1; }
 	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
@@ -336,7 +341,7 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 	$(REQUIRE_VM_IP)
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
-		bash infra/tests/smoke-test.sh $(VM_IP)
+		PORTIKUS_REHEARSAL_VM_IP=$(REHEARSAL_VM_IP) bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").

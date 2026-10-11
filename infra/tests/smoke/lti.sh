@@ -28,6 +28,21 @@ json_fields() {
   echo "${out[*]}"
 }
 
+# Roster sync: the API asks the mock's token and roster endpoints through
+# the egress proxy, as it would a real LMS (ADR 0027).
+lti_roster_checks() {
+  roster=$(lti_py roster "$mock_issuer" "$API" ivy cs101 "CS 101 Intro to Programming" sam "Sam Student")
+  check_output "the mock's roster hook resets and changes a member's role" "204 204 204" \
+    json_fields "$roster" reset promote demote
+  check_output "roster sync gets a token and the roster through the egress proxy" "200 ok True" \
+    json_fields "$roster" first first_result first_available
+  check_gt "the synced roster lists people who never launched" 0 json_field "$roster" first_not_started
+  check_output "a role changed in the LMS reaches the course on the next sync" "ok 1 instructor" \
+    json_fields "$roster" promoted_result promoted_role_changed promoted_member_role
+  check_output "the role changed back reaches the course too" "ok 1 student" \
+    json_fields "$roster" demoted_result demoted_role_changed demoted_member_role
+}
+
 # The checks that need a running mock LMS.
 lti_launch_checks() {
   check_output "the VM reaches the mock LMS keyset" "200" mock_probe
@@ -59,18 +74,13 @@ lti_launch_checks() {
     "displayName,lastLaunchAt,role,status,userId,workspaceState" json_field "$instructor" member_fields
   check_output "the instructor gets 403 from the admin routes" "403" json_field "$instructor" admin
 
-  # The API asks the mock's token and roster endpoints through the egress
-  # proxy, as it would a real LMS (ADR 0027).
-  roster=$(lti_py roster "$mock_issuer" "$API" ivy cs101 "CS 101 Intro to Programming" sam "Sam Student")
-  check_output "the mock's roster hook resets and changes a member's role" "204 204 204" \
-    json_fields "$roster" reset promote demote
-  check_output "roster sync gets a token and the roster through the egress proxy" "200 ok True" \
-    json_fields "$roster" first first_result first_available
-  check_gt "the synced roster lists people who never launched" 0 json_field "$roster" first_not_started
-  check_output "a role changed in the LMS reaches the course on the next sync" "ok 1 instructor" \
-    json_fields "$roster" promoted_result promoted_role_changed promoted_member_role
-  check_output "the role changed back reaches the course too" "ok 1 student" \
-    json_fields "$roster" demoted_result demoted_role_changed demoted_member_role
+  # The proxy allows only GET and CONNECT, so the API's token POST to a
+  # plain-http mock is refused (ADR 0027).
+  if [ "$mock_scheme" = https ]; then
+    lti_roster_checks
+  else
+    lti_skip_checks lti_roster_checks "roster sync needs an https mock LMS; the proxy refuses plain-HTTP POST"
+  fi
 
   deep_link=$(lti_py deeplink "$mock_issuer" "$API" ivy cs101 "smoke-link-$(date +%s)")
   check_output "Deep Linking passes /lti/login, the mock and /lti/launch to the picker" "302 200 200 True" \
@@ -86,18 +96,24 @@ lti_launch_checks() {
   ssh_cmd "sudo -u postgres psql -t -A -F ' ' -d portikus -c \"SELECT '  ' || display_name, role, created_at::date FROM users WHERE oidc_issuer = 'lti:${mock_issuer}' ORDER BY display_name\""
 }
 
-# lti_skip_launch_checks REASON -- one counted SKIP per launch check, by name.
-# The names come from running lti_launch_checks with every check and every
-# call to the VM stubbed out, so the list cannot drift from the checks.
-lti_skip_launch_checks() {
+# lti_skip_checks FUNCTION REASON -- one counted SKIP per check FUNCTION
+# runs, by name.  The names come from running FUNCTION with every check and
+# every call to the VM or the mock stubbed out, so the list cannot drift.
+# shellcheck disable=SC2317  # the stubs are called by the function named in $1
+lti_skip_checks() {
   local label
-  while IFS= read -r label; do skip "${label} (${1})"; done < <(
+  while IFS= read -r label; do skip "${label} (${2})"; done < <(
     check() { printf '%s\n' "$1" >&3; }
     check_output() { printf '%s\n' "$1" >&3; }
     check_gt() { printf '%s\n' "$1" >&3; }
     lti_py() { :; }
     ssh_cmd() { :; }
-    lti_launch_checks 3>&1 >/dev/null 2>&1
+    ssh_cmd_stdin() { :; }
+    vm_get() { :; }
+    curl() { :; }
+    # Every check is listed, the roster ones included.
+    mock_scheme=https
+    "$1" 3>&1 >/dev/null 2>&1
   )
 }
 
@@ -124,6 +140,7 @@ lti_stop_mock() {
     mock_pid=""
   fi
   [ -z "${mock_dir:-}" ] || rm -rf "$mock_dir"
+  mock_dir=""
 }
 
 check_output "api.env names the platforms file" "$LTI_FILE" api_env LTI_PLATFORMS_FILE
@@ -134,6 +151,7 @@ check "the tool key is RSA 2048" \
   ssh_cmd "sudo openssl pkey -in /etc/portikus/lti-tool-key.pem -noout -text | head -1 | grep -q '(2048 bit'"
 
 mock_issuer=""
+mock_scheme=""
 mock_pid=""
 mock_dir=""
 if ! ssh_cmd "sudo test -e ${LTI_FILE}"; then
@@ -142,7 +160,7 @@ if ! ssh_cmd "sudo test -e ${LTI_FILE}"; then
   check_output "/lti/login is 404 with LTI off" "404" http_status - "${API}/lti/login"
   check_output "POST /lti/launch is 404 with LTI off" "404" \
     http_status - "${API}/lti/launch" "-X POST --data state=x"
-  lti_skip_launch_checks "no mock LMS registered"
+  lti_skip_checks lti_launch_checks "no mock LMS registered"
 else
   check_output "the platforms file is root:portikus, mode 0640" "root:portikus 640" \
     ssh_cmd "sudo stat -c '%U:%G %a' ${LTI_FILE}"
@@ -181,6 +199,14 @@ print(" ".join(seen))')
   mock_issuer=$(printf '%s' "$lti_platforms" | python3 -c '
 import json, sys
 print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("mock") and p["name"] == "mock-lms"), ""))')
+  mock_url_part() { # ATTRIBUTE -- one part of the issuer URL, empty when it has none.
+    python3 -c 'import sys, urllib.parse; print(getattr(urllib.parse.urlsplit(sys.argv[1]), sys.argv[2]) or "")' "$mock_issuer" "$1"
+  }
+  mock_scheme=$(mock_url_part scheme)
+  # Caddy's root on the VM signs the mock a certificate only on the rehearsal
+  # VM, as its own OpenTofu state names it (make smoke-test passes it).
+  on_rehearsal=no
+  if [ -n "${PORTIKUS_REHEARSAL_VM_IP:-}" ] && [ "$VM" = "$PORTIKUS_REHEARSAL_VM_IP" ]; then on_rehearsal=yes; fi
   # The issuer is quoted for the remote shell; the probe prints the HTTP status.
   mock_keyset_url=$(printf %q "${mock_issuer}/.well-known/jwks.json")
   mock_probe() {
@@ -191,18 +217,20 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   mock_ready=1
   if [ -z "$mock_issuer" ]; then
     mock_ready=0
-    lti_skip_launch_checks "no mock LMS registered"
+    lti_skip_checks lti_launch_checks "no mock LMS registered"
   elif [ "$mock_status" != "200" ] && ! command -v pnpm >/dev/null 2>&1; then
     bad "pnpm not found: run nvm use and corepack enable"
     mock_ready=0
-    lti_skip_launch_checks "the mock LMS cannot start without pnpm"
+    lti_skip_checks lti_launch_checks "the mock LMS cannot start without pnpm"
   else
     printf '\033[1;33mWARN\033[0m  the mock LMS is registered (mock-lms at %s): it can launch as anyone while it runs. Remove it with make lti-mock-unregister.\n' "$mock_issuer"
+    if [ "$mock_scheme" != https ] && [ "$on_rehearsal" = yes ]; then
+      bad "the rehearsal's mock LMS is registered over plain http, so roster sync cannot run; register it again with make lti-mock-register TOFU_ENV=rehearsal-libvirt"
+    fi
     if [ "$mock_status" != "200" ]; then
       # Not running: start it here for this run, on the address it was registered with.
-      mock_scheme=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).scheme)' "$mock_issuer")
-      mock_host=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname)' "$mock_issuer")
-      mock_port=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).port)' "$mock_issuer")
+      mock_host=$(mock_url_part hostname)
+      mock_port=$(mock_url_part port)
       mock_dir=$(mktemp -d)
       # The tool's keyset from the VM, so the mock verifies roster and Deep
       # Linking requests without reaching the site from this host.
@@ -210,8 +238,8 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
         --issuer "$mock_issuer" --tool-keys-file "${mock_dir}/tool-jwks.json")
       vm_get - "${API}/lti/jwks" >"${mock_dir}/tool-jwks.json"
       if [ "$mock_scheme" = https ]; then
-        if [ "$(ssh_cmd hostname)" = portikus ]; then
-          bad "an https mock LMS is for the rehearsal VM, not the pilot; register it with make lti-mock-register"
+        if [ "$on_rehearsal" != yes ]; then
+          bad "an https mock LMS gets a certificate from the VM's Caddy root only on the rehearsal VM (${PORTIKUS_REHEARSAL_VM_IP:-none in its state}), and ${VM} is not it; run make smoke-test TOFU_ENV=rehearsal-libvirt"
           mock_ready=0
         elif lti_mock_tls "$mock_dir" "$mock_host"; then
           mock_args+=(--tls-cert "${mock_dir}/mock.crt" --tls-key "${mock_dir}/mock.key")
@@ -237,7 +265,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
           sleep 1
         done
       fi
-      [ "$mock_ready" = 1 ] || lti_skip_launch_checks "the mock LMS did not start"
+      [ "$mock_ready" = 1 ] || lti_skip_checks lti_launch_checks "the mock LMS did not start"
     fi
   fi
   if [ "$mock_ready" = 1 ]; then
