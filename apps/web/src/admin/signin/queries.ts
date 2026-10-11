@@ -11,7 +11,17 @@ import { request, sendJson } from "../../api/request.js";
 
 const signinKey = ["admin", "signin"] as const;
 
-const TestSigninStart = z.object({ location: z.string() });
+/** The browser is sent here, so only https is accepted; plain http only on loopback, where development and e2e run their mock provider. */
+function isSafeProviderUrl(value: string): boolean {
+	if (!URL.canParse(value)) return false;
+	const url = new URL(value);
+	if (url.protocol === "https:") return true;
+	return url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+}
+
+export const TestSigninStart = z.object({
+	location: z.string().url().refine(isSafeProviderUrl, "must be an https URL"),
+});
 
 /** Start a test sign-in; the caller sends the browser to the returned address, and it comes back to the Sign-in tab. */
 export function useStartTestSignin() {

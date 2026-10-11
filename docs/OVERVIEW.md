@@ -29,7 +29,11 @@ for `apt install portikus` (SPEC.md sections 21.12, 21.13 and 22.4). Epic 24 add
 administrator control of workspace internet access (an allow-list, or
 blocked sites in open mode), backups and single-workspace restores from
 the admin page, per-workspace limits, and HTTPS previews (SPEC.md
-sections 23.6 and 24.9, ADRs 0038 to 0043).
+sections 23.6 and 24.9, ADRs 0038 to 0043). Epic 43 lets an administrator
+change the sign-in provider, the site address, LMS platforms and the
+server's allowed internet hosts from the admin page, through one root site
+job with trials that are put back unless kept (SPEC.md section 20.1, ADRs
+0059 and 0060).
 
 ## Planned architecture
 

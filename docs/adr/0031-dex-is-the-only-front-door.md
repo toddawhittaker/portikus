@@ -81,6 +81,13 @@ to their provider, which asks for the second factor under its own rules.
 
 ## Update, Epic 43
 
+The consequence that the admin area could manage Dex connectors only through
+Dex's API no longer holds (ADR 0059). The Sign-in tab sets the provider
+through the same install answers as `dpkg-reconfigure portikus` and reruns
+setup, as a 30-minute trial checked by a test sign-in and kept by hand. Dex
+stays the only front door, and the local administrator's Dex password keeps
+working throughout, which is the way back from a bad trial.
+
 Dex accounts are keyed by the logical issuer `urn:portikus:dex` and the
 Dex subject, not by Dex's URL, so an address move keeps every account
 (migration 0044 moves existing rows; SPEC.md section 5.1).

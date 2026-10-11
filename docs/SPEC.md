@@ -2861,6 +2861,52 @@ Added by Epic 35 (ADRs 0051 and 0052):
   `GET /admin/root-shell` answers `{enabled: false}` and the tab is
   hidden.
 
+Added by Epic 43 (ADRs 0059 and 0060). Every change these pages make to
+the host goes through the root site job (section 24.1):
+
+- **Tabs.** Two new tabs, **Sign-in** (`/admin/signin`, with a single
+  sign-on group and an LMS platforms group) and **Site address**
+  (`/admin/address`). They always show; off an apt install the address
+  and single sign-on parts say they are unavailable. The admin tab strip
+  fits on one row from a 1366 px window and wraps to further rows below
+  that.
+- **Single sign-on.** The page sets Entra, Google, generic OIDC or "Dex
+  passwords only"; LDAP shows read-only and is set with
+  `dpkg-reconfigure portikus`. A change is a 30-minute trial. **Test
+  sign-in** sends the administrator through the provider and back
+  without signing anyone in, creating a user or a session, or changing a
+  role; it records the result and the role it would map. **Keep** is
+  offered after a passing test, or at once for "Dex passwords only". An
+  unkept trial is put back. The client secret is write-only. The OIDC
+  issuer must be a host name on port 443.
+- **LMS platforms.** An administrator adds and removes LTI platforms
+  (HTTPS only, at most 20) beside the operator's file, which shows
+  read-only. Saving restarts the API, and the page warns first that root
+  shells end and sockets reconnect.
+- **Allowed API hosts.** A group in the Network tab adds host names the
+  Portikus server itself may reach on port 443 (at most 50, no IP
+  addresses). Workspaces are not affected. The operator's list shows
+  read-only.
+- **Site address.** The page plans a move to a new host name or port,
+  checks DNS with a pre-flight, and applies it as a 15-minute trial that
+  must be kept from the new address. Uploaded certificates must cover
+  the new names. The preview suffix follows the host unless it was set
+  by hand. Running workspaces keep the old suffix until their next
+  start, and the page lists them.
+- **Users paging.** The Users list is searched, filtered, sorted and
+  paged on the server, 50 rows a page, after the markers are computed
+  over all accounts. A request with no `limit` returns the whole list.
+  Bulk actions act on the ticked rows of the page in view.
+- **Account linking.** From an SSO account's detail panel an
+  administrator links or unlinks a course account for its holder, with
+  the same refusals as the holder's own flow, and also refuses an SSO
+  account whose role is higher than the course account's. Unlink works on
+  any link. The holder gets a notification.
+- **Agent log.** The workspace detail panel reads the running workspace
+  agent's recent warnings and errors (the last 200, warn and above),
+  labelled as reported by the workspace, because the workspace's owner
+  can change what it says.
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -3769,6 +3815,22 @@ the alerts job (ADR 0052); each change is audited and announced.
 
 Added by Epic 40 (ADR 0056): the root image job now writes a folder, `/var/lib/portikus/coding-agents`, whose programs every workspace executes. That makes the job's checks part of the trust boundary: the API's request names only a job kind and a tool; downloads are verified (§22.6); archives unpack with no links, devices or setuid files; everything is owned by root. Workspaces see the folder read-only through the profile device; a container root cannot remount it read-write, and unmounting it only uncovers the container's own empty folder. The Codex download is trusted on GitHub's digest and the release's checksum file, with no signature (accepted risk, ADR 0056). The controller writes the two links into `/usr/local/bin` by the replace rules below, and a failure never stops a start.
 
+Added by Epic 43 (ADR 0059): the root site job is a privileged path. The
+API writes only a request file; the job runs as root, reads it with
+`O_NOFOLLOW` under a size cap, and checks every field again, refusing
+`{`, `}` and control characters before any value reaches debconf,
+`portikus.yaml` or a root Ansible run. Secrets go only to
+`secrets.yaml`, never to a status file, log, audit row or argument. The
+page-owned files `/etc/portikus/proxy-hosts.json` and
+`/etc/portikus/lti-platforms-admin.json` (root:portikus 0640) and the
+Squid includes `egress-proxy.d/admin.conf` and `lti.conf` are written
+only by the job, beside the operator's files, which stay Ansible's. A
+compromised API can therefore widen its own outbound reach to host
+names on port 443 and register an LTI platform; both are audited
+(accepted risk, ADR 0059). The workspace agent's log reply is untrusted:
+the API caps it, strips control characters and checks it against the
+contract (ADR 0060).
+
 As built (Epic 29): the API and the worker reach the workspace agent
 through one shared client, `packages/agent-client`. It keeps the size cap
 on responses, refuses redirects, and skips an empty body. A stream that
@@ -4385,6 +4447,13 @@ workspace's network address, or a name a workspace looked up.
 - Notifications (Epic 35, ADR 0052): `settings.notifications_updated`
   (the changed channel kinds and hosts, never a secret) and
   `settings.alert_tested` (each channel and whether it sent).
+- Site settings (Epic 43, ADR 0059): `site.job_requested` (actor the
+  administrator; the kind and a secret-free summary) and
+  `site.job_finished` (actor `site-job`; kind, state and code), once per
+  job; `settings.signin_tested` (result, mapped role and connector, never
+  an email). An administrator's link or unlink writes `user.linked` or
+  `user.unlinked` with the administrator as actor and `by:
+  "administrator"`.
 
 A test checks that every event this section lists writes an audit row
 (#1138).
@@ -6105,6 +6174,24 @@ Acceptance:
 - a workspace on an older image runs the shared tools after its next start;
 - a failed health check leaves the tool at its old version;
 - a rollback of one tool leaves the other alone.
+
+### Epic 43 — Admin self-service
+
+Built on `epic/43-admin-self-service`, issues #1250, #1220, #935, #1252, #1251 and #1256. No migration. See sections 20.1, 24.1 and 24.11 and ADRs 0059 and 0060.
+
+Includes:
+
+- a root site job that applies page proxy hosts, LMS platforms, and site address and sign-in trials;
+- Sign-in and Site address tabs, and an allowed API hosts group in the Network tab;
+- a test sign-in that signs no one in, and trials kept by hand or put back;
+- server-side paging of the Users list, admin account linking, and the workspace agent's own log in the detail panel.
+
+Acceptance:
+
+- an unkept address or sign-in trial is put back, and one superseded by `dpkg-reconfigure` is left alone;
+- a test sign-in creates no user, session or role;
+- page proxy hosts and LMS hosts reach Squid only as host names on port 443;
+- the Users list fetches 50 rows a page.
 
 ### Estimated total
 
