@@ -36,7 +36,7 @@ function newPasswordProblem(
  * `/auth/*` (SPEC.md section 5.3). No password or hash is ever logged or audited.
  */
 export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps): void {
-	const { db, config } = deps;
+	const { db } = deps;
 	const throttle = createAccountThrottle({ db, logger: deps.logger });
 
 	function notLocal(reply: FastifyReply) {
@@ -76,7 +76,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			.select(["oidc_issuer", "oidc_subject"])
 			.where("id", "=", user.id)
 			.executeTakeFirstOrThrow();
-		const dexUserId = localDexUserId(row, config.OIDC_ISSUER_URL);
+		const dexUserId = localDexUserId(row);
 		if (dexUserId === null) return notLocal(reply);
 
 		const decision = await throttle.attempt(user.id);

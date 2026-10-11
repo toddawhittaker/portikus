@@ -1,4 +1,4 @@
-import { dexLocalSubject } from "@portikus/auth";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -254,7 +254,7 @@ test.skipIf(skip)("an existing account needs no invitation", async () => {
 	await testDb.db
 		.insertInto("users")
 		.values({
-			oidc_issuer: mock.issuer,
+			oidc_issuer: DEX_ACCOUNT_ISSUER,
 			oidc_subject: "nina-sub",
 			email: "nina@example.edu",
 			display_name: "Nina",
@@ -268,7 +268,7 @@ test.skipIf(skip)("an existing account needs no invitation", async () => {
 test.skipIf(skip)("two sign-ins cannot both claim one invitation", async () => {
 	await invite({ email: "nina@example.edu", name: "Nina", role: "student" });
 	const identity = (subject: string) => ({
-		issuer: mock.issuer,
+		issuer: DEX_ACCOUNT_ISSUER,
 		subject,
 		email: "nina@example.edu",
 		displayName: "Nina",

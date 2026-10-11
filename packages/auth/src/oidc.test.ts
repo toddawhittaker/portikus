@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { DEX_ACCOUNT_ISSUER } from "./dex-subject.js";
 import { createOidcClient, OidcError } from "./oidc.js";
 import {
 	MOCK_CLIENT_ID,
@@ -76,11 +77,36 @@ describe("createOidcClient against the mock provider", () => {
 		expect(callbackUrl.pathname).toBe("/auth/callback");
 
 		const { identity, claims } = await oidc.completeLogin(callbackUrl, state);
-		expect(identity.issuer).toBe(mock.issuer);
+		expect(identity.issuer).toBe(DEX_ACCOUNT_ISSUER);
 		expect(identity.subject).toBe("alice");
 		expect(identity.email).toBe("alice@example.edu");
 		expect(identity.displayName).toBe("Alice Student");
 		expect(claims.groups).toEqual(["portikus-students"]);
+	});
+
+	test("Dex at two addresses gives the same account issuer and subject", async () => {
+		// An address move changes Dex's URL; the account must not change (SPEC.md 5.1).
+		const moved = await startMockOidcProvider({
+			redirectUris: [`${PUBLIC_URL}/auth/callback`],
+		});
+		try {
+			expect(moved.issuer).not.toBe(mock.issuer);
+			const identities = [];
+			for (const issuerUrl of [mock.issuer, moved.issuer]) {
+				const oidc = createOidcClient(authOptions(issuerUrl));
+				const { url, state } = await oidc.buildLoginRedirect();
+				const { identity } = await oidc.completeLogin(
+					await pickUser(url, "alice"),
+					state,
+				);
+				identities.push(identity);
+			}
+			expect(identities[0]?.issuer).toBe(DEX_ACCOUNT_ISSUER);
+			expect(identities[1]?.issuer).toBe(DEX_ACCOUNT_ISSUER);
+			expect(identities[1]?.subject).toBe(identities[0]?.subject);
+		} finally {
+			await moved.close();
+		}
 	});
 
 	test("prompt=login is sent only when asked for", async () => {

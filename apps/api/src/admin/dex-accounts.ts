@@ -38,10 +38,10 @@ export async function viaDex<T>(call: Promise<T>): Promise<T> {
  * returned, never stored, logged or audited.
  */
 export async function createDexAccount(
-	ctx: { db: Kysely<Database>; dex: DexApi; issuer: string; log: FastifyBaseLogger },
+	ctx: { db: Kysely<Database>; dex: DexApi; log: FastifyBaseLogger },
 	input: CreateDexUserRequest & { actorId: string; metadata: Record<string, unknown> },
 ): Promise<{ id: string; password: string } | "exists"> {
-	const { db, dex, issuer, log } = ctx;
+	const { db, dex, log } = ctx;
 	const { email, username, name, role } = input;
 	const dexUserId = crypto.randomUUID();
 	const password = generateDexPassword();
@@ -49,7 +49,7 @@ export async function createDexAccount(
 	let dexCreated = false;
 	try {
 		const id = await db.transaction().execute(async (trx) => {
-			const newId = await precreateDexAccount(trx, issuer, {
+			const newId = await precreateDexAccount(trx, {
 				userId: dexUserId,
 				email,
 				username,

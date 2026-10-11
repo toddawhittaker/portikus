@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query, toast } from "./helpers";
+import { DEX_ACCOUNT_ISSUER, loginAs, query, toast } from "./helpers";
 
 /**
  * The admin tables (SPEC.md sections 20.1 and 25.8): sortable column
@@ -12,7 +12,7 @@ async function insertStudent(name: string, state: string | null): Promise<string
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
 		 values ($1, $2, $3, $4, 'student', now()) returning id`,
 		[
-			MOCK_ISSUER,
+			DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID()}@example.edu`,
 			name,

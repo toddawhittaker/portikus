@@ -52,6 +52,9 @@ export function jobText(job: SiteJobView, target: AddressSettings | null): strin
 			if ((job.code as string | null) === "trial_superseded") {
 				return "The trial ended because the settings were changed outside this page.";
 			}
+			if (job.code === "api_unhealthy") {
+				return `Portikus did not answer after the move to ${to}, so the old address was put back.`;
+			}
 			if (job.code === "setup_failed") {
 				return `Setup failed while moving to ${to}, so the old address was put back.`;
 			}

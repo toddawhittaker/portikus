@@ -36,10 +36,7 @@ try {
 		{
 			db,
 			dex,
-			env: {
-				OIDC_ISSUER_URL: process.env.OIDC_ISSUER_URL,
-				PUBLIC_URL: process.env.PUBLIC_URL,
-			},
+			env: { PUBLIC_URL: process.env.PUBLIC_URL },
 		},
 		{
 			stdout: (text) => process.stdout.write(text),

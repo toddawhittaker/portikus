@@ -75,6 +75,24 @@ const PASSED = {
 	],
 };
 
+// What a real server answers: its sandbox keeps the reach probe on the host.
+const UNCONFIRMED = {
+	ok: true,
+	checks: [
+		...PASSED.checks.slice(0, 2),
+		{
+			name: "reach-site",
+			result: "warning",
+			message: `${NEW_HOST}: Could not confirm from this server; the trial and Keep from the new address prove it.`,
+		},
+		{
+			name: "reach-preview",
+			result: "warning",
+			message: `*.preview.${NEW_HOST}: Could not confirm from this server; the trial and Keep from the new address prove it.`,
+		},
+	],
+};
+
 async function writeView(view: SiteView): Promise<void> {
 	await mkdir(dirname(SITE_VIEW_FILE), { recursive: true });
 	await writeFile(SITE_VIEW_FILE, JSON.stringify(view));
@@ -132,7 +150,7 @@ test("off an apt install the page explains the change is unavailable", async ({
 	);
 });
 
-test("the plan lists the new values and the checklist, and Apply waits for the checks", async ({
+test("the plan lists the new values and the checklist, and Apply waits for the DNS checks", async ({
 	page,
 }) => {
 	await open(page);
@@ -149,9 +167,9 @@ test("the plan lists the new values and the checklist, and Apply waits for the c
 				ok: false,
 				checks: [
 					{
-						name: "reach-site",
+						name: "dns-site",
 						result: "failed",
-						message: `${NEW_HOST} does not point at this server at every address DNS gives.`,
+						message: `${NEW_HOST} does not resolve in DNS.`,
 					},
 				],
 			},
@@ -181,6 +199,52 @@ test("the plan lists the new values and the checklist, and Apply waits for the c
 		"The DNS checks must pass first.",
 	);
 	await expectNoViolations(page, "main");
+
+	// Reach checks the server could not confirm warn but do not hold Apply back.
+	await page.unroute("**/admin/address/preflight");
+	await page.route("**/admin/address/preflight", (route) =>
+		route.fulfill({ json: UNCONFIRMED }),
+	);
+	await page.getByTestId("address-check").click();
+	await expect(page.getByTestId("address-preflight-summary")).toHaveText(
+		"The DNS checks passed. 2 checks could not be confirmed from this server; the trial and Keep from the new address prove them.",
+	);
+	await expect(page.getByTestId("address-check-reach-site")).toContainText("Warning");
+	await expect(page.getByTestId("address-check-dns-site")).toContainText("Passed");
+	await expect(page.getByTestId("address-apply")).not.toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await expect(page.locator("#address-apply-note")).toHaveCount(0);
+	// Dex passwords need nothing registered elsewhere, so there is no sign-in warning.
+	await expect(page.getByTestId("address-plan-signin-warning")).toHaveCount(0);
+	await page.getByTestId("address-apply").click();
+	await expect(page.getByTestId("address-apply-confirm")).toBeVisible();
+	await expect(page.getByTestId("address-apply-signin-warning")).toHaveCount(0);
+	await expectNoViolations(page, "main");
+});
+
+test("with an outside sign-in provider the plan and the confirmation say to register the new callback first", async ({
+	page,
+}) => {
+	await writeView({
+		...VIEW,
+		provider: "entra",
+		entraTenantId: "tenant-1",
+		clientId: "portikus",
+	});
+	await open(page);
+	await page.route("**/admin/address/preflight", (route) =>
+		route.fulfill({ json: UNCONFIRMED }),
+	);
+	await page.getByTestId("address-host").fill(NEW_HOST);
+	await page.getByTestId("address-port").fill("443");
+	await page.getByTestId("address-check").click();
+	const warning = `Before you press Keep, add ${NEW_URL}/dex/callback as a redirect address in Microsoft Entra. Until you do, sign-in through Microsoft Entra fails. Local Portikus passwords keep working.`;
+	await expect(page.getByTestId("address-plan-signin-warning")).toHaveText(warning);
+	await page.getByTestId("address-apply").click();
+	await expect(page.getByTestId("address-apply-signin-warning")).toHaveText(warning);
+	await expectNoViolations(page);
 });
 
 test("Keep works only from the new address", async ({ page }) => {

@@ -1,3 +1,4 @@
+import { DEX_ACCOUNT_ISSUER } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -584,7 +585,7 @@ test.skipIf(skip)(
 		expect(byName.get("Gone Student")?.workspace).toBeNull();
 
 		const aliceRow = byName.get("Alice Student");
-		expect(aliceRow?.issuer).toBe(mock.issuer);
+		expect(aliceRow?.issuer).toBe(DEX_ACCOUNT_ISSUER);
 		expect(aliceRow?.preferredUsername).toBe("alice");
 		expect(aliceRow?.lastLoginAt).not.toBeNull();
 		expect(aliceRow?.markers?.stale).toBe(false);

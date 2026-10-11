@@ -2,8 +2,8 @@ import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	DEX_ACCOUNT_ISSUER,
 	finishOperation,
-	MOCK_ISSUER,
 	openAdmin,
 	openToggletip,
 	query,
@@ -43,7 +43,7 @@ async function insertUser(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
 		 values ($1, $2, $3, $4, 'student', now() - make_interval(days => $5))
 		 returning id`,
-		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, email, name, lastLoginDaysAgo],
+		[DEX_ACCOUNT_ISSUER, `e2e-${crypto.randomUUID()}`, email, name, lastLoginDaysAgo],
 	);
 	if (!row) throw new Error("could not create the user");
 	return row.id;
@@ -106,7 +106,12 @@ test("a just-created account is not Stale and says Not signed in yet", async ({
 	const [row] = await query<{ id: string }>(
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
 		 values ($1, $2, $3, $4, 'student') returning id`,
-		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, `new-${tag}@example.edu`, `New ${tag}`],
+		[
+			DEX_ACCOUNT_ISSUER,
+			`e2e-${crypto.randomUUID()}`,
+			`new-${tag}@example.edu`,
+			`New ${tag}`,
+		],
 	);
 	if (!row) throw new Error("could not create the user");
 

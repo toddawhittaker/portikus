@@ -1,6 +1,7 @@
 import {
 	createOidcClient,
 	createSession,
+	DEX_ACCOUNT_ISSUER,
 	dexLocalSubject,
 	hashSessionToken,
 } from "@portikus/auth";
@@ -211,7 +212,7 @@ describe.skipIf(skip)("Add user", () => {
 			.executeTakeFirstOrThrow();
 		// They choose their own password at first sign-in (SPEC.md section 5.2).
 		expect(row).toEqual({
-			oidc_issuer: mock.issuer,
+			oidc_issuer: DEX_ACCOUNT_ISSUER,
 			oidc_subject: dexLocalSubject(stored?.userId ?? ""),
 			email: "dana@example.edu",
 			display_name: "Dana Kim",
@@ -530,7 +531,7 @@ describe.skipIf(skip)("Reset password", () => {
 		const sso = await testDb.db
 			.insertInto("users")
 			.values({
-				oidc_issuer: mock.issuer,
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
 				oidc_subject: "sso-only",
 				email: "sso@example.edu",
 				display_name: "SSO",

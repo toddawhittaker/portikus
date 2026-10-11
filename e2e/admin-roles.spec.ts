@@ -2,8 +2,8 @@ import * as crypto from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	DEX_ACCOUNT_ISSUER,
 	loginAs,
-	MOCK_ISSUER,
 	query,
 	settledAxe,
 	WCAG_TAGS,
@@ -39,7 +39,7 @@ async function insertUser(fields: {
 		    role, provider_role, granted_role)
 		 values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
 		[
-			fields.issuer ?? MOCK_ISSUER,
+			fields.issuer ?? DEX_ACCOUNT_ISSUER,
 			`e2e-${crypto.randomUUID()}`,
 			`${crypto.randomUUID().slice(0, 8)}@example.edu`,
 			fields.name,

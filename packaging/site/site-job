@@ -36,7 +36,9 @@ Page-owned files, root:portikus 0640:
 An address or sign-in change is a trial: it writes the install answers
 (debconf, portikus.yaml and secrets.yaml, through write-settings) and reruns
 setup. Keep ends it; a rollback, a failed setup, or the transient timer at
-trialEndsAt puts the old answers back and reruns setup. It does so only
+trialEndsAt puts the old answers back and reruns setup. So does an API
+that has not answered /health on loopback a minute after setup, since its
+admin page is where Keep is pressed. It does so only
 while portikus.yaml is still the file the trial wrote: once anything else
 has rewritten it with other answers, such as dpkg-reconfigure or a
 reinstall, the trial is forgotten as trial_superseded.
@@ -56,7 +58,9 @@ import datetime
 import fcntl
 import grp
 import hashlib
+import http.client
 import json
+import math
 import os
 import pwd
 import re
@@ -76,6 +80,8 @@ from site_values import (  # noqa: E402
 )
 
 ETC = "/etc/portikus"
+# Setup writes the API's settings here; PORT is the loopback port it listens on.
+API_ENV = ETC + "/api.env"
 CONFIG_FILE = ETC + "/portikus.yaml"
 PROXY_HOSTS_FILE = ETC + "/proxy-hosts.json"
 LTI_ADMIN_FILE = ETC + "/lti-platforms-admin.json"
@@ -104,6 +110,9 @@ API_GROUP = "portikus"
 TRIAL_UNIT = "portikus-site-trial-"
 
 TRIAL_SECONDS = {"address": 15 * 60, "signin": 30 * 60}
+# How long a trial waits for the restarted API to answer /health, and how often it asks.
+HEALTH_WAIT = 60
+HEALTH_INTERVAL = 2
 # portikus-setup.service's own TimeoutStartSec, plus a margin.
 SETUP_TIMEOUT = 91 * 60
 MAX_REQUEST_BYTES = 512 * 1024
@@ -117,7 +126,7 @@ CODES = (
     "invalid_request", "invalid_value", "too_many", "duplicate", "operator_platform", "mock_platform",
     "reserved_port", "certificate_not_covering", "not_apt_install", "missing_secret", "trial_open", "busy",
     "no_open_trial", "proxy_config_rejected", "proxy_reload_failed", "api_restart_failed", "setup_failed",
-    "trial_expired", "rolled_back", "write_failed", "trial_superseded",
+    "trial_expired", "rolled_back", "write_failed", "trial_superseded", "api_unhealthy",
 )
 
 # The debconf questions a trial may change, with their template types.
@@ -306,13 +315,35 @@ def read_file(path, limit=MAX_FILE_BYTES):
         os.close(fd)
 
 
+def api_port(path):
+    """The API's loopback port from its settings file, or None."""
+    for line in (read_file(path) or b"").decode("utf-8", "replace").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "PORT" and value.strip().isdigit():
+            return int(value.strip())
+    return None
+
+
+def probe_health(port):
+    """True when the API on loopback answers GET /health with 200; never through a proxy."""
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        connection.request("GET", "/health")
+        return connection.getresponse().status == 200
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        connection.close()
+
+
 # ---- The job ----
 
 class Runner:
     def __init__(self, root="", run_=None, clock=time.time, write_settings=WRITE_SETTINGS,
-                 settings_keys=SETTINGS_KEYS):
+                 settings_keys=SETTINGS_KEYS, health=probe_health, sleep=time.sleep):
         self.root = root
         self.etc = root + ETC
+        self.api_env = root + API_ENV
         self.config_file = root + CONFIG_FILE
         self.proxy_hosts_file = root + PROXY_HOSTS_FILE
         self.lti_admin_file = root + LTI_ADMIN_FILE
@@ -327,6 +358,8 @@ class Runner:
         # Looked up at call time, so a test that replaces the module's run catches every command.
         self.run = run_ if run_ is not None else (lambda argv, timeout=60, stdin=None: run(argv, timeout, stdin))
         self.clock = clock
+        self.health = health
+        self.sleep = sleep
         self.own = os.geteuid() == 0
         self.jobs_gid = os.getegid()
 
@@ -587,6 +620,17 @@ class Runner:
             self.append_log(log_id, redact(text, list(secrets) + self.secret_values()))
         return rc == 0
 
+    def api_healthy(self):
+        """Wait up to HEALTH_WAIT for the API that setup restarted to answer /health."""
+        deadline = self.clock() + HEALTH_WAIT
+        while True:
+            port = api_port(self.api_env)
+            if port is not None and self.health(port):
+                return True
+            if self.clock() >= deadline:
+                return False
+            self.sleep(HEALTH_INTERVAL)
+
     def secret_values(self):
         """Every value secrets.yaml holds, and held before the trial, so setup's log never shows one."""
         found = []
@@ -670,7 +714,10 @@ class Runner:
         unit = f"{TRIAL_UNIT}{trial_id}-{stage}"
         self.disarm(trial_id)
         self.run(["systemctl", "reset-failed", unit + ".service"])
-        rc = self.run(["systemd-run", f"--unit={unit}", f"--on-active={max(1, int(seconds))}s",
+        # A wall-clock time, since every daemon-reload, which setup does, restarts an --on-active
+        # countdown. A time already past never fires, so it is a few seconds ahead at least.
+        when = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(math.ceil(self.clock() + max(5, seconds))))
+        rc = self.run(["systemd-run", f"--unit={unit}", f"--on-calendar={when}",
                        "--timer-property=AccuracySec=1s", "--description=Portikus site trial deadline",
                        SITE_JOB, "expire", trial_id])[0]
         if rc != 0:
@@ -775,6 +822,10 @@ class Runner:
                 raise JobFailed("write_failed")
             if not self.run_setup(job_id, [secret] if secret else []):
                 return self.revert(lock, trial, "setup_failed")
+            # Keep is pressed on the API's page, so a trial with the API down could only expire.
+            if not self.api_healthy():
+                journal(f"trial {job_id} ({kind}): the API did not answer /health after setup")
+                return self.revert(lock, trial, "api_unhealthy")
             ends = self.clock() + TRIAL_SECONDS[kind]
             trial.update(state="trial", endsAt=now_iso(lambda: ends))
             self.write_trial(lock, trial)
@@ -831,12 +882,12 @@ class Runner:
             elif provider == "google":
                 changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"])
             elif provider == "oidc":
-                groups = body.get("groups") or {}
-                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"],
-                               oidc_groups_claim=body.get("groupsClaim", ""),
-                               student_group=groups.get("student", ""),
-                               instructor_group=groups.get("instructor", ""),
-                               admin_group=groups.get("admin", ""))
+                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"])
+                # Left out means keep what is stored; write-settings drops a blank group.
+                if "groupsClaim" in body:
+                    changes["oidc_groups_claim"] = body["groupsClaim"]
+                if "groups" in body:
+                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
             if provider != "dex" and secret is None:
                 # A changed provider never receives an old secret (ADR 0059).
                 stored = "portikus_dex_upstream_client_secret" in current["secretsSet"]

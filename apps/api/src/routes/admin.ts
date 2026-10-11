@@ -292,7 +292,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
-		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+		const refused = await refuseInstallAdminChange(db, {
 			request,
 			reply,
 			actorId: actor.id,
@@ -328,7 +328,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			const params = parseOr400(UuidParam, request.params, reply);
 			if (!params) return;
 			const id = params.id;
-			const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+			const refused = await refuseInstallAdminChange(db, {
 				request,
 				reply,
 				actorId: actor.id,

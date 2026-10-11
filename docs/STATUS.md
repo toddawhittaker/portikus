@@ -5036,8 +5036,9 @@ Gaps left:
 
 Built on `epic/43-admin-self-service` (plan #1426, task PRs #1429, #1431 to
 #1433, #1440, #1444 to #1447 and #1451, review fixes #1455, #1457 and
-#1458, and this fold). Issues #1250, #1220, #935, #1252, #1251 and #1256.
-No migration; ADRs 0059 and 0060.
+#1458, rehearsal fixes #1465, #1467, #1469, #1470 and #1474, and this
+fold). Issues #1250, #1220, #935, #1252, #1251 and #1256. Migration 0044;
+ADRs 0059 and 0060.
 
 Delivered:
 
@@ -5089,6 +5090,23 @@ Review fixes (code, security and accessibility reviews at 914dc043):
   http on loopback, for development and e2e) before sending the browser
   there.
 
+Rehearsal fixes:
+
+- #1465: the setup unit sets HOME, blank sign-in groups are not written,
+  and package removal stops the certificate and site units.
+- #1467: address reach checks are warnings, a trial reverts when the API
+  is not healthy afterwards (`api_unhealthy`), and choosing an outside
+  sign-in provider shows a warning.
+- #1469: a second key set URL for one LMS issuer is refused with a message
+  naming the field; the API shows only its own validation messages, never
+  submitted values.
+- #1470: Dex accounts use the fixed issuer `urn:portikus:dex`, so they
+  survive an address move; migration 0044 moves existing rows, and
+  `reset-admin` migrates first.
+- #1474: the site job unit reaches the API on loopback only, and a trial's
+  deadline is a wall-clock time, since a daemon reload restarts relative
+  countdowns.
+
 All three reviewers confirmed the fixes at ac1c6bb7.
 
 Gaps left:
@@ -5101,7 +5119,12 @@ Gaps left:
 - A `dpkg-reconfigure` or an upgrade that writes different answers during
   a trial ends it without putting it back; recovery is the local
   administrator's password or `dpkg-reconfigure portikus`.
-- The address pre-flight cannot test the new port before the switch, and
-  apply does not rerun it on the server.
+- The address pre-flight cannot test the new port before the switch.
+- The certificate pre-flight cannot reach outside from the site job's
+  sandbox (#1468).
+- A site address move leaves the old name in `/etc/hosts` (#1475).
+- The address apply route does not repeat the page's DNS checks (#1476).
+- Package removal leaves setup-written units and alert drop-ins behind
+  (#1477).
 
-Rehearsal: pending.
+Rehearsal: Epic 43 on the rehearsal VM after restoring the pre-Epic-42 database. Migration 0044 moved Dex accounts to `urn:portikus:dex` and the administrator kept its id. An address move there and back kept the account, workspace and links, with Keep pressed from the new address. Unkept trials and an unhealthy API revert. `trial_superseded` holds after an outside settings change. A second key set URL for one LMS issuer is refused with a field message. Remove and reinstall left no package units. Smoke 385 passed, 0 failed, no skips. Two site job fixes (loopback health check, wall-clock trial deadline) in #1474. Not run: a trial with a real outside OIDC provider, since there is no trusted test provider on port 443.

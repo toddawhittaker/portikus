@@ -113,10 +113,15 @@ provider never receives an old secret.
   running. The API refuses the same cases first.
 - **Deadline.** Opening a trial starts a transient systemd timer that runs
   `site-job expire <id>` at `trialEndsAt`: 15 minutes for `address`, 30
-  for `signin`. An expired trial is put back (`reverted`,
-  `trial_expired`).
+  for `signin`. The timer is a wall-clock time (`--on-calendar`), since a
+  daemon reload restarts a relative countdown. An expired trial is put
+  back (`reverted`, `trial_expired`).
 - **Failure.** When setup fails during a trial, the job puts the old
-  answers back and reruns setup (`reverted`, `setup_failed`).
+  answers back and reruns setup (`reverted`, `setup_failed`). It does the
+  same when the API has not answered `/health` on loopback a minute after
+  setup succeeded (`reverted`, `api_unhealthy`), since Keep is pressed on
+  the API's page. The job's unit may reach only loopback
+  (`IPAddressDeny=any`, `IPAddressAllow=localhost`).
 - **Apt installs only.** `address` and `signin` work only where
   `/etc/portikus/portikus.yaml` exists; elsewhere the job refuses with
   `not_apt_install` and the page says the settings are unavailable.

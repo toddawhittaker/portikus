@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { expectNoViolations, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import {
+	DEX_ACCOUNT_ISSUER,
+	expectNoViolations,
+	MOCK_ISSUER,
+	query,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * A role removed in the identity provider takes effect within 12 hours
@@ -17,7 +23,7 @@ async function seedProviderAdmin(ageMinutes: number): Promise<string> {
 		 on conflict (oidc_issuer, oidc_subject) do update
 		   set role = 'administrator', provider_role = 'administrator', granted_role = null
 		 returning id`,
-		[MOCK_ISSUER],
+		[DEX_ACCOUNT_ISSUER],
 	);
 	if (!user) throw new Error("could not create rita");
 	const token = crypto.randomBytes(32).toString("base64url");

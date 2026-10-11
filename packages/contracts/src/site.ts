@@ -182,17 +182,24 @@ export const AdminLtiPlatform = z
 	.strict();
 export type AdminLtiPlatform = z.infer<typeof AdminLtiPlatform>;
 
-/** Accounts are keyed by issuer and subject, so a second keyset could sign in as the issuer's users. */
+/** Accounts are keyed by issuer and subject, so a second key set could sign in as the issuer's users. */
 function oneKeysetPerIssuer(
 	list: readonly { issuer: string; keysetUrl: string }[],
-): boolean {
+	ctx: z.RefinementCtx,
+): void {
 	const keysets = new Map<string, string>();
-	for (const p of list) {
+	list.forEach((p, index) => {
 		const known = keysets.get(p.issuer);
-		if (known !== undefined && known !== p.keysetUrl) return false;
+		if (known !== undefined && known !== p.keysetUrl) {
+			ctx.addIssue({
+				code: "custom",
+				path: [index, "keysetUrl"],
+				message: "One issuer cannot have two key set URLs",
+			});
+			return;
+		}
 		keysets.set(p.issuer, p.keysetUrl);
-	}
-	return true;
+	});
 }
 
 /** `PUT /admin/lms`: the whole page-owned list, which replaces the old one. */
@@ -206,10 +213,7 @@ export const LtiPlatformsUpdate = z
 				(list) => unique(list.map((p) => JSON.stringify([p.issuer, p.clientId]))),
 				"must not repeat an issuer and client ID",
 			)
-			.refine(
-				oneKeysetPerIssuer,
-				"must not give one issuer two keyset URLs: accounts are keyed by issuer",
-			),
+			.superRefine(oneKeysetPerIssuer),
 	})
 	.strict();
 export type LtiPlatformsUpdate = z.infer<typeof LtiPlatformsUpdate>;
@@ -388,6 +392,7 @@ export const SiteJobCode = z.enum([
 	"rolled_back",
 	"write_failed",
 	"trial_superseded",
+	"api_unhealthy",
 ]);
 export type SiteJobCode = z.infer<typeof SiteJobCode>;
 
@@ -583,6 +588,11 @@ export const AddressPlan = z
 		certificateNote: z.string(),
 		/** The steps outside Portikus, in order, as plain sentences. */
 		checklist: z.array(z.string()),
+		/**
+		 * Set when sign-in goes through Entra, Google or another OIDC provider,
+		 * which must accept the new callback before Keep; null for Dex passwords or LDAP.
+		 */
+		signinWarning: z.string().nullable(),
 	})
 	.strict();
 export type AddressPlan = z.infer<typeof AddressPlan>;

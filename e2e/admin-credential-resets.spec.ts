@@ -3,9 +3,9 @@ import { expect, test } from "@playwright/test";
 import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
 import {
 	addSession,
+	DEX_ACCOUNT_ISSUER,
 	enrolSecondFactor,
 	expectNoViolations,
-	MOCK_ISSUER,
 	openAdmin,
 	openDetail,
 	query,
@@ -102,7 +102,7 @@ test("another administrator is refused on the install administrator", async ({
 		`insert into users (oidc_issuer, oidc_subject, email, display_name, role, granted_role)
 		 values ($1, $2, 'admin@example.edu', 'Local administrator', 'administrator', 'administrator')
 		 on conflict do nothing`,
-		[MOCK_ISSUER, dexLocalSubject("local-admin")],
+		[DEX_ACCOUNT_ISSUER, dexLocalSubject("local-admin")],
 	);
 	await query(
 		"update users set role = 'administrator', granted_role = 'administrator', disabled_at = null where oidc_subject = $1",
@@ -110,7 +110,7 @@ test("another administrator is refused on the install administrator", async ({
 	);
 	const [admin] = await query<{ id: string; display_name: string }>(
 		"select id, display_name from users where oidc_issuer = $1 and oidc_subject = $2",
-		[MOCK_ISSUER, dexLocalSubject("local-admin")],
+		[DEX_ACCOUNT_ISSUER, dexLocalSubject("local-admin")],
 	);
 	if (!admin) throw new Error("no install administrator account");
 

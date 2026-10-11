@@ -202,7 +202,9 @@ export function jobText(job: SiteJobView): string {
 				? "Nobody kept the trial in time, so the earlier sign-in settings were put back."
 				: job.code === "setup_failed"
 					? "Setup failed, so the earlier sign-in settings were put back."
-					: "The trial was rolled back to the earlier sign-in settings.";
+					: job.code === "api_unhealthy"
+						? "Portikus did not answer after setup, so the earlier sign-in settings were put back."
+						: "The trial was rolled back to the earlier sign-in settings.";
 		case "done":
 			return "Done.";
 		case "failed":

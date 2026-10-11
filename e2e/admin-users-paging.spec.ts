@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query, settledAxe, WCAG_TAGS } from "./helpers";
+import { DEX_ACCOUNT_ISSUER, loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * The Users view pages on the server (SPEC.md section 20.1): 50 rows a
@@ -17,7 +17,7 @@ async function seedStudents(tag: string): Promise<void> {
 		 select $1, 'e2e-' || gen_random_uuid(), 'page-' || $2 || '-' || n || '@example.edu',
 		        'Page ' || $2 || ' ' || lpad(n::text, 3, '0'), 'student', now()
 		 from generate_series(1, $3::int) as n`,
-		[MOCK_ISSUER, tag, COUNT],
+		[DEX_ACCOUNT_ISSUER, tag, COUNT],
 	);
 }
 

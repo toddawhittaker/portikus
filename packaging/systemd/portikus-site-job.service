@@ -19,7 +19,10 @@ TimeoutStartSec=190min
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
-PrivateNetwork=yes
+# A trial asks the API for /health on the host's loopback, so the job keeps
+# the host's network namespace and may reach loopback only.
+IPAddressDeny=any
+IPAddressAllow=localhost
 ProtectSystem=strict
 # The settings, the page files and the include folder in /etc/portikus, the
 # job directory, the trial's root-only state, and debconf's answers.

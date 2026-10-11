@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
 	FIELD_ID,
 	initialForm,
+	jobText,
 	secretRequired,
 	timeLeft,
 	toSettings,
@@ -86,4 +87,21 @@ test("the countdown shows minutes and seconds, never below zero", () => {
 	const now = Date.parse("2026-10-10T12:00:00Z");
 	expect(timeLeft("2026-10-10T12:29:05Z", now)).toBe("29:05");
 	expect(timeLeft("2026-10-10T11:00:00Z", now)).toBe("0:00");
+});
+
+test("a trial put back because Portikus did not answer after setup says so", () => {
+	expect(
+		jobText({
+			id: "11111111-1111-4111-8111-111111111111",
+			kind: "signin",
+			state: "reverted",
+			code: "api_unhealthy",
+			requestedAt: null,
+			startedAt: null,
+			finishedAt: null,
+			trialEndsAt: null,
+		}),
+	).toBe(
+		"Portikus did not answer after setup, so the earlier sign-in settings were put back.",
+	);
 });

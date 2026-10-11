@@ -1,8 +1,8 @@
 import {
 	type DexApi,
-	dexLocalUserId,
 	generateDexPassword,
 	hashDexPassword,
+	localDexUserId,
 	requireRole,
 	requireUser,
 	resetSecondFactor,
@@ -45,7 +45,7 @@ export function registerAdminDexUserRoutes(
 	app: FastifyInstance,
 	deps: ServerDeps,
 ): void {
-	const { db, config } = deps;
+	const { db } = deps;
 
 	/** The Dex client, or null after answering 404 when the site has none. */
 	function dexOr404(reply: FastifyReply): DexApi | null {
@@ -73,10 +73,7 @@ export function registerAdminDexUserRoutes(
 			.where("id", "=", id)
 			.executeTakeFirst();
 		if (!row) return { found: "no_account" } as const;
-		const userId =
-			row.oidc_issuer === config.OIDC_ISSUER_URL
-				? dexLocalUserId(row.oidc_subject)
-				: null;
+		const userId = localDexUserId(row);
 		if (userId === null) return { found: "not_local" } as const;
 		const password = (await viaDex(dex.listPasswords())).find(
 			(p) => p.userId === userId,
@@ -104,7 +101,7 @@ export function registerAdminDexUserRoutes(
 			sendError(reply, 400, "VALIDATION_FAILED", refusal.self);
 			return null;
 		}
-		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+		const refused = await refuseInstallAdminChange(db, {
 			request,
 			reply,
 			actorId: actor.id,
@@ -132,7 +129,7 @@ export function registerAdminDexUserRoutes(
 		let created: Awaited<ReturnType<typeof createDexAccount>>;
 		try {
 			created = await createDexAccount(
-				{ db, dex, issuer: config.OIDC_ISSUER_URL, log: request.log },
+				{ db, dex, log: request.log },
 				{ ...body.data, actorId: actor.id, metadata: requestMetadata(request) },
 			);
 		} catch (err) {
@@ -234,7 +231,7 @@ export function registerAdminDexUserRoutes(
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
 		const id = params.id;
-		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+		const refused = await refuseInstallAdminChange(db, {
 			request,
 			reply,
 			actorId: actor.id,

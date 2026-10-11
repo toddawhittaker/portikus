@@ -1,6 +1,6 @@
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { sha256Hex } from "./hash.js";
 import type { SessionMethod, SessionOrigin } from "./sessions.js";
 import type { Role } from "./types.js";
@@ -383,7 +383,6 @@ export async function listLinks(
  */
 export async function precreateDexAccount(
 	trx: Kysely<Database>,
-	issuer: string,
 	input: {
 		userId: string;
 		email: string;
@@ -397,7 +396,7 @@ export async function precreateDexAccount(
 	const row = await trx
 		.insertInto("users")
 		.values({
-			oidc_issuer: issuer,
+			oidc_issuer: DEX_ACCOUNT_ISSUER,
 			oidc_subject: dexLocalSubject(input.userId),
 			email: input.email,
 			display_name: input.displayName,

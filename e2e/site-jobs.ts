@@ -125,6 +125,8 @@ export async function resetSiteStore(): Promise<void> {
 	await mkdir(SITE_JOBS_DIR, { recursive: true });
 	await mkdir(join(SITE_ROOT, "etc/portikus/egress-proxy.d"), { recursive: true });
 	await writeAtomic(SQUID_CONF, "include /etc/portikus/egress-proxy.d/*.conf\n");
+	// Setup writes this on a real host; the job asks the API on that port for /health before a trial opens.
+	await writeAtomic(join(SITE_ROOT, "etc/portikus/api.env"), `PORT=${API_PORT}\n`);
 }
 
 /**

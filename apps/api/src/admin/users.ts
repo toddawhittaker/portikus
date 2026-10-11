@@ -1,4 +1,4 @@
-import { dexLocalUserId } from "@portikus/auth";
+import { localDexUserId } from "@portikus/auth";
 import { type AdminUser, Role } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply } from "fastify";
@@ -80,11 +80,9 @@ async function listDexUserIds(
  */
 function isDexLocal(
 	user: { oidc_issuer: string; oidc_subject: string },
-	dexIssuer: string,
 	dexUserIds: Set<string> | "unknown",
 ): boolean {
-	if (user.oidc_issuer !== dexIssuer) return false;
-	const userId = dexLocalUserId(user.oidc_subject);
+	const userId = localDexUserId(user);
 	if (userId === null) return false;
 	return dexUserIds === "unknown" || dexUserIds.has(userId);
 }
@@ -138,7 +136,7 @@ export async function listAdminUsers({
 				linked: linked.has(user.id),
 				...flag,
 			},
-			dexLocal: isDexLocal(user, config.OIDC_ISSUER_URL, dexUserIds),
+			dexLocal: isDexLocal(user, dexUserIds),
 			workspace: workspace
 				? toWorkspaceSummary(workspace, active.get(workspace.id) ?? 0, facts, defaults)
 				: null,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { dexLocalSubject } from "./dex-subject.js";
+import { DEX_ACCOUNT_ISSUER, dexLocalSubject } from "./dex-subject.js";
 import { createOidcClient, OidcError } from "./oidc.js";
 import { createSession, loadSession, upsertUser } from "./sessions.js";
 import {
@@ -87,7 +87,7 @@ describe.skipIf(!ISSUER)("sign-in through a real Dex", () => {
 		// A password made through the gRPC API has no name of its own, and Dex
 		// sends no preferred_username for it.
 		expect(identity).toEqual({
-			issuer: ISSUER,
+			issuer: DEX_ACCOUNT_ISSUER,
 			subject: dexLocalSubject(student.userId),
 			email: student.email,
 			displayName: student.username,
@@ -161,7 +161,7 @@ describe.skipIf(!ISSUER)("sign-in through a real Dex", () => {
 			const existing = await t.db
 				.insertInto("users")
 				.values({
-					oidc_issuer: ISSUER,
+					oidc_issuer: DEX_ACCOUNT_ISSUER,
 					oidc_subject: dexLocalSubject(admin.userId),
 					email: admin.email,
 					display_name: admin.displayName,
@@ -248,7 +248,7 @@ describe.skipIf(!UPSTREAM_ISSUER || !["oidc", "entra"].includes(UPSTREAM))(
 			const { completed, page } = await signIn("carol");
 			expect(completed, page).not.toBeNull();
 			expect(completed?.identity).toMatchObject({
-				issuer: UPSTREAM_ISSUER,
+				issuer: DEX_ACCOUNT_ISSUER,
 				email: "carol@example.edu",
 				displayName: "Carol Admin",
 			});
