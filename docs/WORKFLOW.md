@@ -335,8 +335,8 @@ runs everything; pull request runs always run in full.
   `scripts/e2e-shard-list.mjs` packs the spec files into shards by the
   measured times in `e2e/shard-timings.json`; a file with no timing counts
   as the average. To refresh the timings after tests are added or slowed,
-  run `node scripts/e2e-shard-list.mjs --refresh` (it reads the latest green
-  CI run on main through `gh`) and commit the file. They start alongside
+  run `node scripts/e2e-shard-list.mjs --refresh` (it reads the newest green
+  CI run that ran every browser shard, through `gh`) and commit the file. They start alongside
   Application checks rather than after it. A
   last job with the required name "Browser end-to-end tests" passes only
   when every shard passed. The Playwright browser download is cached, and
