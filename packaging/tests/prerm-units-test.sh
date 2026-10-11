@@ -11,7 +11,8 @@
 #     deletes the rest on purge, and on remove never touches Caddy or PostgreSQL;
 #   - purge drops setup's marked site address line from /etc/hosts and
 #     nothing else;
-#   - remove deletes the bytecode Python left beside the shipped files;
+#   - prerm deletes the bytecode Python left beside the shipped files on
+#     remove, before dpkg removes their directories, and not on upgrade;
 #   - purge stops and disables Squid and Caddy, which setup configured only
 #     for Portikus, and deletes setup's helpers under /usr/local, which postrm
 #     lists exactly as the roles install them, and /usr/local/share/portikus
@@ -33,6 +34,29 @@ fail() {
 }
 
 # ── prerm and the package's own units ────────────────────────────
+
+# The real prerm on a fake tree: bytecode Python wrote beside the shipped
+# scripts and collections, and a shipped file that only dpkg may delete.
+bytecode_tree() { # ROOT
+	mkdir -p "$1/usr/lib/portikus/__pycache__" "$1/usr/share/portikus/ansible/plugins/__pycache__"
+	echo pyc >"$1/usr/lib/portikus/__pycache__/image-job.cpython-313.pyc"
+	echo pyc >"$1/usr/share/portikus/ansible/plugins/__pycache__/ip.cpython-313.pyc"
+	echo "# shipped" >"$1/usr/share/portikus/ansible/plugins/ip.py"
+	{
+		echo '#!/bin/sh'
+		echo 'systemctl() { :; }'
+		sed "1d; s|/usr/lib/portikus|$1/usr/lib/portikus|g; s|/usr/share/portikus|$1/usr/share/portikus|g; s|/run/systemd|$1/run/systemd|g" "$prerm"
+	} >"$1/prerm"
+}
+bytecode_left() { find "$1/usr/lib/portikus" "$1/usr/share/portikus" -name __pycache__ | grep -q .; }
+mkdir "$work/prerm-remove" "$work/prerm-upgrade"
+bytecode_tree "$work/prerm-remove"
+sh "$work/prerm-remove/prerm" remove
+! bytecode_left "$work/prerm-remove" || fail "prerm remove left Python bytecode under /usr/lib/portikus or /usr/share/portikus"
+[ -e "$work/prerm-remove/usr/share/portikus/ansible/plugins/ip.py" ] || fail "prerm remove deleted a file that is not bytecode"
+bytecode_tree "$work/prerm-upgrade"
+sh "$work/prerm-upgrade/prerm" upgrade 0.1.1
+bytecode_left "$work/prerm-upgrade" || fail "prerm upgrade deleted Python bytecode"
 
 # The words of one multi-line `systemctl <verb> ... || true` command in prerm.
 command_words() {
@@ -172,7 +196,7 @@ fake_postrm() { # ROOT
 		echo '#!/bin/sh'
 		# shellcheck disable=SC2016 # expanded inside the fake postrm
 		echo 'systemctl() { echo "$*" >>"$CALLS"; }'
-		sed "1d; s|/etc/|$1/etc/|g; s|/usr/local/|$1/usr/local/|g; s|/usr/lib/portikus|$1/usr/lib/portikus|g; s|/usr/share/portikus|$1/usr/share/portikus|g; s|/run/systemd|$1/run/systemd|g" "$postrm"
+		sed "1d; s|/etc/|$1/etc/|g; s|/usr/local/|$1/usr/local/|g; s|/run/systemd|$1/run/systemd|g" "$postrm"
 	} >"$1/postrm"
 }
 
@@ -211,12 +235,6 @@ make_host() { # ROOT
 	mkdir -p "$r/etc/squid" "$r/etc/caddy"
 	echo "include /etc/portikus/egress-proxy.d/*.conf" >"$r/etc/squid/squid.conf"
 	echo "import /etc/portikus/certificate/tls.caddy" >"$r/etc/caddy/Caddyfile"
-	# Bytecode Python wrote beside the shipped scripts and collections, and a
-	# file that is not bytecode, which remove must leave to dpkg.
-	mkdir -p "$r/usr/lib/portikus/__pycache__" "$r/usr/share/portikus/ansible/plugins/__pycache__"
-	echo pyc >"$r/usr/lib/portikus/__pycache__/image-job.cpython-313.pyc"
-	echo pyc >"$r/usr/share/portikus/ansible/plugins/__pycache__/ip.cpython-313.pyc"
-	echo "# shipped" >"$r/usr/share/portikus/ansible/plugins/ip.py"
 	echo "x: 1" >"$r/etc/portikus/portikus.yaml"
 	echo key >"$r/etc/portikus-workspace-proxy/bump.key"
 	cat >"$r/etc/hosts" <<-'EOF'
@@ -263,9 +281,6 @@ while read -r file; do
 done <<<"$helpers"
 [ -e "$host/usr/local/share/portikus/dex-commit" ] || fail "remove deleted /usr/local/share/portikus"
 grep -q '# portikus site address$' "$host/etc/hosts" || fail "remove dropped the site address line from /etc/hosts"
-[ -z "$(find "$host/usr/lib/portikus" "$host/usr/share/portikus" -name __pycache__)" ] \
-	|| fail "remove left Python bytecode under /usr/lib/portikus or /usr/share/portikus"
-[ -e "$host/usr/share/portikus/ansible/plugins/ip.py" ] || fail "remove deleted a file that is not bytecode"
 
 : >"$calls"
 CALLS="$calls" sh "$host/postrm" purge

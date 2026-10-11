@@ -77,9 +77,14 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # workspace.sh skips the controller, which is what links the tools into
   # /usr/local/bin on images older than 2026.10.2 (SPEC.md section 10).
   image_version=$(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null || true)
-  image_base=${image_version%%-*}
-  if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
-    && [[ $(printf '%s\n' "${image_base}" 2026.10.2 | sort -V | head -n 1) != 2026.10.2 ]]; then
+  # image_older_than VERSION -- the workspace's image predates VERSION; an
+  # unreadable version counts as new, so its checks run.
+  image_older_than() {
+    local base=${image_version%%-*}
+    [[ ${base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
+      && [[ $(printf '%s\n' "${base}" "$1" | sort -V | head -n 1) != "$1" ]]
+  }
+  if image_older_than 2026.10.2; then
     for tool in claude codex; do
       skip "${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
     done
@@ -155,8 +160,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # file fails for lack of space instead of using the workspace's memory.
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
   # Images before 2026.10.4 cap /tmp at 512M (SPEC.md section 22).
-  if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
-    && [[ $(printf '%s\n' "${image_base}" 2026.10.4 | sort -V | head -n 1) != 2026.10.4 ]]; then
+  if image_older_than 2026.10.4; then
     check_output "/tmp is capped at 512M (image ${image_version})" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
   else
     check_output "/tmp is capped at 1G" "1073741824" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"

@@ -17,7 +17,7 @@
 # socket, or the placeholder a purged install starts beside a stale socket.
 - name: Ask Caddy's admin socket whether it answers
   ansible.builtin.command:
-    argv: [curl, -fsS, -o, /dev/null, --unix-socket, "{{ caddy_admin_socket }}", "http://localhost/config/"]
+    argv: [curl, -fsS, --max-time, "5", -o, /dev/null, --unix-socket, "{{ caddy_admin_socket }}", "http://localhost/config/"]
   register: caddy_admin_answers
   changed_when: false
   failed_when: false

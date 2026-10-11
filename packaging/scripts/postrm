@@ -56,13 +56,6 @@ if [ "$1" = "remove" ]; then
 	for dropin in $SETUP_ALERT_DROPINS; do
 		rm -f "$UNIT_DIR/$dropin"
 	done
-	# Bytecode Python wrote beside the shipped scripts and Ansible
-	# collections, which would keep dpkg from removing their directories.
-	for dir in /usr/lib/portikus /usr/share/portikus; do
-		if [ -d "$dir" ]; then
-			find "$dir" -depth -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-		fi
-	done
 	for link in "$UNIT_DIR"/multi-user.target.wants/portikus-*.service; do
 		keep=
 		for unit in $SETUP_BOOT_UNITS; do
