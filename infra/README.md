@@ -266,8 +266,13 @@ On a VM that already exists, `make deploy-app` is the quicker path.
 
 The rehearsal VM keeps its own LTI platforms file beside its OpenTofu
 state, never the pilot's. `make rehearsal-up` registers a mock LMS in it at
-the host's address on the rehearsal network, port 8766, and the smoke test
-starts that mock for its run.
+the host's address on the rehearsal network, port 8766, over https, and the
+smoke test starts that mock for its run. The smoke test gives it a one-day
+certificate signed on the VM by Caddy's internal root, which the API already
+trusts, so roster sync reaches the mock through the egress proxy's CONNECT
+as it reaches a real LMS. On a VM registered before this, run
+`make lti-mock-register TOFU_ENV=rehearsal-libvirt` once to move the
+registration to https.
 
 **Development path.** `make deploy-app` builds the package on your
 workstation and installs it on the VM directly. It does not go through a

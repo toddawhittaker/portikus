@@ -128,6 +128,8 @@ fi
 . "${TESTS_DIR}/smoke/workspace-agent.sh"
 
 echo ""
+# Its own line, so the Results line keeps the shape install-test.sh matches.
+echo "--- Skipped: ${skipped} (the SKIP lines above say why) ---"
 echo "--- Results: ${pass} passed, ${fail} failed ---"
 
 if [ "$fail" -gt 0 ]; then

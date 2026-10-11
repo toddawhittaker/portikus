@@ -86,6 +86,11 @@ PORTIKUS_LTI_PLATFORMS_FILE := $(dir $(REHEARSAL_STATE))lti-platforms.json
 MOCK_LMS_PORT ?= 8766
 MOCK_LMS_HOST ?= $(MOCK_LMS_BRIDGE_IP)
 MOCK_LMS_BIND ?= 127.0.0.1 $(MOCK_LMS_BRIDGE_IP)
+# Served over https, so roster sync reaches its token endpoint through the
+# egress proxy's CONNECT as it reaches a real LMS (ADR 0027); the smoke test
+# starts it with a certificate from the VM's Caddy root. Override wins over
+# the plain-http default set further down.
+override MOCK_LMS_URL = https://$(MOCK_LMS_HOST):$(MOCK_LMS_PORT)
 else
 $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif

@@ -76,6 +76,12 @@ accepts "a token endpoint on the keyset's host is allowed once" \
   "$(file token-shared "$(with_token "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)" \
     http://10.100.0.1:8765/token)")" \
   '{"on": true, "egress": ["10.100.0.1:8765"]}'
+# The rehearsal's https mock: the proxy lets the API CONNECT to that address
+# and port, as for a real LMS, so no plain-HTTP POST is needed (ADR 0027).
+accepts "an https mock's keyset and token endpoint are allowed at its address and port" \
+  "$(file token-https "$(with_token "$(platform mock-lms https://10.200.0.1:8766 https://10.200.0.1:8766/.well-known/jwks.json true)" \
+    https://10.200.0.1:8766/token)")" \
+  '{"on": true, "egress": ["10.200.0.1:8766"]}'
 refuses "an IPv6 token endpoint address is refused" \
   "$(file token-v6 "$(with_token "$(platform v6 https://lms.example https://lms.example/jwks false)" \
     "https://[2001:db8::5]/token")")"
@@ -124,6 +130,17 @@ check "unregistering the only platform removes the file" [ ! -e "${reg}" ]
 cp "$(file keep "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" "${reg}"
 register && helper unregister
 accepts "unregistering keeps every other platform" "${reg}" '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
+
+# make -n URL... -- the mock URL a dry run of rehearsal-lti or lti-mock-register would register.
+registered_url() {
+  make --no-print-directory -n -C "${REPO_ROOT}" "$@" 2>/dev/null | sed -n 's/.* register --url \([^ ]*\).*/\1/p' | head -1
+}
+check_output "the rehearsal registers its mock LMS over https" "https://10.200.0.1:8766" \
+  registered_url rehearsal-lti TOFU_ENV=rehearsal-libvirt MANAGEMENT_CIDR=10.200.0.0/24
+check_output "lti-mock-register on the rehearsal keeps https" "https://10.200.0.1:8766" \
+  registered_url lti-mock-register TOFU_ENV=rehearsal-libvirt MANAGEMENT_CIDR=10.200.0.0/24 VM_IP=10.200.0.9
+check_output "the pilot's mock LMS stays plain http" "http://192.0.2.5:8765" \
+  registered_url lti-mock-register TOFU_ENV=dev-libvirt VM_IP=10.100.0.9 MOCK_LMS_HOST=192.0.2.5
 
 # The mock LMS signs as this registration, so the two must agree.
 ids_match() {

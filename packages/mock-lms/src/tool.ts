@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
 	createLocalJWKSet,
 	type JSONWebKeySet,
@@ -15,6 +16,16 @@ export function fetchKeysFrom(toolUrl: string): FetchToolKeys {
 		if (!res.ok) throw new Error(`tool keyset answered ${res.status}`);
 		return (await res.json()) as JSONWebKeySet;
 	};
+}
+
+/** The tool's keyset, read once from a file; a key rotation on the tool needs a restart. */
+export function keysFromFile(path: string): FetchToolKeys {
+	const jwks = JSON.parse(readFileSync(path, "utf8")) as Partial<JSONWebKeySet>;
+	if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) {
+		throw new Error(`${path} holds no keyset`);
+	}
+	const keys = jwks as JSONWebKeySet;
+	return async () => keys;
 }
 
 /**
