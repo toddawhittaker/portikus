@@ -542,6 +542,58 @@ class UpdateTest(Base):
         self.assertEqual(ca.versions(str(self.store), "claude"), ["2.1.300", "2.1.287", "2.1.3", "2.1.1"])
 
 
+class CheckTest(Base):
+    """image-job check records the versions an agents update would offer, reading only the version."""
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.object(ij, "package_update", return_value=None)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def check(self):
+        self.assertEqual(self.runner.run_check(), 0)
+        return json.loads((self.images / "published.json").read_text())["codingAgents"]
+
+    def test_records_claude_stable_and_the_latest_codex_without_downloading_either(self):
+        self.host.publish_claude("2.1.312")
+        self.host.publish_codex("0.170.0")
+        self.assertEqual(self.check(), {"claude": "2.1.312", "codex": "0.170.0"})
+        urls = self.host.downloads()
+        self.assertIn(f"{ca.CLAUDE_BASE}/stable", urls)
+        self.assertIn(ca.CODEX_LATEST, urls)
+        self.assertFalse([u for u in urls if "manifest" in u or u.endswith("/claude") or ca.CODEX_ASSET in u])
+        self.assertEqual(self.host.ran("gpgv"), [])
+        self.assertFalse(self.store.exists())
+
+    def test_never_reads_the_latest_channel(self):
+        self.host.publish_claude("2.1.312")
+        self.check()
+        self.assertFalse([u for u in self.host.downloads() if u.startswith(ca.CLAUDE_BASE) and u.endswith("/latest")])
+
+    def test_a_failed_check_keeps_the_versions_last_recorded(self):
+        self.host.publish_claude("2.1.312")
+        self.host.publish_codex("0.170.0")
+        self.check()
+        self.host.urls.clear()
+        self.assertEqual(self.check(), {"claude": "2.1.312", "codex": "0.170.0"})
+        self.assertTrue(any("keeping the Claude Code version" in line for line in self.journal))
+
+    def test_one_failed_source_does_not_hide_the_other(self):
+        self.host.publish_codex("0.170.0")
+        self.assertEqual(self.check(), {"claude": None, "codex": "0.170.0"})
+
+    def test_a_malformed_answer_is_not_recorded(self):
+        self.host.publish_claude("2.1.312")
+        self.check()
+        self.host.urls[f"{ca.CLAUDE_BASE}/stable"] = b"<html>oops</html>"
+        self.assertEqual(self.check()["claude"], "2.1.312")
+
+    def test_a_tampered_record_is_not_carried_forward(self):
+        (self.images / "published.json").write_text(json.dumps({"codingAgents": {"claude": "../x", "codex": 7}}))
+        self.assertEqual(self.check(), {"claude": None, "codex": None})
+
+
 class UnpackTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

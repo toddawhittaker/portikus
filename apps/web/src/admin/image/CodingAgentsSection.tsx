@@ -1,4 +1,5 @@
 import type {
+	AdminImage,
 	CodingAgentsFile,
 	CodingAgentTool,
 	ImageJobRequest,
@@ -23,11 +24,14 @@ type Confirming =
  */
 export function CodingAgentsSection({
 	agents,
+	newer,
 	busy,
 	pending,
 	submit,
 }: {
 	agents: CodingAgentsFile | null;
+	/** Per tool, a released version newer than the one in use, from the daily check. */
+	newer: AdminImage["newerCodingAgents"];
 	/** An image job is queued or running. */
 	busy: boolean;
 	pending: boolean;
@@ -82,11 +86,20 @@ export function CodingAgentsSection({
 								return (
 									<tr key={tool} data-testid={`image-agents-row-${tool}`}>
 										<th scope="row">{name}</th>
-										<td
-											className="pk-mono-small"
-											data-testid={`image-agents-current-${tool}`}
-										>
-											{current ?? "Not installed"}
+										<td className="pk-mono-small">
+											<span className="flex flex-wrap items-center gap-2">
+												<span data-testid={`image-agents-current-${tool}`}>
+													{current ?? "Not installed"}
+												</span>
+												{newer[tool] ? (
+													<span
+														className="pk-tag"
+														data-testid={`image-agents-newer-${tool}`}
+													>
+														Update available: {newer[tool]}
+													</span>
+												) : null}
+											</span>
 										</td>
 										<td
 											className="pk-mono-small"

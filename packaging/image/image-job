@@ -19,7 +19,8 @@ Usage:
                             setup's first install: fetch VERSION and make it
                             the default, unless the host has a default already
   image-job check           write images/published.json: the newest published
-                            image and any newer portikus package (the daily timer)
+                            image, any newer portikus package and the newest
+                            Claude Code and Codex versions (the daily timer)
   image-job local-build     build the shipped recipe and make it the default
                             (make build-workspace-image on a development VM)
   image-job agents-links    postinst: make the shared folder and its bin links,
@@ -250,6 +251,18 @@ def previous_published_image(path):
     except (OSError, ValueError, AttributeError):
         return None
     return image if isinstance(image, str) and PUBLISHED_RE.fullmatch(image) else None
+
+
+def previous_newest_agents(path):
+    """The Claude Code and Codex versions a previous check recorded, each None if unknown."""
+    doc = read_json(path)
+    agents = doc.get("codingAgents") if isinstance(doc, dict) else None
+    agents = agents if isinstance(agents, dict) else {}
+    found = {}
+    for tool in coding_agents.TOOLS:
+        version = agents.get(tool)
+        found[tool] = version if isinstance(version, str) and coding_agents.VERSION_RE.fullmatch(version) else None
+    return found
 
 
 def incus(*args, log=None, capture=True, timeout=600):
@@ -1370,8 +1383,9 @@ class Runner:
     def run_check(self):
         """The daily check (portikus-image-check.timer): write published.json.
 
-        It names the newest published image and a newer portikus package, and
-        changes nothing else; the API decides what to tell administrators.
+        It names the newest published image, a newer portikus package and the
+        newest Claude Code and Codex, and changes nothing else; the API decides
+        what to tell administrators.
         """
         path = os.path.join(self.images_dir, "published.json")
         try:
@@ -1380,8 +1394,28 @@ class Runner:
         except JobFailed as err:
             journal(f"check: {err}; keeping the image last recorded")
             image = previous_published_image(path)
-        write_json(path, {"checkedAt": now_iso(), "image": image, "package": package_update()})
+        write_json(path, {"checkedAt": now_iso(), "image": image, "package": package_update(),
+                          "codingAgents": self.newest_agents(path)})
         return 0
+
+    def newest_agents(self, path):
+        """The versions an agents update would offer, read from the same sources; nothing is downloaded."""
+        found = previous_newest_agents(path)
+        with tempfile.TemporaryDirectory(dir=self.images_dir, prefix=".agents-check-") as work:
+            for tool in coding_agents.TOOLS:
+                try:
+                    if tool == "claude":
+                        # The stable channel, as the update uses, so the chip never offers what Update would not.
+                        found[tool] = coding_agents.claude_stable_version(self.fetch_text(
+                            None, f"{coding_agents.CLAUDE_BASE}/stable", work, "claude-stable",
+                            coding_agents.SMALL_MAX_BYTES))
+                    else:
+                        found[tool] = coding_agents.codex_release(self.fetch_text(
+                            None, coding_agents.CODEX_LATEST, work, "codex-release",
+                            coding_agents.LISTING_MAX_BYTES))[0]
+                except (JobFailed, coding_agents.AgentError) as err:
+                    journal(f"check: {err}; keeping the {coding_agents.NAMES[tool]} version last recorded")
+        return found
 
     @contextlib.contextmanager
     def job_lock(self, lock_path):

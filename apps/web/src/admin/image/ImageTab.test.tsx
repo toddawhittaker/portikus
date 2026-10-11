@@ -59,6 +59,7 @@ function data(over: Partial<AdminImage> = {}): AdminImage {
 		default: "2026.09.10",
 		previous: "2026.09.9",
 		codingAgents: null,
+		newerCodingAgents: { claude: null, codex: null },
 		images: [
 			image("2026.09.10", { role: "default", workspaces: 3 }),
 			image("2026.09.9", { role: "previous", workspaces: 1 }),
