@@ -83,9 +83,10 @@ workspace, taking eight full-page screenshots 4000 pixels wide:
 
 | Workers | Page height | `/tmp` peak | Result |
 |---|---|---|---|
-| 1 | 4000 | 456 MB | passes |
+| 1 | 4000 | 130 MB | passes |
+| 1 | 8000 | 323 MB | passes |
 | 4 | 4000 | 510 MB | passes |
-| 4 | 6000 | 1003 MB | passes, at the limit |
+| 4 | 6000 | 1013 MB | passes, at the limit |
 | 4 | 8000 | 1024 MB (full) | pages crash with "Target crashed" |
 
 Ordinary course labs, with pages a screen or two tall, use a small part of
@@ -93,7 +94,9 @@ this. A lab that screenshots very tall pages should run one worker
 (`workers: 1` in `playwright.config.ts`) or take screenshots of the visible
 viewport rather than the full page. When `/tmp` fills, Chromium reports
 "Target crashed", not "No space left on device", so check `df -h /tmp`
-first when a lab's screenshots crash.
+first when a lab's screenshots crash. The cap does not shrink with the
+memory limit, so a workspace given much less than 4 GB can run out of
+memory before `/tmp` is full.
 
 The build checks the downloaded binary against a sha256 recorded beside the
 pin in the step that installs it, so a pin bump needs both values.
