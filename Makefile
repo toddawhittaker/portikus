@@ -452,7 +452,7 @@ REFUSE_SELF_BACKUP = @rc=0; ssh -n -o BatchMode=yes -o ConnectTimeout=5 $(SSH_US
 	esac
 
 # The nightly unit the channel reports on, when one is installed for this VM.
-BACKUP_NIGHTLY ?= $(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)
+BACKUP_NIGHTLY ?= $(if $(shell grep -qsF -- '--vm-name $(TOFU_VM_NAME) ' /etc/systemd/system/portikus-backup.service && echo y),portikus-backup,)
 
 # One nightly timer per host, so installing it for another VM repoints it.
 # The channel target refuses a VM that backs itself up and installs the
