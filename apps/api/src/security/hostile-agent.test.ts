@@ -59,6 +59,8 @@ interface Behaviour {
 	forwardAddress: string;
 	/** The status and body `POST /processes/:pid/stop` answers with. */
 	processStop: [number, unknown];
+	/** What the tree stop and "Lower priority" routes answer with. */
+	processTree: [number, unknown];
 }
 
 function calm(): Behaviour {
@@ -71,6 +73,7 @@ function calm(): Behaviour {
 		listeningFrame: null,
 		forwardAddress: "127.0.0.1",
 		processStop: [200, { pid: 7, exited: true }],
+		processTree: [200, { pid: 7, lowered: 1, refused: 0 }],
 	};
 }
 
@@ -122,6 +125,12 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 		const [status, body] = agent.behaviour.processStop;
 		return reply.status(status).send(body);
 	});
+	for (const route of ["/processes/:pid/stop-tree", "/processes/:pid/lower-priority"]) {
+		app.post(route, async (_request, reply) => {
+			const [status, body] = agent.behaviour.processTree;
+			return reply.status(status).send(body);
+		});
+	}
 	app.get("/projects/:slug/search", async () => agent.behaviour.search);
 	// An archive that never ends, as an agent lying about the size cap would send.
 	app.get("/projects/:slug/archive", async (_request, reply) => {
@@ -658,6 +667,44 @@ describe.skipIf(skip)("a lying process stop answer", () => {
 				.where("action", "=", "workspace.process_stopped")
 				.execute();
 			expect(audits).toEqual([]);
+			await healthy();
+		});
+	}
+});
+
+describe.skipIf(skip)("a lying tree stop or priority answer", () => {
+	const tree = { pid: 7, exited: true, signalled: 1, refused: 0, remaining: [] };
+	const cases: [string, string, unknown][] = [
+		["stop-tree", "names another pid", { ...tree, pid: 8 }],
+		["stop-tree", "carries extra fields", { ...tree, name: "zzsecret" }],
+		[
+			"stop-tree",
+			"names a survivor with extra fields",
+			{ ...tree, remaining: [{ pid: 9, startTicks: 1, name: "zzsecret" }] },
+		],
+		["lower-priority", "names another pid", { pid: 8, lowered: 1, refused: 0 }],
+		["lower-priority", "is malformed", { pid: 7, lowered: -1, refused: 0 }],
+		[
+			"lower-priority",
+			"carries extra fields",
+			{ pid: 7, lowered: 1, refused: 0, nice: -20 },
+		],
+	];
+	for (const [route, name, answer] of cases) {
+		test(`${route}: ${name}`, async () => {
+			hostile.behaviour.processTree = [200, answer];
+			const response = await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/processes/7/${route}`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { startTicks: 100 },
+			});
+			expect(response.statusCode).toBe(502);
+			expect(response.body).not.toContain("zzsecret");
+			const audits = await testDb.db.selectFrom("audit_events").selectAll().execute();
+			expect(
+				audits.filter((row) => row.action.startsWith("workspace.process")),
+			).toEqual([]);
 			await healthy();
 		});
 	}

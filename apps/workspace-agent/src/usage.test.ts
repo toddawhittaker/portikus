@@ -153,6 +153,7 @@ test("two samples produce process and workspace CPU from every process", async (
 				residentBytes: 100 * 1024,
 				command: "systemd",
 				startTicks: 30,
+				ppid: 1,
 				stoppable: false,
 				// Not the student's, so never read.
 				commandLine: null,
@@ -163,6 +164,7 @@ test("two samples produce process and workspace CPU from every process", async (
 				residentBytes: 2048 * 1024,
 				command: "zzsecret",
 				startTicks: 70,
+				ppid: 1,
 				stoppable: true,
 				commandLine: "node app.js",
 			},
@@ -172,6 +174,7 @@ test("two samples produce process and workspace CPU from every process", async (
 				residentBytes: 10 * 1024,
 				command: "fresh",
 				startTicks: 90,
+				ppid: 1,
 				stoppable: false,
 				commandLine: null,
 			},

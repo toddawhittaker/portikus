@@ -4,7 +4,7 @@
  * with the real agent's checks; `ignoresTerm` survives a plain stop.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, workspacePath } from "./helpers";
+import { createStudent, expectNoViolations, toast, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function seedProcesses(workspaceId: string, processes: unknown[]): Promise<void> {
@@ -188,4 +188,119 @@ test("the rows hold still while focus is in the list, and a long name wraps", as
 
 	await page.getByTestId("monitor-processes-heading").focus();
 	await expect(rows.first()).toHaveAttribute("data-testid", "monitor-process-43");
+});
+
+/** busy (42) runs a worker (44), which runs the stubborn 43 and the protected tmux 12. */
+const TREE = [
+	{ ...BUSY, ppid: 1 },
+	{ ...BUSY, pid: 44, command: "worker", cpuPercent: 30, startTicks: 700, ppid: 42 },
+	{ ...STUBBORN, ppid: 44 },
+	{ ...TMUX, ppid: 44 },
+];
+
+async function openStop(page: Page, name: string) {
+	await page.getByRole("button", { name: `Stop ${name}` }).click();
+	return page.getByTestId("dialog-stop-process");
+}
+
+test("stopping with children shows the count and stops the tree, protected processes aside", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedProcesses(student.workspaceId, TREE);
+	await openMonitor(page, student.workspaceId);
+
+	const dialog = await openStop(page, "busy (PID 42)");
+	await expect(dialog).toContainText("Stop busy?");
+	await dialog
+		.getByRole("checkbox", { name: "Also stop its 3 child processes" })
+		.check();
+	await expect(dialog).toContainText(
+		"PID 42 and its 3 child processes are asked to stop.",
+	);
+	await expectNoViolations(page, "[data-testid='dialog-stop-process']");
+	await dialog.getByRole("button", { name: "Stop", exact: true }).click();
+
+	// The stubborn child outlives SIGTERM; nothing is killed until Force stop.
+	await expect(dialog.getByTestId("stop-process-status")).toHaveText(
+		"1 process is still running.",
+	);
+	await expect(page.getByTestId("monitor-process-43")).toBeVisible();
+	await dialog.getByRole("button", { name: "Force stop" }).click();
+
+	await expect(dialog).toHaveCount(0);
+	for (const pid of [42, 43, 44]) {
+		await expect(page.getByTestId(`monitor-process-${pid}`)).toHaveCount(0);
+	}
+	await expect(page.getByTestId("monitor-stop-announce")).toHaveText(
+		"busy (PID 42) and its children stopped. One process Portikus needs was left alone.",
+	);
+	await expect(page.getByTestId("monitor-processes-heading")).toBeFocused();
+	// The protected tmux server stays, and the next sample agrees.
+	await expect(page.getByTestId("monitor-process-12")).toBeVisible();
+	await page.waitForTimeout(1500);
+	await expect(page.getByTestId("monitor-process-12")).toBeVisible();
+	await expect(page.getByTestId("monitor-process-44")).toHaveCount(0);
+});
+
+test("a tree whose root PID was reused is refused, not stopped", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedProcesses(student.workspaceId, TREE);
+	await openMonitor(page, student.workspaceId);
+	const dialog = await openStop(page, "busy (PID 42)");
+	await dialog
+		.getByRole("checkbox", { name: "Also stop its 3 child processes" })
+		.check();
+	await seedProcesses(student.workspaceId, [
+		{ ...TREE[0], startTicks: 999 },
+		...TREE.slice(1),
+	]);
+	await dialog.getByRole("button", { name: "Stop", exact: true }).click();
+	await expect(dialog.getByTestId("stop-process-status")).toHaveText(
+		"That process ID now belongs to a different program. Refresh and try again.",
+	);
+	await dialog.getByRole("button", { name: "Cancel" }).click();
+	await expect(page.getByTestId("monitor-process-44")).toBeVisible();
+});
+
+test("Lower its priority instead lowers the tree once, then says it is already lowest", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	// At nice 9, one press reaches the cap of 19.
+	await seedProcesses(
+		student.workspaceId,
+		TREE.map((one) => ({ ...one, nice: 9 })),
+	);
+	await openMonitor(page, student.workspaceId);
+
+	let dialog = await openStop(page, "busy (PID 42)");
+	await dialog.getByRole("button", { name: "Lower its priority instead" }).click();
+	await expect(dialog).toHaveCount(0);
+	const lowered = toast(page, "Lowered the priority of busy (PID 42).");
+	await expect(lowered).toBeVisible();
+	await expect(lowered).toContainText(
+		"3 processes now run after everything else. One process Portikus needs was left alone.",
+	);
+	// Every row stays; nothing was stopped, and focus is back on Stop.
+	await expect(page.getByTestId("monitor-process-42")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Stop busy (PID 42)" })).toBeFocused();
+
+	dialog = await openStop(page, "busy (PID 42)");
+	await dialog.getByRole("button", { name: "Lower its priority instead" }).click();
+	await expect(
+		toast(page, "busy (PID 42) already runs at the lowest priority."),
+	).toBeVisible();
+
+	// A process without children offers no checkbox, only the priority.
+	dialog = await openStop(page, "stubborn (PID 43)");
+	await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+	await expect(
+		dialog.getByRole("button", { name: "Lower its priority instead" }),
+	).toBeVisible();
 });

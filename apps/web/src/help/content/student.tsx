@@ -113,7 +113,8 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>Checks</strong> runs your project's checks, such as its tests.{" "}
 						<strong>Running</strong> lists programs listening on a port.{" "}
 						<strong>Monitor</strong> shows CPU, memory, disk and network use, and the
-						processes running.
+						processes running. Stop ends one of your programs, and the programs it
+						started if you tick the box, or lowers its priority instead.
 					</li>
 					<li>
 						<strong>The status bar</strong>, at the bottom, shows the project folder,
