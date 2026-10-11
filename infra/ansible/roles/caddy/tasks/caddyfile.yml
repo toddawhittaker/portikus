@@ -11,16 +11,19 @@
     mode: "0644"
   register: caddy_caddyfile
 
-# `caddy reload` finds the running Caddy at the new configuration's admin
-# address, so a Caddy that still listens on port 2019 from before the admin
-# socket, or one that is not running, is restarted instead.
-- name: Put the Caddyfile in force  # noqa: no-handler
-  ansible.builtin.shell:
-    cmd: |
-      if systemctl is-active --quiet caddy && [ -S {{ caddy_admin_socket | quote }} ]; then
-        systemctl reload caddy
-      else
-        systemctl restart caddy
-      fi
+# Only this Caddyfile opens the admin socket, so a socket that answers means
+# Caddy runs this file's configuration and a reload finds it.  Anything else
+# is restarted: a Caddy not running, one still on port 2019 from before the
+# socket, or the placeholder a purged install starts beside a stale socket.
+- name: Ask Caddy's admin socket whether it answers
+  ansible.builtin.command:
+    argv: [curl, -fsS, --max-time, "5", -o, /dev/null, --unix-socket, "{{ caddy_admin_socket }}", "http://localhost/config/"]
+  register: caddy_admin_answers
+  changed_when: false
+  failed_when: false
+
+- name: Put the Caddyfile in force
+  ansible.builtin.command:
+    argv: [systemctl, "{{ 'reload' if caddy_admin_answers.rc == 0 else 'restart' }}", caddy]
   changed_when: true
-  when: caddy_caddyfile is changed
+  when: caddy_caddyfile is changed or caddy_admin_answers.rc != 0
