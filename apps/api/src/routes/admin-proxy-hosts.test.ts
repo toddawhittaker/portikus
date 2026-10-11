@@ -47,7 +47,7 @@ let mock: MockOidcProvider;
 let dir = "";
 let jobsDir = "";
 let hostsFile = "";
-let squidConf = "";
+let operatorFile = "";
 
 const fixture = JSON.parse(
 	await readFile(
@@ -75,7 +75,7 @@ beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "admin-proxy-hosts-"));
 	jobsDir = join(dir, "site-jobs");
 	hostsFile = join(dir, "proxy-hosts.json");
-	squidConf = join(dir, "squid.conf");
+	operatorFile = join(dir, "operator-proxy-hosts.json");
 	await mkdir(jobsDir);
 });
 
@@ -87,7 +87,7 @@ function server(overrides: Record<string, unknown> = {}): FastifyInstance {
 	return buildTestServer(testDb.db, mock.issuer, {
 		SITE_JOBS_DIR: jobsDir,
 		PROXY_HOSTS_FILE: hostsFile,
-		SQUID_CONF_FILE: squidConf,
+		OPERATOR_PROXY_HOSTS_FILE: operatorFile,
 		...overrides,
 	});
 }
@@ -146,8 +146,11 @@ describe.skipIf(skip)("admin proxy host routes (ADR 0059)", () => {
 			JSON.stringify({ version: 1, hosts: ["api.example.com"] }),
 		);
 		await writeFile(
-			squidConf,
-			"acl portikus_hosts_443 dstdomain -n github.com api.openai.com\nacl portikus_hosts_80 dstdomain -n plain.example.edu\n",
+			operatorFile,
+			JSON.stringify({
+				version: 1,
+				hosts: ["api.openai.com", "github.com", "plain.example.edu:80"],
+			}),
 		);
 		const app = server();
 		await app.ready();

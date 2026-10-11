@@ -30,10 +30,10 @@ import { REGISTRY_JOBS_DIR } from "./e2e/registry-jobs";
 import { ROOT_SHELL_SOCKET } from "./e2e/root-shell";
 import {
 	LTI_ADMIN_PLATFORMS_FILE,
+	OPERATOR_PROXY_HOSTS_FILE,
 	PROXY_HOSTS_FILE,
 	SITE_JOBS_DIR,
 	SITE_VIEW_FILE,
-	SQUID_CONF,
 } from "./e2e/site-jobs";
 import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
 
@@ -251,7 +251,7 @@ export default defineConfig({
 				SITE_VIEW_FILE,
 				PROXY_HOSTS_FILE,
 				LTI_ADMIN_PLATFORMS_FILE,
-				SQUID_CONF_FILE: SQUID_CONF,
+				OPERATOR_PROXY_HOSTS_FILE,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
 				// A fake certificate job directory the admin-certificate tests play the root job in;
