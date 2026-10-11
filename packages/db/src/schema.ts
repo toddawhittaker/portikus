@@ -690,6 +690,12 @@ interface DockerSeedTable {
 	size_bytes: ColumnType<string, number, number>;
 	image_version: string;
 	built_at: ColumnType<Date, string, string>;
+	/** Unpacked size per canonical image name; null for a seed built before sizes were measured. */
+	image_bytes: ColumnType<
+		Record<string, number> | null,
+		string | null | undefined,
+		string | null
+	>;
 }
 
 /** One seed rebuild the admin page asked for; the worker drives it. */

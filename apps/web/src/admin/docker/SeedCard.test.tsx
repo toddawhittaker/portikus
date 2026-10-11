@@ -37,7 +37,7 @@ test("the seed shows its size, image version and images", async () => {
 	expect(screen.getByTestId("docker-seed-image-version").textContent).toBe("2026.09.9");
 	const images = screen.getByTestId("docker-seed-images");
 	expect(within(images).getByRole("row", { name: /python:3\.12/ }).textContent).toBe(
-		"python:3.1260.0 MB",
+		"python:3.1260.0 MB download",
 	);
 	expect(screen.getByTestId("docker-seed-list-count").textContent).toBe("2 of 30");
 });
@@ -76,13 +76,37 @@ test("the list for the next rebuild shows each image's size, a dash when not kno
 	serve(data());
 	renderWithQuery(<DockerTab />);
 	const list = await screen.findByTestId("docker-seed-list");
-	expect(
-		within(list).getByRole("columnheader", { name: "Download size" }),
-	).toBeTruthy();
+	expect(within(list).getByRole("columnheader", { name: "Size" })).toBeTruthy();
 	const node = within(list).getByRole("row", { name: /node:22/ });
 	expect(within(node).getAllByRole("cell")[0]?.textContent).toBe("—Not known");
 	expect(screen.getByTestId("docker-seed-list-size").textContent).toBe(
 		"These images download as 60.0 MB, not counting 1 image the pull cache has not held. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
+	);
+});
+
+test("a digest-pinned seed image shows the unpacked size its build measured", async () => {
+	const pinned = `python:3.12@sha256:${"e".repeat(64)}`;
+	serve(
+		data({
+			seedImages: [pinned],
+			seed: {
+				images: [pinned],
+				sizeBytes: 1024 ** 3,
+				imageVersion: "2026.09.9",
+				builtAt: "2026-09-29T09:00:00.000Z",
+				imageBytes: { [`docker.io/library/${pinned}`]: 150 * 1024 ** 2 },
+			},
+		}),
+	);
+	renderWithQuery(<DockerTab />);
+	for (const id of ["docker-seed-images", "docker-seed-list"]) {
+		const row = within(await screen.findByTestId(id)).getByRole("row", {
+			name: /python:3\.12@sha256/,
+		});
+		expect(within(row).getAllByRole("cell")[0]?.textContent).toBe("150 MB on disk");
+	}
+	expect(screen.getByTestId("docker-seed-list-size").textContent).toBe(
+		"These images take 150 MB unpacked on disk. The limit is 8.0 GB.",
 	);
 });
 
@@ -358,6 +382,40 @@ test("over the size limit the notice says so and offers no button", async () => 
 	expect(within(notice).queryByRole("button")).toBeNull();
 });
 
+test.each([
+	[
+		"SEED_ALREADY_MATCHES",
+		"The seed list already holds the images that match the workspace image.",
+	],
+	[
+		"SEED_OVER_LIMIT",
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	],
+	[
+		"SEED_MATCH_UNKNOWN",
+		"The default workspace image's versions are not known, so there is nothing to match.",
+	],
+])(
+	"a match refused with %s says why, whatever the API's wording",
+	async (code, text) => {
+		serve(
+			data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+			[],
+			(url, init) =>
+				url === "/admin/docker/seed/match" && init?.method === "POST"
+					? json(409, { code, message: "server wording" })
+					: undefined,
+		);
+		renderWithQuery(<DockerTab />);
+		const notice = await screen.findByTestId("docker-seed-drift");
+		fireEvent.click(
+			within(notice).getByRole("button", { name: "Update list and rebuild" }),
+		);
+		expect(await screen.findByText(text)).toBeTruthy();
+		expect(screen.queryByText("server wording")).toBeNull();
+	},
+);
+
 test("a seed built from an older image says so once: the drift notice's rebuild covers it", async () => {
 	const image = (url: string) =>
 		url === "/admin/image"
@@ -369,6 +427,7 @@ test("a seed built from an older image says so once: the drift notice's rebuild 
 					job: null,
 					newerPublished: null,
 					codingAgents: null,
+					newerCodingAgents: { claude: null, codex: null },
 					disk: null,
 				})
 			: undefined;

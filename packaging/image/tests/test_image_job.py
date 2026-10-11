@@ -1135,7 +1135,9 @@ class CheckTest(Base):
         self.assertEqual(doc["image"], "2026.09.13")
         self.assertIsNone(doc["package"])
         self.assertRegex(doc["checkedAt"], ij.DATETIME_RE)
-        self.assertEqual([c[-1] for c in self.host.ran("curl")], [ij.DEFAULT_RELEASES_URL])
+        # Beyond the release list, only the two coding-agent version answers.
+        self.assertEqual([c[-1] for c in self.host.ran("curl")], [
+            ij.DEFAULT_RELEASES_URL, f"{ij.coding_agents.CLAUDE_BASE}/stable", ij.coding_agents.CODEX_LATEST])
         self.assertEqual(self.host.ran("incus"), [])
 
     def test_an_unreadable_release_list_writes_no_image(self):

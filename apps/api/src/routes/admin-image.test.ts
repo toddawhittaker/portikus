@@ -313,6 +313,58 @@ describe.skipIf(skip)("GET /admin/image, a newer published image (issue #861)", 
 	});
 });
 
+describe.skipIf(skip)("GET /admin/image, newer coding agents", () => {
+	async function putAgentsInUse(claude: string, codex: string) {
+		const state = (current: string) => ({ current, previous: null, kept: [current] });
+		await writeFile(
+			join(imagesDir, "coding-agents.json"),
+			JSON.stringify({
+				claude: state(claude),
+				codex: state(codex),
+				updatedAt: "2026-10-10T10:00:00.000Z",
+			}),
+		);
+	}
+
+	async function putNewest(codingAgents: unknown) {
+		await writeFile(
+			join(imagesDir, "published.json"),
+			JSON.stringify({
+				checkedAt: "2026-10-11T04:00:00.000Z",
+				image: null,
+				package: null,
+				codingAgents,
+			}),
+		);
+	}
+
+	async function newer() {
+		return (await send(carol, "GET", "/admin/image")).json().newerCodingAgents;
+	}
+
+	test("names a recorded version only where it is newer than the one in use", async () => {
+		await putAgentsInUse("2.1.287", "0.162.1");
+		await putNewest({ claude: "2.1.312", codex: "0.162.1" });
+		expect(await newer()).toEqual({ claude: "2.1.312", codex: null });
+	});
+
+	test("compares numerically, and an older recorded version is not an update", async () => {
+		await putAgentsInUse("2.1.99", "0.162.1");
+		await putNewest({ claude: "2.1.100", codex: "0.99.9" });
+		expect(await newer()).toEqual({ claude: "2.1.100", codex: null });
+	});
+
+	test("says nothing before the check recorded versions, or before setup wrote the folder", async () => {
+		await putAgentsInUse("2.1.287", "0.162.1");
+		expect(await newer()).toEqual({ claude: null, codex: null });
+		await putNewest(undefined);
+		expect(await newer()).toEqual({ claude: null, codex: null });
+		await rm(join(imagesDir, "coding-agents.json"));
+		await putNewest({ claude: "2.1.312", codex: "0.170.0" });
+		expect(await newer()).toEqual({ claude: null, codex: null });
+	});
+});
+
 describe.skipIf(skip)("GET /admin/image, jobs the root job wrote", () => {
 	test("shows a request refused before its kind was known", async () => {
 		await putJob(

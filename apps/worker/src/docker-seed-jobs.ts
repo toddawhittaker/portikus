@@ -46,6 +46,7 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			size_bytes: seed.sizeBytes,
 			image_version: seed.imageVersion,
 			built_at: seed.builtAt,
+			image_bytes: seed.imageBytes ? JSON.stringify(seed.imageBytes) : null,
 		};
 		await db
 			.insertInto("docker_seed")

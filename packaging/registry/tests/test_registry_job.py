@@ -521,6 +521,19 @@ class ImageSizesTest(Base):
         os.symlink(self.mount / "hub/docker/registry/v2/repositories/library", linked)
         self.assertEqual(self.helper.scan_sizes(), {})
 
+    def test_manifest_digests_get_sizes_for_digest_pinned_names(self):
+        child = self.image("hub", 1, [100])
+        top = self.index("hub", 2, [(rj.host_arch(), child)])
+        for digest in (top, child):
+            rev = (self.mount / "hub/docker/registry/v2/repositories/library/python/_manifests/revisions"
+                   / digest.replace(":", "/"))
+            rev.mkdir(parents=True, exist_ok=True)
+            (rev / "link").write_text(digest)
+        (self.mount / "hub/docker/registry/v2/repositories/library/python/_manifests/revisions/sha256/not-hex").mkdir()
+        sizes = self.helper.scan_sizes()
+        self.assertEqual(sizes, {f"docker.io/library/python@{top}": 1100,
+                                 f"docker.io/library/python@{child}": 1100})
+
     def test_nothing_while_unmounted(self):
         self.tag("hub", "library/redis", "7", self.image("hub", 1, [100]))
         self.host.mounted = False

@@ -8,10 +8,8 @@ import {
 	type DockerImageUsage,
 	DockerSettingsRequest,
 	type DockerUsageResponse,
+	digestImageName,
 	HubCredentialRequest,
-	ImageAliasesFile,
-	ImageManifest,
-	matchingSeedImages,
 	OTHER_IMAGES_LABEL,
 	overSeedCap,
 	type RegistryJobRequest,
@@ -21,7 +19,6 @@ import {
 	SeedImagesRequest,
 	type SeedJob,
 	SeedJobState,
-	type SeedMatch,
 	seedDrift,
 	seedImageListFor,
 	USAGE_ROWS_MAX,
@@ -31,6 +28,7 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
 import type { ServerDeps } from "../deps.js";
+import { insertJob, type JobRow, matchedImages, readMatch } from "../docker/seed.js";
 import { sendError } from "../http.js";
 import { imagesDirOf } from "../image/release-notices.js";
 import { readJson, writeRequestFile } from "../job-files.js";
@@ -72,24 +70,6 @@ async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 	};
 }
 
-/** The slim images matching the default workspace image, or null when its manifest is unreadable. */
-async function readMatch(imagesDir: string | null): Promise<SeedMatch | null> {
-	if (!imagesDir) return null;
-	const aliases = await readJson(join(imagesDir, "aliases.json"), ImageAliasesFile);
-	if (!aliases?.default) return null;
-	const manifest = await readJson(
-		join(imagesDir, aliases.default, "manifest.json"),
-		ImageManifest,
-	);
-	return manifest ? matchingSeedImages(manifest) : null;
-}
-
-function matchedImages(match: SeedMatch | null): string[] {
-	return [match?.node?.image, match?.python?.image].filter(
-		(each): each is string => each !== undefined,
-	);
-}
-
 type ImageSizes = NonNullable<RegistryStatusFile["imageSizes"]>;
 
 /** The page's view of the status: everything but the size list. */
@@ -104,7 +84,9 @@ function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
 	const out: Record<string, number> = {};
 	for (const name of names) {
 		const key = canonicalImageName(name);
-		const entry = sizes[key];
+		// A digest-pinned name is found by the manifest digest the helper records.
+		const digestKey = digestImageName(name);
+		const entry = sizes[key] ?? (digestKey ? sizes[digestKey] : undefined);
 		if (entry) out[key] = entry.bytes;
 	}
 	return out;
@@ -118,37 +100,8 @@ async function readSeed(db: Kysely<Database>): Promise<DockerAdminResponse["seed
 		sizeBytes: Number(row.size_bytes),
 		imageVersion: row.image_version,
 		builtAt: row.built_at.toISOString(),
+		...(row.image_bytes ? { imageBytes: row.image_bytes } : {}),
 	};
-}
-
-interface JobRow {
-	id: string;
-	state: string;
-	step: string;
-	images: string[];
-	message: string | null;
-	requested_at: Date;
-	finished_at: Date | null;
-}
-
-function insertJob(
-	db: Kysely<Database>,
-	images: string[],
-	requestedBy: string,
-): Promise<JobRow> {
-	return db
-		.insertInto("docker_seed_jobs")
-		.values({ images: JSON.stringify(images), requested_by: requestedBy })
-		.returning([
-			"id",
-			"state",
-			"step",
-			"images",
-			"message",
-			"requested_at",
-			"finished_at",
-		])
-		.executeTakeFirstOrThrow();
 }
 
 function jobRunning(reply: FastifyReply): FastifyReply {
@@ -229,39 +182,8 @@ export function registerAdminDockerRoutes(
 	app.get("/admin/docker", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const match = await readMatch(imagesDir);
-		let settings = await readSettings(db);
+		const settings = await readSettings(db);
 		const defaults = matchedImages(match);
-		// The image manifest is outside the API, so its names get the same check as PUT.
-		const defaultsValid = seedImageListFor(settings.ghcrEnabled).safeParse(
-			defaults,
-		).success;
-		if (
-			!settings.seedImagesSet &&
-			settings.seedImages.length === 0 &&
-			defaults.length > 0 &&
-			defaultsValid
-		) {
-			// The default seed for a list no administrator has set.
-			const applied = await db
-				.updateTable("settings")
-				.set({
-					docker_seed_images: JSON.stringify(defaults),
-					docker_seed_images_set: true,
-				})
-				.where("id", "=", 1)
-				.where("docker_seed_images_set", "=", false)
-				.executeTakeFirst();
-			if (Number(applied.numUpdatedRows) > 0) {
-				await recordAudit(db, {
-					actor: "platform",
-					target: "docker",
-					action: "docker.seed_images_defaulted",
-					result: "ok",
-					metadata: { to: defaults },
-				});
-			}
-			settings = await readSettings(db);
-		}
 		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const seed = await readSeed(db);
 		const out: DockerAdminResponse = {
@@ -360,12 +282,11 @@ export function registerAdminDockerRoutes(
 		if (off(reply) || !jobsDir) return;
 		const admin = requireUser(request);
 		// The helper would do nothing and the page would say it cleared.
-		// No cache, so nothing to clear: 404 rather than a new error code.
 		if ((await readJson(join(jobsDir, "status.json"), RegistryStatusFile))?.cacheOff) {
 			return sendError(
 				reply,
-				404,
-				"NOT_FOUND",
+				409,
+				"CACHE_OFF",
 				"The pull cache is off, so there is nothing to clear.",
 			);
 		}
@@ -448,7 +369,7 @@ export function registerAdminDockerRoutes(
 			return sendError(
 				reply,
 				404,
-				"NOT_FOUND",
+				"SEED_MATCH_UNKNOWN",
 				"The default workspace image's versions are not known.",
 			);
 		}
@@ -457,8 +378,8 @@ export function registerAdminDockerRoutes(
 		if (!drift) {
 			return sendError(
 				reply,
-				400,
-				"VALIDATION_FAILED",
+				409,
+				"SEED_ALREADY_MATCHES",
 				"The seed list already holds the images that match the workspace image.",
 			);
 		}
@@ -467,8 +388,8 @@ export function registerAdminDockerRoutes(
 		if (overSeedCap(drift.next, sizes, seedMaxGiB)) {
 			return sendError(
 				reply,
-				400,
-				"VALIDATION_FAILED",
+				409,
+				"SEED_OVER_LIMIT",
 				"The matching images would push the seed past its size limit, by estimated download size.",
 			);
 		}

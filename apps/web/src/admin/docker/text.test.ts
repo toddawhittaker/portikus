@@ -6,7 +6,6 @@ import {
 	cacheUseText,
 	clearErrorText,
 	credentialErrors,
-	downloadSize,
 	driftActionSentence,
 	driftOverSentence,
 	driftParts,
@@ -144,12 +143,21 @@ const SIZES = {
 	"ghcr.io/owner/tool:1": 5 * MB,
 };
 
-test("a download size is found by any name Docker reads the same, or is null", () => {
-	expect(downloadSize(SIZES, "python:3.12")).toBe(60 * MB);
-	expect(downloadSize(SIZES, "docker.io/library/python:3.12")).toBe(60 * MB);
-	expect(downloadSize(SIZES, "redis")).toBe(40 * MB);
-	expect(downloadSize(SIZES, "ghcr.io/owner/tool:1")).toBe(5 * MB);
-	expect(downloadSize(SIZES, "node:22")).toBeNull();
+test("the list's size sentence says when its sizes are unpacked on disk", () => {
+	const pinned = `node:22@sha256:${"c".repeat(64)}`;
+	const unpacked = {
+		"docker.io/library/python:3.12": 150 * MB,
+		[`docker.io/library/node:22@sha256:${"c".repeat(64)}`]: 250 * MB,
+	};
+	expect(listSizeText(["python:3.12", pinned], SIZES, 8, unpacked)).toBe(
+		"These images take 400 MB unpacked on disk. The limit is 8.0 GB.",
+	);
+	expect(listSizeText(["python:3.12", "go:1"], SIZES, 8, unpacked)).toBe(
+		"These images take 150 MB unpacked on disk, not counting 1 image with no known size. The limit is 8.0 GB.",
+	);
+	expect(listSizeText(["python:3.12", "redis"], SIZES, 8, unpacked)).toBe(
+		"These images take at least 190 MB, counting download sizes for the 1 not in the last seed. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
+	);
 });
 
 test("the list's size sentence totals what is known and says what is not", () => {
@@ -165,7 +173,7 @@ test("the list's size sentence totals what is known and says what is not", () =>
 		"not counting 2 images the pull cache has not held",
 	);
 	expect(listSizeText(["node:22"], SIZES, 8)).toBe(
-		`Download sizes are not known yet; the pull cache has not held these images. ${limit}`,
+		`Sizes are not known yet; neither the last seed nor the pull cache has held these images. ${limit}`,
 	);
 });
 

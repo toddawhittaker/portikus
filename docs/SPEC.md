@@ -3505,9 +3505,14 @@ language-aware editor".
   **Update to the latest published image** reads, and apt's cache for
   the `portikus` package as apt's own daily refresh left it. It writes
   `images/published.json` (`PublishedReleasesFile`): the newest
-  published image, and the installed and available package versions
-  only when apt's candidate is newer (`dpkg --compare-versions`). It
-  downloads no image, changes no default and upgrades no package. The
+  published image, the installed and available package versions
+  only when apt's candidate is newer (`dpkg --compare-versions`), and
+  `codingAgents`, the newest Claude Code and Codex version numbers read
+  from the same two sources **Update coding agents** reads (Claude
+  Code's stable channel, Codex's latest GitHub release). A failed read
+  keeps the versions last recorded, as it keeps the image. It
+  downloads no image or coding agent, changes no default and upgrades
+  no package. The
   API compares that image with every image in the store. When it is
   newer than all of them, `GET /admin/image` returns it as
   `newerPublished`, and the tab shows a notice at the top naming the
@@ -3572,7 +3577,7 @@ Added by Epic 40 (ADR 0056). The root image job (§22.4) gained three commands u
 - **`agents-links`.** Run by the package's install script before the services restart (`image-job agents-links`). It makes the shared folder and the two `bin` links, downloads nothing and takes no job lock. Setup downloads the tools afterwards with `agents-seed`.
 - **`agents-seed`.** Runs from setup only, never as a job. For any tool with no `current` it installs the version pinned in `image-job`, checked against a SHA-256 pinned there, and prints `changed` or `unchanged`. Setup stops, naming the tool, if either tool is still missing.
 - **Pruning.** Three versions are kept per tool. A version a running process uses (matched by device and inode through `/proc/<pid>/exe`) is kept too, but never more than five folders per tool, and the job log says when it removed one still running. `current` and `previous` are never removed. Recovery removes stale `.staging-*` folders.
-- **State.** The job writes `images/coding-agents.json`: `{claude: {current, previous, kept[]}, codex: {...}, updatedAt}`; the API reads it for `AdminImage.codingAgents`, which is null before the first seed. The audit rows are `image.job_requested` and `image.job_finished` with the kind in the metadata.
+- **State.** The job writes `images/coding-agents.json`: `{claude: {current, previous, kept[]}, codex: {...}, updatedAt}`; the API reads it for `AdminImage.codingAgents`, which is null before the first seed. `AdminImage.newerCodingAgents` names, per tool, the version the daily check recorded in `published.json` when it sorts above `current`, else null; the Coding agents row then shows an "Update available: <version>" chip. The API and worker never reach the internet for this. The audit rows are `image.job_requested` and `image.job_finished` with the kind in the metadata.
 - **Network.** The server needs outgoing access to `downloads.claude.ai`, `api.github.com`, `github.com` and the host GitHub redirects release assets to (docs/INSTALL.md).
 
 ## 23. Networking

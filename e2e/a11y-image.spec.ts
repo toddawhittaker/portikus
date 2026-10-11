@@ -76,6 +76,8 @@ const IMAGE = {
 		codex: { current: "0.47.0", previous: null, kept: ["0.47.0"] },
 		updatedAt: "2026-10-10T10:00:00.000Z",
 	},
+	// The scans cover the update-available chip on one row.
+	newerCodingAgents: { claude: "2.1.6", codex: null },
 	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
 
