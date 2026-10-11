@@ -604,7 +604,7 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0048_voice_input_switch",
+					"0047_voice_input_switch",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0046_docker_seed_image_bytes",
@@ -762,7 +762,7 @@ describe("database migrations and schema", () => {
 					"0043_agent_usage_days",
 					"0044_dex_account_issuer",
 					"0046_docker_seed_image_bytes",
-					"0048_voice_input_switch",
+					"0047_voice_input_switch",
 				]);
 				throw rollback;
 			}),
@@ -786,7 +786,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -950,7 +950,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -1074,7 +1074,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -1501,7 +1501,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -1638,7 +1638,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -2133,7 +2133,7 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -2331,7 +2331,7 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -2418,7 +2418,7 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -2728,7 +2728,7 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -2820,11 +2820,11 @@ describe("resource guard migration", () => {
 						"0043_agent_usage_days",
 						"0044_dex_account_issuer",
 						"0046_docker_seed_image_bytes",
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0048 down to 0020, and 0018 (applied 0018, 0020 to 0048, 0019).
+					// Undo 0019, 0047 down to 0020, and 0018 (applied 0018, 0020 to 0047, 0019).
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2886,7 +2886,7 @@ describe("resource guard migration", () => {
 						"0043_agent_usage_days",
 						"0044_dex_account_issuer",
 						"0046_docker_seed_image_bytes",
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					]);
 					throw rollback;
 				}),
@@ -2921,7 +2921,7 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3020,7 +3020,7 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3109,7 +3109,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3186,7 +3186,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3311,7 +3311,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3469,7 +3469,7 @@ describe("resource guard migration", () => {
 						.returning("id")
 						.executeTakeFirstOrThrow();
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3569,7 +3569,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3708,7 +3708,7 @@ describe("backups migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3849,7 +3849,7 @@ describe("backups migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -3965,7 +3965,7 @@ describe("api request samples migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",
@@ -4195,7 +4195,7 @@ describe("throttle hold migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_voice_input_switch",
+						"0047_voice_input_switch",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0046_docker_seed_image_bytes",

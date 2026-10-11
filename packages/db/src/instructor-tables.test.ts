@@ -78,7 +78,7 @@ describe("instructor feature tables", () => {
 					provider: { getMigrations: async () => migrations },
 				});
 				for (const name of [
-					"0048_voice_input_switch",
+					"0047_voice_input_switch",
 					"0046_docker_seed_image_bytes",
 					"0044_dex_account_issuer",
 					"0043_agent_usage_days",
@@ -100,7 +100,7 @@ describe("instructor feature tables", () => {
 					"0043_agent_usage_days",
 					"0044_dex_account_issuer",
 					"0046_docker_seed_image_bytes",
-					"0048_voice_input_switch",
+					"0047_voice_input_switch",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);

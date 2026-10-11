@@ -4,10 +4,10 @@ import { createTestDb, hasTestDb, type TestDb } from "../testing.js";
 /** Voice input stays on for a site until an administrator turns it off (SPEC.md section 25.10). */
 
 if (!hasTestDb()) {
-	console.log("TEST_DATABASE_URL is not set — skipping migration 0048 tests.");
+	console.log("TEST_DATABASE_URL is not set — skipping migration 0047 tests.");
 }
 
-describe.skipIf(!hasTestDb())("migration 0048_voice_input_switch", () => {
+describe.skipIf(!hasTestDb())("migration 0047_voice_input_switch", () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
