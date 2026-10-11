@@ -6251,7 +6251,7 @@ Acceptance:
 
 ### Epic 43 — Admin self-service
 
-Built on `epic/43-admin-self-service`, issues #1250, #1220, #935, #1252, #1251 and #1256. No migration. See sections 20.1, 24.1 and 24.11 and ADRs 0059 and 0060.
+Built on `epic/43-admin-self-service`, issues #1250, #1220, #935, #1252, #1251 and #1256. Migration 0044 keys Dex accounts by `urn:portikus:dex`. See sections 5.1, 20.1, 24.1 and 24.11 and ADRs 0059 and 0060.
 
 Includes:
 
