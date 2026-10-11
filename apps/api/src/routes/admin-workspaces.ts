@@ -12,13 +12,14 @@ import {
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
 	type StorageFigure,
+	THROTTLE_LIFTED_TITLE,
 	UpdateGuardRequest,
 	UpdateLimitsRequest,
 	UpdateQuotaRequest,
 	type WorkspaceLimits,
 	WorkspaceUsage,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import { type Database, recordAudit, recordNotification } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import {
@@ -443,8 +444,9 @@ export function registerAdminWorkspaceRoutes(
 				.set({ [mark]: null, updated_at: new Date().toISOString() })
 				.where("id", "=", id)
 				.where(mark, "is not", null)
+				.returning("owner_user_id")
 				.executeTakeFirst();
-			if (Number(cleared.numUpdatedRows) === 0) {
+			if (!cleared) {
 				const exists = await trx
 					.selectFrom("workspaces")
 					.select("id")
@@ -466,6 +468,14 @@ export function registerAdminWorkspaceRoutes(
 				result: "ok",
 				metadata: { reason: "administrator" },
 			});
+			// Written whether or not a page is open (SPEC.md 19.4).
+			if (mark === "cpu_throttle") {
+				await recordNotification(trx, cleared.owner_user_id, {
+					tone: "success",
+					title: THROTTLE_LIFTED_TITLE,
+					body: "An administrator lifted its processor limit.",
+				});
+			}
 			return "cleared";
 		});
 		if (outcome === "not_found") {

@@ -48,6 +48,8 @@ export interface StatLine {
 	name: string;
 	state: string;
 	ppid: number;
+	/** The session id, field 6. */
+	session: number;
 	startTicks: number;
 	utime: number;
 	stime: number;
@@ -64,23 +66,27 @@ export function parseStatLine(text: string): StatLine | null {
 		.slice(close + 1)
 		.trim()
 		.split(/\s+/);
-	// Field 3 (state) is index 0 after the name, ppid (4) index 1; utime (14)
+	// Field 3 (state) is index 0 after the name, ppid (4) index 1, session (6)
+	// index 3; utime (14)
 	// and stime (15) are indexes 11 and 12; nice (19) is index 16; starttime
 	// (22) is index 19.
 	const state = fields[0];
 	const ppid = Number(fields[1]);
+	const session = Number(fields[3]);
 	const utime = Number(fields[11]);
 	const stime = Number(fields[12]);
 	const nice = Number(fields[16]);
 	const startTicks = Number(fields[19]);
 	if (!state || !Number.isSafeInteger(startTicks) || startTicks < 0) return null;
 	if (!Number.isSafeInteger(ppid) || ppid < 0) return null;
+	if (!Number.isSafeInteger(session) || session < 0) return null;
 	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
 	if (!Number.isInteger(nice)) return null;
 	return {
 		name: text.slice(open + 1, close),
 		state,
 		ppid,
+		session,
 		startTicks,
 		utime,
 		stime,
