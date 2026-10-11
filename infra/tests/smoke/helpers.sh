@@ -44,6 +44,11 @@ check_zero_lines() {
   fi
 }
 
+# skip LABEL — a SKIP line for a check that could not run, counted so the
+# summary shows the gap.
+skipped=0
+skip() { printf '\033[1;33mSKIP\033[0m  %s\n' "$1"; skipped=$((skipped + 1)); }
+
 # workspace_ip INSTANCE — the address on the workspace bridge.  A running
 # workspace also holds a docker0 address, so pick the bridge NIC by name.
 # Callers have set PROJECT.
