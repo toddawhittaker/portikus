@@ -403,6 +403,7 @@ test("a seed built from an older image says so once: the drift notice's rebuild 
 					job: null,
 					newerPublished: null,
 					codingAgents: null,
+					newerCodingAgents: { claude: null, codex: null },
 					disk: null,
 				})
 			: undefined;

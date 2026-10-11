@@ -653,6 +653,33 @@ test("roll back is off for a tool with no previous version, in the page and the 
 	expect(await requestFiles()).toEqual([]);
 });
 
+test("the update-available chip shows only on a tool the daily check found newer", async ({
+	page,
+}) => {
+	await putCodingAgents({
+		claude: { current: "2.1.287", previous: null },
+		codex: { current: "0.162.1", previous: null },
+	});
+	await open(page);
+	await expect(agentsCard(page).getByText("Update available")).toHaveCount(0);
+
+	await writeFile(
+		join(IMAGES_DIR, "published.json"),
+		JSON.stringify({
+			checkedAt: new Date().toISOString(),
+			image: null,
+			package: null,
+			codingAgents: { claude: "2.1.312", codex: "0.162.1" },
+		}),
+	);
+	await page.reload();
+	await expect(page.getByTestId("image-agents-row-claude")).toContainText(
+		"Update available: 2.1.312",
+		{ timeout: 15_000 },
+	);
+	await expect(page.getByTestId("image-agents-newer-codex")).toHaveCount(0);
+});
+
 test("before setup writes the shared folder, Coding agents says how to set it up", async ({
 	page,
 }) => {

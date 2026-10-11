@@ -243,6 +243,18 @@ export const PublishedReleasesFile = z.object({
 			available: z.string().min(1).max(100),
 		})
 		.nullable(),
+	/**
+	 * The versions an agents update would offer (Claude Code's stable channel,
+	 * Codex's latest release); a failed check keeps the last ones. Absent in a
+	 * file written before the check recorded them.
+	 */
+	codingAgents: z
+		.object({
+			claude: CodingAgentVersion.nullable(),
+			codex: CodingAgentVersion.nullable(),
+		})
+		.nullable()
+		.default(null),
 });
 export type PublishedReleasesFile = z.infer<typeof PublishedReleasesFile>;
 
@@ -272,6 +284,26 @@ export function newerPublishedImage(
 	return onServer.every((version) => compareImageVersions(published, version) > 0)
 		? published
 		: null;
+}
+
+function codingAgentKey(version: CodingAgentVersion): number[] {
+	return version.split(".").map(Number);
+}
+
+/** The newest version when it sorts above the one in use (or none is in use), else null. */
+export function newerCodingAgent(
+	newest: CodingAgentVersion | null,
+	current: CodingAgentVersion | null,
+): CodingAgentVersion | null {
+	if (newest === null) return null;
+	if (current === null) return newest;
+	const left = codingAgentKey(newest);
+	const right = codingAgentKey(current);
+	for (let i = 0; i < left.length; i++) {
+		const diff = (left[i] ?? 0) - (right[i] ?? 0);
+		if (diff !== 0) return diff > 0 ? newest : null;
+	}
+	return null;
 }
 
 // ---- API responses ----
@@ -322,6 +354,11 @@ export const AdminImage = z.object({
 	newerPublished: ImageVersion.nullable(),
 	/** The shared Claude Code and Codex versions; null when the job has not written the file. */
 	codingAgents: CodingAgentsFile.nullable(),
+	/** Per tool, a recorded newer version than the one in use, else null. */
+	newerCodingAgents: z.object({
+		claude: CodingAgentVersion.nullable(),
+		codex: CodingAgentVersion.nullable(),
+	}),
 	/** Free and total bytes of the disk holding the images, null when it cannot be read. */
 	disk: z
 		.object({
