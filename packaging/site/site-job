@@ -60,6 +60,7 @@ import grp
 import hashlib
 import http.client
 import json
+import math
 import os
 import pwd
 import re
@@ -713,7 +714,10 @@ class Runner:
         unit = f"{TRIAL_UNIT}{trial_id}-{stage}"
         self.disarm(trial_id)
         self.run(["systemctl", "reset-failed", unit + ".service"])
-        rc = self.run(["systemd-run", f"--unit={unit}", f"--on-active={max(1, int(seconds))}s",
+        # A wall-clock time, since every daemon-reload, which setup does, restarts an --on-active
+        # countdown. A time already past never fires, so it is a few seconds ahead at least.
+        when = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(math.ceil(self.clock() + max(5, seconds))))
+        rc = self.run(["systemd-run", f"--unit={unit}", f"--on-calendar={when}",
                        "--timer-property=AccuracySec=1s", "--description=Portikus site trial deadline",
                        SITE_JOB, "expire", trial_id])[0]
         if rc != 0:

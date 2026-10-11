@@ -621,7 +621,8 @@ class Trials(Host):
         # The deadline timer stands in during setup, then the trial's own replaces it.
         units = [argv[1] for argv in self.fake.argv("systemd-run")]
         self.assertEqual(units, [f"--unit=portikus-site-trial-{JOB}-setup", f"--unit=portikus-site-trial-{JOB}-trial"])
-        self.assertEqual(self.fake.argv("systemd-run")[1][2], "--on-active=1800s")
+        # A wall-clock deadline: systemd restarts a relative one at every daemon-reload, and setup reloads.
+        self.assertEqual(self.fake.argv("systemd-run")[1][2], "--on-calendar=2026-09-21 14:43:20 UTC")
         self.assertEqual(self.fake.argv("systemd-run")[1][-3:], [sj.SITE_JOB, "expire", JOB])
         state = Path(self.path(sj.STATE_DIR))
         self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
@@ -822,7 +823,7 @@ class Trials(Host):
         self.clock.now += 60
         self.run_pending()
         self.assertEqual(len(self.fake.argv("systemd-run")), runs + 1)
-        self.assertEqual(self.fake.argv("systemd-run")[-1][2], f"--on-active={30 * 60 - 60}s")
+        self.assertEqual(self.fake.argv("systemd-run")[-1][2], "--on-calendar=2026-09-21 14:43:20 UTC")
         self.clock.now += 3600
         self.run_pending()
         self.assertEqual(self.status()["code"], "trial_expired")
