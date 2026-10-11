@@ -81,7 +81,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
     && [[ $(printf '%s\n' "${image_base}" 2026.10.2 | sort -V | head -n 1) != 2026.10.2 ]]; then
     for tool in claude codex; do
-      echo "SKIP  ${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
+      skip "${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
     done
   else
     for tool in claude codex; do
@@ -216,7 +216,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     check_output "Playwright ${playwright_pin} launches the image's Chromium with no download" "portikus" \
       ws_student 'd=$(mktemp -d); cd "$d" && timeout 180 npm i --no-save --no-audit --no-fund --cache "$d/.npm" playwright-core@'"${playwright_pin}"' >/dev/null 2>&1 && timeout 60 node -e "const { chromium } = require(\"playwright-core\"); (async () => { const b = await chromium.launch(); const p = await b.newPage(); await p.setContent(\"<p>portikus</p>\"); console.log(await p.textContent(\"p\")); await b.close(); })().catch(() => process.exit(1));"; s=$?; cd / && rm -rf "$d"; exit $s'
   else
-    echo "SKIP  headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
+    skip "headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
   fi
   check "gh --version"                          ws_student "gh --version"
   check "node --version"                        ws_student "node --version"
