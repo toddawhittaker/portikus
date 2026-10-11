@@ -13,6 +13,7 @@ import {
 	seedDrift,
 	seedImageListFor,
 } from "@portikus/contracts";
+import { ApiError, errorText } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
 
 /**
@@ -227,6 +228,31 @@ export function clearErrorText(cache: DockerCacheStatus): string | null {
 		? ""
 		: " The Docker Hub cache stays stopped until Clear cache succeeds.";
 	return `The last clear failed: ${cache.lastClearError}${held}`;
+}
+
+/** Why Clear cache was refused, told apart by the API's error code. */
+export function clearRefusedText(error: unknown): string {
+	if (error instanceof ApiError && error.code === "CACHE_OFF") {
+		return "The pull cache was turned off after this page loaded, so there is nothing to clear. Reload the page to see why.";
+	}
+	return errorText(error);
+}
+
+/** Why the seed match button was refused, told apart by the API's error code. */
+export function matchRefusedText(error: unknown): string {
+	if (error instanceof ApiError) {
+		switch (error.code) {
+			case "SEED_MATCH_UNKNOWN":
+				return "The default workspace image's versions are not known, so there is nothing to match.";
+			case "SEED_ALREADY_MATCHES":
+				return "The seed list already holds the images that match the workspace image.";
+			case "SEED_OVER_LIMIT":
+				return "The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.";
+			case "SEED_JOB_RUNNING":
+				return "A rebuild is waiting or running. Wait until it finishes.";
+		}
+	}
+	return errorText(error);
 }
 
 export const CLEAR_REASON: Record<
