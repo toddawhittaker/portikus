@@ -24,7 +24,8 @@
 #      as its own account and cannot open the backup key socket, and that
 #      its database role is refused on sessions and users but still works;
 #      then apt remove, check that no Portikus unit, socket, timer, path
-#      or process is left and no alert drop-in names the removed template,
+#      or process is left beyond the workspace limits Incus needs at boot,
+#      and no alert drop-in names the removed template,
 #      and apt install again with setup, which brings it all back;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
 #      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
@@ -710,6 +711,8 @@ EOF
 SETUP_RUNNING='portikus-dex.service portikus-workspace-proxy.service portikus-workspace-limits.service
 portikus-thinpool-status.timer var-lib-portikus\x2dregistry.mount'
 ALERT_DROPINS='/etc/systemd/system/caddy.service.d/20-portikus-alert.conf /etc/systemd/system/postgresql@.service.d/20-portikus-alert.conf'
+# Units apt remove leaves enabled and running (postrm's SETUP_BOOT_UNITS).
+BOOT_UNITS_KEPT='^portikus-(storage-attach|workspace-limits)\.service '
 # Every account a Portikus service runs as; none may keep a process.
 SERVICE_USERS=portikus,portikus-worker,portikus-controller,portikus-registry,portikus-dex,portikus-wsproxy
 
@@ -723,15 +726,17 @@ remove_package() {
   local left
   vm "sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y portikus 2>&1" | tee "${LOGS}/apt-remove.txt"
   [ "$(vm "dpkg-query -W -f '\${Status}' portikus")" = "deinstall ok config-files" ]
-  # Storage attach, on a host with a storage file, stays: remove keeps the data Incus needs at boot.
+  # What Incus needs at boot stays: storage attach (on a host with a storage
+  # file) and the workspace limits, since remove keeps data and configuration.
   left=$(vm "systemctl list-units --all --plain --no-legend --state=active,activating,reloading,deactivating,failed 'portikus-*' 'var-lib-portikus*.mount'" \
-    | grep -v '^portikus-storage-attach\.service ' || true)
+    | grep -Ev "${BOOT_UNITS_KEPT}" || true)
   [ -z "$left" ] || { echo "units left after apt remove:"; echo "$left"; return 1; }
   ! vm "mountpoint -q /var/lib/portikus-registry" || { echo "the Docker cache is still mounted"; return 1; }
-  # Storage attach, on a host with a storage file, stays enabled: remove keeps the data Incus needs at boot.
   left=$(vm "systemctl list-unit-files --no-legend --state=enabled,enabled-runtime,linked 'portikus-*' 'var-lib-portikus*.mount'" \
-    | grep -v '^portikus-storage-attach\.service ' || true)
+    | grep -Ev "${BOOT_UNITS_KEPT}" || true)
   [ -z "$left" ] || { echo "unit files left enabled after apt remove:"; echo "$left"; return 1; }
+  [ "$(vm "systemctl is-enabled portikus-workspace-limits.service")" = enabled ] \
+    || { echo "apt remove disabled the workspace limits"; return 1; }
   left=$(vm "find /etc/systemd/system -xtype l -name 'portikus-*'")
   [ -z "$left" ] || { echo "enable links left dangling:"; echo "$left"; return 1; }
   # The bracket keeps the pattern from matching this command's own shell.
