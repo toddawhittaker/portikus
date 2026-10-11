@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
+import { AGENT_USAGE_PORT } from "@portikus/contracts";
 import { createLogger } from "@portikus/observability";
 import { returnHomeInstructions } from "./agent-instructions.js";
 import { removeStaleTemporaries } from "./projects.js";
@@ -53,6 +54,7 @@ const app = buildServer({
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
 	panePipeDir: "/run/portikus/panes",
+	agentUsagePort: AGENT_USAGE_PORT,
 	build,
 });
 

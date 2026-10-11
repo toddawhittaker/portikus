@@ -2,9 +2,21 @@
  * Automated accessibility checks (SPEC.md section 25.8) on the Course page
  * and both LTI fallback pages (ADR 0025).
  */
-import { expect, type Page, test } from "@playwright/test";
-import { expectNoViolations, WEB_ORIGIN } from "./helpers";
-import { launchAs, openCourseTab, startLaunch } from "./lti-helpers";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expectNoViolations, query, WEB_ORIGIN } from "./helpers";
+import { launchAs, ltiUsers, openCourseTab, startLaunch } from "./lti-helpers";
+
+/** One day of Claude Code use for Tom, so the usage tables have a row. */
+async function seedTomUsage() {
+	const [tomUser] = await ltiUsers("tom");
+	await query(
+		`insert into agent_usage_days
+		   (user_id, boot_id, day, agent, model, sessions, input_tokens, output_tokens,
+		    cache_read_tokens, cache_write_tokens, cost_usd, lines_added, lines_removed)
+		 values ($1, gen_random_uuid(), current_date, 'claude', 'opus', 2, 1200, 3400, 5600, 780, 4.5, 90, 12)`,
+		[tomUser?.id],
+	);
+}
 
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Course page has no automatic accessibility violations (${colorScheme})`, async ({
@@ -19,7 +31,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const page = await context.newPage();
 			await launchAs(page, { person: "tom", course: "cs240" });
 			const course = await openCourseTab(page);
-			const table = course.getByRole("table");
+			const table = course.getByTestId("course-members");
 			await expect(table).toBeVisible();
 			// The admin page's table and compact frame (SPEC.md section 20.1).
 			await expect(table).toHaveClass("pk-table pk-table--page");
@@ -33,6 +45,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// The intro explains Remove, so its column has no toggletip of its own.
 			await expect(course.getByRole("button", { name: "About Remove" })).toHaveCount(0);
 			await expectNoViolations(course);
+
+			// The roster status after a sync, and the usage tables with rows.
+			await course.getByRole("button", { name: "Sync roster" }).click();
+			await expect(course.getByTestId("roster-sync")).toContainText("Roster synced:");
+			await seedTomUsage();
+			await course.reload();
+			await expect(course.getByTestId("agent-usage-users")).toBeVisible();
+			await expect(course.getByTestId("agent-usage-daily")).toBeVisible();
+			await expect(course.getByTestId("roster-status")).toBeVisible();
+			await expectNoViolations(course);
 		} finally {
 			await context.close();
 		}
@@ -42,6 +64,17 @@ for (const colorScheme of ["light", "dark"] as const) {
 /** A long display name with one long unbroken word, the worst case for a narrow table. */
 const LONG_NAME =
 	"Samantha Wolfeschlegelsteinhausenbergerdorffwelchevoralternwaren Student";
+const LONG_NAME_ID = "00000000-0000-4000-8000-00000000c0de";
+
+/** Whether an element sits wholly inside the members table's clipping wrap. */
+async function insideTableWrap(target: Locator) {
+	return target.evaluate((el) => {
+		const wrap = el.closest(".pk-table-wrap") as HTMLElement;
+		const box = el.getBoundingClientRect();
+		const clip = wrap.getBoundingClientRect();
+		return box.left >= clip.left - 0.5 && box.right <= clip.right + 0.5;
+	});
+}
 
 /** How far the page and the members table run past their boxes, in CSS pixels. */
 async function sidewaysOverflow(course: Page) {
@@ -77,7 +110,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const response = await route.fetch();
 			const body = (await response.json()) as { members: unknown[] };
 			body.members.push({
-				userId: "00000000-0000-4000-8000-00000000c0de",
+				status: "active",
+				userId: LONG_NAME_ID,
 				displayName: LONG_NAME,
 				role: "student",
 				lastLaunchAt: new Date().toISOString(),
@@ -85,10 +119,32 @@ for (const colorScheme of ["light", "dark"] as const) {
 			});
 			await route.fulfill({ response, json: body });
 		});
+		// They share a project, so their actions cell holds a link and Remove.
+		await context.route(/\/courses\/[^/]+\/shares$/, async (route) => {
+			const now = Date.now();
+			await route.fulfill({
+				json: {
+					shares: [
+						{
+							projectId: "00000000-0000-4000-8000-0000000005ae",
+							projectName: "todo-app",
+							userId: LONG_NAME_ID,
+							displayName: LONG_NAME,
+							startedAt: new Date(now).toISOString(),
+							endsAt: new Date(now + 8 * 60 * 60 * 1000).toISOString(),
+							workspaceState: "stopped",
+						},
+					],
+				},
+			});
+		});
 		try {
 			const page = await context.newPage();
 			await launchAs(page, { person: "tom", course: "cs240" });
 			const course = await openCourseTab(page);
+			await seedTomUsage();
+			await course.reload();
+			await expect(course.getByTestId("agent-usage-users")).toBeVisible();
 			const table = course.getByTestId("course-members");
 			await expect(table).toBeVisible();
 			const samRow = table.getByRole("row", { name: new RegExp(LONG_NAME) });
@@ -120,11 +176,22 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// At 320 px (400% zoom of a 1280 px window) nothing scrolls sideways either.
 			await course.setViewportSize({ width: 320, height: 900 });
 			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
+			// The wide usage table scrolls inside its own box, not the page.
+			const usageWrap = course.getByTestId("agent-usage-users").locator("..");
+			expect(await usageWrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
+				true,
+			);
 			await expect(samName.locator("time")).toBeVisible();
 			// Taller rows push it down the scrolling <main>, never off to the side.
 			const remove = samRow.getByRole("button", { name: /Remove/ });
 			await remove.scrollIntoViewIfNeeded();
 			await expect(remove).toBeInViewport({ ratio: 1 });
+			// The shared project link and Remove wrap in the actions cell, neither clipped.
+			const shared = samRow.getByRole("link", { name: /Shared project/ });
+			await shared.scrollIntoViewIfNeeded();
+			await expect(shared).toBeInViewport({ ratio: 1 });
+			expect(await insideTableWrap(shared)).toBe(true);
+			expect(await insideTableWrap(remove)).toBe(true);
 			await expectNoViolations(course);
 		} finally {
 			await context.close();

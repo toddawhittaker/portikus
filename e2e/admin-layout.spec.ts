@@ -24,6 +24,7 @@ const ADMIN_TAB_NAMES = [
 	"Health",
 	"Logs",
 	"Audit",
+	"Agent usage",
 	"Network",
 	"Backups",
 	"Workspace image",
@@ -167,7 +168,7 @@ test.describe("admin layout", () => {
 		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	});
 
-	test("tabs read Users, Health, Logs, Audit, Network, Backups, Workspace image, Certificate, Docker, Settings, side by side with no gaps", async ({
+	test("tabs read Users, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, side by side with no gaps", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -184,7 +185,8 @@ test.describe("admin layout", () => {
 		}
 	});
 
-	for (const width of [1920, 1366, 1024]) {
+	// Twelve tabs with Root shell need about 1100 px for one row; 1024 wraps and is covered by the text-spacing test.
+	for (const width of [1920, 1366, 1180]) {
 		test(`the header holds the mark, the context and the account, and the strip under it shows every tab whole at ${width} px`, async ({
 			page,
 			context,
@@ -480,7 +482,7 @@ test.describe("admin layout", () => {
 			await page.keyboard.press("Tab");
 			if (await users.evaluate((el) => el === document.activeElement)) break;
 		}
-		for (const name of ["Users", "Health", "Logs", "Audit", "Network"]) {
+		for (const name of ["Users", "Health", "Logs", "Audit", "Agent usage", "Network"]) {
 			if (name !== "Users") await page.keyboard.press("Tab");
 			const link = nav.getByRole("link", { name, exact: true });
 			await expect(link).toBeFocused();
@@ -556,7 +558,7 @@ test.describe("admin layout", () => {
 		test(`the Users detail panel fits the framed content with ${rows === 1 ? "one tab row" : "two tab rows"}`, async ({
 			page,
 		}) => {
-			await page.setViewportSize({ width: 1024, height: 600 });
+			await page.setViewportSize({ width: rows === 1 ? 1366 : 1024, height: 600 });
 			await loginAs(page, "carol");
 			await page.goto("/admin/users");
 			await page

@@ -4,7 +4,7 @@
  * route: the mock, the tool's /lti/login, the mock's /authorize, and the
  * form post to /lti/launch.
  */
-import { expect, type Page } from "@playwright/test";
+import { type APIRequestContext, expect, type Page } from "@playwright/test";
 import { PEOPLE } from "../packages/mock-lms/src/seed";
 import { query } from "./helpers";
 import { MOCK_LMS_ORIGIN, WEB_ORIGIN } from "./ports";
@@ -20,8 +20,9 @@ export type PersonKey =
 	| "lin"
 	| "max"
 	| "rex"
-	| "una";
-type CourseKey = "cs101" | "cs240" | "cs350";
+	| "una"
+	| "roy";
+type CourseKey = "cs101" | "cs240" | "cs330" | "cs350";
 export type Defect =
 	| "bad_signature"
 	| "wrong_aud"
@@ -56,6 +57,67 @@ export async function launchAs(page: Page, options: LaunchOptions): Promise<void
 	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 30_000 });
 	// The first load of the app under a full parallel run can be slow.
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
+}
+
+/** Open Deep Linking as this person; the tool's picker page loads in the same tab. */
+export async function startDeepLinking(
+	page: Page,
+	options: { person: PersonKey; course?: CourseKey },
+): Promise<void> {
+	await page.goto(`${MOCK_LMS_ORIGIN}/`);
+	await page
+		.getByLabel("Instructor starting Deep Linking")
+		.selectOption(options.person);
+	await page
+		.getByLabel("Class for Deep Linking")
+		.selectOption(options.course ?? "cs101");
+	await page.getByRole("button", { name: "Start Deep Linking" }).click();
+}
+
+/** Launch a link saved by Deep Linking, by its title, and wait for the web app. */
+export async function launchSavedLink(
+	page: Page,
+	options: { title: string; person?: PersonKey },
+): Promise<void> {
+	await page.goto(`${MOCK_LMS_ORIGIN}/`);
+	const link = page.getByLabel("Link", { exact: true });
+	const value = await link
+		.locator("option")
+		.filter({ hasText: options.title })
+		.first()
+		.getAttribute("value");
+	if (!value) throw new Error(`no saved link titled ${options.title}`);
+	await link.selectOption(value);
+	await page.getByLabel("Launch as").selectOption(options.person ?? "sam");
+	await page.getByRole("button", { name: "Launch saved link" }).click();
+	await page.waitForURL(`${WEB_ORIGIN}/**`, { timeout: 30_000 });
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
+}
+
+export interface RosterChange {
+	action: "add" | "drop" | "role" | "reset";
+	course?: CourseKey;
+	person?: string;
+	role?: "Instructor" | "TeachingAssistant" | "Learner" | "Administrator";
+}
+
+/** Change a mock course roster; the next roster sync sees it. */
+export async function changeRoster(
+	request: APIRequestContext,
+	change: RosterChange,
+): Promise<void> {
+	const home = await (await request.get(`${MOCK_LMS_ORIGIN}/`)).text();
+	const formToken = /name="form_token" value="([^"]+)"/.exec(home)?.[1];
+	if (!formToken) throw new Error("the mock's launch page has no form token");
+	const fields: Record<string, string> = {
+		form_token: formToken,
+		action: change.action,
+	};
+	if (change.course) fields.course = change.course;
+	if (change.person) fields.person = change.person;
+	if (change.role) fields.role = change.role;
+	const res = await request.post(`${MOCK_LMS_ORIGIN}/roster`, { form: fields });
+	expect(res.status(), await res.text()).toBe(204);
 }
 
 /** The platform issuer the API stores LTI users under. */

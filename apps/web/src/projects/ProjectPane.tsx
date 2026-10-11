@@ -26,8 +26,20 @@ import {
 	useUnarchiveProject,
 } from "./queries.js";
 import { RenameDialog } from "./RenameDialog.js";
+import { isOpenShare, ShareDialog } from "./ShareDialog.js";
+
+/** The "Shared" tag on a row while the project's share is open. */
+function ShareBadge({ project }: { project: Project }) {
+	if (!isOpenShare(project.sharedUntil ?? undefined, Date.now())) return null;
+	return (
+		<span className="pk-tag" data-testid={`project-shared-${project.id}`}>
+			Shared
+		</span>
+	);
+}
 
 type Open =
+	| { kind: "share"; project: Project }
 	| { kind: "none" }
 	| { kind: "create"; mode: CreateMode }
 	| { kind: "rename"; project: Project }
@@ -146,6 +158,7 @@ export function ProjectPane({
 									{project.isGitRepo === false && !project.missing ? (
 										<span className="pk-tag">not a repo</span>
 									) : null}
+									{project.missing ? null : <ShareBadge project={project} />}
 								</Link>
 								<MenuRoot>
 									<MenuTrigger asChild>
@@ -179,6 +192,11 @@ export function ProjectPane({
 													onSelect={() => setOpen({ kind: "recovery", project })}
 												>
 													<span data-testid="project-recovery">Recovery points…</span>
+												</MenuItem>
+												<MenuItem onSelect={() => setOpen({ kind: "share", project })}>
+													<span data-testid="project-share">
+														Share with my instructors…
+													</span>
 												</MenuItem>
 												{project.isGitRepo === false && (
 													<MenuItem onSelect={() => gitInit.mutate(project.id)}>
@@ -292,6 +310,13 @@ export function ProjectPane({
 			)}
 			{open.kind === "recovery" && (
 				<RecoveryDialog
+					workspaceId={workspaceId}
+					project={open.project}
+					onClose={() => setOpen({ kind: "none" })}
+				/>
+			)}
+			{open.kind === "share" && (
+				<ShareDialog
 					workspaceId={workspaceId}
 					project={open.project}
 					onClose={() => setOpen({ kind: "none" })}

@@ -1,4 +1,4 @@
-import type { CourseMember } from "@portikus/contracts";
+import type { ActiveCourseMember } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import { useRemoveMember } from "./queries.js";
 
@@ -13,7 +13,7 @@ export function RemoveMemberConfirm({
 }: {
 	courseId: string;
 	courseTitle: string;
-	member: CourseMember;
+	member: ActiveCourseMember;
 	onClose: () => void;
 	/** Called after a removal succeeds, instead of onClose. */
 	onRemoved: () => void;

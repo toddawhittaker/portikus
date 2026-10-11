@@ -201,6 +201,7 @@ export const ANONYMOUS_ROUTES: ReadonlySet<string> = new Set([
 	"HEAD /lti/login",
 	"POST /lti/login",
 	"POST /lti/launch",
+	"POST /lti/deep-link",
 	"GET /lti/jwks",
 	"HEAD /lti/jwks",
 	"GET /__portikus/bootstrap",

@@ -68,6 +68,7 @@ def main():
         "clientId": CLIENT_ID,
         "authLoginUrl": f"{args.url}/authorize",
         "keysetUrl": f"{args.url}/.well-known/jwks.json",
+        "authTokenUrl": f"{args.url}/token",
         "deploymentIds": [DEPLOYMENT_ID],
         "mock": True,
     }

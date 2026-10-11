@@ -998,13 +998,17 @@ on the host (Makefile `PORTIKUS_LTI_PLATFORMS_FILE`). It holds no secret.
       "clientId": "10000000000001",
       "authLoginUrl": "https://sso.canvaslms.com/api/lti/authorize_redirect",
       "keysetUrl": "https://sso.canvaslms.com/api/lti/security/jwks",
+      "authTokenUrl": "https://sso.canvaslms.com/login/oauth2/token",
       "deploymentIds": ["1:8865aa05b4b79b64a91a86042e43af5ea8ae79eb"],
       "mock": false } ] }
 ```
 
 - `name` is 1 to 60 characters and unique. It shows on the Course page and
   in audit rows.
-- `issuer`, `authLoginUrl` and `keysetUrl` must be HTTPS.
+- `issuer`, `authLoginUrl`, `keysetUrl` and `authTokenUrl` must be HTTPS.
+- `authTokenUrl` is optional. It is where Portikus asks the LMS for an
+  access token to read the course roster. Without it, roster sync is
+  unavailable for that platform and the Course page says so.
 - `deploymentIds` lists every deployment id the LMS may send. Re-adding
   the tool in the LMS can make a new one.
 - Each issuer and client id pair appears once. Unknown keys and an empty

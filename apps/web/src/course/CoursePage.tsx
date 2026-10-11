@@ -1,48 +1,22 @@
-import type { CourseMember } from "@portikus/contracts";
+import type { ActiveCourseMember, CourseMember } from "@portikus/contracts";
 import { Button, PageIntro, StateBadge, Toggletip } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
-import { AppHeader } from "../shell/AppHeader.js";
 import { useMe } from "../useMe.js";
+import { CourseFrame } from "./CourseFrame.js";
+import { CourseUsage } from "./CourseUsage.js";
 import { useCourseMembers, useCourses } from "./queries.js";
 import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
+import { RosterStatus } from "./RosterStatus.js";
+import { useCourseShares } from "./shared/queries.js";
+import { dateTimeText } from "./time.js";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
 	instructor: "Instructor",
 };
-
-/**
- * Checks the session, draws the header, and puts the page body in a labelled
- * main. The body mounts only once signed in, so it fetches nothing before.
- */
-function CourseFrame({ children }: { children: React.ReactNode }) {
-	const me = useMe();
-	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
-	if (me.status === "anonymous") return <Navigate to="/" />;
-	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
-	return (
-		// Unlike the workspace and admin pages, the Course page works in a narrow
-		// window beside the learning system, so it drops the shell's 1024 px floor.
-		<div className="pk-root min-w-0!">
-			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
-			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
-			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
-			    Remove clear of the sticky table header. A phone-width window
-			    gives the table the padding's room back. */}
-			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
-				data-testid="page-course"
-				data-density="compact"
-				aria-labelledby="course-title"
-			>
-				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
-			</main>
-		</div>
-	);
-}
 
 /**
  * One live region that stays mounted under the heading, so a screen reader
@@ -59,7 +33,7 @@ function Status({ children }: { children: React.ReactNode }) {
 /** `/course`: the courses the caller teaches, or straight into the only one. */
 export function CourseListPage() {
 	return (
-		<CourseFrame>
+		<CourseFrame testId="page-course" labelledBy="course-title">
 			<CourseList />
 		</CourseFrame>
 	);
@@ -120,16 +94,17 @@ function CourseList() {
 const WIDE_ONLY = "@max-2xl:hidden";
 const NARROW_ONLY = "hidden @max-2xl:block";
 
-/** "23 Sep 2026, 14:05" in the browser's own locale and zone. */
-function launchText(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "—";
-	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-/** Only students can be removed; instructors are the learning system's to change. */
-function canRemove(member: CourseMember, myId: string | null): boolean {
-	return member.role === "student" && member.userId !== myId;
+/**
+ * Only students who launched can be removed; instructors are the learning
+ * system's to change, and a roster-only person has no membership yet.
+ */
+function canRemove(
+	member: CourseMember,
+	myId: string | null,
+): member is ActiveCourseMember {
+	return (
+		member.status === "active" && member.role === "student" && member.userId !== myId
+	);
 }
 
 /** The member whose Remove button takes focus after one is removed: the next, else the previous. */
@@ -148,10 +123,16 @@ export function nextRemovable(
 	);
 }
 
+/** When a member last launched; someone on the roster who never has reads "Never". */
+function LastLaunch({ at }: { at: string | null }) {
+	if (at === null) return <>Never</>;
+	return <time dateTime={at}>{dateTimeText(at)}</time>;
+}
+
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
-		<CourseFrame>
+		<CourseFrame testId="page-course" labelledBy="course-title">
 			<CourseMembers />
 		</CourseFrame>
 	);
@@ -160,14 +141,17 @@ export function CourseMembersPage() {
 function CourseMembers() {
 	const { courseId } = useParams({ from: "/course/$courseId" });
 	const members = useCourseMembers(courseId);
+	const shares = useCourseShares(courseId);
 	const me = useMe();
 	const myId = me.status === "authenticated" ? me.user.id : null;
-	const [removing, setRemoving] = React.useState<CourseMember | null>(null);
+	const [removing, setRemoving] = React.useState<ActiveCourseMember | null>(null);
 	const [removedText, setRemovedText] = React.useState("");
 	const headingRef = React.useRef<HTMLHeadingElement>(null);
 	// Set by a successful removal so the closing dialog focuses what is left.
 	const removedNext = React.useRef<{ next: string | null } | null>(null);
 	const data = members.data;
+	// An instructor sees each member's open shares; a failed shares read just shows no links.
+	const openShares = shares.data?.shares ?? [];
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
 
@@ -185,10 +169,21 @@ function CourseMembers() {
 					summary="About the Course page"
 					helpHref="/help#instructor-course"
 				>
-					Everyone who has opened Portikus from this course. Remove takes a student off
-					this page. Their account, workspace and files stay, and they come back if they
-					open Portikus from the course again.
+					People who have opened Portikus from this course, and, when roster sync is on,
+					people on the course roster who have not yet. Remove takes a student off this
+					page. Their account, workspace and files stay, and they come back if they open
+					Portikus from the course again.
 				</PageIntro>
+			</div>
+			{data ? (
+				<div className="mt-6">
+					<RosterStatus courseId={courseId} roster={data.roster} />
+				</div>
+			) : null}
+			<div className="mt-8">
+				<h2 className="pk-text-heading m-0" id="members-title">
+					Members
+				</h2>
 			</div>
 			<Status>
 				{members.isError ? (
@@ -213,9 +208,7 @@ function CourseMembers() {
 				// A narrow wrap folds Role and Last launch under the name, so nothing scrolls sideways.
 				<div className="pk-table-wrap @container mt-4 overflow-clip">
 					<table className="pk-table pk-table--page" data-testid="course-members">
-						<caption className="sr-only">
-							People who have opened Portikus from this course
-						</caption>
+						<caption className="sr-only">People in this course</caption>
 						<thead>
 							<tr>
 								<th scope="col">Name</th>
@@ -238,66 +231,89 @@ function CourseMembers() {
 							</tr>
 						</thead>
 						<tbody>
-							{data.members.map((member) => (
-								<tr key={member.userId}>
-									{/* Named by the name alone, so the other cells' row header is not
+							{data.members.map((member, index) => {
+								// A roster-only person has no account id yet; the list is replaced on each sync.
+								const rowId = member.userId ?? `roster-${index}`;
+								const memberShares = openShares.filter(
+									(share) => share.userId === member.userId,
+								);
+								return (
+									<tr key={rowId}>
+										{/* Named by the name alone, so the other cells' row header is not
 									    read with the role and launch folded under it. */}
-									<th
-										scope="row"
-										className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
-										aria-labelledby={`member-name-${member.userId}`}
-									>
-										<span id={`member-name-${member.userId}`}>
-											{member.displayName}
-										</span>
-										<span
-											className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
+										<th
+											scope="row"
+											className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
+											aria-labelledby={`member-name-${rowId}`}
 										>
-											{ROLE_LABEL[member.role]}
-											<span aria-hidden="true"> · </span>
-											<span className="sr-only">, </span>
-											Last launch{" "}
-											<time dateTime={member.lastLaunchAt}>
-												{launchText(member.lastLaunchAt)}
-											</time>
-										</span>
-									</th>
-									<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
-									<td className={WIDE_ONLY}>
-										<time dateTime={member.lastLaunchAt}>
-											{launchText(member.lastLaunchAt)}
-										</time>
-									</td>
-									<td>
-										{member.workspaceState ? (
-											<StateBadge state={member.workspaceState} statusRole={false} />
-										) : (
-											<span className="pk-cell-muted">No workspace</span>
-										)}
-									</td>
-									<td className="pk-cell-actions">
-										{!canRemove(member, myId) ? null : (
-											<Button
-												size="sm"
-												data-remove-id={member.userId}
-												onClick={() => {
-													removedNext.current = null;
-													setRemoving(member);
-												}}
+											<span id={`member-name-${rowId}`}>{member.displayName}</span>
+											<span
+												className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
 											>
-												Remove{" "}
-												<span className="sr-only">
-													{member.displayName} from course
+												{ROLE_LABEL[member.role]}
+												<span aria-hidden="true"> · </span>
+												<span className="sr-only">, </span>
+												Last launch <LastLaunch at={member.lastLaunchAt} />
+											</span>
+										</th>
+										<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
+										<td className={WIDE_ONLY}>
+											<LastLaunch at={member.lastLaunchAt} />
+										</td>
+										<td>
+											{member.workspaceState ? (
+												<StateBadge state={member.workspaceState} statusRole={false} />
+											) : (
+												<span className="pk-cell-muted">
+													{member.status === "not_started"
+														? "Not started"
+														: "No workspace"}
 												</span>
-											</Button>
-										)}
-									</td>
-								</tr>
-							))}
+											)}
+										</td>
+										<td className="pk-cell-actions">
+											{/* Wraps in a narrow table, so the link and Remove are never clipped. */}
+											<div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+												{memberShares.map((share) => (
+													<Link
+														key={share.projectId}
+														to="/course/$courseId/shares/$projectId"
+														params={{ courseId, projectId: share.projectId }}
+														className="pk-focus-ring rounded-sm font-semibold text-accent-text"
+													>
+														Shared project
+														<span className="sr-only">
+															: {share.projectName} by {member.displayName}
+														</span>
+													</Link>
+												))}
+												{!canRemove(member, myId) ? null : (
+													<Button
+														size="sm"
+														data-remove-id={member.userId}
+														onClick={() => {
+															removedNext.current = null;
+															setRemoving(member);
+														}}
+													>
+														Remove{" "}
+														<span className="sr-only">
+															{member.displayName} from course
+														</span>
+													</Button>
+												)}
+											</div>
+										</td>
+									</tr>
+								);
+							})}
 						</tbody>
 					</table>
 				</div>
 			) : null}
+			<div className="mt-8">
+				<CourseUsage courseId={courseId} />
+			</div>
 			{data && removing ? (
 				<RemoveMemberConfirm
 					courseId={courseId}

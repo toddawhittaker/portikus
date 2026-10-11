@@ -1,6 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { AgentErrorCode, ApiErrorCode } from "@portikus/contracts";
+import type { AgentErrorCode, ApiErrorCode, Project } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely, Selectable } from "kysely";
@@ -17,6 +17,27 @@ export function projectPath(slug: string): string {
 }
 
 export type ProjectRow = Selectable<Database["projects"]>;
+
+/** A project row as the API answers it; the two flags are null when the agent was not asked. */
+export function toProject(
+	row: ProjectRow,
+	isGitRepo: boolean | null,
+	missing: boolean | null,
+): Project {
+	return {
+		id: row.id,
+		workspaceId: row.workspace_id,
+		slug: row.slug,
+		name: row.name,
+		path: row.path,
+		state: row.state as Project["state"],
+		source: row.source as Project["source"],
+		isGitRepo,
+		missing,
+		createdAt: row.created_at.toISOString(),
+		archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
+	};
+}
 
 /** The agent path for one route of one project. */
 export function agentUrl(

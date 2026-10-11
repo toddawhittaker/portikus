@@ -7,7 +7,6 @@ import {
 	DuplicateProjectRequest,
 	displayNameFromDirectory,
 	MAX_DOWNLOAD_PATHS,
-	type Project,
 	type ProjectList,
 	ProjectPath,
 	ProjectState,
@@ -30,6 +29,7 @@ import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import { cappedDownload } from "../workspaces/capped-download.js";
+import { createProject } from "../workspaces/create-project.js";
 import {
 	claimLongOperation,
 	releaseLongOperation,
@@ -42,9 +42,12 @@ import {
 	requireAgent,
 	type Scope,
 	sendAgentError,
+	toProject,
 } from "../workspaces/project-scope.js";
+import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
+import { registerProjectStarterRoute } from "./project-starter.js";
 
 const ListQuery = z.object({ state: ProjectState.default("active") });
 
@@ -54,26 +57,6 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  * one page load into thousands of inserts (SPEC.md §24.6).
  */
 const MAX_DISCOVERED_PROJECTS = 200;
-
-function toProject(
-	row: ProjectRow,
-	isGitRepo: boolean | null,
-	missing: boolean | null,
-): Project {
-	return {
-		id: row.id,
-		workspaceId: row.workspace_id,
-		slug: row.slug,
-		name: row.name,
-		path: row.path,
-		state: row.state as Project["state"],
-		source: row.source as Project["source"],
-		isGitRepo,
-		missing,
-		createdAt: row.created_at.toISOString(),
-		archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
-	};
-}
 
 function listRows(db: Kysely<Database>, workspaceId: string) {
 	return db
@@ -335,16 +318,22 @@ export function registerProjectRoutes(
 			"project listing",
 		);
 
+		// The pane's "Shared" tag reads this, not one share request per row.
+		const shares = await sharedUntil(
+			db,
+			rows.map((row) => row.id),
+		);
 		const body: ProjectList = {
-			projects: rows.map((row) =>
-				directories
+			projects: rows.map((row) => ({
+				...(directories
 					? toProject(
 							row,
 							directories.get(row.slug)?.isGitRepo ?? false,
 							!directories.has(row.slug),
 						)
-					: toProject(row, null, null),
-			),
+					: toProject(row, null, null)),
+				sharedUntil: shares.get(row.id) ?? null,
+			})),
 		};
 		return body;
 	});
@@ -357,6 +346,9 @@ export function registerProjectRoutes(
 		return body;
 	});
 
+	// Before /:pid too, for the same reason.
+	registerProjectStarterRoute(app, db, config, limitWrites);
+
 	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects",
@@ -368,80 +360,9 @@ export function registerProjectRoutes(
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const agent = requireAgent(scope, reply);
-			if (!agent) return;
-
-			const slug = slugify(body.data.name);
-			if (slug === "") {
-				return sendError(
-					reply,
-					400,
-					"INVALID_SLUG",
-					"The project name must contain a letter or a digit.",
-				);
-			}
-
-			let url = body.data.url;
-			if (body.data.source === "template") {
-				const template = config.projectTemplates.find(
-					(candidate) => candidate.name === body.data.template,
-				);
-				if (!template) {
-					return sendError(reply, 400, "VALIDATION_FAILED", "Unknown project template");
-				}
-				url = template.url;
-			}
-
-			const existing = await db
-				.selectFrom("projects")
-				.select("id")
-				.where("workspace_id", "=", scope.workspaceId)
-				.where("slug", "=", slug)
-				.executeTakeFirst();
-			if (existing) {
-				return sendError(
-					reply,
-					409,
-					"PROJECT_EXISTS",
-					`A project called ${slug} already exists.`,
-				);
-			}
-
-			// An empty directory is quick; a clone or a template is not.
-			const slow = body.data.source !== "new";
-			if (slow && !claimLongOperation(scope.workspaceId, reply)) return;
-
-			let created: { isGitRepo: boolean; suggestedName?: string };
-			try {
-				created = await agent.createProject({
-					slug,
-					source: body.data.source,
-					...(url === undefined ? {} : { url }),
-					gitInit: body.data.gitInit,
-				});
-			} catch (error) {
-				return sendAgentError(reply, error);
-			} finally {
-				if (slow) releaseLongOperation(scope.workspaceId);
-			}
-
-			const row = await db
-				.insertInto("projects")
-				.values({
-					workspace_id: scope.workspaceId,
-					slug,
-					// The folder keeps the typed name's slug; only the display name
-					// takes the one the repository gives itself.
-					name:
-						(body.data.nameFromRepository ? created.suggestedName : undefined) ??
-						body.data.name,
-					path: projectPath(slug),
-					source: body.data.source,
-				})
-				.returningAll()
-				.executeTakeFirstOrThrow();
-
-			return reply.status(201).send(toProject(row, created.isGitRepo, false));
+			const created = await createProject(db, config, scope, reply, body.data);
+			if (!created) return;
+			return reply.status(201).send(toProject(created.row, created.isGitRepo, false));
 		},
 	);
 
@@ -601,20 +522,34 @@ export function registerProjectRoutes(
 						user.id,
 					);
 				}
-				current = await db
-					.updateTable("projects")
-					.set({
-						state: body.data.state,
-						archived_at: archiving ? new Date().toISOString() : null,
-					})
-					.where("id", "=", current.id)
-					.returningAll()
-					.executeTakeFirstOrThrow();
-				await recordAudit(db, {
-					actor: `user:${user.id}`,
-					target: current.id,
-					action: archiving ? "project.archived" : "project.unarchived",
-					result: "ok",
+				const state = body.data.state;
+				const projectId = current.id;
+				current = await db.transaction().execute(async (trx) => {
+					const updated = await trx
+						.updateTable("projects")
+						.set({
+							state,
+							archived_at: archiving ? new Date().toISOString() : null,
+						})
+						.where("id", "=", projectId)
+						.returningAll()
+						.executeTakeFirstOrThrow();
+					await recordAudit(trx, {
+						actor: `user:${user.id}`,
+						target: projectId,
+						action: archiving ? "project.archived" : "project.unarchived",
+						result: "ok",
+					});
+					// Archiving ends the share for good; unarchiving never reopens it
+					// (SPEC.md §5.2, ADR 0057).
+					if (archiving) {
+						await stopShare(trx, {
+							projectId,
+							actor: `user:${user.id}`,
+							reason: "archived",
+						});
+					}
+					return updated;
 				});
 			}
 

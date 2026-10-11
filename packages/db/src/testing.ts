@@ -175,6 +175,8 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("lti_memberships").execute();
 		await db.deleteFrom("lti_contexts").execute();
 		await db.deleteFrom("lti_login_states").execute();
+		// The other new tables go with their user, project or course.
+		await db.deleteFrom("lti_deep_link_requests").execute();
 		await db.deleteFrom("preview_sessions").execute();
 		await db.deleteFrom("preview_grants").execute();
 		await db.deleteFrom("terminals").execute();
