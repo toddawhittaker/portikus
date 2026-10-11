@@ -1166,6 +1166,11 @@ class CheckTest(Base):
             self.assertEqual(curl[curl.index("--max-time") + 1], str(ij.VERSION_FETCH_MAX_TIME))
         self.assertLessEqual(ij.VERSION_FETCH_MAX_TIME * 4, 600)
 
+    def test_the_release_list_fetch_stops_inside_the_check_unit_timeout(self):
+        self.runner.run_check()
+        curl = self.host.ran("curl")[0]
+        self.assertEqual(curl[curl.index("--max-time") + 1], str(ij.VERSION_FETCH_MAX_TIME))
+
     def test_an_os_error_on_one_agent_keeps_its_last_version_and_the_rest_of_the_check(self):
         self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.13"}]).encode()
         (self.images / "published.json").write_text(json.dumps(
