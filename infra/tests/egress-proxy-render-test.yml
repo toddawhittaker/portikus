@@ -113,7 +113,7 @@
     - name: Render the operator's proxy hosts
       ansible.builtin.set_fact:
         egress_operator_hosts: >-
-          {{ lookup('ansible.builtin.template', '../ansible/roles/egress_proxy/templates/operator-proxy-hosts.json.j2')
+          {{ lookup('ansible.builtin.template', '../ansible/roles/portikus/templates/operator-proxy-hosts.json.j2')
              | from_json }}
 
     - name: Check the operator's proxy hosts
@@ -180,6 +180,91 @@
         - []
       loop_control:
         loop_var: egress_refused_lines
+
+    # ── The discovery fetch itself ─────────
+    # Before Squid runs, curl must use the address the check passed, not a
+    # second lookup, and never follow a redirect anywhere.
+    - name: Build the first setup's fetch commands with the role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/discovery_commands.yml
+      vars:
+        egress_proxy_via_squid: false
+        egress_proxy_discovery:
+          - {issuer: "https://login.example.edu/", userinfo: true}
+          - {issuer: "https://sso.example.edu:8443/realms/main", userinfo: true}
+        egress_proxy_issuer_lookups:
+          results:
+            - stdout_lines: ["2606:2800:220:1:248:1893:25c8:1946 STREAM login.example.edu", "93.184.216.34   STREAM"]
+            - stdout_lines: ["2606:2800:220:1:248:1893:25c8:1946 STREAM sso.example.edu"]
+
+    - name: Check the first setup's fetch is pinned, HTTPS only, with no redirect
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_discovery_commands | length == 2
+          - egress_fetch[0][:10] == ['curl', '--silent', '--show-error', '--proto', '=https', '--max-redirs', '0', '--max-time', '30', '--write-out']
+          # curl itself turns the two characters \n into a newline.
+          - egress_fetch[0][10] == '\\n%{http_code}'
+          - "'--location' not in egress_fetch[0] and '-L' not in egress_fetch[0]"
+          - egress_fetch[0][11:] == ['--noproxy', '*', '--resolve', 'login.example.edu:443:93.184.216.34', 'https://login.example.edu/.well-known/openid-configuration']
+          - egress_fetch[1][11:] == ['--noproxy', '*', '--resolve', 'sso.example.edu:8443:[2606:2800:220:1:248:1893:25c8:1946]',
+                                     'https://sso.example.edu:8443/realms/main/.well-known/openid-configuration']
+        fail_msg: "{{ egress_fetch | to_json }}"
+      vars:
+        egress_fetch: "{{ egress_proxy_discovery_commands | map(attribute='argv') | list }}"
+
+    - name: Build a re-run's fetch command through Squid with the role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/discovery_commands.yml
+      vars:
+        egress_proxy_via_squid: true
+        egress_proxy_discovery: [{issuer: "https://login.example.edu", userinfo: true}]
+        egress_proxy_issuer_lookups: {results: [{skipped: true}]}
+
+    - name: Check a re-run's fetch goes through Squid, with no redirect
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_discovery_commands[0].argv[5:7] == ['--max-redirs', '0']
+          - egress_proxy_discovery_commands[0].argv[11:] == ['--proxy', 'http://127.0.0.1:3128', 'https://login.example.edu/.well-known/openid-configuration']
+        fail_msg: "{{ egress_proxy_discovery_commands | to_json }}"
+
+    - name: Read a provider's 200 answer with the role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/egress_proxy/tasks/discovery_documents.yml
+      vars:
+        egress_proxy_via_squid: false
+        egress_proxy_discovery_fetches:
+          results:
+            - item: {item: {issuer: https://login.example.edu, userinfo: true}}
+              rc: 0
+              stdout: "{\"issuer\": \"https://login.example.edu\", \"jwks_uri\": \"https://keys.example.edu/k\"}\n200"
+              stderr: ""
+
+    - name: Check the document was read
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_proxy_discovery_documents.results | length == 1
+          - egress_proxy_discovery_documents.results[0].item.issuer == 'https://login.example.edu'
+          - egress_proxy_discovery_documents.results[0].json.jwks_uri == 'https://keys.example.edu/k'
+        fail_msg: "{{ egress_proxy_discovery_documents | to_json }}"
+
+    - name: Refuse each answer that is no document
+      ansible.builtin.include_tasks: egress-proxy-discovery-case.yml
+      loop:
+        - fetch: {rc: 0, stdout: "<a href=\"https://10.0.0.1/doc\">moved</a>\n302", stderr: ""}
+          message: "(a redirect to https://10.0.0.1/doc, which setup does not follow)"
+        - fetch: {rc: 0, stdout: "\n307", stderr: ""}
+          message: "(a redirect to another address, which setup does not follow)"
+        - fetch: {rc: 60, stdout: "\n000", stderr: "curl: (60) SSL certificate problem\n"}
+          message: "(curl: (60) SSL certificate problem)"
+        - fetch: {rc: 0, stdout: "not found\n404", stderr: ""}
+          message: "(HTTP status 404)"
+        - fetch: {rc: 0, stdout: "<html>sign in</html>\n200", stderr: ""}
+          message: "the answer is not JSON"
+        - fetch: {rc: 0, stdout: "[1, 2]\n200", stderr: ""}
+          message: "(the answer is not a JSON object)"
+      loop_control:
+        loop_var: egress_refused_fetch
+        label: "{{ egress_refused_fetch.message }}"
 
     # ── The sign-in hosts (SPEC.md section 5.1) ─────────
     # Only Dex's connector reaches a provider.  This renders site.yml's own

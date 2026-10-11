@@ -13,7 +13,7 @@
                      googleDomains, oidcIssuer, clientId, clientSecretSet, groupsClaim, groups, certificateSource]
     site_view_secret: fake-client-secret-0123456789
     # What site.yml and the play give the template on an apt install.
-    portikus_site_answers: { stat: { exists: true } }
+    portikus_site_answers_file: { content: "" }
     portikus_site_certificate: { failed: true }
     portikus_tls: internal
     portikus_public_host: portikus.example.edu
@@ -69,7 +69,7 @@
                'portikus_dex_upstream': 'ldap',
                'portikus_ldap_host': 'ldap.example.edu:636',
                'portikus_tls': 'letsencrypt',
-               'portikus_site_answers': {'stat': {'exists': false}}}) | from_json }}
+               'portikus_site_answers_file': {'failed': true}}) | from_json }}
 
     - name: Check each view
       ansible.builtin.assert:

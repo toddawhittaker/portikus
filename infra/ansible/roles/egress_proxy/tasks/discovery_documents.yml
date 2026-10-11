@@ -1,0 +1,57 @@
+---
+# Turns the curl results in egress_proxy_discovery_fetches into
+# egress_proxy_discovery_documents for allow_list.yml, and fails in plain
+# English on any provider that did not answer 200 with a JSON object.  A
+# redirect counts as no document: setup follows none.
+# egress-proxy-render-test.yml runs it on sample results.
+- name: Start with no documents
+  ansible.builtin.set_fact:
+    egress_proxy_discovery_documents: {results: []}
+
+- name: Read the answers
+  block:
+    - name: Read each provider's answer
+      ansible.builtin.set_fact:
+        egress_proxy_discovery_documents:
+          results: "{{ egress_proxy_discovery_documents.results + [egress_proxy_answer] }}"
+      loop: "{{ egress_proxy_discovery_fetches.results }}"
+      loop_control:
+        label: "{{ item.item.item.issuer }}"
+      vars:
+        # The body, then curl's status code on a last line.  A JSON document
+        # holds no raw newline inside a string, so rejoining with spaces
+        # keeps it whole.
+        egress_proxy_lines: "{{ (item.stdout | default('')).splitlines() if item.rc | default(1) == 0 else [] }}"
+        egress_proxy_parts: "{{ [egress_proxy_lines[:-1] | join(' '), egress_proxy_lines[-1]] if egress_proxy_lines else [] }}"
+        egress_proxy_status: "{{ egress_proxy_parts[-1] | int if egress_proxy_parts else 0 }}"
+        egress_proxy_answer: >-
+          {{ {'item': item.item.item, 'status': egress_proxy_status | int,
+              'msg': (item.stderr | default('') | trim or 'no answer')
+                       if egress_proxy_status | int == 0
+                     else 'a redirect to ' ~ (egress_proxy_parts[0] | regex_search('https?://[^\s"<>]+') or 'another address')
+                          ~ ', which setup does not follow'
+                       if egress_proxy_status | int in range(300, 400)
+                     else 'HTTP status ' ~ egress_proxy_status}
+             | combine({'json': egress_proxy_parts[0] | from_json} if egress_proxy_status | int == 200 else {}) }}
+  rescue:
+    - name: Refuse an answer that is not JSON
+      ansible.builtin.fail:
+        msg: >-
+          Setup could not read the discovery document of a sign-in provider
+          ({{ egress_proxy_discovery | map(attribute='issuer') | join(', ') }}):
+          the answer is not JSON.
+
+- name: Require every discovery document
+  ansible.builtin.assert:
+    that:
+      - item.status == 200
+      - item.json is mapping
+    fail_msg: >-
+      Setup could not read the discovery document of the sign-in provider {{ item.item.issuer }}
+      ({{ item.msg if item.status != 200 else 'the answer is not a JSON object' }}).
+      {{ 'It was read through the egress proxy, which refuses a provider at a private address.'
+         if egress_proxy_via_squid | bool and item.status != 200 else '' }}
+    quiet: true
+  loop: "{{ egress_proxy_discovery_documents.results }}"
+  loop_control:
+    label: "{{ item.item.issuer }}"
