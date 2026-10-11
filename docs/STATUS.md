@@ -5228,3 +5228,27 @@ Gaps left:
   (#1477).
 
 Rehearsal: Epic 43 on the rehearsal VM after restoring the pre-Epic-42 database. Migration 0044 moved Dex accounts to `urn:portikus:dex` and the administrator kept its id. An address move there and back kept the account, workspace and links, with Keep pressed from the new address. Unkept trials and an unhealthy API revert. `trial_superseded` holds after an outside settings change. A second key set URL for one LMS issuer is refused with a field message. Remove and reinstall left no package units. Smoke 385 passed, 0 failed, no skips. Two site job fixes (loopback health check, wall-clock trial deadline) in #1474. Not run: a trial with a real outside OIDC provider, since there is no trusted test provider on port 443.
+
+## Epic 45 — Workspace image and Docker cache
+
+Built on `epic/45-image-and-docker` (task PRs #1488, #1489, #1491, #1496, #1498, #1499 and #1501, and this fold). Issues #1361, #1481, #1278, #1279 and #1280. Migration 0046; ADR 0062.
+
+Delivered:
+
+- Playwright in the image (#1361, #1496, #1501; ADR 0062): Playwright 1.63.0's headless Chromium in `/opt/ms-playwright`, checksum-verified at build time, linked into each student's `~/.cache/ms-playwright` at login. Another Playwright version gets Playwright's own message and installs into the home folder. The image grew 136 MiB compressed and 483 MiB unpacked. Smoke launches the browser through `playwright-core` at the pin. Image version 2026.10.3.
+- Coding agents chip (#1481, #1491, #1499): the daily image check records the newest Claude Code and Codex version numbers in `published.json`, and the Coding agents row shows "Update available". The check survives disk and fetch errors, with a 60-second limit per version fetch.
+- Docker error codes (#1278, #1488): `CACHE_OFF`, `SEED_MATCH_UNKNOWN`, `SEED_ALREADY_MATCHES` and `SEED_OVER_LIMIT`, worded by the page.
+- Seed sizes (#1279, #1489, #1498): the seed build measures each image's on-disk size (migration 0046), and the cache helper records download sizes by manifest digest so digest-pinned names get sizes.
+- First seed build (#1280, #1488, #1498): the API writes the default list at start and queues one first build when the pool has room and no seed job was ever requested (read from the audit trail). Any administrator request counts, so a failed Rebuild also stops the platform from queueing its own.
+- The published-image list fetch uses the same 60-second limit as the version fetches; before, a stalled fetch could run for an hour against a 10-minute unit timeout.
+
+Gaps:
+
+- Chromium puts its shared memory on `/tmp`, which is capped at 512 MB. Heavy parallel screenshots can fill it and crash pages (#1497).
+- The course must pin `@playwright/test@1.63.0` and drop the firefox and webkit projects that `npm init playwright` generates.
+- The image manifest does not record the Playwright pin.
+- With no host health sample yet, the first seed build waits for one.
+- The default list write and the default job insert commit with their audit rows, but there is no failure-injection test.
+- In allow-list egress mode, installing another Playwright version's browser needs `cdn.playwright.dev` on the list.
+
+Rehearsal: pending

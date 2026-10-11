@@ -94,7 +94,6 @@ export async function applyDefaultSeed(
 		.select("id")
 		.where("target", "=", "docker")
 		.where("action", "=", "docker.seed_job_requested")
-		.where("actor", "=", "platform")
 		.executeTakeFirst();
 	const seed = await db.selectFrom("docker_seed").select("images").executeTakeFirst();
 	if (requested || seed) return true;

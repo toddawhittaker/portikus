@@ -841,7 +841,8 @@ class Runner:
 
     def newest(self, job, releases_url):
         with tempfile.NamedTemporaryFile(dir=self.images_dir, prefix=".releases-") as f:
-            self.download(job, releases_url, f.name, max_bytes=RELEASES_MAX_BYTES)
+            self.download(job, releases_url, f.name, max_bytes=RELEASES_MAX_BYTES,
+                          max_time=VERSION_FETCH_MAX_TIME)
             try:
                 with open(f.name, encoding="utf-8") as listing_file:
                     listing = json.load(listing_file)

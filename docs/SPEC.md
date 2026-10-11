@@ -2180,15 +2180,29 @@ auto-clear mark, and another shows the seed's size on disk against its
 limit. A seed list no administrator has set starts with the official slim
 images matching the default workspace image: `node:<major>-slim` and
 `python:<major.minor>-slim` (3.14 when the image was built with uv 3.14).
-The API writes it, sets `settings.docker_seed_images_set` and audits
-`docker.seed_images_defaulted` when the Docker tab is first read; it starts
-no rebuild. The platform never edits a list an administrator has set or
-emptied. When the default image changes and the list lacks its matching
-images, the Seed card shows a notice with one button
+The API writes it at start, sets `settings.docker_seed_images_set` and audits
+`docker.seed_images_defaulted`; reading the Docker tab writes nothing. When
+the platform wrote the list, no administrator has changed it, and no seed
+job was ever requested by anyone (read from the permanent
+`docker.seed_job_requested` audit rows, because job rows are pruned after
+120 days), the API also queues one first build. It does so only when the
+newest host sample shows room: the pool plus the seed's size limit stays
+under the 90 percent mark at which new workspaces are refused. It tries
+every minute until done, and with no host sample yet it waits for one.
+The platform never edits a list an administrator has set or emptied.
+Sizes shown are the on-disk (unpacked) sizes a seed build measured, and
+otherwise the download size. A per-image unpacked size counts layers shared
+with other images once per image, so a list's total overstates the real
+disk use. A digest-pinned name (`repository@sha256:...`) is matched to a
+size by its manifest digest. When the default image changes and the list
+lacks its matching images, the Seed card shows a notice with one button
 (`POST /admin/docker/seed/match`) that replaces the old matching slim tags
 with the new ones and queues a seed rebuild in one transaction. The button
-is not offered, and the route refuses, when the estimated download would
-pass the seed's size limit.
+is not offered, and the route refuses, when the estimated size, counting
+measured sizes first, would pass the seed's size limit. The Docker routes
+refuse with their own codes: 409 `CACHE_OFF` for Clear cache while the cache
+is off, 404 `SEED_MATCH_UNKNOWN` when the image versions are unknown, 409
+`SEED_ALREADY_MATCHES` and 409 `SEED_OVER_LIMIT` for the match route.
 
 **Usage report.** The registry's notification webhook tells the worker
 about each pull, and every hour the worker asks each running
@@ -3116,7 +3130,8 @@ where it survives image rebuilds (§4.4). `npm init playwright` also
 generates firefox and webkit projects, which the image does not support:
 students, or the course template, delete them from `playwright.config.ts`.
 A plain `npx playwright install` is the wrong fix, because it downloads
-every browser.
+every browser. In allow-list egress mode (§23.6) a student who installs
+another Playwright version's browser needs `cdn.playwright.dev` on the list.
 
 Additional language runtimes may be added according to course requirements.
 
@@ -6289,6 +6304,22 @@ Acceptance:
 - a test sign-in creates no user, session or role;
 - page proxy hosts and LMS hosts reach Squid only as host names on port 443;
 - the Users list fetches 50 rows a page.
+
+### Epic 45 — Workspace image and Docker cache
+
+Built on `epic/45-image-and-docker`, issues #1361, #1481, #1278, #1279 and #1280. Migration 0046. See sections 16.6, 21.7 and 22.4 and ADR 0062.
+
+Includes:
+
+- Playwright's headless Chromium in the workspace image, linked into each student's home at login, with image version 2026.10.3;
+- a chip on the Workspace image tab when a newer Claude Code or Codex is out;
+- dedicated Docker error codes, measured on-disk seed sizes, digest-pinned names, and a first seed build queued by the API at start.
+
+Acceptance:
+
+- a Playwright project at the image's pinned version runs with no download;
+- the daily check records coding-agent versions without any outbound call from the API or worker;
+- a build any administrator or the platform requested once is never queued again by the platform.
 
 ### Estimated total
 

@@ -32,6 +32,7 @@ import {
 	USAGE_ROWS_MAX,
 	USAGE_WINDOW_DAYS,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -1141,6 +1142,21 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 			(a) => a.action === "docker.seed_job_requested",
 		);
 		expect(requests).toHaveLength(1);
+	});
+
+	test("a build an administrator requested before stops the platform from queueing its own", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await startup()).toBe(false);
+		await recordAudit(testDb.db, {
+			actor: "carol@example.org",
+			target: "docker",
+			action: "docker.seed_job_requested",
+			result: "ok",
+			metadata: {},
+		});
+		await poolSample(10, 100);
+		expect(await startup()).toBe(true);
+		expect(await jobs()).toEqual([]);
 	});
 
 	test("a rejected job insert leaves no request audit behind", async () => {
