@@ -351,7 +351,7 @@ function PreflightList({ checks }: { checks: CertificatePreflight }) {
 		failed > 0
 			? `${failed} ${failed === 1 ? "check" : "checks"} failed. Fix ${failed === 1 ? "it" : "them"} and try again.`
 			: warned > 0
-				? `The checks passed with ${warned} ${warned === 1 ? "warning" : "warnings"}. A DNS-01 certificate does not depend on them.`
+				? `The checks passed with ${warned} ${warned === 1 ? "warning" : "warnings"}. Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory.`
 				: "All checks passed.";
 	return (
 		<>

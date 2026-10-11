@@ -321,6 +321,30 @@ test.describe("with the fake root job", () => {
 		expect(await requestFiles()).toEqual([]);
 	});
 
+	test("HTTP-01 reach and port-80 warnings do not block the test", async ({ page }) => {
+		await putStatus({ settings: ACME_SETTINGS, issuer: LE_ISSUER });
+		await routePreflight(page, {
+			ok: true,
+			checks: [
+				{ name: "dns-site", result: "passed", message: "Resolves." },
+				{ name: "reach-site", result: "warning", message: "Did not answer." },
+				{ name: "http-port-80", result: "warning", message: "Did not answer." },
+			],
+		});
+		await open(page);
+		await page.getByRole("radio", { name: /^HTTP-01/ }).check();
+		// The page goes on to ask for the test; the API repeats the DNS checks,
+		// which no e2e name passes, so only the request is checked here.
+		const asked = page.waitForRequest(
+			(r) => r.method() === "POST" && r.url().endsWith("/admin/certificate/jobs"),
+		);
+		await page.getByRole("button", { name: "Test only" }).click();
+		await expect(page.getByTestId("cert-preflight-summary")).toContainText(
+			"cannot reach itself from inside its sandbox",
+		);
+		expect((await asked).postDataJSON()).toMatchObject({ kind: "test" });
+	});
+
 	test("an upload whose key does not match is refused, naming the check", async ({
 		page,
 	}) => {

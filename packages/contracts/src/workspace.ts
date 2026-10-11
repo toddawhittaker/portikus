@@ -335,6 +335,8 @@ export const ApiErrorCode = z.enum([
 	"NOTIFY_JOB_BUSY",
 	// The root site job (ADR 0059): one is waiting or running, or a trial is open.
 	"SITE_JOB_BUSY",
+	// Moving the site to a name that does not resolve (SPEC.md section 20.1).
+	"ADDRESS_DNS_UNRESOLVED",
 	// Shared Docker pull storage.
 	"SEED_JOB_RUNNING",
 	"SEED_LIST_EMPTY",
