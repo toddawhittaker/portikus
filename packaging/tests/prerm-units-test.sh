@@ -8,7 +8,9 @@
 #     Ansible roles, so a unit a role gains cannot be forgotten;
 #   - the real postrm, run with a fake systemctl on a fake /etc, stops and
 #     disables setup's units and drops the alert drop-ins on remove, and
-#     deletes the rest on purge, never touching Caddy or PostgreSQL.
+#     deletes the rest on purge, never touching Caddy or PostgreSQL;
+#   - purge drops setup's marked site address line from /etc/hosts and
+#     nothing else.
 # Usage: packaging/tests/prerm-units-test.sh
 set -euo pipefail
 
@@ -112,12 +114,16 @@ while IFS=$'\t' read -r role path; do
 	*:*.d) ;;
 	# Setup's mask on Debian's registry, which postrm keeps on purge on purpose.
 	registry_cache:docker-registry.service) ;;
+	# Keeps Debian's nftables ExecStop from flushing Incus's tables; kept on purge on purpose.
+	firewall:nftables.service.d/10-portikus.conf) ;;
 	*) echo "$path" >>"$work/written" ;;
 	esac
 done <"$work/role-paths"
 sort -u -o "$work/written" "$work/written"
 sort -u -o "$work/alerts" "$work/alerts"
 grep -q 'portikus-dex.service' "$work/written" || fail "found no unit in the roles; the search is broken"
+# postrm matches an enable link against each boot unit; one entry alone would hide a broken match.
+[ "$(grep -c . <<<"$boot_units")" -ge 2 ] || fail "SETUP_BOOT_UNITS has under two entries, so the match is untested"
 printf '%s\n' "$setup_units" "$boot_units" "$alert_dropins" "$other_dropins" | sort -u >"$work/listed"
 
 while read -r path; do
@@ -152,9 +158,10 @@ fake_postrm() { # ROOT
 }
 
 # A host as setup leaves it: every listed file, an admin's own drop-in, the
-# registry mask, and the package's enable links.
+# registry mask, the nftables drop-in, the package's enable links, and a hosts
+# file with setup's site address line.
 make_host() { # ROOT
-	local r=$1 file
+	local r=$1 file unit
 	mkdir -p "$r/run/systemd/system" "$r/etc/portikus" "$r/etc/portikus-workspace-proxy" \
 		"$r/etc/systemd/system/multi-user.target.wants"
 	while read -r file; do
@@ -164,10 +171,19 @@ make_host() { # ROOT
 	echo "# an administrator's" >"$r/etc/systemd/system/caddy.service.d/50-local.conf"
 	ln -s /dev/null "$r/etc/systemd/system/docker-registry.service"
 	ln -s /usr/lib/systemd/system/portikus-api.service "$r/etc/systemd/system/multi-user.target.wants/portikus-api.service"
-	ln -s ../portikus-storage-attach.service "$r/etc/systemd/system/multi-user.target.wants/portikus-storage-attach.service"
+	mkdir -p "$r/etc/systemd/system/nftables.service.d"
+	echo "# setup" >"$r/etc/systemd/system/nftables.service.d/10-portikus.conf"
+	while read -r unit; do
+		ln -s "../$unit" "$r/etc/systemd/system/multi-user.target.wants/$unit"
+	done <<<"$boot_units"
 	ln -s /usr/lib/systemd/system/caddy.service "$r/etc/systemd/system/multi-user.target.wants/caddy.service"
 	echo "x: 1" >"$r/etc/portikus/portikus.yaml"
 	echo key >"$r/etc/portikus-workspace-proxy/bump.key"
+	cat >"$r/etc/hosts" <<-'EOF'
+		127.0.0.1 localhost
+		127.0.0.1 portikus.example.org # portikus site address
+		10.0.0.5 notes # portikus site address, set by hand
+	EOF
 }
 
 host="$work/host"
@@ -202,6 +218,7 @@ grep -qx 'daemon-reload' "$calls" || fail "remove does not reload systemd"
 [ ! -e "$etc/multi-user.target.wants/portikus-api.service" ] || fail "remove left the API's enable link"
 [ -L "$etc/multi-user.target.wants/caddy.service" ] || fail "remove dropped Caddy's enable link"
 [ -e "$host/etc/portikus/portikus.yaml" ] || fail "remove deleted /etc/portikus"
+grep -q '# portikus site address$' "$host/etc/hosts" || fail "remove dropped the site address line from /etc/hosts"
 
 : >"$calls"
 CALLS="$calls" sh "$host/postrm" purge
@@ -211,11 +228,14 @@ done <<<"$boot_units"
 while read -r file; do
 	[ ! -e "$etc/$file" ] || fail "purge left $file"
 done <"$work/listed"
-for dir in squid.service.d postgresql@.service.d system-postgresql.slice.d nftables.service.d system.slice.d; do
+for dir in squid.service.d postgresql@.service.d system-postgresql.slice.d system.slice.d; do
 	[ ! -e "$etc/$dir" ] || fail "purge left the empty $dir"
 done
 [ -e "$etc/caddy.service.d/50-local.conf" ] || fail "purge deleted an administrator's Caddy drop-in"
 [ -L "$etc/docker-registry.service" ] || fail "purge unmasked Debian's docker-registry.service"
+[ -e "$etc/nftables.service.d/10-portikus.conf" ] || fail "purge deleted the drop-in that keeps nftables from flushing Incus's tables"
+[ "$(cat "$host/etc/hosts")" = "$(printf '%s\n' '127.0.0.1 localhost' '10.0.0.5 notes # portikus site address, set by hand')" ] \
+	|| fail "purge did not drop exactly the site address line from /etc/hosts: $(paste -sd'|' "$host/etc/hosts")"
 [ ! -e "$host/etc/portikus" ] || fail "purge left /etc/portikus"
 [ ! -e "$host/etc/portikus-workspace-proxy" ] || fail "purge left the workspace proxy's key"
 grep -qx 'daemon-reload' "$calls" || fail "purge does not reload systemd"
@@ -230,6 +250,11 @@ fake_postrm "$chroot_host"
 CALLS="$calls" sh "$chroot_host/postrm" remove
 ! grep -E '^(stop|daemon-reload)' "$calls" >&2 || fail "remove without systemd running stopped units or reloaded"
 grep -qx 'disable portikus-dex.service' "$calls" || fail "remove without systemd running did not disable Dex"
+
+# An /etc/hosts purge cannot write must not stop the purge (as root the write succeeds anyway).
+chmod a-w "$chroot_host/etc/hosts"
+CALLS="$calls" sh "$chroot_host/postrm" purge 2>/dev/null || fail "purge failed on an /etc/hosts it cannot write"
+[ ! -e "$chroot_host/etc/portikus" ] || fail "purge on an unwritable /etc/hosts left /etc/portikus"
 
 [ "$failures" -eq 0 ] || exit 1
 echo "prerm-units: ok"
