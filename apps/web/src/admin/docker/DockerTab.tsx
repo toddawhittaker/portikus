@@ -29,6 +29,7 @@ import {
 	CLEAR_REASON,
 	cacheUseText,
 	clearErrorText,
+	clearRefusedText,
 	credentialErrors,
 } from "./text.js";
 import { UsageCard } from "./UsageCard.js";
@@ -210,7 +211,7 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 					>
 						{clear.isError ? (
 							<p className="m-0 text-[13px] text-status-error" role="alert">
-								{errorText(clear.error)}
+								{clearRefusedText(clear.error)}
 							</p>
 						) : null}
 					</ConfirmDialog>

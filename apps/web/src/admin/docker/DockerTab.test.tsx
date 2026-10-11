@@ -65,6 +65,21 @@ test("Clear cache asks first, then posts", async () => {
 	);
 });
 
+test("Clear cache refused because the cache is off says so by its code", async () => {
+	serve(data(), [], (url, init) =>
+		url === "/admin/docker/cache/clear" && init?.method === "POST"
+			? json(409, { code: "CACHE_OFF", message: "server wording" })
+			: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	fireEvent.click(await screen.findByRole("button", { name: "Clear cache…" }));
+	const dialog = await screen.findByTestId("docker-cache-clear-dialog");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Clear cache" }));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		"The pull cache was turned off after this page loaded, so there is nothing to clear. Reload the page to see why.",
+	);
+});
+
 test("the account form checks its fields, sends the token once and forgets it", async () => {
 	const fetch = serve(data(), [], (url, init) =>
 		url === "/admin/docker/hub-credential" && init?.method === "PUT"

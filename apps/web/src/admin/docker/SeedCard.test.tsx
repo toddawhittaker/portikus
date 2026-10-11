@@ -358,6 +358,40 @@ test("over the size limit the notice says so and offers no button", async () => 
 	expect(within(notice).queryByRole("button")).toBeNull();
 });
 
+test.each([
+	[
+		"SEED_ALREADY_MATCHES",
+		"The seed list already holds the images that match the workspace image.",
+	],
+	[
+		"SEED_OVER_LIMIT",
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	],
+	[
+		"SEED_MATCH_UNKNOWN",
+		"The default workspace image's versions are not known, so there is nothing to match.",
+	],
+])(
+	"a match refused with %s says why, whatever the API's wording",
+	async (code, text) => {
+		serve(
+			data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+			[],
+			(url, init) =>
+				url === "/admin/docker/seed/match" && init?.method === "POST"
+					? json(409, { code, message: "server wording" })
+					: undefined,
+		);
+		renderWithQuery(<DockerTab />);
+		const notice = await screen.findByTestId("docker-seed-drift");
+		fireEvent.click(
+			within(notice).getByRole("button", { name: "Update list and rebuild" }),
+		);
+		expect(await screen.findByText(text)).toBeTruthy();
+		expect(screen.queryByText("server wording")).toBeNull();
+	},
+);
+
 test("a seed built from an older image says so once: the drift notice's rebuild covers it", async () => {
 	const image = (url: string) =>
 		url === "/admin/image"
