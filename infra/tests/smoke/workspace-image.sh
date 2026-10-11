@@ -154,7 +154,13 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17ab0. /tmp and /dev/shm are capped tmpfs mounts, so a huge temporary
   # file fails for lack of space instead of using the workspace's memory.
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
-  check_output "/tmp is capped at 1G" "1073741824" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  # Images before 2026.10.4 cap /tmp at 512M (SPEC.md section 22).
+  if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
+    && [[ $(printf '%s\n' "${image_base}" 2026.10.4 | sort -V | head -n 1) != 2026.10.4 ]]; then
+    check_output "/tmp is capped at 512M (image ${image_version})" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  else
+    check_output "/tmp is capped at 1G" "1073741824" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  fi
   check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
   check "/dev/shm keeps nosuid and nodev after the remount" \
     ws_exec "findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nosuid && findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nodev"
