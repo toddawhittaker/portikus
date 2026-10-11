@@ -766,6 +766,9 @@ jobs:
       - name: Coding agents clear the terminal
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/agent-clear-test.sh
+      - name: Playwright browser link at login
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/playwright-link-test.sh
       - name: Host hardening
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/host-hardening-test.sh
