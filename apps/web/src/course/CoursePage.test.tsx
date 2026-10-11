@@ -1,4 +1,4 @@
-import type { CourseMember, CourseMembersResponse } from "@portikus/contracts";
+import type { ActiveCourseMember, CourseMembersResponse } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
@@ -11,6 +11,7 @@ const CS101 = {
 	title: "CS 101 Intro to Programming",
 	platformName: "canvas",
 };
+const NO_ROSTER = { available: false, syncedAt: null, result: null };
 const SAM_ID = "77777777-7777-4777-8777-777777777777";
 const CS240 = {
 	id: "66666666-6666-4666-8666-666666666666",
@@ -75,7 +76,8 @@ test("one status region says loading, then the answer, without being replaced", 
 test("with one course, the list opens it directly", async () => {
 	serve({
 		"/courses": () => json(200, [CS101]),
-		[`/courses/${CS101.id}/members`]: () => json(200, { course: CS101, members: [] }),
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, { course: CS101, roster: NO_ROSTER, members: [] }),
 	});
 	const { router } = renderApp("/course");
 
@@ -111,8 +113,10 @@ test("the members table shows name, role, last launch and workspace state", asyn
 		[`/courses/${CS101.id}/members`]: () =>
 			json(200, {
 				course: CS101,
+				roster: NO_ROSTER,
 				members: [
 					{
+						status: "active",
 						userId: USER.id,
 						displayName: "Ivy Instructor",
 						role: "instructor",
@@ -120,6 +124,7 @@ test("the members table shows name, role, last launch and workspace state", asyn
 						workspaceState: "running",
 					},
 					{
+						status: "active",
 						userId: SAM_ID,
 						displayName: "Sam Student",
 						role: "student",
@@ -175,8 +180,10 @@ test("another instructor has no Remove button, because the learning system manag
 		[`/courses/${CS101.id}/members`]: () =>
 			json(200, {
 				course: CS101,
+				roster: NO_ROSTER,
 				members: [
 					{
+						status: "active",
 						userId: SAM_ID,
 						displayName: "Tia Teacher",
 						role: "instructor",
@@ -202,8 +209,10 @@ test("the members table uses the admin page's table and frame", async () => {
 		[`/courses/${CS101.id}/members`]: () =>
 			json(200, {
 				course: CS101,
+				roster: NO_ROSTER,
 				members: [
 					{
+						status: "active",
 						userId: SAM_ID,
 						displayName: "Sam Student",
 						role: "student",
@@ -258,8 +267,9 @@ test("signed out, the Course page goes to sign-in", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/"));
 });
 
-function samMember(): CourseMember {
+function samMember(): ActiveCourseMember {
 	return {
+		status: "active",
 		userId: SAM_ID,
 		displayName: "Sam Student",
 		role: "student",
@@ -269,7 +279,7 @@ function samMember(): CourseMember {
 }
 
 function roster(): CourseMembersResponse {
-	return { course: CS101, members: [samMember()] };
+	return { course: CS101, roster: NO_ROSTER, members: [samMember()] };
 }
 
 test("removing asks first, naming the person and the course, then the row goes", async () => {
@@ -349,7 +359,7 @@ test("after a removal, focus moves to the next row's Remove button", async () =>
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, USER);
 		if (url === `/courses/${CS101.id}/members`)
-			return json(200, { course: CS101, members });
+			return json(200, { course: CS101, roster: NO_ROSTER, members });
 		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
 			members = members.filter((member) => member.userId !== SAM_ID);
 			return json(200, {});
@@ -382,7 +392,7 @@ test("when only the caller is left, focus moves to the page heading", async () =
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, USER);
 		if (url === `/courses/${CS101.id}/members`)
-			return json(200, { course: CS101, members });
+			return json(200, { course: CS101, roster: NO_ROSTER, members });
 		if (url === `/courses/${CS101.id}/members/${SAM_ID}/remove`) {
 			members = members.filter((member) => member.userId !== SAM_ID);
 			return json(200, {});
@@ -417,7 +427,7 @@ test("the next Remove button skips the caller's own row and falls back to the pr
 test("the page explains itself, and Last launch and Remove have help", async () => {
 	serve({
 		[`/courses/${CS101.id}/members`]: () =>
-			json(200, { course: CS101, members: [samMember()] }),
+			json(200, { course: CS101, roster: NO_ROSTER, members: [samMember()] }),
 	});
 	renderApp(`/course/${CS101.id}`);
 

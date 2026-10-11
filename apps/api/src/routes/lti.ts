@@ -1,4 +1,3 @@
-import { createHash, createPublicKey } from "node:crypto";
 import {
 	checkLaunchState,
 	consumeLoginState,
@@ -14,6 +13,7 @@ import {
 	saveLoginState,
 	staleLtiStateCookies,
 	startLtiLogin,
+	toolJwks,
 	validateLaunchToken,
 } from "@portikus/auth";
 import { recordAudit } from "@portikus/db";
@@ -21,6 +21,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../deps.js";
 import { escapeHtml, sendError } from "../http.js";
+import { pickerPage, saveDeepLinkRequest } from "../lti/deep-link.js";
+import { saveStarterLaunch, starterFromCustom } from "../lti/starter.js";
 import {
 	completeSignIn,
 	requestMetadata,
@@ -131,18 +133,6 @@ function loginParams(source: unknown): LtiLoginParams {
 	return params;
 }
 
-/** The public half of the tool key, with its SHA-256 thumbprint as `kid`. */
-export function toolJwks(pem: string | null): { keys: Record<string, string>[] } {
-	if (!pem) return { keys: [] };
-	const jwk = createPublicKey(pem).export({ format: "jwk" });
-	const { kty, n, e } = jwk as { kty: string; n: string; e: string };
-	// RFC 7638: the required members, in lexical order, no whitespace.
-	const kid = createHash("sha256")
-		.update(JSON.stringify({ e, kty, n }))
-		.digest("base64url");
-	return { keys: [{ kty, n, e, kid, alg: "RS256", use: "sig" }] };
-}
-
 /**
  * Only the path and query of `target_link_uri`, and only on our origin.
  * A path like `//host` or `/\host` would leave the origin as a
@@ -246,11 +236,15 @@ export function registerLtiRoutes(
 				context_id: launch.context.id,
 				title: launch.context.title,
 				platform_name: launch.platform.name,
+				platform_client_id: launch.platform.clientId,
+				nrps_url: launch.membershipsUrl,
 			})
 			.onConflict((oc) =>
 				oc.columns(["platform_issuer", "context_id"]).doUpdateSet({
 					title: launch.context?.title ?? "",
 					platform_name: launch.platform.name,
+					platform_client_id: launch.platform.clientId,
+					nrps_url: launch.membershipsUrl,
 					updated_at: now,
 				}),
 			)
@@ -270,6 +264,25 @@ export function registerLtiRoutes(
 					.doUpdateSet({ role: launch.role, last_launch_at: now }),
 			)
 			.execute();
+	}
+
+	/** Where a launch lands: a starter link's project, else its target (ADR 0058). */
+	async function landing(
+		request: FastifyRequest,
+		launch: LtiLaunch,
+		userId: string,
+	): Promise<string> {
+		const starter =
+			launch.kind === "resource_link"
+				? starterFromCustom(launch.custom, config.projectTemplates)
+				: null;
+		if (starter === "invalid") {
+			request.log.info({ reason: "starter_invalid" }, "lti starter ignored");
+		}
+		if (starter === null || starter === "invalid") {
+			return targetPath(launch.targetLinkUri, publicUrl);
+		}
+		return `/?starter=${await saveStarterLaunch(db, userId, starter)}`;
 	}
 
 	async function login(request: FastifyRequest, reply: FastifyReply) {
@@ -340,6 +353,13 @@ export function registerLtiRoutes(
 		if (!result.ok) return refuseLaunch(request, reply, result.reason, result.platform);
 
 		const { launch } = result;
+		// Deep Linking only picks what a course link opens: no account, no session (ADR 0058).
+		if (launch.kind === "deep_linking") {
+			const handle = await saveDeepLinkRequest(db, launch);
+			request.log.info("lti deep linking picker shown");
+			reply.header("cache-control", "no-store");
+			return html(reply, 200, pickerPage(handle, config.projectTemplates));
+		}
 		const identity = await resolveIdentity(
 			db,
 			`lti:${launch.platform.issuer}`,
@@ -377,7 +397,7 @@ export function registerLtiRoutes(
 			return html(reply, 403, page("Portikus could not open", NOT_AUTHORIZED));
 		}
 		await recordMembership(launch, signedIn.userId, new Date().toISOString());
-		return reply.redirect(targetPath(launch.targetLinkUri, publicUrl), 303);
+		return reply.redirect(await landing(request, launch, signedIn.userId), 303);
 	});
 
 	/**
@@ -435,7 +455,7 @@ export function registerLtiRoutes(
 			linked: true,
 			...requestMetadata(request),
 		});
-		return reply.redirect(targetPath(launch.targetLinkUri, publicUrl), 303);
+		return reply.redirect(await landing(request, launch, userId), 303);
 	}
 
 	app.get("/lti/jwks", async (_request, reply) => {

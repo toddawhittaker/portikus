@@ -16,6 +16,8 @@ import {
 	parseProjectTemplates,
 	projectNameFromRepository,
 	SplitNode,
+	StarterProjectRequest,
+	StarterProjectResponse,
 	slugify,
 	UpdateProjectRequest,
 } from "./index.js";
@@ -605,4 +607,23 @@ test("a clone's name drops keycap emoji together with their digit", () => {
 		projectNameFromRepository({ readme: "# 2\u{20E3} #\u{FE0F}\u{20E3} Tags\n" }),
 	).toBe("Tags");
 	expect(projectNameFromRepository({ readme: "# Lab 2\n" })).toBe("Lab 2");
+});
+
+test("a starter request carries only a starter id", () => {
+	const starterId = "650e8400-e29b-41d4-a716-446655440009";
+	expect(StarterProjectRequest.parse({ starterId })).toEqual({ starterId });
+	expect(StarterProjectRequest.safeParse({ starterId: "lab-1" }).success).toBe(false);
+	// The template or repository comes from the stored launch, never the browser.
+	expect(
+		StarterProjectRequest.safeParse({ starterId, url: "https://example.test/x.git" })
+			.success,
+	).toBe(false);
+});
+
+test("a starter response says whether the project was created", () => {
+	const body = { project: { ...sampleProject, state: "archived" }, created: false };
+	expect(StarterProjectResponse.parse(body)).toEqual(body);
+	expect(StarterProjectResponse.safeParse({ project: sampleProject }).success).toBe(
+		false,
+	);
 });

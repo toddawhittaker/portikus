@@ -6,6 +6,7 @@ import {
 	MAX_DOWNLOAD_PATHS,
 	MkdirRequest,
 	MoveRequest,
+	NO_LINKS_QUERY,
 	TreeAfter,
 } from "@portikus/contracts";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
@@ -42,6 +43,7 @@ const PathQuery = z.object({
 	upload: z.string().optional(),
 	check: z.string().optional(),
 	after: TreeAfter.optional(),
+	[NO_LINKS_QUERY]: z.string().optional(),
 });
 
 function queryPath(request: FastifyRequest): {
@@ -50,6 +52,7 @@ function queryPath(request: FastifyRequest): {
 	upload: boolean;
 	check: boolean;
 	after: string | undefined;
+	noLinks: boolean;
 } {
 	const parsed = PathQuery.safeParse(request.query ?? {});
 	if (!parsed.success) {
@@ -61,6 +64,7 @@ function queryPath(request: FastifyRequest): {
 		upload: parsed.data.upload === "1",
 		check: parsed.data.check === "1",
 		after: parsed.data.after,
+		noLinks: parsed.data[NO_LINKS_QUERY] === "1",
 	};
 }
 
@@ -121,8 +125,8 @@ export async function filesRoutes(
 	instance.get("/projects/:slug/tree", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		try {
-			const { path, after } = queryPath(request);
-			return await listDir(homeDir, slug, path, after);
+			const { path, after, noLinks } = queryPath(request);
+			return await listDir(homeDir, slug, path, after, { noLinks });
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}
@@ -131,8 +135,8 @@ export async function filesRoutes(
 	instance.get("/projects/:slug/file", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		try {
-			const { path, download } = queryPath(request);
-			const file = await readFile(homeDir, slug, path, { download });
+			const { path, download, noLinks } = queryPath(request);
+			const file = await readFile(homeDir, slug, path, { download, noLinks });
 			if (file.etag) {
 				reply.header("etag", file.etag);
 			}

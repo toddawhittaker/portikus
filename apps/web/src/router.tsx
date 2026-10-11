@@ -52,6 +52,10 @@ const CourseMembersPage = lazyPage(
 	() => import("./course/CoursePage.js"),
 	(module) => module.CourseMembersPage,
 );
+const SharedProjectPage = lazyPage(
+	() => import("./course/SharedProjectPage.js"),
+	(module) => module.SharedProjectPage,
+);
 const HelpPage = lazyPage(
 	() => import("./help/HelpPage.js"),
 	(module) => module.HelpPage,
@@ -100,9 +104,17 @@ const rootRoute = createRootRoute({
 	notFoundComponent: NotFound,
 });
 
+/** A course launch carries the id of the starter to create (SPEC.md §7.2). */
+function starterSearch(search: Record<string, unknown> & SearchSchemaInput): {
+	starter?: string;
+} {
+	return typeof search.starter === "string" ? { starter: search.starter } : {};
+}
+
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/",
+	validateSearch: starterSearch,
 	component: SignIn,
 });
 
@@ -255,6 +267,17 @@ const courseMembersRoute = createRoute({
 	),
 });
 
+/** A project a student shared with this course's instructors (ADR 0057). */
+const sharedProjectRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course/$courseId/shares/$projectId",
+	component: () => (
+		<Lazy>
+			<SharedProjectPage />
+		</Lazy>
+	),
+});
+
 /** The workspace help; the instructor part shows by role or teaching. */
 const helpRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -270,6 +293,7 @@ const helpRoute = createRoute({
 const workspaceRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/workspaces/$id",
+	validateSearch: starterSearch,
 	component: WorkspacePage,
 });
 
@@ -391,6 +415,7 @@ export const routeTree = rootRoute.addChildren([
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,
+	sharedProjectRoute,
 	helpRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,

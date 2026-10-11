@@ -7,6 +7,7 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	health: "activity",
 	logs: "list",
 	audit: "clipboard-list",
+	agents: "agent",
 	network: "globe",
 	backups: "archive",
 	image: "layers",

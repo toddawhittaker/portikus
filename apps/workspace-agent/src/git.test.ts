@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -475,6 +475,47 @@ test("the status route answers over HTTP and honours hidden", async () => {
 		headers: auth(),
 	});
 	expect(bad.statusCode).toBe(400);
+});
+
+// SPEC.md §5.2: a shared read never follows or lists a symlink.
+test("a shared status and diff leave out symlinks to .env and into .git", async () => {
+	await initRepo(project);
+	await writeFile(join(project, "a.txt"), "one\n");
+	await commitAll(project, "first");
+	await writeFile(join(project, ".env"), "SECRET=hunter2\n");
+	await symlink(".env", join(project, "notes.txt"));
+	await symlink(".git", join(project, "docs"));
+
+	const shared = await app.inject({
+		method: "GET",
+		url: `/projects/${SLUG}/git/status?nolinks=1`,
+		headers: auth(),
+	});
+	const sharedPaths = shared
+		.json()
+		.entries.map((entry: { path: string }) => entry.path);
+	expect(sharedPaths).not.toContain("notes.txt");
+	expect(sharedPaths).not.toContain("docs");
+
+	for (const path of ["notes.txt", "docs/config"]) {
+		const diff = await app.inject({
+			method: "GET",
+			url: `/projects/${SLUG}/git/diff?path=${encodeURIComponent(path)}&nolinks=1`,
+			headers: auth(),
+		});
+		expect(diff.statusCode).toBe(404);
+		expect(diff.body).not.toContain("hunter2");
+		expect(diff.body).not.toContain("repositoryformatversion");
+	}
+
+	// The owner's status is unchanged.
+	const owner = await app.inject({
+		method: "GET",
+		url: `/projects/${SLUG}/git/status`,
+		headers: auth(),
+	});
+	const ownerPaths = owner.json().entries.map((entry: { path: string }) => entry.path);
+	expect(ownerPaths).toEqual(expect.arrayContaining(["notes.txt", "docs"]));
 });
 
 test("the status route reports a missing project as not found", async () => {

@@ -9,6 +9,7 @@ import { AdminNav } from "./AdminNav.js";
 import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AddressTab } from "./address/AddressTab.js";
+import { AgentUsageTab } from "./agent-usage/AgentUsageTab.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
 import { CertificateTab } from "./certificate/CertificateTab.js";
@@ -105,6 +106,7 @@ export function AdminPage() {
 							{view === "health" ? <HealthTab /> : null}
 							{view === "logs" ? <LogsTab /> : null}
 							{view === "audit" ? <AuditTab /> : null}
+							{view === "agents" ? <AgentUsageTab /> : null}
 							{view === "network" ? <NetworkTab /> : null}
 							{view === "backups" ? <BackupsTab /> : null}
 							{view === "image" ? <ImageTab /> : null}

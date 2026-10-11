@@ -196,6 +196,31 @@ real output. The three-dots button, **Edit checks**, changes the list.
 
 ![The Checks tab: Tests has passed, and its output is shown underneath](images/student-checks.png)
 
+## Sharing a project with your instructors
+
+Your instructors cannot see your work unless you choose to share it. To share
+one project, open its three-dots menu and choose **Share with my
+instructors…**, then **Start sharing**.
+
+- The instructors of the courses you belong to can then look at that project
+  and nothing else. They cannot change anything.
+- They see the project's files, its Git status and changes, and the latest
+  check results. They never see your terminals, your previews, or secret
+  files such as `.env`, `.env.local`, keys and `.npmrc`.
+- The share ends by itself after 24 hours. **Stop sharing** in the same dialog
+  ends it at once. A shared project has a **Shared** tag in the project list.
+- The dialog lists each instructor who has looked and when they last did.
+  Portikus also sends you a notification the first time an instructor opens
+  the project.
+
+### What your instructors can see about coding agents
+
+Instructors of your courses, and administrators, can see counts of your use of
+Claude Code and Codex: how many sessions you ran, how many tokens they used,
+the estimated cost, and how many lines were added and removed. They never see
+your prompts, the agents' answers, or your code. These counts do not need you
+to share anything.
+
 ## Settings
 
 Open **Settings** from the menu under your name. Your settings follow you to
