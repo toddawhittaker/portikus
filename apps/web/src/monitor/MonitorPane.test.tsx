@@ -618,6 +618,45 @@ test("Lower its priority instead sends only the start ticks and shows the outcom
 	).toBeTruthy();
 });
 
+test("a session leader whose children were re-parented still offers to stop them", async () => {
+	stubTreeActions(
+		[
+			{ ...OWN, ppid: 1, session: 7 },
+			{ ...OWN, pid: 20, command: "npm", startTicks: 200, ppid: 1, session: 7 },
+			{ ...OWN, pid: 9, command: "python", startTicks: 90, ppid: 1, session: 9 },
+		],
+		[],
+	);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	expect(
+		within(dialog).getByRole("checkbox", { name: "Also stop its 1 child process" }),
+	).toBeTruthy();
+});
+
+test("while a stop is pending, Lower its priority instead stays focusable and does nothing", async () => {
+	let finish: (answer: Response) => void = () => {};
+	const pending = new Promise<Response>((resolve) => {
+		finish = resolve;
+	});
+	const calls = stubTreeActions(TREE, [pending as unknown as Response]);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	fireEvent.click(within(dialog).getByRole("checkbox"));
+	fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+	const lower = within(dialog).getByRole("button", {
+		name: "Lower its priority instead",
+	});
+	await waitFor(() => expect(lower.getAttribute("aria-disabled")).toBe("true"));
+	expect(lower.hasAttribute("disabled")).toBe(false);
+	fireEvent.click(lower);
+	expect(calls.map((call) => call.url)).toEqual([
+		`/workspaces/${WORKSPACE}/processes/7/stop-tree`,
+	]);
+	finish(json({ pid: 7, exited: true, signalled: 3, refused: 0, remaining: [] }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+});
+
 test("a refused Lower priority is explained", async () => {
 	stubTreeActions(TREE, [errorBody(409, "PROCESS_CHANGED")]);
 	renderPane();

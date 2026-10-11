@@ -42,7 +42,7 @@ import {
 	stopProcess,
 	stopProcessTree,
 } from "./stop.js";
-import { childMap, descendantsOf } from "./tree.js";
+import { descendantsOf } from "./tree.js";
 import { useWorkspaceUsage } from "./usage.js";
 
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
@@ -131,7 +131,6 @@ function Figures({
 	const [focusInList, setFocusInList] = useState(false);
 
 	const shown = usage.processes.filter((process) => !stopped.has(processKey(process)));
-	const children = childMap(shown);
 	const sorted = shown.sort((left, right) => compareProcesses(left, right, sort));
 	const processes =
 		focusInList && heldOrder.current
@@ -363,9 +362,7 @@ function Figures({
 								expanded={expanded.has(processKey(process))}
 								onToggle={() => toggleExpanded(processKey(process))}
 								onStop={() =>
-									setStopping(
-										startStopping(process, descendantsOf(process.pid, children)),
-									)
+									setStopping(startStopping(process, descendantsOf(process, shown)))
 								}
 							/>
 						))
@@ -433,8 +430,10 @@ function StopChoices({
 				size="sm"
 				variant="quiet"
 				data-testid="stop-process-lower-priority"
-				disabled={stopping.pending}
-				onClick={onLowerPriority}
+				aria-disabled={stopping.pending || undefined}
+				onClick={() => {
+					if (!stopping.pending) onLowerPriority();
+				}}
 			>
 				Lower its priority instead
 			</Button>

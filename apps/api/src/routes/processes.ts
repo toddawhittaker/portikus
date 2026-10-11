@@ -86,7 +86,15 @@ export function registerProcessRoutes(app: FastifyInstance, deps: ServerDeps): v
 			call: () => agent.stopProcessTree(pid, body),
 			audit: ({ exited, signalled }) => ({
 				action: "workspace.process_stopped",
-				metadata: { pid, signal, exited, tree: true, signalled },
+				// A Force stop names its PIDs; record how many, never which (SPEC.md §24).
+				metadata: {
+					pid,
+					signal,
+					exited,
+					tree: true,
+					signalled,
+					...(body.remaining ? { named: body.remaining.length } : {}),
+				},
 			}),
 		});
 	});
