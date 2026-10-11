@@ -46,6 +46,8 @@ export const PlatformSettings = z.object({
 	idleStopMinutes: IdleStopMinutes,
 	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keepRunningMaxHours: KeepRunningMaxHours,
+	/** Off hides the microphone for everyone (SPEC.md §25.10). */
+	voiceInputEnabled: z.boolean(),
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
 	/** Read-only: goes up by one whenever the text changes. */
@@ -87,6 +89,7 @@ export const UpdatePlatformSettingsRequest = z
 		cpuThrottleHoldHours: CpuThrottleHoldHours.optional(),
 		idleStopMinutes: IdleStopMinutes.optional(),
 		keepRunningMaxHours: KeepRunningMaxHours.optional(),
+		voiceInputEnabled: z.boolean().optional(),
 		acceptableUseText: z
 			.string()
 			.trim()
@@ -281,6 +284,8 @@ export const MeSettings = EditorSettings.extend({
 	timezones: z.array(z.string()),
 	/** False when appearance is the default, not a saved choice. */
 	appearanceStored: z.boolean().optional(),
+	/** The site switch for voice input; missing means on. */
+	voiceInputEnabled: z.boolean().optional(),
 });
 export type MeSettings = z.infer<typeof MeSettings>;
 

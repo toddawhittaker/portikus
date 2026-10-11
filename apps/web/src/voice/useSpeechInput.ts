@@ -4,6 +4,7 @@
  * Portikus sends nothing to its server and logs nothing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEditorSettings } from "../editor/settingsQueries.js";
 
 /** The few members of the Web Speech API used here; no @types package. */
 interface SpeechResultAlternative {
@@ -93,6 +94,10 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 	const [supported, setSupported] = useState(
 		() => recognizerClass() !== null && !networkFailed,
 	);
+	// An administrator can turn voice off site-wide; then it reads as unsupported, with no message.
+	const allowed = useEditorSettings().data?.voiceInputEnabled !== false;
+	const allowedRef = useRef(allowed);
+	allowedRef.current = allowed;
 	const [state, setState] = useState<SpeechState>("idle");
 	const [interim, setInterim] = useState("");
 	const [message, setMessage] = useState("");
@@ -114,7 +119,8 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 
 	const start = useCallback(() => {
 		const Recognition = recognizerClass();
-		if (!Recognition || networkFailed || recognizer.current) return;
+		if (!Recognition || networkFailed || !allowedRef.current || recognizer.current)
+			return;
 		const rec = new Recognition();
 		rec.continuous = true;
 		rec.interimResults = true;
@@ -188,7 +194,7 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 	);
 
 	return {
-		state: supported ? state : "unsupported",
+		state: supported && allowed ? state : "unsupported",
 		interim,
 		message,
 		start,
