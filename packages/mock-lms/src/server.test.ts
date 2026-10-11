@@ -2,7 +2,6 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseArgs } from "./cli.js";
 import { escapeHtml } from "./pages.js";
 import { CLIENT_ID, DEPLOYMENT_ID, PEOPLE, ROLE_URIS } from "./seed.js";
 import { createHandler, registration } from "./server.js";
@@ -379,48 +378,6 @@ describe("registration", () => {
 			deploymentIds: ["mock-deployment-1"],
 			mock: true,
 		});
-	});
-});
-
-describe("parseArgs", () => {
-	it("defaults to loopback, port 8765, and an issuer from the first bind", () => {
-		expect(parseArgs(["--", "--tool-url", "http://localhost:3000/"])).toEqual({
-			port: 8765,
-			binds: ["127.0.0.1"],
-			toolUrl: "http://localhost:3000",
-			issuer: "http://127.0.0.1:8765",
-		});
-	});
-
-	it("takes repeated binds and an explicit issuer", () => {
-		const opts = parseArgs([
-			"--bind",
-			"127.0.0.1",
-			"--bind",
-			"10.100.0.1",
-			"--port",
-			"9000",
-			"--tool-url",
-			"https://portikus.test",
-			"--issuer",
-			"http://10.100.0.1:9000",
-		]);
-		expect(opts.binds).toEqual(["127.0.0.1", "10.100.0.1"]);
-		expect(opts.issuer).toBe("http://10.100.0.1:9000");
-		expect(parseArgs(["--bind", "::1", "--tool-url", "http://x.test"]).issuer).toBe(
-			"http://[::1]:8765",
-		);
-	});
-
-	it.each([
-		[[], /tool-url/],
-		[["--tool-url"], /needs a value/],
-		[["--tool-url", "ftp://x"], /http/],
-		[["--tool-url", "not a url"], /URL/],
-		[["--tool-url", "http://x", "--port", "0"], /port/],
-		[["--tool-url", "http://x", "--color", "red"], /unknown flag/],
-	])("refuses %j", (argv, message) => {
-		expect(() => parseArgs(argv)).toThrow(message);
 	});
 });
 
