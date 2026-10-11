@@ -1,5 +1,6 @@
 import {
 	canonicalImageName,
+	SEED_IMAGE_KEY_MAX_LENGTH,
 	type SeedBuildRequest,
 	type SeedBuildStatus,
 	type SeedInfo,
@@ -136,7 +137,9 @@ export class SeedBuilds {
 			const imageBytes: Record<string, number> = {};
 			for (const image of request.images) {
 				const bytes = await this.host.seedImageBytes(image);
-				if (bytes !== null) imageBytes[canonicalImageName(image)] = bytes;
+				const key = canonicalImageName(image);
+				if (bytes !== null && key.length <= SEED_IMAGE_KEY_MAX_LENGTH)
+					imageBytes[key] = bytes;
 			}
 			status.step = "Cleaning up the builder";
 			for (const command of cleanup) await exec(command, CLEANUP_TIMEOUT_SECONDS);

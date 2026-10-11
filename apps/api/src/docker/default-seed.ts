@@ -53,24 +53,26 @@ export async function applyDefaultSeed(
 		// The image manifest is outside the API, so its names get the same check as PUT.
 		const valid = seedImageListFor(settings.docker_ghcr_enabled).safeParse(defaults);
 		if (defaults.length === 0 || !valid.success) return false;
-		const applied = await db
-			.updateTable("settings")
-			.set({
-				docker_seed_images: JSON.stringify(defaults),
-				docker_seed_images_set: true,
-			})
-			.where("id", "=", 1)
-			.where("docker_seed_images_set", "=", false)
-			.executeTakeFirst();
-		if (Number(applied.numUpdatedRows) > 0) {
-			await recordAudit(db, {
-				actor: "platform",
-				target: "docker",
-				action: "docker.seed_images_defaulted",
-				result: "ok",
-				metadata: { to: defaults },
-			});
-		}
+		await db.transaction().execute(async (tx) => {
+			const applied = await tx
+				.updateTable("settings")
+				.set({
+					docker_seed_images: JSON.stringify(defaults),
+					docker_seed_images_set: true,
+				})
+				.where("id", "=", 1)
+				.where("docker_seed_images_set", "=", false)
+				.executeTakeFirst();
+			if (Number(applied.numUpdatedRows) > 0) {
+				await recordAudit(tx, {
+					actor: "platform",
+					target: "docker",
+					action: "docker.seed_images_defaulted",
+					result: "ok",
+					metadata: { to: defaults },
+				});
+			}
+		});
 	}
 
 	// Only the list the platform wrote, never one an administrator edited, and only once.
@@ -86,12 +88,16 @@ export async function applyDefaultSeed(
 	const defaulted = touched.some((a) => a.action === "docker.seed_images_defaulted");
 	const edited = touched.some((a) => a.action === "docker.seed_images_changed");
 	if (!defaulted || edited) return true;
-	const anyJob = await db
-		.selectFrom("docker_seed_jobs")
+	// The audit trail is append-only; job rows are pruned after 120 days.
+	const requested = await db
+		.selectFrom("audit_events")
 		.select("id")
+		.where("target", "=", "docker")
+		.where("action", "=", "docker.seed_job_requested")
+		.where("actor", "=", "platform")
 		.executeTakeFirst();
 	const seed = await db.selectFrom("docker_seed").select("images").executeTakeFirst();
-	if (anyJob || seed) return true;
+	if (requested || seed) return true;
 
 	const row = await db
 		.selectFrom("settings")
@@ -102,13 +108,15 @@ export async function applyDefaultSeed(
 	if (images.length === 0) return true;
 	if (!(await poolHasRoom(db, row.docker_seed_max_gib))) return false;
 	try {
-		const job = await insertJob(db, images, null);
-		await recordAudit(db, {
-			actor: "platform",
-			target: "docker",
-			action: "docker.seed_job_requested",
-			result: "ok",
-			metadata: { jobId: job.id, images: images.length },
+		await db.transaction().execute(async (tx) => {
+			const job = await insertJob(tx, images, null);
+			await recordAudit(tx, {
+				actor: "platform",
+				target: "docker",
+				action: "docker.seed_job_requested",
+				result: "ok",
+				metadata: { jobId: job.id, images: images.length },
+			});
 		});
 	} catch (e) {
 		if (!isUniqueViolation(e)) throw e;

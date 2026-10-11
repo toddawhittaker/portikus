@@ -30,6 +30,8 @@ export const SEED_IMAGE_PATTERN = new RegExp(
 );
 
 export const SEED_IMAGE_MAX_LENGTH = 255;
+/** `canonicalImageName` adds up to 25 characters (`docker.io/library/`, `:latest`). */
+export const SEED_IMAGE_KEY_MAX_LENGTH = SEED_IMAGE_MAX_LENGTH + 32;
 export const SEED_IMAGES_MAX = 30;
 
 export const SeedImageName = z
@@ -399,7 +401,7 @@ export const SeedInfo = z.object({
 	 * a seed built before sizes were measured has none.
 	 */
 	imageBytes: z
-		.record(z.string().max(SEED_IMAGE_MAX_LENGTH), z.number().int().nonnegative())
+		.record(z.string().max(SEED_IMAGE_KEY_MAX_LENGTH), z.number().int().nonnegative())
 		.refine((sizes) => Object.keys(sizes).length <= SEED_IMAGES_MAX)
 		.optional(),
 });
