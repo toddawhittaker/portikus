@@ -13,11 +13,14 @@
 
 # `caddy reload` finds the running Caddy at the new configuration's admin
 # address, so a Caddy that still listens on port 2019 from before the admin
-# socket, or one that is not running, is restarted instead.
+# socket, or one that is not running, is restarted instead.  So is one
+# whose socket does not answer, as when a placeholder Caddy runs beside a
+# stale socket a purged install left.
 - name: Put the Caddyfile in force  # noqa: no-handler
   ansible.builtin.shell:
     cmd: |
-      if systemctl is-active --quiet caddy && [ -S {{ caddy_admin_socket | quote }} ]; then
+      if systemctl is-active --quiet caddy \
+        && curl -fsS -o /dev/null --unix-socket {{ caddy_admin_socket | quote }} http://localhost/config/; then
         systemctl reload caddy
       else
         systemctl restart caddy
