@@ -326,6 +326,36 @@ describe.skipIf(skip)("sizes and the cache-off line (issue #931)", () => {
 			["quay.io/x/y:1", null],
 		]);
 	});
+
+	test("a tagged, digest-pinned usage row finds the size recorded by manifest digest", async () => {
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		const ws = await testDb.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: user.id, label: "ws-d", state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const digest = `sha256:${"c".repeat(64)}`;
+		await testDb.db
+			.insertInto("docker_image_presence")
+			.values({
+				workspace_id: ws.id,
+				image: `docker.io/library/redis:7@${digest}`,
+				in_seed: false,
+				used: true,
+			})
+			.execute();
+		const sizes = {
+			[`docker.io/library/redis@${digest}`]: {
+				bytes: 55_000_000,
+				seenAt: "2026-09-30T10:00:00.000Z",
+			},
+		};
+		const body = await usageReport(testDb.db, new Date(), sizes);
+		expect(body.notInSeed.map((u) => u.downloadBytes)).toEqual([55_000_000]);
+	});
 });
 
 describe.skipIf(skip)("PUT /admin/docker/settings", () => {
@@ -1002,6 +1032,40 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		expect(await jobCount()).toBe(0);
 	});
 
+	test("the button counts the seed's measured on-disk size against the limit", async () => {
+		await send(carol, "PUT", "/admin/docker/settings", { seedMaxGiB: 1 });
+		await send(carol, "PUT", "/admin/docker/seed/images", { images: ["redis:7"] });
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(
+				status({
+					imageSizes: {
+						"docker.io/library/redis:7": {
+							bytes: 100_000_000,
+							seenAt: "2026-09-30T10:00:00.000Z",
+						},
+					},
+				}),
+			),
+		);
+		// Unpacked, redis is past the 1 GiB limit though its download is not.
+		await testDb.db
+			.insertInto("docker_seed")
+			.values({
+				images: JSON.stringify(["redis:7"]),
+				size_bytes: 2 * 1024 ** 3,
+				image_version: "2026.09.15",
+				built_at: "2026-09-29T08:00:00.000Z",
+				image_bytes: JSON.stringify({ "docker.io/library/redis:7": 2 * 1024 ** 3 }),
+			})
+			.execute();
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		const res = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("SEED_OVER_LIMIT");
+		expect(await jobCount()).toBe(0);
+	});
+
 	test("while a rebuild runs the button changes nothing", async () => {
 		await send(carol, "PUT", "/admin/docker/seed/images", { images: ["node:24-slim"] });
 		await testDb.db
@@ -1064,16 +1128,34 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		expect(await jobs()).toEqual([]);
 	});
 
-	test("an existing seed job means no build is queued at start", async () => {
+	test("a first build the platform requested before is never requested again, even after its job row is pruned", async () => {
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
 		await poolSample(10, 100);
+		expect(await startup()).toBe(true);
+		expect(await jobs()).toHaveLength(1);
+		// The worker prunes finished jobs after 120 days; the audit row stays.
+		await testDb.db.deleteFrom("docker_seed_jobs").execute();
+		expect(await startup()).toBe(true);
+		expect(await jobs()).toEqual([]);
+		const requests = (await dockerAudits()).filter(
+			(a) => a.action === "docker.seed_job_requested",
+		);
+		expect(requests).toHaveLength(1);
+	});
+
+	test("a rejected job insert leaves no request audit behind", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await poolSample(10, 100);
+		// A job already queued holds the one-active-job slot.
 		await testDb.db
 			.insertInto("docker_seed_jobs")
-			.values({ images: JSON.stringify(["redis:7"]), state: "failed" })
+			.values({ images: JSON.stringify(["redis:7"]) })
 			.execute();
 		expect(await startup()).toBe(true);
-		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
 		expect(await jobs()).toHaveLength(1);
+		expect(
+			(await dockerAudits()).some((a) => a.action === "docker.seed_job_requested"),
+		).toBe(false);
 	});
 
 	test("a list an administrator changed is never built at start", async () => {

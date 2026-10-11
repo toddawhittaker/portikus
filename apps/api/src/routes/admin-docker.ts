@@ -46,19 +46,12 @@ interface DockerSettings {
 	ghcrEnabled: boolean;
 	seedMaxGiB: number;
 	seedImages: string[];
-	/** False until an administrator first saves the list. */
-	seedImagesSet: boolean;
 }
 
 async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 	const row = await db
 		.selectFrom("settings")
-		.select([
-			"docker_ghcr_enabled",
-			"docker_seed_max_gib",
-			"docker_seed_images",
-			"docker_seed_images_set",
-		])
+		.select(["docker_ghcr_enabled", "docker_seed_max_gib", "docker_seed_images"])
 		.where("id", "=", 1)
 		.executeTakeFirst();
 	// The worker seeds the settings row; until then the column defaults apply.
@@ -66,7 +59,6 @@ async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 		ghcrEnabled: row?.docker_ghcr_enabled ?? true,
 		seedMaxGiB: row?.docker_seed_max_gib ?? 8,
 		seedImages: SeedImageList.safeParse(row?.docker_seed_images).data ?? [],
-		seedImagesSet: row?.docker_seed_images_set ?? false,
 	};
 }
 
@@ -79,15 +71,19 @@ function cacheView(status: RegistryStatusFile | null): DockerCacheStatus | null 
 	return cache;
 }
 
+/** One image's recorded download size, or undefined when the cache never held it. */
+function sizeEntry(name: string, sizes: ImageSizes): ImageSizes[string] | undefined {
+	// A digest-pinned name is found by the manifest digest the helper records.
+	const digestKey = digestImageName(name);
+	return sizes[canonicalImageName(name)] ?? (digestKey ? sizes[digestKey] : undefined);
+}
+
 /** Download sizes of the named images, keyed as the page looks them up. */
 function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
 	const out: Record<string, number> = {};
 	for (const name of names) {
-		const key = canonicalImageName(name);
-		// A digest-pinned name is found by the manifest digest the helper records.
-		const digestKey = digestImageName(name);
-		const entry = sizes[key] ?? (digestKey ? sizes[digestKey] : undefined);
-		if (entry) out[key] = entry.bytes;
+		const entry = sizeEntry(name, sizes);
+		if (entry) out[canonicalImageName(name)] = entry.bytes;
 	}
 	return out;
 }
@@ -385,12 +381,13 @@ export function registerAdminDockerRoutes(
 		}
 		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const sizes = sizesOf(drift.next, status?.imageSizes ?? {});
-		if (overSeedCap(drift.next, sizes, seedMaxGiB)) {
+		const seed = await readSeed(db);
+		if (overSeedCap(drift.next, sizes, seedMaxGiB, seed?.imageBytes)) {
 			return sendError(
 				reply,
 				409,
 				"SEED_OVER_LIMIT",
-				"The matching images would push the seed past its size limit, by estimated download size.",
+				"The matching images would push the seed past its size limit.",
 			);
 		}
 		const allowed = seedImageListFor(ghcrEnabled).safeParse(drift.next);
@@ -535,8 +532,7 @@ export async function usageReport(
 		pulls: t.pulls,
 		workspaces: t.workspaces.size,
 		lastSeen: t.lastSeen?.toISOString() ?? null,
-		// Names here are canonical already; other registries' names are never in the cache.
-		downloadBytes: sizes[image]?.bytes ?? null,
+		downloadBytes: sizeEntry(image, sizes)?.bytes ?? null,
 	});
 	const byUse = (a: DockerImageUsage, b: DockerImageUsage): number =>
 		b.workspaces - a.workspaces ||

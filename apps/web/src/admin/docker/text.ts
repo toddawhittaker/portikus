@@ -244,19 +244,10 @@ export function clearRefusedText(error: unknown): string {
 	return errorText(error);
 }
 
-/** Why the seed match button was refused, told apart by the API's error code. */
+/** Why the seed match button was refused; only the size limit needs advice beyond the server's words. */
 export function matchRefusedText(error: unknown): string {
-	if (error instanceof ApiError) {
-		switch (error.code) {
-			case "SEED_MATCH_UNKNOWN":
-				return "The default workspace image's versions are not known, so there is nothing to match.";
-			case "SEED_ALREADY_MATCHES":
-				return "The seed list already holds the images that match the workspace image.";
-			case "SEED_OVER_LIMIT":
-				return "The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.";
-			case "SEED_JOB_RUNNING":
-				return "A rebuild is waiting or running. Wait until it finishes.";
-		}
+	if (error instanceof ApiError && error.code === "SEED_OVER_LIMIT") {
+		return "The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.";
 	}
 	return errorText(error);
 }

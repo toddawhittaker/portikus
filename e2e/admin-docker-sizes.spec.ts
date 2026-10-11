@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { open, setSeedList, useDockerState } from "./admin-docker-helpers";
-import { query } from "./helpers";
+import { expectNoViolations, query } from "./helpers";
 import { writeRegistryStatus } from "./registry-jobs";
 
 /**
@@ -50,3 +50,34 @@ test("a digest-pinned seed image shows the unpacked size its build measured", as
 		"These images take at least 190 MB, counting download sizes for the 1 not in the last seed. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
 	);
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`seed sizes on disk and not known have no accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		// redis:7 has no size anywhere, so its cell is the "Not known" dash.
+		await setSeedList([PINNED, "redis:7"]);
+		await query(
+			`insert into docker_seed (id, images, size_bytes, image_version, built_at, image_bytes)
+			 values (1, $1, $2, '2026.09.9', now(), $3)`,
+			[
+				JSON.stringify([PINNED]),
+				1024 ** 3,
+				JSON.stringify({ [`docker.io/library/${PINNED}`]: 150 * 1024 ** 2 }),
+			],
+		);
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		const list = page.getByTestId("docker-seed-list");
+		await expect(list.getByRole("row", { name: /python:3\.12@sha256/ })).toContainText(
+			"on disk",
+		);
+		await expect(
+			list
+				.getByRole("row", { name: /redis:7/ })
+				.getByRole("cell")
+				.first(),
+		).toHaveText("—Not known");
+		await expectNoViolations(page);
+	});
+}

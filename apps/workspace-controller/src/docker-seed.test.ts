@@ -70,6 +70,17 @@ describe("a seed build", () => {
 		});
 	});
 
+	test("a 255-character untagged name still yields a valid status with its size", async () => {
+		const long = "a".repeat(255);
+		builds.start(request([long]));
+		await builds.idle();
+		const status = SeedBuildStatus.parse(builds.get(ID));
+		expect(status.state).toBe("succeeded");
+		expect(status.seed?.imageBytes).toEqual({
+			[`docker.io/library/${long}:latest`]: 300 * 1000 ** 2,
+		});
+	});
+
 	test("reports the image being pulled while it runs", async () => {
 		let release = (): void => {};
 		host.seedExec = (command) => {

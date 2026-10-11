@@ -586,4 +586,17 @@ describe("an image's known size", () => {
 		);
 		expect(SeedInfo.safeParse({ ...base, imageBytes: tooMany }).success).toBe(false);
 	});
+
+	test("a size keyed by the canonical form of a 255-character name parses", () => {
+		const name = "a".repeat(255);
+		expect(SeedImageName.safeParse(name).success).toBe(true);
+		const seed = {
+			images: [name],
+			sizeBytes: 1,
+			imageVersion: "v",
+			builtAt: "2026-10-11T00:00:00.000Z",
+			imageBytes: { [canonicalImageName(name)]: 1 },
+		};
+		expect(SeedInfo.safeParse(seed).success).toBe(true);
+	});
 });

@@ -1,5 +1,6 @@
 import { OTHER_IMAGES_LABEL } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { ApiError } from "../../api/request.js";
 import {
 	addRefusal,
 	autoClearBytes,
@@ -12,6 +13,7 @@ import {
 	driftSentence,
 	listHas,
 	listSizeText,
+	matchRefusedText,
 	parseSeedMaxGiB,
 	seedListError,
 	seedUseText,
@@ -233,4 +235,19 @@ test("over the limit the notice calls the sizes an estimate the rebuild checks",
 test("no drift sentence when the list matches or no image is known", () => {
 	expect(driftParts(["node:26-slim", "python:3.14-slim"], MATCH_26_314)).toBeNull();
 	expect(driftParts(["node:24-slim"], null)).toBeNull();
+});
+
+test("a refused match adds advice for the size limit and otherwise shows the server's words", () => {
+	expect(matchRefusedText(new ApiError(409, "server wording", "SEED_OVER_LIMIT"))).toBe(
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	);
+	for (const code of [
+		"SEED_ALREADY_MATCHES",
+		"SEED_MATCH_UNKNOWN",
+		"SEED_JOB_RUNNING",
+	]) {
+		expect(matchRefusedText(new ApiError(409, "server wording", code))).toBe(
+			"server wording",
+		);
+	}
 });
