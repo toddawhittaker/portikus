@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Terminal } from "@portikus/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -8,8 +9,22 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { type ReactNode, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { editorSettingsKey } from "../editor/settingsQueries";
 import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
+
+/** Settings already cached, so the voice button never fetches them. */
+function SettingsCache({ children }: { children: ReactNode }) {
+	const [client] = useState(() => {
+		const made = new QueryClient({
+			defaultOptions: { queries: { staleTime: Infinity } },
+		});
+		made.setQueryData(editorSettingsKey, { voiceInputEnabled: true });
+		return made;
+	});
+	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
 
 // The pane itself is covered by TerminalPane.test.tsx; here it would only drag
 // xterm.js and a WebSocket into the test.
@@ -96,7 +111,7 @@ function renderLeaf(
 			alone={alone}
 		/>
 	);
-	const { rerender } = render(element(overrides));
+	const { rerender } = render(element(overrides), { wrapper: SettingsCache });
 	return { ...props, rerender: (next: Partial<Terminal>) => rerender(element(next)) };
 }
 

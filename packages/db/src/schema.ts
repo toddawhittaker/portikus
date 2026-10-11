@@ -328,6 +328,8 @@ interface SettingsTable {
 	cpu_throttle_hold_hours: Generated<number>;
 	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keep_running_max_hours: Generated<number>;
+	/** Whether students see the microphone (SPEC.md section 25.10). */
+	voice_input_enabled: Generated<boolean>;
 	/** When the worker last found the workspace controller answering. */
 	controller_checked_at: ColumnType<
 		Date | null,

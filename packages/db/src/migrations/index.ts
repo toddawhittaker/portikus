@@ -47,6 +47,7 @@ import { down as down0042, up as up0042 } from "./0042_project_shares.js";
 import { down as down0043, up as up0043 } from "./0043_agent_usage_days.js";
 import { down as down0044, up as up0044 } from "./0044_dex_account_issuer.js";
 import { down as down0046, up as up0046 } from "./0046_docker_seed_image_bytes.js";
+import { down as down0048, up as up0048 } from "./0048_voice_input_switch.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -98,4 +99,5 @@ export const migrations: Record<string, Migration> = {
 	"0043_agent_usage_days": { up: up0043, down: down0043 },
 	"0044_dex_account_issuer": { up: up0044, down: down0044 },
 	"0046_docker_seed_image_bytes": { up: up0046, down: down0046 },
+	"0048_voice_input_switch": { up: up0048, down: down0048 },
 };
