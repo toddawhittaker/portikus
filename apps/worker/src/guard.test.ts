@@ -1,4 +1,8 @@
-import { type InstanceUsage, SAMPLE_RETENTION_MINUTES } from "@portikus/contracts";
+import {
+	type InstanceUsage,
+	SAMPLE_RETENTION_MINUTES,
+	THROTTLE_LIFTED_TITLE,
+} from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -708,6 +712,14 @@ test.skipIf(skip)(
 			result: "ok",
 			metadata: { reason: "idle", averagePercent: 5 },
 		});
+		// One notification for the owner, with no page open (SPEC.md 19.4).
+		const notes = await tdb.db
+			.selectFrom("notifications")
+			.innerJoin("workspaces", "workspaces.owner_user_id", "notifications.user_id")
+			.select(["notifications.tone", "notifications.title"])
+			.where("workspaces.id", "=", ws.id)
+			.execute();
+		expect(notes).toEqual([{ tone: "success", title: THROTTLE_LIFTED_TITLE }]);
 		// Samples up to and including the throttle's go; the six after it stay.
 		expect(samplesBefore).toBe(6);
 		expect(await sampleCount(ws.id)).toBe(6);

@@ -47,6 +47,16 @@ function pictureType(bytes: Buffer): "image/png" | "image/jpeg" | null {
 	return null;
 }
 
+/** The site switch for voice input; on until a settings row says otherwise (SPEC.md §25.10). */
+async function voiceInputEnabled(db: ServerDeps["db"]): Promise<boolean> {
+	const row = await db
+		.selectFrom("settings")
+		.select("voice_input_enabled")
+		.where("id", "=", 1)
+		.executeTakeFirst();
+	return row?.voice_input_enabled ?? true;
+}
+
 /**
  * The signed-in user's own editor settings. Both routes read and
  * write the caller's row only, so one user can never see or change another
@@ -66,6 +76,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			...toEditorSettings(row?.editor_settings),
 			timezones: TIMEZONES,
 			appearanceStored: hasStoredAppearance(row?.editor_settings),
+			voiceInputEnabled: await voiceInputEnabled(db),
 		};
 		return body;
 	});
@@ -97,6 +108,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			...toEditorSettings(updated.editor_settings),
 			timezones: TIMEZONES,
 			appearanceStored: hasStoredAppearance(updated.editor_settings),
+			voiceInputEnabled: await voiceInputEnabled(db),
 		};
 		return out;
 	});

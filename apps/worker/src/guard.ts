@@ -7,10 +7,16 @@ import {
 	idleLift,
 	restartedBetween,
 	SAMPLE_RETENTION_MINUTES,
+	THROTTLE_LIFTED_TITLE,
 	type ThrottleHoldPlatform,
 	throttleHold,
 } from "@portikus/contracts";
-import { type Database, notifyAdministrators, recordAudit } from "@portikus/db";
+import {
+	type Database,
+	notifyAdministrators,
+	recordAudit,
+	recordNotification,
+} from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
@@ -258,8 +264,9 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.set({ cpu_throttle: null })
 				.where("id", "=", id)
 				.where(sql<string>`cpu_throttle->>'at'`, "=", throttle.at)
+				.returning("owner_user_id")
 				.executeTakeFirst();
-			if (Number(updated.numUpdatedRows) === 0) return false;
+			if (!updated) return false;
 			await trx
 				.deleteFrom("workspace_usage_samples")
 				.where("workspace_id", "=", id)
@@ -271,6 +278,13 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				action: "workspace.cpu_throttle_lifted",
 				result: "ok",
 				metadata: { reason: "idle", averagePercent },
+			});
+			// Written whether or not a page is open, so a student who was away
+			// still learns of the lift (SPEC.md 19.4).
+			await recordNotification(trx, updated.owner_user_id, {
+				tone: "success",
+				title: THROTTLE_LIFTED_TITLE,
+				body: "It was quiet long enough, so its processor limit was lifted.",
 			});
 			return true;
 		});

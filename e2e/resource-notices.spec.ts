@@ -8,6 +8,9 @@ import { expect, type Page, test } from "@playwright/test";
 import { createProject, createStudent, query, toast, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
+// e2e cannot import @portikus/contracts; this is its THROTTLE_LIFTED_TITLE.
+const THROTTLE_LIFTED_TITLE = "Your workspace is back to full speed";
+
 const GIB = 1024 ** 3;
 
 async function throttle(workspaceId: string): Promise<void> {
@@ -199,10 +202,46 @@ test("a toast says so when the throttle lifts while the page is open", async ({
 		"update workspaces set cpu_throttle = null, updated_at = now() where id = $1",
 		[student.workspaceId],
 	);
-	await expect(toast(page, "Your workspace is back to full speed")).toBeVisible({
+	await expect(toast(page, THROTTLE_LIFTED_TITLE)).toBeVisible({
 		timeout: 15_000,
 	});
 	await expect(page.getByTestId("throttle-notice")).toHaveCount(0);
+});
+
+test("an idle lift leaves one notification, from the worker, even with the page open", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await throttle(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("throttle-notice")).toBeVisible({ timeout: 15_000 });
+
+	// What the worker's idle lift writes: the cleared row and one notification.
+	await query(
+		"update workspaces set cpu_throttle = null, updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	await query(
+		`insert into notifications (user_id, tone, title, body)
+		 select owner_user_id, 'success', $2, 'It was quiet long enough.' from workspaces where id = $1`,
+		[student.workspaceId, THROTTLE_LIFTED_TITLE],
+	);
+	const shown = toast(page, THROTTLE_LIFTED_TITLE);
+	await expect(shown).toBeVisible({ timeout: 15_000 });
+	await page.mouse.move(0, 0);
+	await expect(shown).toHaveCount(0, { timeout: 15_000 });
+
+	// The toast is not recorded a second time.
+	const badge = page.getByTestId("notifications-badge");
+	await expect(async () => {
+		await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+		await expect(badge).toHaveText("1", { timeout: 1_000 });
+	}).toPass();
+	await badge.click();
+	await expect(
+		page.getByTestId("dialog-notifications").getByText(THROTTLE_LIFTED_TITLE),
+	).toHaveCount(1);
 });
 
 test("stopping a throttled workspace shows no back-to-full-speed toast", async ({
@@ -221,7 +260,7 @@ test("stopping a throttled workspace shows no back-to-full-speed toast", async (
 	);
 	await expect(page.getByTestId("throttle-notice")).toHaveCount(0);
 	await expect(page.getByTestId("workspace-state")).toHaveText("Stopping");
-	await expect(toast(page, "Your workspace is back to full speed")).toHaveCount(0);
+	await expect(toast(page, THROTTLE_LIFTED_TITLE)).toHaveCount(0);
 });
 
 test("with Find in files open, the memory meter and See what's using CPU close the search and focus Monitor", async ({

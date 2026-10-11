@@ -83,6 +83,11 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				title: "Accessibility",
 				controls: [
 					{ id: "screen-reader-mode", label: "Screen reader mode" },
+					{
+						id: "voice-input",
+						label: "Voice input",
+						terms: "microphone dictation speech",
+					},
 					// A pointer to Help, kept here so search still finds it.
 					{ id: "keyboard-help", label: "Keyboard and screen readers" },
 				],

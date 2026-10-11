@@ -3,13 +3,15 @@
  * move there, and files dragged in from the desktop upload into the folder
  * under the pointer. Both use the browser's own drag and drop, so a row costs
  * no per-row registration and loading more rows redraws none of the others.
+ * A drag that starts on a selected row carries the whole selection; one that
+ * starts elsewhere carries just that row.
  * The Move to dialog is the keyboard way to do the same (WCAG 2.5.7).
  */
 import { type DragEvent, useCallback, useRef, useState } from "react";
 import { moveForDrop } from "./paths.js";
 import type { RowStateStore } from "./rowState.js";
 import type { FileNode } from "./selection.js";
-import { draggedTreeNode, setDraggedTreeNode } from "./treeDrag.js";
+import { draggedTreeNodes, setDraggedTreeNodes } from "./treeDrag.js";
 
 /**
  * The type a dragged row carries. Private, so a row dropped on the editor, a
@@ -21,6 +23,28 @@ export const TREE_DRAG_TYPE = "application/x-portikus-tree-path";
 function dirUnder(target: EventTarget | null): string | null {
 	const element = target instanceof Element ? target.closest("[data-drop-dir]") : null;
 	return element?.getAttribute("data-drop-dir") ?? null;
+}
+
+/** The moves a drop of `nodes` on `dir` asks for; items that cannot go there are left out. */
+function movesForDrop(nodes: readonly FileNode[], dir: string | null) {
+	return nodes.flatMap((node) => {
+		const move = moveForDrop(node.path, dir);
+		return move ? [{ ...move, isDir: node.isDir }] : [];
+	});
+}
+
+/** A drag image naming the count, removed once the browser has copied it. */
+function showCount(event: DragEvent, count: number) {
+	const image = document.createElement("div");
+	image.textContent = `${count} items`;
+	image.style.position = "fixed";
+	image.style.top = "-1000px";
+	image.style.padding = "2px 8px";
+	image.style.background = "var(--pk-surface, #fff)";
+	image.style.color = "var(--pk-text, #000)";
+	document.body.append(image);
+	event.dataTransfer.setDragImage(image, 0, 0);
+	setTimeout(() => image.remove(), 0);
 }
 
 function dragKind(event: DragEvent): "move" | "upload" | null {
@@ -36,6 +60,7 @@ export function useTreeDragAndDrop({
 	afterMove,
 	fail,
 	uploadInto,
+	targetsFor,
 }: {
 	rowState: RowStateStore;
 	/** Resolves false when the student declined to replace a file. */
@@ -43,6 +68,8 @@ export function useTreeDragAndDrop({
 	afterMove: (from: string, to: string) => void;
 	fail: (error: unknown) => void;
 	uploadInto: (dir: string, files: FileList) => void;
+	/** The rows a drag from `node` carries, in tree order. */
+	targetsFor: (node: FileNode) => FileNode[];
 }) {
 	const [uploadDrag, setUploadDrag] = useState(false);
 	// How many pane elements the drag is currently inside. Moving onto a child
@@ -57,7 +84,7 @@ export function useTreeDragAndDrop({
 	// Stable, like startMove, because every row is handed it.
 	const reset = useCallback(() => {
 		depth.current = 0;
-		setDraggedTreeNode(null);
+		setDraggedTreeNodes([]);
 		rowState.setState({ draggedPath: null, dropDir: null });
 		setUploadDrag(false);
 	}, [rowState]);
@@ -67,19 +94,20 @@ export function useTreeDragAndDrop({
 		const dir = dirUnder(target);
 		// An upload anywhere else in the pane goes to the project root.
 		if (kind === "upload") return dir ?? "";
-		const from = draggedTreeNode();
-		return from && moveForDrop(from.path, dir) ? dir : null;
+		return movesForDrop(draggedTreeNodes(), dir).length > 0 ? dir : null;
 	}
 
 	/** On a row: start carrying it. */
 	const startMove = useCallback(
 		(event: DragEvent, node: FileNode) => {
+			const nodes = targetsFor(node);
 			event.dataTransfer.setData(TREE_DRAG_TYPE, node.path);
 			event.dataTransfer.effectAllowed = "move";
-			setDraggedTreeNode(node);
+			if (nodes.length > 1) showCount(event, nodes.length);
+			setDraggedTreeNodes(nodes);
 			rowState.setState({ draggedPath: node.path });
 		},
-		[rowState],
+		[rowState, targetsFor],
 	);
 
 	/** On the pane: where a drag is, and what a drop does. */
@@ -112,7 +140,7 @@ export function useTreeDragAndDrop({
 			const kind = dragKind(event);
 			if (!kind) return;
 			const dir = landing(kind, event.target);
-			const node = draggedTreeNode();
+			const nodes = draggedTreeNodes();
 			reset();
 			if (dir === null) return;
 			event.preventDefault();
@@ -120,13 +148,15 @@ export function useTreeDragAndDrop({
 				if (event.dataTransfer.files.length) uploadInto(dir, event.dataTransfer.files);
 				return;
 			}
-			const move = node ? moveForDrop(node.path, dir) : null;
-			if (!node || !move) return;
-			void moveFile(move.from, move.to, node.isDir)
-				.then((moved) => {
-					if (moved) afterMove(move.from, move.to);
-				})
-				.catch(fail);
+			const moves = movesForDrop(nodes, dir);
+			// One at a time, like the Move to dialog, so a failure stops the rest.
+			void (async () => {
+				for (const move of moves) {
+					if (await moveFile(move.from, move.to, move.isDir)) {
+						afterMove(move.from, move.to);
+					}
+				}
+			})().catch(fail);
 		},
 	};
 

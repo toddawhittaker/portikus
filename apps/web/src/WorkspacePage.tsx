@@ -1,4 +1,4 @@
-import type { Workspace } from "@portikus/contracts";
+import { THROTTLE_LIFTED_TITLE, type Workspace } from "@portikus/contracts";
 import { PaneHandle, Skeleton, useToast } from "@portikus/ui";
 import { Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -293,8 +293,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 }
 
 /**
- * Says so when a throttle this page was showing goes away, which is how the
- * student learns of an idle lift (SPEC.md §19.4).
+ * Says so at once when a throttle this page was showing goes away (SPEC.md §19.4).
  */
 function useThrottleLiftToast(workspace: Workspace | null) {
 	const toast = useToast();
@@ -305,7 +304,8 @@ function useThrottleLiftToast(workspace: Workspace | null) {
 		const now = workspace.cpuThrottle?.at ?? null;
 		// A stop or restart clears the throttle too; that is not "back to full speed".
 		if (throttledAt.current !== null && now === null && workspace.state === "running") {
-			toast.show({ tone: "success", title: "Your workspace is back to full speed" });
+			// The worker writes the history row for an idle lift, page open or not.
+			toast.show({ tone: "success", title: THROTTLE_LIFTED_TITLE, unrecorded: true });
 		}
 		throttledAt.current = now;
 	}, [workspace, toast]);
