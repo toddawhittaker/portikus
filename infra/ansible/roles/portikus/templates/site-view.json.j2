@@ -6,13 +6,18 @@
 {%- set certificate_source = certificate.source
       if certificate.source | default('') in ['internal', 'acme', 'files']
       else {'letsencrypt': 'acme', 'files': 'files'}.get(portikus_tls, 'internal') -%}
+{#- Set by hand means written in portikus.yaml, as the site job reads it; a
+    hand-written value equal to the default still stays on a move. -#}
+{%- set answers = portikus_site_answers_file.content | default('') | b64decode | from_yaml -%}
+{%- set suffix_by_hand = answers is mapping and answers.portikus_preview_suffix | default('') is string
+      and answers.portikus_preview_suffix | default('') | length > 0 -%}
 {%- set view = {
       'version': 1,
       'apt': portikus_site_answers.stat.exists,
       'host': portikus_public_host,
       'port': portikus_public_port | int,
       'previewSuffix': portikus_preview_suffix,
-      'previewSuffixSetByHand': portikus_preview_suffix != 'preview.' ~ portikus_public_host,
+      'previewSuffixSetByHand': suffix_by_hand,
       'provider': provider,
       'entraTenantId': portikus_entra_tenant_id if provider == 'entra' else none,
       'googleDomains': portikus_google_domains if provider == 'google' else [],

@@ -10,14 +10,19 @@
 
 # Fetched from the VM, which is where the proxy will be asked to reach them.
 - name: Read the providers' discovery documents
-  ansible.builtin.uri:
-    url: "{{ item.issuer | regex_replace('/+$', '') }}/.well-known/openid-configuration"
-    return_content: true
-  loop: "{{ egress_proxy_discovery }}"
-  register: egress_proxy_discovery_documents
+  ansible.builtin.import_tasks: discovery.yml
 
 - name: Build the allow list
   ansible.builtin.import_tasks: allow_list.yml
+
+# Readable by the API only, like the page's own proxy-hosts.json.
+- name: Write the operator's proxy hosts for the admin page
+  ansible.builtin.template:
+    src: operator-proxy-hosts.json.j2
+    dest: /etc/portikus/operator-proxy-hosts.json
+    owner: root
+    group: portikus
+    mode: "0640"
 
 - name: Show the egress allow list
   ansible.builtin.debug:
