@@ -469,6 +469,14 @@ export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 		return this.seedExec(command);
 	}
 
+	/** Unpacked size the builder reports for each image; null means it could not be read. */
+	seedImageSize: (image: string) => number | null = () => 300 * 1000 ** 2;
+
+	async seedImageBytes(image: string): Promise<number | null> {
+		this.seedSteps.push(`measure ${image}`);
+		return this.seedImageSize(image);
+	}
+
 	async seedImageVersion(): Promise<string> {
 		return "2026.09.9";
 	}

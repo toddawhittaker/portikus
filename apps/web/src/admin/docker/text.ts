@@ -2,6 +2,7 @@ import {
 	canonicalImageName,
 	type DockerCacheStatus,
 	HubCredentialRequest,
+	imageSize,
 	isMatchedTag,
 	MATCHED_LANGUAGES,
 	OTHER_IMAGES_LABEL,
@@ -82,35 +83,40 @@ export function seedUseText(sizeBytes: number, seedMaxGiB: number): string {
 	return `${formatBytes(sizeBytes)} of the ${formatBytes(seedMaxGiB * 1024 ** 3)} limit`;
 }
 
-/** An image's download size from the cache, looked up as Docker reads the name, or null. */
-export function downloadSize(
-	sizes: Record<string, number>,
-	name: string,
-): number | null {
-	return sizes[canonicalImageName(name)] ?? null;
-}
-
 /**
- * What the list for the next rebuild downloads, against the seed's limit.
- * Download sizes are compressed, so the built seed is larger; the sentence says so.
+ * What the list for the next rebuild takes, against the seed's limit. A size
+ * the last seed measured is unpacked; any other is a compressed download
+ * size, and then the sentence says the seed will be larger.
  */
 export function listSizeText(
 	list: readonly string[],
 	sizes: Record<string, number>,
 	seedMaxGiB: number,
+	unpackedSizes: Record<string, number> = {},
 ): string {
-	const known = list.map((name) => downloadSize(sizes, name));
-	const total = known.reduce<number>((sum, n) => sum + (n ?? 0), 0);
+	const known = list.map((name) => imageSize(name, sizes, unpackedSizes));
+	const total = known.reduce<number>((sum, n) => sum + (n?.bytes ?? 0), 0);
 	const unknown = known.filter((n) => n === null).length;
-	const limit = `The limit of ${formatBytes(seedMaxGiB * 1024 ** 3)} counts the unpacked images, which take more space than their download.`;
+	const downloads = known.filter((n) => n !== null && !n.unpacked).length;
+	const limitBytes = formatBytes(seedMaxGiB * 1024 ** 3);
+	const limit =
+		downloads === 0 && unknown < list.length
+			? `The limit is ${limitBytes}.`
+			: `The limit of ${limitBytes} counts the unpacked images, which take more space than their download.`;
 	if (unknown === list.length) {
-		return `Download sizes are not known yet; the pull cache has not held these images. ${limit}`;
+		return `Sizes are not known yet; neither the last seed nor the pull cache has held these images. ${limit}`;
 	}
-	const rest =
-		unknown === 0
-			? ""
-			: `, not counting ${unknown} ${unknown === 1 ? "image" : "images"} the pull cache has not held`;
-	return `These images download as ${formatBytes(total)}${rest}. ${limit}`;
+	const unknownText = `${unknown} ${unknown === 1 ? "image" : "images"}`;
+	if (downloads === list.length - unknown) {
+		const rest =
+			unknown === 0 ? "" : `, not counting ${unknownText} the pull cache has not held`;
+		return `These images download as ${formatBytes(total)}${rest}. ${limit}`;
+	}
+	const rest = unknown === 0 ? "" : `, not counting ${unknownText} with no known size`;
+	if (downloads === 0) {
+		return `These images take ${formatBytes(total)} unpacked on disk${rest}. ${limit}`;
+	}
+	return `These images take at least ${formatBytes(total)}, counting download sizes for the ${downloads} not in the last seed${rest}. ${limit}`;
 }
 
 /** Part of a notice sentence: plain words, or an image name shown as code. */

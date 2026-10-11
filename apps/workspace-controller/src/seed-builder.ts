@@ -134,6 +134,23 @@ export class IncusSeedBuilder implements SeedBuildHost {
 		return status ?? -1;
 	}
 
+	async seedImageBytes(image: string): Promise<number | null> {
+		try {
+			const { status, stdout, tooLarge } = await this.client.exec(
+				SEED_BUILDER,
+				["/usr/bin/docker", "image", "inspect", "--format", "{{.Size}}", image],
+				{ timeoutSeconds: 30, outputMaxBytes: 64 },
+			);
+			const text = stdout.toString("utf8").trim();
+			if (status !== 0 || tooLarge || !/^\d{1,16}$/.test(text)) return null;
+			return Number(text);
+		} catch (err) {
+			// A size is only shown on the admin page; it never fails the build.
+			this.log.warn({ err: errorMessage(err) }, "could not measure a seed image");
+			return null;
+		}
+	}
+
 	async seedImageVersion(): Promise<string> {
 		const image = await readCurrentImage(this.client, this.imageAlias);
 		const version = image.serial ?? image.fingerprint;
