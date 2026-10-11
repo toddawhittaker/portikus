@@ -3344,7 +3344,7 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   attach and the workspace limits), which stay enabled. Purge also
   deletes the unit files, the other drop-ins, `/etc/portikus-workspace-proxy`
   and the site's `/etc/hosts` line. It also stops and disables Squid
-  (leaving `squid.conf`) and deletes setup's helpers under `/usr/local`
+  and Caddy (leaving `squid.conf` and the Caddyfile) and deletes setup's helpers under `/usr/local`
   (Epic 46). It keeps the `docker-registry` mask
   and the nftables drop-in. A reinstall followed by setup brings
   everything back. A test ties the removal list to the Ansible roles.
