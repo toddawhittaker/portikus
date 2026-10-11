@@ -1,0 +1,34 @@
+---
+# The curl command that reads each provider's discovery document.  It speaks
+# only HTTPS and follows no redirect.  Through our Squid when it runs;
+# otherwise pinned to an address issuer_check.yml passed, with the name kept
+# for the Host header and the certificate check, so no second lookup can
+# swap the address.  egress-proxy-render-test.yml runs it on samples.
+- name: Start with no fetch commands
+  ansible.builtin.set_fact:
+    egress_proxy_discovery_commands: []
+
+- name: Build each provider's fetch command
+  ansible.builtin.set_fact:
+    egress_proxy_discovery_commands: "{{ egress_proxy_discovery_commands + [{'item': item.0, 'argv': egress_proxy_argv}] }}"
+  loop: "{{ egress_proxy_discovery | zip_longest(egress_proxy_issuer_lookups.results | default([]), fillvalue={}) | list }}"
+  loop_control:
+    label: "{{ item.0.issuer }}"
+  vars:
+    egress_proxy_name: "{{ item.0.issuer | urlsplit('hostname') }}"
+    egress_proxy_name_port: "{{ item.0.issuer | urlsplit('port') or 443 }}"
+    egress_proxy_addresses: "{{ item.1.stdout_lines | default([]) | map('split') | map('first') | unique | list }}"
+    # IPv4 first, for a VM with no IPv6 route.
+    egress_proxy_pin: "{{ ((egress_proxy_addresses | select('match', '^[0-9.]+$') | list) + egress_proxy_addresses) | first | default('') }}"
+    egress_proxy_route: >-
+      {{ ['--proxy', 'http://127.0.0.1:' ~ egress_proxy_port]
+           if egress_proxy_via_squid | bool
+         else ['--noproxy', '*', '--resolve',
+               egress_proxy_name ~ ':' ~ egress_proxy_name_port ~ ':'
+               ~ ('[' ~ egress_proxy_pin ~ ']' if ':' in egress_proxy_pin else egress_proxy_pin)] }}
+    # The status code on a last line of its own, for discovery_documents.yml.
+    egress_proxy_argv: >-
+      {{ ['curl', '--silent', '--show-error', '--proto', '=https', '--max-redirs', '0', '--max-time', '30',
+          '--write-out', '\n%{http_code}']
+         + egress_proxy_route
+         + [item.0.issuer | regex_replace('/+$', '') ~ '/.well-known/openid-configuration'] }}

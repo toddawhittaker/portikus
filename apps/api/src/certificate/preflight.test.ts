@@ -75,7 +75,7 @@ describe("runPreflight", () => {
 		const failed = result.checks
 			.filter((c) => c.result === "failed")
 			.map((c) => c.name);
-		expect(failed).toEqual(["dns-preview", "reach-preview"]);
+		expect(failed).toEqual(["dns-preview"]);
 		expect(result.checks.find((c) => c.name === "dns-preview")?.message).toContain(
 			"*.preview.example.edu",
 		);
@@ -129,7 +129,26 @@ describe("runPreflight", () => {
 			nonces,
 		);
 		const result = await runPreflight({ config, net, nonces, mode: "http01" });
-		expect(result.checks.find((c) => c.name === "reach-site")?.result).toBe("failed");
+		expect(result.checks.find((c) => c.name === "reach-site")?.result).toBe("warning");
+	});
+
+	test("HTTP-01 with failing reach and port 80 is ok with warnings", async () => {
+		// The sandbox keeps the probes on the host, so they are advisory.
+		const nonces = new NonceStore();
+		const net = fakeNet(
+			() => ["192.0.2.10"],
+			() => null,
+			nonces,
+		);
+		const result = await runPreflight({ config, net, nonces, mode: "http01" });
+		expect(result.ok).toBe(true);
+		expect(result.checks.map((c) => [c.name, c.result])).toEqual([
+			["dns-site", "passed"],
+			["dns-preview", "passed"],
+			["reach-site", "warning"],
+			["reach-preview", "warning"],
+			["http-port-80", "warning"],
+		]);
 	});
 });
 

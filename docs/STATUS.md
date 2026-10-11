@@ -5229,6 +5229,57 @@ Gaps left:
 
 Rehearsal: Epic 43 on the rehearsal VM after restoring the pre-Epic-42 database. Migration 0044 moved Dex accounts to `urn:portikus:dex` and the administrator kept its id. An address move there and back kept the account, workspace and links, with Keep pressed from the new address. Unkept trials and an unhealthy API revert. `trial_superseded` holds after an outside settings change. A second key set URL for one LMS issuer is refused with a field message. Remove and reinstall left no package units. Smoke 385 passed, 0 failed, no skips. Two site job fixes (loopback health check, wall-clock trial deadline) in #1474. Not run: a trial with a real outside OIDC provider, since there is no trusted test provider on port 443.
 
+## Epic 44 — Site address and package removal fixes
+
+Built on `epic/44-site-and-removal` (task PRs #1485 to #1487, #1490, #1493
+to #1495, and this fold). Issues #1475, #1476, #1468, #1464, #1477 and
+#1296. ADRs 0059 and 0061.
+
+Delivered:
+
+- Address Apply refuses a name that does not resolve
+  (`ADDRESS_DNS_UNRESOLVED`); certificate reach and port-80 checks are
+  warnings in both modes, and the warning summary names the right reason.
+- The site's `/etc/hosts` line carries a marker and is replaced on a move;
+  `previewSuffixSetByHand` follows `portikus.yaml`.
+- The Network tab reads the operator's hosts from
+  `operator-proxy-hosts.json`, not `squid.conf`. The link search is
+  debounced and announces a stale search, and a sign-in trial no longer
+  takes focus from another group.
+- Setup fetches a discovery document through Squid once it runs, and on a
+  first setup refuses a private address and pins the fetch, HTTPS only,
+  with no redirects. A temporary Squid rule is always cleaned up.
+- `apt remove` stops and disables setup's units and drops the alert
+  drop-ins; purge deletes them. The workspace limits and storage attach
+  stay on remove. A test ties the list to the Ansible roles, and the
+  install test has remove and reinstall steps (ADR 0061).
+
+Gaps:
+
+- Purge leaves Squid's include and the `/usr/local` helpers (#1492).
+- A host moved several times under old versions may keep stale unmarked
+  `/etc/hosts` lines.
+- A bare-IP issuer is refused through Squid on a rerun.
+- The new install-test remove and reinstall steps have not run on a VM
+  until the rehearsal.
+- DNS checks still depend on a loopback resolver reachable from the sandbox.
+
+Rehearsal: on the rehearsal VM with 0.1.1139+g90b1ce27 and then
+0.1.1140+g3e28ba7b, setup passed on install and on reruns. A test Google
+sign-in fetched its discovery document both through Squid and by the
+pinned first-setup route, and left no temporary rule. Setup kept one
+marked hosts line through an address trial and rollback. Applying an
+unresolvable name was refused with ADDRESS_DNS_UNRESOLVED. The HTTP-01
+reach and port-80 checks warned instead of failing. The file
+operator-proxy-hosts.json (root:portikus 0640) fed the Network page. apt
+remove left only the workspace limits running, and a reinstall brought
+everything back. Purge dropped the marked hosts line and left Squid's
+include broken, as #1492 describes. The rehearsal found that prerm's stop
+could leave an interrupted backup-channel run in the failed state; prerm
+now clears failed Portikus units (#1503). The smoke test gave 385 passed,
+0 failed with the Dex sign-in, after the reinstall, after the purge
+restore and on the final package.
+
 ## Epic 45 — Workspace image and Docker cache
 
 Built on `epic/45-image-and-docker` (task PRs #1488, #1489, #1491, #1496, #1498, #1499 and #1501, and this fold). Issues #1361, #1481, #1278, #1279 and #1280. Migration 0046; ADR 0062.

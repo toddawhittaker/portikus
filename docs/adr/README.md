@@ -88,4 +88,5 @@ has four sections:
 | [0058](0058-lti-roster-and-deep-linking.md) | LTI roster sync through NRPS, and Deep Linking to a template or public repository (accepted, Epic 42) |
 | [0059](0059-site-job-for-admin-self-service.md) | One root site job applies the admin page's site changes: proxy hosts, LMS platforms, the site address and the sign-in provider (accepted, Epic 43) |
 | [0060](0060-agent-log-ring.md) | The workspace agent keeps a small in-memory ring of its own warnings, which the admin page pulls on demand (accepted, Epic 43) |
+| [0061](0061-package-removal-policy.md) | Package removal stops what setup wrote and purge deletes it, with three deliberate keeps (accepted, Epic 44) |
 | [0062](0062-pinned-playwright-browser.md) | The image ships one pinned Playwright browser, linked into each student's home at login (accepted, Epic 45) |

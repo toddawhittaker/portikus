@@ -1,0 +1,21 @@
+---
+# Refuses a provider whose name resolves to an address Squid denies, from
+# `getent ahosts` results in egress_proxy_issuer_lookups.
+# egress-proxy-render-test.yml runs it on sample lookups.
+- name: Refuse a provider at a private, loopback or link-local address
+  ansible.builtin.assert:
+    that:
+      - egress_proxy_issuer_addresses | length > 0
+      - egress_proxy_issuer_addresses | select('ansible.utils.in_any_network', egress_proxy_denied_ranges) | list | length == 0
+    fail_msg: >-
+      {{ 'The sign-in provider ' ~ item.item.issuer ~ ' does not resolve to any address.'
+         if egress_proxy_issuer_addresses | length == 0
+         else 'The sign-in provider ' ~ item.item.issuer ~ ' resolves to '
+              ~ egress_proxy_issuer_addresses | join(', ')
+              ~ ', which includes a private, loopback or link-local address.  Setup reads a provider only on the internet.' }}
+    quiet: true
+  loop: "{{ egress_proxy_issuer_lookups.results }}"
+  loop_control:
+    label: "{{ item.item.issuer }}"
+  vars:
+    egress_proxy_issuer_addresses: "{{ item.stdout_lines | default([]) | map('split') | map('first') | unique | list }}"

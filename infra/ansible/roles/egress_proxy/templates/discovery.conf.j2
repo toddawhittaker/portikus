@@ -1,0 +1,12 @@
+# Managed by Ansible (egress_proxy role).  Lets setup read the providers'
+# discovery documents and is removed straight after; after squid.conf's
+# address denies, so a provider at a private address stays refused.
+{% for issuer in egress_proxy_discovery | map(attribute='issuer') | map('urlsplit') %}
+{# A name only: squid refuses an address given directly before this rule. #}
+{% if issuer.hostname | default('') is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)*$')
+      and issuer.hostname is not match('^(.*[.])?[0-9]+$') %}
+acl portikus_setup_discovery_{{ loop.index }} dstdomain -n {{ issuer.hostname }}
+acl portikus_setup_discovery_{{ loop.index }}_port port {{ issuer.port or (80 if issuer.scheme == 'http' else 443) }}
+http_access allow portikus_fetch portikus_setup_discovery_{{ loop.index }} portikus_setup_discovery_{{ loop.index }}_port
+{% endif %}
+{% endfor %}
