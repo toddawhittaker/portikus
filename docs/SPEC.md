@@ -2902,14 +2902,19 @@ the host goes through the root site job (section 24.1):
 - **Allowed API hosts.** A group in the Network tab adds host names the
   Portikus server itself may reach on port 443 (at most 50, no IP
   addresses). Workspaces are not affected. The operator's list shows
-  read-only.
+  read-only. The API reads it from `/etc/portikus/operator-proxy-hosts.json`
+  (`{"version": 1, "hosts": [...]}`, same shape as `proxy-hosts.json`),
+  which the portikus role writes from the egress proxy's host entries;
+  a missing or malformed file reads as an empty list (Epic 44).
 - **Site address.** The page plans a move to a new host name or port,
   checks DNS with a pre-flight, which Apply repeats on the server and
   refuses on a name that does not resolve, and applies it as a 15-minute trial that
   must be kept from the new address. Uploaded certificates must cover
   the new names. The preview suffix follows the host unless it was set
   by hand. Running workspaces keep the old suffix until their next
-  start, and the page lists them.
+  start, and the page lists them. Setup marks its `/etc/hosts` line for
+  the site with `# portikus site address`, so a move replaces that line
+  and does not add another (Epic 44).
 - **Users paging.** The Users list is searched, filtered, sorted and
   paged on the server, 50 rows a page, after the markers are computed
   over all accounts. A request with no `limit` returns the whole list.
@@ -3300,6 +3305,19 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   activate. A host that already has a default is left alone, so setup
   never overrides an administrator's choice. A failed first install fails
   setup unless a default exists by then.
+- **Removal.** Added by Epic 44 (ADR 0061). `apt remove` stops and
+  disables every unit setup wrote into `/etc/systemd/system` and deletes
+  the alert drop-ins, but keeps the boot units that Incus needs (storage
+  attach and the workspace limits), which stay enabled. Purge also
+  deletes the unit files, the other drop-ins, `/etc/portikus-workspace-proxy`
+  and the site's `/etc/hosts` line. It keeps the `docker-registry` mask
+  and the nftables drop-in. A reinstall followed by setup brings
+  everything back. A test ties the removal list to the Ansible roles.
+- **Discovery fetch.** Setup fetches an OIDC issuer's discovery document
+  over HTTPS with no redirects. Once Squid runs it goes through Squid. On
+  a first setup it refuses an issuer whose name resolves to a private,
+  loopback or link-local address, and pins the fetch to the checked
+  address (Epic 44, ADR 0059). A provider whose discovery address redirects now fails setup with a message naming the redirect target.
 - **The install test.** `make install-test` builds a signed repository
   from the checkout on this host, installs it on a throwaway rehearsal VM
   (never the pilot), signs in as the local administrator, runs the smoke
@@ -6268,6 +6286,23 @@ Acceptance:
 - a test sign-in creates no user, session or role;
 - page proxy hosts and LMS hosts reach Squid only as host names on port 443;
 - the Users list fetches 50 rows a page.
+
+### Epic 44 — Site address and package removal fixes
+
+Built on `epic/44-site-and-removal`, issues #1475, #1476, #1468, #1464, #1477 and #1296. See sections 20.1, 21.12 and 24.11 and ADRs 0059 and 0061.
+
+Includes:
+
+- Apply repeats the DNS checks on the server; certificate reach and port-80 checks are warnings in both modes;
+- a marked `/etc/hosts` line replaced on an address move, and the operator's proxy hosts in `operator-proxy-hosts.json`;
+- a discovery fetch through Squid, or pinned and redirect-free on a first setup;
+- `apt remove` and purge that leave no setup-written units behind, and install-test steps that remove and reinstall.
+
+Acceptance:
+
+- an address move leaves one site line in `/etc/hosts`;
+- Apply refuses a name that does not resolve;
+- after `apt remove`, no Portikus unit is enabled except the boot units, and Caddy and PostgreSQL keep running.
 
 ### Estimated total
 

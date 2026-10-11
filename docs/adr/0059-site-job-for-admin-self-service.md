@@ -64,9 +64,11 @@ keeps the stored one.
   through it. A missing file reads as "not available here".
 - **Page-owned files.** `/etc/portikus/proxy-hosts.json` and
   `/etc/portikus/lti-platforms-admin.json`, root:portikus 0640, beside the
-  operator's files. The operator's Squid list and
-  `LTI_PLATFORMS_FILE` stay owned by Ansible and show read-only on the
-  page.
+  operator's files. The operator's hosts are in
+  `/etc/portikus/operator-proxy-hosts.json`, which Ansible writes in the
+  same shape (Epic 44; the API no longer parses `squid.conf`). That file
+  and `LTI_PLATFORMS_FILE` stay owned by Ansible and show read-only on
+  the page.
 - **Squid includes.** `/etc/portikus/egress-proxy.d/admin.conf` for proxy
   hosts and `lti.conf` for platform hosts, written by swap, parse and roll
   back as in ADR 0052. The alerts job and the site job take one shared
@@ -172,6 +174,9 @@ Number 15 is not here: the workspace agent's own log is decided in ADR 0060.
   `portikus_public_port` in `portikus.yaml`. The guides say so.
 - **8. Running workspaces** keep the old preview suffix until their next
   start. The page lists them and nothing is restarted.
+- **8a. Apply repeats the DNS check** (Epic 44): the apply route resolves
+  the new names on the server and refuses with `ADDRESS_DNS_UNRESOLVED`.
+  Reach checks stay warnings.
 - **9. Page-owned files** live beside the operator's, as described above.
   The operator's list and file stay owned by Ansible and show read-only.
 - **10. API restart.** The `lti-platforms` job restarts the API so it reads
@@ -241,10 +246,13 @@ written here.
   `{location}`, and the page's script sends the browser there after
   checking it is an https address. A form post to the provider would need
   the Content Security Policy's `form-action` widened, so it is not used.
-- **Accepted risk.** Setup fetches the discovery document directly as
-  root, not through Squid, because it runs before Squid's allow list is
-  written. The issuer rule above limits what it can reach; moving the
-  fetch behind Squid is left to #1464.
+- **Discovery fetch (Epic 44).** Setup used to fetch the discovery
+  document directly as root. Now, once Squid runs, it adds a temporary
+  rule for the provider, fetches through Squid and removes the rule. On
+  a first setup, before Squid exists, it refuses an issuer that resolves
+  to a private, loopback or link-local address and pins the fetch to the
+  checked address, HTTPS only, with no redirects. A provider whose discovery address redirects now fails setup with a message naming the redirect target. The bare-IP issuer is
+  still refused through Squid on a rerun.
 
 ## Consequences
 
