@@ -257,7 +257,7 @@ test("a kept folder from a partly done restore is listed and deleted after a con
 
 	// Escape closes only the confirmation.
 	await kept
-		.getByRole("button", { name: /^Delete kept folder from a restore to / })
+		.getByRole("button", { name: `Delete ~/projects/.portikus-aside-${pointId}` })
 		.click();
 	const ask = page.getByTestId("dialog-delete-kept-folder");
 	await expect(ask).toContainText(
@@ -268,14 +268,16 @@ test("a kept folder from a partly done restore is listed and deleted after a con
 	await expect(ask).toHaveCount(0);
 	await expect(dialog).toBeVisible();
 
-	await kept.getByRole("button", { name: /^Delete kept folder/ }).click();
+	await kept.getByRole("button", { name: /^Delete ~\/projects\// }).click();
 	await ask.getByRole("button", { name: "Delete folder" }).click();
 	await expect(dialog.getByTestId("recovery-status")).toHaveText(
 		"Kept folder deleted.",
 	);
 	await expect(kept).toHaveCount(0);
 	await expect(dialog.getByRole("heading", { name: "Kept folders" })).toHaveCount(0);
-	await expect(dialog.getByTestId("recovery-create")).toBeFocused();
+	await expect(
+		dialog.getByRole("heading", { name: /^Recovery points for / }),
+	).toBeFocused();
 
 	const audit = await query<{ result: string }>(
 		"select result from audit_events where action = 'recovery.aside_deleted' and target = $1",

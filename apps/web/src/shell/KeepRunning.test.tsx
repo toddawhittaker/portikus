@@ -11,7 +11,6 @@ import {
 	holdActive,
 	KeepRunningSection,
 	keepRunningChoices,
-	withinCap,
 } from "./KeepRunning.js";
 import { StatusBar } from "./StatusBar.js";
 
@@ -261,11 +260,12 @@ test("a clock time across a daylight saving change uses the offset at that time"
 	);
 });
 
-test("a clock time is bounded by the same cap as the hours", () => {
-	const now = Date.parse("2026-10-01T00:00:00.000Z");
-	expect(withinCap("2026-10-01T12:00:00.000Z", 12, now)).toBe(true);
-	expect(withinCap("2026-10-01T12:01:00.000Z", 12, now)).toBe(false);
-	expect(withinCap("2026-10-01T01:00:00.000Z", 0, now)).toBe(false);
+test("a clock time skipped by spring forward ends after the gap, not an hour early", () => {
+	// 20:00 EST on Mar 7; 02:30 on Mar 8 does not exist in New York, so 03:30 EDT.
+	const now = Date.parse("2026-03-08T01:00:00.000Z");
+	expect(endAtClockTime("02:30", "America/New_York", now)).toBe(
+		"2026-03-08T07:30:00.000Z",
+	);
 });
 
 test("a typed clock time sets the hold, and one past the cap is refused before sending", async () => {
@@ -284,10 +284,13 @@ test("a typed clock time sets the hold, and one past the cap is refused before s
 	};
 	fireEvent.change(at, { target: { value: clockIn(180) } });
 	expect(screen.getByText("That is more than 1 hour away.")).toBeDefined();
-	expect(set.disabled).toBe(true);
+	expect(set.getAttribute("aria-disabled")).toBe("true");
+	expect(set.getAttribute("aria-describedby")).toBe("keep-running-at-err");
+	fireEvent.click(set);
+	expect(calls.length).toBe(0);
 
 	fireEvent.change(at, { target: { value: clockIn(30) } });
-	expect(set.disabled).toBe(false);
+	expect(set.getAttribute("aria-disabled")).toBeNull();
 	fireEvent.click(set);
 	await waitFor(() => expect(calls.length).toBe(1));
 	const sent = calls[0]?.body as { until: string } | undefined;

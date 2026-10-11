@@ -40,6 +40,7 @@ import {
 	type ThemePreference,
 } from "../shell/theme.js";
 import { useMe } from "../useMe.js";
+import { recognizerClass } from "../voice/useSpeechInput.js";
 import { useProfile, useUpdateProfile } from "./profileQueries.js";
 import { SETTINGS_SECTIONS, type SettingsControl, settingsHits } from "./sections.js";
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
@@ -423,7 +424,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					>
 						{settings.data?.voiceInputEnabled === false
 							? "Your administrator turned voice input off for this site."
-							: "Hold the microphone button in a terminal or file, or Alt+Shift+M, to dictate."}
+							: recognizerClass() === null
+								? "This browser does not offer voice input."
+								: "Hold the microphone button in a terminal or file, or Alt+Shift+M, to dictate."}
 					</p>
 				);
 			case "keyboard-help":

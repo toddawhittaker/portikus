@@ -83,7 +83,7 @@ test("delete asks first, saying what the folder holds, then deletes and announce
 
 	fireEvent.click(
 		await screen.findByRole("button", {
-			name: `Delete kept folder from a restore to ${pointTime(FOLDER.pointCreatedAt)}`,
+			name: `Delete ~/projects/.portikus-aside-${FOLDER.pointId}`,
 		}),
 	);
 	const confirm = screen.getByTestId("dialog-delete-kept-folder");

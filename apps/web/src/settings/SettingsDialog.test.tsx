@@ -716,7 +716,15 @@ test("a second password change in one visit is announced again", async () => {
 });
 
 /** Voice input is a site switch, so the dialog only reports it (SPEC.md §25.10). */
-test("Accessibility says how to dictate, or that the administrator turned voice input off", async () => {
+test("Accessibility says how to dictate, that the browser has no voice input, or that the administrator turned it off", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	expect((await screen.findByTestId("settings-voice-input")).textContent).toBe(
+		"This browser does not offer voice input.",
+	);
+	cleanup();
+
+	vi.stubGlobal("SpeechRecognition", class {});
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	expect((await screen.findByTestId("settings-voice-input")).textContent).toContain(

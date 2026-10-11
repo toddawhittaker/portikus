@@ -1,4 +1,4 @@
-import { Workspace } from "@portikus/contracts";
+import { keepRunningRefusal, Workspace } from "@portikus/contracts";
 import { Button, Select, TextField } from "@portikus/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -109,14 +109,17 @@ export function endAtClockTime(
 		// Two passes, so an offset that changes between now and then (daylight saving) is used.
 		let at = wall - (wallClockMs(wall, zone) - wall);
 		at = wall - (wallClockMs(at, zone) - at);
+		// A time skipped by a spring-forward change lands an hour early; move past the gap.
+		const read = wallClockMs(at, zone);
+		if (read !== wall) at += wall - read;
 		if (at > now) return new Date(at).toISOString();
 	}
 	return null;
 }
 
-/** Whether an end is no further ahead than the cap, the bound the API also checks. */
-export function withinCap(until: string, maxHours: number, now = Date.now()): boolean {
-	return maxHours > 0 && Date.parse(until) - now <= maxHours * 3_600_000;
+/** Whether the API would accept this end, by the same rule it checks. */
+function allowed(until: string, maxHours: number): boolean {
+	return keepRunningRefusal(new Date(until), new Date(), maxHours) === null;
 }
 
 /** Whether the workspace has a hold that has not yet ended. */
@@ -193,7 +196,7 @@ export function KeepRunningSection({
 
 	const endNow = () => (clock ? endAtClockTime(clock, timeZone) : endFor(hours));
 	const until = endNow();
-	const tooFar = until !== null && !withinCap(until, workspace.keepRunningMaxHours);
+	const tooFar = until !== null && !allowed(until, workspace.keepRunningMaxHours);
 
 	function hold(next: string) {
 		// Cleared first, so the same words twice in a row are still announced.
@@ -252,7 +255,7 @@ export function KeepRunningSection({
 							if (
 								!keep.isPending &&
 								next !== null &&
-								withinCap(next, workspace.keepRunningMaxHours)
+								allowed(next, workspace.keepRunningMaxHours)
 							)
 								hold(next);
 						}}
@@ -278,6 +281,7 @@ export function KeepRunningSection({
 									label="Or until"
 									value={clock}
 									onChange={(event) => setClock(event.target.value)}
+									hint={timeZone ? `In your timezone, ${timeZone}` : undefined}
 									error={
 										tooFar
 											? `That is more than ${hoursText(workspace.keepRunningMaxHours)} away.`
@@ -292,7 +296,9 @@ export function KeepRunningSection({
 									// The end time can outgrow a narrow dialog or 200% text, so it wraps.
 									className="h-auto! min-h-[var(--pk-control)] whitespace-normal! py-1.5 text-left leading-snug!"
 									loading={keep.isPending && keep.variables !== null}
-									disabled={until === null || tooFar}
+									// Not native disabled, so focus stays here; the submit handler refuses.
+									aria-disabled={until === null || tooFar || undefined}
+									aria-describedby={tooFar ? "keep-running-at-err" : undefined}
 								>
 									Keep running until {until ? formatHoldEnd(until, timeZone) : "…"}
 								</Button>
