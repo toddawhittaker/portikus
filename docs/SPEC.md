@@ -3098,7 +3098,21 @@ It should include at least:
 - links to the shared Claude Code and Codex (§10.1), which are not installed in the image;
 - tmux or the selected PTY persistence layer;
 - workspace-agent and service definition;
-- the terminals unit and its exit record (§9.7, §19.3).
+- the terminals unit and its exit record (§9.7, §19.3);
+- Playwright's headless Chromium (`chromium-headless-shell`) for one pinned
+  Playwright version, with the system libraries and the one font family it
+  needs, and no other browser.
+
+The browser lives in `/opt/ms-playwright`, and the pinned version is
+recorded at the top of `infra/workspace-image/portikus.yaml`; each image
+refresh moves it. `PLAYWRIGHT_BROWSERS_PATH` stays unset. A login script
+links the pinned build into the student's own Playwright folder,
+`~/.cache/ms-playwright`, and names it in that folder's `.links` list so
+Playwright's cleanup keeps it. A project that pins `@playwright/test` to
+the image's version runs its tests with no download. A project on any other
+version gets Playwright's own message and installs that version's browser
+into the home volume with `npx playwright install --only-shell chromium`,
+where it survives image rebuilds (§4.4).
 
 Additional language runtimes may be added according to course requirements.
 

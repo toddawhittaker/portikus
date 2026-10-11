@@ -30,3 +30,40 @@ and two links, `/usr/local/bin/claude` and `/usr/local/bin/codex`, to the
 folder's `bin` links. Setup installs a pinned version of each, and the
 admin page's **Update coding agents** job moves them to the newest release
 without an image rebuild (docs/SPEC.md section 10).
+
+## Playwright's headless Chromium
+
+The image ships Playwright's `chromium-headless-shell` for one pinned
+Playwright version, now **1.63.0** (browser build 1243), in
+`/opt/ms-playwright`. The pin sits with the other pins at the top of
+`portikus.yaml`; bump it with each image refresh, to the newest release that
+is at least two weeks old. Only the headless shell is installed: no full
+Chromium, Firefox or WebKit, and no global `playwright` package. Its system
+libraries are their own package set in `portikus.yaml`, with one font family
+(Liberation), because a page whose text has no font has no size and
+Playwright then calls it hidden.
+
+At login, `/etc/profile.d/portikus-playwright.sh` links the pinned build
+into the student's own Playwright folder, `~/.cache/ms-playwright`, and adds
+a `.links` entry so Playwright's cleanup keeps it. `PLAYWRIGHT_BROWSERS_PATH`
+stays unset. A project on the pinned version needs no download:
+
+```sh
+npm init playwright@latest -- --quiet --no-browsers --lang=ts
+npm install --save-dev --save-exact @playwright/test@1.63.0
+npx playwright test --project=chromium
+```
+
+A project on any other Playwright version fails its first run with
+Playwright's own "Executable doesn't exist" message. One command fixes it,
+installing that version's headless shell into the student's home folder
+(about 280 MB, kept across image rebuilds):
+
+```sh
+npx playwright install --only-shell chromium
+```
+
+Playwright launches Chromium with `--disable-dev-shm-usage`, so its shared
+memory goes to `/tmp` (512 MB) rather than `/dev/shm` (256 MB). The workspace
+smoke test launches the browser by hand without that switch, through
+`/dev/shm`.

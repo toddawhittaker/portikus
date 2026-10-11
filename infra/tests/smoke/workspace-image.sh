@@ -197,6 +197,20 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Codex update check is off" \
     "check_for_update_on_startup = false" \
     ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
+  # 17ab2. Playwright's headless Chromium ships in the image and the login
+  # script links it into the student's Playwright folder (SPEC.md 21.7).
+  # Launched by hand without --disable-dev-shm-usage, unlike Playwright, so
+  # it renders through the capped /dev/shm.
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  if ws_exec "test -f /opt/ms-playwright/browsers.json"; then
+    check_output "headless Chromium launches from the student's Playwright folder and renders a page" \
+      "<p>portikus</p>" \
+      ws_student 'b=$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell | head -n 1); timeout 60 "$b" --no-sandbox --dump-dom "data:text/html,<p>portikus</p>" 2>/dev/null | grep -o "<p>portikus</p>"'
+    check_output "a headless screenshot works with /dev/shm capped at 256M" "PNG" \
+      ws_student 'd=$(mktemp -d); b=$(ls -d ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell | head -n 1); (cd "$d" && timeout 60 "$b" --no-sandbox --window-size=1920,1080 --screenshot "data:text/html,<h1>portikus</h1>" >/dev/null 2>&1); head -c 4 "$d/screenshot.png" | tail -c 3; rm -rf "$d"'
+  else
+    echo "SKIP  headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
+  fi
   check "gh --version"                          ws_student "gh --version"
   check "node --version"                        ws_student "node --version"
   check "python3 --version"                     ws_student "python3 --version"
