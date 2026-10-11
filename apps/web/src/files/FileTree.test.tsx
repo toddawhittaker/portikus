@@ -1074,6 +1074,78 @@ describe("the file tree", () => {
 		expect(source.getAttribute("data-dragging")).toBeNull();
 	});
 
+	/** Selects README.md and src/app.ts, and returns a drag that records its drag image. */
+	async function selectTwoForDrag(moves: unknown[]) {
+		stubFetch((url, init) => {
+			if (url.endsWith("/move")) {
+				moves.push(JSON.parse(String(init?.body)));
+				return json(204, null);
+			}
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=src")) return json(200, SRC);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(screen.getByText("README.md"));
+		fireEvent.click(await screen.findByText("app.ts"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-src/app.ts").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+		const images: (string | null)[] = [];
+		const dataTransfer = {
+			types: [TREE_DRAG_TYPE],
+			files: [],
+			setData: () => {},
+			setDragImage: (element: Element) => images.push(element.textContent),
+			effectAllowed: "",
+			dropEffect: "",
+		};
+		return { dataTransfer, images };
+	}
+
+	function dragOnto(path: string, folderPath: string, dataTransfer: object) {
+		const source = screen
+			.getByTestId(`file-row-${path}`)
+			.querySelector(".pk-tree-row") as HTMLElement;
+		const folder = screen
+			.getByTestId(`file-row-${folderPath}`)
+			.querySelector(".pk-tree-row") as HTMLElement;
+		fireEvent.dragStart(source, { dataTransfer });
+		fireEvent.dragOver(folder, { dataTransfer });
+		fireEvent.drop(folder, { dataTransfer });
+		fireEvent.dragEnd(source, { dataTransfer });
+	}
+
+	/** SPEC.md §11.2: a drag from a selected row carries the selection, in tree order. */
+	it("moves every selected row when the drag starts on one of them", async () => {
+		const moves: unknown[] = [];
+		const { dataTransfer, images } = await selectTwoForDrag(moves);
+		dragOnto("README.md", "node_modules", dataTransfer);
+		expect(images).toEqual(["2 items"]);
+		await waitFor(() =>
+			expect(moves).toEqual([
+				{ from: "src/app.ts", to: "node_modules/app.ts" },
+				{ from: "README.md", to: "node_modules/README.md" },
+			]),
+		);
+	});
+
+	/** SPEC.md §11.2: a drag from an unselected row carries only that row. */
+	it("moves only the row under the pointer when it is not selected", async () => {
+		const moves: unknown[] = [];
+		const { dataTransfer, images } = await selectTwoForDrag(moves);
+		dragOnto("src", "node_modules", dataTransfer);
+		expect(images).toEqual([]);
+		await waitFor(() =>
+			expect(moves).toEqual([{ from: "src", to: "node_modules/src" }]),
+		);
+	});
+
 	/** SPEC.md §11.2: a rename onto an existing file asks before replacing it. */
 	it("asks before a rename replaces a file, then sends the replace flag", async () => {
 		const moves: { replace?: boolean }[] = [];

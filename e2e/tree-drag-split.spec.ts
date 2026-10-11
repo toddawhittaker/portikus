@@ -1,7 +1,8 @@
 /**
  * A file dragged from the tree onto a pane's edge opens in a split there, or
  * moves its pane there when it is already open (SPEC.md §9.3). Folder drops
- * in the tree keep moving files.
+ * in the tree keep moving files. A drag from a selected row carries the whole
+ * selection (SPEC.md §11.2).
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
@@ -222,5 +223,91 @@ test.describe("tree file dragged onto a pane edge", () => {
 			.poll(() => readSeededFile(student.workspaceId, project.slug, "lib/notes.md"))
 			.toBe("# notes\n");
 		await expect(workTabs(page).getByRole("tab")).toHaveCount(1);
+	});
+
+	/** Ctrl-click (Cmd on a Mac) each row, so they are selected without opening. */
+	async function select(page: Page, paths: string[]) {
+		for (const path of paths) {
+			await row(page, path)
+				.locator(":scope > .pk-tree-row")
+				.click({ modifiers: ["ControlOrMeta"] });
+			await expect(row(page, path)).toHaveAttribute("data-selected", "true");
+		}
+	}
+
+	async function folderPoint(page: Page, path: string) {
+		const box = await row(page, path).locator(":scope > .pk-tree-row").boundingBox();
+		if (!box) throw new Error(`the folder row ${path} is not on screen`);
+		return { x: box.x + 40, y: box.y + box.height / 2 };
+	}
+
+	test("a selection dropped on a pane edge opens its files as one split and tabs, skipping the folder", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { terminalId } = await setUp(page, student, "Tree multi split");
+		await select(page, ["lib", "notes.md", "other.md"]);
+
+		await carryRow(
+			page,
+			"notes.md",
+			await rightEdgeOf(page, `terminal-leaf-${terminalId}`),
+		);
+		await expect(page.getByTestId(`drop-zone-${terminalId}`)).toHaveAttribute(
+			"data-edge",
+			"right",
+		);
+		await page.mouse.up();
+
+		// The split stays shown; the second file waits in a tab of its own.
+		await expect
+			.poll(() => panesIn(page, terminalId))
+			.toEqual([`terminal-leaf-${terminalId}`, "file-frame-notes.md"]);
+		await expect(workTabs(page).getByRole("tab")).toHaveCount(2);
+		await expect(page.getByTestId("tab-file:other.md")).toBeVisible();
+		await expect(page.getByTestId("tab-file:lib")).toHaveCount(0);
+	});
+
+	test("a selection dropped on a folder moves every selected file", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { project } = await setUp(page, student, "Tree multi move");
+		await select(page, ["notes.md", "other.md"]);
+
+		await carryRow(page, "other.md", await folderPoint(page, "lib"));
+		await expect(row(page, "lib").locator(":scope > .pk-tree-row")).toHaveClass(
+			/is-drop-target/,
+		);
+		await page.mouse.up();
+
+		await expect(row(page, "notes.md")).toHaveCount(0);
+		await expect(row(page, "other.md")).toHaveCount(0);
+		await expect
+			.poll(() => readSeededFile(student.workspaceId, project.slug, "lib/notes.md"))
+			.toBe("# notes\n");
+		await expect
+			.poll(() => readSeededFile(student.workspaceId, project.slug, "lib/other.md"))
+			.toBe("# other\n");
+	});
+
+	test("a drag from an unselected row moves only that row", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { project } = await setUp(page, student, "Tree unselected move");
+		await select(page, ["notes.md"]);
+
+		await carryRow(page, "other.md", await folderPoint(page, "lib"));
+		await page.mouse.up();
+
+		await expect(row(page, "other.md")).toHaveCount(0);
+		await expect
+			.poll(() => readSeededFile(student.workspaceId, project.slug, "lib/other.md"))
+			.toBe("# other\n");
+		await expect(row(page, "notes.md")).toBeVisible();
 	});
 });
