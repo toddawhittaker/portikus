@@ -8,28 +8,9 @@
     name: squid
     state: present
 
-# Fetched from the VM, which is where the proxy will be asked to reach them.
-- name: Read the providers' discovery documents
-  ansible.builtin.import_tasks: discovery.yml
-
-- name: Build the allow list
-  ansible.builtin.import_tasks: allow_list.yml
-
-# Readable by the API only, like the page's own proxy-hosts.json.
-- name: Write the operator's proxy hosts for the admin page
-  ansible.builtin.template:
-    src: operator-proxy-hosts.json.j2
-    dest: /etc/portikus/operator-proxy-hosts.json
-    owner: root
-    group: portikus
-    mode: "0640"
-
-- name: Show the egress allow list
-  ansible.builtin.debug:
-    msg: "The API may reach: {{ egress_proxy_allowed | join(', ') if egress_proxy_allowed else 'no outside host' }}"
-
 # Squid refuses an include that matches no file, so alerts.conf is always
-# there; the alerts job fills it in (ADR 0052).
+# there; the alerts job fills it in (ADR 0052).  Before the discovery
+# fetch, which writes its own rule here.
 - name: Create the folder of included squid rules
   ansible.builtin.file:
     path: "{{ egress_proxy_include_dir }}"
@@ -46,6 +27,19 @@
     group: root
     mode: "0644"
     force: false
+
+# Fetched from the VM, which is where the proxy will be asked to reach them.
+- name: Read the providers' discovery documents
+  ansible.builtin.import_tasks: discovery.yml
+
+# The portikus role writes egress_proxy_host_entries for the admin page,
+# after its package has made the portikus group.
+- name: Build the allow list
+  ansible.builtin.import_tasks: allow_list.yml
+
+- name: Show the egress allow list
+  ansible.builtin.debug:
+    msg: "The API may reach: {{ egress_proxy_allowed | join(', ') if egress_proxy_allowed else 'no outside host' }}"
 
 - name: Deploy the squid configuration
   ansible.builtin.template:

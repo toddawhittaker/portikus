@@ -13,7 +13,7 @@
       and answers.portikus_preview_suffix | default('') | length > 0 -%}
 {%- set view = {
       'version': 1,
-      'apt': portikus_site_answers.stat.exists,
+      'apt': portikus_site_answers_file.content is defined,
       'host': portikus_public_host,
       'port': portikus_public_port | int,
       'previewSuffix': portikus_preview_suffix,

@@ -2,7 +2,8 @@
 # The providers' discovery documents, fetched as root on the VM.  Once our
 # Squid runs, the fetch goes through it, which refuses a name at a private
 # address at connect time.  On a first setup there is no such Squid yet, so
-# setup checks the addresses itself first.
+# setup checks the addresses itself first and fetches from the address it
+# checked.
 
 - name: Check whether squid is running
   ansible.builtin.command:
@@ -10,6 +11,19 @@
   register: egress_proxy_squid_active
   changed_when: false
   failed_when: false
+
+# A run cut off before its own cleanup leaves the providers let through.
+- name: Remove a providers' squid rule an earlier run left
+  ansible.builtin.file:
+    path: "{{ egress_proxy_include_dir }}/setup-discovery.conf"
+    state: absent
+  register: egress_proxy_stale_rule
+
+- name: Reload squid without the earlier run's rule
+  ansible.builtin.command:
+    argv: [systemctl, try-reload-or-restart, squid]
+  changed_when: true
+  when: egress_proxy_stale_rule.changed and egress_proxy_squid_active.rc == 0
 
 # The package's own squid.conf starts with the package and lets loopback
 # reach anything, so only our configuration counts.
@@ -41,6 +55,9 @@
   ansible.builtin.include_tasks: issuer_check.yml
   when: not egress_proxy_via_squid | bool
 
+- name: Build the fetch commands
+  ansible.builtin.import_tasks: discovery_commands.yml
+
 - name: Let squid reach the providers for this fetch
   ansible.builtin.template:
     src: discovery.conf.j2
@@ -61,46 +78,34 @@
       when: egress_proxy_via_squid | bool
 
     - name: Read the providers' discovery documents
-      ansible.builtin.uri:
-        url: "{{ item.issuer | regex_replace('/+$', '') }}/.well-known/openid-configuration"
-        return_content: true
-      environment: "{{ egress_proxy_fetch_env if egress_proxy_via_squid | bool else {} }}"
-      loop: "{{ egress_proxy_discovery }}"
-      register: egress_proxy_discovery_documents
-      failed_when: false
-      # Squid reopens its port on a reload.
-      until: egress_proxy_discovery_documents.status | default(0) == 200
-      retries: 3
-      delay: 2
-      vars:
-        egress_proxy_fetch_env:
-          https_proxy: "http://127.0.0.1:{{ egress_proxy_port }}"
-          http_proxy: "http://127.0.0.1:{{ egress_proxy_port }}"
-          no_proxy: ""
-
-    - name: Require every discovery document
-      ansible.builtin.assert:
-        that:
-          - item.status | default(0) == 200
-          - item.json is defined
-        fail_msg: >-
-          Setup could not read the discovery document of the sign-in provider {{ item.item.issuer }}
-          ({{ item.msg | default('no answer') }}).
-          {{ 'It was read through the egress proxy, which refuses a provider at a private address.'
-             if egress_proxy_via_squid | bool else '' }}
-        quiet: true
-      loop: "{{ egress_proxy_discovery_documents.results }}"
+      ansible.builtin.command:
+        argv: "{{ item.argv }}"
+      loop: "{{ egress_proxy_discovery_commands }}"
       loop_control:
         label: "{{ item.item.issuer }}"
+      # Only the commands' own --proxy or --noproxy decide the route.
+      environment:
+        no_proxy: ""
+        NO_PROXY: ""
+      register: egress_proxy_discovery_fetches
+      changed_when: false
+      failed_when: false
+      # Squid reopens its port on a reload.
+      until: egress_proxy_discovery_fetches.rc == 0
+      retries: 3
+      delay: 2
+
+    - name: Read and require every document
+      ansible.builtin.import_tasks: discovery_documents.yml
   always:
     - name: Remove the providers' squid rule
       ansible.builtin.file:
         path: "{{ egress_proxy_include_dir }}/setup-discovery.conf"
         state: absent
-      when: egress_proxy_via_squid | bool
+      register: egress_proxy_fetch_rule
 
     - name: Reload squid without the providers' rule
       ansible.builtin.command:
         argv: [systemctl, try-reload-or-restart, squid]
       changed_when: false
-      when: egress_proxy_via_squid | bool
+      when: egress_proxy_fetch_rule.changed and egress_proxy_squid_active.rc == 0

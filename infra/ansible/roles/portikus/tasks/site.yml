@@ -28,18 +28,14 @@
     group: root
     mode: "0700"
 
-# Address and sign-in changes work only where the install answers live.
-- name: Look for the install answers
-  ansible.builtin.stat:
-    path: /etc/portikus/portikus.yaml
-  register: portikus_site_answers
-
-# The site view tells a suffix the operator wrote from one setup derived.
+# Address and sign-in changes work only where the install answers live, so
+# no file means no apt install.  The site view also tells a suffix the
+# operator wrote from one setup derived.
 - name: Read the install answers for the site view
   ansible.builtin.slurp:
     path: /etc/portikus/portikus.yaml
   register: portikus_site_answers_file
-  when: portikus_site_answers.stat.exists
+  failed_when: false
 
 - name: Read the certificate source for the site view
   ansible.builtin.slurp:
