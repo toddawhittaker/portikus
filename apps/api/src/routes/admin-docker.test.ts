@@ -177,6 +177,7 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 				size_bytes: 3 * 1024 ** 3,
 				image_version: "2026.09.15",
 				built_at: "2026-09-29T08:00:00.000Z",
+				image_bytes: JSON.stringify({ "docker.io/library/redis:7": 120_000_000 }),
 			})
 			.execute();
 		const body = DockerAdminResponse.parse(
@@ -189,6 +190,7 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 			sizeBytes: 3 * 1024 ** 3,
 			imageVersion: "2026.09.15",
 			builtAt: "2026-09-29T08:00:00.000Z",
+			imageBytes: { "docker.io/library/redis:7": 120_000_000 },
 		});
 
 		// The helper's clear error reaches the page (review SEC3).
@@ -241,6 +243,34 @@ describe.skipIf(skip)("sizes and the cache-off line (issue #931)", () => {
 		expect(body.imageSizes).toEqual({ "docker.io/library/python:3.12": 50_000_000 });
 		expect(body.cache).toEqual(status({ cacheOff: null }));
 		expect(res.body).not.toContain("redis");
+	});
+
+	test("a digest-pinned name gets the size the cache recorded for its manifest digest", async () => {
+		const digest = `sha256:${"a".repeat(64)}`;
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(
+				status({
+					imageSizes: {
+						[`docker.io/library/python@${digest}`]: {
+							bytes: 55_000_000,
+							seenAt: "2026-09-30T10:00:00.000Z",
+						},
+					},
+				}),
+			),
+		);
+		await testDb.db
+			.updateTable("settings")
+			.set({ docker_seed_images: JSON.stringify([`python:3.12@${digest}`]) })
+			.where("id", "=", 1)
+			.execute();
+		const body = DockerAdminResponse.parse(
+			(await send(carol, "GET", "/admin/docker")).json(),
+		);
+		expect(body.imageSizes).toEqual({
+			[`docker.io/library/python:3.12@${digest}`]: 55_000_000,
+		});
 	});
 
 	test("the cache-off reason reaches the page, and Clear cache is refused", async () => {

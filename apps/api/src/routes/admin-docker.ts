@@ -8,6 +8,7 @@ import {
 	type DockerImageUsage,
 	DockerSettingsRequest,
 	type DockerUsageResponse,
+	digestImageName,
 	HubCredentialRequest,
 	OTHER_IMAGES_LABEL,
 	overSeedCap,
@@ -83,7 +84,9 @@ function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
 	const out: Record<string, number> = {};
 	for (const name of names) {
 		const key = canonicalImageName(name);
-		const entry = sizes[key];
+		// A digest-pinned name is found by the manifest digest the helper records.
+		const digestKey = digestImageName(name);
+		const entry = sizes[key] ?? (digestKey ? sizes[digestKey] : undefined);
 		if (entry) out[key] = entry.bytes;
 	}
 	return out;
@@ -97,6 +100,7 @@ async function readSeed(db: Kysely<Database>): Promise<DockerAdminResponse["seed
 		sizeBytes: Number(row.size_bytes),
 		imageVersion: row.image_version,
 		builtAt: row.built_at.toISOString(),
+		...(row.image_bytes ? { imageBytes: row.image_bytes } : {}),
 	};
 }
 
