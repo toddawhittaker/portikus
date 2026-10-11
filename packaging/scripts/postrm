@@ -1,20 +1,67 @@
 #!/bin/sh
-# portikus postrm: forget the units, and on purge drop the config we own.
+# portikus postrm: forget the units, turn off what setup added to systemd,
+# and on purge drop the config we own (docs/SPEC.md section 21.12).
 # The service users are never deleted: other files may still be owned by them.
 # /var/lib/portikus is never removed: the image builder and the workspace
 # script keep their own subdirectories there.
 set -e
 
+UNIT_DIR=/etc/systemd/system
+
+# What setup writes into $UNIT_DIR.  This must match the roles under
+# infra/ansible; packaging/tests/prerm-units-test.sh checks that it does.
+# Portikus's own units: stopped and disabled on remove, deleted on purge.
+SETUP_UNITS='portikus-dex.service
+portikus-workspace-limits.service
+portikus-workspace-proxy.service
+portikus-egress-dns.service
+portikus-thinpool-status.timer
+portikus-thinpool-status.service
+portikus-storage-attach.service
+var-lib-portikus\x2dregistry.mount'
+# Drop-ins naming the portikus-alert@ template the package takes with it:
+# deleted on remove.  Caddy and PostgreSQL are other packages, so they keep running.
+SETUP_ALERT_DROPINS='caddy.service.d/20-portikus-alert.conf
+postgresql@.service.d/20-portikus-alert.conf'
+# Drop-ins on other packages' units that still work without Portikus:
+# deleted on purge.  20-portikus-dns.conf is only on hosts older releases set up.
+SETUP_DROPINS='caddy.service.d/10-portikus-oom.conf
+caddy.service.d/20-portikus-dns.conf
+postgresql@.service.d/10-portikus-oom.conf
+system-postgresql.slice.d/10-portikus.conf
+squid.service.d/10-portikus.conf
+nftables.service.d/10-portikus.conf
+system.slice.d/10-portikus-priority.conf'
+# Not listed: setup's mask on Debian's docker-registry.service stays even on
+# purge, because without it that registry listens on every interface.
+
 if [ "$1" = "remove" ]; then
-	rm -f /etc/systemd/system/multi-user.target.wants/portikus-*.service
+	# One unit at a time: a unit this host never had must not stop the rest.
+	for unit in $SETUP_UNITS; do
+		if [ -d /run/systemd/system ]; then
+			systemctl stop "$unit" >/dev/null 2>&1 || true
+		fi
+		systemctl disable "$unit" >/dev/null 2>&1 || true
+	done
+	for dropin in $SETUP_ALERT_DROPINS; do
+		rm -f "$UNIT_DIR/$dropin"
+	done
+	rm -f "$UNIT_DIR"/multi-user.target.wants/portikus-*.service
+fi
+
+if [ "$1" = "purge" ]; then
+	for file in $SETUP_UNITS $SETUP_ALERT_DROPINS $SETUP_DROPINS; do
+		rm -f "$UNIT_DIR/$file"
+	done
+	# A drop-in directory goes only when nothing an administrator added is left in it.
+	for dropin in $SETUP_ALERT_DROPINS $SETUP_DROPINS; do
+		rmdir "$UNIT_DIR/${dropin%/*}" 2>/dev/null || true
+	done
+	rm -rf /etc/portikus /etc/portikus-workspace-proxy
 fi
 
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload || true
-fi
-
-if [ "$1" = "purge" ]; then
-	rm -rf /etc/portikus
 fi
 
 exit 0

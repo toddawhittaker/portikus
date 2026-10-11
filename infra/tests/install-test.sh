@@ -23,6 +23,9 @@
 #      check the keyring, the services, a sign-in, and that the worker runs
 #      as its own account and cannot open the backup key socket, and that
 #      its database role is refused on sessions and users but still works;
+#      then apt remove, check that no Portikus unit, socket, timer, path
+#      or process is left and no alert drop-in names the removed template,
+#      and apt install again with setup, which brings it all back;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
 #      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
 #  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
@@ -700,6 +703,67 @@ EOF
   vm "sudo bash /tmp/worker-db-role.sh; rc=\$?; rm -f /tmp/worker-db-role.sh; exit \$rc"
 }
 
+# ── 8, continued: remove and install again ─────────────────────────
+
+# The units setup wrote that this host has running (its storage is a disk,
+# so no storage-attach; egress DNS runs only in some egress modes).
+SETUP_RUNNING='portikus-dex.service portikus-workspace-proxy.service portikus-workspace-limits.service
+portikus-thinpool-status.timer var-lib-portikus\x2dregistry.mount'
+ALERT_DROPINS='/etc/systemd/system/caddy.service.d/20-portikus-alert.conf /etc/systemd/system/postgresql@.service.d/20-portikus-alert.conf'
+# Every account a Portikus service runs as; none may keep a process.
+SERVICE_USERS=portikus,portikus-worker,portikus-controller,portikus-registry,portikus-dex,portikus-wsproxy
+
+# The running cluster's unit, such as postgresql@17-main.service.
+postgresql_unit() { vm "systemctl list-units --plain --no-legend 'postgresql@*.service'" | awk 'NR == 1 { print $1 }'; }
+
+# apt remove, not purge (docs/SPEC.md section 21.12): nothing of Portikus
+# runs, watches or is enabled, and Caddy and PostgreSQL keep running with
+# no OnFailure= naming the removed portikus-alert@ template.
+remove_package() {
+  local left
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y portikus 2>&1" | tee "${LOGS}/apt-remove.txt"
+  [ "$(vm "dpkg-query -W -f '\${Status}' portikus")" = "deinstall ok config-files" ]
+  left=$(vm "systemctl list-units --all --plain --no-legend --state=active,activating,reloading,deactivating,failed 'portikus-*' 'var-lib-portikus*.mount'")
+  [ -z "$left" ] || { echo "units left after apt remove:"; echo "$left"; return 1; }
+  ! vm "mountpoint -q /var/lib/portikus-registry" || { echo "the Docker cache is still mounted"; return 1; }
+  left=$(vm "systemctl list-unit-files --no-legend --state=enabled,enabled-runtime,linked 'portikus-*' 'var-lib-portikus*.mount'")
+  [ -z "$left" ] || { echo "unit files left enabled after apt remove:"; echo "$left"; return 1; }
+  left=$(vm "find /etc/systemd/system -xtype l -name 'portikus-*'")
+  [ -z "$left" ] || { echo "enable links left dangling:"; echo "$left"; return 1; }
+  # The bracket keeps the pattern from matching this command's own shell.
+  left=$(vm "pgrep -a -u ${SERVICE_USERS}; pgrep -a -f '/usr/lib/[p]ortikus/'" || true)
+  [ -z "$left" ] || { echo "processes left after apt remove:"; echo "$left"; return 1; }
+  vm "for f in ${ALERT_DROPINS}; do test ! -e \"\$f\" || exit 1; done" || { echo "an alert drop-in is left"; return 1; }
+  for s in caddy.service $(postgresql_unit); do
+    [ "$(vm "systemctl is-active ${s}")" = active ] || { echo "${s} stopped with Portikus"; return 1; }
+  done
+  ! vm "systemctl show -p OnFailure caddy.service $(postgresql_unit)" | grep portikus \
+    || { echo "Caddy or PostgreSQL still names portikus-alert@"; return 1; }
+  # Remove keeps what a reinstall needs.
+  vm "sudo test -f /etc/portikus/portikus.yaml && test -f /etc/systemd/system/portikus-dex.service"
+}
+
+reinstall_package() {
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y portikus 2>&1" | tee "${LOGS}/apt-reinstall.txt"
+  vm "dpkg-query -W -f '\${Version}' portikus" | grep -qx "$(cat "${LOGS}/v2.version")"
+  grep -q "Portikus setup is running in the background" "${LOGS}/apt-reinstall.txt" \
+    || { echo "the reinstall did not start setup"; return 1; }
+}
+
+after_reinstall() {
+  local u
+  for u in portikus-api.service portikus-worker.service portikus-controller.service \
+    portikus-registry-hub.service portikus-backup.timer portikus-backup-key.socket \
+    portikus-root-shell.socket portikus-alerts-job.path ${SETUP_RUNNING}; do
+    [ "$(vm "systemctl is-active '${u}'")" = active ] || { echo "${u} is not active after the reinstall"; return 1; }
+    [ "$(vm "systemctl is-enabled '${u}'")" = enabled ] || { echo "${u} is not enabled after the reinstall"; return 1; }
+  done
+  vm "ls ${ALERT_DROPINS}"
+  [ "$(vm "systemctl show -p OnFailure caddy.service $(postgresql_unit)" | grep -c 'portikus-alert@')" = 2 ] \
+    || { echo "the alert drop-ins for Caddy and PostgreSQL are not back"; return 1; }
+  vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
+}
+
 # ── 9: the workspace image rehearsal ───────────────────────────────
 
 image_jobs() {
@@ -853,6 +917,10 @@ step "services, /health and sign-in after the upgrade" after_upgrade
 step "the workspace's agent restarted and its terminal survived" agent_after_upgrade
 step "the worker's own account, refused by the backup key socket" worker_account
 step "the worker's database role: refused on sessions and users, jobs still run" worker_db_role
+step "apt remove: no Portikus unit, process or alert drop-in left" remove_package
+step "apt install again after the remove" reinstall_package
+step "follow the reinstall's setup" follow_setup reinstall
+step "units, alert drop-ins and /health back after the reinstall" after_reinstall
 if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
   step "smoke test after the upgrade" smoke
 fi
