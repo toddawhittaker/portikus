@@ -77,6 +77,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 });
@@ -96,6 +97,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 
@@ -109,6 +111,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 
@@ -126,6 +129,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 });
@@ -220,6 +224,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 
@@ -239,6 +244,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 });
@@ -278,6 +284,7 @@ test.skipIf(skip)(
 			appearance: "system",
 			screenReaderMode: false,
 			timezones: [...systemTimezones()],
+			voiceInputEnabled: true,
 			appearanceStored: false,
 		});
 
@@ -293,6 +300,7 @@ test.skipIf(skip)(
 			screenReaderMode: false,
 			appearanceStored: false,
 			timezones: [...systemTimezones()],
+			voiceInputEnabled: true,
 		});
 	},
 );
@@ -335,6 +343,7 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: false,
 	});
 });
@@ -372,6 +381,7 @@ test.skipIf(skip)("an invalid stored key loses only that key", async () => {
 		appearance: "dark",
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
+		voiceInputEnabled: true,
 		appearanceStored: true,
 	});
 

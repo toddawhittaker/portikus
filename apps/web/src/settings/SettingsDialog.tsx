@@ -414,6 +414,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						</Toggletip>
 					</div>
 				);
+			case "voice-input":
+				// A site switch, not a student choice (SPEC.md §25.10), so this only reports it.
+				return (
+					<p
+						className="pk-text-compact m-0 text-ink-muted"
+						data-testid="settings-voice-input"
+					>
+						{settings.data?.voiceInputEnabled === false
+							? "Your administrator turned voice input off for this site."
+							: "Hold the microphone button in a terminal or file, or Alt+Shift+M, to dictate."}
+					</p>
+				);
 			case "keyboard-help":
 				// The keys and the terminal and editor limits live on the Help page (SPEC.md §25.8).
 				return (
