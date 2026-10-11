@@ -8,6 +8,7 @@ import {
 	settledAxe,
 	WCAG_TAGS,
 } from "./helpers";
+import { expectUsageColumnsAligned } from "./usage-tables";
 
 /**
  * The Agent usage tab (SPEC.md sections 20.1 and 25.10): everyone's totals
@@ -64,6 +65,7 @@ test("the Agent usage tab lists each person and agent, with a period choice", as
 	const codex = people.getByRole("row", { name: new RegExp(`${name} Codex`) });
 	await expect(codex.getByRole("cell").nth(6)).toHaveText("—");
 	await expect(page.getByTestId("agent-usage-daily")).toBeVisible();
+	await expectUsageColumnsAligned(page);
 
 	// The 20-day-old row appears only once the period grows.
 	await page.getByRole("combobox", { name: "Period" }).click();
