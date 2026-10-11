@@ -5,7 +5,8 @@
 # Pinned tool versions:
 #   uv                         0.12.19 (checked 2026-09-28, used only for Python 3.14)
 #   Playwright                 1.63.0 (checked 2026-10-11): its chromium-headless-shell,
-#                              build 1243, in /opt/ms-playwright; bump it with each image
+#                              build 1243, in /opt/ms-playwright; bump it with each image,
+#                              with the binary's sha256 in the step that installs it
 #
 # Claude Code and Codex are not in the image.  They live in a shared folder
 # on the server that every workspace mounts read-only at
@@ -1451,7 +1452,7 @@ files:
     # Playwright folder.  PLAYWRIGHT_BROWSERS_PATH stays unset, so a project on
     # another Playwright version is told to install its own copy there
     # (SPEC.md 21.7).
-    if [ -f /opt/ms-playwright/browsers.json ] && [ -n "${HOME:-}" ] && [ -w "$HOME" ]; then
+    if [ -f /opt/ms-playwright/browsers.json ] && [ -n "${HOME:-}" ]; then
       _pw_cache="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"
       if mkdir -p "$_pw_cache/.links" 2>/dev/null; then
         for _pw_dir in /opt/ms-playwright/*/; do
@@ -2341,17 +2342,22 @@ actions:
     set -eux
 
     playwright_version=1.63.0
+    # Of the chrome-headless-shell binary this version downloads.
+    headless_shell_sha256=ded93a9c9a53a1ae040f08124badcca95c938e9d5015ff340c3b5538c41bf39e
     tmp="$(mktemp -d)"
     npm install --prefix "$tmp" --cache "$tmp/npm-cache" --no-audit --no-fund \
       "playwright@${playwright_version}"
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
       "$tmp/node_modules/.bin/playwright" install --only-shell chromium
     cp "$tmp/node_modules/playwright-core/browsers.json" /opt/ms-playwright/
-    # The .links entry points into the folder deleted below.
+    shell="$(ls -d /opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)"
+    echo "${headless_shell_sha256}  ${shell}" | sha256sum -c -
+    # HOME in the scratch folder keeps Chromium's .pki and fontconfig cache
+    # out of /root.
+    HOME="$tmp" timeout 60 "$shell" --no-sandbox --dump-dom 'data:text/html,<p>ok</p>' | grep -q '<p>ok</p>'
+    # The .links entry points into the folder deleted here.
     rm -rf "$tmp" /opt/ms-playwright/.links
     chmod -R a+rX,go-w /opt/ms-playwright
-    shell="$(ls -d /opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)"
-    "$shell" --no-sandbox --dump-dom 'data:text/html,<p>ok</p>' | grep -q '<p>ok</p>'
 
 # Create workspace agent directory and enable services
 - trigger: post-packages
