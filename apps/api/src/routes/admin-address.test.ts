@@ -344,6 +344,43 @@ describe.skipIf(skip)("admin address routes", () => {
 		await app.close();
 	});
 
+	test("apply refuses a name that does not resolve and writes no request", async () => {
+		const app = server({}, { resolve: async () => [], probe: async () => null });
+		const call = await as(app, "carol");
+		const res = await call("POST", "/admin/address/apply", NEW);
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("ADDRESS_DNS_UNRESOLVED");
+		expect(res.json().message).toContain("code.example.edu does not resolve");
+		expect(await requests()).toEqual([]);
+		await app.close();
+	});
+
+	test("apply refuses when only the preview wildcard is missing", async () => {
+		const app = server(
+			{},
+			{
+				resolve: async (name) =>
+					name.startsWith("portikus-check-") ? [] : [THIS_SERVER],
+				probe: async () => null,
+			},
+		);
+		const call = await as(app, "carol");
+		const res = await call("POST", "/admin/address/apply", NEW);
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("ADDRESS_DNS_UNRESOLVED");
+		await app.close();
+	});
+
+	test("apply goes ahead when names resolve but cannot be reached", async () => {
+		const app = server(
+			{},
+			{ resolve: async () => [THIS_SERVER], probe: async () => null },
+		);
+		const call = await as(app, "carol");
+		expect((await call("POST", "/admin/address/apply", NEW)).statusCode).toBe(202);
+		await app.close();
+	});
+
 	test("pre-flight passes when both names point here", async () => {
 		const app = server();
 		const call = await as(app, "carol");

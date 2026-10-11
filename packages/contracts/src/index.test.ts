@@ -290,3 +290,9 @@ test("ApiErrorCode covers the terminal and agent codes", () => {
 		true,
 	);
 });
+
+test("ApiErrorCode covers the address DNS refusal", () => {
+	expect(
+		ApiError.safeParse({ code: "ADDRESS_DNS_UNRESOLVED", message: "" }).success,
+	).toBe(true);
+});

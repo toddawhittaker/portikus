@@ -1,0 +1,4 @@
+{#- The operator's host names for the admin page (ADR 0059), in the shape of
+    the page's own proxy-hosts.json: a bare name means port 443. -#}
+{{ {'version': 1, 'hosts': egress_proxy_host_entries | map('regex_replace', ':443$', '') | unique | sort}
+   | to_nice_json(indent=2) }}

@@ -9,7 +9,7 @@ import type { ServerDeps } from "../deps.js";
 import { parseFieldsOr400, sendError } from "../http.js";
 import { currentJob } from "../job-files.js";
 import { allSiteJobs, noteSiteJobsFinished } from "../site/jobs.js";
-import { readOperatorProxyHosts, readPageProxyHosts } from "../site/page-files.js";
+import { readProxyHostsFile } from "../site/page-files.js";
 import { submitSiteJob } from "../site/submit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -31,8 +31,8 @@ export function registerAdminProxyHostRoutes(
 		const jobs = await allSiteJobs(jobsDir);
 		await noteSiteJobsFinished(db, jobs);
 		const out: AdminProxyHosts = {
-			operatorHosts: await readOperatorProxyHosts(config.SQUID_CONF_FILE),
-			hosts: await readPageProxyHosts(config.PROXY_HOSTS_FILE),
+			operatorHosts: await readProxyHostsFile(config.OPERATOR_PROXY_HOSTS_FILE),
+			hosts: await readProxyHostsFile(config.PROXY_HOSTS_FILE),
 			job: currentJob(jobs, SITE_JOB_STALE_MS),
 		};
 		return reply.header("cache-control", "no-store").send(out);

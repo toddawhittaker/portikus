@@ -5,8 +5,12 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { request } from "../../api/request.js";
 import { adminKeys } from "../queries.js";
+
+/** How long typing pauses before the search is sent to the server. */
+export const SEARCH_DELAY_MS = 250;
 
 const linksKey = (userId: string) => ["admin", "links", userId] as const;
 
@@ -20,15 +24,23 @@ export function useAccountLinks(userId: string) {
 
 /** One page of accounts for the link dialog, found by the server (SPEC.md section 20.1). */
 export function useCourseAccountSearch(text: string, enabled: boolean) {
-	const q = text.trim();
+	const [sent, setSent] = useState(text);
+	useEffect(() => {
+		const timer = setTimeout(() => setSent(text), SEARCH_DELAY_MS);
+		return () => clearTimeout(timer);
+	}, [text]);
+	const q = sent.trim();
 	const params = new URLSearchParams({ unlinkedCourse: "1", limit: "50" });
 	if (q !== "") params.set("q", q);
-	return useQuery({
+	const query = useQuery({
 		queryKey: [...adminKeys.users, "link-search", q],
 		queryFn: () => request(AdminUserList, `/admin/users?${params.toString()}`),
 		enabled,
 		placeholderData: keepPreviousData,
 	});
+	// The previous results stay on screen until the new ones arrive, so say they are stale.
+	const searching = text !== sent || query.isFetching;
+	return { query, searching };
 }
 
 /** Link or unlink; both refresh the links and the Users list. */

@@ -23,7 +23,7 @@ export function LinkDialog({
 	const [text, setText] = useState("");
 	const [pickedId, setPickedId] = useState<string | null>(null);
 	const [confirming, setConfirming] = useState(false);
-	const search = useCourseAccountSearch(text, open);
+	const { query: search, searching } = useCourseAccountSearch(text, open);
 	const found = search.data?.users ?? [];
 	const picked = found.find((candidate) => candidate.id === pickedId) ?? null;
 
@@ -148,7 +148,7 @@ export function LinkDialog({
 							role="status"
 							data-testid="link-status"
 						>
-							{search.isLoading
+							{searching
 								? "Searching…"
 								: found.length === 0
 									? "No unlinked course accounts match."

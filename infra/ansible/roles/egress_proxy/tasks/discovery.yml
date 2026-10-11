@@ -1,0 +1,111 @@
+---
+# The providers' discovery documents, fetched as root on the VM.  Once our
+# Squid runs, the fetch goes through it, which refuses a name at a private
+# address at connect time.  On a first setup there is no such Squid yet, so
+# setup checks the addresses itself first and fetches from the address it
+# checked.
+
+- name: Check whether squid is running
+  ansible.builtin.command:
+    argv: [systemctl, is-active, --quiet, squid]
+  register: egress_proxy_squid_active
+  changed_when: false
+  failed_when: false
+
+# A run cut off before its own cleanup leaves the providers let through.
+- name: Remove a providers' squid rule an earlier run left
+  ansible.builtin.file:
+    path: "{{ egress_proxy_include_dir }}/setup-discovery.conf"
+    state: absent
+  register: egress_proxy_stale_rule
+
+- name: Reload squid without the earlier run's rule
+  ansible.builtin.command:
+    argv: [systemctl, try-reload-or-restart, squid]
+  changed_when: true
+  when: egress_proxy_stale_rule.changed and egress_proxy_squid_active.rc == 0
+
+# The package's own squid.conf starts with the package and lets loopback
+# reach anything, so only our configuration counts.
+- name: Read the squid configuration
+  ansible.builtin.slurp:
+    path: /etc/squid/squid.conf
+  register: egress_proxy_squid_conf
+  failed_when: false
+
+- name: Decide how to fetch the discovery documents
+  ansible.builtin.set_fact:
+    egress_proxy_via_squid: >-
+      {{ egress_proxy_discovery | length > 0 and egress_proxy_squid_active.rc == 0
+         and ('include ' ~ egress_proxy_include_dir ~ '/*.conf')
+             in (egress_proxy_squid_conf.content | default('') | b64decode).splitlines() }}
+
+- name: Look up the providers' addresses
+  ansible.builtin.command:
+    argv: [getent, ahosts, "{{ item.issuer | urlsplit('hostname') }}"]
+  loop: "{{ egress_proxy_discovery }}"
+  loop_control:
+    label: "{{ item.issuer }}"
+  register: egress_proxy_issuer_lookups
+  changed_when: false
+  failed_when: false
+  when: not egress_proxy_via_squid | bool
+
+- name: Check the providers' addresses
+  ansible.builtin.include_tasks: issuer_check.yml
+  when: not egress_proxy_via_squid | bool
+
+- name: Build the fetch commands
+  ansible.builtin.import_tasks: discovery_commands.yml
+
+- name: Let squid reach the providers for this fetch
+  ansible.builtin.template:
+    src: discovery.conf.j2
+    dest: "{{ egress_proxy_include_dir }}/setup-discovery.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  when: egress_proxy_via_squid | bool
+
+- name: Fetch the documents
+  block:
+    # The reload reads squid.conf from disk too, so the proxy is ours even
+    # if an earlier run stopped before its restart.
+    - name: Reload squid with the providers allowed
+      ansible.builtin.command:
+        argv: [systemctl, try-reload-or-restart, squid]
+      changed_when: false
+      when: egress_proxy_via_squid | bool
+
+    - name: Read the providers' discovery documents
+      ansible.builtin.command:
+        argv: "{{ item.argv }}"
+      loop: "{{ egress_proxy_discovery_commands }}"
+      loop_control:
+        label: "{{ item.item.issuer }}"
+      # Only the commands' own --proxy or --noproxy decide the route.
+      environment:
+        no_proxy: ""
+        NO_PROXY: ""
+      register: egress_proxy_discovery_fetches
+      changed_when: false
+      failed_when: false
+      # Squid reopens its port on a reload.
+      until: egress_proxy_discovery_fetches.rc == 0
+      retries: 3
+      delay: 2
+
+    - name: Read and require every document
+      ansible.builtin.import_tasks: discovery_documents.yml
+  always:
+    - name: Remove the providers' squid rule
+      ansible.builtin.file:
+        path: "{{ egress_proxy_include_dir }}/setup-discovery.conf"
+        state: absent
+      register: egress_proxy_fetch_rule
+
+    - name: Reload squid without the providers' rule
+      ansible.builtin.command:
+        argv: [systemctl, try-reload-or-restart, squid]
+      changed_when: false
+      when: egress_proxy_fetch_rule.changed and egress_proxy_squid_active.rc == 0

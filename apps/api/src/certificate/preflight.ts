@@ -9,10 +9,12 @@ import type { CertificatePreflight, PreflightCheck } from "@portikus/contracts";
  * Pre-flight for an ACME change (SPEC.md 20.1): the site and a sample
  * preview name resolve in DNS, and a nonce this API hands out comes back
  * from each name, which proves the name points at this server. For
- * HTTP-01 plain http on port 80 must answer too. Failures block HTTP-01
- * and only warn for DNS-01, whose certificate does not depend on them.
- * The probes start on this server, so a firewall that only blocks outside
- * traffic is left to the staging test.
+ * HTTP-01 plain http on port 80 should answer too. A DNS failure blocks
+ * HTTP-01 and warns for DNS-01, whose certificate does not depend on it;
+ * reach and port-80 failures only warn, because the API's
+ * sandbox lets it reach loopback and the workspace bridge only, so on a
+ * real server the probes cannot leave the host. The staging test proves
+ * the rest.
  */
 
 /** Caddy sends this path on the site, preview and port-80 hosts to the API. */
@@ -47,6 +49,8 @@ export interface PreflightNet {
 	probe(url: string, address: string): Promise<string | null>;
 }
 
+// Asks the host's configured resolver, on most servers a loopback stub
+// (systemd-resolved); the sandbox allows loopback, so DNS checks still work.
 async function resolveAll(name: string): Promise<string[]> {
 	const resolver = new Resolver({ timeout: PROBE_TIMEOUT_MS, tries: 2 });
 	const [v4, v6] = await Promise.all([
@@ -100,7 +104,8 @@ export async function runPreflight(options: {
 	mode: "dns01" | "http01";
 }): Promise<CertificatePreflight> {
 	const { config, net, nonces, mode } = options;
-	const bad = mode === "http01" ? "failed" : "warning";
+	// A DNS-01 certificate does not depend on the names resolving here.
+	const dnsBad = mode === "http01" ? "failed" : "warning";
 	const site = new URL(config.PUBLIC_URL);
 	const nonce = nonces.issue();
 	const sample = `portikus-check-${nonce.slice(0, 8)}.${config.PREVIEW_SUFFIX}`;
@@ -134,7 +139,7 @@ export async function runPreflight(options: {
 			? { name: "dns-site", result: "passed", message: `${site.hostname} resolves.` }
 			: {
 					name: "dns-site",
-					result: bad,
+					result: dnsBad,
 					message: `${site.hostname} does not resolve in DNS.`,
 				},
 		previewAddresses.length > 0
@@ -145,7 +150,7 @@ export async function runPreflight(options: {
 				}
 			: {
 					name: "dns-preview",
-					result: bad,
+					result: dnsBad,
 					message: `${sample} does not resolve in DNS. Add a wildcard record for *.${config.PREVIEW_SUFFIX}.`,
 				},
 		siteReached
@@ -156,7 +161,7 @@ export async function runPreflight(options: {
 				}
 			: {
 					name: "reach-site",
-					result: bad,
+					result: "warning",
 					message: `${site.hostname} does not reach this server at every address DNS gives.`,
 				},
 		previewReached
@@ -167,7 +172,7 @@ export async function runPreflight(options: {
 				}
 			: {
 					name: "reach-preview",
-					result: bad,
+					result: "warning",
 					message: `${sample} does not reach this server at every address DNS gives.`,
 				},
 	];
@@ -181,7 +186,7 @@ export async function runPreflight(options: {
 					}
 				: {
 						name: "http-port-80",
-						result: "failed",
+						result: "warning",
 						message: `http://${site.hostname} does not answer on port 80, which HTTP-01 needs.`,
 					},
 		);
@@ -217,41 +222,19 @@ export async function runAddressPreflight(options: {
 		return bodies.every((body) => body === nonce);
 	}
 
-	const [siteAddresses, previewAddresses] = await Promise.all([
-		net.resolve(host),
-		net.resolve(sample),
-	]);
+	const {
+		siteAddresses,
+		previewAddresses,
+		checks: dnsChecks,
+	} = await addressDnsChecks(net, host, previewSuffix, sample);
 	const [siteReached, previewReached] = await Promise.all([
 		reaches(siteAddresses),
 		reaches(previewAddresses),
 	]);
-	const check = (
-		name: PreflightCheck["name"],
-		passed: boolean,
-		yes: string,
-		no: string,
-		bad: "warning" | "failed",
-	): PreflightCheck =>
-		passed
-			? { name, result: "passed", message: yes }
-			: { name, result: bad, message: no };
 	const unconfirmed =
 		"Could not confirm from this server; the trial and Keep from the new address prove it.";
 	const checks = [
-		check(
-			"dns-site",
-			siteAddresses.length > 0,
-			`${host} resolves.`,
-			`${host} does not resolve in DNS.`,
-			"failed",
-		),
-		check(
-			"dns-preview",
-			previewAddresses.length > 0,
-			`Preview names such as ${sample} resolve.`,
-			`${sample} does not resolve in DNS. Add a wildcard record for *.${previewSuffix}.`,
-			"failed",
-		),
+		...dnsChecks,
 		check(
 			"reach-site",
 			siteReached,
@@ -268,4 +251,54 @@ export async function runAddressPreflight(options: {
 		),
 	];
 	return { ok: !checks.some((c) => c.result === "failed"), checks };
+}
+
+function check(
+	name: PreflightCheck["name"],
+	passed: boolean,
+	yes: string,
+	no: string,
+	bad: "warning" | "failed",
+): PreflightCheck {
+	return passed
+		? { name, result: "passed", message: yes }
+		: { name, result: bad, message: no };
+}
+
+/**
+ * The blocking half of the address pre-flight: `host` and `sample`, a
+ * name under `previewSuffix`, must resolve in DNS. The apply route
+ * repeats it so a move cannot skip the page's check.
+ */
+export async function addressDnsChecks(
+	net: PreflightNet,
+	host: string,
+	previewSuffix: string,
+	sample = `portikus-check-${randomBytes(4).toString("hex")}.${previewSuffix}`,
+): Promise<{
+	siteAddresses: string[];
+	previewAddresses: string[];
+	checks: PreflightCheck[];
+}> {
+	const [siteAddresses, previewAddresses] = await Promise.all([
+		net.resolve(host),
+		net.resolve(sample),
+	]);
+	const checks = [
+		check(
+			"dns-site",
+			siteAddresses.length > 0,
+			`${host} resolves.`,
+			`${host} does not resolve in DNS.`,
+			"failed",
+		),
+		check(
+			"dns-preview",
+			previewAddresses.length > 0,
+			`Preview names such as ${sample} resolve.`,
+			`${sample} does not resolve in DNS. Add a wildcard record for *.${previewSuffix}.`,
+			"failed",
+		),
+	];
+	return { siteAddresses, previewAddresses, checks };
 }
