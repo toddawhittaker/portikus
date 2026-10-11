@@ -13,6 +13,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -533,6 +534,30 @@ class ImageSizesTest(Base):
         sizes = self.helper.scan_sizes()
         self.assertEqual(sizes, {f"docker.io/library/python@{top}": 1100,
                                  f"docker.io/library/python@{child}": 1100})
+
+    def revision(self, repo, digest):
+        rev = (self.mount / "hub/docker/registry/v2/repositories" / repo / "_manifests/revisions"
+               / digest.replace(":", "/"))
+        rev.mkdir(parents=True, exist_ok=True)
+        (rev / "link").write_text(digest)
+
+    def test_a_busy_cache_spends_the_scan_budget_on_tags_first(self):
+        # "library/a" is walked first; its revisions alone would use the whole budget.
+        for n in range(1, 5):
+            self.revision("library/a", self.image("hub", n, [1]))
+        self.tag("hub", "library/z", "1", self.image("hub", 9, [100]))
+        with mock.patch.object(rj, "TAGS_SCANNED_MAX", 3):
+            sizes = self.helper.scan_sizes()
+        self.assertEqual(sizes["docker.io/library/z:1"], 1100)
+        self.assertEqual(len(sizes), 3)
+
+    def test_on_a_tie_tag_names_outrank_digest_names(self):
+        scanned = {f"docker.io/library/i@{digest_of(n)}": n for n in range(5)}
+        scanned.update({f"docker.io/library/i{n}:1": n for n in range(3)})
+        with mock.patch.object(rj, "IMAGE_SIZES_MAX", 3), \
+                mock.patch.object(self.helper, "scan_sizes", return_value=scanned):
+            sizes = self.helper.image_sizes({})
+        self.assertEqual(set(sizes), {f"docker.io/library/i{n}:1" for n in range(3)})
 
     def test_nothing_while_unmounted(self):
         self.tag("hub", "library/redis", "7", self.image("hub", 1, [100]))
