@@ -723,10 +723,14 @@ remove_package() {
   local left
   vm "sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y portikus 2>&1" | tee "${LOGS}/apt-remove.txt"
   [ "$(vm "dpkg-query -W -f '\${Status}' portikus")" = "deinstall ok config-files" ]
-  left=$(vm "systemctl list-units --all --plain --no-legend --state=active,activating,reloading,deactivating,failed 'portikus-*' 'var-lib-portikus*.mount'")
+  # Storage attach, on a host with a storage file, stays: remove keeps the data Incus needs at boot.
+  left=$(vm "systemctl list-units --all --plain --no-legend --state=active,activating,reloading,deactivating,failed 'portikus-*' 'var-lib-portikus*.mount'" \
+    | grep -v '^portikus-storage-attach\.service ' || true)
   [ -z "$left" ] || { echo "units left after apt remove:"; echo "$left"; return 1; }
   ! vm "mountpoint -q /var/lib/portikus-registry" || { echo "the Docker cache is still mounted"; return 1; }
-  left=$(vm "systemctl list-unit-files --no-legend --state=enabled,enabled-runtime,linked 'portikus-*' 'var-lib-portikus*.mount'")
+  # Storage attach, on a host with a storage file, stays enabled: remove keeps the data Incus needs at boot.
+  left=$(vm "systemctl list-unit-files --no-legend --state=enabled,enabled-runtime,linked 'portikus-*' 'var-lib-portikus*.mount'" \
+    | grep -v '^portikus-storage-attach\.service ' || true)
   [ -z "$left" ] || { echo "unit files left enabled after apt remove:"; echo "$left"; return 1; }
   left=$(vm "find /etc/systemd/system -xtype l -name 'portikus-*'")
   [ -z "$left" ] || { echo "enable links left dangling:"; echo "$left"; return 1; }

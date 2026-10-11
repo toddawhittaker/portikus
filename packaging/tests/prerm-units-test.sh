@@ -50,15 +50,19 @@ done
 
 # ── postrm's lists against the Ansible roles ─────────────────────
 
-# One postrm list, one entry per line.
+# One postrm list, one entry per line; a list may open and close on one line.
 postrm_list() {
-	sed -n "/^$1='/,/'\$/p" "$postrm" | sed "s/^$1='//; s/'\$//"
+	awk -v name="$1" '
+		index($0, name "=\047") == 1 { on = 1; $0 = substr($0, length(name) + 3) }
+		on { done = /\047$/; sub(/\047$/, ""); print; if (done) on = 0 }
+	' "$postrm"
 }
 setup_units=$(postrm_list SETUP_UNITS)
+boot_units=$(postrm_list SETUP_BOOT_UNITS)
 alert_dropins=$(postrm_list SETUP_ALERT_DROPINS)
 other_dropins=$(postrm_list SETUP_DROPINS)
-if [ -z "$setup_units" ] || [ -z "$alert_dropins" ] || [ -z "$other_dropins" ]; then
-	fail "postrm lacks SETUP_UNITS, SETUP_ALERT_DROPINS or SETUP_DROPINS"
+if [ -z "$setup_units" ] || [ -z "$boot_units" ] || [ -z "$alert_dropins" ] || [ -z "$other_dropins" ]; then
+	fail "postrm lacks SETUP_UNITS, SETUP_BOOT_UNITS, SETUP_ALERT_DROPINS or SETUP_DROPINS"
 fi
 
 # Every path a role names under /etc/systemd/system, as ROLE<TAB>PATH, with a
@@ -114,7 +118,7 @@ done <"$work/role-paths"
 sort -u -o "$work/written" "$work/written"
 sort -u -o "$work/alerts" "$work/alerts"
 grep -q 'portikus-dex.service' "$work/written" || fail "found no unit in the roles; the search is broken"
-printf '%s\n' "$setup_units" "$alert_dropins" "$other_dropins" | sort -u >"$work/listed"
+printf '%s\n' "$setup_units" "$boot_units" "$alert_dropins" "$other_dropins" | sort -u >"$work/listed"
 
 while read -r path; do
 	grep -qxF -- "$path" "$work/listed" || fail "setup writes /etc/systemd/system/$path, which postrm does not list"
@@ -125,11 +129,12 @@ done <"$work/listed"
 [ "$(printf '%s\n' "$alert_dropins" | sort -u)" = "$(cat "$work/alerts")" ] \
 	|| fail "SETUP_ALERT_DROPINS is not exactly the drop-ins that name portikus-alert@: $(paste -sd' ' "$work/alerts")"
 dropins=$(printf '%s\n' "$alert_dropins" "$other_dropins")
+units=$(printf '%s\n' "$setup_units" "$boot_units")
 while read -r path; do
 	grep -qxF -- "$path" "$work/listed" || continue
 	case "$path" in
 	*/*) grep -qxF -- "$path" <<<"$dropins" || fail "$path is a drop-in but listed as a unit" ;;
-	*) grep -qxF -- "$path" <<<"$setup_units" || fail "$path is a unit but listed as a drop-in" ;;
+	*) grep -qxF -- "$path" <<<"$units" || fail "$path is a unit but listed as a drop-in" ;;
 	esac
 done <"$work/written"
 
@@ -159,6 +164,7 @@ make_host() { # ROOT
 	echo "# an administrator's" >"$r/etc/systemd/system/caddy.service.d/50-local.conf"
 	ln -s /dev/null "$r/etc/systemd/system/docker-registry.service"
 	ln -s /usr/lib/systemd/system/portikus-api.service "$r/etc/systemd/system/multi-user.target.wants/portikus-api.service"
+	ln -s ../portikus-storage-attach.service "$r/etc/systemd/system/multi-user.target.wants/portikus-storage-attach.service"
 	ln -s /usr/lib/systemd/system/caddy.service "$r/etc/systemd/system/multi-user.target.wants/caddy.service"
 	echo "x: 1" >"$r/etc/portikus/portikus.yaml"
 	echo key >"$r/etc/portikus-workspace-proxy/bump.key"
@@ -178,6 +184,12 @@ while read -r unit; do
 	grep -qxF -- "disable $unit" "$calls" || fail "remove does not disable $unit"
 	[ -e "$etc/$unit" ] || fail "remove deleted $unit, which purge should"
 done <<<"$setup_units"
+# Remove keeps data and configuration, so the storage Incus needs at boot stays attached.
+while read -r unit; do
+	! grep -E " $unit\$" "$calls" >&2 || fail "remove stopped or disabled $unit"
+	[ -e "$etc/$unit" ] || fail "remove deleted $unit"
+	[ -L "$etc/multi-user.target.wants/$unit" ] || fail "remove dropped the enable link of $unit"
+done <<<"$boot_units"
 while read -r dropin; do
 	[ ! -e "$etc/$dropin" ] || fail "remove left $dropin"
 done <<<"$alert_dropins"
@@ -193,6 +205,9 @@ grep -qx 'daemon-reload' "$calls" || fail "remove does not reload systemd"
 
 : >"$calls"
 CALLS="$calls" sh "$host/postrm" purge
+while read -r unit; do
+	grep -qxF -- "disable $unit" "$calls" || fail "purge does not disable $unit"
+done <<<"$boot_units"
 while read -r file; do
 	[ ! -e "$etc/$file" ] || fail "purge left $file"
 done <"$work/listed"
