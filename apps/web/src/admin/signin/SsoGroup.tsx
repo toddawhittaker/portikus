@@ -78,10 +78,14 @@ function SsoBody({ data }: { data: AdminSignin }) {
 	// focus goes to the new content rather than being lost (SPEC.md section 25.8).
 	useEffect(() => {
 		const has = trial !== null;
+		const active = document.activeElement;
+		const lost = !active || active === document.body;
 		if (has && !hadTrial.current) {
-			document.getElementById(TRIAL_TEXT_ID)?.focus();
+			// Never pull focus away from another group the administrator is working in.
+			const group = document.getElementById("admin-signin-sso")?.closest("section");
+			if (lost || group?.contains(active))
+				document.getElementById(TRIAL_TEXT_ID)?.focus();
 		} else if (!has && hadTrial.current) {
-			const lost = !document.activeElement || document.activeElement === document.body;
 			if (lost) document.getElementById("admin-signin-sso")?.focus();
 		}
 		hadTrial.current = has;

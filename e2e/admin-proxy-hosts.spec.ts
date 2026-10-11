@@ -2,11 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { expectNoViolations, loginAs } from "./helpers";
 import {
+	OPERATOR_PROXY_HOSTS_FILE,
 	PROXY_HOSTS_FILE,
 	playSiteJob,
 	readSiteStatus,
 	resetSiteStore,
-	SQUID_CONF,
 } from "./site-jobs";
 
 /**
@@ -21,8 +21,10 @@ test.beforeEach(async () => {
 	await resetSiteStore();
 });
 
-const OPERATOR_CONF =
-	"acl portikus_hosts_443 dstdomain -n github.com api.openai.com\ninclude /etc/portikus/egress-proxy.d/*.conf\n";
+const OPERATOR_HOSTS = JSON.stringify({
+	version: 1,
+	hosts: ["api.openai.com", "github.com"],
+});
 
 async function open(page: Page) {
 	await loginAs(page, "carol");
@@ -41,7 +43,7 @@ async function pageHosts(): Promise<string[]> {
 test("a new site has no added hosts, and the operator's show read-only", async ({
 	page,
 }) => {
-	await writeFile(SQUID_CONF, OPERATOR_CONF);
+	await writeFile(OPERATOR_PROXY_HOSTS_FILE, OPERATOR_HOSTS);
 	const group = await open(page);
 	await expect(group.getByTestId("proxy-hosts-empty")).toBeVisible();
 	const operator = group.getByTestId("proxy-hosts-operator");
@@ -90,7 +92,7 @@ test("a bad host is explained and nothing is sent", async ({ page }) => {
 			group.getByText(/Enter a host name|must be a host name/),
 		).toBeVisible();
 	}
-	await writeFile(SQUID_CONF, OPERATOR_CONF);
+	await writeFile(OPERATOR_PROXY_HOSTS_FILE, OPERATOR_HOSTS);
 	await page.reload();
 	const again = page.getByTestId("proxy-hosts-group");
 	await expect(again.getByTestId("proxy-hosts-operator")).toBeVisible();
@@ -119,7 +121,7 @@ test("a proxy that refuses the change is reported, and nothing is saved", async 
 });
 
 test("the group has no accessibility violations", async ({ page }) => {
-	await writeFile(SQUID_CONF, OPERATOR_CONF);
+	await writeFile(OPERATOR_PROXY_HOSTS_FILE, OPERATOR_HOSTS);
 	const group = await open(page);
 	await group.getByLabel("Host name").fill("api.example.com");
 	await group.getByRole("button", { name: "Allow host" }).click();
