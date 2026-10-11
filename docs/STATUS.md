@@ -5251,4 +5251,19 @@ Gaps:
 - The default list write and the default job insert commit with their audit rows, but there is no failure-injection test.
 - In allow-list egress mode, installing another Playwright version's browser needs `cdn.playwright.dev` on the list.
 
-Rehearsal: pending
+Rehearsal: on the rehearsal VM with package 0.1.1140+gb46959e8 and
+workspace image 2026.10.3-local.202610110706, setup applied migration
+0046. On first start the platform wrote the default seed list
+(node:24-slim and python:3.13-slim) and queued its first build once;
+restarts did not queue it again. Seed builds recorded each image's
+unpacked size, matching `docker image inspect` inside a workspace
+exactly, and a digest-pinned name got its size too. The admin Docker
+routes returned CACHE_OFF, SEED_MATCH_UNKNOWN, SEED_ALREADY_MATCHES and
+SEED_OVER_LIMIT. In a workspace on the new image, the student's login
+linked the image's headless Chromium into `~/.cache/ms-playwright`, and a
+project pinned to `@playwright/test@1.63.0` ran its tests with no
+download. The image check recorded the newest Claude Code and Codex, and
+the Image tab's API reported a newer version when one was forced. The
+smoke test's Reset Docker check now allows the seed's images (#1505); the
+full smoke test then passed 388 to 0 with the Dex sign-in and nothing
+skipped.
