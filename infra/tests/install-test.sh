@@ -124,8 +124,8 @@ finish() {
   gpgconf --homedir "$KEYHOME" --kill all >/dev/null 2>&1
   rm -rf "$KEYHOME"
   # A failed step between making and checking the upgrade's workspace would
-  # otherwise leave it on a kept VM.
-  if [ -e "${LOGS}/agent-ws.made" ]; then
+  # otherwise leave it on a kept VM; a destroyed VM takes it along.
+  if [ -n "${KEEP_VM:-}" ] && [ -e "${LOGS}/agent-ws.made" ]; then
     step "destroy the upgrade's test workspace" destroy_agent_ws || rc=1
     set +e
   fi

@@ -11,7 +11,7 @@ ssh_cmd() {
   ssh -n "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
-# Same connection, but for the two places that deliberately feed the remote
+# Same connection, but for the calls that deliberately feed the remote
 # command on standard input.
 ssh_cmd_stdin() {
   ssh "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"

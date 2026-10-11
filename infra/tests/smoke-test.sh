@@ -19,6 +19,10 @@
 #                               restored workspaces.  Refused on the pilot.
 #   PORTIKUS_BACKUP_IDENTITY    the age key that opens that set
 #                               (default ~/.config/portikus/backup-age-key.txt).
+#   PORTIKUS_REHEARSAL_VM_IP    the rehearsal VM's address from its own
+#                               OpenTofu state (make smoke-test sets it).
+#                               Only that VM signs an https mock LMS a
+#                               certificate.
 #   PORTIKUS_SSH_USER           the account to SSH in as (default deploy).  It
 #                               needs passwordless sudo and the incus-admin
 #                               group (the play's portikus_operator_user).
@@ -82,6 +86,11 @@ cleanup_all() {
   local left=no
   if declare -F cleanup_lifecycle >/dev/null; then
     cleanup_lifecycle || left=yes
+  fi
+  # The mock LMS can launch as anyone while it runs, and its TLS key sits
+  # in its temporary folder; an interrupted run must not leave either.
+  if declare -F lti_stop_mock >/dev/null; then
+    lti_stop_mock
   fi
   if [ -n "${WS_NAME:-}" ]; then
     echo ""
