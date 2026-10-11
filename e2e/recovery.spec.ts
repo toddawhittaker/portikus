@@ -8,6 +8,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	query,
 	readSeededFile,
 	seedFile,
@@ -221,4 +222,64 @@ test("a partly done restore says so and how to undo it", async ({ page, context 
 		"The project may be partly restored. Restore the 'Before restore' point to undo.",
 	);
 	await expect(confirm).not.toContainText("was not restored");
+});
+
+test("a kept folder from a partly done restore is listed and deleted after a confirmation", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Kept Copy" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+
+	await openRecovery(page, project);
+	const dialog = page.getByTestId("dialog-recovery-points");
+	await expect(dialog.getByRole("heading", { name: "Kept folders" })).toHaveCount(0);
+	await dialog.getByTestId("recovery-create").click();
+	const row = dialog.locator("[data-testid^=recovery-row-]");
+	await expect(row).toHaveCount(1);
+	const pointId = ((await row.getAttribute("data-testid")) ?? "").replace(
+		"recovery-row-",
+		"",
+	);
+	await setRestoreIncomplete(student.workspaceId);
+	await dialog.getByRole("button", { name: /^Restore to / }).click();
+	const confirm = page.getByTestId("dialog-restore-point");
+	await confirm.getByRole("button", { name: "Restore", exact: true }).click();
+	await expect(confirm.getByTestId("restore-error")).toContainText("partly restored");
+	await confirm.getByRole("button", { name: "Cancel" }).click();
+
+	const kept = dialog.getByTestId(`recovery-kept-${pointId}`);
+	await expect(dialog.getByRole("heading", { name: "Kept folders" })).toBeVisible();
+	await expect(kept).toContainText(`~/projects/.portikus-aside-${pointId}`);
+	await expect(kept).toContainText("2 files, 2.0 KB");
+	await expectNoViolations(page, '[data-testid="recovery-kept-list"]');
+
+	// Escape closes only the confirmation.
+	await kept
+		.getByRole("button", { name: /^Delete kept folder from a restore to / })
+		.click();
+	const ask = page.getByTestId("dialog-delete-kept-folder");
+	await expect(ask).toContainText(
+		`~/projects/.portikus-aside-${pointId} holds the files Kept Copy had before`,
+	);
+	await expectNoViolations(page, '[data-testid="dialog-delete-kept-folder"]');
+	await page.keyboard.press("Escape");
+	await expect(ask).toHaveCount(0);
+	await expect(dialog).toBeVisible();
+
+	await kept.getByRole("button", { name: /^Delete kept folder/ }).click();
+	await ask.getByRole("button", { name: "Delete folder" }).click();
+	await expect(dialog.getByTestId("recovery-status")).toHaveText(
+		"Kept folder deleted.",
+	);
+	await expect(kept).toHaveCount(0);
+	await expect(dialog.getByRole("heading", { name: "Kept folders" })).toHaveCount(0);
+	await expect(dialog.getByTestId("recovery-create")).toBeFocused();
+
+	const audit = await query<{ result: string }>(
+		"select result from audit_events where action = 'recovery.aside_deleted' and target = $1",
+		[project.id],
+	);
+	expect(audit.map((a) => a.result)).toEqual(["ok"]);
 });

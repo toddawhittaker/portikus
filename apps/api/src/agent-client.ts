@@ -18,6 +18,7 @@ import {
 	AgentLogResponse,
 	AgentProject,
 	AgentProjectList,
+	AgentRecoveryAsideList,
 	AgentRenameProjectRequest,
 	AgentRestoreRecoveryPointRequest,
 	AgentTerminalsExit,
@@ -369,6 +370,29 @@ export class AgentClient {
 			"POST",
 			`/projects/${encodeURIComponent(slug)}/recovery-points/${encodeURIComponent(pointId)}/restore`,
 			AgentRestoreRecoveryPointRequest.parse(input),
+			AGENT_RECOVERY_TIMEOUT_MS,
+		);
+	}
+
+	/** Folders failed restores left in ~/projects (SPEC.md §15.10). */
+	async listRecoveryAsides(): Promise<AgentRecoveryAsideList["folders"]> {
+		const payload = await this.call("GET", "/recovery-asides");
+		const parsed = AgentRecoveryAsideList.safeParse(payload);
+		if (!parsed.success) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data.folders;
+	}
+
+	/** Delete one such folder, which may hold many files. */
+	async deleteRecoveryAside(projectId: string, pointId: string): Promise<void> {
+		await this.call(
+			"DELETE",
+			`/recovery-asides/${encodeURIComponent(projectId)}/${encodeURIComponent(pointId)}`,
+			undefined,
 			AGENT_RECOVERY_TIMEOUT_MS,
 		);
 	}

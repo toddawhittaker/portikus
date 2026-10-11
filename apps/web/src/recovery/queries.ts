@@ -1,5 +1,5 @@
 /** Recovery points of one project, and Reset Docker (SPEC.md §15, §16.4). */
-import { RecoveryPointList } from "@portikus/contracts";
+import { RecoveryAsideList, RecoveryPointList } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { request, sendJson } from "../api/request.js";
@@ -21,6 +21,8 @@ export function recoveryPointDiffUrl(
 export const recoveryKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["recovery-points", workspaceId, projectId] as const,
+	asides: (workspaceId: string, projectId: string) =>
+		["recovery-asides", workspaceId, projectId] as const,
 	/**
 	 * Outside the "git-diff" keys on purpose: a save or a file event must not
 	 * start another archive read of up to a minute (SPEC.md §15.8).
@@ -58,7 +60,16 @@ export function useCreateRecoveryPoint(workspaceId: string, projectId: string) {
 }
 
 export function useRestoreRecoveryPoint(workspaceId: string, projectId: string) {
-	const invalidate = useInvalidate(workspaceId, projectId);
+	const client = useQueryClient();
+	const invalidatePoints = useInvalidate(workspaceId, projectId);
+	// A restore that stops part way leaves a kept folder.
+	const invalidate = () =>
+		Promise.all([
+			invalidatePoints(),
+			client.invalidateQueries({
+				queryKey: recoveryKeys.asides(workspaceId, projectId),
+			}),
+		]);
 	return useMutation({
 		mutationFn: ({
 			pointId,
@@ -73,6 +84,33 @@ export function useRestoreRecoveryPoint(workspaceId: string, projectId: string) 
 				skipSafetyPoint ? { skipSafetyPoint: true } : {},
 			),
 		onSettled: invalidate,
+	});
+}
+
+const asidesUrl = (workspaceId: string, projectId: string) =>
+	`/workspaces/${workspaceId}/projects/${projectId}/recovery-asides`;
+
+/** Folders failed restores of this project left in ~/projects (SPEC.md §15.10). */
+export function useRecoveryAsides(workspaceId: string, projectId: string) {
+	return useQuery({
+		queryKey: recoveryKeys.asides(workspaceId, projectId),
+		queryFn: () => request(RecoveryAsideList, asidesUrl(workspaceId, projectId)),
+		// A stopped workspace answers 409; asking again does not help.
+		retry: false,
+	});
+}
+
+export function useDeleteRecoveryAside(workspaceId: string, projectId: string) {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: (pointId: string) =>
+			request(z.unknown(), `${asidesUrl(workspaceId, projectId)}/${pointId}`, {
+				method: "DELETE",
+			}),
+		onSettled: () =>
+			client.invalidateQueries({
+				queryKey: recoveryKeys.asides(workspaceId, projectId),
+			}),
 	});
 }
 

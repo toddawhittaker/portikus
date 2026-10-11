@@ -3,6 +3,7 @@ import websocket from "@fastify/websocket";
 import {
 	type AgentListeningService,
 	type AgentLogLine,
+	type AgentRecoveryAside,
 	MAX_UPLOAD_BYTES,
 	type SearchMatch,
 } from "@portikus/contracts";
@@ -130,6 +131,8 @@ export interface FakeAgent {
 	recoveryFull: Set<string>;
 	/** Workspace keys whose restores fail as RESTORE_INCOMPLETE. */
 	restoreIncomplete: Set<string>;
+	/** Folders a partly done restore left, by workspace key, then point id. */
+	recoveryAsides: Map<string, Map<string, AgentRecoveryAside>>;
 	/** Workspace keys whose restores fail with this status and code. */
 	restoreFailure: Map<string, [number, string]>;
 	/** Workspace keys whose recovery-point diffs fail with this status and code. */
@@ -188,6 +191,7 @@ export async function startFakeAgent(
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		recoveryAsides,
 		restoreFailure,
 		diffFailure,
 		storage,
@@ -367,6 +371,7 @@ export async function startFakeAgent(
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		recoveryAsides,
 		restoreFailure,
 		diffFailure,
 		storage,

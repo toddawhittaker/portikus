@@ -1,15 +1,21 @@
-import type { Project, RecoveryPoint } from "@portikus/contracts";
+import type { Project, RecoveryAsideFolder, RecoveryPoint } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Toggletip } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DialogError } from "../common/DialogError.js";
 import { formatBytes } from "../monitor/format.js";
+import { DeleteKeptFolderConfirm, KeptFolders } from "./KeptFolders.js";
 import { pointTime, REASON_LABEL } from "./labels.js";
-import { useCreateRecoveryPoint, useRecoveryPoints } from "./queries.js";
+import {
+	useCreateRecoveryPoint,
+	useRecoveryAsides,
+	useRecoveryPoints,
+} from "./queries.js";
 import { RestoreConfirm } from "./RestoreConfirm.js";
 
 /**
  * The project's recovery points (SPEC.md §15): when, why and how big each
- * one is, how much of the allowance is used, and a way to make or restore one.
+ * one is, how much of the allowance is used, a way to make or restore one,
+ * and the folders a restore that stopped part way kept (SPEC.md §15.10).
  */
 export function RecoveryDialog({
 	workspaceId,
@@ -22,7 +28,12 @@ export function RecoveryDialog({
 }) {
 	const list = useRecoveryPoints(workspaceId, project.id);
 	const create = useCreateRecoveryPoint(workspaceId, project.id);
+	// Listed only while the agent runs; a stopped workspace has none to show.
+	const asides = useRecoveryAsides(workspaceId, project.id);
 	const [restoring, setRestoring] = useState<RecoveryPoint | null>(null);
+	const [deleting, setDeleting] = useState<RecoveryAsideFolder | null>(null);
+	// A deleted folder's button is gone, so focus goes to the first action.
+	const deletedFolder = useRef(false);
 	const [announce, setAnnounce] = useState("");
 	const points = list.data?.points ?? [];
 	const usage = list.data?.usage;
@@ -35,6 +46,7 @@ export function RecoveryDialog({
 			onOpenChange={(open) => {
 				if (open) return;
 				if (restoring) setRestoring(null);
+				else if (deleting) setDeleting(null);
 				else onClose();
 			}}
 		>
@@ -50,6 +62,7 @@ export function RecoveryDialog({
 						variant="primary"
 						loading={create.isPending}
 						data-testid="recovery-create"
+						data-recovery-first-action
 						onClick={() => {
 							if (create.isPending) return;
 							setAnnounce("");
@@ -125,6 +138,10 @@ export function RecoveryDialog({
 						</tbody>
 					</table>
 				) : null}
+				<KeptFolders
+					folders={asides.data?.folders ?? []}
+					onDelete={(folder) => setDeleting(folder)}
+				/>
 			</Dialog>
 			{restoring ? (
 				<RestoreConfirm
@@ -133,6 +150,24 @@ export function RecoveryDialog({
 					point={restoring}
 					onClose={() => setRestoring(null)}
 					onRestored={onClose}
+				/>
+			) : null}
+			{deleting ? (
+				<DeleteKeptFolderConfirm
+					workspaceId={workspaceId}
+					project={project}
+					folder={deleting}
+					onClose={() => setDeleting(null)}
+					returnFocusTo={() => {
+						if (!deletedFolder.current) return null;
+						deletedFolder.current = false;
+						return document.querySelector<HTMLElement>("[data-recovery-first-action]");
+					}}
+					onDeleted={() => {
+						deletedFolder.current = true;
+						setDeleting(null);
+						setAnnounce("Kept folder deleted.");
+					}}
 				/>
 			) : null}
 		</DialogRoot>

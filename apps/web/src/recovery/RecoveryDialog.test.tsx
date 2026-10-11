@@ -178,7 +178,7 @@ test("any other restore failure is an alert and sends no second request", async 
 
 test("a failed restore without the safety point shows the server's message", async () => {
 	const partial =
-		"The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-x in the projects folder; do not delete it.";
+		"The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-x in the projects folder. Copy back what you need, then delete it under Kept folders in the Recovery points dialog.";
 	render((_url, init) => {
 		if (init?.method !== "POST") return json(200, LIST);
 		return JSON.parse(String(init.body)).skipSafetyPoint

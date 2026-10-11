@@ -13,6 +13,7 @@ import { Writable } from "node:stream";
 import {
 	AgentCreateRecoveryPointResponse,
 	AgentRecoveryArchiveList,
+	AgentRecoveryAsideList,
 	GitDiff,
 } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
@@ -107,6 +108,8 @@ test("every recovery route needs the token", async () => {
 		["DELETE", `/recovery-points/${projectId}/${pointId}`],
 		["DELETE", `/recovery-points/${projectId}`],
 		["GET", "/recovery-points"],
+		["GET", "/recovery-asides"],
+		["DELETE", `/recovery-asides/${projectId}/${pointId}`],
 	] as const) {
 		const response = await app.inject({ method, url, payload: {} });
 		expect(response.statusCode).toBe(401);
@@ -318,8 +321,37 @@ test("diff answers the point's version against the working copy; bad queries are
 	}
 });
 
+test("aside folders are listed and deleted by point id, and only those", async () => {
+	const pointId = randomUUID();
+	const aside = join(homeDir, "projects", `.portikus-aside-${pointId}`);
+	await mkdir(join(aside, "src"), { recursive: true });
+	await writeFile(join(aside, "src", "private-name.txt"), "kept\n");
+
+	const listed = await app.inject({ method: "GET", url: "/recovery-asides", headers });
+	expect(listed.statusCode).toBe(200);
+	const body = AgentRecoveryAsideList.parse(listed.json());
+	expect(body.folders).toEqual([
+		expect.objectContaining({ pointId, fileCount: 1, sizeBytes: 5, complete: true }),
+	]);
+
+	const bad = await app.inject({
+		method: "DELETE",
+		url: `/recovery-asides/${randomUUID()}/..%2Falpha`,
+		headers,
+	});
+	expect(bad.statusCode).toBe(400);
+	const del = await app.inject({
+		method: "DELETE",
+		url: `/recovery-asides/${randomUUID()}/${pointId}`,
+		headers,
+	});
+	expect(del.statusCode).toBe(204);
+	expect(await readdir(join(homeDir, "projects"))).toEqual(["alpha"]);
+});
+
 test("logs carry ids and sizes, never file names", () => {
 	const text = JSON.stringify(logs.lines);
 	expect(text).toContain("recovery point created");
+	expect(text).toContain("recovery aside folder deleted");
 	expect(text).not.toContain("private-name");
 });

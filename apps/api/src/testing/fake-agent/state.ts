@@ -3,6 +3,7 @@ import type { Server as HttpsServer } from "node:https";
 import type { WebSocket } from "@fastify/websocket";
 import type {
 	AgentListeningService,
+	AgentRecoveryAside,
 	GitDiff,
 	GitStatus,
 	SearchMatch,
@@ -335,6 +336,7 @@ export function createFakeAgentState(token: string) {
 	const recoveryDeletes: string[] = [];
 	const recoveryFull = new Set<string>();
 	const restoreIncomplete = new Set<string>();
+	const recoveryAsides = new Map<string, Map<string, AgentRecoveryAside>>();
 	const restoreFailure = new Map<string, [number, string]>();
 	const diffFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
@@ -389,6 +391,7 @@ export function createFakeAgentState(token: string) {
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		recoveryAsides,
 		restoreFailure,
 		diffFailure,
 		storage,

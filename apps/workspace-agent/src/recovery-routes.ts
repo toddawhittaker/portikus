@@ -20,6 +20,7 @@ import {
 	type RecoveryPaths,
 	restoreRecoveryPoint,
 } from "./recovery.js";
+import { deleteRecoveryAside, listRecoveryAsides } from "./recovery-asides.js";
 import { recoveryPointDiff } from "./recovery-diff.js";
 
 const SlugParams = z.object({ slug: z.string() });
@@ -162,6 +163,33 @@ export async function recoveryRoutes(
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}
+		return reply.code(204).send();
+	});
+
+	// Folders a failed restore left in ~/projects (SPEC.md §15.10).
+	instance.get("/recovery-asides", async (request, reply) => {
+		try {
+			const folders = await listRecoveryAsides(paths.homeDir);
+			return reply.code(200).send({ folders });
+		} catch (error) {
+			return sendError(request, reply, error, "INTERNAL");
+		}
+	});
+
+	// The project id only picks the lock, so no restore of that project is
+	// using the folder while it goes.
+	instance.delete("/recovery-asides/:projectId/:pointId", async (request, reply) => {
+		const params = PointParams.safeParse(request.params);
+		if (!params.success) {
+			return reply.code(400).send(badRequest());
+		}
+		const { projectId, pointId } = params.data;
+		try {
+			await locks.run(projectId, () => deleteRecoveryAside(paths.homeDir, pointId));
+		} catch (error) {
+			return sendError(request, reply, error, "INTERNAL");
+		}
+		request.log.info({ projectId, pointId }, "recovery aside folder deleted");
 		return reply.code(204).send();
 	});
 
