@@ -152,3 +152,45 @@ export const AgentRecoveryDiffQuery = z
 	})
 	.strict();
 export type AgentRecoveryDiffQuery = z.infer<typeof AgentRecoveryDiffQuery>;
+
+/**
+ * The name a restore gives the folder it moves the current files into, in
+ * `~/projects`, followed by the point's id. A failed undo leaves it behind
+ * (SPEC.md §15.8, §15.10).
+ */
+export const RECOVERY_ASIDE_PREFIX = ".portikus-aside-";
+
+/**
+ * One folder a restore left behind. The walk that counts its files stops
+ * early on a very large folder; `complete` is then false and the figures
+ * are lower bounds.
+ */
+export const AgentRecoveryAside = z.object({
+	pointId: z.string().uuid(),
+	modifiedAt: z.string().datetime(),
+	fileCount: z.number().int().nonnegative(),
+	sizeBytes: z.number().int().nonnegative(),
+	complete: z.boolean(),
+});
+export type AgentRecoveryAside = z.infer<typeof AgentRecoveryAside>;
+
+/** Response body for the agent's `GET /recovery-asides`. */
+export const AgentRecoveryAsideList = z.object({
+	folders: z.array(AgentRecoveryAside).max(1000),
+});
+export type AgentRecoveryAsideList = z.infer<typeof AgentRecoveryAsideList>;
+
+/**
+ * One kept folder of a project, with the time of the point whose restore
+ * left it, or null once that point has expired.
+ */
+export const RecoveryAsideFolder = AgentRecoveryAside.extend({
+	pointCreatedAt: z.string().datetime().nullable(),
+});
+export type RecoveryAsideFolder = z.infer<typeof RecoveryAsideFolder>;
+
+/** Response body for `GET /workspaces/:id/projects/:pid/recovery-asides`. */
+export const RecoveryAsideList = z.object({
+	folders: z.array(RecoveryAsideFolder),
+});
+export type RecoveryAsideList = z.infer<typeof RecoveryAsideList>;

@@ -273,9 +273,10 @@ export const STUDENT_HELP: HelpPart = {
 						<li>
 							If a restore cannot finish, your earlier files are kept in a hidden folder
 							named <code>~/projects/.portikus-aside-</code> followed by the point's ID.
-							Copy back what you need, then delete that folder in a terminal. Portikus
-							never deletes it for you, and it will not restore that same point again
-							until the folder is gone.
+							The Recovery points dialog lists it under <strong>Kept folders</strong>{" "}
+							while the workspace is running. Copy back what you need, then press{" "}
+							<strong>Delete…</strong> there. Portikus never deletes it on its own, and
+							it will not restore that same point again until the folder is gone.
 						</li>
 					</ul>
 				</>

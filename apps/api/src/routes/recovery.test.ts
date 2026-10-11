@@ -63,6 +63,7 @@ beforeEach(async () => {
 	agent.recoveryPoints.clear();
 	agent.recoveryFull.clear();
 	agent.restoreIncomplete.clear();
+	agent.recoveryAsides.clear();
 	agent.restoreFailure.clear();
 	agent.diffFailure.clear();
 	agent.recoveryDeletes.length = 0;
@@ -594,7 +595,7 @@ test.skipIf(skip)(
 		const failed = await restore(alice, pointId, { skipSafetyPoint: true });
 		expect(failed.statusCode).toBe(500);
 		expect(failed.json().message).toBe(
-			`The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-${pointId} in the projects folder; do not delete it.`,
+			`The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-${pointId} in the projects folder. Copy back what you need, then delete it under Kept folders in the Recovery points dialog.`,
 		);
 	},
 );
@@ -605,8 +606,146 @@ test.skipIf(skip)("a leftover rollback copy refuses the restore", async () => {
 	const refused = await restore(alice, pointId);
 	expect(refused.statusCode).toBe(409);
 	expect(refused.json().message).toBe(
-		`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${pointId}. Copy back anything you need, delete that folder in a terminal, then restore again. You can restore a different point in the meantime.`,
+		`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${pointId}. Copy back anything you need, delete that folder under Kept folders in the Recovery points dialog, then restore again. You can restore a different point in the meantime.`,
 	);
+});
+
+const asides = () => `/workspaces/${workspaceId}/projects/${projectId}/recovery-asides`;
+
+function listAsides(jar: CookieJar) {
+	return app.inject({
+		method: "GET",
+		url: asides(),
+		headers: { cookie: jar.cookieHeader() },
+	});
+}
+
+function deleteAside(jar: CookieJar, pointId: string) {
+	return app.inject({
+		method: "DELETE",
+		url: `${asides()}/${pointId}`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+	});
+}
+
+/** A folder in the fake agent, as a failed restore of `pointId` leaves one. */
+function seedAside(pointId: string) {
+	const kept = agent.recoveryAsides.get("") ?? new Map();
+	kept.set(pointId, {
+		pointId,
+		modifiedAt: new Date().toISOString(),
+		fileCount: 3,
+		sizeBytes: 300,
+		complete: true,
+	});
+	agent.recoveryAsides.set("", kept);
+}
+
+test.skipIf(skip)(
+	"a partial restore's kept folder is listed, then deleted with an audit row",
+	async () => {
+		const point = (await create(alice)).json();
+		agent.restoreIncomplete.add("");
+		expect((await restore(alice, point.id)).statusCode).toBe(500);
+
+		const listed = await listAsides(alice);
+		expect(listed.statusCode).toBe(200);
+		expect(listed.json().folders).toEqual([
+			expect.objectContaining({
+				pointId: point.id,
+				pointCreatedAt: point.createdAt,
+				fileCount: 2,
+				complete: true,
+			}),
+		]);
+
+		const deleted = await deleteAside(alice, point.id);
+		expect(deleted.statusCode).toBe(204);
+		expect(agent.recoveryAsides.get("")?.size).toBe(0);
+		expect((await listAsides(alice)).json().folders).toEqual([]);
+
+		const audit = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "recovery.aside_deleted")
+			.execute();
+		expect(audit).toHaveLength(1);
+		expect(audit[0]?.actor).toMatch(/^user:/);
+		expect(audit[0]?.target).toBe(projectId);
+		expect(audit[0]?.result).toBe("ok");
+		expect(audit[0]?.metadata).toMatchObject({
+			pointId: point.id,
+			fileCount: 2,
+			sizeBytes: 2048,
+		});
+		expect(JSON.stringify(audit[0]?.metadata)).not.toContain(".portikus-aside");
+		expect(logLines.join("")).not.toContain("notes-about-exam");
+	},
+);
+
+test.skipIf(skip)(
+	"only folders this project's points or restores name are listed or deleted",
+	async () => {
+		const other = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { name: "other-work", source: "new" },
+			})
+		).json().id as string;
+		const otherPoint = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects/${other}/recovery-points`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+			})
+		).json().id as string;
+		const stranger = "11111111-2222-4333-8444-555555555555";
+		seedAside(otherPoint);
+		seedAside(stranger);
+
+		// A restore was audited, then its point expired: still this project's.
+		const expired = (await create(alice)).json().id as string;
+		agent.restoreIncomplete.add("");
+		await restore(alice, expired);
+		await testDb.db.deleteFrom("recovery_points").where("id", "=", expired).execute();
+
+		const listed = (await listAsides(alice)).json().folders;
+		expect(listed.map((f: { pointId: string }) => f.pointId)).toEqual([expired]);
+		expect(listed[0].pointCreatedAt).toBeNull();
+
+		for (const id of [otherPoint, stranger]) {
+			const refused = await deleteAside(alice, id);
+			expect(refused.statusCode).toBe(404);
+		}
+		expect(agent.recoveryAsides.get("")?.has(otherPoint)).toBe(true);
+		expect(agent.recoveryAsides.get("")?.has(stranger)).toBe(true);
+		expect((await deleteAside(alice, "not-a-uuid")).statusCode).toBe(400);
+	},
+);
+
+test.skipIf(skip)(
+	"another student and an administrator cannot see or delete kept folders",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		seedAside(pointId);
+		for (const name of ["bob", "carol"]) {
+			const jar = new CookieJar();
+			await loginAs(app, name, jar);
+			for (const response of [await listAsides(jar), await deleteAside(jar, pointId)]) {
+				expect(response.statusCode).toBe(404);
+			}
+		}
+		expect(agent.recoveryAsides.get("")?.has(pointId)).toBe(true);
+	},
+);
+
+test.skipIf(skip)("kept folders need a running workspace", async () => {
+	await setState("stopped");
+	const refused = await listAsides(alice);
+	expect(refused.statusCode).toBe(409);
+	expect(refused.json().code).toBe("AGENT_UNAVAILABLE");
 });
 
 function diff(jar: CookieJar, pointId: string, path = "notes-about-exam.txt") {
