@@ -14,6 +14,7 @@ import {
 	readCertificateStatus,
 } from "../certificate/notices.js";
 import {
+	addressDnsChecks,
 	type NonceStore,
 	type PreflightNet,
 	runAddressPreflight,
@@ -250,6 +251,15 @@ export function registerAdminAddressRoutes(
 		const input = await planInput(request.body, reply);
 		if (!input) return;
 		const { view, target } = input;
+		const dns = await addressDnsChecks(
+			net,
+			target.host,
+			nextPreviewSuffix(view, target.host),
+		);
+		const unresolved = dns.checks.find((c) => c.result === "failed");
+		if (unresolved) {
+			return sendError(reply, 409, "ADDRESS_DNS_UNRESOLVED", unresolved.message);
+		}
 		if (
 			view.certificateSource === "files" &&
 			!uploadsCover(

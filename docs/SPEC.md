@@ -2835,8 +2835,9 @@ are write-only and show only "set" or "not set"; a blank one keeps the
 stored value. **Test only** and **Apply** run a pre-flight first, from
 the server with a resolver that skips `/etc/hosts`: the names resolve and
 a nonce at `/.well-known/portikus-preflight/` answers, plus plain HTTP on
-port 80 for HTTP-01. A failure blocks HTTP-01 and is a warning for
-DNS-01. When the host resolver is systemd-resolved, it answers
+port 80 for HTTP-01. A DNS failure blocks HTTP-01 and is a warning for
+DNS-01. The reach and port-80 checks are warnings in both modes, because
+the API's sandbox keeps its probes on the host. When the host resolver is systemd-resolved, it answers
 from `/etc/hosts`, so a hosts entry can make a name pass the pre-flight
 that the public DNS does not have. Uploads are checked by the API and again by the job, and a
 refusal names the failed check. **Renew now** shows only for ACME,
@@ -2903,7 +2904,8 @@ the host goes through the root site job (section 24.1):
   addresses). Workspaces are not affected. The operator's list shows
   read-only.
 - **Site address.** The page plans a move to a new host name or port,
-  checks DNS with a pre-flight, and applies it as a 15-minute trial that
+  checks DNS with a pre-flight, which Apply repeats on the server and
+  refuses on a name that does not resolve, and applies it as a 15-minute trial that
   must be kept from the new address. Uploaded certificates must cover
   the new names. The preview suffix follows the host unless it was set
   by hand. Running workspaces keep the old suffix until their next
