@@ -48,7 +48,21 @@ export {
 	resetLocalAdmin,
 	runResetAdmin,
 } from "./local-admin.js";
+export {
+	type DeepLinkingResponseInput,
+	type DeepLinkResourceLink,
+	signDeepLinkingResponse,
+} from "./lti/deep-linking.js";
 export { isOnOrigin, type LtiLoginParams, startLtiLogin } from "./lti/login.js";
+export {
+	fetchNrpsMembers,
+	NrpsError,
+	type NrpsErrorKind,
+	type NrpsMember,
+	type NrpsMembershipsInput,
+	type NrpsTokenInput,
+	requestNrpsToken,
+} from "./lti/nrps.js";
 export {
 	type LtiPlatform,
 	loadPlatformsFile,
@@ -63,9 +77,13 @@ export {
 	saveLoginState,
 	staleLtiStateCookies,
 } from "./lti/state.js";
+export { toolJwks, toolKeyId } from "./lti/tool-key.js";
 export {
 	createKeySetSource,
+	type LtiDeepLinkingLaunch,
 	type LtiLaunch,
+	type LtiRefusal,
+	type LtiResourceLinkLaunch,
 	validateLaunchToken,
 } from "./lti/validate.js";
 export {

@@ -2,6 +2,7 @@ import {
 	type CreateProjectRequest,
 	Project,
 	ProjectList,
+	ProjectShareStatus,
 	type ProjectState,
 	ProjectTemplateList,
 } from "@portikus/contracts";
@@ -146,4 +147,46 @@ export function useDeleteProject(workspaceId: string) {
  */
 export function projectDownloadUrl(workspaceId: string, projectId: string): string {
 	return `${base(workspaceId)}/${projectId}/download`;
+}
+
+const shareKey = (workspaceId: string, projectId: string) =>
+	["project-share", workspaceId, projectId] as const;
+
+const shareUrl = (workspaceId: string, projectId: string) =>
+	`${base(workspaceId)}/${projectId}/share`;
+
+/**
+ * Whether a project is shared and who has looked (SPEC.md §5.2), for the share
+ * dialog. It polls so a new viewer shows up; the row badge reads the project
+ * list instead.
+ */
+export function useProjectShare(workspaceId: string, projectId: string) {
+	return useQuery({
+		queryKey: shareKey(workspaceId, projectId),
+		refetchInterval: 15_000,
+		queryFn: () => request(ProjectShareStatus, shareUrl(workspaceId, projectId)),
+	});
+}
+
+/**
+ * The answer is the new status, so the cache takes it as it is. The project
+ * list carries the row's "Shared" tag, so it is refetched too.
+ */
+export function useChangeProjectShare(workspaceId: string, projectId: string) {
+	const client = useQueryClient();
+	const invalidate = useInvalidateProjects(workspaceId);
+	return useMutation({
+		mutationFn: (action: "start" | "stop") =>
+			request(
+				ProjectShareStatus,
+				action === "start"
+					? shareUrl(workspaceId, projectId)
+					: `${shareUrl(workspaceId, projectId)}/stop`,
+				{ method: "POST" },
+			),
+		onSuccess: (status) => {
+			client.setQueryData(shareKey(workspaceId, projectId), status);
+			invalidate();
+		},
+	});
 }

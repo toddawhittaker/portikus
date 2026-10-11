@@ -30,6 +30,7 @@ const ADMIN_TAB_NAMES = [
 	"Health",
 	"Logs",
 	"Audit",
+	"Agent usage",
 	"Network",
 	"Backups",
 	"Workspace image",
@@ -175,7 +176,7 @@ test.describe("admin layout", () => {
 		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	});
 
-	test("tabs read Users, Health, Logs, Audit, Network, Backups, Workspace image, Certificate, Docker, Settings, side by side with no gaps", async ({
+	test("tabs read Users, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, side by side with no gaps", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -492,7 +493,7 @@ test.describe("admin layout", () => {
 			await page.keyboard.press("Tab");
 			if (await users.evaluate((el) => el === document.activeElement)) break;
 		}
-		for (const name of ["Users", "Health", "Logs", "Audit", "Network"]) {
+		for (const name of ["Users", "Health", "Logs", "Audit", "Agent usage", "Network"]) {
 			if (name !== "Users") await page.keyboard.press("Tab");
 			const link = nav.getByRole("link", { name, exact: true });
 			await expect(link).toBeFocused();

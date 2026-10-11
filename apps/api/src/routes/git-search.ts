@@ -1,5 +1,4 @@
 import {
-	GIT_TIMEOUT_MS,
 	GitDiff,
 	GitRef,
 	GitStatus,
@@ -10,32 +9,20 @@ import {
 	SearchQuery,
 	SearchResponse,
 } from "@portikus/contracts";
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import {
-	AGENT_TIMEOUT_MS,
-	type AgentClient,
-	readAgentError,
-	readJson,
-} from "../agent-client.js";
+import { AGENT_TIMEOUT_MS } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import {
-	agentUrl,
-	scopedProject,
-	sendAgentError,
-} from "../workspaces/project-scope.js";
+	GIT_DIFF_BUDGET_MS,
+	GIT_STATUS_BUDGET_MS,
+	relayJson,
+} from "../workspaces/agent-relay.js";
+import { agentUrl, scopedProject } from "../workspaces/project-scope.js";
 
-/**
- * How long the agent has to answer, route by route. Each budget is the
- * agent's own work budget plus the time a healthy agent needs to hand the
- * answer back, so the control plane never gives up on a command the agent is
- * still allowed to be running (SPEC.md §11.5, §12.1, §12.6).
- */
+/** The agent's search budget plus the time a healthy agent needs to answer (SPEC.md §11.5). */
 const SEARCH_BUDGET_MS = SEARCH_TIMEOUT_MS + AGENT_TIMEOUT_MS;
-const STATUS_BUDGET_MS = GIT_TIMEOUT_MS + AGENT_TIMEOUT_MS;
-/** A diff runs two git commands, one for each side. */
-const DIFF_BUDGET_MS = GIT_TIMEOUT_MS * 2 + AGENT_TIMEOUT_MS;
 
 /**
  * The agent is untrusted (SPEC.md §24.1), so its matches are cut to the
@@ -47,49 +34,6 @@ const RelayedSearchResponse = SearchResponse.transform((answer) =>
 		? { matches: answer.matches.slice(0, MAX_SEARCH_MATCHES), truncated: true }
 		: answer,
 );
-
-/**
- * Call the agent and relay its JSON, checked against the contract. One shape
- * for all three routes: anything the contract does not accept is the agent's
- * fault, not the student's.
- */
-async function relay<T extends z.ZodTypeAny>(
-	reply: FastifyReply,
-	log: FastifyBaseLogger,
-	agent: AgentClient,
-	path: string,
-	schema: T,
-	signal: AbortSignal,
-): Promise<z.infer<T> | undefined> {
-	let response: Response;
-	try {
-		response = await agent.fetchRaw("GET", path, { signal });
-	} catch (error) {
-		sendAgentError(reply, error);
-		return undefined;
-	}
-	if (!response.ok) {
-		sendAgentError(reply, await readAgentError(response));
-		return undefined;
-	}
-	const parsed = schema.safeParse(await readJson(response));
-	if (!parsed.success) {
-		// Only where the answer went wrong is logged; the values are student
-		// content and never reach a log (STACK.md §15).
-		log.error(
-			{ issues: parsed.error.issues.map((issue) => issue.path.join(".")) },
-			"the workspace agent sent an answer the contract rejected",
-		);
-		sendError(
-			reply,
-			503,
-			"AGENT_UNAVAILABLE",
-			"The workspace agent sent an answer we could not read.",
-		);
-		return undefined;
-	}
-	return parsed.data;
-}
 
 /**
  * Read-only Git and search routes (SPEC.md §11.5, §12.1, §12.6). The control
@@ -108,13 +52,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		if (!query.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", "hidden must be true or false");
 		}
-		return relay(
+		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
 			agentUrl(scope.slug, "git/status", { hidden: String(query.data.hidden) }),
 			GitStatus,
-			AbortSignal.timeout(STATUS_BUDGET_MS),
+			AbortSignal.timeout(GIT_STATUS_BUDGET_MS),
 		);
 	});
 
@@ -143,13 +87,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 			}
 			params.ref = ref.data;
 		}
-		return relay(
+		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
 			agentUrl(scope.slug, "git/diff", params),
 			GitDiff,
-			AbortSignal.timeout(DIFF_BUDGET_MS),
+			AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 		);
 	});
 
@@ -172,13 +116,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 				"object must be a Git object id",
 			);
 		}
-		return relay(
+		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
 			agentUrl(scope.slug, "baseline-status", { object: object.data }),
 			GitStatus,
-			AbortSignal.timeout(STATUS_BUDGET_MS),
+			AbortSignal.timeout(GIT_STATUS_BUDGET_MS),
 		);
 	});
 
@@ -204,13 +148,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 				"that path is not inside the project",
 			);
 		}
-		return relay(
+		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
 			agentUrl(scope.slug, "baseline-diff", { object: object.data, path: path.data }),
 			GitDiff,
-			AbortSignal.timeout(DIFF_BUDGET_MS),
+			AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 		);
 	});
 
@@ -236,7 +180,7 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		request.raw.on("close", onClose);
 		const timer = setTimeout(() => controller.abort(), SEARCH_BUDGET_MS);
 		try {
-			return await relay(
+			return await relayJson(
 				reply,
 				request.log,
 				scope.agent,

@@ -42,6 +42,9 @@ import { down as down0037, up as up0037 } from "./0037_second_factor.js";
 import { down as down0038, up as up0038 } from "./0038_account_invitations.js";
 import { down as down0039, up as up0039 } from "./0039_notification_flags.js";
 import { down as down0040, up as up0040 } from "./0040_signin_counters.js";
+import { down as down0041, up as up0041 } from "./0041_lti_roster_and_deep_linking.js";
+import { down as down0042, up as up0042 } from "./0042_project_shares.js";
+import { down as down0043, up as up0043 } from "./0043_agent_usage_days.js";
 import { down as down0044, up as up0044 } from "./0044_dex_account_issuer.js";
 
 /**
@@ -89,5 +92,8 @@ export const migrations: Record<string, Migration> = {
 	"0038_account_invitations": { up: up0038, down: down0038 },
 	"0039_notification_flags": { up: up0039, down: down0039 },
 	"0040_signin_counters": { up: up0040, down: down0040 },
+	"0041_lti_roster_and_deep_linking": { up: up0041, down: down0041 },
+	"0042_project_shares": { up: up0042, down: down0042 },
+	"0043_agent_usage_days": { up: up0043, down: down0043 },
 	"0044_dex_account_issuer": { up: up0044, down: down0044 },
 };

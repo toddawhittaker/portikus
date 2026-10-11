@@ -1,5 +1,16 @@
-import { CourseMembersResponse, CoursesResponse } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	AgentUsageResponse,
+	type AgentUsageWindow,
+	CourseMembersResponse,
+	CoursesResponse,
+	RosterSyncResponse,
+} from "@portikus/contracts";
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
@@ -16,6 +27,35 @@ export function useCourseMembers(courseId: string) {
 		queryKey: ["courses", courseId, "members"],
 		queryFn: () => request(CourseMembersResponse, `/courses/${courseId}/members`),
 		// Instructors switch tabs a lot; a read-only roster need not refetch each time.
+		refetchOnWindowFocus: false,
+	});
+}
+
+/** Asks the learning system for the member list; the roster and the member rows refresh after. */
+export function useSyncRoster(courseId: string) {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: () =>
+			request(RosterSyncResponse, `/courses/${courseId}/roster/sync`, {
+				method: "POST",
+			}),
+		onSuccess: (sync) => {
+			client.setQueryData<CourseMembersResponse>(
+				["courses", courseId, "members"],
+				(old) => old && { ...old, roster: sync.roster },
+			);
+			return client.invalidateQueries({ queryKey: ["courses", courseId, "members"] });
+		},
+	});
+}
+
+/** Coding-agent totals for the course's members over the last `days` days. */
+export function useCourseAgentUsage(courseId: string, days: AgentUsageWindow) {
+	return useQuery({
+		queryKey: ["courses", courseId, "agent-usage", days],
+		queryFn: () =>
+			request(AgentUsageResponse, `/courses/${courseId}/agent-usage?days=${days}`),
+		placeholderData: keepPreviousData,
 		refetchOnWindowFocus: false,
 	});
 }

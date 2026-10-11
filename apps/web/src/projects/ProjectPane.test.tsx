@@ -11,12 +11,14 @@ import {
 } from "../test-utils.js";
 
 const TODO = project();
+// Only NOTES is shared; the list itself says so.
 const NOTES = project({
 	id: "55555555-5555-4555-8555-555555555555",
 	slug: "notes",
 	name: "notes",
 	path: "/home/student/projects/notes",
 	isGitRepo: false,
+	sharedUntil: new Date(Date.now() + 3_600_000).toISOString(),
 });
 const GONE = project({
 	id: "66666666-6666-4666-8666-666666666666",
@@ -40,14 +42,22 @@ const COPY = project({
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** Share status reads made while the pane was mounted. */
+let shareReads: string[] = [];
+
 /** Mounts the shell on the todo-api project with the given project lists. */
 async function mount(
 	active = [TODO, NOTES, GONE],
 	archived = [OLD],
 	path = `/workspaces/${WORKSPACE.id}/projects/${TODO.id}`,
 ) {
+	shareReads = [];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, USER);
+		if (url.endsWith("/share")) {
+			shareReads.push(url);
+			return json(200, { share: null, viewers: [], audience: [] });
+		}
 		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
 		if (url.endsWith("/duplicate")) return json(200, COPY);
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
@@ -113,6 +123,31 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.getByTestId("project-archive")).toBeDefined();
 	expect(screen.getByTestId("project-recovery").textContent).toBe("Recovery points…");
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
+});
+
+test("only a shared project has the Shared tag", async () => {
+	await mount();
+
+	expect(await screen.findByTestId(`project-shared-${NOTES.id}`)).toBeDefined();
+	expect(screen.queryByTestId(`project-shared-${TODO.id}`)).toBeNull();
+	expect(screen.queryByTestId(`project-shared-${GONE.id}`)).toBeNull();
+	// The tag comes from the list, never from one share request per row.
+	expect(shareReads).toEqual([]);
+});
+
+test("Share with my instructors opens the share dialog for that project", async () => {
+	await mount();
+	openMenu(TODO.id);
+
+	fireEvent.keyDown(
+		screen.getByRole("menuitem", { name: "Share with my instructors…" }),
+		{
+			key: "Enter",
+		},
+	);
+
+	const dialog = await screen.findByTestId("dialog-share-project");
+	expect(dialog.textContent).toContain("Share todo-api with my instructors");
 });
 
 /** Enter on the download item must start the download itself. */
