@@ -1,4 +1,5 @@
 import {
+	canonicalImageName,
 	type SeedBuildRequest,
 	type SeedBuildStatus,
 	type SeedInfo,
@@ -20,6 +21,8 @@ export interface SeedBuildHost {
 	prepareSeedBuilder(opts: { maxBytes: number; ghcr: boolean }): Promise<void>;
 	/** Run one command in the builder, no shell; answers its exit status. */
 	execInSeedBuilder(command: string[], timeoutSeconds: number): Promise<number>;
+	/** An image's unpacked size in the builder's dockerd, or null when it cannot be read. */
+	seedImageBytes(image: string): Promise<number | null>;
 	/** The workspace image version the builder runs. */
 	seedImageVersion(): Promise<string>;
 	/** Measure the build volume, then stop and delete the builder. Answers bytes used. */
@@ -128,6 +131,13 @@ export class SeedBuilds {
 					`Pulling ${request.images[i]} (${i + 1} of ${pulls.length})`.slice(0, 200);
 				await exec(command, SEED_PULL_TIMEOUT_SECONDS);
 			}
+			// Measured while dockerd still runs; the cleanup stops it.
+			status.step = "Measuring the images";
+			const imageBytes: Record<string, number> = {};
+			for (const image of request.images) {
+				const bytes = await this.host.seedImageBytes(image);
+				if (bytes !== null) imageBytes[canonicalImageName(image)] = bytes;
+			}
 			status.step = "Cleaning up the builder";
 			for (const command of cleanup) await exec(command, CLEANUP_TIMEOUT_SECONDS);
 			status.step = "Measuring the seed";
@@ -142,6 +152,7 @@ export class SeedBuilds {
 				sizeBytes,
 				imageVersion,
 				builtAt: this.now().toISOString(),
+				imageBytes,
 			};
 			status.step = "Installing the seed";
 			await this.host.installSeed(seed);

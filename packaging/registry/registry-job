@@ -669,6 +669,7 @@ class Helper:
                     continue
                 if path and "_manifests" in names:
                     self.scan_tags(repos, blobs, path, registry, found, budget)
+                    self.scan_revisions(repos, blobs, path, registry, found, budget)
                 if len(path) < REPOSITORY_DEPTH_MAX:
                     stack.extend(path + [n] for n in reversed(names) if COMPONENT_RE.fullmatch(n))
         finally:
@@ -689,6 +690,24 @@ class Helper:
             link = read_under(repos, path + ["_manifests", "tags", tag, "current", "link"], 200)
             size = self.download_size(blobs, link.strip()) if link else None
             name = f"{registry}/{'/'.join(path)}:{tag}"
+            if size is not None and len(name) <= IMAGE_NAME_MAX:
+                found[name] = size
+
+    def scan_revisions(self, repos, blobs, path, registry, found, budget):
+        """Sizes by manifest digest, `registry/path@sha256:...`, so a digest-pinned name finds one."""
+        try:
+            fd = open_under(repos, path + ["_manifests", "revisions", "sha256"], directory=True)
+            try:
+                hexes = [h for h in subdirs(fd) if re.fullmatch(r"[a-f0-9]{64}", h)]
+            finally:
+                os.close(fd)
+        except OSError:
+            return
+        for hex_digest in hexes[:budget[0]]:
+            budget[0] -= 1
+            digest = f"sha256:{hex_digest}"
+            size = self.download_size(blobs, digest)
+            name = f"{registry}/{'/'.join(path)}@{digest}"
             if size is not None and len(name) <= IMAGE_NAME_MAX:
                 found[name] = size
 

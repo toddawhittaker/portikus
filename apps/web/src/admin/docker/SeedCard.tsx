@@ -1,5 +1,6 @@
 import {
 	type DockerAdminResponse,
+	imageSize,
 	overSeedCap,
 	SEED_IMAGES_MAX,
 	type SeedJob,
@@ -15,7 +16,7 @@ import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
 import { Notice } from "../Notice.js";
-import { DownloadSize } from "./DownloadSize.js";
+import { ImageSizeText } from "./DownloadSize.js";
 import {
 	dockerKey,
 	isActive,
@@ -27,7 +28,6 @@ import {
 } from "./queries.js";
 import {
 	type DriftPart,
-	downloadSize,
 	driftActionSentence,
 	driftOverSentence,
 	driftParts,
@@ -198,6 +198,7 @@ function CurrentSeed({
 				testId="docker-seed-images"
 				names={seed.images}
 				sizes={data.imageSizes}
+				unpackedSizes={seed.imageBytes}
 			/>
 			{!drifting && defaultVersion && defaultVersion !== seed.imageVersion ? (
 				<Notice tone="warning" testId="docker-seed-stale">
@@ -245,7 +246,12 @@ function MatchNotice({
 	const toast = useToast();
 	const drift = data.match ? seedDrift(data.seedImages, data.match) : null;
 	if (!drift) return null;
-	const over = overSeedCap(drift.next, data.imageSizes, data.seedMaxGiB);
+	const over = overSeedCap(
+		drift.next,
+		data.imageSizes,
+		data.seedMaxGiB,
+		data.seed?.imageBytes,
+	);
 	const off = busy ? "A rebuild is waiting or running. Wait until it finishes." : null;
 
 	function update() {
@@ -431,13 +437,19 @@ function ImageList({
 			) : (
 				<>
 					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-list-size">
-						{listSizeText(list, data.imageSizes, data.seedMaxGiB)}
+						{listSizeText(
+							list,
+							data.imageSizes,
+							data.seedMaxGiB,
+							data.seed?.imageBytes,
+						)}
 					</p>
 					<ImageTable
 						caption="Images for the next rebuild"
 						testId="docker-seed-list"
 						names={list}
 						sizes={data.imageSizes}
+						unpackedSizes={data.seed?.imageBytes}
 						action={(name) => (
 							<Button
 								size="sm"
@@ -485,18 +497,20 @@ function ImageList({
 	);
 }
 
-/** Seed image names with their download sizes, and an optional action per row. */
+/** Seed image names with their sizes, and an optional action per row. */
 function ImageTable({
 	caption,
 	testId,
 	names,
 	sizes,
+	unpackedSizes,
 	action,
 }: {
 	caption: string;
 	testId: string;
 	names: readonly string[];
 	sizes: Record<string, number>;
+	unpackedSizes: Record<string, number> | undefined;
 	action?: (name: string) => ReactNode;
 }) {
 	return (
@@ -507,7 +521,7 @@ function ImageTable({
 					<tr>
 						<th scope="col">Image</th>
 						<th scope="col" className="pk-num">
-							Download size
+							Size
 						</th>
 						{action ? (
 							<th scope="col">
@@ -526,7 +540,7 @@ function ImageTable({
 								{name}
 							</th>
 							<td className="pk-num">
-								<DownloadSize bytes={downloadSize(sizes, name)} />
+								<ImageSizeText size={imageSize(name, sizes, unpackedSizes)} />
 							</td>
 							{action ? <td className="pk-cell-actions">{action(name)}</td> : null}
 						</tr>

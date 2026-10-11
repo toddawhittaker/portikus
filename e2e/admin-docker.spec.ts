@@ -343,9 +343,11 @@ test("every image row shows its download size or a dash, and the report covers 1
 	const size = (table: string, image: RegExp) =>
 		page.getByTestId(table).getByRole("row", { name: image }).getByRole("cell").first();
 
-	await expect(size("docker-seed-images", /python:3\.12/)).toHaveText("60.0 MB");
+	await expect(size("docker-seed-images", /python:3\.12/)).toHaveText(
+		"60.0 MB download",
+	);
 	await expect(size("docker-seed-images", /node:22/)).toHaveText("—Not known");
-	await expect(size("docker-seed-list", /redis:7/)).toHaveText("40.0 MB");
+	await expect(size("docker-seed-list", /redis:7/)).toHaveText("40.0 MB download");
 	await expect(size("docker-seed-list", /node:22/)).toHaveText("—Not known");
 	await expect(page.getByTestId("docker-seed-list-size")).toHaveText(
 		"These images download as 100 MB, not counting 1 image the pull cache has not held. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
