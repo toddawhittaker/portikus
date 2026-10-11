@@ -310,6 +310,15 @@ task pull requests without asking each time.
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main:
 
+A pull request run that passes uploads a small `ci-pass-<tree>` artifact
+named after the Git tree it tested. A push run first looks for that
+artifact from a successful, same-repository pull request run of this
+workflow (`scripts/ci-reuse-pass.mjs`); when the pushed tree matches
+exactly, as after a squash merge into an up-to-date base, it skips the
+heavy jobs and says which run it reused in the run summary. Any doubt,
+such as an API error or another merge in between, means the push run
+runs everything; pull request runs always run in full.
+
 - **Secret scan**: gitleaks over the full history of the branch.
 - **Docs links**: `scripts/check-docs-links.py` fails when a relative link
   or image in a tracked Markdown file points at a file that does not

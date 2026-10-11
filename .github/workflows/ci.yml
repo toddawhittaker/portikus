@@ -10,8 +10,37 @@ permissions:
   contents: read
 
 jobs:
+  # A push run whose exact tree already passed on its pull request skips
+  # the heavy jobs (docs/WORKFLOW.md, "CI"). Pull request runs always run in
+  # full. The step cannot fail the job, and any doubt leaves skip unset, so
+  # every gate below falls back to running.
+  reuse:
+    name: Reuse an earlier pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      skip: ${{ steps.lookup.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'push'
+        with:
+          sparse-checkout: scripts/ci-reuse-pass.mjs
+          sparse-checkout-cone-mode: false
+      - name: Look for a passing pull request run on this tree
+        id: lookup
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/ci-reuse-pass.mjs
+
   secrets:
     name: Secret scan
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -24,6 +53,8 @@ jobs:
 
   docs:
     name: Docs links
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -33,6 +64,8 @@ jobs:
 
   changes:
     name: Detect changed files
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -207,8 +240,8 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [changes, unit-shard]
-    if: always()
+    needs: [reuse, changes, unit-shard]
+    if: always() && needs.reuse.outputs.skip != 'true'
     steps:
       - name: Check every shard passed
         env:
@@ -330,8 +363,8 @@ jobs:
     name: Browser end-to-end tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: e2e-shard
-    if: always()
+    needs: [reuse, e2e-shard]
+    if: always() && needs.reuse.outputs.skip != 'true'
     steps:
       - name: Check every shard passed
         env:
@@ -831,6 +864,8 @@ jobs:
 
   apt-repo:
     name: Signed apt repository
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -842,3 +877,32 @@ jobs:
         run: command -v apt-ftparchive || scripts/ci-apt-install.sh apt-utils
       - name: Test publish-apt-repo.sh in a Debian 13 container
         run: scripts/tests/publish-apt-repo-test.sh
+
+  # Records that this pull request run passed on its merge tree, for the
+  # push run after a squash merge to reuse. An artifact, not actions/cache,
+  # because a cache saved on the pull request's merge ref cannot be read
+  # from the base branch; artifacts are listable repo-wide. Uploaded only
+  # when every job succeeded or was skipped by the changed-files logic.
+  record-pass:
+    name: Record a passing tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [reuse, secrets, docs, changes, app, unit-shard, unit, e2e-shard, e2e, dex-signin, debconf, infra, apt-repo]
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Name the record after the tested tree
+        id: tree
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          echo "$tree" > ci-pass.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ci-pass-${{ steps.tree.outputs.tree }}
+          path: ci-pass.txt
+          retention-days: 7
