@@ -57,7 +57,10 @@ function VoiceInputSection() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();
 	const toast = useToast();
-	const enabled = settings.data?.voiceInputEnabled ?? true;
+	// While saving, show the value asked for rather than the old one.
+	const enabled = update.isPending
+		? (update.variables?.voiceInputEnabled ?? true)
+		: (settings.data?.voiceInputEnabled ?? true);
 	return (
 		<AdminGroup
 			id="voice-input-title"
@@ -68,8 +71,10 @@ function VoiceInputSection() {
 				label="Allow voice input"
 				description="When off, no microphone is shown anywhere."
 				checked={enabled}
-				disabled={settings.isLoading || update.isPending}
+				disabled={settings.isLoading}
+				ariaDisabled={update.isPending}
 				onChange={(event) =>
+					!update.isPending &&
 					update.mutate(
 						{ voiceInputEnabled: event.target.checked },
 						{

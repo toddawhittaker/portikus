@@ -247,11 +247,13 @@ test("a student keeps running until a clock time in their zone; a time already p
 		// An hour ago on the Tokyo clock is tomorrow, 23 hours away: past the 12-hour cap.
 		await at.fill(clockIn(-60));
 		await expect(section.getByText("That is more than 12 hours away.")).toBeVisible();
-		await expect(set).toBeDisabled();
+		await expect(set).toHaveAttribute("aria-disabled", "true");
+		await expect(set).toHaveAccessibleDescription("That is more than 12 hours away.");
+		await expect(at).toHaveAccessibleDescription(/In your timezone, Asia\/Tokyo/);
 		await expectNoViolations(page);
 
 		await at.fill(clockIn(120));
-		await expect(set).toBeEnabled();
+		await expect(set).not.toHaveAttribute("aria-disabled");
 		await set.click();
 		await expect(section.getByTestId("keep-running-status")).toBeVisible({
 			timeout: 15_000,

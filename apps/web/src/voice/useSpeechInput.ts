@@ -46,7 +46,7 @@ export function resetSpeechSupport(): void {
 	networkFailed = false;
 }
 
-function recognizerClass(): RecognizerClass | null {
+export function recognizerClass(): RecognizerClass | null {
 	const scope = globalThis as unknown as {
 		SpeechRecognition?: RecognizerClass;
 		webkitSpeechRecognition?: RecognizerClass;
@@ -95,7 +95,9 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 		() => recognizerClass() !== null && !networkFailed,
 	);
 	// An administrator can turn voice off site-wide; then it reads as unsupported, with no message.
-	const allowed = useEditorSettings().data?.voiceInputEnabled !== false;
+	// Not yet loaded counts as off, so the microphone never flashes on a site with voice off.
+	const loaded = useEditorSettings().data;
+	const allowed = loaded !== undefined && loaded.voiceInputEnabled !== false;
 	const allowedRef = useRef(allowed);
 	allowedRef.current = allowed;
 	const [state, setState] = useState<SpeechState>("idle");

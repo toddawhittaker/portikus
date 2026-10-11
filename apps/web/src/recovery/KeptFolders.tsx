@@ -43,7 +43,11 @@ export function KeptFolders({
 	if (folders.length === 0) return null;
 	return (
 		<section className="mt-6" aria-labelledby="recovery-kept-heading">
-			<h3 id="recovery-kept-heading" className="pk-text-body m-0 font-semibold">
+			<h3
+				id="recovery-kept-heading"
+				tabIndex={-1}
+				className="pk-text-body m-0 font-semibold"
+			>
 				Kept folders
 			</h3>
 			<p className="pk-text-compact m-0 mt-1 text-ink-muted">
@@ -65,7 +69,7 @@ export function KeptFolders({
 						</span>
 						<Button
 							size="sm"
-							aria-label={`Delete kept folder from ${origin(folder)}`}
+							aria-label={`Delete ${asidePath(folder)}`}
 							data-testid={`recovery-kept-delete-${folder.pointId}`}
 							onClick={() => onDelete(folder)}
 						>

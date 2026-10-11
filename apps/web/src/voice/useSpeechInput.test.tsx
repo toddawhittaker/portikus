@@ -204,3 +204,15 @@ test("a site with voice input off is unsupported, says nothing, and never listen
 	act(() => result.current.start());
 	expect(FakeRecognition.last).toBeNull();
 });
+
+test("before the site's settings load, voice reads as off, so the microphone never flashes", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	vi.stubGlobal("fetch", () => new Promise(() => {}));
+	const client = new QueryClient();
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), {
+		wrapper: ({ children }: { children: ReactNode }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
+	expect(result.current.state).toBe("unsupported");
+});

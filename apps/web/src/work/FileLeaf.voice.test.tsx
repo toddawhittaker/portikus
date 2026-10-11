@@ -3,6 +3,7 @@
  * and that a final phrase is typed through the editor's insertText.
  * The editor and the browser's speech recognition are both fakes.
  */
+import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { type Ref, useImperativeHandle } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -62,7 +63,7 @@ beforeEach(() => {
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
 			if (String(input) === "/me/settings") {
-				return Response.json({ timezones: [] });
+				return Response.json({ ...EDITOR_SETTINGS_DEFAULTS, timezones: [] });
 			}
 			if (String(input).includes("/tree")) {
 				return Response.json({ entries: [] });

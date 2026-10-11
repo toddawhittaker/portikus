@@ -40,8 +40,10 @@ function showCount(event: DragEvent, count: number) {
 	image.style.position = "fixed";
 	image.style.top = "-1000px";
 	image.style.padding = "2px 8px";
-	image.style.background = "var(--pk-surface, #fff)";
-	image.style.color = "var(--pk-text, #000)";
+	image.style.background = "var(--surface-raised)";
+	image.style.color = "var(--ink)";
+	image.style.border = "1px solid var(--line-strong)";
+	image.style.borderRadius = "var(--radius-sm)";
 	document.body.append(image);
 	event.dataTransfer.setDragImage(image, 0, 0);
 	setTimeout(() => image.remove(), 0);

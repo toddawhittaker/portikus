@@ -62,7 +62,6 @@ export function RecoveryDialog({
 						variant="primary"
 						loading={create.isPending}
 						data-testid="recovery-create"
-						data-recovery-first-action
 						onClick={() => {
 							if (create.isPending) return;
 							setAnnounce("");
@@ -92,6 +91,7 @@ export function RecoveryDialog({
 				<p
 					className="pk-text-compact m-0 mt-2"
 					role="status"
+					aria-live="polite"
 					data-testid="recovery-status"
 				>
 					{announce}
@@ -161,12 +161,20 @@ export function RecoveryDialog({
 					returnFocusTo={() => {
 						if (!deletedFolder.current) return null;
 						deletedFolder.current = false;
-						return document.querySelector<HTMLElement>("[data-recovery-first-action]");
+						// Said once the confirmation has closed, so the dialog's status region is heard.
+						setAnnounce("Kept folder deleted.");
+						const remaining = (asides.data?.folders.length ?? 0) - 1;
+						if (remaining > 0) return document.getElementById("recovery-kept-heading");
+						const dialog = document.querySelector(
+							'[data-testid="dialog-recovery-points"]',
+						);
+						const title = dialog?.getAttribute("aria-labelledby");
+						return title ? document.getElementById(title) : null;
 					}}
 					onDeleted={() => {
 						deletedFolder.current = true;
+						setAnnounce("");
 						setDeleting(null);
-						setAnnounce("Kept folder deleted.");
 					}}
 				/>
 			) : null}
