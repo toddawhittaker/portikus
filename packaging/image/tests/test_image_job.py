@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -946,11 +947,13 @@ class QueueTest(Base):
             "id": ID, "kind": "build", "state": "running", "step": "Building", "version": None,
             "message": None, "startedAt": "2026-09-28T12:00:00.000Z", "finishedAt": None}))
         (self.images / ".work-leftover").mkdir()
+        (self.images / ".agents-check-leftover").mkdir()
         self.assertEqual(self.runner.run_recover(str(self.lock)), 0)
         status = self.status()
         self.assertEqual(status["state"], "failed")
         self.assertIsNotNone(status["finishedAt"])
         self.assertFalse((self.images / ".work-leftover").exists())
+        self.assertFalse((self.images / ".agents-check-leftover").exists())
 
     def test_recover_keeps_only_the_newest_twenty_jobs(self):
         ids = [f"{n:08x}-3f4a-4b5c-8d9e-0f1a2b3c4d5e" for n in range(25)]
@@ -1156,6 +1159,38 @@ class CheckTest(Base):
         curl = self.host.ran("curl")[0]
         self.assertEqual(curl[curl.index("--max-filesize") + 1], str(ij.RELEASES_MAX_BYTES))
         self.assertEqual(curl[curl.index("--proto-redir") + 1], "=https")
+
+    def test_the_version_fetches_stop_well_inside_the_check_unit_timeout(self):
+        self.runner.run_check()
+        for curl in self.host.ran("curl")[1:]:
+            self.assertEqual(curl[curl.index("--max-time") + 1], str(ij.VERSION_FETCH_MAX_TIME))
+        self.assertLessEqual(ij.VERSION_FETCH_MAX_TIME * 4, 600)
+
+    def test_an_os_error_on_one_agent_keeps_its_last_version_and_the_rest_of_the_check(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.13"}]).encode()
+        (self.images / "published.json").write_text(json.dumps(
+            {"codingAgents": {"claude": "2.1.0", "codex": "0.50.0"}}))
+        real = self.runner.offered_version
+
+        def offered(job, work, tool):
+            if tool == "claude":
+                raise OSError("No space left on device")
+            return real(job, work, tool)
+        self.runner.offered_version = offered
+        self.assertEqual(self.runner.run_check(), 0)
+        doc = self.published()
+        self.assertEqual(doc["image"], "2026.09.13")
+        self.assertEqual(doc["codingAgents"]["claude"], "2.1.0")
+
+    def test_a_full_disk_for_the_scratch_folder_still_writes_the_check(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.13"}]).encode()
+        with mock.patch.object(ij.tempfile, "mkdtemp", side_effect=OSError("No space left on device")):
+            self.assertEqual(self.runner.run_check(), 0)
+        self.assertEqual(self.published()["image"], "2026.09.13")
+
+    def test_the_check_leaves_no_scratch_folder(self):
+        self.runner.run_check()
+        self.assertEqual([p for p in self.images.iterdir() if p.name.startswith(".agents-check-")], [])
 
     def test_names_a_newer_package_only_when_apt_has_one(self):
         self.host.candidate = "0.1.700"
