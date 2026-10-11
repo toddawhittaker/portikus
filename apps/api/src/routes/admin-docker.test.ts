@@ -35,6 +35,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { applyDefaultSeed } from "../docker/default-seed.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { usageReport, usageWindowStart } from "./admin-docker.js";
 
@@ -255,10 +256,8 @@ describe.skipIf(skip)("sizes and the cache-off line (issue #931)", () => {
 		);
 		expect(body.cache?.cacheOff).toBe(reason);
 		const res = await send(carol, "POST", "/admin/docker/cache/clear");
-		expect(res.statusCode).toBe(404);
-		expect(res.json().message).toBe(
-			"The pull cache is off, so there is nothing to clear.",
-		);
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("CACHE_OFF");
 		expect(await requests()).toEqual([]);
 		expect(await dockerAudits()).toEqual([]);
 	});
@@ -786,7 +785,11 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 			.length;
 	}
 
+	let samples = 0;
+
 	beforeEach(async () => {
+		// The shared truncate leaves host samples behind.
+		await testDb.db.deleteFrom("health_samples").execute();
 		imageRoot = await mkdtemp(join(tmpdir(), "portikus-images-"));
 		await mkdir(join(imageRoot, "image-jobs"));
 		await app.close();
@@ -800,8 +803,54 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		};
 	});
 
-	test("a list no one has set starts with the matching slim images, audited once", async () => {
+	/** What the API does at start and on its retry timer. */
+	function startup(): Promise<boolean> {
+		return applyDefaultSeed(testDb.db, join(imageRoot, "images"));
+	}
+
+	/** A host sample with the pool `usedGiB` full out of `totalGiB`. */
+	async function poolSample(usedGiB: number, totalGiB: number) {
+		samples += 1;
+		await testDb.db
+			.insertInto("health_samples")
+			.values({
+				observed_at: new Date(Date.UTC(2026, 8, 30, 10, samples)).toISOString(),
+				sample: JSON.stringify({
+					controller: { reachable: true, errorCode: null },
+					host: {
+						observedAt: "2026-09-30T10:00:00.000Z",
+						loadAverage: [0, 0, 0],
+						cpuCount: 4,
+						memory: { usedBytes: 1, totalBytes: 2 },
+						pool: {
+							name: "workspaces",
+							usedBytes: usedGiB * 1024 ** 3,
+							totalBytes: totalGiB * 1024 ** 3,
+							metadataPercent: null,
+						},
+						profileLimits: { cpu: null, memory: null, processes: null },
+						image: { fingerprint: null, serial: null },
+						instances: [],
+					},
+				}),
+			})
+			.execute();
+	}
+
+	async function jobs() {
+		return testDb.db.selectFrom("docker_seed_jobs").selectAll().execute();
+	}
+
+	test("reading the Docker tab writes nothing", async () => {
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await seedList()).toEqual([]);
+		expect(await dockerAudits()).toEqual([]);
+	});
+
+	test("at start, a list no one has set gets the matching slim images, audited once", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await startup();
+		await startup();
 		const body = DockerAdminResponse.parse(
 			(await send(carol, "GET", "/admin/docker")).json(),
 		);
@@ -810,7 +859,6 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 			node: { version: "24", image: "node:24-slim" },
 			python: { version: "3.13", image: "python:3.13-slim" },
 		});
-		await send(carol, "GET", "/admin/docker");
 		const audits = (await dockerAudits()).filter(
 			(a) => a.action === "docker.seed_images_defaulted",
 		);
@@ -824,7 +872,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 	test("a default seed that fails the seed-list check is never written", async () => {
 		// A Node major too long for an image tag (128 characters at most).
 		await activeImage("2026.09.15", `v24${"9".repeat(130)}.0.0`, "Python 3.13.5");
-		await send(carol, "GET", "/admin/docker");
+		expect(await startup()).toBe(false);
 		const row = await testDb.db
 			.selectFrom("settings")
 			.select(["docker_seed_images", "docker_seed_images_set"])
@@ -839,6 +887,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 	test("a list an administrator emptied stays empty, even after an image change", async () => {
 		await send(carol, "PUT", "/admin/docker/seed/images", { images: [] });
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await startup();
 		expect(await seedList()).toEqual([]);
 		await activeImage(
 			"2026.09.16-local.202609301000",
@@ -846,6 +895,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 			"Python 3.13.5",
 			"uv-3.14",
 		);
+		await startup();
 		expect(await seedList()).toEqual([]);
 		expect(
 			(await dockerAudits()).some((a) => a.action === "docker.seed_images_defaulted"),
@@ -854,6 +904,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 
 	test("a new default image never edits the list on its own", async () => {
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await startup();
 		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
 		await activeImage(
 			"2026.09.16-local.202609301000",
@@ -861,6 +912,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 			"Python 3.13.5",
 			"uv-3.14",
 		);
+		await startup();
 		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
 		expect(await jobCount()).toBe(0);
 	});
@@ -892,7 +944,8 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		expect(audits.at(-1)?.action).toBe("docker.seed_job_requested");
 
 		const again = await send(carol, "POST", "/admin/docker/seed/match");
-		expect(again.statusCode).toBe(400);
+		expect(again.statusCode).toBe(409);
+		expect(again.json().code).toBe("SEED_ALREADY_MATCHES");
 	});
 
 	test("the button adds nothing that would pass the size limit", async () => {
@@ -913,8 +966,8 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		);
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
 		const res = await send(carol, "POST", "/admin/docker/seed/match");
-		expect(res.statusCode).toBe(400);
-		expect(res.json().message).toContain("size limit");
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("SEED_OVER_LIMIT");
 		expect(await seedList()).toEqual(["redis:7"]);
 		expect(await jobCount()).toBe(0);
 	});
@@ -928,6 +981,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		await activeImage("2026.09.16-local.202609301000", "v26.0.0", "Python 3.13.5");
 		const res = await send(carol, "POST", "/admin/docker/seed/match");
 		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("SEED_JOB_RUNNING");
 		expect(await seedList()).toEqual(["node:24-slim"]);
 	});
 
@@ -937,8 +991,74 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		);
 		expect(body.match).toBe(null);
 		expect(body.seedImages).toEqual([]);
-		expect((await send(carol, "POST", "/admin/docker/seed/match")).statusCode).toBe(
-			404,
-		);
+		const res = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(res.statusCode).toBe(404);
+		expect(res.json().code).toBe("SEED_MATCH_UNKNOWN");
+	});
+
+	test("at start, the first seed build is queued when the pool has room", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await poolSample(10, 100);
+		expect(await startup()).toBe(true);
+		const queued = await jobs();
+		expect(queued).toHaveLength(1);
+		expect(queued[0]).toMatchObject({
+			state: "queued",
+			images: ["node:24-slim", "python:3.13-slim"],
+			requested_by: null,
+		});
+		expect((await dockerAudits()).at(-1)).toMatchObject({
+			actor: "platform",
+			action: "docker.seed_job_requested",
+			metadata: { jobId: queued[0]?.id, images: 2 },
+		});
+		await startup();
+		expect(await jobs()).toHaveLength(1);
+	});
+
+	test("with no room in the pool the list is written but no build is queued until there is", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		// 85 GiB used plus the 8 GiB seed limit passes the 90 percent refusal mark.
+		await poolSample(85, 100);
+		expect(await startup()).toBe(false);
+		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+		expect(await jobs()).toEqual([]);
+		await poolSample(10, 100);
+		expect(await startup()).toBe(true);
+		expect(await jobs()).toHaveLength(1);
+	});
+
+	test("with no host sample yet no build is queued", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await startup()).toBe(false);
+		expect(await jobs()).toEqual([]);
+	});
+
+	test("an existing seed job means no build is queued at start", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		await poolSample(10, 100);
+		await testDb.db
+			.insertInto("docker_seed_jobs")
+			.values({ images: JSON.stringify(["redis:7"]), state: "failed" })
+			.execute();
+		expect(await startup()).toBe(true);
+		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+		expect(await jobs()).toHaveLength(1);
+	});
+
+	test("a list an administrator changed is never built at start", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await startup()).toBe(false);
+		await send(carol, "PUT", "/admin/docker/seed/images", { images: ["redis:7"] });
+		await poolSample(10, 100);
+		expect(await startup()).toBe(true);
+		expect(await jobs()).toEqual([]);
+	});
+
+	test("before the worker writes the settings row nothing happens", async () => {
+		await testDb.db.deleteFrom("settings").execute();
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await startup()).toBe(false);
+		expect(await dockerAudits()).toEqual([]);
 	});
 });

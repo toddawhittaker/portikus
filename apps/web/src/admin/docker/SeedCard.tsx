@@ -33,6 +33,7 @@ import {
 	driftParts,
 	driftSentence,
 	listSizeText,
+	matchRefusedText,
 	parseSeedMaxGiB,
 	type Segment,
 	seedListError,
@@ -266,7 +267,7 @@ function MatchNotice({
 				toast.show({
 					tone: "danger",
 					title: "Could not update the seed",
-					children: errorText(error),
+					children: matchRefusedText(error),
 				}),
 		);
 	}

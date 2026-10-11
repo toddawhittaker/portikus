@@ -237,6 +237,37 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await expect(notice).toHaveCount(0);
 });
 
+for (const [code, text] of [
+	[
+		"SEED_ALREADY_MATCHES",
+		"The seed list already holds the images that match the workspace image.",
+	],
+	[
+		"SEED_OVER_LIMIT",
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	],
+	[
+		"SEED_MATCH_UNKNOWN",
+		"The default workspace image's versions are not known, so there is nothing to match.",
+	],
+	["SEED_JOB_RUNNING", "A rebuild is waiting or running. Wait until it finishes."],
+] as const) {
+	test(`a match refused with ${code} says why by its code`, async ({ page }) => {
+		await setSeedList(["node:24-slim", "python:3.13-slim"]);
+		await withMatch(page);
+		await page.route("**/admin/docker/seed/match", (route) =>
+			route.fulfill({ status: 409, json: { code, message: "server wording" } }),
+		);
+		await open(page);
+		await page
+			.getByTestId("docker-seed-drift")
+			.getByRole("button", { name: "Update list and rebuild" })
+			.click();
+		await expect(toast(page, "Could not update the seed")).toContainText(text);
+		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+	});
+}
+
 test("over the size limit the drift notice says so and offers no button", async ({
 	page,
 }) => {

@@ -444,7 +444,27 @@ test("when setup turned the cache off, the tab says why and Clear cache claims n
 	const res = await page.request.post("/admin/docker/cache/clear", {
 		headers: { origin: WEB_ORIGIN },
 	});
-	expect(res.status()).toBe(404);
+	expect(res.status()).toBe(409);
+	expect((await res.json()).code).toBe("CACHE_OFF");
+	expect(await registryRequests()).toEqual([]);
+});
+
+test("a page opened before setup turned the cache off says so when Clear cache is refused", async ({
+	page,
+}) => {
+	await open(page);
+	await writeRegistryStatus({
+		cacheOff: OFF_REASON,
+		sizeBytes: 0,
+		usedBytes: 0,
+		hubUp: false,
+	});
+	await page.getByRole("button", { name: "Clear cache…" }).click();
+	const dialog = page.getByTestId("docker-cache-clear-dialog");
+	await dialog.getByRole("button", { name: "Clear cache" }).click();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"The pull cache was turned off after this page loaded, so there is nothing to clear. Reload the page to see why.",
+	);
 	expect(await registryRequests()).toEqual([]);
 });
 
