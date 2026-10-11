@@ -122,9 +122,10 @@ else
     http_status alice "${API}/workspaces/${ws_id}/reset-docker" "-X POST -H 'Origin: ${API}'"
   check_output "workspace is running again after Reset Docker" "running none" \
     wait_for_operation
+  # The new volume is a copy of the seed (SPEC.md section 16.6), so only the student's own image must go.
   # "docker info" first, so a daemon that is still starting is not an empty list.
-  check_output "docker images is empty after Reset Docker" "0" \
-    alice_student "for i in \$(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker images -q | wc -l"
+  check_output "the student's hello-world image is gone after Reset Docker" "0" \
+    alice_student "for i in \$(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done; docker images -q hello-world | wc -l"
   check "projects marker survives Reset Docker" \
     alice_student "test -f ~/projects/.epic10-marker"
   check "recovery point survives Reset Docker" \

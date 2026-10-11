@@ -30,6 +30,8 @@ describe("a seed build", () => {
 			"prepare ghcr=false",
 			'exec ["/usr/bin/docker","pull","python:3.12"]',
 			'exec ["/usr/bin/docker","pull","node:22"]',
+			"measure python:3.12",
+			"measure node:22",
 			'exec ["/usr/bin/docker","container","prune","--force"]',
 			'exec ["/usr/bin/docker","builder","prune","--all","--force"]',
 			'exec ["/usr/bin/systemctl","stop","docker.socket","docker.service"]',
@@ -47,9 +49,36 @@ describe("a seed build", () => {
 				sizeBytes: GIB,
 				imageVersion: "2026.09.9",
 				builtAt: "2026-09-30T12:00:00.000Z",
+				imageBytes: {
+					"docker.io/library/python:3.12": 300 * 1000 ** 2,
+					"docker.io/library/node:22": 300 * 1000 ** 2,
+				},
 			},
 		});
 		expect(host.seed).toEqual(status?.seed);
+	});
+
+	test("keys measured sizes by canonical name, digest kept, and skips an image it cannot measure", async () => {
+		const pinned = `python:3.12@sha256:${"b".repeat(64)}`;
+		host.seedImageSize = (image) => (image === pinned ? 150 * 1000 ** 2 : null);
+		builds.start(request([pinned, "node:22"]));
+		await builds.idle();
+		const status = builds.get(ID);
+		expect(status?.state).toBe("succeeded");
+		expect(status?.seed?.imageBytes).toEqual({
+			[`docker.io/library/python:3.12@sha256:${"b".repeat(64)}`]: 150 * 1000 ** 2,
+		});
+	});
+
+	test("a 255-character untagged name still yields a valid status with its size", async () => {
+		const long = "a".repeat(255);
+		builds.start(request([long]));
+		await builds.idle();
+		const status = SeedBuildStatus.parse(builds.get(ID));
+		expect(status.state).toBe("succeeded");
+		expect(status.seed?.imageBytes).toEqual({
+			[`docker.io/library/${long}:latest`]: 300 * 1000 ** 2,
+		});
 	});
 
 	test("reports the image being pulled while it runs", async () => {

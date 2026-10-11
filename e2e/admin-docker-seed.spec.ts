@@ -237,6 +237,26 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await expect(notice).toHaveCount(0);
 });
 
+test("a match refused for the size limit says what to change", async ({ page }) => {
+	await setSeedList(["node:24-slim", "python:3.13-slim"]);
+	await withMatch(page);
+	await page.route("**/admin/docker/seed/match", (route) =>
+		route.fulfill({
+			status: 409,
+			json: { code: "SEED_OVER_LIMIT", message: "server wording" },
+		}),
+	);
+	await open(page);
+	await page
+		.getByTestId("docker-seed-drift")
+		.getByRole("button", { name: "Update list and rebuild" })
+		.click();
+	await expect(toast(page, "Could not update the seed")).toContainText(
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	);
+	expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+});
+
 test("over the size limit the drift notice says so and offers no button", async ({
 	page,
 }) => {

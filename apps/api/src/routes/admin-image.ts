@@ -21,6 +21,7 @@ import {
 	ImageVersion,
 	type ImageView,
 	isJobActive,
+	newerCodingAgent,
 	newerPublishedImage,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
@@ -226,6 +227,11 @@ export function registerAdminImageRoutes(
 		const total = [...byFingerprint.values()].reduce((sum, n) => sum + n, 0);
 		if (job) await noteFinished(job);
 		const published = await readPublished(imagesDir);
+		const codingAgents = await readJson(
+			join(imagesDir, "coding-agents.json"),
+			CodingAgentsFile,
+		);
+		const newest = published?.codingAgents ?? null;
 		const out: AdminImage = {
 			default: aliases.default,
 			previous: aliases.previous,
@@ -236,10 +242,16 @@ export function registerAdminImageRoutes(
 				published?.image ?? null,
 				images.map((image) => image.version),
 			),
-			codingAgents: await readJson(
-				join(imagesDir, "coding-agents.json"),
-				CodingAgentsFile,
-			),
+			codingAgents,
+			// Only against a recorded current version: with no file the page shows setup, not an update.
+			newerCodingAgents: {
+				claude: codingAgents
+					? newerCodingAgent(newest?.claude ?? null, codingAgents.claude.current)
+					: null,
+				codex: codingAgents
+					? newerCodingAgent(newest?.codex ?? null, codingAgents.codex.current)
+					: null,
+			},
 			disk: await diskOf(imagesDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);

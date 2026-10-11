@@ -12,6 +12,7 @@ import {
 	ImageJobStatusFile,
 	ImageManifest,
 	ImageVersion,
+	newerCodingAgent,
 	newerPublishedImage,
 	PublishedReleasesFile,
 } from "./image.js";
@@ -227,5 +228,43 @@ describe("PublishedReleasesFile", () => {
 			PublishedReleasesFile.safeParse({ checkedAt, image: "../etc", package: null })
 				.success,
 		).toBe(false);
+	});
+
+	test("reads a file from before the check recorded coding agents as none recorded", () => {
+		const parsed = PublishedReleasesFile.parse({
+			checkedAt,
+			image: null,
+			package: null,
+		});
+		expect(parsed.codingAgents).toBeNull();
+	});
+
+	test("rejects a coding-agent version that is not a plain version", () => {
+		expect(
+			PublishedReleasesFile.safeParse({
+				checkedAt,
+				image: null,
+				package: null,
+				codingAgents: { claude: "../x", codex: null },
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("newerCodingAgent", () => {
+	test("names the newest only when it sorts above the one in use", () => {
+		expect(newerCodingAgent("2.1.312", "2.1.287")).toBe("2.1.312");
+		expect(newerCodingAgent("2.1.100", "2.1.99")).toBe("2.1.100");
+		expect(newerCodingAgent("0.170.0", "0.162.1")).toBe("0.170.0");
+	});
+
+	test("is null for the same or an older version, or none recorded", () => {
+		expect(newerCodingAgent("2.1.287", "2.1.287")).toBeNull();
+		expect(newerCodingAgent("2.1.99", "2.1.100")).toBeNull();
+		expect(newerCodingAgent(null, "2.1.287")).toBeNull();
+	});
+
+	test("offers the newest when no version is in use", () => {
+		expect(newerCodingAgent("2.1.312", null)).toBe("2.1.312");
 	});
 });

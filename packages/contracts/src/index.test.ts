@@ -268,6 +268,17 @@ test("ControllerError round-trips", () => {
 	expect(ControllerError.parse(input)).toEqual(input);
 });
 
+test("ApiErrorCode covers the Docker cache and seed match codes", () => {
+	for (const code of [
+		"CACHE_OFF",
+		"SEED_MATCH_UNKNOWN",
+		"SEED_ALREADY_MATCHES",
+		"SEED_OVER_LIMIT",
+	]) {
+		expect(ApiError.safeParse({ code, message: "" }).success).toBe(true);
+	}
+});
+
 test("ApiErrorCode covers the terminal and agent codes", () => {
 	expect(ApiError.safeParse({ code: "TERMINAL_LIMIT", message: "" }).success).toBe(
 		true,

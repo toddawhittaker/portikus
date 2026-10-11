@@ -110,7 +110,7 @@ writeFileSync(
 	{ mode: 0o755 },
 );
 
-const DOCKER_SPECS = /admin-docker(-seed)?\.spec\.ts$/;
+const DOCKER_SPECS = /admin-docker(-seed|-sizes)?\.spec\.ts$/;
 // The site page specs share the fake site job's directory, view and page
 // files (e2e/site-jobs.ts), so they run one file at a time.
 const SITE_SPECS = /(admin-(lms|proxy-hosts|address|signin)|site-jobs)\.spec\.ts$/;

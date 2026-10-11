@@ -57,6 +57,7 @@ const SEED = {
 	sizeBytes: 2 * 1024 ** 3,
 	imageVersion: "2026.09.15",
 	builtAt: "2026-09-30T10:00:00.000Z",
+	imageBytes: { "docker.io/library/redis:7": 120 * 1000 ** 2 },
 };
 
 describe.skipIf(skip)("seed jobs (ruling S8)", () => {
@@ -107,6 +108,7 @@ describe.skipIf(skip)("seed jobs (ruling S8)", () => {
 		expect(seed.images).toEqual(SEED.images);
 		expect(Number(seed.size_bytes)).toBe(SEED.sizeBytes);
 		expect(seed.image_version).toBe("2026.09.15");
+		expect(seed.image_bytes).toEqual(SEED.imageBytes);
 
 		// A later success replaces the one seed row.
 		const second = await queue(["python:3.12"]);
@@ -207,9 +209,12 @@ describe.skipIf(skip)("seed row follows the controller (review Q2)", () => {
 			logger,
 			now: () => new Date(t),
 		});
-		controller.seedResult = SEED;
+		// A seed built before sizes were measured has none.
+		const { imageBytes: _sizes, ...unmeasured } = SEED;
+		controller.seedResult = unmeasured;
 		await tick();
 		expect((await seedRow())?.image_version).toBe("2026.09.15");
+		expect((await seedRow())?.image_bytes).toBeNull();
 
 		// Within the sync interval nothing is asked.
 		controller.seedResult = null;

@@ -216,6 +216,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 
 			<CodingAgentsSection
 				agents={data.codingAgents}
+				newer={data.newerCodingAgents}
 				busy={busy}
 				pending={ask.isPending}
 				submit={submit}

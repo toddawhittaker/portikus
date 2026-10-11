@@ -1,10 +1,11 @@
 # Portikus daily release check (docs/SPEC.md section 22.4).
 # Started by portikus-image-check.timer. It reads the list of published
-# workspace images and apt's cache for the portikus package, and writes
-# /var/lib/portikus/images/published.json. It never downloads an image,
-# changes the default, or upgrades a package.
+# workspace images, apt's cache for the portikus package, and the newest
+# Claude Code (stable channel) and Codex version numbers, and writes
+# /var/lib/portikus/images/published.json. It never downloads an image or a
+# coding agent, changes the default, or upgrades a package.
 [Unit]
-Description=Portikus check for a newer workspace image or package
+Description=Portikus check for a newer workspace image, package or coding agent
 After=network-online.target
 Wants=network-online.target
 ConditionPathIsDirectory=/var/lib/portikus/images

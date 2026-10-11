@@ -9,10 +9,12 @@ import {
 	canonicalImageName,
 	DockerAdminResponse,
 	DockerSettingsRequest,
+	digestImageName,
 	estimatedListBytes,
 	HubCredentialRequest,
 	IMAGE_SIZES_MAX,
 	INVENTORY_IMAGES_MAX,
+	imageSize,
 	isImageReference,
 	isMatchedTag,
 	matchingSeedImages,
@@ -26,6 +28,7 @@ import {
 	SeedBuildRequest,
 	SeedImageName,
 	SeedImagesRequest,
+	SeedInfo,
 	SLIM_ESTIMATE_BYTES,
 	seedDrift,
 	seedImageListFor,
@@ -510,5 +513,90 @@ describe("seed images matching the workspace image", () => {
 		const big = { "docker.io/library/redis:7": 1024 ** 3 };
 		expect(overSeedCap(["redis:7", "node:26-slim"], big, 1)).toBe(true);
 		expect(overSeedCap(["node:26-slim"], {}, 1)).toBe(false);
+	});
+
+	test("the estimate prefers the unpacked size the last seed measured", () => {
+		const sizes = { "docker.io/library/redis:7": 50 };
+		const unpacked = {
+			"docker.io/library/redis:7": 120,
+			"docker.io/library/node:26-slim": 7,
+		};
+		expect(estimatedListBytes(["redis:7", "node:26-slim"], sizes, unpacked)).toBe(127);
+		expect(
+			overSeedCap(["redis:7"], {}, 1, { "docker.io/library/redis:7": 1024 ** 3 + 1 }),
+		).toBe(true);
+	});
+});
+
+describe("digestImageName", () => {
+	const d = `sha256:${"f".repeat(64)}`;
+	test("drops the tag and keeps the digest, the way the cache helper keys a manifest", () => {
+		expect(digestImageName(`python:3.12@${d}`)).toBe(`docker.io/library/python@${d}`);
+		expect(digestImageName(`python@${d}`)).toBe(`docker.io/library/python@${d}`);
+		expect(digestImageName(`ghcr.io/owner/tool:1@${d}`)).toBe(
+			`ghcr.io/owner/tool@${d}`,
+		);
+		expect(digestImageName("python:3.12")).toBeNull();
+	});
+});
+
+describe("an image's known size", () => {
+	const pinned = `python:3.12@sha256:${"d".repeat(64)}`;
+	const download = {
+		"docker.io/library/python:3.12": 60,
+		"docker.io/library/redis:latest": 40,
+	};
+	const unpacked = { [`docker.io/library/python:3.12@sha256:${"d".repeat(64)}`]: 150 };
+
+	test("is found by any name Docker reads the same, download size when not measured", () => {
+		expect(imageSize("python:3.12", download)).toEqual({ bytes: 60, unpacked: false });
+		expect(imageSize("docker.io/library/python:3.12", download)).toEqual({
+			bytes: 60,
+			unpacked: false,
+		});
+		expect(imageSize("redis", download)).toEqual({ bytes: 40, unpacked: false });
+		expect(imageSize("node:22", download)).toBeNull();
+	});
+
+	test("a digest-pinned name gets the size the seed build measured for it", () => {
+		expect(imageSize(pinned, download, unpacked)).toEqual({
+			bytes: 150,
+			unpacked: true,
+		});
+		expect(imageSize(`docker.io/library/${pinned}`, download, unpacked)).toEqual({
+			bytes: 150,
+			unpacked: true,
+		});
+	});
+
+	test("a seed's measured sizes travel in SeedInfo, at most one per seed image", () => {
+		const base = {
+			images: ["python:3.12"],
+			sizeBytes: 1,
+			imageVersion: "v",
+			builtAt: "2026-10-11T00:00:00.000Z",
+		};
+		expect(SeedInfo.safeParse(base).success).toBe(true);
+		expect(SeedInfo.safeParse({ ...base, imageBytes: unpacked }).success).toBe(true);
+		const tooMany = Object.fromEntries(
+			Array.from({ length: SEED_IMAGES_MAX + 1 }, (_, i) => [
+				`docker.io/library/i${i}:1`,
+				1,
+			]),
+		);
+		expect(SeedInfo.safeParse({ ...base, imageBytes: tooMany }).success).toBe(false);
+	});
+
+	test("a size keyed by the canonical form of a 255-character name parses", () => {
+		const name = "a".repeat(255);
+		expect(SeedImageName.safeParse(name).success).toBe(true);
+		const seed = {
+			images: [name],
+			sizeBytes: 1,
+			imageVersion: "v",
+			builtAt: "2026-10-11T00:00:00.000Z",
+			imageBytes: { [canonicalImageName(name)]: 1 },
+		};
+		expect(SeedInfo.safeParse(seed).success).toBe(true);
 	});
 });

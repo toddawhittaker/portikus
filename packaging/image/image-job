@@ -19,7 +19,8 @@ Usage:
                             setup's first install: fetch VERSION and make it
                             the default, unless the host has a default already
   image-job check           write images/published.json: the newest published
-                            image and any newer portikus package (the daily timer)
+                            image, any newer portikus package and the newest
+                            Claude Code and Codex versions (the daily timer)
   image-job local-build     build the shipped recipe and make it the default
                             (make build-workspace-image on a development VM)
   image-job agents-links    postinst: make the shared folder and its bin links,
@@ -73,6 +74,8 @@ DEFAULT_RELEASES_URL = "https://api.github.com/repos/toddawhittaker/portikus/rel
 ASSETS = ("incus.tar.xz", "rootfs.squashfs", "manifest.json")
 # The release list is about 7 KiB a release; 100 releases fit many times over.
 RELEASES_MAX_BYTES = 16 * 1024 * 1024
+# Version answers are tiny; a stalled server must not outlast the check unit's TimeoutStartSec.
+VERSION_FETCH_MAX_TIME = 60
 
 # [0-9] and re.ASCII, because \d also matches other scripts' digits.
 VERSION_RE = re.compile(r"[0-9]{4}\.[0-9]{2}\.[0-9]+(-local\.[0-9]{12})?", re.ASCII)
@@ -250,6 +253,18 @@ def previous_published_image(path):
     except (OSError, ValueError, AttributeError):
         return None
     return image if isinstance(image, str) and PUBLISHED_RE.fullmatch(image) else None
+
+
+def previous_newest_agents(path):
+    """The Claude Code and Codex versions a previous check recorded, each None if unknown."""
+    doc = read_json(path)
+    agents = doc.get("codingAgents") if isinstance(doc, dict) else None
+    agents = agents if isinstance(agents, dict) else {}
+    found = {}
+    for tool in coding_agents.TOOLS:
+        version = agents.get(tool)
+        found[tool] = version if isinstance(version, str) and coding_agents.VERSION_RE.fullmatch(version) else None
+    return found
 
 
 def incus(*args, log=None, capture=True, timeout=600):
@@ -826,7 +841,8 @@ class Runner:
 
     def newest(self, job, releases_url):
         with tempfile.NamedTemporaryFile(dir=self.images_dir, prefix=".releases-") as f:
-            self.download(job, releases_url, f.name, max_bytes=RELEASES_MAX_BYTES)
+            self.download(job, releases_url, f.name, max_bytes=RELEASES_MAX_BYTES,
+                          max_time=VERSION_FETCH_MAX_TIME)
             try:
                 with open(f.name, encoding="utf-8") as listing_file:
                     listing = json.load(listing_file)
@@ -841,10 +857,10 @@ class Runner:
             raise JobFailed("No published image was found.")
         return max(versions, key=version_key)
 
-    def download(self, job, url, dest, max_bytes=None):
+    def download(self, job, url, dest, max_bytes=None, max_time=3600):
         # Rehearsals serve plain http locally, but a redirect may only lead to https.
         argv = ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https,http",
-                "--proto-redir", "=https", "--retry", "3", "--max-time", "3600"]
+                "--proto-redir", "=https", "--retry", "3", "--max-time", str(max_time)]
         if max_bytes is not None:
             argv += ["--max-filesize", str(max_bytes)]
         code, _ = run([*argv, "--output", dest, url], log=job, capture=True)
@@ -957,14 +973,14 @@ class Runner:
 
     # -- coding agents: the shared Claude Code and Codex folder --
 
-    def download_capped(self, job, url, path, max_bytes):
-        self.download(job, url, path, max_bytes=max_bytes)
+    def download_capped(self, job, url, path, max_bytes, max_time=3600):
+        self.download(job, url, path, max_bytes=max_bytes, max_time=max_time)
         if os.path.getsize(path) > max_bytes:
             raise coding_agents.AgentError(f"The download is larger than the job accepts: {url}")
 
-    def fetch_text(self, job, url, work, name, max_bytes):
+    def fetch_text(self, job, url, work, name, max_bytes, max_time=3600):
         path = os.path.join(work, name)
-        self.download_capped(job, url, path, max_bytes)
+        self.download_capped(job, url, path, max_bytes, max_time)
         with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
 
@@ -1017,17 +1033,24 @@ class Runner:
             raise coding_agents.AgentError("The Codex package has no bin/codex.")
         return folder
 
+    def offered_version(self, job, work, tool):
+        """(version, Codex package digest or None) from the source an update installs from: the
+        Claude Code stable channel or the latest Codex release. Shared with the daily check, so its
+        chip never offers what Update would not install."""
+        if tool == "claude":
+            return coding_agents.claude_stable_version(self.fetch_text(
+                job, f"{coding_agents.CLAUDE_BASE}/stable", work, "claude-stable",
+                coding_agents.SMALL_MAX_BYTES, VERSION_FETCH_MAX_TIME)), None
+        return coding_agents.codex_release(self.fetch_text(
+            job, coding_agents.CODEX_LATEST, work, "codex-release",
+            coding_agents.LISTING_MAX_BYTES, VERSION_FETCH_MAX_TIME))
+
     def agent_candidate(self, job, work, tool):
         """(offered version, outcome): "current" when that version is current already, "older" when
         it sorts below current, "kept" when a kept folder has it, and "new" when this job verified
         and placed it."""
         store = self.agents_dir
-        if tool == "claude":
-            version = coding_agents.claude_stable_version(self.fetch_text(
-                job, f"{coding_agents.CLAUDE_BASE}/stable", work, "claude-stable", coding_agents.SMALL_MAX_BYTES))
-        else:
-            version, digest = coding_agents.codex_release(self.fetch_text(
-                job, coding_agents.CODEX_LATEST, work, "codex-release", coding_agents.LISTING_MAX_BYTES))
+        version, digest = self.offered_version(job, work, tool)
         current = coding_agents.read_link(store, tool, "current")
         if version == current:
             return version, "current"
@@ -1292,7 +1315,7 @@ class Runner:
             finally:
                 os.close(dir_fd)
         for name in os.listdir(self.images_dir):
-            if name.startswith(".work-") or name.startswith(".manifest-"):
+            if name.startswith((".work-", ".manifest-", ".agents-check-")):
                 safe_rmtree(os.path.join(self.images_dir, name))
         coding_agents.remove_staging(self.agents_dir)
     # jscpd:ignore-end
@@ -1370,8 +1393,9 @@ class Runner:
     def run_check(self):
         """The daily check (portikus-image-check.timer): write published.json.
 
-        It names the newest published image and a newer portikus package, and
-        changes nothing else; the API decides what to tell administrators.
+        It names the newest published image, a newer portikus package and the
+        newest Claude Code and Codex, and changes nothing else; the API decides
+        what to tell administrators.
         """
         path = os.path.join(self.images_dir, "published.json")
         try:
@@ -1380,8 +1404,28 @@ class Runner:
         except JobFailed as err:
             journal(f"check: {err}; keeping the image last recorded")
             image = previous_published_image(path)
-        write_json(path, {"checkedAt": now_iso(), "image": image, "package": package_update()})
+        write_json(path, {"checkedAt": now_iso(), "image": image, "package": package_update(),
+                          "codingAgents": self.newest_agents(path)})
         return 0
+
+    def newest_agents(self, path):
+        """The versions an agents update would offer, read from the same sources; nothing is downloaded."""
+        found = previous_newest_agents(path)
+        work = None
+        try:
+            # Inside the try: a full disk must keep the versions last recorded, not end the check.
+            work = tempfile.mkdtemp(dir=self.images_dir, prefix=".agents-check-")
+            for tool in coding_agents.TOOLS:
+                try:
+                    found[tool] = self.offered_version(None, work, tool)[0]
+                except (JobFailed, coding_agents.AgentError, OSError) as err:
+                    journal(f"check: {err}; keeping the {coding_agents.NAMES[tool]} version last recorded")
+        except OSError as err:
+            journal(f"check: {err}; keeping the coding agent versions last recorded")
+        finally:
+            if work is not None:
+                safe_rmtree(work)
+        return found
 
     @contextlib.contextmanager
     def job_lock(self, lock_path):

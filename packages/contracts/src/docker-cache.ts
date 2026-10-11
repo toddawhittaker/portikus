@@ -30,6 +30,8 @@ export const SEED_IMAGE_PATTERN = new RegExp(
 );
 
 export const SEED_IMAGE_MAX_LENGTH = 255;
+/** `canonicalImageName` adds up to 25 characters (`docker.io/library/`, `:latest`). */
+export const SEED_IMAGE_KEY_MAX_LENGTH = SEED_IMAGE_MAX_LENGTH + 32;
 export const SEED_IMAGES_MAX = 30;
 
 export const SeedImageName = z
@@ -77,6 +79,20 @@ export function canonicalImageName(name: string): string {
 	if (registry === "docker.io" && !path.includes("/")) path = `library/${path}`;
 	if (tag === "" && digest === "") tag = ":latest";
 	return `${registry}/${path}${tag}${digest}`;
+}
+
+/**
+ * The key the cache helper records a manifest's size under: canonical name
+ * with any tag dropped, `docker.io/library/python@sha256:...`. Null without a digest.
+ */
+export function digestImageName(name: string): string | null {
+	const canonical = canonicalImageName(name);
+	const at = canonical.indexOf("@");
+	if (at < 0) return null;
+	const repo = canonical.slice(0, at);
+	const slash = repo.lastIndexOf("/");
+	const colon = repo.indexOf(":", slash);
+	return `${colon >= 0 ? repo.slice(0, colon) : repo}${canonical.slice(at)}`;
 }
 
 const HOST = "(?:[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*)(?::[0-9]{1,5})?";
@@ -202,18 +218,45 @@ export function seedDrift(list: readonly string[], match: SeedMatch): SeedDrift 
 	};
 }
 
+/** An image's size and whether it was measured unpacked on disk or is the cache's download size. */
+export interface ImageSize {
+	bytes: number;
+	unpacked: boolean;
+}
+
 /**
- * A list's estimated download in bytes: the pull cache's size where known,
- * the slim estimate for a matched tag it has not held, else nothing.
+ * The best size known for an image: unpacked on disk as the last seed build
+ * measured it, else the pull cache's download size, else null. Both maps are
+ * keyed by `canonicalImageName`, so a digest-pinned name finds the size the
+ * seed build measured for exactly that name.
+ */
+export function imageSize(
+	name: string,
+	downloadSizes: Record<string, number>,
+	unpackedSizes: Record<string, number> = {},
+): ImageSize | null {
+	const key = canonicalImageName(name);
+	const unpacked = unpackedSizes[key];
+	if (unpacked !== undefined) return { bytes: unpacked, unpacked: true };
+	const download = downloadSizes[key];
+	if (download !== undefined) return { bytes: download, unpacked: false };
+	return null;
+}
+
+/**
+ * A list's estimated size in bytes before a build: the unpacked size the last
+ * seed measured where known, else the pull cache's download size, else the
+ * slim estimate for a matched tag, else nothing.
  */
 export function estimatedListBytes(
 	list: readonly string[],
 	sizes: Record<string, number>,
+	unpackedSizes: Record<string, number> = {},
 ): number {
 	let total = 0;
 	for (const name of list) {
-		const known = sizes[canonicalImageName(name)];
-		if (known !== undefined) total += known;
+		const known = imageSize(name, sizes, unpackedSizes);
+		if (known) total += known.bytes;
 		else if (isMatchedTag(name, "node")) total += SLIM_ESTIMATE_BYTES.node;
 		else if (isMatchedTag(name, "python")) total += SLIM_ESTIMATE_BYTES.python;
 	}
@@ -225,8 +268,9 @@ export function overSeedCap(
 	list: readonly string[],
 	sizes: Record<string, number>,
 	seedMaxGiB: number,
+	unpackedSizes: Record<string, number> = {},
 ): boolean {
-	return estimatedListBytes(list, sizes) > seedMaxGiB * 1024 ** 3;
+	return estimatedListBytes(list, sizes, unpackedSizes) > seedMaxGiB * 1024 ** 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +365,8 @@ export const RegistryStatusFile = z.object({
 	cacheOff: z.string().max(300).nullable().optional(),
 	/**
 	 * Compressed (download) sizes of the images the caches held, by canonical
-	 * name, for this host's platform, each with when the cache last held it.
+	 * name, and by manifest digest (`digestImageName`), for this host's
+	 * platform, each with when the cache last held it.
 	 * The helper keeps an entry 120 days, so a size outlives the cache's
 	 * week-long expiry and a clear.
 	 */
@@ -350,6 +395,15 @@ export const SeedInfo = z.object({
 	/** Workspace image version the seed was built with; its dockerd must match. */
 	imageVersion: z.string().min(1).max(100),
 	builtAt: z.string().datetime(),
+	/**
+	 * Unpacked on-disk sizes the build measured with `docker image inspect`,
+	 * keyed by `canonicalImageName`. An image it could not measure is missing;
+	 * a seed built before sizes were measured has none.
+	 */
+	imageBytes: z
+		.record(z.string().max(SEED_IMAGE_KEY_MAX_LENGTH), z.number().int().nonnegative())
+		.refine((sizes) => Object.keys(sizes).length <= SEED_IMAGES_MAX)
+		.optional(),
 });
 export type SeedInfo = z.infer<typeof SeedInfo>;
 

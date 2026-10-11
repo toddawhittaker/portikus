@@ -14,6 +14,7 @@ function renderSection(over: Partial<Parameters<typeof CodingAgentsSection>[0]> 
 	render(
 		<CodingAgentsSection
 			agents={AGENTS}
+			newer={{ claude: null, codex: null }}
 			busy={false}
 			pending={false}
 			submit={submit}
@@ -31,6 +32,19 @@ test("shows each tool's version in use and its previous one", () => {
 	expect(screen.getByTestId("image-agents-previous-claude").textContent).toBe("2.1.4");
 	expect(screen.getByTestId("image-agents-current-codex").textContent).toBe("0.46.0");
 	expect(screen.getByTestId("image-agents-previous-codex").textContent).toBe("None");
+});
+
+test("a chip names a newer released version only on that tool's row", () => {
+	renderSection({ newer: { claude: "2.1.6", codex: null } });
+	expect(screen.getByTestId("image-agents-newer-claude").textContent).toBe(
+		"Update available: 2.1.6",
+	);
+	expect(screen.queryByTestId("image-agents-newer-codex")).toBeNull();
+});
+
+test("no chip when nothing newer is recorded", () => {
+	renderSection();
+	expect(screen.queryByText(/Update available/)).toBeNull();
 });
 
 test("Update coding agents confirms first, saying open sessions keep their version", () => {

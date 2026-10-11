@@ -5,6 +5,7 @@ import { createLogger } from "@portikus/observability";
 import { startLogAlerts } from "./alerts/log-alerts.js";
 import { toAuthOptions } from "./auth-options.js";
 import { startCertificateNotices } from "./certificate/notices.js";
+import { startDefaultSeed } from "./docker/default-seed.js";
 import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
 import { JournalReader } from "./logs/journal.js";
@@ -53,6 +54,11 @@ const stopReleaseNotices = config.IMAGE_JOBS_DIR
 			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
 		})
 	: () => {};
+// The API, not the worker, because only the API is given the image store and registry paths.
+const stopDefaultSeed =
+	config.IMAGE_JOBS_DIR && config.REGISTRY_JOBS_DIR
+		? startDefaultSeed({ db, logger, imagesDir: imagesDirOf(config.IMAGE_JOBS_DIR) })
+		: () => {};
 const stopCertificateNotices = config.CERTIFICATE_JOBS_DIR
 	? startCertificateNotices({
 			db,
@@ -70,6 +76,7 @@ app.addHook("onClose", async () => {
 	await stopLogAlerts();
 	levelSync.stop();
 	stopReleaseNotices();
+	stopDefaultSeed();
 	stopCertificateNotices();
 	dex?.close();
 });

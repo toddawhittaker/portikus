@@ -1,6 +1,6 @@
 # Portikus daily release check: runs portikus-image-check.service.
 [Unit]
-Description=Daily Portikus check for a newer workspace image or package
+Description=Daily Portikus check for a newer workspace image, package or coding agent
 
 [Timer]
 OnCalendar=daily

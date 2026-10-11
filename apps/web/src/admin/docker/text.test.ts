@@ -1,18 +1,19 @@
 import { OTHER_IMAGES_LABEL } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { ApiError } from "../../api/request.js";
 import {
 	addRefusal,
 	autoClearBytes,
 	cacheUseText,
 	clearErrorText,
 	credentialErrors,
-	downloadSize,
 	driftActionSentence,
 	driftOverSentence,
 	driftParts,
 	driftSentence,
 	listHas,
 	listSizeText,
+	matchRefusedText,
 	parseSeedMaxGiB,
 	seedListError,
 	seedUseText,
@@ -144,12 +145,21 @@ const SIZES = {
 	"ghcr.io/owner/tool:1": 5 * MB,
 };
 
-test("a download size is found by any name Docker reads the same, or is null", () => {
-	expect(downloadSize(SIZES, "python:3.12")).toBe(60 * MB);
-	expect(downloadSize(SIZES, "docker.io/library/python:3.12")).toBe(60 * MB);
-	expect(downloadSize(SIZES, "redis")).toBe(40 * MB);
-	expect(downloadSize(SIZES, "ghcr.io/owner/tool:1")).toBe(5 * MB);
-	expect(downloadSize(SIZES, "node:22")).toBeNull();
+test("the list's size sentence says when its sizes are unpacked on disk", () => {
+	const pinned = `node:22@sha256:${"c".repeat(64)}`;
+	const unpacked = {
+		"docker.io/library/python:3.12": 150 * MB,
+		[`docker.io/library/node:22@sha256:${"c".repeat(64)}`]: 250 * MB,
+	};
+	expect(listSizeText(["python:3.12", pinned], SIZES, 8, unpacked)).toBe(
+		"These images take 400 MB unpacked on disk. The limit is 8.0 GB.",
+	);
+	expect(listSizeText(["python:3.12", "go:1"], SIZES, 8, unpacked)).toBe(
+		"These images take 150 MB unpacked on disk, not counting 1 image with no known size. The limit is 8.0 GB.",
+	);
+	expect(listSizeText(["python:3.12", "redis"], SIZES, 8, unpacked)).toBe(
+		"These images take at least 190 MB, counting download sizes for the 1 not in the last seed. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
+	);
 });
 
 test("the list's size sentence totals what is known and says what is not", () => {
@@ -165,7 +175,7 @@ test("the list's size sentence totals what is known and says what is not", () =>
 		"not counting 2 images the pull cache has not held",
 	);
 	expect(listSizeText(["node:22"], SIZES, 8)).toBe(
-		`Download sizes are not known yet; the pull cache has not held these images. ${limit}`,
+		`Sizes are not known yet; neither the last seed nor the pull cache has held these images. ${limit}`,
 	);
 });
 
@@ -225,4 +235,19 @@ test("over the limit the notice calls the sizes an estimate the rebuild checks",
 test("no drift sentence when the list matches or no image is known", () => {
 	expect(driftParts(["node:26-slim", "python:3.14-slim"], MATCH_26_314)).toBeNull();
 	expect(driftParts(["node:24-slim"], null)).toBeNull();
+});
+
+test("a refused match adds advice for the size limit and otherwise shows the server's words", () => {
+	expect(matchRefusedText(new ApiError(409, "server wording", "SEED_OVER_LIMIT"))).toBe(
+		"The matching images would take the seed past its size limit. Raise Largest seed, or remove images from the list.",
+	);
+	for (const code of [
+		"SEED_ALREADY_MATCHES",
+		"SEED_MATCH_UNKNOWN",
+		"SEED_JOB_RUNNING",
+	]) {
+		expect(matchRefusedText(new ApiError(409, "server wording", code))).toBe(
+			"server wording",
+		);
+	}
 });

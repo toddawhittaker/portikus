@@ -489,9 +489,11 @@ export const ADMIN_HELP: HelpPart = {
 						<strong>Rebuild seed</strong>; the page shows each step. Existing Docker
 						storage keeps what it has. <strong>Image use</strong> lists images
 						workspaces used over the last 120 days that the seed does not hold, and seed
-						images nobody used, so you can add or remove them. Every image row shows its{" "}
-						<strong>Download size</strong>, or a dash when the cache never held it; the
-						seed meter shows the seed's size on disk against its limit.
+						images nobody used, so you can add or remove them. Seed image rows show
+						their size <strong>on disk</strong> as the last rebuild measured it, else
+						their <strong>download</strong> size from the cache, or a dash when neither
+						is known; Image use rows show the download size. The seed meter shows the
+						seed's size on disk against its limit.
 					</p>
 					<p>
 						A new install's seed list starts with the slim Node and Python images that

@@ -171,6 +171,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
+	bash infra/tests/playwright-link-test.sh
 	bash infra/tests/host-hardening-test.sh
 	bash infra/tests/alert-command-test.sh
 	python3 -B infra/tests/totp_test.py

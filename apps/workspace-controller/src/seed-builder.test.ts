@@ -292,3 +292,59 @@ describe("the seed builder", () => {
 		expect(await builder.seedImageVersion()).toBe("2026.09.15");
 	});
 });
+
+describe("measuring a seed image", () => {
+	function builderAnswering(
+		answer: { status: number | null; stdout: string; tooLarge?: boolean } | Error,
+	) {
+		const calls: Array<{ command: string[]; outputMaxBytes?: number }> = [];
+		const client = {
+			async exec(
+				_instance: string,
+				command: string[],
+				opts: { outputMaxBytes?: number },
+			) {
+				calls.push({ command, outputMaxBytes: opts.outputMaxBytes });
+				if (answer instanceof Error) throw answer;
+				return {
+					status: answer.status,
+					stdout: Buffer.from(answer.stdout),
+					tooLarge: answer.tooLarge ?? false,
+				};
+			},
+		} as unknown as IncusClient;
+		const seeded = new IncusSeedBuilder({
+			client,
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			stopInstance: async () => undefined,
+		});
+		return { seeded, calls };
+	}
+
+	test("reads the unpacked size docker image inspect reports, with no shell", async () => {
+		const { seeded, calls } = builderAnswering({ status: 0, stdout: "153829014\n" });
+		const name = `python:3.12@sha256:${"a".repeat(64)}`;
+		expect(await seeded.seedImageBytes(name)).toBe(153829014);
+		expect(calls[0]?.command).toEqual([
+			"/usr/bin/docker",
+			"image",
+			"inspect",
+			"--format",
+			"{{.Size}}",
+			name,
+		]);
+		expect(calls[0]?.outputMaxBytes).toBeGreaterThan(0);
+	});
+
+	test.each([
+		["a failed inspect", { status: 1, stdout: "" }],
+		["output that is not a number", { status: 0, stdout: "<no value>" }],
+		["too much output", { status: null, stdout: "", tooLarge: true }],
+		["an Incus error", new Error("socket closed")],
+	])("answers null for %s rather than failing the build", async (_what, answer) => {
+		const { seeded } = builderAnswering(answer);
+		expect(await seeded.seedImageBytes("node:22")).toBeNull();
+	});
+});
