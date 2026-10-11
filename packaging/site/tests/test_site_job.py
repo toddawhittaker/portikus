@@ -571,6 +571,14 @@ class HealthProbe(unittest.TestCase):
         # Port 1 is privileged and unused, so the connection is refused.
         self.assertFalse(sj.probe_health(1))
 
+    def test_the_unit_lets_the_probe_reach_the_api_on_loopback(self):
+        # A private network namespace has its own loopback, where no API listens.
+        unit = (REPO / "packaging" / "systemd" / "portikus-site-job.service").read_text()
+        settings = [line.strip() for line in unit.splitlines() if not line.lstrip().startswith("#")]
+        self.assertNotIn("PrivateNetwork=yes", settings)
+        self.assertIn("IPAddressDeny=any", settings)
+        self.assertIn("IPAddressAllow=localhost", settings)
+
     def test_the_port_comes_from_api_env(self):
         root = tempfile.mkdtemp(prefix="sitejob-env-")
         self.addCleanup(shutil.rmtree, root)
@@ -613,7 +621,8 @@ class Trials(Host):
         # The deadline timer stands in during setup, then the trial's own replaces it.
         units = [argv[1] for argv in self.fake.argv("systemd-run")]
         self.assertEqual(units, [f"--unit=portikus-site-trial-{JOB}-setup", f"--unit=portikus-site-trial-{JOB}-trial"])
-        self.assertEqual(self.fake.argv("systemd-run")[1][2], "--on-active=1800s")
+        # A wall-clock deadline: systemd restarts a relative one at every daemon-reload, and setup reloads.
+        self.assertEqual(self.fake.argv("systemd-run")[1][2], "--on-calendar=2026-09-21 14:43:20 UTC")
         self.assertEqual(self.fake.argv("systemd-run")[1][-3:], [sj.SITE_JOB, "expire", JOB])
         state = Path(self.path(sj.STATE_DIR))
         self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
@@ -814,7 +823,7 @@ class Trials(Host):
         self.clock.now += 60
         self.run_pending()
         self.assertEqual(len(self.fake.argv("systemd-run")), runs + 1)
-        self.assertEqual(self.fake.argv("systemd-run")[-1][2], f"--on-active={30 * 60 - 60}s")
+        self.assertEqual(self.fake.argv("systemd-run")[-1][2], "--on-calendar=2026-09-21 14:43:20 UTC")
         self.clock.now += 3600
         self.run_pending()
         self.assertEqual(self.status()["code"], "trial_expired")
