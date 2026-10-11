@@ -2,6 +2,7 @@ import { ProcessStopErrorCode, ProcessStopRequest } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
+import type { ZodType } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
 import { sendError } from "../http.js";
 import { check, createCounter } from "../rate-limit.js";
@@ -18,7 +19,8 @@ const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
 };
 
 // Shared by the student's and the administrator's stop, so "one stop at a
-// time per workspace" (SPEC.md §18.3) holds across both.
+// time per workspace" (SPEC.md §18.3) holds across both. Monitor's tree
+// stop and "Lower priority" count against the same lock and limit.
 const stopping = new Set<string>();
 const stops = createCounter(PROCESS_STOPS_PER_MINUTE, WINDOW_MS);
 
@@ -27,33 +29,48 @@ function overLimit(actorId: string): boolean {
 }
 
 /** The pid from the path and the body, or null when either is invalid. */
-export function parseStop(
+export function parseProcessTarget<T>(
 	rawPid: string,
 	rawBody: unknown,
-): { pid: number; body: ProcessStopRequest } | null {
+	schema: ZodType<T>,
+): { pid: number; body: T } | null {
 	const pid = /^[1-9]\d{0,9}$/.test(rawPid) ? Number(rawPid) : Number.NaN;
-	const body = ProcessStopRequest.safeParse(rawBody ?? {});
+	const body = schema.safeParse(rawBody ?? {});
 	if (!Number.isSafeInteger(pid) || pid > 2 ** 31 - 1 || !body.success) return null;
 	return { pid, body: body.data };
 }
 
+/** The pid from the path and a single stop's body, or null when either is invalid. */
+export function parseStop(
+	rawPid: string,
+	rawBody: unknown,
+): { pid: number; body: ProcessStopRequest } | null {
+	return parseProcessTarget(rawPid, rawBody, ProcessStopRequest);
+}
+
+/** What one process action writes to the audit log. Never the process's name. */
+export interface ProcessAudit {
+	action: string;
+	metadata: Record<string, unknown>;
+}
+
 /**
- * Sends one stop through the agent's checked route and writes the audit row
- * (SPEC.md §18.3, §24.11). `onExited` runs in the audit row's transaction
- * only when the process really exited. Nothing here names the process.
+ * Sends one process action through the agent's checked routes and writes the
+ * audit row (SPEC.md §18.3, §24.11): the rate limit, one action per workspace
+ * at a time, and the agent's refusals in our own words. `after` runs in the
+ * audit row's transaction.
  */
-export async function stopThroughAgent(opts: {
+export async function actThroughAgent<T>(opts: {
 	db: Kysely<Database>;
-	agent: AgentClient;
 	workspaceId: string;
 	actorId: string;
-	pid: number;
-	body: ProcessStopRequest;
 	reply: FastifyReply;
 	log: FastifyBaseLogger;
-	onExited?: (trx: Kysely<Database>) => Promise<unknown>;
-}): Promise<{ pid: number; exited: boolean } | undefined> {
-	const { db, agent, workspaceId, actorId, pid, body, reply, log } = opts;
+	call: () => Promise<T>;
+	audit: (answer: T) => ProcessAudit;
+	after?: (trx: Kysely<Database>, answer: T) => Promise<unknown>;
+}): Promise<T | undefined> {
+	const { db, workspaceId, actorId, reply, log } = opts;
 	if (overLimit(actorId)) {
 		log.warn({ workspaceId }, "process stop rate limit reached");
 		sendError(reply, 429, "RATE_LIMITED", "Too many stops just now. Wait a moment.");
@@ -69,9 +86,9 @@ export async function stopThroughAgent(opts: {
 		return undefined;
 	}
 	stopping.add(workspaceId);
-	let exited: boolean;
+	let answer: T;
 	try {
-		({ exited } = await agent.stopProcess(pid, body));
+		answer = await opts.call();
 	} catch (error) {
 		const refusal =
 			error instanceof AgentCallError
@@ -94,18 +111,49 @@ export async function stopThroughAgent(opts: {
 	} finally {
 		stopping.delete(workspaceId);
 	}
-	const signal = body.force ? "SIGKILL" : "SIGTERM";
+	const { action, metadata } = opts.audit(answer);
 	await db.transaction().execute(async (trx) => {
 		await recordAudit(trx, {
 			actor: `user:${actorId}`,
 			target: workspaceId,
-			action: "workspace.process_stopped",
+			action,
 			result: "ok",
-			metadata: { pid, signal, exited },
+			metadata,
 		});
-		if (exited && opts.onExited) await opts.onExited(trx);
+		if (opts.after) await opts.after(trx, answer);
 	});
-	return { pid, exited };
+	return answer;
+}
+
+/**
+ * Sends one stop through the agent's checked route and writes the audit row
+ * (SPEC.md §18.3, §24.11). `onExited` runs in the audit row's transaction
+ * only when the process really exited. Nothing here names the process.
+ */
+export async function stopThroughAgent(opts: {
+	db: Kysely<Database>;
+	agent: AgentClient;
+	workspaceId: string;
+	actorId: string;
+	pid: number;
+	body: ProcessStopRequest;
+	reply: FastifyReply;
+	log: FastifyBaseLogger;
+	onExited?: (trx: Kysely<Database>) => Promise<unknown>;
+}): Promise<{ pid: number; exited: boolean } | undefined> {
+	const { agent, pid, body, onExited } = opts;
+	const signal = body.force ? "SIGKILL" : "SIGTERM";
+	return actThroughAgent({
+		...opts,
+		call: () => agent.stopProcess(pid, body),
+		audit: ({ exited }) => ({
+			action: "workspace.process_stopped",
+			metadata: { pid, signal, exited },
+		}),
+		after: async (trx, { exited }) => {
+			if (exited && onExited) await onExited(trx);
+		},
+	});
 }
 
 /** Our own wording, so nothing the agent wrote reaches the browser. */

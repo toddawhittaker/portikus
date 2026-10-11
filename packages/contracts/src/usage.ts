@@ -22,6 +22,8 @@ export const UsageProcess = z.object({
 	// its workspace restarts, parse: its rows show no Stop and no command line.
 	/** Field 22 of `/proc/<pid>/stat`; with the pid it names one process. */
 	startTicks: z.number().int().nonnegative().default(0),
+	/** The parent's PID, so Monitor can count a process's children. 0 from an older agent. */
+	ppid: z.number().int().nonnegative().default(0),
 	/** False for a protected process: PID 1, another user's, the agent, tmux. */
 	stoppable: z.boolean().default(false),
 	/** The student's own process's command line, NULs as spaces; else null. */

@@ -132,6 +132,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/listening": owner,
 	"POST /workspaces/:id/listening/:port/stop": owner,
 	"POST /workspaces/:id/processes/:pid/stop": owner,
+	"POST /workspaces/:id/processes/:pid/stop-tree": owner,
+	"POST /workspaces/:id/processes/:pid/lower-priority": owner,
 	"POST /workspaces/:id/preview-grants": owner,
 	"GET /workspaces/:id/preview/embeddable": owner,
 	"HEAD /workspaces/:id/preview/embeddable": owner,

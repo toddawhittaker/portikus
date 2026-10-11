@@ -51,6 +51,8 @@ export interface StatLine {
 	startTicks: number;
 	utime: number;
 	stime: number;
+	/** The nice value, -20 (most favoured) to 19 (least). */
+	nice: number;
 }
 
 /** Parse a stat line. The name may hold spaces and parentheses. */
@@ -63,16 +65,27 @@ export function parseStatLine(text: string): StatLine | null {
 		.trim()
 		.split(/\s+/);
 	// Field 3 (state) is index 0 after the name, ppid (4) index 1; utime (14)
-	// and stime (15) are indexes 11 and 12; starttime (22) is index 19.
+	// and stime (15) are indexes 11 and 12; nice (19) is index 16; starttime
+	// (22) is index 19.
 	const state = fields[0];
 	const ppid = Number(fields[1]);
 	const utime = Number(fields[11]);
 	const stime = Number(fields[12]);
+	const nice = Number(fields[16]);
 	const startTicks = Number(fields[19]);
 	if (!state || !Number.isSafeInteger(startTicks) || startTicks < 0) return null;
 	if (!Number.isSafeInteger(ppid) || ppid < 0) return null;
 	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-	return { name: text.slice(open + 1, close), state, ppid, startTicks, utime, stime };
+	if (!Number.isInteger(nice)) return null;
+	return {
+		name: text.slice(open + 1, close),
+		state,
+		ppid,
+		startTicks,
+		utime,
+		stime,
+		nice,
+	};
 }
 
 /** Real and effective uid from a `status` file. */
@@ -274,7 +287,7 @@ export async function stopProcess(
 }
 
 /** Gone, a zombie, or a different process under the same PID. */
-async function gone(
+export async function gone(
 	procRoot: string,
 	pid: number,
 	startTicks: number,
@@ -283,7 +296,7 @@ async function gone(
 	return !facts || facts.state === "Z" || facts.startTicks !== startTicks;
 }
 
-async function readText(path: string): Promise<string | null> {
+export async function readText(path: string): Promise<string | null> {
 	try {
 		return await readFile(path, "utf8");
 	} catch {

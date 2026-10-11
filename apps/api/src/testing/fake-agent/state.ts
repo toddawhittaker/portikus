@@ -56,6 +56,10 @@ export interface FakeProcess {
 	stoppable: boolean;
 	commandLine: string | null;
 	ignoresTerm?: boolean;
+	/** The parent; 1 when unset. Monitor counts children by it. */
+	ppid?: number;
+	/** The nice value "Lower priority" raises; 0 when unset. */
+	nice?: number;
 }
 
 /** What a workspace runs until a test says otherwise. */
