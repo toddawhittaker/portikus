@@ -1,16 +1,17 @@
 /**
- * The tree row being dragged right now: the one record, read by the tree and
- * by drop areas outside it (SPEC.md §9.3). A browser hides drag data until the drop, so a pane edge
- * could not otherwise tell a file from a folder while the drag is over it.
+ * The tree rows being dragged right now, in tree order: the one record, read
+ * by the tree and by drop areas outside it (SPEC.md §9.3, §11.2). A browser
+ * hides drag data until the drop, so a pane edge could not otherwise tell a
+ * file from a folder while the drag is over it.
  */
 import type { FileNode } from "./selection.js";
 
-let current: FileNode | null = null;
+let current: readonly FileNode[] = [];
 
-export function setDraggedTreeNode(node: FileNode | null): void {
-	current = node;
+export function setDraggedTreeNodes(nodes: readonly FileNode[]): void {
+	current = nodes;
 }
 
-export function draggedTreeNode(): FileNode | null {
+export function draggedTreeNodes(): readonly FileNode[] {
 	return current;
 }

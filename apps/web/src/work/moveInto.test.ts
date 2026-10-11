@@ -6,7 +6,12 @@ import {
 import { expect, test } from "vitest";
 import { createLayoutStore } from "../layout/store.js";
 import { moveLeaf } from "../layout/tree.js";
-import { dropTreeFile, fileDropTarget, moveIntoTargets } from "./moveInto.js";
+import {
+	dropTreeFile,
+	dropTreeFiles,
+	fileDropTarget,
+	moveIntoTargets,
+} from "./moveInto.js";
 
 const leaf = (terminalId: string): SplitNode => ({ type: "leaf", terminalId });
 
@@ -156,6 +161,28 @@ test("dropping a file not yet open from the tree opens it beside the target", ()
 	const root = store.getState().layout.tabs[0]?.root;
 	expect(root?.type).toBe("split");
 	expect(store.getState().pendingView["file:src/new.ts"]?.mode).toBe("edit");
+});
+
+test("several files from the tree open as one split plus tabs, and the split stays shown", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	dropTreeFiles(store.getState, ["one.ts", "two.ts", "three.ts"], {
+		tabId: "a",
+		paneId: "t1",
+		edge: "right",
+	});
+	const state = store.getState();
+	expect(state.layout.tabs.map((tab) => tab.id)).toEqual([
+		"a",
+		"file:two.ts",
+		"file:three.ts",
+	]);
+	expect(state.layout.tabs[0]?.root).toMatchObject({
+		type: "split",
+		children: [leaf("t1"), { type: "file", path: "one.ts" }],
+	});
+	expect(state.activeTabId).toBe("a");
+	expect(state.focusedPaneId).toBe("file:one.ts");
 });
 
 test("a pane with no other terminal tab has nowhere to go", () => {

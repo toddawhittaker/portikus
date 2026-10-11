@@ -38,7 +38,7 @@ import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import { dropTreeFile, type MoveIntoTarget } from "./moveInto.js";
+import { dropTreeFiles, type MoveIntoTarget } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TreeFileDrop } from "./TreeFileDrop.js";
 import { usePaneActions } from "./usePaneActions.js";
@@ -404,7 +404,7 @@ export function WorkArea({
 				area={area}
 				layout={layout}
 				onTarget={setTreeTarget}
-				onDrop={(path, target) => dropTreeFile(store.getState(), path, target)}
+				onDrop={(paths, target) => dropTreeFiles(store.getState, paths, target)}
 			/>
 			<div className="pk-work-area" data-testid="work-area" ref={area}>
 				<TabStripDrop strip={strip} testId="work-tabs" target={dragTarget}>
