@@ -9,6 +9,7 @@ import {
 	canonicalImageName,
 	DockerAdminResponse,
 	DockerSettingsRequest,
+	digestImageName,
 	estimatedListBytes,
 	HubCredentialRequest,
 	IMAGE_SIZES_MAX,
@@ -524,6 +525,18 @@ describe("seed images matching the workspace image", () => {
 		expect(
 			overSeedCap(["redis:7"], {}, 1, { "docker.io/library/redis:7": 1024 ** 3 + 1 }),
 		).toBe(true);
+	});
+});
+
+describe("digestImageName", () => {
+	const d = `sha256:${"f".repeat(64)}`;
+	test("drops the tag and keeps the digest, the way the cache helper keys a manifest", () => {
+		expect(digestImageName(`python:3.12@${d}`)).toBe(`docker.io/library/python@${d}`);
+		expect(digestImageName(`python@${d}`)).toBe(`docker.io/library/python@${d}`);
+		expect(digestImageName(`ghcr.io/owner/tool:1@${d}`)).toBe(
+			`ghcr.io/owner/tool@${d}`,
+		);
+		expect(digestImageName("python:3.12")).toBeNull();
 	});
 });
 

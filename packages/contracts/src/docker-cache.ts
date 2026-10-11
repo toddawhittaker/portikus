@@ -79,6 +79,20 @@ export function canonicalImageName(name: string): string {
 	return `${registry}/${path}${tag}${digest}`;
 }
 
+/**
+ * The key the cache helper records a manifest's size under: canonical name
+ * with any tag dropped, `docker.io/library/python@sha256:...`. Null without a digest.
+ */
+export function digestImageName(name: string): string | null {
+	const canonical = canonicalImageName(name);
+	const at = canonical.indexOf("@");
+	if (at < 0) return null;
+	const repo = canonical.slice(0, at);
+	const slash = repo.lastIndexOf("/");
+	const colon = repo.indexOf(":", slash);
+	return `${colon >= 0 ? repo.slice(0, colon) : repo}${canonical.slice(at)}`;
+}
+
 const HOST = "(?:[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*)(?::[0-9]{1,5})?";
 const IMAGE_REFERENCE = new RegExp(
 	`^(?:${HOST}/)?${COMPONENT}(?:/${COMPONENT}){0,3}(?::${TAG})?(?:@${DIGEST})?$`,
@@ -349,7 +363,8 @@ export const RegistryStatusFile = z.object({
 	cacheOff: z.string().max(300).nullable().optional(),
 	/**
 	 * Compressed (download) sizes of the images the caches held, by canonical
-	 * name, for this host's platform, each with when the cache last held it.
+	 * name, and by manifest digest (`digestImageName`), for this host's
+	 * platform, each with when the cache last held it.
 	 * The helper keeps an entry 120 days, so a size outlives the cache's
 	 * week-long expiry and a clear.
 	 */
