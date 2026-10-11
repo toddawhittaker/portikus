@@ -51,4 +51,87 @@ export function registerProcessRoutes(app: FastifyInstance, s: FakeAgentState): 
 		);
 		return { pid, exited: true };
 	});
+
+	/** The root's checks, then its descendants by parent PID, as process-tree-checked.ts. */
+	function checkedTree(
+		list: FakeProcess[],
+		pid: number,
+		startTicks: unknown,
+	): { members: FakeProcess[]; refused: number } | { status: number; code: string } {
+		const root = list.find((one) => one.pid === pid);
+		if (!root) return { status: 404, code: "PROCESS_NOT_FOUND" };
+		if (root.startTicks !== startTicks) return { status: 409, code: "PROCESS_CHANGED" };
+		if (!root.stoppable) return { status: 403, code: "PROCESS_PROTECTED" };
+		const members = [root];
+		let refused = 0;
+		for (let index = 0; index < members.length; index += 1) {
+			const parent = members[index] as FakeProcess;
+			for (const child of list.filter((one) => (one.ppid ?? 1) === parent.pid)) {
+				if (child.stoppable) members.push(child);
+				else refused += 1;
+			}
+		}
+		return { members, refused };
+	}
+
+	app.post("/processes/:pid/stop-tree", async (request, reply) => {
+		const pid = Number((request.params as { pid: string }).pid);
+		const body = (request.body ?? {}) as {
+			startTicks?: unknown;
+			force?: unknown;
+			remaining?: { pid: number; startTicks: number }[];
+		};
+		const key = keyOf(request);
+		const list = processesFor(key);
+		let members: FakeProcess[];
+		let refused = 0;
+		if (body.remaining) {
+			members = list.filter((one) =>
+				body.remaining?.some(
+					(named) => named.pid === one.pid && named.startTicks === one.startTicks,
+				),
+			);
+		} else {
+			const tree = checkedTree(list, pid, body.startTicks);
+			if ("code" in tree) {
+				return reply
+					.status(tree.status)
+					.send({ error: { code: tree.code, message: "refused" } });
+			}
+			({ members, refused } = tree);
+		}
+		const left = members.filter((one) => one.ignoresTerm && body.force !== true);
+		processes.set(
+			key,
+			list.filter((one) => !members.includes(one) || left.includes(one)),
+		);
+		return {
+			pid,
+			exited: left.length === 0,
+			signalled: members.length,
+			refused,
+			remaining: left.map((one) => ({ pid: one.pid, startTicks: one.startTicks })),
+		};
+	});
+
+	app.post("/processes/:pid/lower-priority", async (request, reply) => {
+		const pid = Number((request.params as { pid: string }).pid);
+		const body = (request.body ?? {}) as { startTicks?: unknown };
+		const tree = checkedTree(processesFor(keyOf(request)), pid, body.startTicks);
+		if ("code" in tree) {
+			return reply
+				.status(tree.status)
+				.send({ error: { code: tree.code, message: "refused" } });
+		}
+		let lowered = 0;
+		for (const member of tree.members) {
+			const nice = member.nice ?? 0;
+			const next = Math.min(19, nice + 10);
+			if (next > nice) {
+				member.nice = next;
+				lowered += 1;
+			}
+		}
+		return { pid, lowered, refused: tree.refused };
+	});
 }

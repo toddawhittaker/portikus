@@ -113,7 +113,8 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>Checks</strong> runs your project's checks, such as its tests.{" "}
 						<strong>Running</strong> lists programs listening on a port.{" "}
 						<strong>Monitor</strong> shows CPU, memory, disk and network use, and the
-						processes running.
+						processes running. Stop ends one of your programs, and the programs it
+						started if you tick the box, or lowers its priority instead.
 					</li>
 					<li>
 						<strong>The status bar</strong>, at the bottom, shows the project folder,
@@ -131,12 +132,13 @@ export const STUDENT_HELP: HelpPart = {
 				<p>
 					To leave a coding agent working while you are away, open{" "}
 					<strong>Your workspace</strong> from the status bar. Under{" "}
-					<strong>Keep running for</strong>, pick how long, up to the limit your
-					administrator set, then press <strong>Keep running until …</strong>. Until
-					then, closing the page or leaving it idle does not stop the workspace. The
-					status bar shows when the hold ends, and <strong>Don't keep running</strong>{" "}
-					ends it early. Afterwards the workspace stops as usual, with the "Still
-					working?" warning first.
+					<strong>Keep running for</strong>, pick how long, or type a clock time under{" "}
+					<strong>Or until</strong> (a time already past today means tomorrow), up to
+					the limit your administrator set, then press{" "}
+					<strong>Keep running until …</strong>. Until then, closing the page or leaving
+					it idle does not stop the workspace. The status bar shows when the hold ends,
+					and <strong>Don't keep running</strong> ends it early. Afterwards the
+					workspace stops as usual, with the "Still working?" warning first.
 				</p>
 			),
 		},

@@ -2,9 +2,12 @@
  * Stopping a whole process tree (SPEC.md §9.7, §18.1). Closing a terminal or
  * stopping a Check must also stop what its shell started in the background,
  * including `nohup` and `setsid` children that a hangup alone leaves running.
+ * Monitor's checked tree actions build on {@link collectProcessTree} in
+ * process-tree-checked.ts.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { STOP_GRACE_MS } from "./processes.js";
 
 /** One process, identified by pid and start time so a reused pid is never hit. */
@@ -51,14 +54,14 @@ export async function readStartTime(pid: number): Promise<string | null> {
 	return (await readStat(pid))?.startTime ?? null;
 }
 
-function allProcesses(): ProcStat[] {
+function allProcesses(procRoot = "/proc"): ProcStat[] {
 	// Synchronous on purpose: a workspace has few processes, and a thousand
 	// small async reads queue behind the thread pool and take ten times longer.
 	const found: ProcStat[] = [];
-	for (const name of readdirSync("/proc")) {
+	for (const name of readdirSync(procRoot)) {
 		if (!/^\d+$/.test(name)) continue;
 		try {
-			const stat = parseStat(readFileSync(`/proc/${name}/stat`, "utf8"));
+			const stat = parseStat(readFileSync(join(procRoot, name, "stat"), "utf8"));
 			if (stat) found.push(stat);
 		} catch {
 			// The process ended while we looked.
@@ -74,8 +77,9 @@ function allProcesses(): ProcStat[] {
 export async function collectProcessTree(
 	rootPid: number,
 	rootStartTime?: string,
+	procRoot = "/proc",
 ): Promise<TreeProcess[]> {
-	const processes = allProcesses();
+	const processes = allProcesses(procRoot);
 	const root = processes.find((entry) => entry.pid === rootPid);
 	if (!root) return [];
 	// A pid reused since the root started belongs to someone else.

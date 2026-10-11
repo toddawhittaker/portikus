@@ -241,3 +241,105 @@ test.skipIf(skip)("stops are rate limited per student", async () => {
 	}
 	expect((await stop(alice, 99)).statusCode).toBe(429);
 });
+
+function treeAction(
+	jar: CookieJar,
+	action: "stop-tree" | "lower-priority",
+	pid: number,
+	payload: Record<string, unknown>,
+	id = workspaceId,
+) {
+	return app.inject({
+		method: "POST",
+		url: `/workspaces/${id}/processes/${pid}/${action}`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload,
+	});
+}
+
+/** zzname (7) runs a child (9), which runs the protected 10 and the stubborn 11. */
+function seedTree() {
+	const one = { cpuPercent: 1, residentBytes: 1, commandLine: SECRET_LINE };
+	agent.processes.set("", [
+		{ ...one, pid: 7, command: "zzname", startTicks: 100, stoppable: true },
+		{ ...one, pid: 9, command: "child", startTicks: 300, stoppable: true, ppid: 7 },
+		{ ...one, pid: 10, command: "guarded", startTicks: 310, stoppable: false, ppid: 9 },
+		{
+			...one,
+			pid: 11,
+			command: "stubborn",
+			startTicks: 320,
+			stoppable: true,
+			ppid: 9,
+			ignoresTerm: true,
+		},
+	]);
+}
+
+test.skipIf(skip)(
+	"the owner stops a process with its children, and Force stop ends the survivors",
+	async () => {
+		seedTree();
+		const soft = await treeAction(alice, "stop-tree", 7, { startTicks: 100 });
+		expect(soft.statusCode).toBe(200);
+		expect(soft.json()).toEqual({
+			pid: 7,
+			exited: false,
+			signalled: 3,
+			refused: 1,
+			remaining: [{ pid: 11, startTicks: 320 }],
+		});
+		const hard = await treeAction(alice, "stop-tree", 7, {
+			startTicks: 100,
+			force: true,
+			remaining: soft.json().remaining,
+		});
+		expect(hard.json()).toMatchObject({ exited: true, remaining: [] });
+		expect((await audits()).map((row) => row.metadata)).toEqual(
+			expect.arrayContaining([
+				{ pid: 7, signal: "SIGTERM", exited: false, tree: true, signalled: 3 },
+				{ pid: 7, signal: "SIGKILL", exited: true, tree: true, signalled: 1 },
+			]),
+		);
+		const everything = JSON.stringify(await audits()) + JSON.stringify(lines);
+		expect(everything).not.toContain("zzname");
+		expect(everything).not.toContain("zzsecret");
+	},
+);
+
+test.skipIf(skip)("the owner lowers a process tree's priority, audited", async () => {
+	seedTree();
+	const first = await treeAction(alice, "lower-priority", 7, { startTicks: 100 });
+	expect(first.statusCode).toBe(200);
+	expect(first.json()).toEqual({ pid: 7, lowered: 3, refused: 1 });
+	const rows = await testDb.db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "workspace.process_priority_lowered")
+		.execute();
+	expect(rows.map((row) => row.metadata)).toEqual([{ pid: 7, lowered: 3 }]);
+	// A body that names a nice value is refused: only the agent picks it.
+	const asked = await treeAction(alice, "lower-priority", 7, {
+		startTicks: 100,
+		nice: -20,
+	});
+	expect(asked.statusCode).toBe(400);
+});
+
+test.skipIf(skip)(
+	"tree actions keep the owner rule and pass the agent's refusals on",
+	async () => {
+		seedTree();
+		for (const action of ["stop-tree", "lower-priority"] as const) {
+			expect((await treeAction(bob, action, 7, { startTicks: 100 })).statusCode).toBe(
+				404,
+			);
+			const changed = await treeAction(alice, action, 7, { startTicks: 101 });
+			expect(changed.statusCode).toBe(409);
+			expect(changed.json().code).toBe("PROCESS_CHANGED");
+			const guarded = await treeAction(alice, action, 10, { startTicks: 310 });
+			expect(guarded.statusCode).toBe(403);
+		}
+		expect(await audits()).toEqual([]);
+	},
+);
