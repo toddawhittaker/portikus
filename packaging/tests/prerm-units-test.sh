@@ -10,7 +10,10 @@
 #     disables setup's units and drops the alert drop-ins on remove, and
 #     deletes the rest on purge, never touching Caddy or PostgreSQL;
 #   - purge drops setup's marked site address line from /etc/hosts and
-#     nothing else.
+#     nothing else;
+#   - purge stops and disables Squid, which setup configured only for
+#     Portikus, and deletes setup's helpers under /usr/local, which postrm
+#     lists exactly as the roles install them (SPEC.md section 21.13).
 # Usage: packaging/tests/prerm-units-test.sh
 set -euo pipefail
 
@@ -151,16 +154,23 @@ while read -r path; do
 	esac
 done <"$work/written"
 
+# Every program a role installs under /usr/local/bin or /usr/local/sbin.
+helpers=$(postrm_list SETUP_HELPERS)
+role_helpers=$(grep -rhoE 'dest: /usr/local/s?bin/[^ "'"'"']+' "$roles"/*/tasks/*.yml | sed 's/^dest: //' | sort -u)
+[ -n "$role_helpers" ] || fail "found no helper in the roles; the search is broken"
+[ "$(printf '%s\n' "$helpers" | sort -u)" = "$role_helpers" ] \
+	|| fail "SETUP_HELPERS is not exactly what the roles install under /usr/local: $(paste -sd' ' <<<"$role_helpers")"
+
 # ── the real postrm on a fake /etc ───────────────────────────────
 
-# postrm with every /etc and /run/systemd path moved under ROOT, and a
+# postrm with every /etc, /usr/local and /run/systemd path moved under ROOT, and a
 # systemctl that logs its calls.
 fake_postrm() { # ROOT
 	{
 		echo '#!/bin/sh'
 		# shellcheck disable=SC2016 # expanded inside the fake postrm
 		echo 'systemctl() { echo "$*" >>"$CALLS"; }'
-		sed "1d; s|/etc/|$1/etc/|g; s|/run/systemd|$1/run/systemd|g" "$postrm"
+		sed "1d; s|/etc/|$1/etc/|g; s|/usr/local/|$1/usr/local/|g; s|/run/systemd|$1/run/systemd|g" "$postrm"
 	} >"$1/postrm"
 }
 
@@ -184,6 +194,16 @@ make_host() { # ROOT
 		ln -s "../$unit" "$r/etc/systemd/system/multi-user.target.wants/$unit"
 	done <<<"$boot_units"
 	ln -s /usr/lib/systemd/system/caddy.service "$r/etc/systemd/system/multi-user.target.wants/caddy.service"
+	while read -r file; do
+		[ -n "$file" ] || continue
+		mkdir -p "$r$(dirname "$file")"
+		echo "# setup" >"$r$file"
+	done <<<"$helpers"
+	# The image builder's distrobuilder, which purge leaves alone.
+	mkdir -p "$r/usr/local/bin"
+	echo "# setup" >"$r/usr/local/bin/distrobuilder"
+	mkdir -p "$r/etc/squid"
+	echo "include /etc/portikus/egress-proxy.d/*.conf" >"$r/etc/squid/squid.conf"
 	echo "x: 1" >"$r/etc/portikus/portikus.yaml"
 	echo key >"$r/etc/portikus-workspace-proxy/bump.key"
 	cat >"$r/etc/hosts" <<-'EOF'
@@ -225,6 +245,9 @@ grep -qx 'daemon-reload' "$calls" || fail "remove does not reload systemd"
 [ ! -e "$etc/multi-user.target.wants/portikus-api.service" ] || fail "remove left the API's enable link"
 [ -L "$etc/multi-user.target.wants/caddy.service" ] || fail "remove dropped Caddy's enable link"
 [ -e "$host/etc/portikus/portikus.yaml" ] || fail "remove deleted /etc/portikus"
+while read -r file; do
+	[ -e "$host$file" ] || fail "remove deleted $file"
+done <<<"$helpers"
 grep -q '# portikus site address$' "$host/etc/hosts" || fail "remove dropped the site address line from /etc/hosts"
 
 : >"$calls"
@@ -246,6 +269,13 @@ done
 [ ! -e "$host/etc/portikus" ] || fail "purge left /etc/portikus"
 [ ! -e "$host/etc/portikus-workspace-proxy" ] || fail "purge left the workspace proxy's key"
 grep -qx 'daemon-reload' "$calls" || fail "purge does not reload systemd"
+grep -qx 'stop squid.service' "$calls" || fail "purge does not stop Squid"
+grep -qx 'disable squid.service' "$calls" || fail "purge does not disable Squid"
+[ -e "$host/etc/squid/squid.conf" ] || fail "purge deleted squid.conf, Squid's own conffile"
+while read -r file; do
+	[ ! -e "$host$file" ] || fail "purge left $file"
+done <<<"$helpers"
+[ -e "$host/usr/local/bin/distrobuilder" ] || fail "purge deleted distrobuilder"
 
 # Without systemd running, as in a chroot: disable, but never stop or reload.
 chroot_host="$work/chroot"
@@ -260,7 +290,10 @@ grep -qx 'disable portikus-dex.service' "$calls" || fail "remove without systemd
 
 # An /etc/hosts purge cannot write must not stop the purge (as root the write succeeds anyway).
 chmod a-w "$chroot_host/etc/hosts"
+: >"$calls"
 CALLS="$calls" sh "$chroot_host/postrm" purge 2>/dev/null || fail "purge failed on an /etc/hosts it cannot write"
+! grep -E '^(stop|daemon-reload)' "$calls" >&2 || fail "purge without systemd running stopped units or reloaded"
+grep -qx 'disable squid.service' "$calls" || fail "purge without systemd running did not disable Squid"
 [ ! -e "$chroot_host/etc/portikus" ] || fail "purge on an unwritable /etc/hosts left /etc/portikus"
 
 [ "$failures" -eq 0 ] || exit 1
