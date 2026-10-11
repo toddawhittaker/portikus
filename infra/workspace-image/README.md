@@ -96,7 +96,9 @@ viewport rather than the full page. When `/tmp` fills, Chromium reports
 "Target crashed", not "No space left on device", so check `df -h /tmp`
 first when a lab's screenshots crash. The cap does not shrink with the
 memory limit, so a workspace given much less than 4 GB can run out of
-memory before `/tmp` is full.
+memory before `/tmp` is full. A course lab with a low workspace memory limit
+should allow for the 1 GB `/tmp` plus the 256 MB `/dev/shm`, because both
+count against memory.
 
 The build checks the downloaded binary against a sha256 recorded beside the
 pin in the step that installs it, so a pin bump needs both values.

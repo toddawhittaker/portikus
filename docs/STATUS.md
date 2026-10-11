@@ -5295,7 +5295,7 @@ Delivered:
 
 Gaps:
 
-- Chromium puts its shared memory on `/tmp`, which is capped at 512 MB. Heavy parallel screenshots can fill it and crash pages (#1497).
+- Chromium puts its shared memory on `/tmp`, which was capped at 512 MB. Heavy parallel screenshots could fill it and crash pages (raised to 1G by Epic 46, #1497).
 - The course must pin `@playwright/test@1.63.0` and drop the firefox and webkit projects that `npm init playwright` generates.
 - The image manifest does not record the Playwright pin.
 - With no host health sample yet, the first seed build waits for one.
@@ -5318,3 +5318,25 @@ the Image tab's API reported a newer version when one was forced. The
 smoke test's Reset Docker check now allows the seed's images (#1505); the
 full smoke test then passed 388 to 0 with the Dex sign-in and nothing
 skipped.
+
+## Epic 46 — Operator tests and package leftovers
+
+Built on `epic/46-operator-tests` (task PRs #1508, #1512, #1514, #1517, #1520, #1521 and #1523, and this fold). Issues #1492, #1497, #1472, #1463, #1423, #1272, #1264 and #1262, and item c of #1462. No migration; ADR 0061.
+
+Delivered:
+
+- Purge (#1492, #1512): stops and disables Squid, leaves `squid.conf`, and deletes `/usr/local/sbin/portikus-storage-attach`, `/usr/local/sbin/portikus-thinpool-status`, `/usr/local/bin/dex` and `/usr/local/share/portikus`. It keeps `distrobuilder`. A test ties the helper list to the Ansible roles and runs the real `postrm` on a fake host.
+- Workspace `/tmp` (#1497, #1521): the cap is 1G, a quarter of the default memory limit. It was measured with four workers and 4000-pixel pages. The image README says what a lab can expect; image version 2026.10.4. Pages taller than about 6000 pixels with four workers still fill `/tmp`; one worker handles them.
+- Mock LMS over https (#1472, #1517, #1520): the rehearsal mock serves https with a one-day certificate that only the rehearsal VM's Caddy root signs, so roster sync goes through CONNECT and the proxy stays unwidened. The mock stops and removes its key on interrupt. With an http mock, the roster checks count as skipped.
+- Smoke test (#1463, #1423, #1462 c, #1517, #1520): an NRPS roster sync with a role change made and undone through the mock's `role` action, and a Deep Linking round trip. With no mock registered, each launch check counts as skipped with "no mock LMS registered" and a `Skipped` total is printed.
+- Probes (#1264, #1272, #1514): `infra/tests/reach-probe.py` checks the worker's refusals to the API, Dex and a listener of its own on 127.0.0.1, ::1 and every VM address, in the install and smoke tests. The install test reads the agent's restart time from `ExecMainStartTimestamp` and destroys its upgrade workspace when a step fails and the VM is kept.
+- API crash (#1523): an outbound response body or upload body cancelled before a queued resume ran crashed the API with `ERR_INVALID_STATE`. A pull-based `readableToWeb` replaces `Readable.toWeb` in the outbound fetch helper and the file upload route.
+
+Gaps:
+
+- `make mock-lms` is not supported on the rehearsal, because only the smoke test can mint the certificate.
+- No route-level test forces the stream race on the upload path.
+- Purge keeps the `squid.conf` setup wrote, which still includes `/etc/portikus`, so Squid is left disabled until its owner restores Debian's file (INSTALL.md).
+- Purge keeps `distrobuilder`, so setup rebuilds it once after the build marker is deleted.
+
+Rehearsal: pending

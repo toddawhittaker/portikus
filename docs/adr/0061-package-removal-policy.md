@@ -31,7 +31,13 @@ cannot rewrite.
 
 ## Consequences
 
-- Purge still leaves Squid's include folder and the helpers in
-  `/usr/local/sbin` (#1492).
+- Purge also stops and disables Squid, because setup configured it only
+  as Portikus's egress proxy and its `squid.conf` includes
+  `/etc/portikus`, which purge deletes. `squid.conf` stays, since it is
+  Squid's own conffile. Purge deletes `/usr/local/sbin/portikus-storage-attach`,
+  `/usr/local/sbin/portikus-thinpool-status`, `/usr/local/bin/dex` and
+  `/usr/local/share/portikus` (Dex's web templates and setup's build
+  markers). Setup rebuilds what is missing. `distrobuilder` is kept, as
+  a general tool (Epic 46, #1492).
 - A new unit written by a role fails the test until it is added to the
   list.
