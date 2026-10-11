@@ -116,6 +116,27 @@ test("a folder that is already there is never overwritten", async ({ page }) => 
 	expect(page.url()).not.toContain("starter");
 });
 
+test("a folder with no project yet is refused, and the toast says why", async ({
+	page,
+}) => {
+	const name = newName();
+	const workspaceId = await samWorkspaceId();
+	// A listing would find the folder and make it a project; hold it back so
+	// the launch meets a folder with no project row.
+	await page.route(`**/workspaces/${workspaceId}/projects?state=*`, (route) =>
+		route.fulfill({ json: { projects: [] } }),
+	);
+	await seedProjectDir(workspaceId, name);
+	await saveLink(page, name);
+	await launchSavedLink(page, { title: name, person: "sam" });
+
+	await expect(
+		toast(page, `A folder named ${name} is already in ~/projects`),
+	).toBeVisible({ timeout: 60_000 });
+	expect(await projectRows(name)).toHaveLength(0);
+	expect(page.url()).not.toContain("starter");
+});
+
 test("an expired link says so, and the page has no axe violations", async ({
 	page,
 }) => {

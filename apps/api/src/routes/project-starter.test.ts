@@ -11,6 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import { folderExistsMessage } from "../workspaces/create-project.js";
 
 /**
  * The starter route behind a Deep Linking link (ADR 0058, SPEC.md §7.2): it
@@ -200,6 +201,8 @@ describe.skipIf(skip)("POST /workspaces/:id/projects/starter", () => {
 		const res = await useStarter(await addStarter(aliceId, { template: "Starter" }));
 		expect(res.statusCode).toBe(409);
 		expect(res.json().code).toBe("PROJECT_EXISTS");
+		// Says why: the folder is there, so nothing new can be made over it.
+		expect(res.json().message).toBe(folderExistsMessage("lab-one"));
 		expect(agent.projects.get("lab-one")).toEqual({ isGitRepo: false });
 		expect(await starterCount()).toBe(1);
 	});

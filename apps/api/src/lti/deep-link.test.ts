@@ -52,6 +52,10 @@ describe("the Deep Linking picker", () => {
 		},
 	);
 
+	test("the 'Start from' fieldset is a radio group, where aria-invalid is allowed", () => {
+		expect(fieldset(page("source"))).toContain('role="radiogroup"');
+	});
+
 	test("an invalid field keeps its hint as well as the error", () => {
 		expect(repository(page("repository"))).toContain(
 			'aria-describedby="picker-error repository-hint"',

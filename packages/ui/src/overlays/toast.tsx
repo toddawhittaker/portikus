@@ -47,6 +47,8 @@ export interface ToastProps {
 	onDismiss?: () => void;
 	/** Stays until the caller dismisses it, for progress that outlasts the usual duration. */
 	persistent?: boolean;
+	/** Kept out of the history because the server records the same notice itself. */
+	unrecorded?: boolean;
 	className?: string;
 }
 
@@ -128,11 +130,13 @@ export function ToastProvider({
 	const api = React.useMemo<ToastApi>(
 		() => ({
 			show(toast) {
-				onShowRef.current?.({
-					tone: toast.tone ?? "neutral",
-					title: nodeText(toast.title),
-					body: nodeText(toast.children),
-				});
+				if (!toast.unrecorded) {
+					onShowRef.current?.({
+						tone: toast.tone ?? "neutral",
+						title: nodeText(toast.title),
+						body: nodeText(toast.children),
+					});
+				}
 				nextKey.current += 1;
 				const key = nextKey.current;
 				setToasts((current) => [...current, { ...toast, key }]);

@@ -5,8 +5,14 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
+import type { FastifyRequest } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { shareAudience, sharesCourseWith, teachesCourse } from "./membership.js";
+import {
+	shareAudience,
+	sharesCourseWith,
+	taughtCourseId,
+	teachesCourse,
+} from "./membership.js";
 
 const skip = !hasTestDb();
 let testDb: TestDb;
@@ -191,4 +197,18 @@ describe("shareAudience", () => {
 			expect(await shareAudience(db, await insertTestUser(db))).toEqual([]);
 		},
 	);
+});
+
+describe("taughtCourseId", () => {
+	const asRequest = (userId: string, params: unknown) =>
+		({ user: { id: userId }, params }) as unknown as FastifyRequest;
+
+	test.skipIf(skip)("gives the course id only to its instructor", async () => {
+		const { ivy, sam, cs101 } = await seed();
+		const db = testDb.db;
+		expect(await taughtCourseId(db, asRequest(ivy, { courseId: cs101 }))).toBe(cs101);
+		expect(await taughtCourseId(db, asRequest(sam, { courseId: cs101 }))).toBeNull();
+		// A malformed id is treated like a course that does not exist.
+		expect(await taughtCourseId(db, asRequest(ivy, { courseId: "cs101" }))).toBeNull();
+	});
 });
