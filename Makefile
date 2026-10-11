@@ -329,13 +329,29 @@ mock-lms: ## Run the mock LMS on this host in the foreground at the LAN address 
 	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
-lti-mock-register: wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
-	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL)
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
+# $(call LTI_MOCK_APPLY,ACTION ARGS) -- an apt-installed VM runs its own
+# setup, so the registration goes into the platforms file its portikus.yaml
+# names (docs/OPERATIONS.md, "LTI"); this checkout's play would rewrite that
+# VM's site with this Makefile's names and its next setup would drop the mock.
+LTI_MOCK_APPLY = @set -e; \
+	if ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) test -e /etc/portikus/portikus.yaml; then \
+		file=$$(ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) "sudo sed -n 's/^portikus_lti_platforms_file: *//p' /etc/portikus/portikus.yaml"); \
+		test -n "$$file" || { echo "$@: $(VM_IP) is installed with apt, and its /etc/portikus/portikus.yaml names no portikus_lti_platforms_file; add portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json there (docs/OPERATIONS.md)"; exit 1; }; \
+		echo "$@: $(VM_IP) is installed with apt; changing $$file there and running its setup"; \
+		ssh -o BatchMode=yes $(SSH_USER)@$(VM_IP) sudo python3 - --file "$$file" $(1) <infra/host/lti-mock-registration.py; \
+		ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) 'log=$$(mktemp); sudo portikus setup >"$$log" 2>&1 || { tail -30 "$$log"; exit 1; }; rm -f "$$log"' \
+			|| { echo "$@: setup failed on $(VM_IP)"; exit 1; }; \
+		echo "$@: setup applied it"; \
+	else \
+		$(LTI_MOCK_CLI) $(1); \
+		cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti; \
+	fi
 
-lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks
-	$(LTI_MOCK_CLI) unregister
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
+lti-mock-register: wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks (on an apt-installed VM, its own platforms file and setup)
+	$(call LTI_MOCK_APPLY,register --url $(MOCK_LMS_URL))
+
+lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks (on an apt-installed VM, its own platforms file and setup)
+	$(call LTI_MOCK_APPLY,unregister)
 
 smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	$(REQUIRE_VM_IP)
