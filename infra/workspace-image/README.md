@@ -71,9 +71,29 @@ npx playwright install --only-shell chromium
 ```
 
 Playwright launches Chromium with `--disable-dev-shm-usage`, so its shared
-memory goes to `/tmp` (512 MB) rather than `/dev/shm` (256 MB). The workspace
+memory goes to `/tmp` (1 GB) rather than `/dev/shm` (256 MB). The workspace
 smoke test launches the browser by hand without that switch, through
 `/dev/shm`, and also through `playwright-core` at the pinned version.
+
+`/tmp` is a memory-backed filesystem, so what Chromium keeps there counts
+against the workspace's memory limit (4 GB by default), and the 1 GB cap is
+a quarter of it. A full-page screenshot needs room in `/tmp` in proportion
+to the page's area. Measured on the rehearsal VM with a 2-CPU, 4 GB
+workspace, taking eight full-page screenshots 4000 pixels wide:
+
+| Workers | Page height | `/tmp` peak | Result |
+|---|---|---|---|
+| 1 | 4000 | 456 MB | passes |
+| 4 | 4000 | 510 MB | passes |
+| 4 | 6000 | 1003 MB | passes, at the limit |
+| 4 | 8000 | 1024 MB (full) | pages crash with "Target crashed" |
+
+Ordinary course labs, with pages a screen or two tall, use a small part of
+this. A lab that screenshots very tall pages should run one worker
+(`workers: 1` in `playwright.config.ts`) or take screenshots of the visible
+viewport rather than the full page. When `/tmp` fills, Chromium reports
+"Target crashed", not "No space left on device", so check `df -h /tmp`
+first when a lab's screenshots crash.
 
 The build checks the downloaded binary against a sha256 recorded beside the
 pin in the step that installs it, so a pin bump needs both values.

@@ -154,7 +154,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17ab0. /tmp and /dev/shm are capped tmpfs mounts, so a huge temporary
   # file fails for lack of space instead of using the workspace's memory.
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
-  check_output "/tmp is capped at 512M" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  check_output "/tmp is capped at 1G" "1073741824" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
   check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
   check "/dev/shm keeps nosuid and nodev after the remount" \
     ws_exec "findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nosuid && findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nodev"
@@ -162,10 +162,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   term_before=$(term_main)
   tmp_fill_refused() {
     local said
-    said=$(ws_student "head -c 600M /dev/zero > /tmp/smoke-fill; rc=\$?; rm -f /tmp/smoke-fill; exit \$rc" 2>&1)
+    said=$(ws_student "head -c 1100M /dev/zero > /tmp/smoke-fill; rc=\$?; rm -f /tmp/smoke-fill; exit \$rc" 2>&1)
     [[ "$said" == *"No space left on device"* ]]
   }
-  check "writing 600 MB to /tmp fails with No space left on device" tmp_fill_refused
+  check "writing 1100 MB to /tmp fails with No space left on device" tmp_fill_refused
   check_output "the agent kept running through the full /tmp (same main PID)" "$agent_before" agent_main
   check_output "the tmux server kept running through the full /tmp (same main PID)" "$term_before" term_main
   check "the pane's shell kept running through the full /tmp" ws_exec "kill -0 ${shell_pid:-0}"
