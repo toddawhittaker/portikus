@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { openToggletip, query, WEB_ORIGIN } from "./helpers";
 import { launchAs, ltiUsers, openCourseTab } from "./lti-helpers";
+import { expectUsageColumnsAligned } from "./usage-tables";
 
 test("an instructor sees member usage per agent, daily totals and a period choice", async ({
 	browser,
@@ -49,6 +50,7 @@ test("an instructor sees member usage per agent, daily totals and a period choic
 		const codex = people.getByRole("row", { name: /Sam Student Codex/ });
 		await expect(codex.getByRole("cell").nth(6)).toHaveText("—");
 		await expect(course.getByTestId("agent-usage-daily")).toBeVisible();
+		await expectUsageColumnsAligned(course);
 
 		await course.getByRole("combobox", { name: "Period" }).click();
 		await course.getByRole("option", { name: "Last 30 days" }).click();

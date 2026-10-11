@@ -98,15 +98,44 @@ function CountCells({ row }: { row: AgentUsageCounts }) {
 	);
 }
 
+/*
+ * Both tables share one fixed column plan, so each column of the daily table
+ * sits under its counterpart in the per-person table. The first column takes
+ * the space left over; the minimum width is the fixed columns plus 12rem for
+ * it, and the wrapper scrolls sideways below that.
+ */
+const TABLE_CLASS = "pk-table table-fixed min-w-318";
+
+function UsageColumns() {
+	return (
+		<colgroup>
+			<col />
+			<col className="w-28" />
+			<col className="w-20" />
+			<col className="w-32" />
+			<col className="w-32" />
+			<col className="w-32" />
+			<col className="w-32" />
+			<col className="w-40" />
+			<col className="w-26" />
+			<col className="w-28" />
+		</colgroup>
+	);
+}
+
+/** The first column wraps, so a long name stays inside its own column. */
+const LEAD_CELL_CLASS = "font-normal whitespace-normal wrap-anywhere py-1";
+
 /** The per-person and daily usage tables, shared by the admin tab and the Course page. */
 export function UsageTables({ data }: { data: AgentUsageResponse }) {
 	return (
 		<>
 			<div className="pk-table-wrap overflow-x-auto">
-				<table className="pk-table" data-testid="agent-usage-users">
+				<table className={TABLE_CLASS} data-testid="agent-usage-users">
 					<caption className="sr-only">
 						Agent usage per person, {data.from} to {data.to}
 					</caption>
+					<UsageColumns />
 					<thead>
 						<tr>
 							<th scope="col">Person</th>
@@ -117,7 +146,7 @@ export function UsageTables({ data }: { data: AgentUsageResponse }) {
 					<tbody>
 						{data.users.map((row) => (
 							<tr key={`${row.userId}-${row.agent}`}>
-								<th scope="row" className="font-normal">
+								<th scope="row" className={LEAD_CELL_CLASS}>
 									{row.displayName}
 								</th>
 								<td>{CODING_AGENT_NAME[row.agent]}</td>
@@ -129,10 +158,11 @@ export function UsageTables({ data }: { data: AgentUsageResponse }) {
 			</div>
 			<h3 className="pk-text-heading m-0">Daily totals</h3>
 			<div className="pk-table-wrap overflow-x-auto">
-				<table className="pk-table" data-testid="agent-usage-daily">
+				<table className={TABLE_CLASS} data-testid="agent-usage-daily">
 					<caption className="sr-only">
 						Agent usage per day for everyone, {data.from} to {data.to}
 					</caption>
+					<UsageColumns />
 					<thead>
 						<tr>
 							<th scope="col">Day</th>
@@ -143,7 +173,7 @@ export function UsageTables({ data }: { data: AgentUsageResponse }) {
 					<tbody>
 						{data.daily.map((row) => (
 							<tr key={`${row.day}-${row.agent}`}>
-								<th scope="row" className="font-normal">
+								<th scope="row" className={LEAD_CELL_CLASS}>
 									{row.day}
 								</th>
 								<td>{CODING_AGENT_NAME[row.agent]}</td>

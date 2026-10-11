@@ -56,6 +56,19 @@ test("shows a row per person and agent, a dash for Codex's cost, and the daily t
 	expect(String(fetch.mock.calls[0]?.[0])).toBe("/admin/agent-usage?days=7");
 });
 
+test("both tables use one column plan, one column per header", async () => {
+	stubFetch(() => json(200, USAGE));
+	renderWithQuery(<AgentUsageTab />);
+	const people = await screen.findByRole("table", { name: /Agent usage per person/ });
+	const daily = screen.getByRole("table", { name: /Agent usage per day/ });
+
+	const plan = (table: HTMLElement) =>
+		[...table.querySelectorAll("colgroup col")].map((col) => col.className);
+	expect(plan(people)).toEqual(plan(daily));
+	expect(plan(people)).toHaveLength(people.querySelectorAll("thead th").length);
+	expect(people.className).toBe(daily.className);
+});
+
 test("an empty period says so and shows no tables", async () => {
 	stubFetch(() => json(200, { ...USAGE, users: [], daily: [] }));
 	renderWithQuery(<AgentUsageTab />);
