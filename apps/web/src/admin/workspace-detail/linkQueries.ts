@@ -32,12 +32,15 @@ export function useCourseAccountSearch(text: string, enabled: boolean) {
 	const q = sent.trim();
 	const params = new URLSearchParams({ unlinkedCourse: "1", limit: "50" });
 	if (q !== "") params.set("q", q);
-	return useQuery({
+	const query = useQuery({
 		queryKey: [...adminKeys.users, "link-search", q],
 		queryFn: () => request(AdminUserList, `/admin/users?${params.toString()}`),
 		enabled,
 		placeholderData: keepPreviousData,
 	});
+	// The previous results stay on screen until the new ones arrive, so say they are stale.
+	const searching = text !== sent || query.isFetching;
+	return { query, searching };
 }
 
 /** Link or unlink; both refresh the links and the Users list. */

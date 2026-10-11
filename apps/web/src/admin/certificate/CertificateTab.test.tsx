@@ -789,3 +789,35 @@ test("Roll back's reason sits with the buttons, not above the certificate", asyn
 	);
 	expect(rollback.parentElement?.parentElement?.contains(note)).toBe(true);
 });
+
+const REACH_ONLY =
+	"Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory.";
+const DNS_ONLY =
+	"Warnings do not block: a DNS-01 certificate does not depend on the names resolving here.";
+
+// The summary gives the reason that matches the checks that warned.
+test.each([
+	["only reach checks", ["reach-site", "http-port-80"], REACH_ONLY],
+	["only a DNS check", ["dns-preview"], DNS_ONLY],
+	[
+		"both kinds",
+		["dns-site", "reach-preview"],
+		"Warnings do not block: this server cannot reach itself from inside its sandbox, so the reach checks are advisory, and a DNS-01 certificate does not depend on the names resolving here.",
+	],
+] as const)("the warning summary with %s", async (_label, names, reason) => {
+	serve(data(), {
+		preflight: {
+			ok: true,
+			checks: names.map((name) => ({ name, result: "warning", message: "Odd." })),
+		},
+	});
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-test"));
+	const summary = (await screen.findByTestId("cert-preflight-summary")).textContent;
+	expect(summary).toBe(
+		`The checks passed with 2 warnings. ${reason}`.replace(
+			"2 warnings",
+			names.length === 1 ? "1 warning" : "2 warnings",
+		),
+	);
+});
