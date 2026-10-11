@@ -3,7 +3,7 @@
 # link dangling, and that purge leaves nothing setup wrote into systemd
 # (docs/SPEC.md section 21.12):
 #   - prerm stops every unit the package ships and disables every path,
-#     timer and socket;
+#     timer and socket, then clears any failed state the stop left;
 #   - postrm's lists of what setup writes into /etc/systemd/system match the
 #     Ansible roles, so a unit a role gains cannot be forgotten;
 #   - the real postrm, run with a fake systemctl on a fake /etc, stops and
@@ -49,6 +49,13 @@ for path in "$root"/systemd/portikus-*; do
 		;;
 	esac
 done
+
+# A run the stop cuts off ends failed; prerm must clear that after stopping.
+stop_line=$(grep -n "systemctl stop " "$prerm" | head -1 | cut -d: -f1)
+reset_line=$(grep -nF "systemctl reset-failed 'portikus-*'" "$prerm" | head -1 | cut -d: -f1 || true)
+if [ -z "$reset_line" ] || [ "$reset_line" -lt "$stop_line" ]; then
+	fail "prerm does not reset the failed state of portikus-* after stopping them"
+fi
 
 # ── postrm's lists against the Ansible roles ─────────────────────
 
