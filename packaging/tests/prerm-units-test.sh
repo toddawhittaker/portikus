@@ -8,11 +8,13 @@
 #     Ansible roles, so a unit a role gains cannot be forgotten;
 #   - the real postrm, run with a fake systemctl on a fake /etc, stops and
 #     disables setup's units and drops the alert drop-ins on remove, and
-#     deletes the rest on purge, never touching Caddy or PostgreSQL;
+#     deletes the rest on purge, and on remove never touches Caddy or PostgreSQL;
 #   - purge drops setup's marked site address line from /etc/hosts and
 #     nothing else;
-#   - purge stops and disables Squid, which setup configured only for
-#     Portikus, and deletes setup's helpers under /usr/local, which postrm
+#   - prerm deletes the bytecode Python left beside the shipped files on
+#     remove, before dpkg removes their directories, and not on upgrade;
+#   - purge stops and disables Squid and Caddy, which setup configured only
+#     for Portikus, and deletes setup's helpers under /usr/local, which postrm
 #     lists exactly as the roles install them, and /usr/local/share/portikus
 #     (SPEC.md section 21.12).
 # Usage: packaging/tests/prerm-units-test.sh
@@ -32,6 +34,29 @@ fail() {
 }
 
 # ── prerm and the package's own units ────────────────────────────
+
+# The real prerm on a fake tree: bytecode Python wrote beside the shipped
+# scripts and collections, and a shipped file that only dpkg may delete.
+bytecode_tree() { # ROOT
+	mkdir -p "$1/usr/lib/portikus/__pycache__" "$1/usr/share/portikus/ansible/plugins/__pycache__"
+	echo pyc >"$1/usr/lib/portikus/__pycache__/image-job.cpython-313.pyc"
+	echo pyc >"$1/usr/share/portikus/ansible/plugins/__pycache__/ip.cpython-313.pyc"
+	echo "# shipped" >"$1/usr/share/portikus/ansible/plugins/ip.py"
+	{
+		echo '#!/bin/sh'
+		echo 'systemctl() { :; }'
+		sed "1d; s|/usr/lib/portikus|$1/usr/lib/portikus|g; s|/usr/share/portikus|$1/usr/share/portikus|g; s|/run/systemd|$1/run/systemd|g" "$prerm"
+	} >"$1/prerm"
+}
+bytecode_left() { find "$1/usr/lib/portikus" "$1/usr/share/portikus" -name __pycache__ | grep -q .; }
+mkdir "$work/prerm-remove" "$work/prerm-upgrade"
+bytecode_tree "$work/prerm-remove"
+sh "$work/prerm-remove/prerm" remove
+! bytecode_left "$work/prerm-remove" || fail "prerm remove left Python bytecode under /usr/lib/portikus or /usr/share/portikus"
+[ -e "$work/prerm-remove/usr/share/portikus/ansible/plugins/ip.py" ] || fail "prerm remove deleted a file that is not bytecode"
+bytecode_tree "$work/prerm-upgrade"
+sh "$work/prerm-upgrade/prerm" upgrade 0.1.1
+bytecode_left "$work/prerm-upgrade" || fail "prerm upgrade deleted Python bytecode"
 
 # The words of one multi-line `systemctl <verb> ... || true` command in prerm.
 command_words() {
@@ -207,8 +232,9 @@ make_host() { # ROOT
 	# The image builder's distrobuilder, which purge leaves alone.
 	mkdir -p "$r/usr/local/bin"
 	echo "# setup" >"$r/usr/local/bin/distrobuilder"
-	mkdir -p "$r/etc/squid"
+	mkdir -p "$r/etc/squid" "$r/etc/caddy"
 	echo "include /etc/portikus/egress-proxy.d/*.conf" >"$r/etc/squid/squid.conf"
+	echo "import /etc/portikus/certificate/tls.caddy" >"$r/etc/caddy/Caddyfile"
 	echo "x: 1" >"$r/etc/portikus/portikus.yaml"
 	echo key >"$r/etc/portikus-workspace-proxy/bump.key"
 	cat >"$r/etc/hosts" <<-'EOF'
@@ -278,6 +304,9 @@ grep -qx 'daemon-reload' "$calls" || fail "purge does not reload systemd"
 grep -qx 'stop squid.service' "$calls" || fail "purge does not stop Squid"
 grep -qx 'disable squid.service' "$calls" || fail "purge does not disable Squid"
 [ -e "$host/etc/squid/squid.conf" ] || fail "purge deleted squid.conf, Squid's own conffile"
+grep -qx 'stop caddy.service' "$calls" || fail "purge does not stop Caddy"
+grep -qx 'disable caddy.service' "$calls" || fail "purge does not disable Caddy"
+[ -e "$host/etc/caddy/Caddyfile" ] || fail "purge deleted the Caddyfile, Caddy's own conffile"
 while read -r file; do
 	[ ! -e "$host$file" ] || fail "purge left $file"
 done <<<"$helpers"
@@ -301,6 +330,7 @@ chmod a-w "$chroot_host/etc/hosts"
 CALLS="$calls" sh "$chroot_host/postrm" purge 2>/dev/null || fail "purge failed on an /etc/hosts it cannot write"
 ! grep -E '^(stop|daemon-reload)' "$calls" >&2 || fail "purge without systemd running stopped units or reloaded"
 grep -qx 'disable squid.service' "$calls" || fail "purge without systemd running did not disable Squid"
+grep -qx 'disable caddy.service' "$calls" || fail "purge without systemd running did not disable Caddy"
 [ ! -e "$chroot_host/etc/portikus" ] || fail "purge on an unwritable /etc/hosts left /etc/portikus"
 
 [ "$failures" -eq 0 ] || exit 1

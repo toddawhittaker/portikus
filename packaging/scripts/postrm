@@ -69,13 +69,16 @@ if [ "$1" = "purge" ]; then
 	for unit in $SETUP_BOOT_UNITS; do
 		systemctl disable "$unit" >/dev/null 2>&1 || true
 	done
-	# Setup configured Squid only for Portikus, and its squid.conf includes
-	# /etc/portikus, so Squid would fail at its next start.  squid.conf stays:
-	# it is Squid's conffile, and a reinstall and setup rewrite it.
-	if [ -d /run/systemd/system ]; then
-		systemctl stop squid.service >/dev/null 2>&1 || true
-	fi
-	systemctl disable squid.service >/dev/null 2>&1 || true
+	# Setup configured Squid and Caddy only for Portikus, and squid.conf and
+	# the Caddyfile include files under /etc/portikus, so each would fail at
+	# its next start.  Both files stay: they are those packages' conffiles,
+	# and a reinstall and setup rewrite them.
+	for unit in squid.service caddy.service; do
+		if [ -d /run/systemd/system ]; then
+			systemctl stop "$unit" >/dev/null 2>&1 || true
+		fi
+		systemctl disable "$unit" >/dev/null 2>&1 || true
+	done
 	for helper in $SETUP_HELPERS; do
 		rm -f "$helper"
 	done

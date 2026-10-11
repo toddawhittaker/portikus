@@ -133,7 +133,7 @@ accepts "unregistering keeps every other platform" "${reg}" '{"on": true, "egres
 
 # make -n URL... -- the mock URL a dry run of rehearsal-lti or lti-mock-register would register.
 registered_url() {
-  make --no-print-directory -n -C "${REPO_ROOT}" "$@" 2>/dev/null | sed -n 's/.* register --url \([^ ]*\).*/\1/p' | head -1
+  make --no-print-directory -n -C "${REPO_ROOT}" "$@" 2>/dev/null | sed -n 's/.* register --url \([^ ;]*\).*/\1/p' | head -1
 }
 check_output "the rehearsal registers its mock LMS over https" "https://10.200.0.1:8766" \
   registered_url rehearsal-lti TOFU_ENV=rehearsal-libvirt MANAGEMENT_CIDR=10.200.0.0/24

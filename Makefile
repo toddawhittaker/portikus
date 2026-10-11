@@ -329,13 +329,33 @@ mock-lms: ## Run the mock LMS on this host in the foreground at the LAN address 
 	pnpm --dir packages/mock-lms start -- --tool-url $(PORTIKUS_PUBLIC_URL) --port $(MOCK_LMS_PORT) \
 		$(foreach bind,$(MOCK_LMS_BIND),--bind $(bind)) --issuer $(MOCK_LMS_URL)
 
-lti-mock-register: wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks
-	$(LTI_MOCK_CLI) register --url $(MOCK_LMS_URL)
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
+# $(call LTI_MOCK_APPLY,ACTION ARGS) -- an apt-installed VM runs its own
+# setup, so the registration goes into the platforms file its portikus.yaml
+# names (docs/OPERATIONS.md, "LTI"); this checkout's play would rewrite that
+# VM's site with this Makefile's names and its next setup would drop the mock.
+# An SSH failure (255) must not read as "no portikus.yaml" and send the play.
+LTI_MOCK_APPLY = @set -e; \
+	rc=0; ssh -n -o BatchMode=yes -o ConnectTimeout=5 $(SSH_USER)@$(VM_IP) test -e /etc/portikus/portikus.yaml || rc=$$?; \
+	case $$rc in \
+	0) \
+		file=$$(ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) "sudo sed -n 's/^portikus_lti_platforms_file: *//p' /etc/portikus/portikus.yaml"); \
+		test -n "$$file" || { echo "$@: $(VM_IP) is installed with apt, and its /etc/portikus/portikus.yaml names no portikus_lti_platforms_file; add portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json there (docs/OPERATIONS.md)"; exit 1; }; \
+		echo "$@: $(VM_IP) is installed with apt; changing $$file there and running its setup"; \
+		ssh -o BatchMode=yes $(SSH_USER)@$(VM_IP) sudo python3 - --file "$$file" $(1) <infra/host/lti-mock-registration.py; \
+		ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) 'log=$$(mktemp); sudo portikus setup >"$$log" 2>&1 || { tail -30 "$$log"; exit 1; }; rm -f "$$log"' \
+			|| { echo "$@: setup failed on $(VM_IP)"; exit 1; }; \
+		echo "$@: setup applied it" ;; \
+	1) \
+		$(LTI_MOCK_CLI) $(1); \
+		cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti ;; \
+	*) echo "$@: cannot reach $(SSH_USER)@$(VM_IP) over SSH (exit $$rc) to tell whether it is installed with apt; nothing was changed"; exit 1 ;; \
+	esac
 
-lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks
-	$(LTI_MOCK_CLI) unregister
-	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
+lti-mock-register: wait-vm ## Trust the mock LMS on the VM: add its registration to the platforms file and apply only the LTI tasks (on an apt-installed VM, its own platforms file and setup)
+	$(call LTI_MOCK_APPLY,register --url $(MOCK_LMS_URL))
+
+lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registration and apply only the LTI tasks (on an apt-installed VM, its own platforms file and setup)
+	$(call LTI_MOCK_APPLY,unregister)
 
 smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	$(REQUIRE_VM_IP)
@@ -435,13 +455,16 @@ REFUSE_SELF_BACKUP = @rc=0; ssh -n -o BatchMode=yes -o ConnectTimeout=5 $(SSH_US
 	255) echo "$@: cannot reach $(SSH_USER)@$(VM_IP) over SSH to check whether it backs itself up; nothing was installed"; exit 1 ;; \
 	esac
 
+# The nightly unit the channel reports on, when one is installed for this VM.
+BACKUP_NIGHTLY ?= $(if $(shell grep -qsF -- '--vm-name $(TOFU_VM_NAME) ' /etc/systemd/system/portikus-backup.service && echo y),portikus-backup,)
+
+# One nightly timer per host, so installing it for another VM repoints it.
 # The channel target refuses a VM that backs itself up and installs the
 # scripts the nightly unit runs.
-backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a VM in dev-libvirt set up with configure-vm; refuses an apt-installed server such as the pilot, which backs itself up
-	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
+backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a VM in TOFU_ENV set up with configure-vm; refuses an apt-installed server such as the pilot, which backs itself up
 	$(REQUIRE_VM_IP)
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
-	$(MAKE) --no-print-directory backup-install-channel
+	$(MAKE) --no-print-directory backup-install-channel BACKUP_NIGHTLY=portikus-backup
 	$(BACKUP_UNIT_SED) \
 		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
@@ -463,7 +486,7 @@ backup-install-channel: backup-setup ## Install the host timer that runs backup 
 	sudo install -m 0755 infra/host/backup-channel.sh /usr/local/sbin/portikus-backup-channel
 	sudo install -m 0755 infra/host/restore-copy.sh /usr/local/sbin/portikus-restore-copy
 	$(BACKUP_UNIT_SED) \
-		-e "s|@NIGHTLY@|$(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)|" \
+		-e "s|@NIGHTLY@|$(BACKUP_NIGHTLY)|" \
 		infra/host/systemd/portikus-backup-channel.service | sudo tee /etc/systemd/system/portikus-backup-channel.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup-channel.timer /etc/systemd/system/portikus-backup-channel.timer
 	sudo systemctl daemon-reload
