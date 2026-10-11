@@ -46,12 +46,17 @@ export function resetSpeechSupport(): void {
 	networkFailed = false;
 }
 
-export function recognizerClass(): RecognizerClass | null {
+function recognizerClass(): RecognizerClass | null {
 	const scope = globalThis as unknown as {
 		SpeechRecognition?: RecognizerClass;
 		webkitSpeechRecognition?: RecognizerClass;
 	};
 	return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
+}
+
+/** Whether this browser can dictate: the API exists and its service has not failed with `network`. */
+export function voiceSupported(): boolean {
+	return recognizerClass() !== null && !networkFailed;
 }
 
 /**
@@ -91,13 +96,13 @@ export interface SpeechInput {
 
 /** `onFinal` receives each settled phrase, already sanitized. */
 export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
-	const [supported, setSupported] = useState(
-		() => recognizerClass() !== null && !networkFailed,
-	);
+	const [supported, setSupported] = useState(voiceSupported);
 	// An administrator can turn voice off site-wide; then it reads as unsupported, with no message.
-	// Not yet loaded counts as off, so the microphone never flashes on a site with voice off.
-	const loaded = useEditorSettings().data;
-	const allowed = loaded !== undefined && loaded.voiceInputEnabled !== false;
+	// Not yet loaded counts as off, so the microphone never flashes on a site with voice off;
+	// a failed load counts as on, because voice is on by default.
+	const q = useEditorSettings();
+	const allowed =
+		q.isError || (q.data !== undefined && q.data.voiceInputEnabled !== false);
 	const allowedRef = useRef(allowed);
 	allowedRef.current = allowed;
 	const [state, setState] = useState<SpeechState>("idle");

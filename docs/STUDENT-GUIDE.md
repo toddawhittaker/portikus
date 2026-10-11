@@ -121,9 +121,10 @@ point now** makes one at once.
   Git commit for you.
 - If a restore cannot finish, your earlier files are kept in a hidden folder
   named `~/projects/.portikus-aside-` followed by the point's ID. Copy back
-  what you need, then delete that folder in a terminal. Portikus never deletes
-  it for you, and it will not restore that same point again until the folder
-  is gone.
+  what you need, then delete that folder from the Recovery points dialog
+  (Kept folders, shown while the workspace runs). Portikus never deletes it on
+  its own, and it will not restore that same point again until the folder is
+  gone.
 
 ## Previews
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { editorSettingsKey } from "../editor/settingsQueries";
@@ -9,6 +9,7 @@ import {
 	resetSpeechSupport,
 	sanitizeTranscript,
 	useSpeechInput,
+	voiceSupported,
 } from "./useSpeechInput";
 
 afterEach(() => {
@@ -215,4 +216,25 @@ test("before the site's settings load, voice reads as off, so the microphone nev
 		),
 	});
 	expect(result.current.state).toBe("unsupported");
+});
+
+test("voice stays on when the settings cannot be loaded", async () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	const wrapper = ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={client}>{children}</QueryClientProvider>
+	);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper });
+	await waitFor(() =>
+		expect(client.getQueryState(editorSettingsKey)?.status).toBe("error"),
+	);
+	act(() => result.current.start());
+	expect(fake().started).toBe(true);
+});
+
+test("voiceSupported follows the API", () => {
+	expect(voiceSupported()).toBe(false);
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	expect(voiceSupported()).toBe(true);
 });
