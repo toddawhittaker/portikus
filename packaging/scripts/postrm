@@ -79,6 +79,8 @@ if [ "$1" = "purge" ]; then
 	for helper in $SETUP_HELPERS; do
 		rm -f "$helper"
 	done
+	# Dex's web templates and setup's build markers; setup rebuilds what is missing.
+	rm -rf /usr/local/share/portikus
 	for file in $SETUP_UNITS $SETUP_BOOT_UNITS $SETUP_ALERT_DROPINS $SETUP_DROPINS; do
 		rm -f "$UNIT_DIR/$file"
 	done

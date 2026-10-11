@@ -13,7 +13,8 @@
 #     nothing else;
 #   - purge stops and disables Squid, which setup configured only for
 #     Portikus, and deletes setup's helpers under /usr/local, which postrm
-#     lists exactly as the roles install them (SPEC.md section 21.13).
+#     lists exactly as the roles install them, and /usr/local/share/portikus
+#     (SPEC.md section 21.13).
 # Usage: packaging/tests/prerm-units-test.sh
 set -euo pipefail
 
@@ -199,6 +200,10 @@ make_host() { # ROOT
 		mkdir -p "$r$(dirname "$file")"
 		echo "# setup" >"$r$file"
 	done <<<"$helpers"
+	mkdir -p "$r/usr/local/share/portikus/dex-web/templates"
+	echo "<html>" >"$r/usr/local/share/portikus/dex-web/templates/password.html"
+	echo abc >"$r/usr/local/share/portikus/dex-commit"
+	echo abc >"$r/usr/local/share/portikus/distrobuilder-commit"
 	# The image builder's distrobuilder, which purge leaves alone.
 	mkdir -p "$r/usr/local/bin"
 	echo "# setup" >"$r/usr/local/bin/distrobuilder"
@@ -248,6 +253,7 @@ grep -qx 'daemon-reload' "$calls" || fail "remove does not reload systemd"
 while read -r file; do
 	[ -e "$host$file" ] || fail "remove deleted $file"
 done <<<"$helpers"
+[ -e "$host/usr/local/share/portikus/dex-commit" ] || fail "remove deleted /usr/local/share/portikus"
 grep -q '# portikus site address$' "$host/etc/hosts" || fail "remove dropped the site address line from /etc/hosts"
 
 : >"$calls"
@@ -276,6 +282,7 @@ while read -r file; do
 	[ ! -e "$host$file" ] || fail "purge left $file"
 done <<<"$helpers"
 [ -e "$host/usr/local/bin/distrobuilder" ] || fail "purge deleted distrobuilder"
+[ ! -e "$host/usr/local/share/portikus" ] || fail "purge left /usr/local/share/portikus"
 
 # Without systemd running, as in a chroot: disable, but never stop or reload.
 chroot_host="$work/chroot"
