@@ -46,7 +46,21 @@
                'portikus_dex_upstream_client_id': 'portikus-dex',
                'portikus_dex_upstream_client_secret': site_view_secret,
                'portikus_preview_suffix': 'apps.example.edu',
+               'portikus_site_answers_file': {'content': {'portikus_preview_suffix': 'apps.example.edu'} | to_yaml | b64encode},
                'portikus_site_certificate': {'content': '{"source": "acme"}' | b64encode}}) | from_json }}
+
+    # Set by hand means written in portikus.yaml, whatever the value.
+    - name: Render a hand-set suffix equal to the default, and answers with no suffix
+      ansible.builtin.set_fact:
+        site_view_default_by_hand: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_site_answers_file': {'content': {'portikus_preview_suffix': 'preview.portikus.example.edu'} | to_yaml | b64encode}})
+             | from_json }}
+        site_view_no_suffix: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_preview_suffix': 'apps.example.edu',
+               'portikus_site_answers_file': {'content': {'portikus_public_host': 'portikus.example.edu', 'portikus_preview_suffix': none} | to_yaml | b64encode}})
+             | from_json }}
 
     - name: Render LDAP off an apt install, with Let's Encrypt not yet seeded
       ansible.builtin.set_fact:
@@ -74,4 +88,6 @@
           - site_view_ldap.keys() | sort == (site_view_keys + ['ldapHost']) | sort
           - site_view_ldap.provider == 'ldap' and site_view_ldap.ldapHost == 'ldap.example.edu:636'
           - not site_view_ldap.apt and site_view_ldap.certificateSource == 'acme'
+          - site_view_default_by_hand.previewSuffixSetByHand
+          - not site_view_no_suffix.previewSuffixSetByHand
         quiet: true

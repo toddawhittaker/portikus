@@ -3,9 +3,8 @@
 # HTTP too for an entry listed with its own port; listed IPv4 addresses
 # exactly, and no other address.  Nothing is cached.  Rules are read top to bottom and the first
 # match wins.
-{% set ipv4 = '^[0-9]{1,3}(\\.[0-9]{1,3}){3}:' %}
-{% set ip_entries = egress_proxy_allowed | select('match', ipv4) | list %}
-{% set host_entries = egress_proxy_allowed | reject('match', ipv4) | list %}
+{% set host_entries = egress_proxy_host_entries %}
+{% set ip_entries = egress_proxy_allowed | reject('in', host_entries) | list %}
 {% set host_ports = host_entries | map('regex_replace', '^.*:', '') | unique | sort | list %}
 http_port 127.0.0.1:{{ egress_proxy_port }}
 visible_hostname portikus-egress
