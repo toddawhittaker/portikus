@@ -83,7 +83,8 @@ test("Reset Docker works from the keyboard and returns focus to its button", asy
 	const reset = status.getByRole("button", { name: "Reset Docker…", exact: true });
 	// It stays disabled until the presence socket has reported the workspace.
 	await expect(reset).toBeEnabled({ timeout: 15_000 });
-	for (let step = 0; step < 10; step += 1) {
+	// A bound on the search, not a budget: native time inputs add a tab stop per segment.
+	for (let step = 0; step < 20; step += 1) {
 		if (await reset.evaluate((node) => node === document.activeElement)) break;
 		await page.keyboard.press("Tab");
 	}

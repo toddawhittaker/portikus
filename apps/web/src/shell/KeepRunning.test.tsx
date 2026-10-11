@@ -6,10 +6,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import {
+	endAtClockTime,
 	formatHoldEnd,
 	holdActive,
 	KeepRunningSection,
 	keepRunningChoices,
+	withinCap,
 } from "./KeepRunning.js";
 import { StatusBar } from "./StatusBar.js";
 
@@ -238,4 +240,58 @@ test("the status bar shows no hold once it has ended", () => {
 		/>,
 	);
 	expect(screen.queryByTestId("keep-running-indicator")).toBeNull();
+});
+
+test("a clock time is read in the student's zone, and one already past means tomorrow", () => {
+	// 10:00 in Tokyo (UTC+9).
+	const now = Date.parse("2026-10-01T01:00:00.000Z");
+	expect(endAtClockTime("23:30", "Asia/Tokyo", now)).toBe("2026-10-01T14:30:00.000Z");
+	expect(endAtClockTime("09:00", "Asia/Tokyo", now)).toBe("2026-10-02T00:00:00.000Z");
+	// Exactly now is not ahead, so it means tomorrow too.
+	expect(endAtClockTime("10:00", "Asia/Tokyo", now)).toBe("2026-10-02T01:00:00.000Z");
+	expect(endAtClockTime("23:30", "UTC", now)).toBe("2026-10-01T23:30:00.000Z");
+	expect(endAtClockTime("", "UTC", now)).toBeNull();
+});
+
+test("a clock time across a daylight saving change uses the offset at that time", () => {
+	// 20:00 EDT on Oct 31; 08:00 next day is after the change to EST (UTC-5).
+	const now = Date.parse("2026-11-01T00:00:00.000Z");
+	expect(endAtClockTime("08:00", "America/New_York", now)).toBe(
+		"2026-11-01T13:00:00.000Z",
+	);
+});
+
+test("a clock time is bounded by the same cap as the hours", () => {
+	const now = Date.parse("2026-10-01T00:00:00.000Z");
+	expect(withinCap("2026-10-01T12:00:00.000Z", 12, now)).toBe(true);
+	expect(withinCap("2026-10-01T12:01:00.000Z", 12, now)).toBe(false);
+	expect(withinCap("2026-10-01T01:00:00.000Z", 0, now)).toBe(false);
+});
+
+test("a typed clock time sets the hold, and one past the cap is refused before sending", async () => {
+	const calls = stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, keepRunningMaxHours: 1 }}
+		/>,
+	);
+	const at = screen.getByLabelText("Or until");
+	const set = screen.getByTestId("keep-running-set") as HTMLButtonElement;
+	const clockIn = (minutes: number) => {
+		const d = new Date(Date.now() + minutes * 60_000);
+		return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+	};
+	fireEvent.change(at, { target: { value: clockIn(180) } });
+	expect(screen.getByText("That is more than 1 hour away.")).toBeDefined();
+	expect(set.disabled).toBe(true);
+
+	fireEvent.change(at, { target: { value: clockIn(30) } });
+	expect(set.disabled).toBe(false);
+	fireEvent.click(set);
+	await waitFor(() => expect(calls.length).toBe(1));
+	const sent = calls[0]?.body as { until: string } | undefined;
+	const until = Date.parse(sent?.until ?? "");
+	expect(until - Date.now()).toBeGreaterThan(28 * 60_000);
+	expect(until - Date.now()).toBeLessThanOrEqual(30 * 60_000);
 });
