@@ -451,13 +451,16 @@ REFUSE_SELF_BACKUP = @rc=0; ssh -n -o BatchMode=yes -o ConnectTimeout=5 $(SSH_US
 	255) echo "$@: cannot reach $(SSH_USER)@$(VM_IP) over SSH to check whether it backs itself up; nothing was installed"; exit 1 ;; \
 	esac
 
+# The nightly unit the channel reports on, when one is installed for this VM.
+BACKUP_NIGHTLY ?= $(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)
+
+# One nightly timer per host, so installing it for another VM repoints it.
 # The channel target refuses a VM that backs itself up and installs the
 # scripts the nightly unit runs.
-backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a VM in dev-libvirt set up with configure-vm; refuses an apt-installed server such as the pilot, which backs itself up
-	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
+backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a VM in TOFU_ENV set up with configure-vm; refuses an apt-installed server such as the pilot, which backs itself up
 	$(REQUIRE_VM_IP)
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
-	$(MAKE) --no-print-directory backup-install-channel
+	$(MAKE) --no-print-directory backup-install-channel BACKUP_NIGHTLY=portikus-backup
 	$(BACKUP_UNIT_SED) \
 		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
@@ -479,7 +482,7 @@ backup-install-channel: backup-setup ## Install the host timer that runs backup 
 	sudo install -m 0755 infra/host/backup-channel.sh /usr/local/sbin/portikus-backup-channel
 	sudo install -m 0755 infra/host/restore-copy.sh /usr/local/sbin/portikus-restore-copy
 	$(BACKUP_UNIT_SED) \
-		-e "s|@NIGHTLY@|$(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)|" \
+		-e "s|@NIGHTLY@|$(BACKUP_NIGHTLY)|" \
 		infra/host/systemd/portikus-backup-channel.service | sudo tee /etc/systemd/system/portikus-backup-channel.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup-channel.timer /etc/systemd/system/portikus-backup-channel.timer
 	sudo systemctl daemon-reload
