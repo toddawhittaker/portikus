@@ -8,7 +8,7 @@
  *
  *   node scripts/e2e-shard-list.mjs --refresh [run-id]
  *     Rebuilds e2e/shard-timings.json from a CI run's shard logs; without a
- *     run id it uses the latest successful CI run on main.
+ *     run id it uses the newest successful CI run that ran every browser shard.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -73,40 +73,56 @@ function listSpecFiles() {
 	return [...files].sort();
 }
 
+const SHARD_PREFIX = "Browser end-to-end tests (shard";
+
+/**
+ * True when a run's browser shards all ran and passed. A push run that
+ * reused its pull request's pass skips them, so it has no timings to read.
+ */
+export function ranAllShards(jobs) {
+	const shards = jobs.filter((job) => job.name.startsWith(SHARD_PREFIX));
+	return shards.length > 0 && shards.every((job) => job.conclusion === "success");
+}
+
 function refresh(runId) {
 	const gh = (...args) =>
 		execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
-	const id =
-		runId ??
-		gh(
-			"run",
-			"list",
-			"--workflow",
-			"ci.yml",
-			"--branch",
-			"main",
-			"--status",
-			"success",
-			"--limit",
-			"1",
-			"--json",
-			"databaseId",
-			"-q",
-			".[0].databaseId",
-		).trim();
-	const jobs = gh(
-		"run",
-		"view",
-		id,
-		"--json",
-		"jobs",
-		"-q",
-		'.jobs[] | select(.name | startswith("Browser end-to-end tests (shard")) | .databaseId',
-	)
-		.split("\n")
-		.filter(Boolean);
+	const jobsOf = (id) =>
+		JSON.parse(gh("run", "view", String(id), "--json", "jobs")).jobs;
+	let id = runId;
+	let jobs = id ? jobsOf(id) : [];
+	if (!id) {
+		// Any event: the pull request run a main push reused is the one that
+		// holds the timings, and timings are estimates, so the newest full
+		// green run of ci.yml is the best source.
+		const ids = JSON.parse(
+			gh(
+				"run",
+				"list",
+				"--workflow",
+				"ci.yml",
+				"--status",
+				"success",
+				"--limit",
+				"30",
+				"--json",
+				"databaseId",
+			),
+		).map((run) => run.databaseId);
+		for (const candidate of ids) {
+			jobs = jobsOf(candidate);
+			if (ranAllShards(jobs)) {
+				id = candidate;
+				break;
+			}
+		}
+		if (!id) throw new Error("No recent successful CI run ran every browser shard");
+	}
+	const shardJobs = jobs
+		.filter((job) => job.name.startsWith(SHARD_PREFIX))
+		.map((job) => String(job.databaseId));
 	const timings = {};
-	for (const job of jobs)
+	for (const job of shardJobs)
 		Object.assign(timings, parseTimings(gh("run", "view", "--job", job, "--log")));
 	const sorted = Object.fromEntries(
 		Object.keys(timings)

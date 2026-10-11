@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 // @ts-expect-error The shard script is a plain .mjs script with no type declarations.
-import { packShards, parseTimings } from "./e2e-shard-list.mjs";
+import { packShards, parseTimings, ranAllShards } from "./e2e-shard-list.mjs";
 
 type Shard = { files: string[]; seconds: number };
 const pack = (
@@ -50,5 +50,25 @@ describe("parseTimings", () => {
 			"files.spec.ts": 3.5,
 			"admin-docker.spec.ts": 2,
 		});
+	});
+});
+
+describe("ranAllShards", () => {
+	const shard = (n: number, conclusion: string) => ({
+		name: `Browser end-to-end tests (shard ${n} of 5)`,
+		conclusion,
+	});
+	const gate = { name: "Browser end-to-end tests", conclusion: "success" };
+
+	test("accepts a run whose every shard passed", () => {
+		expect(ranAllShards([shard(1, "success"), shard(2, "success"), gate])).toBe(true);
+	});
+
+	test("rejects a push run that reused its pull request and skipped the shards", () => {
+		expect(ranAllShards([shard(1, "skipped"), shard(2, "skipped"), gate])).toBe(false);
+	});
+
+	test("rejects a run with no shard jobs at all", () => {
+		expect(ranAllShards([gate])).toBe(false);
 	});
 });
