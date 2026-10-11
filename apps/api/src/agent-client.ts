@@ -335,7 +335,14 @@ export class AgentClient {
 	/** Folders failed restores left in ~/projects (SPEC.md §15.10). */
 	async listRecoveryAsides(): Promise<AgentRecoveryAsideList["folders"]> {
 		const payload = await this.call("GET", "/recovery-asides");
-		return AgentRecoveryAsideList.parse(payload).folders;
+		const parsed = AgentRecoveryAsideList.safeParse(payload);
+		if (!parsed.success) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data.folders;
 	}
 
 	/** Delete one such folder, which may hold many files. */
