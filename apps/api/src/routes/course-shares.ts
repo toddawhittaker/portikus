@@ -12,7 +12,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { AGENT_TIMEOUT_MS, readAgentError } from "../agent-client.js";
-import { taughtCourseId } from "../courses/taught-course.js";
+import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import {
@@ -112,6 +112,7 @@ export function registerCourseShareRoutes(
 				if (isSecretPath(query.path)) {
 					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
 				}
+				await scope.recordView();
 				const tree = await relayJson(
 					reply,
 					request.log,
@@ -145,6 +146,7 @@ export function registerCourseShareRoutes(
 				if (isSecretPath(path)) {
 					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
 				}
+				await scope.recordView();
 
 				const deadline = headersDeadline();
 				let response: Response;
@@ -182,6 +184,7 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
+				await scope.recordView();
 				const status = await relayJson(
 					reply,
 					request.log,
@@ -212,6 +215,7 @@ export function registerCourseShareRoutes(
 				if (isSecretPath(path.data)) {
 					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
 				}
+				await scope.recordView();
 				const diff = await relayJson(
 					reply,
 					request.log,
@@ -234,6 +238,7 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
+				await scope.recordView();
 				const checks = await relayJson(
 					reply,
 					request.log,

@@ -630,4 +630,21 @@ describe.skipIf(skip)("the view and the student's workspace", () => {
 			.execute();
 		expect(views).toEqual([]);
 	});
+
+	test("a refused path or a secret is not a view", async () => {
+		await share(world.a.projectId);
+		for (const route of [
+			"tree?path=..",
+			"file?path=../x",
+			"file?path=.env",
+			"git/diff?path=../x",
+		]) {
+			await asInstructor(sharedUrl(route));
+		}
+		const views = await testDb.db
+			.selectFrom("project_share_views")
+			.select("share_id")
+			.execute();
+		expect(views).toEqual([]);
+	});
 });

@@ -170,7 +170,7 @@ export function pickerPage(
 	const body = `<p>Students who open this link get the project in their Portikus workspace. A project they already have is opened as it is, never overwritten.</p>
 ${error}<form method="post" action="/lti/deep-link">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
-<fieldset${sourceError}>
+<fieldset role="radiogroup"${sourceError}>
 <legend>Start from</legend>
 ${radios}
 </fieldset>

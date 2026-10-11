@@ -3,7 +3,7 @@
  * sends the changes back. Profile and Linked accounts have files of their own.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
@@ -712,5 +712,23 @@ test("a second password change in one visit is announced again", async () => {
 	expect(status.textContent).toBe("");
 	await waitFor(() =>
 		expect(status.textContent).toBe("Your password has been changed."),
+	);
+});
+
+/** Voice input is a site switch, so the dialog only reports it (SPEC.md §25.10). */
+test("Accessibility says how to dictate, or that the administrator turned voice input off", async () => {
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	expect((await screen.findByTestId("settings-voice-input")).textContent).toContain(
+		"Alt+Shift+M",
+	);
+	cleanup();
+
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, voiceInputEnabled: false } as never);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-voice-input").textContent).toBe(
+			"Your administrator turned voice input off for this site.",
+		),
 	);
 });

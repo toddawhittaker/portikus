@@ -1612,6 +1612,56 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"voice input is on by default, an administrator turns it off with an audit row, and students see the switch",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const student = await studentJar();
+		const studentSettings = async () =>
+			(
+				await app.inject({
+					method: "GET",
+					url: "/me/settings",
+					headers: { cookie: student.cookieHeader() },
+				})
+			).json().voiceInputEnabled;
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json().voiceInputEnabled).toBe(true);
+		expect(await studentSettings()).toBe(true);
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { voiceInputEnabled: false },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().voiceInputEnabled).toBe(false);
+		expect(await studentSettings()).toBe(false);
+
+		const refused = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(student, PUBLIC_URL),
+			payload: { voiceInputEnabled: true },
+		});
+		expect(refused.statusCode).toBe(403);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.voice_input_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({ from: true, to: false });
+	},
+);
+
+test.skipIf(skip)(
 	"GET /admin/users pages and filters on the server, with markers over every account",
 	async () => {
 		const carol = await adminJar();

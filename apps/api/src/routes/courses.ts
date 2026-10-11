@@ -9,13 +9,12 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { teachesCourse } from "../courses/membership.js";
+import { taughtCourseId, teachesCourse } from "../courses/membership.js";
 import {
 	courseRoster,
 	membershipSubjects,
 	selectRosterCourse,
 } from "../courses/roster.js";
-import { taughtCourseId } from "../courses/taught-course.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 
