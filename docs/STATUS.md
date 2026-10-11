@@ -5340,7 +5340,7 @@ Gaps:
 - Kept folders are listed only while the workspace runs. A folder that no recovery point or audited restore names, for example one left by a deleted project, is shown nowhere.
 - A priority lowered from Monitor cannot be raised again from Portikus.
 - Lower priority against an older agent fails until the agent restarts.
-- #1462 item f, confirming Codex delta metrics, needs a real Codex sign-in and stays open unless the rehearsal confirms it.
+- #1462 item f, confirming Codex delta metrics, needs a real Codex sign-in; the rehearsal VM had none, so it moved to #1531.
 - The administrator's throttle lift notice is covered at unit level only.
 
-Rehearsal: pending
+Rehearsal: the Epic 47 package (0.1.1164+g33472886, migration 0047 applied) ran on the rehearsal VM beside Epic 46's image. Epic 47's own smoke scripts gave 373 passed and 15 failed, every failure from Epic 46 changes already on that VM (the 1G /tmp cap and the https mock LMS); Epic 46's smoke scripts against the same install gave 397 passed, 0 failed, 0 skipped. In a real workspace, against the real API, agent and worker: a kept folder made by a real agent crash mid-restore was listed, blocked a second restore, and was deleted from the dialog, while `..`, a non-aside name and a symlinked aside were refused by both the API and the agent; "Stop with children" ended a 4-process tree, "Lower priority" only lowered nice values and stopped at 19, and root and PID 1 were refused; the voice switch hid the microphone and Settings said why; keep running until a clock time used the student's timezone, took a past time as tomorrow, and the page and API enforced the cap; a real idle lift wrote one notification with no page open; and a Playwright drag of two selected files moved both into a folder. Gap: Codex delta metrics stay unconfirmed (#1531).
