@@ -18,6 +18,9 @@ export const MAX_NOTIFICATIONS_PER_USER = 200;
 /** The most kept notices per user; older kept ones are dropped. */
 export const MAX_KEPT_NOTIFICATIONS_PER_USER = 50;
 
+/** Title of the notice the worker writes when an idle throttle lifts (SPEC.md §19.4). */
+export const THROTTLE_LIFTED_TITLE = "Your workspace is back to full speed";
+
 /** One page of `GET /me/notifications` at most. */
 export const MAX_NOTIFICATIONS_PAGE = 100;
 

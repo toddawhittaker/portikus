@@ -3,6 +3,7 @@ import { type CreateProjectRequest, slugify } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
+import { AgentCallError } from "../agent-client.js";
 import { sendError } from "../http.js";
 import { claimLongOperation, releaseLongOperation } from "./long-operation.js";
 import {
@@ -12,6 +13,11 @@ import {
 	type Scope,
 	sendAgentError,
 } from "./project-scope.js";
+
+/** Why a project cannot be made where a folder already sits (SPEC.md §7.6). */
+export function folderExistsMessage(slug: string): string {
+	return `A folder named ${slug} is already in ~/projects, so a new project cannot be made there. Rename or remove that folder, then try again.`;
+}
 
 /**
  * Create a project's directory through the agent, then its row (SPEC.md
@@ -76,7 +82,12 @@ export async function createProject(
 			gitInit: input.gitInit,
 		});
 	} catch (error) {
-		sendAgentError(reply, error);
+		// No row but the agent refused: a folder of that name is already there.
+		if (error instanceof AgentCallError && error.code === "PROJECT_EXISTS") {
+			sendError(reply, 409, "PROJECT_EXISTS", folderExistsMessage(slug));
+		} else {
+			sendAgentError(reply, error);
+		}
 		return null;
 	} finally {
 		if (slow) releaseLongOperation(scope.workspaceId);

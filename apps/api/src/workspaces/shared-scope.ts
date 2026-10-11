@@ -17,6 +17,8 @@ const SharedParam = z.object({
 export interface SharedScope {
 	agent: AgentClient;
 	slug: string;
+	/** Count this read as a view; call it only once the request is known good. */
+	recordView: () => Promise<void>;
 }
 
 /** Title of the notice a student gets on each instructor's first view. */
@@ -27,6 +29,8 @@ export const SHARE_VIEWED_TITLE = "An instructor opened your shared project";
  * the viewer teaches the course, the owner is a member of it, the share is
  * open and unexpired, and the project is active. Anything else is 404, the
  * same answer as a project that does not exist. Returns null after answering.
+ * The caller records the view after its own checks, so a refused request
+ * is never a view.
  *
  * It never opens presence and never asks for a start, so a view neither
  * keeps a workspace running nor wakes a stopped one.
@@ -85,15 +89,19 @@ export async function sharedProject(
 		return null;
 	}
 
-	await recordView(db, {
-		shareId: row.share_id,
-		projectId,
-		projectName: row.name,
-		ownerId: row.owner_user_id,
-		courseId,
-		viewer: { id: viewer.id, displayName: viewer.displayName },
-	});
-	return { agent, slug: row.slug };
+	return {
+		agent,
+		slug: row.slug,
+		recordView: () =>
+			recordView(db, {
+				shareId: row.share_id,
+				projectId,
+				projectName: row.name,
+				ownerId: row.owner_user_id,
+				courseId,
+				viewer: { id: viewer.id, displayName: viewer.displayName },
+			}),
+	};
 }
 
 /**
