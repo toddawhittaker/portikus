@@ -5264,4 +5264,18 @@ Gaps:
   until the rehearsal.
 - DNS checks still depend on a loopback resolver reachable from the sandbox.
 
-Rehearsal: pending
+Rehearsal: on the rehearsal VM with 0.1.1139+g90b1ce27 and then
+0.1.1140+g3e28ba7b, setup passed on install and on reruns. A test Google
+sign-in fetched its discovery document both through Squid and by the
+pinned first-setup route, and left no temporary rule. Setup kept one
+marked hosts line through an address trial and rollback. Applying an
+unresolvable name was refused with ADDRESS_DNS_UNRESOLVED. The HTTP-01
+reach and port-80 checks warned instead of failing. The file
+operator-proxy-hosts.json (root:portikus 0640) fed the Network page. apt
+remove left only the workspace limits running, and a reinstall brought
+everything back. Purge dropped the marked hosts line and left Squid's
+include broken, as #1492 describes. The rehearsal found that prerm's stop
+could leave an interrupted backup-channel run in the failed state; prerm
+now clears failed Portikus units (#1503). The smoke test gave 385 passed,
+0 failed with the Dex sign-in, after the reinstall, after the purge
+restore and on the final package.
