@@ -526,6 +526,7 @@ Added by Epic 28 (issue #955): **Keep running until.** The owner can hold a runn
 - While `workspaces.keep_running_until` is ahead, the worker arms neither the disconnect grace deadline nor the idle warning, and withdraws a warning already shown. When the hold ends, by time or by the student, both timers start from its end as if the student had just acted, so "Still working?" and its five-minute warning still come first. A hold does not lift resource guard limits.
 - How far ahead a hold may reach is `settings.keep_running_max_hours` (default 12, 0 to 168; 0 turns holds off), overridden per workspace by `keepRunningMaxHours` in `workspaces.guard_config` (section 19.4). A lowered cap cuts existing holds to now plus the cap at the next sweep, or ends them at 0.
 - Only the owner may set or end a hold (`PUT` and `DELETE /workspaces/:id/keep-running`); anyone else, administrators included, gets 404. The API refuses a time in the past or past now plus the cap (400), and any hold when the cap is 0 (409 `KEEP_RUNNING_OFF`). A requested end up to five minutes past the cap is taken as exactly now plus the cap, to absorb browser clock skew. The cap bounds how far ahead a hold reaches, not the total time held, so a student may renew a hold. Setting a hold counts as activity. The worker's cut and end updates recheck the row itself, so a student's concurrent end or shorter hold is not undone.
+- Besides the hours choice, the dialog has an "Or until" clock-time input read in the student's timezone setting (the browser's when unset). A time not ahead of now means tomorrow. A clock time the zone skips on a daylight saving change moves past the gap, so the hold never ends earlier than asked. The browser checks the cap with the same `keepRunningRefusal` rule the API applies. The result is stored in the same `keep_running_until`; the API still takes only an absolute time.
 - Audit: `workspace.keep_running_set` (`until`, `previousUntil`, or `reason: "cut_by_cap"` from the worker), `workspace.keep_running_ended` (`reason` `ended_early`, `expired` or `cut_by_cap`) and `settings.keep_running_updated`.
 - The status bar shows "Kept running until {time}" in the student's timezone setting, with the date added when the end is six or more days ahead. The dialog's button names its result ("Keep running until …"), and "Don't keep running" ends a hold early. While a hold lasts, the admin workspace detail's guard summary says "Kept running by its owner until …".
 
@@ -1268,7 +1269,7 @@ P0 file-tree operations:
 - download directory/project as archive;
 - extract a zip into a new folder beside it (§11.6).
 
-Rows are dragged with the browser's own drag and drop. A drop that would
+Rows are dragged with the browser's own drag and drop. A drag that starts on a selected row carries the whole selection in tree order, and the drag image reads "N items"; a drag that starts on an unselected row carries only that row. Dropping on a folder moves every carried item one at a time with the single-move rules and replace prompts, leaving out items that cannot go there. Dropping on a pane edge opens the first carried file as a split and the other files as top-level tabs, and skips folders, because a pane holds one item. There is no single keyboard action that opens a selection in a split. A drop that would
 leave the item where it is, or move a folder into itself, is refused and not
 highlighted; the Move to dialog is the keyboard alternative. A rename or move
 made in the files pane keeps the open tab of every file it moves, alone or in
@@ -1955,6 +1956,8 @@ Restoring a recovery point must:
 
 A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
 
+If a restore stops part way, the earlier files stay in a `~/projects/.portikus-aside-<pointId>` folder (§15.10). The student deletes it from the Recovery points dialog, not in a terminal.
+
 A student can compare one file with its version in a recovery point. The agent reads only that file from the archive, checks the archive's recorded SHA-256 first, caps each side as Git diffs are capped (§12.6), and gives up after 60 seconds with `RECOVERY_READ_TIMEOUT`. Only one such comparison runs per workspace at a time; a second answers 429 `RATE_LIMITED` until the first ends.
 
 ### 15.9 File-level recovery history
@@ -2006,7 +2009,19 @@ and deletes any file older than one hour that has no `recovery_points` row,
 at most 20 per workspace per sweep, stopping at the first failure. The
 `.portikus-aside-*` folders a failed restore leaves in the student's home are
 never deleted automatically, because they may hold the only copy of the
-student's files.
+student's files. The Recovery points dialog lists them under "Kept folders"
+while the workspace runs, each with its restore time, file count and size, and
+deletes one after a confirmation that says its files go for good. The agent
+lists and deletes only a real directory named `.portikus-aside-` plus a uuid,
+directly in `~/projects` (never a symlink or file), under the project's
+recovery lock, through `GET /recovery-asides` and `DELETE
+/recovery-asides/:projectId/:pointId`. The control plane's owner-only routes
+`GET` and `DELETE /workspaces/:id/projects/:pid/recovery-asides[/:rpid]` show a
+folder for a project only when one of its recovery points, or one of its
+audited `recovery.restored` rows, names the point id; a folder no point or
+restore names (for example one from a deleted project) is shown nowhere. Each
+delete is audited as `recovery.aside_deleted` with ids, file count and bytes,
+never a path.
 
 Restore checks the archive's SHA-256 against the row and refuses a
 mismatch, then lists the members and refuses any absolute or `..` path
@@ -2407,6 +2422,8 @@ while Find in files covers them). A throttle or memory notice that goes
 away on its own while it holds focus hands focus to the work area; a
 notice that never held focus moves nothing.
 
+The Stop dialog offers "Also stop its N child processes" when the sample shows children; N counts parent links and, when the root leads its session, the rest of that session. Ticking it stops the process tree through `POST /workspaces/:id/processes/:pid/stop-tree`: every member gets the single stop's start-ticks and protected checks, a protected member is counted as left alone and never touched, and a tree stop never escalates to SIGKILL by itself. Its Force stop sends back the surviving PIDs with their start ticks, because the children are reparented once the root exits. The dialog also offers "Lower its priority instead", through `.../lower-priority`: nice +10 on every thread of every process in the tree, capped at 19 and never raised again from Portikus. The browser never sends a nice value. Usage rows carry `ppid` and `session` for the count (older agents default them to 0 and show no children). Both actions share the single stop's one-action lock, rate limit and owner-only rule.
+
 Every Monitor row has the same height, with or without buttons. The actions sit in two fixed columns, the command disclosure first and Stop second, and a row without one of them leaves that cell empty (Epic 22).
 
 ### 18.4 Recognized run/build commands
@@ -2507,7 +2524,7 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 - A workspace whose CPU average is above the CPU threshold (default 80%) over the window (default 30 minutes) is throttled to the throttle share (default 25%) of its CPU limit. The throttle is Incus's `limits.cpu.allowance` written as a time slice, `<N>ms/100ms`, where N is the share times the CPU limit times 100 ms, rounded to a whole millisecond: 25% of a pilot workspace's 2 CPUs is `50ms/100ms`, half a CPU, which the cgroup shows as `cpu.max` `50000 100000`. It is never a percentage, which Incus treats as a soft weight that only applies when the host is busy.
 - The database is the source of truth. Throttling writes `workspaces.cpu_throttle` (when, the average, the threshold, the window, the share and the allowance) and the audit row `workspace.cpu_throttled` in one transaction, then asks the controller to set the allowance (`PUT /instances/:name/cpu-allowance`, which accepts only `^\d{1,6}ms/100ms$` or null). Every tick the worker compares each running workspace's allowance in Incus with its row and sets or removes it when they differ, so the throttle survives a restart of the worker or the controller and a lift reaches Incus even if the controller was down. A failed controller call is audited once as `workspace.cpu_throttle_failed` and retried next tick; the row stays throttled.
 - The throttle lifts on its own after a quiet spell (above), at the next stop, or when an administrator lifts it. An automatic lift clears `cpu_throttle`, deletes the samples taken at or before the throttle, and audits `workspace.cpu_throttle_lifted` with `{reason: "idle", averagePercent}` in one transaction; the same tick removes the allowance from Incus. The controller removes any allowance before every start, unless the worker passes a held throttle's allowance with the start (below). When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
-- The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. When lifting is on, the notice adds "It returns to full speed on its own after {minutes} minutes under {percent}% use." Its **See what's using CPU** button opens Monitor sorted by CPU. It is dismissible for the page's life. There is no warning before the throttle. When a throttle the open page was showing goes away while the workspace is running, the page shows the toast "Your workspace is back to full speed" (a stop or restart clears the throttle too, and gets no toast); the worker writes no notification.
+- The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. When lifting is on, the notice adds "It returns to full speed on its own after {minutes} minutes under {percent}% use." Its **See what's using CPU** button opens Monitor sorted by CPU. It is dismissible for the page's life. There is no warning before the throttle. When a throttle the open page was showing goes away while the workspace is running, the page shows the toast "Your workspace is back to full speed" (a stop or restart clears the throttle too, and gets no toast). When the worker lifts a throttle because the workspace went quiet, it writes one notification for the owner, "Your workspace is back to full speed", in the same transaction as the audit row, whether or not a page is open; an open page shows the toast without recording it a second time. An administrator's lift writes the same notification for the owner.
 
 **Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
@@ -4480,6 +4497,14 @@ apart. An administrator's **Refresh** of a workspace's process list writes
 `workspace.processes_read` (actor `user:<id>`, target the workspace, no
 metadata), because it reads what the student is running.
 
+As built (Epic 47): a tree stop writes `workspace.process_stopped` with
+`{pid, signal, exited, tree: true, signalled}`, and a Force stop adds `named`,
+how many PIDs the browser named, never which. Lowering priority writes
+`workspace.process_priority_lowered` with `{pid, lowered}`. Deleting a kept
+restore folder writes `recovery.aside_deleted` (section 15.10). Changing the
+voice switch writes `settings.voice_input_updated` with `{from, to}`. No row
+holds a process name, command line or path.
+
 As built (Epic 22): the listener `commandLine` field has existed since
 Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
 student's own processes (section 18.2), and it is never audited or logged.
@@ -4954,7 +4979,7 @@ Do not record coding-agent prompts, terminal command history, or project source 
 
 Institutional deployments must be able to define data-retention policy.
 
-Voice input uses the browser's own speech recognition, in terminals and in editable text files. In a file, the microphone sits in the file header and Alt+Shift+M held in the editor does the same. Each final phrase is inserted at the cursor, replacing any selection, as one undo step, and marks the file unsaved as typing does. It gets one leading space when the character before it is not whitespace and not the start of a line. A Markdown tab dictates into the editor side. There is no microphone on images, view-only files, the CSV table, the SVG picture, the diff or conflict view. Errors also show as a visible line under the file header. The audio goes to the browser vendor's service (Google for Chrome, Microsoft for Edge, Apple for Safari), not to Portikus. Portikus sends nothing to its server and logs nothing, and types only final phrases with every control character removed, so dictation never presses Enter. Errors and hints show on the pane and in a polite status region. A browser without the API, or whose service fails with a network error (Brave), shows no microphone and says so (ADR 0055).
+Voice input uses the browser's own speech recognition, in terminals and in editable text files. In a file, the microphone sits in the file header and Alt+Shift+M held in the editor does the same. Each final phrase is inserted at the cursor, replacing any selection, as one undo step, and marks the file unsaved as typing does. It gets one leading space when the character before it is not whitespace and not the start of a line. A Markdown tab dictates into the editor side. There is no microphone on images, view-only files, the CSV table, the SVG picture, the diff or conflict view. Errors also show as a visible line under the file header. The audio goes to the browser vendor's service (Google for Chrome, Microsoft for Edge, Apple for Safari), not to Portikus. Portikus sends nothing to its server and logs nothing, and types only final phrases with every control character removed, so dictation never presses Enter. Errors and hints show on the pane and in a polite status region. A browser without the API, or whose service fails with a network error (Brave), shows no microphone and says so (ADR 0055). An administrator switch on the Settings tab (`settings.voice_input_enabled`, migration 0047, on by default) hides the microphone everywhere, with no message, and the student Settings dialog says the administrator turned voice input off. It is a site default enforced in the browser, not a control: it reads as off until the settings load, and as on if they fail to load.
 
 Added by Epic 42 (ADR 0057): coding-agent usage is collected as counts
 only: sessions, input, output and cache tokens, Claude Code's estimated
@@ -6357,6 +6382,27 @@ Acceptance:
 - a Playwright project at the image's pinned version runs with no download;
 - the daily check records coding-agent versions without any outbound call from the API or worker;
 - a build any administrator or the platform requested once is never queued again by the platform.
+
+### Epic 47 — Workspace polish
+
+Built on `epic/47-workspace-polish`, issues #1383, #1281, #1243, #1258, #1257, #1350 and #1462. Migration 0047. See sections 6.4, 11.2, 15.8, 15.10, 18.3, 19.4, 24.11 and 25.10.
+
+Includes:
+
+- dragging a whole tree selection, to a folder or a pane edge;
+- Keep running until a clock time in the student's timezone;
+- deleting kept restore folders from the Recovery points dialog;
+- a notification when an idle throttle lifts;
+- Monitor's stop with children and lower priority;
+- an administrator switch for voice input.
+
+Acceptance:
+
+- a folder drop moves every selected item;
+- a clock time past the cap is refused by the browser and the API alike;
+- the agent deletes only a real `.portikus-aside-<uuid>` directory in `~/projects`;
+- no Monitor action touches a protected process, and a reused PID is never signalled;
+- with the switch off, no microphone shows.
 
 ### Estimated total
 

@@ -66,10 +66,9 @@ export function parseStatLine(text: string): StatLine | null {
 		.slice(close + 1)
 		.trim()
 		.split(/\s+/);
-	// Field 3 (state) is index 0 after the name, ppid (4) index 1, session (6)
-	// index 3; utime (14)
-	// and stime (15) are indexes 11 and 12; nice (19) is index 16; starttime
-	// (22) is index 19.
+	// Indexes after the name: state (field 3) is 0, ppid (4) is 1, session (6)
+	// is 3, utime (14) and stime (15) are 11 and 12, nice (19) is 16, and
+	// starttime (22) is 19.
 	const state = fields[0];
 	const ppid = Number(fields[1]);
 	const session = Number(fields[3]);

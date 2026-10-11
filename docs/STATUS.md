@@ -5123,7 +5123,7 @@ Gaps left:
   presses Sync. A memberships host that is not a keyset or token host must
   be added to `portikus_egress_extra_hosts` by the operator.
 - Deferred from code review: a view is recorded before the path check;
-  the taught-course lookup could move into `courses/membership.ts`; the
+  the taught-course lookup (it has since moved into `courses/membership.ts`); the
   mock LMS roster role action is unused; a starter whose folder exists
   without a project row shows a generic error, and its e2e test accepts
   either outcome because discovery races the launch. These, and a
@@ -5318,3 +5318,29 @@ the Image tab's API reported a newer version when one was forced. The
 smoke test's Reset Docker check now allows the seed's images (#1505); the
 full smoke test then passed 388 to 0 with the Dex sign-in and nothing
 skipped.
+
+## Epic 47 — Workspace polish
+
+Built on `epic/47-workspace-polish` (task PRs #1510, #1511, #1513, #1515, #1516, #1518, #1525 and #1526, and this fold). Issues #1383, #1281, #1243, #1258, #1257, #1350 and #1462. Migration 0047. No ADR.
+
+Delivered:
+
+- Tree drag (#1383, #1510): a drag that starts on a selected row carries the whole selection. A folder drop moves every item, a pane-edge drop opens the first file as a split and the rest as top-level tabs (folders skipped), and the drag image shows the count.
+- Keep running until (#1281, #1511, #1526): an "Or until" clock time in the student's timezone, a past time meaning tomorrow, a time skipped by a daylight saving change moving past the gap, and the same cap as the hours through `keepRunningRefusal`.
+- Kept restore folders (#1243, #1515, #1526): the Recovery points dialog lists `.portikus-aside-<pointId>` folders and deletes one after a confirmation, through a checked agent route that acts only on a real uuid-named directory in `~/projects`. Each delete is audited as `recovery.aside_deleted`.
+- Throttle lift notice (#1258, #1513, #1525): the worker writes one notification when an idle lift happens, whether or not a page is open, and an administrator's lift writes one too.
+- Monitor (#1257, #1518, #1525): the Stop dialog can also stop the process tree and lower its priority (nice +10 on every thread, capped at 19). Every member gets the single stop's start-ticks and protected checks. The child count follows the session when the root leads it. Both actions are audited, a Force stop with only a count of named PIDs.
+- Voice switch (#1350, #1516, #1526): the administrator Settings tab turns voice input off site-wide (migration 0047, on by default, audited). When off, no microphone shows and the Settings dialog says why. It reads as on if the settings fail to load.
+- Follow-ups (#1462 a, b, d, e; #1513): shared views are counted only after path checks, `taughtCourseId` lives in `courses/membership.ts`, a starter launch that meets a folder with no project row says why (409 `PROJECT_EXISTS`), and the picker fieldset is a radiogroup.
+- Review fixes (#1525, #1526): keep-running focus and timezone hint, the voice switch's pending state, recovery delete focus and unique button names, drag image theme tokens.
+
+Gaps:
+
+- No single keyboard action opens a selection in a split (#1524); the Move to dialog moves a selection but does not open it.
+- Kept folders are listed only while the workspace runs. A folder that no recovery point or audited restore names, for example one left by a deleted project, is shown nowhere.
+- A priority lowered from Monitor cannot be raised again from Portikus.
+- Lower priority against an older agent fails until the agent restarts.
+- #1462 item f, confirming Codex delta metrics, needs a real Codex sign-in; the rehearsal VM had none, so it moved to #1531.
+- The administrator's throttle lift notice is covered at unit level only.
+
+Rehearsal: the Epic 47 package (0.1.1164+g33472886, migration 0047 applied) ran on the rehearsal VM beside Epic 46's image. Epic 47's own smoke scripts gave 373 passed and 15 failed, every failure from Epic 46 changes already on that VM (the 1G /tmp cap and the https mock LMS); Epic 46's smoke scripts against the same install gave 397 passed, 0 failed, 0 skipped. In a real workspace, against the real API, agent and worker: a kept folder made by a real agent crash mid-restore was listed, blocked a second restore, and was deleted from the dialog, while `..`, a non-aside name and a symlinked aside were refused by both the API and the agent; "Stop with children" ended a 4-process tree, "Lower priority" only lowered nice values and stopped at 19, and root and PID 1 were refused; the voice switch hid the microphone and Settings said why; keep running until a clock time used the student's timezone, took a past time as tomorrow, and the page and API enforced the cap; a real idle lift wrote one notification with no page open; and a Playwright drag of two selected files moved both into a folder. Gap: Codex delta metrics stay unconfirmed (#1531).

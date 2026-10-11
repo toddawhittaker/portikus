@@ -202,7 +202,8 @@ export const STUDENT_HELP: HelpPart = {
 						browser maker's speech service: Google for Chrome, Microsoft for Edge, and
 						Apple for Safari. Portikus does not receive the audio and keeps no record of
 						what you said. Firefox and Brave do not offer voice input, so the button
-						does not appear there. The first time, the browser asks to use your
+						does not appear there, and neither does it when your administrator has
+						turned voice input off. The first time, the browser asks to use your
 						microphone.
 					</p>
 				</>
