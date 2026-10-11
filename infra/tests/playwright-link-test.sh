@@ -58,6 +58,13 @@ xdg="${work}/xdg"
 expect_eq "XDG_CACHE_HOME moves the folder, as it does for Playwright" "status=0" "$(login "${home}" "${xdg}")"
 check "the link is made under XDG_CACHE_HOME" test -L "${xdg}/ms-playwright/chromium_headless_shell-1243"
 
+# A home the student cannot write to: a login stays quiet and succeeds.
+ro="${work}/ro"
+mkdir "${ro}"
+chmod 0555 "${ro}"
+expect_eq "a read-only home logs in silently and succeeds" "status=0" "$(login "${ro}")"
+chmod 0755 "${ro}"
+
 # An image without the browser leaves the home folder untouched.
 rm "${work}/opt/browsers.json"
 bare="${work}/bare"

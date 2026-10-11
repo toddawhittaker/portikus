@@ -54,6 +54,13 @@ npm install --save-dev --save-exact @playwright/test@1.63.0
 npx playwright test --project=chromium
 ```
 
+`npm init playwright` writes a `playwright.config.ts` with three projects:
+chromium, firefox and webkit. The image has only Chromium, so delete the
+firefox and webkit projects from that file (a course template should ship
+without them). Do not run a plain `npx playwright install` to make them
+work: it downloads every browser, several hundred megabytes, into the home
+folder.
+
 A project on any other Playwright version fails its first run with
 Playwright's own "Executable doesn't exist" message. One command fixes it,
 installing that version's headless shell into the student's home folder
@@ -66,4 +73,7 @@ npx playwright install --only-shell chromium
 Playwright launches Chromium with `--disable-dev-shm-usage`, so its shared
 memory goes to `/tmp` (512 MB) rather than `/dev/shm` (256 MB). The workspace
 smoke test launches the browser by hand without that switch, through
-`/dev/shm`.
+`/dev/shm`, and also through `playwright-core` at the pinned version.
+
+The build checks the downloaded binary against a sha256 recorded beside the
+pin in the step that installs it, so a pin bump needs both values.

@@ -3112,7 +3112,11 @@ Playwright's cleanup keeps it. A project that pins `@playwright/test` to
 the image's version runs its tests with no download. A project on any other
 version gets Playwright's own message and installs that version's browser
 into the home volume with `npx playwright install --only-shell chromium`,
-where it survives image rebuilds (§4.4).
+where it survives image rebuilds (§4.4). `npm init playwright` also
+generates firefox and webkit projects, which the image does not support:
+students, or the course template, delete them from `playwright.config.ts`.
+A plain `npx playwright install` is the wrong fix, because it downloads
+every browser.
 
 Additional language runtimes may be added according to course requirements.
 
