@@ -18,12 +18,14 @@ export const UsageProcess = z.object({
 	/** Resident size, from VmRSS. */
 	residentBytes: z.number().int().nonnegative(),
 	command: z.string().min(1).max(15),
-	// The three defaults let an older agent, still running until
+	// The defaults let an older agent, still running until
 	// its workspace restarts, parse: its rows show no Stop and no command line.
 	/** Field 22 of `/proc/<pid>/stat`; with the pid it names one process. */
 	startTicks: z.number().int().nonnegative().default(0),
 	/** The parent's PID, so Monitor can count a process's children. 0 from an older agent. */
 	ppid: z.number().int().nonnegative().default(0),
+	/** The session id, so Monitor's child count matches the agent's tree. 0 from an older agent. */
+	session: z.number().int().nonnegative().default(0),
 	/** False for a protected process: PID 1, another user's, the agent, tmux. */
 	stoppable: z.boolean().default(false),
 	/** The student's own process's command line, NULs as spaces; else null. */

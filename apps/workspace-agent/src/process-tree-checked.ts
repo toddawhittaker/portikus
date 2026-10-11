@@ -90,8 +90,8 @@ async function namedMembers(
 /**
  * Stop a process and everything it started, or, for a Force stop, the named
  * survivors of the first stop. Each one is signalled through
- * {@link signalProcess}, which re-reads its start ticks and the protected set
- * just before the signal. Like a single stop, it waits up to the grace and
+ * {@link signalProcess}, which re-reads its start ticks just before the
+ * signal; the protected set is read once per request. Like a single stop, it waits up to the grace and
  * never escalates to SIGKILL on its own.
  */
 export async function stopCheckedTree(

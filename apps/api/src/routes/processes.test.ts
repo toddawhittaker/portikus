@@ -298,7 +298,7 @@ test.skipIf(skip)(
 		expect((await audits()).map((row) => row.metadata)).toEqual(
 			expect.arrayContaining([
 				{ pid: 7, signal: "SIGTERM", exited: false, tree: true, signalled: 3 },
-				{ pid: 7, signal: "SIGKILL", exited: true, tree: true, signalled: 1 },
+				{ pid: 7, signal: "SIGKILL", exited: true, tree: true, signalled: 1, named: 1 },
 			]),
 		);
 		const everything = JSON.stringify(await audits()) + JSON.stringify(lines);

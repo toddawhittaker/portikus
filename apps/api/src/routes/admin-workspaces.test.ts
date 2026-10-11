@@ -9,6 +9,7 @@ import {
 import {
 	type HealthSample,
 	QUOTA_SHRINK_MESSAGE,
+	THROTTLE_LIFTED_TITLE,
 	type WorkspaceState,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
@@ -857,6 +858,24 @@ describe("lift throttle and clear memory flag", () => {
 					action: "workspace.cpu_throttle_lifted",
 					actor: `user:${await carolId()}`,
 					metadata: { reason: "administrator" },
+				},
+			]);
+			// The owner learns of the lift even with no page open (SPEC.md 19.4).
+			const owner = await testDb.db
+				.selectFrom("workspaces")
+				.select("owner_user_id")
+				.where("id", "=", workspaceId)
+				.executeTakeFirstOrThrow();
+			const notes = await testDb.db
+				.selectFrom("notifications")
+				.select(["user_id", "tone", "title", "body"])
+				.execute();
+			expect(notes).toEqual([
+				{
+					user_id: owner.owner_user_id,
+					tone: "success",
+					title: THROTTLE_LIFTED_TITLE,
+					body: "An administrator lifted its processor limit.",
 				},
 			]);
 
