@@ -123,6 +123,12 @@ finish() {
   set +e
   gpgconf --homedir "$KEYHOME" --kill all >/dev/null 2>&1
   rm -rf "$KEYHOME"
+  # A failed step between making and checking the upgrade's workspace would
+  # otherwise leave it on a kept VM.
+  if [ -e "${LOGS}/agent-ws.made" ]; then
+    step "destroy the upgrade's test workspace" destroy_agent_ws || rc=1
+    set +e
+  fi
   if [ -n "${KEEP_VM:-}" ]; then
     echo "KEEP_VM is set: the rehearsal VM stays at ${IP:-<no address>}; remove it with make rehearsal-destroy."
   else
@@ -526,8 +532,9 @@ EOF
 # upgrade, without being stopped (SPEC.md 22.5).
 AGENT_WS="install-agent-ws"
 ws_root() { vm "incus exec ${AGENT_WS} --project portikus -- $*"; }
-agent_started() { # epoch seconds the workspace agent's main process started
-  ws_root "sh -c 'date -d \"\$(ps -o lstart= -p \$(systemctl show -p MainPID --value portikus-workspace-agent))\" +%s'"
+agent_started() { # epoch seconds systemd last started the workspace agent
+  # An empty value, a never-started unit, would read as today's midnight.
+  ws_root "sh -c 't=\$(systemctl show -P ExecMainStartTimestamp portikus-workspace-agent); test -n \"\$t\" && date -d \"\$t\" +%s'"
 }
 terminal_shell() { # the pane's shell pid in the Portikus tmux server
   ws_root "su -l student -c 'tmux -L portikus -N display-message -p -t install-upgrade \"#{pane_pid}\"'"
@@ -536,6 +543,8 @@ terminal_shell() { # the pane's shell pid in the Portikus tmux server
 agent_before_upgrade() {
   # A packaged host has no workspace.sh, so bring this checkout's.
   vm_stdin "cat >/tmp/install-workspace.sh" <"${ROOT}/infra/incus/workspace.sh"
+  # Set before the create, so finish removes a half-made workspace too.
+  touch "${LOGS}/agent-ws.made"
   vm "sudo bash /tmp/install-workspace.sh create ${AGENT_WS}"
   ws_root "su -l student -c 'tmux -L portikus -N new-session -d -s install-upgrade bash'"
   terminal_shell >"${LOGS}/agent-ws.shell"
@@ -558,7 +567,12 @@ agent_after_upgrade() {
   [ "$(terminal_shell)" = "$(cat "${LOGS}/agent-ws.shell")" ] \
     || { echo "the open terminal did not survive"; return 1; }
   vm "sudo journalctl -u portikus-controller --no-pager | grep 'restarted the workspace agent after an upgrade' | grep -F ${AGENT_WS}"
+  destroy_agent_ws
+}
+
+destroy_agent_ws() {
   vm "sudo bash /tmp/install-workspace.sh destroy ${AGENT_WS} && rm -f /tmp/install-workspace.sh"
+  rm -f "${LOGS}/agent-ws.made"
 }
 
 upgrade() {
@@ -621,17 +635,12 @@ s.sendall(b"status\n")
 s.shutdown(socket.SHUT_WR)
 print("answered" if s.recv(4096) else "empty")'
 
-# Prints "open" or "refused" for each loopback port, in order.
-LOOPBACK_PROBE='import socket, sys
-for port in sys.argv[1:]:
-    s = socket.socket()
-    s.settimeout(5)
-    try:
-        s.connect(("127.0.0.1", int(port)))
-        print("open")
-    except ConnectionRefusedError:
-        print("refused")
-    s.close()'
+# reach_probe USER PORT... -- infra/tests/reach-probe.py's answer, run as USER.
+reach_probe() {
+  local user="$1"
+  shift
+  vm_stdin "sudo runuser -u ${user} -- python3 - $*" <"${ROOT}/infra/tests/reach-probe.py" | paste -sd' '
+}
 
 worker_account() {
   local pid
@@ -644,12 +653,18 @@ worker_account() {
     || { echo "the worker's account reached the backup key socket"; return 1; }
   [ "$(vm "sudo runuser -u portikus -- python3 -c '${KEY_SOCKET_PROBE}'")" = answered ] \
     || { echo "the API's account got no answer from the backup key socket"; return 1; }
-  # The worker may open loopback connections only to the controller, so it
-  # cannot reach the API or Dex around Caddy's rate limit (SPEC.md 24.9).
-  [ "$(vm "sudo runuser -u portikus-worker -- python3 -c '${LOOPBACK_PROBE}' 3000 5556 3001" | paste -sd' ')" = "refused refused open" ] \
-    || { echo "the worker's account reached the API or Dex, or not the controller"; return 1; }
-  [ "$(vm "sudo runuser -u portikus -- python3 -c '${LOOPBACK_PROBE}' 3000 5556" | paste -sd' ')" = "open open" ] \
-    || { echo "the API and Dex are not listening, so the refusals above prove nothing"; return 1; }
+  # The worker may open local connections only to the controller, so it
+  # cannot reach the API or Dex around Caddy's rate limit (SPEC.md 24.9),
+  # on 127.0.0.1, ::1 or any of the VM's own addresses.
+  local worker control
+  worker=$(reach_probe portikus-worker 3000 5556 own 3001)
+  control=$(reach_probe portikus 3000 5556 own)
+  echo "answers for 3000 5556 own 3001 to the worker: ${worker}; for 3000 5556 own to the API: ${control}"
+  [ "$worker" = "none none none 127.0.0.1" ] \
+    || { echo "the worker's account reached the API, Dex or a local listener, or not the controller"; return 1; }
+  # The probe's own listener answers the API's account everywhere, so each refusal above is the firewall's.
+  [ "$control" = "127.0.0.1 127.0.0.1 all" ] \
+    || { echo "the API or Dex is not on loopback alone, or the probe's own listener went unanswered"; return 1; }
   # The worker's half of the backup channel, as the channel's timer runs it.
   vm "sudo portikus backup-channel pull"
 }
