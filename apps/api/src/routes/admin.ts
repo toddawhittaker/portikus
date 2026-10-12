@@ -59,6 +59,7 @@ const SETTINGS_COLUMNS = [
 	"idle_stop_minutes",
 	"keep_running_max_hours",
 	"voice_input_enabled",
+	"account_email_enabled",
 	"acceptable_use_text",
 	"acceptable_use_version",
 	"updated_at",
@@ -78,6 +79,7 @@ function toPlatformSettings(row: {
 	idle_stop_minutes: number;
 	keep_running_max_hours: number;
 	voice_input_enabled: boolean;
+	account_email_enabled: boolean;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
 	updated_at: Date | null;
@@ -96,6 +98,7 @@ function toPlatformSettings(row: {
 		idleStopMinutes: row.idle_stop_minutes,
 		keepRunningMaxHours: row.keep_running_max_hours,
 		voiceInputEnabled: row.voice_input_enabled,
+		accountEmailEnabled: row.account_email_enabled,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
 		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -217,6 +220,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				"settings.keep_running_updated",
 			],
 			["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
+			[
+				"accountEmailEnabled",
+				"account_email_enabled",
+				"settings.account_email_updated",
+			],
 		] as const;
 		for (const [field, column, action] of singleFields) {
 			const value = body.data[field];

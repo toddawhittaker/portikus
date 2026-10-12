@@ -823,3 +823,24 @@ test("the worker reads the egress proxy for its alerts, and unset means none", (
 		loadConfig(WorkerConfigSchema, { ...base, OUTBOUND_PROXY_URL: "not a url" }),
 	).toThrow(/OUTBOUND_PROXY_URL/);
 });
+
+// --- mail capture (SPEC.md section 5.3) ---
+
+test("the mail capture file works in development and is refused in production", () => {
+	expect(
+		loadConfig(ApiConfigSchema, { ...DB, MAIL_CAPTURE_FILE: "/tmp/mail.jsonl" })
+			.MAIL_CAPTURE_FILE,
+	).toBe("/tmp/mail.jsonl");
+	expect(
+		issuesFor({
+			...PROD,
+			PREVIEW_SUFFIX: "preview.school.edu",
+			MAIL_CAPTURE_FILE: "/tmp/mail.jsonl",
+		}).some((issue) =>
+			issue.includes("MAIL_CAPTURE_FILE must not be set in production"),
+		),
+	).toBe(true);
+	expect(issuesFor({ ...DB, MAIL_CAPTURE_FILE: "mail.jsonl" })[0]).toContain(
+		"MAIL_CAPTURE_FILE",
+	);
+});

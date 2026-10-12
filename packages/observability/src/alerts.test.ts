@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import {
 	createServer,
 	type IncomingHttpHeaders,
@@ -15,11 +15,13 @@ import {
 	type AlertChannels,
 	alertChannelsFromNotifyFile,
 	anyAlertChannel,
+	captureMail,
 	type MailTransportFactory,
 	readAlertChannels,
 	readNotifyFile,
 	sendAlert,
 	sendEmail,
+	sendMail,
 	sendNtfy,
 	sendPushover,
 	sendTeams,
@@ -310,6 +312,42 @@ describe("email", () => {
 		expect(result).toEqual({ channel: "email", ok: false, error });
 		expect(JSON.stringify(result)).not.toContain(SMTP_PASSWORD);
 		expect(seen.closed).toBe(1);
+	});
+
+	test("sendMail sends one message from the SMTP block's sender and answers null", async () => {
+		const { factory, seen } = fakeTransport();
+		const error = await sendMail(
+			smtp,
+			"http://127.0.0.1:3128",
+			{ to: "a@example.edu", subject: "Hello", text: "Body" },
+			factory,
+		);
+		expect(error).toBeNull();
+		expect(seen.options[0]).toMatchObject({
+			requireTLS: true,
+			proxy: "http://127.0.0.1:3128",
+		});
+		expect(seen.mail[0]).toEqual({
+			from: smtp.from,
+			to: "a@example.edu",
+			subject: "Hello",
+			text: "Body",
+		});
+		expect(seen.closed).toBe(1);
+	});
+
+	test("captureMail appends each message as one JSON line", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "capture-"));
+		try {
+			const path = join(dir, "mail.jsonl");
+			await captureMail(path, { to: "a@example.edu", subject: "One", text: "First" });
+			await captureMail(path, { to: "b@example.edu", subject: "Two", text: "Second" });
+			const lines = (await readFile(path, "utf8")).trim().split("\n");
+			expect(lines.map((line) => JSON.parse(line).subject)).toEqual(["One", "Two"]);
+			expect(JSON.parse(lines[1] ?? "{}").text).toBe("Second");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("without settings it reports not configured", async () => {

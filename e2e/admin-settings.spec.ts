@@ -28,6 +28,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
+	await query("update settings set account_email_enabled = false where id = 1");
 	await release?.();
 });
 
@@ -56,17 +57,18 @@ for (const width of [1920, 1024]) {
 			await open(page);
 			const column = page.getByTestId("settings-sections");
 			const sections = column.locator(":scope > section");
-			await expect(sections).toHaveCount(5);
+			await expect(sections).toHaveCount(6);
 			await expect(column.getByRole("heading", { level: 3 })).toHaveText([
 				"When workspaces stop",
 				"Resource guard",
 				"Acceptable use",
 				"Voice input",
+				"Account email",
 				"Notifications",
 			]);
 			// Stacked, each below the last, in a column no wider than 72ch.
 			const tops = [];
-			for (let index = 0; index < 5; index++) {
+			for (let index = 0; index < 6; index++) {
 				tops.push((await box(sections.nth(index))).y);
 			}
 			expect(tops).toEqual([...tops].sort((a, b) => a - b));
@@ -326,6 +328,31 @@ test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and cl
 	await expect(tip).toBeVisible();
 	await page.getByRole("heading", { name: "When workspaces stop" }).click();
 	await expect(tip).toHaveCount(0);
+});
+
+test("account email is off by default, says it needs SMTP, and each change is audited", async ({
+	page,
+}) => {
+	await query("update settings set account_email_enabled = false where id = 1");
+	await open(page);
+	const card = page.getByRole("region", { name: "Account email" });
+	await expect(card).toContainText("needs an SMTP server set under Notifications");
+	const box = card.getByRole("checkbox", { name: /Send account email/ });
+	await expect(box).not.toBeChecked();
+
+	await box.click();
+	await expect(toast(page, "Account email on")).toBeVisible();
+	await expect(box).toBeChecked();
+	const audit = await query<{ metadata: unknown }>(
+		"select metadata from audit_events where action = 'settings.account_email_updated' order by id desc limit 1",
+	);
+	expect(audit[0]?.metadata).toMatchObject({ from: false, to: true });
+
+	await page.reload();
+	await expect(box).toBeChecked({ timeout: 15_000 });
+	await box.click();
+	await expect(toast(page, "Account email off")).toBeVisible();
+	await expect(box).not.toBeChecked();
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

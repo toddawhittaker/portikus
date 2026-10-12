@@ -12,28 +12,16 @@ import {
 	type CreateDexUserResponse,
 	type DexPasswordResponse,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Kysely } from "kysely";
 import { createDexAccount, DexCallFailed, viaDex } from "../admin/dex-accounts.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import { notifyCredentialReset } from "../admin/reset-notice.js";
 import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
+import { endSessions } from "../sessions/end-sessions.js";
 import { requestMetadata } from "../sessions/start-session.js";
-
-/** End every platform and preview session of an account. */
-async function endSessions(trx: Kysely<Database>, id: string): Promise<void> {
-	await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
-	await trx
-		.updateTable("preview_sessions")
-		.set({ revoked_at: new Date().toISOString() })
-		.where("user_id", "=", id)
-		.where("revoked_at", "is", null)
-		.execute();
-}
 
 /**
  * Add, reset the password of, and remove standalone Dex users
