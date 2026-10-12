@@ -4,9 +4,11 @@
  * onto the right edge of that tab's last terminal would.
  */
 import type { ProjectLayout } from "@portikus/contracts";
+import { baseName, displayName } from "../files/paths.js";
 import type { LayoutState } from "../layout/store.js";
 import {
 	type DropEdge,
+	filePaths,
 	fileTabId,
 	moveLeaf,
 	openFile,
@@ -146,4 +148,18 @@ export function openedFilesText(
 	if (rest.length === 0) return `${split}.`;
 	if (rest.length === 1) return `${split} and ${rest[0]} as a tab.`;
 	return `${split} and ${rest.length} more files as tabs.`;
+}
+
+/** A pane under the name its tab shows: a file's name or a terminal's. */
+export function paneName(
+	layout: ProjectLayout,
+	terminals: readonly { id: string; name: string }[],
+	paneId: string,
+): string {
+	const path = layout.tabs
+		.flatMap((tab) => filePaths(tab.root))
+		.find((file) => fileTabId(file) === paneId);
+	if (path !== undefined) return displayName(baseName(path));
+	const terminal = terminals.find((item) => item.id === paneId);
+	return terminal ? displayName(terminal.name) : "the focused terminal";
 }
