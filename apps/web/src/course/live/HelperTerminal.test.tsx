@@ -1,6 +1,13 @@
 import { CloseCode, EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../../api/queryClient.js";
@@ -8,6 +15,7 @@ import { editorSettingsKey } from "../../editor/settingsQueries.js";
 import {
 	HelperTerminal,
 	type HelperTerminalProps,
+	leaveKey,
 	openClickedLink,
 	swallowUnsafeSequences,
 } from "./HelperTerminal.js";
@@ -77,6 +85,7 @@ function renderTerminal(overrides: Partial<HelperTerminalProps> = {}) {
 		path: PATH,
 		name: "Terminal 1",
 		typing: false,
+		attach: 0,
 		onClosed: vi.fn(),
 		onDropped: vi.fn(),
 		onRetry: vi.fn(),
@@ -90,7 +99,16 @@ function renderTerminal(overrides: Partial<HelperTerminalProps> = {}) {
 	);
 	const socket = sockets.at(-1);
 	if (!socket) throw new Error("no socket opened");
-	return { view, props, socket, host: view.getByTestId("helper-terminal") };
+	/** Render again with some props changed, as the page does. */
+	function update(changes: Partial<HelperTerminalProps>) {
+		Object.assign(props, changes);
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<HelperTerminal {...props} />
+			</QueryClientProvider>,
+		);
+	}
+	return { view, props, socket, update, host: view.getByTestId("helper-terminal") };
 }
 
 function paste(view: ReturnType<typeof render>, text: string) {
@@ -256,4 +274,125 @@ test("Alt+Shift+Q hands the keyboard back to the page", () => {
 		);
 	});
 	expect(props.onLeave).toHaveBeenCalled();
+});
+
+function textareaOf(view: ReturnType<typeof render>): HTMLTextAreaElement {
+	const textarea = view.container.querySelector("textarea");
+	if (!textarea) throw new Error("no xterm textarea");
+	return textarea;
+}
+
+function press(target: HTMLElement, init: KeyboardEventInit): KeyboardEvent {
+	const event = new KeyboardEvent("keydown", {
+		bubbles: true,
+		cancelable: true,
+		...init,
+	});
+	act(() => {
+		target.dispatchEvent(event);
+	});
+	return event;
+}
+
+test("a mode change opens one new socket under the same terminal and keeps the keyboard there", () => {
+	const { view, update, socket } = renderTerminal({ typing: false });
+	const textarea = textareaOf(view);
+	textarea.focus();
+	const count = sockets.length;
+
+	update({ typing: true });
+
+	expect(sockets).toHaveLength(count + 1);
+	expect(socket.closed).toBe(true);
+	expect(textareaOf(view)).toBe(textarea);
+	expect(document.activeElement).toBe(textarea);
+	expect(view.getByTestId("helper-terminal").dataset.mode).toBe("type");
+
+	// The new socket takes what is typed; the old one never does.
+	const next = sockets.at(-1);
+	if (!next) throw new Error("no new socket");
+	paste(view, "ls");
+	expect(inputsSent(next).join("")).toContain("ls");
+	expect(inputsSent(socket)).toEqual([]);
+
+	// Back to view mode: one more socket, and input stops again.
+	update({ typing: false });
+	expect(sockets).toHaveLength(count + 2);
+	const last = sockets.at(-1);
+	if (!last) throw new Error("no socket");
+	paste(view, "pwd");
+	expect(inputsSent(last)).toEqual([]);
+	expect(document.activeElement).toBe(textarea);
+});
+
+test("a render with nothing changed opens no new socket", () => {
+	const { update } = renderTerminal();
+	const count = sockets.length;
+	update({ name: "Terminal 1" });
+	expect(sockets).toHaveLength(count);
+});
+
+test("in view mode Tab is left to the browser, so focus moves on", () => {
+	const { view, socket } = renderTerminal({ typing: false });
+	const event = press(textareaOf(view), { key: "Tab", code: "Tab" });
+	expect(event.defaultPrevented).toBe(false);
+	expect(inputsSent(socket)).toEqual([]);
+});
+
+test("leaveKey: Alt+Shift+Q always leaves, Tab only in view mode", () => {
+	const key = (init: Partial<KeyboardEvent>) =>
+		({
+			type: "keydown",
+			key: "",
+			altKey: false,
+			shiftKey: false,
+			ctrlKey: false,
+			metaKey: false,
+			...init,
+		}) as KeyboardEvent;
+	expect(leaveKey(key({ key: "Q", altKey: true, shiftKey: true }), true)).toBe(
+		"shortcut",
+	);
+	expect(leaveKey(key({ key: "q", altKey: true, shiftKey: true }), false)).toBe(
+		"shortcut",
+	);
+	expect(leaveKey(key({ key: "Tab" }), false)).toBe("tab");
+	expect(leaveKey(key({ key: "Tab", shiftKey: true }), false)).toBe("tab");
+	expect(leaveKey(key({ key: "Tab" }), true)).toBeNull();
+	expect(leaveKey(key({ key: "Tab", ctrlKey: true }), false)).toBeNull();
+	expect(
+		leaveKey(key({ key: "Q", altKey: true, shiftKey: true, type: "keyup" }), true),
+	).toBeNull();
+	expect(leaveKey(key({ key: "a" }), false)).toBeNull();
+});
+
+test("Reconnect puts the keyboard back in the terminal and the next attach reuses it", () => {
+	const { view, socket, props, update } = renderTerminal();
+	act(() => socket.onclose?.({ code: CloseCode.TOO_MANY_SOCKETS }));
+	const button = screen.getByRole("button", { name: "Reconnect" });
+	button.focus();
+	fireEvent.click(button);
+	expect(props.onRetry).toHaveBeenCalledTimes(1);
+	const textarea = textareaOf(view);
+	expect(document.activeElement).toBe(textarea);
+
+	const count = sockets.length;
+	update({ attach: 1 });
+	expect(sockets).toHaveLength(count + 1);
+	expect(textareaOf(view)).toBe(textarea);
+	expect(document.activeElement).toBe(textarea);
+	expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+});
+
+test("the scroll box is a named region the keyboard can reach, and says how to leave", () => {
+	const { view } = renderTerminal({ name: "build" });
+	const region = screen.getByRole("region", { name: "Terminal build, scrollable" });
+	expect(region.tabIndex).toBe(0);
+	expect(view.container.textContent).toContain("Alt+Shift+Q leaves the terminal.");
+	const described = textareaOf(view).getAttribute("aria-describedby")?.split(" ") ?? [];
+	const words = described
+		.map((id) => document.getElementById(id)?.textContent)
+		.join(" ");
+	expect(words).toContain("Alt+Shift+Q leaves the terminal.");
+	expect(words).toContain("Tab also leaves it.");
 });

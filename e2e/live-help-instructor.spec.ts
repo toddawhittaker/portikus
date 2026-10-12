@@ -3,8 +3,9 @@
  * session, the instructor finds it from the Course page and sees the
  * student's terminal; view mode refuses input, typing reaches the shell once
  * the student allows it, a stopped workspace reads as the student being
- * away, and ending the session closes the instructor's view at once. The
- * student's side is driven through its API here; its own spec covers the bar.
+ * away, ending the session closes the instructor's view at once, and a
+ * preview of what the workspace serves opens in a new tab. The student's
+ * side is driven through its API here; its own spec covers the bar.
  *
  * The fake workspace agent echoes every frame it is sent back as output,
  * prefixed with "echo:", to every attachment of the terminal.
@@ -26,11 +27,25 @@ import {
 	newTerminal,
 	query,
 	setWorkspaceState,
+	startPreviewApp,
 	terminalIds,
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
+import { previewGateway } from "./preview-gateway";
+
+/** The suffix of every preview host the end-to-end API names. */
+const PREVIEW_SUFFIX = ".preview.localhost";
+
+/** Axe in the light theme, then the dark, leaving the page light again. */
+async function expectNoViolationsInBothThemes(page: Page): Promise<void> {
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page);
+	await page.emulateMedia({ colorScheme: "dark" });
+	await expectNoViolations(page);
+	await page.emulateMedia({ colorScheme: "light" });
+}
 
 /** A course with one instructor and the student, seeded for this test alone. */
 async function courseWith(studentId: string, instructorId: string): Promise<string> {
@@ -149,11 +164,13 @@ async function openSession(setup: Setup): Promise<Locator> {
 	const link = page.getByTestId("course-live-help");
 	await expect(link).toBeVisible();
 	await expect(page.getByText("1 open session")).toBeVisible();
+	await expectNoViolationsInBothThemes(page);
 	await link.click();
 	const table = page.getByTestId("live-sessions");
 	await expect(table.getByRole("rowheader", { name: "Ada Student" })).toBeVisible();
 	await expect(table).toContainText("Live Work");
 	await expect(table).toContainText("Viewing only");
+	await expectNoViolationsInBothThemes(page);
 	await table
 		.getByRole("link", { name: "Open live help with Ada Student on Live Work" })
 		.click();
@@ -197,11 +214,24 @@ test("the instructor watches, cannot type until allowed, then types, and End clo
 		);
 		await expect(studentRows).not.toContainText("from-helper-view");
 
-		await expectNoViolations(instructor);
-		await instructor.emulateMedia({ colorScheme: "dark" });
-		await expectNoViolations(instructor);
+		// The scroll box is a named stop of its own, and in view mode Tab
+		// leaves the terminal rather than being swallowed by it.
+		await expect(
+			instructor.getByRole("region", { name: "Terminal Terminal 1, scrollable" }),
+		).toBeVisible();
+		await expect(
+			instructor.getByText("Alt+Shift+Q leaves the terminal."),
+		).toBeVisible();
+		const helperInput = terminal.locator("textarea");
+		await helperInput.focus();
+		await instructor.keyboard.press("Tab");
+		await expect(helperInput).not.toBeFocused();
 
-		// The student lets them type; the view reconnects in type mode.
+		await expectNoViolationsInBothThemes(instructor);
+
+		// The student lets them type; the view reconnects in type mode, with
+		// the keyboard still in the terminal.
+		await helperInput.focus();
 		const typing = await post(
 			page,
 			`/workspaces/${setup.workspaceId}/live-help/typing`,
@@ -216,12 +246,13 @@ test("the instructor watches, cannot type until allowed, then types, and End clo
 		await expect(terminal).toHaveAttribute("data-connected", "true", {
 			timeout: 15_000,
 		});
+		await expect(helperInput).toBeFocused();
 
 		await typeUntilShown(instructor, helperScreen, studentRows, "from-helper-type");
 		expect((await received()).some((text) => text.includes("from-helper-type"))).toBe(
 			true,
 		);
-		await expectNoViolations(instructor);
+		await expectNoViolationsInBothThemes(instructor);
 
 		// The student ends the session: the instructor's view closes within a second.
 		const stopped = await post(page, `/workspaces/${setup.workspaceId}/live-help/stop`);
@@ -277,13 +308,60 @@ test("Leave session ends it for both and goes back to the list", async ({
 		await openSession(setup);
 		await instructor.getByRole("button", { name: "Leave session" }).click();
 		await expect(instructor.getByTestId("live-empty")).toBeVisible();
-		await expect(instructor.getByRole("heading", { level: 1 })).toHaveText("Live help");
+		const heading = instructor.getByRole("heading", { level: 1 });
+		await expect(heading).toHaveText("Live help");
+		// The button is gone, so the keyboard lands on the list's heading.
+		await expect(heading).toBeFocused();
 		await expectNoViolations(instructor);
 		const [row] = await query<{ ended_at: string | null }>(
 			"select ended_at from live_help_sessions where project_id = $1",
 			[setup.projectId],
 		);
 		expect(row?.ended_at).not.toBeNull();
+	} finally {
+		await setup.instructorContext.close();
+	}
+});
+
+test("the instructor opens a preview of the student's server in a new tab", async ({
+	page,
+	context,
+	browser,
+}) => {
+	const setup = await setUp(page, context, browser);
+	try {
+		const instructor = setup.instructor;
+		// The fake agent serves a small page on a port in the student's
+		// workspace, standing in for a server started in their terminal.
+		const port = await startPreviewApp(setup.workspaceId, "Ada's app");
+		await previewGateway(setup.instructorContext);
+		await openSession(setup);
+
+		const previews = instructor.getByTestId("live-previews");
+		await expect(previews).toContainText(`Port ${port}`, { timeout: 20_000 });
+		await expectNoViolationsInBothThemes(instructor);
+
+		const [tab] = await Promise.all([
+			setup.instructorContext.waitForEvent("page"),
+			previews.getByRole("button", { name: `Open in new tab, port ${port}` }).click(),
+		]);
+		await expect
+			.poll(
+				() => {
+					try {
+						return new URL(tab.url()).hostname.endsWith(PREVIEW_SUFFIX);
+					} catch {
+						return false;
+					}
+				},
+				{ timeout: 20_000 },
+			)
+			.toBe(true);
+		expect(new URL(tab.url()).hostname).toContain(`-${port}${PREVIEW_SUFFIX}`);
+		await expect(tab.locator("h1")).toHaveText("Ada's app", { timeout: 20_000 });
+		// The tab cannot reach back into the instructor's Portikus page.
+		expect(await tab.evaluate(() => window.opener)).toBeNull();
+		await tab.close();
 	} finally {
 		await setup.instructorContext.close();
 	}
