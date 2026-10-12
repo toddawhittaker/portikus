@@ -59,15 +59,15 @@ export function AdminPage() {
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {
-		return <div className="pk-root" aria-busy="true" />;
+		return <div className="pk-root min-w-0!" aria-busy="true" />;
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	if (me.user.role !== "administrator") return <Navigate to="/not-authorized" />;
 
 	return (
-		// The admin area works down to 768 px, where the tabs wrap; the workspace keeps 1024 (SPEC.md section 20.1).
-		<div className="pk-root min-w-[768px]!">
+		// No width floor: the tabs wrap and the content reflows (SPEC.md section 20.1).
+		<div className="pk-root min-w-0!">
 			<AppHeader user={me.user} workspace={null} project={undefined} />
 			{/* The frame stays still under the header: the tab strip on top, and only
 			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}

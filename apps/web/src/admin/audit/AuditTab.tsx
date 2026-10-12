@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { SortAnnouncement, useAnnouncedSort } from "../../table/announce.js";
+import { revealFocused } from "../../table/revealFocus.js";
 import { SortHeader } from "../../table/SortHeader.js";
 import type { SortState } from "../../table/sort.js";
 import { shortId, shortTime } from "../../text.js";
@@ -227,7 +228,8 @@ function AuditResults({
 				</p>
 			) : null}
 			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
-			<div className="pk-table-wrap overflow-clip">
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: only scrolls a focused child into view */}
+			<div className="pk-table-wrap overflow-clip" onFocus={revealFocused}>
 				<table
 					className="pk-table"
 					data-testid="audit-table"

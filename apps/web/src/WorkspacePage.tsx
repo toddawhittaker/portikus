@@ -43,7 +43,7 @@ export function WorkspacePage() {
 	const me = useMe();
 
 	if (me.status === "loading") {
-		return <div className="pk-root" aria-busy="true" />;
+		return <div className="pk-root min-w-0!" aria-busy="true" />;
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
@@ -59,7 +59,7 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 	const settings = useEditorSettings();
 	// Only the first answer is waited for; a later refetch never hides the shell.
 	if (!settings.isFetched) {
-		return <div className="pk-root" aria-busy="true" />;
+		return <div className="pk-root min-w-0!" aria-busy="true" />;
 	}
 	return <WorkspaceShell {...props} />;
 }
@@ -90,7 +90,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const phase = startingPhase(workspace);
 	const loading =
 		phase === "connecting" || phase === "starting" || phase === "restoring";
-	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
+	const layout = useDefaultLayout({
+		id: "pk-shell",
+		panelIds: PANEL_IDS,
+		// The squeeze of a narrow window must not become the wide layout's widths.
+		onlySaveAfterUserInteractions: true,
+	});
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
 	const layoutStore = useLayoutStore(projectId ?? "none");
@@ -110,7 +115,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	useTerminalThemeAttribute();
 
 	const shell = (
-		<div className="pk-root">
+		// No width floor: below 56rem the panes stack (app.css, .pk-shell).
+		<div className="pk-root min-w-0!">
 			<ScreenReaderToggle />
 			<AppHeader
 				workspaceId={workspaceId}

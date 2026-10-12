@@ -212,6 +212,45 @@ body {
 	min-height: 0;
 	display: flex;
 }
+/*
+ * Too narrow for both side panes at their default widths (240 and 280 px)
+ * beside the work area's 360 px minimum (SPEC.md section 8.1): they stack,
+ * projects over the work area over the files, in one column that fits the
+ * window. The panel library sets its sizes inline, hence !important; its
+ * width handles have nothing to resize here, so they go.
+ */
+@media (width < 56rem) {
+	.pk-shell {
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		flex-direction: column !important;
+	}
+	.pk-shell > .pk-handle {
+		display: none;
+	}
+	/* The panel ids from WorkspacePage; the work area takes what the lists leave. */
+	.pk-shell > #projects {
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		flex: 0 1 22% !important;
+	}
+	.pk-shell > #work {
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		flex: 1 1 0 !important;
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		min-height: 16rem !important;
+	}
+	.pk-shell > #files {
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		flex: 0 1 30% !important;
+	}
+	.pk-pane--left {
+		border-inline-end: 0;
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-pane--right {
+		border-inline-start: 0;
+		border-block-start: 1px solid var(--line);
+	}
+}
 .pk-pane {
 	box-sizing: border-box;
 	display: flex;
