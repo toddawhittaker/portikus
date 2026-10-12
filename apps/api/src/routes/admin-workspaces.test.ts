@@ -393,6 +393,57 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a layout save is announced to the owner's sockets and never an administrator's",
+	async () => {
+		await start();
+		const project = await testDb.db
+			.insertInto("projects")
+			.values({
+				workspace_id: workspaceId,
+				slug: "synced",
+				name: "synced",
+				path: "/home/student/projects/synced",
+				source: "new",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const admin = await openWorkspaceSocket(app, workspaceId, carol, PUBLIC_URL);
+		const owner = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		const isLayout = (m: { type: string }) => m.type === "layout";
+		// A new owner socket hears the current version at once.
+		for (let i = 0; i < 100 && !owner.messages.some(isLayout); i++) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		expect(owner.messages.filter(isLayout)).toEqual([
+			{ type: "layout", projectId: project.id, version: 0 },
+		]);
+
+		const saved = await app.inject({
+			method: "PUT",
+			url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
+			headers: { ...csrfHeaders(alice, PUBLIC_URL), "if-match": '"0"' },
+			payload: {
+				tabs: [
+					{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } },
+				],
+			},
+		});
+		expect(saved.statusCode).toBe(204);
+		for (let i = 0; i < 100 && owner.messages.filter(isLayout).length < 2; i++) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		expect(owner.messages.filter(isLayout).at(-1)).toEqual({
+			type: "layout",
+			projectId: project.id,
+			version: 1,
+		});
+		expect(admin.messages.some(isLayout)).toBe(false);
+		await admin.close();
+		await owner.close();
+	},
+);
+
 test.skipIf(skip)("a running workspace whose agent is down says so", async () => {
 	await start({ AGENT_PORT: 1 });
 	await markRunning();

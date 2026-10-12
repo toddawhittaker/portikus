@@ -74,6 +74,7 @@ import {
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
 import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
+import { createWorkspaceHub } from "./workspaces/workspace-hub.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -241,7 +242,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		return reply.status(404).send(body);
 	});
 
-	const routeDeps = { ...deps, registry };
+	// Layout saves announce on the workspace sockets of the same server.
+	const workspaceHub = createWorkspaceHub();
+	const routeDeps = { ...deps, registry, workspaceHub };
 
 	// Every route lives inside this plugin, so an onRoute hook added after
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
@@ -277,7 +280,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
-		registerProjectRoutes(instance, deps, limitFileWrites);
+		registerProjectRoutes(instance, routeDeps, limitFileWrites);
 		registerRecoveryRoutes(instance, deps);
 		registerFileRoutes(instance, deps, limitFileWrites);
 		registerGitSearchRoutes(instance, deps);

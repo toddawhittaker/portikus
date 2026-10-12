@@ -576,3 +576,35 @@ export function closeTab(layout: ProjectLayout, tabId: string): ProjectLayout {
 	if (!layout.tabs.some((tab) => tab.id === tabId)) return layout;
 	return { tabs: layout.tabs.filter((tab) => tab.id !== tabId) };
 }
+
+/**
+ * `next` with the split sizes of `current` wherever a split holds the same
+ * panes in the same direction, so a layout from another browser keeps this
+ * browser's pane widths (SPEC.md §7.5).
+ */
+export function keepSizes(current: ProjectLayout, next: ProjectLayout): ProjectLayout {
+	function walk(here: SplitNode, there: SplitNode): SplitNode {
+		if (here.type !== "split" || there.type !== "split") return there;
+		if (here.direction !== there.direction) return there;
+		if (here.children.length !== there.children.length) return there;
+		const same = here.children.every(
+			(child, i) =>
+				JSON.stringify(paneIds(child)) ===
+				JSON.stringify(paneIds(there.children[i] as SplitNode)),
+		);
+		if (!same) return there;
+		return {
+			...there,
+			sizes: here.sizes,
+			children: there.children.map((child, i) =>
+				walk(here.children[i] as SplitNode, child),
+			),
+		};
+	}
+	return {
+		tabs: next.tabs.map((tab) => {
+			const mine = current.tabs.find((candidate) => candidate.id === tab.id);
+			return mine ? { ...tab, root: walk(mine.root, tab.root) } : tab;
+		}),
+	};
+}
