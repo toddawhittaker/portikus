@@ -318,6 +318,13 @@ Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028) and changed
 - Nobody becomes an administrator by signing in first; there is no setup code and no `/setup` page.
 - Only Dex reaches an outside provider, through a forward proxy that allows named hosts: the discovery hosts of its one connector (for `entra`, without the userinfo host, so no `graph.microsoft.com`). The API reaches only Dex, under the site's own name, and LMS keysets.
 
+Added by Epic 50 (ADR 0064): roles from Google groups and Entra group IDs.
+
+- **Google groups.** When the site sets a service-account key and an administrator email to impersonate, Dex's `google` connector reads group membership through the Google Admin SDK (the Workspace directory API). The three role groups are Google group emails, stored in lowercase, and nested groups count. The key lives at `<dex_config_dir>/google-service-account.json` (owner `root:portikus-dex`, mode 0640). The admin Sign-in page uploads it once, write-only, or an operator copies it into place; debconf asks only for the administrator email. The site job checks that the file is a `service_account` key for `https://oauth2.googleapis.com/token` before writing it, and the site job's unit may write `/etc/portikus-dex`. In this mode the API asks Dex for the `groups` scope, and `admin.googleapis.com:443` is allowed through the proxy; in no other mode is it.
+- **Entra group IDs.** The setting `entraRoleSource` takes `appRoles` (the default, as before) or `groups`. In `groups` mode the three role values are group object IDs, Dex reads the token's `groups` claim, and `allowedGroups` holds the three IDs. The site configures Entra to send "groups assigned to the application" and assigns the three groups to the Portikus app, so a token carries at most three groups and Entra's group overage case cannot happen. Portikus makes no Microsoft Graph call.
+- Group membership never admits anyone by itself: an invitation is still required (section 24.13, ADR 0049). Groups add defense in depth and set roles. Only groups that administrators alone can change may map to a role, and nested groups that feed a role group must be invite-only too. Membership is checked again only at sign-in.
+- Google and Entra group modes have render and unit tests only; neither has been tried against a real tenant.
+
 Added by Epic 14.3 (ADR 0032): every account accepts the acceptable-use statement before it uses Portikus.
 
 - Everyone accepts: students, instructors and administrators, whether they signed in through Dex or launched from a course. An account accepts at its first sign-in and again whenever the statement's text changes.
@@ -442,6 +449,15 @@ local password.
 On the forced change page the first field is labelled "Current or one-time
 password", with a hint that a one-time password from an administrator goes
 there; in Settings it stays "Current password" (Epic 25).
+
+Added by Epic 50 (ADR 0064): emailed password reset and invitations.
+
+- Account email is an administrator switch on the Settings tab, `settings.account_email_enabled`, off by default and audited as `settings.account_email_updated`. With it off, nothing below sends mail; setting SMTP (the mail server protocol) for alerts alone never emails students. Mail goes through the alert sender (ADR 0052): the SMTP settings in `notify.json`, through the egress proxy, with TLS required.
+- An emailed link is `${PUBLIC_URL}/reset-password#<token>`, always built from `PUBLIC_URL`, never from the request's host. The token is 32 random bytes in base64url and sits in the URL fragment, so Caddy, the API logs and the Referer never see it; the page clears it from the address bar. Only its SHA-256 hash is stored, in `account_email_tokens`. A reset link lasts 30 minutes and an invitation link 7 days, and each works once. The completion route accepts either kind.
+- Dex's sign-in page always shows "Forgot your password?", which opens `/forgot-password`. The reset request (CSRF-checked, no session) answers 202 with the same neutral text for every login, then looks up the account and sends in a detached task, so the answer and its timing never reveal whether an account exists. Logins are ASCII and matched exactly in lowercase. Mail goes only to the address Dex holds for that user. The install administrator never gets a reset link; `portikus reset-admin` stays its recovery.
+- Limits: 5 reset requests an hour per client address (429); 3 an hour per account and 100 an hour for the site, both silent, where the site cap counts only real eligible accounts; 5 sends an hour per account that an administrator triggers; 20 wrong or expired tokens per 10 minutes per address at completion.
+- Completing a link sets the password (the rules above), clears "must change password", ends every session, preview session and known-device cookie, and emails a confirmation. It starts no session and never counts as a passed second factor.
+- A new link revokes only older links for the same account and purpose. Every credential or access change revokes all of an account's links: the holder's own password change, an administrator's password reset or second-factor reset, disable, enable, and an email change. A link whose mail failed to send stays in the table until it expires; the API deletes ended rows hourly.
 
 ### 5.4 Multiple browser connections
 
@@ -2558,6 +2574,8 @@ P0 administration must support:
 - revoke platform access;
 - view the platform's own error, warning, info and debug log lines (Epic 19, section 24.11).
 
+Added by Epic 50 (ADR 0064): in the Users detail panel, with account email on (section 5.3), an administrator can add a Dex user with an emailed set-password link instead of a shown one-time password, email an SSO invitation and resend it, email invitations from a CSV import, and send a reset link. The email boxes are unticked by default. An administrator can also edit a Dex user's email or username (`PATCH /admin/dex-users/:id`). Dex cannot change a password's email, so an email change deletes the Dex password and creates it again under the same Dex user ID with a random hash; the account keeps its id, its Dex subject and its workspace. It ends the user's sessions and revokes their links before Dex is called, then sets "must change password" or, with account email on, sends a set-password link to the new address and a notice to the old one. If the create step fails after the delete, the account fails closed and a retry creates the missing password. A username change happens in place and keeps the password. The install administrator, your own account and a disabled account cannot be edited this way.
+
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
 stops their workspace; an administrator cannot disable their own account.
@@ -4174,6 +4192,8 @@ client secrets, the LDAP bind password and the Cloudflare token) only in
 `portikus.yaml`, the debconf database after postinst, a log line, the
 play's output or `ps` output.
 
+Added by Epic 50 (ADR 0064): emailed link tokens are stored only as SHA-256 hashes and are never logged or audited; audit rows hold the token row id. The Google service-account key is write-only: it travels once in the site job's 0600 request, lives only in `/etc/portikus-dex/google-service-account.json` (root:portikus-dex, 0640), and never appears in a view, status file or log; the admin view shows only that a key is set. Its only scope is `admin.directory.group.readonly`, and the guides advise impersonating a custom administrator role that can only read groups. The development-only `MAIL_CAPTURE_FILE` setting is refused when `NODE_ENV=production`.
+
 Added by Epic 27 (ADR 0046): certificate secrets (DNS credentials, the
 EAB HMAC key, a Google service-account key, an uploaded private key) are
 write-only in the API and page. They travel once in the 0600 request
@@ -4582,6 +4602,16 @@ workspace's network address, or a name a workspace looked up.
   actor `user:<id>` or `subject:<sub>` and the platform issuer as
   target.
 
+- Account email (Epic 50, ADR 0064): `settings.account_email_updated`
+  (`{from, to}`); `user.password_reset_requested` (actor `unknown`,
+  target the account, the token row id, or `denied` with reason
+  `install_administrator`); `user.password_reset_by_email` on completion,
+  which also ends known-device cookies; `dex_user.reset_link_sent` and
+  `dex_user.invite_sent` (the token row id); `admin.invitation_emailed`
+  for an SSO invitation; and `dex_user.updated` with the changed
+  `fields` (`email`, `username`). No row holds an address, a token or a
+  password.
+
 A test checks that every event this section lists writes an audit row
 (#1138).
 
@@ -4685,6 +4715,19 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   workspace event sockets; one more is closed with code 4429 and a clear
   message. The counts live in one API process, as the event-socket cap
   does (ADR 0010) (#1140).
+- **Emailed links (Epic 50, ADR 0064).** Reset and invitation links
+  follow section 5.3: hashed 256-bit tokens in the URL fragment, one
+  answer and a detached send for every reset request, silent account and
+  site caps, and no session or second factor from completing a link.
+  Sessions end and links are revoked before Dex is called.
+- **A passkey at link confirm (Epic 50).** Confirming a course-account
+  link to an SSO account accepts the SSO account's passkey instead of a
+  code (`LinkConfirm` takes exactly one of `code` or `credential`). The
+  challenge is bound to the course session, the purpose "link" and the
+  SSO user, and works once. When no factor is owed the confirm may carry
+  neither; when one is owed and none is sent the answer is 403. A page
+  framed by the LMS gets the browser's passkey refusal and shows its
+  error text.
 
 ## 25. Non-functional requirements
 
@@ -5110,6 +5153,7 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0041_lti_roster_and_deep_linking` (ADR 0058): `lti_contexts` gains `platform_client_id`, `nrps_url`, `roster_synced_at` (the last attempt) and `roster_sync_result`; new tables `lti_roster_members` (course, subject, display name, role; no email), `lti_deep_link_requests` (single use, ten minutes) and `lti_starter_launches` (bound to a user, thirty minutes, exactly one of template and repository).
 - `0042_project_shares` (ADR 0057): `project_shares` (at most one open share per project) and `project_share_views` (first and last view per instructor).
 - `0043_agent_usage_days` (ADR 0057): `agent_usage_days`, counts per user, boot id, day, agent and model, with no content column.
+- `0049_account_email` (section 5.3, ADR 0064): `account_email_tokens` (`id`, `user_id` cascading on delete, `purpose` `reset` or `invite`, unique `token_hash`, `created_by`, `created_at`, `expires_at`, `used_at`, `revoked_at`), granted to the API's role only; `settings.account_email_enabled` (default false).
 
 ## 27. API principles
 
@@ -6424,6 +6468,26 @@ Acceptance:
 - the agent deletes only a real `.portikus-aside-<uuid>` directory in `~/projects`;
 - no Monitor action touches a protected process, and a reused PID is never signalled;
 - with the switch off, no microphone shows.
+
+### Epic 50 — Sign-in and identity
+
+Built on `epic/50-identity`, issues #1249, #1248, #1247 and #1293. Migration 0049, ADR 0064. See sections 5.1, 5.3, 20.1, 24.8, 24.11, 24.13 and 26.
+
+Includes:
+
+- emailed password reset from Dex's sign-in page, behind an administrator switch;
+- emailed set-password links and invitations from the Users view, and editing a Dex user's email or username;
+- roles from Google groups through Dex's Admin SDK lookup;
+- roles from Entra group IDs, with no Microsoft Graph call;
+- a passkey when confirming a course account link.
+
+Acceptance:
+
+- a reset request answers the same for every login, and a link works once, within its lifetime;
+- completing a link ends every session and never skips the second factor;
+- an email change keeps the account, its Dex subject and its workspace;
+- group membership never admits anyone without an invitation;
+- the Google key never appears in a view, a log or an audit row.
 
 ### Estimated total
 

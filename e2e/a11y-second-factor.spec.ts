@@ -3,6 +3,7 @@ import { type BrowserContext, expect, test } from "@playwright/test";
 import {
 	createLocalPasswordAdmin,
 	expectNoViolations,
+	expectReflowAt320,
 	query,
 	TestAuthenticator,
 } from "./helpers";
@@ -45,6 +46,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"Enter the 6-digit code from your app.",
 		);
 		await expectNoViolations(page, "[data-testid=page-second-factor]");
+		await expectReflowAt320(page);
+		await page.setViewportSize({ width: 1280, height: 720 });
 
 		// The key reads in groups of four, and the copy is confirmed.
 		const key = (await page.getByTestId("totp-secret").textContent()) ?? "";

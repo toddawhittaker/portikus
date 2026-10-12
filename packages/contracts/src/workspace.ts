@@ -279,6 +279,9 @@ export const ApiErrorCode = z.enum([
 	"NOT_IMPLEMENTED",
 	// Dex user management (ADR 0028).
 	"DEX_USER_EXISTS",
+	// Account email is switched off, or an administrator's email did not go out (SPEC.md section 5.3).
+	"ACCOUNT_EMAIL_OFF",
+	"EMAIL_NOT_SENT",
 	"DEX_UNAVAILABLE",
 	// One active invitation per email (SPEC.md section 24.13).
 	"INVITATION_EXISTS",
@@ -294,6 +297,8 @@ export const ApiErrorCode = z.enum([
 	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
+	// An emailed reset or invitation link that is no longer good (SPEC.md section 5.3).
+	"RESET_LINK_INVALID",
 	// The second factor of Dex local passwords (SPEC.md section 24.13).
 	"SECOND_FACTOR_REQUIRED",
 	"WRONG_CODE",
@@ -346,6 +351,7 @@ export const ApiErrorCode = z.enum([
 	"SITE_UNAVAILABLE",
 	"SITE_NO_OPEN_TRIAL",
 	"SIGNIN_SECRET_REQUIRED",
+	"SIGNIN_KEY_REQUIRED",
 	"SIGNIN_TEST_REQUIRED",
 	"INTERNAL",
 	// Clear cache while setup has turned the pull cache off (SPEC.md section 16.6).

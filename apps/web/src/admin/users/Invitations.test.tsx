@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import { NO_FILTERS } from "./filters.js";
 import { filterInvitations } from "./Invitations.js";
-import { isUsersList, usersBody } from "./testRows.js";
+import { isUsersList, settingsBody, usersBody } from "./testRows.js";
 
 test("the search and role filters apply to invitations; workspace filters hide them", () => {
 	const sam: Invitation = {
@@ -43,12 +43,13 @@ const NINA: Invitation = {
 	createdAt: "2026-10-04T00:00:00.000Z",
 };
 
-function stub(start: Invitation[] = []) {
+function stub(start: Invitation[] = [], accountEmail = false) {
 	const writes: { url: string; body: unknown }[] = [];
 	let invitations = start;
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (isUsersList(url)) return usersBody(url, [], false);
+		if (url === "/admin/settings") return settingsBody(accountEmail);
 		if (url === "/admin/invitations" && init?.method !== "POST") {
 			return json(200, { invitations });
 		}
@@ -56,8 +57,10 @@ function stub(start: Invitation[] = []) {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
 			if (url === "/admin/invitations") {
 				invitations = [NINA];
-				return json(201, NINA);
+				const emailed = JSON.parse(String(init.body)).sendEmail === true;
+				return json(201, { ...NINA, emailed });
 			}
+			if (url.endsWith("/send")) return new Response(null, { status: 204 });
 			if (url.endsWith("/revoke")) {
 				invitations = [];
 				return json(200, NINA);
@@ -161,4 +164,47 @@ test("a first sign-in without an invitation lands on a page that says what to do
 		}),
 	).toBeDefined();
 	expect(screen.getByText("Ask your administrator to invite you.")).toBeDefined();
+});
+
+test("with account email on, Invite emails the invitation when ticked", async () => {
+	const writes = stub([], true);
+	renderApp("/admin");
+	fireEvent.click(await screen.findByRole("button", { name: "Invite…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Invite someone" });
+	fireEvent.click(
+		await within(dialog).findByRole("checkbox", { name: "Email the invitation" }),
+	);
+	fireEvent.change(within(dialog).getByLabelText("Name"), {
+		target: { value: "Nina Newcomer" },
+	});
+	fireEvent.change(within(dialog).getByLabelText("Email"), {
+		target: { value: "nina@example.edu" },
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Invite" }));
+	await screen.findByText("Nina Newcomer invited by email");
+	expect(writes[0]?.body).toMatchObject({ sendEmail: true });
+});
+
+test("Resend emails a waiting invitation again, only while account email is on", async () => {
+	const writes = stub([NINA], true);
+	renderApp("/admin");
+	fireEvent.click(
+		await screen.findByRole("button", {
+			name: "Resend the invitation email to Nina Newcomer",
+		}),
+	);
+	await screen.findByText("Invitation for Nina Newcomer sent again");
+	expect(writes.map((w) => w.url)).toEqual([`/admin/invitations/${NINA.id}/send`]);
+});
+
+test("with account email off there is no Resend and no email choice", async () => {
+	stub([NINA]);
+	renderApp("/admin");
+	await screen.findByRole("button", {
+		name: "Revoke the invitation for Nina Newcomer",
+	});
+	expect(screen.queryByRole("button", { name: /^Resend/ })).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Invite…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Invite someone" });
+	expect(within(dialog).queryByRole("checkbox")).toBeNull();
 });

@@ -422,15 +422,25 @@ describe.skipIf(skip)("the account list", () => {
 		expect(byId.get(user.id)?.dexLocal).toBe(true);
 		expect(byId.get(await carolId())?.dexLocal).toBe(false);
 
-		// A password gone from Dex is no longer offered for reset or removal.
+		// An enabled account with its password gone from Dex stays editable, so an
+		// interrupted email change can be finished; a disabled one does not.
 		stub.passwords.clear();
-		const after = (
-			await app.inject({
-				url: "/admin/users",
-				headers: { cookie: carol.cookieHeader() },
-			})
-		).json() as AdminUserList;
-		expect(after.users.find((u) => u.id === user.id)?.dexLocal).toBe(false);
+		const list = async () =>
+			(
+				(
+					await app.inject({
+						url: "/admin/users",
+						headers: { cookie: carol.cookieHeader() },
+					})
+				).json() as AdminUserList
+			).users.find((u) => u.id === user.id)?.dexLocal;
+		expect(await list()).toBe(true);
+		await testDb.db
+			.updateTable("users")
+			.set({ disabled_at: new Date().toISOString() })
+			.where("id", "=", user.id)
+			.execute();
+		expect(await list()).toBe(false);
 	});
 
 	test("still loads while Dex is down", async () => {

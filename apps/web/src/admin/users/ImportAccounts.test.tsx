@@ -6,7 +6,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import { passwordsCsv, SAMPLE_IMPORT_CSV } from "./importCsv.js";
-import { isUsersList, usersBody } from "./testRows.js";
+import { isUsersList, settingsBody, usersBody } from "./testRows.js";
 
 /** Import from CSV in the Users view (SPEC.md section 5.1, "Add user"). */
 
@@ -67,7 +67,7 @@ const RESULT: AccountImportResultRow[] = [
 ];
 
 /** The fake API; `previewGate` holds the preview reply until it resolves. */
-function stub(previewGate?: Promise<void>) {
+function stub(previewGate?: Promise<void>, accountEmail = false) {
 	const writes: { url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {
 		if (previewGate && url === "/admin/accounts/import/preview") {
@@ -79,10 +79,20 @@ function stub(previewGate?: Promise<void>) {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (isUsersList(url)) return usersBody(url, [], true);
 		if (url === "/admin/invitations") return json(200, { invitations: [] });
+		if (url === "/admin/settings") return settingsBody(accountEmail);
 		if (init?.method === "POST") {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
 			if (url === "/admin/accounts/import/preview") return json(200, { rows: PREVIEW });
-			if (url === "/admin/accounts/import") return json(200, { rows: RESULT });
+			if (url === "/admin/accounts/import") {
+				const emailed = JSON.parse(String(init.body)).sendEmail === true;
+				return json(200, {
+					rows: emailed
+						? RESULT.map(({ password: _, ...row }) =>
+								row.outcome === "created" ? { ...row, emailed: true } : row,
+							)
+						: RESULT,
+				});
+			}
 		}
 		return json(404, { code: "NOT_FOUND", message: "Not found." });
 	});
@@ -208,4 +218,29 @@ test("the passwords file quotes cells and defuses spreadsheet formulas", () => {
 
 test("the sample file has the import columns as its header", () => {
 	expect(SAMPLE_IMPORT_CSV.split("\r\n")[0]).toBe("name,email,username,role,kind");
+});
+
+test("with account email on, confirm asks for email and shows who was emailed", async () => {
+	const writes = stub(undefined, true);
+	renderApp("/admin");
+	fireEvent.click(await screen.findByRole("button", { name: "Import from CSV…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Import from CSV" });
+	fireEvent.click(
+		await within(dialog).findByRole("checkbox", { name: "Email each person" }),
+	);
+	const file = new File([CSV], "people.csv", { type: "text/csv" });
+	fireEvent.change(within(dialog).getByLabelText("CSV file"), {
+		target: { files: [file] },
+	});
+	fireEvent.click(await within(dialog).findByRole("button", { name: "Add 1 account" }));
+	const done = await screen.findByRole("dialog", { name: "Import finished" });
+	// In the announced status, so a screen reader hears it with the counts.
+	expect(within(done).getByTestId("import-status").textContent).toMatch(
+		/\. 1 person was emailed\.$/,
+	);
+	expect(within(done).queryByRole("button", { name: "Download passwords" })).toBeNull();
+	expect(writes.at(-1)).toEqual({
+		url: "/admin/accounts/import",
+		body: { csv: CSV, sendEmail: true },
+	});
 });

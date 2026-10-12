@@ -29,8 +29,8 @@ certificate_seeded() {
 # The questions in the order they are asked; step() skips the ones that do
 # not apply to the answers so far.
 STEPS="welcome public_host admin_email tls acme_email cloudflare_api_token
-tls_cert tls_key provider entra_tenant_id google_domains oidc_issuer client_id
-client_secret oidc_groups_claim ldap_host ldap_schema ldap_ip_allow
+tls_cert tls_key provider entra_tenant_id entra_role_source google_domains
+google_admin_email oidc_issuer client_id client_secret oidc_groups_claim ldap_host ldap_schema ldap_ip_allow
 ldap_bind_dn ldap_bind_password ldap_user_base_dn ldap_user_filter
 ldap_group_base_dn ldap_root_ca student_group instructor_group admin_group
 storage storage_confirm storage_size registry_cache_gib summary"
@@ -50,7 +50,9 @@ names = {
     "portikus_tls": "tls", "portikus_acme_email": "acme_email",
     "portikus_tls_cert": "tls_cert", "portikus_tls_key": "tls_key",
     "portikus_dex_upstream": "provider", "portikus_entra_tenant_id": "entra_tenant_id",
+    "portikus_entra_role_source": "entra_role_source",
     "portikus_google_domains": "google_domains", "portikus_dex_upstream_issuer": "oidc_issuer",
+    "portikus_google_admin_email": "google_admin_email",
     "portikus_dex_upstream_client_id": "client_id",
     "portikus_oidc_upstream_groups_claim": "oidc_groups_claim",
     "portikus_ldap_host": "ldap_host", "portikus_ldap_schema": "ldap_schema",
@@ -196,6 +198,12 @@ prepare_group() {
 	if [ "$RET" = ldap ]; then
 		db_subst "portikus/$1" hint "Give the group's short name (its cn), such as $example, not its full distinguished name (DN)."
 		db_subst "portikus/$1" rule "The filter on the \"Who may sign in\" screen decides who may sign in at all. These three groups only decide the role: someone the filter lets in who is in none of them signs in as a student."
+	elif [ "$RET" = entra ]; then
+		db_subst "portikus/$1" hint "Give the group's Object ID from its Entra overview page, such as 12345678-90ab-cdef-1234-567890abcdef. Use a group only administrators can change."
+		db_subst "portikus/$1" rule "Only members of one of the three groups may sign in, and each still needs a Portikus invitation."
+	elif [ "$RET" = google ]; then
+		db_subst "portikus/$1" hint "Give the group's email address, such as $example@example.edu. Use a group people cannot join by themselves."
+		db_subst "portikus/$1" rule "Only members of one of the three groups may sign in, and each still needs a Portikus invitation."
 	else
 		db_subst "portikus/$1" hint "Give the name as your provider sends it in the groups claim, such as $example."
 		db_subst "portikus/$1" rule "Only members of one of the three groups asked for here may sign in."
@@ -218,11 +226,11 @@ relevant() {
 		db_get portikus/tls
 		[ "$RET" = files ]
 		;;
-	entra_tenant_id)
+	entra_tenant_id | entra_role_source)
 		db_get portikus/provider
 		[ "$RET" = entra ]
 		;;
-	google_domains)
+	google_domains | google_admin_email)
 		db_get portikus/provider
 		[ "$RET" = google ]
 		;;
@@ -241,6 +249,16 @@ relevant() {
 	student_group | instructor_group | admin_group)
 		db_get portikus/provider
 		[ "$RET" = oidc ] && return 0
+		if [ "$RET" = entra ]; then
+			db_get portikus/entra_role_source
+			[ "$RET" = groups ]
+			return
+		fi
+		if [ "$RET" = google ]; then
+			db_get portikus/google_admin_email
+			[ -n "$RET" ]
+			return
+		fi
 		[ "$RET" = ldap ] || return 1
 		db_get portikus/ldap_group_base_dn
 		[ -n "$RET" ]
@@ -369,10 +387,14 @@ summary() {
 	entra)
 		db_get portikus/entra_tenant_id
 		line "Sign-in: local accounts and Microsoft Entra ID (tenant $RET)"
+		db_get portikus/entra_role_source
+		[ "$RET" != groups ] || line "Roles: from three Entra groups"
 		;;
 	google)
 		db_get portikus/google_domains
 		line "Sign-in: local accounts and Google Workspace ($RET)"
+		db_get portikus/google_admin_email
+		[ -z "$RET" ] || line "Roles: from three Google groups, read as $RET"
 		;;
 	ldap)
 		db_get portikus/ldap_host
@@ -439,6 +461,30 @@ is_email() {
 	echo "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9-]+$'
 }
 
+# A role group in the form the provider names groups: an Entra object ID or a
+# Google group email, which Dex matches in lowercase.
+check_group() {
+	lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+	[ "$lower" = "$1" ] || db_set "portikus/$2" "$lower"
+	set -- "$lower"
+	db_get portikus/provider
+	case "$RET" in
+	entra)
+		echo "$1" | grep -Eq '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$' || {
+			PROBLEM="A group's object ID looks like 12345678-90ab-cdef-1234-567890abcdef."
+			return 1
+		}
+		;;
+	google)
+		is_email "$1" || {
+			PROBLEM="\"$1\" is not a group email address, such as portikus-students@example.edu."
+			return 1
+		}
+		;;
+	esac
+	return 0
+}
+
 # Checks an answer the person just gave; sets PROBLEM and fails.
 check() {
 	db_get "portikus/$1"
@@ -453,6 +499,13 @@ check() {
 		[ "$lower" = "$value" ] || db_set portikus/public_host "$lower"
 		is_hostname "$lower" || {
 			PROBLEM="\"$value\" is not a full host name. Use letters, digits, hyphens and dots, such as portikus.example.edu."
+			return 1
+		}
+		;;
+	google_admin_email)
+		[ -z "$value" ] && return 0
+		is_email "$value" || {
+			PROBLEM="\"$value\" is not an email address, such as admin@example.edu."
 			return 1
 		}
 		;;
@@ -546,6 +599,7 @@ check() {
 			PROBLEM="This cannot be blank."
 			return 1
 		}
+		case "$1" in *_group) check_group "$value" "$1" || return 1 ;; esac
 		;;
 	storage_size)
 		# A file made on an earlier run already uses its space.

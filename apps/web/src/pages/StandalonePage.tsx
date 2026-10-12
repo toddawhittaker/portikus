@@ -15,7 +15,9 @@ export function StandalonePage({
 }) {
 	usePageTitle(title);
 	return (
-		<div className="pk-root">
+		// Someone may open a sign-in or reset link on a phone, so these pages drop
+		// the shell's 1024 px floor and reflow at 320 px (WCAG 1.4.10).
+		<div className="pk-root min-w-0!">
 			<main className="pk-standalone" data-testid={testId}>
 				<section className="pk-standalone-panel" aria-labelledby="page-title">
 					<NameMark size={28} />

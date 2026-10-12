@@ -2,8 +2,8 @@ import type { AdminUser } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { PASSWORD_ONCE_TEXT } from "./DexUserDialogs.js";
-import { isUsersList, usersBody } from "./users/testRows.js";
+import { LINK_SENT_TEXT, PASSWORD_ONCE_TEXT } from "./DexUserDialogs.js";
+import { isUsersList, settingsBody, usersBody } from "./users/testRows.js";
 
 /** The Dex user dialogs in the Users view (ADR 0028). */
 
@@ -62,18 +62,31 @@ const SHOWN_ONCE = "Abcdefghjk23456789mn";
 
 interface Options {
 	dexUsers?: boolean;
+	/** Account email switched on (SPEC.md section 5.3). */
+	accountEmail?: boolean;
 	/** An error body for every write. */
 	refusal?: { status: number; code: string; message: string };
+	/** Changes to dana's row as the list returns it. */
+	dana?: Partial<AdminUser>;
 }
 
-function stub({ dexUsers = true, refusal }: Options = {}) {
+function stub({ dexUsers = true, accountEmail = false, refusal, dana }: Options = {}) {
 	const writes: { url: string; body: unknown }[] = [];
-	let users = [DANA, CAROL, SSO];
+	let users = [{ ...DANA, ...dana }, CAROL, SSO];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (isUsersList(url)) return usersBody(url, users, dexUsers);
-		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		if (url === "/admin/settings") return settingsBody(accountEmail);
+		if (init?.method === "PATCH") {
+			const body = JSON.parse(String(init.body));
+			writes.push({ url, body });
+			const edited = { ...DANA, email: body.email ?? DANA.email };
+			users = users.map((user) => (user.id === DANA.id ? edited : user));
+			return json(200, {
+				user: edited,
+				password: body.email && !accountEmail ? SHOWN_ONCE : null,
+				emailed: Boolean(body.email && accountEmail),
+			});
 		}
 		if (init?.method === "POST") {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
@@ -85,8 +98,14 @@ function stub({ dexUsers = true, refusal }: Options = {}) {
 					dexLocal: true,
 				});
 				users = [...users, created];
-				return json(200, { user: created, password: SHOWN_ONCE });
+				const emailed = JSON.parse(String(init.body)).sendLink === true;
+				return json(200, {
+					user: created,
+					password: emailed ? null : SHOWN_ONCE,
+					emailed,
+				});
 			}
+			if (url.endsWith("/send-reset-link")) return new Response(null, { status: 204 });
 			if (url.endsWith("/reset-password")) return json(200, { password: SHOWN_ONCE });
 			if (url.endsWith("/reset-second-factor")) return json(200, DANA);
 			if (url.endsWith("/remove")) {
@@ -426,4 +445,112 @@ test("an administrator's own two-factor reset is off and points to Settings", as
 	fireEvent.click(button);
 	expect(screen.queryByRole("alertdialog")).toBeNull();
 	expect(writes).toEqual([]);
+});
+
+test("with account email on, Add user emails a link and shows no password", async () => {
+	const writes = stub({ accountEmail: true });
+	renderApp("/admin");
+	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	const box = await within(dialog).findByRole("checkbox", {
+		name: "Email them a link to choose their password",
+	});
+	// Off until ticked, so nobody is emailed by surprise.
+	expect((box as HTMLInputElement).checked).toBe(false);
+	fireEvent.click(box);
+	fireEvent.change(within(dialog).getByLabelText("Name"), {
+		target: { value: "Erin Example" },
+	});
+	fireEvent.change(within(dialog).getByLabelText("Email"), {
+		target: { value: "erin@example.edu" },
+	});
+	fireEvent.change(within(dialog).getByLabelText("Username"), {
+		target: { value: "erin" },
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Add user" }));
+	const done = await screen.findByRole("dialog", {
+		name: "Erin Example added",
+		description: LINK_SENT_TEXT,
+	});
+	expect(within(done).queryByTestId("dex-password")).toBeNull();
+	expect(writes[0]?.body).toMatchObject({ sendLink: true });
+});
+
+test("with account email off, Add user offers no link and Send reset link is absent", async () => {
+	const writes = stub();
+	const panel = await openRow("dana");
+	expect(
+		within(panel).queryByRole("button", { name: /^Send reset link to/ }),
+	).toBeNull();
+	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
+	const dialog = await screen.findByRole("dialog", { name: "Add user" });
+	expect(within(dialog).queryByRole("checkbox")).toBeNull();
+	expect(writes).toEqual([]);
+});
+
+test("Send reset link asks first, then posts and confirms", async () => {
+	const writes = stub({ accountEmail: true });
+	const panel = await openRow("dana");
+	fireEvent.click(
+		await within(panel).findByRole("button", { name: "Send reset link to dana" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Email dana a reset link?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Send reset link" }));
+	await screen.findByText("Reset link sent to dana");
+	expect(writes.map((w) => w.url)).toEqual([
+		`/admin/dex-users/${DANA.id}/send-reset-link`,
+	]);
+});
+
+test("Edit sends only the changed email and shows the new password once", async () => {
+	const writes = stub();
+	const panel = await openRow("dana");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Edit email or username for dana" }),
+	);
+	const dialog = await screen.findByRole("dialog", { name: "Edit dana" });
+	const email = within(dialog).getByLabelText("Email") as HTMLInputElement;
+	expect(email.value).toBe(DANA.email);
+	fireEvent.change(email, { target: { value: "dana.new@example.edu" } });
+	fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+	const done = await screen.findByRole("dialog", { name: "New password for dana" });
+	expect(within(done).getByTestId("dex-password").textContent).toBe(SHOWN_ONCE);
+	expect(writes).toEqual([
+		{ url: `/admin/dex-users/${DANA.id}`, body: { email: "dana.new@example.edu" } },
+	]);
+});
+
+test("Edit with nothing changed says so and sends nothing", async () => {
+	const writes = stub();
+	const panel = await openRow("dana");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Edit email or username for dana" }),
+	);
+	const dialog = await screen.findByRole("dialog", { name: "Edit dana" });
+	fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+	await within(dialog).findByText("Change the email or the username first.");
+	expect(writes).toEqual([]);
+});
+
+test("Edit is not offered on a disabled account", async () => {
+	stub({ dana: { disabledAt: "2026-09-24T00:00:00.000Z" } });
+	const panel = await openRow("dana");
+	await within(panel).findByRole("button", { name: /^Reset password for/ });
+	expect(
+		within(panel).queryByRole("button", { name: /^Edit email or username/ }),
+	).toBeNull();
+});
+
+test("Edit and Send reset link are not offered on your own account", async () => {
+	stub({ accountEmail: true });
+	const panel = await openRow("Carol Admin");
+	await within(panel).findByRole("button", { name: /^Reset password for/ });
+	expect(
+		within(panel).queryByRole("button", { name: /^Edit email or username/ }),
+	).toBeNull();
+	expect(
+		within(panel).queryByRole("button", { name: /^Send reset link to/ }),
+	).toBeNull();
 });

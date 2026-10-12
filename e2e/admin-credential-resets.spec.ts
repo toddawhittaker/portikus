@@ -33,7 +33,7 @@ test("an administrator resets a student's two-factor sign-in; the student sets u
 	await page.getByRole("button", { name: "Add user…" }).click();
 	const form = page.getByRole("dialog", { name: "Add user" });
 	await form.getByLabel("Name", { exact: true }).fill(name);
-	await form.getByLabel("Email").fill(email);
+	await form.getByLabel("Email", { exact: true }).fill(email);
 	await form.getByLabel("Username").fill(`reset-${suffix}`);
 	await form.getByRole("button", { name: "Add user" }).click();
 	await page

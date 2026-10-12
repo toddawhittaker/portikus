@@ -275,7 +275,20 @@ export const ApiConfigSchema = BaseConfig.extend({
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
 	/** File and project writes per user per minute (ADR 0034). */
 	FILE_WRITE_LIMIT_PER_MINUTE: positiveInt.default(600),
+	/** Development only: account email is appended here as JSON instead of sent, for the e2e run. */
+	MAIL_CAPTURE_FILE: z
+		.string()
+		.regex(/^\/./, "MAIL_CAPTURE_FILE must be an absolute path")
+		.optional(),
 })
+	.refine(
+		(config) =>
+			config.NODE_ENV !== "production" || config.MAIL_CAPTURE_FILE === undefined,
+		{
+			message: "MAIL_CAPTURE_FILE must not be set in production",
+			path: ["MAIL_CAPTURE_FILE"],
+		},
+	)
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
 		path: ["PUBLIC_URL"],

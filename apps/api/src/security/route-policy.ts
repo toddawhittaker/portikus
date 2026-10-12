@@ -45,6 +45,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Every /auth/ route is exempt; signing out with no session is a harmless
 	// redirect, and the CSRF check still applies.
 	"POST /auth/logout": { access: "public" },
+	// Forgotten password by email; a single-use emailed token authorizes the completion (SPEC.md 5.3).
+	"POST /auth/password-reset": { access: "public" },
+	"POST /auth/password-reset/complete": { access: "public" },
 	// Loopback only; Caddy asks it before each Dex sign-in page.
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
@@ -95,6 +98,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/links/start": { access: "self" },
 	"GET /me/links/pending": { access: "self" },
 	"HEAD /me/links/pending": { access: "self" },
+	"POST /me/links/passkey/start": { access: "self" },
 	"POST /me/links/confirm": { access: "self" },
 	"POST /me/links/:courseUserId/unlink": { access: "self" },
 	// Settings, Password (SPEC.md section 5.3); 404 without Dex's gRPC API.
@@ -261,6 +265,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/dex-users/:id/reset-password": { access: "admin" },
 	"POST /admin/dex-users/:id/reset-second-factor": { access: "admin" },
 	"POST /admin/dex-users/:id/remove": { access: "admin" },
+	"POST /admin/dex-users/:id/send-reset-link": { access: "admin" },
+	"PATCH /admin/dex-users/:id": { access: "admin" },
 	"GET /admin/signin": { access: "admin" },
 	"HEAD /admin/signin": { access: "admin" },
 	"POST /admin/signin": { access: "admin" },
@@ -271,6 +277,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/invitations": { access: "admin" },
 	"POST /admin/invitations": { access: "admin" },
 	"POST /admin/invitations/:id/revoke": { access: "admin" },
+	"POST /admin/invitations/:id/send": { access: "admin" },
 	"POST /admin/accounts/import/preview": { access: "admin" },
 	"POST /admin/accounts/import": { access: "admin" },
 	"GET /admin/workspaces/:id": { access: "admin" },

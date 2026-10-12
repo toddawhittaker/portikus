@@ -42,6 +42,9 @@ function fakeDex(failOnCreate?: number, failDelete = false) {
 		async updatePassword() {
 			return "not_found";
 		},
+		async updateUsername() {
+			return "not_found";
+		},
 		async deletePassword(email) {
 			if (failDelete) throw new Error("unavailable");
 			return passwords.delete(email) ? "deleted" : "not_found";

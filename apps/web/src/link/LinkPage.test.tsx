@@ -7,12 +7,98 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch } from "../test-utils.js";
 import { LINK_ERROR_MESSAGES } from "./LinkPage.js";
 
+vi.mock("@simplewebauthn/browser", () => ({
+	browserSupportsWebAuthn: () => true,
+	startAuthentication: vi.fn(async () => ({
+		id: "key",
+		rawId: "key",
+		type: "public-key",
+	})),
+}));
+
 afterEach(() => vi.unstubAllGlobals());
+
+test("an account with a passkey links with it, and the answer goes to confirm", async () => {
+	const bodies: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify", passkey: true });
+		if (url === "/me/links/passkey/start") return json(200, { challenge: "c" });
+		if (url === "/me/links/confirm") {
+			bodies.push(JSON.parse(String(init?.body)));
+			return json(200, {});
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	vi.stubGlobal("close", vi.fn());
+	renderApp("/link");
+
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
+	await screen.findByTestId("link-done");
+	expect(bodies).toEqual([
+		{ credential: { id: "key", rawId: "key", type: "public-key" } },
+	]);
+});
+
+test("a refused passkey prompt, as in a page framed by the course, is announced in the user's terms", async () => {
+	const { startAuthentication } = await import("@simplewebauthn/browser");
+	vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
+	stubFetch((url) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify", passkey: true });
+		if (url === "/me/links/passkey/start") return json(200, { challenge: "c" });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/link");
+
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"The passkey was not used. Try again, or choose another way.",
+	);
+	expect(screen.queryByTestId("link-done")).toBeNull();
+});
+
+test("linking with a passkey is announced in the status line until it settles", async () => {
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	stubFetch(async (url) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify", passkey: true });
+		if (url === "/me/links/passkey/start") {
+			await held;
+			return json(400, { code: "VALIDATION_FAILED", message: "No passkey." });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/link");
+	const status = await screen.findByTestId("link-status");
+	expect(status.textContent).toBe("");
+
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
+	await waitFor(() => expect(status.textContent).toBe("Linking your accounts…"));
+	release();
+	await screen.findByRole("alert");
+	expect(status.textContent).toBe("");
+});
+
+test("an account without a passkey is offered none", async () => {
+	stubFetch((url) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify" });
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/link");
+	await screen.findByLabelText("Two-step sign-in code");
+	expect(screen.queryByRole("button", { name: "Link with a passkey" })).toBeNull();
+});
 
 const PENDING = {
 	course: { displayName: "Sam Student", platformName: "mock-lms" },
 	sso: { displayName: "Bob Student", signInName: "bob", email: "bob@example.edu" },
 	secondFactor: null,
+	passkey: false,
 };
 
 function stubLink(confirm: () => Response) {

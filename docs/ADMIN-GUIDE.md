@@ -590,6 +590,47 @@ because the reset command falls back to it.
 - Give each DNS credential the least access that works, and revoke the
   old one after you replace it.
 
+## Users: email links and edits
+
+These need **Account email** turned on under **Settings**, and a mail server
+set under **Notifications**. While account email is off, nothing below sends
+mail.
+
+- **Add user…** offers a box, "Email them a link to choose their password".
+  Tick it and no password is shown: the person gets a link that works once
+  and lasts 7 days. If the email cannot be sent, the dialog shows a password
+  to give them instead.
+- **Invite…** offers "Email the invitation". The message tells the person to
+  sign in to Portikus with that address; it carries no link to click
+  through. A waiting invitation has **Resend** in its row.
+- **Import from CSV…** offers "Email each person". Password rows get a link
+  and invite rows get their invitation, so there are no passwords to
+  download.
+- **Send reset link…** in a Portikus password account's panel emails a link
+  that works once and lasts 30 minutes. Their password stays the same until
+  they use it.
+
+At most five of these emails go to one account in an hour, so a slip cannot
+flood a mailbox.
+
+The Dex sign-in page always shows a "Forgot your password?" link. The page it
+opens explains that a reset works only for Portikus password accounts, not
+single sign-on or LDAP accounts, and only while account email is on.
+
+**Edit email or username…** in a Portikus password account's panel changes
+either one and keeps the same account and workspace.
+
+- A new username takes effect at once and keeps their password.
+- A new email signs them out everywhere and replaces their password. With
+  account email on, the new address gets a link to choose one, and the old
+  address gets a notice that the email changed. With it off, the dialog
+  shows a new password once to give them privately.
+
+You cannot edit your own account here. The install administrator's account
+is never emailed a link or edited by another administrator; recover it on
+the host with `portikus reset-admin`. The audit log records which fields
+changed, never the addresses.
+
 ## Users: search and paging
 
 The **Users** tab shows 50 people at a time. Search, the filters and the sort
@@ -633,6 +674,25 @@ asks. A client secret is never shown again once saved: leave the box empty to
 keep the stored one. If you change the tenant, issuer or client ID, you must
 type a new secret, because Portikus will not send an old secret to a different
 place.
+
+Roles can come from your provider's groups:
+
+- **Microsoft Entra ID**: under **Roles from**, choose **Groups assigned to
+  the application** and give the three groups' object IDs. In Entra, set the
+  token to send "Groups assigned to the application" and assign the three
+  groups to the Portikus application.
+- **Google Workspace**: give an **Administrator to read groups as**, paste
+  the service account's JSON key, and give the three group emails. The key is
+  write-only: the page only says it is set, and an empty box keeps it. Use a
+  dedicated administrator whose role can only read groups.
+
+Use only groups that administrators control: never a group people can join
+themselves, because whoever is in a group gets its role. With Google,
+members of groups nested inside the three count too, so a nested group
+must also be one only administrators can change. Groups never let
+anyone in on their own; each person still needs an invitation. Group
+membership is checked at each sign-in. docs/OPERATIONS.md, "Sign-in
+providers", has the setup steps on the provider's side.
 
 If the server uses LDAP, the page shows that as read-only. LDAP is still
 changed with `sudo dpkg-reconfigure portikus`. You can switch from LDAP to

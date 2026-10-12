@@ -236,6 +236,26 @@ any browser you sign in from.
 
 ![The Settings dialog open at Preferences](images/student-settings.png)
 
+## If you forget your password
+
+This works only when your account has a Portikus password and your site
+sends account email. If you sign in through your school's own sign-in
+page, your school handles forgotten passwords instead.
+
+1. On the sign-in page, choose **Forgot your password?**.
+2. Enter the email address you sign in with and choose **Email me a link**.
+   The page gives the same answer whatever address you type, so it never
+   tells anyone whether an account exists.
+3. Open the link in the email. It works once and lasts 30 minutes. Asking
+   again sends a new link, and the older one stops working.
+4. Choose a new password of at least 15 characters, type it twice, and
+   save it.
+
+Saving signs out every session of your account, on every device, and an
+email tells you the password was changed. Then sign in with the new
+password. If you use two-factor sign-in, you still need your code or
+passkey. If no email arrives, ask your administrator.
+
 ## Keyboard and screen readers
 
 These keys are hard to discover:

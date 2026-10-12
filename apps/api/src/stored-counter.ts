@@ -2,6 +2,7 @@ import type { Database } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { type Kysely, sql } from "kysely";
+import { pruneEndedAccountEmailTokens } from "./account-email/tokens.js";
 
 /**
  * Fixed-window counts of sign-in guesses kept in PostgreSQL, so a restart
@@ -160,7 +161,7 @@ export async function pruneEndedCounters(
 }
 
 /**
- * Prune every hour while the server runs. The API prunes its own table, so
+ * Prune every hour while the server runs, with ended account email links. The API prunes its own tables, so
  * the worker needs no right to delete counts (ADR 0053).
  */
 export function registerCounterPrune(
@@ -174,6 +175,13 @@ export function registerCounterPrune(
 			if (deleted > 0) deps.logger.info({ deleted }, "pruned ended sign-in counts");
 		} catch (e) {
 			deps.logger.warn({ error: errorMessage(e) }, "sign-in count prune failed");
+		}
+		try {
+			const deleted = await pruneEndedAccountEmailTokens(deps.db, new Date());
+			if (deleted > 0)
+				deps.logger.info({ deleted }, "pruned ended account email links");
+		} catch (e) {
+			deps.logger.warn({ error: errorMessage(e) }, "account email link prune failed");
 		}
 	};
 	app.addHook("onReady", async () => {

@@ -12,6 +12,7 @@ import {
 	apiLoginAs,
 	DEX_ACCOUNT_ISSUER,
 	enrolSecondFactor,
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	type MockUser,
@@ -19,6 +20,7 @@ import {
 	WEB_ORIGIN,
 } from "./helpers";
 import { launchAs, ltiUsers, type PersonKey } from "./lti-helpers";
+import { SoftPasskey, useSoftPasskey } from "./soft-passkey";
 
 const PERSON: PersonKey = "lin";
 const TARGET: MockUser = "erin";
@@ -269,6 +271,52 @@ test("linking a local-password account asks for its two-step code first", async 
 
 		// A relaunch lands in lars's account without asking again.
 		await launchAs(page, { person: PERSON });
+		expect((await me(page)).id).toBe(larsId);
+		await expect(page).not.toHaveURL(/\/second-factor$/);
+	} finally {
+		await context.close();
+		await query("delete from account_links where user_id = $1", [larsId]);
+	}
+});
+
+test("linking a local-password account with a passkey", async ({ browser }) => {
+	test.setTimeout(120_000);
+	// lars signs in once and sets up only a passkey, from a clean start.
+	await query(
+		"delete from user_second_factors where user_id in (select id from users where email = $1)",
+		["lars@example.edu"],
+	);
+	const key = new SoftPasskey(WEB_ORIGIN);
+	const own = await browser.newContext({ baseURL: WEB_ORIGIN });
+	await useSoftPasskey(own, key);
+	const ownPage = await own.newPage();
+	await loginAs(ownPage, "lars");
+	await expect(ownPage).toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	await ownPage.getByRole("button", { name: "Use a passkey" }).click();
+	await ownPage.getByRole("button", { name: "I have saved them, continue" }).click();
+	await expect(ownPage).not.toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	const larsId = (await me(ownPage)).id;
+	await own.close();
+
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	await useSoftPasskey(context, key);
+	try {
+		const page = await context.newPage();
+		await launchAs(page, { person: PERSON });
+		const courseId = await courseUserId();
+		const tab = await linkAs(page, "lars");
+
+		await expect(tab.getByLabel("Two-step sign-in code")).toBeVisible();
+		await expect(
+			tab.getByRole("button", { name: "Link with a passkey" }),
+		).toBeVisible();
+		await expectNoViolations(tab);
+		expect((await me(page)).id).toBe(courseId);
+		await Promise.all([
+			page.waitForEvent("load", { timeout: 30_000 }),
+			tab.getByRole("button", { name: "Link with a passkey" }).click(),
+		]);
+		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
 		expect((await me(page)).id).toBe(larsId);
 		await expect(page).not.toHaveURL(/\/second-factor$/);
 	} finally {

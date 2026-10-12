@@ -45,6 +45,8 @@ export interface DexApi {
 	): Promise<"created" | "already_exists">;
 	/** Replace the hash of the password with this email. */
 	updatePassword(email: string, hash: string): Promise<"updated" | "not_found">;
+	/** Rename the password with this email in place, keeping its hash and user ID. */
+	updateUsername(email: string, username: string): Promise<"updated" | "not_found">;
 	/** Delete the password with this email. */
 	deletePassword(email: string): Promise<"deleted" | "not_found">;
 	/** Every password Dex holds. */
@@ -168,6 +170,15 @@ export function createDexApi(connection: DexApiConnection): DexApi {
 				new_hash: Buffer.from(hash, "utf8"),
 				// Empty keeps the username.
 				new_username: "",
+			});
+			return res.not_found ? "not_found" : "updated";
+		},
+		async updateUsername(email, username) {
+			const res = await call(client, client.UpdatePassword, {
+				email,
+				// Empty keeps the hash.
+				new_hash: Buffer.alloc(0),
+				new_username: username,
 			});
 			return res.not_found ? "not_found" : "updated";
 		},

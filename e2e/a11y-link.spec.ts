@@ -7,6 +7,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	apiLoginAs,
 	expectNoViolations,
+	expectReflowAt320,
 	MOCK_ISSUER,
 	routeApi,
 	WEB_ORIGIN,
@@ -71,6 +72,36 @@ test("the /link refusal page has no automatic violations", async ({ page }) => {
 	await expectNoViolations(page);
 });
 
+test("the /link page and its refusal fit 320 px, long names and all", async ({
+	page,
+}) => {
+	await routeApi(page, "**/me/links/pending", (route) =>
+		route.fulfill({
+			json: {
+				course: {
+					displayName: "Maximiliana Wolfeschlegelsteinhausenbergerdorff",
+					platformName: "https://learning.very-long-university-name.example.edu/lti",
+				},
+				sso: {
+					displayName: "Gail Organisation-Account",
+					signInName: "gail.with.a.very.long.sign.in.name@example.edu",
+					email: "gail.with.a.very.long.sign.in.name@students.example.edu",
+				},
+				secondFactor: "verify",
+				passkey: true,
+			},
+		}),
+	);
+	await page.goto(`${WEB_ORIGIN}/link`);
+	await expect(page.getByLabel("Two-step sign-in code")).toBeVisible();
+	await expectReflowAt320(page);
+	await expectNoViolations(page);
+
+	await page.goto(`${WEB_ORIGIN}/link?error=no_account`);
+	await expect(page.getByRole("alert")).toBeVisible();
+	await expectReflowAt320(page);
+});
+
 /** The /link page with its pending link answered by the test, at the given second-factor step. */
 async function openStubbedLink(page: Page, secondFactor: "verify" | "enrol") {
 	await routeApi(page, "**/me/links/pending", (route) =>
@@ -79,6 +110,7 @@ async function openStubbedLink(page: Page, secondFactor: "verify" | "enrol") {
 				course: { displayName: "Max Learner", platformName: "mock-lms" },
 				sso: { displayName: "Lars Local", signInName: "lars", email: null },
 				secondFactor,
+				passkey: false,
 			},
 		}),
 	);
@@ -126,6 +158,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 					course: { displayName: "Max Learner", platformName: "mock-lms" },
 					sso: { displayName: "Gail Org", signInName: "gail", email: null },
 					secondFactor: null,
+					passkey: false,
 				},
 			}),
 		);

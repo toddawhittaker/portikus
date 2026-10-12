@@ -1,7 +1,16 @@
 import { requireRole, requireUser } from "@portikus/auth";
-import { CreateInvitationRequest, type InvitationList } from "@portikus/contracts";
+import {
+	CreateInvitationRequest,
+	type CreateInvitationResponse,
+	type InvitationList,
+} from "@portikus/contracts";
 import { isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
+import {
+	createAdminSender,
+	sendAdminSendFailure,
+} from "../account-email/admin-send.js";
+import { accountEmailEnabled } from "../account-email/send.js";
 import {
 	createInvitation,
 	INVITATION_COLUMNS,
@@ -17,8 +26,10 @@ import { requestMetadata } from "../sessions/start-session.js";
  */
 export function registerAdminInvitationRoutes(
 	app: FastifyInstance,
-	{ db }: ServerDeps,
+	deps: ServerDeps,
 ): void {
+	const { db } = deps;
+	const sender = createAdminSender(deps);
 	const adminOnly = { preHandler: requireRole("administrator") };
 
 	app.get("/admin/invitations", adminOnly, async () => {
@@ -37,14 +48,13 @@ export function registerAdminInvitationRoutes(
 		const actor = requireUser(request);
 		const body = parseOr400(CreateInvitationRequest, request.body ?? {}, reply);
 		if (!body) return;
+		const { sendEmail, ...fields } = body;
+		if (sendEmail && !(await accountEmailEnabled(db))) {
+			return sendAdminSendFailure(reply, "disabled");
+		}
+		let created: Awaited<ReturnType<typeof createInvitation>>;
 		try {
-			const created = await createInvitation(
-				db,
-				actor.id,
-				body,
-				requestMetadata(request),
-			);
-			return reply.status(201).send(created);
+			created = await createInvitation(db, actor.id, fields, requestMetadata(request));
 		} catch (err) {
 			if (!isUniqueViolation(err)) throw err;
 			return sendError(
@@ -54,6 +64,42 @@ export function registerAdminInvitationRoutes(
 				"This email already has an invitation waiting.",
 			);
 		}
+		// The invitation stands even when its email fails; Resend tries again.
+		const emailed =
+			sendEmail === true &&
+			(await sender.invitation({
+				invitationId: created.id,
+				actorId: actor.id,
+				to: created.email,
+			})) === "sent";
+		const out: CreateInvitationResponse = { ...created, emailed };
+		return reply.status(201).send(out);
+	});
+
+	// Email a waiting invitation again (SPEC.md section 5.3).
+	app.post("/admin/invitations/:id/send", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const row = await db
+			.selectFrom("account_invitations")
+			.select(["id", "email"])
+			.where("id", "=", params.id)
+			.where("claimed_at", "is", null)
+			.where("revoked_at", "is", null)
+			.executeTakeFirst();
+		if (!row) {
+			return sendError(reply, 404, "NOT_FOUND", "No waiting invitation with this ID.");
+		}
+		if (!(await accountEmailEnabled(db)))
+			return sendAdminSendFailure(reply, "disabled");
+		const result = await sender.invitation({
+			invitationId: row.id,
+			actorId: actor.id,
+			to: row.email,
+		});
+		if (result !== "sent") return sendAdminSendFailure(reply, result);
+		return reply.status(204).send();
 	});
 
 	app.post("/admin/invitations/:id/revoke", adminOnly, async (request, reply) => {

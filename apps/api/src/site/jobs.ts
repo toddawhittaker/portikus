@@ -143,6 +143,9 @@ export function requestSummary(body: SiteJobBody): Record<string, unknown> {
 				oidcIssuer: body.oidcIssuer ?? null,
 				clientId: body.clientId ?? null,
 				clientSecretChanged: body.clientSecret !== null,
+				entraRoleSource: body.entraRoleSource ?? null,
+				googleGroups: body.googleAdminEmail !== undefined,
+				googleKeyChanged: body.googleServiceAccountKey !== undefined,
 			};
 		case "keep":
 		case "rollback":

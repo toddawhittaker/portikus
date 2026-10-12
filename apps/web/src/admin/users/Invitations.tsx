@@ -5,6 +5,7 @@ import {
 } from "@portikus/contracts";
 import {
 	Button,
+	Checkbox,
 	CONTROL_CLASS,
 	ConfirmDialog,
 	ConfirmDialogRoot,
@@ -19,8 +20,10 @@ import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { errorText } from "../../api/request.js";
 import {
+	useAccountEmail,
 	useCreateInvitation,
 	useInvitations,
+	useResendInvitation,
 	useRevokeInvitation,
 } from "../queries.js";
 import type { AccountFilters } from "./filters.js";
@@ -45,6 +48,8 @@ const FIELD_ERROR: Record<Field, string> = {
 export function InviteUser() {
 	const toast = useToast();
 	const create = useCreateInvitation();
+	const accountEmail = useAccountEmail();
+	const [sendEmail, setSendEmail] = useState(false);
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
@@ -61,6 +66,7 @@ export function InviteUser() {
 			setEmail("");
 			setUsername("");
 			setRole("student");
+			setSendEmail(false);
 			setErrors({});
 		}
 		setOpen(next);
@@ -73,6 +79,7 @@ export function InviteUser() {
 			email,
 			role,
 			...(username.trim() ? { username } : {}),
+			...(accountEmail && sendEmail ? { sendEmail: true } : {}),
 		});
 		if (!body.success) {
 			const found: Partial<Record<Field, string>> = {};
@@ -90,13 +97,27 @@ export function InviteUser() {
 		}
 		setErrors({});
 		setAttempt((n) => n + 1);
+		let created: Awaited<ReturnType<typeof create.mutateAsync>>;
 		try {
-			await create.mutateAsync(body.data);
+			created = await create.mutateAsync(body.data);
 		} catch {
 			// The dialog shows create.error.
 			return;
 		}
-		toast.show({ tone: "success", title: `${body.data.name} invited` });
+		if (body.data.sendEmail && !created.emailed) {
+			toast.show({
+				tone: "warning",
+				title: `${body.data.name} invited, but the email could not be sent`,
+				children: "Use Resend in their row to try again.",
+			});
+		} else {
+			toast.show({
+				tone: "success",
+				title: created.emailed
+					? `${body.data.name} invited by email`
+					: `${body.data.name} invited`,
+			});
+		}
 		setOpen(false);
 	}
 
@@ -181,6 +202,14 @@ export function InviteUser() {
 								))}
 							</select>
 						</div>
+						{accountEmail ? (
+							<Checkbox
+								label="Email the invitation"
+								description="They get a message saying to sign in to Portikus with this email."
+								checked={sendEmail}
+								onChange={(event) => setSendEmail(event.target.checked)}
+							/>
+						) : null}
 						{/* Enter in a field submits. */}
 						<button type="submit" hidden />
 					</form>
@@ -236,6 +265,8 @@ export function InvitedRows({ filters }: { filters: AccountFilters }) {
 function InvitationRow({ invitation }: { invitation: Invitation }) {
 	const toast = useToast();
 	const revoke = useRevokeInvitation();
+	const resend = useResendInvitation();
+	const accountEmail = useAccountEmail();
 	const [open, setOpen] = useState(false);
 	const row = useRef<HTMLTableRowElement>(null);
 	const name = invitation.displayName;
@@ -256,6 +287,21 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 		}
 		toast.show({ tone: "success", title: `Invitation for ${name} revoked` });
 		setOpen(false);
+	}
+
+	async function runResend() {
+		if (resend.isPending) return;
+		try {
+			await resend.mutateAsync({ id: invitation.id });
+		} catch (failure) {
+			toast.show({
+				tone: "danger",
+				title: `Invitation for ${name} not sent`,
+				children: errorText(failure),
+			});
+			return;
+		}
+		toast.show({ tone: "success", title: `Invitation for ${name} sent again` });
 	}
 
 	return (
@@ -284,6 +330,17 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 			</td>
 			<td className="py-2 whitespace-normal">Not signed in yet</td>
 			<td className="pk-cell-actions py-2">
+				{accountEmail ? (
+					<Button
+						size="sm"
+						aria-label={`Resend the invitation email to ${name}`}
+						data-testid="invitation-resend"
+						loading={resend.isPending}
+						onClick={() => void runResend()}
+					>
+						Resend
+					</Button>
+				) : null}
 				<Button
 					size="sm"
 					aria-label={`Revoke the invitation for ${name}`}

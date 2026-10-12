@@ -302,6 +302,46 @@ in the Users view still raise a role. The first Entra administrator can
 be given the `Portikus.Administrator` app role, or promoted by the local
 administrator after their first sign-in.
 
+#### Roles from Entra groups instead of app roles
+
+A site that already keeps three security groups for Portikus can use them
+in place of app roles. Entra then puts the groups' object IDs (their
+GUIDs) in the ID token's `groups` claim, and Dex reads that claim instead
+of `roles`. There is still no Microsoft Graph call and no extra
+permission.
+
+1. Do steps 1 to 3 and 5 to 6 above. Skip step 4, the app roles.
+2. **Token configuration, Add groups claim.** Choose **Groups assigned to
+   the application**, and for the ID token, **Group ID**. With only the
+   assigned groups sent, a token carries at most the three, so Entra never
+   drops the claim for someone in many groups.
+3. **Enterprise applications, Portikus, Users and groups.** Assign the
+   three groups to the application (this needs Entra ID P1 or higher).
+   Assigning people one by one does nothing here: only group membership
+   counts.
+4. Copy each group's **Object ID** from its Overview page.
+
+**Use only groups that administrators control**: never a group with
+self-service membership, a Microsoft 365 group anyone can join, or a
+dynamic group built from attributes users can edit. Whoever can join one
+of these groups gets its role.
+
+Then deploy with the three object IDs:
+
+```
+make configure-vm PORTIKUS_DEX_UPSTREAM=entra PORTIKUS_ENTRA_TENANT_ID=<tenant ID> \
+  PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<application ID> PORTIKUS_ENTRA_ROLE_SOURCE=groups \
+  PORTIKUS_OIDC_STUDENT_GROUP=<object ID> PORTIKUS_OIDC_INSTRUCTOR_GROUP=<object ID> \
+  PORTIKUS_OIDC_ADMIN_GROUP=<object ID>
+```
+
+The play refuses a group that is not an object ID. Only members of the
+three groups can sign in, and each still needs a Portikus invitation:
+group membership never admits anyone on its own (ADR 0049). Membership is
+read again at each sign-in, so removing someone from a group takes
+effect at their next sign-in. This mode has not yet been tried against
+a real tenant.
+
 ### Google Workspace
 
 Only accounts from the listed Google Workspace domains can sign in; Dex's
@@ -326,11 +366,73 @@ make configure-vm PORTIKUS_DEX_UPSTREAM=google PORTIKUS_GOOGLE_DOMAINS=example.e
   PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<client ID>
 ```
 
-A whole domain is admitted. Portikus does not ask Dex for groups under
-Google, and a play that sets `PORTIKUS_OIDC_SCOPES` with `groups` stops
-with an error, because a groups claim here could only come from somewhere
-a student controls. A Google group check would need a Google service
-account and the Admin SDK, which is not built.
+A whole domain is admitted. Without group checks Portikus does not ask
+Dex for groups under Google, and a play that sets `PORTIKUS_OIDC_SCOPES`
+with `groups` stops with an error, because a groups claim there could
+only come from somewhere a student controls.
+
+#### Roles from Google groups
+
+Dex can read each person's groups from Google's Admin SDK at sign-in,
+admit only members of three groups, and pass those on as roles. It reads
+them with a Google service account that acts as a Workspace
+administrator. Group membership never admits anyone on its own: each
+person still needs a Portikus invitation (ADR 0049).
+
+1. **In the Cloud project above, APIs & Services, Enable APIs.** Enable
+   the **Admin SDK API**.
+2. **IAM & Admin, Service accounts, Create service account.** Give it no
+   project roles. On its **Keys** tab, **Add key, Create new key, JSON**,
+   and keep the downloaded file safe: it is a credential. Copy the
+   account's **Unique ID** (its client ID).
+3. **In the Google Admin console, Security, Access and data control, API
+   controls, Manage domain-wide delegation, Add new.** Give the client ID
+   and only this scope:
+   `https://www.googleapis.com/auth/admin.directory.group.readonly`.
+4. **Account, Admin roles, Create new role.** Give it only the Admin API
+   privilege **Groups, Read**, and assign it to a dedicated user, such as
+   `portikus-groups@example.edu`. Dex acts as this user, so it should be
+   able to do nothing else. Avoid a super administrator.
+5. Make the three groups, such as `portikus-students@example.edu`.
+   **Use only groups people cannot join by themselves**: under the
+   group's settings, "Who can join the group" must be "Only invited
+   users", and no one outside administrators may manage members. Whoever
+   can join one of these groups gets its role. Members of groups inside
+   them count too, because Dex reads nested membership, so every group
+   inside one of the three must also be one only administrators can
+   change.
+
+Then, on the VM, put the key where Dex reads it, readable by Dex only, and deploy:
+
+```
+sudo install -d -m 0750 /etc/portikus-dex
+sudo install -m 0640 -o root -g portikus-dex service-account.json \
+  /etc/portikus-dex/google-service-account.json
+make configure-vm PORTIKUS_DEX_UPSTREAM=google PORTIKUS_GOOGLE_DOMAINS=example.edu \
+  PORTIKUS_DEX_UPSTREAM_CLIENT_ID=<client ID> \
+  PORTIKUS_GOOGLE_ADMIN_EMAIL=portikus-groups@example.edu \
+  PORTIKUS_OIDC_STUDENT_GROUP=portikus-students@example.edu \
+  PORTIKUS_OIDC_INSTRUCTOR_GROUP=portikus-instructors@example.edu \
+  PORTIKUS_OIDC_ADMIN_GROUP=portikus-administrators@example.edu
+```
+
+On a server installed with apt, upload the key on the **Sign-in** admin
+page instead, or copy it as above and answer the administrator question
+in `sudo dpkg-reconfigure portikus`. The `portikus-dex` group exists
+after the first setup; before that, leave the `-g` option out and setup
+fixes the owner.
+
+The play checks the key before Dex sees it: it must be a `service_account`
+key with a private key, and a `token_uri`, if any, of
+`https://oauth2.googleapis.com/token`. A bad key would break every Google
+sign-in; local passwords keep working. The group emails must be in lowercase, as Google returns
+them. With group checks on, the egress proxy also lets Dex reach
+`admin.googleapis.com`, and only then. Membership is read again at each
+sign-in, so removing someone from a group takes effect at their next
+sign-in. This mode has not yet been tried against a real Workspace.
+
+To turn group checks off, clear `PORTIKUS_GOOGLE_ADMIN_EMAIL` (or the
+administrator box on the page) and delete the key file.
 
 ### LDAP and Active Directory
 

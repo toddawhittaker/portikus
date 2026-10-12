@@ -8,12 +8,14 @@ import {
 	type CreateDexUserRequest,
 	CreateDexUserResponse,
 	type CreateInvitationRequest,
+	CreateInvitationResponse,
 	DexPasswordResponse,
 	Invitation,
 	InvitationList,
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
+	type UpdateDexUserRequest,
 	type UpdateGuardRequest,
 	type UpdateLimitsRequest,
 	type UpdatePlatformSettingsRequest,
@@ -55,6 +57,11 @@ export function usePlatformSettings() {
 		queryKey: adminKeys.settings,
 		queryFn: () => request(PlatformSettings, "/admin/settings"),
 	});
+}
+
+/** Whether account email is on, so the Users view offers emailed links (SPEC.md section 5.3). */
+export function useAccountEmail(): boolean {
+	return usePlatformSettings().data?.accountEmailEnabled ?? false;
 }
 
 /** Every account (the person pickers), and whether the site manages Dex users (ADR 0028). */
@@ -271,8 +278,16 @@ export function useInvitations() {
 
 export function useCreateInvitation() {
 	return useDexWrite((body: CreateInvitationRequest) =>
-		request(Invitation, "/admin/invitations", json("POST", body)),
+		request(CreateInvitationResponse, "/admin/invitations", json("POST", body)),
 	);
+}
+
+/** Email a waiting invitation again (SPEC.md section 5.3). */
+export function useResendInvitation() {
+	return useMutation({
+		mutationFn: ({ id }: { id: string }) =>
+			request(z.undefined(), `/admin/invitations/${id}/send`, { method: "POST" }),
+	});
 }
 
 export function useRevokeInvitation() {
@@ -313,6 +328,24 @@ export function useResetSecondFactor() {
 		request(AdminUser, `/admin/dex-users/${userId}/reset-second-factor`, {
 			method: "POST",
 		}),
+	);
+}
+
+/** Email a 30-minute reset link to the address Dex holds (SPEC.md section 5.3). */
+export function useSendResetLink() {
+	return useMutation({
+		mutationFn: ({ userId }: { userId: string }) =>
+			request(z.undefined(), `/admin/dex-users/${userId}/send-reset-link`, {
+				method: "POST",
+			}),
+	});
+}
+
+/** A new email or username for a Dex user, keeping the account (SPEC.md section 5.1). */
+export function useEditDexUser() {
+	return useDexWrite(
+		({ userId, body }: { userId: string; body: UpdateDexUserRequest }) =>
+			request(CreateDexUserResponse, `/admin/dex-users/${userId}`, json("PATCH", body)),
 	);
 }
 

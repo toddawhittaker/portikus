@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import {
 	type AlertChannelResult,
@@ -230,16 +230,25 @@ function mailError(e: unknown): string {
 	}
 }
 
-export async function sendEmail(
-	channels: AlertChannels,
-	alert: Alert,
-	site: string,
+/** One plain-text message; the sender is always the SMTP block's `from`. */
+export interface MailMessage {
+	to: string | string[];
+	subject: string;
+	text: string;
+	priority?: "high" | "normal";
+}
+
+/**
+ * Send one message through the SMTP server with TLS required (ADR 0052).
+ * Returns null when sent, or an error that cannot carry a server reply.
+ */
+export async function sendMail(
+	smtp: NotifySmtp,
+	proxyUrl: string | undefined,
+	message: MailMessage,
 	transportFactory: MailTransportFactory = createTransport,
-): Promise<ChannelResult> {
-	const email = channels.email;
-	if (!email) return { channel: "email", ok: false, error: "not configured" };
-	const { smtp } = email;
-	// TLS is required (ADR 0052): 465 starts in TLS, 587 must upgrade with STARTTLS.
+): Promise<string | null> {
+	// 465 starts in TLS, 587 must upgrade with STARTTLS.
 	let transport: ReturnType<MailTransportFactory> | null = null;
 	try {
 		transport = transportFactory({
@@ -250,26 +259,55 @@ export async function sendEmail(
 			tls: { rejectUnauthorized: true, servername: smtp.host },
 			auth:
 				smtp.username === "" ? undefined : { user: smtp.username, pass: smtp.password },
-			proxy: channels.proxyUrl,
+			proxy: proxyUrl,
 			connectionTimeout: SEND_TIMEOUT_MS,
 			greetingTimeout: SEND_TIMEOUT_MS,
 			socketTimeout: SEND_TIMEOUT_MS,
 			logger: false,
 			debug: false,
 		});
-		await transport.sendMail({
-			from: smtp.from,
+		await transport.sendMail({ from: smtp.from, ...message });
+		return null;
+	} catch (e) {
+		return mailError(e);
+	} finally {
+		transport?.close();
+	}
+}
+
+/**
+ * Development only: append the message as one JSON line to `path` instead
+ * of sending it, so the e2e run can read the link (the API config refuses
+ * the setting in production).
+ */
+export async function captureMail(path: string, message: MailMessage): Promise<void> {
+	const transport = createTransport({ jsonTransport: true });
+	const info = await transport.sendMail({ from: "portikus@localhost", ...message });
+	await appendFile(path, `${info.message}\n`, { mode: 0o600 });
+}
+
+export async function sendEmail(
+	channels: AlertChannels,
+	alert: Alert,
+	site: string,
+	transportFactory: MailTransportFactory = createTransport,
+): Promise<ChannelResult> {
+	const email = channels.email;
+	if (!email) return { channel: "email", ok: false, error: "not configured" };
+	const error = await sendMail(
+		email.smtp,
+		channels.proxyUrl,
+		{
 			to: email.to,
 			subject: alert.title,
 			text: `${alert.text}\n\n(${site}, ${alert.at.toISOString()})`,
 			priority: alert.tone === "danger" ? "high" : "normal",
-		});
-		return { channel: "email", ok: true };
-	} catch (e) {
-		return { channel: "email", ok: false, error: mailError(e) };
-	} finally {
-		transport?.close();
-	}
+		},
+		transportFactory,
+	);
+	return error
+		? { channel: "email", ok: false, error }
+		: { channel: "email", ok: true };
 }
 
 export async function sendNtfy(

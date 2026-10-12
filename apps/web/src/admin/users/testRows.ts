@@ -186,3 +186,26 @@ export function usersBody(url: string, all: readonly unknown[], dexUsers = false
 		dexUsers,
 	});
 }
+
+/** A full `/admin/settings` body, with account email on or off (SPEC.md section 5.3). */
+export function settingsBody(accountEmailEnabled = false) {
+	return json(200, {
+		shutdownGraceSeconds: 600,
+		logLevel: null,
+		cpuGuardThresholdPercent: 80,
+		memoryGuardThresholdPercent: 90,
+		guardWindowMinutes: 30,
+		cpuThrottleSharePercent: 25,
+		cpuIdleLiftMinutes: 5,
+		cpuIdleLiftPercent: 10,
+		cpuThrottleHoldAfter: 3,
+		cpuThrottleHoldHours: 24,
+		keepRunningMaxHours: 12,
+		voiceInputEnabled: true,
+		accountEmailEnabled,
+		idleStopMinutes: 60,
+		acceptableUseText: null,
+		acceptableUseVersion: 1,
+		updatedAt: null,
+	});
+}
