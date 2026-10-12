@@ -82,5 +82,50 @@ export const INSTRUCTOR_HELP: HelpPart = {
 				</>
 			),
 		},
+		{
+			id: "instructor-live-help",
+			title: "Live help in a student's terminal",
+			body: (
+				<>
+					<p>
+						A student can ask you for live help in one of their projects. Only the
+						student can start it, and only for an instructor of one of their courses.
+						You get a notification, and the session is listed under{" "}
+						<strong>Live help</strong> on the Course page.
+					</p>
+					<ul>
+						<li>
+							Opening a session shows the student's terminals in that project as they
+							are now, and what happens in them from then on. You do not see what
+							scrolled past before you opened it.
+						</li>
+						<li>
+							The page always says which mode you are in. <strong>Viewing only</strong>{" "}
+							means nothing you type is sent. <strong>Typing allowed</strong> means what
+							you type runs in the student's shell, as the student. Only the student can
+							switch between the two, and the terminal reconnects when they do.
+						</li>
+						<li>
+							The terminal keeps the size of the student's window and scrolls if yours
+							is smaller. Press Alt+Shift+Q to move the keyboard out of it.
+						</li>
+						<li>
+							<strong>Previews</strong> lists what the student's workspace is serving.
+							Each opens in a new tab. It is the student's code running in your browser,
+							so open only what you need.
+						</li>
+						<li>
+							If the student closes their workspace in every browser, or it stops, the
+							page says the student is away and reconnects when they return.
+						</li>
+						<li>
+							A session ends when the student ends it, when you press{" "}
+							<strong>Leave session</strong>, when the project is archived, or after an
+							hour. Your view closes at once.
+						</li>
+					</ul>
+				</>
+			),
+		},
 	],
 };
