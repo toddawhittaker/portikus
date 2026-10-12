@@ -13,7 +13,13 @@ import {
 	type RecoveryReason,
 	RestoreRecoveryPointRequest,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import {
+	countProjectPoints,
+	type Database,
+	MAX_POINTS_PER_PROJECT,
+	type RecoveryPointRow,
+	recordAudit,
+} from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
@@ -38,12 +44,7 @@ import {
 	requireAgent,
 	sendAgentError,
 } from "../workspaces/project-scope.js";
-import {
-	countProjectPoints,
-	MAX_POINTS_PER_PROJECT,
-	makeRecoveryPoint,
-	type RecoveryPointRow,
-} from "../workspaces/recovery-points.js";
+import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 
 const PointParam = ProjectParam.extend({ rpid: z.string().uuid() });
 

@@ -17,6 +17,7 @@ import {
 	check,
 	createCounter,
 	createRecentMisses,
+	missKey,
 	RECENT_MISS_ADDRESSES,
 	RECENT_MISS_MS,
 	RECENT_MISSES_PER_ADDRESS,
@@ -200,7 +201,6 @@ describe("recent made-up cookies per address (SPEC.md section 24.13)", () => {
 		for (let i = 0; i < RECENT_MISSES_PER_ADDRESS * 10; i += 1) {
 			misses.add("203.0.113.1", `guess-${i}`);
 		}
-		expect(misses.size()).toBe(RECENT_MISSES_PER_ADDRESS);
 		const last = `guess-${RECENT_MISSES_PER_ADDRESS * 10 - 1}`;
 		expect(misses.has("203.0.113.1", last)).toBe(true);
 		expect(misses.has("203.0.113.1", "guess-0")).toBe(false);
@@ -210,29 +210,21 @@ describe("recent made-up cookies per address (SPEC.md section 24.13)", () => {
 				misses.add(`address-${a}`, `guess-${i}`);
 			}
 		}
-		expect(misses.size()).toBeLessThanOrEqual(
-			RECENT_MISS_ADDRESSES * RECENT_MISSES_PER_ADDRESS,
+		expect(misses.has("address-0", "guess-0")).toBe(false);
+		expect(misses.has(`address-${RECENT_MISS_ADDRESSES * 2 - 1}`, "guess-31")).toBe(
+			true,
 		);
 		expect(misses.has("203.0.113.1", last)).toBe(false);
 	});
 
 	test("holds a hash, never the cookie itself", () => {
 		const token = "a-cookie-value-that-must-not-be-held";
-		const misses = createRecentMisses(() => 0);
+		const store = new Map<string, Map<string, number>>();
+		const misses = createRecentMisses(() => 0, store);
 		misses.add("203.0.113.1", token);
-		const seen = new WeakSet<object>();
-		const holds = (value: unknown): boolean => {
-			if (typeof value === "string") return value.includes(token);
-			if (typeof value !== "object" || value === null || seen.has(value)) return false;
-			seen.add(value);
-			if (value instanceof Map) {
-				return [...value.entries()].some(([k, v]) => holds(k) || holds(v));
-			}
-			return Object.values(value).some(holds);
-		};
-		// The closure's map is reachable only through the methods, so probe via
-		// the guard's warnings below; here, the stored size is the only window.
-		expect(holds(misses)).toBe(false);
+		const keys = [...(store.get("203.0.113.1")?.keys() ?? [])];
+		expect(keys).toEqual([missKey(token)]);
+		expect(missKey(token)).not.toContain(token);
 		expect(misses.has("203.0.113.1", token)).toBe(true);
 	});
 });

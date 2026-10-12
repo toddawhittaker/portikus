@@ -239,8 +239,11 @@ export const RECENT_MISS_ADDRESSES = 1024;
 export interface RecentMisses {
 	add(address: string, token: string): void;
 	has(address: string, token: string): boolean;
-	/** How many cookies are held across all addresses. */
-	size(): number;
+}
+
+/** What is stored in place of a cookie. */
+export function missKey(token: string): string {
+	return createHash("sha256").update(token).digest("hex");
 }
 
 /**
@@ -248,10 +251,10 @@ export interface RecentMisses {
  * is held, never the cookie itself (STACK.md section 15). A real session's
  * cookie never misses, so it is never on the list.
  */
-export function createRecentMisses(now: () => number = Date.now): RecentMisses {
-	const byAddress = new Map<string, Map<string, number>>();
-	const digest = (token: string) => createHash("sha256").update(token).digest("hex");
-
+export function createRecentMisses(
+	now: () => number = Date.now,
+	byAddress: Map<string, Map<string, number>> = new Map(),
+): RecentMisses {
 	return {
 		add(address, token) {
 			let misses = byAddress.get(address);
@@ -266,7 +269,7 @@ export function createRecentMisses(now: () => number = Date.now): RecentMisses {
 				}
 			}
 			byAddress.set(address, misses);
-			const hash = digest(token);
+			const hash = missKey(token);
 			misses.delete(hash);
 			if (misses.size >= RECENT_MISSES_PER_ADDRESS) {
 				const oldest = misses.keys().next().value;
@@ -276,16 +279,12 @@ export function createRecentMisses(now: () => number = Date.now): RecentMisses {
 		},
 		has(address, token) {
 			const misses = byAddress.get(address);
-			const expiresAt = misses?.get(digest(token));
+			const key = missKey(token);
+			const expiresAt = misses?.get(key);
 			if (expiresAt === undefined) return false;
 			if (expiresAt > now()) return true;
-			misses?.delete(digest(token));
+			misses?.delete(key);
 			return false;
-		},
-		size() {
-			let total = 0;
-			for (const misses of byAddress.values()) total += misses.size;
-			return total;
 		},
 	};
 }
