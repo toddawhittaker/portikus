@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
@@ -228,21 +229,98 @@ function isAnonymousRoute(request: FastifyRequest): boolean {
 	return ANONYMOUS_ROUTES.has(`${request.method} ${request.routeOptions.url ?? ""}`);
 }
 
+/** How long a made-up cookie stays on its address's list: one limit window. */
+export const RECENT_MISS_MS = MINUTE_MS;
+/** Most made-up cookies remembered per address; the oldest goes first. */
+export const RECENT_MISSES_PER_ADDRESS = 16;
+/** Most addresses with remembered cookies; the oldest goes first. */
+export const RECENT_MISS_ADDRESSES = 1024;
+
+export interface RecentMisses {
+	add(address: string, token: string): void;
+	has(address: string, token: string): boolean;
+	/** How many cookies are held across all addresses. */
+	size(): number;
+}
+
+/**
+ * Session cookies that matched no session lately, per address. Only a hash
+ * is held, never the cookie itself (STACK.md section 15). A real session's
+ * cookie never misses, so it is never on the list.
+ */
+export function createRecentMisses(now: () => number = Date.now): RecentMisses {
+	const byAddress = new Map<string, Map<string, number>>();
+	const digest = (token: string) => createHash("sha256").update(token).digest("hex");
+
+	return {
+		add(address, token) {
+			let misses = byAddress.get(address);
+			if (misses) {
+				// Re-insert so this address counts as the newest.
+				byAddress.delete(address);
+			} else {
+				misses = new Map();
+				if (byAddress.size >= RECENT_MISS_ADDRESSES) {
+					const oldest = byAddress.keys().next().value;
+					if (oldest !== undefined) byAddress.delete(oldest);
+				}
+			}
+			byAddress.set(address, misses);
+			const hash = digest(token);
+			misses.delete(hash);
+			if (misses.size >= RECENT_MISSES_PER_ADDRESS) {
+				const oldest = misses.keys().next().value;
+				if (oldest !== undefined) misses.delete(oldest);
+			}
+			misses.set(hash, now() + RECENT_MISS_MS);
+		},
+		has(address, token) {
+			const misses = byAddress.get(address);
+			const expiresAt = misses?.get(digest(token));
+			if (expiresAt === undefined) return false;
+			if (expiresAt > now()) return true;
+			misses?.delete(digest(token));
+			return false;
+		},
+		size() {
+			let total = 0;
+			for (const misses of byAddress.values()) total += misses.size;
+			return total;
+		},
+	};
+}
+
+export interface SessionGuard {
+	beforeLookup(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		token: string,
+	): Promise<boolean>;
+	unknownSession(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		token: string,
+	): Promise<boolean>;
+}
+
 /**
  * Count every request to an anonymous route per address and answer 429 past
  * the limit. Register it before the sign-in throttle, so a refused request
  * reaches no later count.
  *
- * Returns the check for a session cookie that matches no session, which the
- * auth plugin calls: guessing cookies is anonymous work too (SPEC.md section
- * 24.13). It answers 429 and returns false past the limit.
+ * Returns the checks the auth plugin calls on a session cookie: guessing
+ * cookies is anonymous work too (SPEC.md section 24.13). A cookie that
+ * matches no session counts against the address. Once the address is over
+ * the limit, a cookie that already missed lately is refused before any
+ * query. Both answer 429 and return false when they refuse.
  */
 export function registerAnonymousLimit(
 	app: FastifyInstance,
 	config: ApiConfig,
 	now: () => number = Date.now,
-): (request: FastifyRequest, reply: FastifyReply) => Promise<boolean> {
+): SessionGuard {
 	const counter = createAnonymousCounter(config, now);
+	const misses = createRecentMisses(now);
 
 	async function allow(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
 		// request.ip is the client Caddy named; trustProxy trusts only loopback.
@@ -262,6 +340,18 @@ export function registerAnonymousLimit(
 	app.addHook("onRequest", async (request, reply) => {
 		if (isAnonymousRoute(request)) await allow(request, reply);
 	});
-	// An anonymous route was counted above already.
-	return async (request, reply) => isAnonymousRoute(request) || allow(request, reply);
+	return {
+		async beforeLookup(request, reply, token) {
+			const key = addressKey(request.ip);
+			if (counter.peek(key).count < counter.limit) return true;
+			if (!misses.has(key, token)) return true;
+			// An anonymous route was counted above already, so it is refused there.
+			return isAnonymousRoute(request) || allow(request, reply);
+		},
+		async unknownSession(request, reply, token) {
+			misses.add(addressKey(request.ip), token);
+			// An anonymous route was counted above already.
+			return isAnonymousRoute(request) || allow(request, reply);
+		},
+	};
 }

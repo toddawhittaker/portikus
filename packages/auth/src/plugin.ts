@@ -226,10 +226,23 @@ export interface AuthPluginOptions {
 	db: Kysely<Database>;
 	auth: AuthOptions;
 	/**
+	 * Called with a session cookie before it is looked up. Answering and
+	 * returning false ends the request without a query.
+	 */
+	beforeLookup?: (
+		request: FastifyRequest,
+		reply: FastifyReply,
+		token: string,
+	) => Promise<boolean>;
+	/**
 	 * Called when a session cookie matches no session. Answering and
 	 * returning false ends the request.
 	 */
-	unknownSession?: (request: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
+	unknownSession?: (
+		request: FastifyRequest,
+		reply: FastifyReply,
+		token: string,
+	) => Promise<boolean>;
 }
 
 /**
@@ -246,6 +259,28 @@ export const authPlugin = fp<AuthPluginOptions>(
 
 		app.decorateRequest("user", null);
 		app.decorateRequest("sessionToken", null);
+
+		/** Set the request's user from its cookie; false when the request was answered. */
+		async function resolveSession(
+			request: FastifyRequest,
+			reply: FastifyReply,
+			token: string,
+		): Promise<boolean> {
+			if (opts.beforeLookup && !(await opts.beforeLookup(request, reply, token))) {
+				return false;
+			}
+			const user = await loadSession(db, token);
+			if (user) {
+				request.user = user;
+				request.sessionToken = token;
+				return true;
+			}
+			if (opts.unknownSession && !(await opts.unknownSession(request, reply, token))) {
+				return false;
+			}
+			reply.clearCookie(sessionCookie, { path: "/" });
+			return true;
+		}
 
 		app.addHook("onRequest", async (request, reply) => {
 			const isUpgrade =
@@ -268,18 +303,7 @@ export const authPlugin = fp<AuthPluginOptions>(
 			}
 
 			const token = request.cookies[sessionCookie];
-			if (token) {
-				const user = await loadSession(db, token);
-				if (user) {
-					request.user = user;
-					request.sessionToken = token;
-				} else {
-					if (opts.unknownSession && !(await opts.unknownSession(request, reply))) {
-						return;
-					}
-					reply.clearCookie(sessionCookie, { path: "/" });
-				}
-			}
+			if (token && !(await resolveSession(request, reply, token))) return;
 
 			if (!request.user && !isExempt(request)) {
 				await reply
