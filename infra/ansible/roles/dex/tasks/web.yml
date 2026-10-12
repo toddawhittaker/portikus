@@ -98,7 +98,9 @@
   ansible.builtin.replace:
     path: "{{ dex_web_dir }}/templates/password.html"
     regexp: '</form>\n(?!  <div class="theme-link-back" id="forgot-password">)'
-    replace: '</form>\n  <div class="theme-link-back" id="forgot-password">\n    <a class="dex-subtle-text" href="/forgot-password">Forgot your password?</a>\n  </div>\n'
+    replace: >-
+      </form>\n  <div class="theme-link-back" id="forgot-password">\n
+      <a class="dex-subtle-text" href="/forgot-password">Forgot your password?</a>\n  </div>\n
   notify: Restart portikus-dex
 
 # A Dex upgrade can change a template so a patch silently stops matching.
