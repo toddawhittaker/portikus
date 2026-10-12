@@ -12,6 +12,7 @@ import {
 	apiLoginAs,
 	DEX_ACCOUNT_ISSUER,
 	enrolSecondFactor,
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	type MockUser,
@@ -306,10 +307,14 @@ test("linking a local-password account with a passkey", async ({ browser }) => {
 		const tab = await linkAs(page, "lars");
 
 		await expect(tab.getByLabel("Two-step sign-in code")).toBeVisible();
+		await expect(
+			tab.getByRole("button", { name: "Link with a passkey" }),
+		).toBeVisible();
+		await expectNoViolations(tab);
 		expect((await me(page)).id).toBe(courseId);
 		await Promise.all([
 			page.waitForEvent("load", { timeout: 30_000 }),
-			tab.getByRole("button", { name: "Use a passkey" }).click(),
+			tab.getByRole("button", { name: "Link with a passkey" }).click(),
 		]);
 		await page.waitForURL(`${WEB_ORIGIN}/workspaces/**`, { timeout: 30_000 });
 		expect((await me(page)).id).toBe(larsId);

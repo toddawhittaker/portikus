@@ -234,8 +234,9 @@ test("with account email on, confirm asks for email and shows who was emailed", 
 	});
 	fireEvent.click(await within(dialog).findByRole("button", { name: "Add 1 account" }));
 	const done = await screen.findByRole("dialog", { name: "Import finished" });
-	expect(within(done).getByTestId("import-emailed").textContent).toBe(
-		"1 person was emailed.",
+	// In the announced status, so a screen reader hears it with the counts.
+	expect(within(done).getByTestId("import-status").textContent).toMatch(
+		/\. 1 person was emailed\.$/,
 	);
 	expect(within(done).queryByRole("button", { name: "Download passwords" })).toBeNull();
 	expect(writes.at(-1)).toEqual({

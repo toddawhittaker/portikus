@@ -464,7 +464,7 @@ function SendResetLink({ user }: { user: AdminUser }) {
 			<Button
 				size="sm"
 				data-testid="detail-dex-send-reset"
-				aria-label={`Send a reset link to ${name}`}
+				aria-label={`Send reset link to ${name}`}
 				onClick={() => change(true)}
 			>
 				Send reset link…

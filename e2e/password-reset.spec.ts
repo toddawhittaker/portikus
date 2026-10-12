@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import { expect, test } from "@playwright/test";
 import {
 	expectNoViolations,
+	expectReflowAt320,
 	lockSharedState,
 	loginAs,
 	query,
@@ -63,9 +64,11 @@ test("a forgotten password is reset through the emailed link", async ({
 	await expectNoViolations(visitor);
 	await visitor.getByLabel("Email address").fill(email);
 	await visitor.getByRole("button", { name: "Email me a link" }).click();
+	// The form is gone, so focus lands on the confirmation that replaced it.
 	await expect(visitor.getByRole("status")).toContainText(
 		"If that address belongs to an account here, a link is on its way.",
 	);
+	await expect(visitor.getByRole("status")).toBeFocused();
 
 	const link = await findMailLink(email);
 	expect(link).toMatch(/\/reset-password#[A-Za-z0-9_-]{43}$/);
@@ -112,6 +115,45 @@ test("a forgotten password is reset through the emailed link", async ({
 	await expect(visitor.getByRole("alert")).toContainText("expired or was already used");
 	await expect(visitor.getByRole("link", { name: "Ask for a new link" })).toBeVisible();
 	await context.close();
+});
+
+test("the forgot and reset pages fit 320 px in dark, with errors announced", async ({
+	page,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	await page.goto("/forgot-password");
+	await expect(
+		page.getByRole("heading", { name: "Forgot your password?" }),
+	).toBeFocused();
+	await expectReflowAt320(page);
+	await expectNoViolations(page);
+
+	// An empty field is marked invalid before focus lands on it, so it is announced.
+	await page.getByRole("button", { name: "Email me a link" }).click();
+	const field = page.getByLabel("Email address");
+	await expect(field).toBeFocused();
+	await expect(field).toHaveAttribute("aria-invalid", "true");
+	await expect(field).toHaveAccessibleDescription(
+		"Enter the email address you sign in with.",
+	);
+	await expectReflowAt320(page);
+	await expectNoViolations(page);
+
+	await field.fill(`nobody-${crypto.randomUUID().slice(0, 8)}@example.edu`);
+	await page.getByRole("button", { name: "Email me a link" }).click();
+	await expect(page.getByRole("status")).toBeFocused();
+	await expectReflowAt320(page);
+	await expectNoViolations(page);
+
+	// Any token shows the form; the server judges it only on submit.
+	await page.goto(`/reset-password#${"x".repeat(43)}`);
+	await expect(
+		page.getByRole("heading", { name: "Choose a new password" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Save new password" }).click();
+	await expect(page.getByLabel("New password", { exact: true })).toBeFocused();
+	await expectReflowAt320(page);
+	await expectNoViolations(page);
 });
 
 test("a link page opened without its token says so", async ({ page }) => {

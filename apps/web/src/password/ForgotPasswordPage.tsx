@@ -1,6 +1,7 @@
 import { Button, TextField } from "@portikus/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
 import { errorText, sendJson } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
@@ -11,6 +12,7 @@ import { StandalonePage } from "../pages/StandalonePage.js";
  */
 export function ForgotPasswordPage() {
 	const heading = useRef<HTMLHeadingElement>(null);
+	const sent = useRef<HTMLParagraphElement>(null);
 	useEffect(() => heading.current?.focus(), []);
 	const [login, setLogin] = useState("");
 	const [fieldError, setFieldError] = useState<string | undefined>();
@@ -18,11 +20,16 @@ export function ForgotPasswordPage() {
 		mutationFn: (body: { login: string }) =>
 			sendJson(z.object({}), "/auth/password-reset", body),
 	});
+	// The form unmounts on success, so focus moves to the confirmation that replaced it.
+	useEffect(() => {
+		if (ask.isSuccess) sent.current?.focus();
+	}, [ask.isSuccess]);
 
 	function submit() {
 		if (ask.isPending) return;
 		if (login.trim() === "") {
-			setFieldError("Enter the email address you sign in with.");
+			// Render the invalid state before focus lands, so it is announced.
+			flushSync(() => setFieldError("Enter the email address you sign in with."));
 			document.getElementById("forgot-login")?.focus();
 			return;
 		}
@@ -47,7 +54,7 @@ export function ForgotPasswordPage() {
 				</p>
 			</div>
 			{ask.isSuccess ? (
-				<p role="status" className="pk-text-body m-0">
+				<p role="status" className="pk-text-body m-0" tabIndex={-1} ref={sent}>
 					If that address belongs to an account here, a link is on its way. It works
 					once and lasts 30 minutes.
 				</p>

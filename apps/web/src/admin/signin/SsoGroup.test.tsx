@@ -215,12 +215,22 @@ test("Google group checks show the write-only key and groups, and send the key o
 	});
 	renderWithQuery(<SsoGroup />);
 	const admin = await screen.findByLabelText("Administrator to read groups as");
+	// Fields appear below it as it is filled, so its hint says so before they do.
+	expect(
+		document.getElementById(admin.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toContain("Filling it in adds a key and three group fields below.");
 	expect(screen.queryByLabelText("Service account key")).toBeNull();
 	expect(screen.queryByLabelText("Students' group")).toBeNull();
 	fireEvent.change(admin, { target: { value: "groups-reader@example.edu" } });
 	const field = screen.getByLabelText("Service account key") as HTMLTextAreaElement;
 	expect(field.value).toBe("");
 	expect(screen.getByTestId("sso-groups-note").textContent).toContain("cannot join");
+	// The invite-only note is read with the group fields' fieldset.
+	expect(
+		screen
+			.getByRole("group", { name: "Roles from groups" })
+			.getAttribute("aria-describedby"),
+	).toBe("sso-groups-note");
 	fireEvent.change(field, { target: { value: key } });
 	for (const [label, value] of [
 		["Students' group", "students@example.edu"],

@@ -63,13 +63,14 @@ function statusText(
 	if (result) {
 		const count = (outcome: AccountImportResultRow["outcome"]) =>
 			result.filter((r) => r.outcome === outcome).length;
+		const emailed = result.filter((r) => r.emailed).length;
 		return `${plural(count("created"), "account", "accounts")} added, ${plural(
 			count("invited"),
 			"invitation",
 			"invitations",
 		)} sent, ${plural(count("skipped") + count("invalid"), "row", "rows")} skipped${
 			count("failed") > 0 ? `, ${count("failed")} failed` : ""
-		}.`;
+		}.${emailed > 0 ? ` ${plural(emailed, "person was", "people were")} emailed.` : ""}`;
 	}
 	if (checking) return "Checking the file…";
 	if (!rows) return "No file checked yet.";
@@ -360,14 +361,8 @@ function ResultView({
 	const problems = rows.filter(
 		(r) => r.outcome === "failed" || r.outcome === "invalid",
 	);
-	const emailed = rows.filter((r) => r.emailed).length;
 	return (
 		<>
-			{emailed > 0 ? (
-				<p className="m-0" data-testid="import-emailed">
-					{plural(emailed, "person was", "people were")} emailed.
-				</p>
-			) : null}
 			{passwords > 0 ? (
 				<Notice tone="warning" id={WARNING_ID} testId="import-password-warning">
 					Download the one-time passwords now: they will not be shown again. Give each

@@ -478,7 +478,7 @@ test("with account email off, Add user offers no link and Send reset link is abs
 	const writes = stub();
 	const panel = await openRow("dana");
 	expect(
-		within(panel).queryByRole("button", { name: /^Send a reset link/ }),
+		within(panel).queryByRole("button", { name: /^Send reset link to/ }),
 	).toBeNull();
 	fireEvent.click(await screen.findByRole("button", { name: "Add user…" }));
 	const dialog = await screen.findByRole("dialog", { name: "Add user" });
@@ -490,7 +490,7 @@ test("Send reset link asks first, then posts and confirms", async () => {
 	const writes = stub({ accountEmail: true });
 	const panel = await openRow("dana");
 	fireEvent.click(
-		await within(panel).findByRole("button", { name: "Send a reset link to dana" }),
+		await within(panel).findByRole("button", { name: "Send reset link to dana" }),
 	);
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Email dana a reset link?",
@@ -540,6 +540,6 @@ test("Edit and Send reset link are not offered on your own account", async () =>
 		within(panel).queryByRole("button", { name: /^Edit email or username/ }),
 	).toBeNull();
 	expect(
-		within(panel).queryByRole("button", { name: /^Send a reset link/ }),
+		within(panel).queryByRole("button", { name: /^Send reset link to/ }),
 	).toBeNull();
 });
