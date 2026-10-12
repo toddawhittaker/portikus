@@ -3,51 +3,56 @@ import { CloseCode } from "@portikus/contracts";
 type EndSocket = (code: number, reason: string) => void;
 
 /**
- * The open helper sockets of each live help session, so an end or a typing
- * change closes them at once instead of at the next per-second check
- * (ADR 0063). Per API process, like the socket counts (ADR 0010).
+ * The open helper sockets of each live help session, one per terminal, so an
+ * end or a typing change closes them at once instead of at the next
+ * per-second check (ADR 0063). Per API process, like the socket counts
+ * (ADR 0010).
  */
 export interface LiveHelpRegistry {
-	/** Track one helper socket; the returned function forgets it. */
-	add: (sessionId: string, end: EndSocket) => () => void;
+	/**
+	 * Track the helper's socket on one terminal; the returned function forgets
+	 * it. Null when that terminal already has one.
+	 */
+	add: (sessionId: string, terminalId: string, end: EndSocket) => (() => void) | null;
+	/** Whether the helper already has a socket on this terminal. */
+	has: (sessionId: string, terminalId: string) => boolean;
 	/** Close every helper socket of a session that ended. */
 	end: (sessionId: string) => void;
 	/** Close every helper socket so it reconnects in the new mode. */
 	modeChanged: (sessionId: string) => void;
-	/** Helper sockets open on a session now. */
-	open: (sessionId: string) => number;
 }
 
 export function createLiveHelpRegistry(): LiveHelpRegistry {
-	const sockets = new Map<string, Set<EndSocket>>();
+	const sockets = new Map<string, Map<string, EndSocket>>();
 
 	function closeAll(sessionId: string, code: number, reason: string): void {
 		const ends = sockets.get(sessionId);
 		if (!ends) return;
 		sockets.delete(sessionId);
-		for (const end of ends) end(code, reason);
+		for (const end of ends.values()) end(code, reason);
 	}
 
 	return {
-		add(sessionId, end) {
-			const ends = sockets.get(sessionId) ?? new Set<EndSocket>();
-			ends.add(end);
+		add(sessionId, terminalId, end) {
+			const ends = sockets.get(sessionId) ?? new Map<string, EndSocket>();
+			if (ends.has(terminalId)) return null;
+			ends.set(terminalId, end);
 			sockets.set(sessionId, ends);
 			return () => {
-				ends.delete(end);
+				if (ends.get(terminalId) === end) ends.delete(terminalId);
 				if (ends.size === 0 && sockets.get(sessionId) === ends) {
 					sockets.delete(sessionId);
 				}
 			};
+		},
+		has(sessionId, terminalId) {
+			return sockets.get(sessionId)?.has(terminalId) ?? false;
 		},
 		end(sessionId) {
 			closeAll(sessionId, CloseCode.LIVE_HELP_ENDED, "live help ended");
 		},
 		modeChanged(sessionId) {
 			closeAll(sessionId, CloseCode.LIVE_HELP_MODE_CHANGED, "live help mode changed");
-		},
-		open(sessionId) {
-			return sockets.get(sessionId)?.size ?? 0;
 		},
 	};
 }

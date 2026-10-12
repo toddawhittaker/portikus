@@ -553,6 +553,8 @@ interface LiveHelpSessionsTable {
 	started_at: ColumnType<Date, string | undefined, never>;
 	ends_at: ColumnType<Date, string, string>;
 	ended_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** A LiveHelpEndReason, set with `ended_at`. */
+	end_reason: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /** An instructor who opened a share, for the student's viewer list. */

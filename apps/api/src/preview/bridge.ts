@@ -52,6 +52,18 @@ export interface BridgeForwards {
 	closeForWorkspace(workspaceId: string): Promise<void>;
 }
 
+/** Every bridge in this process, so ending live help can close its forwards. */
+const liveBridges = new Set<BridgeForwards>();
+
+/** Close the bridge forwards of preview sessions revoked outside the preview routes. */
+export async function closeBridgesForPreviewSessions(
+	sessionIds: readonly string[],
+): Promise<void> {
+	for (const bridge of liveBridges) {
+		for (const id of sessionIds) await bridge.closeForSession(id);
+	}
+}
+
 interface Tracked {
 	workspaceId: string;
 	port: number;
@@ -100,7 +112,7 @@ export function createBridgeForwards(deps: {
 		watchers.set(workspaceId, off);
 	}
 
-	return {
+	const bridge: BridgeForwards = {
 		async ensure(workspaceId, sessionId, port) {
 			const before = registry.service(workspaceId, port);
 			await registry.ensureReachable(workspaceId, port);
@@ -133,4 +145,6 @@ export function createBridgeForwards(deps: {
 			}
 		},
 	};
+	liveBridges.add(bridge);
+	return bridge;
 }

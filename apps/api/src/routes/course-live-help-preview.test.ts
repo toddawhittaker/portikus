@@ -14,7 +14,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { endLiveHelp } from "../live-help/sessions.js";
-import { createPreviewSession } from "../preview/store.js";
+import { clearPreviewLookups, createPreviewSession } from "../preview/store.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	buildMatrixWorld,
@@ -75,7 +75,9 @@ beforeEach(async () => {
 });
 
 /** A's workspace listens on the preview port, with a secret on its command line. */
-async function seedListener(): Promise<void> {
+async function seedListener(
+	extra: { port: number; previewReachability?: "unknown" }[] = [],
+): Promise<void> {
 	const key = world.a.agentToken.slice(AGENT_TOKEN.length + 1);
 	const seeded = await fetch(`http://127.0.0.1:${agent.port}/__test/listening`, {
 		method: "POST",
@@ -86,7 +88,9 @@ async function seedListener(): Promise<void> {
 				{
 					port: PORT,
 					process: { pid: 7, command: "node", commandLine: "node --token=s3cret" },
+					container: { id: "c0ffee", name: "student-db" },
 				},
+				...extra,
 			],
 		}),
 	});
@@ -97,7 +101,8 @@ async function seedListener(): Promise<void> {
 				url: `/workspaces/${world.a.workspaceId}/listening`,
 				headers: { cookie: world.a.jar.cookieHeader() },
 			});
-			return res.body.includes(String(PORT));
+			const ports = (res.json().services ?? []) as { port: number }[];
+			return ports.length === extra.length + 1;
 		})
 		.toBe(true);
 }
@@ -110,7 +115,17 @@ async function startedId(): Promise<string> {
 		payload: { helperUserId: helperId, courseId: world.courseId },
 	});
 	expect(res.statusCode, res.body).toBe(200);
+	// The gateway lets the helper in only while the student is there.
+	await studentConnected();
 	return LiveHelpStatus.parse(res.json()).session?.id ?? "";
+}
+
+/** A's browser counts as open while this row is fresh (SPEC.md §6.4). */
+async function studentConnected(): Promise<void> {
+	await testDb.db
+		.insertInto("workspace_connections")
+		.values({ workspace_id: world.a.workspaceId })
+		.execute();
 }
 
 function base(sid: string): string {
@@ -147,14 +162,19 @@ async function helperPreview(sid: string): Promise<string> {
 	return cookie.value;
 }
 
-function authorize(token: string, previewHost = host(), userStarted = false) {
+function authorize(
+	token: string,
+	previewHost = host(),
+	userStarted = false,
+	uri = "/",
+) {
 	return app.inject({
 		url: "/preview/authorize",
 		remoteAddress: "127.0.0.1",
 		headers: {
 			"x-forwarded-host": previewHost,
 			"x-forwarded-method": "GET",
-			"x-forwarded-uri": "/",
+			"x-forwarded-uri": uri,
 			"x-forwarded-proto": "https",
 			cookie: `${COOKIE}=${token}`,
 			...(userStarted ? { "sec-fetch-dest": "document", "sec-fetch-user": "?1" } : {}),
@@ -199,7 +219,7 @@ async function forgedSession(
 }
 
 describe.skipIf(skip)("the helper's listening list", () => {
-	test("lists A's services without the command line", async () => {
+	test("lists A's ports with no process or container details", async () => {
 		const sid = await startedId();
 		const res = await app.inject({
 			url: `${base(sid)}/listening`,
@@ -209,8 +229,10 @@ describe.skipIf(skip)("the helper's listening list", () => {
 		expect(res.headers["cache-control"]).toBe("no-store");
 		const services = res.json().services as { port: number; process?: object }[];
 		expect(services.map((one) => one.port)).toEqual([PORT]);
-		expect(services[0]?.process).toEqual({ pid: 7, command: "node" });
+		expect(services[0]).not.toHaveProperty("process");
+		expect(services[0]).not.toHaveProperty("container");
 		expect(res.body).not.toContain("s3cret");
+		expect(res.body).not.toContain("student-db");
 	});
 
 	test("is 404 for another instructor, the owner and an administrator", async () => {
@@ -313,5 +335,41 @@ describe.skipIf(skip)("the gateway's owner check", () => {
 			host(world.b.label),
 		);
 		expect((await authorize(token, host(world.b.label))).statusCode).toBe(403);
+	});
+});
+
+describe.skipIf(skip)("the gateway's live checks on the helper", () => {
+	test("refuses the helper once the student closes their workspace", async () => {
+		const sid = await startedId();
+		const token = await helperPreview(sid);
+		expect((await authorize(token)).statusCode).toBe(200);
+		await testDb.db.deleteFrom("workspace_connections").execute();
+		// Past the two-second lookup cache.
+		clearPreviewLookups();
+		expect((await authorize(token)).statusCode).toBe(403);
+	});
+
+	test("refuses the helper once they no longer share the course", async () => {
+		const sid = await startedId();
+		const token = await helperPreview(sid);
+		expect((await authorize(token)).statusCode).toBe(200);
+		await testDb.db
+			.deleteFrom("lti_memberships")
+			.where("user_id", "=", world.a.userId)
+			.execute();
+		clearPreviewLookups();
+		expect((await authorize(token)).statusCode).toBe(403);
+	});
+
+	test("ending live help closes the bridge forwards the helper's preview opened", async () => {
+		await seedListener([{ port: 3000, previewReachability: "unknown" }]);
+		const key = world.a.agentToken.slice(AGENT_TOKEN.length + 1);
+		const sid = await startedId();
+		const token = await helperPreview(sid);
+		const bridged = await authorize(token, host(), false, "/__portikus/ports/3000/api");
+		expect(bridged.statusCode, bridged.body).toBe(200);
+		expect([...(agent.forwards.get(key) ?? [])]).toEqual([3000]);
+		await endLiveHelp(testDb.db, { sessionId: sid, actor: "test", reason: "stopped" });
+		await expect.poll(() => agent.forwards.get(key)?.size ?? 0).toBe(0);
 	});
 });

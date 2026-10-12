@@ -1,6 +1,8 @@
 import {
+	LIVE_HELP_LAST_ENDED_SECONDS,
 	LIVE_HELP_MINUTES,
-	type LiveHelpEndReason,
+	LiveHelpEndReason,
+	type LiveHelpLastEnded,
 	type LiveHelpStatus,
 } from "@portikus/contracts";
 import {
@@ -9,37 +11,63 @@ import {
 	recordAudit,
 	recordNotification,
 } from "@portikus/db";
-import { type Kysely, sql } from "kysely";
+import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import { liveHelpAudience, sharesCourseWith } from "../courses/membership.js";
+import { closeBridgesForPreviewSessions } from "../preview/bridge.js";
 import { clearPreviewLookups } from "../preview/store.js";
 import { liveHelpSockets } from "./registry.js";
 
 /** Title of the notice an instructor gets when a student starts live help. */
 export const LIVE_HELP_STARTED_TITLE = "A student asked for live help";
 
-/** Run `work` in a transaction, or in the caller's when it already holds one. */
-async function inTransaction<T>(
-	db: Kysely<Database>,
-	work: (trx: Kysely<Database>) => Promise<T>,
-): Promise<T> {
-	if (db.isTransaction) return work(db);
-	return db.transaction().execute(work);
+/**
+ * A session that has not ended and is not past its end time. One past its
+ * end time still holds the one-open slot until expiry sets `ended_at`.
+ */
+export function whereOpen(eb: ExpressionBuilder<Database, "live_help_sessions">) {
+	return eb.and([
+		eb("live_help_sessions.ended_at", "is", null),
+		eb("live_help_sessions.ends_at", ">", sql<Date>`now()`),
+	]);
 }
+
+/** Sessions whose rows were just ended, and the preview sessions they took along. */
+export interface EndedLiveHelp {
+	sessionIds: string[];
+	previewSessionIds: string[];
+}
+
+const NOTHING_ENDED: EndedLiveHelp = { sessionIds: [], previewSessionIds: [] };
 
 /** Remove the preview access a session gave its helper (ADR 0063). */
 async function dropSessionPreviews(
-	db: Kysely<Database>,
+	trx: Kysely<Database>,
 	sessionIds: readonly string[],
-): Promise<void> {
-	if (sessionIds.length === 0) return;
-	await db
+): Promise<string[]> {
+	if (sessionIds.length === 0) return [];
+	await trx
 		.deleteFrom("preview_grants")
 		.where("live_help_session_id", "in", sessionIds)
 		.execute();
-	await db
+	const rows = await trx
 		.deleteFrom("preview_sessions")
 		.where("live_help_session_id", "in", sessionIds)
+		.returning("id")
 		.execute();
+	return rows.map((row) => row.id);
+}
+
+/**
+ * Close what ended sessions left open in this process: helper sockets,
+ * cached preview rows, and bridge forwards. Run only after the rows that
+ * ended them are committed, so a rollback never cuts a live session.
+ */
+export async function closeEndedLiveHelp(ended: EndedLiveHelp): Promise<void> {
+	if (ended.sessionIds.length === 0) return;
+	for (const id of ended.sessionIds) liveHelpSockets.end(id);
+	// Cached preview rows would let the helper in for two more seconds.
+	clearPreviewLookups();
+	await closeBridgesForPreviewSessions(ended.previewSessionIds);
 }
 
 /**
@@ -50,62 +78,70 @@ async function expireLiveHelp(
 	db: Kysely<Database>,
 	workspaceId: string,
 ): Promise<void> {
-	const expired = await inTransaction(db, async (trx) => {
+	const ended = await db.transaction().execute(async (trx) => {
 		const rows = await trx
 			.updateTable("live_help_sessions")
-			.set({ ended_at: sql<string>`ends_at` })
+			.set({ ended_at: sql<string>`ends_at`, end_reason: "expired" })
 			.where("workspace_id", "=", workspaceId)
 			.where("ended_at", "is", null)
 			.where("ends_at", "<=", sql<Date>`now()`)
 			.returning("id")
 			.execute();
-		const ids = rows.map((row) => row.id);
-		await dropSessionPreviews(trx, ids);
-		return ids;
+		const sessionIds = rows.map((row) => row.id);
+		return {
+			sessionIds,
+			previewSessionIds: await dropSessionPreviews(trx, sessionIds),
+		};
 	});
-	for (const id of expired) liveHelpSockets.end(id);
+	await closeEndedLiveHelp(ended);
+}
+
+/** End one open session's row and audit why and for how long, inside `trx`. */
+async function endRow(
+	trx: Kysely<Database>,
+	end: { sessionId: string; actor: string; reason: LiveHelpEndReason },
+): Promise<EndedLiveHelp> {
+	const row = await trx
+		.updateTable("live_help_sessions")
+		.set({ ended_at: sql<string>`now()`, end_reason: end.reason })
+		.where("id", "=", end.sessionId)
+		.where(whereOpen)
+		.returning(["project_id", "started_at", "ended_at"])
+		.executeTakeFirst();
+	if (!row) return NOTHING_ENDED;
+	const endedAt = row.ended_at ? new Date(row.ended_at).getTime() : Date.now();
+	// Ids only (ADR 0012).
+	await recordAudit(trx, {
+		actor: end.actor,
+		target: row.project_id,
+		action: "project.live_help_ended",
+		result: "ok",
+		metadata: {
+			sessionId: end.sessionId,
+			reason: end.reason,
+			durationSeconds: Math.max(
+				0,
+				Math.round((endedAt - new Date(row.started_at).getTime()) / 1000),
+			),
+		},
+	});
+	return {
+		sessionIds: [end.sessionId],
+		previewSessionIds: await dropSessionPreviews(trx, [end.sessionId]),
+	};
 }
 
 /**
- * End one open session, audit why and for how long, and close its helper
- * sockets at once (ADR 0063). A session that already ended is left alone.
+ * End one open session, audit it, and close its helper sockets and previews
+ * at once (ADR 0063). A session that already ended or expired is left alone.
+ * Not for use inside a caller's transaction; see `endProjectLiveHelp`.
  */
 export async function endLiveHelp(
 	db: Kysely<Database>,
 	end: { sessionId: string; actor: string; reason: LiveHelpEndReason },
 ): Promise<void> {
-	const ended = await inTransaction(db, async (trx) => {
-		const row = await trx
-			.updateTable("live_help_sessions")
-			.set({ ended_at: sql<string>`now()` })
-			.where("id", "=", end.sessionId)
-			.where("ended_at", "is", null)
-			.returning(["project_id", "started_at", "ended_at"])
-			.executeTakeFirst();
-		if (!row) return false;
-		const endedAt = row.ended_at ? new Date(row.ended_at).getTime() : Date.now();
-		// Ids only (ADR 0012).
-		await recordAudit(trx, {
-			actor: end.actor,
-			target: row.project_id,
-			action: "project.live_help_ended",
-			result: "ok",
-			metadata: {
-				sessionId: end.sessionId,
-				reason: end.reason,
-				durationSeconds: Math.max(
-					0,
-					Math.round((endedAt - new Date(row.started_at).getTime()) / 1000),
-				),
-			},
-		});
-		await dropSessionPreviews(trx, [end.sessionId]);
-		return true;
-	});
-	if (!ended) return;
-	liveHelpSockets.end(end.sessionId);
-	// Cached preview rows would let the helper in for two more seconds.
-	clearPreviewLookups();
+	const ended = await db.transaction().execute((trx) => endRow(trx, end));
+	await closeEndedLiveHelp(ended);
 }
 
 /** The open session of a workspace, if any, for its owner. */
@@ -117,25 +153,28 @@ async function openSessionId(
 		.selectFrom("live_help_sessions")
 		.select("id")
 		.where("workspace_id", "=", workspaceId)
-		.where("ended_at", "is", null)
-		.where("ends_at", ">", sql<Date>`now()`)
+		.where(whereOpen)
 		.executeTakeFirst();
 	return row?.id ?? null;
 }
 
-/** End the open session of a project being archived (SPEC.md §5.2). */
+/**
+ * End the open session of a project being archived (SPEC.md §5.2), inside
+ * the archive's transaction. The caller passes the result to
+ * `closeEndedLiveHelp` once that transaction commits.
+ */
 export async function endProjectLiveHelp(
-	db: Kysely<Database>,
+	trx: Kysely<Database>,
 	end: { projectId: string; actor: string },
-): Promise<void> {
-	const row = await db
+): Promise<EndedLiveHelp> {
+	const row = await trx
 		.selectFrom("live_help_sessions")
 		.select("id")
 		.where("project_id", "=", end.projectId)
-		.where("ended_at", "is", null)
+		.where(whereOpen)
 		.executeTakeFirst();
-	if (!row) return;
-	await endLiveHelp(db, { sessionId: row.id, actor: end.actor, reason: "archived" });
+	if (!row) return NOTHING_ENDED;
+	return endRow(trx, { sessionId: row.id, actor: end.actor, reason: "archived" });
 }
 
 /** The student's own stop. */
@@ -242,7 +281,7 @@ export async function setLiveHelpTyping(
 			.updateTable("live_help_sessions")
 			.set({ typing: change.typing })
 			.where("id", "=", id)
-			.where("ended_at", "is", null)
+			.where(whereOpen)
 			.where("typing", "!=", change.typing)
 			.returning(["project_id"])
 			.executeTakeFirst();
@@ -260,18 +299,56 @@ export async function setLiveHelpTyping(
 	return true;
 }
 
+/** The workspace's session that ended within the last minute, if any. */
+async function lastEndedLiveHelp(
+	db: Kysely<Database>,
+	workspaceId: string,
+): Promise<LiveHelpLastEnded | null> {
+	const row = await db
+		.selectFrom("live_help_sessions")
+		.innerJoin("projects", "projects.id", "live_help_sessions.project_id")
+		.innerJoin("users", "users.id", "live_help_sessions.helper_user_id")
+		.select([
+			"live_help_sessions.id",
+			"live_help_sessions.end_reason",
+			"live_help_sessions.ended_at",
+			"projects.name",
+			"users.display_name",
+		])
+		.where("live_help_sessions.workspace_id", "=", workspaceId)
+		.where(
+			"live_help_sessions.ended_at",
+			">",
+			sql<Date>`now() - make_interval(secs => ${LIVE_HELP_LAST_ENDED_SECONDS})`,
+		)
+		.orderBy("live_help_sessions.ended_at", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	const reason = LiveHelpEndReason.safeParse(row?.end_reason);
+	if (!row?.ended_at || !reason.success) return null;
+	return {
+		sessionId: row.id,
+		helperDisplayName: row.display_name,
+		projectName: row.name,
+		reason: reason.data,
+		endedAt: new Date(row.ended_at).toISOString(),
+	};
+}
+
 /**
- * The student's view: the open session, if any, and who could be asked. A
- * session whose helper no longer shares the course ends here, so the
- * student's poll ends it even with no helper socket open.
+ * The student's view: the open session, or else why the last one just
+ * ended, and with `audience` who could be asked. A session whose helper no
+ * longer shares the course ends here, so the student's poll ends it even
+ * with no helper socket open.
  */
 export async function liveHelpStatus(
 	db: Kysely<Database>,
 	workspaceId: string,
 	ownerId: string,
+	options: { audience: boolean },
 ): Promise<LiveHelpStatus> {
 	await expireLiveHelp(db, workspaceId);
-	const audience = await liveHelpAudience(db, ownerId);
+	const audience = options.audience ? await liveHelpAudience(db, ownerId) : [];
 	const row = await db
 		.selectFrom("live_help_sessions")
 		.innerJoin("projects", "projects.id", "live_help_sessions.project_id")
@@ -288,9 +365,14 @@ export async function liveHelpStatus(
 			"users.display_name",
 		])
 		.where("live_help_sessions.workspace_id", "=", workspaceId)
-		.where("live_help_sessions.ended_at", "is", null)
+		.where(whereOpen)
 		.executeTakeFirst();
-	if (!row) return { session: null, audience };
+	const closed = async (): Promise<LiveHelpStatus> => ({
+		session: null,
+		lastEnded: await lastEndedLiveHelp(db, workspaceId),
+		audience,
+	});
+	if (!row) return closed();
 	const linked = await sharesCourseWith(db, {
 		instructorId: row.helper_user_id,
 		memberId: ownerId,
@@ -302,7 +384,7 @@ export async function liveHelpStatus(
 			actor: "platform",
 			reason: "helper_removed",
 		});
-		return { session: null, audience };
+		return closed();
 	}
 	return {
 		session: {
@@ -315,6 +397,7 @@ export async function liveHelpStatus(
 			startedAt: new Date(row.started_at).toISOString(),
 			endsAt: new Date(row.ends_at).toISOString(),
 		},
+		lastEnded: null,
 		audience,
 	};
 }

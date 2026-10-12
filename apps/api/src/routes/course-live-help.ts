@@ -11,7 +11,6 @@ import {
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { sql } from "kysely";
 import { z } from "zod";
 import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
@@ -22,7 +21,7 @@ import {
 	liveHelpScope,
 } from "../live-help/gate.js";
 import { liveHelpSockets } from "../live-help/registry.js";
-import { leaveLiveHelp } from "../live-help/sessions.js";
+import { leaveLiveHelp, whereOpen } from "../live-help/sessions.js";
 import { createPendingWork } from "../workspaces/presence.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
 import { terminalSockets } from "../workspaces/terminal-sockets.js";
@@ -100,8 +99,7 @@ export function registerCourseLiveHelpRoutes(
 				])
 				.where("live_help_sessions.course_id", "=", courseId)
 				.where("live_help_sessions.helper_user_id", "=", helper.id)
-				.where("live_help_sessions.ended_at", "is", null)
-				.where("live_help_sessions.ends_at", ">", sql<Date>`now()`)
+				.where(whereOpen)
 				.where("projects.state", "=", "active")
 				.orderBy("live_help_sessions.started_at")
 				.execute();
@@ -179,6 +177,15 @@ export function registerCourseLiveHelpRoutes(
 								.executeTakeFirst()
 						: undefined;
 					if (!terminal) return sendError(reply, 404, "NOT_FOUND", "Not found.");
+					// One helper socket per terminal: a second tab would double every keystroke.
+					if (liveHelpSockets.has(scope.sessionId, terminal.id)) {
+						return sendError(
+							reply,
+							409,
+							"LIVE_HELP_TERMINAL_OPEN",
+							"This terminal is already open in another tab.",
+						);
+					}
 					request.liveHelpScope = scope;
 				},
 			},
@@ -200,6 +207,30 @@ export function registerCourseLiveHelpRoutes(
 					return;
 				}
 				const mode: TerminalAttachMode = scope.typing ? "type" : "view";
+				// Registered before any await, so an end or a mode change from now
+				// on reaches this socket (ADR 0063).
+				let endPipe: ((code: number, reason: string) => void) | null = null;
+				const unregister = liveHelpSockets.add(
+					scope.sessionId,
+					terminalId,
+					(code, reason) => {
+						if (endPipe) return endPipe(code, reason);
+						socket.close(code, reason);
+						// A paused socket never reads the browser's close reply.
+						socket.resume();
+					},
+				);
+				const release = () => {
+					unregister?.();
+					terminalSockets.release(scope.helperId);
+				};
+				if (!unregister) {
+					// Another upgrade for this terminal won the race past the preHandler.
+					terminalSockets.release(scope.helperId);
+					socket.close(CloseCode.POLICY, "terminal already open");
+					socket.resume();
+					return;
+				}
 				try {
 					// Written before the pipe opens: no attach goes unrecorded (ADR 0063).
 					await recordAudit(db, {
@@ -210,7 +241,7 @@ export function registerCourseLiveHelpRoutes(
 						metadata: { sessionId: scope.sessionId, terminalId, mode },
 					});
 				} catch (error) {
-					terminalSockets.release(scope.helperId);
+					release();
 					request.log.error(
 						{ err: error, sessionId: scope.sessionId },
 						"live help audit failed",
@@ -219,8 +250,14 @@ export function registerCourseLiveHelpRoutes(
 					socket.resume();
 					return;
 				}
-				if (socket.readyState !== socket.OPEN) {
-					terminalSockets.release(scope.helperId);
+				// The session may have ended or changed mode while the audit ran.
+				const refused =
+					socket.readyState === socket.OPEN
+						? await helperSocketRefusal(db, config, scope, mode)
+						: null;
+				if (socket.readyState !== socket.OPEN || refused) {
+					release();
+					if (refused) socket.close(refused.code, refused.reason);
 					socket.resume();
 					return;
 				}
@@ -240,8 +277,13 @@ export function registerCourseLiveHelpRoutes(
 						mode,
 						presence: false,
 						stillAllowed: () => helperSocketRefusal(db, config, scope, mode),
-						register: (end) => liveHelpSockets.add(scope.sessionId, end),
-					}).finally(() => terminalSockets.release(scope.helperId)),
+						register: (end) => {
+							endPipe = end;
+							return () => {
+								endPipe = null;
+							};
+						},
+					}).finally(release),
 				);
 				socket.resume();
 			},

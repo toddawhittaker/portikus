@@ -216,7 +216,7 @@ test.skipIf(skip)("frames are forwarded in both directions unchanged", async () 
 
 	// The agent's greeting proves the query string reached it as a text frame.
 	const greeting = JSON.parse(await socket.next());
-	expect(greeting).toEqual({ type: "size", cols: "100", rows: "30" });
+	expect(greeting).toEqual({ type: "attached-size", cols: "100", rows: "30" });
 
 	const input = JSON.stringify({ type: "input", data: "ls -la\r" });
 	socket.ws.send(input);
@@ -226,7 +226,7 @@ test.skipIf(skip)("frames are forwarded in both directions unchanged", async () 
 
 	socket.ws.send(JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
 	const resized = JSON.parse(await socket.next());
-	expect(resized).toEqual({ type: "size", cols: 120 });
+	expect(resized).toEqual({ type: "attached-size", cols: 120 });
 
 	await socket.close();
 });

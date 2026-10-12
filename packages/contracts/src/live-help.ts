@@ -10,12 +10,13 @@ import { WorkspaceState } from "./workspace.js";
 /** How long a session lasts unless it ends sooner. */
 export const LIVE_HELP_MINUTES = 60;
 
-/** Why a session ended, as the audit records it. An expiry is not audited. */
+/** Why a session ended. An expiry is recorded on the session but not audited. */
 export const LiveHelpEndReason = z.enum([
 	"stopped",
 	"helper_left",
 	"archived",
 	"helper_removed",
+	"expired",
 ]);
 export type LiveHelpEndReason = z.infer<typeof LiveHelpEndReason>;
 
@@ -47,12 +48,30 @@ export const LiveHelpSession = z.object({
 });
 export type LiveHelpSession = z.infer<typeof LiveHelpSession>;
 
+/** How long a session's end stays in the status, so the student's bar can say why. */
+export const LIVE_HELP_LAST_ENDED_SECONDS = 60;
+
+/** The workspace's most recent session, when it ended moments ago. */
+export const LiveHelpLastEnded = z.object({
+	sessionId: z.string().uuid(),
+	helperDisplayName: z.string().min(1),
+	projectName: z.string().min(1),
+	reason: LiveHelpEndReason,
+	endedAt: z.string().datetime({ offset: true }),
+});
+export type LiveHelpLastEnded = z.infer<typeof LiveHelpLastEnded>;
+
 /**
  * Response body for `GET /workspaces/:id/live-help`, and for the start,
- * typing and stop routes. `session` is null when nothing is open.
+ * typing and stop routes. `session` is null when nothing is open; then
+ * `lastEnded` is the session that ended within the last
+ * `LIVE_HELP_LAST_ENDED_SECONDS`, if any. The GET fills `audience` only when
+ * asked with `?audience=1`; otherwise it is empty.
  */
 export const LiveHelpStatus = z.object({
 	session: LiveHelpSession.nullable(),
+	// Defaults to null so a body from before this field still parses.
+	lastEnded: LiveHelpLastEnded.nullable().default(null),
 	audience: z.array(LiveHelpAudienceCourse),
 });
 export type LiveHelpStatus = z.infer<typeof LiveHelpStatus>;

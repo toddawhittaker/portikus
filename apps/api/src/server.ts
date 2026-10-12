@@ -13,6 +13,7 @@ import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { registerPagePolicy } from "./page-policy.js";
+import { createPreviewRequestLimit } from "./preview/grants.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -247,7 +248,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Layout saves announce on the workspace sockets of the same server.
 	const workspaceHub = createWorkspaceHub();
-	const routeDeps = { ...deps, registry, workspaceHub };
+	// One preview budget per user across the student and live help grant routes.
+	const overPreviewLimit = createPreviewRequestLimit();
+	const routeDeps = { ...deps, registry, workspaceHub, overPreviewLimit };
 
 	// Every route lives inside this plugin, so an onRoute hook added after
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
@@ -277,7 +280,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerCourseRosterRoutes(instance, deps);
 		registerCourseShareRoutes(instance, deps);
 		registerProjectShareRoutes(instance, deps);
-		registerLiveHelpRoutes(instance, deps);
+		registerLiveHelpRoutes(instance, deps, limitFileWrites);
 		registerCourseLiveHelpRoutes(instance, deps);
 		registerCourseLiveHelpPreviewRoutes(instance, routeDeps);
 		registerAgentUsageRoutes(instance, deps);

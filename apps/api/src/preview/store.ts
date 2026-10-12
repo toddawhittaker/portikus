@@ -3,6 +3,8 @@ import { hashSessionToken, loadSessionById } from "@portikus/auth";
 import type { PreviewPresentation } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { sharesCourseWith } from "../courses/membership.js";
+import { countActive, type PresenceConfig } from "../workspaces/workspace-view.js";
 
 /** The session user with its gate state, as `loadSessionById` gives it. */
 type SessionUser = NonNullable<Awaited<ReturnType<typeof loadSessionById>>>;
@@ -325,6 +327,10 @@ interface PreviewLiveHelpRow {
 	helper_user_id: string;
 	ends_at: Date;
 	ended_at: Date | null;
+	/** The helper still teaches the session's course and the student is in it. */
+	linked: boolean;
+	/** The student has a browser open on the workspace. */
+	studentPresent: boolean;
 }
 
 /** The rows `/preview/authorize` needs; any may be missing. */
@@ -355,6 +361,8 @@ export function previewAccess(
 		liveHelp.ended_at === null &&
 		new Date(liveHelp.ends_at).getTime() > now &&
 		liveHelp.helper_user_id === session.user_id &&
+		liveHelp.linked &&
+		liveHelp.studentPresent &&
 		liveHelp.workspace_id === workspace.id &&
 		session.workspace_id === workspace.id;
 	return open ? "helper" : null;
@@ -383,6 +391,7 @@ const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
  */
 export function createPreviewLookupCache(
 	db: Kysely<Database>,
+	config: PresenceConfig,
 	now: () => number = Date.now,
 ) {
 	const entries = new Map<string, { at: number; lookup: PreviewLookup }>();
@@ -401,13 +410,39 @@ export function createPreviewLookupCache(
 				.where("id", "=", session.workspace_id)
 				.executeTakeFirst()) ?? null;
 		const liveHelp = session.live_help_session_id
-			? ((await db
-					.selectFrom("live_help_sessions")
-					.select(["workspace_id", "helper_user_id", "ends_at", "ended_at"])
-					.where("id", "=", session.live_help_session_id)
-					.executeTakeFirst()) ?? null)
+			? await loadLiveHelp(session.live_help_session_id, workspace)
 			: null;
 		return { session, user, workspace, liveHelp };
+	}
+
+	/**
+	 * The session row plus the two live facts the helper's socket checks too:
+	 * the course link and the student's presence (ADR 0063).
+	 */
+	async function loadLiveHelp(
+		id: string,
+		workspace: PreviewWorkspaceRow | null,
+	): Promise<PreviewLiveHelpRow | null> {
+		const row = await db
+			.selectFrom("live_help_sessions")
+			.select(["workspace_id", "helper_user_id", "course_id", "ends_at", "ended_at"])
+			.where("id", "=", id)
+			.executeTakeFirst();
+		if (!row || !workspace) return null;
+		const linked = await sharesCourseWith(db, {
+			instructorId: row.helper_user_id,
+			memberId: workspace.owner_user_id,
+			courseId: row.course_id,
+		});
+		const studentPresent = (await countActive(db, row.workspace_id, config)) > 0;
+		return {
+			workspace_id: row.workspace_id,
+			helper_user_id: row.helper_user_id,
+			ends_at: row.ends_at,
+			ended_at: row.ended_at,
+			linked,
+			studentPresent,
+		};
 	}
 
 	const cache = {

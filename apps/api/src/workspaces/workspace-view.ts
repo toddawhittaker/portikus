@@ -133,11 +133,14 @@ export function toWorkspace(
 	};
 }
 
+/** The one setting a presence count reads. */
+export type PresenceConfig = Pick<ApiConfig, "PRESENCE_TTL_SECONDS">;
+
 /** Connections seen within the presence TTL (SPEC.md §6.4). */
 export async function countActive(
 	db: Kysely<Database>,
 	workspaceId: string,
-	config: ApiConfig,
+	config: PresenceConfig,
 ): Promise<number> {
 	const cutoff = new Date(
 		Date.now() - config.PRESENCE_TTL_SECONDS * 1000,
