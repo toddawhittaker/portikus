@@ -3,6 +3,7 @@ import { Button } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
+import { revealFocused } from "../../table/revealFocus.js";
 import { SortHeader } from "../../table/SortHeader.js";
 import { type SortState, sortText } from "../../table/sort.js";
 import { shortId, shortTime } from "../../text.js";
@@ -156,7 +157,8 @@ export function LogResults({
 			{/* No header row over nothing: an empty result is one line of text. overflow-clip
 			    keeps the header sticking to the scrolling <main> (SPEC.md section 20.1). */}
 			{empty ? null : (
-				<div className="pk-table-wrap overflow-clip">
+				// biome-ignore lint/a11y/noStaticElementInteractions: only scrolls a focused child into view
+				<div className="pk-table-wrap overflow-clip" onFocus={revealFocused}>
 					<table
 						ref={tableRef}
 						className="pk-table"

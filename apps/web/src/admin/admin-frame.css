@@ -30,6 +30,16 @@
 	scrollbar-gutter: stable;
 	container: admin-scroll / size;
 }
+/*
+ * Narrower than a 768 px window gives, a table clipped for its sticky header
+ * would hide its last columns, so it scrolls sideways in its own box instead
+ * and its header stops sticking.
+ */
+@container admin-scroll (width < 45rem) {
+	.pk-table-wrap {
+		overflow: auto;
+	}
+}
 
 /*
  * The tab strip, with the workspace tab look (`pk-tab`). Tabs keep their

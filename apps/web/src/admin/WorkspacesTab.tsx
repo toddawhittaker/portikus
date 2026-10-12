@@ -15,6 +15,7 @@ import {
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
+import { revealFocused } from "../table/revealFocus.js";
 import { SortHeader } from "../table/SortHeader.js";
 import { type SortState, sortText } from "../table/sort.js";
 import { AdminSection } from "./AdminSection.js";
@@ -291,7 +292,11 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="@container">
 				<div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-start">
 					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
-					<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: only scrolls a focused child into view */}
+					<div
+						className="pk-table-wrap min-w-0 flex-1 overflow-clip"
+						onFocus={revealFocused}
+					>
 						<table className="pk-table" data-testid="admin-accounts">
 							<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 								Accounts and their workspaces,{" "}
