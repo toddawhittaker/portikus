@@ -26,14 +26,22 @@ const IDLE_POLL_MS = 500;
 /** A short first poll so a reload sees the live pane quickly. */
 const FIRST_POLL_MS = 250;
 
+/** Called with the window's size for a live-help helper's attachment. */
+type OnSize = (cols: number, rows: number) => void;
+
 interface Watched {
 	sockets: Set<WebSocket>;
+	/** Helper attachments, which also get the window's size (SPEC.md §9.7). */
+	helpers: Map<WebSocket, OnSize>;
 	last: PaneState | null;
 }
 
 export interface PaneWatcher {
-	/** Start sending this socket pane frames, current values first. */
-	add: (terminalId: string, socket: WebSocket) => void;
+	/**
+	 * Start sending this socket pane frames, current values first. A helper
+	 * attachment passes `onSize` and also gets size frames.
+	 */
+	add: (terminalId: string, socket: WebSocket, onSize?: OnSize) => void;
 	/** Stop sending this socket pane frames. */
 	remove: (terminalId: string, socket: WebSocket) => void;
 	/** How many sockets are being fed for one terminal. */
@@ -50,8 +58,18 @@ function send(socket: WebSocket, message: TerminalServerMessage): void {
 }
 
 /** Send a terminal's attachments whatever changed since the last poll. */
+/** Tell one helper attachment the window's size. */
+function sendSize(socket: WebSocket, onSize: OnSize, state: PaneState): void {
+	if (state.cols < 1 || state.rows < 1) return;
+	onSize(state.cols, state.rows);
+	send(socket, { type: "size", cols: state.cols, rows: state.rows });
+}
+
 function announceChanges(entry: Watched, state: PaneState): void {
 	const last = entry.last;
+	if (last === null || state.cols !== last.cols || state.rows !== last.rows) {
+		for (const [socket, onSize] of entry.helpers) sendSize(socket, onSize, state);
+	}
 	if (state.path !== null && state.path !== last?.path) {
 		for (const socket of entry.sockets) {
 			send(socket, { type: "cwd", path: state.path });
@@ -119,9 +137,14 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 	}
 
 	return {
-		add: (terminalId, socket) => {
-			const entry = watched.get(terminalId) ?? { sockets: new Set(), last: null };
+		add: (terminalId, socket, onSize) => {
+			const entry = watched.get(terminalId) ?? {
+				sockets: new Set(),
+				helpers: new Map(),
+				last: null,
+			};
 			entry.sockets.add(socket);
+			if (onSize) entry.helpers.set(socket, onSize);
 			watched.set(terminalId, entry);
 			// A browser that arrives between polls should not have to wait for
 			// the next one to learn where it is.
@@ -129,12 +152,14 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 				send(socket, { type: "cwd", path: entry.last.path });
 			}
 			if (entry.last) send(socket, { type: "screen", alternate: entry.last.alternate });
+			if (entry.last && onSize) sendSize(socket, onSize, entry.last);
 			ensureRunning();
 		},
 		remove: (terminalId, socket) => {
 			const entry = watched.get(terminalId);
 			if (!entry) return;
 			entry.sockets.delete(socket);
+			entry.helpers.delete(socket);
 			if (entry.sockets.size === 0) watched.delete(terminalId);
 			stopIfIdle();
 		},
