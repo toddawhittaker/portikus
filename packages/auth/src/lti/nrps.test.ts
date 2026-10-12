@@ -184,6 +184,35 @@ describe("requestNrpsToken", () => {
 		expect(error.kind).toBe("token_failed");
 		expect(error.status).toBeNull();
 	});
+
+	test("a forward proxy refusing the token request is token_failed and throws nothing later", async () => {
+		// The LMS server stands in for Squid: undici sends a proxied http
+		// request in absolute form, and the server answers with an error page.
+		lms.handle((_req, res) => {
+			res.writeHead(403, { "content-type": "text/html" }).end("x".repeat(4000));
+		});
+		const uncaught: unknown[] = [];
+		const record = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", record);
+		try {
+			for (let i = 0; i < 3; i += 1) {
+				const error = await failure(
+					requestNrpsToken({
+						tokenUrl: "http://lms.invalid/token",
+						clientId: "client-1",
+						toolKeyPem,
+						proxyUrl: lms.url,
+					}),
+				);
+				expect(error.kind).toBe("token_failed");
+				expect(error.status).toBe(403);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		} finally {
+			process.off("uncaughtException", record);
+		}
+		expect(uncaught).toEqual([]);
+	});
 });
 
 describe("fetchNrpsMembers", () => {

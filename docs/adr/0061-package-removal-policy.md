@@ -31,7 +31,21 @@ cannot rewrite.
 
 ## Consequences
 
-- Purge still leaves Squid's include folder and the helpers in
-  `/usr/local/sbin` (#1492).
+- Purge also stops and disables Squid, because setup configured it only
+  as Portikus's egress proxy and its `squid.conf` includes
+  `/etc/portikus`, which purge deletes. `squid.conf` stays, since it is
+  Squid's own conffile. Purge deletes `/usr/local/sbin/portikus-storage-attach`,
+  `/usr/local/sbin/portikus-thinpool-status`, `/usr/local/bin/dex` and
+  `/usr/local/share/portikus` (Dex's web templates and setup's build
+  markers). Setup rebuilds what is missing. `distrobuilder` is kept, as
+  a general tool (Epic 46, #1492).
+- Purge also stops and disables Caddy. Setup installed Caddy and wrote
+  its Caddyfile, which imports a file under `/etc/portikus` that purge
+  deletes, so Caddy would be a failed unit after a reboot. The
+  administrator's `50-local.conf` drop-in and the Caddyfile are kept.
+  This widens Epic 46's first ruling (Squid only). The Decision's "Caddy
+  and PostgreSQL are never stopped" still holds for remove. Remove also
+  clears Python bytecode caches in `prerm`, so dpkg can remove its
+  directories.
 - A new unit written by a role fails the test until it is added to the
   list.

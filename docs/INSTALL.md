@@ -818,6 +818,31 @@ terminals. They keep the old agent until they are next stopped and
 started, and each one is named in the controller's log:
 `sudo journalctl -u portikus-controller | grep "old workspace agent"`.
 
+## Removing Portikus
+
+`sudo apt remove portikus` stops Portikus's services and keeps your data and
+configuration. `sudo apt purge portikus` also deletes `/etc/portikus`, the
+unit files setup wrote, and the helpers setup put under `/usr/local`. Purge
+stops and disables Squid and Caddy, because setup configured them for Portikus.
+Purge leaves `/etc/squid/squid.conf` as setup wrote it, and that file
+still includes `/etc/portikus`, so Squid would fail to start. To use Squid
+for something else, delete the file, get Debian's own back, and start Squid:
+
+```
+sudo rm /etc/squid/squid.conf
+sudo apt-get install --reinstall -o Dpkg::Options::=--force-confmiss squid
+sudo systemctl enable --now squid
+```
+
+The file must be deleted first: a plain reinstall keeps a changed
+configuration file, and `--force-confmiss` restores only a missing one.
+These commands were checked on Debian 13.
+
+Caddy comes from a downloaded .deb that apt cannot download again, so it cannot
+restore Caddy's original Caddyfile. To use Caddy for something else after a
+purge, write your own /etc/caddy/Caddyfile, then run
+`sudo systemctl enable --now caddy`.
+
 ## Troubleshooting
 
 - **Is it running?** `sudo portikus status` prints the package version and

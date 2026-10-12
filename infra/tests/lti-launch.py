@@ -11,6 +11,15 @@ prints one JSON object and never prints a token, state or nonce.
       /lti/launch.  Then asks /auth/me, /courses and one admin route with the
       new session, and posts the same id_token and state a second time.
 
+  roster MOCK_URL SITE INSTRUCTOR COURSE COURSE_TITLE MEMBER MEMBER_NAME
+      Launches as the instructor and syncs the course roster three times:
+      as the mock has it, with MEMBER made a teaching assistant there, and
+      with MEMBER a learner again.  Resets the mock's rosters before and after.
+
+  deeplink MOCK_URL SITE INSTRUCTOR COURSE TITLE
+      Starts Deep Linking at the mock, picks the picker's default source
+      with project name TITLE, and posts the signed response back to the mock.
+
   forge SITE ISSUER CLIENT_ID
       Starts a real login for a registered platform, then posts tokens no
       platform signed to /lti/launch: one with alg "none", one with a made-up
@@ -95,33 +104,33 @@ def accept_use(op, site):
     status, _, body = request(op, f"{site}/me/acceptable-use")
     if status != 200:
         return status
-    version = json.loads(body).get("version")
-    req = urllib.request.Request(
-        f"{site}/me/acceptable-use", data=json.dumps({"version": version}).encode(),
-        headers={"Content-Type": "application/json", "Origin": site}, method="POST")
-    try:
-        with op.open(req, timeout=15) as res:
-            return res.status
-    except urllib.error.HTTPError as err:
-        return err.code
+    status, _ = post_json(op, site, "/me/acceptable-use", {"version": json.loads(body).get("version")})
+    return status
 
 
-def launch(mock, site, person, course):
+def mock_form_token(op, mock):
+    """The per-process token the mock's launch page carries; its forms require it."""
+    status, _, page = request(op, f"{mock}/")
+    token = re.search(r'name="form_token" value="([^"]*)"', page)
+    return status, token.group(1) if token else ""
+
+
+def mock_launch(mock, site, path, form, out):
+    """The browser flow from a mock form at PATH to /lti/launch.
+
+    Returns (jar, no-redirect opener, the posted launch fields, the launch
+    page), or None with out["error"] set.
+    """
     jar = http.cookiejar.CookieJar()
     follow, stay = opener(jar, True), opener(jar, False)
-    out = {}
 
-    # The launch page carries a per-process form token that /start requires.
-    status, _, page = request(follow, f"{mock}/")
-    token = re.search(r'name="form_token" value="([^"]*)"', page)
-    out["mock_page"] = status
-    status, _, page = request(follow, f"{mock}/start", {
-        "person": person, "course": course, "form_token": token.group(1) if token else ""})
+    out["mock_page"], token = mock_form_token(follow, mock)
+    status, _, page = request(follow, f"{mock}{path}", {**form, "form_token": token})
     action, fields = form_fields(page)
     out["mock_start"] = status
     if action != f"{site}/lti/login":
         out["error"] = "the mock's form does not post to this site's /lti/login"
-        return out
+        return None
 
     status, headers, _ = request(stay, action, fields)
     out["login"] = status
@@ -135,12 +144,22 @@ def launch(mock, site, person, course):
     out["authorize"] = status
     if action != f"{site}/lti/launch" or "id_token" not in fields:
         out["error"] = "the mock's /authorize did not post an id_token to /lti/launch"
-        return out
+        return None
 
-    status, headers, _ = request(stay, action, fields)
+    status, headers, page = request(stay, action, fields)
     out["launch"] = status
     out["launch_location"] = headers.get("Location", "")
     out["session"] = cookie(jar, SESSION_COOKIE) is not None
+    return jar, stay, fields, page
+
+
+def launch(mock, site, person, course):
+    out = {}
+    launched = mock_launch(mock, site, "/start", {"person": person, "course": course}, out)
+    if launched is None:
+        return out
+    _, stay, fields, _ = launched
+    action = f"{site}/lti/launch"
 
     status, _, body = request(stay, f"{site}/auth/me")
     out["me"] = status
@@ -172,6 +191,112 @@ def launch(mock, site, person, course):
     status, _, _ = request(replay, action, fields)
     out["replay"] = status
     out["replay_session"] = cookie(replay_jar, SESSION_COOKIE) is not None
+    return out
+
+
+def post_json(op, site, path, payload):
+    """A same-origin JSON POST with the session in OP's jar; returns (status, parsed body or None)."""
+    req = urllib.request.Request(
+        f"{site}{path}", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Origin": site}, method="POST")
+    try:
+        with op.open(req, timeout=60) as res:
+            status, data = res.status, res.read()
+    except urllib.error.HTTPError as err:
+        return err.code, None
+    try:
+        return status, json.loads(data) if data else None
+    except ValueError:
+        return status, None
+
+
+def roster(mock, site, instructor, course, course_title, member, member_name):
+    """NRPS roster sync (ADR 0058): the API fetches a token and the roster from
+    the mock through the egress proxy.  The member's role is changed in the
+    mock and back, and each sync must carry the change to the course."""
+    out = {}
+    mock_op = opener(http.cookiejar.CookieJar(), False)
+    _, token = mock_form_token(mock_op, mock)
+
+    def change(action, **fields):
+        status, _, _ = request(mock_op, f"{mock}/roster", {"form_token": token, "action": action, **fields})
+        return status
+
+    out["reset"] = change("reset")
+    try:
+        launched = mock_launch(mock, site, "/start", {"person": instructor, "course": course}, out)
+        if launched is None:
+            return out
+        _, stay, _, _ = launched
+        status, _, body = request(stay, f"{site}/auth/me")
+        if status == 200 and json.loads(body).get("mustAcceptUse"):
+            out["accepted_use"] = accept_use(stay, site)
+        status, _, body = request(stay, f"{site}/courses")
+        course_id = next((c["id"] for c in json.loads(body) if c.get("title") == course_title), None) \
+            if status == 200 else None
+        if course_id is None:
+            out["error"] = f"the instructor's courses do not include {course_title}"
+            return out
+
+        def sync(name):
+            out[name], body = post_json(stay, site, f"/courses/{course_id}/roster/sync", {})
+            body = body or {}
+            state = body.get("roster") or {}
+            out[f"{name}_result"] = state.get("result")
+            out[f"{name}_available"] = state.get("available")
+            out[f"{name}_not_started"] = body.get("notStarted")
+            out[f"{name}_role_changed"] = body.get("roleChanged")
+            status, _, members = request(stay, f"{site}/courses/{course_id}/members")
+            if status == 200:
+                out[f"{name}_member_role"] = next(
+                    (m.get("role") for m in json.loads(members).get("members", [])
+                     if m.get("displayName") == member_name), None)
+
+        sync("first")
+        out["promote"] = change("role", course=course, person=member, role="TeachingAssistant")
+        sync("promoted")
+        out["demote"] = change("role", course=course, person=member, role="Learner")
+        sync("demoted")
+    finally:
+        # Leave the mock's rosters as they started, for the next run.
+        change("reset")
+    return out
+
+
+def deep_link(mock, site, instructor, course, title):
+    """A Deep Linking round trip (ADR 0058): the mock's request, Portikus's
+    picker, the signed response posted back to the mock, which verifies it
+    against the tool's keyset and saves the link."""
+    out = {}
+    launched = mock_launch(mock, site, "/deeplink/start", {"person": instructor, "course": course}, out)
+    if launched is None:
+        return out
+    _, stay, _, page = launched
+    out["picker"] = "Choose what this link opens" in page
+    handle = re.search(r'name="handle" value="([^"]*)"', page)
+    choice = re.search(r'name="choice" value="([^"]*)" checked', page)
+    if not handle or not choice:
+        out["error"] = "the picker has no handle or no chosen source"
+        return out
+    choice = choice.group(1).replace("&amp;", "&").replace("&quot;", '"')
+    out["source"] = "repository" if choice == "repository" else "template"
+    fields = {"handle": handle.group(1), "choice": choice, "project": title,
+              "repository": "https://github.com/octocat/Hello-World.git" if choice == "repository" else ""}
+    status, headers, page = request(stay, f"{site}/lti/deep-link", fields, {"Origin": site})
+    out["signed"] = status
+    mock_origin = urllib.parse.urlsplit(mock)._replace(path="", query="", fragment="").geturl()
+    out["return_form_action"] = f"form-action {mock_origin}" in (headers.get("Content-Security-Policy") or "")
+    action, returned = form_fields(page)
+    out["returns_to_mock"] = action == f"{mock}/deeplink/return"
+    if not out["returns_to_mock"] or "JWT" not in returned:
+        return out
+
+    mock_op = opener(http.cookiejar.CookieJar(), False)
+    status, _, page = request(mock_op, action, {"JWT": returned["JWT"]})
+    out["saved"] = status
+    out["saved_one"] = "Saved 1 link" in page
+    _, _, page = request(mock_op, f"{mock}/")
+    out["listed"] = title in page
     return out
 
 
@@ -252,6 +377,10 @@ def forge(site, issuer, client_id):
 def main():
     if len(sys.argv) == 6 and sys.argv[1] == "launch":
         result = launch(*sys.argv[2:])
+    elif len(sys.argv) == 9 and sys.argv[1] == "roster":
+        result = roster(*sys.argv[2:])
+    elif len(sys.argv) == 7 and sys.argv[1] == "deeplink":
+        result = deep_link(*sys.argv[2:])
     elif len(sys.argv) == 5 and sys.argv[1] == "forge":
         result = forge(*sys.argv[2:])
     else:

@@ -28,22 +28,19 @@ worker_ip_allow() {
 }
 check_output "the worker unit may reach 127.0.0.1 and the workspace bridge only" \
   "10.200.0.0/24 127.0.0.1" worker_ip_allow
-# The firewall lets the worker's account open loopback connections only to
-# the controller and the egress proxy its alerts leave through, so it cannot
-# reach the API or Dex (SPEC.md 24.9).
-worker_loopback() { # USER -- "open" or "refused" for the API, the controller, then the proxy.
-  ssh_cmd "sudo runuser -u $1 -- python3 -c 'import socket
-for port in (3000, 3001, 3128):
-    try:
-        socket.create_connection((\"127.0.0.1\", port), timeout=5).close()
-        print(\"open\")
-    except ConnectionRefusedError:
-        print(\"refused\")'" | paste -sd' '
+# The firewall lets the worker's account open local connections only to the
+# controller and the egress proxy its alerts leave through, so it cannot reach
+# the API or Dex (SPEC.md 24.9) on 127.0.0.1, ::1 or any of the VM's own
+# addresses.  The answers are those of infra/tests/reach-probe.py.
+reach_probe() { # USER PORT...
+  local user="$1"
+  shift
+  ssh_cmd_stdin "sudo runuser -u ${user} -- python3 - $*" <"${TESTS_DIR}/reach-probe.py" | paste -sd' '
 }
-check_output "the worker's account reaches the controller and the proxy on loopback but not the API" \
-  "refused open open" worker_loopback portikus-worker
-check_output "the API's account reaches all three, so that refusal is the firewall's" \
-  "open open open" worker_loopback portikus
+check_output "the worker's account reaches only the controller and the proxy, on 127.0.0.1 alone" \
+  "none none none 127.0.0.1 127.0.0.1" reach_probe portikus-worker 3000 5556 own 3001 3128
+check_output "the API's account reaches the probe's own listener everywhere, so those refusals are the firewall's" \
+  "127.0.0.1 127.0.0.1 all" reach_probe portikus 3000 5556 own
 check_output "worker.env sends the worker's alerts through the proxy" "http://127.0.0.1:3128" \
   ssh_cmd "sudo sed -n 's/^OUTBOUND_PROXY_URL=//p' /etc/portikus/worker.env"
 # proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
