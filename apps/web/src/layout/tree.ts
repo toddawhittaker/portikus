@@ -582,7 +582,7 @@ export function closeTab(layout: ProjectLayout, tabId: string): ProjectLayout {
  * panes in the same direction, so a layout from another browser keeps this
  * browser's pane widths (SPEC.md §7.5).
  */
-export function keepSizes(current: ProjectLayout, next: ProjectLayout): ProjectLayout {
+function keepSizes(current: ProjectLayout, next: ProjectLayout): ProjectLayout {
 	function walk(here: SplitNode, there: SplitNode): SplitNode {
 		if (here.type !== "split" || there.type !== "split") return there;
 		if (here.direction !== there.direction) return there;
