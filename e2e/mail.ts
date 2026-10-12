@@ -29,18 +29,23 @@ async function readMail(): Promise<CapturedMail[]> {
 		.split("\n")
 		.filter((line) => line !== "")
 		.map((line) => {
+			// nodemailer's jsonTransport writes the recipients as address objects.
 			const message = JSON.parse(line) as {
-				envelope: { to: string[] };
+				to: { address: string }[];
 				subject: string;
 				text: string;
 			};
-			return { to: message.envelope.to, subject: message.subject, text: message.text };
+			return {
+				to: message.to.map((a) => a.address),
+				subject: message.subject,
+				text: message.text,
+			};
 		});
 }
 
 /**
  * Forget every captured message, so a test reads only its own.
- * @public: for the emailed reset and invitation specs.
+ * @public: for the emailed reset specs.
  */
 export async function clearMail(): Promise<void> {
 	await rm(MAIL_CAPTURE_FILE, { force: true });
@@ -48,7 +53,6 @@ export async function clearMail(): Promise<void> {
 
 /**
  * Wait for the newest message to `address` and return the first link in it.
- * @public: for the emailed reset and invitation specs.
  */
 export async function findMailLink(address: string): Promise<string> {
 	let link = "";

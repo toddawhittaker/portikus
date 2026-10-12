@@ -69,8 +69,11 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/reset-second-factor": 404,
 	"POST /admin/dex-users/:id/remove": 404,
+	"POST /admin/dex-users/:id/send-reset-link": 404,
+	"PATCH /admin/dex-users/:id": 404,
 	// The matrix world has no waiting invitation.
 	"POST /admin/invitations/:id/revoke": 404,
+	"POST /admin/invitations/:id/send": 404,
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,

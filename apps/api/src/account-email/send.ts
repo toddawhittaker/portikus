@@ -30,7 +30,7 @@ export interface AccountEmailDeps {
 }
 
 /** Whether the administrator turned account email on; a site with no settings row has it off. */
-async function accountEmailEnabled(db: Kysely<Database>): Promise<boolean> {
+export async function accountEmailEnabled(db: Kysely<Database>): Promise<boolean> {
 	const row = await db
 		.selectFrom("settings")
 		.select("account_email_enabled")

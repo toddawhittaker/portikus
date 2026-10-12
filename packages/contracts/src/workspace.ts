@@ -279,6 +279,9 @@ export const ApiErrorCode = z.enum([
 	"NOT_IMPLEMENTED",
 	// Dex user management (ADR 0028).
 	"DEX_USER_EXISTS",
+	// Account email is switched off, or an administrator's email did not go out (SPEC.md section 5.3).
+	"ACCOUNT_EMAIL_OFF",
+	"EMAIL_NOT_SENT",
 	"DEX_UNAVAILABLE",
 	// One active invitation per email (SPEC.md section 24.13).
 	"INVITATION_EXISTS",

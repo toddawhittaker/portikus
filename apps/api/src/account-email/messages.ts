@@ -83,3 +83,18 @@ export function emailChangedMessage(publicUrl: string): AccountMessage {
 		].join("\n"),
 	};
 }
+
+/** An SSO invitation carries no token: the person signs in with their organisation's account. */
+export function ssoInvitationMessage(publicUrl: string): AccountMessage {
+	return {
+		subject: "You are invited to Portikus",
+		text: [
+			`An administrator invited you to Portikus at ${siteName(publicUrl)}.`,
+			"",
+			"To start, open this page and sign in with your organisation's account, using this email address:",
+			new URL("/", publicUrl).toString(),
+			"",
+			"If you did not expect this email, you can ignore it.",
+		].join("\n"),
+	};
+}

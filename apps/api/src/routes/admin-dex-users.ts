@@ -2,7 +2,6 @@ import {
 	type DexApi,
 	generateDexPassword,
 	hashDexPassword,
-	localDexUserId,
 	requireRole,
 	requireUser,
 	resetSecondFactor,
@@ -11,10 +10,17 @@ import {
 	CreateDexUserRequest,
 	type CreateDexUserResponse,
 	type DexPasswordResponse,
+	UpdateDexUserRequest,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import {
+	createAdminSender,
+	sendAdminSendFailure,
+} from "../account-email/admin-send.js";
+import { accountEmailEnabled } from "../account-email/send.js";
 import { createDexAccount, DexCallFailed, viaDex } from "../admin/dex-accounts.js";
+import { editDexUser, findDexPasswords } from "../admin/dex-user-edit.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import { notifyCredentialReset } from "../admin/reset-notice.js";
 import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
@@ -34,6 +40,8 @@ export function registerAdminDexUserRoutes(
 	deps: ServerDeps,
 ): void {
 	const { db } = deps;
+	const sender = createAdminSender(deps);
+	const notSent = sendAdminSendFailure;
 
 	/** The Dex client, or null after answering 404 when the site has none. */
 	function dexOr404(reply: FastifyReply): DexApi | null {
@@ -51,23 +59,20 @@ export function registerAdminDexUserRoutes(
 	}
 
 	/**
-	 * The Dex password behind a Portikus account, found by user ID so a
-	 * changed email cannot point at someone else's password.
+	 * The Dex password behind a Portikus account: `email` is the one that
+	 * matches the account, and `emails` lists every one under its user ID.
 	 */
 	async function findDexPassword(dex: DexApi, id: string) {
-		const row = await db
-			.selectFrom("users")
-			.select(["oidc_issuer", "oidc_subject"])
-			.where("id", "=", id)
-			.executeTakeFirst();
-		if (!row) return { found: "no_account" } as const;
-		const userId = localDexUserId(row);
-		if (userId === null) return { found: "not_local" } as const;
-		const password = (await viaDex(dex.listPasswords())).find(
-			(p) => p.userId === userId,
-		);
-		if (!password) return { found: "not_local" } as const;
-		return { found: "yes", email: password.email } as const;
+		const found = await findDexPasswords(db, dex, id);
+		if (found.found === "no_account") return { found: "no_account" } as const;
+		if (found.found === "not_local" || !found.current) {
+			return { found: "not_local" } as const;
+		}
+		return {
+			found: "yes",
+			email: found.current.email,
+			emails: found.mine.map((p) => p.email),
+		} as const;
 	}
 
 	/**
@@ -114,11 +119,13 @@ export function registerAdminDexUserRoutes(
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
+		const { sendLink, ...fields } = body.data;
+		if (sendLink && !(await accountEmailEnabled(db))) return notSent(reply, "disabled");
 		let created: Awaited<ReturnType<typeof createDexAccount>>;
 		try {
 			created = await createDexAccount(
 				{ db, dex, log: request.log },
-				{ ...body.data, actorId: actor.id, metadata: requestMetadata(request) },
+				{ ...fields, actorId: actor.id, metadata: requestMetadata(request) },
 			);
 		} catch (err) {
 			return dexUnavailable(request, reply, err);
@@ -132,9 +139,22 @@ export function registerAdminDexUserRoutes(
 			);
 		}
 		const { id, password } = created;
+		// A failed send still shows the password, so the person is not left without one.
+		const emailed =
+			sendLink === true &&
+			(await sender.setPasswordLink({
+				userId: id,
+				actorId: actor.id,
+				purpose: "invite",
+				to: fields.email,
+			})) === "sent";
 		const user = await loadAdminUser(deps, id);
 		if (!user) throw new Error("the new account vanished");
-		const out: CreateDexUserResponse = { user, password };
+		const out: CreateDexUserResponse = {
+			user,
+			password: emailed ? null : password,
+			emailed,
+		};
 		return out;
 	});
 
@@ -248,7 +268,7 @@ export function registerAdminDexUserRoutes(
 							...requestMetadata(request),
 						},
 					});
-					await viaDex(dex.deletePassword(found.email));
+					for (const email of found.emails) await viaDex(dex.deletePassword(email));
 				},
 			});
 			if (!result.ok) return sendDisableRefusal(reply, result.reason);
@@ -256,5 +276,74 @@ export function registerAdminDexUserRoutes(
 			return dexUnavailable(request, reply, err);
 		}
 		return loadAdminUser(deps, id);
+	});
+
+	// Email a reset link to the address Dex holds (SPEC.md section 5.3).
+	app.post(
+		"/admin/dex-users/:id/send-reset-link",
+		adminOnly,
+		async (request, reply) => {
+			const target = await resetTarget(request, reply, {
+				self: "You cannot send yourself a reset link here.",
+				action: "dex_user.reset_link_sent",
+			});
+			if (!target) return reply;
+			const { actor, dex, id } = target;
+			let found: Awaited<ReturnType<typeof findDexPassword>>;
+			try {
+				found = await findDexPassword(dex, id);
+			} catch (err) {
+				return dexUnavailable(request, reply, err);
+			}
+			if (found.found === "no_account") {
+				return sendError(reply, 404, "NOT_FOUND", "User not found");
+			}
+			if (found.found === "not_local") return notLocal(reply);
+			if (!(await accountEmailEnabled(db))) return notSent(reply, "disabled");
+			const result = await sender.setPasswordLink({
+				userId: id,
+				actorId: actor.id,
+				purpose: "reset",
+				to: found.email,
+			});
+			if (result !== "sent") return notSent(reply, result);
+			return reply.status(204).send();
+		},
+	);
+
+	// A new email or username, keeping the account and workspace (SPEC.md section 5.1).
+	app.patch("/admin/dex-users/:id", adminOnly, async (request, reply) => {
+		const target = await resetTarget(request, reply, {
+			self: "You cannot change your own email or username here.",
+			action: "dex_user.updated",
+		});
+		if (!target) return reply;
+		const { actor, dex, id } = target;
+		const body = parseOr400(UpdateDexUserRequest, request.body ?? {}, reply);
+		if (!body) return reply;
+		let edited: Awaited<ReturnType<typeof editDexUser>>;
+		try {
+			edited = await editDexUser(
+				{ db, dex, sender, publicUrl: deps.config.PUBLIC_URL },
+				{ id, actorId: actor.id, body, metadata: requestMetadata(request) },
+			);
+		} catch (err) {
+			return dexUnavailable(request, reply, err);
+		}
+		if (edited === "no_account")
+			return sendError(reply, 404, "NOT_FOUND", "User not found");
+		if (edited === "not_local") return notLocal(reply);
+		if (edited === "exists") {
+			return sendError(
+				reply,
+				409,
+				"DEX_USER_EXISTS",
+				"A Dex user with this email already exists.",
+			);
+		}
+		const user = await loadAdminUser(deps, id);
+		if (!user) throw new Error("the edited account vanished");
+		const out: CreateDexUserResponse = { user, ...edited };
+		return out;
 	});
 }

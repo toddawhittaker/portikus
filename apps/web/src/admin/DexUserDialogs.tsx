@@ -1,6 +1,12 @@
-import { type AdminUser, CreateDexUserRequest, type Role } from "@portikus/contracts";
+import {
+	type AdminUser,
+	CreateDexUserRequest,
+	type Role,
+	UpdateDexUserRequest,
+} from "@portikus/contracts";
 import {
 	Button,
+	Checkbox,
 	CONTROL_CLASS,
 	ConfirmDialog,
 	ConfirmDialogRoot,
@@ -15,10 +21,13 @@ import { useState } from "react";
 import { flushSync } from "react-dom";
 import { errorText } from "../api/request.js";
 import {
+	useAccountEmail,
 	useAddDexUser,
+	useEditDexUser,
 	useRemoveDexUser,
 	useResetDexPassword,
 	useResetSecondFactor,
+	useSendResetLink,
 } from "./queries.js";
 
 /** Standalone Dex users in the Users view (ADR 0028). */
@@ -26,6 +35,14 @@ import {
 /** They must choose their own at first sign-in (SPEC.md section 5.2). */
 export const PASSWORD_ONCE_TEXT =
 	"Give this to them privately. It will not be shown again. They will choose their own password when they first sign in.";
+
+/** Shown in place of a password when the person was emailed a link to choose one. */
+export const LINK_SENT_TEXT =
+	"They were emailed a link to choose their password. It works once and lasts 7 days.";
+
+/** Shown with the password when a link was asked for but the email did not go out. */
+const EMAIL_FAILED_TEXT =
+	"The email could not be sent. Give them this password privately instead. It will not be shown again.";
 
 const ROLE_LABEL: Record<Role, string> = {
 	student: "Student",
@@ -94,6 +111,8 @@ export function AddDexUser() {
 	const [email, setEmail] = useState("");
 	const [username, setUsername] = useState("");
 	const [role, setRole] = useState<Role>("student");
+	const accountEmail = useAccountEmail();
+	const [sendLink, setSendLink] = useState(false);
 	const [errors, setErrors] = useState<Partial<Record<AddField, string>>>({});
 	const [attempt, setAttempt] = useState(0);
 	const created = add.data ?? null;
@@ -106,6 +125,7 @@ export function AddDexUser() {
 			setEmail("");
 			setUsername("");
 			setRole("student");
+			setSendLink(false);
 			setErrors({});
 		}
 		setOpen(next);
@@ -113,7 +133,13 @@ export function AddDexUser() {
 
 	function submit() {
 		if (add.isPending) return;
-		const body = CreateDexUserRequest.safeParse({ name, email, username, role });
+		const body = CreateDexUserRequest.safeParse({
+			name,
+			email,
+			username,
+			role,
+			...(accountEmail && sendLink ? { sendLink: true } : {}),
+		});
 		if (!body.success) {
 			const found: Partial<Record<AddField, string>> = {};
 			for (const issue of body.error.issues) {
@@ -144,14 +170,22 @@ export function AddDexUser() {
 					<Dialog
 						testId="dex-add-dialog"
 						title={`${created.user.displayName} added`}
-						description={PASSWORD_ONCE_TEXT}
+						description={
+							created.password === null
+								? LINK_SENT_TEXT
+								: add.variables?.sendLink
+									? EMAIL_FAILED_TEXT
+									: PASSWORD_ONCE_TEXT
+						}
 						footer={
 							<Button variant="primary" onClick={() => change(false)}>
 								Done
 							</Button>
 						}
 					>
-						<PasswordOnce password={created.password} />
+						{created.password === null ? null : (
+							<PasswordOnce password={created.password} />
+						)}
 					</Dialog>
 				) : (
 					<Dialog
@@ -231,6 +265,14 @@ export function AddDexUser() {
 									)}
 								</select>
 							</div>
+							{accountEmail ? (
+								<Checkbox
+									label="Email them a link to choose their password"
+									description="When off, a password is shown here for you to give them."
+									checked={sendLink}
+									onChange={(event) => setSendLink(event.target.checked)}
+								/>
+							) : null}
 							{/* Enter in a field submits. */}
 							<button type="submit" hidden />
 						</form>
@@ -242,12 +284,229 @@ export function AddDexUser() {
 	);
 }
 
+type EditField = "email" | "username";
+
+/** Edit email or username for one Dex local account (SPEC.md section 5.1). */
+function EditDexUser({ user }: { user: AdminUser }) {
+	const toast = useToast();
+	const edit = useEditDexUser();
+	const [open, setOpen] = useState(false);
+	const [email, setEmail] = useState("");
+	const [username, setUsername] = useState("");
+	const [errors, setErrors] = useState<Partial<Record<EditField, string>>>({});
+	const [attempt, setAttempt] = useState(0);
+	const name = user.displayName;
+	const result = edit.data ?? null;
+
+	function change(next: boolean) {
+		if (edit.isPending) return;
+		if (next) {
+			edit.reset();
+			setEmail(user.email ?? "");
+			setUsername(user.preferredUsername ?? "");
+			setErrors({});
+		}
+		setOpen(next);
+	}
+
+	async function submit() {
+		if (edit.isPending) return;
+		const emailChanged = email.trim().toLowerCase() !== (user.email ?? "");
+		const usernameChanged = username.trim() !== (user.preferredUsername ?? "");
+		const body = UpdateDexUserRequest.safeParse({
+			...(emailChanged ? { email } : {}),
+			...(usernameChanged ? { username } : {}),
+		});
+		if (!body.success) {
+			const found: Partial<Record<EditField, string>> = {};
+			for (const issue of body.error.issues) {
+				const field = (issue.path[0] as EditField | undefined) ?? "email";
+				found[field] =
+					emailChanged || usernameChanged
+						? ADD_FIELD_ERROR[field]
+						: "Change the email or the username first.";
+			}
+			flushSync(() => setErrors(found));
+			const first = (["email", "username"] as const).find((f) => found[f]);
+			const input = document.getElementById(`dex-edit-${first}-${user.id}`);
+			input?.blur();
+			input?.focus();
+			return;
+		}
+		setErrors({});
+		setAttempt((n) => n + 1);
+		let saved: Awaited<ReturnType<typeof edit.mutateAsync>>;
+		try {
+			saved = await edit.mutateAsync({ userId: user.id, body: body.data });
+		} catch {
+			// The dialog shows edit.error.
+			return;
+		}
+		// A new password to hand over keeps the dialog open to show it.
+		if (saved.password !== null) return;
+		toast.show({
+			tone: "success",
+			title: saved.emailed
+				? `${name}'s email changed. A link to choose a password went to the new address.`
+				: `${name}'s username changed`,
+		});
+		setOpen(false);
+	}
+
+	return (
+		<>
+			<Button
+				size="sm"
+				data-testid="detail-dex-edit"
+				aria-label={`Edit email or username for ${name}`}
+				onClick={() => change(true)}
+			>
+				Edit email or username…
+			</Button>
+			<DialogRoot open={open} onOpenChange={change}>
+				{result?.password ? (
+					<Dialog
+						testId="dex-edit-dialog"
+						title={`New password for ${name}`}
+						description={`Their email changed and they were signed out everywhere. ${PASSWORD_ONCE_TEXT}`}
+						footer={
+							<Button variant="primary" onClick={() => change(false)}>
+								Done
+							</Button>
+						}
+					>
+						<PasswordOnce password={result.password} />
+					</Dialog>
+				) : (
+					<Dialog
+						testId="dex-edit-dialog"
+						title={`Edit ${name}`}
+						description="The account and workspace stay the same. A new email signs them out everywhere and replaces their password."
+						footer={
+							<>
+								<Button onClick={() => change(false)}>Cancel</Button>
+								<Button
+									variant="primary"
+									data-testid="dex-edit-submit"
+									loading={edit.isPending}
+									onClick={() => void submit()}
+								>
+									Save
+								</Button>
+							</>
+						}
+					>
+						<form
+							className="flex flex-col gap-3"
+							onSubmit={(event) => {
+								event.preventDefault();
+								void submit();
+							}}
+						>
+							<TextField
+								id={`dex-edit-email-${user.id}`}
+								label="Email"
+								type="email"
+								autoComplete="off"
+								data-testid="dex-edit-email"
+								error={errors.email}
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+							/>
+							<TextField
+								id={`dex-edit-username-${user.id}`}
+								label="Username"
+								autoComplete="off"
+								mono
+								data-testid="dex-edit-username"
+								error={errors.username}
+								value={username}
+								onChange={(event) => setUsername(event.target.value)}
+							/>
+							{/* Enter in a field submits. */}
+							<button type="submit" hidden />
+						</form>
+						<DialogError key={attempt} error={edit.error} />
+					</Dialog>
+				)}
+			</DialogRoot>
+		</>
+	);
+}
+
+/** Email a 30-minute reset link to one Dex local account (SPEC.md section 5.3). */
+function SendResetLink({ user }: { user: AdminUser }) {
+	const toast = useToast();
+	const send = useSendResetLink();
+	const [open, setOpen] = useState(false);
+	const name = user.displayName;
+
+	function change(next: boolean) {
+		if (send.isPending) return;
+		send.reset();
+		setOpen(next);
+	}
+
+	async function run() {
+		if (send.isPending) return;
+		try {
+			await send.mutateAsync({ userId: user.id });
+		} catch {
+			// The dialog shows send.error.
+			return;
+		}
+		toast.show({ tone: "success", title: `Reset link sent to ${name}` });
+		setOpen(false);
+	}
+
+	return (
+		<>
+			<Button
+				size="sm"
+				data-testid="detail-dex-send-reset"
+				aria-label={`Send a reset link to ${name}`}
+				onClick={() => change(true)}
+			>
+				Send reset link…
+			</Button>
+			<ConfirmDialogRoot open={open} onOpenChange={change}>
+				<ConfirmDialog
+					id={`dex-send-reset-${user.id}`}
+					testId="dex-send-reset-dialog"
+					title={`Email ${name} a reset link?`}
+					description={
+						<>
+							<span className="block">
+								They get a link to choose a new password. It works once and lasts 30
+								minutes. Their password stays the same until they use it.
+							</span>
+							{send.error ? (
+								<span
+									className="mt-2 block text-status-error"
+									role="alert"
+									data-testid="dex-dialog-error"
+								>
+									{errorText(send.error)}
+								</span>
+							) : null}
+						</>
+					}
+					confirmLabel="Send reset link"
+					pending={send.isPending}
+					onConfirm={() => void run()}
+				/>
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
 /** Reset password, reset two-factor sign-in, and Remove for one Dex local account. */
 export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
 	const reset = useResetDexPassword();
 	const remove = useRemoveDexUser();
 	const factor = useResetSecondFactor();
+	const accountEmail = useAccountEmail();
 	const [dialog, setDialog] = useState<"reset" | "factor" | "remove" | null>(null);
 	const name = user.displayName;
 	const selfNoteId = `dex-self-note-${user.id}`;
@@ -302,6 +561,9 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 
 	return (
 		<>
+			{/* Their own account is changed in Settings, so these are not offered for it. */}
+			{isSelf ? null : <EditDexUser user={user} />}
+			{isSelf || !accountEmail ? null : <SendResetLink user={user} />}
 			<Button
 				size="sm"
 				data-testid="detail-dex-reset"

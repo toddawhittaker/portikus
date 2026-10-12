@@ -162,16 +162,40 @@ export const CreateDexUserRequest = z
 			.regex(DEX_USERNAME, "Use 1 to 64 letters, digits, dots, dashes or underscores"),
 		name: z.string().trim().min(1, "Enter a name").max(100),
 		role: Role,
+		/** Email a set-password link instead of showing a password; needs account email on. */
+		sendLink: z.boolean().optional(),
 	})
 	.strict();
 export type CreateDexUserRequest = z.infer<typeof CreateDexUserRequest>;
 
-/** The new account and its password, which is shown once and never again. */
+/**
+ * The account and how its password reaches the person: a link was emailed,
+ * or `password` is shown once and never again (also when the email failed).
+ * `PATCH /admin/dex-users/:id` answers the same; a username change alone
+ * keeps the password, so `password` is null and nothing is emailed.
+ */
 export const CreateDexUserResponse = z.object({
 	user: AdminUser,
-	password: z.string().min(1),
+	password: z.string().min(1).nullable(),
+	emailed: z.boolean(),
 });
 export type CreateDexUserResponse = z.infer<typeof CreateDexUserResponse>;
+
+/** Request body for `PATCH /admin/dex-users/:id`: a new email, username, or both. */
+export const UpdateDexUserRequest = z
+	.object({
+		email: z.string().trim().toLowerCase().email().max(254).optional(),
+		username: z
+			.string()
+			.trim()
+			.regex(DEX_USERNAME, "Use 1 to 64 letters, digits, dots, dashes or underscores")
+			.optional(),
+	})
+	.strict()
+	.refine((body) => body.email !== undefined || body.username !== undefined, {
+		message: "Give a new email or username",
+	});
+export type UpdateDexUserRequest = z.infer<typeof UpdateDexUserRequest>;
 
 /** The body of `POST /admin/dex-users/:id/reset-password`: the new password, shown once. */
 export const DexPasswordResponse = z.object({ password: z.string().min(1) });
