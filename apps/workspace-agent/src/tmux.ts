@@ -10,7 +10,7 @@ import {
 	type TerminalTheme,
 } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
-import { collectProcessTree, stopProcesses } from "./process-tree.js";
+import { collectProcessTree, processesWithEnv, stopProcesses } from "./process-tree.js";
 
 const run = promisify(execFile);
 
@@ -396,6 +396,10 @@ export async function createSession(
 	return { id, cwd: real, ...baseline };
 }
 
+function terminalMark(name: string): string {
+	return `PORTIKUS_TERMINAL=${name}`;
+}
+
 async function createTmuxSession(
 	name: string,
 	real: string,
@@ -426,6 +430,10 @@ async function createTmuxSession(
 			// running keeps the zone it started with.
 			"-e",
 			`TZ=${timezone}`,
+			// Marks everything the terminal starts, so closing it can find a
+			// `setsid` child that left its session (SPEC.md §9.7).
+			"-e",
+			terminalMark(name),
 			// Keys ride on this session only, and only for an agent command
 			// (SPEC.md §10.6).
 			...(command ? credentialArgs(launch?.institutionalEnv) : []),
@@ -515,6 +523,10 @@ export async function closeSession(
 		10,
 	);
 	const tree = Number.isInteger(pid) ? await collectProcessTree(pid) : [];
+	const inTree = new Set(tree.map((entry) => entry.pid));
+	for (const entry of processesWithEnv(terminalMark(name))) {
+		if (!inTree.has(entry.pid)) tree.push(entry);
+	}
 	await killSession(id, server);
 	return { stopped: stopProcesses(tree, undefined, pid) };
 }

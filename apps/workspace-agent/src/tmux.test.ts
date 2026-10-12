@@ -4,7 +4,7 @@
  * disturb, or be disturbed by, a tmux the developer already has running.
  */
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -308,13 +308,26 @@ async function running(pid: number): Promise<boolean> {
 	}
 }
 
+/** The pid of a running `sleep <arg>`, or null when there is none. */
+async function sleeper(arg: string): Promise<number | null> {
+	for (const entry of await readdir("/proc")) {
+		if (!/^\d+$/.test(entry)) continue;
+		const cmdline = await readFile(`/proc/${entry}/cmdline`, "utf8").catch(() => "");
+		if (cmdline === `sleep\0${arg}\0` && (await running(Number(entry))))
+			return Number(entry);
+	}
+	return null;
+}
+
 test.skipIf(!haveTmux)(
 	"closing a terminal stops its setsid and nohup children, not just the shell (#624)",
 	async () => {
 		const server = scratchServer("tree");
 		const home = await mkdtemp(join(tmpdir(), "portikus-tree-"));
-		const pidFile = join(home, "children");
 		const id = "00000000-0000-4000-8000-000000009104";
+		// Durations unique to this run, so the scan finds only these children.
+		const setsidArg = `321.${process.pid}`;
+		const nohupArg = `322.${process.pid}`;
 		try {
 			await createSession(id, home, home, "dark", "UTC", server);
 			await run("tmux", [
@@ -323,21 +336,29 @@ test.skipIf(!haveTmux)(
 				"send-keys",
 				"-t",
 				sessionName(id),
-				`setsid sleep 321 & a=$!; nohup sleep 322 >/dev/null 2>&1 & echo "$a $!" > ${pidFile}`,
+				`setsid sleep ${setsidArg} & nohup sleep ${nohupArg} >/dev/null 2>&1 &`,
 				"Enter",
 			]);
+			// The shell's `$!` can name a fork that has not yet become `sleep`
+			// (and setsid may fork again), so wait for the sleeps themselves.
 			const pids = await vi.waitFor(
 				async () => {
-					const text = (await readFile(pidFile, "utf8")).trim();
-					expect(text).toMatch(/^\d+ \d+$/);
-					return text.split(" ").map(Number);
+					const found = [await sleeper(setsidArg), await sleeper(nohupArg)];
+					expect(found).not.toContain(null);
+					return found as number[];
 				},
 				{ timeout: 10_000 },
 			);
 			const { stopped } = await closeSession(id, server);
 			expect(await hasSession(id, server)).toBe(false);
 			await stopped;
-			for (const pid of pids) expect(await running(pid)).toBe(false);
+			// A signalled process leaves a moment after kill() returns.
+			await vi.waitFor(
+				async () => {
+					for (const pid of pids) expect(await running(pid)).toBe(false);
+				},
+				{ timeout: 5_000 },
+			);
 		} finally {
 			await killServer(server.socketName);
 		}
