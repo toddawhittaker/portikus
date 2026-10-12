@@ -113,11 +113,37 @@ Description: Entra tenant ID:
  registration's Overview page. It looks like
  12345678-90ab-cdef-1234-567890abcdef.
 
+Template: portikus/entra_role_source
+Type: select
+Choices-C: appRoles, groups
+Choices: App roles, Groups assigned to the application
+Default: appRoles
+Description: Where roles come from:
+ App roles: assign the Portikus.Student, Portikus.Instructor and
+ Portikus.Administrator app roles to people in Entra.
+ .
+ Groups: name three security groups by their object IDs. Set the app
+ registration's token configuration to send "Groups assigned to the
+ application", and assign the three groups to the application.
+ .
+ Either way, a person still needs a Portikus invitation to sign in.
+
 Template: portikus/google_domains
 Type: string
 Description: Google Workspace domains:
  The domains whose accounts may sign in, such as example.edu. Separate
  more than one with spaces.
+
+Template: portikus/google_admin_email
+Type: string
+Description: Google administrator to read groups as (optional):
+ Leave blank and roles come only from the Users tab.
+ .
+ To take roles from Google groups, give the email of a Workspace
+ administrator whose role can only read groups. Portikus's service
+ account acts as that person to read group membership. Then put the
+ service account's key at /etc/portikus-dex/google-service-account.json,
+ or upload it on the Sign-in admin page.
 
 Template: portikus/oidc_issuer
 Type: string

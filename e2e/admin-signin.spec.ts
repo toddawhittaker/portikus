@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { MOCK_USERS } from "../packages/auth/dist/testing/mock-oidc.js";
 import type { SiteView } from "../packages/contracts/dist/site.js";
@@ -6,8 +7,10 @@ import { expectNoViolations, MOCK_ISSUER, openAdmin, query } from "./helpers";
 import {
 	playSiteJob,
 	putInstallAnswers,
+	readInstallAnswers,
 	readSiteStatus,
 	resetSiteStore,
+	SITE_JOBS_DIR,
 	SITE_VIEW_FILE,
 } from "./site-jobs";
 
@@ -133,4 +136,93 @@ test("a trial of a new provider is tested without signing anyone in, then kept",
 	expect(await readSiteStatus(played.id)).toMatchObject({ state: "kept" });
 	await expect(page.getByTestId("sso-job")).toContainText("kept", { timeout: 15_000 });
 	await expect(page.getByTestId("sso-trial")).toHaveCount(0);
+});
+
+// Google group checks (SPEC.md 5.1, 24.8): the service account's key goes to
+// the root job once, in the 0600 request, and lands only where Dex reads it.
+test("Google group checks send the key once, and the page only says it is set", async ({
+	page,
+}) => {
+	const privateLine = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIB-not-a-real-key";
+	const key = JSON.stringify({
+		type: "service_account",
+		project_id: "portikus-test",
+		private_key_id: "fake-e2e-key-id",
+		private_key: `-----BEGIN FAKE TEST KEY-----\n${privateLine}\n-----END FAKE TEST KEY-----\n`,
+		client_email: "groups@portikus-test.iam.gserviceaccount.com",
+	});
+	const dexDir = join(dirname(SITE_VIEW_FILE), "..", "portikus-dex");
+	await mkdir(dexDir, { recursive: true });
+	await putInstallAnswers(ANSWERS);
+	await putView(DEX_VIEW);
+	await openAdmin(page);
+	await page.goto("/admin/signin");
+	const sso = page.getByTestId("admin-signin-sso");
+	await sso.getByTestId("sso-provider-google").check();
+	await sso.getByLabel("Domains").fill("example.edu");
+	await sso.getByLabel("Client ID").fill("123.apps.googleusercontent.com");
+	await sso.getByLabel("Client secret").fill(SECRET);
+	await expect(sso.getByLabel("Service account key")).toHaveCount(0);
+	await sso
+		.getByLabel("Administrator to read groups as")
+		.fill("groups-reader@example.edu");
+	await expect(sso.getByTestId("sso-groups-note")).toContainText("cannot join");
+
+	// No key yet, and none stored: the page stops it.
+	await sso.getByLabel("Students' group").fill("students@example.edu");
+	await sso.getByLabel("Instructors' group").fill("staff@example.edu");
+	await sso.getByLabel("Administrators' group").fill("it-admins@example.edu");
+	await sso.getByTestId("sso-apply").click();
+	await expect(sso.getByLabel("Service account key")).toHaveAttribute(
+		"aria-invalid",
+		"true",
+	);
+	await expect(page.getByTestId("sso-apply-confirm")).toHaveCount(0);
+	await expectNoViolations(page);
+
+	await sso.getByLabel("Service account key").fill(key);
+	await sso.getByTestId("sso-apply").click();
+	await page
+		.getByTestId("sso-apply-confirm")
+		.getByRole("button", { name: "Apply as a trial" })
+		.click();
+	const played = await playSiteJob();
+	expect(played).toMatchObject({ kind: "signin", mode: 0o600 });
+	expect(played.request).toMatchObject({
+		provider: "google",
+		googleAdminEmail: "groups-reader@example.edu",
+		googleServiceAccountKey: key,
+	});
+	expect(await readSiteStatus(played.id)).toMatchObject({ state: "trial" });
+	const keyFile = join(dexDir, "google-service-account.json");
+	expect(await readFile(keyFile, "utf8")).toBe(key);
+	expect((await stat(keyFile)).mode & 0o777).toBe(0o640);
+	const answers = await readInstallAnswers();
+	expect(answers).toContain("portikus_google_admin_email: groups-reader@example.edu");
+	expect(answers).toContain("portikus_oidc_admin_group: it-admins@example.edu");
+	for (const name of await readdir(join(SITE_JOBS_DIR, "status"))) {
+		const text = await readFile(join(SITE_JOBS_DIR, "status", name), "utf8");
+		expect(text).not.toContain(privateLine);
+	}
+
+	await putView({
+		...DEX_VIEW,
+		provider: "google",
+		googleDomains: ["example.edu"],
+		clientId: "123.apps.googleusercontent.com",
+		clientSecretSet: true,
+		groups: {
+			student: "students@example.edu",
+			instructor: "staff@example.edu",
+			admin: "it-admins@example.edu",
+		},
+		googleAdminEmail: "groups-reader@example.edu",
+		googleKeySet: true,
+	});
+	await page.reload();
+	await expect(page.getByTestId("sso-current")).toContainText(
+		"groups-reader@example.edu",
+	);
+	await expect(page.getByTestId("sso-current")).toContainText("Service account keySet");
+	expect(await page.content()).not.toContain(privateLine);
 });

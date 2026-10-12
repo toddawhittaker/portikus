@@ -1,4 +1,5 @@
 import {
+	type EntraRoleSource,
 	type SigninProvider,
 	SigninSettings,
 	type SigninView,
@@ -9,8 +10,13 @@ import {
 export interface SsoForm {
 	provider: SigninProvider;
 	entraTenantId: string;
+	entraRoleSource: EntraRoleSource;
 	/** Separated by spaces or commas, as the install question takes them. */
 	googleDomains: string;
+	/** Blank leaves Google groups unread; set, roles come from three groups. */
+	googleAdminEmail: string;
+	/** Write-only: the service-account key's JSON; blank keeps a stored one. */
+	googleKey: string;
 	oidcIssuer: string;
 	clientId: string;
 	/** Write-only: blank keeps the stored secret where the rules allow it. */
@@ -23,7 +29,10 @@ export interface SsoForm {
 
 export const FIELD_ID: Record<Exclude<keyof SsoForm, "provider">, string> = {
 	entraTenantId: "sso-entra-tenant",
+	entraRoleSource: "sso-entra-role-source",
 	googleDomains: "sso-google-domains",
+	googleAdminEmail: "sso-google-admin",
+	googleKey: "sso-google-key",
 	oidcIssuer: "sso-oidc-issuer",
 	clientId: "sso-client-id",
 	clientSecret: "sso-client-secret",
@@ -53,7 +62,10 @@ export function initialForm(view: SigninView | null): SsoForm {
 	return {
 		provider: view && view.provider !== "ldap" ? view.provider : "dex",
 		entraTenantId: view?.entraTenantId ?? "",
+		entraRoleSource: view?.entraRoleSource ?? "appRoles",
 		googleDomains: (view?.googleDomains ?? []).join(" "),
+		googleAdminEmail: view?.googleAdminEmail ?? "",
+		googleKey: "",
 		oidcIssuer: view?.oidcIssuer ?? "",
 		clientId: view?.clientId ?? "",
 		clientSecret: "",
@@ -68,6 +80,22 @@ function domains(text: string): string[] {
 	return text.split(/[\s,]+/).filter((d) => d !== "");
 }
 
+function groups(form: SsoForm, lower: boolean) {
+	const name = (value: string) => (lower ? value.trim().toLowerCase() : value.trim());
+	return {
+		student: name(form.studentGroup),
+		instructor: name(form.instructorGroup),
+		admin: name(form.adminGroup),
+	};
+}
+
+/** Whether this form takes roles from three groups the provider names. */
+export function usesGroups(form: SsoForm): boolean {
+	if (form.provider === "oidc") return true;
+	if (form.provider === "entra") return form.entraRoleSource === "groups";
+	return form.provider === "google" && form.googleAdminEmail.trim() !== "";
+}
+
 /** The request body: only the chosen provider's fields. */
 export function toSettings(form: SsoForm): SigninSettings {
 	const secret = form.clientSecret === "" ? null : form.clientSecret;
@@ -80,14 +108,26 @@ export function toSettings(form: SsoForm): SigninSettings {
 				entraTenantId: form.entraTenantId.trim(),
 				clientId: form.clientId.trim(),
 				clientSecret: secret,
+				entraRoleSource: form.entraRoleSource,
+				...(usesGroups(form) ? { groups: groups(form, false) } : {}),
 			};
-		case "google":
-			return {
-				provider: "google",
+		case "google": {
+			const google = {
+				provider: "google" as const,
 				googleDomains: domains(form.googleDomains),
 				clientId: form.clientId.trim(),
 				clientSecret: secret,
 			};
+			if (!usesGroups(form)) return google;
+			// Google returns group emails in lowercase, and Dex matches them exactly.
+			const key = form.googleKey.trim();
+			return {
+				...google,
+				googleAdminEmail: form.googleAdminEmail.trim(),
+				groups: groups(form, true),
+				...(key === "" ? {} : { googleServiceAccountKey: key }),
+			};
+		}
 		case "oidc":
 			return {
 				provider: "oidc",
@@ -95,11 +135,7 @@ export function toSettings(form: SsoForm): SigninSettings {
 				clientId: form.clientId.trim(),
 				clientSecret: secret,
 				groupsClaim: form.groupsClaim.trim(),
-				groups: {
-					student: form.studentGroup.trim(),
-					instructor: form.instructorGroup.trim(),
-					admin: form.adminGroup.trim(),
-				},
+				groups: groups(form, false),
 			};
 	}
 }
@@ -121,7 +157,12 @@ export function secretRequired(form: SsoForm, view: SigninView | null): boolean 
 
 const MESSAGE: Record<Exclude<keyof SsoForm, "provider">, string> = {
 	entraTenantId: "Enter the tenant ID, such as 12345678-90ab-cdef-1234-567890abcdef.",
+	entraRoleSource: "Choose app roles or groups.",
 	googleDomains: "Enter one or more domains, such as example.edu.",
+	googleAdminEmail:
+		"Enter the administrator's email address, such as admin@example.edu.",
+	googleKey:
+		"Paste the whole JSON key of a service account: type service_account, with a private key.",
 	oidcIssuer: "Enter the issuer's https address, such as https://login.example.edu.",
 	clientId: "Enter the client ID: letters, digits and . _ ~ : @ / + = - only.",
 	clientSecret: "The client secret is at least 16 characters, with no braces.",
@@ -134,10 +175,33 @@ const MESSAGE: Record<Exclude<keyof SsoForm, "provider">, string> = {
 		"Enter a group name that starts with a letter or digit and has no quotes.",
 };
 
+/** What a group field needs where the provider names groups by ID or email. */
+function groupMessage(
+	form: SsoForm,
+	field: Exclude<keyof SsoForm, "provider">,
+): string {
+	if (form.provider === "entra") {
+		return "Enter the group's object ID, such as 12345678-90ab-cdef-1234-567890abcdef.";
+	}
+	if (form.provider === "google") {
+		return "Enter the group's email address, such as portikus-students@example.edu.";
+	}
+	return MESSAGE[field];
+}
+
+const GROUP_FIELDS: readonly string[] = [
+	"studentGroup",
+	"instructorGroup",
+	"adminGroup",
+];
+
 /** Where each request field is edited on the form. */
 const FIELD_OF: Record<string, Exclude<keyof SsoForm, "provider">> = {
 	entraTenantId: "entraTenantId",
+	entraRoleSource: "entraRoleSource",
 	googleDomains: "googleDomains",
+	googleAdminEmail: "googleAdminEmail",
+	googleServiceAccountKey: "googleKey",
 	oidcIssuer: "oidcIssuer",
 	clientId: "clientId",
 	clientSecret: "clientSecret",
@@ -159,8 +223,16 @@ export function validate(
 			const path = issue.path.filter((p) => typeof p === "string").join(".");
 			const field = FIELD_OF[path] ?? FIELD_OF[String(issue.path[0])];
 			if (field && !(FIELD_ID[field] in errors)) {
-				errors[FIELD_ID[field]] = MESSAGE[field];
+				errors[FIELD_ID[field]] = GROUP_FIELDS.includes(field)
+					? groupMessage(form, field)
+					: MESSAGE[field];
 			}
+		}
+	}
+	if (form.provider === "google" && usesGroups(form) && form.googleKey.trim() === "") {
+		if (!view?.googleKeySet) {
+			errors[FIELD_ID.googleKey] =
+				"Paste the service account's JSON key. Group checks need one, and none is stored.";
 		}
 	}
 	if (form.clientSecret === "" && secretRequired(form, view)) {
@@ -215,7 +287,7 @@ export function jobText(job: SiteJobView): string {
 function failedText(code: SiteJobView["code"]): string {
 	switch (code) {
 		case "missing_secret":
-			return "Not applied: the client secret is needed for this provider.";
+			return "Not applied: the client secret, or the Google service account's key, is needed.";
 		case "not_apt_install":
 			return "Not applied: this server was not installed with apt.";
 		case "trial_open":

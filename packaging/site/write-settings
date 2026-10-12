@@ -88,10 +88,17 @@ def write_answers(etc, public_port=None, out=sys.stdout):
         settings["portikus_tls_key"] = answer("tls_key")
     if provider in ("entra", "google", "oidc"):
         settings["portikus_dex_upstream_client_id"] = answer("client_id")
+    entra_groups = provider == "entra" and answer("entra_role_source") == "groups"
+    google_groups = provider == "google" and bool(answer("google_admin_email"))
     if provider == "entra":
         settings["portikus_entra_tenant_id"] = answer("entra_tenant_id")
+        # App roles, the play's default, stay unwritten, as postinst wrote them before groups existed.
+        if entra_groups:
+            settings["portikus_entra_role_source"] = "groups"
     if provider == "google":
         settings["portikus_google_domains"] = words("google_domains")
+        if google_groups:
+            settings["portikus_google_admin_email"] = answer("google_admin_email")
     if provider == "oidc":
         settings["portikus_dex_upstream_issuer"] = answer("oidc_issuer")
         settings["portikus_oidc_upstream_groups_claim"] = answer("oidc_groups_claim") or "groups"
@@ -100,11 +107,14 @@ def write_answers(etc, public_port=None, out=sys.stdout):
                      "group_base_dn", "root_ca"):
             settings["portikus_ldap_" + name] = answer("ldap_" + name)
         settings["portikus_ldap_ip_allow"] = words("ldap_ip_allow")
-    if provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")):
+    if provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")) or entra_groups \
+            or google_groups:
         # A blank group leaves the play's default: the API refuses an empty one and stops.
         for role in ("student", "instructor", "admin"):
             if answer(role + "_group"):
-                settings["portikus_oidc_%s_group" % role] = answer(role + "_group")
+                name = answer(role + "_group")
+                # Google returns group emails in lowercase, and Dex matches them exactly.
+                settings["portikus_oidc_%s_group" % role] = name.lower() if google_groups else name
     if storage.startswith("/dev/"):
         settings["portikus_storage_confirm"] = answer("storage_confirm") == "true"
     if storage == "file" and answer("storage_size").isdigit():

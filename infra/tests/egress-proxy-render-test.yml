@@ -377,6 +377,34 @@
           - egress_proxy_allowed == ['192.168.10.48:8765']
         fail_msg: "{{ egress_proxy_allowed }}"
 
+    # Dex reads Google groups through the Admin SDK (SPEC.md section 5.1).
+    - name: Copy site.yml's listed hosts rule to a template
+      ansible.builtin.copy:
+        content: >-
+          {{ ((lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].roles
+              | selectattr('role', 'equalto', 'egress_proxy') | first).vars.egress_proxy_hosts }}
+        dest: "{{ egress_workdir.path }}/hosts.j2"
+        mode: "0600"
+
+    - name: Render the listed hosts with and without Google group checks
+      ansible.builtin.set_fact:
+        egress_listed: >-
+          {{ egress_listed | default({}) | combine({item.name: (lookup('ansible.builtin.template', egress_workdir.path ~ '/hosts.j2',
+               template_vars={'portikus_egress_extra_hosts': ['keys.example.edu'],
+                              'portikus_lti_keyset_egress': [],
+                              'portikus_google_groups_enabled': item.groups}) | trim | from_yaml)}) }}
+      loop:
+        - {name: groups, groups: true}
+        - {name: plain, groups: false}
+
+    - name: Check only Google group checks open the Admin SDK
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - egress_listed.groups == ['keys.example.edu', 'admin.googleapis.com:443']
+          - egress_listed.plain == ['keys.example.edu']
+        fail_msg: "{{ egress_listed | to_json }}"
+
     - name: Remove the working directory
       ansible.builtin.file:
         path: "{{ egress_workdir.path }}"

@@ -125,6 +125,11 @@ function CurrentSettings({ view }: { view: SigninView }) {
 	if (view.provider !== "dex" && view.provider !== "ldap") {
 		rows.push(["Client secret", view.clientSecretSet ? "Set" : "Not set"]);
 	}
+	if (view.entraRoleSource === "groups") rows.push(["Roles from", "Assigned groups"]);
+	if (view.googleAdminEmail) {
+		rows.push(["Groups read as", view.googleAdminEmail]);
+		rows.push(["Service account key", view.googleKeySet ? "Set" : "Not set"]);
+	}
 	return (
 		<div className="grid gap-3">
 			<dl
@@ -208,7 +213,7 @@ function SsoChange({ view, busy }: { view: SigninView; busy: boolean }) {
 				toast.show({ tone: "success", title: "Sign-in change requested" });
 				setConfirming(null);
 				// The secret is with the job now; the page keeps none of it.
-				setFormState((now) => ({ ...now, clientSecret: "" }));
+				setFormState((now) => ({ ...now, clientSecret: "", googleKey: "" }));
 				apply.reset();
 			},
 			onError: (error) => {
@@ -216,6 +221,10 @@ function SsoChange({ view, busy }: { view: SigninView; busy: boolean }) {
 				setFailure(errorText(error));
 				if (error instanceof ApiError && error.code === "SIGNIN_SECRET_REQUIRED") {
 					setErrors({ [FIELD_ID.clientSecret]: error.message });
+					focusError.current = true;
+				}
+				if (error instanceof ApiError && error.code === "SIGNIN_KEY_REQUIRED") {
+					setErrors({ [FIELD_ID.googleKey]: error.message });
 					focusError.current = true;
 				}
 				apply.reset();

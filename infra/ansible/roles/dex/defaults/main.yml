@@ -39,3 +39,24 @@ dex_ldap_attributes:
     id: entryUUID
     name: cn
     group_filter: (objectClass=groupOfNames)
+
+# Google groups (SPEC.md section 5.1): the service-account key Dex reads
+# groups with, written by the root site job or copied in by the operator;
+# packaging/site/site-job DEX_KEY_FILE names the same path.
+dex_google_key_path: "{{ dex_config_dir }}/google-service-account.json"
+# Every field of a service-account key, and the ones it must have.  An
+# external_account credential would make Google's library read local files
+# and send them to a URL of its choice.
+dex_google_key_required: [type, project_id, private_key_id, private_key, client_email]
+dex_google_key_fields:
+  - type
+  - project_id
+  - private_key_id
+  - private_key
+  - client_email
+  - client_id
+  - auth_uri
+  - token_uri
+  - auth_provider_x509_cert_url
+  - client_x509_cert_url
+  - universe_domain

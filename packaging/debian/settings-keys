@@ -11,7 +11,9 @@ tls_cert           portikus_tls_cert                    setting
 tls_key           portikus_tls_key                     setting
 provider           portikus_dex_upstream                setting
 entra_tenant_id    portikus_entra_tenant_id             setting
+entra_role_source  portikus_entra_role_source           setting
 google_domains     portikus_google_domains              setting
+google_admin_email portikus_google_admin_email          setting
 oidc_issuer        portikus_dex_upstream_issuer         setting
 client_id          portikus_dex_upstream_client_id      setting
 oidc_groups_claim  portikus_oidc_upstream_groups_claim  setting

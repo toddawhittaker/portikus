@@ -20,6 +20,7 @@ import { currentJob } from "../job-files.js";
 import { allSiteJobs, noteSiteJobsFinished } from "../site/jobs.js";
 import {
 	latestSigninTest,
+	needsGoogleKey,
 	needsNewSecret,
 	providerConnector,
 	type SigninTestMarker,
@@ -35,6 +36,8 @@ const NO_TRIAL = "That sign-in trial is no longer open.";
 const SECRET_REQUIRED =
 	"Enter the client secret: a changed provider, tenant, issuer or client ID never gets the old one.";
 const TEST_REQUIRED = "Run a test sign-in that passes before keeping this change.";
+const KEY_REQUIRED =
+	"Upload the service account's key: Google group checks need one, and none is stored.";
 
 /** A sign-in trial's job, or a waiting one whose kind is not known yet. */
 function signinJobs(jobs: SiteJobView[]): SiteJobView[] {
@@ -66,6 +69,15 @@ export function registerAdminSigninRoutes(
 						groupsClaim: view.groupsClaim,
 						groups: view.groups,
 						...(view.ldapHost === undefined ? {} : { ldapHost: view.ldapHost }),
+						...(view.entraRoleSource === undefined
+							? {}
+							: { entraRoleSource: view.entraRoleSource }),
+						...(view.googleAdminEmail === undefined
+							? {}
+							: { googleAdminEmail: view.googleAdminEmail }),
+						...(view.googleKeySet === undefined
+							? {}
+							: { googleKeySet: view.googleKeySet }),
 					}
 				: null,
 			job: currentJob(signinJobs(jobs), SITE_JOB_STALE_MS),
@@ -110,6 +122,9 @@ export function registerAdminSigninRoutes(
 		if (!view?.apt) return sendError(reply, 409, "SITE_UNAVAILABLE", UNAVAILABLE);
 		if (needsNewSecret(view, settings)) {
 			return sendError(reply, 400, "SIGNIN_SECRET_REQUIRED", SECRET_REQUIRED);
+		}
+		if (needsGoogleKey(view, settings)) {
+			return sendError(reply, 400, "SIGNIN_KEY_REQUIRED", KEY_REQUIRED);
 		}
 		return submit(reply, jobsDir, admin.id, { kind: "signin", ...settings });
 	});

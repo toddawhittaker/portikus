@@ -225,6 +225,16 @@
       when: portikus_dex_upstream != 'ldap' or portikus_ldap_root_ca | length == 0
       notify: Restart portikus-dex
 
+    # Settings checked it (settings.yml); a copy made by hand may have any owner.
+    - name: Let only Dex read the Google service-account key
+      ansible.builtin.file:
+        path: "{{ dex_google_key_path }}"
+        owner: root
+        group: portikus-dex
+        mode: "0640"
+      when: portikus_google_groups_enabled | bool
+      notify: Restart portikus-dex
+
     # Holds the client secrets and the LDAP bind password, so nothing about
     # it may reach the output.
     - name: Deploy the Dex configuration

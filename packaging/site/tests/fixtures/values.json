@@ -204,6 +204,60 @@
 				"a\tb",
 				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			]
+		},
+		"googleAdminEmail": {
+			"where": "signin googleAdminEmail",
+			"good": ["groups-reader@example.edu", "A.Admin+portikus@example.co.uk"],
+			"bad": [
+				"",
+				"admin",
+				"admin@localhost",
+				"a@b@example.edu",
+				".a@example.edu",
+				"{{ 7*7 }}@example.edu"
+			]
+		},
+		"googleGroup": {
+			"where": "signin groups.* when googleAdminEmail is set",
+			"good": ["portikus-students@example.edu", "staff.it@example.co.uk"],
+			"bad": [
+				"",
+				"portikus-students",
+				"Portikus-Students@example.edu",
+				"students@EXAMPLE.edu",
+				"a b@example.edu"
+			]
+		},
+		"entraGroup": {
+			"where": "signin groups.* when entraRoleSource is groups",
+			"good": [
+				"0a1b2c3d-1111-4a5b-8c9d-000000000001",
+				"0A1B2C3D-1111-4A5B-8C9D-00000000000F"
+			],
+			"bad": [
+				"",
+				"Portikus.Student",
+				"0a1b2c3d-1111-4a5b-8c9d-00000000001",
+				"{0a1b2c3d-1111-4a5b-8c9d-000000000001}"
+			]
+		},
+		"serviceAccountKey": {
+			"where": "signin googleServiceAccountKey",
+			"good": [
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"-----BEGIN FAKE TEST KEY-----\\nx\\n-----END FAKE TEST KEY-----\\n\", \"client_email\": \"g@p.iam.gserviceaccount.com\"}",
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\", \"client_id\": \"1\", \"token_uri\": \"https://oauth2.googleapis.com/token\", \"universe_domain\": \"googleapis.com\"}"
+			],
+			"bad": [
+				"",
+				"not json",
+				"[1]",
+				"{\"type\": \"authorized_user\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\"}",
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\", \"token_uri\": \"https://tokens.example.com/token\"}",
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"\", \"client_email\": \"g@p.iam.gserviceaccount.com\"}",
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\", \"credential_source\": \"/etc/shadow\"}",
+				"{\"type\": \"service_account\", \"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\"}",
+				"{\"type\": \"service_account\", \"project_id\": \"p\", \"private_key_id\": \"k\", \"private_key\": \"x\", \"client_email\": \"g@p.iam.gserviceaccount.com\", \"universe_domain\": \"example.com\"}"
+			]
 		}
 	}
 }

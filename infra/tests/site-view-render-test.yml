@@ -30,6 +30,9 @@
     portikus_oidc_instructor_group: portikus-instructors
     portikus_oidc_admin_group: portikus-administrators
     portikus_ldap_host: ""
+    portikus_entra_role_source: appRoles
+    portikus_google_admin_email: ""
+    site_view_key_text: '{"type": "service_account", "private_key": "fake-private-key-0123456789"}'
     site_view_template: ../ansible/roles/portikus/templates/site-view.json.j2
 
   tasks:
@@ -71,6 +74,30 @@
                'portikus_tls': 'letsencrypt',
                'portikus_site_answers_file': {'failed': true}}) | from_json }}
 
+    - name: Render Entra with roles from groups
+      ansible.builtin.set_fact:
+        site_view_entra: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_dex_upstream': 'entra',
+               'portikus_entra_tenant_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+               'portikus_entra_role_source': 'groups'}) | from_json }}
+
+    # The settings check registers the key's stat and content; only the stat may show.
+    - name: Render Google with group checks and a key, and without either
+      ansible.builtin.set_fact:
+        site_view_google_groups: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_dex_upstream': 'google',
+               'portikus_google_domains': ['example.edu'],
+               'portikus_google_admin_email': 'groups-reader@example.edu',
+               'dex_google_key_stat': {'stat': {'exists': true, 'isreg': true}},
+               'dex_google_key_file': {'content': site_view_key_text | b64encode}}) | from_json }}
+        site_view_google: >-
+          {{ lookup('ansible.builtin.template', site_view_template, template_vars={
+               'portikus_dex_upstream': 'google',
+               'portikus_google_domains': ['example.edu'],
+               'dex_google_key_stat': {'skipped': true}}) | from_json }}
+
     - name: Check each view
       ansible.builtin.assert:
         that:
@@ -90,4 +117,11 @@
           - not site_view_ldap.apt and site_view_ldap.certificateSource == 'acme'
           - site_view_default_by_hand.previewSuffixSetByHand
           - not site_view_no_suffix.previewSuffixSetByHand
+          - site_view_entra.keys() | sort == (site_view_keys + ['entraRoleSource']) | sort
+          - site_view_entra.entraRoleSource == 'groups'
+          - site_view_google_groups.keys() | sort == (site_view_keys + ['googleAdminEmail', 'googleKeySet']) | sort
+          - site_view_google_groups.googleAdminEmail == 'groups-reader@example.edu'
+          - site_view_google_groups.googleKeySet
+          - "'fake-private-key' not in (site_view_google_groups | to_json)"
+          - site_view_google.googleAdminEmail is none and not site_view_google.googleKeySet
         quiet: true

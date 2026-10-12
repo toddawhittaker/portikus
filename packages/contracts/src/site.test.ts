@@ -44,6 +44,43 @@ const OIDC = {
 	},
 };
 
+const KEY = JSON.stringify({
+	type: "service_account",
+	project_id: "portikus-test",
+	private_key_id: "fake-key-id",
+	private_key:
+		"-----BEGIN FAKE TEST KEY-----\nnot-a-real-key\n-----END FAKE TEST KEY-----\n",
+	client_email: "groups@portikus-test.iam.gserviceaccount.com",
+	token_uri: "https://oauth2.googleapis.com/token",
+});
+
+const GOOGLE_GROUPS = {
+	provider: "google",
+	googleDomains: ["example.edu"],
+	clientId: "123-abc.apps.googleusercontent.com",
+	clientSecret: null,
+	googleAdminEmail: "groups-reader@example.edu",
+	googleServiceAccountKey: KEY,
+	groups: {
+		student: "portikus-students@example.edu",
+		instructor: "portikus-instructors@example.edu",
+		admin: "portikus-administrators@example.edu",
+	},
+};
+
+const ENTRA_GROUPS = {
+	provider: "entra",
+	entraTenantId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+	clientId: "portikus",
+	clientSecret: null,
+	entraRoleSource: "groups",
+	groups: {
+		student: "0a1b2c3d-1111-4a5b-8c9d-000000000001",
+		instructor: "0a1b2c3d-1111-4a5b-8c9d-000000000002",
+		admin: "0a1b2c3d-1111-4a5b-8c9d-000000000003",
+	},
+};
+
 const VIEW = {
 	version: 1,
 	apt: true,
@@ -284,6 +321,21 @@ describe("the values the root job agrees on (ADR 0059)", () => {
 		siteHost: (v) => AddressSettings.safeParse({ host: v, port: 443 }).success,
 		sitePort: (v) =>
 			AddressSettings.safeParse({ host: "portikus.example.edu", port: v }).success,
+		googleAdminEmail: (v) =>
+			SigninSettings.safeParse({ ...GOOGLE_GROUPS, googleAdminEmail: v }).success,
+		googleGroup: (v) =>
+			SigninSettings.safeParse({
+				...GOOGLE_GROUPS,
+				groups: { ...GOOGLE_GROUPS.groups, instructor: v },
+			}).success,
+		entraGroup: (v) =>
+			SigninSettings.safeParse({
+				...ENTRA_GROUPS,
+				groups: { ...ENTRA_GROUPS.groups, admin: v },
+			}).success,
+		serviceAccountKey: (v) =>
+			SigninSettings.safeParse({ ...GOOGLE_GROUPS, googleServiceAccountKey: v })
+				.success,
 	};
 
 	for (const [field, accepts] of Object.entries(FIELDS)) {
@@ -407,6 +459,89 @@ describe("SiteView: no secret can be read through it (SPEC.md 24.8)", () => {
 		expect(Object.keys(SiteView.shape).filter((k) => /secret/i.test(k))).toEqual([
 			"clientSecretSet",
 		]);
+	});
+
+	test("the Google key shows only as googleKeySet, and older views without it still parse", () => {
+		const google = {
+			...VIEW,
+			provider: "google",
+			googleAdminEmail: "groups-reader@example.edu",
+			googleKeySet: true,
+		};
+		expect(SiteView.safeParse(google).success).toBe(true);
+		expect(SiteView.safeParse({ ...VIEW, entraRoleSource: "groups" }).success).toBe(
+			true,
+		);
+		expect(
+			SiteView.safeParse({ ...google, googleServiceAccountKey: KEY }).success,
+		).toBe(false);
+		expect(SiteView.safeParse({ ...google, googleKeySet: KEY }).success).toBe(false);
+	});
+});
+
+describe("SigninSettings: roles from provider groups (SPEC.md 5.1)", () => {
+	test("Google with an administrator needs three lowercase group emails", () => {
+		expect(SigninSettings.safeParse(GOOGLE_GROUPS).success).toBe(true);
+		const { groups: _, ...noGroups } = GOOGLE_GROUPS;
+		expect(SigninSettings.safeParse(noGroups).success).toBe(false);
+		const capitals = {
+			...GOOGLE_GROUPS,
+			groups: { ...GOOGLE_GROUPS.groups, admin: "Admins@example.edu" },
+		};
+		const refused = SigninSettings.safeParse(capitals);
+		expect(refused.error?.issues.map((i) => i.path.join("."))).toEqual([
+			"groups.admin",
+		]);
+	});
+
+	test("the key is optional, so a stored one is kept, and must be a service-account key", () => {
+		const { googleServiceAccountKey: _, ...keep } = GOOGLE_GROUPS;
+		expect(SigninSettings.safeParse(keep).success).toBe(true);
+		const user = JSON.stringify({ ...JSON.parse(KEY), type: "authorized_user" });
+		expect(
+			SigninSettings.safeParse({ ...GOOGLE_GROUPS, googleServiceAccountKey: user })
+				.success,
+		).toBe(false);
+	});
+
+	test("Google without an administrator takes any group names, as before", () => {
+		const {
+			googleAdminEmail: _,
+			googleServiceAccountKey: __,
+			...plain
+		} = GOOGLE_GROUPS;
+		expect(SigninSettings.safeParse({ ...plain, groups: OIDC.groups }).success).toBe(
+			true,
+		);
+	});
+
+	test("Entra from groups needs three object IDs; app roles need none", () => {
+		expect(SigninSettings.safeParse(ENTRA_GROUPS).success).toBe(true);
+		const { groups: _, ...noGroups } = ENTRA_GROUPS;
+		expect(SigninSettings.safeParse(noGroups).success).toBe(false);
+		expect(
+			SigninSettings.safeParse({ ...ENTRA_GROUPS, groups: OIDC.groups }).success,
+		).toBe(false);
+		expect(
+			SigninSettings.safeParse({ ...noGroups, entraRoleSource: "appRoles" }).success,
+		).toBe(true);
+		expect(
+			SigninSettings.safeParse({ ...noGroups, entraRoleSource: "claims" }).success,
+		).toBe(false);
+	});
+
+	test("the job request takes the same rules", () => {
+		expect(
+			SiteJobRequest.safeParse({ ...HEAD, kind: "signin", ...GOOGLE_GROUPS }).success,
+		).toBe(true);
+		expect(
+			SiteJobRequest.safeParse({
+				...HEAD,
+				kind: "signin",
+				...ENTRA_GROUPS,
+				groups: OIDC.groups,
+			}).success,
+		).toBe(false);
 	});
 });
 

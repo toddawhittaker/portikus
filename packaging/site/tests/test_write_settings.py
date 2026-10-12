@@ -101,6 +101,38 @@ class WriteSettings(unittest.TestCase):
         self.assertEqual(out["secretsSet"], ["portikus_dex_upstream_client_secret"])
         self.assertNotIn("fake-secret-value", json.dumps(out))
 
+    def test_google_groups_are_written_in_lowercase_only_with_an_administrator(self):
+        """Dex matches the lowercase group emails Google returns (SPEC.md 5.1)."""
+        answers = {"public_host": "portikus.example.edu", "admin_email": "admin@example.edu", "storage": "file",
+                   "storage_size": "50", "provider": "google", "google_domains": "example.edu",
+                   "client_id": "123.apps.googleusercontent.com", "client_secret": "fake-google-secret-0123",
+                   "student_group": "Students@Example.edu", "instructor_group": "staff@example.edu",
+                   "admin_group": "it@example.edu"}
+        self.write(answers)
+        config = Path(self.etc, "portikus.yaml").read_text()
+        self.assertNotIn("_group", config)
+        self.assertNotIn("google_admin_email", config)
+        self.write({**answers, "google_admin_email": "groups-reader@example.edu"})
+        config = Path(self.etc, "portikus.yaml").read_text()
+        self.assertIn("portikus_google_admin_email: groups-reader@example.edu\n", config)
+        self.assertIn("portikus_oidc_student_group: students@example.edu\n", config)
+
+    def test_entra_groups_are_written_only_when_roles_come_from_groups(self):
+        answers = {"public_host": "portikus.example.edu", "admin_email": "admin@example.edu", "storage": "file",
+                   "storage_size": "50", "provider": "entra", "entra_tenant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                   "client_id": "portikus", "client_secret": "fake-entra-secret-0123",
+                   "student_group": "0a1b2c3d-1111-4a5b-8c9d-000000000001", "instructor_group": "x", "admin_group": "y",
+                   "entra_role_source": "appRoles"}
+        self.write(answers)
+        config = Path(self.etc, "portikus.yaml").read_text()
+        self.assertNotIn("_group", config)
+        self.assertNotIn("entra_role_source", config)
+        self.write({**answers, "entra_role_source": "groups"})
+        config = Path(self.etc, "portikus.yaml").read_text()
+        self.assertIn("portikus_entra_role_source: groups\n", config)
+        self.assertIn("portikus_oidc_student_group: 0a1b2c3d-1111-4a5b-8c9d-000000000001\n", config)
+        self.assertEqual(self.read()["answers"]["entra_role_source"], "groups")
+
     def test_the_public_port(self):
         answers = GOLDEN[0]["answers"]
         self.write(answers, "--public-port", "8443")

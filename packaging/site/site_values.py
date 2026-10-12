@@ -41,6 +41,20 @@ JS_SPACE = "".join(chr(c) for c in (0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0xA0, 0x
 OIDC_ISSUER_RE = re.compile(r"https://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?(/[^" + re.escape(JS_SPACE) + r"?#]*)?")
 # Printable ASCII: stricter than the browser's URL parser, which would percent-encode the rest.
 URL_RE = re.compile(r"https://[!-~]+", re.ASCII)
+# zod's email pattern, as the contract checks it.
+EMAIL_RE = re.compile(
+    r"(?!\.)(?!.*\.\.)[A-Za-z0-9_'+.-]*[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}", re.ASCII)
+ENTRA_ROLE_SOURCES = ("appRoles", "groups")
+MAX_SERVICE_ACCOUNT_JSON = 16 * 1024
+# jscpd:ignore-start -- each root job is a standalone script, so this stays a copy of the certificate job's.
+# A service-account key's fields. An external_account credential would make Google's
+# library read local files and send them to a URL of its choice.
+SERVICE_ACCOUNT_REQUIRED = {"type", "project_id", "private_key_id", "private_key", "client_email"}
+SERVICE_ACCOUNT_KEYS = SERVICE_ACCOUNT_REQUIRED | {
+    "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"}
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+GOOGLE_UNIVERSE = "googleapis.com"
+# jscpd:ignore-end
 
 
 class Refused(Exception):
@@ -164,6 +178,44 @@ def check_groups_claim(value):
     return value
 
 
+def check_email(value):
+    if not EMAIL_RE.fullmatch(site_text(value, 200)):
+        raise Refused("invalid_value")
+    return value
+
+
+def check_google_group(value):
+    """Dex matches the group emails Google's Admin SDK returns, which are lowercase."""
+    if not isinstance(value, str) or value != value.lower():
+        raise Refused("invalid_value")
+    return check_email(value)
+
+
+def check_entra_group(value):
+    """An Entra group's object ID, as the groups claim carries it."""
+    return check_tenant(value)
+
+
+def check_service_account_key(value):
+    """A Google service-account key, and nothing Google's library would take as a file or URL to fetch."""
+    if not isinstance(value, str) or js_length(value) > MAX_SERVICE_ACCOUNT_JSON:
+        raise Refused("invalid_value")
+    try:
+        doc = parse_json(value)
+    except Refused:
+        raise Refused("invalid_value")
+    # jscpd:ignore-start -- the certificate job's rule, kept as a copy for the same reason.
+    # Google's library posts a signed assertion to token_uri, so only Google's own is allowed.
+    if not (isinstance(doc, dict) and SERVICE_ACCOUNT_REQUIRED <= set(doc) <= SERVICE_ACCOUNT_KEYS
+            and doc["type"] == "service_account" and all(isinstance(v, str) for v in doc.values())
+            and all(doc[k] for k in SERVICE_ACCOUNT_REQUIRED)
+            and doc.get("token_uri", GOOGLE_TOKEN_URI) == GOOGLE_TOKEN_URI
+            and doc.get("universe_domain", GOOGLE_UNIVERSE) == GOOGLE_UNIVERSE):
+        raise Refused("invalid_value")
+    # jscpd:ignore-end
+    return value
+
+
 def check_client_secret(value):
     if js_length(site_text(value, 500)) < 16:
         raise Refused("invalid_value")
@@ -257,7 +309,8 @@ def check_trial_ref(value):
 
 SIGNIN_NEEDS = {"dex": (), "entra": ("entraTenantId", "clientId"), "google": ("googleDomains", "clientId"),
                 "oidc": ("oidcIssuer", "clientId")}
-SIGNIN_OPTIONAL = ("entraTenantId", "googleDomains", "oidcIssuer", "clientId", "groupsClaim", "groups")
+SIGNIN_OPTIONAL = ("entraTenantId", "entraRoleSource", "googleDomains", "oidcIssuer", "clientId", "groupsClaim",
+                   "groups", "googleAdminEmail", "googleServiceAccountKey")
 
 
 def check_signin(doc):
@@ -282,6 +335,14 @@ def check_signin(doc):
         if not isinstance(groups, dict) or set(groups) != {"student", "instructor", "admin"}:
             raise Refused("invalid_value")
         out["groups"] = {role: check_group(groups[role]) for role in ("student", "instructor", "admin")}
+    if "entraRoleSource" in doc:
+        if doc["entraRoleSource"] not in ENTRA_ROLE_SOURCES:
+            raise Refused("invalid_value")
+        out["entraRoleSource"] = doc["entraRoleSource"]
+    if "googleAdminEmail" in doc:
+        out["googleAdminEmail"] = check_email(doc["googleAdminEmail"])
+    if "googleServiceAccountKey" in doc:
+        out["googleServiceAccountKey"] = check_service_account_key(doc["googleServiceAccountKey"])
     secret = doc["clientSecret"]
     out["clientSecret"] = None if secret is None else check_client_secret(secret)
     for field in SIGNIN_NEEDS[provider]:
@@ -289,7 +350,22 @@ def check_signin(doc):
             raise Refused("invalid_value")
     if provider == "dex" and out["clientSecret"] is not None:
         raise Refused("invalid_value")
+    rule = group_rule(out)
+    if rule is not None:
+        if "groups" not in out:
+            raise Refused("invalid_value")
+        for name in out["groups"].values():
+            rule(name)
     return out
+
+
+def group_rule(signin):
+    """The check role groups need where the provider names groups by object ID or email, else None."""
+    if signin["provider"] == "entra" and signin.get("entraRoleSource") == "groups":
+        return check_entra_group
+    if signin["provider"] == "google" and "googleAdminEmail" in signin:
+        return check_google_group
+    return None
 
 
 BODY_KEYS = {

@@ -243,6 +243,10 @@ class ValueRules(unittest.TestCase):
         "groupsClaim": values.check_groups_claim,
         "clientSecret": values.check_client_secret,
         "platformName": values.check_platform_name,
+        "googleAdminEmail": values.check_email,
+        "googleGroup": values.check_google_group,
+        "entraGroup": values.check_entra_group,
+        "serviceAccountKey": values.check_service_account_key,
     }
 
     def test_every_fixture_field_has_a_check(self):

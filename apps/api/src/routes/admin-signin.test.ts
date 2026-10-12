@@ -67,6 +67,43 @@ const OIDC = {
 	groups: { student: "students", instructor: "teachers", admin: "admins" },
 };
 
+// A test key, not a real one.
+const PRIVATE_LINE = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIB-not-a-real-key";
+const KEY = JSON.stringify({
+	type: "service_account",
+	project_id: "portikus-test",
+	private_key_id: "fake-key-id",
+	private_key: `-----BEGIN FAKE TEST KEY-----\n${PRIVATE_LINE}\n-----END FAKE TEST KEY-----\n`,
+	client_email: "groups@portikus-test.iam.gserviceaccount.com",
+});
+
+const GOOGLE_GROUPS = {
+	provider: "google",
+	googleDomains: ["example.edu"],
+	clientId: "portikus",
+	clientSecret: SECRET,
+	googleAdminEmail: "groups-reader@example.edu",
+	googleServiceAccountKey: KEY,
+	groups: {
+		student: "students@example.edu",
+		instructor: "staff@example.edu",
+		admin: "it-admins@example.edu",
+	},
+};
+
+const ENTRA_GROUPS = {
+	provider: "entra",
+	entraTenantId: "12345678-90ab-cdef-1234-567890abcdef",
+	clientId: "portikus",
+	clientSecret: SECRET,
+	entraRoleSource: "groups",
+	groups: {
+		student: "0a1b2c3d-1111-4a5b-8c9d-000000000001",
+		instructor: "0a1b2c3d-1111-4a5b-8c9d-000000000002",
+		admin: "0a1b2c3d-1111-4a5b-8c9d-000000000003",
+	},
+};
+
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
@@ -447,6 +484,16 @@ describe.skipIf(skip)("validation agrees with the root job's shared values", () 
 		groupsClaim: (v) => ({ ...OIDC, groupsClaim: v }),
 		clientSecret: (v) => ({ ...OIDC, clientSecret: v }),
 		siteHost: (v) => ({ ...GOOGLE, googleDomains: [v] }),
+		googleAdminEmail: (v) => ({ ...GOOGLE_GROUPS, googleAdminEmail: v }),
+		googleGroup: (v) => ({
+			...GOOGLE_GROUPS,
+			groups: { ...GOOGLE_GROUPS.groups, admin: v },
+		}),
+		entraGroup: (v) => ({
+			...ENTRA_GROUPS,
+			groups: { ...ENTRA_GROUPS.groups, student: v },
+		}),
+		serviceAccountKey: (v) => ({ ...GOOGLE_GROUPS, googleServiceAccountKey: v }),
 	};
 
 	test("every good value is accepted and every bad one refused", async () => {
@@ -764,6 +811,79 @@ describe.skipIf(skip)("keep and roll back", () => {
 		).toBe(202);
 		const busy = await send("POST", "/admin/signin/keep", { trialId: TRIAL });
 		expect(busy.json().code).toBe("SITE_JOB_BUSY");
+		await app.close();
+	});
+});
+
+describe.skipIf(skip)("roles from provider groups (SPEC.md 5.1, 24.8)", () => {
+	test("the view's group settings reach the page, never the key", async () => {
+		await putView({
+			provider: "google",
+			googleDomains: ["example.edu"],
+			oidcIssuer: null,
+			groupsClaim: null,
+			googleAdminEmail: "groups-reader@example.edu",
+			googleKeySet: true,
+		});
+		const app = server();
+		const { send } = await signIn(app, "carol");
+		const body = AdminSignin.parse((await send("GET", "/admin/signin")).json());
+		expect(body.current).toMatchObject({
+			provider: "google",
+			googleAdminEmail: "groups-reader@example.edu",
+			googleKeySet: true,
+		});
+		await putView({ provider: "entra", entraRoleSource: "groups" });
+		const entra = AdminSignin.parse((await send("GET", "/admin/signin")).json());
+		expect(entra.current?.entraRoleSource).toBe("groups");
+		await app.close();
+	});
+
+	test("Google group checks need a key, sent now or already stored", async () => {
+		await putView({ googleKeySet: false });
+		const app = server();
+		const { send } = await signIn(app, "carol");
+		const { googleServiceAccountKey: _, ...noKey } = GOOGLE_GROUPS;
+		const refused = await send("POST", "/admin/signin", noKey);
+		expect(refused.statusCode).toBe(400);
+		expect(refused.json().code).toBe("SIGNIN_KEY_REQUIRED");
+		expect(await requests()).toEqual([]);
+		await putView({ googleKeySet: true });
+		expect((await send("POST", "/admin/signin", noKey)).statusCode).toBe(202);
+		await app.close();
+	});
+
+	test("the key goes only into the owner-only request, never the audit row", async () => {
+		await putView();
+		const app = server();
+		const { send } = await signIn(app, "carol");
+		expect((await send("POST", "/admin/signin", GOOGLE_GROUPS)).statusCode).toBe(202);
+		const [request] = await requests();
+		expect(request).toMatchObject({ googleServiceAccountKey: KEY });
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "site.job_requested")
+			.execute();
+		expect(rows).toHaveLength(1);
+		const row = JSON.stringify(rows[0]);
+		expect(row).not.toContain(PRIVATE_LINE);
+		expect(row).not.toContain("fake-key-id");
+		expect(rows[0]?.metadata).toMatchObject({
+			googleGroups: true,
+			googleKeyChanged: true,
+		});
+		await app.close();
+	});
+
+	test("Entra from groups needs object IDs", async () => {
+		await putView();
+		const app = server();
+		const { send } = await signIn(app, "carol");
+		expect((await send("POST", "/admin/signin", ENTRA_GROUPS)).statusCode).toBe(202);
+		await clearRequests();
+		const named = { ...ENTRA_GROUPS, groups: OIDC.groups };
+		expect((await send("POST", "/admin/signin", named)).statusCode).toBe(400);
 		await app.close();
 	});
 });

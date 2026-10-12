@@ -46,6 +46,9 @@
     portikus_dex_upstream_issuer: "{{ dex_render_connector.portikus_dex_upstream_issuer }}"
     portikus_oidc_upstream_groups_claim: "{{ dex_render_connector.portikus_oidc_upstream_groups_claim }}"
     portikus_oidc_upstream_extra_scopes: "{{ dex_render_connector.portikus_oidc_upstream_extra_scopes }}"
+    portikus_entra_role_source: appRoles
+    portikus_google_admin_email: ""
+    portikus_google_groups_enabled: false
     dex_render_upstream_client:
       portikus_dex_upstream_client_id: dex-upstream-client
       portikus_dex_upstream_client_secret: not-a-real-upstream-secret
@@ -55,6 +58,39 @@
       portikus_dex_upstream_issuer: https://sso.example.edu/oauth2/default
       portikus_oidc_upstream_groups_claim: memberOf
       portikus_oidc_upstream_extra_scopes: [groups]
+      portikus_entra_role_source: appRoles
+      portikus_google_admin_email: ""
+      portikus_oidc_student_group: portikus-students
+      portikus_oidc_instructor_group: portikus-instructors
+      portikus_oidc_admin_group: portikus-administrators
+      dex_google_key_path: "{{ dex_render_workdir.path }}/good-key.json"
+    # Roles from the object IDs of Entra groups, and from Google group emails.
+    dex_render_entra_groups:
+      portikus_entra_role_source: groups
+      portikus_oidc_student_group: 0a1b2c3d-1111-4a5b-8c9d-000000000001
+      portikus_oidc_instructor_group: 0a1b2c3d-1111-4a5b-8c9d-000000000002
+      portikus_oidc_admin_group: 0a1b2c3d-1111-4a5b-8c9d-000000000003
+    dex_render_google_groups:
+      portikus_google_admin_email: groups-reader@example.edu
+      portikus_oidc_student_group: portikus-students@example.edu
+      portikus_oidc_instructor_group: portikus-instructors@example.edu
+      portikus_oidc_admin_group: portikus-administrators@example.edu
+    # Test keys, none of them real; the guards check each against the role's rules.
+    dex_render_google_key:
+      type: service_account
+      project_id: portikus-test
+      private_key_id: fake-key-id
+      private_key: "-----BEGIN FAKE TEST KEY-----\nnot-a-real-key\n-----END FAKE TEST KEY-----\n"
+      client_email: groups@portikus-test.iam.gserviceaccount.com
+      client_id: "1234567890"
+      token_uri: https://oauth2.googleapis.com/token
+    dex_render_google_keys:
+      good-key: "{{ dex_render_google_key | to_json }}"
+      user-key: "{{ dex_render_google_key | combine({'type': 'authorized_user'}) | to_json }}"
+      token-key: "{{ dex_render_google_key | combine({'token_uri': 'https://tokens.example.com/token'}) | to_json }}"
+      external-key: "{{ dex_render_google_key | combine({'credential_source': {'file': '/etc/shadow'}}) | to_json }}"
+      empty-key: "{{ dex_render_google_key | combine({'private_key': ''}) | to_json }}"
+      not-json: "{not json"
     dex_render_ldap:
       portikus_ldap_host: ldap.example.edu:636
       portikus_ldap_schema: ad
@@ -71,6 +107,8 @@
       - {name: entra, upstream: entra, type: oidc}
       - {name: google, upstream: google, type: google}
       - {name: oidc, upstream: oidc, type: oidc}
+      - {name: entra-groups, upstream: entra, type: oidc, change: "{{ dex_render_entra_groups }}"}
+      - {name: google-groups, upstream: google, type: google, change: "{{ dex_render_google_groups }}"}
     # Each is the working settings with one change; accept says whether the
     # guards should let it through.
     dex_render_guards:
@@ -101,6 +139,32 @@
       - {name: LDAP without a bind password, accept: false, upstream: ldap, change: {portikus_ldap_bind_password: ""}}
       - {name: an LDAP root certificate file that is missing, accept: false, upstream: ldap, change: {portikus_ldap_root_ca: /nonexistent/ca.crt}}
       - {name: Google without a client ID, accept: false, upstream: google, change: {portikus_dex_upstream_client_id: ""}}
+      - {name: Entra roles from groups by object ID, accept: true, upstream: entra, change: "{{ dex_render_entra_groups }}"}
+      - {name: Entra roles from groups by name, accept: false, upstream: entra, change: {portikus_entra_role_source: groups}}
+      - {name: an unknown source of Entra roles, accept: false, upstream: entra, change: {portikus_entra_role_source: claims}}
+      - {name: Google groups with a key, accept: true, upstream: google, change: "{{ dex_render_google_groups }}"}
+      - {name: Google groups named in capitals, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'portikus_oidc_admin_group': 'Portikus-Administrators@example.edu'}) }}"}
+      - {name: Google groups named without a domain, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'portikus_oidc_student_group': 'portikus-students'}) }}"}
+      - {name: a Google administrator that is not an email, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'portikus_google_admin_email': 'admin'}) }}"}
+      - {name: Google groups without a key, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/no-key.json'}) }}"}
+      - {name: Google groups with a link for a key, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/linked-key.json'}) }}"}
+      - {name: Google groups with a user's credential, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/user-key.json'}) }}"}
+      - {name: Google groups with another token address, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/token-key.json'}) }}"}
+      - {name: Google groups with an external account credential, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/external-key.json'}) }}"}
+      - {name: Google groups with an empty private key, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/empty-key.json'}) }}"}
+      - {name: Google groups with a key that is not JSON, accept: false, upstream: google,
+         change: "{{ dex_render_google_groups | combine({'dex_google_key_path': dex_render_workdir.path ~ '/not-json.json'}) }}"}
+      - {name: Google without groups needs no key, accept: true, upstream: google,
+         change: {dex_google_key_path: "{{ dex_render_workdir.path }}/no-key.json"}}
     dex_render_instructor:
       username: ivy
       email: ivy@example.edu
@@ -313,6 +377,45 @@
           - dex_env['dex-google'].OIDC_GROUPS_CLAIM == ''
         fail_msg: "{{ dex_env['dex-google'] | to_json }}"
 
+    # Dex's Google connector reads groups only when the client asks for them.
+    - name: Render api.env's sign-in lines behind Google with group checks
+      ansible.builtin.set_fact:
+        dex_env_google_groups: >-
+          {{ dict(lookup('ansible.builtin.template', dex_render_workdir.path ~ '/api-env.j2',
+                  template_vars={'portikus_dex_upstream': 'google', 'portikus_google_groups_enabled': true}).splitlines()
+             | map('trim') | select | map('split', '=', 1) | list) }}
+
+    - name: Check api.env asks for groups behind Google with group checks
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_env_google_groups.OIDC_SCOPES.split() == ['openid', 'profile', 'email', 'groups']
+          - dex_env_google_groups.OIDC_GROUPS_CLAIM == 'groups'
+        fail_msg: "{{ dex_env_google_groups | to_json }}"
+
+    - name: Copy site.yml's switch for Google group checks to a template
+      ansible.builtin.copy:
+        content: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../ansible/site.yml') | from_yaml)[0].vars.portikus_google_groups_enabled }}"
+        dest: "{{ dex_render_workdir.path }}/google-groups.j2"
+        mode: "0600"
+
+    - name: Render site.yml's switch for Google group checks
+      ansible.builtin.set_fact:
+        dex_google_switch: >-
+          {{ dex_google_switch | default([]) + [lookup('ansible.builtin.template', dex_render_workdir.path ~ '/google-groups.j2',
+               template_vars={'portikus_dex_upstream': item.0, 'portikus_google_admin_email': item.1}) | trim | bool] }}
+      loop:
+        - [google, groups-reader@example.edu]
+        - [google, ""]
+        - [oidc, groups-reader@example.edu]
+
+    - name: Check Google group checks are on only behind Google with an administrator
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - dex_google_switch == [true, false, false]
+        fail_msg: "{{ dex_google_switch | to_json }}"
+
     # The local administrator and guests have no groups, so nobody is
     # refused for lacking one.
     - name: Check the default role
@@ -334,6 +437,11 @@
 
     # ── Upstream connectors (SPEC.md section 5.1) ──
 
+    # What settings.yml registers for the key; its checksum restarts Dex.
+    - name: Stand in for the key's stat
+      ansible.builtin.set_fact:
+        dex_google_key_stat: {stat: {checksum: render-test-key-checksum}}
+
     - name: Render each upstream connector
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../ansible/roles/dex/templates/{{ item.1 }}.j2"
@@ -352,9 +460,13 @@
         portikus_ldap_group_base_dn: "{{ item.0.group_base_dn | default(dex_render_ldap.portikus_ldap_group_base_dn) }}"
         portikus_ldap_root_ca: "{{ item.0.root_ca | default('') }}"
         portikus_ldap_ip_allow: "{{ dex_render_ldap.portikus_ldap_ip_allow }}"
-        portikus_oidc_student_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_STUDENT_GROUP }}"
-        portikus_oidc_instructor_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_INSTRUCTOR_GROUP }}"
-        portikus_oidc_admin_group: "{{ dex_env['dex-' ~ item.0.upstream].OIDC_ADMIN_GROUP }}"
+        portikus_oidc_student_group: "{{ change.portikus_oidc_student_group | default(dex_env['dex-' ~ item.0.upstream].OIDC_STUDENT_GROUP) }}"
+        portikus_oidc_instructor_group: "{{ change.portikus_oidc_instructor_group | default(dex_env['dex-' ~ item.0.upstream].OIDC_INSTRUCTOR_GROUP) }}"
+        portikus_oidc_admin_group: "{{ change.portikus_oidc_admin_group | default(dex_env['dex-' ~ item.0.upstream].OIDC_ADMIN_GROUP) }}"
+        portikus_entra_role_source: "{{ change.portikus_entra_role_source | default('appRoles') }}"
+        portikus_google_admin_email: "{{ change.portikus_google_admin_email | default('') }}"
+        portikus_google_groups_enabled: "{{ change.portikus_google_admin_email is defined }}"
+        change: "{{ item.0.change | default({}) }}"
       loop: "{{ dex_render_upstreams | product(['config.yaml', 'portikus-dex.service']) | list }}"
       loop_control:
         label: "{{ item.0.name }} {{ item.1 }}"
@@ -479,7 +591,68 @@
       vars:
         gg: "{{ dex_up.google.config.connectors[0].config }}"
 
+    # Groups assigned to the application arrive as object IDs in the groups
+    # claim; with only those sent, the token never overflows to Graph.
+    - name: Check the Entra connector reads assigned groups by object ID
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "eg.claimMapping == {'groups': 'groups'}"
+          - eg.allowedGroups == [dex_render_entra_groups.portikus_oidc_student_group,
+                                 dex_render_entra_groups.portikus_oidc_instructor_group,
+                                 dex_render_entra_groups.portikus_oidc_admin_group]
+          - eg.scopes == ['openid', 'profile', 'email']
+          - not eg.getUserInfo
+          - eg.insecureEnableGroups
+        fail_msg: "{{ eg | to_json }}"
+      vars:
+        eg: "{{ dex_up['entra-groups'].config.connectors[0].config }}"
+
+    - name: Check the Google connector reads groups only with group checks on
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - gg.serviceAccountFilePath is not defined
+          - gg.groups is not defined
+          - gg.domainToAdminEmail is not defined
+          - "'admin.googleapis.com' not in dex_up.google.unit"
+        fail_msg: "{{ gg | to_json }}"
+      vars:
+        gg: "{{ dex_up.google.config.connectors[0].config }}"
+
+    # Dex filters by group only for a client that asks for the groups scope,
+    # which the api.env check above covers.
+    - name: Check the Google connector reads the three groups through the service account
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - gg.hostedDomains == ['example.edu', 'example.org']
+          - gg.serviceAccountFilePath == dex_config_dir ~ '/google-service-account.json'
+          - "gg.domainToAdminEmail == {'*': 'groups-reader@example.edu'}"
+          - gg.groups == ['portikus-students@example.edu', 'portikus-instructors@example.edu', 'portikus-administrators@example.edu']
+          - gg.fetchTransitiveGroupMembership
+          - "'key render-test-key-checksum' in lookup('ansible.builtin.file', dex_render_workdir.path ~ '/google-groups-config.yaml')"
+          - "'Environment=HTTPS_PROXY=http://127.0.0.1:3128' in dex_up['google-groups'].unit"
+        fail_msg: "{{ gg | to_json }}"
+      vars:
+        gg: "{{ dex_up['google-groups'].config.connectors[0].config }}"
+
     # ── The settings guards ─────────────────────────────────────
+
+    - name: Write the test service-account keys the guards read
+      ansible.builtin.copy:
+        content: "{{ item.value }}"
+        dest: "{{ dex_render_workdir.path }}/{{ item.key }}.json"
+        mode: "0600"
+      loop: "{{ dex_render_google_keys | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Link to a test key, which the guards must refuse
+      ansible.builtin.file:
+        src: "{{ dex_render_workdir.path }}/good-key.json"
+        dest: "{{ dex_render_workdir.path }}/linked-key.json"
+        state: link
 
     - name: Check the settings guards
       ansible.builtin.include_tasks: dex-render-guard.yml
