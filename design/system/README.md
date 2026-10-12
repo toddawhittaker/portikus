@@ -102,4 +102,4 @@ Each component is an export of `packages/ui` with the same name. Overlay and for
 
 ## Out of scope
 
-Do not design or build collaboration, presence, grading, instructor takeover of a student session, a graphical Git client, hidden auto-commits or public preview links. Leave room for a role switch in the header and for role-conditional density, and nothing more.
+Do not design or build collaboration, presence, grading, instructor takeover of a student session without the student's consent (live help, which the student starts and ends, is allowed), a graphical Git client, hidden auto-commits or public preview links. Leave room for a role switch in the header and for role-conditional density, and nothing more.

@@ -381,6 +381,28 @@ and ends after 24 hours, when the student stops it, or when the project
 is archived. An instructor never opens a student's files on their own
 initiative, and an administrator still gets 404 on a student's files.
 
+Added by Epic 48 (ADR 0063): live help. A student may invite one
+instructor, who must teach one of the student's courses, to watch one
+project's terminals live for at most 60 minutes, and may let them type.
+Only the student starts it, turns typing on or off, or ends it early;
+the instructor may leave. The instructor sees the current screen only,
+never scrollback, and may open previews of anything running in the
+student's workspace. Every instructor route and socket passes one gate:
+the caller is the session's helper, the session is open and unexpired,
+the helper still shares a course with the student, and the project is
+active. Anyone else, including another instructor of the course and any
+administrator, gets 404. Student routes, owner only: `GET
+/workspaces/:id/live-help` (the audience of instructors only with
+`?audience=1`), `POST /workspaces/:id/projects/:pid/live-help`, `POST
+.../live-help/typing` and `POST .../live-help/stop`; start and typing
+share the per-user write limit. Instructor routes: `GET
+/courses/:courseId/live-help`, `GET .../live-help/:sid`, `POST
+.../:sid/leave`, `GET .../:sid/terminals/:tid/ws`, `GET .../:sid/listening`
+and `POST .../:sid/preview-grants`. Administrators should teach from a
+separate instructor-only account until previews move to their own
+domain (#1236), because student code in a preview runs in the helper's
+browser.
+
 P2 roles may include:
 
 - `developer`;
@@ -695,6 +717,15 @@ Each project must maintain independent:
 - preview tabs;
 - file-tree expansion state where practical.
 
+Added by Epic 48 (ADR 0063): one project open in two browsers stays in
+step. The API announces each new layout version on the owner's
+workspace socket, and the other browser loads it. When two browsers
+conflict the server's layout wins and the losing browser's unsaved
+layout change is dropped. A remote load waits while a drag is in
+progress, keeps a pane whose file has unsaved text, and keeps this
+browser's selected tab and split sizes; pane sizes stay per browser by
+design.
+
 ### 7.6 Project API and storage
 
 A project is a durable control-plane row (§26) that mirrors a directory under
@@ -796,8 +827,16 @@ path appears at most once in a layout. A tab whose only pane is a file has
 the id `file:<path>`, and a split that collapses to one file takes that id
 back. The tree is checked for depth before the schema recurses, so a layout
 nested thousands deep is a 400, not a stack overflow. The browser
-owns this document and writes it back, at most once a second; the last write
-wins. Before it is used the browser reconciles it against the terminal list:
+owns this document and writes it back, at most once a second. Each
+project's layout has a version (`projects.layout_version`, migration
+0048): GET returns it as `ETag: "<n>"`, on a 204 too, and PUT needs a
+matching `If-Match`; a missing or stale one gets 412 `LAYOUT_CHANGED` and
+the browser loads the server's layout. The write is one update guarded by
+the version, which it increments. After a save the API sends
+`{"type":"layout","projectId","version"}` to the owner's workspace
+sockets only, never an administrator's, and a newly opened owner socket
+gets each project's current version. A layout loaded from another browser
+is never written back unless the user then changes something here. Before it is used the browser reconciles it against the terminal list:
 a terminal with no leaf is added as a new tab, and a leaf whose terminal no
 longer exists is removed, so a saved layout can never point at a terminal that
 is gone. Ended terminals keep their leaf (§9.7). The selected tab and the pane
@@ -1099,6 +1138,21 @@ The browser sends a `resize` frame only once the pane has stopped
 changing size for 100 ms, so a drag sends one settled size rather than
 one per step, each of which would make tmux reflow and the program
 redraw (issue #849).
+
+Added by Epic 48 (ADR 0063): a live help instructor attaches through its
+own route, never the owner's, with an attach `mode` of `view` or `type`.
+The API drops every browser frame in view mode and forwards only `input`
+in type mode, never `resize`. The agent attaches view with tmux `-f
+read-only,ignore-size` and type with `-f ignore-size`, replays no
+history to a helper, and sends the helper a `{"type":"size","cols","rows"}`
+frame on attach and whenever the student's window changes size. Helper
+sockets count against the instructor's own socket limit and write no
+presence. One helper socket per terminal per session: a newer one closes
+the older with 4411 (opened in another tab), and the replaced tab offers
+"Open here" rather than reconnecting by itself. A typing change closes
+the helper's sockets with 4409 so they reattach in the new mode; an end
+closes them with 4410. With no student browser open the helper's
+sockets close and attaches get 409 `STUDENT_NOT_CONNECTED`.
 
 The workspace agent additionally exposes `GET /health`, `GET /terminals`,
 `POST /terminals`, and `DELETE /terminals/:terminalId`. Every agent route,
@@ -1790,6 +1844,13 @@ The gateway must verify that:
 - the requested port is allowed.
 
 There must be no unauthenticated public-preview mode in P0.
+
+Added by Epic 48 (ADR 0063): a preview session tied to a live help
+session admits only that session's helper, only while the session is
+open and unexpired, the helper still shares a course with the student,
+and the student has a browser open (facts at most 2 seconds old). Helper
+navigations never record activity, so they never keep the workspace
+awake.
 
 ### 14.5 WebSockets and modern dev servers
 
@@ -2966,6 +3027,11 @@ P0 must not require silent administrator impersonation of a student session.
 
 P2 workspace-sharing/support access must be explicit and auditable.
 
+Added by Epic 48 (ADR 0063): live help is that explicit access. The
+student starts it, sees a bar that cannot be dismissed while it is open,
+decides whether the instructor may type, and can end it at any time.
+Every step is audited. Administrators have no such access.
+
 An administrator may reset another person's password, second factor, or
 both, so that someone who lost both can get back in. The holder is
 always told by a notice they cannot delete, and the install administrator
@@ -3965,6 +4031,15 @@ an open, unexpired share exists for an active project. A shared read
 never starts a stopped workspace and never counts as presence. Every
 answer sends `Cache-Control: no-store`.
 
+Added by Epic 48 (ADR 0063, an accepted risk): with typing on, a live
+help instructor has a full shell as the student, including the student's
+Git, Claude and SSH credentials, every file and the other terminals. The
+consent text says so before Start. Typing is off by default, enforced in
+the API and again by tmux, and turning it off closes the instructor's
+sockets at once. The instructor's terminal ignores OSC 52 clipboard
+writes and title sequences and opens links only on click, with no
+opener.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -4155,6 +4230,14 @@ on a Unix socket, `/var/lib/caddy/admin.sock`, that root and the caddy
 user can open. It is never on a loopback port every local account could
 reach; the smoke test checks that the `portikus` account and `nobody`
 cannot open it.
+
+Added by Epic 48 (ADR 0063): the preview owner check is widened only
+through an open live help session (section 14.4). The helper's listening
+list keeps each service's port and reachability and drops process and
+container details. Ending a session deletes its preview grants and
+sessions, clears the in-process preview lookup cache and closes its
+bridge forwards, so access stops at once. Student code in a preview still
+runs in the helper's browser on the preview origin (#1236).
 
 ### 24.8 Secrets
 
@@ -4582,6 +4665,17 @@ workspace's network address, or a name a workspace looked up.
   actor `user:<id>` or `subject:<sub>` and the platform issuer as
   target.
 
+- Live help (Epic 48, ADR 0063), ids only, never bytes, names or paths:
+  `project.live_help_started` (actor the student; the session, helper and
+  course ids and the end time); `project.live_help_ended` (the reason,
+  `stopped`, `helper_left`, `archived` or `helper_removed`, and the
+  duration; an expiry is stored as `expired` but not audited, as with
+  shares); `project.live_help_typing_changed`;
+  `project.live_help_terminal_opened` (actor the instructor; the
+  terminal id and mode; written before the pipe opens, and the attach is
+  refused if the write fails); and `project.live_help_preview_opened`
+  (the session id and port).
+
 A test checks that every event this section lists writes an audit row
 (#1138).
 
@@ -4963,6 +5057,8 @@ left open by accident (ADR 0055). A click that cannot be held (keyboard or
 screen reader click) says in the status region how to hold.
 The app header and the Course page work down to 320 px.
 
+Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -5110,6 +5206,7 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0041_lti_roster_and_deep_linking` (ADR 0058): `lti_contexts` gains `platform_client_id`, `nrps_url`, `roster_synced_at` (the last attempt) and `roster_sync_result`; new tables `lti_roster_members` (course, subject, display name, role; no email), `lti_deep_link_requests` (single use, ten minutes) and `lti_starter_launches` (bound to a user, thirty minutes, exactly one of template and repository).
 - `0042_project_shares` (ADR 0057): `project_shares` (at most one open share per project) and `project_share_views` (first and last view per instructor).
 - `0043_agent_usage_days` (ADR 0057): `agent_usage_days`, counts per user, boot id, day, agent and model, with no content column.
+- `0048_live_help` (ADR 0063): `live_help_sessions` (workspace, project, helper, course, typing, start, end limit, ended time and `end_reason`; at most one open session per workspace); `live_help_session_id` on `preview_grants` and `preview_sessions`; `projects.layout_version`.
 
 ## 27. API principles
 
@@ -6425,6 +6522,25 @@ Acceptance:
 - no Monitor action touches a protected process, and a reused PID is never signalled;
 - with the switch off, no microphone shows.
 
+### Epic 48 — Instructor live help and live layout sync
+
+Built on `epic/48-live-help`, issues #1461 and #1384. Migration 0048. See sections 5.2, 7.5, 7.6, 9.7, 14.4, 20.2, 24.1, 24.7, 24.11, 25.8 and 26, and ADR 0063.
+
+Includes:
+
+- live help: a student invites one instructor to watch one project's terminals and the workspace's previews for up to 60 minutes, and may let them type;
+- a bar the student cannot dismiss, with Let them type, Stop typing and End live help;
+- the instructor's live help list, session page and minimal terminal;
+- layout versions with `If-Match` and 412, announced on the owner's workspace socket so two browsers stay in step.
+
+Acceptance:
+
+- a view-mode instructor's keystrokes never reach the shell, and with typing on they do;
+- End closes the instructor's view within a second;
+- another instructor of the course, or an administrator, gets 404 on every live help route;
+- an instructor never keeps a workspace awake;
+- a split made in one browser appears in the other, and two browsers never overwrite each other in a loop.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.
@@ -6495,7 +6611,7 @@ Architecture should leave room for, but P0 should not implement unless needed:
 - LTI 1.3 launch and course context;
 - course/project templates managed by instructors;
 - ~~roster provisioning~~ (delivered by Epic 42);
-- instructor support/share sessions (read-only project sharing delivered by Epic 42; the live help session is not);
+- ~~instructor support/share sessions~~ (read-only sharing delivered by Epic 42, live help by Epic 48);
 - ~~read-only or temporary instructor workspace access~~ (delivered by Epic 42);
 - developer profile with long-running agents;
 - notifications when agents finish;

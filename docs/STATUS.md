@@ -5367,3 +5367,31 @@ Gaps:
 - The administrator's throttle lift notice is covered at unit level only.
 
 Rehearsal: the Epic 47 package (0.1.1164+g33472886, migration 0047 applied) ran on the rehearsal VM beside Epic 46's image. Epic 47's own smoke scripts gave 373 passed and 15 failed, every failure from Epic 46 changes already on that VM (the 1G /tmp cap and the https mock LMS); Epic 46's smoke scripts against the same install gave 397 passed, 0 failed, 0 skipped. In a real workspace, against the real API, agent and worker: a kept folder made by a real agent crash mid-restore was listed, blocked a second restore, and was deleted from the dialog, while `..`, a non-aside name and a symlinked aside were refused by both the API and the agent; "Stop with children" ended a 4-process tree, "Lower priority" only lowered nice values and stopped at 19, and root and PID 1 were refused; the voice switch hid the microphone and Settings said why; keep running until a clock time used the student's timezone, took a past time as tomorrow, and the page and API enforced the cap; a real idle lift wrote one notification with no page open; and a Playwright drag of two selected files moved both into a folder. Gap: Codex delta metrics stay unconfirmed (#1531).
+
+## Epic 48 — Instructor live help and live layout sync
+
+Built on `epic/48-live-help` (task PRs #1542, #1546, #1548, #1549, #1556, #1557, #1558, #1563, #1566 and #1574, and this fold). Issues #1461 and #1384. Migration 0048. ADR 0063.
+
+Delivered:
+
+- Live help (#1461): a student opens "Get live help…" from a project's menu, picks one instructor from their courses, reads plain consent text, and starts a session of up to 60 minutes. The instructor watches the project's terminals live, with no scrollback, and can open previews of anything running in the student's workspace. Typing is off until the student turns it on; it is enforced in the API and again by tmux in the workspace agent.
+- The student's bar cannot be dismissed. It names the instructor and project, shows the time left, switches typing and ends the session, and announces each change with its end reason.
+- The instructor gets a Live help link on the Course page, a list of open sessions, a session page with a mode line, Leave session and a Previews list, and a minimal terminal with no clipboard writes, title changes, image paste or voice, and links that open only on click.
+- Every instructor route and socket goes through one gate; anyone else gets 404. Instructors never keep a workspace awake. One instructor socket per terminal: the newest wins and the older tab says the terminal was opened in another tab. An end closes sockets, previews and bridge forwards at once, and the reason is stored. Start, end, typing changes, terminals opened and previews opened are audited with ids only.
+- Live layout sync (#1384): layouts carry a version; a stale save gets 412 and loads the server's layout. New versions are announced on the owner's workspace socket, so a split made in one browser appears in the other. A remote load keeps this browser's split sizes and selected tab, waits during a drag, keeps unsaved files open, and is never written back on its own.
+
+Verified: each task PR ran typecheck, lint and its unit tests on a private database, and Playwright covers the student side, the instructor side in two browser contexts (view refuses input, typing works, End closes within a second, newest socket wins, a preview opens with no opener), and layout sync, with axe in both themes.
+
+Rehearsal (2026-10-12, rehearsal VM, epic head 29c2ebc5, before #1574 made the newest instructor socket win; Playwright covers that change): the package 0.1.1188+g29c2ebc5 installed with the same commands `make deploy-app` runs, and migration 0048 applied cleanly on top of Epic 49's database. The first smoke run had one failure and 23 skips from one cause: the mock LMS (learning management system) could not start because `build-deb` strips development tools such as `tsc` from the checkout (#1576). After `pnpm install --frozen-lockfile`, the full smoke test with a Dex sign-in file and the https mock LMS passed 397 checks, 0 failed, 0 skipped. A browser script then drove the real site as an instructor and a student sharing a seeded course, and all 18 checks passed: the student started live help and the instructor's Course page showed one open session; in view mode the student's typing showed and the instructor's did not reach the shell; with typing on, the instructor's command ran in the student's shell and wrote a marker file, checked inside the container; the Previews list showed the student's dev server on port 5173 and opened it in a new tab with no `window.opener`; End closed the bar, announced the end, closed the instructor's view at once, and stored the reason `stopped`; the audit log held start, typing changed, terminal opened (view and type), preview opened and ended. Two browser contexts on one project kept the layout in step. The service journals held none of the typed markers or commands. No product bugs were found.
+
+Gaps:
+
+- The listening list is workspace-wide, because listeners have no project.
+- An ended helper's preview tab shows the generic refused page.
+- Pane sizes are per browser, so a resize alone does not show in the other browser.
+- When two browsers conflict, the losing browser's unsaved layout change is dropped.
+- There is no rate limit on how often an instructor opens terminal sockets (#1575).
+- Running `make deploy-app` and then the smoke test breaks the mock LMS (#1576).
+- The instructor's terminal can be taller than the window, so clicking into it scrolls the heading under the sticky header (#1577).
+- `apps/api/src/routes/projects.ts` is over 800 lines (#1564).
+- Administrators who sign in through Google or LTI should teach from a separate instructor-only account until previews move to their own domain (#1236).
