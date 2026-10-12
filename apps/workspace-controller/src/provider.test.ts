@@ -28,9 +28,9 @@ import {
 import {
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
-	InstanceNotStoppedError,
 	VOLUME_CREATE_TIMEOUT_MS,
 } from "./provider.js";
+import { InstanceNotStoppedError } from "./provider-host.js";
 import { AGENT_HEALTH_TIMEOUT_MS } from "./start-setup.js";
 
 let socketPath: string;

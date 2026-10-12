@@ -5395,3 +5395,35 @@ Gaps:
 - The instructor's terminal can be taller than the window, so clicking into it scrolls the heading under the sticky header (#1577).
 - `apps/api/src/routes/projects.ts` is over 800 lines (#1564).
 - Administrators who sign in through Google or LTI should teach from a separate instructor-only account until previews move to their own domain (#1236).
+
+## Epic 49 — Fix and polish batch
+
+Built on `epic/49-fix-batch` (task PRs #1535, #1536, #1537, #1538, #1541, #1543, #1547, #1552, #1553, #1559 and #1560, #1569, and this fold). Issues #1533, #1519, #1522, #1524, #1276, #1298, #1241, #1289 and #1284. No migration. SPEC.md sections 8.1, 9.7, 11.2, 13.5, 14.3, 15.2, 20.1, 21.7 and 24.13.
+
+Delivered:
+
+- Terminal close (#1533, #1541, #1552, #1559): the old test checked the wrong process, because `setsid` forks and the child leaves the session. Each terminal now starts with `PORTIKUS_TERMINAL=<session>` in its environment, and closing it also stops every process carrying that mark. The made-up cookie hash test now fails if the raw cookie is stored, and the rebuild test in the admin workspace detail waits for the panel's own poll.
+- Keep mine (#1519, #1541): Ctrl+S read `dirty` from the last render, so a keydown that beat the render saved nothing. `saveNow` now reads the latest edit.
+- Font config (#1522, #1547): the workspace image installs `fontconfig-config`, so headless Chromium no longer prints "Fontconfig error". Image version 2026.10.5. The image build and the smoke test both check for the message.
+- Open N files (#1524, #1536, #1560): the tree's row menu on a selection offers Open N files, which opens the first file as a split and the rest as tabs through the pane-edge drop path, and announces the result.
+- Narrow layout (#1276, #1543, #1560): the 1024 px and 768 px floors are gone. Below 56rem the workspace panes stack in one column that scrolls, with minimum heights. Admin tables that clip their overflow scroll sideways in their own labelled, focusable box below 45rem of content. Covered by Playwright with axe in both themes at 560 px, 320 px and short heights.
+- Made-up cookies (#1298, #1538, #1552): once an address is over the anonymous limit, a cookie that already matched no session from it in the last minute is refused with 429 before any query. The list stores hashes, at most 16 per address and 1024 addresses.
+- Recovery insert (#1241, #1537): the API and the worker share one `recordRecoveryPoint` in `packages/db`. Behaviour is unchanged.
+- File splits (#1289, #1553): the worker's reconciler, the agent's git, listening and recovery modules, and the controller's provider were each split where they started a second job.
+- Label rule (#1284): the `student@<label>` rule moved from the Epic 8 entry in SPEC.md section 29 into section 14.3.
+- Accessibility round 2 (#1569): admin tabs reflow at 320 px with no sideways page scroll, because card grids use a `minmax(0, 1fr)` column and long paths may break anywhere. Open N files is announced once per action, through a new `useAnnouncement` hook that empties the live region and refills it a moment later. `paneName` moved into `apps/web/src/work/moveInto.ts` with its own unit test, which brings `FileTree.tsx` under 800 lines. The admin table keyboard-scroll test waits on scroll position instead of timing, and the no-sideways-scroll check runs on every admin tab at 560, 375 and 320 px.
+
+Gaps:
+
+- A closed terminal cannot catch a process that clears its own environment. Only a control group per terminal would.
+- A session that was just re-enabled or unlinked can get 429 for up to 60 seconds from an address that is over the limit.
+- Rotating made-up cookies still costs one lookup each until the limit refuses.
+- Closing a terminal reads every process environment of the student synchronously (the student's own workspace only).
+- `apps/api/src/routes/preview.ts`, `apps/api/src/routes/projects.ts` and `apps/web/src/app.css` are still over 800 lines because Epics 48 and 50 were editing them (#1564).
+- The Help and sign-in pages keep the 1024 px floor (#1550).
+- Pinch-zoom is blocked on phones (#1551).
+- The checks-route test is flaky (#1562).
+- At 320 px the admin tab strip wraps to six rows, about a third of a 640 px screen.
+- In an admin window under 30rem tall the root-shell tab gets no fixed height.
+
+Rehearsal: On 2026-10-12, on the rehearsal VM (10.101.0.190) at epic head 1b2db072 (before #1569, a CSS and test change that CI and the accessibility confirm covered), the package built from the epic head (0.1.1189+g1b2db072) was installed with the same commands `make deploy-app` runs, and its background setup finished with failed=0. `make build-workspace-image TOFU_ENV=rehearsal-libvirt` built image 2026.10.5-local.202610120734. The build's render check found no fontconfig message, every image health check passed, and the image is now the default. The full smoke test, run with a Dex sign-in file and the https mock LMS registered, passed 398 checks with 0 failed and 0 skipped. That includes the new "headless Chromium loads the font config" check and the LTI roster checks. Then a browser script drove the real site as a fresh student and administrator. Closing a terminal that had started a `setsid sleep` and a `nohup sleep` left neither process running (#1533). "Open 2 files" from the tree's keyboard menu opened notes.md as a split beside the terminal and other.md as a tab (#1524). A manual recovery point and a periodic point made by the worker both appeared on the project (#1241). At 560x900 and 320x640, neither the workspace nor the admin Logs page scrolls sideways, and the Logs table sits in its own labelled, focusable box that scrolls sideways with the arrow keys (#1276). For the made-up cookie list (#1298), one address sent 650 requests with one made-up session cookie. The first 600 got 401 and the rest got 429. 100 more repeats of the same cookie caused no session lookups at all, measured with the sessions table's scan counters, since the VM has no pg_stat_statements. A new made-up cookie caused exactly one lookup, and a real session from the same address still loaded with 200. The cookie value never appeared in the API journal. No bugs were found and no code was changed. The test workspace and users were removed afterwards, and the VM is left running this install.

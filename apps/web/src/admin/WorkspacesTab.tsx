@@ -15,6 +15,7 @@ import {
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
+import { revealFocused } from "../table/revealFocus.js";
 import { SortHeader } from "../table/SortHeader.js";
 import { type SortState, sortText } from "../table/sort.js";
 import { AdminSection } from "./AdminSection.js";
@@ -291,7 +292,14 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="@container">
 				<div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-start">
 					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
-					<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
+					{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
+					<section
+						className="pk-table-wrap min-w-0 flex-1 overflow-clip"
+						aria-labelledby="admin-accounts-caption"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
+						tabIndex={0}
+						onFocus={revealFocused}
+					>
 						<table className="pk-table" data-testid="admin-accounts">
 							<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 								Accounts and their workspaces,{" "}
@@ -417,7 +425,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								</Button>
 							</nav>
 						) : null}
-					</div>
+					</section>
 					{selected ? (
 						<WorkspaceDetail
 							key={selected.id}

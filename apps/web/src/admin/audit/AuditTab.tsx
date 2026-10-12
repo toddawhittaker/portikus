@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { SortAnnouncement, useAnnouncedSort } from "../../table/announce.js";
+import { revealFocused } from "../../table/revealFocus.js";
 import { SortHeader } from "../../table/SortHeader.js";
 import type { SortState } from "../../table/sort.js";
 import { shortId, shortTime } from "../../text.js";
@@ -227,13 +228,20 @@ function AuditResults({
 				</p>
 			) : null}
 			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
-			<div className="pk-table-wrap overflow-clip">
+			{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
+			<section
+				className="pk-table-wrap overflow-clip"
+				aria-labelledby="audit-table-caption"
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
+				tabIndex={0}
+				onFocus={revealFocused}
+			>
 				<table
 					className="pk-table"
 					data-testid="audit-table"
 					aria-busy={page.isFetching}
 				>
-					<caption className="sr-only">
+					<caption id="audit-table-caption" className="sr-only">
 						Audit events,{" "}
 						{sort.direction === "descending" ? "newest first" : "oldest first"},{" "}
 						{events.length} shown
@@ -268,7 +276,7 @@ function AuditResults({
 						))}
 					</tbody>
 				</table>
-			</div>
+			</section>
 			{page.isSuccess && events.length === 0 ? (
 				<p className="pk-text-body pk-muted">No audit events match.</p>
 			) : null}

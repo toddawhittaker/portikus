@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { baselineDiff, baselineStatus, recordBaseline } from "./git.js";
+import { baselineDiff, baselineStatus, recordBaseline } from "./git-baseline.js";
 import { buildServer } from "./server.js";
 import { commandForAgent, createSession, killSession } from "./tmux.js";
 
