@@ -671,6 +671,23 @@ keep the stored one. If you change the tenant, issuer or client ID, you must
 type a new secret, because Portikus will not send an old secret to a different
 place.
 
+Roles can come from your provider's groups:
+
+- **Microsoft Entra ID**: under **Roles from**, choose **Groups assigned to
+  the application** and give the three groups' object IDs. In Entra, set the
+  token to send "Groups assigned to the application" and assign the three
+  groups to the Portikus application.
+- **Google Workspace**: give an **Administrator to read groups as**, paste
+  the service account's JSON key, and give the three group emails. The key is
+  write-only: the page only says it is set, and an empty box keeps it. Use a
+  dedicated administrator whose role can only read groups.
+
+Use only groups that administrators control: never a group people can join
+themselves, because whoever is in a group gets its role. Groups never let
+anyone in on their own; each person still needs an invitation. Group
+membership is checked at each sign-in. docs/OPERATIONS.md, "Sign-in
+providers", has the setup steps on the provider's side.
+
 If the server uses LDAP, the page shows that as read-only. LDAP is still
 changed with `sudo dpkg-reconfigure portikus`. You can switch from LDAP to
 another provider on the page.

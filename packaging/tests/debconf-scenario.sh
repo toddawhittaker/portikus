@@ -233,6 +233,7 @@ EOF
 	expect "$CONFIG" portikus_dex_upstream_client_id '"entra-client-id"'
 	expect "$CONFIG" portikus_storage '"data-vg"'
 	expect "$CONFIG" portikus_oidc_student_group null
+	expect "$CONFIG" portikus_entra_role_source null
 	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-entra-0123456789abcdef"'
 	expect "$SECRETS" portikus_dex_upstream_client_secret '"ENTRA-SECRET-0123456789abcdef"'
 	check_no_leak CF-TOKEN-entra-0123456789abcdef ENTRA-SECRET-0123456789abcdef
@@ -251,6 +252,10 @@ portikus portikus/provider select google
 portikus portikus/google_domains string example.edu students.example.edu
 portikus portikus/client_id string google-client-id.apps.googleusercontent.com
 portikus portikus/client_secret password GOOGLE-SECRET-0123456789abcdef
+portikus portikus/google_admin_email string groups-reader@example.edu
+portikus portikus/student_group string Students@Example.edu
+portikus portikus/instructor_group string staff@example.edu
+portikus portikus/admin_group string it@example.edu
 portikus portikus/storage select /dev/nvme1n1
 portikus portikus/storage_confirm boolean true
 EOF
@@ -261,6 +266,9 @@ EOF
 	expect "$CONFIG" portikus_acme_email null
 	expect "$CONFIG" portikus_dex_upstream '"google"'
 	expect "$CONFIG" portikus_google_domains '["example.edu", "students.example.edu"]'
+	# Google returns group emails in lowercase, and Dex matches them exactly.
+	expect "$CONFIG" portikus_google_admin_email '"groups-reader@example.edu"'
+	expect "$CONFIG" portikus_oidc_student_group '"students@example.edu"'
 	expect "$CONFIG" portikus_storage '"/dev/nvme1n1"'
 	expect "$CONFIG" portikus_storage_confirm true
 	expect "$SECRETS" portikus_cloudflare_api_token null

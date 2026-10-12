@@ -14,8 +14,9 @@ directory, and the path unit starts this job. packages/contracts/src/site.ts
                   authTokenUrl?, deploymentIds, mock: false}, ...]}
   address        {"host", "port"}
   signin         {"provider": dex|entra|google|oidc, "entraTenantId"?,
-                  "googleDomains"?, "oidcIssuer"?, "clientId"?,
-                  "clientSecret": string|null, "groupsClaim"?,
+                  "entraRoleSource"?: appRoles|groups, "googleDomains"?,
+                  "googleAdminEmail"?, "googleServiceAccountKey"?, "oidcIssuer"?,
+                  "clientId"?, "clientSecret": string|null, "groupsClaim"?,
                   "groups"?: {"student", "instructor", "admin"}}
   keep           {"trialId"}
   rollback       {"trialId"}
@@ -27,6 +28,10 @@ Status. Each request gets status/<id>.json in the job directory:
 
 and status/<id>.log, setup's output for an address or sign-in trial. Neither
 ever holds a secret.
+
+A signin request's Google service-account key is written, once checked, to
+/etc/portikus-dex/google-service-account.json, root:portikus-dex 0640, and a
+trial that is put back puts the earlier key back too.
 
 Page-owned files, root:portikus 0640:
   /etc/portikus/proxy-hosts.json          {"version": 1, "hosts": [...]}
@@ -108,6 +113,12 @@ API_UNIT = "portikus-api.service"
 API_USER = "portikus"
 API_GROUP = "portikus"
 TRIAL_UNIT = "portikus-site-trial-"
+# infra/ansible/roles/dex/defaults/main.yml dex_google_key_path; a test keeps the two equal.
+DEX_KEY_FILE = "/etc/portikus-dex/google-service-account.json"
+DEX_GROUP = "portikus-dex"
+
+# In the state directory: the Google key from before a trial that replaces it, or that there was none.
+BEFORE_KEY = ("before-google-key.json", "before-google-key.none")
 
 TRIAL_SECONDS = {"address": 15 * 60, "signin": 30 * 60}
 # How long a trial waits for the restarted API to answer /health, and how often it asks.
@@ -133,7 +144,8 @@ CODES = (
 QUESTION_TYPES = {
     "public_host": "string", "provider": "select", "entra_tenant_id": "string", "google_domains": "string",
     "oidc_issuer": "string", "client_id": "string", "oidc_groups_claim": "string", "student_group": "string",
-    "instructor_group": "string", "admin_group": "string",
+    "instructor_group": "string", "admin_group": "string", "entra_role_source": "select",
+    "google_admin_email": "string",
 }
 
 REQUEST_NAME_RE = re.compile(r"request-(.*)\.json", re.ASCII | re.DOTALL)
@@ -163,6 +175,16 @@ def iso_seconds(text):
         return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
     except (AttributeError, ValueError):
         return None
+
+
+def key_secrets(raw):
+    """The parts of a service-account key file a log line could show, so setup's log never does."""
+    try:
+        doc = json.loads(raw)
+        lines = [line for line in doc["private_key"].splitlines() if len(line) >= 16 and "-----" not in line]
+        return [doc["private_key_id"], *lines]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return []
 
 
 def journal(message):
@@ -353,6 +375,7 @@ class Runner:
         self.squid_conf = root + SQUID_CONF
         self.jobs_dir = root + JOBS_DIR
         self.state_dir = root + STATE_DIR
+        self.dex_key_file = root + DEX_KEY_FILE
         self.write_settings = write_settings
         self.settings_keys = settings_keys
         # Looked up at call time, so a test that replaces the module's run catches every command.
@@ -370,6 +393,15 @@ class Runner:
             return grp.getgrnam(API_GROUP).gr_gid
         except KeyError:
             journal(f"the {API_GROUP} group is missing; reinstall the portikus package")
+            raise JobFailed("write_failed")
+
+    def dex_gid(self):
+        if not self.own:
+            return os.getegid()
+        try:
+            return grp.getgrnam(DEX_GROUP).gr_gid
+        except KeyError:
+            journal(f"the {DEX_GROUP} group is missing; run setup once with Dex before uploading a key")
             raise JobFailed("write_failed")
 
     def api_uid(self):
@@ -641,6 +673,10 @@ class Runner:
                 value = match.group(1).strip().strip("'\"") if match else ""
                 if len(value) >= 4:
                     found.append(value)
+        for path in (self.dex_key_file, self.state_dir + "/" + BEFORE_KEY[0]):
+            raw = read_file(path)
+            if raw is not None:
+                found += key_secrets(raw)
         # Longest first, so a secret that holds another is hidden whole.
         return sorted(set(found), key=len, reverse=True)
 
@@ -683,6 +719,23 @@ class Runner:
         finally:
             os.close(etc_fd)
 
+    def snapshot_key(self, state_fd):
+        """The Google key a trial is about to replace, or a marker that there was none."""
+        for name in BEFORE_KEY:
+            remove_at(state_fd, name)
+        data = read_file(self.dex_key_file)
+        if data is None:
+            write_at(state_fd, BEFORE_KEY[1], "", 0o600, 0, 0, self.own)
+        else:
+            write_at(state_fd, BEFORE_KEY[0], data, 0o600, 0, 0, self.own)
+
+    def install_key(self, key):
+        fd = open_dir(os.path.dirname(self.dex_key_file))
+        try:
+            write_at(fd, os.path.basename(self.dex_key_file), key, 0o640, 0, self.dex_gid(), self.own)
+        finally:
+            os.close(fd)
+
     def restore(self, state_fd):
         etc_fd = open_dir(self.etc)
         try:
@@ -694,6 +747,15 @@ class Runner:
                     remove_at(etc_fd, name)
         finally:
             os.close(etc_fd)
+        key = read_at(state_fd, BEFORE_KEY[0], MAX_FILE_BYTES)
+        if key is not None:
+            self.install_key(key)
+        elif read_at(state_fd, BEFORE_KEY[1], 0) is not None:
+            fd = open_dir(os.path.dirname(self.dex_key_file))
+            try:
+                remove_at(fd, os.path.basename(self.dex_key_file))
+            finally:
+                os.close(fd)
 
     def config_hash(self):
         """portikus.yaml's SHA-256; write-settings writes the same bytes from the same answers."""
@@ -701,7 +763,7 @@ class Runner:
         return None if raw is None else hashlib.sha256(raw).hexdigest()
 
     def forget(self, state_fd):
-        for name in ("trial.json", "before-portikus.yaml", "before-secrets.yaml"):
+        for name in ("trial.json", "before-portikus.yaml", "before-secrets.yaml", *BEFORE_KEY):
             remove_at(state_fd, name)
 
     def arm(self, trial_id, seconds, stage):
@@ -795,11 +857,13 @@ class Runner:
             if self.setup_running():
                 raise Refused("busy")
             current = self.read_settings()
-            changes, port, secret = prepare(current)
+            changes, port, secret, key = prepare(current)
             before = current["answers"]
             old = {q: before.get(q, "") for q, v in changes.items() if before.get(q, "") != v}
             new = {q: changes[q] for q in old}
             self.snapshot(lock)
+            if key is not None:
+                self.snapshot_key(lock)
             trial = {"id": job_id, "kind": kind, "state": "running", "old": old}
             self.write_trial(lock, trial)
             # Should this job die during setup, the timer still puts the old answers back.
@@ -809,6 +873,8 @@ class Runner:
             try:
                 self.set_debconf(new)
                 self.write_answers({**before, **changes}, secret, port)
+                if key is not None:
+                    self.install_key(key)
                 trial["config"] = self.config_hash()
                 self.write_trial(lock, trial)
             except (OSError, JobFailed, subprocess.SubprocessError):
@@ -845,7 +911,7 @@ class Runner:
             if suffix and (host == suffix or host.endswith("." + suffix)):
                 raise Refused("invalid_value")
             self.check_certificate(host, current)
-            return {"public_host": host}, port, None
+            return {"public_host": host}, port, None, None
 
         return self.open_trial(job_id, "address", prepare)
 
@@ -877,10 +943,23 @@ class Runner:
         def prepare(current):
             answers = current["answers"]
             changes = {"provider": provider}
+            key = None
             if provider == "entra":
-                changes.update(entra_tenant_id=body["entraTenantId"], client_id=body["clientId"])
+                source = body.get("entraRoleSource", "appRoles")
+                changes.update(entra_tenant_id=body["entraTenantId"], client_id=body["clientId"],
+                               entra_role_source=source)
+                if source == "groups":
+                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
             elif provider == "google":
-                changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"])
+                admin = body.get("googleAdminEmail", "")
+                changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"],
+                               google_admin_email=admin)
+                if admin:
+                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
+                    key = body.get("googleServiceAccountKey")
+                    # Without a key every Google sign-in would fail.
+                    if key is None and read_file(self.dex_key_file) is None:
+                        raise Refused("missing_secret")
             elif provider == "oidc":
                 changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"])
                 # Left out means keep what is stored; write-settings drops a blank group.
@@ -893,7 +972,7 @@ class Runner:
                 stored = "portikus_dex_upstream_client_secret" in current["secretsSet"]
                 if not stored or identity(answers) != identity({**answers, **changes}):
                     raise Refused("missing_secret")
-            return changes, None, secret
+            return changes, None, secret, key
 
         return self.open_trial(job_id, "signin", prepare)
 

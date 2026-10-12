@@ -251,10 +251,24 @@ screen adds your institution's accounts on top:
 
 - **Local accounts only** (the default): nothing more to answer. You can
   add single sign-on later with `sudo dpkg-reconfigure portikus`.
-- **Microsoft Entra ID**: asks the tenant ID, the client ID and the client
-  secret.
-- **Google Workspace**: asks the allowed domains (separated by spaces), the
-  client ID and the client secret.
+- **Microsoft Entra ID**: asks the tenant ID, where roles come from, the
+  client ID and the client secret. Roles come from the Portikus app roles,
+  or from three security groups assigned to the application. With groups
+  it also asks each group's object ID, such as
+  `12345678-90ab-cdef-1234-567890abcdef`, and you set the registration's
+  token to send "Groups assigned to the application".
+- **Google Workspace**: asks the allowed domains (separated by spaces), an
+  optional administrator to read groups as, the client ID and the client
+  secret. Leave the administrator blank and roles are set only on the
+  Users tab. Give one and Portikus also asks three group emails, such as
+  `portikus-students@example.edu`, and only their members can sign in. The
+  service account's key then goes in
+  `/etc/portikus-dex/google-service-account.json`, or you upload it on the
+  Sign-in admin page.
+
+With groups, use only groups that people cannot join or change by
+themselves, because whoever is in a group gets its role. A person in a
+group still needs a Portikus invitation to sign in.
 - **LDAP or Active Directory**: asks the directory server, the kind of
   directory, the directory servers' addresses, the service account and
   its password, where people are, a filter naming who may sign in, and

@@ -19,6 +19,10 @@ portikus_dex_upstream_issuer: http://127.0.0.1:3002
 portikus_entra_issuer: http://127.0.0.1:3002
 portikus_oidc_upstream_groups_claim: groups
 portikus_oidc_upstream_extra_scopes: [groups]
+# site.yml's defaults: Entra roles from app roles, no Google group checks.
+portikus_entra_role_source: appRoles
+portikus_google_admin_email: ""
+portikus_google_groups_enabled: false
 # The names site.yml picks for each upstream; dex-render-test.yml checks them.
 portikus_oidc_student_group: "{{ 'Portikus.Student' if portikus_dex_upstream == 'entra' else 'portikus-students' }}"
 portikus_oidc_instructor_group: "{{ 'Portikus.Instructor' if portikus_dex_upstream == 'entra' else 'portikus-instructors' }}"

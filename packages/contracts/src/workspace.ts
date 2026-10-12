@@ -351,6 +351,7 @@ export const ApiErrorCode = z.enum([
 	"SITE_UNAVAILABLE",
 	"SITE_NO_OPEN_TRIAL",
 	"SIGNIN_SECRET_REQUIRED",
+	"SIGNIN_KEY_REQUIRED",
 	"SIGNIN_TEST_REQUIRED",
 	"INTERNAL",
 	// Clear cache while setup has turned the pull cache off (SPEC.md section 16.6).

@@ -162,14 +162,25 @@
     #   none    local passwords only;
     #   ldap    an LDAP or Active Directory directory (PORTIKUS_LDAP_*);
     #   entra   Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID),
-    #           roles from the registration's app roles;
-    #   google  Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS);
+    #           roles from the registration's app roles, or from groups
+    #           assigned to it (PORTIKUS_ENTRA_ROLE_SOURCE=groups);
+    #   google  Google Workspace, the listed domains (PORTIKUS_GOOGLE_DOMAINS),
+    #           roles from groups when PORTIKUS_GOOGLE_ADMIN_EMAIL is set;
     #   oidc    any other OIDC provider (PORTIKUS_DEX_UPSTREAM_ISSUER), roles
     #           from its groups claim.
     portikus_dex_upstream: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM') | default('none', true) }}"
     portikus_entra_tenant_id: "{{ lookup('env', 'PORTIKUS_ENTRA_TENANT_ID') }}"
+    # appRoles reads the roles claim; groups reads the object IDs of the
+    # groups assigned to the application from the groups claim, so the three
+    # role groups below are object IDs (SPEC.md section 5.1).
+    portikus_entra_role_source: "{{ lookup('env', 'PORTIKUS_ENTRA_ROLE_SOURCE') | default('appRoles', true) }}"
     portikus_google_domains: >-
       {{ lookup('env', 'PORTIKUS_GOOGLE_DOMAINS') | replace(',', ' ') | split | select | list }}
+    # The Workspace administrator Dex's service account acts as to read
+    # groups.  Set, the three role groups below are group emails, and the
+    # service-account key must be in Dex's configuration folder.
+    portikus_google_admin_email: "{{ lookup('env', 'PORTIKUS_GOOGLE_ADMIN_EMAIL') }}"
+    portikus_google_groups_enabled: "{{ portikus_dex_upstream == 'google' and portikus_google_admin_email | length > 0 }}"
     # The client Dex is registered as with Entra, Google or the OIDC provider.
     portikus_dex_upstream_client_id: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_ID') }}"
     portikus_dex_upstream_client_secret: "{{ lookup('env', 'PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET') }}"
@@ -228,16 +239,19 @@
     # Nobody Dex admits is refused by Portikus for having no group: the local
     # administrator and guests have none.
     portikus_oidc_default_role: student
-    # Dex puts groups in the token only when asked.  Behind Google they are
+    # Dex puts groups in the token only when asked, and its Google connector
+    # reads them only then.  Behind Google without group checks they are
     # never asked for: the connector has none, and roles come from grants.
     portikus_oidc_scopes: >-
       {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
          | default('openid profile email groups'
-                     if portikus_dex_upstream != 'google'
+                     if portikus_dex_upstream != 'google' or portikus_google_groups_enabled | bool
                    else 'openid profile email', true) }}
-    portikus_oidc_groups_claim: "{{ '' if portikus_dex_upstream == 'google' else 'groups' }}"
-    # The group names for ldap and oidc, and the app role values for entra;
-    # Dex's oidc connector admits only people holding one of them.
+    portikus_oidc_groups_claim: >-
+      {{ '' if portikus_dex_upstream == 'google' and not portikus_google_groups_enabled | bool else 'groups' }}
+    # The group names for ldap and oidc, the app role values or group object
+    # IDs for entra, and the group emails for google; Dex's oidc and google
+    # connectors admit only people holding one of them.
     portikus_oidc_student_group: >-
       {{ lookup('env', 'PORTIKUS_OIDC_STUDENT_GROUP')
          | default('Portikus.Student' if portikus_dex_upstream == 'entra' else 'portikus-students', true) }}
@@ -378,16 +392,28 @@
           tags: always
       tags: always
 
-    # Google's connector here has no groups, so a groups claim could only
-    # come from somewhere a student controls.
-    - name: Refuse the groups scope behind Dex's Google connector
+    # Without group checks Google's connector has no groups, so a groups
+    # claim could only come from somewhere a student controls.
+    - name: Refuse the groups scope behind Dex's Google connector without group checks
       ansible.builtin.assert:
         that:
           - "'groups' not in portikus_oidc_scopes.split()"
         fail_msg: >-
           PORTIKUS_OIDC_SCOPES asks for groups, but Dex's Google connector
-          reads none.  Leave groups out; roles come from the Users view.
-      when: portikus_dex_upstream == 'google'
+          reads none without PORTIKUS_GOOGLE_ADMIN_EMAIL.  Leave groups out;
+          roles come from the Users view.
+      when: portikus_dex_upstream == 'google' and not portikus_google_groups_enabled | bool
+      tags: always
+
+    # Dex checks groups only when the client asks for the groups scope.
+    - name: Require the groups scope where Dex checks Google groups
+      ansible.builtin.assert:
+        that:
+          - "'groups' in portikus_oidc_scopes.split()"
+        fail_msg: >-
+          PORTIKUS_OIDC_SCOPES leaves out groups, so Dex would neither check
+          nor pass on the role groups.  Add groups, or leave it unset.
+      when: portikus_google_groups_enabled | bool
       tags: always
 
     - name: Require extra egress hosts of the form host or host:port
@@ -498,7 +524,10 @@
     - role: egress_proxy
       tags: [egress_proxy, lti]
       vars:
-        egress_proxy_hosts: "{{ portikus_egress_extra_hosts + portikus_lti_keyset_egress }}"
+        # Dex reads Google groups through the Admin SDK, and only then.
+        egress_proxy_hosts: >-
+          {{ portikus_egress_extra_hosts + portikus_lti_keyset_egress
+             + (['admin.googleapis.com:443'] if portikus_google_groups_enabled | bool else []) }}
         # Only Dex's connector reaches a provider (SPEC.md section 5.1).
         # The entra connector never calls userinfo, so Microsoft Graph
         # stays off the list.
