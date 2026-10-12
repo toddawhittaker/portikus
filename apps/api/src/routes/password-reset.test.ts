@@ -207,12 +207,70 @@ describe.skipIf(skip)("asking for a reset link", () => {
 		expect(JSON.stringify(lines)).not.toContain(token);
 	});
 
-	test("with account email off nothing is sent", async () => {
+	test("with account email off nothing is sent and no link is made", async () => {
 		await switchOn(false);
 		await account("alice@example.edu");
 		expect((await requestReset("alice@example.edu")).statusCode).toBe(202);
-		await settled(1);
+		// Closing waits for the detached work.
+		await app.close();
 		expect(mails()).toEqual([]);
+		const tokens = await testDb.db
+			.selectFrom("account_email_tokens")
+			.select("id")
+			.execute();
+		expect(tokens).toEqual([]);
+	});
+
+	test("logins that match no account do not count toward the site-wide cap", async () => {
+		for (let i = 0; i < 3; i++) {
+			await requestReset(`nobody${i}@example.edu`, `198.51.100.${i}`);
+		}
+		await app.close();
+		const counters = await testDb.db
+			.selectFrom("signin_counters")
+			.select("key")
+			.where("scope", "=", "reset-site")
+			.execute();
+		expect(counters).toEqual([]);
+	});
+
+	test("the site-wide cap still holds back real accounts once full", async () => {
+		await account("alice@example.edu");
+		await testDb.db
+			.insertInto("signin_counters")
+			.values({
+				scope: "reset-site",
+				key: "site",
+				window_started_at: new Date(),
+				expires_at: new Date(Date.now() + 3_600_000),
+				count: 100,
+				reported: false,
+			})
+			.execute();
+		expect((await requestReset("alice@example.edu")).statusCode).toBe(202);
+		await app.close();
+		expect(mails()).toEqual([]);
+	});
+
+	test("a new reset link revokes older reset and invitation links only once it is sent", async () => {
+		const id = await account("alice@example.edu");
+		const invite = await issueAccountEmailToken(testDb.db, {
+			userId: id,
+			purpose: "invite",
+			createdBy: null,
+		});
+		await requestReset("alice@example.edu");
+		await settled(1);
+		const rows = await testDb.db
+			.selectFrom("account_email_tokens")
+			.select(["id", "revoked_at"])
+			.where("user_id", "=", id)
+			.orderBy("created_at")
+			.execute();
+		expect(rows.map((r) => [r.id === invite.id, r.revoked_at !== null])).toEqual([
+			[true, true],
+			[false, false],
+		]);
 	});
 
 	test("a request without the site's origin is refused", async () => {

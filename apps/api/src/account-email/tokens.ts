@@ -31,7 +31,10 @@ export interface IssuedAccountEmailToken {
 	expiresAt: Date;
 }
 
-/** Issue a new link, revoking every older live one for the same account and purpose. */
+/**
+ * Issue a new link. Older links stay live until the caller knows this one
+ * reached the mailbox, then calls supersedeAccountEmailTokens.
+ */
 export async function issueAccountEmailToken(
 	db: Kysely<Database>,
 	input: {
@@ -45,14 +48,6 @@ export async function issueAccountEmailToken(
 	const now = input.now ?? new Date();
 	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(now.getTime() + TOKEN_LIFETIME_MS[input.purpose]);
-	await db
-		.updateTable("account_email_tokens")
-		.set({ revoked_at: now })
-		.where("user_id", "=", input.userId)
-		.where("purpose", "=", input.purpose)
-		.where("used_at", "is", null)
-		.where("revoked_at", "is", null)
-		.execute();
 	const row = await db
 		.insertInto("account_email_tokens")
 		.values({
@@ -66,6 +61,27 @@ export async function issueAccountEmailToken(
 		.returning("id")
 		.executeTakeFirstOrThrow();
 	return { id: row.id, token, expiresAt };
+}
+
+/**
+ * Revoke every other live link a newly sent one replaces: a reset link
+ * replaces older reset and invitation links, an invitation older invitations.
+ */
+export async function supersedeAccountEmailTokens(
+	db: Kysely<Database>,
+	input: { userId: string; purpose: AccountEmailPurpose; keepId: string; now?: Date },
+): Promise<void> {
+	const purposes: AccountEmailPurpose[] =
+		input.purpose === "reset" ? ["reset", "invite"] : ["invite"];
+	await db
+		.updateTable("account_email_tokens")
+		.set({ revoked_at: input.now ?? new Date() })
+		.where("user_id", "=", input.userId)
+		.where("purpose", "in", purposes)
+		.where("id", "<>", input.keepId)
+		.where("used_at", "is", null)
+		.where("revoked_at", "is", null)
+		.execute();
 }
 
 /**

@@ -6,6 +6,7 @@ import {
 	sendMail,
 } from "@portikus/observability";
 import type { Kysely } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import type { AccountMessage } from "./messages.js";
 
 /**
@@ -27,6 +28,17 @@ export interface AccountEmailDeps {
 	/** Development only (MAIL_CAPTURE_FILE): append here instead of sending; SMTP is then not needed. */
 	captureFile?: string;
 	transportFactory?: MailTransportFactory;
+}
+
+/** The mail settings of a running server. */
+export function accountEmailDeps(deps: ServerDeps): AccountEmailDeps {
+	const { config } = deps;
+	return {
+		db: deps.db,
+		notifyFile: config.NOTIFY_FILE,
+		...(config.OUTBOUND_PROXY_URL ? { proxyUrl: config.OUTBOUND_PROXY_URL } : {}),
+		...(config.MAIL_CAPTURE_FILE ? { captureFile: config.MAIL_CAPTURE_FILE } : {}),
+	};
 }
 
 /** Whether the administrator turned account email on; a site with no settings row has it off. */

@@ -267,9 +267,26 @@ const GUID_RE = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
 
 const GroupEmail = z.string().max(200).email();
 
-/** Dex matches the group emails Google's Admin SDK returns, which are lowercase. */
+/** The root job takes only lowercase group emails; the API lowercases before writing. */
 function isGoogleGroup(value: string): boolean {
 	return value === value.toLowerCase() && GroupEmail.safeParse(value).success;
+}
+
+/** Dex matches the group emails Google's Admin SDK returns, which are lowercase. */
+function lowerGoogleGroups(settings: SigninSettingsInput): SigninSettingsInput {
+	if (settings.provider !== "google" || settings.googleAdminEmail === undefined) {
+		return settings;
+	}
+	if (settings.groups === undefined) return settings;
+	const { student, instructor, admin } = settings.groups;
+	return {
+		...settings,
+		groups: {
+			student: student.toLowerCase(),
+			instructor: instructor.toLowerCase(),
+			admin: admin.toLowerCase(),
+		},
+	};
 }
 
 const SigninFields = {
@@ -358,7 +375,11 @@ function groupRule(
  * secret, except that the job clears it when the issuer, tenant or client
  * ID changes (ADR 0059).
  */
-export const SigninSettings = z.object(SigninFields).strict().superRefine(checkSignin);
+const SigninObject = z.object(SigninFields).strict();
+type SigninSettingsInput = z.infer<typeof SigninObject>;
+// Lowered first, so an administrator's capitals are normalised rather than refused.
+export const SigninSettings =
+	SigninObject.transform(lowerGoogleGroups).superRefine(checkSignin);
 export type SigninSettings = z.infer<typeof SigninSettings>;
 
 // ---- The root site job: request files ----

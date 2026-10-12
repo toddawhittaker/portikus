@@ -19,6 +19,7 @@ import {
 	sendAdminSendFailure,
 } from "../account-email/admin-send.js";
 import { accountEmailEnabled } from "../account-email/send.js";
+import { revokeAccountEmailTokens } from "../account-email/tokens.js";
 import { createDexAccount, DexCallFailed, viaDex } from "../admin/dex-accounts.js";
 import { editDexUser, findDexPasswords } from "../admin/dex-user-edit.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
@@ -41,7 +42,6 @@ export function registerAdminDexUserRoutes(
 ): void {
 	const { db } = deps;
 	const sender = createAdminSender(deps);
-	const notSent = sendAdminSendFailure;
 
 	/** The Dex client, or null after answering 404 when the site has none. */
 	function dexOr404(reply: FastifyReply): DexApi | null {
@@ -120,7 +120,8 @@ export function registerAdminDexUserRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 		const { sendLink, ...fields } = body.data;
-		if (sendLink && !(await accountEmailEnabled(db))) return notSent(reply, "disabled");
+		if (sendLink && !(await accountEmailEnabled(db)))
+			return sendAdminSendFailure(reply, "disabled");
 		let created: Awaited<ReturnType<typeof createDexAccount>>;
 		try {
 			created = await createDexAccount(
@@ -177,6 +178,7 @@ export function registerAdminDexUserRoutes(
 			const hash = await hashDexPassword(password);
 			const updated = await db.transaction().execute(async (trx) => {
 				await endSessions(trx, id);
+				await revokeAccountEmailTokens(trx, id);
 				await trx
 					.updateTable("users")
 					.set({ must_change_password: true })
@@ -299,14 +301,15 @@ export function registerAdminDexUserRoutes(
 				return sendError(reply, 404, "NOT_FOUND", "User not found");
 			}
 			if (found.found === "not_local") return notLocal(reply);
-			if (!(await accountEmailEnabled(db))) return notSent(reply, "disabled");
+			if (!(await accountEmailEnabled(db)))
+				return sendAdminSendFailure(reply, "disabled");
 			const result = await sender.setPasswordLink({
 				userId: id,
 				actorId: actor.id,
 				purpose: "reset",
 				to: found.email,
 			});
-			if (result !== "sent") return notSent(reply, result);
+			if (result !== "sent") return sendAdminSendFailure(reply, result);
 			return reply.status(204).send();
 		},
 	);
@@ -333,6 +336,14 @@ export function registerAdminDexUserRoutes(
 		if (edited === "no_account")
 			return sendError(reply, 404, "NOT_FOUND", "User not found");
 		if (edited === "not_local") return notLocal(reply);
+		if (edited === "disabled") {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"This account is disabled. Enable it first.",
+			);
+		}
 		if (edited === "exists") {
 			return sendError(
 				reply,

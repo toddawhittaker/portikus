@@ -32,6 +32,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import bcrypt from "bcryptjs";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { issueAccountEmailToken } from "../account-email/tokens.js";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
 import { buildTestServer, PUBLIC_URL, testConfig } from "../testing/test-support.js";
@@ -283,6 +284,23 @@ describe.skipIf(skip)("POST /me/password", () => {
 		for (const secret of [CURRENT, NEW, hash]) {
 			expect(everything).not.toContain(secret);
 		}
+	});
+
+	test("a changed password revokes every emailed link (SPEC.md section 5.3)", async () => {
+		const jar = new CookieJar();
+		const id = await localAccount("alice", jar);
+		for (const purpose of ["reset", "invite"] as const) {
+			await issueAccountEmailToken(testDb.db, { userId: id, purpose, createdBy: null });
+		}
+		const res = await change(jar, { currentPassword: CURRENT, newPassword: NEW });
+		expect(res.statusCode).toBe(204);
+		const live = await testDb.db
+			.selectFrom("account_email_tokens")
+			.select("id")
+			.where("user_id", "=", id)
+			.where("revoked_at", "is", null)
+			.execute();
+		expect(live).toEqual([]);
 	});
 
 	test("a known-breached new password is refused and changes nothing (SPEC.md 24.13)", async () => {

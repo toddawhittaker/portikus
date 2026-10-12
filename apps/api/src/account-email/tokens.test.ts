@@ -6,6 +6,7 @@ import {
 	issueAccountEmailToken,
 	pruneEndedAccountEmailTokens,
 	revokeAccountEmailTokens,
+	supersedeAccountEmailTokens,
 	TOKEN_LIFETIME_MS,
 } from "./tokens.js";
 
@@ -86,18 +87,48 @@ describe.skipIf(skip)("account email tokens", () => {
 		expect(await consumeAccountEmailToken(t.db, token, "invite", now)).not.toBeNull();
 	});
 
-	test("a new link revokes the older one for the same purpose only", async () => {
+	test("issuing alone revokes nothing; superseding a reset ends older resets and invitations", async () => {
 		const firstReset = await issue("reset");
 		const invite = await issue("invite");
 		const secondReset = await issue("reset");
+		const check = async (token: string, purpose: "reset" | "invite") =>
+			t.db
+				.selectFrom("account_email_tokens")
+				.select("revoked_at")
+				.where("token_hash", "=", hashAccountEmailToken(token))
+				.where("purpose", "=", purpose)
+				.executeTakeFirstOrThrow();
+		expect((await check(firstReset.token, "reset")).revoked_at).toBeNull();
+		await supersedeAccountEmailTokens(t.db, {
+			userId,
+			purpose: "reset",
+			keepId: secondReset.id,
+			now,
+		});
+		expect(
+			await consumeAccountEmailToken(t.db, invite.token, "invite", now),
+		).toBeNull();
 		expect(
 			await consumeAccountEmailToken(t.db, firstReset.token, "reset", now),
 		).toBeNull();
 		expect(
 			await consumeAccountEmailToken(t.db, secondReset.token, "reset", now),
 		).not.toBeNull();
+	});
+
+	test("superseding an invitation leaves reset links alone", async () => {
+		const reset = await issue("reset");
+		const first = await issue("invite");
+		const second = await issue("invite");
+		await supersedeAccountEmailTokens(t.db, {
+			userId,
+			purpose: "invite",
+			keepId: second.id,
+			now,
+		});
+		expect(await consumeAccountEmailToken(t.db, first.token, "invite", now)).toBeNull();
 		expect(
-			await consumeAccountEmailToken(t.db, invite.token, "invite", now),
+			await consumeAccountEmailToken(t.db, reset.token, "reset", now),
 		).not.toBeNull();
 	});
 

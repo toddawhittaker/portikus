@@ -9,8 +9,12 @@ import {
 	resetMessage,
 	ssoInvitationMessage,
 } from "./messages.js";
-import { type AccountEmailDeps, sendAccountEmail } from "./send.js";
-import { type AccountEmailPurpose, issueAccountEmailToken } from "./tokens.js";
+import { accountEmailDeps, sendAccountEmail } from "./send.js";
+import {
+	type AccountEmailPurpose,
+	issueAccountEmailToken,
+	supersedeAccountEmailTokens,
+} from "./tokens.js";
 
 /**
  * Account email an administrator sends: a set-password link to a Dex user,
@@ -39,16 +43,6 @@ export interface AdminSender {
 	}): Promise<AdminSendResult>;
 	/** Email the old address that the account's email changed; not counted. */
 	notice(to: string, message: AccountMessage): Promise<AdminSendResult>;
-}
-
-function accountEmailDeps(deps: ServerDeps): AccountEmailDeps {
-	const { config } = deps;
-	return {
-		db: deps.db,
-		notifyFile: config.NOTIFY_FILE,
-		...(config.OUTBOUND_PROXY_URL ? { proxyUrl: config.OUTBOUND_PROXY_URL } : {}),
-		...(config.MAIL_CAPTURE_FILE ? { captureFile: config.MAIL_CAPTURE_FILE } : {}),
-	};
 }
 
 export function createAdminSender(deps: ServerDeps): AdminSender {
@@ -97,6 +91,9 @@ export function createAdminSender(deps: ServerDeps): AdminSender {
 			});
 			const build = purpose === "invite" ? inviteMessage : resetMessage;
 			const result = await send(to, build(config.PUBLIC_URL, issued.token));
+			if (result === "sent") {
+				await supersedeAccountEmailTokens(db, { userId, purpose, keepId: issued.id });
+			}
 			// The row id only, never the token or the address (SPEC.md section 24.8).
 			await recordAudit(db, {
 				actor: `user:${actorId}`,

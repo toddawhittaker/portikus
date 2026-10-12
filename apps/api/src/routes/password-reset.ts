@@ -11,12 +11,17 @@ import { PasswordResetComplete, PasswordResetRequest } from "@portikus/contracts
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { resetConfirmationMessage, resetMessage } from "../account-email/messages.js";
-import { type AccountEmailDeps, sendAccountEmail } from "../account-email/send.js";
+import {
+	accountEmailDeps,
+	accountEmailEnabled,
+	sendAccountEmail,
+} from "../account-email/send.js";
 import {
 	type AccountEmailPurpose,
 	consumeAccountEmailToken,
 	issueAccountEmailToken,
 	revokeAccountEmailTokens,
+	supersedeAccountEmailTokens,
 } from "../account-email/tokens.js";
 import { DexCallFailed, viaDex } from "../admin/dex-accounts.js";
 import type { ServerDeps } from "../deps.js";
@@ -60,12 +65,7 @@ export function registerPasswordResetRoutes(
 	const siteWide = counter("reset-site", 100, HOUR_MS);
 	const badTokens = counter("reset-token", 20, TEN_MINUTES_MS);
 
-	const mail: AccountEmailDeps = {
-		db,
-		notifyFile: config.NOTIFY_FILE,
-		...(config.OUTBOUND_PROXY_URL ? { proxyUrl: config.OUTBOUND_PROXY_URL } : {}),
-		...(config.MAIL_CAPTURE_FILE ? { captureFile: config.MAIL_CAPTURE_FILE } : {}),
-	};
+	const mail = accountEmailDeps(deps);
 
 	// Detached work still running; shutdown waits for it so no query outlives the pool.
 	const pending = new Set<Promise<void>>();
@@ -113,13 +113,10 @@ export function registerPasswordResetRoutes(
 		login: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
+		// Off means no link is made at all, not one that is made and never sent.
+		if (!(await accountEmailEnabled(db))) return;
 		const key = loginKey(login);
 		if (key === null) return;
-		const site = await siteWide.attempt("site");
-		if (!site.allowed) {
-			if (site.audit) logger.warn("site-wide password reset limit reached");
-			return;
-		}
 		const account = await perAccount.attempt(key);
 		if (!account.allowed) return;
 		const found = await findAccount(dex, key);
@@ -135,6 +132,12 @@ export function registerPasswordResetRoutes(
 			});
 			return;
 		}
+		// Counted only for a real account, so made-up logins cannot use up the site's mail.
+		const site = await siteWide.attempt("site");
+		if (!site.allowed) {
+			if (site.audit) logger.warn("site-wide password reset limit reached");
+			return;
+		}
 		const issued = await issueAccountEmailToken(db, {
 			userId: found.id,
 			purpose: "reset",
@@ -146,6 +149,13 @@ export function registerPasswordResetRoutes(
 			found.email,
 			resetMessage(config.PUBLIC_URL, issued.token),
 		);
+		if (sent.ok) {
+			await supersedeAccountEmailTokens(db, {
+				userId: found.id,
+				purpose: "reset",
+				keepId: issued.id,
+			});
+		}
 		await recordAudit(db, {
 			actor: "unknown",
 			target: found.id,
