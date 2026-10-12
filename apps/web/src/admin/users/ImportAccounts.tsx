@@ -2,14 +2,15 @@ import {
 	ACCOUNT_IMPORT_MAX_BYTES,
 	ACCOUNT_IMPORT_MAX_ROWS,
 	type AccountImportPreviewRow,
+	type AccountImportRequest,
 	type AccountImportResultRow,
 } from "@portikus/contracts";
-import { Button, Dialog, DialogRoot, FileInput } from "@portikus/ui";
+import { Button, Checkbox, Dialog, DialogRoot, FileInput } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { downloadBlob } from "../../common/download.js";
 import { Notice } from "../Notice.js";
-import { useConfirmImport, usePreviewImport } from "../queries.js";
+import { useAccountEmail, useConfirmImport, usePreviewImport } from "../queries.js";
 import { passwordsCsv, SAMPLE_IMPORT_CSV } from "./importCsv.js";
 
 /**
@@ -39,6 +40,10 @@ function tagClass(tone: "ok" | "warning" | "error"): string {
 
 function plural(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`;
+}
+
+function confirmBody(csv: string, sendEmail: boolean): AccountImportRequest {
+	return sendEmail ? { csv, sendEmail } : { csv };
 }
 
 function downloadCsv(fileName: string, text: string): void {
@@ -77,6 +82,8 @@ function statusText(
 export function ImportAccounts() {
 	const preview = usePreviewImport();
 	const confirm = useConfirmImport();
+	const accountEmail = useAccountEmail();
+	const [sendEmail, setSendEmail] = useState(false);
 	const [open, setOpen] = useState(false);
 	const [csv, setCsv] = useState<string | null>(null);
 	const [fileError, setFileError] = useState<string | null>(null);
@@ -100,6 +107,7 @@ export function ImportAccounts() {
 			confirm.reset();
 			setCsv(null);
 			setFileError(null);
+			setSendEmail(false);
 		}
 		setOpen(next);
 	}
@@ -121,7 +129,7 @@ export function ImportAccounts() {
 	async function submit() {
 		if (busy || csv === null || ready === 0) return;
 		try {
-			await confirm.mutateAsync({ csv });
+			await confirm.mutateAsync(confirmBody(csv, accountEmail && sendEmail));
 		} catch {
 			// The dialog shows confirm.error.
 		}
@@ -186,6 +194,11 @@ export function ImportAccounts() {
 								onPick={(file) => void pick(file)}
 							/>
 						)}
+						<EmailChoice
+							offered={accountEmail && !result}
+							checked={sendEmail}
+							onChange={setSendEmail}
+						/>
 						<p
 							ref={status}
 							id={STATUS_ID}
@@ -217,6 +230,27 @@ export function ImportAccounts() {
 				</Dialog>
 			</DialogRoot>
 		</>
+	);
+}
+
+/** Shown only while account email is on (SPEC.md section 5.3). */
+function EmailChoice({
+	offered,
+	checked,
+	onChange,
+}: {
+	offered: boolean;
+	checked: boolean;
+	onChange: (next: boolean) => void;
+}) {
+	if (!offered) return null;
+	return (
+		<Checkbox
+			label="Email each person"
+			description="Password rows get a link to choose their password; invite rows get their invitation."
+			checked={checked}
+			onChange={(event) => onChange(event.target.checked)}
+		/>
 	);
 }
 
@@ -326,8 +360,14 @@ function ResultView({
 	const problems = rows.filter(
 		(r) => r.outcome === "failed" || r.outcome === "invalid",
 	);
+	const emailed = rows.filter((r) => r.emailed).length;
 	return (
 		<>
+			{emailed > 0 ? (
+				<p className="m-0" data-testid="import-emailed">
+					{plural(emailed, "person was", "people were")} emailed.
+				</p>
+			) : null}
 			{passwords > 0 ? (
 				<Notice tone="warning" id={WARNING_ID} testId="import-password-warning">
 					Download the one-time passwords now: they will not be shown again. Give each

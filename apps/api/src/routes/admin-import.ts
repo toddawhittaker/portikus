@@ -8,6 +8,11 @@ import {
 import { isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
+	createAdminSender,
+	sendAdminSendFailure,
+} from "../account-email/admin-send.js";
+import { accountEmailEnabled } from "../account-email/send.js";
+import {
 	type ClassifiedRow,
 	classifyImport,
 	ImportFileError,
@@ -30,6 +35,7 @@ export function registerAdminImportRoutes(
 	deps: ServerDeps,
 ): void {
 	const { db } = deps;
+	const sender = createAdminSender(deps);
 	const adminOnly = { preHandler: requireRole("administrator") };
 
 	/** The checked rows of the uploaded text, or null after answering 400. */
@@ -62,11 +68,16 @@ export function registerAdminImportRoutes(
 		const actor = requireUser(request);
 		const rows = await classify(request.body, reply);
 		if (!rows) return reply;
+		// classify has checked the body against AccountImportRequest.
+		const sendEmail = (request.body as AccountImportRequest).sendEmail === true;
+		if (sendEmail && !(await accountEmailEnabled(db))) {
+			return sendAdminSendFailure(reply, "disabled");
+		}
 		const metadata = requestMetadata(request);
 		const results: AccountImportResultRow[] = [];
 		// One at a time: each account commits alone, so one failure does not undo the rest.
 		for (const row of rows)
-			results.push(await apply(row, actor.id, metadata, request.log));
+			results.push(await apply(row, actor.id, metadata, request.log, sendEmail));
 		const count = (outcome: AccountImportResultRow["outcome"]) =>
 			results.filter((r) => r.outcome === outcome).length;
 		// Counts only: never a password, name or email.
@@ -88,11 +99,45 @@ export function registerAdminImportRoutes(
 		return out;
 	});
 
+	/** Email a set-password link; a failed send still gives the password, so nobody is left without one. */
+	async function emailLink(
+		created: { id: string; password: string },
+		actorId: string,
+		to: string,
+		sendEmail: boolean,
+	): Promise<{ password?: string; emailed?: boolean }> {
+		if (!sendEmail) return { password: created.password };
+		const sent = await sender.setPasswordLink({
+			userId: created.id,
+			actorId,
+			purpose: "invite",
+			to,
+		});
+		return sent === "sent"
+			? { emailed: true }
+			: { password: created.password, emailed: false };
+	}
+
+	async function emailInvitation(
+		created: { id: string; email: string },
+		actorId: string,
+		sendEmail: boolean,
+	): Promise<{ emailed?: boolean }> {
+		if (!sendEmail) return {};
+		const sent = await sender.invitation({
+			invitationId: created.id,
+			actorId,
+			to: created.email,
+		});
+		return { emailed: sent === "sent" };
+	}
+
 	async function apply(
 		row: ClassifiedRow,
 		actorId: string,
 		metadata: Record<string, unknown>,
 		log: FastifyInstance["log"],
+		sendEmail: boolean,
 	): Promise<AccountImportResultRow> {
 		const { preview, valid } = row;
 		const base = {
@@ -111,8 +156,9 @@ export function registerAdminImportRoutes(
 		}
 		if (valid.kind === "invite") {
 			try {
-				await createInvitation(db, actorId, valid.body, metadata);
-				return { ...base, outcome: "invited", reason: null };
+				const created = await createInvitation(db, actorId, valid.body, metadata);
+				const emailed = await emailInvitation(created, actorId, sendEmail);
+				return { ...base, outcome: "invited", reason: null, ...emailed };
 			} catch (err) {
 				if (!isUniqueViolation(err)) throw err;
 				return {
@@ -136,7 +182,8 @@ export function registerAdminImportRoutes(
 					reason: "Dex already has a password for this email.",
 				};
 			}
-			return { ...base, outcome: "created", reason: null, password: created.password };
+			const handOver = await emailLink(created, actorId, valid.body.email, sendEmail);
+			return { ...base, outcome: "created", reason: null, ...handOver };
 		} catch (err) {
 			if (err instanceof DexCallFailed) {
 				log.error({ grpcCode: err.grpcCode }, "dex call failed");

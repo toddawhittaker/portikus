@@ -590,6 +590,43 @@ because the reset command falls back to it.
 - Give each DNS credential the least access that works, and revoke the
   old one after you replace it.
 
+## Users: email links and edits
+
+These need **Account email** turned on under **Settings**, and a mail server
+set under **Notifications**. While account email is off, nothing below sends
+mail.
+
+- **Add user…** offers a box, "Email them a link to choose their password".
+  Tick it and no password is shown: the person gets a link that works once
+  and lasts 7 days. If the email cannot be sent, the dialog shows a password
+  to give them instead.
+- **Invite…** offers "Email the invitation". The message tells the person to
+  sign in to Portikus with that address; it carries no link to click
+  through. A waiting invitation has **Resend** in its row.
+- **Import from CSV…** offers "Email each person". Password rows get a link
+  and invite rows get their invitation, so there are no passwords to
+  download.
+- **Send reset link…** in a Portikus password account's panel emails a link
+  that works once and lasts 30 minutes. Their password stays the same until
+  they use it.
+
+At most five of these emails go to one account in an hour, so a slip cannot
+flood a mailbox.
+
+**Edit email or username…** in a Portikus password account's panel changes
+either one and keeps the same account and workspace.
+
+- A new username takes effect at once and keeps their password.
+- A new email signs them out everywhere and replaces their password. With
+  account email on, the new address gets a link to choose one, and the old
+  address gets a notice that the email changed. With it off, the dialog
+  shows a new password once to give them privately.
+
+You cannot edit your own account here. The install administrator's account
+is never emailed a link or edited by another administrator; recover it on
+the host with `portikus reset-admin`. The audit log records which fields
+changed, never the addresses.
+
 ## Users: search and paging
 
 The **Users** tab shows 50 people at a time. Search, the filters and the sort

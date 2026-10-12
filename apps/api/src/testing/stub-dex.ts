@@ -21,6 +21,13 @@ export function stubDex() {
 			stored.hash = hash;
 			return "updated";
 		},
+		async updateUsername(email, username) {
+			guard();
+			const stored = passwords.get(email);
+			if (!stored) return "not_found";
+			stored.username = username;
+			return "updated";
+		},
 		async deletePassword(email) {
 			guard();
 			return passwords.delete(email) ? "deleted" : "not_found";

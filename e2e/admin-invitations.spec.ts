@@ -20,7 +20,7 @@ async function invite(
 	await page.getByRole("button", { name: "Invite…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Invite someone" });
 	await dialog.getByLabel("Name", { exact: true }).fill(person.name);
-	await dialog.getByLabel("Email").fill(person.email);
+	await dialog.getByLabel("Email", { exact: true }).fill(person.email);
 	await dialog.getByLabel("Role").selectOption(person.role);
 	await dialog.getByRole("button", { name: "Invite" }).click();
 	await expect(dialog).toBeHidden();

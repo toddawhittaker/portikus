@@ -29,7 +29,7 @@ async function addUser(
 	const form = page.getByRole("dialog", { name: "Add user" });
 	await expect(form).toBeVisible();
 	await form.getByLabel("Name", { exact: true }).fill(name);
-	await form.getByLabel("Email").fill(email);
+	await form.getByLabel("Email", { exact: true }).fill(email);
 	await form.getByLabel("Username").fill(username);
 	await form.getByLabel("Role").selectOption(role);
 	if (options.checkA11y) await expectNoViolations(page, "[data-testid=dex-add-dialog]");
@@ -105,7 +105,7 @@ async function submitEmptyAdd(page: Page): Promise<void> {
 	await expect(form.getByLabel("Name", { exact: true })).toHaveAccessibleDescription(
 		"Enter a name of 1 to 100 characters.",
 	);
-	await expect(form.getByLabel("Email")).toHaveAccessibleDescription(
+	await expect(form.getByLabel("Email", { exact: true })).toHaveAccessibleDescription(
 		"Enter an email address.",
 	);
 	await expectNoViolations(page, "[data-testid=dex-add-dialog]");
@@ -130,7 +130,7 @@ test("a taken email is refused in the dialog", async ({ page }) => {
 	await page.getByRole("button", { name: "Add user…" }).click();
 	const form = page.getByRole("dialog", { name: "Add user" });
 	await form.getByLabel("Name", { exact: true }).fill(`${added.name} again`);
-	await form.getByLabel("Email").fill(added.email);
+	await form.getByLabel("Email", { exact: true }).fill(added.email);
 	await form.getByLabel("Username").fill(`${added.username}x`);
 	await form.getByRole("button", { name: "Add user" }).click();
 	await expect(form.getByRole("alert")).toHaveText(
