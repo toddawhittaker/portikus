@@ -18,6 +18,7 @@ const SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
+	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -38,7 +39,7 @@ function stubSettings() {
 	});
 }
 
-test("Settings is five admin cards in one column, and the log level is not among them", async () => {
+test("Settings is six admin cards in one column, and the log level is not among them", async () => {
 	stubSettings();
 	renderApp("/admin/settings");
 
@@ -51,6 +52,7 @@ test("Settings is five admin cards in one column, and the log level is not among
 		"Resource guard",
 		"Acceptable use",
 		"Voice input",
+		"Account email",
 		"Notifications",
 	]);
 	for (const name of headings) {
@@ -206,4 +208,38 @@ test("while the voice switch saves, it shows the value asked for, stays focusabl
 	expect(box.checked).toBe(false);
 	fireEvent.click(box);
 	expect(puts).toEqual([{ voiceInputEnabled: false }]);
+});
+
+test("the account email switch is off by default, says it needs SMTP, and saves as soon as it changes", async () => {
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			const body = JSON.parse(String(init.body));
+			puts.push(body);
+			return json(200, { ...SETTINGS, ...body });
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin/settings");
+
+	const card = await screen.findByRole("region", { name: "Account email" });
+	expect(
+		within(card).getByText(/needs an SMTP server set under Notifications/),
+	).toBeTruthy();
+	const box = within(card).getByRole<HTMLInputElement>("checkbox", {
+		name: /Send account email/,
+	});
+	await waitFor(() => expect(box.disabled).toBe(false));
+	expect(box.checked).toBe(false);
+	fireEvent.click(box);
+	await waitFor(() => expect(puts).toEqual([{ accountEmailEnabled: true }]));
+	expect(await screen.findByText("Account email on")).toBeTruthy();
 });
