@@ -7,11 +7,9 @@
  * failing the scan.
  */
 
-import { access, readdir, readFile, readlink } from "node:fs/promises";
-import { isIP, connect as tcpConnect } from "node:net";
+import { access, readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { connect as tlsConnect } from "node:tls";
 import {
 	type AgentListeningService,
 	MAX_LISTENING_SERVICES,
@@ -25,15 +23,17 @@ import {
 	dockerStopContainer,
 } from "./docker-listeners.js";
 import { AgentFailure } from "./errors.js";
+import { probeTls, type TlsProbe } from "./listening-probe.js";
 import { type ProcListener, parseProcNetTcp } from "./proc-net.js";
+import { readProcess, STOP_GRACE_MS, signalProcess } from "./processes.js";
 import {
-	ownedByStudent,
-	parseStatusUids,
-	readCommandLine,
-	readProcess,
-	STOP_GRACE_MS,
-	signalProcess,
-} from "./processes.js";
+	isSystemListener,
+	readSocketOwners,
+	type SocketOwner,
+} from "./socket-owners.js";
+
+/** Ports below this are never probed. */
+const FIRST_PROBED_PORT = 1024;
 
 /** How often the port list is rescanned. */
 const SCAN_INTERVAL_MS = 1000;
@@ -43,117 +43,12 @@ const DOCKER_CACHE_MS = 5000;
 
 /**
  * Ports that development servers use for plain HTTP often enough to label.
- * Anything else is "unknown" unless the TLS probe below finds HTTPS.
+ * Anything else is "unknown" unless the TLS probe finds HTTPS.
  */
 const HTTP_PORTS: ReadonlySet<number> = new Set([
 	80, 3000, 3001, 4000, 4200, 5000, 5173, 5174, 7000, 8000, 8001, 8080, 8081, 8888,
 	9000,
 ]);
-
-/** The HTTP question gets most of the budget: a first compile can be slow. */
-const HTTP_STEP_TIMEOUT_MS = 2000;
-
-/** A TLS server answers plain HTTP at once, so the handshake step is short. */
-const TLS_STEP_TIMEOUT_MS = 1000;
-
-/** How long one probe may take, both steps together. */
-const PROBE_TIMEOUT_MS = HTTP_STEP_TIMEOUT_MS + TLS_STEP_TIMEOUT_MS;
-
-/** Bytes read while looking for the end of an HTTP status line. */
-const STATUS_LINE_CAP = 128;
-
-/** Ports below this are never probed. */
-const FIRST_PROBED_PORT = 1024;
-
-export type TlsProbe = (host: string, port: number) => Promise<boolean>;
-
-/**
- * Whether a listener speaks HTTPS. It is asked in plain HTTP first, so a plain
- * HTTP server answers a normal request instead of logging a TLS handshake as
- * a garbled bad request; only a listener that does not answer in HTTP gets the
- * handshake. The HTTP step gets two thirds of the budget, the handshake one third.
- */
-export async function probeTls(
-	host: string,
-	port: number,
-	timeoutMs = PROBE_TIMEOUT_MS,
-): Promise<boolean> {
-	const httpStep = (timeoutMs * HTTP_STEP_TIMEOUT_MS) / PROBE_TIMEOUT_MS;
-	if (await answersHttp(host, port, httpStep)) return false;
-	return completesTlsHandshake(host, port, timeoutMs - httpStep);
-}
-
-/**
- * Whether a listener answers a minimal HTTP request as a plain HTTP server.
- * A 400 is inconclusive: Go and nginx HTTPS servers send one to plain HTTP.
- */
-function answersHttp(host: string, port: number, timeoutMs: number): Promise<boolean> {
-	return new Promise((resolve) => {
-		let settled = false;
-		let received = "";
-		const socket = tcpConnect({ host, port });
-		const finish = (http: boolean) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			socket.destroy();
-			resolve(http);
-		};
-		const timer = setTimeout(() => finish(false), timeoutMs);
-		const hostHeader = isIP(host) === 6 ? `[${host}]:${port}` : `${host}:${port}`;
-		socket.once("connect", () =>
-			socket.write(`HEAD / HTTP/1.0\r\nHost: ${hostHeader}\r\n\r\n`),
-		);
-		socket.on("data", (chunk: Buffer) => {
-			received += chunk.toString("latin1");
-			const end = received.indexOf("\r\n");
-			if (end >= 0) {
-				const status = /^HTTP\/\d(?:\.\d)? (\d{3})/.exec(received.slice(0, end));
-				finish(status !== null && status[1] !== "400");
-			} else if (
-				received.length >= STATUS_LINE_CAP ||
-				!"HTTP/".startsWith(received.slice(0, 5))
-			) {
-				finish(false);
-			}
-		});
-		socket.once("error", () => finish(false));
-		socket.once("close", () => finish(false));
-	});
-}
-
-/**
- * Whether a listener completes a TLS handshake. Certificate checks are off
- * because a development server's certificate is self-signed; nothing is sent
- * after the handshake.
- */
-function completesTlsHandshake(
-	host: string,
-	port: number,
-	timeoutMs: number,
-): Promise<boolean> {
-	return new Promise((resolve) => {
-		let settled = false;
-		const socket = tlsConnect({
-			host,
-			port,
-			rejectUnauthorized: false,
-			// SNI may not be an IP address.
-			...(isIP(host) === 0 ? { servername: host } : {}),
-		});
-		const finish = (https: boolean) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			socket.destroy();
-			resolve(https);
-		};
-		const timer = setTimeout(() => finish(false), timeoutMs);
-		socket.once("secureConnect", () => finish(true));
-		socket.once("error", () => finish(false));
-		socket.once("close", () => finish(false));
-	});
-}
 
 /** The address a probe dials for a listener bound to this address. */
 function probeAddress(address: string): string {
@@ -166,160 +61,6 @@ function probeAddress(address: string): string {
 interface ProbeTarget {
 	inode: string;
 	address: string;
-}
-
-/**
- * The lowest uid Debian gives a human account. Anything below it belongs to
- * the system: systemd-resolved, sshd and dnsmasq all sit there (SPEC.md §18.2).
- */
-const FIRST_HUMAN_UID = 1000;
-
-/** The process a socket inode belongs to. */
-export interface SocketOwner {
-	pid: number;
-	/** `/proc/<pid>/comm`, the thread name. */
-	command?: string;
-	/**
-	 * `/proc/<pid>/cmdline` with NULs turned into spaces, read only when the
-	 * student owns the process (SPEC.md §24.11). Never logged.
-	 */
-	commandLine?: string;
-}
-
-/**
- * Whether a listener is the platform's own or a system account's rather than
- * the student's (SPEC.md §18.2).
- *
- * The agent itself is the process doing the scan, so a listener whose owning
- * pid is our own pid is the agent, whatever port it was configured with. The
- * uid rule catches systemd-resolved, sshd and dnsmasq. A port published by an
- * inner Docker container is the student's work even though `docker-proxy`
- * holds it as root, so a container attribution wins.
- *
- * The agent also opens a loopback forward on the student's own port to serve
- * a preview (BROWSER-HANDLING.md §11.1), which makes the agent one holder of
- * that port. A forward is never the service, so a forwarded port is judged by
- * the other rows alone.
- *
- * A port can have several rows, one per address family. It is hidden only
- * when every one of them belongs to a system account: one row that is the
- * student's makes the port the student's, because hiding it would hide their
- * own work.
- */
-export function isSystemListener(input: {
-	ownerPid?: number;
-	uids: number[];
-	hasContainer: boolean;
-	selfPid?: number;
-	isForwarded?: boolean;
-}): boolean {
-	if (input.hasContainer) return false;
-	const selfPid = input.selfPid ?? process.pid;
-	if (
-		!input.isForwarded &&
-		input.ownerPid !== undefined &&
-		input.ownerPid === selfPid
-	) {
-		return true;
-	}
-	if (input.uids.length === 0) return false;
-	return input.uids.every((uid) => uid >= 0 && uid < FIRST_HUMAN_UID);
-}
-
-/**
- * Map socket inodes to the process holding them, by walking `/proc/<pid>/fd`.
- * Directories and links we may not read are skipped. The command line is
- * read only for the student's own processes, the same test Monitor uses.
- */
-export async function readSocketOwners(
-	procRoot: string,
-	studentUid: number,
-): Promise<Map<string, SocketOwner>> {
-	const owners = new Map<string, SocketOwner>();
-	let entries: string[];
-	try {
-		entries = await readdir(procRoot);
-	} catch {
-		return owners;
-	}
-	for (const entry of entries) {
-		const pid = Number.parseInt(entry, 10);
-		if (!Number.isInteger(pid) || String(pid) !== entry) continue;
-		await addProcessSockets(procRoot, entry, pid, studentUid, owners);
-	}
-	return owners;
-}
-
-/** Record the sockets one process holds, unless an earlier process holds them. */
-async function addProcessSockets(
-	procRoot: string,
-	entry: string,
-	pid: number,
-	studentUid: number,
-	owners: Map<string, SocketOwner>,
-): Promise<void> {
-	let descriptors: string[];
-	try {
-		descriptors = await readdir(join(procRoot, entry, "fd"));
-	} catch {
-		return;
-	}
-	let command: string | undefined;
-	let commandLine: string | undefined;
-	let commandRead = false;
-	for (const descriptor of descriptors) {
-		let target: string;
-		try {
-			target = await readlink(join(procRoot, entry, "fd", descriptor));
-		} catch {
-			continue;
-		}
-		const match = /^socket:\[(\d+)]$/.exec(target);
-		if (!match) continue;
-		if (!commandRead) {
-			commandRead = true;
-			command = await readComm(procRoot, entry);
-			if (await isStudentProcess(procRoot, entry, studentUid)) {
-				commandLine = (await readCommandLine(procRoot, pid)) ?? undefined;
-			}
-		}
-		// The first process found for an inode wins; a forked child holding
-		// the same socket tells the student nothing extra.
-		const inode = match[1] ?? "";
-		if (!owners.has(inode)) {
-			owners.set(inode, {
-				pid,
-				command,
-				...(commandLine !== undefined ? { commandLine } : {}),
-			});
-		}
-	}
-}
-
-async function readComm(procRoot: string, pid: string): Promise<string | undefined> {
-	try {
-		const text = await readFile(join(procRoot, pid, "comm"), "utf8");
-		const command = text.trim();
-		return command === "" ? undefined : command;
-	} catch {
-		return undefined;
-	}
-}
-
-/** Whether the student owns this process: its real and effective uid are theirs. */
-async function isStudentProcess(
-	procRoot: string,
-	pid: string,
-	studentUid: number,
-): Promise<boolean> {
-	let text: string;
-	try {
-		text = await readFile(join(procRoot, pid, "status"), "utf8");
-	} catch {
-		return false;
-	}
-	const uids = parseStatusUids(text);
-	return uids !== null && ownedByStudent({ uids }, { studentUid });
 }
 
 /**

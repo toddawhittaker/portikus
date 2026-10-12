@@ -108,7 +108,7 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 			}
 			actions={
 				// The reason the button is off sits under it, as on the Certificate tab.
-				<div className="grid justify-items-end gap-2">
+				<div className="grid min-w-0 justify-items-end gap-2">
 					<Button
 						variant="primary"
 						data-testid="docker-seed-rebuild"
@@ -417,7 +417,10 @@ function ImageList({
 	}
 
 	return (
-		<section className="grid gap-3" aria-labelledby="docker-seed-list-title">
+		<section
+			className="grid grid-cols-[minmax(0,1fr)] gap-3"
+			aria-labelledby="docker-seed-list-title"
+		>
 			<div className="flex flex-wrap items-baseline gap-x-3">
 				<h4 className={SUB_HEADING} id="docker-seed-list-title" tabIndex={-1}>
 					Images for the next rebuild

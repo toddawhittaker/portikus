@@ -815,7 +815,7 @@ The primary desktop interface must have:
 2. **Center pane:** tabbed work area;
 3. **Right pane:** project file tree.
 
-Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target.
+Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target. As built, the panes stack in one column below 56rem; see DESIGN.md section 9 (Epic 49).
 
 ### 8.2 Left pane
 
@@ -1041,8 +1041,13 @@ Fix the file, then open a new terminal." and starts
 process tree, its descendants and every process in its session, with
 `SIGTERM`, then `SIGKILL` after 3 seconds to whatever is left, including
 anything that joined the session meanwhile; a zombie counts as gone, and a
-root whose start time no longer matches is left alone. A program that
-double-forks out of both escapes.
+root whose start time no longer matches is left alone. Each terminal is
+started with `PORTIKUS_TERMINAL=<session>` in its environment, and closing
+it also stops every process of the student carrying that entry, so a
+program that left the session with `setsid` or `nohup`, or a tmux or
+ssh-agent a student started inside the terminal, ends with it. A program
+that clears its own environment, or double-forks and clears it, escapes;
+only a control group per terminal would close that.
 
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
@@ -1269,7 +1274,7 @@ P0 file-tree operations:
 - download directory/project as archive;
 - extract a zip into a new folder beside it (§11.6).
 
-Rows are dragged with the browser's own drag and drop. A drag that starts on a selected row carries the whole selection in tree order, and the drag image reads "N items"; a drag that starts on an unselected row carries only that row. Dropping on a folder moves every carried item one at a time with the single-move rules and replace prompts, leaving out items that cannot go there. Dropping on a pane edge opens the first carried file as a split and the other files as top-level tabs, and skips folders, because a pane holds one item. There is no single keyboard action that opens a selection in a split. A drop that would
+Rows are dragged with the browser's own drag and drop. A drag that starts on a selected row carries the whole selection in tree order, and the drag image reads "N items"; a drag that starts on an unselected row carries only that row. Dropping on a folder moves every carried item one at a time with the single-move rules and replace prompts, leaving out items that cannot go there. Dropping on a pane edge opens the first carried file as a split and the other files as top-level tabs, and skips folders, because a pane holds one item. The row menu of a selection holding files offers Open N files (N counts files only), which opens them the same way, beside the focused pane on its right edge; with no pane that can take a split, every file opens as a tab, and the result is announced in the tree's live region. A drop that would
 leave the item where it is, or move a folder into itself, is refused and not
 highlighted; the Move to dialog is the keyboard alternative. A rename or move
 made in the files pane keeps the open tab of every file it moves, alone or in
@@ -1646,7 +1651,7 @@ files, then save again."; upload, new folder, move and project create say
 `git init` and duplicate answer `STORAGE_FULL` too when git or the copy reports
 a full disk or quota, and the clone dialog says the home folder is full.
 
-An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save, but students should not need to remember to save manually for normal operation.
+An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate save (it saves the latest edit, even one typed in the same instant), but students should not need to remember to save manually for normal operation.
 
 Per-user preferences. Autosave on or off, the autosave delay, word wrap, the
 terminal colour scheme, and the workspace timezone are settings of the
@@ -1756,7 +1761,18 @@ portikus.example.edu
 <workspace-label>-3000.preview.portikus.example.edu
 ```
 
-The workspace label is the one Epic 8 derives from the login username;
+The workspace label is derived once, at workspace creation, from the
+identity provider's `preferred_username` (lowercased, reduced to a DNS
+label, stored on the workspace row, with a fallback when the claim is
+missing); a course (LTI) account's username is the launch's
+`preferred_username`, else the LTI custom claim `username`, else the part of
+its email before the `@`, then its LTI user ID (the launch's `sub`), each
+reduced the same way and skipped when it reduces to nothing, never random
+hex while either exists. When the `-2`, `-3` suffixes run out, the later
+fallbacks are each tried once, and an existing label never changes. The
+label names the preview hosts and is pushed into the container as its
+hostname at every start, so the prompt reads `student@<label>.<public host>`;
+a failed hostname set logs a warning and the start carries on.
 `docs/BROWSER-HANDLING.md` section 8 gives the exact host format.
 
 In that arrangement two hosts count as the same site, which weakens two
@@ -2619,11 +2635,15 @@ student nothing but is still audited. Like Monitor, the Processes table
 keeps a fixed Stop column, so a row without Stop leaves that cell empty
 (Epic 22).
 
-The admin area works in windows 768 px wide and up. Below about 990 px
-the tab strip wraps to a second row, wide tables scroll sideways inside
-the frame, and the page itself never scrolls sideways. Below that it
-scrolls sideways; there is no phone layout. The workspace keeps its
-1024 px minimum (Epic 33).
+The admin area has no minimum width and is checked at 560 px. The tab
+strip wraps to further rows (six at 320 px), and the page itself never
+scrolls sideways. When the scrolling content is narrower than 45rem, the
+Users, Logs and Audit tables scroll sideways in their own box, a labelled
+focusable region that arrow keys scroll, and their header stops sticking.
+A control focused by keyboard inside one of these tables is scrolled fully
+into view. In a window under 30rem tall the whole admin page scrolls. The
+workspace stacks its panes below 56rem (section 8.1); the Help and sign-in
+pages keep the 1024 px floor (Epic 49).
 
 Added by Epic 33: the admin page keeps the app header to the wordmark,
 "Administration" and the account menu. Under it, a frame as wide as the
@@ -3156,6 +3176,11 @@ students, or the course template, delete them from `playwright.config.ts`.
 A plain `npx playwright install` is the wrong fix, because it downloads
 every browser. In allow-list egress mode (§23.6) a student who installs
 another Playwright version's browser needs `cdn.playwright.dev` on the list.
+
+On images from 2026.10.5 the image installs `fontconfig-config` (the
+configuration files only), so the headless Chromium loads a font config and
+prints no "Fontconfig error". The image build's render check fails if
+Chromium's error output mentions fontconfig, and the smoke test checks it.
 
 Additional language runtimes may be added according to course requirements.
 
@@ -4627,9 +4652,15 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   Made-up preview cookies at `/preview/authorize` have their own count
   per address, which refuses only that route. A session cookie that
   matches no session counts against the anonymous limit on any route
-  and is refused past it, though each one still costs one session
-  lookup, because the lookup must come first so a real session is never
-  refused. `/auth/login` and `/lti/login` count as sign-in starts (150 a
+  and is refused past it. Once an address is at or over the limit, a
+  cookie that already matched no session from that address in the last
+  minute is refused with 429 before any query. The list holds a SHA-256
+  hash of each cookie, never the cookie, at most 16 cookies per address
+  and 1024 addresses (oldest dropped first), each entry living one minute,
+  the limit window. A real session never misses, so it is never listed
+  and is never refused. A new made-up cookie still costs one lookup, and
+  an address whose session was just re-enabled or unlinked can get 429
+  for up to a minute (Epic 49). `/auth/login` and `/lti/login` count as sign-in starts (150 a
   minute per address), and so, in a count of its own with the same
   limit, does a GET of a Dex connector's page (`/dex/auth/<connector>`,
   matched on the decoded path), because that is where Dex stores a
@@ -5580,21 +5611,7 @@ Includes:
 - a preview origin of its own for every preview, built as the
   same-registrable-domain arrangement of section 14.3 with the protections
   listed there; the separate registrable domain is deferred (ADR 0018);
-- a per-workspace host label derived once, at workspace creation, from the
-  identity provider's `preferred_username` (lowercased, reduced to a DNS
-  label, stored on the workspace row, with a fallback when the claim is
-  missing); a course (LTI) account's username is the launch's
-  `preferred_username`, else the LTI custom claim `username`, and when it
-  has neither its label falls back to the part of its email before the
-  `@` (issue #558), then to its LTI user ID (the launch's `sub`), each
-  reduced the same way and skipped when it reduces to nothing, never random
-  hex while either exists (issue #549, replacing Epic 13 ruling 12, which
-  stored no username); when the `-2`, `-3` suffixes run out, the later
-  fallbacks are each tried once; an existing label never changes;
-  the label names the preview hosts and is pushed into the
-  container as its hostname at every start, so the prompt reads
-  `student@<label>.<public host>`; a failed hostname set logs a warning
-  and the start carries on;
+- a per-workspace host label for the preview hosts and the workspace hostname, derived once at workspace creation (section 14.3);
 - authorization;
 - WebSockets/HMR;
 - embedded Preview tab;
@@ -6424,6 +6441,29 @@ Acceptance:
 - the agent deletes only a real `.portikus-aside-<uuid>` directory in `~/projects`;
 - no Monitor action touches a protected process, and a reused PID is never signalled;
 - with the switch off, no microphone shows.
+
+### Epic 49 — Fix and polish batch
+
+Built on `epic/49-fix-batch`, issues #1533, #1519, #1522, #1524, #1276, #1298, #1241, #1289 and #1284. No migration. See sections 8.1, 9.7, 11.2, 13.5, 14.3, 15.2, 20.1, 21.7 and 24.13.
+
+Includes:
+
+- closing a terminal stops processes marked with the terminal's environment entry, and Ctrl+S always saves the latest edit;
+- the workspace image installs a font config, with image version 2026.10.5;
+- Open N files in the tree's row menu;
+- a workspace and admin layout that reflows at 560 px and below;
+- a refusal list for repeated made-up session cookies;
+- one recovery-point insert shared by the API and the worker;
+- source files over 800 lines split along their second job;
+- the workspace label rule moved to section 14.3.
+
+Acceptance:
+
+- a `setsid` or `nohup` child of a closed terminal is gone;
+- headless Chromium in a workspace prints no fontconfig error;
+- Open N files opens the first file as a split and the rest as tabs from the keyboard;
+- neither the workspace nor any admin page scrolls the page sideways at 560 px or 320 px;
+- a repeated made-up cookie from an address over the limit causes no session lookup, and a real session from that address is still served.
 
 ### Estimated total
 

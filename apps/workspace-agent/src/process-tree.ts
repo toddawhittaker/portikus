@@ -126,6 +126,26 @@ function sessionMembers(session: number): TreeProcess[] {
 		.map(({ pid, startTime }) => ({ pid, startTime }));
 }
 
+/**
+ * Every process whose environment holds `entry` (`NAME=value`). A `setsid`
+ * child leaves both the session and the parent chain, but keeps this.
+ */
+export function processesWithEnv(entry: string, procRoot = "/proc"): TreeProcess[] {
+	const found: TreeProcess[] = [];
+	for (const stat of allProcesses(procRoot)) {
+		if (stat.pid === process.pid) continue;
+		try {
+			const environ = readFileSync(join(procRoot, String(stat.pid), "environ"), "utf8");
+			if (environ.split("\0").includes(entry)) {
+				found.push({ pid: stat.pid, startTime: stat.startTime });
+			}
+		} catch {
+			// Ended meanwhile, or not ours to read.
+		}
+	}
+	return found;
+}
+
 function signal(pid: number, name: NodeJS.Signals): void {
 	try {
 		process.kill(pid, name);

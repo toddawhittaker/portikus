@@ -56,3 +56,20 @@ it("saves keystrokes typed during a save, even before they render", async () => 
 	expect(mocks.mutateAsync).toHaveBeenCalledTimes(2);
 	expect(mocks.mutateAsync.mock.calls[1]?.[0]).toEqual({ text: "abc", etag: "v2" });
 });
+
+it("Ctrl+S right after the first keystroke saves it, before it renders", async () => {
+	mocks.mutateAsync.mockResolvedValue({ etag: "v2" });
+	const { result } = renderHook(() =>
+		useFileBuffer({ workspaceId: "w", projectId: "p", path: "a.txt", settings }),
+	);
+	await act(async () => {});
+	// One batch, so saveNow is the clean render's and its state says not dirty.
+	await act(async () => {
+		const { onChange, saveNow } = result.current;
+		onChange("ab");
+		saveNow();
+	});
+	expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
+	expect(mocks.mutateAsync.mock.calls[0]?.[0]).toEqual({ text: "ab", etag: "v1" });
+	expect(result.current.state.status).toBe("saved");
+});
