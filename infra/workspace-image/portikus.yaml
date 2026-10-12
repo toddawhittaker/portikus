@@ -2156,8 +2156,10 @@ packages:
   # The shared libraries Playwright's chromium-headless-shell links against,
   # from Playwright's Debian 13 list less what only a windowed browser
   # loads, plus one font family: with no fonts a page's text has no size and
-  # Playwright calls it hidden.  libgbm1 is in the binary's own list and
-  # brings Mesa and LLVM, most of this set's size.
+  # Playwright calls it hidden.  The binary bundles its own fontconfig, so
+  # only fontconfig-config's /etc/fonts is needed, for the font aliases and
+  # to stop "Fontconfig error: Cannot load default config file".  libgbm1 is
+  # in the binary's own list and brings Mesa and LLVM, most of this set's size.
   - packages:
     - libasound2t64
     - libatk-bridge2.0-0t64
@@ -2173,6 +2175,7 @@ packages:
     - libxkbcommon0
     - libxrandr2
     - fonts-liberation
+    - fontconfig-config
     action: install
     flags:
     - --no-install-recommends
@@ -2357,7 +2360,10 @@ actions:
     echo "${headless_shell_sha256}  ${shell}" | sha256sum -c -
     # HOME in the scratch folder keeps Chromium's .pki and fontconfig cache
     # out of /root.
-    HOME="$tmp" timeout 60 "$shell" --no-sandbox --dump-dom 'data:text/html,<p>ok</p>' | grep -q '<p>ok</p>'
+    HOME="$tmp" timeout 60 "$shell" --no-sandbox --dump-dom 'data:text/html,<p>ok</p>' \
+      2>"$tmp/render.err" | grep -q '<p>ok</p>'
+    # Chromium only warns when it cannot load the font config; fail the build.
+    if grep -i 'fontconfig' "$tmp/render.err"; then exit 1; fi
     # The .links entry points into the folder deleted here.
     rm -rf "$tmp" /opt/ms-playwright/.links
     chmod -R a+rX,go-w /opt/ms-playwright
