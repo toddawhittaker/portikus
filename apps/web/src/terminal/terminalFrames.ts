@@ -46,6 +46,9 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 			return { kind: "clear" };
 		case "agent":
 			return { kind: "agent", build: frame.build };
+		// Only live help attachments get size frames; the owner's terminal sets its own size.
+		case "size":
+			return { kind: "ignored" };
 		case "error":
 			return frame.reason
 				? { kind: "error", code: frame.code, reason: frame.reason, at: frame.at ?? "" }

@@ -78,6 +78,7 @@ describe("instructor feature tables", () => {
 					provider: { getMigrations: async () => migrations },
 				});
 				for (const name of [
+					"0048_live_help",
 					"0047_voice_input_switch",
 					"0046_docker_seed_image_bytes",
 					"0044_dex_account_issuer",
@@ -101,6 +102,7 @@ describe("instructor feature tables", () => {
 					"0044_dex_account_issuer",
 					"0046_docker_seed_image_bytes",
 					"0047_voice_input_switch",
+					"0048_live_help",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);
