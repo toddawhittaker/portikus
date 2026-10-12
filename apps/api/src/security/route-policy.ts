@@ -98,6 +98,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/links/start": { access: "self" },
 	"GET /me/links/pending": { access: "self" },
 	"HEAD /me/links/pending": { access: "self" },
+	"POST /me/links/passkey/start": { access: "self" },
 	"POST /me/links/confirm": { access: "self" },
 	"POST /me/links/:courseUserId/unlink": { access: "self" },
 	// Settings, Password (SPEC.md section 5.3); 404 without Dex's gRPC API.

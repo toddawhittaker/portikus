@@ -4,6 +4,7 @@ import {
 	CookieJar,
 	loginAs,
 	type MockOidcProvider,
+	SoftPasskey,
 	startMockOidcProvider,
 	totpCode,
 	totpStep,
@@ -18,7 +19,7 @@ import {
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../testing/test-support.js";
@@ -223,6 +224,7 @@ describe.skipIf(skip)("the whole link, then unlink", () => {
 				email: expect.any(String),
 			},
 			secondFactor: null,
+			passkey: false,
 		});
 
 		const confirm = await post("/me/links/confirm", course.jar);
@@ -698,5 +700,190 @@ describe.skipIf(skip)("linking a local-password account", () => {
 		await callback(await startAndPick(course.jar, "alice"), course.jar);
 		expect((await get("/me/links/pending", course.jar)).json().secondFactor).toBeNull();
 		expect((await post("/me/links/confirm", course.jar)).statusCode).toBe(200);
+	});
+});
+
+/**
+ * A passkey at link confirm (SPEC.md section 24.13): its challenge is bound
+ * to the course session and the waiting link's SSO account, and used once.
+ */
+describe.skipIf(skip)("linking with a passkey", () => {
+	function postBody(url: string, jar: CookieJar, payload: object) {
+		return app.inject({
+			method: "POST",
+			url,
+			headers: { cookie: jar.cookieHeader(), origin: ORIGIN },
+			payload,
+		});
+	}
+
+	/** Sign in and enrol an authenticator app; returns the passed session. */
+	async function withApp(user: string): Promise<CookieJar> {
+		const jar = new CookieJar();
+		await loginAs(app, user, jar);
+		const start = await post("/me/second-factor/totp/start", jar);
+		const secret = base32Decode(start.json().secret);
+		const done = await postBody("/me/second-factor/totp", jar, {
+			token: start.json().token,
+			code: totpCode(secret, totpStep(Date.now())),
+		});
+		expect(done.statusCode).toBe(200);
+		return jar;
+	}
+
+	/** A Dex local-password account with an authenticator app and a passkey. */
+	async function withPasskey(user: string): Promise<SoftPasskey> {
+		const jar = await withApp(user);
+		const key = new SoftPasskey(PUBLIC_URL);
+		const options = await post("/me/second-factor/webauthn/start", jar);
+		expect(options.statusCode).toBe(200);
+		const done = await postBody("/me/second-factor/webauthn", jar, {
+			credential: key.register(options.json()),
+		});
+		expect(done.statusCode).toBe(200);
+		return key;
+	}
+
+	async function pendingFor(user: string, subject = "course-sub-1") {
+		const course = await courseAccount({ subject });
+		await callback(await startAndPick(course.jar, user), course.jar);
+		return course;
+	}
+
+	async function challenge(jar: CookieJar) {
+		const res = await post("/me/links/passkey/start", jar);
+		expect(res.statusCode).toBe(200);
+		return res.json();
+	}
+
+	async function linkCount(): Promise<number> {
+		return (await testDb.db.selectFrom("account_links").select("user_id").execute())
+			.length;
+	}
+
+	test("a passkey links, and the new session has passed its second factor", async () => {
+		const key = await withPasskey("lena");
+		const course = await pendingFor("lena");
+		expect((await get("/me/links/pending", course.jar)).json()).toMatchObject({
+			secondFactor: "verify",
+			passkey: true,
+		});
+		const ok = await postBody("/me/links/confirm", course.jar, {
+			credential: key.authenticate(await challenge(course.jar)),
+		});
+		expect(ok.statusCode).toBe(200);
+		course.jar.capture(ok);
+		expect(await linkCount()).toBe(1);
+		expect((await get("/auth/me", course.jar)).json()).toMatchObject({
+			secondFactor: null,
+		});
+		const verified = await audits("auth.second_factor_verified");
+		expect(verified.at(-1)?.metadata).toMatchObject({
+			flow: "link",
+			method: "webauthn",
+		});
+	});
+
+	test("an account with no passkey says so and gets no challenge", async () => {
+		await withApp("lena");
+		const course = await pendingFor("lena");
+		expect((await get("/me/links/pending", course.jar)).json().passkey).toBe(false);
+		const res = await post("/me/links/passkey/start", course.jar);
+		expect(res.statusCode).toBe(400);
+		expect(res.json().code).toBe("NO_PASSKEY");
+	});
+
+	test("with nothing pending there is no challenge", async () => {
+		const course = await courseAccount();
+		expect((await post("/me/links/passkey/start", course.jar)).statusCode).toBe(404);
+	});
+
+	test("a code and a passkey together are refused before either is checked", async () => {
+		const key = await withPasskey("lena");
+		const course = await pendingFor("lena");
+		const options = await challenge(course.jar);
+		const both = await postBody("/me/links/confirm", course.jar, {
+			code: "123456",
+			credential: key.authenticate(options),
+		});
+		expect(both.statusCode).toBe(400);
+		expect(both.json().code).toBe("VALIDATION_FAILED");
+		expect(await linkCount()).toBe(0);
+		// The challenge was not used, so the passkey alone still links.
+		const ok = await postBody("/me/links/confirm", course.jar, {
+			credential: key.authenticate(options),
+		});
+		expect(ok.statusCode).toBe(200);
+	});
+
+	test("neither a code nor a passkey is refused when one is owed", async () => {
+		await withPasskey("lena");
+		const course = await pendingFor("lena");
+		const bare = await postBody("/me/links/confirm", course.jar, {});
+		expect(bare.statusCode).toBe(403);
+		expect(bare.json().code).toBe("SECOND_FACTOR_REQUIRED");
+	});
+
+	test("a challenge is used once, and another account's passkey never answers it", async () => {
+		const lena = await withPasskey("lena");
+		const lars = await withPasskey("lars");
+		const course = await pendingFor("lena");
+		const options = await challenge(course.jar);
+		const other = await postBody("/me/links/confirm", course.jar, {
+			credential: lars.authenticate(options),
+		});
+		expect(other.statusCode).toBe(403);
+		expect(other.json().code).toBe("WRONG_PASSKEY");
+		const again = await postBody("/me/links/confirm", course.jar, {
+			credential: lena.authenticate(options),
+		});
+		expect(again.statusCode).toBe(400);
+		expect(again.json().code).toBe("PASSKEY_EXPIRED");
+		expect(await linkCount()).toBe(0);
+	});
+
+	test("a challenge for one account does not answer a link to another", async () => {
+		const lena = await withPasskey("lena");
+		await withPasskey("lars");
+		const course = await pendingFor("lena");
+		const options = await challenge(course.jar);
+		// The same course session now waits to link Lars instead.
+		await callback(await startAndPick(course.jar, "lars"), course.jar);
+		const res = await postBody("/me/links/confirm", course.jar, {
+			credential: lena.authenticate(options),
+		});
+		expect(res.statusCode).toBe(400);
+		expect(res.json().code).toBe("PASSKEY_EXPIRED");
+		expect(await linkCount()).toBe(0);
+	});
+
+	test("a challenge from another course session does not answer this one", async () => {
+		const key = await withPasskey("lena");
+		const first = await pendingFor("lena", "course-sub-1");
+		const second = await pendingFor("lena", "course-sub-2");
+		const options = await challenge(first.jar);
+		const res = await postBody("/me/links/confirm", second.jar, {
+			credential: key.authenticate(options),
+		});
+		expect(res.statusCode).toBe(400);
+		expect(res.json().code).toBe("PASSKEY_EXPIRED");
+		expect(await linkCount()).toBe(0);
+	});
+
+	test("an expired challenge is refused", async () => {
+		const key = await withPasskey("lena");
+		const course = await pendingFor("lena");
+		const options = await challenge(course.jar);
+		vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 6 * 60_000 });
+		try {
+			const res = await postBody("/me/links/confirm", course.jar, {
+				credential: key.authenticate(options),
+			});
+			expect(res.statusCode).toBe(400);
+			expect(res.json().code).toBe("PASSKEY_EXPIRED");
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await linkCount()).toBe(0);
 	});
 });
