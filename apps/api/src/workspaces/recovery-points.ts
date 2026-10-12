@@ -9,12 +9,6 @@ import type { Kysely } from "kysely";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
 import type { ProjectRow } from "./project-scope.js";
 
-export {
-	countProjectPoints,
-	MAX_POINTS_PER_PROJECT,
-	type RecoveryPointRow,
-} from "@portikus/db";
-
 /**
  * Ask the agent to archive a project and record the point (SPEC.md §15.2,
  * ADR 0020). Throws the agent's failure so each caller decides whether it
