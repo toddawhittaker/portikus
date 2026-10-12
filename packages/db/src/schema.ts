@@ -57,6 +57,7 @@ export interface Database {
 	docker_image_pulls: DockerImagePullsTable;
 	docker_image_presence: DockerImagePresenceTable;
 	signin_counters: SigninCountersTable;
+	account_email_tokens: AccountEmailTokensTable;
 }
 
 interface UsersTable {
@@ -330,6 +331,8 @@ interface SettingsTable {
 	keep_running_max_hours: Generated<number>;
 	/** Whether students see the microphone (SPEC.md section 25.10). */
 	voice_input_enabled: Generated<boolean>;
+	/** Whether the site emails reset and invitation links (SPEC.md section 5.3). */
+	account_email_enabled: Generated<boolean>;
 	/** When the worker last found the workspace controller answering. */
 	controller_checked_at: ColumnType<
 		Date | null,
@@ -743,4 +746,26 @@ interface SigninCountersTable {
 	count: number;
 	/** Set once the window's first refusal has been audited. */
 	reported: ColumnType<boolean, boolean | undefined, boolean>;
+}
+
+interface AccountEmailTokensTable {
+	id: Generated<string>;
+	user_id: string;
+	purpose: "reset" | "invite";
+	/** SHA-256 of the token, hex; the token itself is never stored. */
+	token_hash: string;
+	/** The administrator who sent it; null when the account holder asked. */
+	created_by: string | null;
+	created_at: Generated<Date>;
+	expires_at: ColumnType<Date, Date | string, Date | string>;
+	used_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	revoked_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 }

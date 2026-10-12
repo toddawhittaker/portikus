@@ -12,6 +12,7 @@ import {
 } from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import { E2E_JOURNAL_FILE } from "./e2e/journal-file";
+import { MAIL_CAPTURE_FILE } from "./e2e/mail";
 import { ALERTS_JOBS_DIR, NOTIFY_FILE } from "./e2e/notify-jobs";
 import {
 	API_ORIGIN,
@@ -245,6 +246,8 @@ export default defineConfig({
 				// and the settings file it writes (ADR 0052).
 				NOTIFY_FILE,
 				ALERTS_JOBS_DIR,
+				// Account email lands here instead of going out (SPEC.md section 5.3).
+				MAIL_CAPTURE_FILE,
 				// A fake site job directory, view and page files the site page tests
 				// play the root site job in (ADR 0059).
 				SITE_JOBS_DIR,

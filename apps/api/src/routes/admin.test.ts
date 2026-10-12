@@ -1662,6 +1662,37 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"account email is off by default and an administrator turns it on with an audit row",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json().accountEmailEnabled).toBe(false);
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { accountEmailEnabled: true },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().accountEmailEnabled).toBe(true);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.account_email_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({ from: false, to: true });
+	},
+);
+
+test.skipIf(skip)(
 	"GET /admin/users pages and filters on the server, with markers over every account",
 	async () => {
 		const carol = await adminJar();

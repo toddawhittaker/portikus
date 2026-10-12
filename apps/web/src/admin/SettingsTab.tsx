@@ -46,6 +46,7 @@ export function SettingsTab() {
 				<ResourceGuardSection />
 				<AcceptableUseSection />
 				<VoiceInputSection />
+				<AccountEmailSection />
 				<NotificationsSection />
 			</div>
 		</AdminSection>
@@ -87,6 +88,53 @@ function VoiceInputSection() {
 								toast.show({
 									tone: "danger",
 									title: "Voice input not saved",
+									children: errorText(failure),
+								}),
+						},
+					)
+				}
+			/>
+		</AdminGroup>
+	);
+}
+
+/** The site switch for reset and invitation email (SPEC.md §5.3); off by default, saved as soon as it changes. */
+function AccountEmailSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	// While saving, show the value asked for rather than the old one.
+	const enabled = update.isPending
+		? (update.variables?.accountEmailEnabled ?? false)
+		: (settings.data?.accountEmailEnabled ?? false);
+	return (
+		<AdminGroup
+			id="account-email-title"
+			title="Account email"
+			description="Portikus can email password reset and invitation links. It needs an SMTP server set under Notifications below; setting SMTP for alerts alone never emails students."
+		>
+			<Checkbox
+				label="Send account email"
+				description="When off, no reset or invitation link is ever emailed."
+				checked={enabled}
+				disabled={settings.isLoading}
+				ariaDisabled={update.isPending}
+				onChange={(event) =>
+					!update.isPending &&
+					update.mutate(
+						{ accountEmailEnabled: event.target.checked },
+						{
+							onSuccess: (saved) =>
+								toast.show({
+									tone: "success",
+									title: saved.accountEmailEnabled
+										? "Account email on"
+										: "Account email off",
+								}),
+							onError: (failure) =>
+								toast.show({
+									tone: "danger",
+									title: "Account email not saved",
 									children: errorText(failure),
 								}),
 						},

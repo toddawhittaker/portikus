@@ -48,6 +48,8 @@ export const PlatformSettings = z.object({
 	keepRunningMaxHours: KeepRunningMaxHours,
 	/** Off hides the microphone for everyone (SPEC.md §25.10). */
 	voiceInputEnabled: z.boolean(),
+	/** Off means no reset or invitation email is sent, even with SMTP set (SPEC.md §5.3). */
+	accountEmailEnabled: z.boolean(),
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
 	/** Read-only: goes up by one whenever the text changes. */
@@ -90,6 +92,7 @@ export const UpdatePlatformSettingsRequest = z
 		idleStopMinutes: IdleStopMinutes.optional(),
 		keepRunningMaxHours: KeepRunningMaxHours.optional(),
 		voiceInputEnabled: z.boolean().optional(),
+		accountEmailEnabled: z.boolean().optional(),
 		acceptableUseText: z
 			.string()
 			.trim()
