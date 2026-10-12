@@ -165,17 +165,21 @@ body {
 	flex-direction: column;
 	align-items: center;
 	gap: var(--space-8);
-	padding: var(--space-16) var(--space-10) var(--space-10);
+	/* A phone-width window gives the content the padding's room back (WCAG 1.4.10). */
+	padding-block: var(--space-16) var(--space-10);
+	padding-inline: clamp(var(--space-3), 4vw, var(--space-10));
 	box-sizing: border-box;
 	overflow: auto;
 }
 .pk-standalone-panel {
 	box-sizing: border-box;
-	width: 440px;
+	width: min(440px, 100%);
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-6);
-	padding: var(--space-10);
+	padding: clamp(var(--space-5), 6vw, var(--space-10));
+	/* "anywhere" also shrinks min-content, so a long unbroken address cannot widen a grid or flex child. */
+	overflow-wrap: anywhere;
 	background: var(--surface-raised);
 	border: 1px solid var(--line);
 	border-radius: var(--radius-lg);
@@ -743,7 +747,8 @@ body {
 	min-width: 0;
 	font-size: 14px;
 	line-height: 22px;
-	overflow-wrap: break-word;
+	/* "anywhere" also shrinks min-content, so a long unbroken address cannot widen a grid or flex child. */
+	overflow-wrap: anywhere;
 }
 .pk-help-article > section {
 	display: grid;

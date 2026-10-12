@@ -101,9 +101,7 @@ test("Send reset link asks first, then emails a new link", async ({ page }) => {
 	const added = await addWithLink(page);
 	const invite = await findMailLink(added.email);
 	const panel = await openDetail(page, added.name);
-	await panel
-		.getByRole("button", { name: `Send a reset link to ${added.name}` })
-		.click();
+	await panel.getByRole("button", { name: `Send reset link to ${added.name}` }).click();
 	const dialog = page.getByRole("alertdialog", {
 		name: `Email ${added.name} a reset link?`,
 	});
@@ -178,7 +176,7 @@ test("with account email off, a new email shows the new password once", async ({
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 		const panel = await openDetail(page, added.name);
 		await expect(
-			panel.getByRole("button", { name: `Send a reset link to ${added.name}` }),
+			panel.getByRole("button", { name: `Send reset link to ${added.name}` }),
 		).toHaveCount(0);
 		await panel
 			.getByRole("button", { name: `Edit email or username for ${added.name}` })
@@ -211,9 +209,12 @@ test("Invite emails the invitation when ticked, and Resend sends it again", asyn
 	expect(link).not.toContain("#");
 
 	await page.getByTestId("admin-filter-text").fill(who.name);
-	await page
-		.getByRole("button", { name: `Resend the invitation email to ${who.name}` })
-		.click();
+	const resend = page.getByRole("button", {
+		name: `Resend the invitation email to ${who.name}`,
+	});
+	await expect(resend).toBeVisible();
+	await expectNoViolations(page, "[data-testid=admin-accounts]");
+	await resend.click();
 	await expect(toast(page, `Invitation for ${who.name} sent again`)).toBeVisible();
 });
 
@@ -229,6 +230,7 @@ test("CSV import emails each person when ticked", async ({ page }) => {
 	await page.getByRole("button", { name: "Import from CSV…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Import from CSV" });
 	await dialog.getByRole("checkbox", { name: "Email each person" }).check();
+	await expectNoViolations(page, "[data-testid=import-dialog]");
 	await dialog.getByLabel("CSV file").setInputFiles({
 		name: "people.csv",
 		mimeType: "text/csv",
@@ -236,8 +238,11 @@ test("CSV import emails each person when ticked", async ({ page }) => {
 	});
 	await dialog.getByRole("button", { name: "Add 2 accounts" }).click();
 	const done = page.getByRole("dialog", { name: "Import finished" });
-	await expect(done.getByTestId("import-emailed")).toHaveText("2 people were emailed.");
+	await expect(done.getByTestId("import-status")).toContainText(
+		"2 people were emailed.",
+	);
 	await expect(done.getByRole("button", { name: "Download passwords" })).toHaveCount(0);
+	await expectNoViolations(page, "[data-testid=import-dialog]");
 	expect(await findMailLink(pat.email)).toMatch(/\/reset-password#/);
 	expect(await findMailLink(quinn.email)).not.toContain("#");
 });

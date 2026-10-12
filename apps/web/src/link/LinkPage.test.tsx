@@ -33,7 +33,7 @@ test("an account with a passkey links with it, and the answer goes to confirm", 
 	vi.stubGlobal("close", vi.fn());
 	renderApp("/link");
 
-	fireEvent.click(await screen.findByRole("button", { name: "Use a passkey" }));
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
 	await screen.findByTestId("link-done");
 	expect(bodies).toEqual([
 		{ credential: { id: "key", rawId: "key", type: "public-key" } },
@@ -51,11 +51,36 @@ test("a refused passkey prompt, as in a page framed by the course, is announced 
 	});
 	renderApp("/link");
 
-	fireEvent.click(await screen.findByRole("button", { name: "Use a passkey" }));
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
 	expect((await screen.findByRole("alert")).textContent).toBe(
 		"The passkey was not used. Try again, or choose another way.",
 	);
 	expect(screen.queryByTestId("link-done")).toBeNull();
+});
+
+test("linking with a passkey is announced in the status line until it settles", async () => {
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	stubFetch(async (url) => {
+		if (url === "/me/links/pending")
+			return json(200, { ...PENDING, secondFactor: "verify", passkey: true });
+		if (url === "/me/links/passkey/start") {
+			await held;
+			return json(400, { code: "VALIDATION_FAILED", message: "No passkey." });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/link");
+	const status = await screen.findByTestId("link-status");
+	expect(status.textContent).toBe("");
+
+	fireEvent.click(await screen.findByRole("button", { name: "Link with a passkey" }));
+	await waitFor(() => expect(status.textContent).toBe("Linking your accounts…"));
+	release();
+	await screen.findByRole("alert");
+	expect(status.textContent).toBe("");
 });
 
 test("an account without a passkey is offered none", async () => {
@@ -66,7 +91,7 @@ test("an account without a passkey is offered none", async () => {
 	});
 	renderApp("/link");
 	await screen.findByLabelText("Two-step sign-in code");
-	expect(screen.queryByRole("button", { name: "Use a passkey" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Link with a passkey" })).toBeNull();
 });
 
 const PENDING = {

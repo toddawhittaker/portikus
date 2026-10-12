@@ -130,7 +130,7 @@ export function SsoFields({ form, view, errors, onChange, onEdit }: FieldsProps)
 							{text(
 								"googleAdminEmail",
 								"Administrator to read groups as",
-								"Optional. Blank sets roles only on the Users tab. Give an administrator whose role can only read groups.",
+								"Optional. Blank sets roles only on the Users tab. Give an administrator whose role can only read groups. Filling it in adds a key and three group fields below.",
 							)}
 						</>
 					) : null}
@@ -183,12 +183,16 @@ export function SsoFields({ form, view, errors, onChange, onEdit }: FieldsProps)
 						/>
 					) : null}
 					{usesGroups(form) ? (
-						<fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
+						<fieldset
+							className="m-0 grid min-w-0 gap-4 border-0 p-0"
+							aria-describedby={GROUPS_NOTE[form.provider] ? GROUPS_NOTE_ID : undefined}
+						>
 							<legend className="pk-text-body m-0 mb-2 p-0 font-semibold">
 								Roles from groups
 							</legend>
 							{GROUPS_NOTE[form.provider] ? (
 								<p
+									id={GROUPS_NOTE_ID}
 									className="pk-text-compact pk-muted m-0"
 									data-testid="sso-groups-note"
 								>
@@ -212,6 +216,8 @@ export function SsoFields({ form, view, errors, onChange, onEdit }: FieldsProps)
 		</div>
 	);
 }
+
+const GROUPS_NOTE_ID = "sso-groups-note";
 
 function groupHint(provider: SigninProvider): string | undefined {
 	if (provider === "entra")

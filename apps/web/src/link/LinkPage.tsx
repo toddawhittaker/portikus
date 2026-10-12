@@ -51,6 +51,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 	const [codeError, setCodeError] = useState<string | undefined>();
 	// The passkey path reports its own errors beside its button, so it skips the mutation.
 	const [passkeyLinked, setPasskeyLinked] = useState(false);
+	const [passkeyBusy, setPasskeyBusy] = useState(false);
 
 	if (error) {
 		return (
@@ -153,14 +154,14 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 			</p>
 			<dl className="grid gap-3" data-testid="link-accounts">
 				<div className="pk-account-box">
-					<dt className="pk-text-label">Course account</dt>
+					<dt className="pk-text-label shrink-0">Course account</dt>
 					<dd className="m-0 flex min-w-0 flex-col">
 						<span className="pk-text-body">{course.displayName}</span>
 						<span className="pk-mono-small pk-muted">{course.platformName}</span>
 					</dd>
 				</div>
 				<div className="pk-account-box">
-					<dt className="pk-text-label">SSO account</dt>
+					<dt className="pk-text-label shrink-0">SSO account</dt>
 					<dd className="m-0 flex min-w-0 flex-col">
 						<span className="pk-text-body">{sso.displayName}</span>
 						<span className="pk-mono-small pk-muted">
@@ -178,7 +179,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 				role="status"
 				data-testid="link-status"
 			>
-				{busy ? "Linking your accounts…" : null}
+				{busy || passkeyBusy ? "Linking your accounts…" : null}
 			</p>
 			{secondFactor === "enrol" ? (
 				<p className="pk-text-body" role="alert" data-testid="link-error">
@@ -189,10 +190,15 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 			) : null}
 			{secondFactor === "verify" && passkey && passkeysSupported() ? (
 				<PasskeyButton
-					label="Use a passkey"
+					label="Link with a passkey"
 					testId="link-passkey"
 					action={async () => {
-						await linkWithPasskey();
+						setPasskeyBusy(true);
+						try {
+							await linkWithPasskey();
+						} finally {
+							setPasskeyBusy(false);
+						}
 						setPasskeyLinked(true);
 						finishLinked();
 					}}

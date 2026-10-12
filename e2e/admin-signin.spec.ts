@@ -167,6 +167,9 @@ test("Google group checks send the key once, and the page only says it is set", 
 		.getByLabel("Administrator to read groups as")
 		.fill("groups-reader@example.edu");
 	await expect(sso.getByTestId("sso-groups-note")).toContainText("cannot join");
+	await expect(
+		sso.getByRole("group", { name: "Roles from groups" }),
+	).toHaveAccessibleDescription(/cannot join/);
 
 	// No key yet, and none stored: the page stops it.
 	await sso.getByLabel("Students' group").fill("students@example.edu");
