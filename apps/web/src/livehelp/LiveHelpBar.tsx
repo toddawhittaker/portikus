@@ -1,15 +1,10 @@
-import type { LiveHelpSession } from "@portikus/contracts";
+import type { LiveHelpLastEnded, LiveHelpSession } from "@portikus/contracts";
 import { Button, Icon } from "@portikus/ui";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../api/request.js";
 import { useFocusFallback } from "../shell/useFocusFallback.js";
 import { timeLeft } from "../text.js";
-import {
-	type LiveHelpEnded,
-	useLiveHelpStatus,
-	useLiveHelpTyping,
-	useStopLiveHelp,
-} from "./queries.js";
+import { useLiveHelpStatus, useLiveHelpTyping, useStopLiveHelp } from "./queries.js";
 
 /** A poll can land a few seconds after the limit, and that end is still the limit. */
 const EXPIRY_SLACK_MS = 10_000;
@@ -22,7 +17,7 @@ function seesWhat(projectName: string): string {
 /** Why `before` ended, from the reason the API kept, or from the time when it has none. */
 function endedText(
 	before: LiveHelpSession,
-	ended: LiveHelpEnded | null,
+	ended: LiveHelpLastEnded | null,
 	endedHere: boolean,
 	now: number,
 ): string {
@@ -55,7 +50,7 @@ function endedText(
 export function liveHelpChange(
 	before: LiveHelpSession | null,
 	after: LiveHelpSession | null,
-	ended: LiveHelpEnded | null,
+	ended: LiveHelpLastEnded | null,
 	endedHere: boolean,
 	now: number,
 ): string | null {

@@ -1,8 +1,8 @@
+import type { LiveHelpLastEnded } from "@portikus/contracts";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import { LiveHelpBar, liveHelpChange } from "./LiveHelpBar.js";
-import type { LiveHelpEnded } from "./queries.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -23,7 +23,10 @@ const SESSION = {
 	endsAt: new Date(Date.now() + 45 * 60_000).toISOString(),
 };
 
-function ended(reason: LiveHelpEnded["reason"], sessionId = SESSION.id): LiveHelpEnded {
+function ended(
+	reason: LiveHelpLastEnded["reason"],
+	sessionId = SESSION.id,
+): LiveHelpLastEnded {
 	return {
 		sessionId,
 		helperDisplayName: "Ivy Instructor",
@@ -35,7 +38,7 @@ function ended(reason: LiveHelpEnded["reason"], sessionId = SESSION.id): LiveHel
 
 function mount(initial: unknown) {
 	let session = initial as typeof SESSION | null;
-	let lastEnded: LiveHelpEnded | null = null;
+	let lastEnded: LiveHelpLastEnded | null = null;
 	const calls: string[] = [];
 	stubFetch((url, init) => {
 		calls.push(`${init?.method ?? "GET"} ${url} ${init?.body ?? ""}`.trim());
@@ -53,7 +56,7 @@ function mount(initial: unknown) {
 	return {
 		calls,
 		client,
-		set: (next: typeof SESSION | null, end: LiveHelpEnded | null = null) => {
+		set: (next: typeof SESSION | null, end: LiveHelpLastEnded | null = null) => {
 			session = next;
 			lastEnded = end;
 		},
@@ -163,7 +166,7 @@ test("the bar's poll does not ask for the instructor list", async () => {
 test("liveHelpChange says why a session ended", () => {
 	const now = Date.now();
 	const ending = { ...SESSION, endsAt: new Date(now).toISOString() };
-	const say = (reason: LiveHelpEnded["reason"] | null, endedHere = false) =>
+	const say = (reason: LiveHelpLastEnded["reason"] | null, endedHere = false) =>
 		liveHelpChange(
 			SESSION,
 			null,
