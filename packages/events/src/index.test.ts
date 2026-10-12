@@ -119,3 +119,25 @@ test("TerminalServerMessage accepts a screen frame", () => {
 		TerminalServerMessage.safeParse({ type: "screen", alternate: "yes" }).success,
 	).toBe(false);
 });
+
+test("ServerMessage accepts a layout version and rejects a bad one", () => {
+	const input = {
+		type: "layout",
+		projectId: "750e8400-e29b-41d4-a716-446655440000",
+		version: 3,
+	};
+	expect(ServerMessage.parse(input)).toEqual(input);
+	expect(ServerMessage.safeParse({ ...input, version: -1 }).success).toBe(false);
+	expect(ServerMessage.safeParse({ ...input, projectId: "demo" }).success).toBe(false);
+});
+
+test("TerminalServerMessage accepts a size frame within the resize bounds", () => {
+	expect(TerminalServerMessage.parse({ type: "size", cols: 120, rows: 40 })).toEqual({
+		type: "size",
+		cols: 120,
+		rows: 40,
+	});
+	expect(
+		TerminalServerMessage.safeParse({ type: "size", cols: 0, rows: 40 }).success,
+	).toBe(false);
+});
