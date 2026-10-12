@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../../pageTitle.js";
 import { CourseFrame } from "../CourseFrame.js";
 import { dateTimeText } from "../time.js";
+import { focusHeadingOnArrival } from "./arrival.js";
 import { HelperTerminal } from "./HelperTerminal.js";
 import type { HelperCloseAction } from "./helperClose.js";
 import { modeText } from "./mode.js";
-import { openLivePreview, useLiveListening } from "./previews.js";
+import { openLivePreview, serviceLabel, useLiveListening } from "./previews.js";
 import {
 	type LiveRef,
 	liveBase,
@@ -65,8 +66,14 @@ function LiveSession() {
 	function onClosed(action: HelperCloseAction) {
 		if (action === "ended") setEndedByClose(true);
 		else if (action === "away") setAwayAt(Date.now());
-		// The typing flag changed before the close, so the next read has the new mode.
-		else void detail.refetch().then(() => setAttach((count) => count + 1));
+		else {
+			// The typing flag changed before the close, so the next read has the new
+			// mode, and a new mode opens the socket by itself. Bump only when it did not.
+			const before = data?.session.typing;
+			void detail.refetch().then((read) => {
+				if (read.data?.session.typing === before) setAttach((count) => count + 1);
+			});
+		}
 	}
 
 	async function onLeave() {
@@ -74,6 +81,7 @@ function LiveSession() {
 		setLeaveFailed(false);
 		try {
 			await leave.mutateAsync();
+			focusHeadingOnArrival();
 			await navigate({ to: "/course/$courseId/live", params: { courseId } });
 		} catch {
 			setLeaveFailed(true);
@@ -232,10 +240,11 @@ function TerminalsSection({
 					</ul>
 					{shown && live ? (
 						<HelperTerminal
-							key={`${shown.id}:${attach}`}
+							key={shown.id}
 							path={`${liveBase(liveRef)}/terminals/${shown.id}/ws`}
 							name={shown.name}
 							typing={detail.session.typing}
+							attach={attach}
 							onClosed={onClosed}
 							onDropped={onDropped}
 							onRetry={onRetry}
@@ -339,15 +348,20 @@ function Previews({ liveRef, enabled }: { liveRef: LiveRef; enabled: boolean }) 
 						<li key={service.port} className="flex min-w-0 items-center gap-3 py-2">
 							<span className="flex min-w-0 flex-1 flex-col">
 								<span className="pk-mono-body">Port {service.port}</span>
-								{service.process?.command || service.container?.name ? (
+								{serviceLabel(service) ? (
 									<span className="pk-muted truncate text-[12px]">
-										{service.container?.name ?? service.process?.command}
+										{serviceLabel(service)}
 									</span>
 								) : null}
 							</span>
-							<Button size="sm" onClick={() => void open(service.port)}>
+							{/* aria-label, because Chromium names a hidden span with a space before it. */}
+							<Button
+								size="sm"
+								aria-label={`Open in new tab, port ${service.port}`}
+								onClick={() => void open(service.port)}
+							>
 								<Icon name="external" size="sm" />
-								Open<span className="sr-only"> port {service.port}</span> in new tab
+								Open in new tab
 							</Button>
 						</li>
 					))}

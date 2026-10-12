@@ -107,12 +107,19 @@ export const INSTRUCTOR_HELP: HelpPart = {
 						</li>
 						<li>
 							The terminal keeps the size of the student's window and scrolls if yours
-							is smaller. Press Alt+Shift+Q to move the keyboard out of it.
+							is smaller. Press Alt+Shift+Q to move the keyboard out of it. While you
+							can only view, Tab moves out of it too.
 						</li>
 						<li>
 							<strong>Previews</strong> lists what the student's workspace is serving.
 							Each opens in a new tab. It is the student's code running in your browser,
 							so open only what you need.
+						</li>
+						<li>
+							If you are also an administrator, help students from a separate account
+							that is only an instructor. A preview runs the student's code in your
+							browser on the same site as Portikus, so until previews move to a domain
+							of their own, keep that code away from an administrator's sign-in.
 						</li>
 						<li>
 							If the student closes their workspace in every browser, or it stops, the
