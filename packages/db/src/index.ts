@@ -14,6 +14,12 @@ export {
 	poolOptions,
 } from "./connection.js";
 export { migrateToLatest } from "./migrate.js";
+export {
+	countProjectPoints,
+	MAX_POINTS_PER_PROJECT,
+	type RecoveryPointRow,
+	recordRecoveryPoint,
+} from "./recovery-points.js";
 export type { Database, NotificationsTable } from "./schema.js";
 
 /** Whether an error is the pool giving up waiting for a free connection. */

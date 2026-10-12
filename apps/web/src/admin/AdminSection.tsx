@@ -30,8 +30,8 @@ export function AdminSection({
 	const headingId = useId();
 	return (
 		<section className="flex flex-col gap-4" aria-labelledby={headingId}>
-			<div className="flex items-center gap-4">
-				<div className="flex items-baseline gap-3">
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+				<div className="flex min-w-0 items-baseline gap-3">
 					<h2
 						className="pk-text-heading m-0"
 						id={headingId}
@@ -45,7 +45,7 @@ export function AdminSection({
 					) : null}
 				</div>
 				{actions !== undefined ? (
-					<div className="ml-auto flex items-center gap-2">{actions}</div>
+					<div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>
 				) : null}
 			</div>
 			{intro ? (
@@ -62,10 +62,15 @@ export function AdminSection({
 	);
 }
 
+// The one column is minmax(0, 1fr) so a fixed-width field inside, such as a
+// w-72 text field, shrinks to a narrow card instead of widening it (SPEC.md 25.8).
 const LEVEL = {
-	3: { section: "pk-card @container grid gap-5 p-6", heading: "pk-text-heading m-0" },
+	3: {
+		section: "pk-card @container grid grid-cols-[minmax(0,1fr)] gap-5 p-6",
+		heading: "pk-text-heading m-0",
+	},
 	4: {
-		section: "grid gap-3",
+		section: "grid grid-cols-[minmax(0,1fr)] gap-3",
 		heading: "pk-text-compact m-0 font-semibold text-ink-muted",
 	},
 } as const;

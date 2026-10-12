@@ -217,10 +217,7 @@ target and the browser's own keyboard behaviour, with the visible box drawn as
 a sibling. That is fewer moving parts than the Radix primitive for no loss, so
 `Checkbox` is the one place where the Radix rule does not apply.
 
-**The 1024-wide rail collapse is deferred.** Desktop is the P0 target
-(SPEC 8.1), so the shell sets a minimum width and scrolls below it rather than
-collapsing. The `Shell1024` mockup stands as the design for whenever narrow
-displays are taken up.
+**Narrow windows stack the panes.** Desktop is the P0 target (SPEC 8.1), but the shell has no minimum width. Below 56rem, the width at which both side panes still fit at their default widths beside the work area's 360 px minimum, the three panes stack in one column: projects, then the work area, then the right pane. The column scrolls between the header and the status bar, and the panes keep minimum heights (projects 10rem, work area 16rem, files 17rem). The width handles hide. No pane is hidden and no new control switches between them. The `Shell1024` icon-rail mockup stays as a design for later.
 
 **Table styles are CSS classes (Epic 18).** The Table rules from
 `design/system/components/bundle.css` and the cell classes from

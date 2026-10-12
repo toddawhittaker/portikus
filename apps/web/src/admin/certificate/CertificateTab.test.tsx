@@ -768,9 +768,13 @@ test("the install steps are term and step pairs, one per system", async () => {
 		"Linux",
 		"Firefox",
 	]);
-	// A command never breaks mid-word.
+	// A command wraps only between its words; a path has none, so it may break
+	// anywhere rather than push a narrow card sideways (WCAG 1.4.10).
 	for (const code of steps.querySelectorAll("code")) {
-		expect(code.className).toContain("whitespace-nowrap");
+		expect(code.className).not.toContain("whitespace-nowrap");
+		expect(code.className.includes("[overflow-wrap:anywhere]")).toBe(
+			!code.textContent?.includes(" "),
+		);
 	}
 });
 

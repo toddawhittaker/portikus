@@ -502,9 +502,20 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	// A menu opened on a selected row acts on the whole selection.
 	const targets = api.targetsFor(node);
 	const many = targets.length > 1;
+	const files = targets.filter((target) => !target.isDir).length;
 
 	return (
 		<>
+			{many && files > 0 ? (
+				<>
+					<MenuItem onSelect={() => api.openFiles(targets)}>
+						<span data-testid="row-open-selection">
+							{files === 1 ? "Open 1 file" : `Open ${files} files`}
+						</span>
+					</MenuItem>
+					<MenuSeparator />
+				</>
+			) : null}
 			<CreateMenuItems dir={dir} testIdPrefix="row" />
 			<MenuSeparator />
 			{many ? null : (

@@ -7,7 +7,8 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentFailure, sendError } from "./errors.js";
-import { baselineDiff, baselineStatus, gitDiff, gitStatus, OBJECT_ID } from "./git.js";
+import { gitDiff, gitStatus, OBJECT_ID } from "./git.js";
+import { baselineDiff, baselineStatus } from "./git-baseline.js";
 import { refDiff } from "./git-compare.js";
 
 const DiffQuery = z.object({ path: ProjectPath, ref: GitRef.optional() });

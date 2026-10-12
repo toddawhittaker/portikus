@@ -401,7 +401,7 @@ describe("the file tree", () => {
 
 		const next = await screen.findByTestId("file-row-b.txt");
 		await waitFor(() => expect(document.activeElement).toBe(next));
-		expect(screen.getByTestId("files-announcement").textContent).toBe(
+		expect((await screen.findByTestId("files-announcement")).textContent).toBe(
 			"Loaded 2 more entries",
 		);
 		expect(screen.getByTestId("file-row-a.txt").getAttribute("aria-selected")).toBe(
@@ -760,6 +760,56 @@ describe("the file tree", () => {
 		expect(link.getAttribute("href")).toBe(`${base}?path=src&path=README.md`);
 		expect(link.download).toBe(`${PROJECT.slug}.zip`);
 		expect(checks).toEqual([`${base}?path=src&path=README.md&check=1`]);
+	});
+
+	/** SPEC.md §11.2: the menu opens a selection as a pane-edge drop would. */
+	it("opens the files in a selection beside the focused pane, skipping folders", async () => {
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		const store = createLayoutStore();
+		store
+			.getState()
+			.load({ tabs: [{ id: "t1", root: { type: "leaf", terminalId: "t1" } }] });
+		store.getState().setFocused("t1");
+		renderPane(store);
+		fireEvent.click(await screen.findByText("README.md"));
+		fireEvent.click(screen.getByText("src"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(screen.getByTestId("file-row-src").getAttribute("data-selected")).toBe(
+				"true",
+			),
+		);
+		fireEvent.keyDown(screen.getByTestId("file-menu-README.md"), { key: "Enter" });
+		fireEvent.click(await screen.findByRole("menuitem", { name: "Open 1 file" }));
+
+		const tabs = store.getState().layout.tabs;
+		expect(tabs.map((tab) => tab.id)).toEqual(["t1"]);
+		expect(tabs[0]?.root.type).toBe("split");
+		expect(store.getState().focusedPaneId).toBe("file:README.md");
+	});
+
+	it("offers no Open item when a selection holds only folders", async () => {
+		stubFetch((url) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.includes("/tree?path=")) return json(200, ROOT);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		renderPane();
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(screen.getByText("node_modules"), { ctrlKey: true });
+		await waitFor(() =>
+			expect(
+				screen.getByTestId("file-row-node_modules").getAttribute("data-selected"),
+			).toBe("true"),
+		);
+		fireEvent.keyDown(screen.getByTestId("file-menu-src"), { key: "Enter" });
+		expect(await screen.findByText("Download 2 items as zip")).toBeDefined();
+		expect(screen.queryByTestId("row-open-selection")).toBeNull();
 	});
 
 	it("says a selection over the size cap is too big, and what to do", async () => {
