@@ -29,14 +29,14 @@ async function readMail(): Promise<CapturedMail[]> {
 		.split("\n")
 		.filter((line) => line !== "")
 		.map((line) => {
-			// nodemailer's jsonTransport writes the recipients as address objects.
+			// nodemailer's JSON transport writes each recipient as {address, name}.
 			const message = JSON.parse(line) as {
 				to: { address: string }[];
 				subject: string;
 				text: string;
 			};
 			return {
-				to: message.to.map((a) => a.address),
+				to: message.to.map((recipient) => recipient.address),
 				subject: message.subject,
 				text: message.text,
 			};
@@ -45,7 +45,6 @@ async function readMail(): Promise<CapturedMail[]> {
 
 /**
  * Forget every captured message, so a test reads only its own.
- * @public: for the emailed reset specs.
  */
 export async function clearMail(): Promise<void> {
 	await rm(MAIL_CAPTURE_FILE, { force: true });

@@ -77,6 +77,7 @@ async function passwordStamp(db: Kysely<Database>, login: string): Promise<strin
 			"user.password_changed",
 			"dex_user.password_reset",
 			"local_admin.reset",
+			"user.password_reset_by_email",
 		])
 		.orderBy("audit_events.id", "desc")
 		.limit(1)

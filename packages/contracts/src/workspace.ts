@@ -297,6 +297,8 @@ export const ApiErrorCode = z.enum([
 	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
+	// An emailed reset or invitation link that is no longer good (SPEC.md section 5.3).
+	"RESET_LINK_INVALID",
 	// The second factor of Dex local passwords (SPEC.md section 24.13).
 	"SECOND_FACTOR_REQUIRED",
 	"WRONG_CODE",
