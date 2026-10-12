@@ -372,39 +372,41 @@ describe.skipIf(skip)("the Dex password relay", () => {
 		}
 	});
 
-	test.each(["dex_user.password_reset", "user.password_changed", "local_admin.reset"])(
-		"%s ends earlier known-device cookies",
-		async (action) => {
-			const user = await testDb.db
-				.insertInto("users")
-				.values({
-					oidc_issuer: DEX_ACCOUNT_ISSUER,
-					oidc_subject: "alice-sub",
-					email: "Alice@example.edu",
-					display_name: "Alice",
-					role: "student",
-					provider_role: "student",
-				})
-				.returning("id")
-				.executeTakeFirstOrThrow();
-			const known = cookieFrom(await post("alice@example.edu", RIGHT));
-			await testDb.db
-				.insertInto("audit_events")
-				.values({
-					actor: "unknown",
-					target: user.id,
-					action,
-					result: "ok",
-					metadata: null,
-				})
-				.execute();
-			await lockOutAlice();
-			expect(
-				(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
-					.statusCode,
-			).toBe(429);
-		},
-	);
+	test.each([
+		"dex_user.password_reset",
+		"user.password_changed",
+		"local_admin.reset",
+		"user.password_reset_by_email",
+	])("%s ends earlier known-device cookies", async (action) => {
+		const user = await testDb.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: DEX_ACCOUNT_ISSUER,
+				oidc_subject: "alice-sub",
+				email: "Alice@example.edu",
+				display_name: "Alice",
+				role: "student",
+				provider_role: "student",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const known = cookieFrom(await post("alice@example.edu", RIGHT));
+		await testDb.db
+			.insertInto("audit_events")
+			.values({
+				actor: "unknown",
+				target: user.id,
+				action,
+				result: "ok",
+				metadata: null,
+			})
+			.execute();
+		await lockOutAlice();
+		expect(
+			(await post("alice@example.edu", RIGHT, { ip: "192.0.2.80", cookie: known }))
+				.statusCode,
+		).toBe(429);
+	});
 
 	test("the refusal page works on a phone, in light and dark, with a way back", async () => {
 		for (let i = 0; i < ACCOUNT_FAILURE_LIMIT; i += 1) {
