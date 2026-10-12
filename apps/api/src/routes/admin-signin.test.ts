@@ -475,7 +475,6 @@ describe.skipIf(skip)("validation agrees with the root job's shared values", () 
 		clientId: "portikus",
 		clientSecret: SECRET,
 	};
-	const isCapitalised = (v: unknown) => typeof v === "string" && v !== v.toLowerCase();
 	// Each signin field the fixture covers, as a body holding the value.
 	const BODIES: Record<string, (value: unknown) => Record<string, unknown>> = {
 		identifier: (v) => ({ ...OIDC, clientId: v }),
@@ -510,8 +509,6 @@ describe.skipIf(skip)("validation agrees with the root job's shared values", () 
 				await clearRequests();
 			}
 			for (const value of values?.bad ?? []) {
-				// The API lowercases Google group emails before the root job sees them.
-				if (field === "googleGroup" && isCapitalised(value)) continue;
 				const res = await send("POST", "/admin/signin", body(value));
 				expect(res.statusCode, `${field} bad ${JSON.stringify(value)}`).toBe(400);
 			}

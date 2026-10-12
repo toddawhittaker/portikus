@@ -311,7 +311,6 @@ describe("the values the root job agrees on (ADR 0059)", () => {
 		),
 	) as { fields: Record<string, { good: unknown[]; bad: unknown[] }> };
 
-	const isCapitalised = (v: unknown) => typeof v === "string" && v !== v.toLowerCase();
 	// Each fixture field, as a schema given a body holding the value.
 	const FIELDS: Record<string, (value: unknown) => boolean> = {
 		httpsUrl: (v) =>
@@ -347,8 +346,6 @@ describe("the values the root job agrees on (ADR 0059)", () => {
 				expect(accepts(value), `good ${JSON.stringify(value)}`).toBe(true);
 			}
 			for (const value of values?.bad ?? []) {
-				// SigninSettings lowercases Google group emails before the root job sees them.
-				if (field === "googleGroup" && isCapitalised(value)) continue;
 				expect(accepts(value), `bad ${JSON.stringify(value)}`).toBe(false);
 			}
 		});
