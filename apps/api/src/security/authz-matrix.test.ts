@@ -164,6 +164,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/signin/keep": 404,
 	"POST /admin/signin/rollback": 404,
 	"POST /admin/signin/test": 404,
+	// The sample names nobody who teaches A; live-help.test.ts covers a start.
+	"POST /workspaces/:id/projects/:pid/live-help": 400,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -181,6 +183,8 @@ let keyDir: string;
 const MATRIX_KEY = fakeKey("matrix server");
 /** A recovery point of A's project, made fresh with each world. */
 let pointId: string;
+/** A's open live help session with the instructor, made fresh with each world. */
+let liveHelpId: string;
 
 beforeAll(async () => {
 	if (skip) return;
@@ -295,6 +299,26 @@ async function withWorld(
 				ends_at: new Date(Date.now() + 3_600_000).toISOString(),
 			})
 			.execute();
+		// A has live help open with the instructor too, so the owner routes
+		// still refuse that instructor (ADR 0063).
+		const helper = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("oidc_subject", "=", "ivy")
+			.executeTakeFirstOrThrow();
+		liveHelpId = (
+			await testDb.db
+				.insertInto("live_help_sessions")
+				.values({
+					workspace_id: world.a.workspaceId,
+					project_id: world.a.projectId,
+					helper_user_id: helper.id,
+					course_id: world.courseId,
+					ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+				})
+				.returning("id")
+				.executeTakeFirstOrThrow()
+		).id;
 		await run(app, world);
 	} finally {
 		await app.close();
@@ -369,6 +393,11 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/projects/:pid/extract": { path: "starter.zip" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
+	"POST /workspaces/:id/projects/:pid/live-help": {
+		helperUserId: crypto.randomUUID(),
+		courseId: crypto.randomUUID(),
+	},
+	"POST /workspaces/:id/live-help/typing": { typing: true },
 	// The fake agent's own node process.
 	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"POST /workspaces/:id/processes/:pid/stop-tree": { startTicks: 100 },
@@ -430,6 +459,7 @@ function sampleFor(
 		.replace(":courseUserId", world.a.userId)
 		.replace(":userId", world.a.userId)
 		.replace(":rpid", pointId)
+		.replace(":sid", liveHelpId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
 	url =

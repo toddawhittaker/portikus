@@ -256,6 +256,10 @@ export const ApiErrorCode = z.enum([
 	"AGENT_UNAVAILABLE",
 	// The preview routes (BROWSER-HANDLING.md §9.1).
 	"WORKSPACE_NOT_RUNNING",
+	// Live help (ADR 0063): one open session per workspace, and no attach
+	// while the student has no browser open.
+	"LIVE_HELP_OPEN",
+	"STUDENT_NOT_CONNECTED",
 	"PREVIEW_PORT_NOT_ALLOWED",
 	"PREVIEW_FORWARD_FAILED",
 	"PREVIEW_RATE_LIMITED",
