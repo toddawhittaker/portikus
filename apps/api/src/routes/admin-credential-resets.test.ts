@@ -17,6 +17,10 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+	consumeAccountEmailToken,
+	issueAccountEmailToken,
+} from "../account-email/tokens.js";
 import { INSTALL_ADMIN_REFUSAL } from "../admin/install-admin.js";
 import { RESET_NOTICE_TITLES } from "../admin/reset-notice.js";
 import { toAuthOptions } from "../auth-options.js";
@@ -130,9 +134,16 @@ describe.skipIf(skip)("Reset two-factor sign-in", () => {
 			.values({ user_id: hal, kind: "totp", secret: "s", label: "phone" })
 			.execute();
 		await createSession(testDb.db, hal, 3600, { method: "oidc", courseUserId: null });
+		const link = await issueAccountEmailToken(testDb.db, {
+			userId: hal,
+			purpose: "reset",
+			createdBy: null,
+		});
 
 		const res = await post(carol, `/admin/dex-users/${hal}/reset-second-factor`);
 		expect(res.statusCode).toBe(200);
+		// Every credential change ends the account's emailed links (SPEC.md section 5.3).
+		expect(await consumeAccountEmailToken(testDb.db, link.token, "reset")).toBeNull();
 
 		const factors = await testDb.db
 			.selectFrom("user_second_factors")

@@ -227,6 +227,7 @@ export function registerAdminDexUserRoutes(
 			await db.transaction().execute(async (trx) => {
 				await resetSecondFactor(trx, id, `user:${actor.id}`);
 				await endSessions(trx, id);
+				await revokeAccountEmailTokens(trx, id);
 				await notifyCredentialReset(trx, id, "second_factor");
 			});
 			return loadAdminUser(deps, id);

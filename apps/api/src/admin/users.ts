@@ -81,7 +81,7 @@ async function listDexUserIds(
  * from the list. While Dex does not answer, the subject alone decides.
  */
 function isDexLocal(
-	user: { oidc_issuer: string; oidc_subject: string; disabled_at: unknown },
+	user: { oidc_issuer: string; oidc_subject: string; disabled_at: Date | null },
 	dexUserIds: Set<string> | "unknown",
 ): boolean {
 	const userId = localDexUserId(user);

@@ -48,6 +48,7 @@ describe.skipIf(skip)("account email tokens", () => {
 
 	const issue = (purpose: "reset" | "invite" = "reset", at = now) =>
 		issueAccountEmailToken(t.db, { userId, purpose, createdBy: null, now: at });
+	const later = (seconds: number) => new Date(now.getTime() + seconds * 1000);
 
 	test("a token is 32 random bytes in base64url and only its SHA-256 is stored", async () => {
 		const issued = await issue();
@@ -89,8 +90,8 @@ describe.skipIf(skip)("account email tokens", () => {
 
 	test("issuing alone revokes nothing; superseding a reset ends older resets and invitations", async () => {
 		const firstReset = await issue("reset");
-		const invite = await issue("invite");
-		const secondReset = await issue("reset");
+		const invite = await issue("invite", later(1));
+		const secondReset = await issue("reset", later(2));
 		const check = async (token: string, purpose: "reset" | "invite") =>
 			t.db
 				.selectFrom("account_email_tokens")
@@ -116,10 +117,31 @@ describe.skipIf(skip)("account email tokens", () => {
 		).not.toBeNull();
 	});
 
+	test("an older send's supersede leaves a newer link working", async () => {
+		const older = await issue("reset");
+		const newer = await issue("reset", later(1));
+		// The newer send finishes first, then the older one supersedes.
+		await supersedeAccountEmailTokens(t.db, {
+			userId,
+			purpose: "reset",
+			keepId: newer.id,
+			now,
+		});
+		await supersedeAccountEmailTokens(t.db, {
+			userId,
+			purpose: "reset",
+			keepId: older.id,
+			now,
+		});
+		expect(
+			await consumeAccountEmailToken(t.db, newer.token, "reset", now),
+		).not.toBeNull();
+	});
+
 	test("superseding an invitation leaves reset links alone", async () => {
 		const reset = await issue("reset");
-		const first = await issue("invite");
-		const second = await issue("invite");
+		const first = await issue("invite", later(1));
+		const second = await issue("invite", later(2));
 		await supersedeAccountEmailTokens(t.db, {
 			userId,
 			purpose: "invite",

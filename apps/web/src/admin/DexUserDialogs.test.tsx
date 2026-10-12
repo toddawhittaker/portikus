@@ -66,11 +66,13 @@ interface Options {
 	accountEmail?: boolean;
 	/** An error body for every write. */
 	refusal?: { status: number; code: string; message: string };
+	/** Changes to dana's row as the list returns it. */
+	dana?: Partial<AdminUser>;
 }
 
-function stub({ dexUsers = true, accountEmail = false, refusal }: Options = {}) {
+function stub({ dexUsers = true, accountEmail = false, refusal, dana }: Options = {}) {
 	const writes: { url: string; body: unknown }[] = [];
-	let users = [DANA, CAROL, SSO];
+	let users = [{ ...DANA, ...dana }, CAROL, SSO];
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (isUsersList(url)) return usersBody(url, users, dexUsers);
@@ -530,6 +532,15 @@ test("Edit with nothing changed says so and sends nothing", async () => {
 	fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 	await within(dialog).findByText("Change the email or the username first.");
 	expect(writes).toEqual([]);
+});
+
+test("Edit is not offered on a disabled account", async () => {
+	stub({ dana: { disabledAt: "2026-09-24T00:00:00.000Z" } });
+	const panel = await openRow("dana");
+	await within(panel).findByRole("button", { name: /^Reset password for/ });
+	expect(
+		within(panel).queryByRole("button", { name: /^Edit email or username/ }),
+	).toBeNull();
 });
 
 test("Edit and Send reset link are not offered on your own account", async () => {

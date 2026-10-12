@@ -464,6 +464,9 @@ is_email() {
 # A role group in the form the provider names groups: an Entra object ID or a
 # Google group email, which Dex matches in lowercase.
 check_group() {
+	lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+	[ "$lower" = "$1" ] || db_set "portikus/$2" "$lower"
+	set -- "$lower"
 	db_get portikus/provider
 	case "$RET" in
 	entra)
@@ -596,7 +599,7 @@ check() {
 			PROBLEM="This cannot be blank."
 			return 1
 		}
-		case "$1" in *_group) check_group "$value" || return 1 ;; esac
+		case "$1" in *_group) check_group "$value" "$1" || return 1 ;; esac
 		;;
 	storage_size)
 		# A file made on an earlier run already uses its space.

@@ -64,8 +64,10 @@ export async function issueAccountEmailToken(
 }
 
 /**
- * Revoke every other live link a newly sent one replaces: a reset link
+ * Revoke the older live links a newly sent one replaces: a reset link
  * replaces older reset and invitation links, an invitation older invitations.
+ * Only links created before the kept one go, so two overlapping sends cannot
+ * revoke each other's links and leave none working.
  */
 export async function supersedeAccountEmailTokens(
 	db: Kysely<Database>,
@@ -79,6 +81,12 @@ export async function supersedeAccountEmailTokens(
 		.where("user_id", "=", input.userId)
 		.where("purpose", "in", purposes)
 		.where("id", "<>", input.keepId)
+		.where("created_at", "<", (eb) =>
+			eb
+				.selectFrom("account_email_tokens as kept")
+				.select("kept.created_at")
+				.where("kept.id", "=", input.keepId),
+		)
 		.where("used_at", "is", null)
 		.where("revoked_at", "is", null)
 		.execute();

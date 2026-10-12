@@ -562,7 +562,8 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 	return (
 		<>
 			{/* Their own account is changed in Settings, so these are not offered for it. */}
-			{isSelf ? null : <EditDexUser user={user} />}
+			{/* A disabled account's Dex entry may be gone, so there is nothing to edit. */}
+			{isSelf || user.disabledAt ? null : <EditDexUser user={user} />}
 			{isSelf || !accountEmail ? null : <SendResetLink user={user} />}
 			<Button
 				size="sm"
