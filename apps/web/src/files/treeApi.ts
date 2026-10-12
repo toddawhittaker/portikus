@@ -12,6 +12,8 @@ export interface TreeApi {
 	toggle: (path: string) => void;
 	setOpen: (path: string, open: boolean) => void;
 	openFile: (node: FileNode) => void;
+	/** Open the files among `nodes` as a split plus tabs (SPEC.md §11.2). */
+	openFiles: (nodes: readonly FileNode[]) => void;
 	newIn: (dir: string, kind: "file" | "dir") => void;
 	rename: (node: FileNode) => void;
 	move: (node: FileNode) => void;

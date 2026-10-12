@@ -28,6 +28,7 @@ import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { filePaths } from "../layout/tree.js";
 import { useTerminals } from "../terminal/useTerminals.js";
+import { openTreeFiles } from "../work/moveInto.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import { ExtractProgress } from "./ExtractProgress.js";
 import {
@@ -429,6 +430,14 @@ export function FileTreePane({
 		[openFileTab],
 	);
 
+	const openFiles = useCallback(
+		(nodes: readonly FileNode[]) => {
+			const paths = nodes.filter((node) => !node.isDir).map((node) => node.path);
+			openTreeFiles(layoutStore.getState, paths);
+		},
+		[layoutStore],
+	);
+
 	const extract = useCallback(
 		(node: FileNode) => {
 			const name = displayName(node.name);
@@ -470,6 +479,7 @@ export function FileTreePane({
 			toggle: (path) => toggleExpanded(project.id, path),
 			setOpen: (path, open) => setExpandedIn(project.id, path, open),
 			openFile,
+			openFiles,
 			newIn: (dir, kind) => setDialog({ kind: "new", dir, type: kind }),
 			rename: (node) => setDialog({ kind: "rename", node }),
 			move: (node) => setDialog({ kind: "move", nodes: targetsFor(node) }),
@@ -505,6 +515,7 @@ export function FileTreePane({
 			toggleExpanded,
 			setExpandedIn,
 			openFile,
+			openFiles,
 			uploadInto,
 			pickUpload,
 			rowState,
