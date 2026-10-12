@@ -35,7 +35,8 @@ const SESSION = {
 
 function mount(
 	audience: unknown[],
-	answer: (body: unknown) => Response = () => json(200, { session: SESSION, audience }),
+	answer: (body: unknown) => Response = () =>
+		json(200, { session: SESSION, lastEnded: null, audience }),
 	session: unknown = null,
 ) {
 	const calls: { method: string; url: string; body: unknown }[] = [];
@@ -44,7 +45,7 @@ function mount(
 		const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 		calls.push({ method: init?.method ?? "GET", url, body });
 		if (init?.method === "POST") return answer(body);
-		return json(200, { session, audience });
+		return json(200, { session, lastEnded: null, audience });
 	});
 	renderWithQuery(
 		<StartLiveHelpDialog

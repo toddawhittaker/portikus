@@ -326,7 +326,7 @@ function Fallback({ store }: { store: LayoutStore }) {
 	);
 }
 
-test("when focus fell to the page, the work area takes it and the region says why", () => {
+test("when focus fell to the page, the work area takes it and the region says why", async () => {
 	const store = createLayoutStore();
 	store.getState().load(oneTab(T1), 0);
 	store.getState().setFocused(T1);
@@ -334,7 +334,9 @@ test("when focus fell to the page, the work area takes it and the region says wh
 	(document.activeElement as HTMLElement | null)?.blur();
 	act(() => store.getState().loadRemote(oneTab(T2), 1));
 	expect(document.activeElement).toBe(view.getByRole("main"));
-	expect(view.getByRole("status").textContent).toBe(REMOTE_FOCUS_LOST);
+	await waitFor(() =>
+		expect(view.getByRole("status").textContent).toBe(REMOTE_FOCUS_LOST),
+	);
 });
 
 test("focus the student moved elsewhere stays where it is", () => {

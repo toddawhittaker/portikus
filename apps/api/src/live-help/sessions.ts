@@ -13,7 +13,7 @@ import {
 } from "@portikus/db";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import { liveHelpAudience, sharesCourseWith } from "../courses/membership.js";
-import { closeBridgesForPreviewSessions } from "../preview/bridge.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import { clearPreviewLookups } from "../preview/store.js";
 import { liveHelpSockets } from "./registry.js";
 
@@ -62,12 +62,15 @@ async function dropSessionPreviews(
  * cached preview rows, and bridge forwards. Run only after the rows that
  * ended them are committed, so a rollback never cuts a live session.
  */
-export async function closeEndedLiveHelp(ended: EndedLiveHelp): Promise<void> {
+export async function closeEndedLiveHelp(
+	ended: EndedLiveHelp,
+	bridge: BridgeForwards,
+): Promise<void> {
 	if (ended.sessionIds.length === 0) return;
 	for (const id of ended.sessionIds) liveHelpSockets.end(id);
 	// Cached preview rows would let the helper in for two more seconds.
 	clearPreviewLookups();
-	await closeBridgesForPreviewSessions(ended.previewSessionIds);
+	for (const id of ended.previewSessionIds) await bridge.closeForSession(id);
 }
 
 /**
@@ -77,6 +80,7 @@ export async function closeEndedLiveHelp(ended: EndedLiveHelp): Promise<void> {
 async function expireLiveHelp(
 	db: Kysely<Database>,
 	workspaceId: string,
+	bridge: BridgeForwards,
 ): Promise<void> {
 	const ended = await db.transaction().execute(async (trx) => {
 		const rows = await trx
@@ -93,7 +97,7 @@ async function expireLiveHelp(
 			previewSessionIds: await dropSessionPreviews(trx, sessionIds),
 		};
 	});
-	await closeEndedLiveHelp(ended);
+	await closeEndedLiveHelp(ended, bridge);
 }
 
 /** End one open session's row and audit why and for how long, inside `trx`. */
@@ -139,9 +143,10 @@ async function endRow(
 export async function endLiveHelp(
 	db: Kysely<Database>,
 	end: { sessionId: string; actor: string; reason: LiveHelpEndReason },
+	bridge: BridgeForwards,
 ): Promise<void> {
 	const ended = await db.transaction().execute((trx) => endRow(trx, end));
-	await closeEndedLiveHelp(ended);
+	await closeEndedLiveHelp(ended, bridge);
 }
 
 /** The open session of a workspace, if any, for its owner. */
@@ -181,23 +186,33 @@ export async function endProjectLiveHelp(
 export async function stopLiveHelp(
 	db: Kysely<Database>,
 	stop: { workspaceId: string; actor: string },
+	bridge: BridgeForwards,
 ): Promise<void> {
-	await expireLiveHelp(db, stop.workspaceId);
+	await expireLiveHelp(db, stop.workspaceId, bridge);
 	const id = await openSessionId(db, stop.workspaceId);
 	if (id)
-		await endLiveHelp(db, { sessionId: id, actor: stop.actor, reason: "stopped" });
+		await endLiveHelp(
+			db,
+			{ sessionId: id, actor: stop.actor, reason: "stopped" },
+			bridge,
+		);
 }
 
 /** The helper leaves; only a helper the gate let through calls this. */
 export async function leaveLiveHelp(
 	db: Kysely<Database>,
 	leave: { sessionId: string; helperId: string },
+	bridge: BridgeForwards,
 ): Promise<void> {
-	await endLiveHelp(db, {
-		sessionId: leave.sessionId,
-		actor: `user:${leave.helperId}`,
-		reason: "helper_left",
-	});
+	await endLiveHelp(
+		db,
+		{
+			sessionId: leave.sessionId,
+			actor: `user:${leave.helperId}`,
+			reason: "helper_left",
+		},
+		bridge,
+	);
 }
 
 export type StartResult = "started" | "not_allowed" | "open";
@@ -217,6 +232,7 @@ export async function startLiveHelp(
 		helperId: string;
 		courseId: string;
 	},
+	bridge: BridgeForwards,
 ): Promise<StartResult> {
 	if (start.helperId === start.owner.id) return "not_allowed";
 	const allowed = await sharesCourseWith(db, {
@@ -225,7 +241,7 @@ export async function startLiveHelp(
 		courseId: start.courseId,
 	});
 	if (!allowed) return "not_allowed";
-	await expireLiveHelp(db, start.workspaceId);
+	await expireLiveHelp(db, start.workspaceId, bridge);
 	try {
 		await db.transaction().execute(async (trx) => {
 			// The database clock, the one every expiry check compares with.
@@ -272,8 +288,9 @@ export async function startLiveHelp(
 export async function setLiveHelpTyping(
 	db: Kysely<Database>,
 	change: { workspaceId: string; actor: string; typing: boolean },
+	bridge: BridgeForwards,
 ): Promise<boolean> {
-	await expireLiveHelp(db, change.workspaceId);
+	await expireLiveHelp(db, change.workspaceId, bridge);
 	const id = await openSessionId(db, change.workspaceId);
 	if (!id) return false;
 	const changed = await db.transaction().execute(async (trx) => {
@@ -346,8 +363,9 @@ export async function liveHelpStatus(
 	workspaceId: string,
 	ownerId: string,
 	options: { audience: boolean },
+	bridge: BridgeForwards,
 ): Promise<LiveHelpStatus> {
-	await expireLiveHelp(db, workspaceId);
+	await expireLiveHelp(db, workspaceId, bridge);
 	const audience = options.audience ? await liveHelpAudience(db, ownerId) : [];
 	const row = await db
 		.selectFrom("live_help_sessions")
@@ -379,11 +397,11 @@ export async function liveHelpStatus(
 		courseId: row.course_id,
 	});
 	if (!linked) {
-		await endLiveHelp(db, {
-			sessionId: row.id,
-			actor: "platform",
-			reason: "helper_removed",
-		});
+		await endLiveHelp(
+			db,
+			{ sessionId: row.id, actor: "platform", reason: "helper_removed" },
+			bridge,
+		);
 		return closed();
 	}
 	return {

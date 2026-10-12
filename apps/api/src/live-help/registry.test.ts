@@ -37,25 +37,33 @@ describe("the live help socket registry", () => {
 		const registry = createLiveHelpRegistry();
 		const end = vi.fn();
 		const forget = registry.add("s1", "t1", end);
-		forget?.();
+		forget();
 		registry.end("s1");
 		expect(end).not.toHaveBeenCalled();
 	});
 
-	test("holds one socket per terminal of a session until it goes away", () => {
+	test("the newest socket on a terminal closes the older one before it is held", () => {
 		const registry = createLiveHelpRegistry();
-		const first = vi.fn();
-		const forget = registry.add("s1", "t1", first);
-		expect(forget).not.toBeNull();
+		const order: string[] = [];
+		const first = vi.fn(() => order.push("first closed"));
+		const forgetFirst = registry.add("s1", "t1", first);
 		expect(registry.has("s1", "t1")).toBe(true);
-		expect(registry.add("s1", "t1", vi.fn())).toBeNull();
+		const second = vi.fn();
+		const forgetSecond = registry.add("s1", "t1", second);
+		order.push("second held");
+		expect(first).toHaveBeenCalledWith(
+			CloseCode.LIVE_HELP_REPLACED,
+			"opened in another tab",
+		);
+		expect(order).toEqual(["first closed", "second held"]);
+		// The older socket going away later must not forget the newer one.
+		forgetFirst();
+		expect(registry.has("s1", "t1")).toBe(true);
 		expect(registry.has("s1", "t2")).toBe(false);
-		forget?.();
-		expect(registry.has("s1", "t1")).toBe(false);
-		const again = vi.fn();
-		expect(registry.add("s1", "t1", again)).not.toBeNull();
 		registry.end("s1");
-		expect(again).toHaveBeenCalledTimes(1);
-		expect(first).not.toHaveBeenCalled();
+		expect(second).toHaveBeenCalledWith(CloseCode.LIVE_HELP_ENDED, "live help ended");
+		expect(first).toHaveBeenCalledTimes(1);
+		forgetSecond();
+		expect(registry.has("s1", "t1")).toBe(false);
 	});
 });

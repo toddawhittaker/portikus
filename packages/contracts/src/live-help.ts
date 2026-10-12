@@ -71,7 +71,7 @@ export type LiveHelpLastEnded = z.infer<typeof LiveHelpLastEnded>;
 export const LiveHelpStatus = z.object({
 	session: LiveHelpSession.nullable(),
 	// Defaults to null so a body from before this field still parses.
-	lastEnded: LiveHelpLastEnded.nullable().default(null),
+	lastEnded: LiveHelpLastEnded.nullable(),
 	audience: z.array(LiveHelpAudienceCourse),
 });
 export type LiveHelpStatus = z.infer<typeof LiveHelpStatus>;

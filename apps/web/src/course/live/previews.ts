@@ -2,7 +2,7 @@
  * What is listening in the student's workspace, and opening one of those
  * services as a preview in a new tab, for the session's helper (ADR 0063).
  * The listing is the student's Running list with less in it: the API drops
- * command lines and process ids, so every field but the port may be missing.
+ * every process and container detail, so a service is named by its port.
  */
 import {
 	ListeningService,
@@ -19,8 +19,6 @@ export const LiveListening = z.object({
 	port: ListeningService.shape.port,
 	previewReachability: ListeningService.shape.previewReachability.optional(),
 	system: z.boolean().default(false),
-	process: z.object({ command: z.string().optional() }).optional(),
-	container: z.object({ name: z.string().optional() }).optional(),
 });
 export type LiveListening = z.infer<typeof LiveListening>;
 
@@ -32,11 +30,6 @@ export function previewable(services: readonly LiveListening[]): LiveListening[]
 	return services
 		.filter((service) => !service.system && service.previewReachability !== "denied")
 		.sort((a, b) => a.port - b.port);
-}
-
-/** A short name for what is listening, when the API says one. */
-export function serviceLabel(service: LiveListening): string | undefined {
-	return service.container?.name || service.process?.command || undefined;
 }
 
 export function useLiveListening(ref: LiveRef, enabled: boolean) {

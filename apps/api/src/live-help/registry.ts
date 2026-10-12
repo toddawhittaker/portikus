@@ -11,10 +11,12 @@ type EndSocket = (code: number, reason: string) => void;
 export interface LiveHelpRegistry {
 	/**
 	 * Track the helper's socket on one terminal; the returned function forgets
-	 * it. Null when that terminal already has one.
+	 * it. The newest wins: an older socket on the same terminal is closed
+	 * first, so a stale tab never locks the helper out and no keystroke is
+	 * sent twice.
 	 */
-	add: (sessionId: string, terminalId: string, end: EndSocket) => (() => void) | null;
-	/** Whether the helper already has a socket on this terminal. */
+	add: (sessionId: string, terminalId: string, end: EndSocket) => () => void;
+	/** Whether the helper has a socket on this terminal. */
 	has: (sessionId: string, terminalId: string) => boolean;
 	/** Close every helper socket of a session that ended. */
 	end: (sessionId: string) => void;
@@ -35,7 +37,7 @@ export function createLiveHelpRegistry(): LiveHelpRegistry {
 	return {
 		add(sessionId, terminalId, end) {
 			const ends = sockets.get(sessionId) ?? new Map<string, EndSocket>();
-			if (ends.has(terminalId)) return null;
+			ends.get(terminalId)?.(CloseCode.LIVE_HELP_REPLACED, "opened in another tab");
 			ends.set(terminalId, end);
 			sockets.set(sessionId, ends);
 			return () => {

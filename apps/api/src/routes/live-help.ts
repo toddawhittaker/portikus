@@ -9,6 +9,7 @@ import {
 	startLiveHelp,
 	stopLiveHelp,
 } from "../live-help/sessions.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import type { UserLimit } from "../rate-limit.js";
 import { ownedProject, ownedScope } from "../workspaces/project-scope.js";
 
@@ -21,12 +22,13 @@ import { ownedProject, ownedScope } from "../workspaces/project-scope.js";
  */
 export function registerLiveHelpRoutes(
 	app: FastifyInstance,
-	deps: ServerDeps,
+	deps: ServerDeps & { bridge: BridgeForwards },
 	/** Shared with the other per-user writes (SPEC.md §24.13). */
 	allowWrite: UserLimit,
 ): void {
-	const { db, config } = deps;
-	const withAudience = { audience: true };
+	const { db, config, bridge } = deps;
+	// Only the GET names the audience; the POSTs answer without it.
+	const noAudience = { audience: false };
 
 	async function limitWrites(request: FastifyRequest, reply: FastifyReply) {
 		if (!(await allowWrite(request, reply))) return reply;
@@ -37,9 +39,13 @@ export function registerLiveHelpRoutes(
 		const scope = await ownedScope(db, config, request, reply);
 		if (!scope) return;
 		const audience = (request.query as { audience?: unknown } | undefined)?.audience;
-		return liveHelpStatus(db, scope.workspaceId, user.id, {
-			audience: audience === "1",
-		});
+		return liveHelpStatus(
+			db,
+			scope.workspaceId,
+			user.id,
+			{ audience: audience === "1" },
+			bridge,
+		);
 	});
 
 	app.post(
@@ -63,14 +69,18 @@ export function registerLiveHelpRoutes(
 					"Live help cannot start on an archived project.",
 				);
 			}
-			const result = await startLiveHelp(db, {
-				workspaceId: scope.workspaceId,
-				projectId: project.id,
-				projectName: project.name,
-				owner: { id: user.id, displayName: user.displayName },
-				helperId: body.helperUserId,
-				courseId: body.courseId,
-			});
+			const result = await startLiveHelp(
+				db,
+				{
+					workspaceId: scope.workspaceId,
+					projectId: project.id,
+					projectName: project.name,
+					owner: { id: user.id, displayName: user.displayName },
+					helperId: body.helperUserId,
+					courseId: body.courseId,
+				},
+				bridge,
+			);
 			if (result === "not_allowed") {
 				return sendError(
 					reply,
@@ -87,34 +97,46 @@ export function registerLiveHelpRoutes(
 					"Live help is already open in this workspace. End it first.",
 				);
 			}
-			return liveHelpStatus(db, scope.workspaceId, user.id, withAudience);
+			return liveHelpStatus(db, scope.workspaceId, user.id, noAudience, bridge);
 		},
 	);
 
-	app.post("/workspaces/:id/live-help/typing", async (request, reply) => {
-		const user = requireUser(request);
-		const scope = await ownedScope(db, config, request, reply);
-		if (!scope) return;
-		const body = parseOr400(LiveHelpTypingRequest, request.body, reply);
-		if (!body) return;
-		const open = await setLiveHelpTyping(db, {
-			workspaceId: scope.workspaceId,
-			actor: `user:${user.id}`,
-			typing: body.typing,
-		});
-		if (!open) return sendError(reply, 404, "NOT_FOUND", "No live help is open.");
-		return liveHelpStatus(db, scope.workspaceId, user.id, withAudience);
-	});
+	app.post(
+		"/workspaces/:id/live-help/typing",
+		{ preHandler: limitWrites },
+		async (request, reply) => {
+			const user = requireUser(request);
+			const scope = await ownedScope(db, config, request, reply);
+			if (!scope) return;
+			const body = parseOr400(LiveHelpTypingRequest, request.body, reply);
+			if (!body) return;
+			const open = await setLiveHelpTyping(
+				db,
+				{
+					workspaceId: scope.workspaceId,
+					actor: `user:${user.id}`,
+					typing: body.typing,
+				},
+				bridge,
+			);
+			if (!open) return sendError(reply, 404, "NOT_FOUND", "No live help is open.");
+			return liveHelpStatus(db, scope.workspaceId, user.id, noAudience, bridge);
+		},
+	);
 
 	// Ending what is already over still answers the status.
 	app.post("/workspaces/:id/live-help/stop", async (request, reply) => {
 		const user = requireUser(request);
 		const scope = await ownedScope(db, config, request, reply);
 		if (!scope) return;
-		await stopLiveHelp(db, {
-			workspaceId: scope.workspaceId,
-			actor: `user:${user.id}`,
-		});
-		return liveHelpStatus(db, scope.workspaceId, user.id, withAudience);
+		await stopLiveHelp(
+			db,
+			{
+				workspaceId: scope.workspaceId,
+				actor: `user:${user.id}`,
+			},
+			bridge,
+		);
+		return liveHelpStatus(db, scope.workspaceId, user.id, noAudience, bridge);
 	});
 }

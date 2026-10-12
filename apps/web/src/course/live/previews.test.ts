@@ -1,7 +1,7 @@
 import { PreviewGrantRequest } from "@portikus/contracts";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, stubFetch } from "../../test-utils.js";
-import { LiveListening, openLivePreview, serviceLabel } from "./previews.js";
+import { LiveListening, openLivePreview } from "./previews.js";
 
 const REF = { courseId: "c1", sessionId: "s1" };
 const BOOTSTRAP =
@@ -52,27 +52,7 @@ test("a refused grant closes the blank tab and reports failure", async () => {
 	expect(tab.location.replace).not.toHaveBeenCalled();
 });
 
-test("a listener with only a port still parses and has no label", () => {
+test("a listener with only a port parses", () => {
 	const bare = LiveListening.parse({ port: 8000 });
-	expect(bare.port).toBe(8000);
-	expect(bare.system).toBe(false);
-	expect(serviceLabel(bare)).toBeUndefined();
-	expect(
-		serviceLabel(LiveListening.parse({ port: 8000, process: {} })),
-	).toBeUndefined();
-});
-
-test("the label is the container name, else the process name", () => {
-	expect(
-		serviceLabel(
-			LiveListening.parse({
-				port: 80,
-				container: { name: "web" },
-				process: { command: "nginx" },
-			}),
-		),
-	).toBe("web");
-	expect(
-		serviceLabel(LiveListening.parse({ port: 3000, process: { command: "node" } })),
-	).toBe("node");
+	expect(bare).toEqual({ port: 8000, system: false });
 });

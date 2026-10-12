@@ -64,7 +64,7 @@ export function leaveKey(
 	return null;
 }
 
-type Problem = "reconnecting" | "lost" | "too-many" | "closed";
+type Problem = "reconnecting" | "lost" | "too-many" | "closed" | "replaced";
 
 const PROBLEM_TEXT: Record<Problem, string> = {
 	reconnecting: "Reconnecting to this terminal…",
@@ -72,6 +72,7 @@ const PROBLEM_TEXT: Record<Problem, string> = {
 	"too-many":
 		"You have too many terminals open in Portikus. Close one in another tab, then reconnect.",
 	closed: "This terminal was closed in the student's workspace.",
+	replaced: "This terminal was opened in another tab.",
 };
 
 export interface HelperTerminalProps {
@@ -83,7 +84,7 @@ export interface HelperTerminalProps {
 	typing: boolean;
 	/** Changes to open the socket again, as after Reconnect. */
 	attach: number;
-	/** The API closed the socket with a live help close code. */
+	/** The API closed the socket with a live help close code other than another tab's takeover. */
 	onClosed: (action: HelperCloseAction) => void;
 	/** The socket gave up or the terminal went away; the parent should look again. */
 	onDropped: () => void;
@@ -222,7 +223,9 @@ export function HelperTerminal({
 			},
 			onCloseCode: (code) => {
 				const action = helperCloseAction(code);
-				if (action) handlers.current.onClosed(action);
+				// Reattaching on its own would take the terminal back from the other tab.
+				if (action === "replaced") setProblem("replaced");
+				else if (action) handlers.current.onClosed(action);
 				return action !== null;
 			},
 		});
@@ -271,6 +274,11 @@ export function HelperTerminal({
 				{problem === "lost" || problem === "too-many" ? (
 					<Button size="sm" onClick={reconnect}>
 						Reconnect
+					</Button>
+				) : null}
+				{problem === "replaced" ? (
+					<Button size="sm" onClick={reconnect}>
+						Open here
 					</Button>
 				) : null}
 			</div>

@@ -15,6 +15,8 @@ export const CloseCode = {
 	LIVE_HELP_MODE_CHANGED: 4409,
 	/** The live help session ended; the instructor does not reconnect (ADR 0063). */
 	LIVE_HELP_ENDED: 4410,
+	/** The helper opened this terminal in another tab; this one stops and does not reconnect (ADR 0063). */
+	LIVE_HELP_REPLACED: 4411,
 	/** The user already has as many sockets of this kind open as allowed (SPEC.md §24.13). */
 	TOO_MANY_SOCKETS: 4429,
 } as const;
