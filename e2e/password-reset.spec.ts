@@ -50,6 +50,8 @@ test("a forgotten password is reset through the emailed link", async ({
 	expect(added.status()).toBe(200);
 	const userId = ((await added.json()) as { user: { id: string } }).user.id;
 	await clearMail();
+	// Every browser here shares one address; start this test's hour fresh (SPEC.md section 24.13).
+	await query("delete from signin_counters where scope like 'reset-%'");
 
 	// The person is signed out on their own browser.
 	const context = await browser.newContext();
