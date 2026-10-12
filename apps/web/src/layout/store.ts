@@ -79,8 +79,30 @@ export interface LayoutState {
 	 */
 	fileGenerations: Record<string, number>;
 	dirty: boolean;
+	/** The saved layout version this layout is based on, or null before a read. */
+	version: number | null;
+	/**
+	 * The layout as another browser saved it, while nothing has been changed
+	 * here since. Reconciling then works from it and is never saved, so a
+	 * terminal list that has not caught up cannot start two browsers
+	 * overwriting each other (SPEC.md §7.5).
+	 */
+	remoteBase: ProjectLayout | null;
+	/** A drag is in progress, so a remote layout waits in `heldRemote`. */
+	dragging: boolean;
+	heldRemote: { layout: ProjectLayout; version: number } | null;
 	/** Replace the whole layout with what the server had saved. */
-	load: (layout: ProjectLayout) => void;
+	load: (layout: ProjectLayout, version?: number) => void;
+	/**
+	 * Take a newer layout another browser saved (SPEC.md §7.5). This
+	 * browser's selected tab, pane sizes, cursors and scroll stay, and a file
+	 * pane with unsaved text stays open. Never marks the layout dirty.
+	 */
+	loadRemote: (layout: ProjectLayout, version: number) => void;
+	/** A drag started or ended; the end applies any remote layout held meanwhile. */
+	setDragging: (dragging: boolean) => void;
+	/** The server accepted a save as this version. */
+	setVersion: (version: number) => void;
 	addTab: (terminalId: string) => void;
 	/**
 	 * Object id a file pane's diff compares against, or null for Git HEAD, by
@@ -178,6 +200,10 @@ function place(layout: ProjectLayout, terminalId: string): ProjectLayout {
 	return tree.layoutTerminalIds(layout).includes(terminalId)
 		? tree.removeLeaf(layout, terminalId)
 		: layout;
+}
+
+function sameLayout(a: ProjectLayout, b: ProjectLayout): boolean {
+	return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Put `tabId` at the front of the history, with no duplicates. */
@@ -341,8 +367,45 @@ export function createLayoutStore() {
 			unsavedTabs: {},
 			fileGenerations: {},
 			dirty: false,
+			version: null,
+			remoteBase: null,
+			dragging: false,
+			heldRemote: null,
 
-			load: (saved) =>
+			loadRemote: (saved, version) =>
+				set((state) => {
+					if (state.version !== null && version <= state.version) return state;
+					if (state.dragging) return { heldRemote: { layout: saved, version } };
+					const migrated = tree.migrateDiffTabs(saved).layout;
+					const kept = tree.keepSizes(state.layout, migrated);
+					// The carry rule: a file with unsaved text keeps a pane here.
+					let layout = kept;
+					for (const path of state.layout.tabs.flatMap((tab) =>
+						tree.filePaths(tab.root),
+					)) {
+						if (state.unsavedTabs[tree.fileTabId(path)]) {
+							layout = tree.openFile(layout, path).layout;
+						}
+					}
+					return {
+						layout,
+						...settleActive(state, layout),
+						version,
+						remoteBase: layout,
+						heldRemote: null,
+						dirty: false,
+					};
+				}),
+
+			setDragging: (dragging) => {
+				const held = get().heldRemote;
+				set({ dragging, heldRemote: dragging ? held : null });
+				if (!dragging && held) get().loadRemote(held.layout, held.version);
+			},
+
+			setVersion: (version) => set({ version }),
+
+			load: (saved, version) =>
 				set((state) => {
 					// A layout saved before diffs became a view of the file tab
 					// still has diff tabs; they become file tabs showing a diff.
@@ -360,6 +423,7 @@ export function createLayoutStore() {
 						tabHistory: remember(history, activeTabId),
 						pendingView,
 						dirty: layout !== saved,
+						version: version ?? state.version,
 					};
 				}),
 
@@ -623,6 +687,11 @@ export function createLayoutStore() {
 
 			reconcile: (terminalIds, endedIds) =>
 				set((state) => {
+					if (state.remoteBase !== null && !state.dirty) {
+						const layout = tree.reconcile(state.remoteBase, terminalIds, endedIds);
+						if (sameLayout(layout, state.layout)) return state;
+						return { layout, ...settleActive(state, layout) };
+					}
 					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) return state;
 					return { layout, ...settleActive(state, layout), dirty: true };
@@ -637,7 +706,8 @@ export function createLayoutStore() {
 					return { unsavedTabs: next };
 				}),
 
-			clearDirty: () => set({ dirty: false }),
+			// A save writes what is on screen, so reconciling is ours again.
+			clearDirty: () => set({ dirty: false, remoteBase: null }),
 		};
 	});
 }
