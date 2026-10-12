@@ -5,6 +5,7 @@ import {
 	type AgentTerminalsExit,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_INPUT_FRAME_BYTES,
+	type TerminalAttachMode,
 } from "@portikus/contracts";
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
 import { errorMessage } from "@portikus/observability";
@@ -81,11 +82,14 @@ interface Attachment {
 	tail: string;
 	/** The full early-input queue has already been logged for this socket. */
 	warnedQueueFull: boolean;
+	/** A live-help helper's mode; undefined for the student (SPEC.md §9.7). */
+	mode: TerminalAttachMode | undefined;
 }
 
 export interface AttachOptions {
 	cols?: number;
 	rows?: number;
+	mode?: TerminalAttachMode;
 }
 
 /** Where the terminals unit records how it last stopped (SPEC.md §9.7). */
@@ -188,10 +192,19 @@ export class TerminalRegistry {
 			closed: false,
 			tail: "",
 			warnedQueueFull: false,
+			mode: options.mode,
 		};
 		existing.add(attachment);
 		this.attachments.set(id, existing);
-		this.panes.add(id, socket);
+		// A helper's PTY follows the student's window rather than the
+		// helper's browser, so tmux draws the screen the student sees.
+		this.panes.add(
+			id,
+			socket,
+			options.mode
+				? (cols, rows) => this.resizeHelper(attachment, cols, rows)
+				: undefined,
+		);
 
 		// Listen before the first await: the browser sends its size straight
 		// after the socket opens, and a frame dropped here leaves the PTY at
@@ -226,13 +239,14 @@ export class TerminalRegistry {
 		// arrive before the PTY exists, and it wins when it does.
 		const cols = attachment.pendingResize?.cols ?? options.cols ?? DEFAULT_COLS;
 		const rows = attachment.pendingResize?.rows ?? options.rows ?? DEFAULT_ROWS;
-		await this.sendHistory(id, socket, rows);
+		// A helper sees only the current screen and what follows (SPEC.md §9.7).
+		if (!options.mode) await this.sendHistory(id, socket, rows);
 
 		// Check again: the capture is another await, and a PTY started for an
 		// attachment that has already been forgotten would never be killed.
 		if (attachment.closed) return;
 
-		const pty = this.spawnPty("tmux", attachArgs(id, this.server), {
+		const pty = this.spawnPty("tmux", attachArgs(id, this.server, options.mode), {
 			name: "xterm-256color",
 			cols,
 			rows,
@@ -397,6 +411,11 @@ export class TerminalRegistry {
 			return;
 		}
 
+		// A second layer behind the API's own rules: a helper never resizes,
+		// and a viewer never types (SPEC.md §9.7).
+		if (attachment.mode && message.data.type === "resize") return;
+		if (attachment.mode === "view") return;
+
 		if (message.data.type === "input") {
 			if (Buffer.byteLength(message.data.data, "utf8") > MAX_INPUT_FRAME_BYTES) {
 				socket.close(1009, "input frame too large");
@@ -438,6 +457,19 @@ export class TerminalRegistry {
 				{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
 				"terminal resized",
 			);
+		} catch (error) {
+			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
+		}
+	}
+
+	private resizeHelper(attachment: Attachment, cols: number, rows: number): void {
+		const pty = attachment.pty;
+		if (!pty) {
+			attachment.pendingResize = { cols, rows };
+			return;
+		}
+		try {
+			pty.resize(cols, rows);
 		} catch (error) {
 			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
 		}
