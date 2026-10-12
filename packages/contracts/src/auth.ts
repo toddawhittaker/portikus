@@ -155,7 +155,7 @@ export const PasskeyOptions = z.looseObject({ challenge: z.string() });
 export type PasskeyOptions = z.infer<typeof PasskeyOptions>;
 
 /** A browser's WebAuthn answer as the browser library sends it; the server library checks the rest. */
-const PasskeyCredential = z.looseObject({
+export const PasskeyCredential = z.looseObject({
 	id: z.string().min(1).max(1400),
 	rawId: z.string().min(1).max(1400),
 	type: z.literal("public-key"),

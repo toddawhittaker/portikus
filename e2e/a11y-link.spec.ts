@@ -79,6 +79,7 @@ async function openStubbedLink(page: Page, secondFactor: "verify" | "enrol") {
 				course: { displayName: "Max Learner", platformName: "mock-lms" },
 				sso: { displayName: "Lars Local", signInName: "lars", email: null },
 				secondFactor,
+				passkey: false,
 			},
 		}),
 	);
@@ -126,6 +127,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 					course: { displayName: "Max Learner", platformName: "mock-lms" },
 					sso: { displayName: "Gail Org", signInName: "gail", email: null },
 					secondFactor: null,
+					passkey: false,
 				},
 			}),
 		);

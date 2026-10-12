@@ -59,6 +59,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /workspaces/:id/projects/starter": 404,
 	"GET /me/links/pending": 404,
 	"HEAD /me/links/pending": 404,
+	"POST /me/links/passkey/start": 404,
 	"POST /me/links/confirm": 404,
 	"POST /me/links/:courseUserId/unlink": 404,
 	"POST /admin/users/:id/demote": 400,

@@ -5,8 +5,10 @@ import { flushSync } from "react-dom";
 import { ApiError } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { focusField } from "../second-factor/focusField.js";
+import { PasskeyButton } from "../second-factor/PasskeyButton.js";
+import { passkeysSupported } from "../second-factor/passkey.js";
 import { announceLink, leaveLinkTab } from "./channel.js";
-import { useConfirmLink, usePendingLink } from "./queries.js";
+import { linkWithPasskey, useConfirmLink, usePendingLink } from "./queries.js";
 
 /** What each refusal from the SSO sign-in means to the person (ADR 0026). */
 export const LINK_ERROR_MESSAGES: Record<LinkError, string> = {
@@ -47,6 +49,8 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 	const [code, setCode] = useState("");
 	// Kept apart from confirm.error so it renders before focus moves to the field.
 	const [codeError, setCodeError] = useState<string | undefined>();
+	// The passkey path reports its own errors beside its button, so it skips the mutation.
+	const [passkeyLinked, setPasskeyLinked] = useState(false);
 
 	if (error) {
 		return (
@@ -99,7 +103,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 		);
 	}
 
-	if (confirm.isSuccess) {
+	if (confirm.isSuccess || passkeyLinked) {
 		return (
 			<StandalonePage title="Accounts linked" testId="page-link">
 				<h1 id="page-title" className="pk-text-display">
@@ -118,7 +122,7 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 		);
 	}
 
-	const { course, sso, secondFactor } = pending.data;
+	const { course, sso, secondFactor, passkey } = pending.data;
 	const confirmError = isExpired(confirm.error)
 		? LINK_ERROR_MESSAGES.expired
 		: confirm.error?.message;
@@ -182,6 +186,17 @@ export function LinkPage({ error }: { error: LinkError | undefined }) {
 					sign-in before it can be linked. Sign in to Portikus with it and set up
 					two-step sign-in, then open Portikus from your course and link again.
 				</p>
+			) : null}
+			{secondFactor === "verify" && passkey && passkeysSupported() ? (
+				<PasskeyButton
+					label="Use a passkey"
+					testId="link-passkey"
+					action={async () => {
+						await linkWithPasskey();
+						setPasskeyLinked(true);
+						finishLinked();
+					}}
+				/>
 			) : null}
 			{secondFactor === "verify" ? (
 				<TextField
