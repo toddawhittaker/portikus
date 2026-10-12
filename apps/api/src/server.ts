@@ -45,6 +45,7 @@ import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
 import { registerCourseLiveHelpRoutes } from "./routes/course-live-help.js";
+import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-preview.js";
 import { registerCourseRosterRoutes } from "./routes/course-roster.js";
 import { registerCourseShareRoutes } from "./routes/course-shares.js";
 import { registerCourseRoutes } from "./routes/courses.js";
@@ -278,6 +279,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectShareRoutes(instance, deps);
 		registerLiveHelpRoutes(instance, deps);
 		registerCourseLiveHelpRoutes(instance, deps);
+		registerCourseLiveHelpPreviewRoutes(instance, routeDeps);
 		registerAgentUsageRoutes(instance, deps);
 		registerLtiDeepLinkRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
