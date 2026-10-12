@@ -59,7 +59,7 @@ export function AdminPage() {
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {
-		return <div className="pk-root min-w-0!" aria-busy="true" />;
+		return <div className="pk-root" aria-busy="true" />;
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;

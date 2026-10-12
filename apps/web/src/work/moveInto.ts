@@ -107,16 +107,43 @@ export function dropTreeFiles(
  * "Open N files" on the tree's selection menu, the keyboard way to make the
  * same drop (SPEC.md §11.2): the first file opens as a split right of the
  * focused pane. With no pane that can take a split, every file opens as a tab.
+ * Returns where the split went, or null when every file became a tab.
  */
-export function openTreeFiles(get: () => LayoutState, paths: readonly string[]) {
+export function openTreeFiles(
+	get: () => LayoutState,
+	paths: readonly string[],
+): MoveIntoTarget | null {
 	const [first] = paths;
 	const focused = get().focusedPaneId;
-	if (first === undefined) return;
+	if (first === undefined) return null;
 	const target =
 		focused === null ? null : fileDropTarget(get().layout, first, focused, "right");
 	if (target !== null) {
 		dropTreeFiles(get, paths, target);
-		return;
+		return target;
 	}
 	for (const path of paths) get().openFile(path);
+	return null;
+}
+
+/**
+ * What "Open N files" did, for the tree's live region (SPEC.md §25.8), since
+ * a keyboard user does not see the split land. `beside` names the pane the
+ * first file split, or is null when every file became a tab.
+ */
+export function openedFilesText(
+	names: readonly string[],
+	beside: string | null,
+): string {
+	const [first, ...rest] = names;
+	if (first === undefined) return "";
+	if (beside === null) {
+		return rest.length === 0
+			? `Opened ${first} as a tab.`
+			: `Opened ${names.length} files as tabs.`;
+	}
+	const split = `Opened ${first} beside ${beside}`;
+	if (rest.length === 0) return `${split}.`;
+	if (rest.length === 1) return `${split} and ${rest[0]} as a tab.`;
+	return `${split} and ${rest.length} more files as tabs.`;
 }

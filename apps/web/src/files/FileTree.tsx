@@ -26,9 +26,9 @@ import {
 } from "@portikus/ui";
 import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { filePaths } from "../layout/tree.js";
+import { filePaths, fileTabId } from "../layout/tree.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import { openTreeFiles } from "../work/moveInto.js";
+import { openedFilesText, openTreeFiles } from "../work/moveInto.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import { ExtractProgress } from "./ExtractProgress.js";
 import {
@@ -430,12 +430,28 @@ export function FileTreePane({
 		[openFileTab],
 	);
 
+	/** A pane under the name its tab shows: a file's name or a terminal's. */
+	const paneName = useCallback(
+		(paneId: string) => {
+			const path = layoutStore
+				.getState()
+				.layout.tabs.flatMap((tab) => filePaths(tab.root))
+				.find((file) => fileTabId(file) === paneId);
+			if (path !== undefined) return displayName(baseName(path));
+			const terminal = terminals.terminals.find((item) => item.id === paneId);
+			return terminal ? displayName(terminal.name) : "the focused terminal";
+		},
+		[layoutStore, terminals.terminals],
+	);
+
 	const openFiles = useCallback(
 		(nodes: readonly FileNode[]) => {
 			const paths = nodes.filter((node) => !node.isDir).map((node) => node.path);
-			openTreeFiles(layoutStore.getState, paths);
+			const target = openTreeFiles(layoutStore.getState, paths);
+			const names = paths.map((path) => displayName(baseName(path)));
+			setAnnouncement(openedFilesText(names, target && paneName(target.paneId)));
 		},
-		[layoutStore],
+		[layoutStore, paneName],
 	);
 
 	const extract = useCallback(

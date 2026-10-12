@@ -43,7 +43,7 @@ export function WorkspacePage() {
 	const me = useMe();
 
 	if (me.status === "loading") {
-		return <div className="pk-root min-w-0!" aria-busy="true" />;
+		return <div className="pk-root" aria-busy="true" />;
 	}
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
@@ -59,7 +59,7 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 	const settings = useEditorSettings();
 	// Only the first answer is waited for; a later refetch never hides the shell.
 	if (!settings.isFetched) {
-		return <div className="pk-root min-w-0!" aria-busy="true" />;
+		return <div className="pk-root" aria-busy="true" />;
 	}
 	return <WorkspaceShell {...props} />;
 }
