@@ -76,7 +76,7 @@ describe.skipIf(!hasTestDb())("migration 0048_live_help", () => {
 		expect(s.layoutVersion).toBe(0);
 	});
 
-	test("a session starts with typing off", async () => {
+	test("a session starts with typing off and no end reason", async () => {
 		const s = await seed();
 		const row = await t.db
 			.insertInto("live_help_sessions")
@@ -85,6 +85,7 @@ describe.skipIf(!hasTestDb())("migration 0048_live_help", () => {
 			.executeTakeFirstOrThrow();
 		expect(row.typing).toBe(false);
 		expect(row.ended_at).toBeNull();
+		expect(row.end_reason).toBeNull();
 	});
 
 	test("a workspace holds at most one open session", async () => {

@@ -3,13 +3,13 @@ import type { ApiConfig } from "@portikus/config";
 import { CloseCode, type TerminalAttachMode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
 import { z } from "zod";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
 import { sharesCourseWith } from "../courses/membership.js";
 import { sendError } from "../http.js";
 import { countActive, type WorkspaceRow } from "../workspaces/workspace-view.js";
-import { endLiveHelp } from "./sessions.js";
+import { endLiveHelp, whereOpen } from "./sessions.js";
 
 const SessionParam = z.object({
 	courseId: z.string().uuid(),
@@ -62,8 +62,7 @@ async function findLiveHelp(
 		.where("live_help_sessions.id", "=", ids.sessionId)
 		.where("live_help_sessions.helper_user_id", "=", ids.helperId)
 		.where("live_help_sessions.course_id", "=", ids.courseId)
-		.where("live_help_sessions.ended_at", "is", null)
-		.where("live_help_sessions.ends_at", ">", sql<Date>`now()`)
+		.where(whereOpen)
 		.executeTakeFirst();
 	if (row?.project_state !== "active") return null;
 	const allowed = await sharesCourseWith(db, {

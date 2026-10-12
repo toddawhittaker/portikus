@@ -15,6 +15,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		started_at timestamptz not null default now(),
 		ends_at timestamptz not null,
 		ended_at timestamptz null,
+		-- Why it ended, so the student's browser can say so (ADR 0063).
+		end_reason text null,
 		constraint live_help_sessions_ends_after_start check (ends_at > started_at)
 	)`.execute(db);
 	// A session past its end time still holds this slot until ended_at closes it.
