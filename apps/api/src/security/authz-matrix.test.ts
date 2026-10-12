@@ -55,6 +55,8 @@ const KNOWN_VULN: Record<string, string> = {};
  */
 const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/start": 400,
+	// The matrix sends no If-Match; a 412 still means the owner passed the gate.
+	"PUT /workspaces/:id/projects/:pid/layout": 412,
 	// No course launch has left a starter in the matrix world.
 	"POST /workspaces/:id/projects/starter": 404,
 	"GET /me/links/pending": 404,
@@ -398,6 +400,10 @@ const PAYLOADS: Record<string, object> = {
 		courseId: crypto.randomUUID(),
 	},
 	"POST /workspaces/:id/live-help/typing": { typing: true },
+	"POST /courses/:courseId/live-help/:sid/preview-grants": {
+		port: 5173,
+		presentation: "embedded",
+	},
 	// The fake agent's own node process.
 	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"POST /workspaces/:id/processes/:pid/stop-tree": { startTicks: 100 },

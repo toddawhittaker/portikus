@@ -3,6 +3,7 @@ import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionEnded } from "./api/sessionEnded.js";
 import { wsUrl } from "./api/ws.js";
+import { announceLayout } from "./layout/announcements.js";
 
 const HEARTBEAT_MS = 15_000;
 /** Activity is reported at most this often (ADR 0032). */
@@ -113,6 +114,9 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 				const message = parsed.data;
 				if (message.type === "workspace") setWorkspace(message.workspace);
 				if (message.type === "listening-services") setListening(message.services);
+				if (message.type === "layout") {
+					announceLayout(id, message.projectId, message.version);
+				}
 			};
 
 			next.onclose = (event: CloseEvent) => {

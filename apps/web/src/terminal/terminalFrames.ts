@@ -16,6 +16,7 @@ export type TerminalFrame =
 	| { kind: "screen"; alternate: boolean }
 	| { kind: "clear" }
 	| { kind: "agent"; build: string }
+	| { kind: "size"; cols: number; rows: number }
 	| { kind: "error"; code: string; reason?: TerminalGoneReason; at?: string }
 	| { kind: "ignored" };
 
@@ -48,7 +49,7 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 			return { kind: "agent", build: frame.build };
 		// Only live help attachments get size frames; the owner's terminal sets its own size.
 		case "size":
-			return { kind: "ignored" };
+			return { kind: "size", cols: frame.cols, rows: frame.rows };
 		case "error":
 			return frame.reason
 				? { kind: "error", code: frame.code, reason: frame.reason, at: frame.at ?? "" }

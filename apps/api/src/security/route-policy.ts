@@ -225,6 +225,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /courses/:courseId/live-help/:sid": { access: "course-instructor" },
 	"HEAD /courses/:courseId/live-help/:sid": { access: "course-instructor" },
 	"POST /courses/:courseId/live-help/:sid/leave": { access: "course-instructor" },
+	"GET /courses/:courseId/live-help/:sid/listening": { access: "course-instructor" },
+	"HEAD /courses/:courseId/live-help/:sid/listening": { access: "course-instructor" },
+	"POST /courses/:courseId/live-help/:sid/preview-grants": {
+		access: "course-instructor",
+	},
 	"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws": {
 		access: "course-instructor",
 		websocket: true,

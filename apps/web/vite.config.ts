@@ -51,7 +51,8 @@ export default defineConfig({
 			// LTI launch and the Course page's data. Anchored so
 			// the web app's own /course pages stay in the bundle.
 			"^/lti(/|\\?|$)": api,
-			"^/courses(/|\\?|$)": api,
+			// Live help's terminal sockets are course routes too (ADR 0063).
+			"^/courses(/|\\?|$)": { ...api, ws: true },
 			// /admin and /admin/<tab> are the administration screen in the
 			// bundle; /admin/* is also its data. Only a document navigation to
 			// the screen stays in the browser; a download such as

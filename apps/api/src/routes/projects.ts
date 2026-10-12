@@ -47,6 +47,7 @@ import {
 } from "../workspaces/project-scope.js";
 import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
+import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
 import { registerProjectStarterRoute } from "./project-starter.js";
 
@@ -201,7 +202,7 @@ async function moveProjectRow(
  */
 export function registerProjectRoutes(
 	app: FastifyInstance,
-	{ db, config }: ServerDeps,
+	{ db, config, workspaceHub }: ServerDeps & { workspaceHub: WorkspaceHub },
 	/** Shared with the files routes (ADR 0034 ruling 16). */
 	allowWrite: UserLimit,
 ): void {
@@ -864,7 +865,7 @@ export function registerProjectRoutes(
 		return reply.send(stream);
 	});
 
-	registerProjectLayoutRoutes(app, db, limitWrites, owned, ownedProject);
+	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
 }
 
 /**

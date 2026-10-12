@@ -11,6 +11,7 @@ import {
 } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import { liveHelpAudience, sharesCourseWith } from "../courses/membership.js";
+import { clearPreviewLookups } from "../preview/store.js";
 import { liveHelpSockets } from "./registry.js";
 
 /** Title of the notice an instructor gets when a student starts live help. */
@@ -101,7 +102,10 @@ export async function endLiveHelp(
 		await dropSessionPreviews(trx, [end.sessionId]);
 		return true;
 	});
-	if (ended) liveHelpSockets.end(end.sessionId);
+	if (!ended) return;
+	liveHelpSockets.end(end.sessionId);
+	// Cached preview rows would let the helper in for two more seconds.
+	clearPreviewLookups();
 }
 
 /** The open session of a workspace, if any, for its owner. */

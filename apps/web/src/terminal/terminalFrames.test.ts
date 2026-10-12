@@ -80,3 +80,20 @@ test("a workspace whose terminals are gone starts over, so a fresh start is no u
 	expect(upgradedAgentNotice("ws-gone", "newer")).toBe(false);
 	expect(upgradedAgentNotice("ws-gone", "new")).toBe(true);
 });
+
+test("a size frame carries the student's pane size, for live help (ADR 0063)", () => {
+	expect(
+		decodeTerminalFrame(JSON.stringify({ type: "size", cols: 120, rows: 35 })),
+	).toEqual({
+		kind: "size",
+		cols: 120,
+		rows: 35,
+	});
+	for (const bad of [
+		{ type: "size", cols: "120", rows: 35 },
+		{ type: "size", cols: 0, rows: 35 },
+		{ type: "size", cols: 120 },
+	]) {
+		expect(decodeTerminalFrame(JSON.stringify(bad)).kind).not.toBe("size");
+	}
+});
