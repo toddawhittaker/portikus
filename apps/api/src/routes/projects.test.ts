@@ -747,7 +747,7 @@ test.skipIf(skip)("a layout is stored and read back", async () => {
 	const saved = await app.inject({
 		method: "PUT",
 		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
-		headers: csrfHeaders(alice, PUBLIC_URL),
+		headers: { ...csrfHeaders(alice, PUBLIC_URL), "if-match": '"0"' },
 		payload: layout,
 	});
 	expect(saved.statusCode).toBe(204);
@@ -763,10 +763,57 @@ test.skipIf(skip)("a layout is stored and read back", async () => {
 	const bad = await app.inject({
 		method: "PUT",
 		url: `/workspaces/${workspaceId}/projects/${project.id}/layout`,
-		headers: csrfHeaders(alice, PUBLIC_URL),
+		headers: { ...csrfHeaders(alice, PUBLIC_URL), "if-match": '"1"' },
 		payload: { tabs: [{ id: "tab-1", root: { type: "leaf" } }] },
 	});
 	expect(bad.statusCode).toBe(400);
+});
+
+test.skipIf(skip)("a layout save must name the current version", async () => {
+	const project = (
+		await createProject(alice, workspaceId, { name: "versioned", source: "new" })
+	).json();
+	const url = `/workspaces/${workspaceId}/projects/${project.id}/layout`;
+	const layout = {
+		tabs: [{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } }],
+	};
+	const get = () =>
+		app.inject({ method: "GET", url, headers: { cookie: alice.cookieHeader() } });
+	const put = (ifMatch?: string) =>
+		app.inject({
+			method: "PUT",
+			url,
+			headers: {
+				...csrfHeaders(alice, PUBLIC_URL),
+				...(ifMatch === undefined ? {} : { "if-match": ifMatch }),
+			},
+			payload: layout,
+		});
+
+	const empty = await get();
+	expect(empty.statusCode).toBe(204);
+	expect(empty.headers.etag).toBe('"0"');
+
+	const missing = await put();
+	expect(missing.statusCode).toBe(412);
+	expect(missing.json().code).toBe("LAYOUT_CHANGED");
+	expect((await put("*")).statusCode).toBe(412);
+
+	const first = await put('"0"');
+	expect(first.statusCode).toBe(204);
+	expect(first.headers.etag).toBe('"1"');
+
+	const stale = await put('"0"');
+	expect(stale.statusCode).toBe(412);
+	expect(stale.json().code).toBe("LAYOUT_CHANGED");
+
+	// Two saves from the same version: exactly one lands.
+	const raced = await Promise.all([put('"1"'), put('"1"')]);
+	expect(raced.map((r) => r.statusCode).sort()).toEqual([204, 412]);
+
+	const read = await get();
+	expect(read.statusCode).toBe(200);
+	expect(read.headers.etag).toBe('"2"');
 });
 
 test.skipIf(skip)("a save past the user's total layout limit is refused", async () => {
@@ -791,7 +838,7 @@ test.skipIf(skip)("a save past the user's total layout limit is refused", async 
 		app.inject({
 			method: "PUT",
 			url: `/workspaces/${workspaceId}/projects/${projectId}/layout`,
-			headers: csrfHeaders(alice, PUBLIC_URL),
+			headers: { ...csrfHeaders(alice, PUBLIC_URL), "if-match": '"0"' },
 			payload: layout,
 		});
 

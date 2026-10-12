@@ -212,18 +212,37 @@ export function registerTerminalRoutes(app: FastifyInstance, s: FakeAgentState):
 				flags.openAttachments -= 1;
 				peers.delete(socket);
 			});
-			const query = request.query as { cols?: string; rows?: string };
+			const query = request.query as { cols?: string; rows?: string; mode?: string };
+			// A live help attach gets no history and cannot resize; a view
+			// attach cannot type either, as the real agent's tmux flags do
+			// (ADR 0063). Its frames are still recorded below, so a test sees
+			// what the API let through.
+			const mode = query.mode === "view" || query.mode === "type" ? query.mode : null;
 			// Earlier output first, then blank lines to push it into the
 			// browser's scrollback, exactly as the real agent does.
 			const earlier = history.get(id) ?? [];
-			if (earlier.length > 0) {
+			if (earlier.length > 0 && mode === null) {
 				const rows = Number(query.rows ?? "24");
 				const blank = "\r\n".repeat(Number.isFinite(rows) ? rows : 24);
 				socket.send(Buffer.from(`${earlier.join("\r\n")}\r\n${blank}`), {
 					binary: true,
 				});
 			}
-			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
+			if (mode === null) {
+				// Test-only: echoes the size the API asked for, so a test can see it.
+				socket.send(
+					JSON.stringify({ type: "attached-size", cols: query.cols, rows: query.rows }),
+				);
+			} else {
+				// The pane's size, as the real agent tells a live help attach.
+				socket.send(
+					JSON.stringify({
+						type: "size",
+						cols: Number(query.cols ?? "80"),
+						rows: Number(query.rows ?? "24"),
+					}),
+				);
+			}
 			// Only once a test has staged a restart, so tests reading the
 			// first frames are undisturbed.
 			const build = buildOf.get(id);
@@ -233,8 +252,9 @@ export function registerTerminalRoutes(app: FastifyInstance, s: FakeAgentState):
 				received.push(text);
 				receivedByTerminal.push({ terminalId: id, text });
 				const parsed = JSON.parse(text) as { type: string; cols?: number };
+				if (mode === "view" || (mode === "type" && parsed.type !== "input")) return;
 				if (parsed.type === "resize") {
-					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
+					socket.send(JSON.stringify({ type: "attached-size", cols: parsed.cols }));
 					return;
 				}
 				const broadcast = (payload: string) => emit(id, payload);

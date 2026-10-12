@@ -32,6 +32,7 @@ import {
 	ProcessTreeStopRequest,
 	ProcessTreeStopResponse,
 	SetLogLevelRequest,
+	type TerminalAttachMode,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Selectable } from "kysely";
@@ -98,9 +99,18 @@ export class AgentClient {
 		this.token = token;
 	}
 
-	/** The websocket URL a browser attachment is piped to. */
-	attachUrl(terminalId: string, cols: number, rows: number): string {
+	/**
+	 * The websocket URL a browser attachment is piped to. A live help attach
+	 * names its mode; the student's own attach has none (ADR 0063).
+	 */
+	attachUrl(
+		terminalId: string,
+		cols: number,
+		rows: number,
+		mode?: TerminalAttachMode,
+	): string {
 		const query = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+		if (mode) query.set("mode", mode);
 		return `ws://${this.address}:${this.port}/terminals/${terminalId}/attach?${query}`;
 	}
 

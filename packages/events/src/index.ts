@@ -21,6 +21,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
 		type: z.literal("listening-services"),
 		services: z.array(ListeningService),
 	}),
+	// A project's layout changed; the owner's other browsers reload it when
+	// their version is older (ADR 0063). Sent to the owner's sockets only.
+	z.object({
+		type: z.literal("layout"),
+		projectId: z.string().uuid(),
+		version: z.number().int().nonnegative(),
+	}),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
@@ -69,6 +76,13 @@ export const TerminalServerMessage = z.discriminatedUnion("type", [
 	// Which agent code is running, sent on every attach; a change while the
 	// page is open means the agent was upgraded and restarted.
 	z.object({ type: z.literal("agent"), build: z.string().min(1) }),
+	// The pane's size, sent to live help attachments only, which fix their
+	// terminal to it rather than resize the student's (ADR 0063).
+	z.object({
+		type: z.literal("size"),
+		cols: z.number().int().min(1).max(1000),
+		rows: z.number().int().min(1).max(1000),
+	}),
 	z.object({
 		type: z.literal("error"),
 		code: TerminalErrorCode,

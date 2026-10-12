@@ -38,6 +38,7 @@ export interface Database {
 	lti_starter_launches: LtiStarterLaunchesTable;
 	project_shares: ProjectSharesTable;
 	project_share_views: ProjectShareViewsTable;
+	live_help_sessions: LiveHelpSessionsTable;
 	agent_usage_days: AgentUsageDaysTable;
 	account_links: AccountLinksTable;
 	account_link_intents: AccountLinkIntentsTable;
@@ -305,6 +306,8 @@ interface ProjectsTable {
 	archived_at: ColumnType<Date | null, string | null, string | null>;
 	/** When the worker last checked this project for a periodic point. */
 	recovery_checked_at: ColumnType<Date | null, string | null, string | null>;
+	/** Bumped by every layout write; the layout's ETag (ADR 0063). */
+	layout_version: Generated<number>;
 }
 
 interface SettingsTable {
@@ -386,6 +389,12 @@ interface PreviewGrantsTable {
 	expires_at: ColumnType<Date, string, string>;
 	consumed_at: ColumnType<Date | null, string | null, string | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
+	/** Set when an instructor opened this preview through live help (ADR 0063). */
+	live_help_session_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 }
 
 interface PreviewSessionsTable {
@@ -398,6 +407,12 @@ interface PreviewSessionsTable {
 	preview_host: string;
 	created_at: ColumnType<Date, string | undefined, never>;
 	revoked_at: ColumnType<Date | null, string | null, string | null>;
+	/** Set when an instructor opened this preview through live help (ADR 0063). */
+	live_help_session_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 }
 
 interface RecoveryPointsTable {
@@ -524,6 +539,22 @@ interface ProjectSharesTable {
 	ends_at: ColumnType<Date, string, string>;
 	/** Set when the student stops it or a new share replaces an expired one. */
 	ended_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** A student's live help session with one instructor; at most one open per workspace (ADR 0063). */
+interface LiveHelpSessionsTable {
+	id: Generated<string>;
+	workspace_id: string;
+	project_id: string;
+	helper_user_id: string;
+	course_id: string;
+	/** Whether the instructor may type; only the student changes it. */
+	typing: Generated<boolean>;
+	started_at: ColumnType<Date, string | undefined, never>;
+	ends_at: ColumnType<Date, string, string>;
+	ended_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** A LiveHelpEndReason, set with `ended_at`. */
+	end_reason: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /** An instructor who opened a share, for the student's viewer list. */

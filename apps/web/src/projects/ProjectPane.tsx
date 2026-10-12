@@ -13,6 +13,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { downloadErrorToast } from "../files/errors.js";
 import { downloadCheckUrl, startDownload } from "../files/queries.js";
+import { StartLiveHelpDialog } from "../livehelp/StartLiveHelpDialog.js";
 import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
 import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
@@ -40,6 +41,7 @@ function ShareBadge({ project }: { project: Project }) {
 
 type Open =
 	| { kind: "share"; project: Project }
+	| { kind: "live-help"; project: Project }
 	| { kind: "none" }
 	| { kind: "create"; mode: CreateMode }
 	| { kind: "rename"; project: Project }
@@ -198,6 +200,11 @@ export function ProjectPane({
 														Share with my instructors…
 													</span>
 												</MenuItem>
+												<MenuItem
+													onSelect={() => setOpen({ kind: "live-help", project })}
+												>
+													<span data-testid="project-live-help">Get live help…</span>
+												</MenuItem>
 												{project.isGitRepo === false && (
 													<MenuItem onSelect={() => gitInit.mutate(project.id)}>
 														<span data-testid="project-git-init">Initialize Git</span>
@@ -317,6 +324,13 @@ export function ProjectPane({
 			)}
 			{open.kind === "share" && (
 				<ShareDialog
+					workspaceId={workspaceId}
+					project={open.project}
+					onClose={() => setOpen({ kind: "none" })}
+				/>
+			)}
+			{open.kind === "live-help" && (
+				<StartLiveHelpDialog
 					workspaceId={workspaceId}
 					project={open.project}
 					onClose={() => setOpen({ kind: "none" })}

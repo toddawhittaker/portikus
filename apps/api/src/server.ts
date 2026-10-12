@@ -13,6 +13,8 @@ import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { registerPagePolicy } from "./page-policy.js";
+import { createBridgeForwards } from "./preview/bridge.js";
+import { createPreviewRequestLimit } from "./preview/grants.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -44,12 +46,15 @@ import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
+import { registerCourseLiveHelpRoutes } from "./routes/course-live-help.js";
+import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-preview.js";
 import { registerCourseRosterRoutes } from "./routes/course-roster.js";
 import { registerCourseShareRoutes } from "./routes/course-shares.js";
 import { registerCourseRoutes } from "./routes/courses.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
 import { registerLinkRoutes } from "./routes/links.js";
+import { registerLiveHelpRoutes } from "./routes/live-help.js";
 import { registerLtiRoutes } from "./routes/lti.js";
 import { registerLtiDeepLinkRoutes } from "./routes/lti-deep-link.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
@@ -74,6 +79,7 @@ import {
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
 import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
+import { createWorkspaceHub } from "./workspaces/workspace-hub.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -241,7 +247,13 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		return reply.status(404).send(body);
 	});
 
-	const routeDeps = { ...deps, registry };
+	// Layout saves announce on the workspace sockets of the same server.
+	const workspaceHub = createWorkspaceHub();
+	// One preview budget per user across the student and live help grant routes.
+	const overPreviewLimit = createPreviewRequestLimit();
+	// One bridge, so ending live help closes the forwards the preview routes opened.
+	const bridge = createBridgeForwards({ registry, logger: deps.logger });
+	const routeDeps = { ...deps, registry, workspaceHub, overPreviewLimit, bridge };
 
 	// Every route lives inside this plugin, so an onRoute hook added after
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
@@ -271,13 +283,16 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerCourseRosterRoutes(instance, deps);
 		registerCourseShareRoutes(instance, deps);
 		registerProjectShareRoutes(instance, deps);
+		registerLiveHelpRoutes(instance, routeDeps, limitFileWrites);
+		registerCourseLiveHelpRoutes(instance, routeDeps);
+		registerCourseLiveHelpPreviewRoutes(instance, routeDeps);
 		registerAgentUsageRoutes(instance, deps);
 		registerLtiDeepLinkRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
-		registerProjectRoutes(instance, deps, limitFileWrites);
+		registerProjectRoutes(instance, routeDeps, limitFileWrites);
 		registerRecoveryRoutes(instance, deps);
 		registerFileRoutes(instance, deps, limitFileWrites);
 		registerGitSearchRoutes(instance, deps);

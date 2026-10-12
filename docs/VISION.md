@@ -295,7 +295,7 @@ The first pilot does not need:
 - a graphical Git client;
 - hidden automatic Git commits;
 - real-time collaborative editing between different students;
-- instructor takeover of a student's workspace;
+- instructor takeover of a student's workspace without the student's consent (live help, where the student invites an instructor to watch or type and can end it at any time, is not takeover; ADR 0063);
 - full LTI course workflows;
 - grading features;
 - permanent student environments across semesters;

@@ -29,7 +29,7 @@ folders. My coding agents work inside those folders."
 
 Explicit non-goals: not a VS Code clone, no graphical Git client, no
 hidden auto-commits, no real-time collaboration, no instructor takeover
-of a student session, no grading.
+of a student session without the student's consent (live help is allowed), no grading.
 
 ## 2. Who uses it
 

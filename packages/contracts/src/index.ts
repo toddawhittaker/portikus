@@ -38,6 +38,7 @@ export * from "./image.js";
 export * from "./jobs.js";
 export * from "./links.js";
 export * from "./listening.js";
+export * from "./live-help.js";
 export * from "./logs.js";
 export * from "./notifications.js";
 export * from "./notify.js";
