@@ -311,6 +311,7 @@ describe("the values the root job agrees on (ADR 0059)", () => {
 		),
 	) as { fields: Record<string, { good: unknown[]; bad: unknown[] }> };
 
+	const isCapitalised = (v: unknown) => typeof v === "string" && v !== v.toLowerCase();
 	// Each fixture field, as a schema given a body holding the value.
 	const FIELDS: Record<string, (value: unknown) => boolean> = {
 		httpsUrl: (v) =>
@@ -346,6 +347,8 @@ describe("the values the root job agrees on (ADR 0059)", () => {
 				expect(accepts(value), `good ${JSON.stringify(value)}`).toBe(true);
 			}
 			for (const value of values?.bad ?? []) {
+				// SigninSettings lowercases Google group emails before the root job sees them.
+				if (field === "googleGroup" && isCapitalised(value)) continue;
 				expect(accepts(value), `bad ${JSON.stringify(value)}`).toBe(false);
 			}
 		});
@@ -480,7 +483,7 @@ describe("SiteView: no secret can be read through it (SPEC.md 24.8)", () => {
 });
 
 describe("SigninSettings: roles from provider groups (SPEC.md 5.1)", () => {
-	test("Google with an administrator needs three lowercase group emails", () => {
+	test("Google with an administrator needs three group emails, stored lowercase", () => {
 		expect(SigninSettings.safeParse(GOOGLE_GROUPS).success).toBe(true);
 		const { groups: _, ...noGroups } = GOOGLE_GROUPS;
 		expect(SigninSettings.safeParse(noGroups).success).toBe(false);
@@ -488,7 +491,12 @@ describe("SigninSettings: roles from provider groups (SPEC.md 5.1)", () => {
 			...GOOGLE_GROUPS,
 			groups: { ...GOOGLE_GROUPS.groups, admin: "Admins@example.edu" },
 		};
-		const refused = SigninSettings.safeParse(capitals);
+		expect(SigninSettings.parse(capitals).groups?.admin).toBe("admins@example.edu");
+		const notEmail = {
+			...GOOGLE_GROUPS,
+			groups: { ...GOOGLE_GROUPS.groups, admin: "Admins" },
+		};
+		const refused = SigninSettings.safeParse(notEmail);
 		expect(refused.error?.issues.map((i) => i.path.join("."))).toEqual([
 			"groups.admin",
 		]);

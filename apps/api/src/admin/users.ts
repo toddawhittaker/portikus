@@ -3,6 +3,7 @@ import { type AdminUser, Role } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
+import { revokeAccountEmailTokens } from "../account-email/tokens.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { countActiveByWorkspace } from "../workspaces/workspace-view.js";
@@ -74,16 +75,18 @@ async function listDexUserIds(
 }
 
 /**
- * A local Dex password this site manages. Under
- * Dex in front of an upstream provider, only the local (guest) accounts. While
- * Dex does not answer, the subject alone decides, so a click reports the outage.
+ * A local Dex account this site manages. Under Dex in front of an upstream
+ * provider, only the local (guest) accounts. An enabled account counts even
+ * with no password in Dex, so an interrupted email change can be finished
+ * from the list. While Dex does not answer, the subject alone decides.
  */
 function isDexLocal(
-	user: { oidc_issuer: string; oidc_subject: string },
+	user: { oidc_issuer: string; oidc_subject: string; disabled_at: unknown },
 	dexUserIds: Set<string> | "unknown",
 ): boolean {
 	const userId = localDexUserId(user);
 	if (userId === null) return false;
+	if (user.disabled_at === null) return true;
 	return dexUserIds === "unknown" || dexUserIds.has(userId);
 }
 
@@ -224,6 +227,7 @@ export async function disableUser(
 			.set({ desired_state: "stopped", updated_at: now })
 			.where("owner_user_id", "=", id)
 			.execute();
+		await revokeAccountEmailTokens(trx, id);
 		await recordAudit(trx, {
 			actor: `user:${actorId}`,
 			target: id,
