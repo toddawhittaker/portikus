@@ -14,6 +14,7 @@ import {
 	test,
 } from "@playwright/test";
 import {
+	apiLoginAs,
 	createProject,
 	createStudent,
 	expectConnected,
@@ -301,7 +302,9 @@ for (const viewport of SHORT) {
 			page,
 		}) => {
 			test.setTimeout(90_000);
-			await loginAs(page, "carol");
+			// Signing in through the request context skips the Sign in click,
+			// which can time out while a loaded dev server is still compiling.
+			await apiLoginAs(page.request, "carol");
 			for (const { path, table, name } of ADMIN_TABLES) {
 				await expect(async () => {
 					await page.goto(path);
@@ -319,22 +322,24 @@ for (const viewport of SHORT) {
 				await expect(region).toBeFocused();
 				// The box shows the keyboard where it is.
 				await expect(region).toHaveCSS("outline-style", "solid");
-				for (let step = 0; step < 60; step += 1)
-					await page.keyboard.press("ArrowRight");
 				const last = page.getByTestId(table).locator("thead th").last();
 				const box = await boxOf(region);
-				// Arrow keys scroll smoothly, so wait for the scroll to settle. The
-				// last header may be wider than the box, so its end is what must show.
-				await expect
-					.poll(
-						async () => {
-							const header = await boxOf(last);
-							const end = header.x + header.width;
-							return end <= box.x + box.width + 1 && end > box.x;
-						},
-						{ message: table },
-					)
-					.toBe(true);
+				// Arrow keys scroll smoothly, and a live table can grow a column
+				// after a press, so keep pressing until the box rests at its end.
+				// The last header may be wider than the box, so its end must show.
+				await expect(async () => {
+					for (let step = 0; step < 20; step += 1)
+						await page.keyboard.press("ArrowRight");
+					await expect(region).toBeFocused();
+					const atEnd = await region.evaluate(
+						(el) => el.scrollLeft + el.clientWidth >= el.scrollWidth - 1,
+					);
+					expect(atEnd, table).toBe(true);
+					const header = await boxOf(last);
+					const end = header.x + header.width;
+					expect(end, table).toBeLessThanOrEqual(box.x + box.width + 1);
+					expect(end, table).toBeGreaterThan(box.x);
+				}).toPass({ timeout: 20_000 });
 				await expectNoPageScrollSideways(page);
 
 				for (const colorScheme of ["light", "dark"] as const) {
@@ -385,32 +390,45 @@ async function expectAdminContentFits(page: Page): Promise<void> {
 			.map((wrap) => wrap.outerHTML.slice(0, 120));
 		return { mainScrolls: main.scrollWidth > main.clientWidth, spill, clipped };
 	});
-	expect(overflow).toEqual({ mainScrolls: false, spill: [], clipped: [] });
+	expect(overflow, page.url()).toEqual({ mainScrolls: false, spill: [], clipped: [] });
+}
+
+// 320 px is the WCAG 1.4.10 reflow width; 375 px is a common phone.
+for (const width of [NARROW.width, 375, 320]) {
+	test.describe(`the admin area at ${width} px`, () => {
+		test.use({ viewport: { width, height: NARROW.height } });
+
+		test("no tab scrolls sideways, and a wide table scrolls in its own box", async ({
+			page,
+		}) => {
+			test.setTimeout(120_000);
+			await apiLoginAs(page.request, "carol");
+			for (const tab of ADMIN_TABS) {
+				await page.goto(`/admin/${tab}`);
+				await expect(page.getByTestId(`admin-tab-${tab}`)).toHaveAttribute(
+					"aria-current",
+					"page",
+					{ timeout: 15_000 },
+				);
+				await expect(page.getByRole("heading", { level: 2 }).first()).toBeVisible();
+				await expect(
+					page.getByTestId("page-admin").locator("[aria-busy=true]"),
+				).toHaveCount(0);
+				await expectNoPageScrollSideways(page);
+				await expectAdminContentFits(page);
+				if (width === 320 && ["users", "address", "docker"].includes(tab)) {
+					await page.screenshot({
+						path: `screenshots/narrow-admin-${tab}-320.png`,
+						fullPage: true,
+					});
+				}
+			}
+		});
+	});
 }
 
 test.describe("the admin area at 560 px", () => {
 	test.use({ viewport: NARROW });
-
-	test("no tab scrolls sideways, and a wide table scrolls in its own box", async ({
-		page,
-	}) => {
-		test.setTimeout(120_000);
-		await loginAs(page, "carol");
-		for (const tab of ADMIN_TABS) {
-			await page.goto(`/admin/${tab}`);
-			await expect(page.getByTestId(`admin-tab-${tab}`)).toHaveAttribute(
-				"aria-current",
-				"page",
-				{ timeout: 15_000 },
-			);
-			await expect(page.getByRole("heading", { level: 2 }).first()).toBeVisible();
-			await expect(
-				page.getByTestId("page-admin").locator("[aria-busy=true]"),
-			).toHaveCount(0);
-			await expectNoPageScrollSideways(page);
-			await expectAdminContentFits(page);
-		}
-	});
 
 	test("Tab reaches every admin tab and a Users row's last-column action on screen", async ({
 		page,

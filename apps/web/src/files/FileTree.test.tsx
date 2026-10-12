@@ -401,7 +401,7 @@ describe("the file tree", () => {
 
 		const next = await screen.findByTestId("file-row-b.txt");
 		await waitFor(() => expect(document.activeElement).toBe(next));
-		expect(screen.getByTestId("files-announcement").textContent).toBe(
+		expect((await screen.findByTestId("files-announcement")).textContent).toBe(
 			"Loaded 2 more entries",
 		);
 		expect(screen.getByTestId("file-row-a.txt").getAttribute("aria-selected")).toBe(

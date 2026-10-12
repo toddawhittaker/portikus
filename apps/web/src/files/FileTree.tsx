@@ -26,9 +26,9 @@ import {
 } from "@portikus/ui";
 import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { filePaths, fileTabId } from "../layout/tree.js";
+import { filePaths } from "../layout/tree.js";
 import { useTerminals } from "../terminal/useTerminals.js";
-import { openedFilesText, openTreeFiles } from "../work/moveInto.js";
+import { openedFilesText, openTreeFiles, paneName } from "../work/moveInto.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import { ExtractProgress } from "./ExtractProgress.js";
 import {
@@ -84,6 +84,7 @@ import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { CreateMenuItems, RootDropZone, TreeListing } from "./TreeRows.js";
 import { type TreeApi, TreeContext } from "./treeApi.js";
 import { selectionAfterExtend, useFocusRepair } from "./treeKeys.js";
+import { useAnnouncement } from "./useAnnouncement.js";
 import { useGitStatus } from "./useGitStatus.js";
 import { useTreeDragAndDrop } from "./useTreeDragAndDrop.js";
 
@@ -202,7 +203,7 @@ export function FileTreePane({
 	const [rowState] = useState(createRowStateStore);
 	const { setFocusedPath, setSelection } = rowState.getState();
 	const [menuPath, setMenuPath] = useState<string | null>(null);
-	const [announcement, setAnnouncement] = useState("");
+	const [announcement, announce] = useAnnouncement();
 	const [dialog, setDialog] = useState<
 		| { kind: "none" }
 		| { kind: "new"; dir: string; type: "file" | "dir" }
@@ -430,28 +431,17 @@ export function FileTreePane({
 		[openFileTab],
 	);
 
-	/** A pane under the name its tab shows: a file's name or a terminal's. */
-	const paneName = useCallback(
-		(paneId: string) => {
-			const path = layoutStore
-				.getState()
-				.layout.tabs.flatMap((tab) => filePaths(tab.root))
-				.find((file) => fileTabId(file) === paneId);
-			if (path !== undefined) return displayName(baseName(path));
-			const terminal = terminals.terminals.find((item) => item.id === paneId);
-			return terminal ? displayName(terminal.name) : "the focused terminal";
-		},
-		[layoutStore, terminals.terminals],
-	);
-
 	const openFiles = useCallback(
 		(nodes: readonly FileNode[]) => {
 			const paths = nodes.filter((node) => !node.isDir).map((node) => node.path);
 			const target = openTreeFiles(layoutStore.getState, paths);
 			const names = paths.map((path) => displayName(baseName(path)));
-			setAnnouncement(openedFilesText(names, target && paneName(target.paneId)));
+			const beside =
+				target &&
+				paneName(layoutStore.getState().layout, terminals.terminals, target.paneId);
+			announce(openedFilesText(names, beside));
 		},
-		[layoutStore, paneName],
+		[layoutStore, terminals.terminals, announce],
 	);
 
 	const extract = useCallback(
@@ -521,7 +511,7 @@ export function FileTreePane({
 			git,
 			menuPath,
 			setMenuPath,
-			announce: setAnnouncement,
+			announce,
 		}),
 		[
 			workspaceId,
@@ -549,6 +539,7 @@ export function FileTreePane({
 			endMove,
 			git,
 			menuPath,
+			announce,
 		],
 	);
 
