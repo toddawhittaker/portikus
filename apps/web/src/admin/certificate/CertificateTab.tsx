@@ -507,14 +507,10 @@ function RootGroup() {
 				<dt className="pk-muted">Linux</dt>
 				<dd className="m-0">
 					Copy it to{" "}
-					<code className="pk-mono-body whitespace-nowrap">
+					<code className="pk-mono-body [overflow-wrap:anywhere]">
 						/usr/local/share/ca-certificates/
 					</code>{" "}
-					and run{" "}
-					<code className="pk-mono-body whitespace-nowrap">
-						sudo update-ca-certificates
-					</code>
-					.
+					and run <code className="pk-mono-body">sudo update-ca-certificates</code>.
 				</dd>
 				<dt className="pk-muted">Firefox</dt>
 				<dd className="m-0">

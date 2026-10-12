@@ -13,6 +13,7 @@ import {
 	moveIntoTargets,
 	openedFilesText,
 	openTreeFiles,
+	paneName,
 } from "./moveInto.js";
 
 const leaf = (terminalId: string): SplitNode => ({ type: "leaf", terminalId });
@@ -240,4 +241,26 @@ test("the announcement says where each opened file went", () => {
 	expect(openedFilesText(["notes.md"], null)).toBe("Opened notes.md as a tab.");
 	expect(openedFilesText(["a.md", "b.md"], null)).toBe("Opened 2 files as tabs.");
 	expect(openedFilesText([], null)).toBe("");
+});
+
+test("the announcement names the pane the split went beside as its tab does", () => {
+	const nested: ProjectLayout = {
+		tabs: [
+			{
+				id: "a",
+				root: {
+					type: "split",
+					direction: "row",
+					sizes: [50, 50],
+					children: [leaf("t1"), { type: "file", path: "src/notes‮.md" }],
+				},
+			},
+		],
+	};
+	const terminals = [{ id: "t1", name: "Build‎ shell" }];
+	// A file pane, even inside a split, goes by its base name, drawn safely.
+	expect(paneName(nested, terminals, "file:src/notes‮.md")).toBe("notes.md");
+	expect(paneName(nested, terminals, "t1")).toBe("Build shell");
+	// A terminal the list has not caught up with yet still gets a name.
+	expect(paneName(nested, [], "t1")).toBe("the focused terminal");
 });
