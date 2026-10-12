@@ -184,6 +184,23 @@ test("a mode change, an end and the student leaving each stop the socket and tel
 	}
 });
 
+test("another tab taking the terminal over says so and never reattaches on its own", () => {
+	vi.useFakeTimers();
+	const { socket, props } = renderTerminal();
+	const count = sockets.length;
+	act(() => socket.onclose?.({ code: CloseCode.LIVE_HELP_REPLACED }));
+	expect(screen.getByRole("status").textContent).toBe(
+		"This terminal was opened in another tab.",
+	);
+	expect(props.onClosed).not.toHaveBeenCalled();
+	act(() => {
+		vi.advanceTimersByTime(60_000);
+	});
+	expect(sockets).toHaveLength(count);
+	fireEvent.click(screen.getByRole("button", { name: "Open here" }));
+	expect(props.onRetry).toHaveBeenCalledTimes(1);
+});
+
 test("any other close is retried as an ordinary drop", () => {
 	vi.useFakeTimers();
 	const { socket, props } = renderTerminal();
@@ -199,6 +216,7 @@ test("helperCloseAction maps only the live help close codes", () => {
 	expect(helperCloseAction(CloseCode.LIVE_HELP_MODE_CHANGED)).toBe("reconnect");
 	expect(helperCloseAction(CloseCode.LIVE_HELP_ENDED)).toBe("ended");
 	expect(helperCloseAction(CloseCode.POLICY)).toBe("away");
+	expect(helperCloseAction(CloseCode.LIVE_HELP_REPLACED)).toBe("replaced");
 	expect(helperCloseAction(CloseCode.SESSION_ENDED)).toBeNull();
 	expect(helperCloseAction(CloseCode.TOO_MANY_SOCKETS)).toBeNull();
 	expect(helperCloseAction(1006)).toBeNull();

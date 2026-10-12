@@ -297,6 +297,39 @@ test("a stopped workspace reads as the student being away, and the view comes ba
 	}
 });
 
+test("a second tab takes the terminal over and the first says so without fighting back", async ({
+	page,
+	context,
+	browser,
+}) => {
+	const setup = await setUp(page, context, browser);
+	try {
+		const first = setup.instructor;
+		const firstTerminal = await openSession(setup);
+		const second = await setup.instructorContext.newPage();
+		await second.goto(first.url());
+		await expect(second.getByTestId("helper-terminal")).toHaveAttribute(
+			"data-connected",
+			"true",
+			{ timeout: 15_000 },
+		);
+		await expect(
+			first.getByText("This terminal was opened in another tab."),
+		).toBeVisible();
+		await expect(firstTerminal).toHaveAttribute("data-connected", "false");
+		// The first tab stays closed rather than taking the terminal back.
+		await first.waitForTimeout(3_000);
+		await expect(firstTerminal).toHaveAttribute("data-connected", "false");
+		await expect(second.getByTestId("helper-terminal")).toHaveAttribute(
+			"data-connected",
+			"true",
+		);
+		await expectNoViolations(first);
+	} finally {
+		await setup.instructorContext.close();
+	}
+});
+
 test("Leave session ends it for both and goes back to the list", async ({
 	page,
 	context,

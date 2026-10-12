@@ -129,3 +129,7 @@ test("end reasons are the audit's plus expiry", () => {
 		"expired",
 	]);
 });
+
+test("a student's status always states lastEnded", () => {
+	expect(LiveHelpStatus.safeParse({ session: null, audience: [] }).success).toBe(false);
+});

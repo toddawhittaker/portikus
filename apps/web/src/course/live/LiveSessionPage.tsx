@@ -9,7 +9,7 @@ import { focusHeadingOnArrival } from "./arrival.js";
 import { HelperTerminal } from "./HelperTerminal.js";
 import type { HelperCloseAction } from "./helperClose.js";
 import { modeText } from "./mode.js";
-import { openLivePreview, serviceLabel, useLiveListening } from "./previews.js";
+import { openLivePreview, useLiveListening } from "./previews.js";
 import {
 	type LiveRef,
 	liveBase,
@@ -346,14 +346,7 @@ function Previews({ liveRef, enabled }: { liveRef: LiveRef; enabled: boolean }) 
 				<ul className="flex flex-col divide-y divide-line" data-testid="live-previews">
 					{services.map((service) => (
 						<li key={service.port} className="flex min-w-0 items-center gap-3 py-2">
-							<span className="flex min-w-0 flex-1 flex-col">
-								<span className="pk-mono-body">Port {service.port}</span>
-								{serviceLabel(service) ? (
-									<span className="pk-muted truncate text-[12px]">
-										{serviceLabel(service)}
-									</span>
-								) : null}
-							</span>
+							<span className="pk-mono-body min-w-0 flex-1">Port {service.port}</span>
 							{/* aria-label, because Chromium names a hidden span with a space before it. */}
 							<Button
 								size="sm"

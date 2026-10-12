@@ -8,6 +8,7 @@ import { z } from "zod";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
 import { sharesCourseWith } from "../courses/membership.js";
 import { sendError } from "../http.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import { countActive, type WorkspaceRow } from "../workspaces/workspace-view.js";
 import { endLiveHelp, whereOpen } from "./sessions.js";
 
@@ -44,6 +45,7 @@ type Found = Omit<LiveHelpScope, "agent">;
 async function findLiveHelp(
 	db: Kysely<Database>,
 	ids: { sessionId: string; helperId: string; courseId: string },
+	bridge: BridgeForwards,
 ): Promise<Found | null> {
 	const row = await db
 		.selectFrom("live_help_sessions")
@@ -71,11 +73,11 @@ async function findLiveHelp(
 		courseId: ids.courseId,
 	});
 	if (!allowed) {
-		await endLiveHelp(db, {
-			sessionId: row.session_id,
-			actor: "platform",
-			reason: "helper_removed",
-		});
+		await endLiveHelp(
+			db,
+			{ sessionId: row.session_id, actor: "platform", reason: "helper_removed" },
+			bridge,
+		);
 		return null;
 	}
 	const {
@@ -117,6 +119,7 @@ export async function liveHelpScope(
 	request: FastifyRequest,
 	reply: FastifyReply,
 	options: { live: boolean },
+	bridge: BridgeForwards,
 ): Promise<LiveHelpScope | null> {
 	const helper = requireUser(request);
 	const params = SessionParam.safeParse(request.params);
@@ -124,11 +127,15 @@ export async function liveHelpScope(
 		sendError(reply, 404, "NOT_FOUND", "Not found.");
 		return null;
 	}
-	const found = await findLiveHelp(db, {
-		sessionId: params.data.sid,
-		helperId: helper.id,
-		courseId: params.data.courseId,
-	});
+	const found = await findLiveHelp(
+		db,
+		{
+			sessionId: params.data.sid,
+			helperId: helper.id,
+			courseId: params.data.courseId,
+		},
+		bridge,
+	);
 	if (!found) {
 		sendError(reply, 404, "NOT_FOUND", "Not found.");
 		return null;
@@ -165,8 +172,9 @@ export async function helperSocketRefusal(
 	config: ApiConfig,
 	scope: Pick<LiveHelpScope, "sessionId" | "helperId" | "courseId" | "workspaceId">,
 	mode: TerminalAttachMode,
+	bridge: BridgeForwards,
 ): Promise<{ code: number; reason: string } | null> {
-	const found = await findLiveHelp(db, scope);
+	const found = await findLiveHelp(db, scope, bridge);
 	if (!found) return { code: CloseCode.LIVE_HELP_ENDED, reason: "live help ended" };
 	if ((found.typing ? "type" : "view") !== mode) {
 		return { code: CloseCode.LIVE_HELP_MODE_CHANGED, reason: "live help mode changed" };

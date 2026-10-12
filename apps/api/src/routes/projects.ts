@@ -32,6 +32,7 @@ import {
 	type EndedLiveHelp,
 	endProjectLiveHelp,
 } from "../live-help/sessions.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import type { UserLimit } from "../rate-limit.js";
 import { cappedDownload } from "../workspaces/capped-download.js";
 import { createProject } from "../workspaces/create-project.js";
@@ -206,7 +207,12 @@ async function moveProjectRow(
  */
 export function registerProjectRoutes(
 	app: FastifyInstance,
-	{ db, config, workspaceHub }: ServerDeps & { workspaceHub: WorkspaceHub },
+	{
+		db,
+		config,
+		workspaceHub,
+		bridge,
+	}: ServerDeps & { workspaceHub: WorkspaceHub; bridge: BridgeForwards },
 	/** Shared with the files routes (ADR 0034 ruling 16). */
 	allowWrite: UserLimit,
 ): void {
@@ -563,7 +569,7 @@ export function registerProjectRoutes(
 					return updated;
 				});
 				// Sockets close only once the archive is committed.
-				if (endedHelp) await closeEndedLiveHelp(endedHelp);
+				if (endedHelp) await closeEndedLiveHelp(endedHelp, bridge);
 			}
 
 			return toProject(current, null, null);

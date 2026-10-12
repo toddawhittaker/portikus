@@ -22,6 +22,7 @@ import {
 } from "../live-help/gate.js";
 import { liveHelpSockets } from "../live-help/registry.js";
 import { leaveLiveHelp, whereOpen } from "../live-help/sessions.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import { createPendingWork } from "../workspaces/presence.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
 import { terminalSockets } from "../workspaces/terminal-sockets.js";
@@ -60,9 +61,9 @@ function sessionView(
  */
 export function registerCourseLiveHelpRoutes(
 	app: FastifyInstance,
-	deps: ServerDeps,
+	deps: ServerDeps & { bridge: BridgeForwards },
 ): void {
-	const { db, config } = deps;
+	const { db, config, bridge } = deps;
 	const { track, drain } = createPendingWork();
 
 	app.register(async (instance) => {
@@ -120,7 +121,14 @@ export function registerCourseLiveHelpRoutes(
 		});
 
 		instance.get("/courses/:courseId/live-help/:sid", async (request, reply) => {
-			const scope = await liveHelpScope(db, config, request, reply, { live: false });
+			const scope = await liveHelpScope(
+				db,
+				config,
+				request,
+				reply,
+				{ live: false },
+				bridge,
+			);
 			if (!scope) return;
 			const student = await db
 				.selectFrom("users")
@@ -147,9 +155,20 @@ export function registerCourseLiveHelpRoutes(
 		});
 
 		instance.post("/courses/:courseId/live-help/:sid/leave", async (request, reply) => {
-			const scope = await liveHelpScope(db, config, request, reply, { live: false });
+			const scope = await liveHelpScope(
+				db,
+				config,
+				request,
+				reply,
+				{ live: false },
+				bridge,
+			);
 			if (!scope) return;
-			await leaveLiveHelp(db, { sessionId: scope.sessionId, helperId: scope.helperId });
+			await leaveLiveHelp(
+				db,
+				{ sessionId: scope.sessionId, helperId: scope.helperId },
+				bridge,
+			);
 			return reply.status(204).send();
 		});
 
@@ -160,9 +179,16 @@ export function registerCourseLiveHelpRoutes(
 				// A HEAD twin would reach the socket handler and crash.
 				exposeHeadRoute: false,
 				preHandler: async (request, reply) => {
-					const scope = await liveHelpScope(db, config, request, reply, {
-						live: true,
-					});
+					const scope = await liveHelpScope(
+						db,
+						config,
+						request,
+						reply,
+						{
+							live: true,
+						},
+						bridge,
+					);
 					if (!scope) return;
 					// Only a live terminal of the session's own project.
 					const params = TerminalParam.safeParse(request.params);
@@ -177,15 +203,6 @@ export function registerCourseLiveHelpRoutes(
 								.executeTakeFirst()
 						: undefined;
 					if (!terminal) return sendError(reply, 404, "NOT_FOUND", "Not found.");
-					// One helper socket per terminal: a second tab would double every keystroke.
-					if (liveHelpSockets.has(scope.sessionId, terminal.id)) {
-						return sendError(
-							reply,
-							409,
-							"LIVE_HELP_TERMINAL_OPEN",
-							"This terminal is already open in another tab.",
-						);
-					}
 					request.liveHelpScope = scope;
 				},
 			},
@@ -208,7 +225,8 @@ export function registerCourseLiveHelpRoutes(
 				}
 				const mode: TerminalAttachMode = scope.typing ? "type" : "view";
 				// Registered before any await, so an end or a mode change from now
-				// on reaches this socket (ADR 0063).
+				// on reaches this socket, and an older socket on this terminal
+				// stops reading input before this one's pipe opens (ADR 0063).
 				let endPipe: ((code: number, reason: string) => void) | null = null;
 				const unregister = liveHelpSockets.add(
 					scope.sessionId,
@@ -221,16 +239,9 @@ export function registerCourseLiveHelpRoutes(
 					},
 				);
 				const release = () => {
-					unregister?.();
+					unregister();
 					terminalSockets.release(scope.helperId);
 				};
-				if (!unregister) {
-					// Another upgrade for this terminal won the race past the preHandler.
-					terminalSockets.release(scope.helperId);
-					socket.close(CloseCode.POLICY, "terminal already open");
-					socket.resume();
-					return;
-				}
 				try {
 					// Written before the pipe opens: no attach goes unrecorded (ADR 0063).
 					await recordAudit(db, {
@@ -253,7 +264,7 @@ export function registerCourseLiveHelpRoutes(
 				// The session may have ended or changed mode while the audit ran.
 				const refused =
 					socket.readyState === socket.OPEN
-						? await helperSocketRefusal(db, config, scope, mode)
+						? await helperSocketRefusal(db, config, scope, mode, bridge)
 						: null;
 				if (socket.readyState !== socket.OPEN || refused) {
 					release();
@@ -276,7 +287,7 @@ export function registerCourseLiveHelpRoutes(
 						rows: size.rows,
 						mode,
 						presence: false,
-						stillAllowed: () => helperSocketRefusal(db, config, scope, mode),
+						stillAllowed: () => helperSocketRefusal(db, config, scope, mode, bridge),
 						register: (end) => {
 							endPipe = end;
 							return () => {

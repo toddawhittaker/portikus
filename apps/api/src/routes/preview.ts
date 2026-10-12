@@ -19,7 +19,7 @@ import {
 	createPreviewDeniedAudit,
 	type PreviewDeniedReason,
 } from "../preview/audit-throttle.js";
-import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
+import { type BridgeForwards, parseBridgeUri } from "../preview/bridge.js";
 import {
 	type EmbeddableVerdict,
 	probeEmbeddable,
@@ -107,9 +107,10 @@ export function registerPreviewRoutes(
 	deps: ServerDeps & {
 		registry: ListeningRegistry;
 		overPreviewLimit: PreviewRequestLimit;
+		bridge: BridgeForwards;
 	},
 ): void {
-	const { db, config, logger, registry, overPreviewLimit } = deps;
+	const { db, config, registry, overPreviewLimit, bridge } = deps;
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	// The Preview tab frames these pages, so they carry their own policy.
@@ -125,7 +126,6 @@ export function registerPreviewRoutes(
 			.header("referrer-policy", "no-referrer")
 			.send(html);
 	}
-	const bridge = createBridgeForwards({ registry, logger });
 	const deniedAudit = createPreviewDeniedAudit(db);
 	const lookups = createPreviewLookupCache(db, config);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);

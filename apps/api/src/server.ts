@@ -13,6 +13,7 @@ import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
 import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { registerPagePolicy } from "./page-policy.js";
+import { createBridgeForwards } from "./preview/bridge.js";
 import { createPreviewRequestLimit } from "./preview/grants.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit, registerAnonymousLimit } from "./rate-limit.js";
@@ -250,7 +251,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	const workspaceHub = createWorkspaceHub();
 	// One preview budget per user across the student and live help grant routes.
 	const overPreviewLimit = createPreviewRequestLimit();
-	const routeDeps = { ...deps, registry, workspaceHub, overPreviewLimit };
+	// One bridge, so ending live help closes the forwards the preview routes opened.
+	const bridge = createBridgeForwards({ registry, logger: deps.logger });
+	const routeDeps = { ...deps, registry, workspaceHub, overPreviewLimit, bridge };
 
 	// Every route lives inside this plugin, so an onRoute hook added after
 	// buildServer returns still sees all of them (authz-matrix.test.ts).
@@ -280,8 +283,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerCourseRosterRoutes(instance, deps);
 		registerCourseShareRoutes(instance, deps);
 		registerProjectShareRoutes(instance, deps);
-		registerLiveHelpRoutes(instance, deps, limitFileWrites);
-		registerCourseLiveHelpRoutes(instance, deps);
+		registerLiveHelpRoutes(instance, routeDeps, limitFileWrites);
+		registerCourseLiveHelpRoutes(instance, routeDeps);
 		registerCourseLiveHelpPreviewRoutes(instance, routeDeps);
 		registerAgentUsageRoutes(instance, deps);
 		registerLtiDeepLinkRoutes(instance, deps);

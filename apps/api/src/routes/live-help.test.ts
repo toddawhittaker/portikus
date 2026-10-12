@@ -201,13 +201,8 @@ describe.skipIf(skip)("starting live help", () => {
 				Date.parse(status.session?.startedAt ?? "")) /
 			60_000;
 		expect(Math.round(minutes)).toBe(60);
-		expect(status.audience).toEqual([
-			{
-				courseId: world.courseId,
-				courseTitle: "Test Course",
-				instructors: [{ userId: helperId, displayName: "Ivy Instructor" }],
-			},
-		]);
+		// Only the GET with ?audience=1 names who could be asked.
+		expect(status.audience).toEqual([]);
 
 		const [row] = await audits("project.live_help_started");
 		expect(row).toMatchObject({
@@ -698,6 +693,18 @@ describe.skipIf(skip)("the student's status", () => {
 				instructors: [{ userId: helperId, displayName: "Ivy Instructor" }],
 			},
 		]);
+		await start();
+		const typing = await post(
+			world.a.jar,
+			`/workspaces/${world.a.workspaceId}/live-help/typing`,
+			{ typing: true },
+		);
+		expect(LiveHelpStatus.parse(typing.json()).audience).toEqual([]);
+		const stop = await post(
+			world.a.jar,
+			`/workspaces/${world.a.workspaceId}/live-help/stop`,
+		);
+		expect(LiveHelpStatus.parse(stop.json()).audience).toEqual([]);
 	});
 
 	test("says for a minute why the last session ended, and nothing while one is open", async () => {
@@ -790,16 +797,23 @@ describe.skipIf(skip)("archiving and live help", () => {
 });
 
 describe.skipIf(skip)("helper socket races", () => {
-	test("a second socket on the same terminal is refused with 409 while the first is open", async () => {
+	test("a second socket on the same terminal closes the first, and only the second carries input", async () => {
 		const sid = await startedId();
 		await studentConnected();
+		await post(world.a.jar, `/workspaces/${world.a.workspaceId}/live-help/typing`, {
+			typing: true,
+		});
 		const first = await attach(sid);
-		const cookie = world.instructor.cookieHeader();
-		expect(await upgradeStatus(socketPath(sid), cookie)).toBe(409);
-		expect(await audits("project.live_help_terminal_opened")).toHaveLength(1);
-		first.socket.close();
-		await first.closed;
-		await expect.poll(() => upgradeStatus(socketPath(sid), cookie)).toBe(101);
+		const second = await attach(sid);
+		expect(await first.closed).toBe(CloseCode.LIVE_HELP_REPLACED);
+		expect(await audits("project.live_help_terminal_opened")).toHaveLength(2);
+		const mark = agent.received.length;
+		second.socket.send(JSON.stringify({ type: "input", data: "x" }));
+		await expect.poll(() => receivedSince(mark).length).toBe(1);
+		expect(second.socket.readyState).toBe(WebSocket.OPEN);
+		// The first socket going away did not forget the second.
+		liveHelpSockets.end(sid);
+		expect(await second.closed).toBe(CloseCode.LIVE_HELP_ENDED);
 	});
 
 	/** Hold every audit insert until `release`, so an attach waits on its audit. */
@@ -894,6 +908,36 @@ describe.skipIf(skip)("the start route's write limit", () => {
 			expect(first.statusCode, first.body).toBe(200);
 			const second = await limited.inject({ method: "POST", url, headers, payload });
 			expect(second.statusCode).toBe(429);
+		} finally {
+			await limited.close();
+		}
+	});
+
+	test("typing changes share the per-user write limit", async () => {
+		await start();
+		const limited = buildTestServer(testDb.db, mock.issuer, {
+			AGENT_PORT: agent.port,
+			FILE_WRITE_LIMIT_PER_MINUTE: 1,
+		});
+		await limited.ready();
+		try {
+			const url = `/workspaces/${world.a.workspaceId}/live-help/typing`;
+			const headers = csrfHeaders(world.a.jar, PUBLIC_URL);
+			const on = await limited.inject({
+				method: "POST",
+				url,
+				headers,
+				payload: { typing: true },
+			});
+			expect(on.statusCode, on.body).toBe(200);
+			const off = await limited.inject({
+				method: "POST",
+				url,
+				headers,
+				payload: { typing: false },
+			});
+			expect(off.statusCode).toBe(429);
+			expect(await audits("project.live_help_typing_changed")).toHaveLength(1);
 		} finally {
 			await limited.close();
 		}

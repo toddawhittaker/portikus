@@ -58,7 +58,8 @@ async function mount(
 			shareReads.push(url);
 			return json(200, { share: null, viewers: [], audience: [] });
 		}
-		if (url.endsWith("/live-help")) return json(200, { session: null, audience: [] });
+		if (url.endsWith("/live-help"))
+			return json(200, { session: null, lastEnded: null, audience: [] });
 		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
 		if (url.endsWith("/duplicate")) return json(200, COPY);
 		if (url.endsWith("/templates")) return json(200, { templates: [] });

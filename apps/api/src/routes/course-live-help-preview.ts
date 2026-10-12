@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { liveHelpScope } from "../live-help/gate.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import {
 	issuePreviewGrant,
 	type PreviewRequestLimit,
@@ -33,12 +34,20 @@ export function registerCourseLiveHelpPreviewRoutes(
 	deps: ServerDeps & {
 		registry: ListeningRegistry;
 		overPreviewLimit: PreviewRequestLimit;
+		bridge: BridgeForwards;
 	},
 ): void {
-	const { db, config, registry } = deps;
+	const { db, config, registry, bridge } = deps;
 
 	app.get("/courses/:courseId/live-help/:sid/listening", async (request, reply) => {
-		const scope = await liveHelpScope(db, config, request, reply, { live: false });
+		const scope = await liveHelpScope(
+			db,
+			config,
+			request,
+			reply,
+			{ live: false },
+			bridge,
+		);
 		if (!scope) return reply;
 		const services = registry.services(scope.workspaceId).map(forHelper);
 		return reply.header("cache-control", "no-store").send({ services });
@@ -48,7 +57,14 @@ export function registerCourseLiveHelpPreviewRoutes(
 		"/courses/:courseId/live-help/:sid/preview-grants",
 		async (request, reply) => {
 			const helper = requireUser(request);
-			const scope = await liveHelpScope(db, config, request, reply, { live: false });
+			const scope = await liveHelpScope(
+				db,
+				config,
+				request,
+				reply,
+				{ live: false },
+				bridge,
+			);
 			if (!scope) return reply;
 			const body = PreviewGrantRequest.safeParse(request.body);
 			if (!body.success) {

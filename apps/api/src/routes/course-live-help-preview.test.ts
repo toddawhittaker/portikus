@@ -13,7 +13,6 @@ import {
 } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { endLiveHelp } from "../live-help/sessions.js";
 import { clearPreviewLookups, createPreviewSession } from "../preview/store.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
@@ -118,6 +117,16 @@ async function startedId(): Promise<string> {
 	// The gateway lets the helper in only while the student is there.
 	await studentConnected();
 	return LiveHelpStatus.parse(res.json()).session?.id ?? "";
+}
+
+/** The student ends live help, through the server that holds the one bridge. */
+async function studentStops(): Promise<void> {
+	const res = await app.inject({
+		method: "POST",
+		url: `/workspaces/${world.a.workspaceId}/live-help/stop`,
+		headers: csrfHeaders(world.a.jar, PUBLIC_URL),
+	});
+	expect(res.statusCode, res.body).toBe(200);
 }
 
 /** A's browser counts as open while this row is fresh (SPEC.md §6.4). */
@@ -269,7 +278,7 @@ describe.skipIf(skip)("the helper's preview grants", () => {
 		for (const jar of [world.b.jar, world.a.jar, world.admin]) {
 			expect((await grant(jar, sid)).statusCode).toBe(404);
 		}
-		await endLiveHelp(testDb.db, { sessionId: sid, actor: "test", reason: "stopped" });
+		await studentStops();
 		expect((await grant(world.instructor, sid)).statusCode).toBe(404);
 	});
 
@@ -302,7 +311,7 @@ describe.skipIf(skip)("the gateway's owner check", () => {
 		const token = await helperPreview(sid);
 		// Warm the two-second lookup cache first.
 		expect((await authorize(token)).statusCode).toBe(200);
-		await endLiveHelp(testDb.db, { sessionId: sid, actor: "test", reason: "stopped" });
+		await studentStops();
 		expect((await authorize(token)).statusCode).not.toBe(200);
 	});
 
@@ -369,7 +378,7 @@ describe.skipIf(skip)("the gateway's live checks on the helper", () => {
 		const bridged = await authorize(token, host(), false, "/__portikus/ports/3000/api");
 		expect(bridged.statusCode, bridged.body).toBe(200);
 		expect([...(agent.forwards.get(key) ?? [])]).toEqual([3000]);
-		await endLiveHelp(testDb.db, { sessionId: sid, actor: "test", reason: "stopped" });
+		await studentStops();
 		await expect.poll(() => agent.forwards.get(key)?.size ?? 0).toBe(0);
 	});
 });
