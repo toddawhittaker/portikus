@@ -60,5 +60,10 @@ test.describe("tree selection opened from the menu", () => {
 		const group = page.getByTestId(`terminal-group-${terminalId}`);
 		await expect(group.getByTestId(`terminal-leaf-${terminalId}`)).toBeVisible();
 		await expect(group.getByTestId("file-frame-notes.md")).toBeVisible();
+		// A keyboard user does not see the split land, so the tree says where each went.
+		const name = await page.getByTestId(`tab-${terminalId}`).innerText();
+		await expect(page.getByTestId("files-announcement")).toHaveText(
+			`Opened notes.md beside ${name.trim()} and other.md as a tab.`,
+		);
 	});
 });

@@ -24,11 +24,34 @@
  * what this shows (100cqh).
  */
 .pk-adminframe-scroll {
+	/* Positioned, so screen-reader-only text inside scrolls with it instead of overflowing the page root. */
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
 	scrollbar-gutter: stable;
 	container: admin-scroll / size;
+}
+/*
+ * In a short window the wrapped tab strip would leave the content little or
+ * no height (SPEC.md section 25.8, WCAG 1.4.10), so the whole page scrolls
+ * instead of the framed content alone.
+ */
+@media (height < 30rem) {
+	.pk-root:has(> .pk-adminframe-row) {
+		overflow-y: auto;
+	}
+	.pk-adminframe-row {
+		flex: none;
+	}
+	.pk-adminframe {
+		height: auto;
+	}
+	/* Its height follows its content now, so only sideways overflow still scrolls in it. */
+	.pk-adminframe-scroll {
+		flex: none;
+		container-type: inline-size;
+	}
 }
 /*
  * Narrower than a 768 px window gives, a table clipped for its sticky header
@@ -39,6 +62,11 @@
 	.pk-table-wrap {
 		overflow: auto;
 	}
+}
+/* The box takes focus so arrow keys scroll it; inset, so the box's own clip keeps the ring. */
+.pk-table-wrap:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
 }
 
 /*

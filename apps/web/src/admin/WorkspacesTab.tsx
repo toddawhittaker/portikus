@@ -292,9 +292,12 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="@container">
 				<div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-start">
 					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: only scrolls a focused child into view */}
-					<div
+					{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
+					<section
 						className="pk-table-wrap min-w-0 flex-1 overflow-clip"
+						aria-labelledby="admin-accounts-caption"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
+						tabIndex={0}
 						onFocus={revealFocused}
 					>
 						<table className="pk-table" data-testid="admin-accounts">
@@ -422,7 +425,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								</Button>
 							</nav>
 						) : null}
-					</div>
+					</section>
 					{selected ? (
 						<WorkspaceDetail
 							key={selected.id}

@@ -216,31 +216,39 @@ body {
  * Too narrow for both side panes at their default widths (240 and 280 px)
  * beside the work area's 360 px minimum (SPEC.md section 8.1): they stack,
  * projects over the work area over the files, in one column that fits the
- * window. The panel library sets its sizes inline, hence !important; its
- * width handles have nothing to resize here, so they go.
+ * window. Each pane keeps a usable height, and in a short window the
+ * column scrolls between the header and the status bar rather than
+ * squeezing the lists to slivers (SPEC.md section 25.8). The panel library
+ * sets its sizes and overflow inline, hence !important; its width handles
+ * have nothing to resize here, so they go.
  */
 @media (width < 56rem) {
 	.pk-shell {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		flex-direction: column !important;
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		overflow: hidden auto !important;
 	}
 	.pk-shell > .pk-handle {
 		display: none;
 	}
 	/* The panel ids from WorkspacePage; the work area takes what the lists leave. */
+	.pk-shell > :is(#projects, #work, #files) {
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		max-height: none !important;
+	}
 	.pk-shell > #projects {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 0 1 22% !important;
+		flex: 0 0 max(10rem, 22%) !important;
 	}
 	.pk-shell > #work {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 1 1 0 !important;
-		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		min-height: 16rem !important;
+		flex: 1 0 16rem !important;
 	}
+	/* Room under the tabs and the tree's own head for four or five rows. */
 	.pk-shell > #files {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 0 1 30% !important;
+		flex: 0 0 max(17rem, 30%) !important;
 	}
 	.pk-pane--left {
 		border-inline-end: 0;

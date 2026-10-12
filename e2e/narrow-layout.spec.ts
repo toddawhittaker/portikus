@@ -3,14 +3,23 @@
  * 20.1 and 25.8): the page never scrolls sideways, the workspace panes stack,
  * every key control is reachable by keyboard and on screen, and axe finds no
  * violations in either theme. Wide windows keep the three panes side by side.
+ * Short windows (320 by 256, 640 by 360) scroll the stacked column rather than
+ * squeezing it, and each admin table's box takes focus to scroll by keyboard.
  */
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import {
+	type BrowserContext,
+	expect,
+	type Locator,
+	type Page,
+	test,
+} from "@playwright/test";
 import {
 	createProject,
 	createStudent,
 	expectConnected,
 	expectNoViolations,
 	loginAs,
+	seedFile,
 	terminalIds,
 	workspacePath,
 	workTabs,
@@ -45,6 +54,7 @@ async function fromTop(page: Page): Promise<void> {
  * inside the window's width, so nothing focusable is pushed off the side.
  */
 async function tabTo(page: Page, target: Locator, limit = 80): Promise<void> {
+	const width = page.viewportSize()?.width ?? NARROW.width;
 	for (let step = 0; step < limit; step += 1) {
 		await page.keyboard.press("Tab");
 		const stop = await page.evaluate(() => {
@@ -55,7 +65,7 @@ async function tabTo(page: Page, target: Locator, limit = 80): Promise<void> {
 		});
 		if (stop) {
 			expect(stop.left, stop.name).toBeGreaterThanOrEqual(-1);
-			expect(stop.right, stop.name).toBeLessThanOrEqual(NARROW.width + 1);
+			expect(stop.right, stop.name).toBeLessThanOrEqual(width + 1);
 		}
 		if (await target.evaluate((el) => el === document.activeElement)) return;
 	}
@@ -181,6 +191,164 @@ test.describe("the workspace at 560 px", () => {
 		await expectNoPageScrollSideways(page);
 	});
 });
+
+/** Short windows: a phone held sideways, and the 320 by 256 of WCAG 1.4.10 reflow. */
+const SHORT = [
+	{ width: 320, height: 256 },
+	{ width: 640, height: 360 },
+];
+
+/**
+ * What a click at the element's centre would land on is the element itself,
+ * so nothing (the status bar, a squeezed neighbour) covers it.
+ */
+async function expectHitTestable(target: Locator): Promise<void> {
+	const hit = await target.evaluate((el) => {
+		const box = el.getBoundingClientRect();
+		const top = document.elementFromPoint(
+			box.left + box.width / 2,
+			box.top + box.height / 2,
+		);
+		return top !== null && (top === el || el.contains(top));
+	});
+	expect(hit, String(target)).toBe(true);
+}
+
+async function openStackedWorkspace(page: Page, context: BrowserContext) {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: LONG_NAME });
+	for (const name of ["a.md", "b.md", "c.md", "d.md", "e.md"])
+		await seedFile(student.workspaceId, project.slug, name, `# ${name}\n`);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await expect(page.getByTestId("file-row-e.md")).toBeVisible();
+}
+
+for (const viewport of SHORT) {
+	test.describe(`the workspace at ${viewport.width} by ${viewport.height}`, () => {
+		test.use({ viewport });
+
+		test("the stacked column scrolls instead of squeezing, and focused controls are not covered", async ({
+			page,
+			context,
+		}) => {
+			await openStackedWorkspace(page, context);
+			await expectNoPageScrollSideways(page);
+			// Each list keeps a usable height; the column scrolls to show the rest.
+			const projects = await boxOf(page.getByRole("navigation", { name: "Projects" }));
+			const files = await boxOf(page.locator(".pk-right-pane"));
+			expect(projects.height).toBeGreaterThanOrEqual(159);
+			expect(files.height).toBeGreaterThanOrEqual(271);
+
+			await fromTop(page);
+			const newProject = page.getByRole("button", { name: "New project" });
+			await tabTo(page, newProject);
+			await expectHitTestable(newProject);
+
+			const row = page.getByTestId("file-row-c.md");
+			await tabTo(page, page.getByTestId("file-row-a.md"), 120);
+			await page.keyboard.press("ArrowDown");
+			await page.keyboard.press("ArrowDown");
+			await expect(row).toBeFocused();
+			await expectHitTestable(row);
+			await expectNoPageScrollSideways(page);
+		});
+
+		test("the stacked workspace has no automatic accessibility violations in either theme", async ({
+			page,
+			context,
+		}) => {
+			await openStackedWorkspace(page, context);
+			for (const colorScheme of ["light", "dark"] as const) {
+				await page.emulateMedia({ colorScheme });
+				await expectNoViolations(page);
+				await page.screenshot({
+					path: `screenshots/short-workspace-${viewport.width}x${viewport.height}-${colorScheme}.png`,
+				});
+			}
+		});
+	});
+}
+
+test.describe("the workspace at 320 by 640", () => {
+	test.use({ viewport: { width: 320, height: 640 } });
+
+	test("the file tree shows several rows", async ({ page, context }) => {
+		await openStackedWorkspace(page, context);
+		const body = await boxOf(page.getByTestId("file-tree-body"));
+		const row = await boxOf(page.getByTestId("file-row-a.md"));
+		expect(body.height).toBeGreaterThanOrEqual(4 * row.height);
+		await page.screenshot({ path: "screenshots/short-workspace-320x640.png" });
+	});
+});
+
+/** The admin tables that can be wider than a narrow box. */
+const ADMIN_TABLES = [
+	{
+		path: "/admin/users",
+		table: "admin-accounts",
+		name: /^Accounts and their workspaces/,
+	},
+	{ path: "/admin/audit", table: "audit-table", name: /^Audit events/ },
+	{ path: "/admin/logs?level=info", table: "logs-table", name: /^Log lines/ },
+];
+
+for (const viewport of SHORT) {
+	test.describe(`the admin tables at ${viewport.width} by ${viewport.height}`, () => {
+		test.use({ viewport });
+
+		test("Tab reaches each table's box, and arrow keys scroll it to the last column", async ({
+			page,
+		}) => {
+			test.setTimeout(90_000);
+			await loginAs(page, "carol");
+			for (const { path, table, name } of ADMIN_TABLES) {
+				await expect(async () => {
+					await page.goto(path);
+					await expect(page.getByTestId(table).locator("tbody tr").first()).toBeVisible(
+						{
+							timeout: 2_000,
+						},
+					);
+				}).toPass({ timeout: 20_000 });
+				const region = page.getByRole("region", { name });
+				await expect(region).toHaveCount(1);
+
+				await fromTop(page);
+				await tabTo(page, region, 120);
+				await expect(region).toBeFocused();
+				// The box shows the keyboard where it is.
+				await expect(region).toHaveCSS("outline-style", "solid");
+				for (let step = 0; step < 60; step += 1)
+					await page.keyboard.press("ArrowRight");
+				const last = page.getByTestId(table).locator("thead th").last();
+				const box = await boxOf(region);
+				// Arrow keys scroll smoothly, so wait for the scroll to settle. The
+				// last header may be wider than the box, so its end is what must show.
+				await expect
+					.poll(
+						async () => {
+							const header = await boxOf(last);
+							const end = header.x + header.width;
+							return end <= box.x + box.width + 1 && end > box.x;
+						},
+						{ message: table },
+					)
+					.toBe(true);
+				await expectNoPageScrollSideways(page);
+
+				for (const colorScheme of ["light", "dark"] as const) {
+					await page.emulateMedia({ colorScheme });
+					await expectNoViolations(page);
+				}
+				await page.emulateMedia({ colorScheme: "light" });
+			}
+			await page.screenshot({
+				path: `screenshots/short-admin-logs-${viewport.width}x${viewport.height}.png`,
+			});
+		});
+	});
+}
 
 const ADMIN_TABS = [
 	"users",

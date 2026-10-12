@@ -11,6 +11,7 @@ import {
 	dropTreeFiles,
 	fileDropTarget,
 	moveIntoTargets,
+	openedFilesText,
 	openTreeFiles,
 } from "./moveInto.js";
 
@@ -211,4 +212,32 @@ test("opening a selection with no focused pane opens every file as a tab", () =>
 		"file:one.ts",
 		"file:two.ts",
 	]);
+});
+
+test("opening a selection reports the pane the split went beside, or none", () => {
+	const store = createLayoutStore();
+	store.getState().load({ tabs: [{ id: "a", root: leaf("t1") }] });
+	expect(openTreeFiles(store.getState, ["one.ts"])).toBeNull();
+	store.getState().setFocused("t1");
+	expect(openTreeFiles(store.getState, ["two.ts"])).toEqual({
+		tabId: "a",
+		paneId: "t1",
+		edge: "right",
+	});
+	expect(openTreeFiles(store.getState, [])).toBeNull();
+});
+
+test("the announcement says where each opened file went", () => {
+	expect(openedFilesText(["notes.md"], "Terminal 1")).toBe(
+		"Opened notes.md beside Terminal 1.",
+	);
+	expect(openedFilesText(["notes.md", "other.md"], "Terminal 1")).toBe(
+		"Opened notes.md beside Terminal 1 and other.md as a tab.",
+	);
+	expect(openedFilesText(["a.md", "b.md", "c.md"], "readme.md")).toBe(
+		"Opened a.md beside readme.md and 2 more files as tabs.",
+	);
+	expect(openedFilesText(["notes.md"], null)).toBe("Opened notes.md as a tab.");
+	expect(openedFilesText(["a.md", "b.md"], null)).toBe("Opened 2 files as tabs.");
+	expect(openedFilesText([], null)).toBe("");
 });
