@@ -136,7 +136,7 @@ function googleGroups() {
 	};
 }
 
-test("Google sends groups, in lowercase, and the key only with an administrator", () => {
+test("Google sends groups, and the key, only with an administrator", () => {
 	expect(toSettings(initialForm(GOOGLE_VIEW))).not.toHaveProperty("groups");
 	expect(
 		toSettings({ ...initialForm(GOOGLE_VIEW), googleKey: KEY }),
@@ -146,7 +146,7 @@ test("Google sends groups, in lowercase, and the key only with an administrator"
 		googleAdminEmail: "groups-reader@example.edu",
 		googleServiceAccountKey: KEY,
 		groups: {
-			student: "students@example.edu",
+			student: "Students@Example.edu",
 			instructor: "staff@example.edu",
 			admin: "it@example.edu",
 		},

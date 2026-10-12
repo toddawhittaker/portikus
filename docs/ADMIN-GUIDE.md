@@ -613,6 +613,10 @@ mail.
 At most five of these emails go to one account in an hour, so a slip cannot
 flood a mailbox.
 
+The Dex sign-in page always shows a "Forgot your password?" link. The page it
+opens explains that a reset works only for Portikus password accounts, not
+single sign-on or LDAP accounts, and only while account email is on.
+
 **Edit email or username…** in a Portikus password account's panel changes
 either one and keeps the same account and workspace.
 
@@ -683,7 +687,9 @@ Roles can come from your provider's groups:
   dedicated administrator whose role can only read groups.
 
 Use only groups that administrators control: never a group people can join
-themselves, because whoever is in a group gets its role. Groups never let
+themselves, because whoever is in a group gets its role. With Google,
+members of groups nested inside the three count too, so a nested group
+must also be one only administrators can change. Groups never let
 anyone in on their own; each person still needs an invitation. Group
 membership is checked at each sign-in. docs/OPERATIONS.md, "Sign-in
 providers", has the setup steps on the provider's side.

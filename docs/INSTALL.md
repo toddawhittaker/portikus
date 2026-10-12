@@ -267,8 +267,10 @@ screen adds your institution's accounts on top:
   Sign-in admin page.
 
 With groups, use only groups that people cannot join or change by
-themselves, because whoever is in a group gets its role. A person in a
-group still needs a Portikus invitation to sign in.
+themselves, because whoever is in a group gets its role. With Google,
+members of groups nested inside the three count too, so those groups
+must follow the same rule. A person in a group still needs a Portikus
+invitation to sign in.
 - **LDAP or Active Directory**: asks the directory server, the kind of
   directory, the directory servers' addresses, the service account and
   its password, where people are, a filter naming who may sign in, and

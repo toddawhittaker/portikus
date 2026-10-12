@@ -14,7 +14,9 @@ import stat
 import unittest
 from pathlib import Path
 
-from test_site_job import JOB, JOB2, JOB3, REPO, Host, sj
+import yaml
+
+from test_site_job import JOB, JOB2, JOB3, REPO, Host, sj, values
 
 PRIVATE_LINE = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ-not-a-real-key"
 KEY = json.dumps({
@@ -53,6 +55,17 @@ class ProviderGroups(Host):
         config_dir = re.search(r"^dex_config_dir: (\S+)$", defaults, re.M).group(1)
         key_path = re.search(r'^dex_google_key_path: "\{\{ dex_config_dir \}\}(/\S+)"$', defaults, re.M).group(1)
         self.assertEqual(config_dir + key_path, sj.DEX_KEY_FILE)
+
+    def test_the_key_fields_are_the_ones_dex_checks(self):
+        defaults = yaml.safe_load((REPO / "infra/ansible/roles/dex/defaults/main.yml").read_text())
+        self.assertEqual(set(defaults["dex_google_key_required"]), values.SERVICE_ACCOUNT_REQUIRED)
+        self.assertEqual(set(defaults["dex_google_key_fields"]), values.SERVICE_ACCOUNT_KEYS)
+
+    def test_google_groups_are_stored_in_lowercase(self):
+        capitals = {**GOOGLE, "groups": {**GOOGLE["groups"], "student": "Students@Example.edu"}}
+        status = self.play("signin", **capitals, googleServiceAccountKey=KEY)
+        self.assertEqual((status["state"], status["code"]), ("trial", None))
+        self.assertIn("portikus portikus/student_group string students@example.edu\n", self.debconf())
 
     def test_google_groups_install_the_key_for_dex_alone(self):
         status = self.play("signin", **GOOGLE, googleServiceAccountKey=KEY)
@@ -120,7 +133,6 @@ class ProviderGroups(Host):
 
     def test_refused_group_and_key_values(self):
         cases = {
-            "capital group email": {**GOOGLE, "groups": {**GOOGLE["groups"], "admin": "IT@example.edu"}},
             "group name, not email": {**GOOGLE, "groups": {**GOOGLE["groups"], "student": "students"}},
             "administrator not an email": {**GOOGLE, "googleAdminEmail": "admin"},
             "no groups": {k: v for k, v in GOOGLE.items() if k != "groups"},

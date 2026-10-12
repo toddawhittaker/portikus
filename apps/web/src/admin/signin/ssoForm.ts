@@ -80,12 +80,11 @@ function domains(text: string): string[] {
 	return text.split(/[\s,]+/).filter((d) => d !== "");
 }
 
-function groups(form: SsoForm, lower: boolean) {
-	const name = (value: string) => (lower ? value.trim().toLowerCase() : value.trim());
+function groups(form: SsoForm) {
 	return {
-		student: name(form.studentGroup),
-		instructor: name(form.instructorGroup),
-		admin: name(form.adminGroup),
+		student: form.studentGroup.trim(),
+		instructor: form.instructorGroup.trim(),
+		admin: form.adminGroup.trim(),
 	};
 }
 
@@ -109,7 +108,7 @@ export function toSettings(form: SsoForm): SigninSettings {
 				clientId: form.clientId.trim(),
 				clientSecret: secret,
 				entraRoleSource: form.entraRoleSource,
-				...(usesGroups(form) ? { groups: groups(form, false) } : {}),
+				...(usesGroups(form) ? { groups: groups(form) } : {}),
 			};
 		case "google": {
 			const google = {
@@ -119,12 +118,11 @@ export function toSettings(form: SsoForm): SigninSettings {
 				clientSecret: secret,
 			};
 			if (!usesGroups(form)) return google;
-			// Google returns group emails in lowercase, and Dex matches them exactly.
 			const key = form.googleKey.trim();
 			return {
 				...google,
 				googleAdminEmail: form.googleAdminEmail.trim(),
-				groups: groups(form, true),
+				groups: groups(form),
 				...(key === "" ? {} : { googleServiceAccountKey: key }),
 			};
 		}
@@ -135,7 +133,7 @@ export function toSettings(form: SsoForm): SigninSettings {
 				clientId: form.clientId.trim(),
 				clientSecret: secret,
 				groupsClaim: form.groupsClaim.trim(),
-				groups: groups(form, false),
+				groups: groups(form),
 			};
 	}
 }

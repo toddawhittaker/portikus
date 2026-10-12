@@ -185,10 +185,8 @@ def check_email(value):
 
 
 def check_google_group(value):
-    """Dex matches the group emails Google's Admin SDK returns, which are lowercase."""
-    if not isinstance(value, str) or value != value.lower():
-        raise Refused("invalid_value")
-    return check_email(value)
+    """A group email, lowercased: Dex matches the group emails Google's Admin SDK returns, which are lowercase."""
+    return check_email(value).lower()
 
 
 def check_entra_group(value):
@@ -354,8 +352,7 @@ def check_signin(doc):
     if rule is not None:
         if "groups" not in out:
             raise Refused("invalid_value")
-        for name in out["groups"].values():
-            rule(name)
+        out["groups"] = {role: rule(name) for role, name in out["groups"].items()}
     return out
 
 
