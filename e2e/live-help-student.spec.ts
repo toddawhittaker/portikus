@@ -79,7 +79,18 @@ test("start with consent, let them type, stop typing, then End", async ({
 		"Ivy Helper",
 	);
 	const terms = dialog.getByTestId("live-help-terms");
-	await expect(terms).toContainText("The terminals of Help Me and its previews");
+	await expect(terms).toContainText(
+		"The terminals of Help Me, and a preview of anything running in your workspace, from any project.",
+	);
+	// The terms come before the choice they inform.
+	const termsFirst = await terms.evaluate((dl) => {
+		const choice = dl.parentElement?.querySelector('[role="combobox"]');
+		return (
+			!!choice &&
+			!!(dl.compareDocumentPosition(choice) & Node.DOCUMENT_POSITION_FOLLOWING)
+		);
+	});
+	expect(termsFirst).toBe(true);
 	await expect(terms).toContainText("Off. They can only watch");
 	await expect(terms).toContainText("Only you can turn typing on or off");
 	await expect(dialog.getByTestId("live-help-typing-risk")).toContainText(
@@ -99,14 +110,14 @@ test("start with consent, let them type, stop typing, then End", async ({
 		bar.getByRole("heading", { name: "Live help with Ivy Helper" }),
 	).toBeVisible();
 	await expect(bar).toContainText(
-		"They can see the terminals and previews of Help Me.",
+		"They can see the terminals of Help Me and previews of anything running in your workspace.",
 	);
 	await expect(bar).toContainText("They cannot type.");
 	await expect(page.getByTestId("live-help-time")).toHaveText(
 		/^(59|60) minutes left$|^1 hour left$/,
 	);
 	await expect(page.getByTestId("live-help-announce")).toHaveText(
-		"Live help started. Ivy Helper can see the terminals and previews of Help Me. Typing is off.",
+		"Live help started. Ivy Helper can see the terminals of Help Me and previews of anything running in your workspace. Typing is off.",
 	);
 	const [started] = await openRow(student.workspaceId);
 	expect(started).toMatchObject({ typing: false, ended_at: null, helper_user_id: ivy });
@@ -151,13 +162,43 @@ test("an end from the instructor's side reaches the bar within a poll", async ({
 
 	// The same row change the instructor's Leave makes.
 	await query(
-		"update live_help_sessions set ended_at = now() where workspace_id = $1 and ended_at is null",
+		"update live_help_sessions set ended_at = now(), end_reason = 'helper_left' where workspace_id = $1 and ended_at is null",
 		[student.workspaceId],
 	);
 	await expect(page.getByTestId("live-help-bar")).toBeHidden({ timeout: 10_000 });
 	await expect(page.getByTestId("live-help-announce")).toHaveText(
-		"Live help with Ivy Leaver ended. They left, the project was archived, or they no longer teach your course.",
+		"Live help with Ivy Leaver ended because they left.",
 	);
+});
+
+test("an End pressed in another tab is announced as the student's own", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Two Tabs" });
+	const ivy = await instructor("Ivy Tabs");
+	await courseWith(student.userId, ivy);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	const dialog = await openStart(page, project.id);
+	await dialog.getByTestId("live-help-start").click();
+	await expect(page.getByTestId("live-help-bar")).toBeVisible();
+
+	const other = await context.newPage();
+	await other.goto(workspacePath(student.workspaceId, project.id));
+	await other.getByTestId("live-help-end").click();
+	await expect(other.getByTestId("live-help-announce")).toHaveText(
+		"You ended live help with Ivy Tabs.",
+	);
+	await expect(page.getByTestId("live-help-bar")).toBeHidden({ timeout: 10_000 });
+	await expect(page.getByTestId("live-help-announce")).toHaveText(
+		"You ended live help with Ivy Tabs in another tab or browser.",
+	);
+	const [row] = await query<{ end_reason: string | null }>(
+		"select end_reason from live_help_sessions where workspace_id = $1",
+		[student.workspaceId],
+	);
+	expect(row?.end_reason).toBe("stopped");
 });
 
 test("a second session is refused plainly while one is open", async ({
@@ -186,7 +227,9 @@ test("a second session is refused plainly while one is open", async ({
 	);
 	await expect(dialog.getByTestId("live-help-start")).toHaveCount(0);
 	await dialog.getByRole("button", { name: "Close" }).first().click();
-	await expect(page.getByTestId("live-help-bar")).toContainText("previews of First");
+	await expect(page.getByTestId("live-help-bar")).toContainText(
+		"the terminals of First",
+	);
 });
 
 test("an instructor who stopped teaching the course is refused with what to do next", async ({

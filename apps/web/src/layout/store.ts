@@ -91,6 +91,8 @@ export interface LayoutState {
 	/** A drag is in progress, so a remote layout waits in `heldRemote`. */
 	dragging: boolean;
 	heldRemote: { layout: ProjectLayout; version: number } | null;
+	/** Bumped when a remote load takes away the shown pane that had focus. */
+	remoteFocusLost: number;
 	/** Replace the whole layout with what the server had saved. */
 	load: (layout: ProjectLayout, version?: number) => void;
 	/**
@@ -190,18 +192,6 @@ export interface LayoutState {
 
 export type LayoutStore = ReturnType<typeof createLayoutStore>;
 
-/**
- * A terminal id belongs to exactly one pane. A create refetches the terminal
- * list, so a reconcile can put the new terminal in a tab of its own before
- * the action that asked for it gets to place it; dropping any pane it already
- * has first keeps that from leaving two copies behind.
- */
-function place(layout: ProjectLayout, terminalId: string): ProjectLayout {
-	return tree.layoutTerminalIds(layout).includes(terminalId)
-		? tree.removeLeaf(layout, terminalId)
-		: layout;
-}
-
 function sameLayout(a: ProjectLayout, b: ProjectLayout): boolean {
 	return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
@@ -216,28 +206,6 @@ function remember(history: string[], tabId: string | null): string[] {
 function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 	const ids = new Set(layout.tabs.map((tab) => tab.id));
 	return history.filter((id) => ids.has(id));
-}
-
-/**
- * The id a tab has after a change. A tab can be renamed when a file's pane
- * leaves it or joins it (tree.ts, settleTabIds), so a tab that is gone is
- * followed through the panes it held; `paneNow` gives a pane's id after the
- * change, for a file that moved. Unchanged when nothing matches.
- */
-function followTab(
-	before: ProjectLayout,
-	after: ProjectLayout,
-	tabId: string,
-	paneNow: (paneId: string) => string = (paneId) => paneId,
-): string {
-	if (after.tabs.some((tab) => tab.id === tabId)) return tabId;
-	const old = before.tabs.find((tab) => tab.id === tabId);
-	if (!old) return tabId;
-	for (const id of tree.paneIds(old.root)) {
-		const now = tree.tabOfPane(after, paneNow(id));
-		if (now !== null) return now;
-	}
-	return tabId;
 }
 
 /** Drop the per-file state of files that are no longer open. */
@@ -290,19 +258,6 @@ function moveKeys<T>(
 	return { ...kept, ...moved };
 }
 
-/**
- * Keep the active tab pointing at a tab that still exists, preferring the one
- * that was active most recently.
- */
-function pickActive(
-	layout: ProjectLayout,
-	current: string | null,
-	history: string[],
-): string | null {
-	if (current && layout.tabs.some((tab) => tab.id === current)) return current;
-	return history[0] ?? layout.tabs[0]?.id ?? null;
-}
-
 export function createLayoutStore() {
 	return createStore<LayoutState>()((set, get) => {
 		let seq = 0;
@@ -326,10 +281,10 @@ export function createLayoutStore() {
 			layout: ProjectLayout,
 			paneNow?: (paneId: string) => string,
 		) {
-			const follow = (id: string) => followTab(state.layout, layout, id, paneNow);
+			const follow = (id: string) => tree.followTab(state.layout, layout, id, paneNow);
 			const history = pruneHistory(state.tabHistory.map(follow), layout);
 			const current = state.activeTabId === null ? null : follow(state.activeTabId);
-			const activeTabId = pickActive(layout, current, history);
+			const activeTabId = tree.pickActive(layout, current, history);
 			return { activeTabId, tabHistory: remember(history, activeTabId) };
 		}
 
@@ -371,25 +326,30 @@ export function createLayoutStore() {
 			remoteBase: null,
 			dragging: false,
 			heldRemote: null,
+			remoteFocusLost: 0,
 
 			loadRemote: (saved, version) =>
 				set((state) => {
 					if (state.version !== null && version <= state.version) return state;
 					if (state.dragging) return { heldRemote: { layout: saved, version } };
-					const migrated = tree.migrateDiffTabs(saved).layout;
-					const kept = tree.keepSizes(state.layout, migrated);
-					// The carry rule: a file with unsaved text keeps a pane here.
-					let layout = kept;
-					for (const path of state.layout.tabs.flatMap((tab) =>
-						tree.filePaths(tab.root),
-					)) {
-						if (state.unsavedTabs[tree.fileTabId(path)]) {
-							layout = tree.openFile(layout, path).layout;
-						}
-					}
+					const layout = tree.mergeRemote(
+						state.layout,
+						saved,
+						(id) => state.unsavedTabs[id] === true,
+					);
+					const settled = settleActive(state, layout);
+					const focused = state.focusedPaneId;
+					const focusedTab = focused === null ? null : tree.tabOfPane(layout, focused);
+					const focusGone =
+						focused !== null &&
+						(focusedTab === null || focusedTab !== settled.activeTabId);
 					return {
 						layout,
-						...settleActive(state, layout),
+						...settled,
+						...(focusGone && {
+							focusedPaneId: null,
+							remoteFocusLost: state.remoteFocusLost + 1,
+						}),
 						version,
 						remoteBase: layout,
 						heldRemote: null,
@@ -416,7 +376,7 @@ export function createLayoutStore() {
 						pendingView[tabId] = { mode: "diff", line, seq: nextSeq() };
 					}
 					const history = pruneHistory(state.tabHistory, layout);
-					const activeTabId = pickActive(layout, state.activeTabId, history);
+					const activeTabId = tree.pickActive(layout, state.activeTabId, history);
 					return {
 						layout,
 						activeTabId,
@@ -430,7 +390,11 @@ export function createLayoutStore() {
 			addTab: (terminalId) => {
 				// A tab is named after the terminal it was opened for.
 				set((state) => ({
-					layout: tree.addTab(place(state.layout, terminalId), terminalId, terminalId),
+					layout: tree.addTab(
+						tree.dropTerminalPane(state.layout, terminalId),
+						terminalId,
+						terminalId,
+					),
 					activeTabId: terminalId,
 					tabHistory: remember(state.tabHistory, terminalId),
 					dirty: true,
@@ -542,7 +506,7 @@ export function createLayoutStore() {
 			splitLeaf: (terminalId, direction, newTerminalId) =>
 				change((layout) =>
 					tree.splitLeaf(
-						place(layout, newTerminalId),
+						tree.dropTerminalPane(layout, newTerminalId),
 						terminalId,
 						direction,
 						newTerminalId,
@@ -553,7 +517,11 @@ export function createLayoutStore() {
 
 			replaceLeaf: (terminalId, newTerminalId) =>
 				change((layout) =>
-					tree.replaceLeaf(place(layout, newTerminalId), terminalId, newTerminalId),
+					tree.replaceLeaf(
+						tree.dropTerminalPane(layout, newTerminalId),
+						terminalId,
+						newTerminalId,
+					),
 				),
 
 			moveTab: (from, to) => change((layout) => tree.moveTab(layout, from, to)),

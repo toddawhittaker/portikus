@@ -228,7 +228,21 @@ export function registerTerminalRoutes(app: FastifyInstance, s: FakeAgentState):
 					binary: true,
 				});
 			}
-			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
+			if (mode === null) {
+				// Test-only: echoes the size the API asked for, so a test can see it.
+				socket.send(
+					JSON.stringify({ type: "attached-size", cols: query.cols, rows: query.rows }),
+				);
+			} else {
+				// The pane's size, as the real agent tells a live help attach.
+				socket.send(
+					JSON.stringify({
+						type: "size",
+						cols: Number(query.cols ?? "80"),
+						rows: Number(query.rows ?? "24"),
+					}),
+				);
+			}
 			// Only once a test has staged a restart, so tests reading the
 			// first frames are undisturbed.
 			const build = buildOf.get(id);
@@ -240,7 +254,7 @@ export function registerTerminalRoutes(app: FastifyInstance, s: FakeAgentState):
 				const parsed = JSON.parse(text) as { type: string; cols?: number };
 				if (mode === "view" || (mode === "type" && parsed.type !== "input")) return;
 				if (parsed.type === "resize") {
-					socket.send(JSON.stringify({ type: "size", cols: parsed.cols }));
+					socket.send(JSON.stringify({ type: "attached-size", cols: parsed.cols }));
 					return;
 				}
 				const broadcast = (payload: string) => emit(id, payload);

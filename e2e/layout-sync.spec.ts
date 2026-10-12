@@ -4,6 +4,7 @@ import {
 	createStudent,
 	expectConnected,
 	newTerminal,
+	openFileTab,
 	query,
 	type TestStudent,
 	terminalIds,
@@ -145,6 +146,45 @@ test("a stale browser's save is refused and it takes the newer layout", async ({
 		// A's split survives, and B now shows it.
 		expect(await splitSaved()).toBe(true);
 		await expect(pane(b, added as string)).toBeVisible({ timeout: 5_000 });
+	} finally {
+		await second.close();
+	}
+});
+
+test("a tab closed in another browser while it had focus hands focus to the work area", async ({
+	browser,
+	context,
+}) => {
+	// Monaco is a large chunk the dev server transforms on first use.
+	test.setTimeout(90_000);
+	const student = await createStudent(context);
+	const a = await context.newPage();
+	const path = "notes.txt";
+	const project = await openFileTab(a, student, "Focus Moves", path, "hello\n");
+	const lines = a.getByTestId(`editor-${path}`).locator(".view-lines");
+	await expect(lines).toContainText("hello", { timeout: 60_000 });
+	await lines.click();
+	await expect
+		.poll(() =>
+			a.evaluate(
+				(id) => !!document.activeElement?.closest(`[data-testid="file-pane-${id}"]`),
+				path,
+			),
+		)
+		.toBe(true);
+
+	const second = await secondBrowser(browser, student);
+	try {
+		const b = await second.newPage();
+		await open(b, student.workspaceId, project.id);
+		await b.getByTestId(`tab-file:${path}-close`).click();
+		await expect(b.getByTestId(`tab-file:${path}`)).toHaveCount(0);
+
+		await expect(a.getByTestId(`tab-file:${path}`)).toHaveCount(0, { timeout: 5_000 });
+		await expect(a.getByRole("main", { name: "Work area" })).toBeFocused();
+		await expect(a.getByTestId("layout-announce")).toHaveText(
+			"The layout changed in another browser.",
+		);
 	} finally {
 		await second.close();
 	}

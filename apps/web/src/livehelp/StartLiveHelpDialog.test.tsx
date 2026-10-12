@@ -59,7 +59,9 @@ function mount(
 test("the consent text says what they see, that typing is off, and what typing gives them", async () => {
 	mount(ONE);
 	const terms = await screen.findByTestId("live-help-terms");
-	expect(terms.textContent).toContain("terminals of todo-api and its previews");
+	expect(terms.textContent).toContain(
+		"The terminals of todo-api, and a preview of anything running in your workspace, from any project.",
+	);
 	expect(terms.textContent).toContain("Off. They can only watch");
 	expect(terms.textContent).toContain("Only you can turn typing on or off");
 	expect(screen.getByTestId("live-help-typing-risk").textContent).toContain(
@@ -69,6 +71,20 @@ test("the consent text says what they see, that typing is off, and what typing g
 		"your other terminals",
 	);
 	expect(terms.textContent).toContain("At most 60 minutes");
+});
+
+test("the dialog asks for the instructor list, and the terms come before the choice", async () => {
+	const { calls } = mount(ONE);
+	const terms = await screen.findByTestId("live-help-terms");
+	expect(calls[0]?.url).toBe(`/workspaces/${WORKSPACE.id}/live-help?audience=1`);
+	const choice = screen.getByRole("combobox", { name: /Who should help/ });
+	expect(
+		terms.compareDocumentPosition(choice) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(screen.getByRole("dialog").getAttribute("aria-describedby")).toBeTruthy();
+	expect(document.body.textContent).toContain(
+		"previews of anything running in your workspace with you, live. Typing stays off unless you turn it on.",
+	);
 });
 
 test("a single instructor is chosen already and Start sends them with their course", async () => {

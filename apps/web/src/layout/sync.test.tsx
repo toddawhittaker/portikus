@@ -6,9 +6,11 @@ import type { ProjectLayout } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { useRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { announceLayout } from "./announcements";
 import { useLayoutPersistence } from "./persist";
+import { REMOTE_FOCUS_LOST, useRemoteFocusFallback } from "./remoteFocus";
 import { createLayoutStore, type LayoutStore } from "./store";
 import { layoutTerminalIds } from "./tree";
 
@@ -244,4 +246,105 @@ test("an older or equal version is never loaded", () => {
 	store.getState().loadRemote(oneTab(T2), 5);
 	store.getState().loadRemote(oneTab(T2), 4);
 	expect(layoutTerminalIds(store.getState().layout)).toEqual([T1]);
+});
+
+test("a remote load that takes away the focused pane clears it and says so once", () => {
+	const store = createLayoutStore();
+	store.getState().load(oneTab(T1), 0);
+	store.getState().addTab(T2);
+	store.getState().setActive(T1);
+	store.getState().setFocused(T1);
+	store.getState().clearDirty();
+
+	// T2 goes, but it was not focused, so nothing is said.
+	store.getState().loadRemote(oneTab(T1), 1);
+	expect(store.getState().remoteFocusLost).toBe(0);
+	expect(store.getState().focusedPaneId).toBe(T1);
+
+	store.getState().loadRemote(oneTab(T2), 2);
+	expect(store.getState().focusedPaneId).toBeNull();
+	expect(store.getState().remoteFocusLost).toBe(1);
+});
+
+test("a remote load that closes the last tab takes the focused pane with it", () => {
+	const store = createLayoutStore();
+	store.getState().load(oneTab(T1), 0);
+	store.getState().setFocused(T1);
+	store.getState().loadRemote({ tabs: [] }, 1);
+	expect(store.getState().activeTabId).toBeNull();
+	expect(store.getState().remoteFocusLost).toBe(1);
+});
+
+test("a focused pane moved out of the tab on screen counts as gone", () => {
+	const store = createLayoutStore();
+	store.getState().load(
+		{
+			tabs: [
+				{ id: T1, root: { type: "leaf", terminalId: T1 } },
+				{ id: T3, root: { type: "leaf", terminalId: T3 } },
+			],
+		},
+		0,
+	);
+	store.getState().splitLeaf(T1, "row", T2);
+	store.getState().setActive(T1);
+	store.getState().setFocused(T2);
+	store.getState().clearDirty();
+	// T2 now sits beside T3, in the tab this browser is not showing.
+	const remote: ProjectLayout = {
+		tabs: [
+			{ id: T1, root: { type: "leaf", terminalId: T1 } },
+			{
+				id: T3,
+				root: {
+					type: "split",
+					direction: "row",
+					sizes: [50, 50],
+					children: [
+						{ type: "leaf", terminalId: T3 },
+						{ type: "leaf", terminalId: T2 },
+					],
+				},
+			},
+		],
+	};
+	store.getState().loadRemote(remote, 1);
+	expect(store.getState().activeTabId).toBe(T1);
+	expect(store.getState().remoteFocusLost).toBe(1);
+});
+
+function Fallback({ store }: { store: LayoutStore }) {
+	const area = useRef<HTMLDivElement | null>(null);
+	const said = useRemoteFocusFallback(store, area);
+	return (
+		<main aria-label="Work area" tabIndex={-1}>
+			<div ref={area}>
+				<p role="status">{said}</p>
+				<button type="button">Elsewhere</button>
+			</div>
+		</main>
+	);
+}
+
+test("when focus fell to the page, the work area takes it and the region says why", () => {
+	const store = createLayoutStore();
+	store.getState().load(oneTab(T1), 0);
+	store.getState().setFocused(T1);
+	const view = render(<Fallback store={store} />);
+	(document.activeElement as HTMLElement | null)?.blur();
+	act(() => store.getState().loadRemote(oneTab(T2), 1));
+	expect(document.activeElement).toBe(view.getByRole("main"));
+	expect(view.getByRole("status").textContent).toBe(REMOTE_FOCUS_LOST);
+});
+
+test("focus the student moved elsewhere stays where it is", () => {
+	const store = createLayoutStore();
+	store.getState().load(oneTab(T1), 0);
+	store.getState().setFocused(T1);
+	const view = render(<Fallback store={store} />);
+	const elsewhere = view.getByRole("button", { name: "Elsewhere" });
+	elsewhere.focus();
+	act(() => store.getState().loadRemote(oneTab(T2), 1));
+	expect(document.activeElement).toBe(elsewhere);
+	expect(view.getByRole("status").textContent).toBe("");
 });

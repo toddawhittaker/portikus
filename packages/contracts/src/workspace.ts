@@ -261,6 +261,8 @@ export const ApiErrorCode = z.enum([
 	// while the student has no browser open.
 	"LIVE_HELP_OPEN",
 	"STUDENT_NOT_CONNECTED",
+	// One helper socket per terminal of a session.
+	"LIVE_HELP_TERMINAL_OPEN",
 	"PREVIEW_PORT_NOT_ALLOWED",
 	"PREVIEW_FORWARD_FAILED",
 	"PREVIEW_RATE_LIMITED",

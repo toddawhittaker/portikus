@@ -27,7 +27,11 @@ import {
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
-import { endProjectLiveHelp } from "../live-help/sessions.js";
+import {
+	closeEndedLiveHelp,
+	type EndedLiveHelp,
+	endProjectLiveHelp,
+} from "../live-help/sessions.js";
 import type { UserLimit } from "../rate-limit.js";
 import { cappedDownload } from "../workspaces/capped-download.js";
 import { createProject } from "../workspaces/create-project.js";
@@ -526,6 +530,7 @@ export function registerProjectRoutes(
 				}
 				const state = body.data.state;
 				const projectId = current.id;
+				let endedHelp: EndedLiveHelp | null = null;
 				current = await db.transaction().execute(async (trx) => {
 					const updated = await trx
 						.updateTable("projects")
@@ -550,10 +555,15 @@ export function registerProjectRoutes(
 							actor: `user:${user.id}`,
 							reason: "archived",
 						});
-						await endProjectLiveHelp(trx, { projectId, actor: `user:${user.id}` });
+						endedHelp = await endProjectLiveHelp(trx, {
+							projectId,
+							actor: `user:${user.id}`,
+						});
 					}
 					return updated;
 				});
+				// Sockets close only once the archive is committed.
+				if (endedHelp) await closeEndedLiveHelp(endedHelp);
 			}
 
 			return toProject(current, null, null);

@@ -1,4 +1,4 @@
-import { hashSessionToken, requireUser, sessionGate } from "@portikus/auth";
+import { requireUser, sessionGate } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import {
 	type ListeningService,
@@ -26,6 +26,11 @@ import {
 	type UpstreamScheme,
 } from "../preview/embeddable.js";
 import {
+	issuePreviewGrant,
+	type PreviewRequestLimit,
+	sendPreviewGrant,
+} from "../preview/grants.js";
+import {
 	inactiveServicePage,
 	missLimitPage,
 	refusedPage,
@@ -34,17 +39,10 @@ import {
 	stoppedWorkspacePage,
 	tooManyRequestsPage,
 } from "../preview/pages.js";
-import {
-	grantResponse,
-	PREVIEW_REQUESTS_PER_WINDOW,
-	PREVIEW_WINDOW_MS,
-	portAllowed,
-	requestHost,
-} from "../preview/policy.js";
+import { portAllowed, requestHost } from "../preview/policy.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
 	consumeGrant,
-	createGrant,
 	createPreviewLookupCache,
 	createPreviewSession,
 	loadPreviewSession,
@@ -106,8 +104,12 @@ function stopMessageFor(code: string): string {
  */
 export function registerPreviewRoutes(
 	app: FastifyInstance,
-	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
+	deps: ServerDeps & {
+		registry: ListeningRegistry;
+		overPreviewLimit: PreviewRequestLimit;
+	},
 ): void {
+	const { db, config, logger, registry, overPreviewLimit } = deps;
 	const cookieName = previewCookieName(config);
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	// The Preview tab frames these pages, so they carry their own policy.
@@ -125,18 +127,11 @@ export function registerPreviewRoutes(
 	}
 	const bridge = createBridgeForwards({ registry, logger });
 	const deniedAudit = createPreviewDeniedAudit(db);
-	const lookups = createPreviewLookupCache(db);
+	const lookups = createPreviewLookupCache(db, config);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
 	// Made-up preview cookies per address. Its own count, so one client's
 	// misses never refuse another's sign-in (SPEC.md section 24.13).
 	const cookieMisses = createAnonymousCounter(config);
-
-	const previewRequests = createCounter(PREVIEW_REQUESTS_PER_WINDOW, PREVIEW_WINDOW_MS);
-
-	/** Record this preview request, and say whether it is over the limit. */
-	function overPreviewLimit(userId: string): boolean {
-		return !check(previewRequests, userId).allowed;
-	}
 
 	/**
 	 * The framing probe running for a workspace, if any. One at a time per
@@ -295,78 +290,14 @@ export function registerPreviewRoutes(
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
-		if (workspace.state !== "running") {
-			return sendError(
-				reply,
-				409,
-				"WORKSPACE_NOT_RUNNING",
-				"Start the workspace before opening a preview",
-			);
-		}
-		if (!portAllowed(config, body.data.port)) {
-			return sendError(
-				reply,
-				403,
-				"PREVIEW_PORT_NOT_ALLOWED",
-				`Port ${body.data.port} cannot be previewed`,
-			);
-		}
-		if (overPreviewLimit(user.id)) {
-			request.log.warn(
-				{ workspaceId: params.data.id },
-				"preview grant rate limit reached",
-			);
-			return sendError(
-				reply,
-				429,
-				"PREVIEW_RATE_LIMITED",
-				"Too many previews were opened just now. Wait a moment.",
-			);
-		}
-
-		// A service bound only to loopback needs the agent's forward before the
-		// gateway can reach it (BROWSER-HANDLING.md §11.1).
-		const service = registry.service(params.data.id, body.data.port);
-		if (service && service.previewReachability === "unknown") {
-			try {
-				await registry.ensureReachable(params.data.id, body.data.port);
-			} catch (error) {
-				request.log.warn(
-					{
-						workspaceId: params.data.id,
-						port: body.data.port,
-						code: error instanceof AgentCallError ? error.code : "INTERNAL",
-					},
-					"loopback forward could not be opened",
-				);
-				return sendError(
-					reply,
-					409,
-					"PREVIEW_FORWARD_FAILED",
-					`Portikus could not reach port ${body.data.port} inside the ` +
-						"workspace. Try again, or bind the application to 0.0.0.0.",
-				);
-			}
-		}
-
-		const host = previewHost(workspace.label, body.data.port, config.PREVIEW_SUFFIX);
-		const { ticket, expiresAt } = await createGrant(db, {
+		const payload = await issuePreviewGrant(deps, request, reply, {
 			userId: user.id,
-			// The plugin gave us a live session, so the token is present.
-			sessionId: sessionIdOf(request),
-			workspaceId: params.data.id,
+			workspace: { id: params.data.id, label: workspace.label, state: workspace.state },
 			port: body.data.port,
-			previewHost: host,
 			presentation: body.data.presentation,
-			ttlSeconds: config.PREVIEW_TICKET_TTL_SECONDS,
+			stoppedMessage: "Start the workspace before opening a preview",
 		});
-
-		const payload = grantResponse(config, host, ticket, expiresAt);
-		return reply
-			.header("cache-control", "no-store")
-			.header("referrer-policy", "no-referrer")
-			.status(201)
-			.send(payload);
+		return payload ? sendPreviewGrant(reply, payload) : reply;
 	});
 
 	/**
@@ -811,11 +742,4 @@ function userNavigation(headers: Record<string, unknown>): boolean {
 /** Only the agent's TLS probe makes an upstream HTTPS; anything else is HTTP. */
 function upstreamScheme(protocolHint: string): UpstreamScheme {
 	return protocolHint === "https" ? "https" : "http";
-}
-
-/** The main session's row id, which is the hash of its cookie token. */
-function sessionIdOf(request: FastifyRequest): string {
-	const token = request.sessionToken;
-	if (!token) throw new Error("preview grant reached without a session");
-	return hashSessionToken(token);
 }

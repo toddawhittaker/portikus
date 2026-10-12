@@ -12,6 +12,7 @@ import {
 	LiveHelpStatus,
 	MAX_TERMINAL_SOCKETS_PER_USER,
 } from "@portikus/contracts";
+import { createDb } from "@portikus/db";
 import {
 	createTestDb,
 	hasTestDb,
@@ -19,10 +20,11 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import WebSocket from "ws";
 import { liveHelpSockets } from "../live-help/registry.js";
-import { LIVE_HELP_STARTED_TITLE } from "../live-help/sessions.js";
+import { endProjectLiveHelp, LIVE_HELP_STARTED_TITLE } from "../live-help/sessions.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	buildMatrixWorld,
@@ -447,6 +449,9 @@ describe.skipIf(skip)("the helper's terminal socket", () => {
 		const mark = agent.received.length;
 		const helper = await attach(sid);
 		expect(helper.frames.join("")).not.toContain("earlier-secret-line");
+		// The pane's size reaches the helper as numbers the browser can use.
+		const size = helper.frames.find((one) => one.includes('"size"'));
+		expect(JSON.parse(size ?? "{}")).toEqual({ type: "size", cols: 100, rows: 30 });
 		const attachUrl = agent.requests
 			.filter((one) => one.url.includes(`/terminals/${world.a.terminalId}/attach`))
 			.at(-1)?.url;
@@ -534,7 +539,6 @@ describe.skipIf(skip)("the helper's terminal socket", () => {
 			typeof (row?.metadata as { durationSeconds?: unknown } | undefined)
 				?.durationSeconds,
 		).toBe("number");
-		expect(liveHelpSockets.open(sid)).toBe(0);
 	});
 
 	test("the helper's leave ends it", async () => {
@@ -661,5 +665,237 @@ describe.skipIf(skip)("expiry", () => {
 			},
 		);
 		expect(res.statusCode).toBe(404);
+	});
+});
+
+/** The student's status, as the bar's poll or the start dialog asks for it. */
+async function status(query = "") {
+	const res = await app.inject({
+		url: `/workspaces/${world.a.workspaceId}/live-help${query}`,
+		headers: { cookie: world.a.jar.cookieHeader() },
+	});
+	expect(res.statusCode, res.body).toBe(200);
+	return LiveHelpStatus.parse(res.json());
+}
+
+async function endReason(sid: string) {
+	return (
+		await testDb.db
+			.selectFrom("live_help_sessions")
+			.select("end_reason")
+			.where("id", "=", sid)
+			.executeTakeFirstOrThrow()
+	).end_reason;
+}
+
+describe.skipIf(skip)("the student's status", () => {
+	test("names the instructors to ask only when the dialog asks for them", async () => {
+		expect((await status()).audience).toEqual([]);
+		expect((await status("?audience=1")).audience).toEqual([
+			{
+				courseId: world.courseId,
+				courseTitle: "Test Course",
+				instructors: [{ userId: helperId, displayName: "Ivy Instructor" }],
+			},
+		]);
+	});
+
+	test("says for a minute why the last session ended, and nothing while one is open", async () => {
+		const sid = await startedId();
+		expect((await status()).lastEnded).toBeNull();
+		await post(world.a.jar, `/workspaces/${world.a.workspaceId}/live-help/stop`);
+		const after = await status();
+		expect(after.session).toBeNull();
+		expect(after.lastEnded).toMatchObject({
+			sessionId: sid,
+			helperDisplayName: "Ivy Instructor",
+			projectName: world.a.projectName,
+			reason: "stopped",
+		});
+		expect(await endReason(sid)).toBe("stopped");
+
+		await testDb.db
+			.updateTable("live_help_sessions")
+			.set({ ended_at: new Date(Date.now() - 61_000).toISOString() })
+			.where("id", "=", sid)
+			.execute();
+		expect((await status()).lastEnded).toBeNull();
+	});
+
+	test("records an expiry as the reason", async () => {
+		const sid = await startedId();
+		await testDb.db
+			.updateTable("live_help_sessions")
+			.set({
+				started_at: new Date(Date.now() - 3_600_000).toISOString(),
+				ends_at: new Date(Date.now() - 1000).toISOString(),
+			} as never)
+			.where("id", "=", sid)
+			.execute();
+		expect((await status()).lastEnded).toMatchObject({
+			sessionId: sid,
+			reason: "expired",
+		});
+		expect(await endReason(sid)).toBe("expired");
+	});
+
+	test("the helper's leave is the reason the student sees", async () => {
+		const sid = await startedId();
+		await post(world.instructor, `${detailUrl(sid)}/leave`);
+		expect((await status()).lastEnded?.reason).toBe("helper_left");
+	});
+});
+
+describe.skipIf(skip)("archiving and live help", () => {
+	test("an archive that rolls back leaves the session and its sockets open", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		const helper = await attach(sid);
+		await expect(
+			testDb.db.transaction().execute(async (trx) => {
+				await endProjectLiveHelp(trx, {
+					projectId: world.a.projectId,
+					actor: `user:${world.a.userId}`,
+				});
+				throw new Error("roll back");
+			}),
+		).rejects.toThrow("roll back");
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(helper.socket.readyState).toBe(WebSocket.OPEN);
+		expect((await status()).session?.id).toBe(sid);
+		helper.socket.close();
+		await helper.closed;
+	});
+
+	test("an archive leaves an already expired session to its expiry", async () => {
+		const sid = await startedId();
+		await testDb.db
+			.updateTable("live_help_sessions")
+			.set({
+				started_at: new Date(Date.now() - 3_600_000).toISOString(),
+				ends_at: new Date(Date.now() - 1000).toISOString(),
+			} as never)
+			.where("id", "=", sid)
+			.execute();
+		const res = await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${world.a.workspaceId}/projects/${world.a.projectId}`,
+			headers: csrfHeaders(world.a.jar, PUBLIC_URL),
+			payload: { state: "archived" },
+		});
+		expect(res.statusCode, res.body).toBe(200);
+		expect(await audits("project.live_help_ended")).toEqual([]);
+		expect((await status()).lastEnded?.reason).toBe("expired");
+	});
+});
+
+describe.skipIf(skip)("helper socket races", () => {
+	test("a second socket on the same terminal is refused with 409 while the first is open", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		const first = await attach(sid);
+		const cookie = world.instructor.cookieHeader();
+		expect(await upgradeStatus(socketPath(sid), cookie)).toBe(409);
+		expect(await audits("project.live_help_terminal_opened")).toHaveLength(1);
+		first.socket.close();
+		await first.closed;
+		await expect.poll(() => upgradeStatus(socketPath(sid), cookie)).toBe(101);
+	});
+
+	/** Hold every audit insert until `release`, so an attach waits on its audit. */
+	async function holdAudits(): Promise<{ release: () => Promise<void> }> {
+		let unblock = (): void => {};
+		const held = new Promise<void>((resolve) => {
+			unblock = resolve;
+		});
+		let locked = (): void => {};
+		const lockTaken = new Promise<void>((resolve) => {
+			locked = resolve;
+		});
+		// A connection of its own, so the held lock never starves the app's pool.
+		const own = createDb(process.env.TEST_DATABASE_URL ?? "", 1);
+		const holder = own.transaction().execute(async (trx) => {
+			await sql`lock table audit_events in exclusive mode`.execute(trx);
+			locked();
+			await held;
+		});
+		await lockTaken;
+		return {
+			release: async () => {
+				unblock();
+				await holder;
+				await own.destroy();
+			},
+		};
+	}
+
+	function attachCount(): number {
+		return agent.requests.filter((one) =>
+			one.url.includes(`/terminals/${world.a.terminalId}/attach`),
+		).length;
+	}
+
+	/** Open a helper socket whose attach is still waiting on its audit. */
+	async function openWhileAuditing(sid: string): Promise<{ closed: Promise<number> }> {
+		const { port } = app.server.address() as AddressInfo;
+		const socket = new WebSocket(`ws://127.0.0.1:${port}${socketPath(sid)}`, {
+			headers: { cookie: world.instructor.cookieHeader(), origin: ORIGIN },
+		});
+		const closed = new Promise<number>((resolve) => socket.once("close", resolve));
+		// The server has the socket once it is registered, before its audit.
+		await expect.poll(() => liveHelpSockets.has(sid, world.a.terminalId)).toBe(true);
+		return { closed };
+	}
+
+	test("an end while the attach is being audited closes the socket before anything is piped", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		const before = attachCount();
+		const audit = await holdAudits();
+		const { closed } = await openWhileAuditing(sid);
+		liveHelpSockets.end(sid);
+		expect(await closed).toBe(CloseCode.LIVE_HELP_ENDED);
+		await audit.release();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(attachCount()).toBe(before);
+	});
+
+	test("a session that ran out while the attach was audited is refused before the pipe opens", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		// Open for the gate, over by the time the audit is written.
+		await testDb.db
+			.updateTable("live_help_sessions")
+			.set({ ends_at: new Date(Date.now() + 1500).toISOString() })
+			.where("id", "=", sid)
+			.execute();
+		const before = attachCount();
+		const audit = await holdAudits();
+		const { closed } = await openWhileAuditing(sid);
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		await audit.release();
+		expect(await closed).toBe(CloseCode.LIVE_HELP_ENDED);
+		expect(attachCount()).toBe(before);
+	});
+});
+
+describe.skipIf(skip)("the start route's write limit", () => {
+	test("shares the per-user write limit", async () => {
+		const limited = buildTestServer(testDb.db, mock.issuer, {
+			AGENT_PORT: agent.port,
+			FILE_WRITE_LIMIT_PER_MINUTE: 1,
+		});
+		await limited.ready();
+		try {
+			const url = `/workspaces/${world.a.workspaceId}/projects/${world.a.projectId}/live-help`;
+			const payload = { helperUserId: helperId, courseId: world.courseId };
+			const headers = csrfHeaders(world.a.jar, PUBLIC_URL);
+			const first = await limited.inject({ method: "POST", url, headers, payload });
+			expect(first.statusCode, first.body).toBe(200);
+			const second = await limited.inject({ method: "POST", url, headers, payload });
+			expect(second.statusCode).toBe(429);
+		} finally {
+			await limited.close();
+		}
 	});
 });

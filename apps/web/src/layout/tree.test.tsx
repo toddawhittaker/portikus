@@ -7,6 +7,7 @@ import {
 	evenSizes,
 	filePaths,
 	layoutTerminalIds,
+	mergeRemote,
 	migrateDiffTabs,
 	moveLeaf,
 	moveLeafToNewTab,
@@ -672,4 +673,47 @@ test("a pane dragged out to the strip becomes a tab however full it is", () => {
 	const next = moveLeafToNewTab(layout, "extra", 0, "fresh");
 	expect(next.tabs).toHaveLength(17);
 	expect(next.tabs[0]?.id).toBe("fresh");
+});
+
+test("mergeRemote keeps this browser's sizes and carries files with unsaved text", () => {
+	let here = addTab(emptyLayout(), T1, T1);
+	here = splitLeaf(here, T1, "row", T2);
+	here = resize(here, T1, [], [30, 70]);
+	here = openFile(here, "notes.md").layout;
+	here = openFile(here, "clean.md").layout;
+	const remote = {
+		tabs: [
+			{
+				id: T1,
+				root: {
+					type: "split" as const,
+					direction: "row" as const,
+					sizes: [50, 50],
+					children: [
+						{ type: "leaf" as const, terminalId: T1 },
+						{ type: "leaf" as const, terminalId: T2 },
+					],
+				},
+			},
+			{ id: "diff:src/a.ts", root: { type: "diff" as const, path: "src/a.ts" } },
+		],
+	};
+	const merged = mergeRemote(here, remote, (id) => id === "file:notes.md");
+	const root = merged.tabs[0]?.root;
+	expect(root?.type === "split" && root.sizes).toEqual([30, 70]);
+	// The old diff tab is a file tab; clean.md closed with the other browser,
+	// notes.md stays because it holds unsaved text.
+	expect(merged.tabs.map((tab) => tab.id)).toEqual([
+		T1,
+		"file:src/a.ts",
+		"file:notes.md",
+	]);
+	expect(ProjectLayout.safeParse(merged).success).toBe(true);
+});
+
+test("mergeRemote leaves a file already open in the remote layout where it is", () => {
+	const here = openFile(emptyLayout(), "notes.md").layout;
+	const remote = addTab(openFile(emptyLayout(), "notes.md").layout, T1, T1);
+	const merged = mergeRemote(here, remote, () => true);
+	expect(merged.tabs.map((tab) => tab.id)).toEqual(["file:notes.md", T1]);
 });

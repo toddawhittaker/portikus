@@ -11,7 +11,7 @@ import {
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
 import { DialogError } from "../common/DialogError.js";
-import { useLiveHelpStatus, useStartLiveHelp } from "./queries.js";
+import { useLiveHelpAudience, useStartLiveHelp } from "./queries.js";
 
 /** One Select value names both the instructor and the course they help in. */
 function choiceValue(courseId: string, userId: string): string {
@@ -65,7 +65,7 @@ export function StartLiveHelpDialog({
 	project: Project;
 	onClose: () => void;
 }) {
-	const status = useLiveHelpStatus(workspaceId);
+	const status = useLiveHelpAudience(workspaceId);
 	const start = useStartLiveHelp(workspaceId, project.id);
 	const groups = instructorGroups(status.data?.audience ?? []);
 	const choices = groups.flatMap((group) => group.options);
@@ -87,7 +87,7 @@ export function StartLiveHelpDialog({
 			<Dialog
 				testId="dialog-live-help"
 				title={`Get live help on ${project.name}`}
-				description="One instructor watches this project's terminals with you, live, until you end it."
+				description="One instructor watches this project's terminals and the previews of anything running in your workspace with you, live. Typing stays off unless you turn it on."
 				onClose={onClose}
 				footer={
 					<>
@@ -130,20 +130,12 @@ export function StartLiveHelpDialog({
 					</>
 				) : (
 					<div className="grid gap-4">
-						<Select
-							id="live-help-instructor"
-							label="Who should help"
-							placeholder="Choose an instructor"
-							groups={groups}
-							value={value}
-							onValueChange={setPicked}
-							hint={value ? undefined : "Choose an instructor first."}
-						/>
 						<dl className="pk-dl" data-testid="live-help-terms">
 							<dt>What they see</dt>
 							<dd>
-								The terminals of {project.name} and its previews. A terminal shows them
-								what is on its screen from when they open it, not its earlier output.
+								The terminals of {project.name}, and a preview of anything running in
+								your workspace, from any project. A terminal shows them what is on its
+								screen from when they open it, not its earlier output.
 							</dd>
 							<dt>Typing</dt>
 							<dd>
@@ -162,6 +154,15 @@ export function StartLiveHelpDialog({
 								stops it at once.
 							</dd>
 						</dl>
+						<Select
+							id="live-help-instructor"
+							label="Who should help"
+							placeholder="Choose an instructor"
+							groups={groups}
+							value={value}
+							onValueChange={setPicked}
+							hint={value ? undefined : "Choose an instructor first."}
+						/>
 						<DialogError error={startError(start.error)} />
 					</div>
 				)}

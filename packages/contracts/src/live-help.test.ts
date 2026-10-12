@@ -47,6 +47,7 @@ test("a student's status round-trips with an open session and the instructors to
 			startedAt: "2026-10-12T08:00:00.000Z",
 			endsAt: "2026-10-12T09:00:00.000Z",
 		},
+		lastEnded: null,
 		audience: [
 			{
 				courseId: ids.course,
@@ -59,7 +60,30 @@ test("a student's status round-trips with an open session and the instructors to
 });
 
 test("a student's status has a null session when nothing is open", () => {
-	expect(LiveHelpStatus.parse({ session: null, audience: [] }).session).toBeNull();
+	expect(
+		LiveHelpStatus.parse({ session: null, lastEnded: null, audience: [] }).session,
+	).toBeNull();
+});
+
+test("a student's status says why the last session ended", () => {
+	const body = {
+		session: null,
+		lastEnded: {
+			sessionId: ids.session,
+			helperDisplayName: "Ivy Instructor",
+			projectName: "Demo",
+			reason: "expired",
+			endedAt: "2026-10-12T09:00:00.000Z",
+		},
+		audience: [],
+	};
+	expect(LiveHelpStatus.parse(body)).toEqual(body);
+	expect(
+		LiveHelpStatus.safeParse({
+			...body,
+			lastEnded: { ...body.lastEnded, reason: "gone" },
+		}).success,
+	).toBe(false);
 });
 
 test("the start body needs both ids and nothing else", () => {
@@ -96,11 +120,12 @@ test("attach modes are view and type only", () => {
 	expect(TerminalAttachMode.safeParse("full").success).toBe(false);
 });
 
-test("end reasons match the audit's", () => {
+test("end reasons are the audit's plus expiry", () => {
 	expect(LiveHelpEndReason.options).toEqual([
 		"stopped",
 		"helper_left",
 		"archived",
 		"helper_removed",
+		"expired",
 	]);
 });
