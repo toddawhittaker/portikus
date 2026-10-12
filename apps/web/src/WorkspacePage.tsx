@@ -10,6 +10,7 @@ import {
 import { ProjectEvents } from "./files/ProjectEvents.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { LaunchNotice } from "./link/LaunchNotice.js";
+import { LiveHelpBar } from "./livehelp/LiveHelpBar.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -119,6 +120,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				project={project}
 			/>
 			<LaunchNotice displayName={user.displayName} />
+			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
+			<LiveHelpBar workspaceId={workspaceId} fallbackFocus={workRef} />
 			<StarterLaunch workspaceId={workspaceId} starterId={starter} running={running} />
 			<Group
 				className="pk-shell"
