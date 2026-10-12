@@ -102,3 +102,21 @@ export function dropTreeFiles(
 	if (tabId !== null) get().setActive(tabId);
 	get().setFocused(pane);
 }
+
+/**
+ * "Open N files" on the tree's selection menu, the keyboard way to make the
+ * same drop (SPEC.md §11.2): the first file opens as a split right of the
+ * focused pane. With no pane that can take a split, every file opens as a tab.
+ */
+export function openTreeFiles(get: () => LayoutState, paths: readonly string[]) {
+	const [first] = paths;
+	const focused = get().focusedPaneId;
+	if (first === undefined) return;
+	const target =
+		focused === null ? null : fileDropTarget(get().layout, first, focused, "right");
+	if (target !== null) {
+		dropTreeFiles(get, paths, target);
+		return;
+	}
+	for (const path of paths) get().openFile(path);
+}
