@@ -27,6 +27,7 @@ import {
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
+import { endProjectLiveHelp } from "../live-help/sessions.js";
 import type { UserLimit } from "../rate-limit.js";
 import { cappedDownload } from "../workspaces/capped-download.js";
 import { createProject } from "../workspaces/create-project.js";
@@ -548,6 +549,7 @@ export function registerProjectRoutes(
 							actor: `user:${user.id}`,
 							reason: "archived",
 						});
+						await endProjectLiveHelp(trx, { projectId, actor: `user:${user.id}` });
 					}
 					return updated;
 				});

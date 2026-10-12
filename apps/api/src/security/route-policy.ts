@@ -214,6 +214,21 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
 	"POST /courses/:courseId/roster/sync": { access: "course-instructor" },
 	// A student's shared project, read-only (ADR 0057); only the reads below exist.
+	// Live help (ADR 0063): the student's routes, then the helper's.
+	"GET /workspaces/:id/live-help": owner,
+	"HEAD /workspaces/:id/live-help": owner,
+	"POST /workspaces/:id/projects/:pid/live-help": owner,
+	"POST /workspaces/:id/live-help/typing": owner,
+	"POST /workspaces/:id/live-help/stop": owner,
+	"GET /courses/:courseId/live-help": { access: "course-instructor" },
+	"HEAD /courses/:courseId/live-help": { access: "course-instructor" },
+	"GET /courses/:courseId/live-help/:sid": { access: "course-instructor" },
+	"HEAD /courses/:courseId/live-help/:sid": { access: "course-instructor" },
+	"POST /courses/:courseId/live-help/:sid/leave": { access: "course-instructor" },
+	"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws": {
+		access: "course-instructor",
+		websocket: true,
+	},
 	"GET /courses/:courseId/shares": { access: "course-instructor" },
 	"HEAD /courses/:courseId/shares": { access: "course-instructor" },
 	"GET /courses/:courseId/shares/:projectId/tree": { access: "course-instructor" },
