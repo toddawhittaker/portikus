@@ -2498,7 +2498,7 @@ When a workspace reaches its memory limit, the kernel kills the biggest process 
 
 On images from 2026.09.11 the tmux server, every shell and every program started in a terminal run in their own unit, `portikus-terminals.service` (`tmux -L portikus -f /dev/null -D` as the student, `Restart=always` after one second, `TasksMax=1700`), so an agent restart or an out-of-memory kill of the agent leaves terminals open, and a terminal's runaway program cannot starve the agent of processes. The agent's unit has `TasksMax=infinity`; the container's `pids.max` of 2000 is its only ceiling. On images from 2026.10.1 Docker puts every container under `portikus-docker.slice` (the `cgroup-parent` in daemon.json, which the controller also writes before each start), capped at `TasksMax=1000`, so containers together cannot take the room the agent and the terminals need; each container's own scope stops at systemd's default of 15%, 300. The slice cap guards against accidents, not a determined student. A Check also runs under a 1,700-task limit (`RLIMIT_NPROC`, the same number as the terminals unit's `TasksMax`), so a fork bomb in a Check cannot starve the agent, which is not limited itself. The limit is per student user, not per Check: it counts every process the student owns, a Check will not start once the student already has 1,700, and terminals may starve while a bomb runs. Like the other caps it guards against accidents, not a determined student. The agent unit wants and orders after the terminals unit but never requires it, so a terminals restart never restarts the agent. No unit sets `OOMScoreAdjust` (ADR 0035).
 
-`/tmp` is a tmpfs capped at 512 MB and `/dev/shm` at 256 MB, so a big temporary file fails with "No space left on device" instead of using up the workspace's memory.
+On images from 2026.10.4 `/tmp` is a tmpfs capped at 1G and `/dev/shm` at 256 MB (earlier images cap `/tmp` at 512 MB), so a big temporary file fails with "No space left on device" instead of using up the workspace's memory. Tmpfs pages count against the workspace memory limit, so the cap is a quarter of the default 4 GB limit. Playwright keeps Chromium's shared memory in `/tmp`, and the 1G holds four workers taking full-page screenshots of pages up to about 6000 pixels tall.
 
 ### 19.4 Resource guard
 
@@ -3360,7 +3360,9 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   the alert drop-ins, but keeps the boot units that Incus needs (storage
   attach and the workspace limits), which stay enabled. Purge also
   deletes the unit files, the other drop-ins, `/etc/portikus-workspace-proxy`
-  and the site's `/etc/hosts` line. It keeps the `docker-registry` mask
+  and the site's `/etc/hosts` line. It also stops and disables Squid
+  and Caddy (leaving `squid.conf` and the Caddyfile) and deletes setup's helpers under `/usr/local`
+  (Epic 46). It keeps the `docker-registry` mask
   and the nftables drop-in. A reinstall followed by setup brings
   everything back. A test ties the removal list to the Ansible roles.
 - **Discovery fetch.** Setup fetches an OIDC issuer's discovery document
@@ -6382,6 +6384,25 @@ Acceptance:
 - a Playwright project at the image's pinned version runs with no download;
 - the daily check records coding-agent versions without any outbound call from the API or worker;
 - a build any administrator or the platform requested once is never queued again by the platform.
+
+### Epic 46 — Operator tests and package leftovers
+
+Built on `epic/46-operator-tests`, issues #1492, #1497, #1472, #1463, #1423, #1272, #1264 and #1262, and item c of #1462. No migration. See sections 19.3, 21.12 and 24.9 and ADRs 0027 and 0061.
+
+Includes:
+
+- purge that stops and disables Squid and deletes setup's `/usr/local` helpers;
+- a workspace `/tmp` of 1G, with image version 2026.10.4;
+- a rehearsal mock LMS served over https, so roster sync goes through the egress proxy's CONNECT, with roster sync and Deep Linking in the smoke test and counted skips when no mock LMS is registered;
+- install and smoke tests that probe the worker's refusals on every local address, and a sturdier agent restart check;
+- a fix for an API crash when an outbound response body or upload body was cancelled.
+
+Acceptance:
+
+- after `apt purge`, Squid is stopped and disabled and the helpers are gone;
+- four Playwright workers taking full-page screenshots of 4000-pixel pages do not fill `/tmp`;
+- the worker's account reaches none of the API, Dex and a probe's own listener on any local address;
+- a refused outbound request never takes the API down.
 
 ### Epic 47 — Workspace polish
 

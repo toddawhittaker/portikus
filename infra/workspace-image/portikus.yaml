@@ -1949,12 +1949,15 @@ files:
     WantedBy=multi-user.target
 
 # /tmp is a capped tmpfs, so a huge temporary file fails with "No space left
-# on device" instead of using the workspace's memory.
+# on device" instead of using the workspace's memory. Playwright's Chromium
+# keeps its shared memory here, and its pages count against the workspace's
+# memory limit, so 1G fits four workers' large screenshots and stays at a
+# quarter of the default 4GB limit (README, "Playwright's headless Chromium").
 - path: /etc/fstab
   generator: dump
   mode: "0644"
   content: |-
-    tmpfs /tmp tmpfs mode=1777,strictatime,nosuid,nodev,size=512M,nr_inodes=1m 0 0
+    tmpfs /tmp tmpfs mode=1777,strictatime,nosuid,nodev,size=1G,nr_inodes=1m 0 0
 
 # systemd mounts /dev/shm before any unit runs, so the cap is a remount.
 - path: /etc/systemd/system/portikus-shm-size.service

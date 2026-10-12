@@ -113,7 +113,7 @@ sys.exit(0 if s[\"sizeBytes\"] > 0 and s[\"hubUp\"] and age.total_seconds() < 18
   # A credential change clears the cache: a marker root leaves on the
   # cache's filesystem is gone after each.
   if ssh_cmd "sudo test -e /etc/portikus/registry/hub-credential.json"; then
-    echo "SKIP  credential set and clear (a real Hub credential is set)"
+    skip "credential set and clear (a real Hub credential is set)"
   else
     ssh_cmd "sudo touch /var/lib/portikus-registry/.smoke-marker" >/dev/null 2>&1
     check "the helper takes a set-hub-credential request" \

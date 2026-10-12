@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
-import { Readable } from "node:stream";
 import type { Dispatcher, ProxyAgent as ProxyAgentType } from "undici";
+import { readableToWeb } from "./readable-to-web.js";
 
 /** The `fetch` shape `openid-client` and `jose` accept through `customFetch`. */
 export type OutboundFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -73,7 +73,7 @@ export function createOutboundFetch(
 				headers: responseHeaders,
 			});
 		}
-		return new Response(Readable.toWeb(answer.body) as ReadableStream, {
+		return new Response(readableToWeb(answer.body), {
 			status: answer.statusCode,
 			headers: responseHeaders,
 		});
