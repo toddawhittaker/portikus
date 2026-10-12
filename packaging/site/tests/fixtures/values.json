@@ -219,14 +219,13 @@
 		},
 		"googleGroup": {
 			"where": "signin groups.* when googleAdminEmail is set",
-			"good": ["portikus-students@example.edu", "staff.it@example.co.uk"],
-			"bad": [
-				"",
-				"portikus-students",
+			"good": [
+				"portikus-students@example.edu",
+				"staff.it@example.co.uk",
 				"Portikus-Students@example.edu",
-				"students@EXAMPLE.edu",
-				"a b@example.edu"
-			]
+				"students@EXAMPLE.edu"
+			],
+			"bad": ["", "portikus-students", "a b@example.edu"]
 		},
 		"entraGroup": {
 			"where": "signin groups.* when entraRoleSource is groups",

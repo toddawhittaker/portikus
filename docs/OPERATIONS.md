@@ -398,7 +398,9 @@ person still needs a Portikus invitation (ADR 0049).
    group's settings, "Who can join the group" must be "Only invited
    users", and no one outside administrators may manage members. Whoever
    can join one of these groups gets its role. Members of groups inside
-   them count too.
+   them count too, because Dex reads nested membership, so every group
+   inside one of the three must also be one only administrators can
+   change.
 
 Then, on the VM, put the key where Dex reads it, readable by Dex only, and deploy:
 
