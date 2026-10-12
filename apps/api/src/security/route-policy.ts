@@ -45,6 +45,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Every /auth/ route is exempt; signing out with no session is a harmless
 	// redirect, and the CSRF check still applies.
 	"POST /auth/logout": { access: "public" },
+	// Forgotten password by email; a single-use emailed token authorizes the completion (SPEC.md 5.3).
+	"POST /auth/password-reset": { access: "public" },
+	"POST /auth/password-reset/complete": { access: "public" },
 	// Loopback only; Caddy asks it before each Dex sign-in page.
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },

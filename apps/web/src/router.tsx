@@ -30,6 +30,8 @@ import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
 import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
+import { ForgotPasswordPage } from "./password/ForgotPasswordPage.js";
+import { ResetPasswordPage } from "./password/ResetPasswordPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
 import { SecondFactorPage } from "./second-factor/SecondFactorPage.js";
@@ -158,6 +160,19 @@ const notInvitedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: NOT_INVITED_PATH,
 	component: NotInvited,
+});
+
+/** Forgotten password by email; both pages work signed out (SPEC.md section 5.3). */
+const forgotPasswordRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/forgot-password",
+	component: ForgotPasswordPage,
+});
+
+const resetPasswordRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/reset-password",
+	component: ResetPasswordPage,
 });
 
 /** The SSO sign-in lands here to confirm a link (ADR 0026). */
@@ -405,6 +420,8 @@ export const routeTree = rootRoute.addChildren([
 	sessionEndedRoute,
 	notAuthorizedRoute,
 	notInvitedRoute,
+	forgotPasswordRoute,
+	resetPasswordRoute,
 	changePasswordRoute,
 	secondFactorRoute,
 	acceptableUseRoute,

@@ -91,6 +91,16 @@
     replace: '<div id="login-error" class="dex-error-box" role="alert">'
   notify: Restart portikus-dex
 
+# Dex's templates cannot read the account email switch, so the link is
+# always there and the Portikus page says when a reset is not available
+# (SPEC.md section 5.3).  The lookahead keeps a second run from adding it twice.
+- name: Link the Dex sign-in form to the forgotten password page
+  ansible.builtin.replace:
+    path: "{{ dex_web_dir }}/templates/password.html"
+    regexp: '</form>\n(?!  <div class="theme-link-back" id="forgot-password">)'
+    replace: '</form>\n  <div class="theme-link-back" id="forgot-password">\n    <a class="dex-subtle-text" href="/forgot-password">Forgot your password?</a>\n  </div>\n'
+  notify: Restart portikus-dex
+
 # A Dex upgrade can change a template so a patch silently stops matching.
 - name: Check every Dex template patch landed
   ansible.builtin.shell:
@@ -102,6 +112,7 @@
       && grep -q 'autocomplete="username"' password.html
       && grep -q 'Sign in, Portikus' header.html
       && grep -q 'Choose another way to sign in.' password.html
+      && grep -q 'href="/forgot-password"' password.html
       && ! grep -q -e 'Log in' -e 'Invalid [^}]' -e 'Select another' password.html login.html
       && ! grep -q 'tabindex=' password.html device.html
       && ! grep -q '<h2 class="theme-heading">' ./*.html
