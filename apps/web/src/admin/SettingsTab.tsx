@@ -8,6 +8,7 @@ import {
 } from "@portikus/contracts";
 import {
 	Button,
+	Checkbox,
 	CONTROL_CLASS,
 	FIELD_CLASS,
 	LABEL_CLASS,
@@ -44,9 +45,55 @@ export function SettingsTab() {
 				<StopSection />
 				<ResourceGuardSection />
 				<AcceptableUseSection />
+				<VoiceInputSection />
 				<NotificationsSection />
 			</div>
 		</AdminSection>
+	);
+}
+
+/** The site switch for voice input (SPEC.md §25.10, ADR 0055); saved as soon as it changes. */
+function VoiceInputSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	// While saving, show the value asked for rather than the old one.
+	const enabled = update.isPending
+		? (update.variables?.voiceInputEnabled ?? true)
+		: (settings.data?.voiceInputEnabled ?? true);
+	return (
+		<AdminGroup
+			id="voice-input-title"
+			title="Voice input"
+			description="Students can dictate into terminals and files with the browser's own speech recognition. The audio goes to the browser vendor, never to Portikus."
+		>
+			<Checkbox
+				label="Allow voice input"
+				description="When off, no microphone is shown anywhere."
+				checked={enabled}
+				disabled={settings.isLoading}
+				ariaDisabled={update.isPending}
+				onChange={(event) =>
+					!update.isPending &&
+					update.mutate(
+						{ voiceInputEnabled: event.target.checked },
+						{
+							onSuccess: (saved) =>
+								toast.show({
+									tone: "success",
+									title: saved.voiceInputEnabled ? "Voice input on" : "Voice input off",
+								}),
+							onError: (failure) =>
+								toast.show({
+									tone: "danger",
+									title: "Voice input not saved",
+									children: errorText(failure),
+								}),
+						},
+					)
+				}
+			/>
+		</AdminGroup>
 	);
 }
 

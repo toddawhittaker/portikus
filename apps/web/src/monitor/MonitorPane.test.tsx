@@ -2,6 +2,8 @@
  * The Monitor tab (SPEC.md §18.3): the figures, the process list, and a
  * refresh that runs only while the tab is shown.
  */
+
+import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -61,7 +63,9 @@ function renderPane() {
 	});
 	return render(
 		<QueryClientProvider client={client}>
-			<MonitorPane workspaceId={WORKSPACE} />
+			<ToastProvider>
+				<MonitorPane workspaceId={WORKSPACE} />
+			</ToastProvider>
 		</QueryClientProvider>,
 	);
 }
@@ -386,7 +390,9 @@ test("the sort comes from the right pane, so a notice can open Monitor sorted", 
 					setMonitorFocus: () => {},
 				}}
 			>
-				<MonitorPane workspaceId={WORKSPACE} />
+				<ToastProvider>
+					<MonitorPane workspaceId={WORKSPACE} />
+				</ToastProvider>
 			</RightPaneContext.Provider>
 		</QueryClientProvider>,
 	);
@@ -478,6 +484,191 @@ test("the row order holds while focus is in the list, and sorts again when it le
 	await waitFor(() =>
 		expect(order()).toEqual(["monitor-process-4", "monitor-process-3"]),
 	);
+});
+
+/** node (7) runs npm (20), which runs esbuild (21); python (9) is on its own. */
+const TREE = [
+	{ ...OWN, ppid: 1 },
+	{ ...OWN, pid: 20, command: "npm", startTicks: 200, ppid: 7, commandLine: null },
+	{ ...OWN, pid: 21, command: "esbuild", startTicks: 210, ppid: 20, commandLine: null },
+	{ ...OWN, pid: 9, command: "python", startTicks: 90, ppid: 1, commandLine: null },
+];
+
+/** Usage answers with `processes`; a tree action answers with the next queued response. */
+function stubTreeActions(processes: unknown[], answers: Response[]) {
+	const calls: { url: string; body: unknown }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			if (url.endsWith("/stop-tree") || url.endsWith("/lower-priority")) {
+				calls.push({ url, body: JSON.parse(String(init?.body)) });
+				return answers.shift() ?? json({});
+			}
+			return json({ ...USAGE, processes });
+		}),
+	);
+	return calls;
+}
+
+async function openStop(name: string) {
+	fireEvent.click(await screen.findByRole("button", { name: `Stop ${name}` }));
+	return screen.getByTestId("dialog-stop-process");
+}
+
+test("the stop dialog offers to stop the children only when the sample shows some", async () => {
+	stubTreeActions(TREE, []);
+	renderPane();
+	let dialog = await openStop("node (PID 7)");
+	expect(
+		within(dialog).getByRole("checkbox", { name: "Also stop its 2 child processes" }),
+	).toBeTruthy();
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+	dialog = await openStop("python (PID 9)");
+	expect(within(dialog).queryByRole("checkbox")).toBeNull();
+	expect(
+		within(dialog).getByRole("button", { name: "Lower its priority instead" }),
+	).toBeTruthy();
+});
+
+test("stopping with children shows the child count, then hides the whole tree", async () => {
+	const calls = stubTreeActions(TREE, [
+		json({ pid: 7, exited: true, signalled: 3, refused: 0, remaining: [] }),
+	]);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	expect(dialog.textContent).toContain("PID 7 is asked to stop.");
+	fireEvent.click(
+		within(dialog).getByRole("checkbox", { name: "Also stop its 2 child processes" }),
+	);
+	expect(dialog.textContent).toContain(
+		"PID 7 and its 2 child processes are asked to stop.",
+	);
+	// Nothing is sent before the student confirms.
+	expect(calls).toEqual([]);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+	expect(calls[0]).toEqual({
+		url: `/workspaces/${WORKSPACE}/processes/7/stop-tree`,
+		body: { startTicks: 123, force: false },
+	});
+	for (const pid of [7, 20, 21]) {
+		expect(screen.queryByTestId(`monitor-process-${pid}`)).toBeNull();
+	}
+	expect(screen.getByTestId("monitor-process-9")).toBeTruthy();
+	expect(screen.getByTestId("monitor-stop-announce").textContent).toBe(
+		"node (PID 7) and its children stopped.",
+	);
+});
+
+test("Force stop of a tree names the survivors from the first answer", async () => {
+	const survivor = { pid: 21, startTicks: 210 };
+	const calls = stubTreeActions(TREE, [
+		json({ pid: 7, exited: false, signalled: 3, refused: 1, remaining: [survivor] }),
+		json({ pid: 7, exited: true, signalled: 1, refused: 0, remaining: [] }),
+	]);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	fireEvent.click(within(dialog).getByRole("checkbox"));
+	fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+	const force = await screen.findByRole("button", { name: "Force stop" });
+	expect(screen.getByTestId("stop-process-status").textContent).toBe(
+		"1 process is still running.",
+	);
+	// The choices belong to the first press only.
+	expect(within(dialog).queryByRole("checkbox")).toBeNull();
+	fireEvent.click(force);
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+	expect(calls.map((call) => call.body)).toEqual([
+		{ startTicks: 123, force: false },
+		{ startTicks: 123, force: true, remaining: [survivor] },
+	]);
+});
+
+test("Lower its priority instead sends only the start ticks and shows the outcome", async () => {
+	const calls = stubTreeActions(TREE, [
+		json({ pid: 7, lowered: 3, refused: 0 }),
+		json({ pid: 7, lowered: 0, refused: 1 }),
+	]);
+	renderPane();
+	let dialog = await openStop("node (PID 7)");
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Lower its priority instead" }),
+	);
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+	expect(await screen.findByText("Lowered the priority of node (PID 7).")).toBeTruthy();
+	expect(screen.getByText("3 processes now run after everything else.")).toBeTruthy();
+	// The browser never names a nice value; the agent only ever lowers.
+	expect(calls[0]).toEqual({
+		url: `/workspaces/${WORKSPACE}/processes/7/lower-priority`,
+		body: { startTicks: 123 },
+	});
+	// Nothing was stopped.
+	expect(screen.getByTestId("monitor-process-7")).toBeTruthy();
+	dialog = await openStop("node (PID 7)");
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Lower its priority instead" }),
+	);
+	expect(
+		await screen.findByText(
+			"node (PID 7) already runs at the lowest priority. One process Portikus needs was left alone.",
+		),
+	).toBeTruthy();
+});
+
+test("a session leader whose children were re-parented still offers to stop them", async () => {
+	stubTreeActions(
+		[
+			{ ...OWN, ppid: 1, session: 7 },
+			{ ...OWN, pid: 20, command: "npm", startTicks: 200, ppid: 1, session: 7 },
+			{ ...OWN, pid: 9, command: "python", startTicks: 90, ppid: 1, session: 9 },
+		],
+		[],
+	);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	expect(
+		within(dialog).getByRole("checkbox", { name: "Also stop its 1 child process" }),
+	).toBeTruthy();
+});
+
+test("while a stop is pending, Lower its priority instead stays focusable and does nothing", async () => {
+	let finish: (answer: Response) => void = () => {};
+	const pending = new Promise<Response>((resolve) => {
+		finish = resolve;
+	});
+	const calls = stubTreeActions(TREE, [pending as unknown as Response]);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	fireEvent.click(within(dialog).getByRole("checkbox"));
+	fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+	const lower = within(dialog).getByRole("button", {
+		name: "Lower its priority instead",
+	});
+	await waitFor(() => expect(lower.getAttribute("aria-disabled")).toBe("true"));
+	expect(lower.hasAttribute("disabled")).toBe(false);
+	fireEvent.click(lower);
+	expect(calls.map((call) => call.url)).toEqual([
+		`/workspaces/${WORKSPACE}/processes/7/stop-tree`,
+	]);
+	finish(json({ pid: 7, exited: true, signalled: 3, refused: 0, remaining: [] }));
+	await waitFor(() => expect(screen.queryByTestId("dialog-stop-process")).toBeNull());
+});
+
+test("a refused Lower priority is explained", async () => {
+	stubTreeActions(TREE, [errorBody(409, "PROCESS_CHANGED")]);
+	renderPane();
+	const dialog = await openStop("node (PID 7)");
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Lower its priority instead" }),
+	);
+	expect(
+		await screen.findByText(
+			"That process ID now belongs to a different program. Refresh and try again.",
+		),
+	).toBeTruthy();
 });
 
 test("Processes explains what Stop may end", async () => {

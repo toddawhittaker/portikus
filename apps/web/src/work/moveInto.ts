@@ -79,3 +79,26 @@ export function dropTreeFile(state: LayoutState, path: string, target: MoveIntoT
 	state.moveLeaf(target.tabId, pane, target.paneId, target.edge);
 	state.setFocused(pane);
 }
+
+/**
+ * Drop several files dragged from the tree (SPEC.md §11.2): the first opens
+ * beside `target` as one new split, the rest open as tabs, and the split
+ * keeps the focus. A file already open stays where it is.
+ */
+export function dropTreeFiles(
+	get: () => LayoutState,
+	paths: readonly string[],
+	target: MoveIntoTarget,
+) {
+	const [first, ...rest] = paths;
+	if (first === undefined) return;
+	dropTreeFile(get(), first, target);
+	for (const path of rest) {
+		if (tabOfPane(get().layout, fileTabId(path)) === null) get().openFile(path);
+	}
+	// Opening a tab activates it, so go back to the split the drop made.
+	const pane = fileTabId(first);
+	const tabId = tabOfPane(get().layout, pane);
+	if (tabId !== null) get().setActive(tabId);
+	get().setFocused(pane);
+}

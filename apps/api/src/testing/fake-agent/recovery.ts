@@ -10,6 +10,7 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		recoveryAsides,
 		restoreFailure,
 		diffFailure,
 		projectNotFound,
@@ -96,6 +97,16 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 			const failure = restoreFailure.get(keyOf(request));
 			if (failure) return recoveryError(reply, failure[0], failure[1]);
 			if (restoreIncomplete.has(keyOf(request))) {
+				// As the real agent, the earlier files stay in an aside folder.
+				const kept = recoveryAsides.get(keyOf(request)) ?? new Map();
+				kept.set(pointId, {
+					pointId,
+					modifiedAt: new Date().toISOString(),
+					fileCount: 2,
+					sizeBytes: 2048,
+					complete: true,
+				});
+				recoveryAsides.set(keyOf(request), kept);
 				return recoveryError(reply, 500, "RESTORE_INCOMPLETE");
 			}
 			const tree = fsOf(request);
@@ -154,6 +165,16 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		if (recoveryPoints.get(pointId)?.key === keyOf(request)) {
 			recoveryPoints.delete(pointId);
 		}
+		return reply.status(204).send();
+	});
+
+	app.get("/recovery-asides", async (request) => ({
+		folders: [...(recoveryAsides.get(keyOf(request))?.values() ?? [])],
+	}));
+
+	app.delete("/recovery-asides/:projectId/:pointId", async (request, reply) => {
+		const { pointId } = request.params as { pointId: string };
+		recoveryAsides.get(keyOf(request))?.delete(pointId);
 		return reply.status(204).send();
 	});
 

@@ -107,9 +107,11 @@ test("the stat line is read between the first ( and the last )", () => {
 		name: "a) b (c",
 		state: "R",
 		ppid: 7,
+		session: 0,
 		startTicks: 1234,
 		utime: 0,
 		stime: 0,
+		nice: 0,
 	});
 	expect(parseStatLine("9 (short) S 1 2")).toBeNull();
 	expect(parseStatLine("garbage")).toBeNull();

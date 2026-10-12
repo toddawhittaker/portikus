@@ -1,7 +1,7 @@
 import { requireUser } from "@portikus/auth";
 import type { FastifyInstance } from "fastify";
+import { taughtCourseId } from "../courses/membership.js";
 import { syncCourseRoster } from "../courses/roster.js";
-import { taughtCourseId } from "../courses/taught-course.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 

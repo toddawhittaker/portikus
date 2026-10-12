@@ -1,17 +1,30 @@
 /**
  * The Monitor tab (SPEC.md §18.3): workspace CPU, memory, the home disk,
  * network rates, and the processes in the workspace. It refreshes once a second
- * while it is the selected tab. A student can stop their own processes and
- * read a process's full command line (SPEC.md §18.3).
+ * while it is the selected tab. A student can stop their own processes, with
+ * or without their children, lower their priority instead, and read a
+ * process's full command line (SPEC.md §18.3).
  */
-import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
-import { ConfirmDialog, ConfirmDialogRoot, IconButton, Toggletip } from "@portikus/ui";
+import type {
+	ProcessIdentity,
+	UsageProcess,
+	WorkspaceUsage,
+} from "@portikus/contracts";
+import {
+	Button,
+	Checkbox,
+	ConfirmDialog,
+	ConfirmDialogRoot,
+	IconButton,
+	Toggletip,
+	useToast,
+} from "@portikus/ui";
 import { type FocusEvent, useEffect, useRef, useState } from "react";
-import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import "./monitor.css";
 import { useRightPaneState } from "../shell/rightPane.js";
 import { SortAnnouncement, sortAnnouncement } from "../table/announce.js";
 import { SortHeader } from "../table/SortHeader.js";
+import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
 import {
 	compareProcesses,
@@ -20,7 +33,16 @@ import {
 	type ProcessColumn,
 	type ProcessSort,
 } from "./sort.js";
-import { stopErrorText, stopProcess } from "./stop.js";
+import {
+	childProcesses,
+	lowerPriority,
+	priorityErrorText,
+	refusedText,
+	stopErrorText,
+	stopProcess,
+	stopProcessTree,
+} from "./stop.js";
+import { descendantsOf } from "./tree.js";
 import { useWorkspaceUsage } from "./usage.js";
 
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
@@ -53,10 +75,36 @@ function processKey(process: UsageProcess): string {
 
 interface Stopping {
 	process: UsageProcess;
+	/** The descendants the sample showed when the dialog opened. */
+	children: UsageProcess[];
+	/** "Also stop its child processes" is ticked. */
+	withChildren: boolean;
 	/** True once a plain stop left the process running, so Force stop is offered. */
 	stillRunning: boolean;
+	/** The tree's survivors of a plain stop, which a Force stop names. */
+	remaining: ProcessIdentity[] | null;
+	/** Protected members the first press left alone, told once the tree has stopped. */
+	refused: number;
 	error: string | null;
 	pending: boolean;
+}
+
+function startStopping(process: UsageProcess, children: UsageProcess[]): Stopping {
+	return {
+		process,
+		children,
+		withChildren: false,
+		stillRunning: false,
+		remaining: null,
+		refused: 0,
+		error: null,
+		pending: false,
+	};
+}
+
+/** The processes a stop with children reaches, or null for a single stop. */
+function treeOf(stopping: Stopping): UsageProcess[] | null {
+	return stopping.withChildren ? stopping.children : null;
 }
 
 function Figures({
@@ -70,6 +118,7 @@ function Figures({
 	// The sort lives in the right pane, so a notice can open Monitor sorted; only a press is spoken.
 	const [sortSpoken, setSortSpoken] = useState("");
 	const [stopping, setStopping] = useState<Stopping | null>(null);
+	const toast = useToast();
 	const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 	// Hidden at once, so the row does not linger until the next sample.
 	const [stopped, setStopped] = useState<Set<string>>(() => new Set());
@@ -81,9 +130,8 @@ function Figures({
 	const heldOrder = useRef<string[] | null>(null);
 	const [focusInList, setFocusInList] = useState(false);
 
-	const sorted = usage.processes
-		.filter((process) => !stopped.has(processKey(process)))
-		.sort((left, right) => compareProcesses(left, right, sort));
+	const shown = usage.processes.filter((process) => !stopped.has(processKey(process)));
+	const sorted = shown.sort((left, right) => compareProcesses(left, right, sort));
 	const processes =
 		focusInList && heldOrder.current
 			? keepOrder(sorted, heldOrder.current, processKey)
@@ -146,25 +194,82 @@ function Figures({
 
 	async function confirm(current: Stopping) {
 		const { process } = current;
+		const tree = treeOf(current);
 		const force = current.stillRunning;
 		setStopping({ ...current, pending: true, error: null });
 		try {
-			const answer = await stopProcess(
-				workspaceId,
-				process.pid,
-				process.startTicks,
-				force,
-			);
-			if (!answer.exited) {
-				setStopping({ process, stillRunning: true, error: null, pending: false });
+			let exited: boolean;
+			let remaining: ProcessIdentity[] | null = null;
+			let refused = current.refused;
+			if (tree) {
+				const answer = await stopProcessTree(
+					workspaceId,
+					process.pid,
+					process.startTicks,
+					force,
+					current.remaining,
+				);
+				({ exited, remaining } = answer);
+				refused += answer.refused;
+			} else {
+				({ exited } = await stopProcess(
+					workspaceId,
+					process.pid,
+					process.startTicks,
+					force,
+				));
+			}
+			if (!exited) {
+				setStopping({
+					...current,
+					stillRunning: true,
+					remaining,
+					refused,
+					pending: false,
+				});
 				return;
 			}
-			setStopped((previous) => new Set(previous).add(processKey(process)));
-			setAnnouncement(`${process.command} (PID ${process.pid}) stopped.`);
+			// A protected child was left running by the agent, so its row stays.
+			const gone = [process, ...(tree ?? []).filter((one) => one.stoppable)].map(
+				processKey,
+			);
+			setStopped((previous) => new Set([...previous, ...gone]));
+			const name = `${process.command} (PID ${process.pid})`;
+			setAnnouncement(
+				tree
+					? `${name} and its children stopped.${refusedText(refused)}`
+					: `${name} stopped.`,
+			);
 			setStopping(null);
 			setFocusHeading(true);
 		} catch (error) {
 			setStopping({ ...current, pending: false, error: stopErrorText(error) });
+		}
+	}
+
+	// A toast, so the outcome is seen as well as heard; the row does not change.
+	async function lower(process: UsageProcess) {
+		const name = `${process.command} (PID ${process.pid})`;
+		try {
+			const { lowered, refused } = await lowerPriority(
+				workspaceId,
+				process.pid,
+				process.startTicks,
+			);
+			toast.show(
+				lowered === 0
+					? {
+							tone: "neutral",
+							title: `${name} already runs at the lowest priority.${refusedText(refused)}`,
+						}
+					: {
+							tone: "success",
+							title: `Lowered the priority of ${name}.`,
+							children: `${lowered === 1 ? "1 process now runs" : `${lowered} processes now run`} after everything else.${refusedText(refused)}`,
+						},
+			);
+		} catch (error) {
+			toast.show({ tone: "danger", title: priorityErrorText(error) });
 		}
 	}
 
@@ -212,7 +317,9 @@ function Figures({
 				</h3>
 				<Toggletip label="Processes">
 					Programs running in your workspace, busiest first. Stop ends a program you
-					started. System processes cannot be stopped here.
+					started, and can end the programs it started too. It can instead lower the
+					program's priority, so it runs after everything else; that cannot be undone
+					while it runs. System processes cannot be stopped here.
 				</Toggletip>
 			</div>
 			{/* Always mounted, so a finished stop is announced (SPEC.md §25.8). */}
@@ -255,12 +362,7 @@ function Figures({
 								expanded={expanded.has(processKey(process))}
 								onToggle={() => toggleExpanded(processKey(process))}
 								onStop={() =>
-									setStopping({
-										process,
-										stillRunning: false,
-										error: null,
-										pending: false,
-									})
+									setStopping(startStopping(process, descendantsOf(process, shown)))
 								}
 							/>
 						))
@@ -280,7 +382,21 @@ function Figures({
 						onConfirm={() => {
 							if (!stopping.pending) void confirm(stopping);
 						}}
-					/>
+					>
+						{/* Choices for the first press only; Force stop ends what the first left. */}
+						{stopping.stillRunning ? null : (
+							<StopChoices
+								stopping={stopping}
+								onWithChildren={(withChildren) =>
+									setStopping({ ...stopping, withChildren })
+								}
+								onLowerPriority={() => {
+									close();
+									void lower(stopping.process);
+								}}
+							/>
+						)}
+					</ConfirmDialog>
 				</ConfirmDialogRoot>
 			) : null}
 			{/* jscpd:ignore-end */}
@@ -288,8 +404,45 @@ function Figures({
 	);
 }
 
+function StopChoices({
+	stopping,
+	onWithChildren,
+	onLowerPriority,
+}: {
+	stopping: Stopping;
+	onWithChildren: (withChildren: boolean) => void;
+	onLowerPriority: () => void;
+}) {
+	const count = stopping.children.length;
+	return (
+		<div className="pk-monitor-dialog-choices">
+			{count > 0 ? (
+				<Checkbox
+					label={`Also stop its ${childProcesses(count)}`}
+					checked={stopping.withChildren}
+					ariaDisabled={stopping.pending}
+					onChange={(event) => {
+						if (!stopping.pending) onWithChildren(event.target.checked);
+					}}
+				/>
+			) : null}
+			<Button
+				size="sm"
+				variant="quiet"
+				data-testid="stop-process-lower-priority"
+				aria-disabled={stopping.pending || undefined}
+				onClick={() => {
+					if (!stopping.pending) onLowerPriority();
+				}}
+			>
+				Lower its priority instead
+			</Button>
+		</div>
+	);
+}
+
 function StopDescription({ stopping }: { stopping: Stopping }) {
-	const { process } = stopping;
+	const tree = treeOf(stopping);
 	return (
 		<>
 			{/* A live region inside the dialog, so the outcome is heard where focus is. */}
@@ -298,16 +451,33 @@ function StopDescription({ stopping }: { stopping: Stopping }) {
 				className="pk-monitor-dialog-line"
 				data-testid="stop-process-status"
 			>
-				{stopping.error ??
-					(stopping.stillRunning ? `${process.command} is still running.` : "")}
+				{stopping.error ?? (stopping.stillRunning ? stillRunningText(stopping) : "")}
 			</span>
 			<span className="pk-monitor-dialog-line">
-				{stopping.stillRunning
-					? `Force stop ends PID ${process.pid} at once, without letting it clean up.`
-					: `PID ${process.pid} is asked to stop.`}
+				{tree ? treeLine(stopping, tree.length) : singleLine(stopping)}
 			</span>
 		</>
 	);
+}
+
+function stillRunningText(stopping: Stopping): string {
+	if (!treeOf(stopping)) return `${stopping.process.command} is still running.`;
+	const count = stopping.remaining?.length ?? 0;
+	return count === 1
+		? "1 process is still running."
+		: `${count} processes are still running.`;
+}
+
+function singleLine({ process, stillRunning }: Stopping): string {
+	return stillRunning
+		? `Force stop ends PID ${process.pid} at once, without letting it clean up.`
+		: `PID ${process.pid} is asked to stop.`;
+}
+
+function treeLine({ process, stillRunning }: Stopping, children: number): string {
+	return stillRunning
+		? "Force stop ends them at once, without letting them clean up."
+		: `PID ${process.pid} and its ${childProcesses(children)} are asked to stop.`;
 }
 
 function ProcessRow({

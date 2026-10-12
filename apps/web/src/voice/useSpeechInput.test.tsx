@@ -1,11 +1,15 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { editorSettingsKey } from "../editor/settingsQueries";
 import {
 	MESSAGE_MS,
 	type Recognizer,
 	resetSpeechSupport,
 	sanitizeTranscript,
 	useSpeechInput,
+	voiceSupported,
 } from "./useSpeechInput";
 
 afterEach(() => {
@@ -13,6 +17,15 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 	resetSpeechSupport();
 });
+
+/** A provider whose cached settings carry the site's voice switch. */
+function settings(voiceInputEnabled = true) {
+	const client = new QueryClient();
+	client.setQueryData(editorSettingsKey, { voiceInputEnabled });
+	return ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={client}>{children}</QueryClientProvider>
+	);
+}
 
 /** A recognizer the test drives by hand. */
 class FakeRecognition implements Recognizer {
@@ -48,20 +61,20 @@ function fake() {
 }
 
 test("a browser without the API is unsupported", () => {
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	expect(result.current.state).toBe("unsupported");
 });
 
 test("the webkit-prefixed API counts as support", () => {
 	vi.stubGlobal("webkitSpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	expect(result.current.state).toBe("idle");
 });
 
 test("holding listens, shows interim words, and types only final ones", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
 	const onFinal = vi.fn();
-	const { result } = renderHook(() => useSpeechInput(onFinal));
+	const { result } = renderHook(() => useSpeechInput(onFinal), { wrapper: settings() });
 
 	act(() => result.current.start());
 	expect(result.current.state).toBe("listening");
@@ -86,7 +99,7 @@ test("holding listens, shows interim words, and types only final ones", () => {
 test("a final phrase loses every control character, so it never presses Enter", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
 	const onFinal = vi.fn();
-	const { result } = renderHook(() => useSpeechInput(onFinal));
+	const { result } = renderHook(() => useSpeechInput(onFinal), { wrapper: settings() });
 	act(() => result.current.start());
 	act(() => fake().say("ls\r\n-la\u001b[201~\n", true));
 	expect(onFinal).toHaveBeenCalledWith("ls-la[201~");
@@ -98,18 +111,18 @@ test("sanitizeTranscript strips C0, DEL and C1 characters", () => {
 
 test("a network error makes the browser unsupported", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.start());
 	act(() => fake().onerror?.({ error: "network" }));
 	expect(result.current.state).toBe("unsupported");
 	// Other panes made afterwards agree.
-	const other = renderHook(() => useSpeechInput(vi.fn()));
+	const other = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	expect(other.result.current.state).toBe("unsupported");
 });
 
 test("a blocked microphone is an error with a message", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.start());
 	act(() => fake().onerror?.({ error: "not-allowed" }));
 	act(() => fake().onend?.());
@@ -122,7 +135,7 @@ test("a blocked microphone is an error with a message", () => {
 
 test("a network error says why and keeps saying it", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.start());
 	act(() => fake().onerror?.({ error: "network" }));
 	expect(result.current.state).toBe("unsupported");
@@ -133,7 +146,9 @@ test("an error clears itself after a while", () => {
 	vi.useFakeTimers();
 	try {
 		vi.stubGlobal("SpeechRecognition", FakeRecognition);
-		const { result } = renderHook(() => useSpeechInput(vi.fn()));
+		const { result } = renderHook(() => useSpeechInput(vi.fn()), {
+			wrapper: settings(),
+		});
 		act(() => result.current.start());
 		act(() => fake().onerror?.({ error: "audio-capture" }));
 		expect(result.current.message).toBe("No microphone was found.");
@@ -146,7 +161,7 @@ test("an error clears itself after a while", () => {
 
 test("a quick second press starts a new recognizer while the first finishes", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.start());
 	const first = fake();
 	act(() => result.current.stop());
@@ -162,7 +177,7 @@ test("a quick second press starts a new recognizer while the first finishes", ()
 
 test("an error from a replaced recognizer does not stop the one listening now", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.start());
 	const first = fake();
 	act(() => result.current.stop());
@@ -174,7 +189,52 @@ test("an error from a replaced recognizer does not stop the one listening now", 
 
 test("explain puts a hint in the message", () => {
 	vi.stubGlobal("SpeechRecognition", FakeRecognition);
-	const { result } = renderHook(() => useSpeechInput(vi.fn()));
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper: settings() });
 	act(() => result.current.explain("Hold Space to talk."));
 	expect(result.current.message).toBe("Hold Space to talk.");
+});
+
+test("a site with voice input off is unsupported, says nothing, and never listens", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	FakeRecognition.last = null;
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), {
+		wrapper: settings(false),
+	});
+	expect(result.current.state).toBe("unsupported");
+	expect(result.current.message).toBe("");
+	act(() => result.current.start());
+	expect(FakeRecognition.last).toBeNull();
+});
+
+test("before the site's settings load, voice reads as off, so the microphone never flashes", () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	vi.stubGlobal("fetch", () => new Promise(() => {}));
+	const client = new QueryClient();
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), {
+		wrapper: ({ children }: { children: ReactNode }) => (
+			<QueryClientProvider client={client}>{children}</QueryClientProvider>
+		),
+	});
+	expect(result.current.state).toBe("unsupported");
+});
+
+test("voice stays on when the settings cannot be loaded", async () => {
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	const wrapper = ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={client}>{children}</QueryClientProvider>
+	);
+	const { result } = renderHook(() => useSpeechInput(vi.fn()), { wrapper });
+	await waitFor(() =>
+		expect(client.getQueryState(editorSettingsKey)?.status).toBe("error"),
+	);
+	act(() => result.current.start());
+	expect(fake().started).toBe(true);
+});
+
+test("voiceSupported follows the API", () => {
+	expect(voiceSupported()).toBe(false);
+	vi.stubGlobal("SpeechRecognition", FakeRecognition);
+	expect(voiceSupported()).toBe(true);
 });

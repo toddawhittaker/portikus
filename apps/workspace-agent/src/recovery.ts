@@ -26,15 +26,16 @@ import { join } from "node:path";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
-import type {
-	AgentCreateRecoveryPointResponse,
-	AgentRecoveryArchiveList,
+import {
+	type AgentCreateRecoveryPointResponse,
+	type AgentRecoveryArchiveList,
+	RECOVERY_ASIDE_PREFIX,
 } from "@portikus/contracts";
 import { AgentFailure, isNoSpace } from "./errors.js";
 import { projectsDir, resolveProject } from "./projects.js";
 import { loadRecoveryMatcher, type RecoveryMatcher } from "./workspace-ignore.js";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Where the recovery volume is and whose projects it holds. */
 export interface RecoveryPaths {
@@ -244,7 +245,10 @@ export async function restoreRecoveryPoint(
 
 	// These names fail the slug pattern, so project discovery never lists them.
 	const staging = join(projectsDir(paths.homeDir), `${STAGING_PREFIX}${input.pointId}`);
-	const aside = join(projectsDir(paths.homeDir), `${ASIDE_PREFIX}${input.pointId}`);
+	const aside = join(
+		projectsDir(paths.homeDir),
+		`${RECOVERY_ASIDE_PREFIX}${input.pointId}`,
+	);
 	// An aside copy may be the only copy of a failed restore's files. An
 	// empty one holds nothing, and rmdir refuses a folder that is not empty.
 	if (await exists(aside)) {
@@ -358,7 +362,6 @@ async function readdirEntriesOrEmpty(path: string): Promise<Dirent[]> {
 }
 
 const STAGING_PREFIX = ".portikus-restore-";
-const ASIDE_PREFIX = ".portikus-aside-";
 const LEFTOVER =
 	/^\.portikus-restore-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -811,7 +814,7 @@ function isDenied(error: unknown): boolean {
 	return code === "EACCES" || code === "EPERM";
 }
 
-function isMissing(error: unknown): boolean {
+export function isMissing(error: unknown): boolean {
 	const code = (error as NodeJS.ErrnoException).code;
 	return code === "ENOENT" || code === "ENOTDIR";
 }

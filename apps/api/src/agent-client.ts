@@ -18,14 +18,19 @@ import {
 	AgentLogResponse,
 	AgentProject,
 	AgentProjectList,
+	AgentRecoveryAsideList,
 	AgentRenameProjectRequest,
 	AgentRestoreRecoveryPointRequest,
 	AgentTerminalsExit,
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
+	ProcessPriorityRequest,
+	ProcessPriorityResponse,
 	ProcessStopRequest,
 	ProcessStopResponse,
+	ProcessTreeStopRequest,
+	ProcessTreeStopResponse,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
@@ -149,17 +154,55 @@ export class AgentClient {
 	 * Stop one process (SPEC.md §18.3). The agent is untrusted, so an answer
 	 * that is malformed or names another PID is treated as a failed agent.
 	 */
-	async stopProcess(
+	stopProcess(pid: number, input: ProcessStopRequest): Promise<ProcessStopResponse> {
+		return this.processCall(
+			pid,
+			"stop",
+			ProcessStopRequest.parse(input),
+			ProcessStopResponse,
+		);
+	}
+
+	/** Stop a process and its children (SPEC.md §18.3), checked like {@link stopProcess}. */
+	stopProcessTree(
 		pid: number,
-		input: ProcessStopRequest,
-	): Promise<ProcessStopResponse> {
+		input: ProcessTreeStopRequest,
+	): Promise<ProcessTreeStopResponse> {
+		return this.processCall(
+			pid,
+			"stop-tree",
+			ProcessTreeStopRequest.parse(input),
+			ProcessTreeStopResponse,
+		);
+	}
+
+	/** Lower a process tree's priority (SPEC.md §18.3), checked like {@link stopProcess}. */
+	lowerProcessPriority(
+		pid: number,
+		input: ProcessPriorityRequest,
+	): Promise<ProcessPriorityResponse> {
+		return this.processCall(
+			pid,
+			"lower-priority",
+			ProcessPriorityRequest.parse(input),
+			ProcessPriorityResponse,
+		);
+	}
+
+	/** One of the process routes; an answer naming another PID is a failed agent. */
+	private async processCall<T extends { pid: number }>(
+		pid: number,
+		action: string,
+		body: unknown,
+		schema: z.ZodType<T>,
+	): Promise<T> {
 		const payload = await this.call(
 			"POST",
-			`/processes/${pid}/stop`,
-			ProcessStopRequest.parse(input),
+			`/processes/${pid}/${action}`,
+			body,
 			STOP_TIMEOUT_MS,
 		);
-		const parsed = ProcessStopResponse.safeParse(payload);
+		const parsed = schema.safeParse(payload);
 		if (!parsed.success || parsed.data.pid !== pid) {
 			throw new AgentCallError(
 				"AGENT_UNAVAILABLE",
@@ -327,6 +370,29 @@ export class AgentClient {
 			"POST",
 			`/projects/${encodeURIComponent(slug)}/recovery-points/${encodeURIComponent(pointId)}/restore`,
 			AgentRestoreRecoveryPointRequest.parse(input),
+			AGENT_RECOVERY_TIMEOUT_MS,
+		);
+	}
+
+	/** Folders failed restores left in ~/projects (SPEC.md §15.10). */
+	async listRecoveryAsides(): Promise<AgentRecoveryAsideList["folders"]> {
+		const payload = await this.call("GET", "/recovery-asides");
+		const parsed = AgentRecoveryAsideList.safeParse(payload);
+		if (!parsed.success) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data.folders;
+	}
+
+	/** Delete one such folder, which may hold many files. */
+	async deleteRecoveryAside(projectId: string, pointId: string): Promise<void> {
+		await this.call(
+			"DELETE",
+			`/recovery-asides/${encodeURIComponent(projectId)}/${encodeURIComponent(pointId)}`,
+			undefined,
 			AGENT_RECOVERY_TIMEOUT_MS,
 		);
 	}

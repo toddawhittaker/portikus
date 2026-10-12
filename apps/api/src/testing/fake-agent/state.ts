@@ -3,6 +3,7 @@ import type { Server as HttpsServer } from "node:https";
 import type { WebSocket } from "@fastify/websocket";
 import type {
 	AgentListeningService,
+	AgentRecoveryAside,
 	GitDiff,
 	GitStatus,
 	SearchMatch,
@@ -56,6 +57,10 @@ export interface FakeProcess {
 	stoppable: boolean;
 	commandLine: string | null;
 	ignoresTerm?: boolean;
+	/** The parent; 1 when unset. Monitor counts children by it. */
+	ppid?: number;
+	/** The nice value "Lower priority" raises; 0 when unset. */
+	nice?: number;
 }
 
 /** What a workspace runs until a test says otherwise. */
@@ -331,6 +336,7 @@ export function createFakeAgentState(token: string) {
 	const recoveryDeletes: string[] = [];
 	const recoveryFull = new Set<string>();
 	const restoreIncomplete = new Set<string>();
+	const recoveryAsides = new Map<string, Map<string, AgentRecoveryAside>>();
 	const restoreFailure = new Map<string, [number, string]>();
 	const diffFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
@@ -385,6 +391,7 @@ export function createFakeAgentState(token: string) {
 		recoveryDeletes,
 		recoveryFull,
 		restoreIncomplete,
+		recoveryAsides,
 		restoreFailure,
 		diffFailure,
 		storage,

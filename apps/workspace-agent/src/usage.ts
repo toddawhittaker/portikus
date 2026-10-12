@@ -204,6 +204,8 @@ export function diskBytes(stat: DiskStat): { usedBytes: number; totalBytes: numb
 interface ProcessSnap {
 	ticks: number;
 	startTicks: number;
+	ppid: number;
+	session: number;
 	stoppable: boolean;
 	commandLine: string | null;
 	residentBytes: number;
@@ -295,6 +297,8 @@ export class UsageSampler {
 				residentBytes: process.residentBytes,
 				command: process.command,
 				startTicks: process.startTicks,
+				ppid: process.ppid,
+				session: process.session,
 				stoppable: process.stoppable,
 				commandLine: process.commandLine,
 			});
@@ -380,6 +384,8 @@ export class UsageSampler {
 				found.set(pid, {
 					ticks: stat.utime + stat.stime,
 					startTicks: stat.startTicks,
+					ppid: stat.ppid,
+					session: stat.session,
 					stoppable: !isProtected(facts, owner),
 					commandLine,
 					residentBytes: status.residentBytes,

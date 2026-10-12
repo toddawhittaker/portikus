@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import {
+	endAtClockTime,
 	formatHoldEnd,
 	holdActive,
 	KeepRunningSection,
@@ -238,4 +239,62 @@ test("the status bar shows no hold once it has ended", () => {
 		/>,
 	);
 	expect(screen.queryByTestId("keep-running-indicator")).toBeNull();
+});
+
+test("a clock time is read in the student's zone, and one already past means tomorrow", () => {
+	// 10:00 in Tokyo (UTC+9).
+	const now = Date.parse("2026-10-01T01:00:00.000Z");
+	expect(endAtClockTime("23:30", "Asia/Tokyo", now)).toBe("2026-10-01T14:30:00.000Z");
+	expect(endAtClockTime("09:00", "Asia/Tokyo", now)).toBe("2026-10-02T00:00:00.000Z");
+	// Exactly now is not ahead, so it means tomorrow too.
+	expect(endAtClockTime("10:00", "Asia/Tokyo", now)).toBe("2026-10-02T01:00:00.000Z");
+	expect(endAtClockTime("23:30", "UTC", now)).toBe("2026-10-01T23:30:00.000Z");
+	expect(endAtClockTime("", "UTC", now)).toBeNull();
+});
+
+test("a clock time across a daylight saving change uses the offset at that time", () => {
+	// 20:00 EDT on Oct 31; 08:00 next day is after the change to EST (UTC-5).
+	const now = Date.parse("2026-11-01T00:00:00.000Z");
+	expect(endAtClockTime("08:00", "America/New_York", now)).toBe(
+		"2026-11-01T13:00:00.000Z",
+	);
+});
+
+test("a clock time skipped by spring forward ends after the gap, not an hour early", () => {
+	// 20:00 EST on Mar 7; 02:30 on Mar 8 does not exist in New York, so 03:30 EDT.
+	const now = Date.parse("2026-03-08T01:00:00.000Z");
+	expect(endAtClockTime("02:30", "America/New_York", now)).toBe(
+		"2026-03-08T07:30:00.000Z",
+	);
+});
+
+test("a typed clock time sets the hold, and one past the cap is refused before sending", async () => {
+	const calls = stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, keepRunningMaxHours: 1 }}
+		/>,
+	);
+	const at = screen.getByLabelText("Or until");
+	const set = screen.getByTestId("keep-running-set") as HTMLButtonElement;
+	const clockIn = (minutes: number) => {
+		const d = new Date(Date.now() + minutes * 60_000);
+		return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+	};
+	fireEvent.change(at, { target: { value: clockIn(180) } });
+	expect(screen.getByText("That is more than 1 hour away.")).toBeDefined();
+	expect(set.getAttribute("aria-disabled")).toBe("true");
+	expect(set.getAttribute("aria-describedby")).toBe("keep-running-at-err");
+	fireEvent.click(set);
+	expect(calls.length).toBe(0);
+
+	fireEvent.change(at, { target: { value: clockIn(30) } });
+	expect(set.getAttribute("aria-disabled")).toBeNull();
+	fireEvent.click(set);
+	await waitFor(() => expect(calls.length).toBe(1));
+	const sent = calls[0]?.body as { until: string } | undefined;
+	const until = Date.parse(sent?.until ?? "");
+	expect(until - Date.now()).toBeGreaterThan(28 * 60_000);
+	expect(until - Date.now()).toBeLessThanOrEqual(30 * 60_000);
 });

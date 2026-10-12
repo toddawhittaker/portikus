@@ -8,7 +8,7 @@ import {
 import type { Database } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { type Kysely, sql } from "kysely";
-import { taughtCourseId } from "../courses/taught-course.js";
+import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 

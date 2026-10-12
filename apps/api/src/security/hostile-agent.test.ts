@@ -59,6 +59,10 @@ interface Behaviour {
 	forwardAddress: string;
 	/** The status and body `POST /processes/:pid/stop` answers with. */
 	processStop: [number, unknown];
+	/** The body `GET /recovery-asides` answers with. */
+	asides: unknown;
+	/** What the tree stop and "Lower priority" routes answer with. */
+	processTree: [number, unknown];
 }
 
 function calm(): Behaviour {
@@ -71,6 +75,8 @@ function calm(): Behaviour {
 		listeningFrame: null,
 		forwardAddress: "127.0.0.1",
 		processStop: [200, { pid: 7, exited: true }],
+		asides: { folders: [] },
+		processTree: [200, { pid: 7, lowered: 1, refused: 0 }],
 	};
 }
 
@@ -122,7 +128,17 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 		const [status, body] = agent.behaviour.processStop;
 		return reply.status(status).send(body);
 	});
+	for (const route of ["/processes/:pid/stop-tree", "/processes/:pid/lower-priority"]) {
+		app.post(route, async (_request, reply) => {
+			const [status, body] = agent.behaviour.processTree;
+			return reply.status(status).send(body);
+		});
+	}
 	app.get("/projects/:slug/search", async () => agent.behaviour.search);
+	app.get("/recovery-asides", async () => agent.behaviour.asides);
+	app.delete("/recovery-asides/:projectId/:pointId", async (_request, reply) =>
+		reply.status(204).send(),
+	);
 	// An archive that never ends, as an agent lying about the size cap would send.
 	app.get("/projects/:slug/archive", async (_request, reply) => {
 		const chunk = Buffer.alloc(MIB);
@@ -663,6 +679,44 @@ describe.skipIf(skip)("a lying process stop answer", () => {
 	}
 });
 
+describe.skipIf(skip)("a lying tree stop or priority answer", () => {
+	const tree = { pid: 7, exited: true, signalled: 1, refused: 0, remaining: [] };
+	const cases: [string, string, unknown][] = [
+		["stop-tree", "names another pid", { ...tree, pid: 8 }],
+		["stop-tree", "carries extra fields", { ...tree, name: "zzsecret" }],
+		[
+			"stop-tree",
+			"names a survivor with extra fields",
+			{ ...tree, remaining: [{ pid: 9, startTicks: 1, name: "zzsecret" }] },
+		],
+		["lower-priority", "names another pid", { pid: 8, lowered: 1, refused: 0 }],
+		["lower-priority", "is malformed", { pid: 7, lowered: -1, refused: 0 }],
+		[
+			"lower-priority",
+			"carries extra fields",
+			{ pid: 7, lowered: 1, refused: 0, nice: -20 },
+		],
+	];
+	for (const [route, name, answer] of cases) {
+		test(`${route}: ${name}`, async () => {
+			hostile.behaviour.processTree = [200, answer];
+			const response = await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/processes/7/${route}`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { startTicks: 100 },
+			});
+			expect(response.statusCode).toBe(502);
+			expect(response.body).not.toContain("zzsecret");
+			const audits = await testDb.db.selectFrom("audit_events").selectAll().execute();
+			expect(
+				audits.filter((row) => row.action.startsWith("workspace.process")),
+			).toEqual([]);
+			await healthy();
+		});
+	}
+});
+
 test.skipIf(skip)(
 	"an agent refusal's own message never reaches the browser",
 	async () => {
@@ -681,3 +735,55 @@ test.skipIf(skip)(
 		expect(response.body).not.toContain("zzsecret");
 	},
 );
+
+describe.skipIf(skip)("a lying kept-folder list (SPEC.md §15.10, §24.6)", () => {
+	const folder = {
+		modifiedAt: "2026-10-01T09:00:00.000Z",
+		fileCount: 1,
+		sizeBytes: 1,
+		complete: true,
+	};
+	const pointId = "11111111-2222-4333-8444-555555555555";
+	for (const [name, asides] of [
+		["a traversal for a point id", { folders: [{ ...folder, pointId: "../../etc" }] }],
+		[
+			"more folders than any honest list",
+			{ folders: Array.from({ length: 1001 }, () => ({ ...folder, pointId })) },
+		],
+		["no list at all", { folders: "everything" }],
+	] as const) {
+		test(`${name} is a 503 and deletes nothing`, async () => {
+			hostile.behaviour.asides = asides;
+			const base = `/workspaces/${workspaceId}/projects/${projectId}/recovery-asides`;
+			const listed = await app.inject({
+				method: "GET",
+				url: base,
+				headers: { cookie: alice.cookieHeader() },
+			});
+			expect(listed.statusCode).toBe(503);
+			const deleted = await app.inject({
+				method: "DELETE",
+				url: `${base}/${pointId}`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+			});
+			expect(deleted.statusCode).toBe(503);
+			expect(hostile.calls.some((call) => call.startsWith("/recovery-asides/"))).toBe(
+				false,
+			);
+			await healthy();
+		});
+	}
+
+	test("a folder no point or restore of this project names is not deleted", async () => {
+		hostile.behaviour.asides = { folders: [{ ...folder, pointId }] };
+		const response = await app.inject({
+			method: "DELETE",
+			url: `/workspaces/${workspaceId}/projects/${projectId}/recovery-asides/${pointId}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+		});
+		expect(response.statusCode).toBe(404);
+		expect(hostile.calls.some((call) => call.startsWith("/recovery-asides/"))).toBe(
+			false,
+		);
+	});
+});

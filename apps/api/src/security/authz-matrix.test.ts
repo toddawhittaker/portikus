@@ -371,6 +371,8 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
 	// The fake agent's own node process.
 	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
+	"POST /workspaces/:id/processes/:pid/stop-tree": { startTicks: 100 },
+	"POST /workspaces/:id/processes/:pid/lower-priority": { startTicks: 100 },
 	"POST /admin/workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },

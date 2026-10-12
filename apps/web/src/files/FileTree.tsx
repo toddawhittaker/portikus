@@ -419,6 +419,7 @@ export function FileTreePane({
 		afterMove,
 		fail,
 		uploadInto,
+		targetsFor,
 	});
 
 	const openFile = useCallback(

@@ -28,6 +28,7 @@ export function registerUsageRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			residentBytes: one.residentBytes,
 			command: one.command,
 			startTicks: one.startTicks,
+			ppid: one.ppid ?? 1,
 			stoppable: one.stoppable,
 			commandLine: one.commandLine,
 		})),

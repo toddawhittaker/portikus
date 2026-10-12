@@ -218,6 +218,69 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	await studentContext.close();
 });
 
+/** "HH:MM" on the student's clock, `minutes` from now. */
+function clockIn(minutes: number): string {
+	return new Date(Date.now() + minutes * 60_000).toLocaleTimeString("en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+		timeZone: ZONE,
+	});
+}
+
+test("a student keeps running until a clock time in their zone; a time already past means tomorrow", async ({
+	page,
+	context,
+}) => {
+	await setCap(12);
+	try {
+		const student = await createStudent(context);
+		await query("update users set editor_settings = $2 where id = $1", [
+			student.userId,
+			JSON.stringify({ timezone: ZONE }),
+		]);
+		const dialog = await openWorkspaceDialog(page, student.workspaceId);
+		const section = dialog.getByRole("region", { name: "Keep running" });
+		const at = section.getByLabel("Or until");
+		const set = section.getByRole("button", { name: /^Keep running until / });
+
+		// An hour ago on the Tokyo clock is tomorrow, 23 hours away: past the 12-hour cap.
+		await at.fill(clockIn(-60));
+		await expect(section.getByText("That is more than 12 hours away.")).toBeVisible();
+		await expect(set).toHaveAttribute("aria-disabled", "true");
+		await expect(set).toHaveAccessibleDescription("That is more than 12 hours away.");
+		await expect(at).toHaveAccessibleDescription(/In your timezone, Asia\/Tokyo/);
+		await expectNoViolations(page);
+
+		await at.fill(clockIn(120));
+		await expect(set).not.toHaveAttribute("aria-disabled");
+		await set.click();
+		await expect(section.getByTestId("keep-running-status")).toBeVisible({
+			timeout: 15_000,
+		});
+		const ahead =
+			((await holdUntil(student.workspaceId)) as Date).getTime() - Date.now();
+		expect(ahead).toBeGreaterThan(118 * 60_000);
+		expect(ahead).toBeLessThanOrEqual(120 * 60_000);
+
+		// Under a 24-hour cap the past time is accepted, and lands tomorrow.
+		await setCap(24);
+		await page.reload();
+		const again = await openWorkspaceDialog(page, student.workspaceId);
+		const section2 = again.getByRole("region", { name: "Keep running" });
+		await section2.getByLabel("Or until").fill(clockIn(-60));
+		await section2.getByRole("button", { name: /^Keep running until / }).click();
+		await expect
+			.poll(async () => {
+				const until = await holdUntil(student.workspaceId);
+				return until ? until.getTime() - Date.now() : 0;
+			})
+			.toBeGreaterThan(22 * 3_600_000);
+	} finally {
+		await setCap(12);
+	}
+});
+
 test("ending a hold under a cap of 0 announces it and moves focus to the dialog heading", async ({
 	page,
 	context,

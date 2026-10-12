@@ -58,6 +58,7 @@ const SETTINGS_COLUMNS = [
 	"cpu_throttle_hold_hours",
 	"idle_stop_minutes",
 	"keep_running_max_hours",
+	"voice_input_enabled",
 	"acceptable_use_text",
 	"acceptable_use_version",
 	"updated_at",
@@ -76,6 +77,7 @@ function toPlatformSettings(row: {
 	cpu_throttle_hold_hours: number;
 	idle_stop_minutes: number;
 	keep_running_max_hours: number;
+	voice_input_enabled: boolean;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
 	updated_at: Date | null;
@@ -93,6 +95,7 @@ function toPlatformSettings(row: {
 		cpuThrottleHoldHours: row.cpu_throttle_hold_hours,
 		idleStopMinutes: row.idle_stop_minutes,
 		keepRunningMaxHours: row.keep_running_max_hours,
+		voiceInputEnabled: row.voice_input_enabled,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
 		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -205,31 +208,21 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				},
 			});
 		}
-		if (
-			body.data.idleStopMinutes !== undefined &&
-			body.data.idleStopMinutes !== before.idle_stop_minutes
-		) {
-			changes.idle_stop_minutes = body.data.idleStopMinutes;
-			audits.push({
-				action: "settings.idle_stop_updated",
-				details: {
-					from: before.idle_stop_minutes,
-					to: body.data.idleStopMinutes,
-				},
-			});
-		}
-		if (
-			body.data.keepRunningMaxHours !== undefined &&
-			body.data.keepRunningMaxHours !== before.keep_running_max_hours
-		) {
-			changes.keep_running_max_hours = body.data.keepRunningMaxHours;
-			audits.push({
-				action: "settings.keep_running_updated",
-				details: {
-					from: before.keep_running_max_hours,
-					to: body.data.keepRunningMaxHours,
-				},
-			});
+		// Each of these is one value with its own from-to audit row.
+		const singleFields = [
+			["idleStopMinutes", "idle_stop_minutes", "settings.idle_stop_updated"],
+			[
+				"keepRunningMaxHours",
+				"keep_running_max_hours",
+				"settings.keep_running_updated",
+			],
+			["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
+		] as const;
+		for (const [field, column, action] of singleFields) {
+			const value = body.data[field];
+			if (value === undefined || value === before[column]) continue;
+			Object.assign(changes, { [column]: value });
+			audits.push({ action, details: { from: before[column], to: value } });
 		}
 		if (body.data.acceptableUseText !== undefined) {
 			changes.acceptable_use_text = body.data.acceptableUseText;

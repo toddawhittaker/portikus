@@ -40,6 +40,7 @@ import {
 	type ThemePreference,
 } from "../shell/theme.js";
 import { useMe } from "../useMe.js";
+import { voiceSupported } from "../voice/useSpeechInput.js";
 import { useProfile, useUpdateProfile } from "./profileQueries.js";
 import { SETTINGS_SECTIONS, type SettingsControl, settingsHits } from "./sections.js";
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
@@ -413,6 +414,20 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							emoji picker or some on-screen keyboards does not reach a terminal.
 						</Toggletip>
 					</div>
+				);
+			case "voice-input":
+				// A site switch, not a student choice (SPEC.md §25.10), so this only reports it.
+				return (
+					<p
+						className="pk-text-compact m-0 text-ink-muted"
+						data-testid="settings-voice-input"
+					>
+						{settings.data?.voiceInputEnabled === false
+							? "Your administrator turned voice input off for this site."
+							: !voiceSupported()
+								? "This browser does not offer voice input."
+								: "Hold the microphone button in a terminal or file, or Alt+Shift+M, to dictate."}
+					</p>
 				);
 			case "keyboard-help":
 				// The keys and the terminal and editor limits live on the Help page (SPEC.md §25.8).

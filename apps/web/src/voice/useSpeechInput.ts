@@ -4,6 +4,7 @@
  * Portikus sends nothing to its server and logs nothing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEditorSettings } from "../editor/settingsQueries.js";
 
 /** The few members of the Web Speech API used here; no @types package. */
 interface SpeechResultAlternative {
@@ -53,6 +54,11 @@ function recognizerClass(): RecognizerClass | null {
 	return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }
 
+/** Whether this browser can dictate: the API exists and its service has not failed with `network`. */
+export function voiceSupported(): boolean {
+	return recognizerClass() !== null && !networkFailed;
+}
+
 /**
  * A transcript as typed input: every control character goes, line breaks
  * included, so dictation can never press Enter or send an escape sequence.
@@ -90,9 +96,15 @@ export interface SpeechInput {
 
 /** `onFinal` receives each settled phrase, already sanitized. */
 export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
-	const [supported, setSupported] = useState(
-		() => recognizerClass() !== null && !networkFailed,
-	);
+	const [supported, setSupported] = useState(voiceSupported);
+	// An administrator can turn voice off site-wide; then it reads as unsupported, with no message.
+	// Not yet loaded counts as off, so the microphone never flashes on a site with voice off;
+	// a failed load counts as on, because voice is on by default.
+	const q = useEditorSettings();
+	const allowed =
+		q.isError || (q.data !== undefined && q.data.voiceInputEnabled !== false);
+	const allowedRef = useRef(allowed);
+	allowedRef.current = allowed;
 	const [state, setState] = useState<SpeechState>("idle");
 	const [interim, setInterim] = useState("");
 	const [message, setMessage] = useState("");
@@ -114,7 +126,8 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 
 	const start = useCallback(() => {
 		const Recognition = recognizerClass();
-		if (!Recognition || networkFailed || recognizer.current) return;
+		if (!Recognition || networkFailed || !allowedRef.current || recognizer.current)
+			return;
 		const rec = new Recognition();
 		rec.continuous = true;
 		rec.interimResults = true;
@@ -188,7 +201,7 @@ export function useSpeechInput(onFinal: (text: string) => void): SpeechInput {
 	);
 
 	return {
-		state: supported ? state : "unsupported",
+		state: supported && allowed ? state : "unsupported",
 		interim,
 		message,
 		start,

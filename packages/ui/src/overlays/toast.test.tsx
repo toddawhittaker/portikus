@@ -305,6 +305,18 @@ describe("toast timing and recording", () => {
 		});
 	});
 
+	it("does not record a toast marked unrecorded", () => {
+		const onShow = vi.fn();
+		render(
+			<ToastProvider onShow={onShow}>
+				<Shower toast={{ title: "Recorded elsewhere", unrecorded: true }} />
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Show"));
+		expect(screen.getByText("Recorded elsewhere")).toBeTruthy();
+		expect(onShow).not.toHaveBeenCalled();
+	});
+
 	it("nodeText reads strings, numbers, arrays and element children", () => {
 		expect(nodeText(undefined)).toBe("");
 		expect(nodeText(["a", 1, <b key="b">c</b>, null])).toBe("a1c");

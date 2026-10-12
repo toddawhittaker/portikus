@@ -3,12 +3,13 @@
  * moves its pane there when it is already open (SPEC.md §9.3). The tree uses
  * the browser's own drag and drop while panes use dnd-kit, so this listens
  * for native drags on the work area and finds the pane under the pointer
- * among dnd-kit's drop areas. The keyboard way is the pane's Move into menu.
+ * among dnd-kit's drop areas. A drag carrying several rows opens its files,
+ * not its folders (SPEC.md §11.2). The keyboard way is the pane's Move into menu.
  */
 import { useDndContext } from "@dnd-kit/core";
 import type { ProjectLayout } from "@portikus/contracts";
 import { type RefObject, useEffect, useRef } from "react";
-import { draggedTreeNode } from "../files/treeDrag.js";
+import { draggedTreeNodes } from "../files/treeDrag.js";
 import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop.js";
 import { dropZone } from "./dropZone.js";
 import { fileDropTarget, type MoveIntoTarget } from "./moveInto.js";
@@ -19,7 +20,8 @@ export interface TreeFileDropProps {
 	layout: ProjectLayout;
 	/** Where a drop would land now, for the edge highlight; null over nothing. */
 	onTarget: (target: MoveIntoTarget | null) => void;
-	onDrop: (path: string, target: MoveIntoTarget) => void;
+	/** The dragged files in tree order; the first lands at `target`. */
+	onDrop: (paths: string[], target: MoveIntoTarget) => void;
 }
 
 export function TreeFileDrop({ area, layout, onTarget, onDrop }: TreeFileDropProps) {
@@ -48,10 +50,13 @@ export function TreeFileDrop({ area, layout, onTarget, onDrop }: TreeFileDropPro
 		/** The landing for a tree file drag at this event, or null. */
 		function targetOf(
 			event: DragEvent,
-		): { path: string; target: MoveIntoTarget } | null {
+		): { paths: string[]; target: MoveIntoTarget } | null {
 			if (!event.dataTransfer?.types.includes(TREE_DRAG_TYPE)) return null;
-			const node = draggedTreeNode();
-			if (!node || node.isDir) return null;
+			const paths = draggedTreeNodes()
+				.filter((node) => !node.isDir)
+				.map((node) => node.path);
+			const first = paths[0];
+			if (first === undefined) return null;
 			if (!(event.target instanceof Node)) return null;
 			for (const container of latest.current.droppableContainers.values()) {
 				const pane = container.node.current;
@@ -64,8 +69,8 @@ export function TreeFileDrop({ area, layout, onTarget, onDrop }: TreeFileDropPro
 					event.clientX,
 					event.clientY,
 				);
-				const target = fileDropTarget(latest.current.layout, node.path, paneId, edge);
-				return target ? { path: node.path, target } : null;
+				const target = fileDropTarget(latest.current.layout, first, paneId, edge);
+				return target ? { paths, target } : null;
 			}
 			return null;
 		}
@@ -92,7 +97,7 @@ export function TreeFileDrop({ area, layout, onTarget, onDrop }: TreeFileDropPro
 			// An editor under the pointer must not take the drop as well.
 			event.preventDefault();
 			event.stopPropagation();
-			latest.current.onDrop(found.path, found.target);
+			latest.current.onDrop(found.paths, found.target);
 		}
 
 		function onDragEnd() {

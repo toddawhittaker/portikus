@@ -1,5 +1,5 @@
 import { NOTIFY_FILE_OFF, notificationSettingsView } from "@portikus/contracts";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
 
@@ -17,6 +17,7 @@ const SETTINGS = {
 	cpuThrottleHoldAfter: 3,
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
+	voiceInputEnabled: true,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -37,7 +38,7 @@ function stubSettings() {
 	});
 }
 
-test("Settings is four admin cards in one column, and the log level is not among them", async () => {
+test("Settings is five admin cards in one column, and the log level is not among them", async () => {
 	stubSettings();
 	renderApp("/admin/settings");
 
@@ -49,6 +50,7 @@ test("Settings is four admin cards in one column, and the log level is not among
 		"When workspaces stop",
 		"Resource guard",
 		"Acceptable use",
+		"Voice input",
 		"Notifications",
 	]);
 	for (const name of headings) {
@@ -142,4 +144,66 @@ test("every setting has a help button beside its label, and the page an intro", 
 		"/admin/help#admin-settings",
 		"/admin/help#admin-notifications",
 	]);
+});
+
+test("the voice input switch is on by default and saves as soon as it changes", async () => {
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			const body = JSON.parse(String(init.body));
+			puts.push(body);
+			return json(200, { ...SETTINGS, ...body });
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin/settings");
+
+	const card = await screen.findByRole("region", { name: "Voice input" });
+	const box = within(card).getByRole<HTMLInputElement>("checkbox", {
+		name: /Allow voice input/,
+	});
+	await waitFor(() => expect(box.checked).toBe(true));
+	fireEvent.click(box);
+	await waitFor(() => expect(puts).toEqual([{ voiceInputEnabled: false }]));
+	expect(await screen.findByText("Voice input off")).toBeTruthy();
+});
+
+test("while the voice switch saves, it shows the value asked for, stays focusable and ignores clicks", async () => {
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			puts.push(JSON.parse(String(init.body)));
+			return new Promise<Response>(() => {});
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin/settings");
+
+	const card = await screen.findByRole("region", { name: "Voice input" });
+	const box = within(card).getByRole<HTMLInputElement>("checkbox", {
+		name: /Allow voice input/,
+	});
+	await waitFor(() => expect(box.checked).toBe(true));
+	fireEvent.click(box);
+	await waitFor(() => expect(box.getAttribute("aria-disabled")).toBe("true"));
+	expect(box.disabled).toBe(false);
+	expect(box.checked).toBe(false);
+	fireEvent.click(box);
+	expect(puts).toEqual([{ voiceInputEnabled: false }]);
 });

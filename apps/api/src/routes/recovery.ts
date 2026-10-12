@@ -1,9 +1,13 @@
 import { requireUser } from "@portikus/auth";
 import {
+	type AgentRecoveryAside,
 	type AgentRecoveryDiffQuery,
 	GitDiff,
 	ProjectPath,
+	RECOVERY_ASIDE_PREFIX,
 	RECOVERY_DIFF_TIMEOUT_MS,
+	type RecoveryAsideFolder,
+	type RecoveryAsideList,
 	type RecoveryPoint,
 	type RecoveryPointList,
 	type RecoveryReason,
@@ -324,6 +328,141 @@ export function registerRecoveryRoutes(
 		},
 	);
 
+	/**
+	 * The aside folders this project's restores left, with the time of the
+	 * point each came from. A folder belongs to the project when one of its
+	 * points or one of its audited restores names the folder's point id; a
+	 * point may have expired since, but the audit row stays (SPEC.md §15.10).
+	 */
+	async function projectAsides(
+		workspaceId: string,
+		projectId: string,
+		folders: AgentRecoveryAside[],
+	): Promise<RecoveryAsideFolder[]> {
+		if (folders.length === 0) return [];
+		const ids = folders.map((folder) => folder.pointId.toLowerCase());
+		const points = await db
+			.selectFrom("recovery_points")
+			.select(["id", "created_at"])
+			.where("workspace_id", "=", workspaceId)
+			.where("project_id", "=", projectId)
+			.where("id", "in", ids)
+			.execute();
+		const restored = await db
+			.selectFrom("audit_events")
+			.select(sql<string>`metadata->>'pointId'`.as("pointId"))
+			.where("action", "=", "recovery.restored")
+			.where("target", "=", projectId)
+			.where(sql<string>`metadata->>'pointId'`, "in", ids)
+			.execute();
+		const created = new Map(points.map((row) => [row.id, row.created_at]));
+		const known = new Set([...created.keys(), ...restored.map((row) => row.pointId)]);
+		return folders
+			.filter((folder) => known.has(folder.pointId.toLowerCase()))
+			.map((folder) => ({
+				...folder,
+				pointCreatedAt:
+					created.get(folder.pointId.toLowerCase())?.toISOString() ?? null,
+			}))
+			.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+	}
+
+	/**
+	 * The owner's project, its agent and its kept folders. Kept folders need
+	 * the agent, so they are listed only while it runs. Null after answering.
+	 */
+	async function scopedAsides(request: FastifyRequest, reply: FastifyReply) {
+		const found = await scoped(request, reply);
+		if (!found) return null;
+		const { scope, project } = found;
+		const agent = requireAgent(scope, reply);
+		if (!agent) return null;
+		let folders: AgentRecoveryAside[];
+		try {
+			folders = await agent.listRecoveryAsides();
+		} catch (error) {
+			sendAgentError(reply, error);
+			return null;
+		}
+		return {
+			agent,
+			project,
+			workspaceId: scope.workspaceId,
+			folders: await projectAsides(scope.workspaceId, project.id, folders),
+		};
+	}
+
+	app.get("/workspaces/:id/projects/:pid/recovery-asides", async (request, reply) => {
+		const found = await scopedAsides(request, reply);
+		if (!found) return;
+		const body: RecoveryAsideList = { folders: found.folders };
+		return body;
+	});
+
+	// Deletes only a folder the agent lists and this project owns (SPEC.md §24.6).
+	app.delete(
+		"/workspaces/:id/projects/:pid/recovery-asides/:rpid",
+		async (request, reply) => {
+			const user = requireUser(request);
+			const params = parseOr400(PointParam, request.params, reply);
+			if (!params) return;
+			const found = await scopedAsides(request, reply);
+			if (!found) return;
+			const { agent, project, workspaceId } = found;
+			const folder = found.folders.find(
+				(each) => each.pointId.toLowerCase() === params.rpid.toLowerCase(),
+			);
+			if (!folder) {
+				return sendError(
+					reply,
+					404,
+					"NOT_FOUND",
+					"That kept folder is not there any more.",
+				);
+			}
+			let result: "ok" | "failed" = "ok";
+			try {
+				await agent.deleteRecoveryAside(project.id, folder.pointId);
+			} catch (error) {
+				result = "failed";
+				await auditAsideDeleted(request, user.id, project.id, folder, result);
+				return sendAgentError(reply, error);
+			}
+			await auditAsideDeleted(request, user.id, project.id, folder, result);
+			request.log.info(
+				{
+					workspaceId,
+					projectId: project.id,
+					pointId: folder.pointId,
+				},
+				"recovery aside folder deleted",
+			);
+			return reply.status(204).send();
+		},
+	);
+
+	/** Ids and counts only; never a file name or path (SPEC.md §24.11). */
+	async function auditAsideDeleted(
+		request: FastifyRequest,
+		userId: string,
+		projectId: string,
+		folder: RecoveryAsideFolder,
+		result: "ok" | "failed",
+	): Promise<void> {
+		await recordAudit(db, {
+			actor: `user:${userId}`,
+			target: projectId,
+			action: "recovery.aside_deleted",
+			result,
+			metadata: {
+				pointId: folder.pointId,
+				fileCount: folder.fileCount,
+				sizeBytes: folder.sizeBytes,
+				ip: request.ip,
+			},
+		});
+	}
+
 	/** Relay one point diff from the agent and check its answer. */
 	async function pointDiff(
 		request: FastifyRequest,
@@ -437,7 +576,7 @@ export function registerRecoveryRoutes(
 					reply,
 					409,
 					"BUSY",
-					`Files set aside by an earlier restore of this point are in the folder ~/projects/.portikus-aside-${point.id}. Copy back anything you need, delete that folder in a terminal, then restore again. You can restore a different point in the meantime.`,
+					`Files set aside by an earlier restore of this point are in the folder ~/projects/${RECOVERY_ASIDE_PREFIX}${point.id}. Copy back anything you need, delete that folder under Kept folders in the Recovery points dialog, then restore again. You can restore a different point in the meantime.`,
 				);
 			}
 			if (error.code === "RESTORE_INCOMPLETE" && safetyPointId === null) {
@@ -445,7 +584,7 @@ export function registerRecoveryRoutes(
 					reply,
 					500,
 					"INTERNAL",
-					`The project may be partly restored. Your earlier files are kept in a folder named .portikus-aside-${point.id} in the projects folder; do not delete it.`,
+					`The project may be partly restored. Your earlier files are kept in a folder named ${RECOVERY_ASIDE_PREFIX}${point.id} in the projects folder. Copy back what you need, then delete it under Kept folders in the Recovery points dialog.`,
 				);
 			}
 			return sendAgentError(reply, error);
