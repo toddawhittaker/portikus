@@ -41,7 +41,8 @@ import { SeedBuildBusyError, type SeedBuildHost, SeedBuilds } from "./docker-see
 import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
 import { VolumeInUseError } from "./host.js";
 import { IncusError } from "./incus.js";
-import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
+import type { WorkspaceProvider } from "./provider.js";
+import { InstanceNotStoppedError } from "./provider-host.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	BAD_REQUEST: 400,

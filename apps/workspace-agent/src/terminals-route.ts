@@ -7,7 +7,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentFailure, sendError } from "./errors.js";
-import { recordBaseline } from "./git.js";
+import { recordBaseline } from "./git-baseline.js";
 import type { PanePipes } from "./pane-pipes.js";
 import { readTerminalsExit, sendText, type TerminalRegistry } from "./terminals.js";
 import {

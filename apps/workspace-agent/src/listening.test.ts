@@ -18,14 +18,10 @@ import { MAX_LISTENING_SERVICES } from "@portikus/contracts";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { type DockerContainer, parseDockerPs } from "./docker-listeners.js";
 import { AgentFailure } from "./errors.js";
-import {
-	capServices,
-	isSystemListener,
-	ListeningMonitor,
-	probeTls,
-	readSocketOwners,
-} from "./listening.js";
+import { capServices, ListeningMonitor } from "./listening.js";
+import { probeTls } from "./listening-probe.js";
 import { decodeHexAddress, parseProcNetTcp } from "./proc-net.js";
+import { isSystemListener, readSocketOwners } from "./socket-owners.js";
 
 const HEADER =
 	"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
