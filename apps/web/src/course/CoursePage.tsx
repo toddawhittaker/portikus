@@ -7,6 +7,7 @@ import { usePageTitle } from "../pageTitle.js";
 import { useMe } from "../useMe.js";
 import { CourseFrame } from "./CourseFrame.js";
 import { CourseUsage } from "./CourseUsage.js";
+import { useLiveSessions } from "./live/queries.js";
 import { useCourseMembers, useCourses } from "./queries.js";
 import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
 import { RosterStatus } from "./RosterStatus.js";
@@ -129,6 +130,32 @@ function LastLaunch({ at }: { at: string | null }) {
 	return <time dateTime={at}>{dateTimeText(at)}</time>;
 }
 
+/** The way to the live help sessions students opened with the caller, and how many are open. */
+function LiveHelpLink({ courseId }: { courseId: string }) {
+	const count = useLiveSessions(courseId).data?.sessions.length;
+	return (
+		<p className="mt-4 flex flex-wrap items-baseline gap-x-2">
+			<Link
+				to="/course/$courseId/live"
+				params={{ courseId }}
+				className="pk-focus-ring rounded-sm font-semibold text-accent-text"
+				data-testid="course-live-help"
+			>
+				Live help
+			</Link>
+			{count === undefined ? null : (
+				<span className="pk-muted text-[13px]">
+					{count === 0
+						? "No open sessions"
+						: count === 1
+							? "1 open session"
+							: `${count} open sessions`}
+				</span>
+			)}
+		</p>
+	);
+}
+
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
 	return (
@@ -175,6 +202,7 @@ function CourseMembers() {
 					Portikus from the course again.
 				</PageIntro>
 			</div>
+			<LiveHelpLink courseId={courseId} />
 			{data ? (
 				<div className="mt-6">
 					<RosterStatus courseId={courseId} roster={data.roster} />

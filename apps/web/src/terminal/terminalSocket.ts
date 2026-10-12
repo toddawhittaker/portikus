@@ -45,6 +45,13 @@ export interface TerminalSocketEvents {
 	onScreen: (alternate: boolean) => void;
 	onClear: () => void;
 	onAgent: (build: string) => void;
+	/** The student's pane size, sent to live help attachments only (ADR 0063). */
+	onSize?: (cols: number, rows: number) => void;
+	/**
+	 * Return true to take a close code yourself: the socket stops without
+	 * retrying. Live help uses it for its own close codes (ADR 0063).
+	 */
+	onCloseCode?: (code: number) => boolean;
 }
 
 export interface TerminalSocket {
@@ -54,12 +61,12 @@ export interface TerminalSocket {
 }
 
 /**
- * Connects one terminal's socket and reconnects it with a doubling backoff,
- * up to five attempts in a row. A 4401 close hands over to `sessionEnded()`.
+ * Connects one terminal's socket at `path`, with the size added as its query,
+ * and reconnects it with a doubling backoff, up to five attempts in a row. A
+ * 4401 close hands over to `sessionEnded()`.
  */
 export function openTerminalSocket(
-	workspaceId: string,
-	terminalId: string,
+	path: string,
 	events: TerminalSocketEvents,
 ): TerminalSocket {
 	let stopped = false;
@@ -77,11 +84,7 @@ export function openTerminalSocket(
 		if (stopped) return;
 		let outputSeen = false;
 		const { cols, rows } = events.size();
-		const next = new WebSocket(
-			wsUrl(
-				`/workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=${cols}&rows=${rows}`,
-			),
-		);
+		const next = new WebSocket(wsUrl(`${path}?cols=${cols}&rows=${rows}`));
 		next.binaryType = "arraybuffer";
 		socket = next;
 
@@ -127,6 +130,9 @@ export function openTerminalSocket(
 				case "agent":
 					events.onAgent(frame.build);
 					return;
+				case "size":
+					events.onSize?.(frame.cols, frame.rows);
+					return;
 			}
 		};
 
@@ -136,6 +142,10 @@ export function openTerminalSocket(
 			if (event.code === CloseCode.SESSION_ENDED) {
 				stopped = true;
 				sessionEnded();
+				return;
+			}
+			if (events.onCloseCode?.(event.code)) {
+				stopped = true;
 				return;
 			}
 			if (event.code === CloseCode.TOO_MANY_SOCKETS) {
