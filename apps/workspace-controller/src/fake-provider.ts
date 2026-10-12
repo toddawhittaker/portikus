@@ -25,11 +25,9 @@ import {
 import type { SeedBuildHost } from "./docker-seed.js";
 import { VolumeInUseError } from "./host.js";
 import { IncusError } from "./incus.js";
-import {
-	ADDED_PACKAGES_MAX_BYTES,
-	InstanceNotStoppedError,
-	type WorkspaceProvider,
-} from "./provider.js";
+import { ADDED_PACKAGES_MAX_BYTES } from "./instance-usage.js";
+import type { WorkspaceProvider } from "./provider.js";
+import { InstanceNotStoppedError } from "./provider-host.js";
 
 interface FakeVolume {
 	createdAt: string;
