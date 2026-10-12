@@ -158,13 +158,13 @@ export async function isRepoRoot(dir: string): Promise<boolean> {
 }
 
 /** Drop the trailing partial record of a truncated NUL-separated stream. */
-export function completeRecords(text: string): string {
+function completeRecords(text: string): string {
 	const end = text.lastIndexOf("\0");
 	return end === -1 ? "" : text.slice(0, end + 1);
 }
 
 /** True when the path inside `dir` is itself a symlink. */
-export async function isLink(dir: string, relPath: string): Promise<boolean> {
+async function isLink(dir: string, relPath: string): Promise<boolean> {
 	const info = await lstat(join(dir, relPath)).catch(() => null);
 	return info?.isSymbolicLink() ?? false;
 }
@@ -173,7 +173,7 @@ export async function isLink(dir: string, relPath: string): Promise<boolean> {
  * The status without symlinks. Git never lists a path beneath a symlinked
  * directory, so only the last component needs checking (SPEC.md §5.2).
  */
-export async function withoutLinks(dir: string, status: GitStatus): Promise<GitStatus> {
+async function withoutLinks(dir: string, status: GitStatus): Promise<GitStatus> {
 	const entries: GitEntry[] = [];
 	for (const entry of status.entries) {
 		if (!(await isLink(dir, entry.path))) entries.push(entry);
@@ -274,7 +274,7 @@ export interface PathState {
  * The raw records are scanned rather than parsed into entries, so a rename
  * past the entry cap is still found.
  */
-export async function pathState(dir: string, relPath: string): Promise<PathState> {
+async function pathState(dir: string, relPath: string): Promise<PathState> {
 	const result = await runGit(
 		["status", "--porcelain=v2", "--untracked-files=no", "-z"],
 		dir,
