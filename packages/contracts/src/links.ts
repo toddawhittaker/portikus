@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PasskeyCredential } from "./auth.js";
 
 /**
  * Linking a course account to an SSO account (ADR 0026). An SSO account signs in through the institution's OpenID Connect
@@ -65,13 +66,24 @@ export const PendingLink = z.object({
 	 * first. Null when no code is needed.
 	 */
 	secondFactor: z.enum(["verify", "enrol"]).nullable(),
+	/** Whether the SSO account has a passkey it may use instead of a code. */
+	passkey: z.boolean(),
 });
 export type PendingLink = z.infer<typeof PendingLink>;
 
-/** `POST /me/links/confirm`: the SSO account's code, when it needs one. */
+/**
+ * `POST /me/links/confirm`: the SSO account's code or passkey answer, when
+ * it needs one. Never both; neither is for an account that needs nothing.
+ */
 export const LinkConfirm = z
-	.object({ code: z.string().trim().min(1).max(64).optional() })
-	.strict();
+	.object({
+		code: z.string().trim().min(1).max(64).optional(),
+		credential: PasskeyCredential.optional(),
+	})
+	.strict()
+	.refine((body) => body.code === undefined || body.credential === undefined, {
+		message: "Send a code or a passkey, not both.",
+	});
 export type LinkConfirm = z.infer<typeof LinkConfirm>;
 
 /** The `?error=` codes the link-mode callback sends to `/link`. */
