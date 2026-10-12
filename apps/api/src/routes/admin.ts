@@ -20,6 +20,7 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Updateable } from "kysely";
+import { revokeAccountEmailTokens } from "../account-email/tokens.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import {
 	disableUser,
@@ -413,6 +414,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				.returning(USER_COLUMNS)
 				.executeTakeFirst();
 			if (!row) return null;
+			// No link sent before the disable comes back with the account.
+			await revokeAccountEmailTokens(trx, id);
 			await recordAudit(trx, {
 				actor: `user:${actor.id}`,
 				target: id,

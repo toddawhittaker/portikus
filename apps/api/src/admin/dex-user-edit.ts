@@ -15,6 +15,7 @@ import { accountEmailEnabled } from "../account-email/send.js";
 import { revokeAccountEmailTokens } from "../account-email/tokens.js";
 import { endSessions } from "../sessions/end-sessions.js";
 import { viaDex } from "./dex-accounts.js";
+import { notifyCredentialReset } from "./reset-notice.js";
 
 /**
  * The Dex passwords of a Portikus account, found by the user ID in its
@@ -24,7 +25,13 @@ import { viaDex } from "./dex-accounts.js";
 export async function findDexPasswords(db: Kysely<Database>, dex: DexApi, id: string) {
 	const account = await db
 		.selectFrom("users")
-		.select(["oidc_issuer", "oidc_subject", "email", "preferred_username"])
+		.select([
+			"oidc_issuer",
+			"oidc_subject",
+			"email",
+			"preferred_username",
+			"disabled_at",
+		])
 		.where("id", "=", id)
 		.executeTakeFirst();
 	if (!account) return { found: "no_account" } as const;
@@ -82,13 +89,19 @@ export async function editDexUser(
 		metadata: Record<string, unknown>;
 	},
 ): Promise<
-	"no_account" | "not_local" | "exists" | { password: string | null; emailed: boolean }
+	| "no_account"
+	| "not_local"
+	| "disabled"
+	| "exists"
+	| { password: string | null; emailed: boolean }
 > {
 	const { db, dex, sender } = ctx;
 	const { id, body } = input;
 	const found = await findDexPasswords(db, dex, id);
 	if (found.found !== "yes") return found.found;
 	const { account, userId, all, mine, current } = found;
+	// A removed account must not get a password back (SPEC.md section 5.1).
+	if (account.disabled_at !== null) return "disabled";
 	// No password and no new email: nothing to finish a change with.
 	if (!current && !body.email) return "not_local";
 
@@ -107,6 +120,11 @@ export async function editDexUser(
 
 	let password: string | null = null;
 	if (emailChanged) {
+		// Access ends before Dex is touched, so a Dex failure leaves no session or link alive.
+		await db.transaction().execute(async (trx) => {
+			await endSessions(trx, id);
+			await revokeAccountEmailTokens(trx, id);
+		});
 		password = await moveDexPassword(dex, { mine, userId, email, username });
 		if (password === null) return "exists";
 	} else if (current && current.username !== username) {
@@ -123,10 +141,8 @@ export async function editDexUser(
 			})
 			.where("id", "=", id)
 			.execute();
-		if (emailChanged) {
-			await endSessions(trx, id);
-			await revokeAccountEmailTokens(trx, id);
-		}
+		// The account holder hears of the new password even with account email off.
+		if (emailChanged) await notifyCredentialReset(trx, id, "password");
 		// Which fields changed, never the addresses or names (SPEC.md section 24.8).
 		await recordAudit(trx, {
 			actor: `user:${input.actorId}`,
@@ -152,9 +168,11 @@ export async function editDexUser(
 		purpose: "invite",
 		to: email,
 	});
-	if (oldEmail && oldEmail !== email) {
+	// Portikus's record, not Dex's: after a half-done change Dex may hold only the new one.
+	const previous = account.email ?? "";
+	if (previous && previous !== email) {
 		// Best effort: the change has happened whether or not the old address hears of it.
-		await sender.notice(oldEmail, emailChangedMessage(ctx.publicUrl));
+		await sender.notice(previous, emailChangedMessage(ctx.publicUrl));
 	}
 	// A failed send still shows the password, so the person is not left without one.
 	return sent === "sent"

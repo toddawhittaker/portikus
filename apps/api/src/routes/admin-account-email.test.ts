@@ -19,7 +19,11 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { hashAccountEmailToken } from "../account-email/tokens.js";
+import {
+	hashAccountEmailToken,
+	issueAccountEmailToken,
+} from "../account-email/tokens.js";
+import { RESET_NOTICE_TITLES } from "../admin/reset-notice.js";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
 import { stubDex } from "../testing/stub-dex.js";
@@ -258,6 +262,29 @@ describe.skipIf(skip)("Send reset link", () => {
 		expect(throttled[0]?.metadata).toEqual({ scope: "admin-account-email" });
 	});
 
+	test("a link that did not go out leaves the older one live", async () => {
+		await switchOn();
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		await send(jar, "POST", `/admin/dex-users/${user.id}/send-reset-link`);
+		// Mail now fails: no capture file, and no SMTP server is set.
+		await app.close();
+		const config = testConfig(mock.issuer);
+		app = buildServer({
+			db: testDb.db,
+			config,
+			logger: collectingLogger("debug").logger,
+			oidc: createOidcClient(toAuthOptions(config)),
+			dex: stub.dex,
+		});
+		await app.ready();
+		const jar2 = await adminJar();
+		const res = await send(jar2, "POST", `/admin/dex-users/${user.id}/send-reset-link`);
+		expect(res.statusCode).toBe(503);
+		const rows = await tokenRows(user.id);
+		expect(rows[0]?.revoked_at).toBeNull();
+	});
+
 	test("is refused with account email off", async () => {
 		const jar = await adminJar();
 		const { user } = await addDana(jar);
@@ -448,6 +475,96 @@ describe.skipIf(skip)("Editing a Dex user", () => {
 		expect(res.json().password).toMatch(/^[A-Za-z0-9]{20}$/);
 	});
 
+	test("a retry where Dex holds only the new address still tells the old one", async () => {
+		await switchOn();
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		const stored = stub.passwords.get("dana@example.edu");
+		if (!stored) throw new Error("no password");
+		stub.passwords.delete("dana@example.edu");
+		stub.passwords.set("dana.new@example.edu", {
+			...stored,
+			email: "dana.new@example.edu",
+		});
+		const res = await send(jar, "PATCH", `/admin/dex-users/${user.id}`, {
+			email: "dana.new@example.edu",
+		});
+		expect(res.statusCode).toBe(200);
+		const toOld = (await mail()).filter((m) => m.to.includes("dana@example.edu"));
+		expect(toOld.map((m) => m.subject)).toEqual([
+			"Your Portikus email address was changed",
+		]);
+	});
+
+	test("an email change leaves a kept password notice even with account email off", async () => {
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		await send(jar, "PATCH", `/admin/dex-users/${user.id}`, {
+			email: "dana.new@example.edu",
+		});
+		const notices = await testDb.db
+			.selectFrom("notifications")
+			.select("title")
+			.where("user_id", "=", user.id)
+			.execute();
+		expect(notices.map((n) => n.title)).toEqual([RESET_NOTICE_TITLES.password]);
+	});
+
+	test("sessions and links end before Dex is touched, so a Dex failure leaves none", async () => {
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		await createSession(testDb.db, user.id, 3600, {
+			method: "oidc",
+			courseUserId: null,
+		});
+		await issueAccountEmailToken(testDb.db, {
+			userId: user.id,
+			purpose: "reset",
+			createdBy: null,
+		});
+		stub.dex.deletePassword = async () => {
+			throw Object.assign(new Error("unavailable"), { code: 14 });
+		};
+		const res = await send(jar, "PATCH", `/admin/dex-users/${user.id}`, {
+			email: "dana.new@example.edu",
+		});
+		expect(res.statusCode).toBe(503);
+		const sessions = await testDb.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("user_id", "=", user.id)
+			.execute();
+		expect(sessions).toEqual([]);
+		const live = (await tokenRows(user.id)).filter((r) => r.revoked_at === null);
+		expect(live).toEqual([]);
+	});
+
+	test("an interrupted email change still shows the account as a Dex user", async () => {
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		stub.passwords.clear();
+		const res = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		const listed = (res.json().users as { id: string; dexLocal: boolean }[]).find(
+			(u) => u.id === user.id,
+		);
+		expect(listed?.dexLocal).toBe(true);
+	});
+
+	test("a disabled account cannot be edited back into a password", async () => {
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		await send(jar, "POST", `/admin/dex-users/${user.id}/remove`);
+		const res = await send(jar, "PATCH", `/admin/dex-users/${user.id}`, {
+			email: "dana.new@example.edu",
+		});
+		expect(res.statusCode).toBe(400);
+		expect(stub.passwords.size).toBe(0);
+	});
+
 	test("Remove deletes every password under the user ID", async () => {
 		const jar = await adminJar();
 		const { user } = await addDana(jar);
@@ -488,6 +605,59 @@ describe.skipIf(skip)("Editing a Dex user", () => {
 			username: "c",
 		});
 		expect(self.statusCode).toBe(400);
+	});
+});
+
+describe.skipIf(skip)("Emailed links end on every credential change", () => {
+	async function liveLinks(userId: string) {
+		return (await tokenRows(userId)).filter((r) => r.revoked_at === null);
+	}
+
+	async function withLinks() {
+		const jar = await adminJar();
+		const { user } = await addDana(jar);
+		for (const purpose of ["reset", "invite"] as const) {
+			await issueAccountEmailToken(testDb.db, {
+				userId: user.id,
+				purpose,
+				createdBy: null,
+			});
+		}
+		return { jar, id: user.id };
+	}
+
+	test("an administrator's password reset revokes them", async () => {
+		const { jar, id } = await withLinks();
+		const res = await send(jar, "POST", `/admin/dex-users/${id}/reset-password`);
+		expect(res.statusCode).toBe(200);
+		expect(await liveLinks(id)).toEqual([]);
+	});
+
+	test("disabling revokes them", async () => {
+		const { jar, id } = await withLinks();
+		expect((await send(jar, "POST", `/admin/users/${id}/disable`)).statusCode).toBe(
+			200,
+		);
+		expect(await liveLinks(id)).toEqual([]);
+	});
+
+	test("removing revokes them", async () => {
+		const { jar, id } = await withLinks();
+		expect((await send(jar, "POST", `/admin/dex-users/${id}/remove`)).statusCode).toBe(
+			200,
+		);
+		expect(await liveLinks(id)).toEqual([]);
+	});
+
+	test("enabling gives no link from before back", async () => {
+		const { jar, id } = await withLinks();
+		await testDb.db
+			.updateTable("users")
+			.set({ disabled_at: new Date().toISOString() })
+			.where("id", "=", id)
+			.execute();
+		expect((await send(jar, "POST", `/admin/users/${id}/enable`)).statusCode).toBe(200);
+		expect(await liveLinks(id)).toEqual([]);
 	});
 });
 
