@@ -398,6 +398,10 @@ const PAYLOADS: Record<string, object> = {
 		courseId: crypto.randomUUID(),
 	},
 	"POST /workspaces/:id/live-help/typing": { typing: true },
+	"POST /courses/:courseId/live-help/:sid/preview-grants": {
+		port: 5173,
+		presentation: "embedded",
+	},
 	// The fake agent's own node process.
 	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"POST /workspaces/:id/processes/:pid/stop-tree": { startTicks: 100 },

@@ -4,7 +4,6 @@ import {
 	type ListeningService,
 	type PreviewEmbeddableResponse,
 	PreviewGrantRequest,
-	type PreviewGrantResponse,
 	parsePreviewHost,
 	previewHost,
 } from "@portikus/contracts";
@@ -35,7 +34,13 @@ import {
 	stoppedWorkspacePage,
 	tooManyRequestsPage,
 } from "../preview/pages.js";
-import { portAllowed, previewOriginFor, requestHost } from "../preview/policy.js";
+import {
+	grantResponse,
+	PREVIEW_REQUESTS_PER_WINDOW,
+	PREVIEW_WINDOW_MS,
+	portAllowed,
+	requestHost,
+} from "../preview/policy.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
 	consumeGrant,
@@ -45,6 +50,7 @@ import {
 	loadPreviewSession,
 	type PreviewLookup,
 	type PreviewSessionRow,
+	previewAccess,
 	previewTokenIssued,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
@@ -92,17 +98,6 @@ function stopMessageFor(code: string): string {
 	if (code === "STOP_FAILED") return "That service did not stop";
 	return "The workspace did not answer";
 }
-
-/**
- * How many preview requests one student may make in a minute, counting
- * bootstrap tickets and framing probes together. Both make the control plane
- * work on the student's behalf — a probe holds an outbound socket for up to
- * three seconds — so they share one budget. Opening a preview, reloading it
- * and switching ports are all well under this; a page asking in a loop is
- * not. Counted in this process, which the pilot runs one of (ADR 0010).
- */
-const PREVIEW_REQUESTS_PER_WINDOW = 30;
-const PREVIEW_WINDOW_MS = 60_000;
 
 /**
  * Preview grants, the bootstrap and reset endpoints on the preview host, and
@@ -366,12 +361,7 @@ export function registerPreviewRoutes(
 			ttlSeconds: config.PREVIEW_TICKET_TTL_SECONDS,
 		});
 
-		const origin = previewOriginFor(config, host);
-		const payload: PreviewGrantResponse = {
-			previewOrigin: origin,
-			bootstrapUrl: `${origin}/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
-			expiresAt: expiresAt.toISOString(),
-		};
+		const payload = grantResponse(config, host, ticket, expiresAt);
 		return reply
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")
@@ -509,6 +499,7 @@ export function registerPreviewRoutes(
 			workspaceId: grant.workspace_id,
 			port: grant.port,
 			previewHost: grant.preview_host,
+			liveHelpSessionId: grant.live_help_session_id,
 		});
 
 		return reply
@@ -620,6 +611,7 @@ export function registerPreviewRoutes(
 			parsed: PreviewHostParts;
 			session: PreviewSessionRow;
 			workspace: PreviewLookup["workspace"];
+			liveHelp: PreviewLookup["liveHelp"];
 		}>
 	> {
 		// Only Caddy on this machine may ask. The peer address is used, not
@@ -637,7 +629,7 @@ export function registerPreviewRoutes(
 		if (!token) return { refused: page(reply, 401, signInPage()) };
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
-		const { session, user, workspace } = await lookups.get(token);
+		const { session, user, workspace, liveHelp } = await lookups.get(token);
 		const address = addressKey(request.ip);
 		if (!session) {
 			// Past the limit a guess costs only the one session query, and a real
@@ -672,7 +664,7 @@ export function registerPreviewRoutes(
 			reply.header("retry-after", String(capped.retryAfterSeconds));
 			return { refused: page(reply, 429, tooManyRequestsPage()) };
 		}
-		return { ok: { host, parsed, session, workspace } };
+		return { ok: { host, parsed, session, workspace, liveHelp } };
 	}
 
 	/**
@@ -723,7 +715,7 @@ export function registerPreviewRoutes(
 	app.get("/preview/authorize", async (request, reply) => {
 		const signedIn = await signedInPreview(request, reply);
 		if ("refused" in signedIn) return signedIn.refused;
-		const { host, parsed, session, workspace } = signedIn.ok;
+		const { host, parsed, session, workspace, liveHelp } = signedIn.ok;
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
 		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
@@ -745,7 +737,8 @@ export function registerPreviewRoutes(
 		if (!portAllowed(config, session.port)) return denied("port_not_allowed");
 
 		if (!workspace) return denied("workspace_missing");
-		if (workspace.owner_user_id !== session.user_id) return denied("not_owner");
+		const access = previewAccess({ session, workspace, liveHelp });
+		if (!access) return denied("not_owner");
 		if (workspace.label !== parsed.label) return denied("label_mismatch");
 		if (workspace.state !== "running") {
 			return page(reply, 503, stoppedWorkspacePage());
@@ -778,7 +771,10 @@ export function registerPreviewRoutes(
 		// Only a user-started navigation of a page or the Preview iframe counts;
 		// browsers set Sec-Fetch-User only then and scripts cannot forge it, so
 		// self-reloads, assets and fetches never keep a workspace awake (ADR 0032).
-		if (userNavigation(headers)) await recordActivity(db, workspace.id);
+		// The instructor never keeps the workspace awake (ADR 0063).
+		if (access === "owner" && userNavigation(headers)) {
+			await recordActivity(db, workspace.id);
+		}
 
 		// The gateway's first request for a port settles its protocol; later
 		// ones read the cached answer.
