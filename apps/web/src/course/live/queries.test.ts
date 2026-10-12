@@ -47,7 +47,6 @@ test("only a 404 means the session is gone", () => {
 function service(port: number, extra: Partial<LiveListening> = {}): LiveListening {
 	return {
 		port,
-		protocolHint: "http",
 		previewReachability: "reachable",
 		system: false,
 		...extra,

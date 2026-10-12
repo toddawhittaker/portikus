@@ -37,6 +37,33 @@ export function openClickedLink(uri: string): void {
 	if (canOpenInNewTab(uri)) window.open(uri, "_blank", "noopener,noreferrer");
 }
 
+/**
+ * Whether a key press leaves the terminal instead of reaching it. Tab leaves
+ * only in view mode, where it would type nothing, and is left to the browser
+ * so focus moves on as it does anywhere else.
+ */
+export function leaveKey(
+	event: Pick<
+		KeyboardEvent,
+		"type" | "key" | "altKey" | "shiftKey" | "ctrlKey" | "metaKey"
+	>,
+	typing: boolean,
+): "shortcut" | "tab" | null {
+	if (event.type !== "keydown") return null;
+	if (event.altKey && event.shiftKey && event.key.toLowerCase() === "q")
+		return "shortcut";
+	if (
+		!typing &&
+		event.key === "Tab" &&
+		!event.altKey &&
+		!event.ctrlKey &&
+		!event.metaKey
+	) {
+		return "tab";
+	}
+	return null;
+}
+
 type Problem = "reconnecting" | "lost" | "too-many" | "closed";
 
 const PROBLEM_TEXT: Record<Problem, string> = {
@@ -54,6 +81,8 @@ export interface HelperTerminalProps {
 	name: string;
 	/** Whether the student lets the helper type. The server enforces it; this only stops sending. */
 	typing: boolean;
+	/** Changes to open the socket again, as after Reconnect. */
+	attach: number;
 	/** The API closed the socket with a live help close code. */
 	onClosed: (action: HelperCloseAction) => void;
 	/** The socket gave up or the terminal went away; the parent should look again. */
@@ -68,15 +97,18 @@ export function HelperTerminal({
 	path,
 	name,
 	typing,
+	attach,
 	onClosed,
 	onDropped,
 	onRetry,
 	onLeave,
 }: HelperTerminalProps) {
-	const host = useRef<HTMLDivElement | null>(null);
+	const host = useRef<HTMLElement | null>(null);
+	const terminal = useRef<Xterm | null>(null);
 	const [connected, setConnected] = useState(false);
 	const [problem, setProblem] = useState<Problem | null>(null);
-	const hintId = useId();
+	const modeHintId = useId();
+	const leaveHintId = useId();
 	const screenReaderMode = useScreenReaderMode();
 
 	// Read through a ref so a parent render does not reopen the socket.
@@ -84,9 +116,13 @@ export function HelperTerminal({
 	handlers.current = { onClosed, onDropped, onLeave };
 	const nameRef = useRef(name);
 	nameRef.current = name;
+	const typingRef = useRef(typing);
+	typingRef.current = typing;
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;
 
+	// One xterm for the life of the pane, so a mode change or a reconnect
+	// leaves the keyboard where it was.
 	useEffect(() => {
 		const container = host.current;
 		if (!container) return;
@@ -100,17 +136,54 @@ export function HelperTerminal({
 			scrollback: SCROLLBACK_LINES,
 			minimumContrastRatio: 4.5,
 			screenReaderMode: screenReaderRef.current,
-			disableStdin: !typing,
+			disableStdin: !typingRef.current,
 			// OSC 8 hyperlinks: the default asks with confirm() and opens with an opener.
 			linkHandler: { activate: (_event, uri) => openClickedLink(uri) },
 		});
 		swallowUnsafeSequences(term);
 		term.loadAddon(new WebLinksAddon((_event, uri) => openClickedLink(uri)));
 		term.open(container);
-		term.textarea?.setAttribute("aria-describedby", hintId);
+		term.textarea?.setAttribute("aria-describedby", `${modeHintId} ${leaveHintId}`);
 		term.textarea?.setAttribute("aria-label", `Terminal ${nameRef.current}`);
 		container.dataset.cols = String(term.cols);
 		container.dataset.rows = String(term.rows);
+
+		// Handled here rather than by xterm, so planted clipboard text cannot end
+		// a bracketed paste early; a picture is never pasted.
+		function onPaste(event: ClipboardEvent) {
+			event.preventDefault();
+			event.stopPropagation();
+			const text = event.clipboardData?.getData("text/plain") ?? "";
+			if (text !== "") term.paste(sanitizePaste(text));
+		}
+		container.addEventListener("paste", onPaste, { capture: true });
+
+		term.attachCustomKeyEventHandler((event) => {
+			const leave = leaveKey(event, typingRef.current);
+			if (leave === "shortcut") {
+				event.preventDefault();
+				handlers.current.onLeave();
+			}
+			return leave === null;
+		});
+		terminal.current = term;
+
+		return () => {
+			terminal.current = null;
+			container.removeEventListener("paste", onPaste, { capture: true });
+			term.dispose();
+		};
+	}, [modeHintId, leaveHintId]);
+
+	// One socket per attach, under the same xterm. A helper's attach gets no
+	// history, only tmux's repaint of the screen, so the lines already seen stay.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new `attach` value is what opens the socket again.
+	useEffect(() => {
+		const term = terminal.current;
+		const container = host.current;
+		if (!term || !container) return;
+		term.options.disableStdin = !typing;
+		setProblem(null);
 
 		const socket = openTerminalSocket(path, {
 			size: () => ({ cols: term.cols, rows: term.rows }),
@@ -158,60 +231,45 @@ export function HelperTerminal({
 			? term.onData((data) => socket.send({ type: "input", data }))
 			: null;
 
-		// Handled here rather than by xterm, so planted clipboard text cannot end
-		// a bracketed paste early; a picture is never pasted.
-		function onPaste(event: ClipboardEvent) {
-			event.preventDefault();
-			event.stopPropagation();
-			const text = event.clipboardData?.getData("text/plain") ?? "";
-			if (text !== "") term.paste(sanitizePaste(text));
-		}
-		container.addEventListener("paste", onPaste, { capture: true });
-
-		term.attachCustomKeyEventHandler((event) => {
-			if (
-				event.type === "keydown" &&
-				event.altKey &&
-				event.shiftKey &&
-				event.key.toLowerCase() === "q"
-			) {
-				event.preventDefault();
-				handlers.current.onLeave();
-				return false;
-			}
-			return true;
-		});
-
 		return () => {
 			input?.dispose();
 			socket.stop();
-			container.removeEventListener("paste", onPaste, { capture: true });
-			term.dispose();
 		};
-	}, [path, typing, hintId]);
+	}, [path, typing, attach]);
+
+	function reconnect() {
+		// The button goes away with the problem, so the keyboard goes back to the terminal.
+		terminal.current?.focus();
+		onRetry();
+	}
 
 	return (
 		<div className="flex min-w-0 flex-col gap-2">
-			<p className="sr-only" id={hintId}>
+			<p className="sr-only" id={modeHintId}>
 				{typing
 					? "What you type goes to the student's shell."
-					: "You can read this terminal but not type in it."}{" "}
-				Press Alt+Shift+Q to leave the terminal.
+					: "You can read this terminal but not type in it. Tab also leaves it."}
 			</p>
 			{/* Fixed to the student's size, so it scrolls when the window is smaller. */}
-			<div
+			<section
 				ref={host}
-				className="pk-helper-term max-w-full overflow-auto bg-terminal-bg p-2"
+				className="pk-helper-term pk-focus-ring max-w-full overflow-auto bg-terminal-bg p-2"
 				data-testid="helper-terminal"
 				data-connected={connected ? "true" : "false"}
 				data-mode={typing ? "type" : "view"}
+				aria-label={`Terminal ${name}, scrollable`}
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region the keyboard must reach (WCAG 2.1.1)
+				tabIndex={0}
 			/>
-			<div className="flex flex-wrap items-center gap-3">
+			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+				<p className="pk-muted m-0 text-[13px]" id={leaveHintId}>
+					<kbd className="pk-mono-body">Alt+Shift+Q</kbd> leaves the terminal.
+				</p>
 				<p className="pk-muted m-0 text-[13px]" role="status">
 					{problem ? PROBLEM_TEXT[problem] : ""}
 				</p>
 				{problem === "lost" || problem === "too-many" ? (
-					<Button size="sm" onClick={onRetry}>
+					<Button size="sm" onClick={reconnect}>
 						Reconnect
 					</Button>
 				) : null}

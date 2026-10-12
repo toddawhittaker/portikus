@@ -1,9 +1,11 @@
 import { PageIntro, StateBadge } from "@portikus/ui";
 import { Link, useParams } from "@tanstack/react-router";
+import { useRef } from "react";
 import { ApiError } from "../../api/request.js";
 import { usePageTitle } from "../../pageTitle.js";
 import { CourseFrame } from "../CourseFrame.js";
 import { dateTimeText } from "../time.js";
+import { useFocusHeadingOnArrival } from "./arrival.js";
 import { modeText } from "./mode.js";
 import { useLiveSessions } from "./queries.js";
 
@@ -26,6 +28,8 @@ function LiveHelpList() {
 	const list = sessions.data?.sessions;
 	const notFound = sessions.error instanceof ApiError && sessions.error.status === 404;
 	usePageTitle("Live help");
+	const heading = useRef<HTMLHeadingElement>(null);
+	useFocusHeadingOnArrival(heading);
 
 	return (
 		<>
@@ -36,7 +40,7 @@ function LiveHelpList() {
 			>
 				Back to the course
 			</Link>
-			<h1 className="pk-text-title mt-2" id="live-title">
+			<h1 className="pk-text-title mt-2" id="live-title" ref={heading} tabIndex={-1}>
 				Live help
 			</h1>
 			<div className="mt-4">
