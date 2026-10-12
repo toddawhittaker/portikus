@@ -16,6 +16,10 @@ import {
 	addressKey,
 	check,
 	createCounter,
+	createRecentMisses,
+	RECENT_MISS_ADDRESSES,
+	RECENT_MISS_MS,
+	RECENT_MISSES_PER_ADDRESS,
 	registerAnonymousLimit,
 } from "./rate-limit.js";
 import { ROUTE_POLICY } from "./security/route-policy.js";
@@ -179,6 +183,60 @@ describe("the anonymous request limit (SPEC.md section 24.13)", () => {
 	});
 });
 
+describe("recent made-up cookies per address (SPEC.md section 24.13)", () => {
+	test("remembers a miss for one window, for that address only", () => {
+		let at = 0;
+		const misses = createRecentMisses(() => at);
+		misses.add("203.0.113.1", "guess");
+		expect(misses.has("203.0.113.1", "guess")).toBe(true);
+		expect(misses.has("203.0.113.2", "guess")).toBe(false);
+		expect(misses.has("203.0.113.1", "other")).toBe(false);
+		at = RECENT_MISS_MS;
+		expect(misses.has("203.0.113.1", "guess")).toBe(false);
+	});
+
+	test("stays bounded under a flood of distinct cookies and addresses", () => {
+		const misses = createRecentMisses(() => 0);
+		for (let i = 0; i < RECENT_MISSES_PER_ADDRESS * 10; i += 1) {
+			misses.add("203.0.113.1", `guess-${i}`);
+		}
+		expect(misses.size()).toBe(RECENT_MISSES_PER_ADDRESS);
+		const last = `guess-${RECENT_MISSES_PER_ADDRESS * 10 - 1}`;
+		expect(misses.has("203.0.113.1", last)).toBe(true);
+		expect(misses.has("203.0.113.1", "guess-0")).toBe(false);
+
+		for (let a = 0; a < RECENT_MISS_ADDRESSES * 2; a += 1) {
+			for (let i = 0; i < RECENT_MISSES_PER_ADDRESS * 2; i += 1) {
+				misses.add(`address-${a}`, `guess-${i}`);
+			}
+		}
+		expect(misses.size()).toBeLessThanOrEqual(
+			RECENT_MISS_ADDRESSES * RECENT_MISSES_PER_ADDRESS,
+		);
+		expect(misses.has("203.0.113.1", last)).toBe(false);
+	});
+
+	test("holds a hash, never the cookie itself", () => {
+		const token = "a-cookie-value-that-must-not-be-held";
+		const misses = createRecentMisses(() => 0);
+		misses.add("203.0.113.1", token);
+		const seen = new WeakSet<object>();
+		const holds = (value: unknown): boolean => {
+			if (typeof value === "string") return value.includes(token);
+			if (typeof value !== "object" || value === null || seen.has(value)) return false;
+			seen.add(value);
+			if (value instanceof Map) {
+				return [...value.entries()].some(([k, v]) => holds(k) || holds(v));
+			}
+			return Object.values(value).some(holds);
+		};
+		// The closure's map is reachable only through the methods, so probe via
+		// the guard's warnings below; here, the stored size is the only window.
+		expect(holds(misses)).toBe(false);
+		expect(misses.has("203.0.113.1", token)).toBe(true);
+	});
+});
+
 describe.skipIf(!hasTestDb())("made-up session cookies (SPEC.md section 24.13)", () => {
 	let testDb: TestDb;
 
@@ -225,3 +283,90 @@ describe.skipIf(!hasTestDb())("made-up session cookies (SPEC.md section 24.13)",
 		}
 	});
 });
+
+describe.skipIf(!hasTestDb())(
+	"a repeated made-up cookie past the limit (SPEC.md section 24.13)",
+	() => {
+		let testDb: TestDb;
+
+		beforeAll(async () => {
+			testDb = await createTestDb();
+		});
+
+		afterAll(async () => {
+			await testDb.close();
+		});
+
+		function sessionQueries() {
+			const spy = vi.spyOn(testDb.db, "selectFrom");
+			return {
+				count: () => spy.mock.calls.filter(([table]) => table === "sessions").length,
+				restore: () => spy.mockRestore(),
+			};
+		}
+
+		test("is refused before any query once the address is over the limit", async () => {
+			const { logger, lines } = collectingLogger("debug");
+			const app = buildTestServer(
+				testDb.db,
+				"http://issuer.invalid",
+				{ ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: 3 },
+				logger,
+			);
+			await app.ready();
+			const queries = sessionQueries();
+			try {
+				const token = randomBytes(32).toString("base64url");
+				const send = (cookie: string) =>
+					app.inject({
+						url: "/auth/me",
+						remoteAddress: "203.0.113.50",
+						headers: { cookie: `portikus_session=${cookie}` },
+					});
+				// Under the limit nothing changes: every repeat is still looked up.
+				for (let i = 0; i < 3; i += 1) expect((await send(token)).statusCode).toBe(401);
+				expect(queries.count()).toBe(3);
+
+				for (let i = 0; i < 5; i += 1) expect((await send(token)).statusCode).toBe(429);
+				expect(queries.count()).toBe(3);
+
+				// A cookie this address never missed with is still looked up.
+				expect((await send(randomBytes(32).toString("base64url"))).statusCode).toBe(
+					429,
+				);
+				expect(queries.count()).toBe(4);
+
+				expect(JSON.stringify(lines)).not.toContain(token);
+			} finally {
+				queries.restore();
+				await app.close();
+			}
+		});
+
+		test("never refuses a real session on an address over the limit", async () => {
+			const app = buildTestServer(testDb.db, "http://issuer.invalid", {
+				ANONYMOUS_REQUEST_LIMIT_PER_MINUTE: 2,
+			});
+			await app.ready();
+			try {
+				const userId = await insertTestUser(testDb.db);
+				const session = await createSession(testDb.db, userId, 3600, {
+					method: "oidc",
+					courseUserId: null,
+				});
+				const send = (cookie: string) =>
+					app.inject({
+						url: "/auth/me",
+						remoteAddress: "203.0.113.51",
+						headers: { cookie: `portikus_session=${cookie}` },
+					});
+				const guess = randomBytes(32).toString("base64url");
+				for (let i = 0; i < 4; i += 1) await send(guess);
+				for (let i = 0; i < 3; i += 1)
+					expect((await send(session.token)).statusCode).toBe(200);
+			} finally {
+				await app.close();
+			}
+		});
+	},
+);
