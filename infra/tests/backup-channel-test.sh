@@ -113,13 +113,14 @@ cat >"${work}/bin/journalctl" <<'EOF'
 echo "[backup] volume ws-0123456789abcdef01234567-home"
 echo "[backup] FAIL: 1 of 2 volumes failed to export"
 EOF
-# The backup: logs how it was called and makes a new set.
+# The backup: logs how it was called and makes a new set stamped like a real
+# run, now, so the set stays young however long ago this test was written.
 cat >"${work}/bin/fake-backup" <<'EOF'
 #!/usr/bin/env bash
 printf 'backup %s dir=%s\n' "$*" "$PORTIKUS_BACKUP_DIR" >>"$FAKE_DIR/calls.log"
 echo "${PORTIKUS_BACKUP_MIN_AGE_DAYS:-unset} ${PORTIKUS_BACKUP_KEEP_COMPLETE:-unset}" >"$FAKE_DIR/floor"
 [ -z "${FAKE_BACKUP_FAILS:-}" ] || { echo "[backup] FAIL: vm said no" >&2; exit 1; }
-mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/20260928T120000Z"
+mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/$FAKE_BACKUP_STAMP"
 EOF
 # df: fixed free space, so no test depends on this host's disk.  It reports
 # FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
@@ -133,6 +134,8 @@ printf 'Avail\n%s\n' "$free"
 EOF
 chmod +x "${work}/bin/"*
 export FAKE_DIR="$fakes"
+FAKE_BACKUP_STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+export FAKE_BACKUP_STAMP
 
 # A tarball as an Incus volume export holds it: backup/volume/<files>.
 mkdir -p "${work}/tree/backup/volume/project"
@@ -389,7 +392,7 @@ pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 run_channel
 expect "a backup runs backup.sh as the operator for this VM's name" \
   "grep -qx 'backup --vm-name ${VM_NAME} ${VM_IP} dir=${backups}' '$log' && grep -B1 '^backup ' '$log' | grep -qx \"runuser \$(id -un)\""
-expect "its result names the new set" "[ \"\$(field \"(r['request']['state'], r['request']['stamp'])\")\" = \"('done', '20260928T120000Z')\" ]"
+expect "its result names the new set" "[ \"\$(field \"(r['request']['state'], r['request']['stamp'])\")\" = \"('done', '${FAKE_BACKUP_STAMP}')\" ]"
 expect "it becomes the last run" "[ \"\$(field \"r['status']['lastRun']['result']\")\" = success ]"
 expect "the backup gets the host's retention floor, not the VM's" "[ \"\$(cat '${fakes}/floor')\" = '0 1' ]"
 # A compromised VM must not queue backups back to back (ADR 0039).
@@ -402,7 +405,7 @@ echo "$(( $(date +%s) - 7200 )) $(( $(date +%s) - 3660 )) success" >"${state}/la
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 run_channel
 expect "a requested backup after the gap runs" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
-expect "the channel marks the set it made as requested" "[ -f '${sets}/20260928T120000Z/REQUESTED' ]"
+expect "the channel marks the set it made as requested" "[ -f '${sets}/${FAKE_BACKUP_STAMP}/REQUESTED' ]"
 
 # The retention floor keeps young sets, so a VM may ask for only a few (ADR 0039).
 ago_stamp() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
