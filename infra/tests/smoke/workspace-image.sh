@@ -218,9 +218,14 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     check_output "headless Chromium launches from the student's Playwright folder and renders a page" \
       "<p>portikus</p>" \
       ws_student "timeout 60 ${shell_bin} --no-sandbox --dump-dom 'data:text/html,<p>portikus</p>' 2>/dev/null | grep -o '<p>portikus</p>'"
-    # Without /etc/fonts Chromium still renders but warns and loses the font aliases.
-    check_output "headless Chromium loads the font config" "fontconfig ok" \
-      ws_student "timeout 60 ${shell_bin} --no-sandbox --dump-dom 'data:text/html,<p>portikus</p>' 2>&1 >/dev/null | grep -qi fontconfig || echo 'fontconfig ok'"
+    # Without /etc/fonts Chromium still renders but warns and loses the font
+    # aliases; images before 2026.10.5 have no /etc/fonts.
+    if image_older_than 2026.10.5; then
+      skip "headless Chromium loads the font config (image ${image_version} predates /etc/fonts)"
+    else
+      check_output "headless Chromium loads the font config" "fontconfig ok" \
+        ws_student "timeout 60 ${shell_bin} --no-sandbox --dump-dom 'data:text/html,<p>portikus</p>' 2>&1 >/dev/null | grep -qi fontconfig || echo 'fontconfig ok'"
+    fi
     check_output "a headless screenshot works with /dev/shm capped at 256M" "PNG" \
       ws_student 'd=$(mktemp -d); (cd "$d" && timeout 60 '"${shell_bin}"' --no-sandbox --window-size=1920,1080 --screenshot "data:text/html,<h1>portikus</h1>" >/dev/null 2>&1); head -c 4 "$d/screenshot.png" | tail -c 3; rm -rf "$d"'
     # Playwright itself at the image's pin finds the linked browser, so a pin
