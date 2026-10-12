@@ -77,11 +77,16 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # workspace.sh skips the controller, which is what links the tools into
   # /usr/local/bin on images older than 2026.10.2 (SPEC.md section 10).
   image_version=$(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null || true)
-  image_base=${image_version%%-*}
-  if [[ ${image_base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
-    && [[ $(printf '%s\n' "${image_base}" 2026.10.2 | sort -V | head -n 1) != 2026.10.2 ]]; then
+  # image_older_than VERSION -- the workspace's image predates VERSION; an
+  # unreadable version counts as new, so its checks run.
+  image_older_than() {
+    local base=${image_version%%-*}
+    [[ ${base} =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] \
+      && [[ $(printf '%s\n' "${base}" "$1" | sort -V | head -n 1) != "$1" ]]
+  }
+  if image_older_than 2026.10.2; then
     for tool in claude codex; do
-      echo "SKIP  ${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
+      skip "${tool} resolves into the shared coding-agents folder (image ${image_version} predates the shared coding agents; the controller links them at start)"
     done
   else
     for tool in claude codex; do
@@ -154,7 +159,12 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   # 17ab0. /tmp and /dev/shm are capped tmpfs mounts, so a huge temporary
   # file fails for lack of space instead of using the workspace's memory.
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
-  check_output "/tmp is capped at 512M" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  # Images before 2026.10.4 cap /tmp at 512M (SPEC.md section 22).
+  if image_older_than 2026.10.4; then
+    check_output "/tmp is capped at 512M (image ${image_version})" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  else
+    check_output "/tmp is capped at 1G" "1073741824" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
+  fi
   check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
   check "/dev/shm keeps nosuid and nodev after the remount" \
     ws_exec "findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nosuid && findmnt -no OPTIONS /dev/shm | tr , '\\n' | grep -qx nodev"
@@ -162,10 +172,10 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   term_before=$(term_main)
   tmp_fill_refused() {
     local said
-    said=$(ws_student "head -c 600M /dev/zero > /tmp/smoke-fill; rc=\$?; rm -f /tmp/smoke-fill; exit \$rc" 2>&1)
+    said=$(ws_student "head -c 1100M /dev/zero > /tmp/smoke-fill; rc=\$?; rm -f /tmp/smoke-fill; exit \$rc" 2>&1)
     [[ "$said" == *"No space left on device"* ]]
   }
-  check "writing 600 MB to /tmp fails with No space left on device" tmp_fill_refused
+  check "writing 1100 MB to /tmp fails with No space left on device" tmp_fill_refused
   check_output "the agent kept running through the full /tmp (same main PID)" "$agent_before" agent_main
   check_output "the tmux server kept running through the full /tmp (same main PID)" "$term_before" term_main
   check "the pane's shell kept running through the full /tmp" ws_exec "kill -0 ${shell_pid:-0}"
@@ -216,7 +226,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     check_output "Playwright ${playwright_pin} launches the image's Chromium with no download" "portikus" \
       ws_student 'd=$(mktemp -d); cd "$d" && timeout 180 npm i --no-save --no-audit --no-fund --cache "$d/.npm" playwright-core@'"${playwright_pin}"' >/dev/null 2>&1 && timeout 60 node -e "const { chromium } = require(\"playwright-core\"); (async () => { const b = await chromium.launch(); const p = await b.newPage(); await p.setContent(\"<p>portikus</p>\"); console.log(await p.textContent(\"p\")); await b.close(); })().catch(() => process.exit(1));"; s=$?; cd / && rm -rf "$d"; exit $s'
   else
-    echo "SKIP  headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
+    skip "headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
   fi
   check "gh --version"                          ws_student "gh --version"
   check "node --version"                        ws_student "node --version"

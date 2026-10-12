@@ -97,6 +97,39 @@
     path: "{{ caddy_certificate_dir }}/tls.caddy"
   register: caddy_tls_snippet
 
+# A purge stops Caddy and leaves setup's Caddyfile importing the snippet it
+# deleted, so Caddy cannot start on it; a placeholder stands in until the
+# portikus role seeds the snippet, as Debian's own file does on a first
+# install.  A running Caddy, as after reset-certificate, keeps its file.
+- name: Read whether Caddy is running
+  ansible.builtin.command:
+    argv: [systemctl, is-active, --quiet, caddy]
+  register: caddy_running
+  changed_when: false
+  failed_when: false
+  when: not caddy_tls_snippet.stat.exists
+
+- name: Look for a Caddyfile that imports the missing certificate snippet
+  ansible.builtin.command:
+    argv: [grep, -qF, "{{ caddy_certificate_dir }}/tls.caddy", /etc/caddy/Caddyfile]
+  register: caddy_imports_missing
+  changed_when: false
+  failed_when: false
+  when: not caddy_tls_snippet.stat.exists
+
+- name: Give Caddy a placeholder Caddyfile until the certificate snippet exists
+  ansible.builtin.copy:
+    dest: /etc/caddy/Caddyfile
+    content: |
+      # Written by Portikus setup, which replaces it once the certificate is set up.
+      :80 {
+        respond "Portikus setup is not finished" 503
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  when: not caddy_tls_snippet.stat.exists and caddy_running.rc != 0 and caddy_imports_missing.rc == 0
+
 - name: Deploy the Caddyfile
   ansible.builtin.import_tasks: caddyfile.yml
   when: caddy_tls_snippet.stat.exists

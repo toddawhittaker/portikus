@@ -1325,7 +1325,9 @@ These host timers are for VMs deployed from a workstation with
 ("On an apt-installed server", above). `make backup-install-timer` and
 `make backup-install-channel` refuse any VM whose own
 `portikus-backup.timer` is enabled, as it is on every apt-installed
-server, so they cannot be reinstalled for the pilot by mistake.
+server, so they cannot be reinstalled for the pilot by mistake. A host
+has one of each timer, so installing them with `TOFU_ENV=rehearsal-libvirt`
+points them at the rehearsal VM instead.
 
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a

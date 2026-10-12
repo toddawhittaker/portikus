@@ -277,9 +277,8 @@ fi
 
 run_lifecycle=no
 if [ "$skip_lifecycle" = "yes" ]; then
-  echo "A workspace this run did not create is already on this VM."
-  echo "Skipping the lifecycle, terminal, and project checks, and leaving it alone."
-  echo "Run them against a VM nobody is using."
+  # Counted, so the summary shows the run was not the whole smoke test.
+  skip "the lifecycle, terminal and project checks (a workspace this run did not create is on this VM; run them on a VM nobody is using)"
   # After a restore, the lifecycle block is the point of the run.
   if [ -n "$RESTORED_SET" ]; then
     bad "the lifecycle checks were skipped on the restored VM"

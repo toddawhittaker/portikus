@@ -33,4 +33,15 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-certificate-job.path portikus-certificate-check.timer >/dev/null 2>&1 || true
 fi
 
+# Bytecode Python wrote beside the shipped scripts and Ansible collections.
+# Before dpkg deletes the files, so it can remove their directories too.  Not
+# on upgrade: dpkg replaces the sources and Python rebuilds stale bytecode.
+if [ "$1" = "remove" ]; then
+	for dir in /usr/lib/portikus /usr/share/portikus; do
+		if [ -d "$dir" ]; then
+			find "$dir" -depth -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+		fi
+	done
+fi
+
 exit 0

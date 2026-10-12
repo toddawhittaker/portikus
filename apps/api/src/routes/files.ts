@@ -1,4 +1,4 @@
-import { Readable, Transform } from "node:stream";
+import { Transform } from "node:stream";
 import {
 	ExtractProgress,
 	ExtractRequest,
@@ -9,6 +9,7 @@ import {
 	TreeResponse,
 	WriteFileResponse,
 } from "@portikus/contracts";
+import { readableToWeb } from "@portikus/observability";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { recordActivity } from "../activity.js";
 import {
@@ -208,9 +209,7 @@ export function registerFileRoutes(
 						agentUrl(scope.slug, "file", { path }),
 						{
 							headers,
-							body: Readable.toWeb(
-								request.raw.pipe(counter),
-							) as ReadableStream<Uint8Array>,
+							body: readableToWeb(request.raw.pipe(counter)),
 							signal: deadline.signal,
 						},
 					);

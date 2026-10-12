@@ -11,7 +11,7 @@ ssh_cmd() {
   ssh -n "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
-# Same connection, but for the two places that deliberately feed the remote
+# Same connection, but for the calls that deliberately feed the remote
 # command on standard input.
 ssh_cmd_stdin() {
   ssh "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
@@ -43,6 +43,11 @@ check_zero_lines() {
     bad "$label (${count} lines)"
   fi
 }
+
+# skip LABEL — a SKIP line for a check that could not run, counted so the
+# summary shows the gap.
+skipped=0
+skip() { printf '\033[1;33mSKIP\033[0m  %s\n' "$1"; skipped=$((skipped + 1)); }
 
 # workspace_ip INSTANCE — the address on the workspace bridge.  A running
 # workspace also holds a docker0 address, so pick the bridge NIC by name.
