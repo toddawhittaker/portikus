@@ -80,8 +80,9 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 Orchestration rules:
 
 - Delegate to the cheapest agent that can do the job. Run explorer first
-  when a location is unknown and pass its paths on, rather than making a
-  stronger agent search.
+  when a location is unknown and pass its paths on. When a builder or
+  tester prompt settles every choice, spawn it on Sonnet at high effort
+  and tell it to stop and report any choice the prompt leaves open.
 - Run independent agents in parallel. Never let two agents edit the same
   files; split by package or directory and merge in the main session.
 - A good prompt names the SPEC.md and STACK.md sections, the files in
@@ -89,9 +90,8 @@ Orchestration rules:
 - Agent worktrees start at `main`. Tell a worktree agent the exact commit
   to reset to, and land its work with `git diff <base> <head> | git apply
   --3way`, not a rebase.
-- Verify before relaying. Run `pnpm typecheck` and `pnpm lint` on an
-  agent's work before calling it done; a builder's "lint passes" has been
-  wrong before.
+- Verify before relaying: run `pnpm typecheck` and `pnpm lint` on an
+  agent's work; a builder's "lint passes" has been wrong before.
 - When agents disagree, read the spec section in dispute and rule. If the
   spec does not settle it, bring both positions and a recommendation to
   the user. Say what was ruled in the report.
