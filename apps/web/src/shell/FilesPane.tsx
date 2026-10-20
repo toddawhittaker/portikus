@@ -9,9 +9,12 @@ import {
 } from "@portikus/ui";
 import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
+import { useCodeHelpEnabled } from "../editor/settingsQueries.js";
 import { FileTreePane } from "../files/FileTree.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { MonitorPane } from "../monitor/MonitorPane.js";
+import { ProblemsPane } from "../problems/ProblemsPane.js";
+import { countProblems, useProblems } from "../problems/problems.js";
 import { RunningPane } from "../running/RunningPane.js";
 import { SearchPanel } from "../search/SearchPanel.js";
 import { type RightPane, useRightPaneState } from "./rightPane.js";
@@ -20,7 +23,8 @@ import "./right-pane.css";
 /**
  * The right pane (SPEC.md §8.4): one project's file tree, its checks
  * (SPEC.md §18.1), the Running surface (SPEC.md §18.2), workspace usage
- * (SPEC.md §18.3), find in files (SPEC.md §11.5), or nothing to show.
+ * (SPEC.md §18.3), the open files' problems (SPEC.md §13.6), find in files
+ * (SPEC.md §11.5), or nothing to show.
  */
 export function FilesPane({
 	workspaceId,
@@ -34,6 +38,12 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show, monitorFocus, setMonitorFocus } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
+	// Problems needs an open project and the site's code help; without them
+	// the tab is gone and a pane left on it shows Files.
+	const problemFiles = useProblems(open ? project.id : undefined);
+	const hasProblems = useCodeHelpEnabled() && open;
+	const problemCount = hasProblems ? countProblems(problemFiles) : null;
+	const current: RightPane = pane === "problems" && !hasProblems ? "files" : pane;
 	// Closing the search hands focus back to the button that opened it,
 	// or to the chosen surface's tab when the pane has moved off Files meanwhile.
 	const searchButton = useRef<HTMLButtonElement>(null);
@@ -110,10 +120,15 @@ export function FilesPane({
 		return (
 			<TabsRoot
 				className="pk-right-pane"
-				value={pane}
+				value={current}
 				onValueChange={(value) => show(value as RightPane)}
 			>
-				<Switchers show={show} current={pane} currentRef={currentTab} />
+				<Switchers
+					show={show}
+					current={current}
+					currentRef={currentTab}
+					problemCount={problemCount}
+				/>
 				<TabsContent value="files" className="pk-pane-panel">
 					{/* Keyed by project, so nothing (focus above all) carries across a switch. */}
 					<FileTreePane
@@ -139,6 +154,13 @@ export function FilesPane({
 						<MonitorPane workspaceId={workspaceId} />
 					</aside>
 				</TabsContent>
+				{hasProblems ? (
+					<TabsContent value="problems" className="pk-pane-panel">
+						<aside className="pk-pane pk-pane--right" aria-label="Problems">
+							<ProblemsPane key={project.id} projectId={project.id} />
+						</aside>
+					</TabsContent>
+				) : null}
 			</TabsRoot>
 		);
 	}
@@ -148,13 +170,14 @@ export function FilesPane({
 	return (
 		<TabsRoot
 			className="pk-right-pane"
-			value={pane === "checks" ? "files" : pane}
+			value={pane === "checks" || pane === "problems" ? "files" : pane}
 			onValueChange={(value) => show(value as RightPane)}
 		>
 			<Switchers
 				show={show}
-				current={pane === "checks" ? "files" : pane}
+				current={pane === "checks" || pane === "problems" ? "files" : pane}
 				currentRef={currentTab}
+				problemCount={null}
 			/>
 			<TabsContent value="running" className="pk-pane-panel">
 				<aside className="pk-pane pk-pane--right" aria-label="Running">
@@ -194,10 +217,13 @@ function Switchers({
 	show,
 	current,
 	currentRef,
+	problemCount,
 }: {
 	show: (pane: RightPane) => void;
 	current: RightPane;
 	currentRef: Ref<HTMLButtonElement>;
+	/** How many problems the open files have; null when the tab is not offered. */
+	problemCount: number | null;
 }) {
 	const refFor = (value: RightPane) => (value === current ? currentRef : undefined);
 	const list = useRef<HTMLDivElement>(null);
@@ -221,7 +247,11 @@ function Switchers({
 		<TabsList
 			ref={list}
 			className="pk-pane-tabs"
-			aria-label="Files, checks, running services or monitor"
+			aria-label={
+				problemCount === null
+					? "Files, checks, running services or monitor"
+					: "Files, checks, running services, monitor or problems"
+			}
 			// The wheel scrolls the strip sideways, as the work-area tabs do.
 			onWheel={(event) => {
 				if (!list.current || event.deltaY === 0 || event.deltaX !== 0) return;
@@ -247,6 +277,15 @@ function Switchers({
 				label="Monitor"
 				onPick={show}
 			/>
+			{problemCount === null ? null : (
+				<Switcher
+					value="problems"
+					buttonRef={refFor("problems")}
+					label="Problems"
+					count={problemCount}
+					onPick={show}
+				/>
+			)}
 		</TabsList>
 	);
 }
@@ -254,12 +293,15 @@ function Switchers({
 function Switcher({
 	value,
 	label,
+	count,
 	onPick,
 	buttonRef,
 }: {
 	value: RightPane;
 	buttonRef?: Ref<HTMLButtonElement>;
 	label: string;
+	/** A number after the name; nothing is shown for zero. */
+	count?: number;
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
@@ -272,6 +314,14 @@ function Switcher({
 			onClick={() => onPick(value)}
 		>
 			{label}
+			{count ? (
+				<>
+					{" "}
+					<span className="pk-pane-tab-count" data-testid={`right-pane-count-${value}`}>
+						{count}
+					</span>
+				</>
+			) : null}
 		</TabsTrigger>
 	);
 }

@@ -42,6 +42,38 @@ export const INSTRUCTOR_HELP: HelpPart = {
 			),
 		},
 		{
+			id: "instructor-profile",
+			title: "Choosing your students' interface",
+			body: (
+				<>
+					<p>
+						Under <strong>Student interface</strong> on the Course page you choose what
+						your students see. The choice saves as soon as you make it.
+					</p>
+					<ul>
+						<li>
+							<strong>Agentic</strong> is the whole interface. It is the default.
+						</li>
+						<li>
+							<strong>Traditional</strong> hides the Claude Code and Codex launchers,
+							the Docker controls and the system ports in the Running pane. Code help in
+							the editor stays on.
+						</li>
+						<li>
+							Traditional only hides controls. It never blocks anything: a student can
+							still run any command in a terminal, and the workspace is the same.
+						</li>
+						<li>
+							Students see a change the next time they load the page or return to the
+							window. A student in several courses gets the fullest interface among
+							them, so one Agentic course is enough to show everything. You and other
+							instructors always see the whole interface.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
 			id: "instructor-agent-usage",
 			title: "Coding-agent use in your course",
 			body: (

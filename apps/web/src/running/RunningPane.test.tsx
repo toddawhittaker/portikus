@@ -3,7 +3,7 @@
  * offer actions, how a system listener is hidden, and what selecting a
  * row shows.
  */
-import type { ListeningService } from "@portikus/contracts";
+import type { CourseProfile, ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -15,9 +15,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { meSettingsBody } from "../profile-test-utils.js";
 import { openToggletip } from "../test-utils.js";
 import { RunningPane } from "./RunningPane.js";
-import { ListeningContext } from "./services.js";
+import { ListeningContext, writeShowSystem } from "./services.js";
 
 const USAGE = {
 	observedAt: "2026-01-01T00:00:00.000Z",
@@ -40,6 +41,11 @@ const USAGE = {
 };
 
 let client: QueryClient;
+
+/** How many times the pane asked for usage; the course profile read is not one of them. */
+function usageCalls(mock: { mock: { calls: unknown[][] } }): number {
+	return mock.mock.calls.filter((call) => String(call[0]).includes("/usage")).length;
+}
 
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";
 
@@ -362,7 +368,7 @@ test("the panel closes when the selected port disappears", () => {
 
 test("a selected row shows CPU and memory, and the details divider can be focused", async () => {
 	show([service({ port: 3000 })]);
-	expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+	expect(usageCalls(vi.mocked(fetch))).toBe(0);
 	selectRow(3000);
 	await waitFor(() =>
 		expect(screen.getByTestId("running-cpu").textContent).toBe("1.0%"),
@@ -406,21 +412,21 @@ test("usage polling stops when the row is no longer selected", async () => {
 		vi.stubGlobal("fetch", calls);
 		const view = show([service({ port: 3000 })]);
 		await act(async () => {});
-		expect(calls).not.toHaveBeenCalled();
+		expect(usageCalls(calls)).toBe(0);
 		selectRow(3000);
 		await act(async () => {});
-		expect(calls.mock.calls.length).toBeGreaterThan(0);
-		const selected = calls.mock.calls.length;
+		expect(usageCalls(calls)).toBeGreaterThan(0);
+		const selected = usageCalls(calls);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1000);
 		});
-		expect(calls.mock.calls.length).toBeGreaterThan(selected);
-		const whileSelected = calls.mock.calls.length;
+		expect(usageCalls(calls)).toBeGreaterThan(selected);
+		const whileSelected = usageCalls(calls);
 		view.rerender(tree([]));
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(3000);
 		});
-		expect(calls.mock.calls.length).toBe(whileSelected);
+		expect(usageCalls(calls)).toBe(whileSelected);
 	} finally {
 		vi.useRealTimers();
 	}
@@ -538,4 +544,37 @@ test("the pane, Show system and a port that can't be previewed each explain them
 	).toHaveLength(1);
 	fireEvent.click(tip);
 	expect(openToggletip().textContent).toContain("from 1024 up");
+});
+
+/** Answers the course profile read with `profile` and anything else with the usage body. */
+function stubProfile(profile: CourseProfile) {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const body = String(input) === "/me/settings" ? meSettingsBody(profile) : USAGE;
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+}
+
+test("Traditional hides the system rows and their toggle, even when the toggle was left on", async () => {
+	writeShowSystem(true);
+	stubProfile("traditional");
+	show([service({ port: 5173 }), service({ port: 5355, system: true })]);
+	await waitFor(() => expect(screen.queryByTestId("running-system-toggle")).toBeNull());
+	expect(screen.queryByTestId("running-row-5355")).toBeNull();
+	expect(screen.getByTestId("running-row-5173")).toBeTruthy();
+});
+
+test("Agentic keeps the system rows and their toggle", async () => {
+	writeShowSystem(true);
+	stubProfile("agentic");
+	show([service({ port: 5173 }), service({ port: 5355, system: true })]);
+	await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+	await act(async () => {});
+	expect(screen.getByTestId("running-system-toggle")).toBeTruthy();
+	expect(screen.getByTestId("running-row-5355")).toBeTruthy();
 });
