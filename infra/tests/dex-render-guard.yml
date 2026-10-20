@@ -27,6 +27,13 @@
         portikus_ldap_user_filter: "{{ given.portikus_ldap_user_filter }}"
         portikus_ldap_root_ca: "{{ given.portikus_ldap_root_ca }}"
         portikus_ldap_ip_allow: "{{ given.portikus_ldap_ip_allow }}"
+        portikus_entra_role_source: "{{ given.portikus_entra_role_source }}"
+        portikus_google_admin_email: "{{ given.portikus_google_admin_email }}"
+        portikus_google_groups_enabled: "{{ dex_guard.upstream == 'google' and given.portikus_google_admin_email | length > 0 }}"
+        portikus_oidc_student_group: "{{ given.portikus_oidc_student_group }}"
+        portikus_oidc_instructor_group: "{{ given.portikus_oidc_instructor_group }}"
+        portikus_oidc_admin_group: "{{ given.portikus_oidc_admin_group }}"
+        dex_google_key_path: "{{ given.dex_google_key_path }}"
 
     - name: Note that it was accepted, for {{ dex_guard.name }}
       ansible.builtin.set_fact:

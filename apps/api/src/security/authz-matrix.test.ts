@@ -61,6 +61,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /workspaces/:id/projects/starter": 404,
 	"GET /me/links/pending": 404,
 	"HEAD /me/links/pending": 404,
+	"POST /me/links/passkey/start": 404,
 	"POST /me/links/confirm": 404,
 	"POST /me/links/:courseUserId/unlink": 404,
 	"POST /admin/users/:id/demote": 400,
@@ -71,8 +72,11 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users/:id/reset-password": 404,
 	"POST /admin/dex-users/:id/reset-second-factor": 404,
 	"POST /admin/dex-users/:id/remove": 404,
+	"POST /admin/dex-users/:id/send-reset-link": 404,
+	"PATCH /admin/dex-users/:id": 404,
 	// The matrix world has no waiting invitation.
 	"POST /admin/invitations/:id/revoke": 404,
+	"POST /admin/invitations/:id/send": 404,
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,

@@ -190,3 +190,72 @@ test.each([
 	await waitFor(() => expect(document.activeElement === text).toBe(moves));
 	if (!moves) expect(document.activeElement?.textContent).toBe("Elsewhere");
 });
+
+test("Google group checks show the write-only key and groups, and send the key once", async () => {
+	const key = JSON.stringify({
+		type: "service_account",
+		project_id: "portikus-test",
+		private_key_id: "fake-key-id",
+		private_key:
+			"-----BEGIN FAKE TEST KEY-----\nnot-a-real-key\n-----END FAKE TEST KEY-----\n",
+		client_email: "groups@portikus-test.iam.gserviceaccount.com",
+	});
+	const fetch = serve({
+		current: {
+			...CURRENT,
+			provider: "google",
+			googleDomains: ["example.edu"],
+			oidcIssuer: null,
+			groupsClaim: null,
+			googleAdminEmail: null,
+			googleKeySet: false,
+		},
+		job: null,
+		lastTest: null,
+	});
+	renderWithQuery(<SsoGroup />);
+	const admin = await screen.findByLabelText("Administrator to read groups as");
+	// Fields appear below it as it is filled, so its hint says so before they do.
+	expect(
+		document.getElementById(admin.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toContain("Filling it in adds a key and three group fields below.");
+	expect(screen.queryByLabelText("Service account key")).toBeNull();
+	expect(screen.queryByLabelText("Students' group")).toBeNull();
+	fireEvent.change(admin, { target: { value: "groups-reader@example.edu" } });
+	const field = screen.getByLabelText("Service account key") as HTMLTextAreaElement;
+	expect(field.value).toBe("");
+	expect(screen.getByTestId("sso-groups-note").textContent).toContain("cannot join");
+	// The invite-only note is read with the group fields' fieldset.
+	expect(
+		screen
+			.getByRole("group", { name: "Roles from groups" })
+			.getAttribute("aria-describedby"),
+	).toBe("sso-groups-note");
+	fireEvent.change(field, { target: { value: key } });
+	for (const [label, value] of [
+		["Students' group", "students@example.edu"],
+		["Instructors' group", "staff@example.edu"],
+		["Administrators' group", "it@example.edu"],
+	] as const) {
+		fireEvent.change(screen.getByLabelText(label), { target: { value } });
+	}
+	fireEvent.click(screen.getByTestId("sso-apply"));
+	const dialog = await screen.findByTestId("sso-apply-confirm");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Apply as a trial" }));
+	await waitFor(() =>
+		expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
+	);
+	const [, init] = fetch.mock.calls.find(([, i]) => i?.method === "POST") ?? [];
+	expect(JSON.parse(String(init?.body))).toMatchObject({
+		provider: "google",
+		googleAdminEmail: "groups-reader@example.edu",
+		googleServiceAccountKey: key,
+		groups: { student: "students@example.edu" },
+	});
+	// The key is with the job now; the page keeps none of it.
+	await waitFor(() =>
+		expect(
+			(screen.getByLabelText("Service account key") as HTMLTextAreaElement).value,
+		).toBe(""),
+	);
+});

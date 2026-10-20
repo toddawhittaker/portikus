@@ -411,8 +411,9 @@ Every site signs in through Dex (ADR 0023, ADR 0031, SPEC.md section
 passwords, which administrators manage in the Users view. An
 institution's provider is added as one Dex connector with
 `PORTIKUS_DEX_UPSTREAM`: `ldap` (LDAP or Active Directory), `entra`
-(Microsoft Entra ID, one tenant, roles from app roles), `google` (Google
-Workspace, the listed domains) or `oidc` (any other OpenID Connect
+(Microsoft Entra ID, one tenant, roles from app roles or assigned
+groups), `google` (Google Workspace, the listed domains, roles from
+groups when an administrator to read them as is set) or `oidc` (any other OpenID Connect
 provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin).
 `none`, the default, is what the pilot uses. docs/OPERATIONS.md, "Sign-in
 providers", says how to register Dex with each provider and which
@@ -425,12 +426,14 @@ The settings, all read from the environment by `make configure-vm`:
 | `PORTIKUS_DEX_UPSTREAM` | any | `none` (the default), `ldap`, `entra`, `google` or `oidc`. |
 | `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | `entra`, `google`, `oidc` | The client Dex is registered as, with the redirect URI `https://<public-host>:<port>/dex/callback`. The secret needs 16 characters or more. |
 | `PORTIKUS_ENTRA_TENANT_ID` | `entra` | The tenant's ID, a GUID. Dex's issuer for it is derived from it. |
+| `PORTIKUS_ENTRA_ROLE_SOURCE` | `entra` | `appRoles` (the default) reads the `roles` claim; `groups` reads the object IDs of the groups assigned to the application, so the three group settings below are object IDs. |
 | `PORTIKUS_GOOGLE_DOMAINS` | `google` | The allowed domains, separated by commas. |
+| `PORTIKUS_GOOGLE_ADMIN_EMAIL` | `google` | Turns on group checks: the Workspace administrator the service account acts as to read groups. The three group settings below are then lowercase group emails, and the key must be on the VM at `/etc/portikus-dex/google-service-account.json`. |
 | `PORTIKUS_DEX_UPSTREAM_ISSUER` | `oidc` | The provider's `https` issuer URL. |
 | `PORTIKUS_OIDC_UPSTREAM_GROUPS_CLAIM` | `oidc` | The claim that holds the provider's groups. Defaults to `groups`. |
 | `PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES` | `oidc` | Scopes Dex asks for beyond `openid profile email`, separated by commas. |
-| `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | `ldap`, `entra`, `oidc` | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under `entra`. Under `entra` and `oidc` Dex admits only people holding one of them, so an `oidc` site whose provider uses other names must set all three. |
-| `PORTIKUS_OIDC_SCOPES` | any | The scopes the API asks Dex for. Defaults to `openid profile email groups`, without `groups` under `google`, where the play refuses it. |
+| `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | `ldap`, `entra`, `google`, `oidc` | The group names, app role values, Entra group object IDs or Google group emails that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under `entra`. Under `entra`, `oidc` and Google group checks Dex admits only people holding one of them, so a site whose provider uses other names must set all three. |
+| `PORTIKUS_OIDC_SCOPES` | any | The scopes the API asks Dex for. Defaults to `openid profile email groups`, without `groups` under `google` without group checks, where the play refuses it. |
 | `PORTIKUS_ADMIN_EMAIL` | any | The local administrator's email, used only when the play creates it. Defaults to `admin@<public-host>`. |
 | `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
 | `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |

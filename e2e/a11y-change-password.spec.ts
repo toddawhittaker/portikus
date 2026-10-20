@@ -1,5 +1,9 @@
 import { type BrowserContext, expect, test } from "@playwright/test";
-import { createLocalPasswordAdmin, expectNoViolations } from "./helpers";
+import {
+	createLocalPasswordAdmin,
+	expectNoViolations,
+	expectReflowAt320,
+} from "./helpers";
 
 /**
  * axe on the change-password page and Settings, Password, in light and dark
@@ -39,6 +43,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"If an administrator gave you a one-time password, enter it here. Enter your current or one-time password.",
 		);
 		await expectNoViolations(page, "[data-testid=page-change-password]");
+		await expectReflowAt320(page);
 	});
 
 	test(`Settings, Password has no axe violations in ${colorScheme}`, async ({

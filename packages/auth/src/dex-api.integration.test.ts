@@ -111,6 +111,33 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR)(
 			expect(await dex.deletePassword(email)).toBe("not_found");
 		});
 
+		test("a new email and username keep the subject Portikus knows the account by", async () => {
+			dex = (await loadDexApi(GRPC)) as DexApi;
+			const userId = crypto.randomUUID();
+			const oldEmail = `move-${userId.slice(0, 8)}@example.edu`;
+			const newEmail = `moved-${userId.slice(0, 8)}@example.edu`;
+			const password = generateDexPassword();
+			const hash = await hashDexPassword(password);
+			await dex.createPassword({ email: oldEmail, username: "before", userId, hash });
+
+			// The username changes in place and the password keeps working.
+			expect(await dex.updateUsername(oldEmail, "after")).toBe("updated");
+			const renamed = await signIn(oldEmail, password);
+			expect(renamed?.identity.subject).toBe(dexLocalSubject(userId));
+			expect(renamed?.identity.displayName).toBe("after");
+
+			// The email changes the way the admin route does it: delete, then create under the same user ID.
+			expect(await dex.deletePassword(oldEmail)).toBe("deleted");
+			expect(
+				await dex.createPassword({ email: newEmail, username: "after", userId, hash }),
+			).toBe("created");
+			expect(await signIn(oldEmail, password)).toBeNull();
+			const moved = await signIn(newEmail, password);
+			expect(moved?.identity.subject).toBe(dexLocalSubject(userId));
+			expect(moved?.identity.email).toBe(newEmail);
+			await dex.deletePassword(newEmail);
+		});
+
 		test("refuses a client whose certificate Dex's authority did not sign", async () => {
 			const ca = readFileSync(GRPC.DEX_GRPC_CA ?? "");
 			const stranger = createDexApi({

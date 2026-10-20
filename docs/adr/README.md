@@ -91,3 +91,4 @@ has four sections:
 | [0061](0061-package-removal-policy.md) | Package removal stops what setup wrote and purge deletes it, with three deliberate keeps (accepted, Epic 44) |
 | [0062](0062-pinned-playwright-browser.md) | The image ships one pinned Playwright browser, linked into each student's home at login (accepted, Epic 45) |
 | [0063](0063-instructor-live-help.md) | Live help: a student invites one instructor to watch, and optionally type in, one project's terminals (accepted, Epic 48) |
+| [0064](0064-account-email-and-provider-groups.md) | Emailed reset and invitation links behind a switch, roles from Google groups and Entra group IDs, and a passkey at link confirm (accepted, Epic 50) |

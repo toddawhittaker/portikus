@@ -27,6 +27,9 @@ ProtectSystem=strict
 # The settings, the page files and the include folder in /etc/portikus, the
 # job directory, the trial's root-only state, and debconf's answers.
 ReadWritePaths=/etc/portikus /var/lib/portikus/site-jobs /var/lib/portikus/site-state /var/cache/debconf
+# Dex's Google service-account key. Setup makes the folder, so before its first
+# run it may be missing, and a key upload then fails with write_failed.
+ReadWritePaths=-/etc/portikus-dex
 ProtectHome=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

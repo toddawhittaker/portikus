@@ -1,17 +1,23 @@
 import {
+	type AuthenticationResponseJSON,
 	accountNeedsSecondFactor,
+	checkPasskey,
 	checkSecondFactor,
 	consumeLinkIntent,
 	courseLinkWindow,
+	createChallengeStore,
 	hashSessionToken,
 	isRecoveryCodeShape,
 	linkAccounts,
 	listLinks,
+	listPasskeys,
 	loginCookieName,
 	loginCookieOptions,
 	markSecondFactorPassed,
+	passkeyAuthenticationOptions,
 	pendingLinkIntent,
 	platformIssuerOf,
+	relyingParty,
 	requireUser,
 	saveLinkIntent,
 	secondFactorKey,
@@ -25,6 +31,7 @@ import {
 	type ApiError,
 	LinkConfirm,
 	type MyLinks,
+	type PasskeyOptions,
 	type PendingLink,
 	type StartLinkResponse,
 	type UnlinkResponse,
@@ -63,6 +70,18 @@ export function registerLinkRoutes(
 ): void {
 	const auth = toAuthOptions(config);
 	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
+	const rp = relyingParty(config.PUBLIC_URL);
+	// Apart from the gate's store, so a gate challenge never answers a link (SPEC.md section 24.13).
+	const challenges = createChallengeStore();
+
+	/** One challenge per course session and SSO account, so it answers only that link. */
+	function challengeKey(request: FastifyRequest, userId: string): string {
+		return `${sessionId(request)}:link:${userId}`;
+	}
+
+	async function hasPasskey(userId: string): Promise<boolean> {
+		return (await listPasskeys(db, userId)).length > 0;
+	}
 
 	/**
 	 * What the SSO account must do before it can be linked. A later launch
@@ -89,13 +108,14 @@ export function registerLinkRoutes(
 		return row.has_factor ? "verify" : "enrol";
 	}
 
-	/** Check the code for a link that needs one; on a refusal the reply is already sent. */
+	/** Check the code or passkey for a link that needs one; on a refusal the reply is already sent. */
 	async function passSecondFactor(
 		request: FastifyRequest,
 		reply: FastifyReply,
 		userId: string,
-		code: string | undefined,
+		proof: LinkConfirm,
 	): Promise<"passed" | "not_needed" | "refused"> {
+		const code = proof.code;
 		const owed = await secondFactorOwed(userId);
 		if (owed === null) return "not_needed";
 		if (owed === "enrol") {
@@ -107,6 +127,9 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
+		if (proof.credential !== undefined) {
+			return passPasskey(request, reply, userId, proof.credential);
+		}
 		if (code === undefined) {
 			fail(
 				reply,
@@ -116,11 +139,10 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
-		// Linking takes no passkey, so only a recovery code may pass a refused count.
 		const allowance = await throttle.allow(request, reply, userId, {
 			sessionId: sessionId(request),
 			eligible: isRecoveryCodeShape(code),
-			passkeys: async () => false,
+			passkeys: () => hasPasskey(userId),
 		});
 		if (!allowance) return "refused";
 		const result =
@@ -149,6 +171,67 @@ export function registerLinkRoutes(
 			return "refused";
 		}
 		// A bypass holds no receipt, so nothing on that path gives a count back.
+		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
+		return "passed";
+	}
+
+	/** A passkey answer to this session's link challenge, checked against this account's passkeys only. */
+	async function passPasskey(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		userId: string,
+		credential: NonNullable<LinkConfirm["credential"]>,
+	): Promise<"passed" | "refused"> {
+		// As at the gate, a passkey may pass a refused count (ADR 0053).
+		const allowance = await throttle.allow(request, reply, userId, {
+			sessionId: sessionId(request),
+			eligible: true,
+			passkeys: async () => true,
+		});
+		if (!allowance) return "refused";
+		const challenge = challenges.take(challengeKey(request, userId));
+		if (challenge === null) {
+			// No passkey was checked, so this request's own try is returned.
+			if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
+			fail(
+				reply,
+				400,
+				"PASSKEY_EXPIRED",
+				"That took too long. Try your passkey again.",
+			);
+			return "refused";
+		}
+		const result = await checkPasskey(
+			db,
+			rp,
+			userId,
+			credential as unknown as AuthenticationResponseJSON,
+			challenge,
+		);
+		await recordAudit(db, {
+			actor: `user:${userId}`,
+			target: userId,
+			action: result.ok ? "auth.second_factor_verified" : "auth.second_factor_failed",
+			result: result.ok ? "ok" : "failed",
+			metadata: {
+				...requestMetadata(request),
+				kind: "webauthn",
+				...(result.ok
+					? { method: "webauthn", factorId: result.factorId }
+					: { reason: result.reason }),
+				...(allowance.kind === "bypass" ? { bypass: true } : {}),
+				flow: "link",
+			},
+		});
+		if (!result.ok) {
+			fail(
+				reply,
+				403,
+				"WRONG_PASSKEY",
+				"That passkey did not work. Try again, or use your authenticator app or a recovery code.",
+			);
+			return "refused";
+		}
 		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
 		return "passed";
 	}
@@ -242,27 +325,58 @@ export function registerLinkRoutes(
 				email: sso.email,
 			},
 			secondFactor: await secondFactorOwed(sso.id),
+			passkey: await hasPasskey(sso.id),
 		};
 		return body;
+	});
+
+	// A passkey challenge for the waiting link's SSO account.
+	app.post("/me/links/passkey/start", async (request, reply) => {
+		const pending = await pendingLinkIntent(db, sessionId(request));
+		if (!pending) return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
+		if ((await secondFactorOwed(pending.userId)) !== "verify") {
+			return fail(reply, 400, "VALIDATION_FAILED", "This link needs no passkey.");
+		}
+		const passkeys = await listPasskeys(db, pending.userId);
+		if (passkeys.length === 0) {
+			return fail(
+				reply,
+				400,
+				"NO_PASSKEY",
+				"This account has no passkey. Use your authenticator app or a recovery code.",
+			);
+		}
+		const options = await passkeyAuthenticationOptions(
+			rp,
+			passkeys.map((p) => p.passkey),
+		);
+		challenges.put(challengeKey(request, pending.userId), options.challenge);
+		const body: PasskeyOptions = { ...options };
+		return reply.header("cache-control", "no-store").send(body);
 	});
 
 	// Link, retire the course account, and sign in to the SSO account.
 	app.post("/me/links/confirm", async (request, reply) => {
 		const input = LinkConfirm.safeParse(request.body ?? {});
 		if (!input.success) {
-			return fail(reply, 400, "VALIDATION_FAILED", "Enter a code to link.");
+			return fail(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				input.error.issues[0]?.message ?? "Enter a code to link.",
+			);
 		}
 		const id = sessionId(request);
 		// Checked before the intent is used, so a wrong code can be retried.
 		const pending = await pendingLinkIntent(db, id);
 		const checked = pending
-			? await passSecondFactor(request, reply, pending.userId, input.data.code)
+			? await passSecondFactor(request, reply, pending.userId, input.data)
 			: "not_needed";
 		if (checked === "refused") return reply;
 		const outcome = await db.transaction().execute(async (trx) => {
 			const intent = await consumeLinkIntent(trx, id);
 			if (!intent) return { kind: "none" as const };
-			// The code proved this account; any other is never linked.
+			// The code or passkey proved this account; any other is never linked.
 			if (intent.userId !== pending?.userId) return { kind: "none" as const };
 			const window = await courseLinkWindow(trx, id);
 			if (!window?.open || window.courseUserId !== intent.courseUserId) {
@@ -326,7 +440,7 @@ export function registerLinkRoutes(
 			method: "link",
 			courseUserId: null,
 		});
-		// The code typed above is this session's second factor.
+		// The code or passkey above is this session's second factor.
 		if (checked === "passed") await markSecondFactorPassed(db, newSession);
 		await recordAudit(db, {
 			actor: `user:${intent.userId}`,

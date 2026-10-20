@@ -89,6 +89,16 @@ export function needsNewSecret(view: SiteView, settings: SigninSettings): boolea
 	return secretIdentity(view) !== secretIdentity(settings);
 }
 
+/**
+ * The root job's other `missing_secret` rule: Google group checks need a
+ * service-account key, sent now or already in place, or every Google sign-in fails.
+ */
+export function needsGoogleKey(view: SiteView, settings: SigninSettings): boolean {
+	if (settings.provider !== "google" || settings.googleAdminEmail === undefined)
+		return false;
+	return settings.googleServiceAccountKey === undefined && view.googleKeySet !== true;
+}
+
 const TestMetadata = z.object({
 	result: z.enum(["passed", "failed"]),
 	role: Role.nullable(),

@@ -445,6 +445,8 @@ export const CreateInvitationRequest = z
 		username: z.string().trim().toLowerCase().min(1).max(254).optional(),
 		name: z.string().trim().min(1, "Enter a name").max(100),
 		role: Role,
+		/** Email the invitation; needs account email on (SPEC.md section 5.3). */
+		sendEmail: z.boolean().optional(),
 	})
 	.strict();
 export type CreateInvitationRequest = z.infer<typeof CreateInvitationRequest>;
@@ -459,6 +461,10 @@ export const Invitation = z.object({
 	createdAt: z.string().datetime(),
 });
 export type Invitation = z.infer<typeof Invitation>;
+
+/** A new invitation, and whether its email went out. */
+export const CreateInvitationResponse = Invitation.extend({ emailed: z.boolean() });
+export type CreateInvitationResponse = z.infer<typeof CreateInvitationResponse>;
 
 export const InvitationList = z.object({ invitations: z.array(Invitation) });
 export type InvitationList = z.infer<typeof InvitationList>;
@@ -483,7 +489,11 @@ export const ACCOUNT_IMPORT_MAX_BYTES = 256 * 1024;
  * text again and validates it again, never trusting the preview.
  */
 export const AccountImportRequest = z
-	.object({ csv: z.string().max(ACCOUNT_IMPORT_MAX_BYTES) })
+	.object({
+		csv: z.string().max(ACCOUNT_IMPORT_MAX_BYTES),
+		/** Email each person a set-password link or their invitation; needs account email on. */
+		sendEmail: z.boolean().optional(),
+	})
 	.strict();
 export type AccountImportRequest = z.infer<typeof AccountImportRequest>;
 
@@ -520,6 +530,8 @@ export const AccountImportResultRow = z.object({
 	outcome: z.enum(["created", "invited", "skipped", "invalid", "failed"]),
 	reason: z.string().nullable(),
 	password: z.string().optional(),
+	/** True when the link or invitation was emailed. */
+	emailed: z.boolean().optional(),
 });
 export type AccountImportResultRow = z.infer<typeof AccountImportResultRow>;
 

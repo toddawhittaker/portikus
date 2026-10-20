@@ -9,6 +9,7 @@ import {
 import { ChangePasswordRequest } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { revokeAccountEmailTokens } from "../account-email/tokens.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
@@ -148,6 +149,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 					.where("session_id", "<>", currentSession)
 					.where("revoked_at", "is", null)
 					.execute();
+				await revokeAccountEmailTokens(trx, user.id);
 				await recordAudit(trx, {
 					actor: actor,
 					target: user.id,

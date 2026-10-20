@@ -762,6 +762,23 @@ export async function expectNoViolations(
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
+/**
+ * Narrow the window to 320 px, the width of a 1280 px window at 400% zoom,
+ * and expect neither the page nor its <main> to scroll sideways (WCAG 1.4.10).
+ */
+export async function expectReflowAt320(page: Page): Promise<void> {
+	await page.setViewportSize({ width: 320, height: 640 });
+	const overflow = await page.evaluate(() => {
+		const root = document.documentElement;
+		const main = document.querySelector("main");
+		return {
+			page: root.scrollWidth - root.clientWidth,
+			main: main ? main.scrollWidth - main.clientWidth : 0,
+		};
+	});
+	expect(overflow).toEqual({ page: 0, main: 0 });
+}
+
 /** The WCAG 2 contrast ratio between two rgb() colours. */
 export function contrast(first: string, second: string): number {
 	const luminance = (colour: string) => {

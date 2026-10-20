@@ -16,6 +16,8 @@
 
 - name: Check the settings of Dex's upstream connector
   run_once: true
+  vars:
+    dex_role_groups: "{{ [portikus_oidc_student_group, portikus_oidc_instructor_group, portikus_oidc_admin_group] }}"
   block:
     - name: Require the client Dex is registered as upstream
       ansible.builtin.assert:
@@ -36,6 +38,25 @@
         fail_msg: "PORTIKUS_DEX_UPSTREAM=entra needs PORTIKUS_ENTRA_TENANT_ID, the tenant's ID, a GUID."
       when: portikus_dex_upstream == 'entra'
 
+    - name: Require a known source of Entra roles
+      ansible.builtin.assert:
+        that:
+          - portikus_entra_role_source in ['appRoles', 'groups']
+        fail_msg: "PORTIKUS_ENTRA_ROLE_SOURCE must be appRoles or groups (got '{{ portikus_entra_role_source }}')."
+      when: portikus_dex_upstream == 'entra'
+
+    # The groups claim carries object IDs, so a group named any other way
+    # would admit nobody.
+    - name: Require Entra role groups by object ID
+      ansible.builtin.assert:
+        that:
+          - dex_role_groups | reject('match', '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') | list | length == 0
+        fail_msg: >-
+          PORTIKUS_ENTRA_ROLE_SOURCE=groups needs PORTIKUS_OIDC_STUDENT_GROUP,
+          PORTIKUS_OIDC_INSTRUCTOR_GROUP and PORTIKUS_OIDC_ADMIN_GROUP set to
+          the groups' object IDs, such as 12345678-90ab-cdef-1234-567890abcdef.
+      when: portikus_dex_upstream == 'entra' and portikus_entra_role_source == 'groups'
+
     - name: Require the Google Workspace domains
       ansible.builtin.assert:
         that:
@@ -45,6 +66,23 @@
           PORTIKUS_DEX_UPSTREAM=google needs PORTIKUS_GOOGLE_DOMAINS, the site's
           Google Workspace domains, such as example.edu, separated by commas.
       when: portikus_dex_upstream == 'google'
+
+    # Google's Admin SDK returns group emails in lowercase, and Dex matches
+    # them exactly.
+    - name: Require the Google administrator and role groups by email
+      ansible.builtin.assert:
+        that:
+          - portikus_google_admin_email is match(dex_email_pattern)
+          - dex_role_groups | reject('match', dex_email_pattern) | list | length == 0
+          - dex_role_groups | map('lower') | list == dex_role_groups
+        fail_msg: >-
+          PORTIKUS_GOOGLE_ADMIN_EMAIL turns on Google group checks, so it must be
+          an email address, and PORTIKUS_OIDC_STUDENT_GROUP,
+          PORTIKUS_OIDC_INSTRUCTOR_GROUP and PORTIKUS_OIDC_ADMIN_GROUP must be
+          group email addresses in lowercase, such as portikus-students@example.edu.
+      when: portikus_google_groups_enabled | bool
+      vars:
+        dex_email_pattern: '^[A-Za-z0-9._%+-]+@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?[.])+[A-Za-z]{2,}$'
 
     - name: Require the OIDC provider's issuer and groups claim
       ansible.builtin.assert:
@@ -108,6 +146,74 @@
           - dex_ldap_root_ca_stat.stat.exists
         fail_msg: "PORTIKUS_LDAP_ROOT_CA names {{ portikus_ldap_root_ca }}, which does not exist on this machine."
       when: portikus_dex_upstream == 'ldap' and portikus_ldap_root_ca | length > 0
+
+# On the VM: the root site job or the operator puts the key there, and a key
+# Dex cannot use breaks every Google sign-in.
+- name: Check Dex's Google service-account key
+  when: portikus_dex_upstream == 'google'
+  run_once: true
+  block:
+    - name: Look at the Google service-account key
+      ansible.builtin.stat:
+        path: "{{ dex_google_key_path }}"
+        follow: false
+        checksum_algorithm: sha256
+      register: dex_google_key_stat
+
+    - name: Require the key where Dex reads groups
+      ansible.builtin.assert:
+        that:
+          - dex_google_key_stat.stat.exists
+          - dex_google_key_stat.stat.isreg
+          - dex_google_key_stat.stat.size <= 16384
+        fail_msg: >-
+          PORTIKUS_GOOGLE_ADMIN_EMAIL is set, so Dex reads Google groups with a
+          service-account key, but {{ dex_google_key_path }} is missing or is not
+          a plain file.  Upload the key on the Sign-in admin page, or copy it
+          there (make the folder first with `install -d -m 0750
+          {{ dex_google_key_path | dirname }}`), then run setup again.
+      when: portikus_google_groups_enabled | bool
+
+    - name: Read the Google service-account key
+      ansible.builtin.slurp:
+        src: "{{ dex_google_key_path }}"
+      register: dex_google_key_file
+      no_log: true
+      when: portikus_google_groups_enabled | bool
+
+    - name: Check the Google service-account key
+      when: portikus_google_groups_enabled | bool
+      block:
+        # Google's library posts a signed assertion to token_uri, so only Google's own.
+        - name: Check the key's fields
+          ansible.builtin.set_fact:
+            dex_google_key_valid: >-
+              {{ key is mapping
+                 and dex_google_key_required | difference(key.keys() | list) | length == 0
+                 and key.keys() | list | difference(dex_google_key_fields) | length == 0
+                 and key.values() | reject('string') | list | length == 0
+                 and dex_google_key_required | map('extract', key) | select('equalto', '') | list | length == 0
+                 and key.type == 'service_account'
+                 and key.token_uri | default('https://oauth2.googleapis.com/token') == 'https://oauth2.googleapis.com/token'
+                 and key.universe_domain | default('googleapis.com') == 'googleapis.com' }}
+          vars:
+            key: "{{ dex_google_key_file.content | b64decode | from_json }}"
+          no_log: true
+      rescue:
+        - name: Note a key that is not JSON
+          ansible.builtin.set_fact:
+            dex_google_key_valid: false
+
+    - name: Require a Google service-account key
+      ansible.builtin.assert:
+        that:
+          - dex_google_key_valid | bool
+        fail_msg: >-
+          {{ dex_google_key_path }} is not a Google service-account key: it needs
+          type service_account, a private key and a client email, and a token_uri,
+          if any, of https://oauth2.googleapis.com/token.  Download a new JSON key
+          for the service account and put it there.
+      when: portikus_google_groups_enabled | bool
 
 - name: Look at the users file
   ansible.builtin.stat:

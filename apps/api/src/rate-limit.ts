@@ -193,6 +193,8 @@ export const ANONYMOUS_ROUTES: ReadonlySet<string> = new Set([
 	"GET /auth/callback",
 	"HEAD /auth/callback",
 	"POST /auth/logout",
+	"POST /auth/password-reset",
+	"POST /auth/password-reset/complete",
 	"GET /edge/signin-throttle",
 	"HEAD /edge/signin-throttle",
 	"POST /dex/auth/*",

@@ -1,7 +1,14 @@
-import type { SigninProvider, SigninView } from "@portikus/contracts";
+import type { EntraRoleSource, SigninProvider, SigninView } from "@portikus/contracts";
 import { TextField } from "@portikus/ui";
 import { Choice } from "../certificate/Choice.js";
-import { FIELD_ID, PROVIDER_LABEL, type SsoForm, secretRequired } from "./ssoForm.js";
+import { TextAreaField } from "../TextAreaField.js";
+import {
+	FIELD_ID,
+	PROVIDER_LABEL,
+	type SsoForm,
+	secretRequired,
+	usesGroups,
+} from "./ssoForm.js";
 
 const PROVIDERS: { value: SigninProvider; label: string; text: string }[] = [
 	{
@@ -25,6 +32,27 @@ const PROVIDERS: { value: SigninProvider; label: string; text: string }[] = [
 		text: "Such as Okta, Keycloak or Shibboleth. Roles come from the groups you name.",
 	},
 ];
+
+const ENTRA_ROLE_SOURCES: { value: EntraRoleSource; label: string; text: string }[] = [
+	{
+		value: "appRoles",
+		label: "App roles",
+		text: "Assign the Portikus.Student, Portikus.Instructor and Portikus.Administrator app roles in Entra.",
+	},
+	{
+		value: "groups",
+		label: "Groups assigned to the application",
+		text: 'Name three security groups by object ID. Set the token to send "Groups assigned to the application".',
+	},
+];
+
+/** Why each provider's groups must be ones people cannot add themselves to (SPEC.md 5.1). */
+const GROUPS_NOTE: Partial<Record<SigninProvider, string>> = {
+	entra:
+		"Use groups only administrators can change. Assign all three to the Portikus application. Each person still needs an invitation.",
+	google:
+		"Use groups people cannot join by themselves. Each person still needs an invitation.",
+};
 
 interface FieldsProps {
 	form: SsoForm;
@@ -76,20 +104,36 @@ export function SsoFields({ form, view, errors, onChange, onEdit }: FieldsProps)
 				</p>
 			) : (
 				<div className="grid min-w-0 content-start gap-4">
-					{form.provider === "entra"
-						? text(
+					{form.provider === "entra" ? (
+						<>
+							{text(
 								"entraTenantId",
 								"Tenant ID",
 								"The Directory (tenant) ID on the app registration's Overview page.",
-							)
-						: null}
-					{form.provider === "google"
-						? text(
+							)}
+							<Choice
+								legend="Roles from"
+								name={FIELD_ID.entraRoleSource}
+								value={form.entraRoleSource}
+								choices={ENTRA_ROLE_SOURCES}
+								onChange={(entraRoleSource) => onChange({ ...form, entraRoleSource })}
+							/>
+						</>
+					) : null}
+					{form.provider === "google" ? (
+						<>
+							{text(
 								"googleDomains",
 								"Domains",
 								"The domains whose accounts may sign in, such as example.edu. Separate more than one with spaces.",
-							)
-						: null}
+							)}
+							{text(
+								"googleAdminEmail",
+								"Administrator to read groups as",
+								"Optional. Blank sets roles only on the Users tab. Give an administrator whose role can only read groups. Filling it in adds a key and three group fields below.",
+							)}
+						</>
+					) : null}
 					{form.provider === "oidc"
 						? text(
 								"oidcIssuer",
@@ -119,23 +163,65 @@ export function SsoFields({ form, view, errors, onChange, onEdit }: FieldsProps)
 							onEdit(FIELD_ID.clientSecret);
 						}}
 					/>
-					{form.provider === "oidc" ? (
-						<fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
+					{form.provider === "google" && usesGroups(form) ? (
+						<TextAreaField
+							id={FIELD_ID.googleKey}
+							label="Service account key"
+							rows={4}
+							mono
+							hint={
+								view?.googleKeySet
+									? "Set. Leave blank to keep it."
+									: "Required. Paste the JSON key of a service account allowed only to read groups. It is never shown again."
+							}
+							error={errors[FIELD_ID.googleKey]}
+							value={form.googleKey}
+							onChange={(value) => {
+								onChange({ ...form, googleKey: value });
+								onEdit(FIELD_ID.googleKey);
+							}}
+						/>
+					) : null}
+					{usesGroups(form) ? (
+						<fieldset
+							className="m-0 grid min-w-0 gap-4 border-0 p-0"
+							aria-describedby={GROUPS_NOTE[form.provider] ? GROUPS_NOTE_ID : undefined}
+						>
 							<legend className="pk-text-body m-0 mb-2 p-0 font-semibold">
 								Roles from groups
 							</legend>
-							{text(
-								"groupsClaim",
-								"Groups claim",
-								"The claim that lists a person's groups. Most providers use groups.",
-							)}
-							{text("studentGroup", "Students' group")}
-							{text("instructorGroup", "Instructors' group")}
-							{text("adminGroup", "Administrators' group")}
+							{GROUPS_NOTE[form.provider] ? (
+								<p
+									id={GROUPS_NOTE_ID}
+									className="pk-text-compact pk-muted m-0"
+									data-testid="sso-groups-note"
+								>
+									{GROUPS_NOTE[form.provider]}
+								</p>
+							) : null}
+							{form.provider === "oidc"
+								? text(
+										"groupsClaim",
+										"Groups claim",
+										"The claim that lists a person's groups. Most providers use groups.",
+									)
+								: null}
+							{text("studentGroup", "Students' group", groupHint(form.provider))}
+							{text("instructorGroup", "Instructors' group", groupHint(form.provider))}
+							{text("adminGroup", "Administrators' group", groupHint(form.provider))}
 						</fieldset>
 					) : null}
 				</div>
 			)}
 		</div>
 	);
+}
+
+const GROUPS_NOTE_ID = "sso-groups-note";
+
+function groupHint(provider: SigninProvider): string | undefined {
+	if (provider === "entra")
+		return "The group's object ID, from its Overview page in Entra.";
+	if (provider === "google") return "The group's email address.";
+	return undefined;
 }

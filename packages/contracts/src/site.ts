@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { Role } from "./auth.js";
-import type { CertificateSource } from "./certificate.js";
+import {
+	type CertificateSource,
+	isServiceAccountKey,
+	MAX_SERVICE_ACCOUNT_JSON,
+} from "./certificate.js";
 import { isHostName } from "./host-name.js";
 
 /**
@@ -252,9 +256,43 @@ export const SigninGroups = z
 	.strict();
 export type SigninGroups = z.infer<typeof SigninGroups>;
 
+/**
+ * Where Entra roles come from: app roles in the roles claim, or the object
+ * IDs of groups assigned to the application in the groups claim (SPEC.md 5.1).
+ */
+export const EntraRoleSource = z.enum(["appRoles", "groups"]);
+export type EntraRoleSource = z.infer<typeof EntraRoleSource>;
+
+const GUID_RE = /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+
+const GroupEmail = z.string().max(200).email();
+
+/** The root job takes only lowercase group emails; the API lowercases before writing. */
+function isGoogleGroup(value: string): boolean {
+	return value === value.toLowerCase() && GroupEmail.safeParse(value).success;
+}
+
+/** Dex matches the group emails Google's Admin SDK returns, which are lowercase. */
+function lowerGoogleGroups(settings: SigninSettingsInput): SigninSettingsInput {
+	if (settings.provider !== "google" || settings.googleAdminEmail === undefined) {
+		return settings;
+	}
+	if (settings.groups === undefined) return settings;
+	const { student, instructor, admin } = settings.groups;
+	return {
+		...settings,
+		groups: {
+			student: student.toLowerCase(),
+			instructor: instructor.toLowerCase(),
+			admin: admin.toLowerCase(),
+		},
+	};
+}
+
 const SigninFields = {
 	provider: SigninProvider,
 	entraTenantId: TenantId.optional(),
+	entraRoleSource: EntraRoleSource.optional(),
 	googleDomains: z
 		.array(SiteHostName)
 		.min(1)
@@ -266,6 +304,14 @@ const SigninFields = {
 	clientSecret: ClientSecret.nullable(),
 	groupsClaim: GroupsClaim.optional(),
 	groups: SigninGroups.optional(),
+	/** The Google Workspace administrator Dex acts as to read groups; set turns group checks on. */
+	googleAdminEmail: SiteText(200).pipe(GroupEmail).optional(),
+	/** Write-only: the service-account key Dex reads groups with. Left out keeps the stored one. */
+	googleServiceAccountKey: z
+		.string()
+		.max(MAX_SERVICE_ACCOUNT_JSON)
+		.refine(isServiceAccountKey, "must be a Google service-account key file")
+		.optional(),
 };
 
 /** The fields each provider needs; "dex" needs none. */
@@ -294,6 +340,34 @@ function checkSignin(
 			message: "Dex passwords need no client secret",
 		});
 	}
+	const rule = groupRule(settings);
+	if (!rule) return;
+	const groups = settings.groups as SigninGroups | undefined;
+	if (groups === undefined) {
+		ctx.addIssue({ code: "custom", path: ["groups"], message: "is required" });
+		return;
+	}
+	for (const role of ["student", "instructor", "admin"] as const) {
+		if (!rule.test(groups[role])) {
+			ctx.addIssue({ code: "custom", path: ["groups", role], message: rule.message });
+		}
+	}
+}
+
+/** The form role groups take where the provider names groups by object ID or email. */
+function groupRule(
+	settings: Partial<Record<string, unknown>>,
+): { test: (value: string) => boolean; message: string } | null {
+	if (settings.provider === "entra" && settings.entraRoleSource === "groups") {
+		return { test: (v) => GUID_RE.test(v), message: "must be a group's object ID" };
+	}
+	if (settings.provider === "google" && settings.googleAdminEmail !== undefined) {
+		return {
+			test: isGoogleGroup,
+			message: "must be a group email address in lowercase",
+		};
+	}
+	return null;
 }
 
 /**
@@ -301,7 +375,11 @@ function checkSignin(
  * secret, except that the job clears it when the issuer, tenant or client
  * ID changes (ADR 0059).
  */
-export const SigninSettings = z.object(SigninFields).strict().superRefine(checkSignin);
+const SigninObject = z.object(SigninFields).strict();
+type SigninSettingsInput = z.infer<typeof SigninObject>;
+// Lowered first, so an administrator's capitals are normalised rather than refused.
+export const SigninSettings =
+	SigninObject.transform(lowerGoogleGroups).superRefine(checkSignin);
 export type SigninSettings = z.infer<typeof SigninSettings>;
 
 // ---- The root site job: request files ----
@@ -497,6 +575,11 @@ export const SiteView = z
 			.object({ student: z.string(), instructor: z.string(), admin: z.string() })
 			.strict(),
 		ldapHost: z.string().optional(),
+		// Optional, as view files written before these existed lack them.
+		entraRoleSource: EntraRoleSource.optional(),
+		googleAdminEmail: z.string().nullable().optional(),
+		/** Whether Dex's Google service-account key file is in place; never the key. */
+		googleKeySet: z.boolean().optional(),
 		certificateSource: SiteCertificateSource,
 	})
 	.strict();
@@ -610,6 +693,9 @@ export const SigninView = SiteView.pick({
 	groupsClaim: true,
 	groups: true,
 	ldapHost: true,
+	entraRoleSource: true,
+	googleAdminEmail: true,
+	googleKeySet: true,
 });
 export type SigninView = z.infer<typeof SigninView>;
 

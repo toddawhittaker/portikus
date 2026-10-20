@@ -73,7 +73,7 @@ describe("a counter store that fails", () => {
 });
 
 describe("the hourly prune", () => {
-	test("runs while the server is up and stops when it closes", async () => {
+	test("prunes counts and account email links while the server is up and stops when it closes", async () => {
 		let calls = 0;
 		const db = {
 			deleteFrom: () => ({
@@ -91,10 +91,10 @@ describe("the hourly prune", () => {
 			registerCounterPrune(app, { db, logger: collectingLogger("debug").logger });
 			await app.ready();
 			vi.advanceTimersByTime(PRUNE_EVERY_MS);
-			expect(calls).toBe(1);
+			await vi.waitFor(() => expect(calls).toBe(2));
 			await app.close();
 			vi.advanceTimersByTime(3 * PRUNE_EVERY_MS);
-			expect(calls).toBe(1);
+			expect(calls).toBe(2);
 		} finally {
 			vi.useRealTimers();
 		}

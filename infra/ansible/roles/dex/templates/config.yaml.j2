@@ -80,9 +80,12 @@ connectors:
 {% elif portikus_dex_upstream in ['entra', 'oidc'] %}
 {% set dex_role_groups = [portikus_oidc_student_group, portikus_oidc_instructor_group, portikus_oidc_admin_group] %}
 {% if portikus_dex_upstream == 'entra' %}
-  # Entra through the generic connector, held to the tenant's own issuer;
-  # the app roles in the ID token's roles claim are passed on as groups,
-  # so no Microsoft Graph permission is needed (ADR 0031, SPEC.md section 5.1).
+  # Entra through the generic connector, held to the tenant's own issuer.
+  # The app roles in the ID token's roles claim, or the object IDs of the
+  # groups assigned to the application in its groups claim, are passed on
+  # as groups, so no Microsoft Graph permission is needed (ADR 0031,
+  # SPEC.md section 5.1).  With only assigned groups sent, the token holds
+  # at most the three, so Entra never leaves them out for too many.
   - type: oidc
     id: entra
     name: Microsoft
@@ -93,7 +96,7 @@ connectors:
       # Entra sends no email_verified claim.
       insecureSkipEmailVerified: true
       claimMapping:
-        groups: roles
+        groups: {{ 'groups' if portikus_entra_role_source == 'groups' else 'roles' }}
 {% else %}
   # Any other OIDC provider (SPEC.md section 5.1).
   - type: oidc
@@ -124,5 +127,16 @@ connectors:
       clientSecret: {{ portikus_dex_upstream_client_secret | to_json }}
       redirectURI: {{ dex_callback | to_json }}
       hostedDomains: {{ portikus_google_domains | to_json }}
+{% if portikus_google_groups_enabled | bool %}
+      # Groups from the Admin SDK, read as the administrator by the service
+      # account; nobody outside the three is admitted, and only they are
+      # passed on (SPEC.md section 5.1).  Dex reads the key only when it
+      # starts, so its checksum here restarts Dex when the key changes:
+      # key {{ dex_google_key_stat.stat.checksum }}
+      serviceAccountFilePath: {{ dex_google_key_path | to_json }}
+      domainToAdminEmail: {{ {'*': portikus_google_admin_email} | to_json }}
+      groups: {{ [portikus_oidc_student_group, portikus_oidc_instructor_group, portikus_oidc_admin_group] | to_json }}
+      fetchTransitiveGroupMembership: true
+{% endif %}
 {% endif %}
 {% endif %}

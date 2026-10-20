@@ -21,21 +21,35 @@ type Errors = Partial<Record<Field, string>>;
 
 const FIELDS: readonly Field[] = ["current", "next", "confirm"];
 
+/** What is wrong with a new password and its repeat, before anything is sent. */
+export function checkNewPassword(
+	next: string,
+	confirm: string,
+): { next?: string; confirm?: string } {
+	// Count code points, as the server does, not UTF-16 units.
+	if ([...next].length < MIN_PASSWORD_LENGTH) {
+		return { next: `Use at least ${MIN_PASSWORD_LENGTH} characters.` };
+	}
+	if (new TextEncoder().encode(next).length > MAX_PASSWORD_BYTES) {
+		return {
+			next: "That is too long. Use at most 72 bytes; accented letters and symbols count as more than one.",
+		};
+	}
+	if (confirm !== next) return { confirm: "The two new passwords do not match." };
+	return {};
+}
+
 /** The errors a draft has before anything is sent. */
 export function checkPasswords(current: string, next: string, confirm: string): Errors {
 	const errors: Errors = {};
 	if (current === "") errors.current = "Enter your current password.";
-	// Count code points, as the server does, not UTF-16 units.
-	if ([...next].length < MIN_PASSWORD_LENGTH) {
-		errors.next = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
-	} else if (new TextEncoder().encode(next).length > MAX_PASSWORD_BYTES) {
-		errors.next =
-			"That is too long. Use at most 72 bytes; accented letters and symbols count as more than one.";
+	const found = checkNewPassword(next, confirm);
+	if (found.next) {
+		errors.next = found.next;
 	} else if (next === current) {
 		errors.next = "Choose a password different from the current one.";
-	}
-	if (!errors.next && confirm !== next) {
-		errors.confirm = "The two new passwords do not match.";
+	} else if (found.confirm) {
+		errors.confirm = found.confirm;
 	}
 	return errors;
 }

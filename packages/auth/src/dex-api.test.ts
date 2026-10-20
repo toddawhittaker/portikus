@@ -91,6 +91,22 @@ describe("the gRPC client", () => {
 		expect(fake.passwords.has("dana@example.edu")).toBe(false);
 	});
 
+	test("renames a password in place, keeping its hash and user ID", async () => {
+		const userId = crypto.randomUUID();
+		await dex.createPassword({
+			email: "rena@example.edu",
+			username: "rena",
+			userId,
+			hash: "$2b$10$kept",
+		});
+		expect(await dex.updateUsername("rena@example.edu", "rena-new")).toBe("updated");
+		const stored = fake.passwords.get("rena@example.edu");
+		expect(stored?.username).toBe("rena-new");
+		expect(stored?.hash.toString()).toBe("$2b$10$kept");
+		expect(stored?.user_id).toBe(userId);
+		expect(await dex.updateUsername("nobody@example.edu", "x")).toBe("not_found");
+	});
+
 	test("reports a taken email and a missing password", async () => {
 		const input = {
 			email: "twice@example.edu",

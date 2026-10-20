@@ -35,4 +35,14 @@
 {%- if provider == 'ldap' -%}
 {%-   set view = view | combine({'ldapHost': portikus_ldap_host}) -%}
 {%- endif -%}
+{%- if provider == 'entra' -%}
+{%-   set view = view | combine({'entraRoleSource': portikus_entra_role_source}) -%}
+{%- endif -%}
+{#- Whether the key file is there, from the settings check; never the key. -#}
+{%- if provider == 'google' -%}
+{%-   set view = view | combine({
+        'googleAdminEmail': portikus_google_admin_email if portikus_google_admin_email | length > 0 else none,
+        'googleKeySet': dex_google_key_stat.stat.isreg | default(false),
+      }) -%}
+{%- endif -%}
 {{ view | to_nice_json(indent=2) }}

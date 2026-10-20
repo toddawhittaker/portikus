@@ -105,3 +105,94 @@ test("a trial put back because Portikus did not answer after setup says so", () 
 		"Portikus did not answer after setup, so the earlier sign-in settings were put back.",
 	);
 });
+
+const KEY = JSON.stringify({
+	type: "service_account",
+	project_id: "portikus-test",
+	private_key_id: "fake-key-id",
+	private_key:
+		"-----BEGIN FAKE TEST KEY-----\nnot-a-real-key\n-----END FAKE TEST KEY-----\n",
+	client_email: "groups@portikus-test.iam.gserviceaccount.com",
+});
+
+const GOOGLE_VIEW: SigninView = {
+	...OIDC_VIEW,
+	provider: "google",
+	googleDomains: ["example.edu"],
+	oidcIssuer: null,
+	groupsClaim: null,
+	googleAdminEmail: null,
+	googleKeySet: false,
+};
+
+function googleGroups() {
+	return {
+		...initialForm(GOOGLE_VIEW),
+		googleAdminEmail: "groups-reader@example.edu",
+		googleKey: KEY,
+		studentGroup: "Students@Example.edu",
+		instructorGroup: "staff@example.edu",
+		adminGroup: "it@example.edu",
+	};
+}
+
+test("Google sends groups, and the key, only with an administrator", () => {
+	expect(toSettings(initialForm(GOOGLE_VIEW))).not.toHaveProperty("groups");
+	expect(
+		toSettings({ ...initialForm(GOOGLE_VIEW), googleKey: KEY }),
+	).not.toHaveProperty("googleServiceAccountKey");
+	expect(toSettings(googleGroups())).toMatchObject({
+		provider: "google",
+		googleAdminEmail: "groups-reader@example.edu",
+		googleServiceAccountKey: KEY,
+		groups: {
+			student: "Students@Example.edu",
+			instructor: "staff@example.edu",
+			admin: "it@example.edu",
+		},
+	});
+	expect(toSettings({ ...googleGroups(), googleKey: "" })).not.toHaveProperty(
+		"googleServiceAccountKey",
+	);
+});
+
+test("Google group checks need a key unless one is stored", () => {
+	const form = { ...googleGroups(), googleKey: "", clientSecret: "s".repeat(20) };
+	expect(Object.keys(validate(form, GOOGLE_VIEW))).toEqual([FIELD_ID.googleKey]);
+	expect(validate(form, { ...GOOGLE_VIEW, googleKeySet: true })).toEqual({});
+	const user = JSON.stringify({ ...JSON.parse(KEY), type: "authorized_user" });
+	expect(Object.keys(validate({ ...form, googleKey: user }, GOOGLE_VIEW))).toEqual([
+		FIELD_ID.googleKey,
+	]);
+	const named = validate(
+		{ ...form, adminGroup: "admins" },
+		{ ...GOOGLE_VIEW, googleKeySet: true },
+	);
+	expect(named[FIELD_ID.adminGroup]).toContain("email address");
+});
+
+test("Entra sends groups only when roles come from groups, and wants object IDs", () => {
+	const view: SigninView = {
+		...OIDC_VIEW,
+		provider: "entra",
+		entraTenantId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+		oidcIssuer: null,
+		groupsClaim: null,
+		entraRoleSource: "appRoles",
+	};
+	const form = initialForm(view);
+	expect(form.entraRoleSource).toBe("appRoles");
+	expect(toSettings(form)).toMatchObject({ entraRoleSource: "appRoles" });
+	expect(toSettings(form)).not.toHaveProperty("groups");
+	const groups = {
+		...form,
+		entraRoleSource: "groups" as const,
+		studentGroup: "0a1b2c3d-1111-4a5b-8c9d-000000000001",
+		instructorGroup: "0a1b2c3d-1111-4a5b-8c9d-000000000002",
+		adminGroup: "Portikus.Administrator",
+	};
+	expect(toSettings(groups)).toMatchObject({ entraRoleSource: "groups" });
+	const errors = validate(groups, view);
+	expect(Object.keys(errors)).toEqual([FIELD_ID.adminGroup]);
+	expect(errors[FIELD_ID.adminGroup]).toContain("object ID");
+});
