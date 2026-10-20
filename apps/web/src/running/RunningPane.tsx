@@ -22,6 +22,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import { useCourseProfile } from "../editor/settingsQueries.js";
 import { FullCommandButton, FullCommandText } from "../monitor/FullCommand.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { useWorkspaceUsage } from "../monitor/usage.js";
@@ -54,7 +55,10 @@ export function RunningPane({
 }: RunningPaneProps) {
 	const listening = useListening();
 	const toast = useToast();
-	const [showSystem, setShowSystem] = useState(readShowSystem);
+	const [savedShowSystem, setShowSystem] = useState(readShowSystem);
+	// Traditional hides the system rows and their toggle; the saved choice is kept (SPEC.md §8.7).
+	const traditional = useCourseProfile() === "traditional";
+	const showSystem = savedShowSystem && !traditional;
 	const [stopping, setStopping] = useState<ListeningService | null>(null);
 	const [selectedPort, setSelectedPort] = useState<number | null>(null);
 	// Keyed by port and pid, so a new process on the same port starts collapsed.
@@ -71,7 +75,7 @@ export function RunningPane({
 
 	const all = [...listening.services].sort((a, b) => a.port - b.port);
 	const services = showSystem ? all : all.filter((service) => !service.system);
-	const systemCount = all.filter((service) => service.system).length;
+	const systemCount = traditional ? 0 : all.filter((service) => service.system).length;
 	// The panel only describes a row that is still on screen. A port that
 	// stopped, or a system row the toggle just hid, closes it.
 	const stillThere =

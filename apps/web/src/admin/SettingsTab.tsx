@@ -46,6 +46,7 @@ export function SettingsTab() {
 				<ResourceGuardSection />
 				<AcceptableUseSection />
 				<VoiceInputSection />
+				<CodeHelpSection />
 				<AccountEmailSection />
 				<NotificationsSection />
 			</div>
@@ -88,6 +89,51 @@ function VoiceInputSection() {
 								toast.show({
 									tone: "danger",
 									title: "Voice input not saved",
+									children: errorText(failure),
+								}),
+						},
+					)
+				}
+			/>
+		</AdminGroup>
+	);
+}
+
+/** The site switch for code help (SPEC.md §13.6); saved as soon as it changes. */
+function CodeHelpSection() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	// While saving, show the value asked for rather than the old one.
+	const enabled = update.isPending
+		? (update.variables?.codeHelpEnabled ?? true)
+		: (settings.data?.codeHelpEnabled ?? true);
+	return (
+		<AdminGroup
+			id="code-help-title"
+			title="Code help"
+			description="The editor gives completion, hover, go to definition, rename, format and error checking for Python, TypeScript and JavaScript. Each student's workspace runs the language servers, which use memory."
+		>
+			<Checkbox
+				label="Allow code help"
+				description="When off, the editor is plain and shows no Problems tab. Students see a change when they next load the page or return to the window."
+				checked={enabled}
+				disabled={settings.isLoading}
+				ariaDisabled={update.isPending}
+				onChange={(event) =>
+					!update.isPending &&
+					update.mutate(
+						{ codeHelpEnabled: event.target.checked },
+						{
+							onSuccess: (saved) =>
+								toast.show({
+									tone: "success",
+									title: saved.codeHelpEnabled ? "Code help on" : "Code help off",
+								}),
+							onError: (failure) =>
+								toast.show({
+									tone: "danger",
+									title: "Code help not saved",
 									children: errorText(failure),
 								}),
 						},

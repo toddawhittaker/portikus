@@ -15,6 +15,7 @@ import { useState } from "react";
 import { errorText } from "../api/request.js";
 import { useWorkspaceAction } from "../api/workspace.js";
 import { DialogError } from "../common/DialogError.js";
+import { useCourseProfile } from "../editor/settingsQueries.js";
 import { useResetDocker } from "../recovery/queries.js";
 import { KeepRunningSection } from "./KeepRunning.js";
 import { StorageMeters } from "./StorageMeters.js";
@@ -82,6 +83,8 @@ export function WorkspaceDialog({
 	// The confirmation open on top of the workspace dialog, if any.
 	const [chosen, setChosen] = useState<Confirming>(null);
 	const resetDocker = useResetDocker(workspaceId);
+	// Traditional hides the Docker section; the storage-full screen keeps its own Reset Docker.
+	const traditional = useCourseProfile() === "traditional";
 	const confirming: Confirming = dialog === "restart" ? "restart" : chosen;
 	const setConfirming = (next: Confirming) => {
 		// Leaving the confirmation the page opened keeps the dialog under it.
@@ -156,28 +159,32 @@ export function WorkspaceDialog({
 								</p>
 							) : null}
 						</section>
-						<section
-							className="flex flex-col items-start gap-2"
-							aria-labelledby="workspace-docker-title"
-						>
-							<h3 id="workspace-docker-title" className="pk-text-heading m-0">
-								Docker
-							</h3>
-							<div className="flex items-center gap-1">
-								<ResetDocker
-									workspace={workspace}
-									confirming={confirming === "reset-docker"}
-									setConfirming={(open) => setConfirming(open ? "reset-docker" : null)}
-									reset={resetDocker}
-								/>
-								<Toggletip label="Reset Docker">
-									Deletes your Docker images, containers, volumes and build cache to
-									free space. Your projects, home folder and recovery points are kept.
-									You pull or build images again afterwards.
-								</Toggletip>
-							</div>
-							<DialogError error={resetDocker.error} />
-						</section>
+						{traditional ? null : (
+							<section
+								className="flex flex-col items-start gap-2"
+								aria-labelledby="workspace-docker-title"
+							>
+								<h3 id="workspace-docker-title" className="pk-text-heading m-0">
+									Docker
+								</h3>
+								<div className="flex items-center gap-1">
+									<ResetDocker
+										workspace={workspace}
+										confirming={confirming === "reset-docker"}
+										setConfirming={(open) =>
+											setConfirming(open ? "reset-docker" : null)
+										}
+										reset={resetDocker}
+									/>
+									<Toggletip label="Reset Docker">
+										Deletes your Docker images, containers, volumes and build cache to
+										free space. Your projects, home folder and recovery points are kept.
+										You pull or build images again afterwards.
+									</Toggletip>
+								</div>
+								<DialogError error={resetDocker.error} />
+							</section>
+						)}
 						<section
 							className="flex flex-col gap-2"
 							aria-labelledby="workspace-rebuild-title"

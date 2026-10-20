@@ -57,18 +57,19 @@ for (const width of [1920, 1024]) {
 			await open(page);
 			const column = page.getByTestId("settings-sections");
 			const sections = column.locator(":scope > section");
-			await expect(sections).toHaveCount(6);
+			await expect(sections).toHaveCount(7);
 			await expect(column.getByRole("heading", { level: 3 })).toHaveText([
 				"When workspaces stop",
 				"Resource guard",
 				"Acceptable use",
 				"Voice input",
+				"Code help",
 				"Account email",
 				"Notifications",
 			]);
 			// Stacked, each below the last, in a column no wider than 72ch.
 			const tops = [];
-			for (let index = 0; index < 6; index++) {
+			for (let index = 0; index < 7; index++) {
 				tops.push((await box(sections.nth(index))).y);
 			}
 			expect(tops).toEqual([...tops].sort((a, b) => a - b));
