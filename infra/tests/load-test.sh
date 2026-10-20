@@ -157,12 +157,12 @@ mint_users() {
 run_driver() {
   local config
   ssh_vm "install -d -m 0700 ${REMOTE_DIR}" || return 1
-  tar -C "${HERE}/load" -cf - http.mjs student.mjs driver.mjs | ssh_vm_stdin "tar -C ${REMOTE_DIR} -xf -" || return 1
+  tar -C "${HERE}/load" -cf - http.mjs code-help.mjs student.mjs driver.mjs | ssh_vm_stdin "tar -C ${REMOTE_DIR} -xf -" || return 1
   config=$(printf '{"api":"%s","students":%s,"rampSeconds":%s,"steadySeconds":%s,"tickSeconds":%s,"recoverySeconds":%s,"sampleSeconds":15,"previewPort":5173,"stopFile":"%s/stop","resultFile":"%s/result.json"}' \
     "$API" "$STUDENTS_JSON" "${LOAD_RAMP_SECONDS:-48}" "${LOAD_STEADY_SECONDS:-900}" \
     "${LOAD_TICK_SECONDS:-5}" "${LOAD_RECOVERY_SECONDS:-300}" "$REMOTE_DIR" "$REMOTE_DIR")
   # The configuration holds the session tokens, so it goes on standard input.
-  printf '%s' "$config" | ssh_vm_stdin "cd ${REMOTE_DIR} && NODE_EXTRA_CA_CERTS=${CA} node driver.mjs" &
+  printf '%s' "$config" | ssh_vm_stdin "cd ${REMOTE_DIR} && NODE_EXTRA_CA_CERTS=${CA} /usr/lib/portikus/node/bin/node driver.mjs" &
   driver_pid=$!
   wait "$driver_pid"
   DRIVER_STATUS=$?
