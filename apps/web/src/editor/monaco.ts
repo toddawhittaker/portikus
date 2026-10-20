@@ -226,6 +226,15 @@ export function getMonaco(): Promise<typeof Monaco> {
 			"monaco-editor/editor/editor.api.js"
 		)) as unknown as typeof Monaco;
 		await loadEditorFeatures();
+		// F8 moves focus to the notifications on every page (Help, "Keyboard"),
+		// so the problem keys stay on Alt+F8 and Shift+Alt+F8 only.
+		monaco.editor.addKeybindingRules([
+			{ keybinding: monaco.KeyCode.F8, command: "-editor.action.marker.nextInFiles" },
+			{
+				keybinding: monaco.KeyMod.Shift | monaco.KeyCode.F8,
+				command: "-editor.action.marker.prevInFiles",
+			},
+		]);
 		// Highlighting for the languages students write. JSON is the one
 		// language with a service rather than a highlighter, because SPEC.md
 		// §13.2 names it; it only checks JSON syntax and asks for no schemas.
