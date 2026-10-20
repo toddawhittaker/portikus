@@ -32,8 +32,8 @@ fixes that, and a course can then choose a simpler interface.
 - docs/VISION.md: the line on not simulating software development, and
   "Developer experience" (T1 edits both).
 - docs/SPEC.md: 2.6 (workspace agent), 5.2 (authorization), 8.7 (new,
-  course profile), 13.1 and new 13.6 (code help), 20.1 (admin
-  capabilities), 24.1 (trust boundaries), 24.11 (audit), 25.1 and 25.2
+  course profile), 13.1 and new 13.6 (code help, including the site switch),
+  20.1 (admin capabilities: courses list, profile, code-help switch), 24.1 (trust boundaries), 24.11 (audit), 25.1 and 25.2
   (performance and capacity), 26 (data model), 32 (non-requirements).
   Also 13.5 (version-aware save, used by rename), 12.7 (left alone), 18.1
   (Checks stay the project-wide check), 9.7 and 24.4 (what confinement
@@ -47,6 +47,16 @@ fixes that, and a course can then choose a simpler interface.
 ## Rulings
 
 Todd's rulings (interview and plan review, 2026-10-20):
+
+- A site-wide administrator switch turns code help on and off, on by
+  default. It is patterned on the voice input switch (Epic 47): a
+  `settings.code_help_enabled` column, a switch on the admin Settings tab,
+  audited as `settings.code_help_updated` with from and to, and delivered
+  to the browser as a read-only `codeHelpEnabled` on `GET /me/settings`.
+  When it is off, the API refuses the language-server socket with
+  DISABLED (4416) and the browser opens none, shows no Problems tab and no
+  code-help status, and keeps today's plain editor. Sockets already open
+  close at their next reconnect. Profiles are unaffected.
 
 - Real language servers in each workspace, not the in-browser Monaco
   services as a stopgap.
@@ -184,6 +194,10 @@ Choices this plan makes where the rulings were silent:
   (`recordAudit`, as `course.member_removed` does). `GET /courses` includes
   the profile. `GET /me/settings` gains a read-only `courseProfile`, like
   `voiceInputEnabled`.
+- Site switch: `routes/admin.ts` reads and patches `codeHelpEnabled` as
+  it does `voiceInputEnabled` (same from-to audit row pattern);
+  `routes/me.ts` adds `codeHelpEnabled`; the language-server route checks
+  the setting at upgrade and closes with DISABLED (4416) when off.
 - The e2e fake agent gets `testing/fake-agent/language-servers.ts`, a
   scripted LSP responder, patterned on `fake-agent/events.ts`.
 
@@ -216,6 +230,11 @@ Choices this plan makes where the rulings were silent:
   The editor bar shows server state (starting, ready, unavailable,
   crashed, replaced) with a Restart button; editing never blocks.
   `WorkspacePage.tsx` owns one client manager per project.
+- T7 owns `editor/settingsQueries.ts` and adds both hooks there:
+  `useCodeHelpEnabled` and `useCourseProfile` (T6 uses the second). When
+  code help is off the manager opens no socket and the editor bar shows
+  no code-help status. A DISABLED (4416) close means the same and is
+  never retried.
 
 ### Profile in the web (T6) and Problems (T8)
 
@@ -231,20 +250,24 @@ Choices this plan makes where the rulings were silent:
 - Problems is the fifth right-pane tab (`"problems"` in
   `shell/rightPane.ts`, tab in `shell/FilesPane.tsx`, content in
   `problems/ProblemsPane.tsx`), built like Checks, Running and Monitor.
+  It is not shown when code help is off.
+- The site switch is a row on the admin Settings tab
+  (`admin/SettingsTab.tsx`, T6), beside voice input, with its help text in
+  `help/content/admin.tsx`.
 
 ## Numbers preassigned
 
 | What | Value |
 |---|---|
-| Migration | `0050_course_profile` (adds `lti_contexts.profile`) |
+| Migration | `0050_course_profile` (adds `lti_contexts.profile` and `settings.code_help_enabled`, default true) |
 | ADRs | 0065 Language servers in the workspace; 0066 Course profiles hide, stored on the LTI course |
-| Close codes | 4412 REPLACED, 4413 IDLE, 4414 CRASHED, 4415 UNAVAILABLE |
+| Close codes | 4412 REPLACED, 4413 IDLE, 4414 CRASHED, 4415 UNAVAILABLE, 4416 DISABLED |
 | Frame limit, agent to API | 4 MiB |
 | Document limit | 512 KiB |
 | Sockets per workspace | 4 |
 | Servers per workspace | 3 |
 | Server ids | `python`, `typescript`, `ruff` |
-| Audit action | `course.profile_changed` (from, to) |
+| Audit actions | `course.profile_changed` (from, to); `settings.code_help_updated` (from, to) |
 | Pinned servers | pyright 1.1.414, typescript-language-server 6.0.2, typescript 6.0.3 |
 
 ## Tasks
@@ -257,11 +280,11 @@ own, above all a `package.json`, stops and reports.
 | T1 Documents | builder | Sonnet | A | docs/VISION.md, docs/SPEC.md (sections above), docs/STACK.md, docs/adr/0065-*.md, docs/adr/0066-*.md, docs/adr/0015-editor-stack.md (status line only), docs/adr/README.md | refs #1246 |
 | T2 Contracts, migration, dependencies | builder | Sonnet | A | packages/contracts/src/language-servers.ts (new), close-codes.ts, courses.ts, settings.ts, index.ts; packages/db migration `0050_course_profile` plus test, migrations/index.ts, schema.ts; every package.json and pnpm-lock.yaml | refs #1246 |
 | T3 Agent language-server host | builder | Opus | B after T2 | apps/workspace-agent/src/language-servers.ts, language-server-table.ts, stdio-messages.ts, language-servers-route.ts (all new) and their tests; src/security/language-servers.test.ts (new); server.ts registration; integration tests against real pyright and typescript-language-server | refs #1246 |
-| T4 API relay and profile | builder | Sonnet | B after T2 | apps/api/src/workspaces/message-pipe.ts (new); terminal-pipe.ts (export only); agent-client.ts; server.ts; security/route-policy.ts; routes/language-servers.ts (new); testing/fake-agent/language-servers.ts (new) and fake-agent/index.ts; courses/profile.ts (new); routes/courses.ts; routes/admin-courses.ts (new); routes/me.ts | refs #1246 |
-| T7 Web LSP client | builder | Opus | B after T2 | apps/web/src/lsp/* (new); editor/features.ts, editor/monaco.ts, editor/CodeEditor.tsx, editor/editor.css; WorkspacePage.tsx; unit tests | refs #1246 |
-| T6 Profile in the web | ui-designer | Sonnet | C after T4 | editor/settingsQueries.ts; course/CoursePage.tsx, course/CourseProfile.tsx (new), course/queries.ts; admin/signin/SignInTab.tsx, admin/signin/CoursesGroup.tsx (new), admin/signin/queries.ts; work/WorkArea.tsx; shell/WorkspaceDialog.tsx; running/RunningPane.tsx; help/content/instructor.tsx, help/content/admin.tsx; e2e/course-profile.spec.ts and e2e/a11y-course.spec.ts (new) | refs #1246 |
+| T4 API relay and profile | builder | Sonnet | B after T2 | apps/api/src/workspaces/message-pipe.ts (new); terminal-pipe.ts (export only); agent-client.ts; server.ts; security/route-policy.ts; routes/language-servers.ts (new); testing/fake-agent/language-servers.ts (new) and fake-agent/index.ts; courses/profile.ts (new); routes/courses.ts; routes/admin-courses.ts (new); routes/admin.ts (site switch); routes/me.ts | refs #1246 |
+| T7 Web LSP client | builder | Opus | B after T2 | apps/web/src/lsp/* (new); editor/features.ts, editor/monaco.ts, editor/CodeEditor.tsx, editor/editor.css, editor/settingsQueries.ts; WorkspacePage.tsx; unit tests | refs #1246 |
+| T6 Profile in the web | ui-designer | Sonnet | C after T4 and T7 | course/CoursePage.tsx, course/CourseProfile.tsx (new), course/queries.ts; admin/signin/SignInTab.tsx, admin/signin/CoursesGroup.tsx (new), admin/signin/queries.ts; work/WorkArea.tsx; shell/WorkspaceDialog.tsx; running/RunningPane.tsx; admin/SettingsTab.tsx (site switch); help/content/instructor.tsx, help/content/admin.tsx; e2e/course-profile.spec.ts and e2e/a11y-course.spec.ts (new) | refs #1246 |
 | T8 Problems and student help | ui-designer | Sonnet | C after T7 | shell/rightPane.ts, shell/FilesPane.tsx; problems/* (new); help/content/student.tsx; e2e/problems.spec.ts (new) | refs #1246 |
-| T11 Code-help e2e | tester | Sonnet | C after T4 and T7 | e2e/code-help.spec.ts, e2e/a11y-code-help.spec.ts (both new) | refs #1246 |
+| T11 Code-help e2e | tester | Sonnet | C after T4 and T7 | e2e/code-help.spec.ts, e2e/a11y-code-help.spec.ts (both new); covers the site switch off (no socket, no Problems tab, plain editor) | refs #1246 |
 | T9 Packaging, smoke, load test | infra | Opus | C after T3 and T4 | scripts/build-deb.sh (keep `.d.ts` and `.pyi` files when pruning; add the pinned ruff binary with sha256), infra/tests/smoke/workspace-agent.sh, infra/tests/load/*.mjs, docs/CAPACITY.md, SPEC 25.1 and 25.2 figures; owns the rehearsal VM | refs #1246 |
 | T10 Fold | builder | Sonnet | D | SPEC section 29 entry, docs/STATUS.md, delete docs/EPIC-52.md, docs/OVERVIEW.md current state, e2e/shard-timings.json | closes #1246 |
 
@@ -323,8 +346,8 @@ one TypeScript file open, requesting a completion and making an edit every
 5 seconds. It records per-server resident memory, completion p50 and p95,
 edit-to-diagnostics time, and VM memory. The bar is completion p95 under 1
 second and at least 2 GiB free on the 16 GiB VM. If it fails, the levers
-are lower heap caps and fewer servers per workspace; a site switch to turn
-code help off is not built. The figures go into SPEC 25.1 and 25.2 and
+are lower heap caps and fewer servers per workspace, and an administrator can
+turn code help off with the site switch. The figures go into SPEC 25.1 and 25.2 and
 docs/CAPACITY.md, which states plainly that the 8 GiB pilot VM cannot hold
 a full code-help class.
 
@@ -339,7 +362,6 @@ are reported unavailable when a binary is removed.
 - Project-wide problems (Checks covers the project, SPEC 18.1).
 - Peek definition outside the project.
 - Language servers as named processes in the Monitor pane.
-- A site switch to turn code help off.
 - Blocking tools: the profile hides and never blocks.
 - The debugger (#1622). The stdio message module is named generically but
   nothing is built for it.
