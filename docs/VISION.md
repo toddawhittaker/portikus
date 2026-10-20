@@ -25,7 +25,7 @@ A student should be able to sign in from an ordinary web browser, choose a proje
 
 The name also carries useful technical echoes without depending on them. A browser is a portal into the workspace; development applications are reached through authenticated ports; and the platform stands at the boundary between a simple user experience and a substantially more capable environment behind it. Those associations should remain secondary to the central architectural metaphor: **Portikus is an entryway, not the destination itself.** The software being built, the tools being used, and the learning taking place remain on the other side of that threshold.
 
-That metaphor reinforces an important product choice. Portikus should not turn software development into a simulated or simplified exercise. It should make the entrance easier while preserving the authentic environment beyond it.
+That metaphor reinforces an important product choice. Portikus should not turn software development into a simulated exercise. It may simplify what a student sees at the entrance, but the environment beyond it stays the real one.
 
 ## The problem
 
@@ -137,6 +137,8 @@ A future developer profile may:
 - relax some student-oriented UI simplifications.
 
 The core runtime, project model, terminal implementation, file system, preview system, and agent integrations should be shared.
+
+A **course profile** is the first such layer: a course can choose a Traditional interface that hides the coding-agent launchers, the Docker controls, and the system rows in the Running pane, while the workspace, the image, and the network rules stay the same.
 
 ## Technology direction
 

@@ -83,7 +83,8 @@ It provides controlled communication between the platform control plane and the 
 - port discovery;
 - workspace health;
 - resource information available from inside the workspace;
-- project discovery; and
+- project discovery;
+- hosting the language servers that give the editor code help (section 13.6); and
 - approved management operations.
 
 The workspace agent is not a coding agent.
@@ -410,6 +411,13 @@ and `POST .../:sid/preview-grants`. Administrators should teach from a
 separate instructor-only account until previews move to their own
 domain (#1236), because student code in a preview runs in the helper's
 browser.
+
+Added by Epic 52 (ADR 0066): an instructor may set the profile of a course
+they teach (section 8.7), checked against teaching that course; this is the
+first write an instructor has on the Course page. An administrator may set
+any course's profile. The language-server socket (section 13.6) is owner
+only: no administrator, instructor, share viewer or live-help helper may
+open it.
 
 P2 roles may include:
 
@@ -1006,6 +1014,37 @@ Two components explain the product where it is used (placement rules in
   section heading, or beside a button; never inside a sentence, never
   holding a link or control, and never more than one per control.
   Keyboard behaviour is in section 25.8.
+
+### 8.7 Course profile
+
+Added by Epic 52 (ADR 0066). A course (an LTI course, section 5.2) has a profile that decides how much of the interface its students see. There are two, and nothing in between:
+
+- **Agentic**: the whole interface. This is the default.
+- **Traditional**: hides the Claude Code and Codex launchers, the Docker controls and the system rows in the Running pane.
+
+**What Traditional hides.**
+
+- The Claude Code and Codex entries in the tab strip's "New tab" menu, and the "Start Claude Code" button of the empty centre pane (section 8.3), which then offers only "Open a terminal".
+- The Docker section of the workspace dialog.
+- The system rows of the Running pane and the toggle that shows them.
+
+The "Reset Docker" action stays on the storage-full error screen, because it is a way out of a stuck workspace.
+
+**It hides and never blocks.** The workspace image, the egress rules and every API are the same in both profiles. A student who types a command in a terminal can still run it. The profile is a choice of interface, not a security control, and no server route checks it. Code help (section 13.6) is on in both profiles.
+
+**Which profile a person gets.**
+
+- The profile is stored on the LTI course (`lti_contexts.profile`, migration 0050).
+- Only a user's student memberships decide it. A student in several courses gets the fullest profile among them, so Agentic wins over Traditional.
+- A user in no course as a student sees the whole interface (Agentic). An instructor or administrator always sees Agentic.
+- `GET /me/settings` carries the result as the read-only `courseProfile`, as it does `voiceInputEnabled` (section 25.10). The page reads it on load and when the window regains focus, so a change takes effect at the next page load or window focus, not mid-session.
+
+**Who sets it.**
+
+- The course's instructor, on the Course page, with `PUT /courses/:courseId/profile`. The API checks that the caller teaches that course. This is the first write an instructor can make on the Course page.
+- An administrator, in a Courses group on the admin Sign-in tab beside the LMS group, with `PUT /admin/courses/:courseId/profile`. `GET /admin/courses` lists the courses and their profiles.
+- Both routes call the same function. `GET /courses` includes each course's profile.
+- Each change is audited in the same transaction as `course.profile_changed` with `{from, to}` (section 24.11).
 
 ## 9. Terminal functionality
 
@@ -1669,6 +1708,8 @@ P0 should use Monaco Editor or an equivalent embeddable editor with mature synta
 
 The project is not intended to become a complete VS Code clone.
 
+Added by Epic 52 (ADR 0065): the editor has real code help, from language servers in the workspace, for Python, TypeScript and JavaScript (section 13.6). Monaco's own TypeScript, CSS and HTML language services stay out of the bundle. An administrator can turn code help off, and the editor is then the plain editor described here.
+
 ### 13.2 Editing scope
 
 The editor should prioritize:
@@ -1800,6 +1841,73 @@ when valid: an invalid link shows its error and is not sent. A picture is
 saved as soon as it is chosen. Links are
 shown only as plain anchors with `rel="noopener"`. Nothing in the profile is
 used for authorization, and picture bytes are never logged.
+
+### 13.6 Code help
+
+Added by Epic 52 (ADR 0065). The editor gives real code help for Python, TypeScript and JavaScript files. It comes from language servers that run inside the student's own workspace, not from Monaco's in-browser language services.
+
+**Features.** Six, and only these:
+
+- completion;
+- hover;
+- go to definition;
+- rename;
+- format;
+- diagnostics, shown as errors and warnings in the editor.
+
+A **Problems** list, a tab of the right pane (section 8.4), shows the diagnostics of the files that are open. It is not a project-wide list; the project-wide check is Checks (section 18.1). Signature help, find references, code actions, the outline and format on save are not built. Word-based suggestions are off, so every suggestion comes from a server.
+
+**Servers.** Three server ids, each started on demand for one project:
+
+| Id | Program | Files | Features |
+|---|---|---|---|
+| `python` | pyright | Python | all but format |
+| `typescript` | typescript-language-server | TypeScript and JavaScript | all six |
+| `ruff` | `ruff server`, lint off | Python | format only |
+
+Python Format goes to `ruff`, and the other Python features go to `python`. The programs and their pinned versions are in STACK.md section 10. They ship in the package's agent tree, so they need no image rebuild. A server that is not installed is "unavailable". Adding a language later is one table entry in the agent, one value in the contracts, one line in the web client's server map, image packages and tests.
+
+**Where they run.** A server runs as the student, inside the workspace container, with its working directory set to the project's real path. This is scope, not a security boundary (sections 9.7 and 24.4): a server has the student's rights and no more, and a student can start the same programs by hand. For Python, the project's `.venv/bin`, or `venv/bin`, comes first on the server's `PATH`. TypeScript's automatic type acquisition is off, so a server never runs `npm` or uses the network. Each server starts under `prlimit` with a process limit and a raised out-of-memory score, as Checks do, and is stopped by killing its whole process tree. The Node servers get a 1,024 MiB heap cap (`maxTsServerMemory` is 1,024 too). The workspace's memory limit is the ceiling, and the load test (section 25.2) may tune the heap caps.
+
+**The wire.** Plain LSP (Language Server Protocol) JSON-RPC, one message per WebSocket text frame; the agent does the stdio framing. The browser opens `GET /workspaces/:id/projects/:pid/language-servers/:server`, and the API relays to the agent's `GET /projects/:slug/language-servers/:server`. Only the owner of the workspace may open the browser socket: not an administrator, an instructor, someone viewing a share, or a live-help helper (section 5.2). The API applies the global Origin check, re-checks the session every second and allows 4 of these sockets per workspace. A frame from the browser may be at most 1 MiB. A frame from the agent may be at most 4 MiB, so the agent replaces a larger server answer with a JSON-RPC error that carries the same request id. The API never reads a frame, and its close reasons are fixed strings of its own. The agent reads only the first browser message, `initialize`. It overwrites `rootUri`, `rootPath`, `workspaceFolders` and `processId` (with the agent's own process id) and merges the server's `initializationOptions`; everything after that passes through unread. No message body is logged anywhere (STACK.md section 15, ADR 0012), and a server's standard error is read and dropped.
+
+**Close codes.** A language-server socket closes with one of these:
+
+| Code | Name | Meaning |
+|---|---|---|
+| 4412 | REPLACED | Another window took this project and server |
+| 4413 | IDLE | No browser message for 15 minutes, or this was the least recently used server past the cap |
+| 4414 | CRASHED | The server exited and the agent did not cause it |
+| 4415 | UNAVAILABLE | Not installed, the agent has no route, or too many crashes |
+| 4416 | DISABLED | The site switch is off |
+
+**Lifecycle.**
+
+- There is one server process per project and server id, started by the first socket.
+- One window at a time. A second socket for the same project and server restarts the server and closes the old socket with REPLACED.
+- The server stops 60 seconds after its last socket closes. It is sent `shutdown` and then `exit`, and its process tree is killed after 3 seconds if it is still running.
+- A socket with no browser message for 15 minutes closes with IDLE. The browser reconnects quietly at the next edit or when the window gets focus.
+- At most 3 `python` or `typescript` servers run per workspace; `ruff` is not counted. Starting a fourth stops the least recently used one and closes its socket with IDLE.
+- An exit the agent did not cause closes the socket with CRASHED. When the agent did not send the kill, the message says the server "may have run out of memory". Three crashes of one server in 5 minutes make it UNAVAILABLE for 5 minutes.
+- When the agent restarts after a package upgrade (section 22.5), the browser reconnects the same way as after a crash. An older agent without the route answers 404, and the API maps that to UNAVAILABLE.
+
+**What the editor does.**
+
+- Only text models of files in the project (`pk:/<projectId>/...`) are synced to a server, never a diff side or a read-only text. The language comes from the file name.
+- Sync is incremental. A file over 512 KiB is not sent, and the editor bar says "Code help is off for files over 512 KB".
+- Snippet completions and file operations are not requested. The client declines `workspace/applyEdit`, `window/showDocument` and `workspace/executeCommand` from a server.
+- Hover and completion text is untrusted, because it can come from a docstring in a file the student copied. It is never trusted Markdown and never HTML. Only `http` and `https` links are kept, and they open with `noopener`. Images are removed from hover Markdown, because the content security policy allows `https:` images (section 24.3).
+- Rename stays inside the project, changes at most 20 files and applies all or nothing. It opens a file that is not open as a tab, and it saves every changed file through the version-aware path of section 13.5, so a newer version on disk is never overwritten.
+- Go to definition in another file of the project opens that file at the line. A target outside the project is not opened, and a short message says so.
+
+**What a student sees.** The editor bar shows the server's state: starting, ready, unavailable, crashed or replaced. Editing never waits for a server.
+
+- Unavailable and crashed show a Restart button. A crash says the server may have run out of memory when that is the likely cause.
+- Replaced shows "Code help is on in another window" with a "Use here" button. This window does not reconnect by itself.
+- Idle shows nothing. The next edit or focus reconnects.
+- With code help off (below), the editor is the plain editor of section 13.1: no socket, no Problems tab and no code-help status.
+
+**The site switch.** An administrator switch on the Settings tab, `settings.code_help_enabled` (migration 0050), is on by default. Changing it is audited as `settings.code_help_updated` with `{from, to}`. The browser learns it from the read-only `codeHelpEnabled` on `GET /me/settings`. While it is off, the API refuses the language-server socket with DISABLED, and the browser opens none, shows no Problems tab and no status, and never retries a DISABLED close. A socket already open closes at its next reconnect. Course profiles (section 8.7) do not change it: code help is the same in Agentic and Traditional.
 
 ## 14. Application preview and port proxying
 
@@ -2668,6 +2776,8 @@ P0 administration must support:
 - view the platform's own error, warning, info and debug log lines (Epic 19, section 24.11).
 
 Added by Epic 50 (ADR 0064): in the Users detail panel, with account email on (section 5.3), an administrator can add a Dex user with an emailed set-password link instead of a shown one-time password, email an SSO invitation and resend it, email invitations from a CSV import, and send a reset link. The email boxes are unticked by default. An administrator can also edit a Dex user's email or username (`PATCH /admin/dex-users/:id`). Dex cannot change a password's email, so an email change deletes the Dex password and creates it again under the same Dex user ID with a random hash; the account keeps its id, its Dex subject and its workspace. It ends the user's sessions and revokes their links before Dex is called, then sets "must change password" or, with account email on, sends a set-password link to the new address and a notice to the old one. If the create step fails after the delete, the account fails closed and a retry creates the missing password. A username change happens in place and keeps the password. The install administrator, your own account and a disabled account cannot be edited this way.
+
+Added by Epic 52 (ADRs 0065 and 0066): the Sign-in tab has a Courses group, beside the LMS group, that lists the LTI courses with their profile (`GET /admin/courses`) and sets one (`PUT /admin/courses/:courseId/profile`, section 8.7). The Settings tab has a code-help switch beside voice input, on by default, that turns the language servers off for the whole site (section 13.6). Each change writes an audit row (section 24.11).
 
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
@@ -4102,6 +4212,8 @@ sockets at once. The instructor's terminal ignores OSC 52 clipboard
 writes and title sequences and opens links only on click, with no
 opener.
 
+Added by Epic 52 (ADR 0065): code help adds a browser socket and an agent route that run language servers, which are programs the student's files can steer. The servers run as the student inside the workspace (zone 4), so they add no rights, and they are scope, not isolation (section 24.4). The browser socket is owner only; an administrator, an instructor, a share viewer and a live-help helper cannot open it. The API relays frames without reading them, the agent rewrites the `initialize` fields that name paths and the process id, and no message body is logged. Hover and completion text can come from files an agent or a classmate wrote, so the browser treats it as untrusted: no HTML, no script, only `http` and `https` links, and no images (section 13.6). A server that is killed or crashes affects only that student's workspace. A `setsid` child of a server can outlive it, as one of a terminal can (section 9.7).
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -4654,6 +4766,8 @@ restore folder writes `recovery.aside_deleted` (section 15.10). Changing the
 voice switch writes `settings.voice_input_updated` with `{from, to}`. No row
 holds a process name, command line or path.
 
+As built (Epic 52): changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. Changing the code-help switch writes `settings.code_help_updated` with `{from, to}`. No row holds source code, a path, or anything a language server said.
+
 As built (Epic 22): the listener `commandLine` field has existed since
 Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
 student's own processes (section 18.2), and it is never audited or logged.
@@ -4893,6 +5007,8 @@ Initial targets:
 
 Targets should be measured and revised from pilot telemetry.
 
+Code help (section 13.6), added by Epic 52: with 25 students on a 16 GiB server, each with a Python and a TypeScript file open, the p95 time for a completion is under 1 second, and at least 2 GiB of memory stays free. Measured figures: to be filled in from the Epic 52 load test.
+
 The web app loads `/admin`, `/course` and `/help` on first visit, as separate files, so a student's first page does not carry them (Epic 25). When such a file is gone after a deploy, the page reloads once, guarded in `sessionStorage`; if that fails too, the router's error page shows.
 
 ### 25.2 Capacity
@@ -4903,6 +5019,8 @@ Pilot design target:
 - at least 25 concurrently active workspaces on appropriately sized pilot hardware.
 
 The architecture must not encode these numbers as hard limits.
+
+Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on; a full class needs a 16 GiB server, and an administrator can turn code help off for the site. Measured memory per server and per student: to be filled in from the Epic 52 load test.
 
 ### 25.3 Reliability
 
@@ -5300,6 +5418,7 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0043_agent_usage_days` (ADR 0057): `agent_usage_days`, counts per user, boot id, day, agent and model, with no content column.
 - `0048_live_help` (ADR 0063): `live_help_sessions` (workspace, project, helper, course, typing, start, end limit, ended time and `end_reason`; at most one open session per workspace); `live_help_session_id` on `preview_grants` and `preview_sessions`; `projects.layout_version`.
 - `0049_account_email` (section 5.3, ADR 0064): `account_email_tokens` (`id`, `user_id` cascading on delete, `purpose` `reset` or `invite`, unique `token_hash`, `created_by`, `created_at`, `expires_at`, `used_at`, `revoked_at`), granted to the API's role only; `settings.account_email_enabled` (default false).
+- `0050_course_profile` (sections 8.7 and 13.6, ADR 0066): `lti_contexts.profile`, text with a check constraint (`agentic` or `traditional`, default `agentic`); `settings.code_help_enabled` (default true).
 
 ## 27. API principles
 
@@ -6791,9 +6910,11 @@ P0 must not spend effort attempting to provide:
 - public unauthenticated student ports;
 - a full IDE extension ecosystem;
 - a graphical debugger;
+- language servers other than those in section 13.6, signature help, find references, code actions, an outline, or format on save;
 - a graphical database client;
 - a general REST/API client;
 - a Docker-management GUI;
+- enforcing a course profile: it hides parts of the interface and never blocks (section 8.7);
 - a replacement Git implementation;
 - a full graphical Git client;
 - automatic hidden commits;
