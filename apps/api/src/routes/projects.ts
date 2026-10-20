@@ -1,14 +1,9 @@
-import { basename } from "node:path";
 import { requireUser } from "@portikus/auth";
 import {
 	CreateProjectRequest,
-	contentDisposition,
-	DeleteProjectRequest,
 	DuplicateProjectRequest,
 	displayNameFromDirectory,
-	MAX_DOWNLOAD_PATHS,
 	type ProjectList,
-	ProjectPath,
 	ProjectState,
 	type ProjectTemplateList,
 	slugify,
@@ -18,13 +13,7 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
-import {
-	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
-	AgentCallError,
-	type AgentClient,
-	archiveQuery,
-	readAgentError,
-} from "../agent-client.js";
+import { AgentCallError, type AgentClient } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import {
@@ -34,7 +23,6 @@ import {
 } from "../live-help/sessions.js";
 import type { BridgeForwards } from "../preview/bridge.js";
 import type { UserLimit } from "../rate-limit.js";
-import { cappedDownload } from "../workspaces/capped-download.js";
 import { createProject } from "../workspaces/create-project.js";
 import {
 	claimLongOperation,
@@ -53,6 +41,8 @@ import {
 import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
+import { registerProjectDeleteRoute } from "./project-delete.js";
+import { registerProjectDownloadRoute } from "./project-download.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
 import { registerProjectStarterRoute } from "./project-starter.js";
 
@@ -576,125 +566,7 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// Permanent (SPEC.md §7.3, §24.11).
-	app.delete(
-		"/workspaces/:id/projects/:pid",
-		{ preHandler: limitWrites },
-		async (request, reply) => {
-			const user = requireUser(request);
-			const params = parseOr400(ProjectParam, request.params, reply);
-			if (!params) return;
-			const scope = await owned(request, reply);
-			if (!scope) return;
-			const body = DeleteProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
-			const row = await ownedProject(scope.workspaceId, params.pid, reply);
-			if (!row) return;
-			// Typing the folder name back is the whole safeguard, so it is checked
-			// against the row rather than anything the browser chose.
-			if (body.data.slug !== row.slug) {
-				return sendError(
-					reply,
-					400,
-					"VALIDATION_FAILED",
-					"The slug you typed does not match",
-				);
-			}
-			const agent = requireAgent(scope, reply);
-			if (!agent) return;
-
-			// Removing a tree can take a while, and a copy running at the same time
-			// would read directories this is deleting.
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			try {
-				return await deleteProjectTree(request, reply, scope, row, agent, user.id);
-			} finally {
-				releaseLongOperation(scope.workspaceId);
-			}
-		},
-	);
-
-	/** The slow half of the delete, so the slot is released on every exit. */
-	async function deleteProjectTree(
-		request: FastifyRequest,
-		reply: FastifyReply,
-		scope: Scope,
-		row: ProjectRow,
-		agent: AgentClient,
-		userId: string,
-	): Promise<FastifyReply | undefined> {
-		// A terminal created in the directory that is about to go must end
-		// first, or its shell keeps a deleted working directory (SPEC.md §9.3).
-		// `terminals.cwd` is only the directory it started in, so one that
-		// moved in or out of the project by `cd` is not matched.
-		const open = await db
-			.selectFrom("terminals")
-			.selectAll()
-			.where("workspace_id", "=", scope.workspaceId)
-			.where("ended_at", "is", null)
-			.execute();
-		const inside = open.filter(
-			(terminal) =>
-				terminal.cwd === row.path || terminal.cwd.startsWith(`${row.path}/`),
-		);
-		for (const terminal of inside) {
-			try {
-				await agent.deleteTerminal(terminal.id);
-			} catch (error) {
-				// A session the agent has already lost is still an ended terminal.
-				if (!(error instanceof AgentCallError)) throw error;
-			}
-			await db
-				.updateTable("terminals")
-				.set({ ended_at: new Date().toISOString() })
-				.where("id", "=", terminal.id)
-				.execute();
-		}
-
-		try {
-			await agent.deleteProject(row.slug);
-		} catch (error) {
-			// A directory that is already gone still leaves a row to remove.
-			const gone =
-				error instanceof AgentCallError && error.code === "PROJECT_NOT_FOUND";
-			if (!gone) return sendAgentError(reply, error);
-		}
-
-		// The rows go by cascade; the archives are the agent's to remove. A
-		// leftover directory only costs recovery space, so it does not block.
-		try {
-			await agent.deleteProjectRecoveryPoints(row.id);
-		} catch (error) {
-			if (!(error instanceof AgentCallError)) throw error;
-			request.log.warn(
-				{ workspaceId: scope.workspaceId, projectId: row.id, code: error.code },
-				"recovery points of a deleted project were not removed",
-			);
-		}
-
-		await db.transaction().execute(async (trx) => {
-			await trx.deleteFrom("projects").where("id", "=", row.id).execute();
-			await recordAudit(trx, {
-				actor: `user:${userId}`,
-				target: row.id,
-				action: "project.deleted",
-				result: "ok",
-				metadata: {
-					slug: row.slug,
-					name: row.name,
-					ip: request.ip,
-				},
-			});
-		});
-
-		request.log.info(
-			{ workspaceId: scope.workspaceId, projectId: row.id, slug: row.slug },
-			"project deleted",
-		);
-		return reply.status(204).send();
-	}
+	registerProjectDeleteRoute(app, db, limitWrites, owned, ownedProject);
 
 	// SPEC.md §7.3.
 	app.post(
@@ -788,115 +660,7 @@ export function registerProjectRoutes(
 	);
 	// jscpd:ignore-end
 
-	/** Answers 204 when the download would be under the size cap. */
-	async function checkDownloadSize(
-		agent: AgentClient,
-		slug: string,
-		subPaths: readonly string[],
-		reply: FastifyReply,
-	) {
-		let checked: Response;
-		try {
-			checked = await agent.fetchRaw(
-				"GET",
-				`/projects/${encodeURIComponent(slug)}/archive${archiveQuery(subPaths, true)}`,
-				{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
-			);
-		} catch (error) {
-			return sendAgentError(reply, error);
-		}
-		if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
-		await checked.body?.cancel();
-		return reply.status(204).send();
-	}
-
-	// The agent's zip, streamed.
-	// With `?path=` it is one directory inside the project; a repeated `path`
-	// is a selection of files and folders (SPEC.md §11.2).
-	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
-		const params = parseOr400(ProjectParam, request.params, reply);
-		if (!params) return;
-		const scope = await owned(request, reply);
-		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.pid, reply);
-		if (!row) return;
-		const agent = requireAgent(scope, reply);
-		if (!agent) return;
-
-		// The path is checked here as well as in the agent, so a traversal
-		// attempt never leaves the control plane (SPEC.md §11.1, §24.6).
-		const subPaths = downloadPaths((request.query as { path?: unknown }).path);
-		if (subPaths === "too-many") {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				`a download can name at most ${MAX_DOWNLOAD_PATHS} paths`,
-			);
-		}
-		if (subPaths === null) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"that path is not inside the project",
-			);
-		}
-
-		// `check=1` asks only whether the download is under the size cap, so
-		// the browser can explain a refusal before it starts a download.
-		if ((request.query as { check?: unknown }).check === "1") {
-			return checkDownloadSize(agent, row.slug, subPaths, reply);
-		}
-
-		// Zipping runs while the response streams, so the slot is held until the
-		// response is done, not just until the headers come back.
-		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		const release = () => releaseLongOperation(scope.workspaceId);
-
-		// A browser that gives up must not leave the agent zipping.
-		const cancel = new AbortController();
-		reply.raw.once("close", () => cancel.abort());
-		let upstream: Response;
-		try {
-			upstream = await agent.downloadProject(row.slug, subPaths, cancel.signal);
-		} catch (error) {
-			release();
-			return sendAgentError(reply, error);
-		}
-		if (!upstream.body) {
-			release();
-			return sendError(reply, 503, "AGENT_UNAVAILABLE", "The archive was empty.");
-		}
-
-		const stream = cappedDownload(upstream.body);
-		stream.on("close", release);
-		stream.on("error", release);
-
-		// The name is the slug, or the one directory that was asked for; either
-		// way it is escaped rather than sent through as typed.
-		const name = subPaths.length === 1 ? basename(subPaths[0] as string) : row.slug;
-		reply.header("content-type", "application/zip");
-		reply.header("content-disposition", contentDisposition(`${name}.zip`));
-		return reply.send(stream);
-	});
+	registerProjectDownloadRoute(app, owned, ownedProject);
 
 	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
-}
-
-/**
- * The download's `path` query: absent or "" is the whole project, one value
- * a directory, a repeated one a selection. Each must be a project path.
- */
-function downloadPaths(asked: unknown): string[] | null | "too-many" {
-	const values = Array.isArray(asked) ? asked : asked === undefined ? [] : [asked];
-	if (values.length > MAX_DOWNLOAD_PATHS) return "too-many";
-	if (values.length === 1 && values[0] === "") return [];
-	const paths: string[] = [];
-	for (const value of values) {
-		const parsed = ProjectPath.safeParse(value);
-		if (!parsed.success) return null;
-		paths.push(parsed.data);
-	}
-	return paths;
 }
