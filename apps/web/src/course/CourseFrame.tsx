@@ -11,12 +11,15 @@ import { useMe } from "../useMe.js";
 export function CourseFrame({
 	testId,
 	labelledBy,
+	fill = false,
 	children,
 }: {
 	/** The test id of the main. */
 	testId: string;
 	/** The id of the page's h1. */
 	labelledBy: string;
+	/** The body is a column as tall as the window's space, so a pane in it can take what is left. */
+	fill?: boolean;
 	children: ReactNode;
 }) {
 	const me = useMe();
@@ -38,7 +41,15 @@ export function CourseFrame({
 				data-density="compact"
 				aria-labelledby={labelledBy}
 			>
-				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
+				<div
+					className={
+						fill
+							? "mx-auto flex h-full w-full max-w-[1440px] flex-col"
+							: "mx-auto w-full max-w-[1440px]"
+					}
+				>
+					{children}
+				</div>
 			</main>
 		</div>
 	);
