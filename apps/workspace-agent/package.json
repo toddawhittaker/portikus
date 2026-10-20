@@ -15,6 +15,7 @@
 		"@portikus/contracts": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"@portikus/observability": "workspace:*",
+		"@portikus/tsserver6": "workspace:*",
 		"chokidar": "5.0.0",
 		"fastify": "5.12.5",
 		"ignore": "7.0.10",
