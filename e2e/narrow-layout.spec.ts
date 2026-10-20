@@ -6,6 +6,7 @@
  * Short windows (320 by 256, 640 by 360) scroll the stacked column rather than
  * squeezing it, and each admin table's box takes focus to scroll by keyboard.
  */
+import { appendFileSync } from "node:fs";
 import {
 	type BrowserContext,
 	expect,
@@ -25,6 +26,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { E2E_JOURNAL_FILE } from "./journal-file";
 
 const NARROW = { width: 560, height: 800 };
 
@@ -393,6 +395,28 @@ async function expectAdminContentFits(page: Page): Promise<void> {
 	expect(overflow, page.url()).toEqual({ mainScrolls: false, spill: [], clipped: [] });
 }
 
+/**
+ * A warning whose user has no account and that names a workspace, so the
+ * table's last columns hold screen-reader-only full IDs. Those are positioned
+ * absolutely, and must not widen the page from beyond the table's box.
+ */
+function logLineWithFullIds(): void {
+	appendFileSync(
+		E2E_JOURNAL_FILE,
+		`${JSON.stringify({
+			level: "warn",
+			time: new Date().toISOString(),
+			service: "api",
+			route: "/narrow-layout/full-ids",
+			status: 429,
+			userId: "00000000-0000-4000-8000-000000000320",
+			workspaceId: "00000000-0000-4000-8000-000000000375",
+			code: "RATE_LIMITED",
+			msg: "request",
+		})}\n`,
+	);
+}
+
 // 320 px is the WCAG 1.4.10 reflow width; 375 px is a common phone.
 for (const width of [NARROW.width, 375, 320]) {
 	test.describe(`the admin area at ${width} px`, () => {
@@ -402,6 +426,7 @@ for (const width of [NARROW.width, 375, 320]) {
 			page,
 		}) => {
 			test.setTimeout(120_000);
+			logLineWithFullIds();
 			await apiLoginAs(page.request, "carol");
 			for (const tab of ADMIN_TABS) {
 				await page.goto(`/admin/${tab}`);
