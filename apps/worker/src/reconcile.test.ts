@@ -563,6 +563,87 @@ test.skipIf(skip)(
 	},
 );
 
+/** Archive a row the way linking a course account does (SPEC.md §20.1). */
+async function archiveLikeALink(id: string): Promise<void> {
+	const at = new Date().toISOString();
+	await tdb.db
+		.updateTable("workspaces")
+		.set({ archived_at: at, desired_state: "stopped", updated_at: at })
+		.where("id", "=", id)
+		.execute();
+}
+
+test.skipIf(skip)(
+	"a workspace archived while its create is in flight ends stopped and is never started",
+	async () => {
+		let releaseCreate = (): void => {};
+		const held = new Promise<void>((r) => {
+			releaseCreate = r;
+		});
+		const create = fake.create.bind(fake);
+		fake.create = async (req) => {
+			await held;
+			return create(req);
+		};
+		const id = await insertWorkspace({
+			state: "provisioning",
+			desired_state: "running",
+		});
+		await insertConnection(id);
+		try {
+			const now = new Date();
+			await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			await archiveLikeALink(id);
+			releaseCreate();
+			await untilState(id, "stopped");
+			for (let i = 0; i < 3; i++) {
+				const later = new Date();
+				await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
+			}
+			const ws = await getWorkspace(id);
+			expect(ws.state).toBe("stopped");
+			expect(ws.archived_at).not.toBeNull();
+			expect(fake.calls.some((c) => c.method === "start")).toBe(false);
+		} finally {
+			releaseCreate();
+			fake.create = create;
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a workspace archived while its start is in flight is stopped by the next sweep",
+	async () => {
+		let releaseStart = (): void => {};
+		const held = new Promise<void>((r) => {
+			releaseStart = r;
+		});
+		const start = fake.start.bind(fake);
+		fake.start = async (name, req) => {
+			await held;
+			return start(name, req);
+		};
+		const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+		await insertConnection(id);
+		try {
+			const now = new Date();
+			await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			expect((await getWorkspace(id)).state).toBe("starting");
+			await archiveLikeALink(id);
+			releaseStart();
+			await untilState(id, "running");
+			const later = new Date();
+			await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
+			const ws = await getWorkspace(id);
+			expect(ws.state).toBe("stopped");
+			expect(fake.calls.some((c) => c.method === "stop")).toBe(true);
+		} finally {
+			releaseStart();
+			fake.start = start;
+		}
+	},
+);
+
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {
 	fake.createResult = new ControllerClientError("STORAGE_FULL", "no space");
 	const id = await insertWorkspace({ state: "provisioning" });
