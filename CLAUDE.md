@@ -11,7 +11,7 @@ does belong under `docs/`, cited by file and section, never here.
 - `docs/OVERVIEW.md`: one-page orientation and the design rules every
   change must respect. Read this first.
 - `docs/STATUS.md`: what each epic and task has delivered and the gaps it
-  left. Task PRs in a parallel epic leave it to the epic's fold task.
+  left.
 - GitHub issues (labels `enhancement` and `bug`): wanted work that is not
   yet an epic or task. File one when the user defers something.
 - `docs/VISION.md`: product intent. Wins on questions of intent.
@@ -99,8 +99,6 @@ Orchestration rules:
   reasoning, high for intensive debugging. Time-box debugging agents.
 - Never `git add -A`; stage paths explicitly, above all under `infra/`.
 - Delete local branches and agent worktrees after a merge.
-- Hand the merge queue to merger, not a shell loop in the main session;
-  it reruns flakes and escalates only conflicts and real failures.
 
 ## Testing rules
 
@@ -119,21 +117,13 @@ Orchestration rules:
 
 ## Review and merge rules
 
-- A task pull request into an epic branch has no human review. Once its
-  CI is green, merger squash-merges it and deletes the branch. The user's
-  review happens once, at the epic level.
-- After every task PR for an epic has landed, run code-reviewer over the
-  epic head and the whole repo's dead code, security-reviewer when the
-  epic touches auth, the preview gateway, the workspace agent, file APIs,
-  Incus, or nested Docker, and a11y-reviewer when it touches `apps/web` or
-  `packages/ui`. Fix or defer every finding through further task PRs,
-  also landed by merger without review, then confirm with each reviewer.
-- An epic's plan lives only on its branch and is folded into SPEC.md and
-  deleted by its last task; cite SPEC.md or ADRs (WORKFLOW.md, "Epic plans").
 - `main` changes only by pull request, and merging it is the user's
-  decision. Prepare the epic pull request, citing the SPEC.md and STACK.md
+  decision. Prepare the pull request, citing the SPEC.md and STACK.md
   sections it serves and how it was verified (WORKFLOW.md, "Pull
   requests"), then report and stop.
+- Running an epic (task PRs, the merge queue, which reviewers run, the
+  fold, the epic PR) follows the `epic-run` skill; deploying to the pilot
+  follows the `pilot-deploy` skill.
 
 ## Design defaults
 

@@ -34,16 +34,22 @@ line per step, so the run survives a context reset.
    `corepack pnpm typecheck` and `corepack pnpm lint` (builder, tester and
    ui-designer also run these in a Stop hook), read the diff, and rule on
    anything it did outside its file list.
-8. **One merger queue.** Hand the ordered PR list to a single merger.
-   Task PRs squash into the epic. Main-into-epic and epic-into-main use
-   merge commits.
+8. **One merger queue.** Hand the ordered PR list to a single merger, not
+   a shell loop in the main session; it reruns flakes and escalates only
+   conflicts and real failures. A task PR into the epic has no human
+   review: once its CI is green, merger squash-merges it and deletes the
+   branch. Todd reviews once, at the epic level. Main-into-epic and
+   epic-into-main use merge commits.
 9. **Reviews** after every task PR has landed, on a read-only worktree at
-   the epic head: code-reviewer always; security-reviewer and a11y-reviewer
-   when CLAUDE.md "Review and merge rules" triggers them. Run them in
-   parallel.
+   the epic head, run in parallel:
+   - code-reviewer always, over the epic head and the whole repo's dead
+     code;
+   - security-reviewer when the epic touches auth, the preview gateway,
+     the workspace agent, file APIs, Incus, or nested Docker;
+   - a11y-reviewer when it touches `apps/web` or `packages/ui`.
 10. **Fix round.** Rule on each finding: fix now through task PRs, or
-    record as a STATUS gap. Land fixes through merger, then have each
-    reviewer confirm its findings are closed.
+    record as a STATUS gap. Land fixes through merger, also without human
+    review, then have each reviewer confirm its findings are closed.
 11. **Rehearsal VM full smoke** when the epic touches install, packaging
     or infra. One infra agent owns the rehearsal VM for the run. It must
     make a Dex sign-in file (two lines, email and password, mode 0600) the
