@@ -163,6 +163,53 @@ test("two browsers reach the same layout after one change, with no further write
 	expect(a.getState().version).toBe(1);
 });
 
+test("a terminal another browser is still placing does not overwrite its split", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const project = newProject();
+	const { server } = fakeServer(project, oneTab(T1));
+	const a = createLayoutStore();
+	const b = createLayoutStore();
+	mount(a, project);
+	mount(b, project);
+	await waitFor(() => expect(a.getState().version).toBe(0));
+	await waitFor(() => expect(b.getState().version).toBe(0));
+
+	act(() => {
+		a.getState().reconcile([T1]);
+		b.getState().reconcile([T1]);
+	});
+
+	// The API lists A's new terminal before its create call returns, so B's
+	// list has it while A has not placed it yet.
+	act(() => b.getState().reconcile([T1, T2]));
+	await settle(500);
+	act(() => {
+		a.getState().splitLeaf(T1, "row", T2);
+		a.getState().reconcile([T1, T2]);
+	});
+	await settle(3_000);
+
+	const split = {
+		tabs: [
+			{
+				id: T1,
+				root: {
+					type: "split",
+					direction: "row",
+					sizes: [50, 50],
+					children: [
+						{ type: "leaf", terminalId: T1 },
+						{ type: "leaf", terminalId: T2 },
+					],
+				},
+			},
+		],
+	};
+	expect(server.layout).toEqual(split);
+	expect(a.getState().layout).toEqual(split);
+	expect(b.getState().layout).toEqual(split);
+});
+
 test("a browser ignores the echo of its own save", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	const project = newProject();

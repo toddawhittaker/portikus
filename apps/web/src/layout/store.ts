@@ -16,7 +16,8 @@ import {
 } from "react";
 import { createStore, useStore } from "zustand";
 import { DEFAULT_ZOOM } from "../editor/zoom.js";
-import { isDescendant, movedPath } from "../files/paths.js";
+import { movedPath } from "../files/paths.js";
+import { forgetFiles, moveKeys } from "./fileState.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
@@ -88,6 +89,12 @@ export interface LayoutState {
 	 * overwriting each other (SPEC.md §7.5).
 	 */
 	remoteBase: ProjectLayout | null;
+	/**
+	 * Whether a terminal list has been reconciled yet. A terminal with no pane
+	 * in the first list has no browser placing it, so its tab is saved; one
+	 * that turns up later may be another browser's, still being placed.
+	 */
+	reconciled: boolean;
 	/** A drag is in progress, so a remote layout waits in `heldRemote`. */
 	dragging: boolean;
 	heldRemote: { layout: ProjectLayout; version: number } | null;
@@ -208,56 +215,6 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 	return history.filter((id) => ids.has(id));
 }
 
-/** Drop the per-file state of files that are no longer open. */
-function forgetFiles(
-	state: LayoutState,
-	paths: string[],
-): Pick<
-	LayoutState,
-	"pendingView" | "diffBaseline" | "viewStates" | "zooms" | "fileViews"
-> {
-	const pendingView = { ...state.pendingView };
-	const diffBaseline = { ...state.diffBaseline };
-	const viewStates = { ...state.viewStates };
-	const zooms = { ...state.zooms };
-	const fileViews = { ...state.fileViews };
-	for (const path of paths) {
-		const id = tree.fileTabId(path);
-		delete pendingView[id];
-		delete diffBaseline[id];
-		delete viewStates[path];
-		delete zooms[path];
-		delete fileViews[path];
-	}
-	return { pendingView, diffBaseline, viewStates, zooms, fileViews };
-}
-
-/**
- * Rewrite the keys of a per-file record after `from` moved to `to`. `prefix`
- * is what comes before the path in a key. Whatever was kept for a file the
- * move replaced at `to` is dropped.
- */
-function moveKeys<T>(
-	record: Record<string, T>,
-	prefix: string,
-	from: string,
-	to: string,
-): Record<string, T> {
-	const kept: Record<string, T> = {};
-	const moved: Record<string, T> = {};
-	for (const [key, value] of Object.entries(record)) {
-		if (!key.startsWith(prefix)) {
-			kept[key] = value;
-			continue;
-		}
-		const path = key.slice(prefix.length);
-		const now = movedPath(path, from, to);
-		if (now !== null) moved[prefix + now] = value;
-		else if (path !== to && !isDescendant(path, to)) kept[key] = value;
-	}
-	return { ...kept, ...moved };
-}
-
 export function createLayoutStore() {
 	return createStore<LayoutState>()((set, get) => {
 		let seq = 0;
@@ -324,6 +281,7 @@ export function createLayoutStore() {
 			dirty: false,
 			version: null,
 			remoteBase: null,
+			reconciled: false,
 			dragging: false,
 			heldRemote: null,
 			remoteFocusLost: 0,
@@ -657,12 +615,30 @@ export function createLayoutStore() {
 				set((state) => {
 					if (state.remoteBase !== null && !state.dirty) {
 						const layout = tree.reconcile(state.remoteBase, terminalIds, endedIds);
-						if (sameLayout(layout, state.layout)) return state;
-						return { layout, ...settleActive(state, layout) };
+						if (sameLayout(layout, state.layout)) {
+							return state.reconciled ? state : { reconciled: true };
+						}
+						return { layout, ...settleActive(state, layout), reconciled: true };
 					}
 					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
-					if (layout === state.layout) return state;
-					return { layout, ...settleActive(state, layout), dirty: true };
+					if (layout === state.layout) {
+						return state.reconciled ? state : { reconciled: true };
+					}
+					// The API lists a new terminal before its create call answers,
+					// so a later terminal with no pane may be one another browser is
+					// about to split in. Saving its tab would overwrite that split
+					// (SPEC.md §7.5); the next real change saves it instead. A pane
+					// whose terminal is gone is gone everywhere, so that is saved.
+					const kept = new Set(tree.layoutTerminalIds(layout));
+					const removed = tree
+						.layoutTerminalIds(state.layout)
+						.some((id) => !kept.has(id));
+					return {
+						layout,
+						...settleActive(state, layout),
+						reconciled: true,
+						dirty: state.dirty || removed || !state.reconciled,
+					};
 				}),
 
 			setTabUnsaved: (paneId, unsaved) =>
