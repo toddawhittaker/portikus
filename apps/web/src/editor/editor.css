@@ -55,6 +55,11 @@
 	margin-right: auto;
 }
 
+/* Code help's state sits beside the zoom controls (SPEC.md §13.6). */
+.pk-code-help:not(:empty) {
+	padding-inline-end: var(--space-2);
+}
+
 .pk-zoom-value {
 	min-width: 4ch;
 	text-align: center;

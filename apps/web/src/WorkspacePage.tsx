@@ -4,6 +4,7 @@ import { Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
+	useCodeHelpEnabled,
 	useEditorSettings,
 	useTerminalThemeAttribute,
 } from "./editor/settingsQueries.js";
@@ -11,6 +12,7 @@ import { ProjectEvents } from "./files/ProjectEvents.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { LaunchNotice } from "./link/LaunchNotice.js";
 import { LiveHelpBar } from "./livehelp/LiveHelpBar.js";
+import { CodeHelpContext, useCodeHelpManager } from "./lsp/context.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -114,6 +116,13 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	);
 	// The student's terminal colour scheme, applied to the whole shell.
 	useTerminalThemeAttribute();
+	// One code-help manager for the open project (SPEC.md §13.6).
+	const codeHelp = useCodeHelpManager(
+		workspaceId,
+		running ? project : undefined,
+		useCodeHelpEnabled(),
+		(path, line) => layoutStore.getState().openFile(path, { line }),
+	);
 
 	const shell = (
 		<div className="pk-root">
@@ -287,13 +296,16 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			<ListeningContext.Provider value={listeningValue}>
 				<RightPaneContext.Provider value={rightPaneApi}>
 					{/* One events socket for the open project, whatever pane is showing (SPEC.md §11.4). */}
-					<ProjectEvents
-						workspaceId={workspaceId}
-						projectId={running ? project?.id : undefined}
-						layoutStore={layoutStore}
-					>
-						{shell}
-					</ProjectEvents>
+					<CodeHelpContext.Provider value={codeHelp}>
+						<ProjectEvents
+							workspaceId={workspaceId}
+							projectId={running ? project?.id : undefined}
+							layoutStore={layoutStore}
+							onFilesChanged={(paths) => codeHelp?.filesChanged(paths)}
+						>
+							{shell}
+						</ProjectEvents>
+					</CodeHelpContext.Provider>
 				</RightPaneContext.Provider>
 			</ListeningContext.Provider>
 		</LayoutStoreContext.Provider>

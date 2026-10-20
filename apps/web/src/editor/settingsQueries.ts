@@ -1,4 +1,5 @@
 import {
+	type CourseProfile,
 	EDITOR_SETTINGS_DEFAULTS,
 	MeSettings,
 	type UpdateEditorSettingsRequest,
@@ -90,4 +91,22 @@ export function useTerminalThemeAttribute(): void {
 export function useScreenReaderMode(): boolean {
 	const settings = useEditorSettings();
 	return settings.data?.screenReaderMode ?? EDITOR_SETTINGS_DEFAULTS.screenReaderMode;
+}
+
+/**
+ * Whether the site's code help is on (SPEC.md §13.6). Off until the settings
+ * say otherwise, so no language-server socket opens on a guess.
+ */
+export function useCodeHelpEnabled(): boolean {
+	const settings = useEditorSettings();
+	return settings.data?.codeHelpEnabled ?? false;
+}
+
+/**
+ * The student's course profile (SPEC.md §8.7). Agentic until the settings
+ * arrive, and for a user in no course.
+ */
+export function useCourseProfile(): CourseProfile {
+	const settings = useEditorSettings();
+	return settings.data?.courseProfile ?? "agentic";
 }

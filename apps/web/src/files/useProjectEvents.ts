@@ -155,10 +155,13 @@ export function useProjectEvents(
 	/** Hidden files are shown, so changes in generated folders matter too. */
 	showHidden: boolean,
 	onBrowserOpen?: (request: BrowserOpenRequest) => void,
+	onFilesChanged?: (paths: string[]) => void,
 ): { limited: boolean } {
 	const client = useQueryClient();
 	const onBrowserOpenRef = useRef(onBrowserOpen);
 	onBrowserOpenRef.current = onBrowserOpen;
+	const onFilesChangedRef = useRef(onFilesChanged);
+	onFilesChangedRef.current = onFilesChanged;
 	const [limited, setLimited] = useState(false);
 
 	useEffect(() => {
@@ -179,6 +182,8 @@ export function useProjectEvents(
 			pending = [];
 			if (frames.length === 0) return;
 			applyInvalidations(client, workspaceId, projectId, invalidationsFor(frames));
+			const paths = frames.flatMap((frame) => frame.paths);
+			if (paths.length > 0) onFilesChangedRef.current?.([...new Set(paths)]);
 		}
 
 		function startFallback(): void {

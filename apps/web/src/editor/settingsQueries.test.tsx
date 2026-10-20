@@ -8,7 +8,60 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type * as React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
-import { useEditorSettings } from "./settingsQueries.js";
+import {
+	useCodeHelpEnabled,
+	useCourseProfile,
+	useEditorSettings,
+} from "./settingsQueries.js";
+
+function loadHook<T>(hook: () => T) {
+	const client = createQueryClient();
+	const wrapper = ({ children }: { children: React.ReactNode }) => (
+		<QueryClientProvider client={client}>{children}</QueryClientProvider>
+	);
+	return renderHook(hook, { wrapper });
+}
+
+function settingsWith(extra: Record<string, unknown>) {
+	return new Response(
+		JSON.stringify({
+			...EDITOR_SETTINGS_DEFAULTS,
+			appearance: "system",
+			appearanceStored: true,
+			timezones: ["America/New_York"],
+			...extra,
+		}),
+		{ status: 200, headers: { "content-type": "application/json" } },
+	);
+}
+
+test("code help is off until the settings say it is on (SPEC.md §13.6)", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => settingsWith({ codeHelpEnabled: true })),
+	);
+	const { result } = loadHook(() => useCodeHelpEnabled());
+	expect(result.current).toBe(false);
+	await waitFor(() => expect(result.current).toBe(true));
+});
+
+test("code help stays off when the site switch is off", async () => {
+	const fetch = vi.fn(async () => settingsWith({ codeHelpEnabled: false }));
+	vi.stubGlobal("fetch", fetch);
+	const { result } = loadHook(() => useCodeHelpEnabled());
+	await waitFor(() => expect(fetch).toHaveBeenCalled());
+	expect(result.current).toBe(false);
+});
+
+test("the course profile is Agentic until known, then the one the settings give", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => settingsWith({ courseProfile: "traditional" })),
+	);
+	const { result } = loadHook(() => useCourseProfile());
+	expect(result.current).toBe("agentic");
+	await waitFor(() => expect(result.current).toBe("traditional"));
+});
 
 afterEach(() => {
 	vi.unstubAllGlobals();

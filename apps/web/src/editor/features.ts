@@ -31,5 +31,17 @@ export async function loadEditorFeatures(): Promise<void> {
 		import(
 			"monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js"
 		),
+		// The widgets code help draws into (SPEC.md §13.6); the providers
+		// behind them are in src/lsp.
+		import("monaco-editor/editor/contrib/suggest/browser/suggestController.js"),
+		import("monaco-editor/editor/contrib/hover/browser/hoverContribution.js"),
+		import("monaco-editor/editor/contrib/gotoSymbol/browser/goToCommands.js"),
+		import(
+			"monaco-editor/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js"
+		),
+		import("monaco-editor/editor/contrib/rename/browser/rename.js"),
+		import("monaco-editor/editor/contrib/format/browser/formatActions.js"),
+		import("monaco-editor/editor/contrib/gotoError/browser/gotoError.js"),
+		import("monaco-editor/editor/contrib/message/browser/messageController.js"),
 	]);
 }
