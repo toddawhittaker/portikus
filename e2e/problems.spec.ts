@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { holdCodeHelpSwitch } from "./code-help-helpers";
 import {
 	createProject,
 	createStudent,
@@ -59,6 +60,8 @@ function problemsTab(page: Page) {
 }
 
 test.describe("Problems tab", () => {
+	holdCodeHelpSwitch(test);
+
 	test("lists the open files' errors and warnings by file, with a count on the tab", async ({
 		page,
 		context,
@@ -198,6 +201,8 @@ test.describe("Problems tab", () => {
 });
 
 test.describe("the five tabs at the default pane width", () => {
+	holdCodeHelpSwitch(test);
+
 	for (const appearance of ["light", "dark"] as const) {
 		test(`all five tabs show whole, with no sideways scroll, at 1280 px (${appearance})`, async ({
 			page,
@@ -275,6 +280,8 @@ test.describe("Problems tab with code help off", () => {
 });
 
 test.describe("Problems tab accessibility", () => {
+	holdCodeHelpSwitch(test);
+
 	test("keyboard: the tab strip reaches Problems and a row opens its file", async ({
 		page,
 		context,

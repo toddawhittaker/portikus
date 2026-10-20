@@ -226,9 +226,10 @@ test.describe("code help wire format", () => {
 	test("positions are zero-based and count UTF-16 units", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const wire = await watchLanguageServers(page);
-		const astral = "😀 = 3";
+		// Each line ends where the typed word is empty, so the suggestion list shows.
+		const astral = "😀 = ";
 		await openProjectFiles(page, student, "Positions", {
-			"p.py": `ab = 1\nsecond = 2\n${astral}\n`,
+			"p.py": `x = 1\nab = 2\n${astral}\n`,
 		});
 		await expect(codeHelpStatus(page, "p.py")).toHaveText("Code help ready", {
 			timeout: 60_000,
@@ -249,7 +250,10 @@ test.describe("code help wire format", () => {
 			character: 3,
 		});
 
+		// Close the list only once it has shown, so the keys that follow move the cursor.
+		await expect(page.locator(".suggest-widget")).toContainText("portikus_example");
 		await page.keyboard.press("Escape");
+		await expect(page.locator(".suggest-widget")).toBeHidden();
 		await page.keyboard.press("ArrowDown");
 		await page.keyboard.press("End");
 		await page.keyboard.press("Control+Space");
