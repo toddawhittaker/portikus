@@ -99,9 +99,10 @@ Choices this plan makes where the rulings were silent:
   which serves only the format feature for Python files, and starts it
   with lint turned off. T7 sends Python Format to `ruff` and the other five
   features to `python`. The binary is `bin/ruff` in the agent tree, which
-  T9 installs; a missing binary shows as "unavailable" like any server. The
-  3-servers-per-workspace cap therefore never evicts a real server in
-  practice (three ids exist).
+  T9 installs; a missing binary shows as "unavailable" like any server.
+  Servers run per project and id, so a student with two projects open can
+  reach the 3-servers-per-workspace cap. Ruff (about 30 MB) does not count
+  toward the cap; only `python` and `typescript` servers do.
 - Task ids keep the design's numbering, so there is no T5.
 
 ## Design that builders must follow
@@ -137,8 +138,8 @@ Choices this plan makes where the rulings were silent:
   and does not reconnect by itself. Stop 60 seconds after the last socket
   closes. Close with IDLE (4413) after 15 minutes without a browser
   message (the client reconnects quietly on the next edit or focus). At
-  most 3 servers per workspace; the 4th stops the least recently used one
-  with IDLE. Stopping is shutdown, exit, then kill the tree after 3
+  most 3 `python` or `typescript` servers per workspace (ruff is not
+  counted); the 4th stops the least recently used one with IDLE. Stopping is shutdown, exit, then kill the tree after 3
   seconds.
 - Crashes: an exit the agent did not cause closes with CRASHED (4414) (if
   the kill was not ours the message says "may have run out of memory").
