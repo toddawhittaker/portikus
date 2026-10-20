@@ -115,6 +115,7 @@ function fill(url: string): string {
 		.replace(":pid", projectId)
 		.replace(":tid", terminalId)
 		.replace(":checkId", "tests")
+		.replace(":server", "python")
 		.replace(":port", "5173")
 		.replace(":userId", crypto.randomUUID());
 }
@@ -141,6 +142,7 @@ const SOCKETS = [
 	"/workspaces/:id/terminals/:tid/ws?cols=80&rows=24",
 	"/workspaces/:id/projects/:pid/events",
 	"/workspaces/:id/projects/:pid/checks/:checkId/runs/current",
+	"/workspaces/:id/projects/:pid/language-servers/:server",
 ];
 
 for (const pattern of SOCKETS) {

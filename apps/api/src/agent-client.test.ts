@@ -352,3 +352,10 @@ test("an empty success answer resolves the call", async () => {
 	const client = new AgentClient("127.0.0.1", port, "token");
 	await expect(client.setLogLevel("debug")).resolves.toBeUndefined();
 });
+
+test("a language server is reached on its own socket path, with the slug encoded", () => {
+	const client = new AgentClient("10.0.0.5", 7000, "secret");
+	expect(client.languageServerUrl("my app", "typescript")).toBe(
+		"ws://10.0.0.5:7000/projects/my%20app/language-servers/typescript",
+	);
+});

@@ -293,3 +293,126 @@ test.skipIf(skip)(
 		expect(events).toEqual([]);
 	},
 );
+
+function setProfile(
+	courseId: string,
+	cookie: string,
+	payload: unknown = { profile: "traditional" },
+	origin = PUBLIC_URL,
+) {
+	return app.inject({
+		method: "PUT",
+		url: `/courses/${courseId}/profile`,
+		headers: { cookie, origin },
+		payload: payload as object,
+	});
+}
+
+async function profileOf(courseId: string): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("lti_contexts")
+		.select("profile")
+		.where("id", "=", courseId)
+		.executeTakeFirstOrThrow();
+	return row.profile;
+}
+
+// SPEC.md 8.7: the course's instructor sets the profile, and the change is audited.
+test.skipIf(skip)(
+	"an instructor sets the profile of a course they teach, with an audit row",
+	async () => {
+		const { ivy, tom, cs101 } = await seed();
+		const res = await setProfile(cs101, await cookieFor(ivy));
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toEqual({ id: cs101, profile: "traditional" });
+		expect(await profileOf(cs101)).toBe("traditional");
+
+		const listed = await get("/courses", await cookieFor(tom));
+		expect(CoursesResponse.parse(listed.json())[0]?.profile).toBe("traditional");
+
+		const events = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "course.profile_changed")
+			.execute();
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			actor: `user:${ivy}`,
+			target: cs101,
+			result: "ok",
+			metadata: { from: "agentic", to: "traditional" },
+		});
+
+		// A co-instructor may set it back.
+		const back = await setProfile(cs101, await cookieFor(tom), { profile: "agentic" });
+		expect(back.statusCode).toBe(200);
+		expect(await profileOf(cs101)).toBe("agentic");
+	},
+);
+
+test.skipIf(skip)(
+	"the profile is refused for a student, another course's instructor, an administrator, a stranger, bad input and no CSRF",
+	async () => {
+		const { ivy, sam, lee, admin, cs101, cs240 } = await seed();
+		const cases: Array<[string, Awaited<ReturnType<typeof setProfile>>, number]> = [
+			["a student of the course", await setProfile(cs101, await cookieFor(sam)), 404],
+			// Lee teaches CS 240, not CS 101.
+			[
+				"another course's instructor",
+				await setProfile(cs101, await cookieFor(lee)),
+				404,
+			],
+			// Ivy is only a student in CS 240.
+			["a student elsewhere", await setProfile(cs240, await cookieFor(ivy)), 404],
+			// Administrators use the admin route.
+			["an administrator", await setProfile(cs101, await cookieFor(admin)), 404],
+			[
+				"an unknown course",
+				await setProfile(crypto.randomUUID(), await cookieFor(ivy)),
+				404,
+			],
+			["a bad id", await setProfile("not-a-uuid", await cookieFor(ivy)), 404],
+			[
+				"an unknown profile",
+				await setProfile(cs101, await cookieFor(ivy), { profile: "hybrid" }),
+				400,
+			],
+			[
+				"an extra field",
+				await setProfile(cs101, await cookieFor(ivy), {
+					profile: "traditional",
+					title: "x",
+				}),
+				400,
+			],
+			[
+				"a foreign Origin",
+				await setProfile(
+					cs101,
+					await cookieFor(ivy),
+					{ profile: "traditional" },
+					"https://evil.example",
+				),
+				403,
+			],
+		];
+		for (const [name, res, status] of cases) {
+			expect(res.statusCode, name).toBe(status);
+		}
+		const anonymous = await app.inject({
+			method: "PUT",
+			url: `/courses/${cs101}/profile`,
+			headers: { origin: PUBLIC_URL },
+			payload: { profile: "traditional" },
+		});
+		expect(anonymous.statusCode).toBe(401);
+		expect(await profileOf(cs101)).toBe("agentic");
+		expect(await profileOf(cs240)).toBe("agentic");
+		const events = await testDb.db
+			.selectFrom("audit_events")
+			.select("id")
+			.where("action", "=", "course.profile_changed")
+			.execute();
+		expect(events).toEqual([]);
+	},
+);

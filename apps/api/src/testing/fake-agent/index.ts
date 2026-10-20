@@ -13,6 +13,10 @@ import { registerEventRoutes } from "./events.js";
 import { registerFileRoutes } from "./files.js";
 import type { FakeDirectory, FakeNode } from "./fs-model.js";
 import { registerGitRoutes } from "./git.js";
+import {
+	type FakeLanguageServers,
+	registerLanguageServerRoutes,
+} from "./language-servers.js";
 import { registerListeningRoutes } from "./listening.js";
 import { registerPackageRoutes } from "./packages.js";
 import { registerProcessRoutes } from "./processes.js";
@@ -141,6 +145,8 @@ export interface FakeAgent {
 	storage: Map<string, FakeStorage>;
 	/** Processes `/usage` reports and `/processes/:pid/stop` stops, by workspace key. */
 	processes: Map<string, FakeProcess[]>;
+	/** The language-server sockets and their scripted responder (SPEC.md §13.6). */
+	languageServers: FakeLanguageServers;
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -294,6 +300,7 @@ export async function startFakeAgent(
 	registerPackageRoutes(app, s);
 	registerProcessRoutes(app, s);
 	registerListeningRoutes(app, s);
+	const languageServers = registerLanguageServerRoutes(app);
 
 	await app.listen({ port: options.port ?? 0, host: "127.0.0.1" });
 	const address = app.server.address() as AddressInfo;
@@ -330,6 +337,7 @@ export async function startFakeAgent(
 		eventCloses,
 		pushEvent,
 		pushOversizedEvent,
+		languageServers,
 		logLevels,
 		get searchAborted() {
 			return flags.searchAborted;

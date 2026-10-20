@@ -4,20 +4,23 @@ import {
 	CourseMemberRole,
 	type CourseMembersResponse,
 	CourseProfile,
+	type CourseProfileResponse,
 	type CoursesResponse,
+	SetCourseProfileRequest,
 	WorkspaceState,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { taughtCourseId, teachesCourse } from "../courses/membership.js";
+import { setCourseProfile } from "../courses/profile.js";
 import {
 	courseRoster,
 	membershipSubjects,
 	selectRosterCourse,
 } from "../courses/roster.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 
 const MemberParam = z.object({
 	courseId: z.string().uuid(),
@@ -56,6 +59,24 @@ export function registerCourseRoutes(
 			profile: CourseProfile.parse(row.profile),
 		}));
 		return reply.send(body);
+	});
+
+	// The one write an instructor has on the Course page; an administrator
+	// uses PUT /admin/courses/:courseId/profile (SPEC.md §8.7).
+	app.put("/courses/:courseId/profile", async (request, reply) => {
+		const user = requireUser(request);
+		const courseId = await taughtCourseId(db, request);
+		if (!courseId) return sendError(reply, 404, "NOT_FOUND", "Not found.");
+		const body = parseOr400(SetCourseProfileRequest, request.body ?? {}, reply);
+		if (!body) return reply;
+		const updated = await setCourseProfile(db, {
+			courseId,
+			profile: body.profile,
+			actorUserId: user.id,
+		});
+		if (!updated) return sendError(reply, 404, "NOT_FOUND", "Not found.");
+		const out: CourseProfileResponse = updated;
+		return reply.send(out);
 	});
 
 	app.get("/courses/:courseId/members", async (request, reply) => {

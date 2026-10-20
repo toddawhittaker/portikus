@@ -4766,7 +4766,7 @@ restore folder writes `recovery.aside_deleted` (section 15.10). Changing the
 voice switch writes `settings.voice_input_updated` with `{from, to}`. No row
 holds a process name, command line or path.
 
-As built (Epic 52): changing the code-help switch writes `settings.code_help_updated` with `{from, to}`. No row holds source code, a path, or anything a language server said.
+As built (Epic 52): changing the code-help switch writes `settings.code_help_updated` with `{from, to}`, and changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. No row holds source code, a path, or anything a language server said.
 
 As built (Epic 22): the listener `commandLine` field has existed since
 Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
