@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from test_provider_groups import GOOGLE, KEY, OLD_KEY
-from test_site_job import JOB, JOB2, JOB3, REPO, Host, platform, sj
+from test_site_job import JOB, JOB2, JOB3, REPO, Host, platform, site_common
 
 UNIT = REPO / "packaging/systemd/portikus-site-job.service"
 # debconf-set-selections, which the job runs, writes its answers here.
@@ -35,9 +35,9 @@ class UnitPaths(Host):
     def setUp(self):
         super().setUp()
         self.install()
-        Path(self.path(sj.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
-        os.makedirs(self.path(os.path.dirname(sj.DEX_KEY_FILE)))
-        Path(self.path(sj.DEX_KEY_FILE)).write_text(OLD_KEY)
+        Path(self.path(site_common.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
+        os.makedirs(self.path(os.path.dirname(site_common.DEX_KEY_FILE)))
+        Path(self.path(site_common.DEX_KEY_FILE)).write_text(OLD_KEY)
 
     def tree(self):
         files = {}
@@ -56,13 +56,13 @@ class UnitPaths(Host):
         self.play("keep", "3b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e", trialId=JOB3)
         signin = "4b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
         self.assertEqual(self.play("signin", signin, **GOOGLE, googleServiceAccountKey=KEY)["state"], "trial")
-        self.assertEqual(Path(self.path(sj.DEX_KEY_FILE)).read_text(), KEY)
+        self.assertEqual(Path(self.path(site_common.DEX_KEY_FILE)).read_text(), KEY)
         self.play("rollback", "5b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e", trialId=signin)
         after = self.tree()
         touched = {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
         # A changed directory entry shows as a changed directory; the files inside say which.
         touched = {p for p in touched if not os.path.isdir(self.path(p))}
-        self.assertIn(sj.DEX_KEY_FILE, touched)
+        self.assertIn(site_common.DEX_KEY_FILE, touched)
         roots = writable_paths()
         self.assertEqual(sorted(p for p in touched if not under(p, roots)), [])
         self.assertIn("debconf-set-selections", self.fake.names())
