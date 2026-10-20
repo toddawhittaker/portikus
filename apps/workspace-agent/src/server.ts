@@ -24,6 +24,7 @@ import { eventsRoute } from "./events-route.js";
 import { filesRoutes } from "./files-route.js";
 import { Forwards } from "./forwards.js";
 import { gitRoutes } from "./git-routes.js";
+import { languageServersRoute } from "./language-servers-route.js";
 import {
 	ListeningMonitor,
 	type ListeningMonitorOptions,
@@ -87,6 +88,8 @@ export interface ServerOptions {
 	build?: string;
 	/** Overrides the process cap on a check, so tests do not depend on host load. */
 	checkMaxProcesses?: number;
+	/** Overrides the language-server process cap, so tests do not depend on host load. */
+	languageServerMaxProcesses?: number;
 	/** Overrides how `docker` runs for the inventory route. For tests. */
 	dockerRunner?: DockerRunner;
 	/**
@@ -314,6 +317,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,
 			watchers,
+		});
+		instance.register(languageServersRoute, {
+			homeDir: options.homeDir,
+			host: { maxProcesses: options.languageServerMaxProcesses },
 		});
 	});
 

@@ -15,13 +15,12 @@
 		"@portikus/contracts": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"@portikus/observability": "workspace:*",
-		"@portikus/tsserver6": "workspace:*",
 		"chokidar": "5.0.0",
 		"fastify": "5.12.5",
 		"ignore": "7.0.10",
 		"node-pty": "1.1.0",
 		"pyright": "1.1.414",
-		"typescript-language-server": "6.0.2",
+		"typescript": "7.0.2",
 		"zod": "4.6.5"
 	},
 	"devDependencies": {

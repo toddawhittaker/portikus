@@ -1,9 +1,0 @@
-{
-	"name": "@portikus/tsserver6",
-	"version": "0.0.0",
-	"private": true,
-	"description": "Holds TypeScript 6 for the language server; TypeScript 7 has no tsserver. No code, no bin.",
-	"dependencies": {
-		"typescript": "6.0.3"
-	}
-}

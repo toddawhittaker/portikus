@@ -24,12 +24,7 @@
 			"project": ["src/**/*.ts"]
 		},
 		"apps/workspace-agent": {
-			"project": ["src/**/*.ts"],
-			"ignoreDependencies": [
-				"@portikus/tsserver6",
-				"pyright",
-				"typescript-language-server"
-			]
+			"project": ["src/**/*.ts"]
 		},
 		"apps/workspace-controller": {
 			"entry": ["src/egress-apply-main.ts"],
