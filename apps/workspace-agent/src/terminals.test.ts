@@ -329,6 +329,18 @@ test.skipIf(!haveTmux)(
 			a.resize(120, 40);
 			await vi.waitFor(async () => expect(await windowSize(id)).toBe("120x40"));
 
+			// The window is 120x40 from A's attach alone. Wait for A's claim to
+			// finish, or B's attach can win the window while it is still running.
+			// A browser sends its size again until it is accepted; so does this.
+			await vi.waitFor(async () => {
+				a.resize(120, 40);
+				const { stdout } = await run("tmux", [
+					...["-L", SOCKET_NAME, "list-clients", "-t", `pk-${id}`],
+					...["-F", "#{client_flags}"],
+				]);
+				expect(stdout).not.toContain("ignore-size");
+			});
+
 			// B connects with a size measured while its pane was settling.
 			await registry.attach(id, b as unknown as WebSocket, { cols: 12, rows: 6 });
 			await vi.waitFor(async () => {
