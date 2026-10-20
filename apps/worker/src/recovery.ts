@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { RecoveryReason } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordRecoveryPoint } from "@portikus/db";
 import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import type { AgentFactory, RecoveryAgent } from "./agent-client.js";
@@ -186,7 +185,6 @@ async function makePoint(
 	now: Date,
 	log: Logger,
 ): Promise<"created" | "none" | "unreachable"> {
-	const pointId = randomUUID();
 	let outcome: "created" | "none" | "unreachable" = "none";
 	try {
 		const latest = skipUnchanged
@@ -198,40 +196,29 @@ async function makePoint(
 					.limit(1)
 					.executeTakeFirst()
 			: undefined;
-		const result = await agent.createRecoveryPoint(project.slug, {
+		const point = await recordRecoveryPoint(db, {
 			projectId: project.id,
-			pointId,
-			...(latest ? { skipIfFingerprint: latest.fingerprint } : {}),
+			workspaceId,
+			reason,
+			createdBy: "worker",
+			retentionDays: config.RECOVERY_RETENTION_DAYS,
+			archive: (pointId) =>
+				agent.createRecoveryPoint(project.slug, {
+					projectId: project.id,
+					pointId,
+					...(latest ? { skipIfFingerprint: latest.fingerprint } : {}),
+				}),
 		});
-		if (result.created) {
-			// The archive may take minutes, so the point is stamped when it exists.
-			const madeAt = new Date();
-			await db
-				.insertInto("recovery_points")
-				.values({
-					id: pointId,
-					project_id: project.id,
-					workspace_id: workspaceId,
-					reason,
-					created_at: madeAt.toISOString(),
-					created_by: "worker",
-					size_bytes: result.sizeBytes,
-					sha256: result.sha256,
-					fingerprint: result.fingerprint,
-					expires_at: new Date(
-						madeAt.getTime() + config.RECOVERY_RETENTION_DAYS * 86_400_000,
-					).toISOString(),
-				})
-				.execute();
+		if (point) {
 			outcome = "created";
 			// Ids, reason and size only: never file names (ADR 0012).
 			log.info(
 				{
 					workspaceId,
 					projectId: project.id,
-					pointId,
+					pointId: point.id,
 					reason,
-					sizeBytes: result.sizeBytes,
+					sizeBytes: Number(point.size_bytes),
 				},
 				"recovery point created",
 			);

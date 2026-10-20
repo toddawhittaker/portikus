@@ -737,7 +737,10 @@ test.each([
 		expect(toast.closest(`[role="${role}"]`)).not.toBeNull();
 		// The Users view announces it; the open panel does not add a second toast.
 		expect(screen.getAllByText(title)).toHaveLength(1);
-		expect(state.textContent).not.toBe("Rebuilding…");
+		// The panel refreshes on its own poll, which can lag the Users view toast.
+		await waitFor(() => expect(state.textContent).not.toBe("Rebuilding…"), {
+			timeout: 8000,
+		});
 		await waitFor(() => expect(within(usersRow).queryByText("Rebuilding…")).toBeNull());
 	},
 	20000,

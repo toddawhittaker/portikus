@@ -235,6 +235,7 @@ export const ApiErrorCode = z.enum([
 	"TOO_MANY_CONNECTIONS",
 	"TERMINAL_LIMIT",
 	"LAYOUT_LIMIT",
+	"LAYOUT_CHANGED",
 	"TERMINAL_NOT_FOUND",
 	"PROJECT_EXISTS",
 	"PROJECT_NOT_FOUND",
@@ -256,6 +257,11 @@ export const ApiErrorCode = z.enum([
 	"AGENT_UNAVAILABLE",
 	// The preview routes (BROWSER-HANDLING.md §9.1).
 	"WORKSPACE_NOT_RUNNING",
+	// Live help (ADR 0063): one open session per workspace, and no attach
+	// while the student has no browser open.
+	"LIVE_HELP_OPEN",
+	"STUDENT_NOT_CONNECTED",
+	// One helper socket per terminal of a session.
 	"PREVIEW_PORT_NOT_ALLOWED",
 	"PREVIEW_FORWARD_FAILED",
 	"PREVIEW_RATE_LIMITED",

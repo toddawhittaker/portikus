@@ -163,6 +163,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 		"student-container-images",
 		"student-checks",
 		"student-sharing",
+		"student-live-help",
 		"student-agent-usage",
 		"student-settings",
 		"student-keyboard",

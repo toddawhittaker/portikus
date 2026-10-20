@@ -10,6 +10,7 @@ import {
 import { ProjectEvents } from "./files/ProjectEvents.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { LaunchNotice } from "./link/LaunchNotice.js";
+import { LiveHelpBar } from "./livehelp/LiveHelpBar.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
@@ -90,7 +91,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const phase = startingPhase(workspace);
 	const loading =
 		phase === "connecting" || phase === "starting" || phase === "restoring";
-	const layout = useDefaultLayout({ id: "pk-shell", panelIds: PANEL_IDS });
+	const layout = useDefaultLayout({
+		id: "pk-shell",
+		panelIds: PANEL_IDS,
+		// The squeeze of a narrow window must not become the wide layout's widths.
+		onlySaveAfterUserInteractions: true,
+	});
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
 	const layoutStore = useLayoutStore(projectId ?? "none");
@@ -110,7 +116,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	useTerminalThemeAttribute();
 
 	const shell = (
-		<div className="pk-root">
+		// No width floor: below 56rem the panes stack (app.css, .pk-shell).
+		<div className="pk-root min-w-0!">
 			<ScreenReaderToggle />
 			<AppHeader
 				workspaceId={workspaceId}
@@ -119,6 +126,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				project={project}
 			/>
 			<LaunchNotice displayName={user.displayName} />
+			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
+			<LiveHelpBar workspaceId={workspaceId} fallbackFocus={workRef} />
 			<StarterLaunch workspaceId={workspaceId} starterId={starter} running={running} />
 			<Group
 				className="pk-shell"

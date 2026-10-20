@@ -58,6 +58,15 @@ const SharedProjectPage = lazyPage(
 	() => import("./course/SharedProjectPage.js"),
 	(module) => module.SharedProjectPage,
 );
+const LiveHelpPage = lazyPage(
+	() => import("./course/live/LiveHelpPage.js"),
+	(module) => module.LiveHelpPage,
+);
+// Its own file, so xterm.js loads only when a session is opened.
+const LiveSessionPage = lazyPage(
+	() => import("./course/live/LiveSessionPage.js"),
+	(module) => module.LiveSessionPage,
+);
 const HelpPage = lazyPage(
 	() => import("./help/HelpPage.js"),
 	(module) => module.HelpPage,
@@ -293,6 +302,27 @@ const sharedProjectRoute = createRoute({
 	),
 });
 
+/** The live help sessions students opened with this instructor (ADR 0063). */
+const liveHelpRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course/$courseId/live",
+	component: () => (
+		<Lazy>
+			<LiveHelpPage />
+		</Lazy>
+	),
+});
+
+const liveSessionRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/course/$courseId/live/$sessionId",
+	component: () => (
+		<Lazy>
+			<LiveSessionPage />
+		</Lazy>
+	),
+});
+
 /** The workspace help; the instructor part shows by role or teaching. */
 const helpRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -433,6 +463,8 @@ export const routeTree = rootRoute.addChildren([
 	courseRoute,
 	courseMembersRoute,
 	sharedProjectRoute,
+	liveHelpRoute,
+	liveSessionRoute,
 	helpRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,

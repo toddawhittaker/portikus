@@ -149,6 +149,8 @@
  * In the components layer so a utility such as overflow-clip can override it. */
 @layer components {
 	.pk-table-wrap {
+		/* The containing block for a cell's sr-only text, which would otherwise escape the box and widen the page. */
+		position: relative;
 		overflow: auto;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);

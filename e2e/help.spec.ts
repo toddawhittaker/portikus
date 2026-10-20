@@ -319,6 +319,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Container images with GitHub Actions",
 		"Checks",
 		"Sharing a project with your instructors",
+		"Getting live help from an instructor",
 		"What your instructors can see about coding agents",
 		"Settings",
 		"Keyboard and screen readers",

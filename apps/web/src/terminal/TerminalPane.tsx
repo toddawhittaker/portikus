@@ -257,59 +257,62 @@ export function TerminalPane({
 				handlers.current.onExited(terminalId);
 			}
 
-			channel.current = openTerminalSocket(workspaceId, terminalId, {
-				size: () => ({ cols: term.cols, rows: term.rows }),
-				onOpen: () => {
-					setReconnecting(false);
-					setConnected(true);
+			channel.current = openTerminalSocket(
+				`/workspaces/${workspaceId}/terminals/${terminalId}/ws`,
+				{
+					size: () => ({ cols: term.cols, rows: term.rows }),
+					onOpen: () => {
+						setReconnecting(false);
+						setConnected(true);
+					},
+					onClose: () => setConnected(false),
+					onReconnecting: () => setReconnecting(true),
+					// Stop retrying and tell the user, rather than pretending to be live.
+					onLost: () => {
+						setReconnecting(false);
+						setLost(true);
+					},
+					onTooMany: () => {
+						setReconnecting(false);
+						setTooMany(true);
+					},
+					onOutput: (bytes) => term.write(bytes),
+					// The size in the connect URL is measured before the pane's box
+					// has settled, and a correction sent in the meantime is lost:
+					// this socket was not open yet, or the workspace agent had not
+					// yet started the PTY. Output means both are ready, so say the
+					// size again. Without this tmux keeps repainting a taller
+					// screen than xterm.js has, which scrolls the shell prompt out
+					// of view and leaves a blank pane (SPEC.md §9.7).
+					onFirstOutput: sendSize,
+					onExit: ended,
+					// The session went with a terminals restart: close the pane
+					// and say why, once per restart (SPEC.md §9.7).
+					onGone: (frame) => {
+						forgetAgentBuild(workspaceId);
+						if (firstNoticeOf(frame.at ?? "")) {
+							handlers.current.toast.show({
+								tone: "warning",
+								title: terminalGoneMessage(frame.reason),
+								children: TERMINAL_GONE_NEXT_STEP,
+							});
+						}
+						ended();
+					},
+					onError: (code) => term.writeln(`\r\n[portikus] terminal error: ${code}`),
+					onCwd: (path) => handlers.current.onCwd(path),
+					onScreen: (alternate) => {
+						alternateScreen = alternate;
+					},
+					// Erase the saved lines only; tmux has already cleared the screen.
+					onClear: () => term.write("\u001b[3J"),
+					onAgent: (build) => {
+						if (upgradedAgentNotice(workspaceId, build)) {
+							handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+						}
+					},
 				},
-				onClose: () => setConnected(false),
-				onReconnecting: () => setReconnecting(true),
-				// Stop retrying and tell the user, rather than pretending to be live.
-				onLost: () => {
-					setReconnecting(false);
-					setLost(true);
-				},
-				onTooMany: () => {
-					setReconnecting(false);
-					setTooMany(true);
-				},
-				onOutput: (bytes) => term.write(bytes),
-				// The size in the connect URL is measured before the pane's box
-				// has settled, and a correction sent in the meantime is lost:
-				// this socket was not open yet, or the workspace agent had not
-				// yet started the PTY. Output means both are ready, so say the
-				// size again. Without this tmux keeps repainting a taller
-				// screen than xterm.js has, which scrolls the shell prompt out
-				// of view and leaves a blank pane (SPEC.md §9.7).
-				onFirstOutput: sendSize,
-				onExit: ended,
-				// The session went with a terminals restart: close the pane
-				// and say why, once per restart (SPEC.md §9.7).
-				onGone: (frame) => {
-					forgetAgentBuild(workspaceId);
-					if (firstNoticeOf(frame.at ?? "")) {
-						handlers.current.toast.show({
-							tone: "warning",
-							title: terminalGoneMessage(frame.reason),
-							children: TERMINAL_GONE_NEXT_STEP,
-						});
-					}
-					ended();
-				},
-				onError: (code) => term.writeln(`\r\n[portikus] terminal error: ${code}`),
-				onCwd: (path) => handlers.current.onCwd(path),
-				onScreen: (alternate) => {
-					alternateScreen = alternate;
-				},
-				// Erase the saved lines only; tmux has already cleared the screen.
-				onClear: () => term.write("\u001b[3J"),
-				onAgent: (build) => {
-					if (upgradedAgentNotice(workspaceId, build)) {
-						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
-					}
-				},
-			});
+			);
 
 			const input = term.onData((data) => send({ type: "input", data }));
 

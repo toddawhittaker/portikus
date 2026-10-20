@@ -27,6 +27,12 @@ import {
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
+import {
+	closeEndedLiveHelp,
+	type EndedLiveHelp,
+	endProjectLiveHelp,
+} from "../live-help/sessions.js";
+import type { BridgeForwards } from "../preview/bridge.js";
 import type { UserLimit } from "../rate-limit.js";
 import { cappedDownload } from "../workspaces/capped-download.js";
 import { createProject } from "../workspaces/create-project.js";
@@ -46,6 +52,7 @@ import {
 } from "../workspaces/project-scope.js";
 import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
+import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
 import { registerProjectStarterRoute } from "./project-starter.js";
 
@@ -200,7 +207,12 @@ async function moveProjectRow(
  */
 export function registerProjectRoutes(
 	app: FastifyInstance,
-	{ db, config }: ServerDeps,
+	{
+		db,
+		config,
+		workspaceHub,
+		bridge,
+	}: ServerDeps & { workspaceHub: WorkspaceHub; bridge: BridgeForwards },
 	/** Shared with the files routes (ADR 0034 ruling 16). */
 	allowWrite: UserLimit,
 ): void {
@@ -524,6 +536,7 @@ export function registerProjectRoutes(
 				}
 				const state = body.data.state;
 				const projectId = current.id;
+				let endedHelp: EndedLiveHelp | null = null;
 				current = await db.transaction().execute(async (trx) => {
 					const updated = await trx
 						.updateTable("projects")
@@ -548,9 +561,15 @@ export function registerProjectRoutes(
 							actor: `user:${user.id}`,
 							reason: "archived",
 						});
+						endedHelp = await endProjectLiveHelp(trx, {
+							projectId,
+							actor: `user:${user.id}`,
+						});
 					}
 					return updated;
 				});
+				// Sockets close only once the archive is committed.
+				if (endedHelp) await closeEndedLiveHelp(endedHelp, bridge);
 			}
 
 			return toProject(current, null, null);
@@ -862,7 +881,7 @@ export function registerProjectRoutes(
 		return reply.send(stream);
 	});
 
-	registerProjectLayoutRoutes(app, db, limitWrites, owned, ownedProject);
+	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
 }
 
 /**

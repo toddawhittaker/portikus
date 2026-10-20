@@ -14,6 +14,7 @@ import {
 	workspaceUpgradeGuard,
 } from "../workspaces/presence.js";
 import { createSocketSlots } from "../workspaces/socket-slots.js";
+import { layoutMessage, type WorkspaceHub } from "../workspaces/workspace-hub.js";
 import { workspaceView } from "../workspaces/workspace-view.js";
 
 /**
@@ -53,7 +54,13 @@ export function signatureOf(workspace: Workspace): string {
  */
 export function registerWorkspaceSocket(
 	app: FastifyInstance,
-	{ db, config, logger, registry }: ServerDeps & { registry: ListeningRegistry },
+	{
+		db,
+		config,
+		logger,
+		registry,
+		workspaceHub,
+	}: ServerDeps & { registry: ListeningRegistry; workspaceHub: WorkspaceHub },
 ): void {
 	const watchers = new Map<string, Watcher>();
 	// Administrator sockets write no presence rows, so they are counted here.
@@ -83,6 +90,22 @@ export function registerWorkspaceSocket(
 		if (socket.readyState !== socket.OPEN) return;
 		const message: ServerMessage = { type: "listening-services", services };
 		socket.send(JSON.stringify(message));
+	}
+
+	/** Each project's layout version, so a reconnecting browser catches up (SPEC.md §7.5). */
+	async function sendLayoutVersions(
+		socket: WebSocket,
+		workspaceId: string,
+	): Promise<void> {
+		const rows = await db
+			.selectFrom("projects")
+			.select(["id", "layout_version"])
+			.where("workspace_id", "=", workspaceId)
+			.execute();
+		for (const row of rows) {
+			if (socket.readyState !== socket.OPEN) return;
+			socket.send(layoutMessage(row.id, row.layout_version));
+		}
 	}
 
 	async function dropConnection(connectionId: string): Promise<void> {
@@ -224,6 +247,9 @@ export function registerWorkspaceSocket(
 					unsubscribe = registry.subscribe(workspaceId, (services) => {
 						sendListening(socket, services);
 					});
+					// Join before reading, so a save in between is announced, not lost.
+					socket.once("close", workspaceHub.add(workspaceId, socket));
+					await sendLayoutVersions(socket, workspaceId);
 				}
 
 				const subscriber: Subscriber = {

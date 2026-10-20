@@ -239,8 +239,8 @@ export function useFileBuffer({
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
-	const latest = useRef({ text, etag, deleted });
-	latest.current = { text, etag, deleted };
+	const latest = useRef({ text, etag, deleted, dirty });
+	latest.current = { text, etag, deleted, dirty };
 	const settingsRef = useRef(settings);
 	settingsRef.current = settings;
 
@@ -290,6 +290,7 @@ export function useFileBuffer({
 			text: carried.state.text,
 			etag: carried.state.etag,
 			deleted: false,
+			dirty: carried.state.dirty,
 		};
 		dispatch({ type: "restore", state: carried.state });
 		// A remount ends a run of typing, so the carried text is saved at once.
@@ -413,7 +414,7 @@ export function useFileBuffer({
 
 	function edit(next: string, inConflictView: boolean) {
 		// The save decisions read this before the next render, as the reducer does.
-		latest.current = { ...latest.current, text: next };
+		latest.current = { ...latest.current, text: next, dirty: true };
 		dispatch({ type: "edit", text: next, inConflictView });
 		// An unresolved conflict waits; autosaving would only produce another 412.
 		if (conflict !== null) return;
@@ -422,8 +423,10 @@ export function useFileBuffer({
 	}
 
 	function saveNow() {
-		if (!dirty || conflict !== null) return;
+		// A Ctrl+S right after a keystroke can beat the render that marks the
+		// tab dirty, so this reads the ref the edit already updated.
 		const current = latest.current;
+		if (!current.dirty || conflict !== null) return;
 		if (current.text === null) return;
 		if (writing.current) {
 			// A write is already in the air; this one follows it at once.

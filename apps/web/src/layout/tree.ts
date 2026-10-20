@@ -576,3 +576,102 @@ export function closeTab(layout: ProjectLayout, tabId: string): ProjectLayout {
 	if (!layout.tabs.some((tab) => tab.id === tabId)) return layout;
 	return { tabs: layout.tabs.filter((tab) => tab.id !== tabId) };
 }
+
+/**
+ * `next` with the split sizes of `current` wherever a split holds the same
+ * panes in the same direction, so a layout from another browser keeps this
+ * browser's pane widths (SPEC.md §7.5).
+ */
+function keepSizes(current: ProjectLayout, next: ProjectLayout): ProjectLayout {
+	function walk(here: SplitNode, there: SplitNode): SplitNode {
+		if (here.type !== "split" || there.type !== "split") return there;
+		if (here.direction !== there.direction) return there;
+		if (here.children.length !== there.children.length) return there;
+		const same = here.children.every(
+			(child, i) =>
+				JSON.stringify(paneIds(child)) ===
+				JSON.stringify(paneIds(there.children[i] as SplitNode)),
+		);
+		if (!same) return there;
+		return {
+			...there,
+			sizes: here.sizes,
+			children: there.children.map((child, i) =>
+				walk(here.children[i] as SplitNode, child),
+			),
+		};
+	}
+	return {
+		tabs: next.tabs.map((tab) => {
+			const mine = current.tabs.find((candidate) => candidate.id === tab.id);
+			return mine ? { ...tab, root: walk(mine.root, tab.root) } : tab;
+		}),
+	};
+}
+
+/**
+ * The layout another browser saved, as this browser shows it (SPEC.md §7.5):
+ * old diff tabs become file tabs, this browser's split sizes stay, and a file
+ * open here with unsaved text keeps a pane. `unsaved` takes a file pane's id.
+ */
+export function mergeRemote(
+	current: ProjectLayout,
+	remote: ProjectLayout,
+	unsaved: (paneId: string) => boolean,
+): ProjectLayout {
+	let layout = keepSizes(current, migrateDiffTabs(remote).layout);
+	for (const path of current.tabs.flatMap((tab) => filePaths(tab.root))) {
+		if (unsaved(fileTabId(path))) layout = openFile(layout, path).layout;
+	}
+	return layout;
+}
+
+/**
+ * A terminal id belongs to exactly one pane. A create refetches the terminal
+ * list, so a reconcile can put the new terminal in a tab of its own before
+ * the action that asked for it gets to place it; dropping any pane it already
+ * has first keeps that from leaving two copies behind.
+ */
+export function dropTerminalPane(
+	layout: ProjectLayout,
+	terminalId: string,
+): ProjectLayout {
+	return layoutTerminalIds(layout).includes(terminalId)
+		? removeLeaf(layout, terminalId)
+		: layout;
+}
+
+/**
+ * The id a tab has after a change. A tab can be renamed when a file's pane
+ * leaves it or joins it (settleTabIds), so a tab that is gone is
+ * followed through the panes it held; `paneNow` gives a pane's id after the
+ * change, for a file that moved. Unchanged when nothing matches.
+ */
+export function followTab(
+	before: ProjectLayout,
+	after: ProjectLayout,
+	tabId: string,
+	paneNow: (paneId: string) => string = (paneId) => paneId,
+): string {
+	if (after.tabs.some((tab) => tab.id === tabId)) return tabId;
+	const old = before.tabs.find((tab) => tab.id === tabId);
+	if (!old) return tabId;
+	for (const id of paneIds(old.root)) {
+		const now = tabOfPane(after, paneNow(id));
+		if (now !== null) return now;
+	}
+	return tabId;
+}
+
+/**
+ * Keep the active tab pointing at a tab that still exists, preferring the one
+ * that was active most recently.
+ */
+export function pickActive(
+	layout: ProjectLayout,
+	current: string | null,
+	history: string[],
+): string | null {
+	if (current && layout.tabs.some((tab) => tab.id === current)) return current;
+	return history[0] ?? layout.tabs[0]?.id ?? null;
+}

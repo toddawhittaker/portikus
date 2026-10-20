@@ -1,4 +1,5 @@
 import { ToastProvider } from "@portikus/ui";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { useLayoutPersistence } from "./persist";
@@ -15,15 +16,18 @@ function Persisted({ store }: { store: LayoutStore }) {
 
 function Harness({ store }: { store: LayoutStore }) {
 	return (
-		<ToastProvider>
-			<Persisted store={store} />
-		</ToastProvider>
+		<QueryClientProvider client={new QueryClient()}>
+			<ToastProvider>
+				<Persisted store={store} />
+			</ToastProvider>
+		</QueryClientProvider>
 	);
 }
 
 function stubFetch(get: () => Response) {
 	const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
-		if (init?.method === "PUT") return { status: 204, ok: true } as Response;
+		if (init?.method === "PUT")
+			return new Response(null, { status: 204, headers: { etag: '"1"' } });
 		return get();
 	});
 	vi.stubGlobal("fetch", fetchMock);
@@ -31,7 +35,7 @@ function stubFetch(get: () => Response) {
 }
 
 function noContent(): Response {
-	return { status: 204, ok: true } as Response;
+	return new Response(null, { status: 204, headers: { etag: '"0"' } });
 }
 
 afterEach(() => {
@@ -49,7 +53,7 @@ test("a saved layout is loaded into the store", async () => {
 			},
 		],
 	};
-	stubFetch(() => ({ status: 200, ok: true, json: async () => saved }) as Response);
+	stubFetch(() => new Response(JSON.stringify(saved), { status: 200 }));
 	const store = createLayoutStore();
 	render(<Harness store={store} />);
 	await waitFor(() => expect(store.getState().layout.tabs).toHaveLength(1));
@@ -146,10 +150,8 @@ test("the selected tab and the editor view states are kept in this browser", asy
 test("the selected tab and the view states come back on the next mount", async () => {
 	stubFetch(
 		() =>
-			({
-				status: 200,
-				ok: true,
-				json: async () => ({
+			new Response(
+				JSON.stringify({
 					tabs: [
 						{
 							id: "a",
@@ -161,7 +163,8 @@ test("the selected tab and the view states come back on the next mount", async (
 						{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
 					],
 				}),
-			}) as Response,
+				{ status: 200 },
+			),
 	);
 	localStorage.setItem(
 		`portikus.layout.${PROJECT}`,

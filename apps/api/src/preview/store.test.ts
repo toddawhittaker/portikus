@@ -15,6 +15,7 @@ import {
 } from "./store.js";
 
 const skip = !hasTestDb();
+const PRESENCE = { PRESENCE_TTL_SECONDS: 60 };
 let testDb: TestDb;
 
 beforeAll(async () => {
@@ -122,7 +123,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 		const { user, workspaceId, token } = await world();
 		const { db, count } = countingDb();
 		let clock = 0;
-		const cache = createPreviewLookupCache(db, () => clock);
+		const cache = createPreviewLookupCache(db, PRESENCE, () => clock);
 		const first = await cache.get(token);
 		expect(first.session?.user_id).toBe(user);
 		expect(first.user?.id).toBe(user);
@@ -140,7 +141,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 	test("after the window a stop and a sign-out are seen", async () => {
 		const { workspaceId, mainToken, token } = await world();
 		let clock = 0;
-		const cache = createPreviewLookupCache(testDb.db, () => clock);
+		const cache = createPreviewLookupCache(testDb.db, PRESENCE, () => clock);
 		expect((await cache.get(token)).workspace?.state).toBe("running");
 
 		await testDb.db
@@ -161,7 +162,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 
 	test("keeps nothing for an unknown or revoked cookie", async () => {
 		const { token } = await world();
-		const cache = createPreviewLookupCache(testDb.db);
+		const cache = createPreviewLookupCache(testDb.db, PRESENCE);
 		expect((await cache.get("made-up")).session).toBeNull();
 		expect(cache.size).toBe(0);
 		await testDb.db
@@ -175,7 +176,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 	test("is keyed by the cookie: another cookie gets its own rows", async () => {
 		const a = await world();
 		const b = await world();
-		const cache = createPreviewLookupCache(testDb.db);
+		const cache = createPreviewLookupCache(testDb.db, PRESENCE);
 		expect((await cache.get(a.token)).user?.id).toBe(a.user);
 		expect((await cache.get(b.token)).user?.id).toBe(b.user);
 		expect((await cache.get(a.token)).user?.id).toBe(a.user);
@@ -186,7 +187,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 
 	test("a lookup in flight when the cache is cleared does not store its rows", async () => {
 		const { token } = await world();
-		const cache = createPreviewLookupCache(testDb.db);
+		const cache = createPreviewLookupCache(testDb.db, PRESENCE);
 		const pending = cache.get(token);
 		cache.clear();
 		expect((await pending).user).not.toBeNull();
@@ -197,7 +198,7 @@ describe.skipIf(skip)("createPreviewLookupCache", () => {
 		const a = await world();
 		const b = await world();
 		let clock = 0;
-		const cache = createPreviewLookupCache(testDb.db, () => clock);
+		const cache = createPreviewLookupCache(testDb.db, PRESENCE, () => clock);
 		await cache.get(a.token);
 		clock += PREVIEW_LOOKUP_TTL_MS;
 		await cache.get(b.token);

@@ -10,7 +10,11 @@ import {
 	TerminalTheme,
 	UpdateTerminalRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import {
+	countProjectPoints,
+	type Database,
+	MAX_POINTS_PER_PROJECT,
+} from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
@@ -24,11 +28,7 @@ import {
 	openPresence,
 	workspaceUpgradeGuard,
 } from "../workspaces/presence.js";
-import {
-	countProjectPoints,
-	MAX_POINTS_PER_PROJECT,
-	makeRecoveryPoint,
-} from "../workspaces/recovery-points.js";
+import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
 import { terminalSockets } from "../workspaces/terminal-sockets.js";
 import { findWorkspaceOwnedBy } from "../workspaces/workspace-view.js";
