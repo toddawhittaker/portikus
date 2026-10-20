@@ -439,6 +439,11 @@ export class TerminalRegistry {
 				socket.close(1009, "input frame too large");
 				return;
 			}
+			// tmux sizes the window to whoever typed last, so typing takes the
+			// claim without one. A helper's client ignores size (SPEC.md §9.7).
+			if (attachment.sized && !attachment.mode) {
+				this.claimers.set(attachment.terminalId, attachment);
+			}
 			if (attachment.pendingInput) {
 				const size = Buffer.byteLength(message.data.data, "utf8");
 				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
