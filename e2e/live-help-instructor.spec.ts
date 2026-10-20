@@ -399,3 +399,76 @@ test("the instructor opens a preview of the student's server in a new tab", asyn
 		await setup.instructorContext.close();
 	}
 });
+
+/** The window sizes the live help view is checked at, tall to short and narrow (SPEC.md 25.8). */
+const FIT_SIZES = [
+	{ width: 1280, height: 900 },
+	{ width: 1280, height: 600 },
+	{ width: 1024, height: 640 },
+	{ width: 320, height: 720 },
+] as const;
+
+test("the live help terminal fits the window, and clicking into it keeps the heading in view", async ({
+	page,
+	context,
+	browser,
+}) => {
+	const setup = await setUp(page, context, browser);
+	try {
+		const instructor = setup.instructor;
+		const terminal = await openSession(setup);
+		const heading = instructor.getByRole("heading", { level: 1 });
+		const main = instructor.getByTestId("page-live-session");
+		for (const size of FIT_SIZES) {
+			await instructor.setViewportSize(size);
+			await expect
+				.poll(
+					async () => {
+						const box = await terminal.boundingBox();
+						return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+					},
+					{ message: `terminal bottom at ${size.width}x${size.height}` },
+				)
+				.toBeLessThanOrEqual(size.height);
+			// Nothing past the terminal pushes the page into scrolling.
+			await expect
+				.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight))
+				.toBe(0);
+
+			await terminal.locator(".xterm-screen").click();
+			await expect(terminal.locator("textarea")).toBeFocused();
+			await expect(heading).toBeInViewport();
+			expect(await main.evaluate((node) => node.scrollTop)).toBe(0);
+			await instructor.screenshot({
+				path: `screenshots/live-help-fit-${size.width}x${size.height}-light.png`,
+			});
+			await instructor.emulateMedia({ colorScheme: "dark" });
+			await instructor.screenshot({
+				path: `screenshots/live-help-fit-${size.width}x${size.height}-dark.png`,
+			});
+			await instructor.emulateMedia({ colorScheme: "light" });
+		}
+		await expectNoViolationsInBothThemes(instructor);
+
+		// Too short for everything: the page scrolls, but the terminal is
+		// never taller than the space below the header, so all of it can be seen.
+		for (const size of [
+			{ width: 640, height: 360 },
+			{ width: 320, height: 568 },
+		]) {
+			await instructor.setViewportSize(size);
+			await terminal.scrollIntoViewIfNeeded();
+			const header = await instructor.getByRole("banner").boundingBox();
+			const box = await terminal.boundingBox();
+			if (!header || !box) throw new Error("the header or the terminal has no box");
+			expect(box.y).toBeGreaterThanOrEqual(header.y + header.height);
+			expect(box.y + box.height).toBeLessThanOrEqual(size.height);
+			await instructor.screenshot({
+				path: `screenshots/live-help-fit-${size.width}x${size.height}-light.png`,
+			});
+			await expectNoViolations(instructor);
+		}
+	} finally {
+		await setup.instructorContext.close();
+	}
+});
