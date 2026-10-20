@@ -83,7 +83,7 @@ def parse_json(raw):
         raise Refused("invalid_request")
 
 
-def _keys(obj, required, optional=()):
+def keys(obj, required, optional=()):
     if not isinstance(obj, dict):
         raise Refused("invalid_request")
     keys = set(obj)
@@ -261,7 +261,7 @@ def check_hosts(value):
 
 def check_platform(platform):
     """One platform in the platforms-file version 1 shape (ADR 0025): HTTPS only, never a mock."""
-    _keys(platform, ["name", "issuer", "clientId", "authLoginUrl", "keysetUrl", "deploymentIds", "mock"],
+    keys(platform, ["name", "issuer", "clientId", "authLoginUrl", "keysetUrl", "deploymentIds", "mock"],
           ["authTokenUrl"])
     if platform["mock"] is not False:
         raise Refused("mock_platform" if platform["mock"] is True else "invalid_value")
@@ -381,7 +381,7 @@ def check_request(doc, job_id):
         raise Refused("invalid_request")
     kind = doc["kind"]
     required, optional = BODY_KEYS[kind]
-    _keys(doc, ["version", "id", "kind", "requestedAt", *required], optional)
+    keys(doc, ["version", "id", "kind", "requestedAt", *required], optional)
     if type(doc["version"]) is not int or doc["version"] != 1 or doc["id"] != job_id \
             or not isinstance(doc["requestedAt"], str) or not DATETIME_RE.fullmatch(doc["requestedAt"]):
         raise Refused("invalid_request")

@@ -11,12 +11,15 @@ import { useMe } from "../useMe.js";
 export function CourseFrame({
 	testId,
 	labelledBy,
+	fill = false,
 	children,
 }: {
 	/** The test id of the main. */
 	testId: string;
 	/** The id of the page's h1. */
 	labelledBy: string;
+	/** The body is a column as tall as the window's space, so a pane in it can take what is left. */
+	fill?: boolean;
 	children: ReactNode;
 }) {
 	const me = useMe();
@@ -24,9 +27,7 @@ export function CourseFrame({
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	return (
-		// Unlike the workspace and admin pages, the Course pages work in a narrow
-		// window beside the learning system, so they drop the shell's 1024 px floor.
-		<div className="pk-root min-w-0!">
+		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
 			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
@@ -38,7 +39,15 @@ export function CourseFrame({
 				data-density="compact"
 				aria-labelledby={labelledBy}
 			>
-				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
+				<div
+					className={
+						fill
+							? "mx-auto flex h-full w-full max-w-[1440px] flex-col"
+							: "mx-auto w-full max-w-[1440px]"
+					}
+				>
+					{children}
+				</div>
 			</main>
 		</div>
 	);

@@ -198,7 +198,7 @@ contents:
       owner: root
       group: root
       mode: 0755
-  # The root site job, its value rules and its trigger (ADR 0059).
+  # The root site job, its modules (site_*.py, imported from the job's own folder) and its trigger (ADR 0059).
   # Enabled by Ansible, which creates the job and state directories.
   - src: ./packaging/systemd/portikus-site-job.path
     dst: /usr/lib/systemd/system/portikus-site-job.path
@@ -212,8 +212,8 @@ contents:
       owner: root
       group: root
       mode: 0755
-  - src: ./packaging/site/site_values.py
-    dst: /usr/lib/portikus/site_values.py
+  - src: ./packaging/site/site_*.py
+    dst: /usr/lib/portikus/
     file_info:
       owner: root
       group: root

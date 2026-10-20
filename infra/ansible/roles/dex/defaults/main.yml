@@ -42,7 +42,7 @@ dex_ldap_attributes:
 
 # Google groups (SPEC.md section 5.1): the service-account key Dex reads
 # groups with, written by the root site job or copied in by the operator;
-# packaging/site/site-job DEX_KEY_FILE names the same path.
+# packaging/site/site_common.py DEX_KEY_FILE names the same path.
 dex_google_key_path: "{{ dex_config_dir }}/google-service-account.json"
 # Every field of a service-account key, and the ones it must have.  An
 # external_account credential would make Google's library read local files

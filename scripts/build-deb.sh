@@ -100,6 +100,10 @@ pnpm --filter @portikus/workspace-controller deploy --prod --legacy dist/deploy/
 # Runs inside each workspace container, bind-mounted read-only from
 # /usr/lib/portikus/workspace-agent by the Incus workspace profile.
 pnpm --filter @portikus/workspace-agent deploy --prod --legacy dist/deploy/workspace-agent
+# pnpm deploy rewrites the checkout's install record as production-only, and
+# the next pnpm script run here (the smoke test's mock LMS) would then prune
+# the dev tools to match it. Reinstalling restores the record; nothing is fetched.
+pnpm install --frozen-lockfile
 
 # pnpm deploy copies the whole package directory. Drop what the runtime never
 # reads: TypeScript sources, tsconfigs, build caches, and the lockfile copies.

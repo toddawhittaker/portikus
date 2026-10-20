@@ -8,8 +8,11 @@ import { chmod, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { spawn as ptySpawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import {
+	attachArgs,
+	claimWindowSize,
 	closeSession,
 	createSession,
 	hasSession,
@@ -97,6 +100,68 @@ test.skipIf(!haveTmux)("a light terminal says so through COLORFGBG", async () =>
 test.skipIf(!haveTmux)("the terminal carries the owner's zone as TZ", async () => {
 	expect(await sessionEnvironment(`pk-${ID}`, "TZ")).toBe("TZ=Europe/Berlin");
 });
+
+test.skipIf(!haveTmux)("the area outside a smaller window is blank", async () => {
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"show-options",
+		"-v",
+		"-t",
+		`pk-${ID}`,
+		"fill-character",
+	]);
+	expect(stdout).toBe(" \n");
+});
+
+/** The window's size as tmux reports it. */
+async function windowSize(session: string): Promise<string> {
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"display-message",
+		"-p",
+		"-t",
+		session,
+		"#{window_width}x#{window_height}",
+	]);
+	return stdout.trim();
+}
+
+test.skipIf(!haveTmux)(
+	"an attachment waiting for its size leaves the window alone until it claims it",
+	async () => {
+		const id = "00000000-0000-4000-8000-000000009010";
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER);
+		const attach = (cols: number, rows: number, waitForSize: boolean) =>
+			ptySpawn("tmux", attachArgs(id, SERVER, undefined, waitForSize), { cols, rows });
+		const big = attach(120, 40, false);
+		await vi.waitFor(async () => expect(await windowSize(`pk-${id}`)).toBe("120x40"));
+		const small = attach(30, 10, true);
+		try {
+			// Give the new client time to attach; it must not shrink the window.
+			await vi.waitFor(async () => {
+				const { stdout } = await run("tmux", [
+					"-L",
+					SOCKET_NAME,
+					"list-clients",
+					"-t",
+					`pk-${id}`,
+				]);
+				expect(stdout.trim().split("\n")).toHaveLength(2);
+			});
+			expect(await windowSize(`pk-${id}`)).toBe("120x40");
+
+			await claimWindowSize(id, small.pid, SERVER);
+			await vi.waitFor(async () => expect(await windowSize(`pk-${id}`)).toBe("30x10"));
+			await claimWindowSize(id, big.pid, SERVER);
+			await vi.waitFor(async () => expect(await windowSize(`pk-${id}`)).toBe("120x40"));
+		} finally {
+			big.kill();
+			small.kill();
+		}
+	},
+);
 
 test.skipIf(!haveTmux)(
 	"focus events are on, so programs are told about focus",

@@ -16,6 +16,7 @@ import { AgentFailure } from "./errors.js";
 import {
 	attachArgs,
 	captureHistory,
+	claimWindowSize,
 	hasSession,
 	type TmuxServer,
 	tmuxServerGone,
@@ -76,6 +77,8 @@ interface Attachment {
 	pendingTimer: NodeJS.Timeout | null;
 	/** The last size asked for before the PTY existed; applied at spawn. */
 	pendingResize: { cols: number; rows: number } | null;
+	/** The browser has sent a measured size, so this attachment sizes the window. */
+	sized: boolean;
 	/** Set when the socket closes, including before the PTY exists. */
 	closed: boolean;
 	/** The end of the attach client's output, for its exit line. */
@@ -139,6 +142,8 @@ export function sendText(socket: WebSocket, message: TerminalServerMessage): voi
  */
 export class TerminalRegistry {
 	private readonly attachments = new Map<string, Set<Attachment>>();
+	/** Per terminal, the attachment whose size the window last took (SPEC.md §9.7). */
+	private readonly claimers = new Map<string, Attachment>();
 
 	constructor(
 		private readonly homeDir: string,
@@ -189,6 +194,7 @@ export class TerminalRegistry {
 			pendingBytes: 0,
 			pendingTimer: null,
 			pendingResize: null,
+			sized: false,
 			closed: false,
 			tail: "",
 			warnedQueueFull: false,
@@ -246,13 +252,23 @@ export class TerminalRegistry {
 		// attachment that has already been forgotten would never be killed.
 		if (attachment.closed) return;
 
-		const pty = this.spawnPty("tmux", attachArgs(id, this.server, options.mode), {
-			name: "xterm-256color",
-			cols,
-			rows,
-			cwd: this.homeDir,
-			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
-		});
+		// The size in the connect URL may come from a pane that was hidden or
+		// still settling, so it does not size the window until the browser
+		// sends a measured size (SPEC.md §9.7).
+		const waitForSize = !options.mode && attachment.pendingResize === null;
+		attachment.sized = !waitForSize;
+		if (!waitForSize && !options.mode) this.claimers.set(id, attachment);
+		const pty = this.spawnPty(
+			"tmux",
+			attachArgs(id, this.server, options.mode, waitForSize),
+			{
+				name: "xterm-256color",
+				cols,
+				rows,
+				cwd: this.homeDir,
+				env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+			},
+		);
 		attachment.pendingResize = null;
 
 		attachment.pty = pty;
@@ -302,6 +318,7 @@ export class TerminalRegistry {
 			attachment.socket.close(code, reason);
 		}
 		this.attachments.delete(id);
+		this.claimers.delete(id);
 		// The terminal is going away, so it leaves the poll whether or not each
 		// socket's close handler has run yet.
 		this.panes.drop(id);
@@ -370,6 +387,7 @@ export class TerminalRegistry {
 			clearInterval(attachment.drainTimer);
 			attachment.drainTimer = null;
 		}
+		if (this.claimers.get(id) === attachment) this.claimers.delete(id);
 		const set = this.attachments.get(id);
 		if (!set) return;
 		set.delete(attachment);
@@ -421,6 +439,11 @@ export class TerminalRegistry {
 				socket.close(1009, "input frame too large");
 				return;
 			}
+			// tmux sizes the window to whoever typed last, so typing takes the
+			// claim without one. A helper's client ignores size (SPEC.md §9.7).
+			if (attachment.sized && !attachment.mode) {
+				this.claimers.set(attachment.terminalId, attachment);
+			}
 			if (attachment.pendingInput) {
 				const size = Buffer.byteLength(message.data.data, "utf8");
 				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
@@ -451,15 +474,44 @@ export class TerminalRegistry {
 			return;
 		}
 
-		try {
-			pty.resize(message.data.cols, message.data.rows);
-			this.log.debug(
-				{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
-				"terminal resized",
-			);
-		} catch (error) {
-			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
+		const changed = pty.cols !== message.data.cols || pty.rows !== message.data.rows;
+		if (changed) {
+			try {
+				pty.resize(message.data.cols, message.data.rows);
+				this.log.debug(
+					{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
+					"terminal resized",
+				);
+			} catch (error) {
+				this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
+			}
 		}
+		// A changed size already wins under `latest`. The first measured size,
+		// or the same size sent again because the student turned to this
+		// terminal, has to be claimed (SPEC.md §9.7).
+		const id = attachment.terminalId;
+		if (attachment.sized && changed) {
+			this.claimers.set(id, attachment);
+			return;
+		}
+		// Each claim makes tmux repaint the screen, which a screen reader
+		// announces as new output, so skip one that would change nothing.
+		if (
+			attachment.sized &&
+			(this.claimers.get(id) === attachment || this.countAttachments(id) === 1)
+		) {
+			return;
+		}
+		claimWindowSize(id, pty.pid, this.server)
+			.then((claimed) => {
+				// No client listed yet: stay unsized so the next size claims again.
+				if (!claimed || attachment.closed) return;
+				attachment.sized = true;
+				this.claimers.set(id, attachment);
+			})
+			.catch((error) => {
+				this.log.warn({ error: errorMessage(error) }, "terminal size claim failed");
+			});
 	}
 
 	private resizeHelper(attachment: Attachment, cols: number, rows: number): void {

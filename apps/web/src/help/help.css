@@ -1,0 +1,131 @@
+/* Help page: contents beside the text when there is room, above it when not. */
+.pk-help {
+	container-type: inline-size;
+}
+.pk-help-elsewhere {
+	margin: var(--space-2) 0 0;
+	color: var(--ink-muted);
+}
+.pk-help-layout {
+	display: grid;
+	gap: var(--space-8);
+	margin-block-start: var(--space-6);
+}
+@container (min-width: 900px) {
+	.pk-help-layout {
+		grid-template-columns: 220px minmax(0, 72ch);
+	}
+	.pk-help-nav {
+		position: sticky;
+		top: 0;
+		align-self: start;
+	}
+}
+.pk-help-toc {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: grid;
+	gap: var(--space-4);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-help-toc-part {
+	font-weight: 600;
+}
+.pk-help-toc-sub {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 0;
+	padding: 0 0 0 var(--space-3);
+	list-style: none;
+	font-weight: 400;
+}
+.pk-help-toc a {
+	display: inline-block;
+	padding-block: 2px;
+	color: var(--ink-muted);
+	text-decoration: none;
+	border-radius: var(--radius-sm);
+}
+.pk-help-toc a:hover {
+	color: var(--ink);
+	text-decoration: underline;
+}
+.pk-help-toc a:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-help-article {
+	display: grid;
+	gap: var(--space-10);
+	min-width: 0;
+	font-size: 14px;
+	line-height: 22px;
+	/* "anywhere" also shrinks min-content, so a long unbroken address cannot widen a grid or flex child. */
+	overflow-wrap: anywhere;
+}
+.pk-help-article > section {
+	display: grid;
+	gap: var(--space-6);
+}
+.pk-help-article > section + section {
+	padding-block-start: var(--space-10);
+	border-block-start: 1px solid var(--line);
+}
+.pk-help-article section section {
+	display: grid;
+	gap: var(--space-2);
+	scroll-margin-block-start: var(--space-4);
+}
+.pk-help-article h3 {
+	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 600;
+}
+.pk-help-article p,
+.pk-help-article ol,
+.pk-help-article ul {
+	margin: 0;
+}
+.pk-help-article ol,
+.pk-help-article ul {
+	list-style: decimal;
+	display: grid;
+	gap: var(--space-2);
+	padding-inline-start: var(--space-5);
+}
+.pk-help-article ul {
+	list-style: disc;
+}
+.pk-help-article h4 {
+	margin: var(--space-2) 0 0;
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 600;
+	color: var(--ink-muted);
+}
+/* Keys beside what they do when there is room, stacked when not. */
+.pk-help-keys {
+	display: grid;
+	gap: var(--space-3);
+	margin: 0;
+}
+.pk-help-keys > div {
+	display: grid;
+	gap: var(--space-1);
+}
+@container (min-width: 640px) {
+	.pk-help-keys > div {
+		grid-template-columns: 13rem minmax(0, 1fr);
+		gap: var(--space-4);
+	}
+}
+.pk-help-keys dd {
+	margin: 0;
+}
+.pk-help-article code,
+.pk-help-article kbd {
+	font-size: 13px;
+}

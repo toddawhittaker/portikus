@@ -179,6 +179,17 @@ export function lifecycleLimit(config: ApiConfig): UserLimit {
 	);
 }
 
+/** An instructor opens a socket per terminal and per reconnect; 20 a minute is plenty for a live session. */
+export const LIVE_HELP_SOCKETS_PER_MINUTE = 20;
+
+/** The per-user limit on an instructor's live help terminal sockets. */
+export function liveHelpSocketLimit(): UserLimit {
+	return createUserLimit(
+		"live-help-socket",
+		createCounter(LIVE_HELP_SOCKETS_PER_MINUTE, MINUTE_MS),
+	);
+}
+
 /**
  * Routes that need no session, as `"<METHOD> <url pattern>"`. The limit
  * cannot read the session, so it matches this fixed list (SPEC.md section

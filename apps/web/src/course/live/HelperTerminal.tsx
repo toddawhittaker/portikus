@@ -247,16 +247,17 @@ export function HelperTerminal({
 	}
 
 	return (
-		<div className="flex min-w-0 flex-col gap-2">
+		<div className="flex min-w-0 flex-1 flex-col gap-2">
 			<p className="sr-only" id={modeHintId}>
 				{typing
 					? "What you type goes to the student's shell."
 					: "You can read this terminal but not type in it. Tab also leaves it."}
 			</p>
-			{/* Fixed to the student's size, so it scrolls when the window is smaller. */}
+			{/* Fixed to the student's size, so it scrolls when the window is smaller.
+			    It fills the height its parent leaves, but never less than ten lines. */}
 			<section
 				ref={host}
-				className="pk-helper-term pk-focus-ring max-w-full overflow-auto bg-terminal-bg p-2"
+				className="pk-helper-term pk-focus-ring min-h-40 max-w-full grow basis-0 overflow-auto bg-terminal-bg p-2"
 				data-testid="helper-terminal"
 				data-connected={connected ? "true" : "false"}
 				data-mode={typing ? "type" : "view"}

@@ -66,8 +66,7 @@ export function AdminPage() {
 	if (me.user.role !== "administrator") return <Navigate to="/not-authorized" />;
 
 	return (
-		// No width floor: the tabs wrap and the content reflows (SPEC.md section 20.1).
-		<div className="pk-root min-w-0!">
+		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} />
 			{/* The frame stays still under the header: the tab strip on top, and only
 			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}

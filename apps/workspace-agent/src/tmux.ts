@@ -65,12 +65,13 @@ export function attachArgs(
 	id: string,
 	server: TmuxServer,
 	mode?: TerminalAttachMode,
+	waitForSize = false,
 ): string[] {
 	const args = [...serverArgs(server), "attach-session", "-t", sessionName(id)];
 	// A helper never sizes the student's window; a viewer cannot type either
 	// (docs/SPEC.md §9.7, live help input rules).
 	if (mode === "view") args.push("-f", "read-only,ignore-size");
-	if (mode === "type") args.push("-f", "ignore-size");
+	else if (mode === "type" || waitForSize) args.push("-f", "ignore-size");
 	return args;
 }
 
@@ -457,6 +458,36 @@ async function createTmuxSession(
 	// attachment does not shrink the terminal to the smallest window.
 	await tmux(["set-option", "-t", name, "window-size", "latest"], server);
 	await tmux(["set-option", "-t", name, "status", "off"], server);
+	// The area outside a smaller window is blank rather than tmux's dots.
+	await tmux(["set-option", "-t", name, "fill-character", " "], server);
+}
+
+/**
+ * Let the attach client running as `clientPid` size the window, and make it
+ * the session's latest so its size wins under `window-size latest` (SPEC.md
+ * §9.7). tmux only moves `latest` on input or a changed size, so a browser
+ * re-sending the size it already has needs this to win. False when the
+ * client is not listed yet, as just after it is spawned.
+ */
+export async function claimWindowSize(
+	id: string,
+	clientPid: number,
+	server: TmuxServer,
+): Promise<boolean> {
+	const name = sessionName(id);
+	const clients = await tmux(
+		["list-clients", "-t", name, "-F", "#{client_pid}\t#{client_tty}"],
+		server,
+	);
+	for (const line of clients.split("\n")) {
+		const [pid, tty] = line.split("\t");
+		if (Number(pid) === clientPid && tty) {
+			await tmux(["refresh-client", "-t", tty, "-f", "!ignore-size"], server);
+			await tmux(["switch-client", "-c", tty, "-t", name], server);
+			return true;
+		}
+	}
+	return false;
 }
 
 export interface PaneState {

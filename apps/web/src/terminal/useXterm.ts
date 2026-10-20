@@ -153,13 +153,20 @@ async function writeClipboard(text: string): Promise<void> {
 export interface XtermTools {
 	/** The element xterm.js is open in. */
 	container: HTMLDivElement;
-	/** Fit xterm.js to the pane, unless the pane has no box to measure. */
-	fit: () => void;
+	/**
+	 * Fit xterm.js to the pane. False, and nothing fitted, while the terminal
+	 * is hidden or its pane has no box to measure: a size from then must not
+	 * reach tmux (SPEC.md §9.7).
+	 */
+	fit: () => boolean;
 }
 
 /** The caller's connection to a terminal, made by `attach`. */
 export interface XtermSession {
-	/** The pane's box has settled at a new size; `fit` has not run yet. */
+	/**
+	 * The pane's box has settled at a new size, or the user turned to this
+	 * terminal and its size should win; `fit` has not run yet.
+	 */
 	resized: () => void;
 	dispose: () => void;
 }
@@ -269,8 +276,13 @@ export function useXterm({
 		// Alt+Shift+M is down; a keyup elsewhere would never reach this pane,
 		// so leaving the pane lets go too.
 		let voiceHeld = false;
+		// Null until attached; the terminal can take focus before that.
+		let session: XtermSession | null = null;
+		// Turning to a terminal makes this browser's size the one tmux uses
+		// when another browser shows the same terminal (SPEC.md §9.7).
 		const onFocusIn = () => {
 			focused = true;
+			session?.resized();
 		};
 		const onFocusOut = () => {
 			focused = false;
@@ -349,14 +361,16 @@ export function useXterm({
 		fitAddon.fit();
 		if (focusOnMountRef.current && visibleRef.current) term.focus();
 
-		function fitIfMeasurable() {
+		function fitIfMeasurable(): boolean {
 			// A pane with no box on screen cannot be measured; keep the last size.
-			if (container?.clientWidth !== 0 && container?.clientHeight !== 0) {
-				fitAddon.fit();
-			}
+			if (!visibleRef.current || !container) return false;
+			if (container.clientWidth === 0 || container.clientHeight === 0) return false;
+			fitAddon.fit();
+			return true;
 		}
 
-		const session = attach(term, { container, fit: fitIfMeasurable });
+		const attached = attach(term, { container, fit: fitIfMeasurable });
+		session = attached;
 
 		/**
 		 * Every keyboard paste arrives as the browser's paste event. It is
@@ -482,8 +496,12 @@ export function useXterm({
 		}
 		container.addEventListener("contextmenu", onContextMenu);
 
+		// A click on an unfocused terminal also focuses it, and focusin says the
+		// size; saying it twice makes tmux repaint twice, which a screen reader
+		// reads out as new output (SPEC.md §25.8).
 		function onPointerDown() {
 			handlers.current.onFocus();
+			if (focused) attached.resized();
 		}
 		container.addEventListener("pointerdown", onPointerDown);
 
@@ -496,7 +514,7 @@ export function useXterm({
 			settle = setTimeout(() => {
 				settle = undefined;
 				if (container.clientWidth === 0 || container.clientHeight === 0) return;
-				session.resized();
+				attached.resized();
 			}, RESIZE_SETTLE_MS);
 		});
 		observer.observe(container);
@@ -504,7 +522,7 @@ export function useXterm({
 		return () => {
 			if (dictationTarget) dictationTarget.current = null;
 			if (voiceHeld) handlers.current.onVoiceHold?.(false);
-			session.dispose();
+			attached.dispose();
 			if (settle !== undefined) clearTimeout(settle);
 			observer.disconnect();
 			container.removeEventListener("contextmenu", onContextMenu);

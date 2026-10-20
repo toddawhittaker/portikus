@@ -54,6 +54,9 @@ class FakeHost:
         self.calls = []
         self.aliases = {}
         self.instances = set()
+        # Workspace instance name to the fingerprint Incus records as its volatile.base_image.
+        self.bases = {}
+        self.list_rc = 0
         self.sizes = {}
         self.urls = {}
         self.gpgv_rc = 0
@@ -156,7 +159,9 @@ class FakeHost:
                 return 1, ""
             return 0, json.dumps({"fingerprint": fp, "size": self.sizes.get(fp, 880803840)})
         if args[:1] == ["list"]:
-            return 0, json.dumps([{"name": n, "config": {}} for n in sorted(self.instances)])
+            listed = [{"name": n, "config": {}} for n in sorted(self.instances)]
+            listed += [{"name": n, "config": {"volatile.base_image": fp}} for n, fp in sorted(self.bases.items())]
+            return self.list_rc, json.dumps(listed)
         if args[:1] == ["launch"]:
             self.instances.add(args[2])
             return 0, ""
@@ -690,6 +695,31 @@ class PruneTest(Base):
         self.assertEqual(deleted, ["portikus-2026.09.12", "portikus-2026.09.13"])
         self.assertEqual(self.host.aliases["portikus"], FP["2026.09.10"])
         self.assertTrue((self.images / "2026.09.10").exists())
+
+    def test_never_deletes_an_image_a_workspace_was_made_from(self):
+        for v in ("2026.09.10", "2026.09.11", "2026.09.12", "2026.09.13", "2026.09.14"):
+            self.put_image(v)
+        self.set_default("2026.09.13", previous="2026.09.12")
+        self.host.bases["ws-30bf632e"] = FP["2026.09.10"]
+        job = type("J", (), {"line": lambda self, t: None})()
+        self.runner.prune(job, keep="2026.09.14")
+        deleted = [c[-1] for c in self.host.calls if c[3:5] == ["image", "delete"]]
+        self.assertEqual(deleted, ["portikus-2026.09.11"])
+        self.assertIn("portikus-2026.09.10", self.host.aliases)
+        kept = {p.name for p in self.images.iterdir() if p.is_dir()}
+        self.assertEqual(kept, {"2026.09.10", "2026.09.12", "2026.09.13", "2026.09.14"})
+
+    def test_deletes_nothing_when_the_workspaces_cannot_be_listed(self):
+        for v in ("2026.09.10", "2026.09.11", "2026.09.12", "2026.09.13", "2026.09.14"):
+            self.put_image(v)
+        self.set_default("2026.09.13", previous="2026.09.12")
+        self.host.list_rc = 1
+        lines = []
+        job = type("J", (), {"line": lambda self, t: lines.append(t)})()
+        self.runner.prune(job, keep="2026.09.14")
+        self.assertEqual([c for c in self.host.calls if c[3:5] == ["image", "delete"]], [])
+        self.assertEqual(len([p for p in self.images.iterdir() if p.is_dir()]), 5)
+        self.assertTrue(any("kept" in line for line in lines))
 
     def test_version_order(self):
         versions = ["2026.09.12-local.202609281000", "2026.10.1", "2026.09.12", "2026.09.9",

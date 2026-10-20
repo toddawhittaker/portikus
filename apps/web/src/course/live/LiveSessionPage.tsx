@@ -27,7 +27,7 @@ import {
  */
 export function LiveSessionPage() {
 	return (
-		<CourseFrame testId="page-live-session" labelledBy="live-session-title">
+		<CourseFrame testId="page-live-session" labelledBy="live-session-title" fill>
 			<LiveSession />
 		</CourseFrame>
 	);
@@ -93,7 +93,7 @@ function LiveSession() {
 			<Link
 				to="/course/$courseId/live"
 				params={{ courseId }}
-				className="pk-focus-ring rounded-sm text-[13px] text-accent-text"
+				className="pk-focus-ring self-start rounded-sm text-[13px] text-accent-text"
 			>
 				All live help sessions
 			</Link>
@@ -144,8 +144,10 @@ function LiveSession() {
 								: "Leaving ends the session for the student too."}
 						</p>
 					</div>
-					<div className="@container mt-6">
-						<div className="grid gap-6 @5xl:grid-cols-[minmax(0,1fr)_18rem]">
+					{/* The terminal fills the window's height left below this point, as the
+					    workspace's does, so clicking into it never scrolls the heading away. */}
+					<div className="@container mt-6 flex flex-1 flex-col">
+						<div className="flex flex-1 flex-col gap-6 @5xl:flex-row">
 							<TerminalsSection
 								liveRef={ref}
 								detail={data}
@@ -198,9 +200,14 @@ function TerminalsSection({
 	const heading = useRef<HTMLHeadingElement>(null);
 	const terminals = detail.terminals;
 	const shown = terminals.find((terminal) => terminal.id === chosen) ?? terminals[0];
+	// Only a terminal takes the height left; a message keeps its own.
+	const showing = shown !== undefined && live;
 
 	return (
-		<section aria-labelledby="live-terminals-title" className="min-w-0">
+		<section
+			aria-labelledby="live-terminals-title"
+			className={`flex min-w-0 flex-col @5xl:flex-1 ${showing ? "flex-1" : ""}`}
+		>
 			<h2
 				className="pk-text-heading mb-2"
 				id="live-terminals-title"
@@ -222,7 +229,7 @@ function TerminalsSection({
 					here when they open it.
 				</p>
 			) : (
-				<div className="flex min-w-0 flex-col gap-3">
+				<div className="flex min-w-0 flex-1 flex-col gap-3">
 					<ul className="flex flex-wrap gap-2" aria-label="Choose a terminal">
 						{terminals.map((terminal) => (
 							<li key={terminal.id} className="min-w-0">
@@ -238,7 +245,7 @@ function TerminalsSection({
 							</li>
 						))}
 					</ul>
-					{shown && live ? (
+					{showing ? (
 						<HelperTerminal
 							key={shown.id}
 							path={`${liveBase(liveRef)}/terminals/${shown.id}/ws`}
@@ -323,7 +330,10 @@ function Previews({ liveRef, enabled }: { liveRef: LiveRef; enabled: boolean }) 
 	}
 
 	return (
-		<section aria-labelledby="live-previews-title" className="min-w-0">
+		<section
+			aria-labelledby="live-previews-title"
+			className="min-w-0 shrink-0 @5xl:w-72"
+		>
 			<h2 className="pk-text-heading mb-2" id="live-previews-title">
 				Previews
 			</h2>

@@ -6,6 +6,10 @@ import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/queryClient.js";
 import { setSessionEndedHandler } from "./api/sessionEnded.js";
 import "./app.css";
+// Straight after app.css, in this order: they continue its rules, so the cascade is one sheet's.
+import "./process-rows.css";
+import "./help/help.css";
+import "./switch.css";
 import { recordNotification } from "./notifications/queries.js";
 import { router } from "./router.js";
 import {

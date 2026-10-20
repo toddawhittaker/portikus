@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from test_site_job import JOB, JOB2, JOB3, REPO, Host, sj, values
+from test_site_job import JOB, JOB2, JOB3, REPO, Host, site_common, values
 
 PRIVATE_LINE = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ-not-a-real-key"
 KEY = json.dumps({
@@ -41,11 +41,11 @@ class ProviderGroups(Host):
     def setUp(self):
         super().setUp()
         self.install()
-        Path(self.path(sj.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
-        os.makedirs(self.path(os.path.dirname(sj.DEX_KEY_FILE)))
+        Path(self.path(site_common.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
+        os.makedirs(self.path(os.path.dirname(site_common.DEX_KEY_FILE)))
 
     def key_file(self):
-        return Path(self.path(sj.DEX_KEY_FILE))
+        return Path(self.path(site_common.DEX_KEY_FILE))
 
     def debconf(self):
         return "".join(self.fake.stdin)
@@ -54,7 +54,7 @@ class ProviderGroups(Host):
         defaults = (REPO / "infra/ansible/roles/dex/defaults/main.yml").read_text()
         config_dir = re.search(r"^dex_config_dir: (\S+)$", defaults, re.M).group(1)
         key_path = re.search(r'^dex_google_key_path: "\{\{ dex_config_dir \}\}(/\S+)"$', defaults, re.M).group(1)
-        self.assertEqual(config_dir + key_path, sj.DEX_KEY_FILE)
+        self.assertEqual(config_dir + key_path, site_common.DEX_KEY_FILE)
 
     def test_the_key_fields_are_the_ones_dex_checks(self):
         defaults = yaml.safe_load((REPO / "infra/ansible/roles/dex/defaults/main.yml").read_text())
@@ -87,8 +87,8 @@ class ProviderGroups(Host):
             self.assertNotIn(part, written)
         self.assertIn("key line [secret]", self.log())
         # The request file holding it is gone, and the trial's copy with it.
-        self.assertEqual([n for n in os.listdir(self.path(sj.JOBS_DIR)) if n.startswith("request-")], [])
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual([n for n in os.listdir(self.path(site_common.JOBS_DIR)) if n.startswith("request-")], [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
 
     def test_group_checks_without_a_key_are_refused(self):
         before = self.config()
@@ -144,7 +144,7 @@ class ProviderGroups(Host):
         }
         for job, (name, body) in zip((JOB, JOB2, JOB3) * 3, cases.items()):
             with self.subTest(name):
-                Path(self.path(sj.JOBS_DIR), "status", f"{job}.json").unlink(missing_ok=True)
+                Path(self.path(site_common.JOBS_DIR), "status", f"{job}.json").unlink(missing_ok=True)
                 status = self.play("signin", job, **body)
                 self.assertEqual((status["state"], status["code"]), ("failed", "invalid_value"))
         self.assertFalse(self.key_file().exists())
