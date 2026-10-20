@@ -1,4 +1,22 @@
+import type * as Monaco from "monaco-editor";
 import { beforeEach, expect, test, vi } from "vitest";
+
+const addKeybindingRules = vi.fn();
+const fakeMonaco = {
+	editor: { addKeybindingRules },
+	KeyCode: { F8: 66 },
+	KeyMod: { Shift: 1024 },
+} as unknown as typeof Monaco;
+
+test("F8 is left to the page's notifications; the problem keys keep Alt+F8", async () => {
+	vi.resetModules();
+	const { loadEditorFeatures: load } = await import("./features");
+	await load(fakeMonaco);
+	expect(addKeybindingRules).toHaveBeenCalledWith([
+		{ keybinding: 66, command: "-editor.action.marker.nextInFiles" },
+		{ keybinding: 1024 | 66, command: "-editor.action.marker.prevInFiles" },
+	]);
+});
 
 const imported: string[] = [];
 
@@ -47,18 +65,18 @@ beforeEach(() => {
 // widget's buttons draw as empty boxes.
 test("the editor features include the codicon icon font", async () => {
 	const { loadEditorFeatures: load } = await import("./features");
-	await load();
+	await load(fakeMonaco);
 	expect(imported).toContain("monaco-editor/features/codicon/register.js");
 });
 
 test("the code-help widgets are loaded: suggest, hover, definition, rename, format, problems", async () => {
 	const { loadEditorFeatures: load } = await import("./features");
-	await load();
+	await load(fakeMonaco);
 	for (const path of CODE_HELP_PATHS) expect(imported).toContain(path);
 });
 
 test("the find widget's feature is loaded with the rest", async () => {
 	const { loadEditorFeatures: load } = await import("./features");
-	await load();
+	await load(fakeMonaco);
 	expect(imported).toContain("monaco-editor/features/find/register.js");
 });

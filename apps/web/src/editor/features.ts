@@ -7,7 +7,9 @@
  * They are gathered in one module so tests that stand in for Monaco have one
  * thing to replace.
  */
-export async function loadEditorFeatures(): Promise<void> {
+import type * as Monaco from "monaco-editor";
+
+export async function loadEditorFeatures(monaco: typeof Monaco): Promise<void> {
 	await Promise.all([
 		// The icon font the widgets draw their buttons with. Only
 		// editor.main.js pulls this in, and we deliberately do not load that,
@@ -43,5 +45,14 @@ export async function loadEditorFeatures(): Promise<void> {
 		import("monaco-editor/editor/contrib/format/browser/formatActions.js"),
 		import("monaco-editor/editor/contrib/gotoError/browser/gotoError.js"),
 		import("monaco-editor/editor/contrib/message/browser/messageController.js"),
+	]);
+	// F8 moves focus to the notifications on every page (Help, "Keyboard"),
+	// so the problem keys stay on Alt+F8 and Shift+Alt+F8 only.
+	monaco.editor.addKeybindingRules([
+		{ keybinding: monaco.KeyCode.F8, command: "-editor.action.marker.nextInFiles" },
+		{
+			keybinding: monaco.KeyMod.Shift | monaco.KeyCode.F8,
+			command: "-editor.action.marker.prevInFiles",
+		},
 	]);
 }
