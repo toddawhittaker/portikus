@@ -23,6 +23,7 @@ import {
 import { liveHelpSockets } from "../live-help/registry.js";
 import { leaveLiveHelp, whereOpen } from "../live-help/sessions.js";
 import type { BridgeForwards } from "../preview/bridge.js";
+import { liveHelpSocketLimit } from "../rate-limit.js";
 import { createPendingWork } from "../workspaces/presence.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
 import { terminalSockets } from "../workspaces/terminal-sockets.js";
@@ -65,6 +66,7 @@ export function registerCourseLiveHelpRoutes(
 ): void {
 	const { db, config, bridge } = deps;
 	const { track, drain } = createPendingWork();
+	const limitSockets = liveHelpSocketLimit();
 
 	app.register(async (instance) => {
 		// Synchronous, like every onSend hook here: see registerRequestLogging.
@@ -179,6 +181,8 @@ export function registerCourseLiveHelpRoutes(
 				// A HEAD twin would reach the socket handler and crash.
 				exposeHeadRoute: false,
 				preHandler: async (request, reply) => {
+					// Before the gate, so a refused open costs no query and no audit row.
+					if (!(await limitSockets(request, reply))) return reply;
 					const scope = await liveHelpScope(
 						db,
 						config,
