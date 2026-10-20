@@ -116,8 +116,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	useTerminalThemeAttribute();
 
 	const shell = (
-		// No width floor: below 56rem the panes stack (app.css, .pk-shell).
-		<div className="pk-root min-w-0!">
+		<div className="pk-root">
 			<ScreenReaderToggle />
 			<AppHeader
 				workspaceId={workspaceId}

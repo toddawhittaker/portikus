@@ -27,9 +27,7 @@ export function CourseFrame({
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	return (
-		// Unlike the workspace and admin pages, the Course pages work in a narrow
-		// window beside the learning system, so they drop the shell's 1024 px floor.
-		<div className="pk-root min-w-0!">
+		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
 			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused

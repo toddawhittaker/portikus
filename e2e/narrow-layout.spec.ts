@@ -512,3 +512,71 @@ test.describe("the admin area at 560 px", () => {
 		});
 	}
 });
+
+/**
+ * The touch-action values between `target` and the root that stop a pinch.
+ * The browser intersects them, so one blocking ancestor blocks pinch-zoom
+ * anywhere inside it (WCAG 1.4.4).
+ */
+async function pinchBlockers(target: Locator): Promise<string[]> {
+	return target.evaluate((el) => {
+		const blockers: string[] = [];
+		for (let node: Element | null = el; node; node = node.parentElement) {
+			const value = getComputedStyle(node).touchAction;
+			if (value === "auto" || value === "manipulation" || value.includes("pinch-zoom"))
+				continue;
+			blockers.push(
+				`${node.tagName.toLowerCase()}#${node.id}.${node.className}: ${value}`,
+			);
+		}
+		return blockers;
+	});
+}
+
+test.describe("the workspace on a touch screen", () => {
+	test.use({ hasTouch: true });
+
+	for (const viewport of [NARROW, { width: 1280, height: 800 }]) {
+		test(`pinch-zoom is allowed inside every pane at ${viewport.width} px`, async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize(viewport);
+			await openStackedWorkspace(page, context);
+			for (const target of [
+				page.getByRole("button", { name: "New project" }),
+				page.getByTestId("empty-open-terminal"),
+				page.getByTestId("file-row-a.md"),
+			])
+				expect(await pinchBlockers(target), String(target)).toEqual([]);
+		});
+	}
+
+	test("a one-finger drag on a pane handle still resizes the pane", async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await openStackedWorkspace(page, context);
+		const files = page.locator(".pk-right-pane");
+		const before = (await boxOf(files)).width;
+		const grip = await boxOf(page.getByRole("separator", { name: "Resize file tree" }));
+		const x = grip.x + grip.width / 2;
+		const y = grip.y + grip.height / 2;
+		// Playwright has no touch drag; the DevTools protocol sends real touch events.
+		const cdp = await context.newCDPSession(page);
+		await cdp.send("Input.dispatchTouchEvent", {
+			type: "touchStart",
+			touchPoints: [{ x, y }],
+		});
+		for (let step = 1; step <= 8; step += 1)
+			await cdp.send("Input.dispatchTouchEvent", {
+				type: "touchMove",
+				touchPoints: [{ x: x - step * 10, y }],
+			});
+		await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+		await expect
+			.poll(async () => Math.round((await boxOf(files)).width))
+			.toBe(Math.round(before + 80));
+	});
+});
