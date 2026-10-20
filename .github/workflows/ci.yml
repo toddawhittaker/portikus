@@ -10,9 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # Every job is pinned to ubuntu-24.04. ubuntu-latest moved to 26.04 on
-  # 2026-10-20, which broke the build, shellcheck and the browser tests
-  # (issue #1628 tracks the move).
+  # Every job names ubuntu-24.04, not ubuntu-latest, so a new runner image
+  # cannot change the build, shellcheck or the browser tests unannounced.
   #
   # A push run whose exact tree already passed on its pull request skips
   # the heavy jobs (docs/WORKFLOW.md, "CI"). Pull request runs always run in
