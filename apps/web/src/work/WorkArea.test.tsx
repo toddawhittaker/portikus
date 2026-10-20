@@ -84,9 +84,11 @@ function stubFetch(options: { layout?: unknown; terminals: Terminal[] }) {
 	const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
 		const url = String(input);
 		if (url.endsWith("/layout")) {
-			if (init?.method === "PUT") return { status: 204, ok: true } as Response;
-			if (!options.layout) return { status: 204, ok: true } as Response;
-			return { status: 200, ok: true, json: async () => options.layout } as Response;
+			if (init?.method === "PUT")
+				return new Response(null, { status: 204, headers: { etag: '"1"' } });
+			if (!options.layout)
+				return new Response(null, { status: 204, headers: { etag: '"0"' } });
+			return new Response(JSON.stringify(options.layout), { status: 200 });
 		}
 		if (url.includes("/terminals")) {
 			if (init?.method === "POST") {

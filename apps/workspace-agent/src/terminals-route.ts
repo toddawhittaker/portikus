@@ -2,6 +2,7 @@ import type { WebSocket } from "@fastify/websocket";
 import {
 	AgentCreateTerminalRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
+	TerminalAttachMode,
 	TerminalId,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
@@ -24,6 +25,8 @@ const IdParam = z.object({ terminalId: TerminalId });
 const AttachQuery = z.object({
 	cols: z.coerce.number().int().min(1).max(1000).optional(),
 	rows: z.coerce.number().int().min(1).max(1000).optional(),
+	// Only live help sets this; no mode is the student's own attach.
+	mode: TerminalAttachMode.optional(),
 });
 
 interface TerminalsRouteOptions {
@@ -173,7 +176,12 @@ export async function terminalsRoutes(
 				}
 				socket.resume();
 				request.log.debug(
-					{ terminalId, cols: query.data.cols, rows: query.data.rows },
+					{
+						terminalId,
+						cols: query.data.cols,
+						rows: query.data.rows,
+						mode: query.data.mode,
+					},
 					"terminal attached",
 				);
 			} catch (error) {

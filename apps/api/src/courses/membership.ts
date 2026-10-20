@@ -1,5 +1,5 @@
 import { requireUser } from "@portikus/auth";
-import type { ShareAudienceCourse } from "@portikus/contracts";
+import type { LiveHelpAudienceCourse, ShareAudienceCourse } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
@@ -56,6 +56,22 @@ export async function shareAudience(
 	db: Kysely<Database>,
 	userId: string,
 ): Promise<ShareAudienceCourse[]> {
+	const courses = await liveHelpAudience(db, userId);
+	return courses.map((course) => ({
+		courseId: course.courseId,
+		courseTitle: course.courseTitle,
+		instructors: course.instructors.map((one) => one.displayName),
+	}));
+}
+
+/**
+ * The same courses and instructors as `shareAudience`, with each
+ * instructor's user id, which a live help start names (ADR 0063).
+ */
+export async function liveHelpAudience(
+	db: Kysely<Database>,
+	userId: string,
+): Promise<LiveHelpAudienceCourse[]> {
 	const rows = await db
 		.selectFrom("lti_memberships as own")
 		.innerJoin("lti_contexts", "lti_contexts.id", "own.context_id")
@@ -66,20 +82,27 @@ export async function shareAudience(
 				.on("teacher.user_id", "!=", userId),
 		)
 		.leftJoin("users", "users.id", "teacher.user_id")
-		.select(["lti_contexts.id", "lti_contexts.title", "users.display_name"])
+		.select([
+			"lti_contexts.id",
+			"lti_contexts.title",
+			"users.id as user_id",
+			"users.display_name",
+		])
 		.where("own.user_id", "=", userId)
 		.orderBy("lti_contexts.title")
 		.orderBy("lti_contexts.id")
 		.orderBy("users.display_name")
 		.execute();
-	const courses = new Map<string, ShareAudienceCourse>();
+	const courses = new Map<string, LiveHelpAudienceCourse>();
 	for (const row of rows) {
 		let course = courses.get(row.id);
 		if (!course) {
 			course = { courseId: row.id, courseTitle: row.title, instructors: [] };
 			courses.set(row.id, course);
 		}
-		if (row.display_name !== null) course.instructors.push(row.display_name);
+		if (row.user_id !== null && row.display_name !== null) {
+			course.instructors.push({ userId: row.user_id, displayName: row.display_name });
+		}
 	}
 	return [...courses.values()];
 }

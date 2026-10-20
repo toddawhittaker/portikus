@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import {
 	type CodingAgent,
 	SCROLLBACK_LINES,
+	type TerminalAttachMode,
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
@@ -60,8 +61,17 @@ export function sessionName(id: string): string {
 }
 
 /** The command line every attachment uses, so both sides agree on the socket. */
-export function attachArgs(id: string, server: TmuxServer): string[] {
-	return [...serverArgs(server), "attach-session", "-t", sessionName(id)];
+export function attachArgs(
+	id: string,
+	server: TmuxServer,
+	mode?: TerminalAttachMode,
+): string[] {
+	const args = [...serverArgs(server), "attach-session", "-t", sessionName(id)];
+	// A helper never sizes the student's window; a viewer cannot type either
+	// (docs/SPEC.md §9.7, live help input rules).
+	if (mode === "view") args.push("-f", "read-only,ignore-size");
+	if (mode === "type") args.push("-f", "ignore-size");
+	return args;
 }
 
 /**
@@ -456,6 +466,9 @@ export interface PaneState {
 	alternate: boolean;
 	/** Lines in tmux's own history; `clear` empties it. */
 	history: number;
+	/** The window's size, which a live-help helper's terminal copies. */
+	cols: number;
+	rows: number;
 }
 
 /**
@@ -469,18 +482,21 @@ export async function listPanes(server: TmuxServer): Promise<Map<string, PaneSta
 			"list-panes",
 			"-a",
 			"-F",
-			"#{session_name}\t#{pane_current_path}\t#{alternate_on}\t#{history_size}",
+			"#{session_name}\t#{pane_current_path}\t#{alternate_on}\t#{history_size}\t#{window_width}\t#{window_height}",
 		],
 		server,
 	);
 	const panes = new Map<string, PaneState>();
 	for (const line of stdout.split("\n")) {
-		const [name, path = "", alternate = "", history = ""] = line.split("\t");
+		const [name, path = "", alternate = "", history = "", cols = "", rows = ""] =
+			line.split("\t");
 		if (!name?.startsWith("pk-")) continue;
 		panes.set(name.slice(3), {
 			path: path === "" ? null : path,
 			alternate: alternate === "1",
 			history: Number(history) || 0,
+			cols: Number(cols) || 0,
+			rows: Number(rows) || 0,
 		});
 	}
 	return panes;

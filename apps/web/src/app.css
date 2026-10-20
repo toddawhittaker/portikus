@@ -530,6 +530,67 @@ body {
 	align-items: center;
 }
 
+/* Live help bar: across the top of the workspace while an instructor watches (ADR 0063). */
+.pk-livehelp {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	padding: var(--space-2) var(--space-4);
+	border-bottom: 1px solid var(--line);
+	background: var(--surface-raised);
+	color: var(--ink);
+}
+.pk-livehelp.is-typing {
+	background: var(--status-warning-soft);
+}
+.pk-livehelp-icon {
+	flex: none;
+	display: inline-flex;
+	color: var(--ink-muted);
+}
+.pk-livehelp.is-typing .pk-livehelp-icon {
+	color: var(--status-warning);
+}
+.pk-livehelp-main {
+	flex: 1 1 20rem;
+	min-width: 0;
+	display: grid;
+	gap: var(--space-0\.5);
+	overflow-wrap: anywhere;
+}
+.pk-livehelp-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 600;
+}
+.pk-livehelp-body {
+	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
+}
+.pk-livehelp-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+.pk-livehelp-time {
+	font-size: 13px;
+	line-height: 18px;
+	color: var(--ink-muted);
+	font-variant-numeric: tabular-nums;
+}
+/* ink-muted is only promised 4.5:1 on the plain surfaces. */
+.pk-livehelp.is-typing .pk-livehelp-time {
+	color: var(--ink);
+}
+
 /* WorkspaceProgress */
 .pk-progress-card {
 	box-sizing: border-box;

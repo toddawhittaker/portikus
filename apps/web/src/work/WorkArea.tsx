@@ -27,6 +27,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { baseName, displayName } from "../files/paths.js";
 import { useLayoutPersistence } from "../layout/persist.js";
+import { useRemoteFocusFallback } from "../layout/remoteFocus.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import {
 	filePaths,
@@ -142,6 +143,7 @@ export function WorkArea({
 	});
 	const { draggedPane, dragTarget } = drag;
 	const area = useRef<HTMLDivElement | null>(null);
+	const remoteFocusNote = useRemoteFocusFallback(store, area);
 	// Where a file dragged from the tree would land (SPEC.md §9.3).
 	const [treeTarget, setTreeTarget] = useState<MoveIntoTarget | null>(null);
 
@@ -407,6 +409,15 @@ export function WorkArea({
 				onDrop={(paths, target) => dropTreeFiles(store.getState, paths, target)}
 			/>
 			<div className="pk-work-area" data-testid="work-area" ref={area}>
+				{/* Always mounted, so the move of focus is announced (SPEC.md §25.8). */}
+				<p
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="layout-announce"
+				>
+					{remoteFocusNote}
+				</p>
 				<TabStripDrop strip={strip} testId="work-tabs" target={dragTarget}>
 					<Tabs
 						tabs={items}

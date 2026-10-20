@@ -33,6 +33,14 @@ export const TerminalSizeQuery = z.object({
 	rows: z.coerce.number().int().min(1).max(1000).catch(24),
 });
 
+/**
+ * How a live help instructor attaches to a terminal (ADR 0063): `view` sends
+ * nothing to the shell, `type` sends keystrokes but never resizes. The
+ * student's own attach has no mode.
+ */
+export const TerminalAttachMode = z.enum(["view", "type"]);
+export type TerminalAttachMode = z.infer<typeof TerminalAttachMode>;
+
 /** Identifier of a terminal, minted by the control plane (SPEC.md §26). */
 export const TerminalId = z.string().uuid();
 export type TerminalId = z.infer<typeof TerminalId>;

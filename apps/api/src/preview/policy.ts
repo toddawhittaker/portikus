@@ -1,4 +1,16 @@
 import type { ApiConfig } from "@portikus/config";
+import type { PreviewGrantResponse } from "@portikus/contracts";
+
+/**
+ * How many preview requests one student may make in a minute, counting
+ * bootstrap tickets and framing probes together. Both make the control plane
+ * work on the student's behalf — a probe holds an outbound socket for up to
+ * three seconds — so they share one budget. Opening a preview, reloading it
+ * and switching ports are all well under this; a page asking in a loop is
+ * not. Counted in this process, which the pilot runs one of (ADR 0010).
+ */
+export const PREVIEW_REQUESTS_PER_WINDOW = 30;
+export const PREVIEW_WINDOW_MS = 60_000;
 
 /**
  * Whether a port may ever be previewed (BROWSER-HANDLING.md §8, §23). The
@@ -44,4 +56,19 @@ export function requestHost(headers: Record<string, unknown>): string | null {
 	const colon = value.indexOf(":");
 	const host = colon === -1 ? value : value.slice(0, colon);
 	return host === "" ? null : host.toLowerCase();
+}
+
+/** The answer to a preview grant: where to open it and its bootstrap URL. */
+export function grantResponse(
+	config: ApiConfig,
+	host: string,
+	ticket: string,
+	expiresAt: Date,
+): PreviewGrantResponse {
+	const origin = previewOriginFor(config, host);
+	return {
+		previewOrigin: origin,
+		bootstrapUrl: `${origin}/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
+		expiresAt: expiresAt.toISOString(),
+	};
 }

@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 import { cookiePairs, headersOf } from "./helpers";
 import { API_ORIGIN } from "./ports";
 
@@ -43,9 +43,12 @@ const PASSED_HEADERS = [
 /**
  * Stand in for Caddy for the browser's requests to preview hosts. Returns a
  * count of the requests that reached the student application, which is how a
- * test says the application itself was really fetched.
+ * test says the application itself was really fetched. Pass the context
+ * rather than the page when the preview opens in a new tab.
  */
-export async function previewGateway(page: Page): Promise<{ app: number }> {
+export async function previewGateway(
+	page: Page | BrowserContext,
+): Promise<{ app: number }> {
 	const counts = { app: 0 };
 
 	/** Authorize one request and proxy it to the upstream the API names. */

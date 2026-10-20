@@ -58,6 +58,8 @@ async function mount(
 			shareReads.push(url);
 			return json(200, { share: null, viewers: [], audience: [] });
 		}
+		if (url.endsWith("/live-help"))
+			return json(200, { session: null, lastEnded: null, audience: [] });
 		if (init?.method === "PATCH") return json(200, { ...TODO, state: "archived" });
 		if (url.endsWith("/duplicate")) return json(200, COPY);
 		if (url.endsWith("/templates")) return json(200, { templates: [] });
@@ -148,6 +150,25 @@ test("Share with my instructors opens the share dialog for that project", async 
 
 	const dialog = await screen.findByTestId("dialog-share-project");
 	expect(dialog.textContent).toContain("Share todo-api with my instructors");
+});
+
+test("Get live help opens the live help dialog for that project", async () => {
+	await mount();
+	openMenu(TODO.id);
+
+	fireEvent.keyDown(screen.getByRole("menuitem", { name: "Get live help…" }), {
+		key: "Enter",
+	});
+
+	const dialog = await screen.findByTestId("dialog-live-help");
+	expect(dialog.textContent).toContain("Get live help on todo-api");
+});
+
+test("a missing project offers no live help", async () => {
+	await mount();
+	openMenu(GONE.id);
+	await screen.findByRole("menuitem", { name: "Archive…" });
+	expect(screen.queryByRole("menuitem", { name: "Get live help…" })).toBeNull();
 });
 
 /** Enter on the download item must start the download itself. */

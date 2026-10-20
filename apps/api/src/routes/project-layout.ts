@@ -9,6 +9,19 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { ProjectRow, Scope } from "../workspaces/project-scope.js";
+import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
+
+/** The layout version as an entity tag, so a save can name what it was based on. */
+function layoutEtag(version: number): string {
+	return `"${version}"`;
+}
+
+/** The version an If-Match header names, or null when it names none. */
+function parseIfMatch(header: string | string[] | undefined): number | null {
+	if (typeof header !== "string") return null;
+	const match = /^"(\d{1,9})"$/.exec(header.trim());
+	return match ? Number(match[1]) : null;
+}
 
 /** Terminal panes in one layout tab, for the debug line on a save. */
 function countPanes(node: SplitNode): number {
@@ -35,10 +48,20 @@ async function otherLayoutBytes(
 	return Number(row.n);
 }
 
+function layoutChanged(reply: FastifyReply) {
+	return sendError(
+		reply,
+		412,
+		"LAYOUT_CHANGED",
+		"This project's layout was changed in another browser.",
+	);
+}
+
 /** The saved layout of one project (SPEC.md §7.5). */
 export function registerProjectLayoutRoutes(
 	app: FastifyInstance,
 	db: Kysely<Database>,
+	hub: WorkspaceHub,
 	limitWrites: (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>,
 	owned: (request: FastifyRequest, reply: FastifyReply) => Promise<Scope | null>,
 	ownedProject: (
@@ -54,11 +77,14 @@ export function registerProjectLayoutRoutes(
 		if (!scope) return;
 		const row = await ownedProject(scope.workspaceId, params.pid, reply);
 		if (!row) return;
+		reply.header("etag", layoutEtag(row.layout_version));
+		reply.header("cache-control", "no-store");
 		if (row.layout === null) return reply.status(204).send();
 		return row.layout;
 	});
 
-	// Last write wins (SPEC.md §7.5).
+	// A save names the version it was based on; a stale one is refused so it
+	// cannot overwrite another browser's newer layout (SPEC.md §7.5).
 	app.put(
 		"/workspaces/:id/projects/:pid/layout",
 		{ preHandler: limitWrites },
@@ -73,6 +99,10 @@ export function registerProjectLayoutRoutes(
 			}
 			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
+			const basedOn = parseIfMatch(request.headers["if-match"]);
+			if (basedOn === null || basedOn !== row.layout_version) {
+				return layoutChanged(reply);
+			}
 
 			const text = JSON.stringify(body.data);
 			const userId = requireUser(request).id;
@@ -89,11 +119,17 @@ export function registerProjectLayoutRoutes(
 				);
 			}
 
-			await db
+			// The version guard makes the check and the write one step, so two
+			// saves based on the same version cannot both land.
+			const updated = await db
 				.updateTable("projects")
-				.set({ layout: text })
+				.set({ layout: text, layout_version: sql<number>`layout_version + 1` })
 				.where("id", "=", row.id)
-				.execute();
+				.where("layout_version", "=", basedOn)
+				.returning("layout_version")
+				.executeTakeFirst();
+			if (!updated) return layoutChanged(reply);
+			hub.announceLayout(scope.workspaceId, row.id, updated.layout_version);
 
 			request.log.debug(
 				{
@@ -105,6 +141,7 @@ export function registerProjectLayoutRoutes(
 				"layout saved",
 			);
 
+			reply.header("etag", layoutEtag(updated.layout_version));
 			return reply.status(204).send();
 		},
 	);
