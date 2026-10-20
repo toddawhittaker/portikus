@@ -598,12 +598,18 @@ test("a check that forks past its cap fails while the agent keeps running", asyn
 					id: "bomb",
 					name: "Bomb",
 					// Forks sleepers until the kernel refuses, then exits 11
-					// (EAGAIN); a cap that never bites would exit 0.
+					// (EAGAIN); a cap that never bites would exit 0. The loop
+					// runs to the cap itself, not a fixed count, because the
+					// user's other processes come and go on a busy host and
+					// the room under the cap moves with them (SPEC.md 19.3).
 					command: `exec python3 -c '
-import os, sys, time
+import os, resource, sys, time
+cap = resource.getrlimit(resource.RLIMIT_NPROC)[0]
+if cap == resource.RLIM_INFINITY or cap > 100000:
+    sys.exit(0)
 kids = []
 try:
-    for _ in range(400):
+    for _ in range(cap + 1):
         pid = os.fork()
         if pid == 0:
             time.sleep(30)
