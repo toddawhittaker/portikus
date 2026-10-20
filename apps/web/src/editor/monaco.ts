@@ -7,7 +7,8 @@
  * services: their diagnostics do not know the project's configuration and
  * would confuse students (SPEC.md §13.2: this is not a VS Code clone).
  * Leaving them out also keeps about nine megabytes of language-server
- * workers out of the bundle.
+ * workers out of the bundle. Code help comes instead from language servers
+ * in the workspace, which do know it (SPEC.md §13.6, src/lsp).
  */
 import type * as Monaco from "monaco-editor";
 // Vite's `?worker` import: it bundles the worker and gives back a constructor.
@@ -113,7 +114,8 @@ export async function colorizeFence(
  * editor cannot drift apart. Each editor adds its own theme and anything
  * particular to it.
  */
-export const baseEditorOptions: Monaco.editor.IEditorOptions = {
+export const baseEditorOptions: Monaco.editor.IEditorOptions &
+	Monaco.editor.IGlobalEditorOptions = {
 	automaticLayout: true,
 	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
 	fontSize: BASE_FONT_SIZE,
@@ -127,6 +129,10 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions = {
 	// stays off (CodeEditor.tsx).
 	mouseWheelZoom: false,
 	scrollBeyondLastLine: false,
+	// Every suggestion comes from a language server (SPEC.md §13.6).
+	wordBasedSuggestions: "off",
+	// A peek needs the other file's model, which only exists once it is a tab.
+	gotoLocation: { multiple: "goto" },
 };
 
 /**
@@ -219,7 +225,7 @@ export function getMonaco(): Promise<typeof Monaco> {
 		const monaco = (await import(
 			"monaco-editor/editor/editor.api.js"
 		)) as unknown as typeof Monaco;
-		await loadEditorFeatures();
+		await loadEditorFeatures(monaco);
 		// Highlighting for the languages students write. JSON is the one
 		// language with a service rather than a highlighter, because SPEC.md
 		// §13.2 names it; it only checks JSON syntax and asks for no schemas.
