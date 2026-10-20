@@ -23,3 +23,14 @@ export const MAX_LANGUAGE_SERVER_SOCKETS = 4;
  * `typescript` count; `ruff` does not.
  */
 export const MAX_LANGUAGE_SERVERS_PER_WORKSPACE = 3;
+
+/**
+ * The only agent close reasons the control plane relays verbatim
+ * (SPEC.md §13.6). Every other reason is replaced by a fixed
+ * string of the API's own, so an agent cannot put its own text in front of a
+ * student (SPEC.md §24.1).
+ */
+export const LANGUAGE_SERVER_CLOSE_REASONS = {
+	crashed: "crashed",
+	outOfMemory: "crashed: may have run out of memory",
+} as const;

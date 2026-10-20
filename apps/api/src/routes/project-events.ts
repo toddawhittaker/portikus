@@ -2,10 +2,10 @@ import type { WebSocket } from "@fastify/websocket";
 import { CloseCode, MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
+import { pipeOneWay } from "../workspaces/message-pipe.js";
 import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
 import { type ProjectScope, scopedProject } from "../workspaces/project-scope.js";
 import { createSocketSlots } from "../workspaces/socket-slots.js";
-import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
 /** Event sockets open per workspace (SPEC.md §11.4, §24.1). */
 const eventSockets = createSocketSlots(MAX_EVENT_SOCKETS_PER_WORKSPACE);

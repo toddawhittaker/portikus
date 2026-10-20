@@ -2,6 +2,7 @@ import type { AddressInfo } from "node:net";
 import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
 import {
 	CloseCode,
+	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	MAX_LANGUAGE_SERVER_SOCKETS,
 } from "@portikus/contracts";
@@ -258,6 +259,29 @@ test.skipIf(skip)(
 		}
 	},
 );
+
+test.skipIf(skip)("only the fixed crash reasons pass through verbatim", async () => {
+	const cases: Array<[string, string]> = [
+		// Exact matches of the contract's list pass.
+		[LANGUAGE_SERVER_CLOSE_REASONS.crashed, LANGUAGE_SERVER_CLOSE_REASONS.crashed],
+		[
+			LANGUAGE_SERVER_CLOSE_REASONS.outOfMemory,
+			LANGUAGE_SERVER_CLOSE_REASONS.outOfMemory,
+		],
+		// A near match, other case, a trailing space and arbitrary text are replaced.
+		["crashed: may have run out of memory!", "crashed"],
+		["Crashed", "crashed"],
+		["crashed ", "crashed"],
+		["student-visible agent text", "crashed"],
+	];
+	for (const [sent, heard] of cases) {
+		const socket = await open(path("python"));
+		socket.ws.send(INITIALIZE);
+		await socket.next();
+		expect(agent.languageServers.closeAll(4414, sent)).toBe(1);
+		expect(await socket.closed).toEqual({ code: 4414, reason: heard });
+	}
+});
 
 test.skipIf(skip)("the browser's close reason never reaches the agent", async () => {
 	const socket = await open(path("python"));

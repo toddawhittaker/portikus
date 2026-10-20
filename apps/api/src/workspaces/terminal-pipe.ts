@@ -12,8 +12,8 @@ import { dropPresence, touchPresence } from "./presence.js";
 /** How often an attached terminal refreshes its presence row (SPEC.md §6.4). */
 const PRESENCE_INTERVAL_MS = 15_000;
 
-/** How often an attached terminal re-checks that its session still exists (SPEC.md §5.3). */
-const SESSION_CHECK_INTERVAL_MS = 1000;
+/** How often an attached socket re-checks that its session still exists (SPEC.md §5.3). */
+export const SESSION_CHECK_INTERVAL_MS = 1000;
 
 /** Pause the agent socket once this much output is waiting on the browser socket. */
 const HIGH_WATER_BYTES = 1024 * 1024;
@@ -27,7 +27,7 @@ const LOW_WATER_BYTES = 256 * 1024;
  * agent is student-controlled, so without a cap one frame could make the API
  * buffer up to the `ws` default of 100 MiB (SPEC.md §24.1).
  */
-const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+export const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
 
 /** How often a paused pipe checks whether the browser socket has drained. */
 const DRAIN_POLL_MS = 50;
@@ -35,8 +35,8 @@ const DRAIN_POLL_MS = 50;
 /** Input a browser may send before the agent socket is open. */
 const MAX_QUEUED_BYTES = 64 * 1024;
 
-/** How long the agent socket may take to answer the upgrade. */
-const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
+/** How long an agent socket may take to answer the upgrade. */
+export const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 /** Close codes a WebSocket peer is allowed to send on. */
 export function safeCloseCode(code: number): number {
@@ -411,100 +411,4 @@ function toBuffer(data: RawData): Buffer {
 	if (Buffer.isBuffer(data)) return data;
 	if (Array.isArray(data)) return Buffer.concat(data);
 	return Buffer.from(data);
-}
-
-export interface OneWayPipeOptions {
-	db: Kysely<Database>;
-	socket: WebSocket;
-	/** The agent socket to read from, and its authorization header. */
-	url: string;
-	authHeader: string;
-	workspaceId: string;
-	sessionToken: string | null;
-	log: FastifyBaseLogger;
-	/** The fixed reason the browser hears when the agent closes. */
-	closeReason: (safeCode: number) => string;
-	/** The log message for an agent socket error. */
-	failureMessage: string;
-}
-
-/**
- * Forward frames from one agent socket to one browser socket. Nothing travels
- * the other way: a frame the browser sends is dropped, so a hostile page
- * cannot reach the agent through this socket (SPEC.md §24.6).
- */
-export async function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
-	const { db, socket, workspaceId, sessionToken, log } = options;
-
-	const upstream = new WebSocketClient(options.url, {
-		headers: { authorization: options.authHeader },
-		handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
-		maxPayload: MAX_AGENT_FRAME_BYTES,
-	});
-
-	let closed = false;
-	const backpressure = pipeBackpressure(socket, upstream);
-
-	async function sessionStillValid(): Promise<void> {
-		const user = sessionToken ? await loadSession(db, sessionToken) : null;
-		if (user && !sessionGate(user)) return;
-		socket.close(CloseCode.SESSION_ENDED, "session revoked");
-	}
-
-	const sessionTimer = setInterval(() => {
-		void sessionStillValid().catch(() => {});
-	}, SESSION_CHECK_INTERVAL_MS);
-
-	await new Promise<void>((resolve) => {
-		function finish(): void {
-			if (closed) return;
-			closed = true;
-			clearInterval(sessionTimer);
-			backpressure.cancel();
-			resolve();
-		}
-
-		socket.on("message", () => {});
-
-		// The browser's own reason bytes are never sent on: the agent is told
-		// only that the browser went away (SPEC.md §24.1).
-		socket.on("close", (code: number) => {
-			if (
-				upstream.readyState === WebSocketClient.OPEN ||
-				upstream.readyState === WebSocketClient.CONNECTING
-			) {
-				upstream.close(safeCloseCode(code), "browser closed");
-			}
-			finish();
-		});
-
-		socket.on("error", () => finish());
-
-		upstream.on("message", (data: RawData) => {
-			if (socket.readyState !== socket.OPEN) return;
-			socket.send(data.toString());
-			backpressure.apply();
-		});
-
-		// The agent's reason bytes are never relayed; the browser gets our own
-		// words for the close (SPEC.md §24.1).
-		upstream.on("close", (code: number) => {
-			if (socket.readyState === socket.OPEN) {
-				const safe = safeCloseCode(code);
-				socket.close(safe, options.closeReason(safe));
-			}
-			finish();
-		});
-
-		upstream.on("error", (error: Error) => {
-			// The slug is a student-chosen name, so it stays out of the log.
-			const line = { err: error, workspaceId };
-			if (closed) log.info(line, options.failureMessage);
-			else log.error(line, options.failureMessage);
-			if (socket.readyState === socket.OPEN) {
-				socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
-			}
-			finish();
-		});
-	});
 }

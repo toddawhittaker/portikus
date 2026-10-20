@@ -5,13 +5,13 @@ import type { Database } from "@portikus/db";
 import type { FastifyBaseLogger } from "fastify";
 import type { Kysely } from "kysely";
 import WebSocketClient, { type RawData } from "ws";
-import { pipeBackpressure, safeCloseCode } from "./terminal-pipe.js";
-
-/** How often the pipe re-checks that the browser's session still exists (SPEC.md §5.3). */
-const SESSION_CHECK_INTERVAL_MS = 1000;
-
-/** How long the agent socket may take to answer the upgrade. */
-const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
+import {
+	AGENT_HANDSHAKE_TIMEOUT_MS,
+	MAX_AGENT_FRAME_BYTES,
+	pipeBackpressure,
+	SESSION_CHECK_INTERVAL_MS,
+	safeCloseCode,
+} from "./terminal-pipe.js";
 
 /** Text a browser may send before the agent socket is open. */
 const MAX_QUEUED_BYTES = 2 * 1024 * 1024;
@@ -27,10 +27,20 @@ export interface MessagePipeOptions {
 	log: FastifyBaseLogger;
 	/** The largest frame accepted from the agent, which is student-controlled (SPEC.md §24.1). */
 	maxAgentFrameBytes: number;
-	/** The fixed reason the browser hears when the agent closes. */
-	closeReason: (safeCode: number) => string;
-	/** What the browser hears when the agent answers the upgrade with a 404. */
-	missingRoute: { code: number; reason: string };
+	/**
+	 * Whether frames the browser sends travel to the agent. When false they are
+	 * dropped, so a hostile page cannot reach the agent through this socket
+	 * (SPEC.md §24.6).
+	 */
+	forwardBrowserFrames: boolean;
+	/**
+	 * The reason the browser hears when the agent closes. It gets the agent's
+	 * own reason to compare against a fixed list; it must never return that
+	 * text unchecked (SPEC.md §24.1).
+	 */
+	closeReason: (safeCode: number, agentReason: string) => string;
+	/** What the browser hears when the agent answers the upgrade with a 404; none means a plain failure. */
+	missingRoute?: { code: number; reason: string };
 	/** The log message for an agent socket error. */
 	failureMessage: string;
 }
@@ -62,19 +72,27 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 
 	const backpressure = pipeBackpressure(socket, upstream);
 
+	// The agent is told only that the browser went away, never the browser's
+	// own reason bytes (SPEC.md §24.1).
+	function closeUpstream(code: number): void {
+		const live =
+			upstream.readyState === WebSocketClient.OPEN ||
+			upstream.readyState === WebSocketClient.CONNECTING;
+		if (live) upstream.close(code, "browser closed");
+	}
+
+	function sendQueued(): void {
+		for (const frame of queued.splice(0)) upstream.send(frame);
+		queuedBytes = 0;
+	}
+
 	function endBrowser(code: number, reason: string): void {
 		inputStopped = true;
 		queued.length = 0;
-		if (
-			upstream.readyState === WebSocketClient.OPEN ||
-			upstream.readyState === WebSocketClient.CONNECTING
-		) {
-			upstream.close(1000, "browser closed");
-		}
+		closeUpstream(1000);
 		socket.close(code, reason);
 	}
 
-	// jscpd:ignore-start -- the session check and close handling mirror pipeOneWay in terminal-pipe.ts.
 	async function sessionStillValid(): Promise<void> {
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
 		if (user && !sessionGate(user)) return;
@@ -95,7 +113,7 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 		}
 
 		socket.on("message", (data: RawData, isBinary: boolean) => {
-			if (inputStopped) return;
+			if (inputStopped || !options.forwardBrowserFrames) return;
 			if (isBinary) {
 				endBrowser(1003, "text frames only");
 				return;
@@ -113,24 +131,14 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 			}
 		});
 
-		// The browser's own reason bytes are never sent on: the agent is told
-		// only that the browser went away (SPEC.md §24.1).
 		socket.on("close", (code: number) => {
-			if (
-				upstream.readyState === WebSocketClient.OPEN ||
-				upstream.readyState === WebSocketClient.CONNECTING
-			) {
-				upstream.close(safeCloseCode(code), "browser closed");
-			}
+			closeUpstream(safeCloseCode(code));
 			finish();
 		});
 
 		socket.on("error", () => finish());
 
-		upstream.on("open", () => {
-			for (const frame of queued.splice(0)) upstream.send(frame);
-			queuedBytes = 0;
-		});
+		upstream.on("open", sendQueued);
 
 		upstream.on("message", (data: RawData, isBinary: boolean) => {
 			if (socket.readyState !== socket.OPEN || isBinary) return;
@@ -143,10 +151,10 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 		// leaves the handshake open, so it is aborted here.
 		upstream.on("unexpected-response", (request, response) => {
 			refused = true;
-			const missing = response.statusCode === 404;
+			const route = response.statusCode === 404 ? options.missingRoute : undefined;
+			const missing = route !== undefined;
 			if (socket.readyState === socket.OPEN) {
-				if (missing)
-					socket.close(options.missingRoute.code, options.missingRoute.reason);
+				if (route) socket.close(route.code, route.reason);
 				else socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
 			}
 			if (!missing) {
@@ -158,10 +166,10 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 
 		// The agent's reason bytes are never relayed; the browser gets our own
 		// words for the close (SPEC.md §24.1).
-		upstream.on("close", (code: number) => {
+		upstream.on("close", (code: number, reason: Buffer) => {
 			if (socket.readyState === socket.OPEN) {
 				const safe = safeCloseCode(code);
-				socket.close(safe, options.closeReason(safe));
+				socket.close(safe, options.closeReason(safe, reason.toString()));
 			}
 			finish();
 		});
@@ -177,5 +185,33 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 			finish();
 		});
 	});
-	// jscpd:ignore-end
+}
+
+export interface OneWayPipeOptions {
+	db: Kysely<Database>;
+	socket: WebSocket;
+	/** The agent socket to read from, and its authorization header. */
+	url: string;
+	authHeader: string;
+	workspaceId: string;
+	sessionToken: string | null;
+	log: FastifyBaseLogger;
+	/** The fixed reason the browser hears when the agent closes. */
+	closeReason: (safeCode: number) => string;
+	/** The log message for an agent socket error. */
+	failureMessage: string;
+}
+
+/**
+ * Forward frames from one agent socket to one browser socket. Nothing travels
+ * the other way: a frame the browser sends is dropped, so a hostile page
+ * cannot reach the agent through this socket (SPEC.md §24.6).
+ */
+export function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
+	return pipeMessages({
+		...options,
+		forwardBrowserFrames: false,
+		maxAgentFrameBytes: MAX_AGENT_FRAME_BYTES,
+		closeReason: (safeCode) => options.closeReason(safeCode),
+	});
 }

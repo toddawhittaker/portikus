@@ -1,6 +1,7 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
 	CloseCode,
+	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	LanguageServerId,
 	MAX_LANGUAGE_SERVER_SOCKETS,
@@ -17,12 +18,19 @@ import { createSocketSlots } from "../workspaces/socket-slots.js";
 /** Language-server sockets open per workspace (SPEC.md §13.6, §24.1). */
 const languageServerSockets = createSocketSlots(MAX_LANGUAGE_SERVER_SOCKETS);
 
+/** The agent reasons that may pass through: exactly the contract's fixed list. */
+const RELAYED_REASONS: ReadonlySet<string> = new Set(
+	Object.values(LANGUAGE_SERVER_CLOSE_REASONS),
+);
+
 /**
  * The reason the browser is given for an agent close. The agent's own bytes
- * are never relayed: only these fixed strings, which the control plane owns
+ * are never relayed, except a reason that exactly equals one on the
+ * contract's fixed list; everything else is a string the control plane owns
  * (SPEC.md §24.1).
  */
-function browserCloseReason(code: number): string {
+function browserCloseReason(code: number, agentReason: string): string {
+	if (RELAYED_REASONS.has(agentReason)) return agentReason;
 	if (code === CloseCode.LANGUAGE_SERVER_REPLACED) return "replaced by another window";
 	if (code === CloseCode.LANGUAGE_SERVER_IDLE) return "idle";
 	if (code === CloseCode.LANGUAGE_SERVER_CRASHED) return "crashed";
@@ -128,6 +136,7 @@ export function registerLanguageServerSocket(
 					log: request.log,
 					sessionToken: request.sessionToken,
 					maxAgentFrameBytes: LANGUAGE_SERVER_MAX_FRAME_BYTES,
+					forwardBrowserFrames: true,
 					closeReason: browserCloseReason,
 					missingRoute: {
 						code: CloseCode.LANGUAGE_SERVER_UNAVAILABLE,
