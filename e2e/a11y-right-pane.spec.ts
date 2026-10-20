@@ -34,7 +34,8 @@ test.describe("right pane accessibility", () => {
 		await expect(checks).toHaveAttribute("aria-selected", "true");
 		await expect(page.getByRole("tabpanel", { name: "Checks" })).toBeVisible();
 
-		await page.keyboard.press("End");
+		await page.keyboard.press("ArrowRight");
+		await page.keyboard.press("ArrowRight");
 		await expect(page.getByRole("tab", { name: "Monitor" })).toBeFocused();
 		await page.keyboard.press("Home");
 		await expect(files).toBeFocused();

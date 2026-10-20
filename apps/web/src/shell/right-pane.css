@@ -1,6 +1,6 @@
 /*
- * The right pane's frame (SPEC.md §8.4): the Files, Checks, Running and
- * Monitor switch above whichever surface is showing. The pane can be dragged
+ * The right pane's frame (SPEC.md §8.4): the Files, Checks, Running,
+ * Monitor and Problems switch above whichever surface is showing. The pane can be dragged
  * narrow, so it is a size container and each surface lays itself out from
  * the pane's width, not the window's.
  */
@@ -36,7 +36,7 @@
 }
 
 /*
- * The switch stays on one line. When the pane is too narrow for all four
+ * The switch stays on one line. When the pane is too narrow for all five
  * names it scrolls sideways; the cut-off name at the edge shows there is more.
  */
 .pk-pane-tabs {
@@ -81,14 +81,28 @@
 	outline-offset: var(--ring-offset-inset);
 }
 
-@container pk-right (width < 17rem) {
+/*
+ * Five names, a count and the default pane width (about 280px at a 1280px
+ * window) fit on one line only with 12px labels and 4px of padding, so a
+ * pane under 20rem takes both. Below what that fits, the strip scrolls.
+ */
+@container pk-right (width < 20rem) {
 	.pk-pane-tabs {
 		gap: 0;
 		padding-inline: var(--space-1);
 	}
 	.pk-pane-tab {
-		padding-inline: var(--space-1\.5);
+		font-size: 12px;
+		padding-inline: var(--space-1);
 	}
+}
+
+/* The count after the Problems tab's name. */
+.pk-pane-tab-count {
+	margin-inline-start: var(--space-0\.5);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-muted);
 }
 
 /* A surface's "About" button sits at the start of its head, the actions at the end. */
