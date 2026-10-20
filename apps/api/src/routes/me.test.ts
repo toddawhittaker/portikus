@@ -10,7 +10,12 @@ import {
 	systemTimezones,
 	UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
-import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
+import {
+	createTestDb,
+	hasTestDb,
+	insertTestLtiMembership,
+	type TestDb,
+} from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
@@ -78,6 +83,8 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 });
@@ -98,6 +105,8 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 
@@ -112,6 +121,8 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 
@@ -130,6 +141,8 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 });
@@ -225,6 +238,8 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 
@@ -245,6 +260,8 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 });
@@ -285,6 +302,8 @@ test.skipIf(skip)(
 			screenReaderMode: false,
 			timezones: [...systemTimezones()],
 			voiceInputEnabled: true,
+			codeHelpEnabled: true,
+			courseProfile: "agentic",
 			appearanceStored: false,
 		});
 
@@ -301,6 +320,8 @@ test.skipIf(skip)(
 			appearanceStored: false,
 			timezones: [...systemTimezones()],
 			voiceInputEnabled: true,
+			codeHelpEnabled: true,
+			courseProfile: "agentic",
 		});
 	},
 );
@@ -344,6 +365,8 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: false,
 	});
 });
@@ -382,6 +405,8 @@ test.skipIf(skip)("an invalid stored key loses only that key", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
+		codeHelpEnabled: true,
+		courseProfile: "agentic",
 		appearanceStored: true,
 	});
 
@@ -604,4 +629,55 @@ test.skipIf(skip)("GET says whether appearance was saved or defaulted", async ()
 	const saved = await put(jar, { appearance: "system" });
 	expect(saved.json().appearanceStored).toBe(true);
 	expect(await stored()).toBe(true);
+});
+
+async function aliceId(): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", "alice")
+		.executeTakeFirstOrThrow();
+	return row.id;
+}
+
+// SPEC.md 8.7: the page reads the profile its student seats decide, read-only.
+test.skipIf(skip)("GET and PUT carry the read-only course profile", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const id = await aliceId();
+	const course = await insertTestLtiMembership(testDb.db, id, { contextId: "cs" });
+	const profile = async () => (await getAs(jar, "/me/settings")).json().courseProfile;
+
+	expect(await profile()).toBe("agentic");
+	await testDb.db
+		.updateTable("lti_contexts")
+		.set({ profile: "traditional" })
+		.where("id", "=", course)
+		.execute();
+	expect(await profile()).toBe("traditional");
+	expect((await put(jar, { wordWrap: false })).json().courseProfile).toBe(
+		"traditional",
+	);
+
+	// A second course that is Agentic wins: the fullest profile applies.
+	await insertTestLtiMembership(testDb.db, id, { contextId: "other" });
+	expect(await profile()).toBe("agentic");
+
+	// The profile is not something a student can write.
+	const refused = await put(jar, { courseProfile: "agentic" });
+	expect(refused.statusCode).toBe(400);
+});
+
+test.skipIf(skip)("GET and PUT carry the site code-help switch", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const enabled = async () => (await getAs(jar, "/me/settings")).json().codeHelpEnabled;
+
+	expect(await enabled()).toBe(true);
+	await testDb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 600, code_help_enabled: false })
+		.execute();
+	expect(await enabled()).toBe(false);
+	expect((await put(jar, { wordWrap: false })).json().codeHelpEnabled).toBe(false);
 });

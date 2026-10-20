@@ -22,6 +22,7 @@ import {
 	AgentRenameProjectRequest,
 	AgentRestoreRecoveryPointRequest,
 	AgentTerminalsExit,
+	type LanguageServerId,
 	type LogLevel,
 	LoopbackForward,
 	LoopbackForwardRequest,
@@ -117,6 +118,11 @@ export class AgentClient {
 	/** The websocket URL the project's filesystem events are piped from. */
 	projectEventsUrl(slug: string): string {
 		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/events`;
+	}
+
+	/** The websocket URL a project's language server is reached on (SPEC.md §13.6). */
+	languageServerUrl(slug: string, server: LanguageServerId): string {
+		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/language-servers/${server}`;
 	}
 
 	/** The websocket URL the workspace's listening-port changes arrive on. */

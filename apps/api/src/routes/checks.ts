@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
+import { pipeOneWay } from "../workspaces/message-pipe.js";
 import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
 import {
 	agentUrl,
@@ -18,7 +19,6 @@ import {
 	sendAgentError,
 } from "../workspaces/project-scope.js";
 import { createSocketSlots } from "../workspaces/socket-slots.js";
-import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
 /** A run may take a while to start, but starting it is not itself slow. */
 const CHECK_BUDGET_MS = AGENT_TIMEOUT_MS;

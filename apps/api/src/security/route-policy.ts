@@ -166,6 +166,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/layout": owner,
 	"PUT /workspaces/:id/projects/:pid/layout": owner,
 	"GET /workspaces/:id/projects/:pid/events": ownerSocket,
+	// Owner only, with no administrator, instructor, share or live-help way in (SPEC.md §13.6).
+	"GET /workspaces/:id/projects/:pid/language-servers/:server": ownerSocket,
 	"GET /workspaces/:id/projects/:pid/share": owner,
 	"HEAD /workspaces/:id/projects/:pid/share": owner,
 	"POST /workspaces/:id/projects/:pid/share": owner,
@@ -216,6 +218,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /courses/:courseId/members": { access: "course-instructor" },
 	"HEAD /courses/:courseId/members": { access: "course-instructor" },
 	"POST /courses/:courseId/members/:userId/remove": { access: "course-instructor" },
+	"PUT /courses/:courseId/profile": { access: "course-instructor" },
 	"POST /courses/:courseId/roster/sync": { access: "course-instructor" },
 	// A student's shared project, read-only (ADR 0057); only the reads below exist.
 	// Live help (ADR 0063): the student's routes, then the helper's.
@@ -335,6 +338,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /admin/proxy-hosts": { access: "admin" },
 	"HEAD /admin/proxy-hosts": { access: "admin" },
 	"PUT /admin/proxy-hosts": { access: "admin" },
+	"GET /admin/courses": { access: "admin" },
+	"HEAD /admin/courses": { access: "admin" },
+	"PUT /admin/courses/:courseId/profile": { access: "admin" },
 	"GET /admin/lms": { access: "admin" },
 	"HEAD /admin/lms": { access: "admin" },
 	"PUT /admin/lms": { access: "admin" },

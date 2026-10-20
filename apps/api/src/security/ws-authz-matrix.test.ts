@@ -104,7 +104,8 @@ function pathFor(
 		.replace(":id", ids.workspaceId)
 		.replace(":pid", ids.projectId)
 		.replace(":tid", ids.terminalId)
-		.replace(":checkId", "lint");
+		.replace(":checkId", "lint")
+		.replace(":server", "python");
 }
 
 const socketKeys = Object.keys(ROUTE_POLICY).filter(
@@ -122,8 +123,8 @@ const adminSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "admin",
 );
 
-test("the six browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(6);
+test("the seven browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(7);
 	expect(courseSocketKeys).toEqual([
 		"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws",
 	]);
