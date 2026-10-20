@@ -276,8 +276,13 @@ export function useXterm({
 		// Alt+Shift+M is down; a keyup elsewhere would never reach this pane,
 		// so leaving the pane lets go too.
 		let voiceHeld = false;
+		// Null until attached; the terminal can take focus before that.
+		let session: XtermSession | null = null;
+		// Turning to a terminal makes this browser's size the one tmux uses
+		// when another browser shows the same terminal (SPEC.md §9.7).
 		const onFocusIn = () => {
 			focused = true;
+			session?.resized();
 		};
 		const onFocusOut = () => {
 			focused = false;
@@ -364,7 +369,8 @@ export function useXterm({
 			return true;
 		}
 
-		const session = attach(term, { container, fit: fitIfMeasurable });
+		const attached = attach(term, { container, fit: fitIfMeasurable });
+		session = attached;
 
 		/**
 		 * Every keyboard paste arrives as the browser's paste event. It is
@@ -490,15 +496,14 @@ export function useXterm({
 		}
 		container.addEventListener("contextmenu", onContextMenu);
 
-		// Turning to a terminal makes this browser's size the one tmux uses
-		// when another browser shows the same terminal (SPEC.md §9.7).
+		// A click on an unfocused terminal also focuses it, and focusin says the
+		// size; saying it twice makes tmux repaint twice, which a screen reader
+		// reads out as new output (SPEC.md §25.8).
 		function onPointerDown() {
 			handlers.current.onFocus();
-			session.resized();
+			if (focused) attached.resized();
 		}
 		container.addEventListener("pointerdown", onPointerDown);
-		const claimOnFocus = () => session.resized();
-		container.addEventListener("focusin", claimOnFocus);
 
 		// Wait for the box to settle: every size sent makes tmux reflow and a
 		// full-screen app like Claude Code redraw, and redraws for sizes already
@@ -509,7 +514,7 @@ export function useXterm({
 			settle = setTimeout(() => {
 				settle = undefined;
 				if (container.clientWidth === 0 || container.clientHeight === 0) return;
-				session.resized();
+				attached.resized();
 			}, RESIZE_SETTLE_MS);
 		});
 		observer.observe(container);
@@ -517,7 +522,7 @@ export function useXterm({
 		return () => {
 			if (dictationTarget) dictationTarget.current = null;
 			if (voiceHeld) handlers.current.onVoiceHold?.(false);
-			session.dispose();
+			attached.dispose();
 			if (settle !== undefined) clearTimeout(settle);
 			observer.disconnect();
 			container.removeEventListener("contextmenu", onContextMenu);
@@ -525,7 +530,6 @@ export function useXterm({
 			container.removeEventListener("focusin", onFocusIn);
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
-			container.removeEventListener("focusin", claimOnFocus);
 			selection.dispose();
 			term.dispose();
 			xterm.current = null;

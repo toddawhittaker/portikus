@@ -142,6 +142,8 @@ export function sendText(socket: WebSocket, message: TerminalServerMessage): voi
  */
 export class TerminalRegistry {
 	private readonly attachments = new Map<string, Set<Attachment>>();
+	/** Per terminal, the attachment whose size the window last took (SPEC.md §9.7). */
+	private readonly claimers = new Map<string, Attachment>();
 
 	constructor(
 		private readonly homeDir: string,
@@ -255,6 +257,7 @@ export class TerminalRegistry {
 		// sends a measured size (SPEC.md §9.7).
 		const waitForSize = !options.mode && attachment.pendingResize === null;
 		attachment.sized = !waitForSize;
+		if (!waitForSize && !options.mode) this.claimers.set(id, attachment);
 		const pty = this.spawnPty(
 			"tmux",
 			attachArgs(id, this.server, options.mode, waitForSize),
@@ -315,6 +318,7 @@ export class TerminalRegistry {
 			attachment.socket.close(code, reason);
 		}
 		this.attachments.delete(id);
+		this.claimers.delete(id);
 		// The terminal is going away, so it leaves the poll whether or not each
 		// socket's close handler has run yet.
 		this.panes.drop(id);
@@ -383,6 +387,7 @@ export class TerminalRegistry {
 			clearInterval(attachment.drainTimer);
 			attachment.drainTimer = null;
 		}
+		if (this.claimers.get(id) === attachment) this.claimers.delete(id);
 		const set = this.attachments.get(id);
 		if (!set) return;
 		set.delete(attachment);
@@ -479,11 +484,29 @@ export class TerminalRegistry {
 		// A changed size already wins under `latest`. The first measured size,
 		// or the same size sent again because the student turned to this
 		// terminal, has to be claimed (SPEC.md §9.7).
-		if (attachment.sized && changed) return;
-		attachment.sized = true;
-		claimWindowSize(attachment.terminalId, pty.pid, this.server).catch((error) => {
-			this.log.warn({ error: errorMessage(error) }, "terminal size claim failed");
-		});
+		const id = attachment.terminalId;
+		if (attachment.sized && changed) {
+			this.claimers.set(id, attachment);
+			return;
+		}
+		// Each claim makes tmux repaint the screen, which a screen reader
+		// announces as new output, so skip one that would change nothing.
+		if (
+			attachment.sized &&
+			(this.claimers.get(id) === attachment || this.countAttachments(id) === 1)
+		) {
+			return;
+		}
+		claimWindowSize(id, pty.pid, this.server)
+			.then((claimed) => {
+				// No client listed yet: stay unsized so the next size claims again.
+				if (!claimed || attachment.closed) return;
+				attachment.sized = true;
+				this.claimers.set(id, attachment);
+			})
+			.catch((error) => {
+				this.log.warn({ error: errorMessage(error) }, "terminal size claim failed");
+			});
 	}
 
 	private resizeHelper(attachment: Attachment, cols: number, rows: number): void {
