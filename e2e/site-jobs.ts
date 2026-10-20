@@ -76,14 +76,15 @@ opts = json.loads(options)
 loader = SourceFileLoader("site_job", path)
 job = module_from_spec(spec_from_loader("site_job", loader))
 loader.exec_module(job)
-job.NODE, job.PLATFORMS_CHECK = node, check
+proxy, settings = sys.modules["site_proxy"], sys.modules["site_settings"]
+proxy.NODE, proxy.PLATFORMS_CHECK = node, check
 setups = [1, 0] if opts.get("setupFails") else []
 def fake(argv, timeout=60, stdin=None):
     if argv[0] == node:
         return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True).returncode, ""
     if argv[0] == "squid":
         return (1 if opts.get("squidRejects") else 0), ""
-    if argv[:3] == ["systemctl", "start", job.SETUP_UNIT]:
+    if argv[:3] == ["systemctl", "start", settings.SETUP_UNIT]:
         return (setups.pop(0) if setups else 0), ""
     if argv[:4] == ["systemctl", "show", "-P", "ActiveState"]:
         return 0, "inactive\\n"

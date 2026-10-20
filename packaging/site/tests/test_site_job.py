@@ -44,13 +44,15 @@ def _load(name, path):
 sj = _load("site_job", REPO / "packaging/site/site-job")
 aj = _load("alerts_job_for_site", REPO / "packaging/alerts/alerts-job")
 values = sys.modules["site_values"]
+site_common, site_proxy, site_settings, site_trial = (
+    sys.modules[name] for name in ("site_common", "site_proxy", "site_settings", "site_trial"))
 
 
 def _no_real_commands(argv, timeout=60, stdin=None):
     raise AssertionError(f"a test reached a real command: {argv!r}")
 
 
-sj.run = _no_real_commands
+site_common.run = _no_real_commands
 aj.run = _no_real_commands
 
 JOB = "0b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
@@ -80,16 +82,16 @@ class FakeRun:
     def name(self, argv):
         if argv[0] == "squid":
             return "parse"
-        if argv[0] == sj.NODE:
+        if argv[0] == site_proxy.NODE:
             return "platforms-check"
         if argv[0] in ("systemd-run", "journalctl", "debconf-set-selections"):
             return argv[0]
         if argv[0] == "systemctl":
-            if argv[1] == "start" and argv[2] == sj.SETUP_UNIT:
+            if argv[1] == "start" and argv[2] == site_settings.SETUP_UNIT:
                 return "setup"
             if argv[1] == "try-reload-or-restart":
                 return "reload"
-            if argv[1] == "try-restart" and argv[2] == sj.API_UNIT:
+            if argv[1] == "try-restart" and argv[2] == site_proxy.API_UNIT:
                 return "api-restart"
             if argv[1:4] == ["show", "-P", "ActiveState"]:
                 return "setup-state"
@@ -105,7 +107,7 @@ class FakeRun:
         if stdin is not None:
             self.stdin.append(stdin)
         if name == "setup":
-            self.seen_config.append(Path(self.host.path(sj.CONFIG_FILE)).read_text())
+            self.seen_config.append(Path(self.host.path(site_common.CONFIG_FILE)).read_text())
             return (self.setup.pop(0) if self.setup else 0), ""
         if name == "setup-state":
             return 0, self.setup_state + "\n"
@@ -136,10 +138,10 @@ class Host(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="sitejob-")
         self.addCleanup(shutil.rmtree, self.root)
-        for path in ("/etc/portikus/certificate", "/etc/squid", sj.JOBS_DIR, sj.PROXY_DIR):
+        for path in ("/etc/portikus/certificate", "/etc/squid", site_common.JOBS_DIR, site_common.PROXY_DIR):
             os.makedirs(self.path(path))
-        Path(self.path(sj.SQUID_CONF)).write_text("include /etc/portikus/egress-proxy.d/*.conf\n")
-        Path(self.path(sj.PROXY_DIR), "alerts.conf").write_text("# alerts\n")
+        Path(self.path(site_common.SQUID_CONF)).write_text("include /etc/portikus/egress-proxy.d/*.conf\n")
+        Path(self.path(site_common.PROXY_DIR), "alerts.conf").write_text("# alerts\n")
         self.fake = FakeRun(self)
         self.clock = Clock()
         # The API answers /health at once unless a test queues other answers; each wait moves the clock.
@@ -163,7 +165,7 @@ class Host(unittest.TestCase):
 
     def install(self, config=None, secrets=None):
         """An apt install's settings, as postinst wrote them."""
-        Path(self.path(sj.CONFIG_FILE)).write_text(config if config is not None else (
+        Path(self.path(site_common.CONFIG_FILE)).write_text(config if config is not None else (
             "portikus_admin_email: admin@example.edu\nportikus_dex_upstream: none\n"
             "portikus_public_host: portikus.example.edu\nportikus_storage: file\n"
             "portikus_storage_size: 100\nportikus_tls: internal\n"))
@@ -172,7 +174,7 @@ class Host(unittest.TestCase):
 
     def request(self, kind, job_id=JOB, raw=None, **body):
         doc = {"version": 1, "id": job_id, "kind": kind, "requestedAt": "2026-10-10T12:00:00.000Z", **body}
-        path = os.path.join(self.path(sj.JOBS_DIR), f"request-{job_id}.json")
+        path = os.path.join(self.path(site_common.JOBS_DIR), f"request-{job_id}.json")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(raw if raw is not None else json.dumps(doc))
@@ -192,26 +194,26 @@ class Host(unittest.TestCase):
             return self.runner.run_expire(job_id)
 
     def status(self, job_id=JOB):
-        return json.loads(Path(self.path(sj.JOBS_DIR), "status", f"{job_id}.json").read_text())
+        return json.loads(Path(self.path(site_common.JOBS_DIR), "status", f"{job_id}.json").read_text())
 
     def log(self, job_id=JOB):
-        path = Path(self.path(sj.JOBS_DIR), "status", f"{job_id}.log")
+        path = Path(self.path(site_common.JOBS_DIR), "status", f"{job_id}.log")
         return path.read_text() if path.exists() else ""
 
     def config(self):
-        return Path(self.path(sj.CONFIG_FILE)).read_text()
+        return Path(self.path(site_common.CONFIG_FILE)).read_text()
 
     def secrets(self):
         path = Path(self.path("/etc/portikus/secrets.yaml"))
         return path.read_text() if path.exists() else ""
 
     def include(self, name):
-        path = Path(self.path(sj.PROXY_DIR), name)
+        path = Path(self.path(site_common.PROXY_DIR), name)
         return path.read_text() if path.exists() else None
 
     def everything_written(self):
         """Every byte the job left where the API, the journal or a process listing could see it."""
-        status_dir = Path(self.path(sj.JOBS_DIR), "status")
+        status_dir = Path(self.path(site_common.JOBS_DIR), "status")
         files = "".join(p.read_text() for p in status_dir.iterdir()) if status_dir.exists() else ""
         argv = json.dumps([argv for _, argv in self.fake.calls])
         return files + self.journal.getvalue() + argv + "".join(self.fake.stdin)
@@ -284,13 +286,14 @@ class ValueRules(unittest.TestCase):
     def test_codes_match_the_contract(self):
         source = (REPO / "packages/contracts/src/site.ts").read_text()
         block = re.search(r"SiteJobCode = z\.enum\(\[([^\]]*)\]", source).group(1)
-        self.assertEqual(tuple(re.findall(r'"([a-z_]+)"', block)), sj.CODES)
+        self.assertEqual(tuple(re.findall(r'"([a-z_]+)"', block)), site_common.CODES)
 
     def test_every_code_used_is_listed(self):
-        source = (REPO / "packaging/site/site-job").read_text() + (REPO / "packaging/site/site_values.py").read_text()
+        site_dir = REPO / "packaging/site"
+        source = "".join(path.read_text() for path in [site_dir / "site-job", *sorted(site_dir.glob("site_*.py"))])
         used = set(re.findall(r'(?:Refused|JobFailed)\("([a-z_]+)"', source))
         used |= set(re.findall(r'"code": "([a-z_]+)"', source))
-        self.assertTrue(used <= set(sj.CODES), used - set(sj.CODES))
+        self.assertTrue(used <= set(site_common.CODES), used - set(site_common.CODES))
 
 
 class Requests(Host):
@@ -337,7 +340,7 @@ class Requests(Host):
                 self.assertEqual((status["kind"], status["state"], status["code"]), (kind, "failed", code))
                 self.assertIsNotNone(status["finishedAt"])
         self.assertNotIn("parse", self.fake.names())
-        self.assertFalse(os.path.exists(self.path(sj.PROXY_HOSTS_FILE)))
+        self.assertFalse(os.path.exists(self.path(site_common.PROXY_HOSTS_FILE)))
 
     def test_a_malformed_head_is_refused(self):
         for index, raw in enumerate([
@@ -350,12 +353,12 @@ class Requests(Host):
             '"2026-10-10T12:00:00Z", "hosts": []}' % JOB,
         ]):
             with self.subTest(index=index):
-                shutil.rmtree(Path(self.path(sj.JOBS_DIR), "status"), ignore_errors=True)
+                shutil.rmtree(Path(self.path(site_common.JOBS_DIR), "status"), ignore_errors=True)
                 self.request("proxy-hosts", raw=raw)
                 self.run_pending()
                 if index == 3:
                     # A duplicate key leaves no kind to name, so only the journal hears of it.
-                    self.assertFalse(Path(self.path(sj.JOBS_DIR), "status", f"{JOB}.json").exists())
+                    self.assertFalse(Path(self.path(site_common.JOBS_DIR), "status", f"{JOB}.json").exists())
                 else:
                     self.assertEqual(self.status()["code"], "invalid_request")
 
@@ -368,14 +371,14 @@ class Requests(Host):
     def test_a_link_is_never_followed(self):
         target = Path(self.root, "elsewhere.json")
         target.write_text("{}")
-        os.symlink(target, os.path.join(self.path(sj.JOBS_DIR), f"request-{JOB}.json"))
+        os.symlink(target, os.path.join(self.path(site_common.JOBS_DIR), f"request-{JOB}.json"))
         self.run_pending()
         self.assertTrue(target.exists())
-        self.assertFalse(os.path.lexists(os.path.join(self.path(sj.JOBS_DIR), f"request-{JOB}.json")))
+        self.assertFalse(os.path.lexists(os.path.join(self.path(site_common.JOBS_DIR), f"request-{JOB}.json")))
 
     def test_status_files_are_readable_by_the_jobs_group_only(self):
         self.play("proxy-hosts", hosts=["api.example.com"])
-        status = Path(self.path(sj.JOBS_DIR), "status", f"{JOB}.json")
+        status = Path(self.path(site_common.JOBS_DIR), "status", f"{JOB}.json")
         self.assertEqual(stat.S_IMODE(status.stat().st_mode), 0o640)
         self.assertEqual(stat.S_IMODE(status.parent.stat().st_mode), 0o750)
 
@@ -388,69 +391,69 @@ class ProxyHosts(Host):
     def test_hosts_reach_the_proxy_on_443_by_connect(self):
         status = self.play("proxy-hosts", hosts=["api.example.com", "Files.Example.org"])
         self.assertEqual((status["state"], status["code"]), ("done", None))
-        conf = self.include(sj.ADMIN_CONF)
+        conf = self.include(site_proxy.ADMIN_CONF)
         self.assertIn("acl portikus_site_hosts dstdomain -n api.example.com files.example.org\n", conf)
         self.assertIn("acl portikus_site_hosts_port port 443\n", conf)
         self.assertIn("http_access allow portikus_connect portikus_site_hosts portikus_site_hosts_port\n", conf)
-        page = Path(self.path(sj.PROXY_HOSTS_FILE))
+        page = Path(self.path(site_common.PROXY_HOSTS_FILE))
         self.assertEqual(json.loads(page.read_text()), {"version": 1, "hosts": ["api.example.com", "Files.Example.org"]})
         self.assertEqual(stat.S_IMODE(page.stat().st_mode), 0o640)
         self.assertEqual(self.fake.names(), ["parse", "reload"])
-        self.assertFalse(os.path.exists(os.path.join(self.path(sj.PROXY_DIR), sj.RELOAD_PENDING)))
+        self.assertFalse(os.path.exists(os.path.join(self.path(site_common.PROXY_DIR), site_proxy.RELOAD_PENDING)))
 
     def test_an_empty_list_allows_nothing(self):
         self.play("proxy-hosts", hosts=["api.example.com"])
         self.play("proxy-hosts", JOB2, hosts=[])
-        self.assertNotIn("acl", self.include(sj.ADMIN_CONF))
+        self.assertNotIn("acl", self.include(site_proxy.ADMIN_CONF))
 
     def test_a_rejected_include_rolls_back(self):
         self.play("proxy-hosts", hosts=["api.example.com"])
-        before = self.include(sj.ADMIN_CONF)
+        before = self.include(site_proxy.ADMIN_CONF)
         self.fake.rc["parse"] = 1
         status = self.play("proxy-hosts", JOB2, hosts=["other.example.com"])
         self.assertEqual((status["state"], status["code"]), ("failed", "proxy_config_rejected"))
-        self.assertEqual(self.include(sj.ADMIN_CONF), before)
-        self.assertEqual(json.loads(Path(self.path(sj.PROXY_HOSTS_FILE)).read_text())["hosts"], ["api.example.com"])
+        self.assertEqual(self.include(site_proxy.ADMIN_CONF), before)
+        self.assertEqual(json.loads(Path(self.path(site_common.PROXY_HOSTS_FILE)).read_text())["hosts"], ["api.example.com"])
         self.assertEqual(self.fake.names()[-1], "parse")
-        self.assertFalse(os.path.exists(os.path.join(self.path(sj.PROXY_DIR), sj.RELOAD_PENDING)))
+        self.assertFalse(os.path.exists(os.path.join(self.path(site_common.PROXY_DIR), site_proxy.RELOAD_PENDING)))
 
     def test_a_first_include_that_is_rejected_leaves_none(self):
         self.fake.rc["parse"] = 1
         self.play("proxy-hosts", hosts=["api.example.com"])
-        self.assertIsNone(self.include(sj.ADMIN_CONF))
+        self.assertIsNone(self.include(site_proxy.ADMIN_CONF))
 
     def test_a_failed_reload_is_retried_by_the_next_run(self):
         self.fake.rc["reload"] = 1
         status = self.play("proxy-hosts", hosts=["api.example.com"])
         self.assertEqual(status["code"], "proxy_reload_failed")
-        self.assertTrue(os.path.exists(os.path.join(self.path(sj.PROXY_DIR), sj.RELOAD_PENDING)))
+        self.assertTrue(os.path.exists(os.path.join(self.path(site_common.PROXY_DIR), site_proxy.RELOAD_PENDING)))
         self.fake.rc["reload"] = 0
         self.play("proxy-hosts", JOB2, hosts=["api.example.com"])
         self.assertEqual(self.fake.names()[-1], "reload")
-        self.assertFalse(os.path.exists(os.path.join(self.path(sj.PROXY_DIR), sj.RELOAD_PENDING)))
+        self.assertFalse(os.path.exists(os.path.join(self.path(site_common.PROXY_DIR), site_proxy.RELOAD_PENDING)))
 
     def test_a_hand_edit_is_put_back_by_the_next_job(self):
         self.play("proxy-hosts", hosts=["api.example.com"])
-        Path(self.path(sj.PROXY_DIR), sj.ADMIN_CONF).write_text("http_access allow all\n")
+        Path(self.path(site_common.PROXY_DIR), site_proxy.ADMIN_CONF).write_text("http_access allow all\n")
         self.play("proxy-hosts", JOB2, hosts=["api.example.com"])
-        self.assertEqual(self.include(sj.ADMIN_CONF), sj.render_admin(["api.example.com"]))
+        self.assertEqual(self.include(site_proxy.ADMIN_CONF), site_proxy.render_admin(["api.example.com"]))
 
     def test_sync_brings_the_includes_in_line_with_the_page_files(self):
         self.play("proxy-hosts", hosts=["api.example.com"])
-        Path(self.path(sj.PROXY_DIR), sj.ADMIN_CONF).unlink()
-        Path(self.path(sj.LTI_ADMIN_FILE)).write_text(json.dumps({"version": 1, "platforms": [platform()]}))
+        Path(self.path(site_common.PROXY_DIR), site_proxy.ADMIN_CONF).unlink()
+        Path(self.path(site_common.LTI_ADMIN_FILE)).write_text(json.dumps({"version": 1, "platforms": [platform()]}))
         with contextlib.redirect_stderr(self.journal):
             self.assertTrue(self.runner.sync())
-        self.assertIn("api.example.com", self.include(sj.ADMIN_CONF))
-        self.assertIn("keys.example.edu", self.include(sj.LTI_CONF))
+        self.assertIn("api.example.com", self.include(site_proxy.ADMIN_CONF))
+        self.assertIn("keys.example.edu", self.include(site_proxy.LTI_CONF))
         with contextlib.redirect_stderr(self.journal):
             self.assertFalse(self.runner.sync())
 
     def test_a_broken_page_file_syncs_as_empty(self):
-        Path(self.path(sj.PROXY_HOSTS_FILE)).write_text('{"version": 1, "hosts": ["{{ 7*7 }}"]}')
+        Path(self.path(site_common.PROXY_HOSTS_FILE)).write_text('{"version": 1, "hosts": ["{{ 7*7 }}"]}')
         with contextlib.redirect_stderr(self.journal):
             self.runner.sync()
-        self.assertNotIn("acl", self.include(sj.ADMIN_CONF))
+        self.assertNotIn("acl", self.include(site_proxy.ADMIN_CONF))
         self.assertIn("not a valid page file", self.journal.getvalue())
 
 
@@ -475,8 +478,8 @@ class SharedSquidLock(Host):
         self.assertEqual(self.status()["state"], "done")
 
     def test_both_jobs_lock_the_same_folder(self):
-        self.assertEqual(aj.PROXY_DIR, sj.PROXY_DIR)
-        self.assertEqual(aj.RELOAD_PENDING, sj.RELOAD_PENDING)
+        self.assertEqual(aj.PROXY_DIR, site_common.PROXY_DIR)
+        self.assertEqual(aj.RELOAD_PENDING, site_proxy.RELOAD_PENDING)
         held = self.runner.squid_locked()
         try:
             probe = os.open(self.path(aj.PROXY_DIR), os.O_RDONLY | os.O_DIRECTORY)
@@ -491,33 +494,33 @@ class LtiPlatforms(Host):
     def test_platforms_are_checked_written_and_their_hosts_allowed(self):
         status = self.play("lti-platforms", platforms=[platform(authTokenUrl="https://token.example.edu/token")])
         self.assertEqual((status["state"], status["code"]), ("done", None))
-        page = Path(self.path(sj.LTI_ADMIN_FILE))
+        page = Path(self.path(site_common.LTI_ADMIN_FILE))
         self.assertEqual(json.loads(page.read_text())["platforms"][0]["authTokenUrl"], "https://token.example.edu/token")
         self.assertEqual(stat.S_IMODE(page.stat().st_mode), 0o640)
-        self.assertIn("dstdomain -n keys.example.edu token.example.edu\n", self.include(sj.LTI_CONF))
-        self.assertIn("port 443\n", self.include(sj.LTI_CONF))
+        self.assertIn("dstdomain -n keys.example.edu token.example.edu\n", self.include(site_proxy.LTI_CONF))
+        self.assertIn("port 443\n", self.include(site_proxy.LTI_CONF))
         self.assertEqual(self.fake.names(), ["platforms-check", "parse", "reload", "api-restart"])
         check = self.fake.argv("platforms-check")[0]
-        self.assertEqual(check[1], sj.PLATFORMS_CHECK)
-        self.assertFalse(any(name.endswith(".check") for name in os.listdir(self.path(sj.ETC))))
+        self.assertEqual(check[1], site_proxy.PLATFORMS_CHECK)
+        self.assertFalse(any(name.endswith(".check") for name in os.listdir(self.path(site_common.ETC))))
 
     def test_the_api_parser_refusing_changes_nothing(self):
         self.fake.rc["platforms-check"] = 1
         status = self.play("lti-platforms", platforms=[platform()])
         self.assertEqual(status["code"], "invalid_value")
-        self.assertFalse(os.path.exists(self.path(sj.LTI_ADMIN_FILE)))
-        self.assertIsNone(self.include(sj.LTI_CONF))
-        self.assertFalse(any(name.endswith(".check") for name in os.listdir(self.path(sj.ETC))))
+        self.assertFalse(os.path.exists(self.path(site_common.LTI_ADMIN_FILE)))
+        self.assertIsNone(self.include(site_proxy.LTI_CONF))
+        self.assertFalse(any(name.endswith(".check") for name in os.listdir(self.path(site_common.ETC))))
 
     def test_an_operator_pair_is_refused(self):
-        Path(self.path(sj.LTI_OPERATOR_FILE)).write_text(json.dumps({"version": 1, "platforms": [
+        Path(self.path(site_common.LTI_OPERATOR_FILE)).write_text(json.dumps({"version": 1, "platforms": [
             {"name": "Mock", "issuer": "https://canvas.example.edu", "clientId": "abc", "mock": True}]}))
         status = self.play("lti-platforms", platforms=[platform()])
         self.assertEqual(status["code"], "operator_platform")
         self.assertEqual(self.fake.names(), [])
 
     def test_an_operator_issuer_with_another_keyset_is_refused(self):
-        Path(self.path(sj.LTI_OPERATOR_FILE)).write_text(json.dumps({"version": 1, "platforms": [
+        Path(self.path(site_common.LTI_OPERATOR_FILE)).write_text(json.dumps({"version": 1, "platforms": [
             {"name": "Canvas", "issuer": "https://canvas.example.edu", "clientId": "operator",
              "keysetUrl": "https://keys.example.edu/jwks", "mock": False}]}))
         status = self.play("lti-platforms", platforms=[platform(keysetUrl="https://evil.example.com/jwks")])
@@ -530,8 +533,8 @@ class LtiPlatforms(Host):
         self.play("lti-platforms", platforms=[platform()])
         status = self.play("lti-platforms", JOB2, platforms=[])
         self.assertEqual(status["state"], "done")
-        self.assertFalse(os.path.exists(self.path(sj.LTI_ADMIN_FILE)))
-        self.assertNotIn("acl", self.include(sj.LTI_CONF))
+        self.assertFalse(os.path.exists(self.path(site_common.LTI_ADMIN_FILE)))
+        self.assertNotIn("acl", self.include(site_proxy.LTI_CONF))
         self.assertEqual(self.fake.names()[-1], "api-restart")
 
     def test_a_failed_api_restart_is_reported(self):
@@ -541,12 +544,12 @@ class LtiPlatforms(Host):
 
     def test_a_rejected_include_keeps_the_old_platforms(self):
         self.play("lti-platforms", platforms=[platform()])
-        before = Path(self.path(sj.LTI_ADMIN_FILE)).read_text()
+        before = Path(self.path(site_common.LTI_ADMIN_FILE)).read_text()
         self.fake.rc["parse"] = 1
         status = self.play("lti-platforms", JOB2, platforms=[platform(keysetUrl="https://new.example.edu/jwks")])
         self.assertEqual(status["code"], "proxy_config_rejected")
-        self.assertEqual(Path(self.path(sj.LTI_ADMIN_FILE)).read_text(), before)
-        self.assertNotIn("new.example.edu", self.include(sj.LTI_CONF))
+        self.assertEqual(Path(self.path(site_common.LTI_ADMIN_FILE)).read_text(), before)
+        self.assertNotIn("new.example.edu", self.include(site_proxy.LTI_CONF))
 
 
 class HealthProbe(unittest.TestCase):
@@ -568,12 +571,12 @@ class HealthProbe(unittest.TestCase):
         return server.server_address[1]
 
     def test_ok_only_for_a_200_on_health(self):
-        self.assertTrue(sj.probe_health(self.serve(200)))
-        self.assertFalse(sj.probe_health(self.serve(503)))
+        self.assertTrue(site_settings.probe_health(self.serve(200)))
+        self.assertFalse(site_settings.probe_health(self.serve(503)))
 
     def test_nothing_listening_is_not_healthy(self):
         # Port 1 is privileged and unused, so the connection is refused.
-        self.assertFalse(sj.probe_health(1))
+        self.assertFalse(site_settings.probe_health(1))
 
     def test_the_unit_lets_the_probe_reach_the_api_on_loopback(self):
         # A private network namespace has its own loopback, where no API listens.
@@ -587,24 +590,24 @@ class HealthProbe(unittest.TestCase):
         root = tempfile.mkdtemp(prefix="sitejob-env-")
         self.addCleanup(shutil.rmtree, root)
         path = os.path.join(root, "api.env")
-        self.assertIsNone(sj.api_port(path))
+        self.assertIsNone(site_settings.api_port(path))
         Path(path).write_text("# PORT=1\nPUBLIC_URL=https://a.example.edu\nPORT=3000\n")
-        self.assertEqual(sj.api_port(path), 3000)
+        self.assertEqual(site_settings.api_port(path), 3000)
         Path(path).write_text("PORT=three\n")
-        self.assertIsNone(sj.api_port(path))
+        self.assertIsNone(site_settings.api_port(path))
 
 
 class Trials(Host):
     def setUp(self):
         super().setUp()
         self.install(secrets="portikus_alert_pushover_user_key: u1\n")
-        Path(self.path(sj.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
+        Path(self.path(site_common.API_ENV)).write_text("NODE_ENV=production\nPORT=3000\n")
 
     def debconf(self):
         return "".join(self.fake.stdin)
 
     def test_off_an_apt_install_nothing_is_tried(self):
-        os.unlink(self.path(sj.CONFIG_FILE))
+        os.unlink(self.path(site_common.CONFIG_FILE))
         status = self.play("address", host="new.example.edu", port=8443)
         self.assertEqual(status["code"], "not_apt_install")
         self.assertEqual(self.fake.names(), [])
@@ -613,7 +616,7 @@ class Trials(Host):
         before_config, before_secrets = self.config(), self.secrets()
         status = self.play("signin", **OIDC)
         self.assertEqual((status["state"], status["code"]), ("trial", None))
-        self.assertEqual(status["trialEndsAt"], sj.now_iso(lambda: START + 30 * 60))
+        self.assertEqual(status["trialEndsAt"], site_common.now_iso(lambda: START + 30 * 60))
         self.assertIsNone(status["finishedAt"])
         self.assertIn("portikus_dex_upstream: oidc\n", self.fake.seen_config[0])
         self.assertIn("portikus_dex_upstream_issuer: https://login.example.edu/realms/main\n", self.config())
@@ -627,8 +630,8 @@ class Trials(Host):
         self.assertEqual(units, [f"--unit=portikus-site-trial-{JOB}-setup", f"--unit=portikus-site-trial-{JOB}-trial"])
         # A wall-clock deadline: systemd restarts a relative one at every daemon-reload, and setup reloads.
         self.assertEqual(self.fake.argv("systemd-run")[1][2], "--on-calendar=2026-09-21 14:43:20 UTC")
-        self.assertEqual(self.fake.argv("systemd-run")[1][-3:], [sj.SITE_JOB, "expire", JOB])
-        state = Path(self.path(sj.STATE_DIR))
+        self.assertEqual(self.fake.argv("systemd-run")[1][-3:], [site_trial.SITE_JOB, "expire", JOB])
+        state = Path(self.path(site_common.STATE_DIR))
         self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
         self.assertEqual((state / "before-portikus.yaml").read_text(), before_config)
         self.assertEqual((state / "before-secrets.yaml").read_text(), before_secrets)
@@ -669,7 +672,7 @@ class Trials(Host):
         self.assertEqual((trial["state"], trial["code"], trial["trialEndsAt"]), ("kept", None, None))
         self.assertIsNotNone(trial["finishedAt"])
         self.assertEqual(self.config(), config)
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
         self.assertIn(["systemctl", "stop", f"portikus-site-trial-{JOB}-trial.timer"], self.fake.argv("timer-stop"))
         # Kept means the deadline does nothing.
         self.clock.now += 3600
@@ -686,14 +689,14 @@ class Trials(Host):
         self.assertIn("portikus portikus/provider select dex\n", self.debconf())
         trial = self.status(JOB)
         self.assertEqual((trial["state"], trial["code"]), ("reverted", "rolled_back"))
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
 
     def test_an_unkept_trial_expires(self):
         before = self.config()
         self.play("address", host="new.example.edu", port=8443)
         self.assertIn("portikus_public_port: 8443\n", self.config())
         self.assertIn("portikus_public_host: new.example.edu\n", self.config())
-        self.assertEqual(self.status()["trialEndsAt"], sj.now_iso(lambda: START + 15 * 60))
+        self.assertEqual(self.status()["trialEndsAt"], site_common.now_iso(lambda: START + 15 * 60))
         # A timer that fires early waits on.
         self.clock.now += 60
         self.expire()
@@ -712,7 +715,7 @@ class Trials(Host):
         self.assertEqual((status["state"], status["code"]), ("reverted", "setup_failed"))
         self.assertEqual(self.config(), before)
         self.assertEqual(self.fake.seen_config[-1], before)
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
 
     def test_a_trial_opens_once_the_api_answers_health_on_its_own_port(self):
         self.health = [False, False, True]
@@ -731,15 +734,15 @@ class Trials(Host):
                 status = self.play(kind, job_id, **body)
                 self.assertEqual((status["state"], status["code"]), ("reverted", "api_unhealthy"))
                 # About a minute of asking, never much more.
-                self.assertGreaterEqual(self.clock.now - start, sj.HEALTH_WAIT)
-                self.assertLess(self.clock.now - start, sj.HEALTH_WAIT + 2 * sj.HEALTH_INTERVAL)
+                self.assertGreaterEqual(self.clock.now - start, site_settings.HEALTH_WAIT)
+                self.assertLess(self.clock.now - start, site_settings.HEALTH_WAIT + 2 * site_settings.HEALTH_INTERVAL)
                 self.assertEqual(self.config(), before)
                 self.assertEqual(self.fake.seen_config[-1], before)
-                self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+                self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
                 self.assertIn("did not answer /health", self.journal.getvalue())
 
     def test_no_api_port_counts_as_unhealthy(self):
-        os.unlink(self.path(sj.API_ENV))
+        os.unlink(self.path(site_common.API_ENV))
         status = self.play("address", host="new.example.edu", port=443)
         self.assertEqual((status["state"], status["code"]), ("reverted", "api_unhealthy"))
         self.assertEqual(self.health_ports, [])
@@ -813,7 +816,7 @@ class Trials(Host):
         self.runner.snapshot(state_fd)
         self.runner.write_trial(state_fd, {"id": JOB, "kind": "signin", "state": "running", "old": {}})
         os.close(state_fd)
-        Path(self.path(sj.CONFIG_FILE)).write_text("portikus_public_host: half.example.edu\n")
+        Path(self.path(site_common.CONFIG_FILE)).write_text("portikus_public_host: half.example.edu\n")
         record = {"id": JOB, "kind": "signin", "state": "running", "code": None, "startedAt": "x",
                   "finishedAt": None, "trialEndsAt": None}
         self.runner.write_status(record)
@@ -834,16 +837,16 @@ class Trials(Host):
 
     def test_uploaded_files_must_cover_the_new_names(self):
         settings = {"source": "files", "site": {"certificate": {"names": ["portikus.example.edu"]}}, "preview": None}
-        Path(self.path(sj.CERTIFICATE_SETTINGS)).write_text(json.dumps(settings))
+        Path(self.path(site_common.CERTIFICATE_SETTINGS)).write_text(json.dumps(settings))
         status = self.play("address", host="new.example.edu", port=443)
         self.assertEqual(status["code"], "certificate_not_covering")
         settings["site"]["certificate"]["names"] = ["new.example.edu", "*.preview.new.example.edu"]
-        Path(self.path(sj.CERTIFICATE_SETTINGS)).write_text(json.dumps(settings))
+        Path(self.path(site_common.CERTIFICATE_SETTINGS)).write_text(json.dumps(settings))
         self.assertEqual(self.play("address", JOB2, host="new.example.edu", port=443)["state"], "trial")
 
     def test_a_hand_set_preview_suffix_needs_no_new_wildcard(self):
         self.install(config=self.config() + "portikus_preview_suffix: apps.example.edu\n")
-        Path(self.path(sj.CERTIFICATE_SETTINGS)).write_text(json.dumps(
+        Path(self.path(site_common.CERTIFICATE_SETTINGS)).write_text(json.dumps(
             {"source": "files", "site": {"certificate": {"names": ["new.example.edu"]}}}))
         self.assertEqual(self.play("address", host="new.example.edu", port=443)["state"], "trial")
         self.assertIn("portikus_preview_suffix: apps.example.edu\n", self.config())
@@ -858,7 +861,7 @@ class Trials(Host):
         self.assertNotIn("setup", self.fake.names())
 
     def test_the_internal_authority_and_acme_need_no_check(self):
-        Path(self.path(sj.CERTIFICATE_SETTINGS)).write_text('{"source": "acme"}')
+        Path(self.path(site_common.CERTIFICATE_SETTINGS)).write_text('{"source": "acme"}')
         self.assertEqual(self.play("address", host="new.example.edu", port=443)["state"], "trial")
 
     def test_port_443_removes_a_hand_set_port(self):
@@ -883,7 +886,7 @@ class Trials(Host):
         trial = self.status()
         self.assertEqual((trial["state"], trial["code"], trial["trialEndsAt"]), ("failed", "trial_superseded", None))
         self.assertEqual(self.fake.names().count("setup"), 1)
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
         self.assertIn(["systemctl", "stop", f"portikus-site-trial-{JOB}-trial.timer"], self.fake.argv("timer-stop"))
 
     def test_a_rollback_after_a_reconfigure_reports_it(self):
@@ -914,7 +917,7 @@ class Trials(Host):
         self.run_pending()
         self.assertEqual(self.config(), reinstalled)
         self.assertEqual((self.status()["state"], self.status()["code"]), ("failed", "trial_superseded"))
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
 
     def test_a_failing_debconf_changes_nothing(self):
         before = self.config()
@@ -923,7 +926,7 @@ class Trials(Host):
         self.assertEqual(status["code"], "write_failed")
         self.assertEqual(self.config(), before)
         self.assertNotIn("setup", self.fake.names())
-        self.assertEqual(os.listdir(self.path(sj.STATE_DIR)), [])
+        self.assertEqual(os.listdir(self.path(site_common.STATE_DIR)), [])
 
 
 if __name__ == "__main__":
