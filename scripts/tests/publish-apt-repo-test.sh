@@ -18,7 +18,8 @@ mkdir -m 700 "$GNUPGHOME"
 # re-imports an ed25519 secret key, a self-signature whose r or s starts with
 # a zero byte (about 1 in 128) is re-encoded with that byte kept, and apt's
 # verifier, sqv, rejects the malformed number as "key is not bound".
-gpg --batch --quiet --passphrase '' \
+# Backdate the key so apt never sees a signature made in the second the key was created.
+gpg --batch --quiet --passphrase '' --faked-system-time "$(($(date +%s) - 120))" \
   --quick-gen-key "Portikus test <test@invalid>" rsa4096 sign never
 APT_SIGNING_KEY="$(gpg --batch --armor --export-secret-keys)"
 export APT_SIGNING_KEY

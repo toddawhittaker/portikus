@@ -179,7 +179,7 @@ export function lifecycleLimit(config: ApiConfig): UserLimit {
 	);
 }
 
-/** As many socket opens a minute as workspace starts, the default of `WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE`. */
+/** An instructor opens a socket per terminal and per reconnect; 20 a minute is plenty for a live session. */
 export const LIVE_HELP_SOCKETS_PER_MINUTE = 20;
 
 /** The per-user limit on an instructor's live help terminal sockets. */

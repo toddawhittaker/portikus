@@ -13,7 +13,7 @@ from site_common import (
     LTI_ADMIN_FILE, MAX_FILE_BYTES, PROXY_HOSTS_FILE, SQUID_CONF, JobFailed, RunnerBase, journal, make_dir, open_dir,
     read_at, read_file, remove_at, write_at,
 )
-from site_values import Refused, _keys, check_hosts, check_platforms, keyset_clash, parse_json, url_host
+from site_values import Refused, keys, check_hosts, check_platforms, keyset_clash, parse_json, url_host
 
 ADMIN_CONF = "admin.conf"
 LTI_CONF = "lti.conf"
@@ -137,7 +137,7 @@ class ProxyJobs(RunnerBase):
             return []
         try:
             doc = parse_json(raw)
-            _keys(doc, ["version", "hosts"])
+            keys(doc, ["version", "hosts"])
             if doc["version"] != 1:
                 raise Refused("invalid_request")
             return check_hosts(doc["hosts"])
@@ -151,7 +151,7 @@ class ProxyJobs(RunnerBase):
             return []
         try:
             doc = parse_json(raw)
-            _keys(doc, ["version", "platforms"])
+            keys(doc, ["version", "platforms"])
             if doc["version"] != 1:
                 raise Refused("invalid_request")
             return check_platforms(doc["platforms"])
