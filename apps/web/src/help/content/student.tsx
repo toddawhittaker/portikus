@@ -27,6 +27,10 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		keys: "F8",
 		what: "Move to notifications, from anywhere, the editor included.",
 	},
+	{
+		keys: "Alt+F8, Shift+Alt+F8",
+		what: "In the editor, go to the next or the previous problem in the file. Code help must be on.",
+	},
 ];
 
 /** A minimal GitHub Actions workflow that builds and pushes to ghcr.io. */
@@ -108,13 +112,15 @@ export const STUDENT_HELP: HelpPart = {
 						folder.
 					</li>
 					<li>
-						<strong>The right pane</strong> has four tabs. <strong>Files</strong> is the
-						project's folders, with your Git changes listed underneath.{" "}
+						<strong>The right pane</strong> has up to five tabs. <strong>Files</strong>{" "}
+						is the project's folders, with your Git changes listed underneath.{" "}
 						<strong>Checks</strong> runs your project's checks, such as its tests.{" "}
 						<strong>Running</strong> lists programs listening on a port.{" "}
 						<strong>Monitor</strong> shows CPU, memory, disk and network use, and the
 						processes running. Stop ends one of your programs, and the programs it
-						started if you tick the box, or lowers its priority instead.
+						started if you tick the box, or lowers its priority instead.{" "}
+						<strong>Problems</strong> lists the errors and warnings in the files you
+						have open. It appears only while code help is on.
 					</li>
 					<li>
 						<strong>The status bar</strong>, at the bottom, shows the project folder,
@@ -235,6 +241,102 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>Find in files</strong> is the magnifier at the top of Files.
 					</li>
 				</ul>
+			),
+		},
+		{
+			id: "student-code-help",
+			title: "Code help in the editor",
+			body: (
+				<>
+					<p>
+						For Python, TypeScript and JavaScript files, the editor gets help from a
+						program called a language server, which runs inside your workspace. It has
+						six features:
+					</p>
+					<ul>
+						<li>
+							<strong>Completion</strong>: suggestions as you type, from your code and
+							the libraries it uses.
+						</li>
+						<li>
+							<strong>Hover</strong>: rest the pointer on a name to see what it is.
+						</li>
+						<li>
+							<strong>Go to definition</strong>: <kbd className="pk-mono-body">F12</kbd>{" "}
+							on a name opens where it is defined, in another file of the project if
+							need be.
+						</li>
+						<li>
+							<strong>Rename</strong>: <kbd className="pk-mono-body">F2</kbd> renames a
+							name everywhere in the project. It changes at most 20 files, and either
+							all of them change or none do.
+						</li>
+						<li>
+							<strong>Format</strong>: <strong>Format Document</strong>, in the F1
+							command list, tidies the file. Python is formatted with Ruff.
+						</li>
+						<li>
+							<strong>Errors and warnings</strong>: problems are underlined in the file,
+							and the <strong>Problems</strong> tab lists them.
+						</li>
+					</ul>
+					<h4>Problems</h4>
+					<p>
+						<strong>Problems</strong>, in the right pane, lists the errors and warnings
+						in the files you have open, grouped by file. Choose one to open the file at
+						that line. Closing a file removes its problems. The list covers open files
+						only; <strong>Checks</strong> covers the whole project.{" "}
+						<kbd className="pk-mono-body">Alt+F8</kbd> and{" "}
+						<kbd className="pk-mono-body">Shift+Alt+F8</kbd> move to the next and the
+						previous problem in the editor.
+					</p>
+					<h4>What the editor bar says</h4>
+					<p>
+						The bar above the file shows the state of its language server. Editing never
+						waits for it.
+					</p>
+					<ul>
+						<li>
+							<strong>Code help starting</strong>: the server is starting. Suggestions
+							and problems arrive when it is ready.
+						</li>
+						<li>
+							<strong>Code help ready</strong>: everything works.
+						</li>
+						<li>
+							<strong>Code help unavailable</strong>: the server is not installed in
+							your workspace, or it stopped several times in a few minutes and is
+							resting for about five minutes. <strong>Restart</strong> tries again.
+						</li>
+						<li>
+							<strong>Code help stopped</strong>: the server crashed. It may have run
+							out of memory; stop a program you do not need from Monitor, then choose{" "}
+							<strong>Restart</strong>.
+						</li>
+						<li>
+							<strong>Code help is on in another window</strong>: only one window at a
+							time has code help for a project. This window does not take it back by
+							itself; choose <strong>Use here</strong> to move it here.
+						</li>
+						<li>
+							Nothing shown: the server is resting after 15 minutes without use (your
+							next edit, or coming back to the window, wakes it), or the file's language
+							has no code help.
+						</li>
+					</ul>
+					<h4>Limits</h4>
+					<ul>
+						<li>
+							A file over 512 KB gets no code help, and the bar says{" "}
+							<strong>Code help is off for files over 512 KB</strong>.
+						</li>
+						<li>Other languages, such as C, C++ and Java, have no code help yet.</li>
+						<li>
+							Your administrator can turn code help off for the whole site. The editor
+							is then a plain editor, and there is no Problems tab.
+						</li>
+					</ul>
+				</>
 			),
 		},
 		{
