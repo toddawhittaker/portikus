@@ -2,6 +2,8 @@ import {
 	AgentUsageResponse,
 	type AgentUsageWindow,
 	CourseMembersResponse,
+	type CourseProfile,
+	CourseProfileResponse,
 	CoursesResponse,
 	RosterSyncResponse,
 } from "@portikus/contracts";
@@ -12,7 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 
 /** The courses the caller teaches; empty for everyone else. */
 export function useCourses() {
@@ -57,6 +59,27 @@ export function useCourseAgentUsage(courseId: string, days: AgentUsageWindow) {
 			request(AgentUsageResponse, `/courses/${courseId}/agent-usage?days=${days}`),
 		placeholderData: keepPreviousData,
 		refetchOnWindowFocus: false,
+	});
+}
+
+/** Sets the profile of a course the caller teaches; the cached course list takes the saved value. */
+export function useSetCourseProfile(courseId: string) {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: (profile: CourseProfile) =>
+			sendJson(
+				CourseProfileResponse,
+				`/courses/${courseId}/profile`,
+				{ profile },
+				"PUT",
+			),
+		onSuccess: (saved) => {
+			client.setQueryData<CoursesResponse>(["courses"], (old) =>
+				old?.map((course) =>
+					course.id === saved.id ? { ...course, profile: saved.profile } : course,
+				),
+			);
+		},
 	});
 }
 

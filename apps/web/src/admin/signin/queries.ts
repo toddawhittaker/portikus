@@ -1,5 +1,8 @@
 import {
+	AdminCoursesResponse,
 	AdminSignin,
+	type CourseProfile,
+	CourseProfileResponse,
 	isJobActive,
 	SITE_JOB_STALE_MS,
 	type SigninSettings,
@@ -57,6 +60,39 @@ export function useApplySignin() {
 		gcTime: 0,
 		mutationFn: (body: SigninSettings) => sendJson(SiteJobView, "/admin/signin", body),
 		onSuccess: () => client.invalidateQueries({ queryKey: signinKey }),
+	});
+}
+
+const adminCoursesKey = ["admin", "courses"] as const;
+
+/** Every course on the site with its profile (SPEC.md section 8.7). */
+export function useAdminCourses() {
+	return useQuery({
+		queryKey: adminCoursesKey,
+		queryFn: () => request(AdminCoursesResponse, "/admin/courses"),
+	});
+}
+
+/** Sets any course's profile; the cached list takes the saved value. */
+export function useSetAdminCourseProfile() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: ({ courseId, profile }: { courseId: string; profile: CourseProfile }) =>
+			sendJson(
+				CourseProfileResponse,
+				`/admin/courses/${courseId}/profile`,
+				{ profile },
+				"PUT",
+			),
+		onSuccess: (saved) => {
+			client.setQueryData<AdminCoursesResponse>(adminCoursesKey, (old) =>
+				old?.map((course) =>
+					course.id === saved.id ? { ...course, profile: saved.profile } : course,
+				),
+			);
+			// An instructor's own list shows the profile too.
+			void client.invalidateQueries({ queryKey: ["courses"], exact: true });
+		},
 	});
 }
 

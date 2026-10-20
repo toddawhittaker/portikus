@@ -18,12 +18,23 @@ export const STORAGE_LABEL: Record<StorageClass, string> = {
 
 export const CRITICAL_AT = 0.95;
 
-/** What to do when a class is nearly full; the status bar and the meters share it. */
-export const NEXT_STEP: Record<StorageClass, string> = {
-	home: "Delete files you no longer need.",
-	docker: "Use Reset Docker in the workspace dialog, or run docker system prune.",
-	recovery: "Older recovery points are removed automatically.",
-};
+/**
+ * What to do when a class is nearly full; the status bar and the meters share
+ * it. A Traditional course hides the dialog's Reset Docker (SPEC.md §8.7), so
+ * its students are not sent to a button they cannot see.
+ */
+export function nextStep(storageClass: StorageClass, resetDockerShown = true): string {
+	switch (storageClass) {
+		case "home":
+			return "Delete files you no longer need.";
+		case "docker":
+			return resetDockerShown
+				? "Use Reset Docker in the workspace dialog, or run docker system prune."
+				: "Run docker system prune.";
+		case "recovery":
+			return "Older recovery points are removed automatically.";
+	}
+}
 
 /**
  * The `high` to give a Meter so it says "nearly full" from exactly the
@@ -57,6 +68,7 @@ export interface StorageWarning {
 /** The fullest class that has reached a threshold, or null when none has. */
 export function storageWarning(
 	storage: WorkspaceUsage["storage"] | undefined,
+	resetDockerShown = true,
 ): StorageWarning | null {
 	if (!storage) return null;
 	let worst: { storageClass: StorageClass; ratio: number } | null = null;
@@ -76,7 +88,7 @@ export function storageWarning(
 			level: "critical",
 			text: `${label} storage is nearly full`,
 			announcement: `${label} storage is nearly full`,
-			detail: `${label} storage is ${percent}% full. ${NEXT_STEP[worst.storageClass]}`,
+			detail: `${label} storage is ${percent}% full. ${nextStep(worst.storageClass, resetDockerShown)}`,
 		};
 	}
 	return {

@@ -58,6 +58,18 @@ test("a class with no size never says nearly full", () => {
 	expect(screen.getByTestId("storage-meter-home").dataset.level).toBeUndefined();
 });
 
+test("without Reset Docker in the dialog, the Docker step does not name it", () => {
+	render(
+		<StorageMeters
+			storage={{ home: at(10), docker: at(96), recovery: null }}
+			resetDockerShown={false}
+		/>,
+	);
+	expect(screen.getByTestId("storage-step-docker").textContent).toBe(
+		"Run docker system prune.",
+	);
+});
+
 test("at the critical level the next step is written under the meter", () => {
 	render(<StorageMeters storage={{ home: at(90), docker: at(96), recovery: null }} />);
 	expect(screen.queryByTestId("storage-step-home")).toBeNull();

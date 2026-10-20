@@ -25,6 +25,7 @@ import {
 	Tabs,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { useCourseProfile } from "../editor/settingsQueries.js";
 import { baseName, displayName } from "../files/paths.js";
 import { useLayoutPersistence } from "../layout/persist.js";
 import { useRemoteFocusFallback } from "../layout/remoteFocus.js";
@@ -131,6 +132,8 @@ export function WorkArea({
 		replacing: string | null;
 	} | null>(null);
 	const showRightPane = useShowRightPane();
+	// Traditional hides the agent launchers only; nothing is blocked (SPEC.md §8.7).
+	const traditional = useCourseProfile() === "traditional";
 	const strip = useRef<HTMLDivElement | null>(null);
 	const drag = usePaneDrag({
 		tabs: layout.tabs,
@@ -449,24 +452,28 @@ export function WorkArea({
 									>
 										<span data-testid="launcher-terminal">Terminal</span>
 									</MenuItem>
-									<MenuItem
-										icon="agent"
-										onSelect={() => {
-											launcherMenu.declineTriggerFocus();
-											void openAgent("claude");
-										}}
-									>
-										<span data-testid="launcher-claude">Claude Code</span>
-									</MenuItem>
-									<MenuItem
-										icon="agent"
-										onSelect={() => {
-											launcherMenu.declineTriggerFocus();
-											void openAgent("codex");
-										}}
-									>
-										<span data-testid="launcher-codex">Codex</span>
-									</MenuItem>
+									{traditional ? null : (
+										<>
+											<MenuItem
+												icon="agent"
+												onSelect={() => {
+													launcherMenu.declineTriggerFocus();
+													void openAgent("claude");
+												}}
+											>
+												<span data-testid="launcher-claude">Claude Code</span>
+											</MenuItem>
+											<MenuItem
+												icon="agent"
+												onSelect={() => {
+													launcherMenu.declineTriggerFocus();
+													void openAgent("codex");
+												}}
+											>
+												<span data-testid="launcher-codex">Codex</span>
+											</MenuItem>
+										</>
+									)}
 									<MenuItem
 										icon="preview"
 										onSelect={() => setPickingPreview({ replacing: null })}
@@ -499,19 +506,22 @@ export function WorkArea({
 								>
 									Open a terminal
 								</Button>
-								<Button
-									variant="secondary"
-									iconStart="agent"
-									data-testid="empty-open-claude"
-									onClick={() => void openAgent("claude")}
-								>
-									Start Claude Code
-								</Button>
+								{traditional ? null : (
+									<Button
+										variant="secondary"
+										iconStart="agent"
+										data-testid="empty-open-claude"
+										onClick={() => void openAgent("claude")}
+									>
+										Start Claude Code
+									</Button>
+								)}
 							</>
 						}
 					>
-						Open a terminal or start Claude Code. The + in the tab bar also opens Codex
-						and previews.
+						{traditional
+							? "Open a terminal. The + in the tab bar also opens previews."
+							: "Open a terminal or start Claude Code. The + in the tab bar also opens Codex and previews."}
 					</EmptyState>
 				) : (
 					layout.tabs.map((tab) => (
