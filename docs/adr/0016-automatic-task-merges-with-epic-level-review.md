@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-18
-- **References**: SPEC.md §29; STACK.md §31; CLAUDE.md "Review and merge rules"
+- **References**: SPEC.md §29; STACK.md §31; CLAUDE.md "Review and merge rules"; `.claude/skills/epic-run/SKILL.md`, steps 8 to 10
 
 ## Context
 
