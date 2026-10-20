@@ -16,6 +16,7 @@ import { AgentFailure } from "./errors.js";
 import {
 	attachArgs,
 	captureHistory,
+	claimWindowSize,
 	hasSession,
 	type TmuxServer,
 	tmuxServerGone,
@@ -76,6 +77,8 @@ interface Attachment {
 	pendingTimer: NodeJS.Timeout | null;
 	/** The last size asked for before the PTY existed; applied at spawn. */
 	pendingResize: { cols: number; rows: number } | null;
+	/** The browser has sent a measured size, so this attachment sizes the window. */
+	sized: boolean;
 	/** Set when the socket closes, including before the PTY exists. */
 	closed: boolean;
 	/** The end of the attach client's output, for its exit line. */
@@ -189,6 +192,7 @@ export class TerminalRegistry {
 			pendingBytes: 0,
 			pendingTimer: null,
 			pendingResize: null,
+			sized: false,
 			closed: false,
 			tail: "",
 			warnedQueueFull: false,
@@ -246,13 +250,22 @@ export class TerminalRegistry {
 		// attachment that has already been forgotten would never be killed.
 		if (attachment.closed) return;
 
-		const pty = this.spawnPty("tmux", attachArgs(id, this.server, options.mode), {
-			name: "xterm-256color",
-			cols,
-			rows,
-			cwd: this.homeDir,
-			env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
-		});
+		// The size in the connect URL may come from a pane that was hidden or
+		// still settling, so it does not size the window until the browser
+		// sends a measured size (SPEC.md §9.7).
+		const waitForSize = !options.mode && attachment.pendingResize === null;
+		attachment.sized = !waitForSize;
+		const pty = this.spawnPty(
+			"tmux",
+			attachArgs(id, this.server, options.mode, waitForSize),
+			{
+				name: "xterm-256color",
+				cols,
+				rows,
+				cwd: this.homeDir,
+				env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+			},
+		);
 		attachment.pendingResize = null;
 
 		attachment.pty = pty;
@@ -451,15 +464,26 @@ export class TerminalRegistry {
 			return;
 		}
 
-		try {
-			pty.resize(message.data.cols, message.data.rows);
-			this.log.debug(
-				{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
-				"terminal resized",
-			);
-		} catch (error) {
-			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
+		const changed = pty.cols !== message.data.cols || pty.rows !== message.data.rows;
+		if (changed) {
+			try {
+				pty.resize(message.data.cols, message.data.rows);
+				this.log.debug(
+					{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
+					"terminal resized",
+				);
+			} catch (error) {
+				this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
+			}
 		}
+		// A changed size already wins under `latest`. The first measured size,
+		// or the same size sent again because the student turned to this
+		// terminal, has to be claimed (SPEC.md §9.7).
+		if (attachment.sized && changed) return;
+		attachment.sized = true;
+		claimWindowSize(attachment.terminalId, pty.pid, this.server).catch((error) => {
+			this.log.warn({ error: errorMessage(error) }, "terminal size claim failed");
+		});
 	}
 
 	private resizeHelper(attachment: Attachment, cols: number, rows: number): void {

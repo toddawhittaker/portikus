@@ -244,9 +244,12 @@ export function TerminalPane({
 			// way down, before that element sees it.
 			container.addEventListener("wheel", onWheel, { capture: true, passive: false });
 
-			/** Measure the pane and tell the server the size xterm.js now has. */
+			/**
+			 * Measure the pane and tell the server the size xterm.js now has.
+			 * A hidden or unmeasurable pane says nothing (SPEC.md §9.7).
+			 */
 			const sendSize = () => {
-				fit();
+				if (!fit()) return;
 				send({ type: "resize", cols: term.cols, rows: term.rows });
 			};
 
