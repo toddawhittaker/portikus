@@ -202,9 +202,72 @@ test("a terminal lost to a restart closes its pane and says why in a toast", asy
 	expect(view.getByText("Open a new terminal to carry on.")).toBeTruthy();
 });
 
-test("the first output frame makes the pane say its size again", async () => {
+/** Give the pane a box on screen; jsdom lays nothing out. */
+function measure(view: ReturnType<typeof render>) {
+	const surface = view.container.querySelector(".pk-terminal-surface");
+	if (!surface) throw new Error("no terminal surface");
+	Object.defineProperty(surface, "clientWidth", { value: 800, configurable: true });
+	Object.defineProperty(surface, "clientHeight", { value: 400, configurable: true });
+	return surface;
+}
+
+/** The resize frames a socket has sent. */
+function resizesSent(socket: FakeWebSocket) {
+	return socket.sent.filter((raw) => raw.includes('"resize"'));
+}
+
+/** Open the socket and deliver the terminal's first output. */
+function firstOutput(socket: FakeWebSocket) {
+	act(() => {
+		socket.onopen?.();
+		socket.onmessage?.({ data: new ArrayBuffer(5) });
+	});
+}
+
+// A size from a hidden or unmeasured pane would shrink the terminal in
+// another browser showing it (SPEC.md §9.7).
+test("a hidden pane never sends a size", async () => {
+	const { view } = renderPane(vi.fn(), vi.fn(), false);
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const socket = sockets[0];
+	if (!socket) throw new Error("no socket");
+	const surface = measure(view);
+	firstOutput(socket);
+	act(() => {
+		surface.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+	});
+	expect(resizesSent(socket)).toHaveLength(0);
+});
+
+test("a pane with no box to measure never sends a size", async () => {
 	renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
+	const socket = sockets[0];
+	if (!socket) throw new Error("no socket");
+	firstOutput(socket);
+	expect(resizesSent(socket)).toHaveLength(0);
+});
+
+test("focusing or clicking the terminal says its size again so it wins", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const socket = sockets[0];
+	if (!socket) throw new Error("no socket");
+	const surface = measure(view);
+	act(() => socket.onopen?.());
+
+	focusPane(view);
+	expect(resizesSent(socket)).toHaveLength(1);
+	act(() => {
+		surface.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+	});
+	expect(resizesSent(socket)).toHaveLength(2);
+});
+
+test("the first output frame makes the pane say its size again", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	measure(view);
 	const socket = sockets[0];
 	if (!socket) throw new Error("no socket");
 	const announced = new URL(socket.url, "http://localhost").searchParams;

@@ -116,6 +116,8 @@ interface PendingHarness extends Omit<Harness, "pty"> {
 	/** Null until the registry spawns the PTY. */
 	ptyOf: () => FakePty | null;
 	attached: Promise<void>;
+	/** The tmux command line the PTY was spawned with. */
+	spawnArgs: string[];
 }
 
 /**
@@ -131,14 +133,16 @@ async function startAttach(options: AttachOptions = {}): Promise<PendingHarness>
 		homeDir,
 		logger as unknown as FastifyBaseLogger,
 		SERVER,
-		((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+		((_file: string, args: string[], opts: { cols: number; rows: number }) => {
 			pty = new FakePty(opts.cols, opts.rows);
+			spawnArgs.push(...args);
 			return pty as unknown as IPty;
 		}) as unknown as typeof spawn,
 	);
 	const socket = new FakeSocket();
+	const spawnArgs: string[] = [];
 	const attached = registry.attach(id, socket as unknown as WebSocket, options);
-	return { registry, socket, id, lines, attached, ptyOf: () => pty };
+	return { registry, socket, id, lines, attached, ptyOf: () => pty, spawnArgs };
 }
 
 async function attachFake(): Promise<Harness> {
@@ -266,6 +270,90 @@ test.skipIf(!haveTmux)(
 
 		pending.registry.closeAll(pending.id, 1000, "done");
 		await killSession(pending.id, SERVER);
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"an attachment does not size the window until the browser sends a size",
+	async () => {
+		const pending = await startAttach({ cols: 12, rows: 6 });
+		await pending.attached;
+		expect(pending.spawnArgs.slice(-2)).toEqual(["-f", "ignore-size"]);
+		pending.registry.closeAll(pending.id, 1000, "done");
+		await killSession(pending.id, SERVER);
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"an attachment whose size arrived before the pty sizes the window at once",
+	async () => {
+		const pending = await startAttach({ cols: 12, rows: 6 });
+		pending.socket.resize(100, 30);
+		await pending.attached;
+		expect(pending.spawnArgs).not.toContain("ignore-size");
+		pending.registry.closeAll(pending.id, 1000, "done");
+		await killSession(pending.id, SERVER);
+	},
+);
+
+/** The window's size as tmux reports it. */
+async function windowSize(id: string): Promise<string> {
+	const { stdout } = await run("tmux", [
+		...["-L", SOCKET_NAME, "display-message", "-p", "-t", `pk-${id}`],
+		"#{window_width}x#{window_height}",
+	]);
+	return stdout.trim();
+}
+
+test.skipIf(!haveTmux)(
+	"only a browser's measured size sizes the window, and sending it again wins it back",
+	async () => {
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER);
+		const { logger } = collectingLogger();
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			SERVER,
+		);
+		const a = new FakeSocket();
+		const b = new FakeSocket();
+		try {
+			await registry.attach(id, a as unknown as WebSocket, { cols: 120, rows: 40 });
+			a.resize(120, 40);
+			await vi.waitFor(async () => expect(await windowSize(id)).toBe("120x40"));
+
+			// B connects with a size measured while its pane was settling.
+			await registry.attach(id, b as unknown as WebSocket, { cols: 12, rows: 6 });
+			await vi.waitFor(async () => {
+				const { stdout } = await run("tmux", [
+					...["-L", SOCKET_NAME, "list-clients", "-t", `pk-${id}`],
+				]);
+				expect(stdout.trim().split("\n")).toHaveLength(2);
+			});
+			expect(await windowSize(id)).toBe("120x40");
+
+			b.resize(80, 20);
+			await vi.waitFor(async () => expect(await windowSize(id)).toBe("80x20"));
+
+			// A's size is unchanged, but sending it again takes the window back.
+			a.resize(120, 40);
+			await vi.waitFor(async () => expect(await windowSize(id)).toBe("120x40"));
+		} finally {
+			registry.closeAll(id, 1000, "done");
+			await killSession(id, SERVER);
+		}
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"a resize to the size the pty has does not resize it",
+	async () => {
+		const { registry, pty, socket, id } = await attachFake();
+		socket.resize(pty.cols, pty.rows);
+		expect(pty.resizes).toEqual([]);
+		registry.closeAll(id, 1000, "done");
+		await killSession(id, SERVER);
 	},
 );
 

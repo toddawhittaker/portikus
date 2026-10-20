@@ -153,13 +153,20 @@ async function writeClipboard(text: string): Promise<void> {
 export interface XtermTools {
 	/** The element xterm.js is open in. */
 	container: HTMLDivElement;
-	/** Fit xterm.js to the pane, unless the pane has no box to measure. */
-	fit: () => void;
+	/**
+	 * Fit xterm.js to the pane. False, and nothing fitted, while the terminal
+	 * is hidden or its pane has no box to measure: a size from then must not
+	 * reach tmux (SPEC.md §9.7).
+	 */
+	fit: () => boolean;
 }
 
 /** The caller's connection to a terminal, made by `attach`. */
 export interface XtermSession {
-	/** The pane's box has settled at a new size; `fit` has not run yet. */
+	/**
+	 * The pane's box has settled at a new size, or the user turned to this
+	 * terminal and its size should win; `fit` has not run yet.
+	 */
 	resized: () => void;
 	dispose: () => void;
 }
@@ -349,11 +356,12 @@ export function useXterm({
 		fitAddon.fit();
 		if (focusOnMountRef.current && visibleRef.current) term.focus();
 
-		function fitIfMeasurable() {
+		function fitIfMeasurable(): boolean {
 			// A pane with no box on screen cannot be measured; keep the last size.
-			if (container?.clientWidth !== 0 && container?.clientHeight !== 0) {
-				fitAddon.fit();
-			}
+			if (!visibleRef.current || !container) return false;
+			if (container.clientWidth === 0 || container.clientHeight === 0) return false;
+			fitAddon.fit();
+			return true;
 		}
 
 		const session = attach(term, { container, fit: fitIfMeasurable });
@@ -482,10 +490,15 @@ export function useXterm({
 		}
 		container.addEventListener("contextmenu", onContextMenu);
 
+		// Turning to a terminal makes this browser's size the one tmux uses
+		// when another browser shows the same terminal (SPEC.md §9.7).
 		function onPointerDown() {
 			handlers.current.onFocus();
+			session.resized();
 		}
 		container.addEventListener("pointerdown", onPointerDown);
+		const claimOnFocus = () => session.resized();
+		container.addEventListener("focusin", claimOnFocus);
 
 		// Wait for the box to settle: every size sent makes tmux reflow and a
 		// full-screen app like Claude Code redraw, and redraws for sizes already
@@ -512,6 +525,7 @@ export function useXterm({
 			container.removeEventListener("focusin", onFocusIn);
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
+			container.removeEventListener("focusin", claimOnFocus);
 			selection.dispose();
 			term.dispose();
 			xterm.current = null;

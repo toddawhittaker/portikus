@@ -1077,6 +1077,16 @@ attachments to one terminal are a shared tmux attach and must not create a
 second process. A full workspace stop ends the container and therefore the
 tmux sessions with it.
 
+When two browsers show one terminal, its size is the size of the browser
+in use. A browser sends a terminal size only while that terminal is visible
+and its pane has a measured box, never from a hidden, zero-size or
+collapsed pane, and a new attachment does not size the window
+(`-f ignore-size`) until its browser has sent such a size. Focusing,
+clicking or typing in a terminal makes that browser's size win at once:
+the browser sends its size again and the agent makes that attachment
+tmux's latest client. The area outside a smaller window is filled with
+spaces (`fill-character`), not dots.
+
 The tmux server listens on a private socket named `portikus`
 (`/tmp/tmux-<uid>/portikus`, in tmux's own mode-0700 directory) and is
 started with `-f /dev/null`, so a student's `~/.tmux.conf` is never read;

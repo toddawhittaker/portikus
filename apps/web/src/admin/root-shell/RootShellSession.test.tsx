@@ -23,7 +23,7 @@ vi.mock("../../terminal/useXterm.js", () => ({
 			const term = { cols: 80, rows: 24, onData: () => ({ dispose() {} }) };
 			const session = attach(term as never, {
 				container: document.createElement("div"),
-				fit: () => {},
+				fit: () => true,
 			});
 			return () => session.dispose();
 		}, [attach]);

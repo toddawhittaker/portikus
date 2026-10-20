@@ -56,7 +56,7 @@ function RootShellScreen(props: ScreenProps) {
 	const attach = useCallback(
 		(term: Xterm, { fit }: XtermTools): XtermSession => {
 			const sendSize = () => {
-				fit();
+				if (!fit()) return;
 				socket.send({ type: "resize", cols: term.cols, rows: term.rows });
 			};
 			const socket = openRootShellSocket(
