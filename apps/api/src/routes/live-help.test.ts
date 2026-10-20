@@ -1,7 +1,8 @@
 import type { AddressInfo } from "node:net";
 import {
-	type CookieJar,
+	CookieJar,
 	csrfHeaders,
+	loginAs,
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
@@ -25,6 +26,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import WebSocket from "ws";
 import { liveHelpSockets } from "../live-help/registry.js";
 import { endProjectLiveHelp, LIVE_HELP_STARTED_TITLE } from "../live-help/sessions.js";
+import { LIVE_HELP_SOCKETS_PER_MINUTE } from "../rate-limit.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	buildMatrixWorld,
@@ -44,6 +46,14 @@ const skip = !hasTestDb();
 const AGENT_TOKEN = "live-help-agent-token";
 const ORIGIN = new URL(PUBLIC_URL).origin;
 
+/** A second instructor of the same course, for the per-user socket limit. */
+const SECOND_INSTRUCTOR = {
+	sub: "ned",
+	email: "ned@example.edu",
+	name: "Ned Instructor",
+	groups: ["portikus-instructors"],
+};
+
 let testDb: TestDb;
 let mock: MockOidcProvider;
 let agent: FakeAgent;
@@ -54,7 +64,12 @@ let helperId: string;
 beforeAll(async () => {
 	if (skip) return;
 	testDb = await createTestDb();
-	mock = await startMockOidcProvider({ users: MATRIX_MOCK_USERS });
+	mock = await startMockOidcProvider({
+		users: {
+			...MATRIX_MOCK_USERS,
+			[SECOND_INSTRUCTOR.sub]: SECOND_INSTRUCTOR,
+		},
+	});
 	agent = await startFakeAgent(AGENT_TOKEN);
 });
 
@@ -941,5 +956,113 @@ describe.skipIf(skip)("the start route's write limit", () => {
 		} finally {
 			await limited.close();
 		}
+	});
+});
+
+describe.skipIf(skip)("the helper's socket open limit", () => {
+	function attachCount(): number {
+		return agent.requests.filter((one) =>
+			one.url.includes(`/terminals/${world.a.terminalId}/attach`),
+		).length;
+	}
+
+	async function openAndClose(sid: string, cookie: string) {
+		const opened = await attach(sid, cookie);
+		opened.socket.close();
+		await opened.closed;
+	}
+
+	/** The upgrade's refusal: its status and Retry-After header, or null if it opened. */
+	async function refusal(sid: string, cookie: string) {
+		const { port } = app.server.address() as AddressInfo;
+		const socket = new WebSocket(`ws://127.0.0.1:${port}${socketPath(sid)}`, {
+			headers: { cookie, origin: ORIGIN },
+		});
+		// terminate() on a socket that never opened raises an error event.
+		socket.on("error", () => {});
+		return new Promise<{ status: number; retryAfter?: string; code?: string } | null>(
+			(resolve) => {
+				socket.once("open", () => {
+					socket.close();
+					resolve(null);
+				});
+				socket.once("unexpected-response", (_request, response) => {
+					let body = "";
+					response.on("data", (chunk) => {
+						body += chunk;
+					});
+					response.on("end", () => {
+						socket.terminate();
+						resolve({
+							status: response.statusCode ?? 0,
+							retryAfter: response.headers["retry-after"],
+							code: (JSON.parse(body) as { code?: string }).code,
+						});
+					});
+				});
+			},
+		);
+	}
+
+	test("opens up to the limit, then answers 429 and writes no audit row or attach", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		const cookie = world.instructor.cookieHeader();
+		for (let i = 0; i < LIVE_HELP_SOCKETS_PER_MINUTE; i++) {
+			await openAndClose(sid, cookie);
+		}
+		const attaches = attachCount();
+		expect(attaches).toBe(LIVE_HELP_SOCKETS_PER_MINUTE);
+		expect(await audits("project.live_help_terminal_opened")).toHaveLength(
+			LIVE_HELP_SOCKETS_PER_MINUTE,
+		);
+
+		const refused = await refusal(sid, cookie);
+		expect(refused).toMatchObject({ status: 429, code: "RATE_LIMITED" });
+		expect(Number(refused?.retryAfter)).toBeGreaterThanOrEqual(1);
+		expect(attachCount()).toBe(attaches);
+		expect(await audits("project.live_help_terminal_opened")).toHaveLength(
+			LIVE_HELP_SOCKETS_PER_MINUTE,
+		);
+	});
+
+	test("another instructor is not affected", async () => {
+		const sid = await startedId();
+		await studentConnected();
+		const cookie = world.instructor.cookieHeader();
+		for (let i = 0; i < LIVE_HELP_SOCKETS_PER_MINUTE; i++) {
+			await openAndClose(sid, cookie);
+		}
+		expect(await refusal(sid, cookie)).toMatchObject({ status: 429 });
+
+		// Only an invitation creates an account (SPEC.md section 24.13).
+		await testDb.db
+			.insertInto("account_invitations")
+			.values({
+				email: SECOND_INSTRUCTOR.email,
+				display_name: SECOND_INSTRUCTOR.name,
+				role: "student",
+			})
+			.execute();
+		const ned = new CookieJar();
+		await loginAs(app, SECOND_INSTRUCTOR.sub, ned);
+		const nedId = (
+			await testDb.db
+				.selectFrom("users")
+				.select("id")
+				.where("oidc_subject", "=", SECOND_INSTRUCTOR.sub)
+				.executeTakeFirstOrThrow()
+		).id;
+		await insertTestLtiMembership(testDb.db, nedId, { role: "instructor" });
+		// One session is open per workspace, so the student swaps helpers.
+		const stopped = await post(
+			world.a.jar,
+			`/workspaces/${world.a.workspaceId}/live-help/stop`,
+		);
+		expect(stopped.statusCode, stopped.body).toBe(200);
+		const restarted = await start({ helperUserId: nedId, courseId: world.courseId });
+		expect(restarted.statusCode, restarted.body).toBe(200);
+		const nedSid = LiveHelpStatus.parse(restarted.json()).session?.id ?? "";
+		expect(await refusal(nedSid, ned.cookieHeader())).toBeNull();
 	});
 });
