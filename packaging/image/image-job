@@ -432,6 +432,24 @@ def roles(aliases):
     return by_fp.get(aliases.get(ALIAS_DEFAULT)), by_fp.get(aliases.get(ALIAS_PREVIOUS))
 
 
+def base_images():
+    """Fingerprints that instances record as their base image, or None when Incus cannot list them.
+
+    Incus's own record on each instance, the same one the controller reports;
+    a workspace keeps its root until rebuilt (docs/SPEC.md section 22.4).
+    """
+    code, out = incus("list", "--format", "json")
+    if code != 0:
+        return None
+    try:
+        listed = json.loads(out or "[]")
+    except ValueError:
+        return None
+    return {inst["config"]["volatile.base_image"] for inst in listed
+            if isinstance(inst, dict) and isinstance(inst.get("config"), dict)
+            and isinstance(inst["config"].get("volatile.base_image"), str)}
+
+
 def set_alias(name, fingerprint, aliases, job):
     if name in aliases:
         # One PUT moves the alias, so `portikus` never goes missing mid-move.
@@ -742,16 +760,22 @@ class Runner:
         self.prune(job, keep=version)
 
     def prune(self, job, keep):
-        """Keep three images: the default, the previous, and the one just made.
+        """Keep the default, the previous, the one just made and every image a workspace was made from.
 
         Every other image is deleted from Incus and the store. An image either
-        alias points at is never deleted, even under another versioned name.
+        alias points at, or an instance records as its base, is never deleted,
+        even under another versioned name.
         """
         aliases = alias_map()
         default, previous = roles(aliases)
         known = versions_in(aliases)
+        in_use = base_images()
+        if in_use is None:
+            job.line("could not list the workspaces; old images are kept")
+            write_aliases(self.images_dir, aliases)
+            return
         on_disk = {n for n in os.listdir(self.images_dir) if VERSION_RE.fullmatch(n)}
-        protected = {aliases.get(ALIAS_DEFAULT), aliases.get(ALIAS_PREVIOUS)} - {None}
+        protected = ({aliases.get(ALIAS_DEFAULT), aliases.get(ALIAS_PREVIOUS)} | in_use) - {None}
         for version in sorted((set(known) | on_disk) - {default, previous, keep}, key=version_key):
             if version in known and known[version] not in protected:
                 job.line(f"removing image {version}")
