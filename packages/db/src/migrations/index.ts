@@ -50,6 +50,7 @@ import { down as down0046, up as up0046 } from "./0046_docker_seed_image_bytes.j
 import { down as down0047, up as up0047 } from "./0047_voice_input_switch.js";
 import { down as down0048, up as up0048 } from "./0048_live_help.js";
 import { down as down0049, up as up0049 } from "./0049_account_email.js";
+import { down as down0050, up as up0050 } from "./0050_course_profile.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -104,4 +105,5 @@ export const migrations: Record<string, Migration> = {
 	"0047_voice_input_switch": { up: up0047, down: down0047 },
 	"0048_live_help": { up: up0048, down: down0048 },
 	"0049_account_email": { up: up0049, down: down0049 },
+	"0050_course_profile": { up: up0050, down: down0050 },
 };

@@ -3,6 +3,7 @@ import {
 	type CourseMember,
 	CourseMemberRole,
 	type CourseMembersResponse,
+	CourseProfile,
 	type CoursesResponse,
 	WorkspaceState,
 } from "@portikus/contracts";
@@ -38,7 +39,12 @@ export function registerCourseRoutes(
 		const rows = await db
 			.selectFrom("lti_memberships")
 			.innerJoin("lti_contexts", "lti_contexts.id", "lti_memberships.context_id")
-			.select(["lti_contexts.id", "lti_contexts.title", "lti_contexts.platform_name"])
+			.select([
+				"lti_contexts.id",
+				"lti_contexts.title",
+				"lti_contexts.platform_name",
+				"lti_contexts.profile",
+			])
 			.where("lti_memberships.user_id", "=", user.id)
 			.where("lti_memberships.role", "=", "instructor")
 			.orderBy("lti_contexts.title")
@@ -47,6 +53,7 @@ export function registerCourseRoutes(
 			id: row.id,
 			title: row.title,
 			platformName: row.platform_name,
+			profile: CourseProfile.parse(row.profile),
 		}));
 		return reply.send(body);
 	});

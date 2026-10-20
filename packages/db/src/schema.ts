@@ -334,6 +334,8 @@ interface SettingsTable {
 	keep_running_max_hours: Generated<number>;
 	/** Whether students see the microphone (SPEC.md section 25.10). */
 	voice_input_enabled: Generated<boolean>;
+	/** Whether the editor runs language servers (SPEC.md section 13.6). */
+	code_help_enabled: Generated<boolean>;
 	/** Whether the site emails reset and invitation links (SPEC.md section 5.3). */
 	account_email_enabled: Generated<boolean>;
 	/** When the worker last found the workspace controller answering. */
@@ -470,6 +472,8 @@ interface LtiContextsTable {
 	context_id: string;
 	title: ColumnType<string, string | undefined, string>;
 	platform_name: string;
+	/** A `CourseProfile` from @portikus/contracts (ADR 0066). */
+	profile: Generated<string>;
 	/** The tool's client id at this platform, from the latest launch (ADR 0058). */
 	platform_client_id: ColumnType<
 		string | null,

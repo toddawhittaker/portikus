@@ -10,6 +10,7 @@ const CS101 = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101 Intro to Programming",
 	platformName: "canvas",
+	profile: "agentic",
 };
 const NO_ROSTER = { available: false, syncedAt: null, result: null };
 const SAM_ID = "77777777-7777-4777-8777-777777777777";
@@ -17,6 +18,7 @@ const CS240 = {
 	id: "66666666-6666-4666-8666-666666666666",
 	title: "CS 240 Data Structures",
 	platformName: "moodle",
+	profile: "agentic",
 };
 
 function serve(routes: Record<string, () => Response>) {

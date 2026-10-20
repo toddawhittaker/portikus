@@ -172,6 +172,7 @@ const SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
+	codeHelpEnabled: true,
 	accountEmailEnabled: false,
 	stateVerified: true,
 	idleStopMinutes: 60,
