@@ -3,6 +3,7 @@ import {
 	createSignedInUser,
 	createStudent,
 	expectNoViolations,
+	expectReflowAt320,
 	loginAs,
 	query,
 	settledAxe,
@@ -329,20 +330,34 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
-	test(`a student's Help page passes axe at the narrowest window (${colorScheme})`, async ({
+	test(`a student's Help page reflows at 320 px and passes axe there (${colorScheme})`, async ({
 		browser,
 	}) => {
 		const page = await pageAs(browser, "student");
-		// The product's narrowest window (.pk-root min-width).
-		await page.setViewportSize({ width: 1024, height: 800 });
 		await page.emulateMedia({ colorScheme });
 		await page.goto("/help");
 		expect(await partHeadings(page)).toEqual(WORKSPACE_PARTS.student);
+		// WCAG 1.4.10: no sideways scroll for the page or the help text.
+		await expectReflowAt320(page);
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		await page.screenshot({ path: `screenshots/help-320-${colorScheme}.png` });
 		await page.context().close();
 	});
 }
+
+test("the Help page's loading frame does not scroll sideways at 320 px", async ({
+	browser,
+}) => {
+	const page = await pageAs(browser, "student");
+	await page.setViewportSize({ width: 320, height: 640 });
+	// Hold the session check open, so the page stays on its loading frame.
+	await page.route("**/auth/me", () => {});
+	await page.goto("/help");
+	await expect(page.locator(".pk-root[aria-busy='true']")).toBeAttached();
+	await expectReflowAt320(page);
+	await page.context().close();
+});
 
 test("the Sign-in and Site address anchors land on their admin help topics", async ({
 	page,

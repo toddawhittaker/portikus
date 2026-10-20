@@ -44,7 +44,6 @@ body {
 .pk-root {
 	position: relative;
 	height: 100%;
-	min-width: 1024px;
 	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
@@ -215,6 +214,20 @@ body {
 	flex: 1;
 	min-height: 0;
 	display: flex;
+}
+/*
+ * The panel library sets touch-action pan-y or pan-x inline on every group and
+ * pane, which blocks pinch-zoom anywhere inside (WCAG 1.4.4). Keep its axis,
+ * so a one-finger drag near a handle still resizes, and add pinch-zoom, which
+ * takes two fingers and cannot start a drag.
+ */
+:is([data-group], [data-panel] > *)[style*="touch-action: pan-y"] {
+	/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+	touch-action: pan-y pinch-zoom !important;
+}
+:is([data-group], [data-panel] > *)[style*="touch-action: pan-x"] {
+	/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+	touch-action: pan-x pinch-zoom !important;
 }
 /*
  * Too narrow for both side panes at their default widths (240 and 280 px)
