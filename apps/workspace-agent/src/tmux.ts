@@ -466,13 +466,14 @@ async function createTmuxSession(
  * Let the attach client running as `clientPid` size the window, and make it
  * the session's latest so its size wins under `window-size latest` (SPEC.md
  * §9.7). tmux only moves `latest` on input or a changed size, so a browser
- * re-sending the size it already has needs this to win.
+ * re-sending the size it already has needs this to win. False when the
+ * client is not listed yet, as just after it is spawned.
  */
 export async function claimWindowSize(
 	id: string,
 	clientPid: number,
 	server: TmuxServer,
-): Promise<void> {
+): Promise<boolean> {
 	const name = sessionName(id);
 	const clients = await tmux(
 		["list-clients", "-t", name, "-F", "#{client_pid}\t#{client_tty}"],
@@ -483,9 +484,10 @@ export async function claimWindowSize(
 		if (Number(pid) === clientPid && tty) {
 			await tmux(["refresh-client", "-t", tty, "-f", "!ignore-size"], server);
 			await tmux(["switch-client", "-c", tty, "-t", name], server);
-			return;
+			return true;
 		}
 	}
+	return false;
 }
 
 export interface PaneState {

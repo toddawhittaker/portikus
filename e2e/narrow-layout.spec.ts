@@ -549,6 +549,11 @@ test.describe("the workspace on a touch screen", () => {
 				page.getByTestId("file-row-a.md"),
 			])
 				expect(await pinchBlockers(target), String(target)).toEqual([]);
+			// A mounted terminal, where xterm.js sets its own touch handling.
+			await page.getByTestId("empty-open-terminal").click();
+			const screen = page.locator(".xterm-screen");
+			await expect(screen).toBeVisible({ timeout: 15_000 });
+			expect(await pinchBlockers(screen)).toEqual([]);
 		});
 	}
 

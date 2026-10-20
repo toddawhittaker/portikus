@@ -264,6 +264,24 @@ test("focusing or clicking the terminal says its size again so it wins", async (
 	expect(resizesSent(socket)).toHaveLength(2);
 });
 
+// Each size frame makes tmux repaint, which a screen reader reads out as new
+// output, so a click that also focuses the terminal says its size once.
+test("one click on an unfocused terminal sends exactly one size frame", async () => {
+	const { view } = renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const socket = sockets[0];
+	if (!socket) throw new Error("no socket");
+	const surface = measure(view);
+	act(() => socket.onopen?.());
+	const before = resizesSent(socket).length;
+
+	act(() => {
+		surface.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+	});
+	focusPane(view);
+	expect(resizesSent(socket)).toHaveLength(before + 1);
+});
+
 test("the first output frame makes the pane say its size again", async () => {
 	const { view } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
