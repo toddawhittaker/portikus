@@ -210,6 +210,51 @@ test("a terminal another browser is still placing does not overwrite its split",
 	expect(b.getState().layout).toEqual(split);
 });
 
+test("a save that lands after a remount does not stamp its version on the reloaded tree", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const project = newProject();
+	const twoTabs: ProjectLayout = {
+		tabs: [
+			{ id: T1, root: { type: "leaf", terminalId: T1 } },
+			{ id: T2, root: { type: "leaf", terminalId: T2 } },
+		],
+	};
+	const { server, fetchMock } = fakeServer(project, twoTabs, 1);
+	const store = createLayoutStore();
+	const first = mount(store, project);
+	await waitFor(() => expect(store.getState().version).toBe(1));
+
+	// The save the unmount sends is held until the next mount has read the
+	// layout, so that read still sees the tree from before the split.
+	const answer = fetchMock.getMockImplementation();
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+		if (init?.method === "PUT") {
+			await held;
+			fetchMock.mockImplementation(answer as typeof fetch);
+		}
+		return (answer as typeof fetch)(input, init);
+	});
+	act(() => store.getState().moveLeaf(T1, T2, T1, "right"));
+	const split = store.getState().layout;
+	first.unmount();
+	mount(store, project);
+	await waitFor(() => expect(store.getState().layout).toEqual(twoTabs));
+	release();
+	await settle();
+	await waitFor(() => expect(server.version).toBe(2));
+	await settle();
+
+	expect(store.getState().layout).toEqual(split);
+	expect(store.getState().version).toBe(2);
+	act(() => store.getState().openFile("README.md"));
+	await settle(3_000);
+	expect(server.layout?.tabs[0]?.root.type).toBe("split");
+});
+
 test("a browser ignores the echo of its own save", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	const project = newProject();
