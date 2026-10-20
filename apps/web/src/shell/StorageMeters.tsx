@@ -3,8 +3,8 @@ import { Meter, Toggletip } from "@portikus/ui";
 import { type ReactNode, useId } from "react";
 import { formatBytes } from "../monitor/format.js";
 import {
-	NEXT_STEP,
 	nearlyFullAbove,
+	nextStep,
 	STORAGE_CLASSES,
 	STORAGE_LABEL,
 	type StorageClass,
@@ -80,7 +80,14 @@ export function StorageMeterRow({
 }
 
 /** One meter per storage class (SPEC.md §18.3). */
-export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] }) {
+export function StorageMeters({
+	storage,
+	resetDockerShown = true,
+}: {
+	storage: WorkspaceUsage["storage"];
+	/** False when the course profile hides Reset Docker, so the step does not name it. */
+	resetDockerShown?: boolean;
+}) {
 	return (
 		<div className="pk-meters" data-testid="storage-meters">
 			{STORAGE_CLASSES.map((storageClass) => (
@@ -88,7 +95,7 @@ export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] 
 					key={storageClass}
 					storageClass={storageClass}
 					figure={storage[storageClass]}
-					step={NEXT_STEP[storageClass]}
+					step={nextStep(storageClass, resetDockerShown)}
 					tip={
 						storageClass === "recovery" ? (
 							<Toggletip label="Recovery storage">

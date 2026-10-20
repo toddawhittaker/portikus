@@ -144,7 +144,7 @@ export function WorkspaceDialog({
 								Storage
 							</h3>
 							{storage ? (
-								<StorageMeters storage={storage} />
+								<StorageMeters storage={storage} resetDockerShown={!traditional} />
 							) : (
 								<p
 									className="pk-text-compact m-0 text-ink-muted"

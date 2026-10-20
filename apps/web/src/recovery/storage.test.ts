@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { storageLevel, storageWarning } from "./storage.js";
+import { nextStep, storageLevel, storageWarning } from "./storage.js";
 
 const GB = 1024 ** 3;
 const figure = (percent: number) => ({ usedBytes: percent * GB, totalBytes: 100 * GB });
@@ -52,4 +52,18 @@ test("the fullest class wins", () => {
 		recovery: null,
 	});
 	expect(warning?.storageClass).toBe("docker");
+});
+
+test("the Docker step names Reset Docker only when the student can see it", () => {
+	const full = { ...none, docker: figure(96) };
+	expect(storageWarning(full)?.detail).toContain(
+		"Reset Docker in the workspace dialog",
+	);
+	expect(storageWarning(full, true)?.detail).toContain("Reset Docker");
+	const hidden = storageWarning(full, false)?.detail;
+	expect(hidden).toBe("Docker storage is 96% full. Run docker system prune.");
+	expect(nextStep("docker", false)).toBe("Run docker system prune.");
+	// The other classes read the same in both profiles.
+	expect(nextStep("home", false)).toBe(nextStep("home", true));
+	expect(nextStep("recovery", false)).toBe(nextStep("recovery", true));
 });

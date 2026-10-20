@@ -842,3 +842,27 @@ test("Agentic keeps the Docker section of the dialog", async () => {
 	);
 	expect(dialog.getByTestId("workspace-reset-docker")).toBeDefined();
 });
+
+test("a Traditional student's storage warning does not point to the hidden Reset Docker", async () => {
+	stubFetch((url) =>
+		url === "/me/settings"
+			? json(200, meSettingsBody("traditional"))
+			: String(url).endsWith("/usage")
+				? json(200, usage({ docker: percent(96) }))
+				: json(202, { ok: true }),
+	);
+	renderBar();
+
+	const warning = await screen.findByTestId("storage-warning");
+	fireEvent.click(warning);
+	await waitFor(() =>
+		expect(screen.getByTestId("storage-warning-detail").textContent).toBe(
+			"Docker storage is 96% full. Run docker system prune.",
+		),
+	);
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	expect(dialog.queryByTestId("workspace-reset-docker")).toBeNull();
+	expect(dialog.getByTestId("storage-step-docker").textContent).toBe(
+		"Run docker system prune.",
+	);
+});

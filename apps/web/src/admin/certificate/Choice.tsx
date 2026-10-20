@@ -23,7 +23,7 @@ export function Choice<T extends string>({
 						<input
 							type="radio"
 							name={name}
-							className="pk-focus-ring mt-0.5"
+							className="pk-focus-ring mt-0.5 accent-accent"
 							checked={value === choice.value}
 							data-testid={id}
 							aria-labelledby={`${id}-label`}
