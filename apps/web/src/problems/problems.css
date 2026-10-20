@@ -91,11 +91,3 @@
 	line-clamp: 3;
 	overflow: hidden;
 }
-
-/* The count after the Problems tab's name; the right pane's tab strip lays it out. */
-.pk-pane-tab-count {
-	margin-inline-start: var(--space-0\.5);
-	font-size: 12px;
-	font-variant-numeric: tabular-nums;
-	color: var(--ink-muted);
-}

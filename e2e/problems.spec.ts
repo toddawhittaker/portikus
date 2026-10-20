@@ -197,6 +197,54 @@ test.describe("Problems tab", () => {
 	});
 });
 
+test.describe("the five tabs at the default pane width", () => {
+	for (const appearance of ["light", "dark"] as const) {
+		test(`all five tabs show whole, with no sideways scroll, at 1280 px (${appearance})`, async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			await setAppearance(student, appearance);
+			await page.setViewportSize({ width: 1280, height: 720 });
+			await openProject(page, student, `Problems tabs ${appearance}`, {
+				"main.py": PYTHON,
+				"app.ts": TYPESCRIPT,
+			});
+			await expect(page.locator("html")).toHaveAttribute("data-theme", appearance, {
+				timeout: 15_000,
+			});
+			await expect(page.getByTestId("right-pane-count-problems")).toHaveText("2", {
+				timeout: 20_000,
+			});
+
+			const strip = page.locator(".pk-pane-tabs");
+			const scroll = await strip.evaluate((element) => ({
+				scrollWidth: element.scrollWidth,
+				clientWidth: element.clientWidth,
+			}));
+			expect(scroll.scrollWidth).toBeLessThanOrEqual(scroll.clientWidth);
+
+			const stripBox = await strip.boundingBox();
+			const names = ["files", "checks", "running", "monitor", "problems"];
+			for (const name of names) {
+				const tab = page.getByTestId(`right-pane-tab-${name}`);
+				await expect(tab).toBeVisible();
+				const box = await tab.boundingBox();
+				expect(box?.x ?? -1).toBeGreaterThanOrEqual(stripBox?.x ?? 0);
+				expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+					(stripBox?.x ?? 0) + (stripBox?.width ?? 0) + 0.5,
+				);
+				// SPEC.md §25.8: a target of at least 24 by 24 CSS pixels.
+				expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
+				expect(box?.height ?? 0).toBeGreaterThanOrEqual(24);
+			}
+			await page.getByTestId("right-pane-tab-problems").click();
+			await page.screenshot({ path: `screenshots/problems-tabs-${appearance}.png` });
+			await expectNoViolations(page, ".pk-pane-tabs");
+		});
+	}
+});
+
 test.describe("Problems tab with code help off", () => {
 	test("the tab is not shown and no language-server socket opens", async ({
 		page,
