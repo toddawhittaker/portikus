@@ -6,11 +6,12 @@ import { promisify } from "node:util";
 import {
 	type CodingAgent,
 	SCROLLBACK_LINES,
+	type TerminalAttachMode,
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
-import { collectProcessTree, stopProcesses } from "./process-tree.js";
+import { collectProcessTree, processesWithEnv, stopProcesses } from "./process-tree.js";
 
 const run = promisify(execFile);
 
@@ -60,8 +61,17 @@ export function sessionName(id: string): string {
 }
 
 /** The command line every attachment uses, so both sides agree on the socket. */
-export function attachArgs(id: string, server: TmuxServer): string[] {
-	return [...serverArgs(server), "attach-session", "-t", sessionName(id)];
+export function attachArgs(
+	id: string,
+	server: TmuxServer,
+	mode?: TerminalAttachMode,
+): string[] {
+	const args = [...serverArgs(server), "attach-session", "-t", sessionName(id)];
+	// A helper never sizes the student's window; a viewer cannot type either
+	// (docs/SPEC.md §9.7, live help input rules).
+	if (mode === "view") args.push("-f", "read-only,ignore-size");
+	if (mode === "type") args.push("-f", "ignore-size");
+	return args;
 }
 
 /**
@@ -396,6 +406,10 @@ export async function createSession(
 	return { id, cwd: real, ...baseline };
 }
 
+function terminalMark(name: string): string {
+	return `PORTIKUS_TERMINAL=${name}`;
+}
+
 async function createTmuxSession(
 	name: string,
 	real: string,
@@ -426,6 +440,10 @@ async function createTmuxSession(
 			// running keeps the zone it started with.
 			"-e",
 			`TZ=${timezone}`,
+			// Marks everything the terminal starts, so closing it can find a
+			// `setsid` child that left its session (SPEC.md §9.7).
+			"-e",
+			terminalMark(name),
 			// Keys ride on this session only, and only for an agent command
 			// (SPEC.md §10.6).
 			...(command ? credentialArgs(launch?.institutionalEnv) : []),
@@ -448,6 +466,9 @@ export interface PaneState {
 	alternate: boolean;
 	/** Lines in tmux's own history; `clear` empties it. */
 	history: number;
+	/** The window's size, which a live-help helper's terminal copies. */
+	cols: number;
+	rows: number;
 }
 
 /**
@@ -461,18 +482,21 @@ export async function listPanes(server: TmuxServer): Promise<Map<string, PaneSta
 			"list-panes",
 			"-a",
 			"-F",
-			"#{session_name}\t#{pane_current_path}\t#{alternate_on}\t#{history_size}",
+			"#{session_name}\t#{pane_current_path}\t#{alternate_on}\t#{history_size}\t#{window_width}\t#{window_height}",
 		],
 		server,
 	);
 	const panes = new Map<string, PaneState>();
 	for (const line of stdout.split("\n")) {
-		const [name, path = "", alternate = "", history = ""] = line.split("\t");
+		const [name, path = "", alternate = "", history = "", cols = "", rows = ""] =
+			line.split("\t");
 		if (!name?.startsWith("pk-")) continue;
 		panes.set(name.slice(3), {
 			path: path === "" ? null : path,
 			alternate: alternate === "1",
 			history: Number(history) || 0,
+			cols: Number(cols) || 0,
+			rows: Number(rows) || 0,
 		});
 	}
 	return panes;
@@ -515,6 +539,10 @@ export async function closeSession(
 		10,
 	);
 	const tree = Number.isInteger(pid) ? await collectProcessTree(pid) : [];
+	const inTree = new Set(tree.map((entry) => entry.pid));
+	for (const entry of processesWithEnv(terminalMark(name))) {
+		if (!inTree.has(entry.pid)) tree.push(entry);
+	}
 	await killSession(id, server);
 	return { stopped: stopProcesses(tree, undefined, pid) };
 }

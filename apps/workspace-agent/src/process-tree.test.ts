@@ -10,6 +10,7 @@ import { expect, test } from "vitest";
 import {
 	collectProcessTree,
 	killProcessTree,
+	processesWithEnv,
 	readStartTime,
 	stopProcesses,
 	type TreeProcess,
@@ -96,5 +97,21 @@ test("a process that joins the session during the grace period is killed too", a
 		expect(await readStartTime(late)).toBeNull();
 	} finally {
 		leader.kill("SIGKILL");
+	}
+});
+
+test("only a process carrying the environment mark is found", async () => {
+	const mark = `PORTIKUS_TERMINAL=probe-${process.pid}`;
+	const marked = spawn("sleep", ["30"], {
+		env: { ...process.env, PORTIKUS_TERMINAL: `probe-${process.pid}` },
+	});
+	const plain = spawn("sleep", ["30"]);
+	try {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const pids = processesWithEnv(mark).map((entry) => entry.pid);
+		expect(pids).toEqual([marked.pid]);
+	} finally {
+		marked.kill("SIGKILL");
+		plain.kill("SIGKILL");
 	}
 });

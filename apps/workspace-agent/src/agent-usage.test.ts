@@ -23,8 +23,8 @@ import {
 	OtlpMetricsRequest,
 	startAgentUsageReceiver,
 } from "./agent-usage.js";
-import { isSystemListener } from "./listening.js";
 import { buildServer } from "./server.js";
+import { isSystemListener } from "./socket-owners.js";
 
 const DELTA = 1;
 const CUMULATIVE = 2;

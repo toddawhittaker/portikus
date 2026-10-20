@@ -412,6 +412,41 @@ export const STUDENT_HELP: HelpPart = {
 			),
 		},
 		{
+			id: "student-live-help",
+			title: "Getting live help from an instructor",
+			body: (
+				<>
+					<p>
+						To have an instructor look at a problem with you, open the project's
+						three-dots menu and choose <strong>Get live help…</strong>. Choose one
+						instructor of your courses, read what they will see, then press{" "}
+						<strong>Start live help</strong>. They get a notification.
+					</p>
+					<ul>
+						<li>
+							They see the terminals and previews of that project, from what is on each
+							screen when they open it. They do not see earlier output.
+						</li>
+						<li>
+							Typing is off at first, so they can only watch. A bar across the top of
+							the page names them and has <strong>Let them type</strong>. Only you can
+							turn typing on, and <strong>Stop typing</strong> turns it off at once.
+						</li>
+						<li>
+							Letting them type gives them a full shell as you. That includes your Git,
+							Claude and SSH credentials, every file in your workspace, and your other
+							terminals. Turn it on only while you are watching.
+						</li>
+						<li>
+							Live help lasts at most 60 minutes. <strong>End live help</strong> in the
+							bar ends it at once. It also ends when the instructor leaves or the
+							project is archived. One session can be open at a time.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
 			id: "student-agent-usage",
 			title: "What your instructors can see about coding agents",
 			body: (

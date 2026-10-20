@@ -19,9 +19,9 @@ import {
 	assertId,
 	pointDirectory,
 	type RecoveryPaths,
-	readArchive,
 	safeMemberName,
 } from "./recovery.js";
+import { readArchive } from "./recovery-archive.js";
 
 export interface RecoveryDiffInput {
 	slug: string;

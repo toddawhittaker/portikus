@@ -241,14 +241,11 @@ function RecoveryGroup() {
 				address back. After Keep, sign in to the server instead. If the port changed,
 				first set{" "}
 				<code className="pk-mono-body whitespace-nowrap">portikus_public_port</code> in{" "}
-				<code className="pk-mono-body whitespace-nowrap">
+				<code className="pk-mono-body [overflow-wrap:anywhere]">
 					/etc/portikus/portikus.yaml
 				</code>
-				. Then run{" "}
-				<code className="pk-mono-body whitespace-nowrap">
-					sudo dpkg-reconfigure portikus
-				</code>
-				, enter the old host name, and let it rerun setup.
+				. Then run <code className="pk-mono-body">sudo dpkg-reconfigure portikus</code>,
+				enter the old host name, and let it rerun setup.
 			</p>
 		</Group>
 	);

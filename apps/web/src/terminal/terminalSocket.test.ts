@@ -82,14 +82,14 @@ afterEach(() => {
 });
 
 test("connects to the terminal's socket with the pane's size (SPEC.md §9.7)", () => {
-	openTerminalSocket("w1", "t1", events());
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", events());
 	expect(last().url).toMatch(/\/workspaces\/w1\/terminals\/t1\/ws\?cols=80&rows=24$/);
 	expect(last().binaryType).toBe("arraybuffer");
 });
 
 test("a dropped socket retries with a doubling wait, capped at the maximum", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	let wait = RECONNECT_MS;
 	for (let drop = 0; drop < MAX_RECONNECT_ATTEMPTS - 1; drop++) {
@@ -106,7 +106,7 @@ test("a dropped socket retries with a doubling wait, capped at the maximum", () 
 
 test("an open socket resets the backoff and the attempt count", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().drop(1006);
 	vi.advanceTimersByTime(RECONNECT_MS);
 	last().drop(1006);
@@ -121,7 +121,7 @@ test("an open socket resets the backoff and the attempt count", () => {
 
 test("five failed attempts in a row stop retrying and report the terminal lost", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	for (let attempt = 1; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
 		last().drop(1006);
 		vi.runOnlyPendingTimers();
@@ -139,7 +139,7 @@ test.each([
 	["server error", CloseCode.SERVER_ERROR],
 ])("a %s close is fatal: no retry", (_name, code) => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	last().drop(code);
 	expect(handlers.onLost).toHaveBeenCalledTimes(1);
@@ -150,7 +150,7 @@ test.each([
 
 test("a too-many-sockets close says so and does not retry (SPEC.md §24.13)", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().drop(CloseCode.TOO_MANY_SOCKETS);
 	expect(handlers.onTooMany).toHaveBeenCalledTimes(1);
 	expect(handlers.onLost).not.toHaveBeenCalled();
@@ -161,7 +161,7 @@ test("a too-many-sockets close says so and does not retry (SPEC.md §24.13)", ()
 
 test("a session-ended close hands over to sessionEnded and does not retry (SPEC.md §5.3)", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	last().drop(CloseCode.SESSION_ENDED);
 	expect(sessionEnded).toHaveBeenCalledTimes(1);
@@ -172,7 +172,7 @@ test("a session-ended close hands over to sessionEnded and does not retry (SPEC.
 
 test("an exit frame stops the socket for good", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	last().text({ type: "exit" });
 	expect(handlers.onExit).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ test("an exit frame stops the socket for good", () => {
 
 test("an error with a reason is a gone terminal; one without is only reported", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	last().text({ type: "error", code: "TMUX_FAILED" });
 	expect(handlers.onError).toHaveBeenCalledWith("TMUX_FAILED");
@@ -202,7 +202,7 @@ test("an error with a reason is a gone terminal; one without is only reported", 
 
 test("output is written, and the first output on each socket asks for the size again", () => {
 	const handlers = events();
-	openTerminalSocket("w1", "t1", handlers);
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	last().open();
 	last().onmessage?.({ data: new Uint8Array([104, 105]).buffer });
 	last().onmessage?.({ data: new Uint8Array([33]).buffer });
@@ -217,7 +217,7 @@ test("output is written, and the first output on each socket asks for the size a
 
 test("send only writes to an open socket, and stop cancels a pending retry", () => {
 	const handlers = events();
-	const channel = openTerminalSocket("w1", "t1", handlers);
+	const channel = openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
 	channel.send({ type: "input", data: "a" });
 	expect(last().sent).toEqual([]);
 	last().open();
@@ -227,4 +227,39 @@ test("send only writes to an open socket, and stop cancels a pending retry", () 
 	channel.stop();
 	vi.runAllTimers();
 	expect(FakeSocket.all.length).toBe(1);
+});
+
+test("a size frame reaches onSize, for live help attachments (ADR 0063)", () => {
+	const onSize = vi.fn();
+	openTerminalSocket("/courses/c1/live-help/s1/terminals/t1/ws", {
+		...events(),
+		onSize,
+	});
+	expect(last().url).toMatch(
+		/\/courses\/c1\/live-help\/s1\/terminals\/t1\/ws\?cols=80&rows=24$/,
+	);
+	last().open();
+	last().text({ type: "size", cols: 100, rows: 30 });
+	expect(onSize).toHaveBeenCalledWith(100, 30);
+});
+
+test("a close the caller takes is not retried, and a 4401 still goes to sign-in", () => {
+	const onCloseCode = vi.fn((code: number) => code === CloseCode.LIVE_HELP_ENDED);
+	const handlers = { ...events(), onCloseCode };
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
+	last().drop(CloseCode.LIVE_HELP_ENDED);
+	vi.runAllTimers();
+	expect(FakeSocket.all.length).toBe(1);
+	expect(handlers.onReconnecting).not.toHaveBeenCalled();
+	expect(handlers.onLost).not.toHaveBeenCalled();
+
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
+	last().drop(CloseCode.SESSION_ENDED);
+	expect(sessionEnded).toHaveBeenCalledTimes(1);
+	expect(onCloseCode).not.toHaveBeenCalledWith(CloseCode.SESSION_ENDED);
+
+	// A code the caller does not take keeps the ordinary retry.
+	openTerminalSocket("/workspaces/w1/terminals/t1/ws", handlers);
+	last().drop(1006);
+	expect(handlers.onReconnecting).toHaveBeenCalledTimes(1);
 });

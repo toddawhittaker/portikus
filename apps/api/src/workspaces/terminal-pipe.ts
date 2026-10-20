@@ -1,6 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession, sessionGate } from "@portikus/auth";
-import { CloseCode } from "@portikus/contracts";
+import { CloseCode, type TerminalAttachMode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { TerminalGoneReason, TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
@@ -57,6 +57,36 @@ interface PipeOptions {
 	sessionToken: string | null;
 	cols: number;
 	rows: number;
+	/** A live help attach's mode, which also decides what the browser may send (ADR 0063). */
+	mode?: TerminalAttachMode;
+	/**
+	 * Checked once a second with the sign-in; a close it returns ends the pipe.
+	 * Live help uses it for a session that ended or changed mode elsewhere.
+	 */
+	stillAllowed?: () => Promise<{ code: number; reason: string } | null>;
+	/** False for a helper, whose socket must not keep the workspace awake (SPEC.md §6.4). */
+	presence?: boolean;
+	/** Hands over a way to end this pipe at once; the returned undo runs when it closes. */
+	register?: (end: (code: number, reason: string) => void) => () => void;
+}
+
+/**
+ * Whether a browser frame may reach the agent. A view attach sends nothing;
+ * a type attach sends keystrokes only, never a resize, so the student's
+ * terminal keeps the student's size (ADR 0063).
+ */
+export function acceptsClientFrame(
+	mode: TerminalAttachMode | undefined,
+	text: string,
+): boolean {
+	if (mode === undefined) return true;
+	if (mode === "view") return false;
+	try {
+		const frame = JSON.parse(text) as { type?: unknown };
+		return frame.type === "input";
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -195,12 +225,14 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		connectionId,
 		sessionToken,
 		log,
+		mode,
 	} = options;
+	const presence = options.presence ?? true;
 
 	log.debug({ workspaceId, terminalId, connectionId }, "terminal pipe opened");
 
 	const upstream = new WebSocketClient(
-		agent.attachUrl(terminalId, options.cols, options.rows),
+		agent.attachUrl(terminalId, options.cols, options.rows, mode),
 		{
 			headers: { authorization: agent.authHeader() },
 			handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
@@ -237,15 +269,26 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		socket.close(code, reason);
 	}
 
-	const presenceTimer = setInterval(() => {
-		void touchPresence(db, connectionId).catch(() => {});
-	}, PRESENCE_INTERVAL_MS);
+	const presenceTimer = presence
+		? setInterval(() => {
+				void touchPresence(db, connectionId).catch(() => {});
+			}, PRESENCE_INTERVAL_MS)
+		: null;
+
+	const unregister = options.register?.((code, reason) => {
+		if (!inputStopped) endBrowser(code, reason);
+	});
 
 	async function sessionStillValid(): Promise<boolean> {
 		lastSessionCheck = Date.now();
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
-		if (user && !sessionGate(user)) return true;
-		endBrowser(CloseCode.SESSION_ENDED, "session revoked");
+		if (!user || sessionGate(user)) {
+			endBrowser(CloseCode.SESSION_ENDED, "session revoked");
+			return false;
+		}
+		const refused = options.stillAllowed ? await options.stillAllowed() : null;
+		if (!refused) return true;
+		if (!inputStopped) endBrowser(refused.code, refused.reason);
 		return false;
 	}
 
@@ -257,8 +300,9 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		function finish(): void {
 			if (closed) return;
 			closed = true;
-			clearInterval(presenceTimer);
+			if (presenceTimer) clearInterval(presenceTimer);
 			clearInterval(sessionTimer);
+			unregister?.();
 			backpressure.cancel();
 			resolve();
 		}
@@ -271,6 +315,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			if (Date.now() - lastSessionCheck >= SESSION_CHECK_INTERVAL_MS) {
 				void sessionStillValid().catch(() => {});
 			}
+			if (!acceptsClientFrame(mode, text)) return;
 			if (upstream.readyState === WebSocketClient.OPEN) {
 				upstream.send(text);
 			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
@@ -354,6 +399,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 
 	await done;
 	log.debug({ workspaceId, terminalId, connectionId }, "terminal pipe closed");
+	if (!presence) return;
 	try {
 		await dropPresence(db, connectionId);
 	} catch (error) {

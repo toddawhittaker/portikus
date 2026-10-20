@@ -3,6 +3,7 @@ import { Button } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
+import { revealFocused } from "../../table/revealFocus.js";
 import { SortHeader } from "../../table/SortHeader.js";
 import { type SortState, sortText } from "../../table/sort.js";
 import { shortId, shortTime } from "../../text.js";
@@ -156,14 +157,23 @@ export function LogResults({
 			{/* No header row over nothing: an empty result is one line of text. overflow-clip
 			    keeps the header sticking to the scrolling <main> (SPEC.md section 20.1). */}
 			{empty ? null : (
-				<div className="pk-table-wrap overflow-clip">
+				// A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8).
+				<section
+					className="pk-table-wrap overflow-clip"
+					aria-labelledby="logs-table-caption"
+					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
+					tabIndex={0}
+					onFocus={revealFocused}
+				>
 					<table
 						ref={tableRef}
 						className="pk-table"
 						data-testid="logs-table"
 						aria-busy={pages.isLoading}
 					>
-						<caption className="sr-only">{logsCaption(sort)}</caption>
+						<caption id="logs-table-caption" className="sr-only">
+							{logsCaption(sort)}
+						</caption>
 						<thead>
 							<tr>
 								<th scope="col">
@@ -187,7 +197,7 @@ export function LogResults({
 							))}
 						</tbody>
 					</table>
-				</div>
+				</section>
 			)}
 			{emptyMessage ? (
 				<p className="pk-text-body pk-muted m-0" data-testid="logs-empty">

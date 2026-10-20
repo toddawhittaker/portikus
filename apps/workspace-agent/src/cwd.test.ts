@@ -26,10 +26,13 @@ function fakeSocket(): { socket: WebSocket; sent: unknown[] } {
 /** A second terminal whose history never changes. */
 const OTHER = "00000000-0000-4000-8000-000000009302";
 
-function pane(history: number): Map<string, PaneState> {
+function pane(history: number, cols = 80, rows = 24): Map<string, PaneState> {
 	return new Map([
-		[ID, { path: "/home/student", alternate: false, history }],
-		[OTHER, { path: "/home/student", alternate: false, history: 40 }],
+		[ID, { path: "/home/student", alternate: false, history, cols, rows }],
+		[
+			OTHER,
+			{ path: "/home/student", alternate: false, history: 40, cols: 80, rows: 24 },
+		],
 	]);
 }
 
@@ -92,4 +95,40 @@ test("a clear from the pane pipe is sent at once and the poll does not repeat it
 	watcher.stop();
 	expect(clears(sent)).toBe(1);
 	expect(clears(other.sent)).toBe(0);
+});
+
+function sizes(sent: unknown[]): unknown[] {
+	return sent.filter((frame) => (frame as { type: string }).type === "size");
+}
+
+test("a helper gets the window size on attach and on each change; a student never does", async () => {
+	vi.useFakeTimers();
+	listPanes.mockResolvedValueOnce(pane(0, 100, 30));
+	listPanes.mockResolvedValueOnce(pane(0, 100, 30));
+	listPanes.mockResolvedValue(pane(0, 120, 40));
+	const watcher = watchPanes(SERVER);
+	const student = fakeSocket();
+	const helper = fakeSocket();
+	const onSize = vi.fn();
+	watcher.add(ID, student.socket);
+	watcher.add(ID, helper.socket, onSize);
+	await vi.advanceTimersByTimeAsync(300);
+	expect(sizes(helper.sent)).toEqual([{ type: "size", cols: 100, rows: 30 }]);
+
+	// A helper arriving between polls hears the last size at once.
+	const late = fakeSocket();
+	watcher.add(ID, late.socket, vi.fn());
+	expect(sizes(late.sent)).toEqual([{ type: "size", cols: 100, rows: 30 }]);
+
+	await vi.advanceTimersByTimeAsync(1200);
+	watcher.stop();
+	expect(sizes(helper.sent)).toEqual([
+		{ type: "size", cols: 100, rows: 30 },
+		{ type: "size", cols: 120, rows: 40 },
+	]);
+	expect(onSize.mock.calls).toEqual([
+		[100, 30],
+		[120, 40],
+	]);
+	expect(sizes(student.sent)).toEqual([]);
 });
