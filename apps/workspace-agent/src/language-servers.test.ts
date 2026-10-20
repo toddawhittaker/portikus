@@ -242,19 +242,18 @@ describe("one window at a time", () => {
 });
 
 describe("stopping", () => {
-	test("the server stops a while after its last socket closes", async () => {
-		await start({ lingerMs: 200 });
+	test("the server stops when its last socket closes", async () => {
+		await start();
 		const { socket } = await ready("alpha", "python");
 		const pid = await serverPid(socket, 2);
 		socket.ws.close();
 		await socket.closed;
-		expect(alive(pid)).toBe(true);
 		await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 });
 	});
 
 	test("a server that ignores shutdown and exit is killed with its tree", async () => {
 		env.FAKE_IGNORE_EXIT = "1";
-		await start({ lingerMs: 50, stopGraceMs: 200 });
+		await start({ stopGraceMs: 200 });
 		const { socket } = await ready("alpha", "python");
 		const pid = await serverPid(socket, 2);
 		socket.ws.close();
@@ -263,7 +262,7 @@ describe("stopping", () => {
 	});
 
 	test("a socket with no browser message closes with IDLE, then the server stops", async () => {
-		await start({ idleMs: 300, lingerMs: 50 });
+		await start({ idleMs: 300 });
 		const { socket } = await ready("alpha", "python");
 		const pid = await serverPid(socket, 2);
 		expect((await socket.closed).code).toBe(CloseCode.LANGUAGE_SERVER_IDLE);

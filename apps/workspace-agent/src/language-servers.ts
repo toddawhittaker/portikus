@@ -25,7 +25,6 @@ import { encodeMessage, FramingError, MessageReader } from "./stdio-messages.js"
 const OOM_SCORE_ADJ = "500";
 const MAX_PROCESSES = 1700;
 
-const LINGER_MS = 60_000;
 const IDLE_MS = 15 * 60_000;
 const STOP_GRACE_MS = 3000;
 const CRASH_WINDOW_MS = 5 * 60_000;
@@ -59,7 +58,6 @@ export interface LanguageServerHostOptions {
 	/** Overrides the process cap, since it counts every task the user owns. For tests. */
 	maxProcesses?: number;
 	/** Overrides the timings below. For tests. */
-	lingerMs?: number;
 	idleMs?: number;
 	stopGraceMs?: number;
 	crashWindowMs?: number;
@@ -77,7 +75,6 @@ interface Session {
 	/** Set once the agent decided to stop it, so its exit is not a crash. */
 	stopping: boolean;
 	exited: Promise<void>;
-	lingerTimer: NodeJS.Timeout | null;
 	idleTimer: NodeJS.Timeout | null;
 }
 
@@ -245,8 +242,9 @@ export class LanguageServerHost {
 		socket.on("close", () => {
 			socketClosed = true;
 			if (session && session.socket === socket) {
+				// A new socket restarts the server anyway, so keeping it gains nothing.
 				session.socket = null;
-				this.armLinger(session);
+				void this.stop(session);
 			}
 		});
 
@@ -318,7 +316,6 @@ export class LanguageServerHost {
 			lastUsed: Date.now(),
 			stopping: false,
 			exited: new Promise((resolve) => child.once("exit", () => resolve())),
-			lingerTimer: null,
 			idleTimer: null,
 		};
 		this.sessions.set(key, started);
@@ -372,7 +369,7 @@ export class LanguageServerHost {
 		this.armIdle(started);
 		if (socketClosed) {
 			started.socket = null;
-			this.armLinger(started);
+			void this.stop(started);
 			return;
 		}
 		for (const data of queued.splice(0)) deliver(data);
@@ -407,23 +404,14 @@ export class LanguageServerHost {
 	private armIdle(session: Session): void {
 		if (session.idleTimer) clearTimeout(session.idleTimer);
 		session.idleTimer = setTimeout(() => {
-			// Closing starts the linger, which stops the server (SPEC.md §13.6).
+			// Closing the socket stops the server.
 			close(session.socket, CloseCode.LANGUAGE_SERVER_IDLE, REASON.idle);
 		}, this.options.idleMs ?? IDLE_MS);
 		session.idleTimer.unref();
 	}
 
-	private armLinger(session: Session): void {
-		if (session.lingerTimer) clearTimeout(session.lingerTimer);
-		session.lingerTimer = setTimeout(() => {
-			if (session.socket === null) void this.stop(session);
-		}, this.options.lingerMs ?? LINGER_MS);
-		session.lingerTimer.unref();
-	}
-
 	private forget(session: Session): void {
 		if (session.idleTimer) clearTimeout(session.idleTimer);
-		if (session.lingerTimer) clearTimeout(session.lingerTimer);
 		if (this.sessions.get(session.key) === session) this.sessions.delete(session.key);
 	}
 
