@@ -16,11 +16,20 @@
 			"project": ["src/**/*.{ts,tsx}"]
 		},
 		"apps/web": {
-			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"]
+			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"],
+			"ignoreDependencies": ["vscode-languageserver-protocol"]
 		},
 		"apps/worker": {
 			"entry": ["src/backup-channel-main.ts", "src/alert-main.ts"],
 			"project": ["src/**/*.ts"]
+		},
+		"apps/workspace-agent": {
+			"project": ["src/**/*.ts"],
+			"ignoreDependencies": [
+				"@portikus/tsserver6",
+				"pyright",
+				"typescript-language-server"
+			]
 		},
 		"apps/workspace-controller": {
 			"entry": ["src/egress-apply-main.ts"],

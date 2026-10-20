@@ -1662,6 +1662,46 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"code help is on by default and an administrator turns it off with an audit row",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const student = await studentJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json().codeHelpEnabled).toBe(true);
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { codeHelpEnabled: false },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().codeHelpEnabled).toBe(false);
+
+		const refused = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(student, PUBLIC_URL),
+			payload: { codeHelpEnabled: true },
+		});
+		expect(refused.statusCode).toBe(403);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.code_help_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({ from: true, to: false });
+	},
+);
+
+test.skipIf(skip)(
 	"account email is off by default and an administrator turns it on with an audit row",
 	async () => {
 		await seedSettings();

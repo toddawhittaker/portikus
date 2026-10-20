@@ -15,6 +15,7 @@ const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101",
 	platformName: "canvas",
+	profile: "agentic",
 };
 
 function stub(

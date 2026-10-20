@@ -30,7 +30,7 @@ concurrency:
 jobs:
   gate:
     name: Decide whether this push is a release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -108,7 +108,7 @@ jobs:
 
   build:
     name: Build the Debian package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: gate
     if: needs.gate.outputs.release == 'true'
@@ -160,7 +160,7 @@ jobs:
 
   publish:
     name: Publish the GitHub release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: build
     permissions:
@@ -190,7 +190,7 @@ jobs:
 
   apt-repo:
     name: Sign the apt repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [gate, build]
     # After a release build, or alone for the weekly re-sign.
@@ -283,7 +283,7 @@ jobs:
 
   pages:
     name: Deploy the apt repository to Pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: apt-repo
     # The default success() would also require the build, skipped by a re-sign.

@@ -128,7 +128,7 @@ test.skipIf(skip)(
 		const mine = await get("/courses", await cookieFor(ivy));
 		expect(mine.statusCode).toBe(200);
 		expect(CoursesResponse.parse(mine.json())).toEqual([
-			{ id: cs101, title: "CS 101", platformName: "Test LMS" },
+			{ id: cs101, title: "CS 101", platformName: "Test LMS", profile: "agentic" },
 		]);
 		for (const other of [sam, admin]) {
 			const res = await get("/courses", await cookieFor(other));

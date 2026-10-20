@@ -21,7 +21,7 @@ find_nfpm() {
 	local archive="$cache_dir/$tarball"
 	local binary="$cache_dir/nfpm"
 
-	if ! echo "${NFPM_SHA256}  $archive" | sha256sum -c --status - 2>/dev/null; then
+	if ! echo "${NFPM_SHA256}  $archive" | sha256sum -c --status - >/dev/null 2>&1; then
 		local url="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${tarball}"
 		echo "Downloading nfpm ${NFPM_VERSION}..." >&2
 		mkdir -p "$cache_dir"
@@ -52,7 +52,7 @@ fetch_node() {
 	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/portikus/node"
 	local tarball="node-v${NODE_VERSION}-linux-x64.tar.xz"
 	local archive="$cache_dir/$tarball"
-	if ! echo "${NODE_SHA256}  $archive" | sha256sum -c --status - 2>/dev/null; then
+	if ! echo "${NODE_SHA256}  $archive" | sha256sum -c --status - >/dev/null 2>&1; then
 		echo "Downloading Node ${NODE_VERSION}..." >&2
 		mkdir -p "$cache_dir"
 		rm -f "$archive"

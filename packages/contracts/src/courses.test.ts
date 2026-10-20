@@ -4,6 +4,7 @@ import {
 	CourseMembersResponse,
 	CoursesResponse,
 	RosterSyncResponse,
+	SetCourseProfileRequest,
 } from "./courses.js";
 
 const course = {
@@ -27,8 +28,24 @@ test("AuthUser accepts the instructor role", () => {
 	).toBe(true);
 });
 
-test("CoursesResponse round-trips", () => {
-	expect(CoursesResponse.parse([course])).toEqual([course]);
+test("CoursesResponse round-trips and carries each course's profile", () => {
+	const listed = { ...course, profile: "traditional" };
+	expect(CoursesResponse.parse([listed])).toEqual([listed]);
+	expect(CoursesResponse.safeParse([course]).success).toBe(false);
+	expect(CoursesResponse.safeParse([{ ...course, profile: "classic" }]).success).toBe(
+		false,
+	);
+});
+
+test("SetCourseProfileRequest takes only a known profile", () => {
+	expect(SetCourseProfileRequest.parse({ profile: "agentic" })).toEqual({
+		profile: "agentic",
+	});
+	expect(SetCourseProfileRequest.safeParse({ profile: "other" }).success).toBe(false);
+	expect(SetCourseProfileRequest.safeParse({}).success).toBe(false);
+	expect(
+		SetCourseProfileRequest.safeParse({ profile: "agentic", extra: 1 }).success,
+	).toBe(false);
 });
 
 test("CourseMembersResponse accepts a member without a workspace", () => {

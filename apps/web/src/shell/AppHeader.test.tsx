@@ -108,6 +108,7 @@ const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101 Intro to Programming",
 	platformName: "canvas",
+	profile: "agentic",
 };
 
 test("an instructor with a course gets a Course link and no Administration link", async () => {
