@@ -111,15 +111,22 @@ const socketKeys = Object.keys(ROUTE_POLICY).filter(
 	(key) => ROUTE_POLICY[key]?.websocket && key.startsWith("GET "),
 );
 
-const workspaceSocketKeys = socketKeys.filter(
-	(key) => ROUTE_POLICY[key]?.access !== "admin",
+const workspaceSocketKeys = socketKeys.filter((key) => {
+	const access = ROUTE_POLICY[key]?.access;
+	return access !== "admin" && access !== "course-instructor";
+});
+const courseSocketKeys = socketKeys.filter(
+	(key) => ROUTE_POLICY[key]?.access === "course-instructor",
 );
 const adminSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "admin",
 );
 
-test("the five browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(5);
+test("the six browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(6);
+	expect(courseSocketKeys).toEqual([
+		"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws",
+	]);
 	expect(adminSocketKeys).toEqual(["GET /admin/root-shell/ws"]);
 });
 
@@ -259,7 +266,8 @@ describe.skipIf(skip)("an administrator socket refuses everyone else", () => {
 });
 
 describe.skipIf(skip)("a socket with A's workspace and B's child id is a 404", () => {
-	for (const key of socketKeys.filter((one) => /:(pid|tid)/.test(one))) {
+	// The live help socket's own test checks its mixed terminal.
+	for (const key of workspaceSocketKeys.filter((one) => /:(pid|tid)/.test(one))) {
 		test(key, () =>
 			withWorld(async (app, world) => {
 				const path = pathFor(splitKey(key).url, {
@@ -273,6 +281,105 @@ describe.skipIf(skip)("a socket with A's workspace and B's child id is a 404", (
 				});
 				expect(result.status).toBe(404);
 				expect(result.calls).toEqual([]);
+			}),
+		);
+	}
+});
+
+/**
+ * A's live help with the course's instructor, and A's browser open, so the
+ * helper's socket would open (ADR 0063). Returns the socket path for `terminalId`.
+ */
+async function openLiveHelp(world: MatrixWorld, terminalId: string): Promise<string> {
+	const helper = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", "ivy")
+		.executeTakeFirstOrThrow();
+	const session = await testDb.db
+		.insertInto("live_help_sessions")
+		.values({
+			workspace_id: world.a.workspaceId,
+			project_id: world.a.projectId,
+			helper_user_id: helper.id,
+			course_id: world.courseId,
+			ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	await testDb.db
+		.insertInto("workspace_connections")
+		.values({ workspace_id: world.a.workspaceId })
+		.execute();
+	return `/courses/${world.courseId}/live-help/${session.id}/terminals/${terminalId}/ws`;
+}
+
+describe.skipIf(skip)("a live help socket refuses everyone but the helper", () => {
+	for (const key of courseSocketKeys) {
+		test(key, () =>
+			withWorld(async (app, world) => {
+				const path = await openLiveHelp(world, world.a.terminalId);
+				const helper = world.instructor.cookieHeader();
+				const refusals: Array<[string, Record<string, string>, number]> = [
+					["anonymous", { origin: PUBLIC_ORIGIN }, 401],
+					[
+						"the disabled user",
+						{ origin: PUBLIC_ORIGIN, cookie: world.disabled.cookieHeader() },
+						401,
+					],
+					[
+						"A's agent token with no cookie",
+						{ origin: PUBLIC_ORIGIN, authorization: `Bearer ${world.a.agentToken}` },
+						401,
+					],
+					[
+						"student A, the owner",
+						{ origin: PUBLIC_ORIGIN, cookie: world.a.jar.cookieHeader() },
+						404,
+					],
+					[
+						"student B",
+						{ origin: PUBLIC_ORIGIN, cookie: world.b.jar.cookieHeader() },
+						404,
+					],
+					[
+						"the administrator",
+						{ origin: PUBLIC_ORIGIN, cookie: world.admin.cookieHeader() },
+						404,
+					],
+					["the helper with no Origin", { cookie: helper }, 403],
+					[
+						"the helper from a preview Origin",
+						{
+							cookie: helper,
+							origin: `https://${world.a.label}-5173.preview.localhost`,
+						},
+						403,
+					],
+				];
+				for (const [who, headers, status] of refusals) {
+					const result = await upgrade(app, path, headers);
+					expect(result.status, `${key} for ${who}`).toBe(status);
+					expect(result.calls, `${key} for ${who} reached the agent`).toEqual([]);
+				}
+
+				// B's terminal under A's session is outside the session's project.
+				const mixed = await upgrade(
+					app,
+					path.replace(world.a.terminalId, world.b.terminalId),
+					{ origin: PUBLIC_ORIGIN, cookie: helper },
+				);
+				expect(mixed.status).toBe(404);
+				expect(mixed.calls).toEqual([]);
+
+				const allowed = await upgrade(app, path, {
+					origin: PUBLIC_ORIGIN,
+					cookie: helper,
+				});
+				expect(
+					allowed.status === 101 || allowed.calls.length > 0,
+					`${key} for the helper answered ${allowed.status}`,
+				).toBe(true);
 			}),
 		);
 	}

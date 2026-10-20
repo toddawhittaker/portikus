@@ -211,6 +211,25 @@ test.skipIf(skip)(
 	},
 );
 
+/**
+ * Wait until a socket has joined its workspace's watcher. Its first frames
+ * are sent before the join, but a heartbeat is handled only after it, so a
+ * fresh last_seen_at proves the join.
+ */
+async function joinedWatcher(ws: { send: (data: string) => void }): Promise<void> {
+	const latest = async () => {
+		const rows = await testDb.db
+			.selectFrom("workspace_connections")
+			.select("last_seen_at")
+			.execute();
+		return Math.max(...rows.map((row) => new Date(row.last_seen_at).getTime()));
+	};
+	const before = await latest();
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	ws.send(JSON.stringify({ type: "heartbeat" }));
+	await expect.poll(latest).toBeGreaterThan(before);
+}
+
 test.skipIf(skip)(
 	"two sockets share one watcher and closing the last one clears it",
 	async () => {
@@ -223,6 +242,7 @@ test.skipIf(skip)(
 			await first.next();
 			const second = await openWorkspaceSocket(app, workspaceId, jar, PUBLIC_URL);
 			await second.next();
+			await joinedWatcher(second.ws);
 
 			expect(started).toHaveBeenCalledTimes(1);
 			const handle = started.mock.results[0]?.value;

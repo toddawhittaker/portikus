@@ -3,6 +3,8 @@ import { hashSessionToken, loadSessionById } from "@portikus/auth";
 import type { PreviewPresentation } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { sharesCourseWith } from "../courses/membership.js";
+import { countActive, type PresenceConfig } from "../workspaces/workspace-view.js";
 
 /** The session user with its gate state, as `loadSessionById` gives it. */
 type SessionUser = NonNullable<Awaited<ReturnType<typeof loadSessionById>>>;
@@ -24,6 +26,8 @@ export interface GrantInput {
 	previewHost: string;
 	presentation: PreviewPresentation;
 	ttlSeconds: number;
+	/** Set when an instructor opens the preview through live help (ADR 0063). */
+	liveHelpSessionId?: string;
 }
 
 /** Create a single-use bootstrap ticket and return the clear-text ticket. */
@@ -51,6 +55,7 @@ export async function createGrant(
 			presentation: input.presentation,
 			ticket_hash: hashSessionToken(ticket),
 			expires_at: expiresAt.toISOString(),
+			live_help_session_id: input.liveHelpSessionId ?? null,
 		})
 		.execute();
 	return { ticket, expiresAt };
@@ -89,6 +94,7 @@ export interface ConsumedGrant {
 	port: number;
 	preview_host: string;
 	presentation: string;
+	live_help_session_id: string | null;
 }
 
 /**
@@ -115,6 +121,7 @@ export async function consumeGrant(
 			"port",
 			"preview_host",
 			"presentation",
+			"live_help_session_id",
 		])
 		.executeTakeFirst();
 	return row ?? null;
@@ -126,6 +133,7 @@ export interface PreviewSessionInput {
 	workspaceId: string;
 	port: number;
 	previewHost: string;
+	liveHelpSessionId?: string | null;
 }
 
 /**
@@ -152,6 +160,7 @@ export async function createPreviewSession(
 			workspace_id: input.workspaceId,
 			port: input.port,
 			preview_host: input.previewHost,
+			live_help_session_id: input.liveHelpSessionId ?? null,
 		})
 		.execute();
 	await revokeOldestOverCap(db, input.userId);
@@ -186,6 +195,7 @@ export interface PreviewSessionRow {
 	workspace_id: string;
 	port: number;
 	preview_host: string;
+	live_help_session_id: string | null;
 }
 
 /** The live preview session behind a cookie, or null when it cannot be used. */
@@ -195,7 +205,15 @@ export async function loadPreviewSession(
 ): Promise<PreviewSessionRow | null> {
 	const row = await db
 		.selectFrom("preview_sessions")
-		.select(["id", "user_id", "session_id", "workspace_id", "port", "preview_host"])
+		.select([
+			"id",
+			"user_id",
+			"session_id",
+			"workspace_id",
+			"port",
+			"preview_host",
+			"live_help_session_id",
+		])
 		.where("token_hash", "=", hashSessionToken(token))
 		.where("revoked_at", "is", null)
 		.executeTakeFirst();
@@ -303,11 +321,59 @@ interface PreviewWorkspaceRow {
 	agent_address: string | null;
 }
 
-/** The three rows `/preview/authorize` needs; any may be missing. */
+/** The live help session an instructor's preview rides on (ADR 0063). */
+interface PreviewLiveHelpRow {
+	workspace_id: string;
+	helper_user_id: string;
+	ends_at: Date;
+	ended_at: Date | null;
+	/** The helper still teaches the session's course and the student is in it. */
+	linked: boolean;
+	/** The student has a browser open on the workspace. */
+	studentPresent: boolean;
+}
+
+/** The rows `/preview/authorize` needs; any may be missing. */
 export interface PreviewLookup {
 	session: PreviewSessionRow | null;
 	user: SessionUser | null;
 	workspace: PreviewWorkspaceRow | null;
+	/** Present only for a preview opened through live help. */
+	liveHelp: PreviewLiveHelpRow | null;
+}
+
+/**
+ * Who a preview session lets in: the workspace's owner, or the helper of an
+ * open live help session on this workspace (ADR 0063). The owner check is
+ * widened only that way; anything else is null.
+ */
+export function previewAccess(
+	lookup: Pick<PreviewLookup, "session" | "workspace" | "liveHelp">,
+	now: number = Date.now(),
+): "owner" | "helper" | null {
+	const { session, workspace, liveHelp } = lookup;
+	if (!session || !workspace) return null;
+	if (!session.live_help_session_id) {
+		return workspace.owner_user_id === session.user_id ? "owner" : null;
+	}
+	const open =
+		liveHelp !== null &&
+		liveHelp.ended_at === null &&
+		new Date(liveHelp.ends_at).getTime() > now &&
+		liveHelp.helper_user_id === session.user_id &&
+		liveHelp.linked &&
+		liveHelp.studentPresent &&
+		liveHelp.workspace_id === workspace.id &&
+		session.workspace_id === workspace.id;
+	return open ? "helper" : null;
+}
+
+/** Every lookup cache in this process, so ending live help can clear them all. */
+const liveCaches = new Set<{ clear(): void }>();
+
+/** Forget every cached preview lookup, after a revocation made in this process. */
+export function clearPreviewLookups(): void {
+	for (const cache of liveCaches) cache.clear();
 }
 
 /** How long a found set of rows is reused (ADR 0034 rulings 10 and 11). */
@@ -325,6 +391,7 @@ const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
  */
 export function createPreviewLookupCache(
 	db: Kysely<Database>,
+	config: PresenceConfig,
 	now: () => number = Date.now,
 ) {
 	const entries = new Map<string, { at: number; lookup: PreviewLookup }>();
@@ -333,19 +400,52 @@ export function createPreviewLookupCache(
 
 	async function load(token: string): Promise<PreviewLookup> {
 		const session = await loadPreviewSession(db, token);
-		if (!session) return { session: null, user: null, workspace: null };
+		if (!session) return { session: null, user: null, workspace: null, liveHelp: null };
 		const user = await loadMainSessionUser(db, session.session_id);
-		if (!user) return { session, user: null, workspace: null };
+		if (!user) return { session, user: null, workspace: null, liveHelp: null };
 		const workspace =
 			(await db
 				.selectFrom("workspaces")
 				.select(["id", "label", "state", "owner_user_id", "agent_address"])
 				.where("id", "=", session.workspace_id)
 				.executeTakeFirst()) ?? null;
-		return { session, user, workspace };
+		const liveHelp = session.live_help_session_id
+			? await loadLiveHelp(session.live_help_session_id, workspace)
+			: null;
+		return { session, user, workspace, liveHelp };
 	}
 
-	return {
+	/**
+	 * The session row plus the two live facts the helper's socket checks too:
+	 * the course link and the student's presence (ADR 0063).
+	 */
+	async function loadLiveHelp(
+		id: string,
+		workspace: PreviewWorkspaceRow | null,
+	): Promise<PreviewLiveHelpRow | null> {
+		const row = await db
+			.selectFrom("live_help_sessions")
+			.select(["workspace_id", "helper_user_id", "course_id", "ends_at", "ended_at"])
+			.where("id", "=", id)
+			.executeTakeFirst();
+		if (!row || !workspace) return null;
+		const linked = await sharesCourseWith(db, {
+			instructorId: row.helper_user_id,
+			memberId: workspace.owner_user_id,
+			courseId: row.course_id,
+		});
+		const studentPresent = (await countActive(db, row.workspace_id, config)) > 0;
+		return {
+			workspace_id: row.workspace_id,
+			helper_user_id: row.helper_user_id,
+			ends_at: row.ends_at,
+			ended_at: row.ended_at,
+			linked,
+			studentPresent,
+		};
+	}
+
+	const cache = {
 		async get(token: string): Promise<PreviewLookup> {
 			const key = hashSessionToken(token);
 			const at = now();
@@ -380,4 +480,6 @@ export function createPreviewLookupCache(
 			return entries.size;
 		},
 	};
+	liveCaches.add(cache);
+	return cache;
 }

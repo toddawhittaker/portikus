@@ -100,7 +100,7 @@ export function createBridgeForwards(deps: {
 		watchers.set(workspaceId, off);
 	}
 
-	return {
+	const bridge: BridgeForwards = {
 		async ensure(workspaceId, sessionId, port) {
 			const before = registry.service(workspaceId, port);
 			await registry.ensureReachable(workspaceId, port);
@@ -133,4 +133,5 @@ export function createBridgeForwards(deps: {
 			}
 		},
 	};
+	return bridge;
 }
