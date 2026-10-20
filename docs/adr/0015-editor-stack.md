@@ -1,6 +1,6 @@
 # 0015. Editor stack: bundled Monaco and react-markdown
 
-- **Status**: Accepted
+- **Status**: Accepted; its decision to leave out the language services (no IntelliSense) is superseded by ADR 0065 (Epic 52). The rest stands.
 - **Date**: 2026-09-18
 - **References**: SPEC.md §13.1, §13.2, §13.4, §24.2, §24.3; STACK.md §3
 
