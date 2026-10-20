@@ -8,6 +8,12 @@ description: |
 model: claude-opus-5-5
 effort: low
 tools: Bash, Read, Write, Edit, Grep, Glob
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/verify-on-stop.sh'
+          timeout: 900
 ---
 
 # builder
