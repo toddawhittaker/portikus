@@ -40,8 +40,8 @@ config, events, db, auth, observability, ui), `e2e/` the Playwright tests,
 `infra/` the VM, image, and Ansible, `packaging/` the Debian package.
 STACK.md section 2 describes each.
 
-Prerequisites: the Node version in `.nvmrc` (run `nvm use` first; the
-machine default is newer) and pnpm through `corepack enable`.
+Prerequisites: the `.nvmrc` Node (a SessionStart hook puts it on PATH in
+Claude sessions; humans run `nvm use`) and pnpm via `corepack enable`.
 
 | Command | What it does |
 |---|---|
@@ -91,7 +91,7 @@ Orchestration rules:
   to reset to, and land its work with `git diff <base> <head> | git apply
   --3way`, not a rebase.
 - Verify before relaying: run `pnpm typecheck` and `pnpm lint` on an
-  agent's work; a builder's "lint passes" has been wrong before.
+  agent's work; a Stop hook runs both for builder, tester and ui-designer.
 - When agents disagree, read the spec section in dispute and rule. If the
   spec does not settle it, bring both positions and a recommendation to
   the user. Say what was ruled in the report.
