@@ -402,7 +402,8 @@ administrator, gets 404. Student routes, owner only: `GET
 /workspaces/:id/live-help` (the audience of instructors only with
 `?audience=1`), `POST /workspaces/:id/projects/:pid/live-help`, `POST
 .../live-help/typing` and `POST .../live-help/stop`; start and typing
-share the per-user write limit. Instructor routes: `GET
+share the per-user write limit. An instructor may open at most 20
+terminal sockets a minute. Instructor routes: `GET
 /courses/:courseId/live-help`, `GET .../live-help/:sid`, `POST
 .../:sid/leave`, `GET .../:sid/terminals/:tid/ws`, `GET .../:sid/listening`
 and `POST .../:sid/preview-grants`. Administrators should teach from a
@@ -740,7 +741,10 @@ conflict the server's layout wins and the losing browser's unsaved
 layout change is dropped. A remote load waits while a drag is in
 progress, keeps a pane whose file has unsaved text, and keeps this
 browser's selected tab and split sizes; pane sizes stay per browser by
-design.
+design. A terminal that appears in a later terminal list gets a tab on
+screen but is not saved on its own. A late save's version is kept only if
+its mount is still live and the store is still on the version it was
+based on.
 
 ### 7.6 Project API and storage
 
@@ -1084,8 +1088,10 @@ collapsed pane, and a new attachment does not size the window
 (`-f ignore-size`) until its browser has sent such a size. Focusing,
 clicking or typing in a terminal makes that browser's size win at once:
 the browser sends its size again and the agent makes that attachment
-tmux's latest client. The area outside a smaller window is filled with
-spaces (`fill-character`), not dots.
+tmux's latest client. A claim that would change nothing, because the
+attachment already holds the size or is the only one, runs no tmux command,
+so a screen reader hears no repaint. The area outside a smaller window is
+filled with spaces (`fill-character`), not dots.
 
 The tmux server listens on a private socket named `portikus`
 (`/tmp/tmux-<uid>/portikus`, in tmux's own mode-0700 directory) and is
@@ -2731,8 +2737,9 @@ Users, Logs and Audit tables scroll sideways in their own box, a labelled
 focusable region that arrow keys scroll, and their header stops sticking.
 A control focused by keyboard inside one of these tables is scrolled fully
 into view. In a window under 30rem tall the whole admin page scrolls. The
-workspace stacks its panes below 56rem (section 8.1); the Help and sign-in
-pages keep the 1024 px floor (Epic 49).
+workspace stacks its panes below 56rem (section 8.1). No page keeps a
+1024 px floor: every page reflows at 320 px, and pinch-zoom works inside the
+workspace.
 
 Added by Epic 33: the admin page keeps the app header to the wordmark,
 "Administration" and the account menu. Under it, a frame as wide as the
@@ -3635,7 +3642,9 @@ language-aware editor".
   old default as `portikus-previous`; **Roll back** swaps them. Changed by
   Epic 28 (issue #936): after a fetch or build that passes its health
   check, every image other than the default, the previous and the new one
-  is deleted.
+  is deleted. It also keeps any image a workspace was made from (its Incus
+  `volatile.base_image`), and keeps every image if the workspaces cannot be
+  listed.
 - **Delete** on an image row removes one image that is neither the
   default nor the previous. Both the API (409 `IMAGE_IN_USE`) and the root
   job refuse those two, so rollback always works. The confirmation shows
@@ -6653,6 +6662,29 @@ Acceptance:
 - an email change keeps the account, its Dex subject and its workspace;
 - group membership never admits anyone without an invitation;
 - the Google key never appears in a view, a log or an audit row.
+
+### Epic 51 — Fix batch after Epics 48 to 50
+
+Built on `epic/51-fix-batch`, issues #1585, #1578, #1562, #1576, #1577, #1575, #1550, #1551, #1564, #1568, #1601, #1608 and #1611. No migration. See sections 5.2, 7.5, 9.7, 13, 20.1, 21.13 and 22.4.
+
+Includes:
+
+- a signed apt repository check that no longer flakes, and a fork-cap check test that waits on the real cap;
+- `make deploy-app` followed by `make smoke-test` from one checkout;
+- the instructor's live help terminal fitted to the window, and 20 terminal sockets a minute per instructor;
+- every page reflowing at 320 px, and pinch-zoom inside the workspace;
+- the root site job split into modules, and `projects.ts` and `app.css` under 800 lines;
+- image pruning that keeps images a workspace was made from;
+- a shared terminal sized to the browser in use, and a terminal split kept when another browser lists its new terminal first;
+- browser tests in seven CI shards.
+
+Acceptance:
+
+- `make smoke-test` passes right after `make deploy-app`;
+- a second attachment never leaves a terminal at a tiny size, and a repeated size claim runs no tmux command;
+- a pruned image set still holds every image a workspace was made from;
+- the instructor's terminal fits a 1280x600 window and clicking into it keeps the heading in view;
+- two browsers on one project keep a split made by either.
 
 ### Estimated total
 
