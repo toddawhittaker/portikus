@@ -170,6 +170,10 @@ jobs:
         run: pnpm build:deb
         env:
           PORTIKUS_VERSION: 0.0.0+ci
+      # make smoke-test runs the mock LMS from the checkout right after a build.
+      - name: Dev tools survive the package build
+        if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        run: pnpm --dir packages/mock-lms build && test -x node_modules/.bin/tsc
 
   # The slowest check, so it runs in two shards alongside the build.
   unit-shard:
