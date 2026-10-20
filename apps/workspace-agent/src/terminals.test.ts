@@ -7,9 +7,15 @@ import type { WebSocket } from "@fastify/websocket";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyBaseLogger } from "fastify";
 import type { IPty, spawn } from "node-pty";
-import { afterAll, beforeAll, describe, expect, it, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, test, vi } from "vitest";
 import { type AttachOptions, attachExitReason, TerminalRegistry } from "./terminals.js";
-import { createSession, killSession } from "./tmux.js";
+import { claimWindowSize, createSession, killSession } from "./tmux.js";
+
+// Calls through to the real function, so tests can count claims.
+vi.mock("./tmux.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./tmux.js")>();
+	return { ...actual, claimWindowSize: vi.fn(actual.claimWindowSize) };
+});
 
 const run = promisify(execFile);
 const SOCKET_NAME = `portikus-queue-${process.pid}`;
@@ -564,3 +570,264 @@ test.skipIf(!haveTmux)(
 		await run("tmux", ["-L", socketName, "kill-server"]);
 	},
 );
+
+// Every claim makes tmux repaint the screen, which a screen reader announces
+// as new output, so a claim that changes nothing must not run (SPEC.md §9.7,
+// WCAG 4.1.3).
+describe("claiming the window size", () => {
+	const claimSpy = vi.mocked(claimWindowSize);
+	const SIZE = { cols: 80, rows: 24 };
+
+	afterEach(async () => {
+		const actual = await vi.importActual<typeof import("./tmux.js")>("./tmux.js");
+		claimSpy.mockReset().mockImplementation(actual.claimWindowSize);
+	});
+
+	/** One registry on one tmux session, handing out a fake PTY per attach. */
+	async function startTerminal() {
+		const id = makeId();
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER);
+		const { logger } = collectingLogger();
+		const ptys: FakePty[] = [];
+		const registry = new TerminalRegistry(
+			homeDir,
+			logger as unknown as FastifyBaseLogger,
+			SERVER,
+			((_file: string, _args: string[], opts: { cols: number; rows: number }) => {
+				const pty = new FakePty(opts.cols, opts.rows);
+				ptys.push(pty);
+				return pty as unknown as IPty;
+			}) as unknown as typeof spawn,
+		);
+		const join = async (options: AttachOptions = SIZE) => {
+			const socket = new FakeSocket();
+			await registry.attach(id, socket as unknown as WebSocket, options);
+			// Output releases the early-input queue, so typing reaches the pty.
+			ptys.at(-1)?.emit("prompt$ ");
+			return socket;
+		};
+		// The claim runs in a promise, so let it settle before counting.
+		const settle = () => new Promise((resolve) => setImmediate(resolve));
+		const holder = () =>
+			(registry as unknown as { claimers: Map<string, unknown> }).claimers.get(id);
+		const done = async () => {
+			registry.closeAll(id, 1000, "done");
+			await killSession(id, SERVER);
+		};
+		return { id, registry, ptys, join, settle, holder, done };
+	}
+
+	test.skipIf(!haveTmux)(
+		"a claim that finds no client leaves the attachment unsized, so the next size claims again",
+		async () => {
+			const { join, settle, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(false);
+				const socket = await join();
+
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(1);
+
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(2);
+
+				// Once a claim succeeds the attachment is sized and stops claiming.
+				claimSpy.mockResolvedValue(true);
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	test.skipIf(!haveTmux)(
+		"a lone attachment sending its unchanged size again runs no claim",
+		async () => {
+			const { join, settle, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const socket = await join();
+
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(1);
+
+				socket.resize(SIZE.cols, SIZE.rows);
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(1);
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	test.skipIf(!haveTmux)(
+		"a lone attachment sized before its pty existed runs no claim for an unchanged size",
+		async () => {
+			const { id, registry, settle, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const socket = new FakeSocket();
+				const attached = registry.attach(id, socket as unknown as WebSocket, SIZE);
+				socket.resize(SIZE.cols, SIZE.rows);
+				await attached;
+
+				socket.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).not.toHaveBeenCalled();
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	test.skipIf(!haveTmux)(
+		"the holder re-sending its size runs no claim, but another attachment re-sending does and then holds it",
+		async () => {
+			const { join, settle, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const a = await join();
+				const b = await join();
+
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(1);
+
+				// B's first measured size claims, so B now holds the window.
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(2);
+
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(2);
+
+				// A is sized but no longer the holder, so it claims and takes over.
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(4);
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	// The remembered claimer is private and cannot be seen from behaviour: a
+	// stale entry for a closed socket would act like none, but it would keep
+	// the attachment alive.
+	test.skipIf(!haveTmux)(
+		"closing the holder clears the remembered claimer, and closing another attachment does not",
+		async () => {
+			const { join, settle, holder, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const a = await join();
+				const b = await join();
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(holder()).toBeDefined();
+
+				a.close();
+				expect(holder()).toBeDefined();
+
+				b.close();
+				expect(holder()).toBeUndefined();
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	test.skipIf(!haveTmux)(
+		"closing the terminal clears the remembered claimer",
+		async () => {
+			const { id, registry, join, settle, holder, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const a = await join();
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(holder()).toBeDefined();
+
+				registry.closeAll(id, 1000, "done");
+				expect(holder()).toBeUndefined();
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	// tmux sizes the window to the client that typed last, so typing takes the
+	// window from the holder without a claim (SPEC.md §9.7).
+	test.skipIf(!haveTmux)(
+		"after another attachment types, the earlier holder re-sending its size claims again",
+		async () => {
+			const { join, settle, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const a = await join();
+				const b = await join();
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(2);
+
+				a.input("x");
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+
+				// B holds it again, so a further resend changes nothing.
+				b.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(3);
+			} finally {
+				await done();
+			}
+		},
+	);
+
+	test.skipIf(!haveTmux)(
+		"a helper typing does not take the window, because its client ignores size",
+		async () => {
+			const { join, settle, holder, done } = await startTerminal();
+			try {
+				claimSpy.mockResolvedValue(true);
+				const a = await join();
+				const helper = await join({ ...SIZE, mode: "type" });
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				const before = holder();
+				expect(before).toBeDefined();
+
+				helper.input("x");
+				expect(holder()).toBe(before);
+				a.resize(SIZE.cols, SIZE.rows);
+				await settle();
+				expect(claimSpy).toHaveBeenCalledTimes(1);
+			} finally {
+				await done();
+			}
+		},
+	);
+});
