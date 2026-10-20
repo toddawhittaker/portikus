@@ -14,10 +14,12 @@ chmod 755 "$WORK"
 
 export GNUPGHOME="$WORK/gnupg"
 mkdir -m 700 "$GNUPGHOME"
-# Backdate the key: apt's verifier rejects a signature made in the same second
-# as the key's creation ("No binding signature at time ...").
-gpg --batch --quiet --passphrase '' --faked-system-time "$(($(date +%s) - 120))" \
-  --quick-gen-key "Portikus test <test@invalid>" ed25519 sign never
+# RSA like the real archive key. Not ed25519: after gpg 2.4 exports and
+# re-imports an ed25519 secret key, a self-signature whose r or s starts with
+# a zero byte (about 1 in 128) is re-encoded with that byte kept, and apt's
+# verifier, sqv, rejects the malformed number as "key is not bound".
+gpg --batch --quiet --passphrase '' \
+  --quick-gen-key "Portikus test <test@invalid>" rsa4096 sign never
 APT_SIGNING_KEY="$(gpg --batch --armor --export-secret-keys)"
 export APT_SIGNING_KEY
 gpgconf --kill all
