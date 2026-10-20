@@ -142,6 +142,7 @@ export function useLayoutPersistence(
 
 		async function put(): Promise<void> {
 			const state = store.getState();
+			const basedOn = state.version;
 			state.clearDirty();
 			try {
 				const response = await fetch(url, {
@@ -155,7 +156,13 @@ export function useLayoutPersistence(
 				});
 				if (!response.ok) throw await toApiError(response);
 				const version = versionOf(response);
-				if (version !== null) store.getState().setVersion(version);
+				// After a remount the store holds the layout the new mount read, so
+				// this version would mark that tree as current when it is not. Left
+				// alone, the announcement or the next save's 412 loads the server's
+				// layout (SPEC.md §7.5).
+				if (version !== null && !cancelled && store.getState().version === basedOn) {
+					store.getState().setVersion(version);
+				}
 			} catch (error) {
 				if (error instanceof ApiError && error.code === "LAYOUT_CHANGED") {
 					// Another browser saved first; its layout wins (SPEC.md §7.5).

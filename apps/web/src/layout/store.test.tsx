@@ -184,6 +184,39 @@ test("reconcile adds tabs for new terminals and drops panes that are gone", () =
 	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["b"]);
 });
 
+test("a terminal with no pane in the first list gets a tab that is saved", () => {
+	const layout = store();
+	layout
+		.getState()
+		.load({ tabs: [{ id: "a", root: { type: "leaf", terminalId: "a" } }] });
+	layout.getState().reconcile(["a", "b"]);
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a", "b"]);
+	expect(layout.getState().dirty).toBe(true);
+});
+
+test("a terminal that turns up in a later list gets a tab that is not saved", () => {
+	// Another browser may still be placing it in a split (SPEC.md §7.5).
+	const layout = store();
+	layout
+		.getState()
+		.load({ tabs: [{ id: "a", root: { type: "leaf", terminalId: "a" } }] });
+	layout.getState().reconcile(["a"]);
+	layout.getState().reconcile(["a", "b"]);
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a", "b"]);
+	expect(layout.getState().dirty).toBe(false);
+});
+
+test("a pane reconcile drops for a gone terminal is saved", () => {
+	const layout = store();
+	layout.getState().addTab("a");
+	layout.getState().splitLeaf("a", "row", "b");
+	layout.getState().reconcile(["a", "b"]);
+	layout.getState().clearDirty();
+	layout.getState().reconcile(["a"]);
+	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a"]);
+	expect(layout.getState().dirty).toBe(true);
+});
+
 test("reconcile with no change leaves the layout clean", () => {
 	const layout = store();
 	layout.getState().addTab("a");
