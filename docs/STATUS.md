@@ -5529,7 +5529,6 @@ Gaps:
 - A backslash shows before `![` inside code samples in a hover.
 - The agent's own buffers for a server's output and for the browser's frames are not bounded (S5), and the agent-to-browser direction has no backpressure from a server's output to the socket in the agent. The harm stays in the student's own container, which has a memory limit.
 - The Traditional 16 GiB figure is calculated, not measured. At 25 Agentic students on 16 GiB the 2 GiB free target is not met (945 MiB); the levers are a 20 GiB server, starting ruff only when a student formats, or turning code help off for the site.
-- `e2e/problems.spec.ts` does not hold `CODE_HELP_SWITCH_LOCK` shared, as the other code-help specs do, so a spec that turns the site switch off in the database could run at the same time.
 - `packages/db/src/schema.ts` is 806 lines, and lint warns above 800.
 - Unit tests that time out under heavy local load, also on the epic base: `agent.test.ts` "a stop refuses a pane shell…", the `db.test.ts` orphan sweep, `dex-import.test.ts`, and the worker `reconcile.test.ts` "archived while its start is in flight" (#1642).
 - Not built, on purpose (SPEC.md 13.6 and 32): signature help, find references, code actions, the outline, format on save, project-wide problems, C/C++ and Java servers, a cgroup per language server, and the debugger (#1622). Per-course tool versions are #1623.

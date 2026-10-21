@@ -35,7 +35,7 @@ format and error marks.
 ## Consequences
 
 - Students get real code help with no network access and no install step.
-- The package grows by about 45 MB unpacked, and memory per active student rises.
+- The package grows by about 87 MB unpacked (measured on 0.1.1273: pyright 35 MB, TypeScript 7 with its native binary 29 MB, ruff 23 MB), and memory per active student rises.
   The 8 GiB pilot server cannot hold a full class; the bar is 25 students on a
   16 GiB server (SPEC.md section 25.2).
 - Servers run as the student, so this is scope and not isolation (SPEC.md section 24.4).
