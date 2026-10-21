@@ -1,5 +1,6 @@
 // One simulated student: a workspace, a presence socket, a terminal, a
-// project with a file watcher, a preview, and a stand-in coding agent.
+// project with a file watcher, a preview, a stand-in coding agent, and code help.
+import { CodeHelp } from "./code-help.mjs";
 import { openSocket, request, sleep, waitFor } from "./http.mjs";
 
 const SESSION_COOKIE = "__Host-portikus_session";
@@ -130,7 +131,7 @@ export class Student {
 		this.terminalId = terminal.id;
 	}
 
-	/** The terminal socket, a project, its watcher, the stand-in and a preview. */
+	/** The terminal socket, a project, its watcher, the stand-in, a preview and code help. */
 	async setUp() {
 		const wss = this.api.replace(/^https/, "wss");
 		const headers = { origin: this.api, cookie: this.cookie };
@@ -148,6 +149,7 @@ export class Student {
 			}),
 		);
 		this.projectId = project.id;
+		this.projectSlug = project.slug;
 		const events = await openSocket(
 			`${wss}/workspaces/${this.id}/projects/${project.id}/events`,
 			headers,
@@ -198,6 +200,9 @@ export class Student {
 		if (boot.status !== 303 || !cookie)
 			throw new Error(`preview bootstrap: status ${boot.status}, cookie ${!!cookie}`);
 		this.previewCookie = cookie;
+
+		this.codeHelp = new CodeHelp(this);
+		await this.codeHelp.open();
 	}
 
 	onOutput(data) {
@@ -302,6 +307,8 @@ export class Student {
 			if (res.status !== 200) throw new Error(`status ${res.status}`);
 			return res.ms;
 		});
+
+		await this.codeHelp.act();
 	}
 
 	async recoveryPoint() {

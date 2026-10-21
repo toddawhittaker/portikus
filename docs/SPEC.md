@@ -5007,7 +5007,7 @@ Initial targets:
 
 Targets should be measured and revised from pilot telemetry.
 
-Code help (section 13.6), added by Epic 52: with 25 students on a 16 GiB server, each with a Python and a TypeScript file open, the p95 time for a completion is under 1 second, and at least 2 GiB of memory stays free. Measured figures: to be filled in from the Epic 52 load test.
+Code help (section 13.6), added by Epic 52: with 25 students on a 16 GiB server, each with a Python and a TypeScript file open, the p95 time for a completion is under 1 second, and at least 2 GiB of memory stays free. Measured on 2026-10-21 (docs/CAPACITY.md, "Code help on a 16 GiB VM"), with 25 students who also ran a stand-in coding agent on an 8 vCPU, 16 GiB server: completion p95 124 ms for Python and 54 ms for TypeScript, so the latency target is met; the edit-to-diagnostics p95 was 363 ms for Python and 51 ms for TypeScript. Free memory fell to 945 MiB, so the 2 GiB target is not met on 16 GiB with agents running.
 
 The web app loads `/admin`, `/course` and `/help` on first visit, as separate files, so a student's first page does not carry them (Epic 25). When such a file is gone after a deploy, the page reloads once, guarded in `sessionStorage`; if that fails too, the router's error page shows.
 
@@ -5020,7 +5020,7 @@ Pilot design target:
 
 The architecture must not encode these numbers as hard limits.
 
-Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on; a full class needs a 16 GiB server, and an administrator can turn code help off for the site. Measured memory per server and per student: to be filled in from the Epic 52 load test.
+Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on: it holds about nine students with code help and 2 GiB kept free. An administrator can turn code help off for the site. Measured resident memory per student, mean and highest: pyright 167 and 250 MiB, TypeScript's native server 57 and 66 MiB, ruff 18 and 41 MiB, all three 241 and 322 MiB. With a coding agent as well, a student used about 550 MiB, so a 16 GiB server holds about 23 students with 2 GiB free, and 25 need about 18 GiB (20 GiB leaves room for real agents).
 
 ### 25.3 Reliability
 
