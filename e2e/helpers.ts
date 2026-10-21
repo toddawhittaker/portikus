@@ -810,8 +810,15 @@ export async function routeApi(
 		try {
 			return await handler(route, request);
 		} catch (error) {
-			// A poll still fetching when the test ends is not a failure.
-			if (error instanceof Error && error.message.includes("Test ended")) return;
+			// A poll still fetching when the test ends is not a failure. Playwright
+			// words that as "Test ended", or "Response has been disposed" when it
+			// frees a route.fetch() body before the handler reads it.
+			if (
+				error instanceof Error &&
+				(error.message.includes("Test ended") ||
+					error.message.includes("Response has been disposed"))
+			)
+				return;
 			throw error;
 		}
 	});

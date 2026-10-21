@@ -43,7 +43,7 @@ vm() { vm_ssh "$VM_CALL_TIMEOUT" -n "$@"; }
 vm_stream() { local t=$1; shift; vm_ssh "$t" "$@"; }
 vm_in() { vm_stream 0 "$@"; }
 
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329  # the stubs are only called once use_local_vm runs
 use_local_vm() {
   # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
   sudo() { "$@"; }

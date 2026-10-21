@@ -99,7 +99,7 @@ lti_launch_checks() {
 # lti_skip_checks FUNCTION REASON -- one counted SKIP per check FUNCTION
 # runs, by name.  The names come from running FUNCTION with every check and
 # every call to the VM or the mock stubbed out, so the list cannot drift.
-# shellcheck disable=SC2317  # the stubs are called by the function named in $1
+# shellcheck disable=SC2317,SC2329  # the stubs are called by the function named in $1
 lti_skip_checks() {
   local label
   while IFS= read -r label; do skip "${label} (${2})"; done < <(
