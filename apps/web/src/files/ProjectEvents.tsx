@@ -33,12 +33,15 @@ export function ProjectEvents({
 	workspaceId,
 	projectId,
 	layoutStore,
+	onFilesChanged,
 	children,
 }: {
 	workspaceId: string;
 	/** The open project, or undefined when none is open or the workspace is down. */
 	projectId: string | undefined;
 	layoutStore: LayoutStore;
+	/** The paths a batch of frames named, for code help (SPEC.md §13.6). */
+	onFilesChanged?: (paths: string[]) => void;
 	children: ReactNode;
 }) {
 	const [limited, setLimited] = useState(false);
@@ -52,6 +55,7 @@ export function ProjectEvents({
 					projectId={projectId}
 					layoutStore={layoutStore}
 					onLimited={setLimited}
+					onFilesChanged={onFilesChanged}
 				/>
 			) : null}
 		</WatchLimitedContext.Provider>
@@ -63,11 +67,13 @@ function ProjectSocket({
 	projectId,
 	layoutStore,
 	onLimited,
+	onFilesChanged,
 }: {
 	workspaceId: string;
 	projectId: string;
 	layoutStore: LayoutStore;
 	onLimited: (limited: boolean) => void;
+	onFilesChanged?: (paths: string[]) => void;
 }) {
 	const [browserOpens, setBrowserOpens] = useState<BrowserOpenRequest[]>([]);
 	const seenOpens = useRef(new Set<string>());
@@ -91,6 +97,7 @@ function ProjectSocket({
 			queued.current += 1;
 			setBrowserOpens((queue) => [...queue, request]);
 		},
+		onFilesChanged,
 	);
 	useEffect(() => {
 		onLimited(limited);

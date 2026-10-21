@@ -1,4 +1,4 @@
-import type { Terminal } from "@portikus/contracts";
+import type { CourseProfile, Terminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store";
+import { meSettingsBody } from "../profile-test-utils";
 import { WorkArea } from "./WorkArea";
 
 vi.mock("../terminal/TerminalPane", () => ({
@@ -77,12 +78,24 @@ const savedLayout = {
 };
 
 /** Answers the layout GET and the terminal list; records every call. */
-function stubFetch(options: { layout?: unknown; terminals: Terminal[] }) {
+function stubFetch(options: {
+	layout?: unknown;
+	terminals: Terminal[];
+	profile?: CourseProfile;
+}) {
 	const created = terminal("66666666-6666-4666-8666-666666666666", "zsh");
 	// Like the API, a created terminal then appears in the list.
 	const list = [...options.terminals];
 	const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
 		const url = String(input);
+		if (url === "/me/settings") {
+			return new Response(
+				JSON.stringify(meSettingsBody(options.profile ?? "agentic")),
+				{
+					status: 200,
+				},
+			);
+		}
 		if (url.endsWith("/layout")) {
 			if (init?.method === "PUT")
 				return new Response(null, { status: 204, headers: { etag: '"1"' } });
@@ -577,6 +590,9 @@ test("the empty work area stays hidden while the terminal list loads", async () 
 			if (String(input).endsWith("/layout")) {
 				return Promise.resolve({ status: 204, ok: true } as Response);
 			}
+			if (String(input) === "/me/settings") {
+				return Promise.resolve(new Response("{}", { status: 404 }));
+			}
 			return new Promise<Response>((resolve) => {
 				answer = resolve;
 			});
@@ -714,4 +730,39 @@ test("closing a tab that holds a file with unsaved edits asks first", async () =
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
 	await waitFor(() => expect(screen.queryByTestId(`tab-file:${lone}`)).toBeNull());
+});
+
+test("Traditional hides the agent launchers and the Start Claude Code button, and says what is left", async () => {
+	stubFetch({ terminals: [], profile: "traditional" });
+	renderArea();
+
+	await screen.findByText("No terminals open");
+	await waitFor(() => expect(screen.queryByTestId("empty-open-claude")).toBeNull());
+	expect(screen.getByTestId("empty-open-terminal")).toBeTruthy();
+	expect(
+		screen.getByText("Open a terminal. The + in the tab bar also opens previews."),
+	).toBeTruthy();
+
+	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
+	expect(await screen.findByTestId("launcher-terminal")).toBeTruthy();
+	expect(screen.getByTestId("launcher-preview")).toBeTruthy();
+	expect(screen.queryByTestId("launcher-claude")).toBeNull();
+	expect(screen.queryByTestId("launcher-codex")).toBeNull();
+});
+
+test("Agentic keeps the agent launchers once the profile is known", async () => {
+	const { fetchMock } = stubFetch({ terminals: [], profile: "agentic" });
+	renderArea();
+
+	await screen.findByText("No terminals open");
+	await waitFor(() =>
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+			"/me/settings",
+		),
+	);
+	await flushCloseFocus();
+	expect(screen.getByTestId("empty-open-claude")).toBeTruthy();
+	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
+	expect(await screen.findByTestId("launcher-claude")).toBeTruthy();
+	expect(screen.getByTestId("launcher-codex")).toBeTruthy();
 });

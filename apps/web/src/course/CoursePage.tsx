@@ -6,6 +6,7 @@ import { ApiError } from "../api/request.js";
 import { usePageTitle } from "../pageTitle.js";
 import { useMe } from "../useMe.js";
 import { CourseFrame } from "./CourseFrame.js";
+import { CourseProfile } from "./CourseProfile.js";
 import { CourseUsage } from "./CourseUsage.js";
 import { useLiveSessions } from "./live/queries.js";
 import { useCourseMembers, useCourses } from "./queries.js";
@@ -199,7 +200,8 @@ function CourseMembers() {
 					People who have opened Portikus from this course, and, when roster sync is on,
 					people on the course roster who have not yet. Remove takes a student off this
 					page. Their account, workspace and files stay, and they come back if they open
-					Portikus from the course again.
+					Portikus from the course again. You can also choose the interface your
+					students see.
 				</PageIntro>
 			</div>
 			<LiveHelpLink courseId={courseId} />
@@ -208,6 +210,9 @@ function CourseMembers() {
 					<RosterStatus courseId={courseId} roster={data.roster} />
 				</div>
 			) : null}
+			<div className="mt-8">
+				<CourseProfile courseId={courseId} />
+			</div>
 			<div className="mt-8">
 				<h2 className="pk-text-heading m-0" id="members-title">
 					Members

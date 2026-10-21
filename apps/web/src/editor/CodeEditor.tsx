@@ -6,6 +6,13 @@
 import type * as Monaco from "monaco-editor";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useEditorZoom } from "../layout/store.js";
+import { CodeHelpStatus } from "../lsp/CodeHelpStatus.js";
+import { modelFitsLimit } from "../lsp/client.js";
+import { useCodeHelp } from "../lsp/context.js";
+import { registerEditor } from "../lsp/editors.js";
+import { projectModelUri } from "../lsp/protocol.js";
+import { serverFor } from "../lsp/servers.js";
+import { useServerStatus } from "../lsp/store.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { insertText } from "./insertText.js";
 import {
@@ -115,6 +122,14 @@ export function CodeEditor({
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+	const monacoRef = useRef<typeof Monaco | null>(null);
+	// Code help for this file (SPEC.md §13.6); null when it is off.
+	const codeHelp = useCodeHelp();
+	const server = codeHelp ? serverFor(language, "completion") : null;
+	const serverStatus = useServerStatus(projectId, server);
+	const [tooLarge, setTooLarge] = useState(false);
+	// Counts the models this editor has made, so code help attaches to each.
+	const [modelReady, setModelReady] = useState(0);
 	const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
 	// True while an external refresh is being applied, so that edit is not
 	// reported back as if the student had typed it.
@@ -171,9 +186,11 @@ export function CodeEditor({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: useEditorViewState reads viewState once per tab, so it never changes here
 	useEffect(() => {
 		let disposed = false;
+		let unregister = () => {};
 		void getMonaco().then((monaco) => {
 			if (disposed || !host.current) return;
-			const uri = monaco.Uri.parse(`pk:/${projectId}/${path}`);
+			monacoRef.current = monaco;
+			const uri = projectModelUri(monaco, projectId, path);
 			const model =
 				monaco.editor.getModel(uri) ??
 				monaco.editor.createModel(
@@ -223,6 +240,9 @@ export function CodeEditor({
 			monaco.editor.setModelLanguage(model, settled);
 			setLanguage(settled);
 			applied.current = latest.current.version;
+			// A rename across files saves this one through the tab's own save.
+			unregister = registerEditor(uri.toString(), () => latest.current.onSave());
+			setModelReady((count) => count + 1);
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
 				latest.current.onChange(model.getValue());
@@ -271,12 +291,32 @@ export function CodeEditor({
 		});
 		return () => {
 			disposed = true;
+			unregister();
 			editorRef.current?.dispose();
 			modelRef.current?.dispose();
 			editorRef.current = null;
 			modelRef.current = null;
 		};
 	}, [path, projectId]);
+
+	// The model is synced to its servers once its language is settled.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: modelReady says a new model is in modelRef
+	useEffect(() => {
+		const monaco = monacoRef.current;
+		const model = modelRef.current;
+		if (!codeHelp || !monaco || !model || serverFor(language, "completion") === null) {
+			setTooLarge(false);
+			return;
+		}
+		const detach = codeHelp.attach(monaco, model, path);
+		const measure = () => setTooLarge(!modelFitsLimit(model));
+		measure();
+		const listener = model.onDidChangeContent(measure);
+		return () => {
+			listener.dispose();
+			detach();
+		};
+	}, [codeHelp, language, path, modelReady]);
 
 	// A refreshed file replaces the text through an edit operation, so the
 	// cursor and the scroll position survive (SPEC.md §13.3).
@@ -390,6 +430,14 @@ export function CodeEditor({
 				<span className="pk-editor-language" data-testid={`editor-language-${path}`}>
 					{language}
 				</span>
+				{server !== null ? (
+					<CodeHelpStatus
+						path={path}
+						status={serverStatus}
+						tooLarge={tooLarge}
+						onRestart={() => codeHelp?.restart(server)}
+					/>
+				) : null}
 				<button
 					type="button"
 					className="pk-zoom-button"

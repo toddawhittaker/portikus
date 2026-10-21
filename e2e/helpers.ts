@@ -102,6 +102,9 @@ export const SETTINGS_ROW_LOCK = "e2e-settings-row";
 /** Held shared by specs that need the microphone, and alone by the spec that turns it off. */
 export const VOICE_SWITCH_LOCK = "e2e-voice-switch";
 
+/** Held shared by specs that need code help on, and alone by the spec that turns it off. */
+export const CODE_HELP_SWITCH_LOCK = "e2e-code-help-switch";
+
 /**
  * Take a lock that every Playwright worker shares, for a spec that changes
  * site-wide state other workers would see: `--repeat-each` puts each repeat

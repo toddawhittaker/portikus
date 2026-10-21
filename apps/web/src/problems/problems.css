@@ -1,0 +1,93 @@
+/*
+ * The Problems pane (SPEC.md §13.6): open files' errors and warnings, one
+ * group per file. Each problem is a button over two lines, so a narrow pane
+ * never has to share a row between the message and its position.
+ */
+.pk-problems-summary {
+	margin: 0;
+	padding: var(--space-2);
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-muted);
+}
+.pk-problems-files,
+.pk-problems-rows {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.pk-problems-files {
+	display: grid;
+	gap: var(--space-3);
+}
+.pk-problems-rows {
+	display: grid;
+	gap: 1px;
+}
+/* The path is mono, as paths are, and wraps rather than widening the pane. */
+.pk-problems-path {
+	margin: 0;
+	padding: 0 var(--space-2) var(--space-1);
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 500;
+	color: var(--ink-muted);
+	overflow-wrap: anywhere;
+}
+.pk-problem {
+	display: grid;
+	gap: var(--space-0\.5);
+	width: 100%;
+	min-width: 0;
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	line-height: 18px;
+	text-align: left;
+	cursor: pointer;
+}
+.pk-problem:hover {
+	background: var(--surface-hover);
+}
+.pk-problem:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-problem-meta {
+	display: flex;
+	flex-wrap: wrap;
+	column-gap: var(--space-2);
+	font-size: 12px;
+	line-height: 16px;
+}
+/* The word names the severity; its colour only repeats it. */
+.pk-problem-severity {
+	font-weight: 600;
+}
+.pk-problem[data-severity="error"] .pk-problem-severity {
+	color: var(--status-error);
+}
+.pk-problem[data-severity="warning"] .pk-problem-severity {
+	color: var(--status-warning);
+}
+.pk-problem-line {
+	color: var(--ink-muted);
+	font-variant-numeric: tabular-nums;
+}
+/* A server's message can be long or one unbroken string; show three lines of it. */
+.pk-problem-message {
+	min-width: 0;
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	overflow: hidden;
+}

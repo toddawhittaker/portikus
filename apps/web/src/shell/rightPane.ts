@@ -1,7 +1,6 @@
 /**
- * Which surface the right pane is showing (SPEC.md §8.4, §18.1, §18.2, §18.3).
- * The
- * work area needs to switch it too, because a Preview tab offers a link to
+ * Which surface the right pane is showing (SPEC.md §8.4, §13.6, §18.1, §18.2,
+ * §18.3). The work area needs to switch it too, because a Preview tab offers a link to
  * the Running surface (BROWSER-HANDLING.md §12), so the choice is held by
  * the workspace screen rather than by the pane itself. Monitor's sort lives
  * here as well, so a notice can open Monitor already sorted (SPEC.md §18.3).
@@ -13,7 +12,7 @@ import {
 	type ProcessSort,
 } from "../monitor/sort.js";
 
-export type RightPane = "files" | "checks" | "running" | "monitor";
+export type RightPane = "files" | "checks" | "running" | "monitor" | "problems";
 
 export interface RightPaneApi {
 	pane: RightPane;
