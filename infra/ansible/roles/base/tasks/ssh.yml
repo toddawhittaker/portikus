@@ -60,7 +60,8 @@
     that:
       - "'passwordauthentication no' in base_sshd_effective.stdout_lines"
       - "'kbdinteractiveauthentication no' in base_sshd_effective.stdout_lines"
-      - "'permitrootlogin without-password' in base_sshd_effective.stdout_lines"
+      # OpenSSH 10 prints this setting as prohibit-password; older versions print the old name.
+      - "'permitrootlogin without-password' in base_sshd_effective.stdout_lines or 'permitrootlogin prohibit-password' in base_sshd_effective.stdout_lines"
       - "'maxauthtries 3' in base_sshd_effective.stdout_lines"
       - "'logingracetime 30' in base_sshd_effective.stdout_lines"
     fail_msg: >-

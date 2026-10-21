@@ -82,7 +82,9 @@ if [ -x /usr/sbin/sshd ] && command -v ssh-keygen >/dev/null; then
   check "sshd -t accepts the drop-in" /usr/sbin/sshd -t -f "${work}/dropin.conf" -h "${work}/hostkey"
   /usr/sbin/sshd -T -f "${work}/dropin.conf" -h "${work}/hostkey" >"${work}/effective" 2>"${work}/sshd.err"
   while read -r line; do
-    check "sshd -T reports '${line}'" grep -qx "${line}" "${work}/effective"
+    # Either spelling of PermitRootLogin counts: OpenSSH 10 renamed without-password.
+    pattern="${line//without-password/(without|prohibit)-password}"
+    check "sshd -T reports '${line}'" grep -Eqx "${pattern}" "${work}/effective"
   done <"${work}/expected"
 else
   echo "SKIP  sshd is not installed here; the rehearsal VM runs sshd -t"

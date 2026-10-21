@@ -44,8 +44,8 @@ check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl 
 # 10a. Host hardening (docs/SPEC.md sections 24.1 and 24.4): sshd takes keys
 #      only, the kernel settings are live, and the firewall limits per source.
 for setting in "passwordauthentication no" "kbdinteractiveauthentication no" \
-  "permitrootlogin without-password" "maxauthtries 3" "logingracetime 30"; do
-  check "sshd runs with ${setting}" ssh_cmd "sudo /usr/sbin/sshd -T | grep -qx '${setting}'"
+  "permitrootlogin (without|prohibit)-password" "maxauthtries 3" "logingracetime 30"; do
+  check "sshd runs with ${setting}" ssh_cmd "sudo /usr/sbin/sshd -T | grep -Eqx '${setting}'"
 done
 # shellcheck disable=SC2016  # expansion is intentionally remote-side
 check "every kernel hardening setting is live" ssh_cmd \
