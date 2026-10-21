@@ -16,8 +16,7 @@
 			"project": ["src/**/*.{ts,tsx}"]
 		},
 		"apps/web": {
-			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"],
-			"ignoreDependencies": ["vscode-languageserver-protocol"]
+			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"]
 		},
 		"apps/worker": {
 			"entry": ["src/backup-channel-main.ts", "src/alert-main.ts"],

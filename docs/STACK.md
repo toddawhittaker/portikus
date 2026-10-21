@@ -630,22 +630,26 @@ them under one project and all confined to it (ADRs 0013 and 0014):
 The agent hosts the language servers of SPEC.md section 13.6 (ADR 0065). They
 ship in the Debian package's agent tree and are bind-mounted read-only with
 the rest of the agent, so adding or upgrading one needs no image rebuild. The
-agent has one table entry per server: id, Monaco languages, command, heap
-flag, `initializationOptions` and the features it serves.
+agent has one table entry per server: id, how it is counted, command,
+`initializationOptions` and client capabilities.
 
 | Id | Program | Pinned at |
 |---|---|---|
 | `python` | `pyright` | 1.1.414 |
-| `typescript` | `typescript-language-server` with `typescript` | 6.0.2 with 6.0.3 |
-| `ruff` | `ruff server`, format only | a release binary, checked by sha256 in `scripts/build-deb.sh` |
+| `typescript` | TypeScript's built-in language server, `tsc --lsp --stdio` | `typescript` 7.0.2 with `@typescript/typescript-linux-x64` |
+| `ruff` | `ruff server`, format only | 0.16.10, a release binary checked by sha256 in `scripts/build-deb.sh` |
 
-TypeScript 6.0.3 is bundled beside the wrapper because TypeScript 7 is the Go
-port and has no `tsserver`. The agent's own type-checking stays on TypeScript
-7. The tree grows by about 45 MB unpacked, and the build keeps `.d.ts` and
-`.pyi` files when it prunes, because the servers read them. The Node servers
-run with `--max-old-space-size=1024` and `maxTsServerMemory` 1024. Each server
-is spawned under `prlimit` and `choom`, as the Checks route does, and stopped
-with `killProcessTree`. The stdio framing lives in a module named
+TypeScript 7 is the Go port and ships its own language server, so no
+`typescript-language-server` and no TypeScript 6 are bundled. The agent finds
+the native binary with `typescript/lib/getExePath.js`, and `make build-deb`
+fails if that lookup cannot find an executable binary inside the deployed
+agent tree. The server asks the client for pull diagnostics
+(`textDocument/diagnostic`), and automatic type acquisition is off. The build
+keeps `.d.ts` and `.pyi` files when it prunes, because the servers read them.
+Pyright runs with `--max-old-space-size=1024`, and TypeScript's native server
+with `GOMEMLIMIT` 1024 MiB. Each server is spawned under `prlimit` and
+`choom` (by absolute path), as the Checks route does, and stopped with
+`killProcessTree`. The stdio framing lives in a module named
 generically, `stdio-messages.ts`, but nothing else uses it yet.
 
 ### PTY implementation
@@ -803,8 +807,8 @@ authenticate
 
 ### Language-server tests
 
-The agent's tests run against the real `pyright` and
-`typescript-language-server` from the package tree, because a mocked server
+The agent's tests run against the real `pyright` and the real TypeScript
+native server from the package tree, because a mocked server
 cannot show that the wiring works. The API's tests and the end-to-end tests
 use a scripted LSP responder in the fake agent, patterned on its events
 route. The route is an owner-only entry in the route policy, so the
@@ -1715,7 +1719,7 @@ nodemailer
 node-pty
 tmux
 pyright
-typescript-language-server
+typescript (native language server)
 ruff server
 chokidar
 ripgrep

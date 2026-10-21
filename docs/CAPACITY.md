@@ -7,7 +7,7 @@ This note records how Portikus behaves with many students working at once, and w
 - **Target:** 25 active workspaces (SPEC.md section 25.2).
 - **Recommended pilot VM:** 8 vCPUs and 16 GiB of RAM, with the 100 GiB data disk grown to 200 GiB. The pilot today has 4 vCPUs and 8 GiB, which cannot hold 25.
 - **Once workspaces are running, the target is met with a wide margin.** At 25 and at 40 workspaces, every steady-state latency was far inside its limit, and nothing failed.
-- **Code help (the language servers) answers fast but costs memory.** On a 16 GiB VM with 25 students, completions came back at a p95 of 124 ms for Python and 54 ms for TypeScript, far inside the 1 second target. But free memory fell to 945 MiB, below the 2 GiB the target asks for. The three servers add about 240 MiB per student. See "Code help on a 16 GiB VM" below.
+- **Code help (the language servers) answers fast but costs memory.** On a 16 GiB VM with 25 students, completions came back at a p95 of 124 ms for Python and 54 ms for TypeScript, far inside the 1 second target. But with a coding agent running for each student, free memory fell to 945 MiB, below the 2 GiB the target asks for. The three servers add about 240 MiB per student. The target is stated by course profile (SPEC.md section 8.7): a 16 GiB server holds 25 students in a Traditional course, which has no coding agent, and about 23 in an Agentic course; 25 Agentic students need 20 GiB. See "Code help on a 16 GiB VM" below.
 - **The 8 GiB pilot cannot hold a full class with code help on.** At about 550 MiB per student with code help, 8 GiB holds about nine students with the 2 GiB reserve. An administrator can turn code help off for the site.
 - **Starting many workspaces at once is much better, but still just over the target.** The first run found that the worker started workspaces one at a time, so the last of 25 waited over a minute (start p95 77 seconds). The worker now starts up to six at once (PR #464). The rerun on 2026-09-23 measured a start p95 of 12.6 seconds against the 10 second target, and a p50 of 8.9 seconds. See "Rerun after parallel starts" below.
 
@@ -128,8 +128,8 @@ Each workspace's cgroup held 559 MiB on average, 500 MiB of it anonymous memory 
 What this means:
 
 - **Completions are far inside the target.** The 1 second p95 holds with a wide margin, even with the VM short of memory.
-- **The 2 GiB reserve is not met at 25 students on 16 GiB.** The run used about 550 MiB per student. With 2 GiB kept free, 16 GiB holds about 23 such students. For 25 with the reserve, the VM needs about 18 GiB; 20 GiB leaves room for real agents, which use more than the stand-in.
-- **Without a coding agent running, 25 students would fit.** The stand-in's 150 MiB across 25 students is 3.7 GiB, so a class that uses code help but runs no agent (as a Traditional course, SPEC.md section 8.7, which hides the agent launchers) would keep about 4.6 GiB free. That is worked out, not measured.
+- **The 2 GiB reserve is not met at 25 Agentic students on 16 GiB.** The run used about 550 MiB per student. With 2 GiB kept free, 16 GiB holds about 23 such students in an Agentic course. For 25 Agentic students the VM needs 20 GiB, which also leaves room for real agents, which use more than the stand-in.
+- **A Traditional course fits 25 students on 16 GiB.** The stand-in's 150 MiB across 25 students is 3.7 GiB, so a class that uses code help but runs no agent (a Traditional course, SPEC.md section 8.7, which hides the agent launchers) keeps about 4.6 GiB free. That figure is calculated from the measured per-student figures, not measured.
 - **The levers, if 16 GiB must hold 25 with agents:** start ruff only when a student formats, lower the servers' memory caps (today 1 GiB each, far above what they used, so this changes little), or turn code help off for the site.
 
 **The 8 GiB pilot VM cannot hold a full class with code help on.** It has about 7 GiB available for workspaces. At 550 MiB per student with code help and a coding agent, it holds about nine students with the 2 GiB reserve, and about 16 with code help turned off.
@@ -152,7 +152,7 @@ For 25 active workspaces:
 - **CPU: 8 vCPUs.** Steady use was about one core in total. The peak is a build: each workspace may use 2 cores (`limits.cpu`), so 8 vCPUs let three students build at full speed at the same time while the control plane stays responsive.
 - **Data disk: 200 GiB.** The thin pool is 90% of the disk, and the nightly backup needs up to about 30 GiB of it (see "Backups in the thin pool" below). On today's 100 GiB disk that leaves about 70 GiB, or about 60 started workspaces at 1.1 GiB each before any student data. SPEC.md section 25.2 targets 100 provisioned workspaces. On a 200 GiB disk the pool is about 180 GiB: 110 GiB for 100 workspaces, 30 GiB for the backup, and about 40 GiB for student files.
 
-With code help on, 16 GiB is not enough for 25 students who also run a coding agent: the run at 8 vCPUs and 16 GiB above kept only 945 MiB free. A class of 25 with code help and agents needs about 20 GiB.
+With code help on, 16 GiB is not enough for 25 students in an Agentic course: the run at 8 vCPUs and 16 GiB above kept only 945 MiB free. A class of 25 Agentic students needs 20 GiB. A Traditional class of 25 fits in 16 GiB.
 
 The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure without code help is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
 

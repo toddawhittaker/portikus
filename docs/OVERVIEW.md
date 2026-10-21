@@ -37,7 +37,14 @@ starter projects through LTI Deep Linking (ADRs 0057 and 0058). Epic 43 lets an 
 change the sign-in provider, the site address, LMS platforms and the
 server's allowed internet hosts from the admin page, through one root site
 job with trials that are put back unless kept (SPEC.md section 20.1, ADRs
-0059 and 0060).
+0059 and 0060). Epic 52 gave the editor real code
+help (completion, hover, go to definition, rename, format and error marks) for
+Python, TypeScript and JavaScript, from language servers that run inside each
+student's workspace, with a Problems tab and an administrator switch to turn it
+off (SPEC.md section 13.6, ADR 0065). It also added course profiles: an
+instructor or administrator can set an LTI course to Traditional, which hides
+the coding-agent launchers, the Docker controls and the Running pane's system
+rows without blocking anything (SPEC.md section 8.7, ADR 0066).
 
 ## Planned architecture
 
