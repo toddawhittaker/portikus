@@ -75,7 +75,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 | a11y-reviewer | Read-only accessibility review of UI against SPEC.md section 25.8. |
 | ui-designer | Building or polishing UI in `apps/web` and `packages/ui` to the design system: semantic markup, container-driven layout, performance first. Review-only on request. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
-| merger | Landing a list of task PRs into an epic branch: CI wait, update, squash-merge, flake reruns; escalates conflicts and real failures. Cheap. |
+| merger | Diagnosing a red task PR run (flake, conflict, real failure) and updating a branch that fell behind with conflicts. Cheap. |
 
 Orchestration rules:
 
@@ -121,7 +121,7 @@ Orchestration rules:
   decision. Prepare the pull request, citing the SPEC.md and STACK.md
   sections it serves and how it was verified (WORKFLOW.md, "Pull
   requests"), then report and stop.
-- Running an epic (task PRs, the merge queue, which reviewers run, the
+- Running an epic (task PRs and how they land, which reviewers run, the
   fold, the epic PR) follows the `epic-run` skill; deploying to the pilot
   follows the `pilot-deploy` skill.
 

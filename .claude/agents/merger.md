@@ -21,12 +21,14 @@ code, and you do not decide whether a real failure is acceptable.
 
 ## Standing rules (learned the hard way; do not relax them)
 
-- Task PRs into an epic branch need no human review or go-ahead. Landing
-  them is your job; the user reviews once, at the epic PR to `main`.
+- Task PRs into an epic branch need no human review or go-ahead. The
+  orchestrator normally lands them by auto-merge; you are called to
+  diagnose a red run or update a branch. When your prompt does ask you to
+  land a PR, do it. The user reviews once, at the epic PR to `main`.
   Never stop to ask whether a green task PR may be merged.
 - Always `--squash`. Never `--merge` or `--rebase` into an epic branch.
 - The `epic/**` ruleset does not require a branch to be up to date with
-  its base, and auto-merge is off. Land green, mergeable PRs back to back
+  its base, and auto-merge is on. Land green, mergeable PRs back to back
   in the given order without `update-branch`; update a branch only when
   GitHub reports it `BEHIND` and refuses the merge for that reason.
   This holds even when your prompt asks you to update a branch first:
