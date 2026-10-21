@@ -173,9 +173,10 @@ async function explainedFrame(
 }
 
 /**
- * Stop reading the agent socket while the browser socket is backed up, so a
- * runaway process cannot fill the control plane's memory (SPEC.md §9.7).
- * Returns a function that cancels any drain poll still running.
+ * Stop reading `upstream` while `socket` is backed up, so a runaway process
+ * cannot fill the control plane's memory (SPEC.md §9.7, §24.1). Used with the
+ * agent socket as `upstream` for output, and with the two swapped for input.
+ * `cancel` stops any drain poll still running.
  */
 export function pipeBackpressure(
 	socket: { bufferedAmount: number },
@@ -255,6 +256,9 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 	let inputStopped = false;
 
 	const backpressure = pipeBackpressure(socket, upstream);
+	// The reverse direction: an agent that stops reading must stop the API
+	// reading the browser (SPEC.md §24.1).
+	const inbound = pipeBackpressure(upstream, socket);
 
 	// close(), not terminate(), so the web client still hears the code.
 	function endBrowser(code: number, reason: string): void {
@@ -304,6 +308,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			clearInterval(sessionTimer);
 			unregister?.();
 			backpressure.cancel();
+			inbound.cancel();
 			resolve();
 		}
 
@@ -318,6 +323,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			if (!acceptsClientFrame(mode, text)) return;
 			if (upstream.readyState === WebSocketClient.OPEN) {
 				upstream.send(text);
+				inbound.apply();
 			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
 				queuedBytes += Buffer.byteLength(text);
 				if (queuedBytes > MAX_QUEUED_BYTES) {
