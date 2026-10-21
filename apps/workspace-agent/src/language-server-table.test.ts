@@ -20,16 +20,6 @@ test("there is one entry per contract id", () => {
 	for (const [id, entry] of Object.entries(LANGUAGE_SERVERS)) expect(entry.id).toBe(id);
 });
 
-test("python serves all but format, typescript all six, ruff only format", () => {
-	expect(LANGUAGE_SERVERS.python.features.sort()).toEqual(
-		["completion", "definition", "diagnostics", "hover", "rename"].sort(),
-	);
-	expect(LANGUAGE_SERVERS.typescript.features).toHaveLength(6);
-	expect(LANGUAGE_SERVERS.typescript.languages).toEqual(["typescript", "javascript"]);
-	expect(LANGUAGE_SERVERS.ruff.features).toEqual(["format"]);
-	expect(LANGUAGE_SERVERS.ruff.languages).toEqual(["python"]);
-});
-
 test("only python and typescript count toward the cap", () => {
 	expect(LANGUAGE_SERVERS.python.counted).toBe(true);
 	expect(LANGUAGE_SERVERS.typescript.counted).toBe(true);

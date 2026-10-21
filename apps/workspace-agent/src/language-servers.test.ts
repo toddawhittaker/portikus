@@ -2,7 +2,17 @@
  * The language-server lifecycle against a scripted server (SPEC.md §13.6):
  * real processes, real sockets, short timings.
  */
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink } from "node:fs/promises";
+import {
+	access,
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,8 +49,6 @@ function fakeEntry(
 ): LanguageServerEntry {
 	return {
 		id,
-		languages: [id],
-		features: ["completion"],
 		counted,
 		initializationOptions: { ours: { a: 1 }, flag: true },
 		clientCapabilities: { workspace: { configuration: false } },
@@ -217,6 +225,23 @@ describe("environment", () => {
 		);
 	});
 
+	test("never runs a prlimit or choom that the project puts on PATH", async () => {
+		const bin = join(homeDir, "projects", "alpha", ".venv", "bin");
+		await mkdir(bin, { recursive: true });
+		const marker = join(homeDir, "planted-ran");
+		for (const name of ["prlimit", "choom"]) {
+			const planted = join(bin, name);
+			await writeFile(planted, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
+			await chmod(planted, 0o755);
+		}
+		await start();
+		const { socket } = await ready("alpha", "python");
+		const pid = await serverPid(socket, 2);
+		const limits = await readFile(`/proc/${pid}/limits`, "utf8");
+		expect(limits).toMatch(/Max processes\s+(\d+)\s+\1\s+processes/);
+		await expect(access(marker)).rejects.toThrow();
+	});
+
 	test("starts under prlimit and choom", async () => {
 		await start();
 		const { socket } = await ready("alpha", "python");
@@ -253,12 +278,16 @@ describe("stopping", () => {
 
 	test("a server that ignores shutdown and exit is killed with its tree", async () => {
 		env.FAKE_IGNORE_EXIT = "1";
+		env.FAKE_CHILD_PID_FILE = join(homeDir, "child-pid");
 		await start({ stopGraceMs: 200 });
 		const { socket } = await ready("alpha", "python");
 		const pid = await serverPid(socket, 2);
+		const childPid = Number(await readFile(env.FAKE_CHILD_PID_FILE, "utf8"));
+		expect(alive(childPid)).toBe(true);
 		socket.ws.close();
 		await socket.closed;
 		await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 });
+		await vi.waitFor(() => expect(alive(childPid)).toBe(false), { timeout: 3000 });
 	});
 
 	test("a socket with no browser message closes with IDLE, then the server stops", async () => {

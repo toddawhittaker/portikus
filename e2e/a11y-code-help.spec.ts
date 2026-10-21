@@ -1,6 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	codeHelpLiveRegion,
 	codeHelpStatus,
+	editorFocus,
 	editorLines,
 	holdCodeHelpSwitch,
 	hoverWidget,
@@ -55,29 +57,33 @@ for (const colorScheme of ["light", "dark"] as const) {
 		test("every state of the editor bar's status passes axe", async ({ page }) => {
 			const wire = await openReady(page);
 			const status = codeHelpStatus(page, PATH);
-			// A live region, so a change of state is announced.
-			await expect(status).toHaveAttribute("role", "status");
+			// Only a state that asks for action is announced, so a quiet reconnect
+			// is not read out (SPEC.md §13.6, §25.8).
+			const live = codeHelpLiveRegion(page, PATH);
+			await expect(live).toHaveText("");
 			await expectNoViolations(page, bar);
 
 			const states = [
-				[4414, "crashed", "Code help stopped", "Restart"],
+				[4414, "crashed", "Code help stopped", "Restart code help"],
 				[
 					4412,
 					"replaced by another window",
 					"Code help is on in another window",
 					"Use here",
 				],
-				[4415, "unavailable", "Code help unavailable", "Restart"],
+				[4415, "unavailable", "Code help unavailable", "Restart code help"],
 			] as const;
 			for (const [code, reason, text, action] of states) {
 				await wire.close("python", code, reason);
 				await expect(status).toHaveText(text);
+				await expect(live).toHaveText(text);
 				await expect(
 					page.getByRole("button", { name: action, exact: true }),
 				).toBeVisible();
 				await expectNoViolations(page, bar);
 				await page.getByRole("button", { name: action, exact: true }).click();
 				await expect(status).toHaveText("Code help ready", { timeout: 30_000 });
+				await expect(live).toHaveText("");
 			}
 
 			await wire.close("python", 4414, "crashed: may have run out of memory");
@@ -124,10 +130,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 
 		test("a diagnostic's hover passes axe", async ({ page }) => {
-			// Monaco draws the diagnostic's source ("fake", "pyright") at 60% opacity,
-			// which is under 4.5:1 on the light theme (SPEC.md §25.8). Known gap: this
-			// passes as an expected failure until the editor styles that text.
-			test.fail(colorScheme === "light", "diagnostic source text fails contrast");
+			// Monaco draws the diagnostic's source ("fake", "pyright") at 60% opacity;
+			// editor.css restyles it to meet 4.5:1 (SPEC.md §25.8).
 			await openReady(page);
 			await page
 				.getByTestId(`editor-${PATH}`)
@@ -139,8 +143,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 
 		for (const [name, code, reason, text, key] of [
-			["Restart", 4414, "crashed", "Code help stopped", "Enter"],
-			["Restart", 4415, "unavailable", "Code help unavailable", "Space"],
+			["Restart code help", 4414, "crashed", "Code help stopped", "Enter"],
+			["Restart code help", 4415, "unavailable", "Code help unavailable", "Space"],
 			[
 				"Use here",
 				4412,
@@ -161,12 +165,17 @@ for (const colorScheme of ["light", "dark"] as const) {
 				await page.keyboard.press("Shift+Tab");
 				const button = page.getByRole("button", { name, exact: true });
 				await expect(button).toBeFocused();
-				await expect(button).toHaveCSS("outline-style", /solid|auto/);
+				// The design system's focus ring, not the browser's own.
+				await expect(button).toHaveCSS("outline-style", "solid");
+				await expect(button).toHaveCSS("outline-width", "2px");
 				await page.keyboard.press("Tab");
 				await expect(page.getByRole("button", { name: "Zoom out" })).toBeFocused();
 				await page.keyboard.press("Shift+Tab");
 
 				await page.keyboard.press(key);
+				// The button goes away while the server starts, so focus moves to
+				// the editor rather than falling to the page (SPEC.md §25.8).
+				await expect(editorFocus(page, PATH)).toBeAttached();
 				await expect(codeHelpStatus(page, PATH)).toHaveText("Code help ready", {
 					timeout: 30_000,
 				});

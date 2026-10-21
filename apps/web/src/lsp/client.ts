@@ -4,6 +4,7 @@
  * and diagnostics, both pushed and pulled. Editing never waits on it.
  */
 import {
+	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_DOCUMENT_BYTES,
 	type LanguageServerId,
 } from "@portikus/contracts";
@@ -36,17 +37,42 @@ import { type ServerStatus, useCodeHelpStore } from "./store.js";
 
 const PULL_DEBOUNCE_MS = 300;
 
-/** Whether a document is small enough to send (SPEC.md §13.6: 512 KiB). */
+/**
+ * The API's cap on one browser frame (SPEC.md §13.6: 1 MiB). A bigger one is
+ * closed as too big, which the client would retry for ever.
+ */
+export const MAX_BROWSER_FRAME_BYTES = 1024 * 1024;
+// Room in a didOpen frame for everything but the text, with a long path's URI.
+const FRAME_ENVELOPE_BYTES = 16 * 1024;
+// A UTF-16 unit is at most three UTF-8 bytes, and at most six once JSON escapes it.
+const MAX_BYTES_PER_UNIT = 3;
+const MAX_JSON_BYTES_PER_UNIT = 6;
+
+/**
+ * Whether a document is small enough to send: 512 KiB of text (SPEC.md
+ * §13.6), and a didOpen frame within the browser frame cap once JSON escapes
+ * its quotes, newlines and control characters.
+ */
 export function fitsDocumentLimit(text: string): boolean {
-	// A UTF-16 unit is at most three UTF-8 bytes, so most files skip the encode.
-	if (text.length * 3 <= LANGUAGE_SERVER_MAX_DOCUMENT_BYTES) return true;
+	if (fitsWithoutMeasuring(text.length)) return true;
 	if (text.length > LANGUAGE_SERVER_MAX_DOCUMENT_BYTES) return false;
-	return new TextEncoder().encode(text).length <= LANGUAGE_SERVER_MAX_DOCUMENT_BYTES;
+	const encoder = new TextEncoder();
+	if (encoder.encode(text).length > LANGUAGE_SERVER_MAX_DOCUMENT_BYTES) return false;
+	const frameText = encoder.encode(JSON.stringify(text)).length;
+	return frameText + FRAME_ENVELOPE_BYTES <= MAX_BROWSER_FRAME_BYTES;
+}
+
+/** True when a text of this many UTF-16 units fits however it encodes. */
+function fitsWithoutMeasuring(units: number): boolean {
+	return (
+		units * MAX_BYTES_PER_UNIT <= LANGUAGE_SERVER_MAX_DOCUMENT_BYTES &&
+		units * MAX_JSON_BYTES_PER_UNIT + FRAME_ENVELOPE_BYTES <= MAX_BROWSER_FRAME_BYTES
+	);
 }
 
 /** The same, without copying the text of an ordinary file on every keystroke. */
 export function modelFitsLimit(model: Monaco.editor.ITextModel): boolean {
-	if (model.getValueLength() * 3 <= LANGUAGE_SERVER_MAX_DOCUMENT_BYTES) return true;
+	if (fitsWithoutMeasuring(model.getValueLength())) return true;
 	return fitsDocumentLimit(model.getValue());
 }
 
@@ -119,17 +145,13 @@ export function answerServerRequest(
 	}
 }
 
-// Local copy of LANGUAGE_SERVER_CLOSE_REASONS.outOfMemory in packages/contracts
-// (language-servers.ts); import it once that contract lands.
-const OUT_OF_MEMORY_REASON = "crashed: may have run out of memory";
-
 /** The status a close leaves behind; the raw reason is never shown. */
 export function statusAfterClose(action: CloseAction, reason: string): ServerStatus {
 	switch (action) {
 		case "replaced":
 			return { state: "replaced" };
 		case "crashed":
-			return reason === OUT_OF_MEMORY_REASON
+			return reason === LANGUAGE_SERVER_CLOSE_REASONS.outOfMemory
 				? { state: "crashed", detail: "It may have run out of memory." }
 				: { state: "crashed" };
 		case "unavailable":
@@ -228,7 +250,14 @@ export class LanguageClient {
 						this.setStatus({ state: "ready" });
 						for (const doc of this.docs.values()) this.openDocument(doc);
 					})
-					.catch(() => {});
+					.catch(() => {
+						// An error answer leaves the socket open but useless: show
+						// Restart rather than "starting" for ever.
+						if (this.connection !== connection) return;
+						this.stopSocket();
+						this.mode = "stopped";
+						this.setStatus({ state: "unavailable" });
+					});
 			},
 			onRequest: (method, requestParams) => {
 				if (method === "workspace/diagnostic/refresh") {

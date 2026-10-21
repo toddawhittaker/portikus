@@ -422,19 +422,21 @@ export function useFileBuffer({
 		if (settingsRef.current.autoSave) scheduleSave();
 	}
 
-	function saveNow() {
+	/** False when an unresolved conflict holds the save, so a rename can say so. */
+	function saveNow(): boolean {
 		// A Ctrl+S right after a keystroke can beat the render that marks the
 		// tab dirty, so this reads the ref the edit already updated.
 		const current = latest.current;
-		if (!current.dirty || conflict !== null) return;
-		if (current.text === null) return;
+		if (conflict !== null) return false;
+		if (!current.dirty || current.text === null) return true;
 		if (writing.current) {
 			// A write is already in the air; this one follows it at once.
 			scheduleSave(0);
-			return;
+			return true;
 		}
 		cancelTimer();
 		void write(current.text, current.deleted ? null : current.etag);
+		return true;
 	}
 
 	const data = file.data;

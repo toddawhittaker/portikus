@@ -42,6 +42,9 @@ test.describe("code help refuses what a server must not do", () => {
 		`![remote image](${IMAGES}/md.png)`,
 		"[reference link][bad]",
 		"[bad]: javascript:window.__pwned='reference'",
+		// A shortcut reference image, whose definition is an allowed https target.
+		"![shortcut]",
+		`[shortcut]: ${IMAGES}/shortcut.png`,
 	].join("\n\n");
 
 	async function openTs(page: Page, content = CONTENT) {

@@ -46,7 +46,8 @@ export interface CodeEditorProps {
 	 */
 	version: string;
 	onChange: (text: string) => void;
-	onSave: () => void;
+	/** False when the tab holds the save back, as an unresolved conflict does. */
+	onSave: () => boolean | undefined;
 	/** From the student's editor settings. */
 	wordWrap?: "on" | "off";
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
@@ -241,7 +242,10 @@ export function CodeEditor({
 			setLanguage(settled);
 			applied.current = latest.current.version;
 			// A rename across files saves this one through the tab's own save.
-			unregister = registerEditor(uri.toString(), () => latest.current.onSave());
+			unregister = registerEditor(
+				uri.toString(),
+				() => latest.current.onSave() !== false,
+			);
 			setModelReady((count) => count + 1);
 			editor.onDidChangeModelContent(() => {
 				if (applying.current) return;
@@ -268,6 +272,8 @@ export function CodeEditor({
 				restored = true;
 				editor.setPosition({ lineNumber: line, column: 1 });
 				editor.revealLineInCenter(line);
+				// A jump from another file brings the keyboard with it (SPEC.md §25.8).
+				editor.focus();
 			}
 			// Every move and scroll goes straight into the layout store, which
 			// is cheap; writing it to this browser's storage is what the layout
@@ -435,7 +441,12 @@ export function CodeEditor({
 						path={path}
 						status={serverStatus}
 						tooLarge={tooLarge}
-						onRestart={() => codeHelp?.restart(server)}
+						onRestart={() => {
+							codeHelp?.restart(server);
+							// The button goes while the server starts, so focus must not
+							// fall to the page (SPEC.md §25.8).
+							editorRef.current?.focus();
+						}}
 					/>
 				) : null}
 				<button
