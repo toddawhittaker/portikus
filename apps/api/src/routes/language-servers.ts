@@ -98,7 +98,7 @@ export function registerLanguageServerSocket(
 			}
 			// Taken before the first await, so a burst of upgrades cannot slip past the cap.
 			if (!languageServerSockets.take(scope.workspaceId)) {
-				socket.close(CloseCode.POLICY, "too many connections");
+				socket.close(CloseCode.TOO_MANY_SOCKETS, "too many connections");
 				socket.resume();
 				return;
 			}
