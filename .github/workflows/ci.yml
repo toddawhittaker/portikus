@@ -287,20 +287,14 @@ jobs:
   # The browser tests are the slowest part of CI, so they run in parallel
   # shards, each with its own database and ports, alongside the app job.
   e2e-shard:
-    name: Browser end-to-end tests (shard ${{ matrix.shard }} of 7, ${{ matrix.os }}, tmp ${{ matrix.tmp }})
-    runs-on: ${{ matrix.os }}
+    name: Browser end-to-end tests (shard ${{ matrix.shard }} of 7)
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     needs: changes
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]
-        os: [ubuntu-24.04, ubuntu-26.04]
-        tmp: [default]
-        include:
-          - shard: 1
-            os: ubuntu-26.04
-            tmp: disk
+        shard: [1, 2, 3, 4, 5, 6, 7]
     services:
       postgres:
         image: mirror.gcr.io/library/postgres:17
@@ -358,42 +352,20 @@ jobs:
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         # Shards are packed by measured time from e2e/shard-timings.json, not by test count.
         run: |
-          mkdir -p diag
-          if [ "${{ matrix.tmp }}" = disk ]; then mkdir -p "$RUNNER_TEMP/tmp"; export TMPDIR="$RUNNER_TEMP/tmp"; fi
-          cg="/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)"
-          {
-            uname -a; nproc; free -m; ulimit -a; df -h /dev/shm /tmp "$RUNNER_TEMP"; mount | grep shm; findmnt /tmp || true; echo "TMPDIR=$TMPDIR"
-            cat /proc/sys/fs/file-max /proc/sys/fs/nr_open /proc/sys/vm/max_map_count /proc/sys/vm/overcommit_memory
-            cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns || true
-            cat /proc/sys/kernel/threads-max /proc/sys/kernel/pid_max
-            cat /proc/self/cgroup; echo "pids.max $(cat "$cg/pids.max")"; echo "memory.max $(cat "$cg/memory.max")"
-            ls ~/.cache/ms-playwright
-            for f in /sys/kernel/mm/transparent_hugepage/*; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
-            grep -i -E "shmem|huge" /proc/meminfo
-            grep -h . /sys/kernel/mm/transparent_hugepage/hugepages-*/shmem_enabled 2>/dev/null | sort | uniq -c
-            ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell --version || true
-          } > diag/system.txt 2>&1 || true
-          cat diag/system.txt
-          bash .github/probe-sampler.sh > diag/sampler.txt 2>&1 &
           node scripts/e2e-shard-list.mjs ${{ matrix.shard }} 7 e2e-shard-list.txt
-          set +e
-          DEBUG=pw:browser pnpm test:e2e --test-list e2e-shard-list.txt 2> diag/browser-stderr.txt
-          status=$?
-          sudo dmesg -T > diag/dmesg.txt 2>&1 || true
-          grep -n -i -E "insufficient|shared memory|shm|too many|EMFILE|EAGAIN|resource|crash|fatal|pthread|ERROR:" diag/browser-stderr.txt | head -300 || true
-          tail -80 diag/sampler.txt
-          tail -40 diag/dmesg.txt
-          exit $status
+          pnpm test:e2e --test-list e2e-shard-list.txt
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
-      - name: Upload diagnostics
-        if: always()
+          # Playwright runs Chromium with --disable-dev-shm-usage, so its shared
+          # memory is files under TMPDIR. Ubuntu 26.04 mounts /tmp as a RAM-backed
+          # tmpfs that fills mid-test, so keep those files on disk.
+          TMPDIR: ${{ runner.temp }}
+      - name: Upload the Playwright report
+        if: failure() && steps.run.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
-          name: probe-diag-${{ matrix.os }}-${{ matrix.tmp }}
-          path: |
-            diag/
-            test-results/
+          name: playwright-report-${{ matrix.shard }}
+          path: playwright-report/
           retention-days: 7
 
   # The branch rulesets require a check with this exact name, so it stays
