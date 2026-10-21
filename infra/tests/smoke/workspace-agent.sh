@@ -4,10 +4,10 @@
 # shellcheck disable=SC2154  # set by smoke-test.sh and the files sourced before this one
 # shellcheck disable=SC2034  # read by the files sourced after this one
 
-# Static checks only: the unit runs inside the container, the tree the
-# workspace profile bind-mounts is there and not writable by the
-# student, and the agent turns away a request that carries no token.
-# The terminal flow is checked elsewhere.
+# The unit runs inside the container, the tree the workspace profile
+# bind-mounts is there and not writable by the student, the agent turns
+# away a request that carries no token, and the language servers in that
+# tree start. The terminal flow is checked elsewhere.
 #
 # These reuse the workspace workspace-image.sh created, so they are
 # skipped whenever that block did not run.
@@ -48,6 +48,38 @@ if [ -n "${WS_NAME:-}" ]; then
       ssh_cmd "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${ws_ip}:7400/health"
   else
     bad "workspace has no bridge address"
+  fi
+
+  # Code help (SPEC.md section 13.6): each language server starts from the
+  # installed tree and answers initialize through the agent's own route. No
+  # controller pushes a token into smoke-ws, so the student sets one.
+  ssh_cmd_stdin "incus file push - ${WS_NAME}/tmp/lsp-probe.mjs --project ${PROJECT} --mode 0644" <<'PROBE'
+const [server, token] = process.argv.slice(2);
+const ws = new WebSocket(`ws://127.0.0.1:7400/projects/lsp-smoke/language-servers/${server}`,
+  { headers: { authorization: `Bearer ${token}` } });
+const done = (line) => { console.log(line); process.exit(0); };
+setTimeout(() => done("timeout"), 60000);
+ws.addEventListener("open", () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize",
+  params: { processId: null, rootUri: null, capabilities: {} } })));
+ws.addEventListener("message", (event) => {
+  const message = JSON.parse(event.data);
+  if (message.id === 1) done(message.result?.capabilities ? "ready" : "error");
+});
+ws.addEventListener("close", (event) => done(`closed ${event.code}`));
+PROBE
+  lsp_probe() {
+    ws_student "test -s /etc/portikus/agent.token || openssl rand -hex 32 > /etc/portikus/agent.token; mkdir -p ~/projects/lsp-smoke; node /tmp/lsp-probe.mjs $1 \$(cat /etc/portikus/agent.token)"
+  }
+  check_output "pyright starts in the workspace and answers initialize" "ready" lsp_probe python
+  check_output "TypeScript's native server starts in the workspace and answers initialize" "ready" lsp_probe typescript
+  check_output "ruff server starts in the workspace and answers initialize" "ready" lsp_probe ruff
+  # Hiding the binary inside this throwaway workspace stands in for one
+  # missing from the package; the host's tree is never touched.
+  if ws_exec "mount --bind /dev/null /opt/portikus/workspace-agent/bin/ruff"; then
+    check_output "a language server whose binary is gone is unavailable (4415)" "closed 4415" lsp_probe ruff
+    ws_exec "umount /opt/portikus/workspace-agent/bin/ruff" || bad "could not put the ruff binary back"
+  else
+    bad "could not hide the ruff binary in the workspace"
   fi
 else
   echo "No smoke-ws workspace; skipping the workspace agent checks."

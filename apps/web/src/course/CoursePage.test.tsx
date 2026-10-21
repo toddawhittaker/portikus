@@ -10,6 +10,7 @@ const CS101 = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101 Intro to Programming",
 	platformName: "canvas",
+	profile: "agentic",
 };
 const NO_ROSTER = { available: false, syncedAt: null, result: null };
 const SAM_ID = "77777777-7777-4777-8777-777777777777";
@@ -17,6 +18,7 @@ const CS240 = {
 	id: "66666666-6666-4666-8666-666666666666",
 	title: "CS 240 Data Structures",
 	platformName: "moodle",
+	profile: "agentic",
 };
 
 function serve(routes: Record<string, () => Response>) {
@@ -86,6 +88,29 @@ test("with one course, the list opens it directly", async () => {
 	);
 	expect(await screen.findByTestId("course-members-empty")).toBeDefined();
 	expect(screen.getByRole("heading", { level: 1, name: CS101.title })).toBeDefined();
+});
+
+test("a course page offers the profile choice between the roster status and the members", async () => {
+	serve({
+		"/courses": () => json(200, [{ ...CS101, profile: "traditional" }]),
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, { course: CS101, roster: NO_ROSTER, members: [] }),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const profile = await screen.findByRole("region", { name: "Student interface" });
+	await waitFor(() =>
+		expect(
+			within(profile).getByRole<HTMLInputElement>("radio", { name: "Traditional" })
+				.checked,
+		).toBe(true),
+	);
+	const headings = screen
+		.getAllByRole("heading", { level: 2 })
+		.map((heading) => heading.textContent);
+	expect(headings.indexOf("Student interface")).toBeLessThan(
+		headings.indexOf("Members"),
+	);
 });
 
 test("with several courses, each is a link to its members", async () => {

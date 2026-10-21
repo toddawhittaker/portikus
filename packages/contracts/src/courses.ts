@@ -9,8 +9,21 @@ export const CourseSummary = z.object({
 });
 export type CourseSummary = z.infer<typeof CourseSummary>;
 
+/**
+ * How much of the interface a course shows its students (ADR 0066). Traditional
+ * hides the coding-agent launchers, the Docker controls and the system rows in
+ * the Running pane; it never blocks anything.
+ */
+export const COURSE_PROFILES = ["agentic", "traditional"] as const;
+export const CourseProfile = z.enum(COURSE_PROFILES);
+export type CourseProfile = z.infer<typeof CourseProfile>;
+
+/** A course in `GET /courses`, with the profile its instructor chose. */
+export const CourseListItem = CourseSummary.extend({ profile: CourseProfile });
+export type CourseListItem = z.infer<typeof CourseListItem>;
+
 /** Response body for `GET /courses`. */
-export const CoursesResponse = z.array(CourseSummary);
+export const CoursesResponse = z.array(CourseListItem);
 export type CoursesResponse = z.infer<typeof CoursesResponse>;
 
 /** A member's role in one course; LTI never grants administrator. */
@@ -109,3 +122,18 @@ export const RosterSyncResponse = z.object({
 	roleChanged: Count,
 });
 export type RosterSyncResponse = z.infer<typeof RosterSyncResponse>;
+
+/** Request body for `PUT /courses/:courseId/profile` and `PUT /admin/courses/:courseId/profile`. */
+export const SetCourseProfileRequest = z.object({ profile: CourseProfile }).strict();
+export type SetCourseProfileRequest = z.infer<typeof SetCourseProfileRequest>;
+
+/** Response body of both profile routes: the course as it is now. */
+export const CourseProfileResponse = z.object({
+	id: z.string().uuid(),
+	profile: CourseProfile,
+});
+export type CourseProfileResponse = z.infer<typeof CourseProfileResponse>;
+
+/** Response body for `GET /admin/courses`: every course on the site, sorted by title. */
+export const AdminCoursesResponse = z.array(CourseListItem);
+export type AdminCoursesResponse = z.infer<typeof AdminCoursesResponse>;

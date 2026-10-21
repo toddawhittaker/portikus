@@ -157,12 +157,12 @@ mint_users() {
 run_driver() {
   local config
   ssh_vm "install -d -m 0700 ${REMOTE_DIR}" || return 1
-  tar -C "${HERE}/load" -cf - http.mjs student.mjs driver.mjs | ssh_vm_stdin "tar -C ${REMOTE_DIR} -xf -" || return 1
+  tar -C "${HERE}/load" -cf - http.mjs code-help.mjs student.mjs driver.mjs | ssh_vm_stdin "tar -C ${REMOTE_DIR} -xf -" || return 1
   config=$(printf '{"api":"%s","students":%s,"rampSeconds":%s,"steadySeconds":%s,"tickSeconds":%s,"recoverySeconds":%s,"sampleSeconds":15,"previewPort":5173,"stopFile":"%s/stop","resultFile":"%s/result.json"}' \
     "$API" "$STUDENTS_JSON" "${LOAD_RAMP_SECONDS:-48}" "${LOAD_STEADY_SECONDS:-900}" \
     "${LOAD_TICK_SECONDS:-5}" "${LOAD_RECOVERY_SECONDS:-300}" "$REMOTE_DIR" "$REMOTE_DIR")
   # The configuration holds the session tokens, so it goes on standard input.
-  printf '%s' "$config" | ssh_vm_stdin "cd ${REMOTE_DIR} && NODE_EXTRA_CA_CERTS=${CA} node driver.mjs" &
+  printf '%s' "$config" | ssh_vm_stdin "cd ${REMOTE_DIR} && NODE_EXTRA_CA_CERTS=${CA} /usr/lib/portikus/node/bin/node driver.mjs" &
   driver_pid=$!
   wait "$driver_pid"
   DRIVER_STATUS=$?
@@ -199,6 +199,14 @@ cleanup() {
     [ "$instance" != "-" ] && instances+=("$instance")
   done <<<"$rows"
 
+  # A host set up from the package has no copy of the Incus script, so the
+  # cleanup brings this checkout's for the length of the loop.
+  local workspace_script="${WORKSPACE_SCRIPT}" brought_script=""
+  if [ "${#instances[@]}" -gt 0 ] && ! ssh_vm "test -f ${WORKSPACE_SCRIPT}"; then
+    brought_script="/tmp/portikus-loadtest-workspace.sh"
+    ssh_vm_stdin "cat >${brought_script}" <"${HERE}/../incus/workspace.sh"
+    workspace_script="${brought_script}"
+  fi
   # Instances first, so a failed run never leaves an instance no row names.
   for instance in "${instances[@]}"; do
     if [[ ! "$instance" =~ ^ws-[0-9a-f]{24}$ ]]; then
@@ -209,8 +217,9 @@ cleanup() {
       echo "Not destroying ${instance}: another user's workspace row names it."
       continue
     fi
-    ssh_vm "bash ${WORKSPACE_SCRIPT} destroy ${instance}" >/dev/null 2>&1 || echo "Could not destroy ${instance}."
+    ssh_vm "bash ${workspace_script} destroy ${instance}" >/dev/null 2>&1 || echo "Could not destroy ${instance}."
   done
+  [ -z "${brought_script}" ] || ssh_vm "rm -f ${brought_script}" >/dev/null 2>&1
   [ "${#instances[@]}" -gt 0 ] && echo "Destroyed ${#instances[@]} instance(s) and their volumes."
   if [ "${#ws_ids[@]}" -gt 0 ]; then
     ws_list=$(sql_list "${ws_ids[@]}")

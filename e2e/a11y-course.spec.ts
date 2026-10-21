@@ -3,7 +3,16 @@
  * and both LTI fallback pages (ADR 0025).
  */
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { expectNoViolations, query, WEB_ORIGIN } from "./helpers";
+import { join, newCourse } from "./course-profile-helpers";
+import {
+	createSignedInUser,
+	expectNoViolations,
+	expectReflowAt320,
+	loginAs,
+	query,
+	toast,
+	WEB_ORIGIN,
+} from "./helpers";
 import { launchAs, ltiUsers, openCourseTab, startLaunch } from "./lti-helpers";
 
 /** One day of Claude Code use for Tom, so the usage tables have a row. */
@@ -234,4 +243,119 @@ test("the could-not-finish page has no automatic accessibility violations", asyn
 	await page.getByRole("button", { name: "Post" }).click();
 	await expect(page.getByText("Portikus could not finish opening here.")).toBeVisible();
 	await expectNoViolations(page);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the course profile control has no automatic accessibility violations and works from the keyboard (${colorScheme})`, async ({
+		browser,
+	}) => {
+		const course = await newCourse("agentic");
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN, colorScheme });
+		try {
+			const teacher = await createSignedInUser(context, "student");
+			await join(course.id, teacher.userId, "instructor");
+			const page = await context.newPage();
+			await page.goto(`/course/${course.id}`);
+			const section = page.getByRole("region", { name: "Student interface" });
+			const agentic = section.getByRole("radio", { name: "Agentic" });
+			const traditional = section.getByRole("radio", { name: "Traditional" });
+			await expect(agentic).toBeChecked({ timeout: 15_000 });
+			// The choices are one group, and each is described by its sentence.
+			await expect(
+				section.getByRole("group", { name: "Interface for students in this course" }),
+			).toBeVisible();
+			await expect(agentic).toHaveAccessibleDescription(/whole interface/);
+			await expect(traditional).toHaveAccessibleDescription(
+				/Hides the Claude Code and Codex launchers/,
+			);
+			await expectNoViolations(page);
+
+			// Arrow keys move the choice, as in any radio group, and it saves.
+			await agentic.focus();
+			await page.keyboard.press("ArrowDown");
+			await expect(toast(page, "Traditional saved")).toBeVisible();
+			await expect(traditional).toBeChecked();
+			await expect(traditional).toBeFocused();
+			await expectNoViolations(page);
+		} finally {
+			await context.close();
+		}
+	});
+
+	test(`the Courses group on the Sign-in tab has no automatic accessibility violations (${colorScheme})`, async ({
+		browser,
+	}) => {
+		// The tag keeps the light and dark runs from sharing a title.
+		const long = `${crypto.randomUUID().slice(0, 6)} Introduction to Computational Thinking and Programming Wolfeschlegelsteinhausenbergerdorff`;
+		await newCourse("traditional", long);
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN, colorScheme });
+		try {
+			const page = await context.newPage();
+			await loginAs(page, "carol");
+			await page.goto("/admin/signin");
+			const group = page.getByRole("region", { name: "Courses" });
+			const choice = group.getByRole("combobox", { name: `Profile for ${long}` });
+			await expect(choice).toContainText("Traditional", { timeout: 15_000 });
+			await expect(group).toContainText("Traditional hides the Claude Code and Codex");
+			await expect(group).toContainText("never blocks anything");
+			await expectNoViolations(page);
+
+			// The open list is scanned on its own: Radix hides the page behind it.
+			await choice.click();
+			await expect(page.getByRole("option", { name: "Agentic" })).toBeVisible();
+			await expectNoViolations(page, '[role="listbox"]');
+			await page.getByRole("option", { name: "Agentic" }).click();
+			await expect(toast(page, `${long} is now Agentic`)).toBeVisible();
+			await expect(choice).toContainText("Agentic");
+
+			// A long title wraps; nothing scrolls sideways at 320 px.
+			await expectReflowAt320(page);
+			await expect(
+				group.getByTestId("courses-row").filter({ hasText: long }),
+			).toBeVisible();
+			await expectNoViolations(page);
+		} finally {
+			await context.close();
+		}
+	});
+
+	test(`the code help switch on the Settings tab has no automatic accessibility violations (${colorScheme})`, async ({
+		browser,
+	}) => {
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN, colorScheme });
+		try {
+			const page = await context.newPage();
+			await loginAs(page, "carol");
+			await page.goto("/admin/settings");
+			const card = page.getByRole("region", { name: "Code help" });
+			const box = card.getByRole("checkbox", { name: /Allow code help/ });
+			await expect(box).toBeEnabled({ timeout: 15_000 });
+			await expect(box).toHaveAccessibleDescription(/When off, the editor is plain/);
+			await expectNoViolations(page, '[aria-labelledby="code-help-title"]');
+		} finally {
+			await context.close();
+		}
+	});
+}
+
+test("the course profile control fits a 320 px window without scrolling sideways", async ({
+	browser,
+}) => {
+	const course = await newCourse("agentic");
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const teacher = await createSignedInUser(context, "student");
+		await join(course.id, teacher.userId, "instructor");
+		const page = await context.newPage();
+		await page.goto(`/course/${course.id}`);
+		await expect(
+			page
+				.getByRole("region", { name: "Student interface" })
+				.getByRole("radio", { name: "Traditional" }),
+		).toBeVisible({ timeout: 15_000 });
+		await expectReflowAt320(page);
+		await expectNoViolations(page);
+	} finally {
+		await context.close();
+	}
 });

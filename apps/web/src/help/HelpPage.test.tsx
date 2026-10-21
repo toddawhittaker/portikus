@@ -15,6 +15,7 @@ const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
 	title: "CS 101",
 	platformName: "canvas",
+	profile: "agentic",
 };
 
 function stub(
@@ -158,6 +159,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 		"student-terminals",
 		"student-voice",
 		"student-files",
+		"student-code-help",
 		"student-recovery",
 		"student-previews",
 		"student-container-images",
@@ -190,6 +192,9 @@ test("the keyboard topic lists each key beside what it does", async () => {
 		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		"Shift+F10",
 		"F8",
+		"Ctrl+Space",
+		"Ctrl+K, then Ctrl+I",
+		"Alt+F8, Shift+Alt+F8",
 	]);
 	expect(section.querySelector("dt + dd")?.textContent).toMatch(/^Leave a terminal\./);
 	expect(

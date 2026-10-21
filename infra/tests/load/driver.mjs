@@ -21,7 +21,11 @@ const CRITERIA = [
 	{ name: "file-event", stat: "p95", limit: 1000 },
 	{ name: "git-refresh", stat: "p95", limit: 2000 },
 	{ name: "health", stat: "max", limit: 2000 },
+	{ name: "completion python", stat: "p95", limit: 1000 },
+	{ name: "completion typescript", stat: "p95", limit: 1000 },
 ];
+// SPEC.md section 25.1: with code help on, this much of the VM stays free.
+const MIN_AVAILABLE_MIB = 2048;
 
 // ── Resource sampling, from /proc and the cgroup tree ───────────────
 
@@ -57,6 +61,40 @@ function cgroupSample(dir) {
 	};
 }
 
+// The language servers' processes, by their command lines as the agent's
+// server table starts them.
+const SERVER_COMMANDS = {
+	python: (cmd) => cmd.includes("langserver.index.js"),
+	typescript: (cmd) => cmd.includes("typescript-linux-x64") && cmd.includes("\0--lsp"),
+	ruff: (cmd) => cmd.includes("/bin/ruff\0server"),
+};
+
+function cgroupPids(dir) {
+	const pids = (readText(`${dir}/cgroup.procs`) ?? "").split("\n").filter(Boolean);
+	let entries = [];
+	try {
+		entries = fs.readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return pids;
+	}
+	for (const entry of entries)
+		if (entry.isDirectory()) pids.push(...cgroupPids(`${dir}/${entry.name}`));
+	return pids;
+}
+
+/** Resident bytes of each language server in a workspace, 0 when not running. */
+function serverMemory(instance) {
+	const totals = Object.fromEntries(Object.keys(SERVER_COMMANDS).map((id) => [id, 0]));
+	for (const pid of cgroupPids(`/sys/fs/cgroup/lxc.payload.portikus_${instance}`)) {
+		const cmd = readText(`/proc/${pid}/cmdline`);
+		if (!cmd) continue;
+		const id = Object.keys(SERVER_COMMANDS).find((key) => SERVER_COMMANDS[key](cmd));
+		if (id)
+			totals[id] += (field(readText(`/proc/${pid}/status`), "VmRSS:") ?? 0) * 1024;
+	}
+	return totals;
+}
+
 function sample(students) {
 	const meminfo = readText("/proc/meminfo");
 	const cpu = readText("/proc/stat")
@@ -68,11 +106,14 @@ function sample(students) {
 	const pressure = (kind) =>
 		Number(readText(`/proc/pressure/${kind}`)?.match(/some avg10=([\d.]+)/)?.[1] ?? 0);
 	const workspaces = {};
+	const servers = {};
 	for (const student of students) {
-		if (student.instance)
+		if (student.instance) {
 			workspaces[student.key] = cgroupSample(
 				`lxc.payload.portikus_${student.instance}`,
 			);
+			servers[student.key] = serverMemory(student.instance);
+		}
 	}
 	const services = {};
 	for (const [name, dir] of Object.entries(SERVICES))
@@ -87,6 +128,7 @@ function sample(students) {
 		cpuPressure: pressure("cpu"),
 		memoryPressure: pressure("memory"),
 		workspaces,
+		servers,
 		services,
 	};
 }
@@ -259,6 +301,29 @@ function report(students, samples, phases) {
 		}),
 	);
 	const minAvailable = Math.min(...samples.map((s) => s.memAvailableKib));
+
+	// Resident memory of each language server, over every live workspace in
+	// every steady sample; "total" is one student's three servers together.
+	const live = students.filter((s) => !s.dead).map((s) => s.key);
+	const readings = steady.flatMap((s) =>
+		live.map((key) => s.servers[key]).filter(Boolean),
+	);
+	const serverMib = Object.fromEntries(
+		[...Object.keys(SERVER_COMMANDS), "total"].map((id) => {
+			const values = readings.map((r) =>
+				id === "total" ? Object.values(r).reduce((a, b) => a + b, 0) : r[id],
+			);
+			return [
+				id,
+				{
+					meanMib: values.length
+						? mib(values.reduce((a, b) => a + b, 0) / values.length)
+						: null,
+					maxMib: values.length ? mib(Math.max(...values)) : null,
+				},
+			];
+		}),
+	);
 	const cpuBusy = (last.cpuBusy - first.cpuBusy) / (last.cpuTotal - first.cpuTotal);
 
 	const latency = Object.fromEntries(
@@ -275,6 +340,13 @@ function report(students, samples, phases) {
 		limit: 0,
 		value: totalFailures,
 		ok: totalFailures === 0,
+	});
+	checks.push({
+		name: "VM memory available, lowest (MiB)",
+		stat: "min",
+		limit: MIN_AVAILABLE_MIB,
+		value: Math.round(minAvailable / 1024),
+		ok: minAvailable / 1024 >= MIN_AVAILABLE_MIB,
 	});
 	checks.push({
 		name: "workspaces active",
@@ -308,6 +380,7 @@ function report(students, samples, phases) {
 				Math.round((mean(perWorkspace, (w) => w.cpuCores) ?? 0) * 1000) / 1000,
 			perWorkspace,
 		},
+		languageServers: serverMib,
 		services,
 		vm,
 		errors: metrics.errors,
@@ -330,6 +403,11 @@ function report(students, samples, phases) {
 	console.log(
 		`Per workspace: memory ${result.footprint.memoryMibMean} MiB mean (${result.footprint.memoryMibMax} max), anonymous ${result.footprint.anonMibMean} MiB, CPU ${result.footprint.cpuCoresMean} cores`,
 	);
+	for (const [id, s] of Object.entries(serverMib)) {
+		console.log(
+			`Language server ${id}: resident ${s.meanMib ?? "-"} MiB mean (${s.maxMib ?? "-"} max) per workspace`,
+		);
+	}
 	for (const [name, s] of Object.entries(services)) {
 		if (s)
 			console.log(

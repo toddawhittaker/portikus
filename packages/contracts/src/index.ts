@@ -36,6 +36,7 @@ export * from "./health-series.js";
 export * from "./host.js";
 export * from "./image.js";
 export * from "./jobs.js";
+export * from "./language-servers.js";
 export * from "./links.js";
 export * from "./listening.js";
 export * from "./live-help.js";

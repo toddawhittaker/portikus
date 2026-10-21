@@ -4,9 +4,20 @@
  * nothing at all.
  */
 import type { Project } from "@portikus/contracts";
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { ToastProvider } from "@portikus/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "../api/queryClient.js";
+import { type Problem, useCodeHelpStore } from "../lsp/store.js";
 import { DEFAULT_PROCESS_SORT } from "../monitor/sort.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FilesPane } from "./FilesPane.js";
@@ -16,6 +27,13 @@ import {
 	showMonitor,
 	useRightPaneStore,
 } from "./rightPane.js";
+
+// The site switch for code help comes from /me/settings; these tests set it directly.
+const codeHelp = vi.hoisted(() => ({ on: false }));
+vi.mock("../editor/settingsQueries.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../editor/settingsQueries.js")>()),
+	useCodeHelpEnabled: () => codeHelp.on,
+}));
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 
@@ -35,6 +53,11 @@ function project(overrides: Partial<Project> = {}): Project {
 		...overrides,
 	} as Project;
 }
+
+beforeEach(() => {
+	codeHelp.on = false;
+	useCodeHelpStore.setState({ problems: {}, status: {} });
+});
 
 afterEach(() => {
 	cleanup();
@@ -301,3 +324,91 @@ test("opened from a notice while find in files is open, the search closes and Mo
 	).toBe("true");
 	expect(api.monitorFocus).toBe(false);
 });
+
+const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
+
+function problem(overrides: Partial<Problem> = {}): Problem {
+	return {
+		path: "main.py",
+		line: 3,
+		column: 1,
+		severity: "error",
+		message: "Name is not defined",
+		...overrides,
+	};
+}
+
+test("the Problems tab is the fifth tab, with a count of the open files' problems", async () => {
+	stubEmpty();
+	codeHelp.on = true;
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+
+	const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
+	expect(tabs).toEqual(["Files", "Checks", "Running", "Monitor", "Problems"]);
+	// A count of zero is not shown.
+	expect(screen.queryByTestId("right-pane-count-problems")).toBeNull();
+
+	act(() => {
+		useCodeHelpStore
+			.getState()
+			.setProblems(PROJECT_ID, "python", "main.py", [
+				problem(),
+				problem({ line: 8, severity: "warning" }),
+				problem({ line: 9, severity: "info" }),
+			]);
+	});
+	expect(screen.getByTestId("right-pane-count-problems").textContent).toBe("2");
+	expect(screen.getByRole("tab", { name: "Problems 2" })).toBeTruthy();
+
+	fireEvent.click(screen.getByTestId("right-pane-tab-problems"));
+	expect(await screen.findByTestId("problems-list")).toBeTruthy();
+	expect(screen.getByRole("tabpanel", { name: /^Problems/ })).toBeTruthy();
+});
+
+test("the Problems tab is not shown when code help is off", async () => {
+	stubEmpty();
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
+
+	expect(screen.queryByRole("tab", { name: /Problems/ })).toBeNull();
+});
+
+test("the Problems tab is not shown with no project open", () => {
+	codeHelp.on = true;
+	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={undefined} />);
+
+	expect(screen.queryByRole("tab", { name: /Problems/ })).toBeNull();
+});
+
+test("a pane left on Problems shows Files once code help is off", async () => {
+	stubEmpty();
+	codeHelp.on = true;
+	const client = createQueryClient();
+	const wrap = () => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<RealPaneOn />
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const view = render(wrap());
+	fireEvent.click(screen.getByTestId("right-pane-tab-problems"));
+	expect(await screen.findByTestId("problems-empty")).toBeTruthy();
+
+	codeHelp.on = false;
+	view.rerender(wrap());
+
+	expect(screen.queryByRole("tab", { name: /Problems/ })).toBeNull();
+	expect(await screen.findByTestId("file-tree-body")).toBeTruthy();
+	expect(screen.getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe(
+		"true",
+	);
+});
+
+function RealPaneOn() {
+	const api = useRightPaneStore();
+	return (
+		<RightPaneContext.Provider value={api}>
+			<FilesPane workspaceId={WORKSPACE} project={project()} />
+		</RightPaneContext.Provider>
+	);
+}

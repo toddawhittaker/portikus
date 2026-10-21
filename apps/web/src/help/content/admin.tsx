@@ -183,6 +183,16 @@ export const ADMIN_HELP: HelpPart = {
 						Saving restarts the API, which ends root shells and reconnects sockets. You
 						can add up to 20; the operator's own platforms show read-only.
 					</p>
+					<p>
+						<strong>Courses</strong> lists every course that has opened Portikus through
+						LTI and the interface its students get. <strong>Agentic</strong> is the
+						whole interface. <strong>Traditional</strong> hides the Claude Code and
+						Codex launchers, the Docker controls and the system ports in the Running
+						pane. It only hides controls and never blocks anything. The course's
+						instructor can set the same choice from the Course page, and you can change
+						any course here. Each change is written to the audit log. Students see it
+						the next time they load the page or return to the window.
+					</p>
 				</>
 			),
 		},
@@ -511,12 +521,24 @@ export const ADMIN_HELP: HelpPart = {
 			id: "admin-settings",
 			title: "Site settings",
 			body: (
-				<p>
-					<strong>Settings</strong> holds the site-wide rules: when workspaces stop, how
-					heavy use is slowed, and the acceptable-use statement. Saving a new statement
-					asks everyone, you included, to accept it before they continue. Most rules can
-					be changed for one workspace from its panel on <strong>Users</strong>.
-				</p>
+				<>
+					<p>
+						<strong>Settings</strong> holds the site-wide rules: when workspaces stop,
+						how heavy use is slowed, and the acceptable-use statement. Saving a new
+						statement asks everyone, you included, to accept it before they continue.
+						Most rules can be changed for one workspace from its panel on{" "}
+						<strong>Users</strong>.
+					</p>
+					<p>
+						<strong>Code help</strong> turns the editor's language servers on or off for
+						the whole site. It is on by default. Each student's workspace runs the
+						servers for Python, TypeScript and JavaScript, so they use memory: a full
+						class needs a server with 16 GiB. When you turn it off, the editor is plain,
+						with no Problems tab, and no new language server starts. Students see the
+						change when they next load the page or return to the window. Course
+						interfaces do not change it. Each change is written to the audit log.
+					</p>
+				</>
 			),
 		},
 		{

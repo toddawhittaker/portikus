@@ -1,12 +1,14 @@
 # Capacity: load test method and results
 
-This note records how Portikus behaves with many students working at once, and what size the pilot VM needs. It serves SPEC.md section 25.2 (at least 25 concurrently active workspaces) and the latency targets in section 25.1. The brief is docs/archive/epics/EPIC-12B.md, task B4.
+This note records how Portikus behaves with many students working at once, and what size the pilot VM needs. It serves SPEC.md section 25.2 (at least 25 concurrently active workspaces) and the latency targets in section 25.1, including those for code help (section 13.6). The brief is docs/archive/epics/EPIC-12B.md, task B4.
 
 ## Summary
 
 - **Target:** 25 active workspaces (SPEC.md section 25.2).
 - **Recommended pilot VM:** 8 vCPUs and 16 GiB of RAM, with the 100 GiB data disk grown to 200 GiB. The pilot today has 4 vCPUs and 8 GiB, which cannot hold 25.
 - **Once workspaces are running, the target is met with a wide margin.** At 25 and at 40 workspaces, every steady-state latency was far inside its limit, and nothing failed.
+- **Code help (the language servers) answers fast but costs memory.** On a 16 GiB VM with 25 students, completions came back at a p95 of 124 ms for Python and 54 ms for TypeScript, far inside the 1 second target. But with a coding agent running for each student, free memory fell to 945 MiB, below the 2 GiB the target asks for. The three servers add about 240 MiB per student. The target is stated by course profile (SPEC.md section 8.7): a 16 GiB server holds 25 students in a Traditional course, which has no coding agent, and about 23 in an Agentic course; 25 Agentic students need 20 GiB. See "Code help on a 16 GiB VM" below.
+- **The 8 GiB pilot cannot hold a full class with code help on.** At about 550 MiB per student with code help, 8 GiB holds about nine students with the 2 GiB reserve. An administrator can turn code help off for the site.
 - **Starting many workspaces at once is much better, but still just over the target.** The first run found that the worker started workspaces one at a time, so the last of 25 waited over a minute (start p95 77 seconds). The worker now starts up to six at once (PR #464). The rerun on 2026-09-23 measured a start p95 of 12.6 seconds against the 10 second target, and a p50 of 8.9 seconds. See "Rerun after parallel starts" below.
 
 ## Method
@@ -25,16 +27,18 @@ The driver has three phases:
   - opens the terminal socket;
   - creates a project and opens its file-watch socket;
   - starts a stand-in coding agent (a process holding 150 MB resident) and a small web server;
-  - gets a preview grant and a preview session.
+  - gets a preview grant and a preview session;
+  - writes a Python file and a TypeScript file, and opens three language-server sockets through the API: pyright and TypeScript's native server for the two files, and ruff beside the Python file, as the editor keeps it for Format.
 - **Steady.** For 15 minutes, every 5 seconds, each student:
   - types into the terminal and times the echo;
   - writes a new file and times the file event on the watch socket;
   - reads Git status after that event;
-  - loads its preview through the preview gateway.
+  - loads its preview through the preview gateway;
+  - edits the last line of each code file, alternating between a line with an error and one without, then times a completion after a dot and the new diagnostics.
 
   Each student also makes a recovery point every 5 minutes. The driver checks `/health` every 2 seconds.
 
-It samples the VM every 15 seconds from `/proc` and the cgroup tree. That gives memory and CPU for each workspace, each control-plane service, and the whole VM. The thin-pool footprint is the pool's growth over the run.
+It samples the VM every 15 seconds from `/proc` and the cgroup tree. That gives memory and CPU for each workspace, each control-plane service, and the whole VM, and the resident memory of each language server, found by its command line inside the workspace's cgroup. The thin-pool footprint is the pool's growth over the run.
 
 What it does not simulate: a real coding agent's CPU and network use, dependency installs, builds, and inner Docker containers. Those vary by course and are covered by the headroom in the recommendation.
 
@@ -87,6 +91,49 @@ Rerun on 2026-09-23 on a freshly rebuilt rehearsal VM (12 vCPUs, 24 GiB), packag
 
 The whole run took 19 minutes 20 seconds, including the preflight and the cleanup. Every other criterion passed with the same wide margin as before. The start p95 is now within about 2.6 seconds of its target. With starts running side by side, a single start took 8.9 seconds at the median, against about 4.5 seconds for one start alone in the first run, so the starts slow each other down even though none waits in a queue. Closing the last gap would need more starts at once or faster single starts. That is code outside `infra/`, and it is recorded as a gap in `docs/STATUS.md`.
 
+### Code help on a 16 GiB VM
+
+Run on 2026-10-21 on a fresh rehearsal VM with 8 vCPUs and 16 GiB, installed with `apt` from package `portikus 0.1.1267+g6275ef55` (the code-help branch). The command was `make load-test TOFU_ENV=rehearsal-libvirt N=25` with `PORTIKUS_PUBLIC_HOST=rehearsal.portikus.thewhittakers.org` and `LOAD_MIB_PER_WORKSPACE=500`, because the preflight's default of 700 MiB per workspace refuses 25 workspaces on 16 GiB. Same 48 second ramp and 15 minutes steady as before. Each of the 25 students also had code help open, as described under "Method".
+
+| Measure (limit) | N=25, 15 min steady |
+|---|---|
+| Completion p95, Python (1 000) | 124 (p50 22, max 526) |
+| Completion p95, TypeScript (1 000) | 54 (p50 12, max 185) |
+| Edit to new diagnostics p95, Python | 363 (p50 275) |
+| Edit to new diagnostics p95, TypeScript | 51 (p50 11) |
+| Language servers ready after the socket opens, p95 | Python 279, TypeScript 62, ruff 53 |
+| **VM memory available, lowest (2 048 MiB)** | **945 MiB, fails** |
+| Memory pressure, highest | 26.4% |
+| Start p95 (10 000) | 6 962 |
+| Keystroke echo p95 (150) | 112 |
+| File event p95 (1 000) | 517 |
+| Git refresh p95 (2 000) | 227 |
+| `/health` worst (2 000) | 98 |
+| Failed operations (0) | 0 of about 40 000 |
+| Workspaces active | 25 of 25 |
+| VM CPU busy at steady | 36.5% of 8 vCPUs |
+| Highest 1-minute load | 16.2 |
+
+Resident memory of each language server, per student, over the steady phase:
+
+| Server | Mean | Highest |
+|---|---|---|
+| pyright (Python) | 167 MiB | 250 MiB |
+| TypeScript's native server | 57 MiB | 66 MiB |
+| ruff (Format) | 18 MiB | 41 MiB |
+| All three | 241 MiB | 322 MiB |
+
+Each workspace's cgroup held 559 MiB on average, 500 MiB of it anonymous memory the kernel cannot reclaim, against about 340 MiB without code help (see "Cost per workspace"). Of the 500 MiB, the stand-in coding agent holds 150 and the language servers about 240. The VM had 14.6 GiB available before the run, 1.8 GiB once all 25 were running, and 945 MiB at the lowest near the end of the steady phase. Memory pressure appeared, and the keystroke echo p95 crept from 11 ms to 112 ms over the 15 minutes, still inside its limit. Nothing failed.
+
+What this means:
+
+- **Completions are far inside the target.** The 1 second p95 holds with a wide margin, even with the VM short of memory.
+- **The 2 GiB reserve is not met at 25 Agentic students on 16 GiB.** The run used about 550 MiB per student. With 2 GiB kept free, 16 GiB holds about 23 such students in an Agentic course. For 25 Agentic students the VM needs 20 GiB, which also leaves room for real agents, which use more than the stand-in.
+- **A Traditional course fits 25 students on 16 GiB.** The stand-in's 150 MiB across 25 students is 3.7 GiB, so a class that uses code help but runs no agent (a Traditional course, SPEC.md section 8.7, which hides the agent launchers) keeps about 4.6 GiB free. That figure is calculated from the measured per-student figures, not measured.
+- **The levers, if 16 GiB must hold 25 with agents:** start ruff only when a student formats, lower the servers' memory caps (today 1 GiB each, far above what they used, so this changes little), or turn code help off for the site.
+
+**The 8 GiB pilot VM cannot hold a full class with code help on.** It has about 7 GiB available for workspaces. At 550 MiB per student with code help and a coding agent, it holds about nine students with the 2 GiB reserve, and about 16 with code help turned off.
+
 ## Cost per workspace
 
 Measured with the stand-in agent, steady activity:
@@ -94,6 +141,7 @@ Measured with the stand-in agent, steady activity:
 - **Memory:** about 340 MiB that the VM cannot reclaim (8.4 GiB for 25, 12.2 GiB for 40). The workspace cgroup shows about 580 MiB, but part of that is page cache the kernel gives back under pressure. Of the 340 MiB, the stand-in accounts for 150.
 - **CPU:** 0.03 of a core on average.
 - **Disk:** 1.1 GiB of the thin pool for a new workspace that has been started once. Student files come on top.
+- **Code help:** about 240 MiB more per student with a Python and a TypeScript file open (see "Code help on a 16 GiB VM").
 - **Control plane:** Incus grows by about 700 MiB and the API by about 130 MiB at 25 workspaces. Caddy, PostgreSQL, the worker and the controller together stay under 300 MiB.
 
 ## The size the pilot needs
@@ -104,7 +152,9 @@ For 25 active workspaces:
 - **CPU: 8 vCPUs.** Steady use was about one core in total. The peak is a build: each workspace may use 2 cores (`limits.cpu`), so 8 vCPUs let three students build at full speed at the same time while the control plane stays responsive.
 - **Data disk: 200 GiB.** The thin pool is 90% of the disk, and the nightly backup needs up to about 30 GiB of it (see "Backups in the thin pool" below). On today's 100 GiB disk that leaves about 70 GiB, or about 60 started workspaces at 1.1 GiB each before any student data. SPEC.md section 25.2 targets 100 provisioned workspaces. On a 200 GiB disk the pool is about 180 GiB: 110 GiB for 100 workspaces, 30 GiB for the backup, and about 40 GiB for student files.
 
-The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
+With code help on, 16 GiB is not enough for 25 students in an Agentic course: the run at 8 vCPUs and 16 GiB above kept only 945 MiB free. A class of 25 Agentic students needs 20 GiB. A Traditional class of 25 fits in 16 GiB.
+
+The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16 GiB figure without code help is worked out from those measurements and has not been run. A confirming run is `make rehearsal-up REHEARSAL_VCPUS=8 REHEARSAL_MEMORY_MB=16384`, then `make load-test TOFU_ENV=rehearsal-libvirt N=25`, when nothing else is using the rehearsal VM.
 
 Resizing the pilot is Todd's decision (docs/archive/epics/EPIC-12B.md, risk 9). The steps are under "Resizing the pilot" below.
 

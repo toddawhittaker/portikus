@@ -43,7 +43,7 @@ has four sections:
 | [0012](0012-structured-logging.md) | Structured logging with pino and a runtime log level |
 | [0013](0013-file-api-in-the-workspace-agent.md) | The file API lives in the workspace agent, with conditional writes |
 | [0014](0014-filesystem-events-over-a-per-project-websocket.md) | Filesystem events over a per-project WebSocket |
-| [0015](0015-editor-stack.md) | Editor stack: bundled Monaco and react-markdown (in force again: 0017 was reversed) |
+| [0015](0015-editor-stack.md) | Editor stack: bundled Monaco and react-markdown (in force again: 0017 was reversed; its no-IntelliSense decision is superseded by 0065) |
 | [0016](0016-automatic-task-merges-with-epic-level-review.md) | Automatic task merges with epic-level review |
 | [0017](0017-rich-markdown-editor.md) | Rich Markdown editing with MDXEditor (reversed by issue #218) |
 | [0018](0018-preview-deployment-shape-upstream-and-iframe-policy.md) | Preview deployment shape, Caddy upstream resolution, and iframe policy |
@@ -92,3 +92,5 @@ has four sections:
 | [0062](0062-pinned-playwright-browser.md) | The image ships one pinned Playwright browser, linked into each student's home at login (accepted, Epic 45) |
 | [0063](0063-instructor-live-help.md) | Live help: a student invites one instructor to watch, and optionally type in, one project's terminals (accepted, Epic 48) |
 | [0064](0064-account-email-and-provider-groups.md) | Emailed reset and invitation links behind a switch, roles from Google groups and Entra group IDs, and a passkey at link confirm (accepted, Epic 50) |
+| [0065](0065-language-servers-in-the-workspace.md) | Real language servers run in each workspace and feed Monaco through a thin client of our own (accepted, Epic 52) |
+| [0066](0066-course-profiles-hide-stored-on-the-lti-course.md) | Course profiles hide and never block, are stored on the LTI course, and are set by the instructor or an administrator (accepted, Epic 52) |

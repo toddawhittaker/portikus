@@ -1,6 +1,7 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import { Icon, Meter, meterText } from "@portikus/ui";
 import { useRef } from "react";
+import { useCourseProfile } from "../editor/settingsQueries.js";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { formatBytes } from "../monitor/format.js";
@@ -110,7 +111,8 @@ export function StatusBar({
 		errored,
 	);
 	const storage = running ? usage.data?.storage : undefined;
-	const warning = storageWarning(storage);
+	const resetDockerShown = useCourseProfile() !== "traditional";
+	const warning = storageWarning(storage, resetDockerShown);
 	const memoryWarned = useRef(false);
 	const memory = running ? usageMeter(usage.data?.memory, memoryWarned.current) : null;
 	memoryWarned.current = memory !== null && memory.level !== "ok";

@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
+import { meSettingsBody } from "../profile-test-utils.js";
 import {
 	json,
 	openToggletip,
@@ -245,9 +246,10 @@ test("starting needs no confirmation", async () => {
 
 	fireEvent.click(screen.getByTestId("workspace-start"));
 
-	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-	expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-		`/workspaces/${WORKSPACE.id}/start`,
+	await waitFor(() =>
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+			`/workspaces/${WORKSPACE.id}/start`,
+		),
 	);
 });
 
@@ -413,7 +415,9 @@ test("a stopped workspace asks for no usage and says when storage is shown", () 
 	expect(screen.getByTestId("storage-unavailable").textContent).toBe(
 		"Available when the workspace is running.",
 	);
-	expect(fetchMock).not.toHaveBeenCalled();
+	expect(
+		fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/usage")),
+	).toEqual([]);
 });
 
 test("the dialog says sudo apt packages do not survive a rebuild", () => {
@@ -799,5 +803,66 @@ test("a branch shows no commit id, and an agent without one still reads", async 
 		expect(screen.getByTestId("git-status").textContent).toBe(
 			"detached HEAD • 0 changes",
 		),
+	);
+});
+
+/** Answers the course profile read and the usage read; anything else is accepted. */
+function stubProfile(profile: "agentic" | "traditional") {
+	stubFetch((url) =>
+		url === "/me/settings"
+			? json(200, meSettingsBody(profile))
+			: String(url).endsWith("/usage")
+				? json(200, usage({}))
+				: json(202, { ok: true }),
+	);
+}
+
+test("Traditional hides the Docker section of the dialog and keeps the rest", async () => {
+	stubProfile("traditional");
+	renderBar();
+	openStatus();
+
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	await waitFor(() =>
+		expect(dialog.queryByTestId("workspace-reset-docker")).toBeNull(),
+	);
+	expect(dialog.queryByRole("heading", { name: "Docker" })).toBeNull();
+	expect(dialog.getByRole("heading", { name: "Storage" })).toBeDefined();
+	expect(dialog.getByRole("heading", { name: "Rebuilds" })).toBeDefined();
+});
+
+test("Agentic keeps the Docker section of the dialog", async () => {
+	stubProfile("agentic");
+	renderBar();
+	openStatus();
+
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	await waitFor(() =>
+		expect(dialog.getByRole("heading", { name: "Docker" })).toBeDefined(),
+	);
+	expect(dialog.getByTestId("workspace-reset-docker")).toBeDefined();
+});
+
+test("a Traditional student's storage warning does not point to the hidden Reset Docker", async () => {
+	stubFetch((url) =>
+		url === "/me/settings"
+			? json(200, meSettingsBody("traditional"))
+			: String(url).endsWith("/usage")
+				? json(200, usage({ docker: percent(96) }))
+				: json(202, { ok: true }),
+	);
+	renderBar();
+
+	const warning = await screen.findByTestId("storage-warning");
+	fireEvent.click(warning);
+	await waitFor(() =>
+		expect(screen.getByTestId("storage-warning-detail").textContent).toBe(
+			"Docker storage is 96% full. Run docker system prune.",
+		),
+	);
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	expect(dialog.queryByTestId("workspace-reset-docker")).toBeNull();
+	expect(dialog.getByTestId("storage-step-docker").textContent).toBe(
+		"Run docker system prune.",
 	);
 });

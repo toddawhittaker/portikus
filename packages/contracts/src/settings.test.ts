@@ -31,6 +31,7 @@ const GUARD_SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
+	codeHelpEnabled: true,
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
@@ -520,4 +521,19 @@ test("CreateDexUserRequest refuses a bad name, email, username or role, and extr
 			false,
 		);
 	}
+});
+
+test("MeSettings carries the code-help switch and course profile, both optional", () => {
+	const base = { ...EDITOR_SETTINGS_DEFAULTS, timezones: [] };
+	expect(MeSettings.parse(base).codeHelpEnabled).toBeUndefined();
+	expect(
+		MeSettings.parse({ ...base, codeHelpEnabled: false, courseProfile: "traditional" }),
+	).toMatchObject({ codeHelpEnabled: false, courseProfile: "traditional" });
+	expect(MeSettings.safeParse({ ...base, courseProfile: "other" }).success).toBe(false);
+});
+
+test("UpdatePlatformSettingsRequest takes the code-help switch on its own", () => {
+	expect(UpdatePlatformSettingsRequest.parse({ codeHelpEnabled: false })).toEqual({
+		codeHelpEnabled: false,
+	});
 });

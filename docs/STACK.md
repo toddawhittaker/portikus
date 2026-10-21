@@ -250,6 +250,18 @@ Use Monaco Diff Editor for file diffs.
 
 Do not attempt to reproduce the complete VS Code extension system.
 
+Code help (SPEC.md section 13.6, ADR 0065) comes from real language servers
+in the workspace, not from Monaco's own language services. The browser talks
+to them through a thin Language Server Protocol client of our own in
+`apps/web/src/lsp/` (about 800 lines: a socket, one client per project and
+server, the providers for the six features, and a zustand store for problems
+and server state). Protocol types come from `vscode-languageserver-protocol`
+3.18.4 as a type-only dev dependency, so no protocol code ships to the
+browser. Monaco's MIT adapters were read as reference. The editor loads the
+suggest, hover, go to symbol, rename, format and go to error features, and
+turns word-based suggestions off. Hover and completion content is untrusted
+(SPEC.md section 13.6), so `isTrusted` and `supportHtml` stay false.
+
 ### Markdown editing and rendering
 
 Use **react-markdown** (pinned at 10.1.0) with **remark-gfm** for tables,
@@ -570,7 +582,8 @@ Responsibilities include:
 - workspace health;
 - selected Docker health/status;
 - coding-agent launch support;
-- project discovery.
+- project discovery;
+- hosting language servers for code help.
 
 ### Transport and delivery
 
@@ -610,6 +623,34 @@ them under one project and all confined to it (ADRs 0013 and 0014):
 | `GET /projects/:slug/git/diff` | One file, `HEAD` against the working tree, each side capped at 1 MiB |
 | `GET /projects/:slug/search` | ripgrep over the project, at most 500 matches |
 | `GET /projects/:slug/events` (WebSocket) | Batched filesystem changes, with a ready frame first |
+| `GET /projects/:slug/language-servers/:server` (WebSocket) | One language server's LSP messages, one per text frame (SPEC.md section 13.6) |
+
+### Language servers
+
+The agent hosts the language servers of SPEC.md section 13.6 (ADR 0065). They
+ship in the Debian package's agent tree and are bind-mounted read-only with
+the rest of the agent, so adding or upgrading one needs no image rebuild. The
+agent has one table entry per server: id, how it is counted, command,
+`initializationOptions` and client capabilities.
+
+| Id | Program | Pinned at |
+|---|---|---|
+| `python` | `pyright` | 1.1.414 |
+| `typescript` | TypeScript's built-in language server, `tsc --lsp --stdio` | `typescript` 7.0.2 with `@typescript/typescript-linux-x64` |
+| `ruff` | `ruff server`, format only | 0.16.10, a release binary checked by sha256 in `scripts/build-deb.sh` |
+
+TypeScript 7 is the Go port and ships its own language server, so no
+`typescript-language-server` and no TypeScript 6 are bundled. The agent finds
+the native binary with `typescript/lib/getExePath.js`, and `make build-deb`
+fails if that lookup cannot find an executable binary inside the deployed
+agent tree. The server asks the client for pull diagnostics
+(`textDocument/diagnostic`), and automatic type acquisition is off. The build
+keeps `.d.ts` and `.pyi` files when it prunes, because the servers read them.
+Pyright runs with `--max-old-space-size=1024`, and TypeScript's native server
+with `GOMEMLIMIT` 1024 MiB. Each server is spawned under `prlimit` and
+`choom` (by absolute path), as the Checks route does, and stopped with
+`killProcessTree`. The stdio framing lives in a module named
+generically, `stdio-messages.ts`, but nothing else uses it yet.
 
 ### PTY implementation
 
@@ -764,6 +805,17 @@ authenticate
 → verify lifecycle behavior
 ```
 
+### Language-server tests
+
+The agent's tests run against the real `pyright` and the real TypeScript
+native server from the package tree, because a mocked server
+cannot show that the wiring works. The API's tests and the end-to-end tests
+use a scripted LSP responder in the fake agent, patterned on its events
+route. The route is an owner-only entry in the route policy, so the
+WebSocket authorization matrix probes it. The load test in
+`infra/tests/load/` measures completion latency and memory with 25 simulated
+students (SPEC.md sections 25.1 and 25.2).
+
 ### Infrastructure smoke tests
 
 Infrastructure tests should validate:
@@ -772,7 +824,7 @@ Infrastructure tests should validate:
 - Incus availability;
 - workspace provisioning;
 - nested Docker;
-- workspace agent;
+- workspace agent, including that each language server starts from the installed package and answers `initialize`;
 - terminal connectivity;
 - preview routing;
 - control-plane health.
@@ -838,7 +890,8 @@ Do not log:
 - coding-agent prompts;
 - project source code;
 - `.env` contents;
-- raw terminal history.
+- raw terminal history;
+- language-server messages, which carry source code. The agent drops each server's standard error, and the API relays frames without reading them (SPEC.md section 13.6).
 
 The preview routes log the user id, the workspace id, the port, the request
 method, the class of path, the status and the timing, which is what makes a
@@ -1648,6 +1701,7 @@ Zustand
 Tailwind
 Radix-style accessible primitives
 Monaco
+An LSP client of our own over Monaco
 react-markdown
 xterm.js
 
@@ -1664,6 +1718,9 @@ nodemailer
 
 node-pty
 tmux
+pyright
+typescript (native language server)
+ruff server
 chokidar
 ripgrep
 git CLI
@@ -1774,6 +1831,30 @@ same configuration when that day comes.
 Explicitly prohibited.
 
 Student workspaces are runtime application resources, not static infrastructure resources.
+
+### Monaco's in-browser TypeScript service
+
+Not selected for code help. It has no Python, it runs in the browser where it
+cannot see the project's configuration or installed types, and it would show
+wrong errors (ADR 0015). Real servers in the workspace see the real project
+(ADR 0065).
+
+### monaco-languageclient
+
+Not selected. Version 11 replaces `monaco-editor` with about 30 packages of
+its own, against ADR 0015's single pinned Monaco. A thin client of our own
+(about 800 lines) does the six features we need.
+
+### Monaco's built-in LSP client
+
+Not selected. In Monaco 0.57 it syncs every model to every server, sends
+`pk:/` URIs unchanged and lowercases URIs, which is wrong for paths on Linux.
+
+### openvscode-server
+
+Not selected. It is a second full editor and extension host per student, where
+Portikus keeps one editor, Monaco, and does not build an extension ecosystem
+(SPEC.md sections 13.2 and 32).
 
 ### LTI grade passback (AGS)
 

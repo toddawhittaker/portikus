@@ -21,7 +21,7 @@ find_nfpm() {
 	local archive="$cache_dir/$tarball"
 	local binary="$cache_dir/nfpm"
 
-	if ! echo "${NFPM_SHA256}  $archive" | sha256sum -c --status - 2>/dev/null; then
+	if ! echo "${NFPM_SHA256}  $archive" | sha256sum -c --status - >/dev/null 2>&1; then
 		local url="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${tarball}"
 		echo "Downloading nfpm ${NFPM_VERSION}..." >&2
 		mkdir -p "$cache_dir"
@@ -52,12 +52,31 @@ fetch_node() {
 	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/portikus/node"
 	local tarball="node-v${NODE_VERSION}-linux-x64.tar.xz"
 	local archive="$cache_dir/$tarball"
-	if ! echo "${NODE_SHA256}  $archive" | sha256sum -c --status - 2>/dev/null; then
+	if ! echo "${NODE_SHA256}  $archive" | sha256sum -c --status - >/dev/null 2>&1; then
 		echo "Downloading Node ${NODE_VERSION}..." >&2
 		mkdir -p "$cache_dir"
 		rm -f "$archive"
 		curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}" -o "$archive"
 		echo "${NODE_SHA256}  $archive" | sha256sum -c - >&2
+	fi
+	echo "$archive"
+}
+
+# Python Format's language server (docs/SPEC.md section 13.6). The gnu build
+# needs only glibc 2.17, which every workspace image has.
+RUFF_VERSION="0.16.10"
+RUFF_SHA256="9567ff1201e2fb3da31ff04c35587d768c66d6cb42dfa84de474e2bfe360b608"
+
+fetch_ruff() {
+	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/portikus/ruff/$RUFF_VERSION"
+	local tarball="ruff-x86_64-unknown-linux-gnu.tar.gz"
+	local archive="$cache_dir/$tarball"
+	if ! echo "${RUFF_SHA256}  $archive" | sha256sum -c --status - >/dev/null 2>&1; then
+		echo "Downloading ruff ${RUFF_VERSION}..." >&2
+		mkdir -p "$cache_dir"
+		rm -f "$archive"
+		curl -fsSL "https://github.com/astral-sh/ruff/releases/download/${RUFF_VERSION}/${tarball}" -o "$archive"
+		echo "${RUFF_SHA256}  $archive" | sha256sum -c - >&2
 	fi
 	echo "$archive"
 }
@@ -80,6 +99,7 @@ fetch_collections() {
 }
 
 node_archive="$(fetch_node)"
+ruff_archive="$(fetch_ruff)"
 collections_dir="$(fetch_collections)"
 
 pnpm install --frozen-lockfile
@@ -144,6 +164,45 @@ cat > dist/deploy/workspace-agent/bin/workspace-agent <<'SHIM'
 exec /usr/bin/node /opt/portikus/workspace-agent/dist/index.js
 SHIM
 chmod 0755 dist/deploy/workspace-agent/bin dist/deploy/workspace-agent/bin/workspace-agent
+
+# The agent looks for ruff here (RUFF_PATH in language-server-table.ts).
+tar -xzf "$ruff_archive" -C dist/deploy/workspace-agent/bin --strip-components=1 \
+	ruff-x86_64-unknown-linux-gnu/ruff
+chmod 0755 dist/deploy/workspace-agent/bin/ruff
+
+# The language servers read these at run time, so pruning must never take
+# them: TypeScript's lib .d.ts files, pyright's typeshed stubs, and the
+# executables the agent starts.
+agent_modules=dist/deploy/workspace-agent/node_modules
+for needed in \
+	"$agent_modules/.pnpm/@typescript+typescript-linux-x64@"*/node_modules/@typescript/typescript-linux-x64/lib/lib.es5.d.ts \
+	"$agent_modules/pyright/dist/typeshed-fallback/stdlib/builtins.pyi"; do
+	if [ ! -f "$needed" ]; then
+		echo "build-deb: the agent tree lacks $needed" >&2
+		exit 1
+	fi
+done
+if [ ! -x dist/deploy/workspace-agent/bin/ruff ]; then
+	echo "build-deb: the agent tree's ruff is missing or not executable" >&2
+	exit 1
+fi
+# The agent finds TypeScript's native server the way the package itself does,
+# so ask that same lookup inside the deployed tree.
+agent_tsc=$(node --input-type=module -e '
+	const { default: getExePath } = await import(process.argv[1]);
+	console.log(getExePath());
+' "$PWD/$agent_modules/typescript/lib/getExePath.js")
+case "$agent_tsc" in
+"$PWD/$agent_modules/"*) ;;
+*)
+	echo "build-deb: TypeScript's lookup found $agent_tsc, outside the agent tree" >&2
+	exit 1
+	;;
+esac
+if [ ! -x "$agent_tsc" ]; then
+	echo "build-deb: $agent_tsc is not executable" >&2
+	exit 1
+fi
 
 mkdir -p dist/deploy/node
 tar -xJf "$node_archive" -C dist/deploy/node --strip-components=1

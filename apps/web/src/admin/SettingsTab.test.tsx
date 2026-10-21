@@ -18,6 +18,7 @@ const SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
+	codeHelpEnabled: true,
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
@@ -39,7 +40,7 @@ function stubSettings() {
 	});
 }
 
-test("Settings is six admin cards in one column, and the log level is not among them", async () => {
+test("Settings is seven admin cards in one column, and the log level is not among them", async () => {
 	stubSettings();
 	renderApp("/admin/settings");
 
@@ -52,6 +53,7 @@ test("Settings is six admin cards in one column, and the log level is not among 
 		"Resource guard",
 		"Acceptable use",
 		"Voice input",
+		"Code help",
 		"Account email",
 		"Notifications",
 	]);
@@ -208,6 +210,71 @@ test("while the voice switch saves, it shows the value asked for, stays focusabl
 	expect(box.checked).toBe(false);
 	fireEvent.click(box);
 	expect(puts).toEqual([{ voiceInputEnabled: false }]);
+});
+
+test("the code help switch is on by default, explains itself and saves as soon as it changes", async () => {
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			const body = JSON.parse(String(init.body));
+			puts.push(body);
+			return json(200, { ...SETTINGS, ...body });
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin/settings");
+
+	const card = await screen.findByRole("region", { name: "Code help" });
+	const box = within(card).getByRole<HTMLInputElement>("checkbox", {
+		name: /Allow code help/,
+	});
+	expect(box.getAttribute("aria-describedby")).toBeTruthy();
+	expect(card.textContent).toContain("Problems tab");
+	await waitFor(() => expect(box.checked).toBe(true));
+	fireEvent.click(box);
+	await waitFor(() => expect(puts).toEqual([{ codeHelpEnabled: false }]));
+	expect(await screen.findByText("Code help off")).toBeTruthy();
+	// Voice input is a separate switch and was not touched.
+	expect(puts).toHaveLength(1);
+});
+
+test("while the code help switch saves, it shows the value asked for and ignores clicks", async () => {
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			puts.push(JSON.parse(String(init.body)));
+			return new Promise<Response>(() => {});
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/notifications")
+			return json(200, {
+				settings: notificationSettingsView(NOTIFY_FILE_OFF),
+				job: null,
+				storedFileUnreadable: false,
+			});
+		throw new Error(`unexpected request: ${url}`);
+	});
+	renderApp("/admin/settings");
+
+	const card = await screen.findByRole("region", { name: "Code help" });
+	const box = within(card).getByRole<HTMLInputElement>("checkbox", {
+		name: /Allow code help/,
+	});
+	await waitFor(() => expect(box.checked).toBe(true));
+	fireEvent.click(box);
+	await waitFor(() => expect(box.getAttribute("aria-disabled")).toBe("true"));
+	expect(box.checked).toBe(false);
+	fireEvent.click(box);
+	expect(puts).toEqual([{ codeHelpEnabled: false }]);
 });
 
 test("the account email switch is off by default, says it needs SMTP, and saves as soon as it changes", async () => {

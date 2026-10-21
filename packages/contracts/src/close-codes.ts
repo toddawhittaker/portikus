@@ -17,6 +17,16 @@ export const CloseCode = {
 	LIVE_HELP_ENDED: 4410,
 	/** The helper opened this terminal in another tab; this one stops and does not reconnect (ADR 0063). */
 	LIVE_HELP_REPLACED: 4411,
+	/** The same project and language server was opened in another window; this one does not reconnect. */
+	LANGUAGE_SERVER_REPLACED: 4412,
+	/** The language server stopped after 15 minutes without a message; the browser reconnects on the next edit. */
+	LANGUAGE_SERVER_IDLE: 4413,
+	/** The language server exited on its own. */
+	LANGUAGE_SERVER_CRASHED: 4414,
+	/** The language server is not installed, or crashed too often to restart for now. */
+	LANGUAGE_SERVER_UNAVAILABLE: 4415,
+	/** An administrator turned code help off; the browser does not retry. */
+	LANGUAGE_SERVER_DISABLED: 4416,
 	/** The user already has as many sockets of this kind open as allowed (SPEC.md §24.13). */
 	TOO_MANY_SOCKETS: 4429,
 } as const;

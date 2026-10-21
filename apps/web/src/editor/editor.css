@@ -51,8 +51,26 @@
 	color: var(--ink);
 }
 
+.pk-zoom-button:focus-visible,
+.pk-zoom-reset:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+/* Monaco draws a diagnostic's source at 60% opacity with an inline style,
+   under 4.5:1 in the light theme (SPEC.md §25.8). */
+.monaco-hover .marker.hover-contents > span + span {
+	/* biome-ignore lint/complexity/noImportantStyles: Monaco sets this opacity inline */
+	opacity: 1 !important;
+}
+
 .pk-editor-language {
 	margin-right: auto;
+}
+
+/* Code help's state sits beside the zoom controls (SPEC.md §13.6). */
+.pk-code-help[data-shown="true"] {
+	padding-inline-end: var(--space-2);
 }
 
 .pk-zoom-value {

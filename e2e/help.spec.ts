@@ -295,6 +295,9 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		"Shift+F10",
 		"F8",
+		"Ctrl+Space",
+		"Ctrl+K, then Ctrl+I",
+		"Alt+F8, Shift+Alt+F8",
 	]);
 	await expect(topic.locator("dl dd").first()).toHaveText(
 		"Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
@@ -315,6 +318,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Terminals",
 		"Voice input in a terminal",
 		"Files and the editor",
+		"Code help in the editor",
 		"Recovery points",
 		"Previews",
 		"Container images with GitHub Actions",

@@ -22,6 +22,9 @@
 			"entry": ["src/backup-channel-main.ts", "src/alert-main.ts"],
 			"project": ["src/**/*.ts"]
 		},
+		"apps/workspace-agent": {
+			"project": ["src/**/*.ts"]
+		},
 		"apps/workspace-controller": {
 			"entry": ["src/egress-apply-main.ts"],
 			"project": ["src/**/*.ts"]
