@@ -287,14 +287,20 @@ jobs:
   # The browser tests are the slowest part of CI, so they run in parallel
   # shards, each with its own database and ports, alongside the app job.
   e2e-shard:
-    name: Browser end-to-end tests (shard ${{ matrix.shard }} of 7)
-    runs-on: ubuntu-26.04
+    name: Browser end-to-end tests (shard ${{ matrix.shard }} of 7, ${{ matrix.os }}, tmp ${{ matrix.tmp }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     needs: changes
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 5]
+        shard: [1]
+        os: [ubuntu-24.04, ubuntu-26.04]
+        tmp: [default]
+        include:
+          - shard: 1
+            os: ubuntu-26.04
+            tmp: disk
     services:
       postgres:
         image: mirror.gcr.io/library/postgres:17
@@ -353,14 +359,18 @@ jobs:
         # Shards are packed by measured time from e2e/shard-timings.json, not by test count.
         run: |
           mkdir -p diag
+          if [ "${{ matrix.tmp }}" = disk ]; then mkdir -p "$RUNNER_TEMP/tmp"; export TMPDIR="$RUNNER_TEMP/tmp"; fi
           cg="/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)"
           {
-            uname -a; nproc; free -m; ulimit -a; df -h /dev/shm; mount | grep shm
+            uname -a; nproc; free -m; ulimit -a; df -h /dev/shm /tmp "$RUNNER_TEMP"; mount | grep shm; findmnt /tmp || true; echo "TMPDIR=$TMPDIR"
             cat /proc/sys/fs/file-max /proc/sys/fs/nr_open /proc/sys/vm/max_map_count /proc/sys/vm/overcommit_memory
             cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns || true
             cat /proc/sys/kernel/threads-max /proc/sys/kernel/pid_max
             cat /proc/self/cgroup; echo "pids.max $(cat "$cg/pids.max")"; echo "memory.max $(cat "$cg/memory.max")"
             ls ~/.cache/ms-playwright
+            for f in /sys/kernel/mm/transparent_hugepage/*; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
+            grep -i -E "shmem|huge" /proc/meminfo
+            grep -h . /sys/kernel/mm/transparent_hugepage/hugepages-*/shmem_enabled 2>/dev/null | sort | uniq -c
             ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell --version || true
           } > diag/system.txt 2>&1 || true
           cat diag/system.txt
@@ -380,7 +390,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: probe-diag-${{ matrix.shard }}
+          name: probe-diag-${{ matrix.os }}-${{ matrix.tmp }}
           path: |
             diag/
             test-results/
