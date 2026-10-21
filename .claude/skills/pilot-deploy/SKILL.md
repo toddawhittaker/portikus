@@ -41,19 +41,14 @@ is 10.100.0.120, the SSH user is `deploy`, the database is
    `sudo journalctl -u portikus-api -o cat`.
 8. **Workspace image, only when the image VERSION changed.** Build it on
    the pilot, make it the default, and keep the previous image as the
-   rollback. Until the fix for issue #1601 is deployed, image cleanup can
-   delete an image a workspace still uses: list each workspace's base
-   image (`sudo incus list --project portikus`) first and protect those.
-9. **Prepare the smoke test.** `make build-deb` prunes dev dependencies,
-   which stops the mock LMS. Until the fix for issue #1576 is deployed,
-   rerun `corepack pnpm install --frozen-lockfile` after the build.
-10. **Run the smoke test** from the worktree. Until issue #1602 is fixed,
-    pass the address by hand: `make smoke-test VM_IP=10.100.0.120
-    PORTIKUS_PUBLIC_HOST=pilot.portikus.thewhittakers.org
-    PORTIKUS_PUBLIC_PORT=8443`. A handful of skips is normal (checks that
-    need setup the pilot lacks); name each skip in the report and treat
-    any failure as real.
-11. **Clean up.** Remove the build worktree once Todd is happy with the
+   rollback.
+9. **Run the smoke test** from the worktree. Until issue #1602 is fixed,
+   pass the address by hand: `make smoke-test VM_IP=10.100.0.120
+   PORTIKUS_PUBLIC_HOST=pilot.portikus.thewhittakers.org
+   PORTIKUS_PUBLIC_PORT=8443`. A handful of skips is normal (checks that
+   need setup the pilot lacks); name each skip in the report and treat
+   any failure as real.
+10. **Clean up.** Remove the build worktree once Todd is happy with the
     deploy.
 
 ## Report
