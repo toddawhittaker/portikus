@@ -30,16 +30,29 @@ line per step, so the run survives a context reset.
 6. **Write the shared rules file** in the scratchpad (template below) and
    point every task prompt at it. Each prompt adds the task row, the base
    commit, the files in scope, and what done looks like.
-7. **Verify each report** before queuing: in the agent's worktree run
+7. **Verify each report** before merging: in the agent's worktree run
    `corepack pnpm typecheck` and `corepack pnpm lint` (builder, tester and
-   ui-designer also run these in a Stop hook), read the diff, and rule on
-   anything it did outside its file list.
-8. **One merger queue.** Hand the ordered PR list to a single merger, not
-   a shell loop in the main session; it reruns flakes and escalates only
-   conflicts and real failures. A task PR into the epic has no human
-   review: once its CI is green, merger squash-merges it and deletes the
-   branch. Todd reviews once, at the epic level. Main-into-epic and
-   epic-into-main use merge commits.
+   ui-designer also run these in a Stop hook), read the diff, check with
+   `gh pr view <n> --json files` that the files it claims are in the PR,
+   and rule on anything it did outside its file list. Before pushing any
+   edit of your own, run `pnpm lint` and
+   `node scripts/check-comment-history.mjs`.
+8. **Land by auto-merge.** The repository allows auto-merge. Once a task
+   PR passes step 7, run `gh pr merge <n> --auto --squash --delete-branch`.
+   GitHub merges it when its CI is green. The epic rulesets do not require
+   a branch to be up to date, so green PRs land in parallel. A task PR
+   into the epic has no human review; Todd reviews once, at the epic
+   level. Never use auto-merge on a PR into main; Todd merges main.
+   Main-into-epic and epic-into-main use merge commits.
+
+   Hand a PR to merger only to diagnose a red run (flake, conflict or
+   real failure; it reruns flakes and escalates the rest) or to update a
+   branch that has fallen behind with conflicts. Do not use a shell loop
+   in the main session.
+
+   PRs are not tested together, so after merges land, watch the epic
+   branch's push run (`gh run list --branch epic/<n>-<name>`) and chase
+   any red result before the next wave or the reviews.
 9. **Reviews** after every task PR has landed, on a read-only worktree at
    the epic head, run in parallel:
    - code-reviewer always, over the epic head and the whole repo's dead
@@ -48,7 +61,7 @@ line per step, so the run survives a context reset.
      the workspace agent, file APIs, Incus, or nested Docker;
    - a11y-reviewer when it touches `apps/web` or `packages/ui`.
 10. **Fix round.** Rule on each finding: fix now through task PRs, or
-    record as a STATUS gap. Land fixes through merger, also without human
+    record as a STATUS gap. Land fixes the same way (step 8), also without human
     review, then have each reviewer confirm its findings are closed.
 11. **Rehearsal VM full smoke** when the epic touches install, packaging
     or infra. One infra agent owns the rehearsal VM for the run. It must
@@ -82,7 +95,7 @@ line per step, so the run survives a context reset.
 - A fresh worktree needs `corepack pnpm build` before e2e.
 - Agents share the scratchpad; give each its own subfolder.
 - An agent waiting on a merge can deadlock; tell running agents not to wait
-  before pausing the queue.
+  for their PR to land.
 - Never echo "merged" without checking `gh pr view N --json state`.
 
 ## Shared rules file template
@@ -103,7 +116,13 @@ docs/EPIC-<n>.md on the epic branch; read your task's row.
 - Scratchpad <path> is shared; use a subfolder named after your task.
 - Tests first: a bug fix starts with a failing test. Design tests from the
   SPEC.md invariant. Anything a user can see ships with Playwright tests.
-  Run only the affected specs locally; CI runs the full suite.
+- Verify the way CI does. Run the unit suite as CI shards it (both shards,
+  with `TEST_DATABASE_URL` set), not just the changed files. Run every
+  Playwright spec for each page your change touches, including help pages
+  and text-only edits.
+- A failure near your code is yours until it is shown to fail the same way
+  on the base without your change. "Passes when run alone" does not prove
+  a flake.
 - Before the PR: typecheck, lint, and affected tests green (`make
   infra-check` for infra or packaging). Report commands and counts.
 - Do not edit docs/STATUS.md, the plan, or SPEC.md section 29. Put a
