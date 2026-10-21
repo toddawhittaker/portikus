@@ -1,6 +1,7 @@
 // A scripted language server for the agent's lifecycle tests. It answers
 // `initialize` with the params it received, and a few test methods make it
 // misbehave on demand.
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 let pending = Buffer.alloc(0);
@@ -13,6 +14,11 @@ function send(message) {
 
 if (process.env.FAKE_PID_FILE)
 	writeFileSync(process.env.FAKE_PID_FILE, String(process.pid));
+// A child of its own, so a test can see the whole tree die.
+if (process.env.FAKE_CHILD_PID_FILE) {
+	const sleeper = spawn("sleep", ["600"], { stdio: "ignore" });
+	writeFileSync(process.env.FAKE_CHILD_PID_FILE, String(sleeper.pid));
+}
 process.stderr.write("fake server noise on stderr\n");
 
 function handle(message) {

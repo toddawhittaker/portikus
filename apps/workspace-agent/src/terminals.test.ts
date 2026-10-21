@@ -355,8 +355,13 @@ test.skipIf(!haveTmux)(
 			await vi.waitFor(async () => expect(await windowSize(id)).toBe("80x20"));
 
 			// A's size is unchanged, but sending it again takes the window back.
-			a.resize(120, 40);
-			await vi.waitFor(async () => expect(await windowSize(id)).toBe("120x40"));
+			// B's claim is still recording itself when the window turns 80x20, and
+			// a size sent in that gap is ignored as the holder's; so send again
+			// until it is accepted, as a browser does.
+			await vi.waitFor(async () => {
+				a.resize(120, 40);
+				expect(await windowSize(id)).toBe("120x40");
+			});
 		} finally {
 			registry.closeAll(id, 1000, "done");
 			await killSession(id, SERVER);
