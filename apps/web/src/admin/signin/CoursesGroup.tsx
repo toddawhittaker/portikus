@@ -92,7 +92,7 @@ export function CoursesGroup() {
 										label={<span className="sr-only">Profile for {course.title}</span>}
 										options={OPTIONS}
 										value={pending ? asked.profile : course.profile}
-										disabled={pending}
+										ariaDisabled={pending}
 										onValueChange={(value) =>
 											choose(course.id, course.title, value as CourseProfile)
 										}

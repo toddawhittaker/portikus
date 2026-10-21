@@ -332,9 +332,23 @@ test("an administrator sets a course's profile on the Sign-in tab", async ({
 		await expect(choice).toContainText("Agentic", { timeout: 15_000 });
 		await expect(group).toContainText("never blocks anything");
 
+		// Hold the save so the busy state can be seen: focus stays on the control.
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(`**/admin/courses/${course.id}/profile`, async (route) => {
+			await held;
+			await route.continue();
+		});
 		await choice.click();
 		await page.getByRole("option", { name: "Traditional" }).click();
+		await expect(choice).toHaveAttribute("aria-disabled", "true");
+		await expect(choice).toBeFocused();
+		release();
 		await expect(toast(page, `${course.title} is now Traditional`)).toBeVisible();
+		await expect(choice).not.toHaveAttribute("aria-disabled", "true");
+		await expect(choice).toBeFocused();
 		await expect(choice).toContainText("Traditional");
 		expect(await profileOf(course.id)).toBe("traditional");
 

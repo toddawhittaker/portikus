@@ -36,6 +36,8 @@ export interface SelectProps {
 	open?: boolean;
 	/** Show the value but take no choice, while the options are still coming. */
 	disabled?: boolean;
+	/** Busy: stays focusable and announced as unavailable; the caller ignores changes. */
+	ariaDisabled?: boolean;
 	onValueChange?: (v: string) => void;
 }
 
@@ -61,6 +63,7 @@ export function Select({
 	help,
 	open,
 	disabled,
+	ariaDisabled,
 	onValueChange,
 }: SelectProps): React.ReactElement {
 	return (
@@ -80,9 +83,10 @@ export function Select({
 					id={id}
 					aria-labelledby={`${id}-l ${id}`}
 					aria-describedby={hint ? `${id}-hint` : undefined}
+					aria-disabled={ariaDisabled || undefined}
 					className={cx(
 						"pk-select flex cursor-pointer items-center justify-between gap-2 text-left",
-						disabled ? "cursor-default opacity-60" : "",
+						disabled || ariaDisabled ? "cursor-default opacity-60" : "",
 						CONTROL_CLASS,
 					)}
 				>
