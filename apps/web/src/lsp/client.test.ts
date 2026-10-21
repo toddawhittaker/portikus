@@ -188,6 +188,7 @@ test("close codes map to what the client does next", () => {
 	expect(closeAction(CloseCode.LANGUAGE_SERVER_DISABLED)).toBe("disabled");
 	expect(closeAction(CloseCode.SESSION_ENDED)).toBe("refused");
 	expect(closeAction(1006)).toBe("retry");
+	expect(closeAction(CloseCode.TOO_MANY_SOCKETS)).toBe("retry");
 	expect(
 		statusAfterClose("crashed", "crashed: may have run out of memory").detail,
 	).toMatch(/memory/);
@@ -448,6 +449,24 @@ test("DISABLED tells the manager and is never retried", async () => {
 	expect(onDisabled).toHaveBeenCalledTimes(1);
 	vi.advanceTimersByTime(60_000);
 	expect(FakeWebSocket.all).toHaveLength(1);
+	client.dispose();
+});
+
+test("a socket refused for too many sockets is retried with backoff", async () => {
+	const client = makeClient();
+	client.track(asModel(fakeModel("x\n")), "main.py");
+	latest().serverClose(CloseCode.TOO_MANY_SOCKETS);
+	expect(status()?.state).toBe("starting");
+	vi.advanceTimersByTime(999);
+	expect(FakeWebSocket.all).toHaveLength(1);
+	vi.advanceTimersByTime(1);
+	expect(FakeWebSocket.all).toHaveLength(2);
+	// The second wait is longer, so a busy server is not hammered.
+	latest().serverClose(CloseCode.TOO_MANY_SOCKETS);
+	vi.advanceTimersByTime(1999);
+	expect(FakeWebSocket.all).toHaveLength(2);
+	vi.advanceTimersByTime(1);
+	expect(FakeWebSocket.all).toHaveLength(3);
 	client.dispose();
 });
 

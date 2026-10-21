@@ -63,6 +63,11 @@ test.describe("code help features", () => {
 		await expect(codeHelpStatus(page, sample.path)).toHaveText("Code help ready", {
 			timeout: 30_000,
 		});
+		// The unannounced "ready" text keeps its gap before the zoom controls.
+		await expect(codeHelpStatus(page, sample.path)).toHaveCSS(
+			"padding-inline-end",
+			"8px",
+		);
 		await editorLines(page, sample.path).click();
 		await page.keyboard.press("Control+Home");
 		return { wire, project };

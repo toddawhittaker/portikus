@@ -51,7 +51,11 @@ export function CodeHelpStatus({
 	const announced = view !== null && (view.action !== null || tooLarge);
 	return (
 		<>
-			<span className="pk-code-help" data-testid={`editor-code-help-${path}`}>
+			<span
+				className="pk-code-help"
+				data-testid={`editor-code-help-${path}`}
+				data-shown={view !== null}
+			>
 				{announced ? null : view?.text}
 				{/* Always mounted, so a change of state is announced (SPEC.md §25.8). */}
 				<span role="status">{announced ? view.text : ""}</span>
