@@ -27,8 +27,8 @@ concurrency:
 jobs:
   build:
     name: Build the image
-    # Pinned: the build depends on the host's debootstrap and distrobuilder behaviour, and ubuntu-latest moves to 26 on 2026-10-19.
-    runs-on: ubuntu-24.04
+    # Pinned: the build depends on the host's debootstrap and distrobuilder behaviour, so a new ubuntu-latest must not change it unannounced.
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -146,7 +146,7 @@ jobs:
 
   publish:
     name: Sign and publish the image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     needs: build
     # Only main may sign, as a second guard behind the environment's branch policy.

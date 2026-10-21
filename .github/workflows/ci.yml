@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  # Every job names ubuntu-24.04, not ubuntu-latest, so a new runner image
+  # Every job names ubuntu-26.04, not ubuntu-latest, so a new runner image
   # cannot change the build, shellcheck or the browser tests unannounced.
   #
   # A push run whose exact tree already passed on its pull request skips
@@ -19,7 +19,7 @@ jobs:
   # every gate below falls back to running.
   reuse:
     name: Reuse an earlier pass
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -44,7 +44,7 @@ jobs:
     name: Secret scan
     needs: reuse
     if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -58,7 +58,7 @@ jobs:
     name: Docs links
     needs: reuse
     if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +69,7 @@ jobs:
     name: Detect changed files
     needs: reuse
     if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       app: ${{ steps.changed.outputs.app }}
@@ -137,7 +137,7 @@ jobs:
 
   app:
     name: Application checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     needs: changes
     steps:
@@ -181,7 +181,7 @@ jobs:
   # The slowest check, so it runs in two shards alongside the build.
   unit-shard:
     name: Unit tests (shard ${{ matrix.shard }} of 2)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     needs: changes
     strategy:
@@ -245,7 +245,7 @@ jobs:
   # in vitest.config.ts. The branch rulesets require this check by name.
   unit:
     name: Unit tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     needs: [reuse, changes, unit-shard]
     if: always() && needs.reuse.outputs.skip != 'true'
@@ -288,7 +288,7 @@ jobs:
   # shards, each with its own database and ports, alongside the app job.
   e2e-shard:
     name: Browser end-to-end tests (shard ${{ matrix.shard }} of 7)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     needs: changes
     strategy:
@@ -356,19 +356,23 @@ jobs:
           pnpm test:e2e --test-list e2e-shard-list.txt
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
+          # Playwright runs Chromium with --disable-dev-shm-usage, so its shared
+          # memory is files under TMPDIR. Ubuntu 26.04 mounts /tmp as a RAM-backed
+          # tmpfs that fills mid-test, so keep those files on disk.
+          TMPDIR: ${{ runner.temp }}
       - name: Upload the Playwright report
         if: failure() && steps.run.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ matrix.shard }}
-          path: playwright-report/
+          path: test-results/
           retention-days: 7
 
   # The branch rulesets require a check with this exact name, so it stays
   # one job that passes only when every shard passed.
   e2e:
     name: Browser end-to-end tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     needs: [reuse, e2e-shard]
     if: always() && needs.reuse.outputs.skip != 'true'
@@ -386,7 +390,7 @@ jobs:
   # check, so a Dex upgrade shows its failure here without blocking merges.
   dex-signin:
     name: Dex sign-in
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.infra == 'true'
@@ -655,7 +659,7 @@ jobs:
   # templates, config and postinst, so it needs no application build.
   debconf:
     name: Package install questions
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.infra == 'true'
@@ -690,7 +694,7 @@ jobs:
 
   infra:
     name: Infrastructure checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     needs: changes
     steps:
@@ -876,7 +880,7 @@ jobs:
     name: Signed apt repository
     needs: reuse
     if: ${{ !cancelled() && needs.reuse.outputs.skip != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -895,7 +899,7 @@ jobs:
   # when every job succeeded or was skipped by the changed-files logic.
   record-pass:
     name: Record a passing tree
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     needs: [reuse, secrets, docs, changes, app, unit-shard, unit, e2e-shard, e2e, dex-signin, debconf, infra, apt-repo]
     if: >-
