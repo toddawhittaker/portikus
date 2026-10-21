@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	codeHelpStatus,
+	editorFocus,
 	editorLines,
 	editorMessage,
 	FIRST_CHARACTER,
@@ -96,6 +97,8 @@ test.describe("code help and the project boundary", () => {
 			});
 			// The cursor is on the target line, which is scrolled into view.
 			await expect.poll(() => lineAtCursor(page, UTIL)).toBe("line40");
+			// The new tab's editor has the keyboard (SPEC.md §25.8).
+			await expect(editorFocus(page, UTIL)).toBeAttached();
 		});
 
 		test("a target outside the project is not opened and a message says so", async ({
@@ -135,11 +138,6 @@ test.describe("code help and the project boundary", () => {
 		});
 
 		test("a target that is not a file opens no window", async ({ page, context }) => {
-			// Known gap: Monaco's own opener follows an https target in a new
-			// window, so SPEC.md §13.6 ("a target outside the project is not
-			// opened, and a short message says so") is not met. test.fail keeps
-			// the suite green and fails loudly once the product is fixed.
-			test.fail();
 			const student = await createStudent(context);
 			const { wire } = await openApp(page, student);
 			await page.keyboard.press("Control+End");
@@ -392,6 +390,11 @@ test.describe("code help and the project boundary", () => {
 				.poll(() => wire.sentWith("textDocument/rename", "typescript").length)
 				.toBe(1);
 
+			// The held file is named rather than counted as a success.
+			await expect(editorMessage(page)).toHaveText(
+				`Renamed in 2 files. Not saved, because it changed on disk: ${UTIL}.`,
+				{ timeout: 30_000 },
+			);
 			// The save may be refused or may need the student's answer; either
 			// way the newer text on disk stays.
 			await new Promise((resolve) => setTimeout(resolve, 4000));

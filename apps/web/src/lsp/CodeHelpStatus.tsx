@@ -42,21 +42,27 @@ export function CodeHelpStatus({
 	path: string;
 	status: ServerStatus | undefined;
 	tooLarge: boolean;
+	/** Also moves focus off the button, which goes away while the server starts. */
 	onRestart: () => void;
 }) {
 	const view = statusView(status, tooLarge);
+	// Only a state that asks for action is announced: a quiet reconnect after
+	// idle or a dropped socket is not read out (SPEC.md §13.6, §25.8).
+	const announced = view !== null && (view.action !== null || tooLarge);
 	return (
 		<>
-			{/* Always mounted, so a change of state is announced (SPEC.md §25.8). */}
-			<span
-				className="pk-code-help"
-				role="status"
-				data-testid={`editor-code-help-${path}`}
-			>
-				{view?.text ?? ""}
+			<span className="pk-code-help" data-testid={`editor-code-help-${path}`}>
+				{announced ? null : view?.text}
+				{/* Always mounted, so a change of state is announced (SPEC.md §25.8). */}
+				<span role="status">{announced ? view.text : ""}</span>
 			</span>
 			{view?.action ? (
-				<button type="button" className="pk-zoom-reset" onClick={onRestart}>
+				<button
+					type="button"
+					className="pk-zoom-reset"
+					aria-label={view.action === "Restart" ? "Restart code help" : undefined}
+					onClick={onRestart}
+				>
 					{view.action}
 				</button>
 			) : null}

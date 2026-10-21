@@ -5,7 +5,7 @@
 import type * as Monaco from "monaco-editor";
 import { expect, test, vi } from "vitest";
 import type { LanguageClient } from "./client.js";
-import { registerEditor } from "./editors.js";
+import { pendingWaiters, registerEditor, waitForEditor } from "./editors.js";
 import type { CodeHelpManager } from "./manager.js";
 import { OUTSIDE_PROJECT_MESSAGE, openDefinition } from "./opener.js";
 import { pathFromServerUri } from "./protocol.js";
@@ -85,7 +85,7 @@ test("a rename opens unopened files, edits every file, and saves each through it
 	const b = fakeModel(1);
 	const models: Record<string, ReturnType<typeof fakeModel>> = { "pk:/p1/a.py": a };
 	const { monaco, manager, client, openFile } = setup(models);
-	const saves = { a: vi.fn(), b: vi.fn() };
+	const saves = { a: vi.fn(() => true), b: vi.fn(() => true) };
 	const offA = registerEditor("pk:/p1/a.py", saves.a);
 	openFile.mockImplementation((path: string) => {
 		expect(path).toBe("b.py");
@@ -117,8 +117,8 @@ test("a rename against an older version of an open file changes nothing", async 
 	const c = fakeModel(1);
 	const { monaco, manager, client } = setup({ "pk:/p1/a.py": a, "pk:/p1/c.py": c });
 	const offs = [
-		registerEditor("pk:/p1/a.py", vi.fn()),
-		registerEditor("pk:/p1/c.py", vi.fn()),
+		registerEditor("pk:/p1/a.py", () => true),
+		registerEditor("pk:/p1/c.py", () => true),
 	];
 	const message = await applyRename(monaco, manager, client, {
 		documentChanges: [
@@ -136,6 +136,38 @@ test("a rename against an older version of an open file changes nothing", async 
 	expect(a.pushEditOperations).not.toHaveBeenCalled();
 	expect(c.pushEditOperations).not.toHaveBeenCalled();
 	for (const off of offs) off();
+});
+
+test("a file whose save a conflict holds is named, not counted as saved", async () => {
+	const a = fakeModel(1);
+	const b = fakeModel(1);
+	const { monaco, manager, client } = setup({ "pk:/p1/a.py": a, "pk:/p1/b.py": b });
+	const offs = [
+		registerEditor("pk:/p1/a.py", () => true),
+		registerEditor("pk:/p1/b.py", () => false),
+	];
+	const message = await applyRename(monaco, manager, client, {
+		changes: {
+			[fileUri("a.py")]: [{ range, newText: "y" }],
+			[fileUri("b.py")]: [{ range, newText: "y" }],
+		},
+	});
+	expect(message).toBe(
+		"Renamed in 2 files. Not saved, because it changed on disk: b.py.",
+	);
+	for (const off of offs) off();
+});
+
+test("a wait that times out leaves no waiter behind", async () => {
+	vi.useFakeTimers();
+	try {
+		const waited = waitForEditor("pk:/p1/late.py", 50);
+		vi.advanceTimersByTime(50);
+		expect(await waited).toBe(false);
+		expect(pendingWaiters("pk:/p1/late.py")).toBe(0);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("go to definition opens a project file at the line", () => {
@@ -164,6 +196,24 @@ test("go to definition outside the project is not opened, and says so", () => {
 	const handled = openDefinition(
 		source,
 		{ scheme: "file", path: "/usr/lib/python3/os.py" } as Monaco.Uri,
+		undefined,
+	);
+	expect(handled).toBe(true);
+	expect(showMessage).toHaveBeenCalledWith(OUTSIDE_PROJECT_MESSAGE, {
+		lineNumber: 1,
+		column: 1,
+	});
+});
+
+test("go to definition to a web address opens nothing, and says so", () => {
+	const showMessage = vi.fn();
+	const source = {
+		getPosition: () => ({ lineNumber: 1, column: 1 }),
+		getContribution: () => ({ showMessage }),
+	} as unknown as Monaco.editor.ICodeEditor;
+	const handled = openDefinition(
+		source,
+		{ scheme: "https", path: "/page" } as Monaco.Uri,
 		undefined,
 	);
 	expect(handled).toBe(true);

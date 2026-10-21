@@ -104,8 +104,13 @@ export async function applyRename(
 			() => null,
 		);
 	}
-	for (const { uri } of targets) saveEditor(uri.toString());
-	return models.length === 1
-		? "Renamed in 1 file."
-		: `Renamed in ${models.length} files.`;
+	const held = targets
+		.filter(({ uri }) => !saveEditor(uri.toString()))
+		.map(({ file }) => file.path);
+	const done =
+		models.length === 1 ? "Renamed in 1 file." : `Renamed in ${models.length} files.`;
+	// A tab with an unresolved conflict keeps the edit but does not save it (SPEC.md §13.5).
+	return held.length === 0
+		? done
+		: `${done} Not saved, because it changed on disk: ${held.join(", ")}.`;
 }

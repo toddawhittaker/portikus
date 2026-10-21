@@ -122,15 +122,24 @@ test("hover Markdown is never trusted and never HTML", () => {
 	});
 });
 
-test("images are removed from hover Markdown, keeping their alt text", () => {
+test("every image form is escaped in hover Markdown, keeping its alt text", () => {
+	// An unescaped "![" is the start of every image form CommonMark has.
+	const unescapedImage = /(^|[^\\])!\[/;
+	for (const markdown of [
+		"a ![tracker](https://evil.example/p.png) b",
+		"![full][1]\n\n[1]: https://evil.example/p.png",
+		"![collapsed][]\n\n[collapsed]: https://evil.example/p.png",
+		"![shortcut]\n\n[shortcut]: https://evil.example/p.png",
+		"![x](javascript:alert)",
+	]) {
+		const safe = sanitizeMarkdown(markdown);
+		expect(safe, markdown).not.toMatch(unescapedImage);
+		expect(safe).toMatch(/tracker|full|collapsed|shortcut|x/);
+	}
 	expect(sanitizeMarkdown("a ![tracker](https://evil.example/p.png) b")).toBe(
-		"a tracker b",
+		"a !\\[tracker](https://evil.example/p.png) b",
 	);
 	expect(sanitizeMarkdown('x <img src="https://evil.example/p.png"> y')).toBe("x  y");
-	expect(sanitizeMarkdown("![ref][1]\n\n[1]: https://evil.example/p.png")).toContain(
-		"ref",
-	);
-	expect(sanitizeMarkdown("![ref][1]")).not.toContain("!");
 });
 
 test("only http and https links are kept", () => {
