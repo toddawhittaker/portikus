@@ -182,14 +182,27 @@ for needed in \
 		exit 1
 	fi
 done
-for exe in \
-	"$agent_modules/.pnpm/@typescript+typescript-linux-x64@"*/node_modules/@typescript/typescript-linux-x64/lib/tsc \
-	dist/deploy/workspace-agent/bin/ruff; do
-	if [ ! -x "$exe" ]; then
-		echo "build-deb: $exe is missing or not executable" >&2
-		exit 1
-	fi
-done
+if [ ! -x dist/deploy/workspace-agent/bin/ruff ]; then
+	echo "build-deb: the agent tree's ruff is missing or not executable" >&2
+	exit 1
+fi
+# The agent finds TypeScript's native server the way the package itself does,
+# so ask that same lookup inside the deployed tree.
+agent_tsc=$(node --input-type=module -e '
+	const { default: getExePath } = await import(process.argv[1]);
+	console.log(getExePath());
+' "$PWD/$agent_modules/typescript/lib/getExePath.js")
+case "$agent_tsc" in
+"$PWD/$agent_modules/"*) ;;
+*)
+	echo "build-deb: TypeScript's lookup found $agent_tsc, outside the agent tree" >&2
+	exit 1
+	;;
+esac
+if [ ! -x "$agent_tsc" ]; then
+	echo "build-deb: $agent_tsc is not executable" >&2
+	exit 1
+fi
 
 mkdir -p dist/deploy/node
 tar -xJf "$node_archive" -C dist/deploy/node --strip-components=1
