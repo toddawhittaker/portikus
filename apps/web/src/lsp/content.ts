@@ -21,8 +21,10 @@ export function sanitizeMarkdown(markdown: string): string {
 			.replace(/^ {0,3}\[[^\]]+\]:\s*(\S+).*$/gm, (line, target: string) =>
 				SAFE_LINK.test(target.replace(/^<|>$/g, "")) ? line : "",
 			)
+			// No lookbehind for a backslash: "\\" or "!\\" before the bracket can
+			// itself be an escaped backslash, and the link after it is real.
 			.replace(
-				/(?<!\\)\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g,
+				/\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g,
 				(link, text: string, target: string) => (SAFE_LINK.test(target) ? link : text),
 			)
 			// Autolinks such as <command:x> or <file:///etc/passwd>.

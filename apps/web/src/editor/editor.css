@@ -69,7 +69,7 @@
 }
 
 /* Code help's state sits beside the zoom controls (SPEC.md §13.6). */
-.pk-code-help:not(:has(> [role="status"]:only-child:empty)) {
+.pk-code-help[data-shown="true"] {
 	padding-inline-end: var(--space-2);
 }
 

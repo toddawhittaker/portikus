@@ -153,6 +153,19 @@ test("only http and https links are kept", () => {
 	expect(sanitizeMarkdown("[1]: command:x")).toBe("");
 });
 
+test("a link after a literal backslash is still filtered", () => {
+	// "\\" is an escaped backslash, so the "[" after it starts a real link.
+	expect(sanitizeMarkdown("\\\\[a](file:///x)")).toBe("\\\\a");
+	expect(sanitizeMarkdown("\\\\[a](mailto:x@example.com)")).toBe("\\\\a");
+	expect(sanitizeMarkdown("\\\\[a](https://example.com)")).toBe(
+		"\\\\[a](https://example.com)",
+	);
+	// So is one after "!" and a backslash, which a lookbehind for the image escape would skip.
+	expect(sanitizeMarkdown("!\\\\[a](file:///x)")).toBe("!\\\\a");
+	// An image with a non-http target keeps its alt text and loses the target.
+	expect(sanitizeMarkdown("![a](file:///x)")).toBe("!\\a");
+});
+
 test("plain text and code blocks cannot become links or HTML", () => {
 	const [plain] = toMarkdown({ kind: "plaintext", value: "<b>[x](command:y)</b>" });
 	expect(plain?.value).not.toMatch(/\]\(/);
