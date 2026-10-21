@@ -40,6 +40,30 @@ test("student help explains code help: features, Problems, the size limit and ev
 	expect(text).toContain("Shift+Alt+F8");
 });
 
+test("the code-help topic gives the keyboard routes to completion and hover, and says where the bar is", () => {
+	const text = topicText("student-code-help");
+	expect(text).toContain("Ctrl+Space");
+	expect(text).toContain("Ctrl+K");
+	expect(text).toContain("Ctrl+I");
+	expect(text).toContain("The bar under the file");
+	expect(text).not.toContain("above the file");
+});
+
+test("the keyboard topic lists the completion and hover keys", () => {
+	const text = topicText("student-keyboard");
+	expect(text).toContain("Ctrl+Space");
+	expect(text).toContain("Ctrl+K, then Ctrl+I");
+});
+
+test("the topics that name Claude Code and Codex say a course may hide them", () => {
+	expect(topicText("student-getting-started")).toContain(
+		"Your course may hide Claude Code and Codex",
+	);
+	expect(topicText("student-layout")).toContain(
+		"Your course may hide Claude Code and Codex",
+	);
+});
+
 test("the keyboard topic lists the problem keys beside F8, which still goes to notifications", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Alt+F8, Shift+Alt+F8");

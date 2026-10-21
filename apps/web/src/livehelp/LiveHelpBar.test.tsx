@@ -101,13 +101,17 @@ test("Let them type turns typing on, announces it, and becomes Stop typing", asy
 	expect(screen.getByTestId("live-help-summary").textContent).toContain(
 		"full shell as you",
 	);
-	expect(screen.getByTestId("live-help-announce").textContent).toBe(
-		"Ivy Instructor can now type in your terminals.",
+	await waitFor(() =>
+		expect(screen.getByTestId("live-help-announce").textContent).toBe(
+			"Ivy Instructor can now type in your terminals.",
+		),
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Stop typing" }));
 	await screen.findByRole("button", { name: "Let them type" });
-	expect(screen.getByTestId("live-help-announce").textContent).toBe(
-		"Ivy Instructor can no longer type. They can only watch.",
+	await waitFor(() =>
+		expect(screen.getByTestId("live-help-announce").textContent).toBe(
+			"Ivy Instructor can no longer type. They can only watch.",
+		),
 	);
 });
 
@@ -116,8 +120,10 @@ test("End live help ends it, removes the bar and says the student ended it", asy
 	fireEvent.click(await screen.findByRole("button", { name: "End live help" }));
 	await waitFor(() => expect(screen.queryByTestId("live-help-bar")).toBeNull());
 	expect(calls).toContain(`POST /workspaces/${WORKSPACE.id}/live-help/stop`);
-	expect(screen.getByTestId("live-help-announce").textContent).toBe(
-		"You ended live help with Ivy Instructor.",
+	await waitFor(() =>
+		expect(screen.getByTestId("live-help-announce").textContent).toBe(
+			"You ended live help with Ivy Instructor.",
+		),
 	);
 });
 
@@ -140,8 +146,10 @@ test("an end from the other side shows within one five-second poll, with its rea
 	set(null, ended("helper_left"));
 	await act(() => vi.advanceTimersByTimeAsync(5_100));
 	await waitFor(() => expect(screen.queryByTestId("live-help-bar")).toBeNull());
-	expect(screen.getByTestId("live-help-announce").textContent).toBe(
-		"Live help with Ivy Instructor ended because they left.",
+	await waitFor(() =>
+		expect(screen.getByTestId("live-help-announce").textContent).toBe(
+			"Live help with Ivy Instructor ended because they left.",
+		),
 	);
 });
 
@@ -152,8 +160,10 @@ test("an End pressed in another tab is told apart from this tab's End", async ()
 	set(null, ended("stopped"));
 	await act(() => vi.advanceTimersByTimeAsync(5_100));
 	await waitFor(() => expect(screen.queryByTestId("live-help-bar")).toBeNull());
-	expect(screen.getByTestId("live-help-announce").textContent).toBe(
-		"You ended live help with Ivy Instructor in another tab or browser.",
+	await waitFor(() =>
+		expect(screen.getByTestId("live-help-announce").textContent).toBe(
+			"You ended live help with Ivy Instructor in another tab or browser.",
+		),
 	);
 });
 

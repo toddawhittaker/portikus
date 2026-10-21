@@ -67,6 +67,34 @@ test("choosing a profile sends it for that course and says so", async () => {
 	);
 });
 
+test("the choice stays focusable and is marked unavailable while it saves", async () => {
+	let finish: (() => void) | undefined;
+	stubFetch(async (_url, init) => {
+		if (init?.method === "PUT") {
+			await new Promise<void>((resolve) => {
+				finish = resolve;
+			});
+			return json(200, { id: CS101.id, profile: "traditional" });
+		}
+		return json(200, [CS101]);
+	});
+	renderWithQuery(<CoursesGroup />);
+
+	const select = await screen.findByRole("combobox", {
+		name: `Profile for ${CS101.title}`,
+	});
+	select.focus();
+	fireEvent.click(select);
+	fireEvent.click(await screen.findByRole("option", { name: "Traditional" }));
+
+	await waitFor(() => expect(select.getAttribute("aria-disabled")).toBe("true"));
+	expect((select as HTMLButtonElement).disabled).toBe(false);
+	await waitFor(() => expect(document.activeElement).toBe(select));
+	finish?.();
+	await waitFor(() => expect(select.getAttribute("aria-disabled")).toBeNull());
+	expect(document.activeElement).toBe(select);
+});
+
 test("a refused change says why and keeps the old profile", async () => {
 	stubFetch((_url, init) =>
 		init?.method === "PUT"

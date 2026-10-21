@@ -9,15 +9,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { LanguageServerId } from "@portikus/contracts";
 
-/** The six code-help features of SPEC.md §13.6. */
-type CodeHelpFeature =
-	| "completion"
-	| "hover"
-	| "definition"
-	| "rename"
-	| "format"
-	| "diagnostics";
-
 /** How to start one server for one project. */
 interface ServerCommand {
 	command: string;
@@ -28,9 +19,6 @@ interface ServerCommand {
 
 export interface LanguageServerEntry {
 	id: LanguageServerId;
-	/** Monaco language ids the server is for. */
-	languages: string[];
-	features: CodeHelpFeature[];
 	/** Counted toward MAX_LANGUAGE_SERVERS_PER_WORKSPACE. */
 	counted: boolean;
 	/** Merged over the browser's `initializationOptions`; ours win. */
@@ -40,15 +28,6 @@ export interface LanguageServerEntry {
 	/** The command for a project, or null when the server is not installed. */
 	resolve: (projectPath: string) => Promise<ServerCommand | null>;
 }
-
-const ALL_FEATURES: CodeHelpFeature[] = [
-	"completion",
-	"hover",
-	"definition",
-	"rename",
-	"format",
-	"diagnostics",
-];
 
 /** Memory cap per server, as a heap or Go limit; the load test may tune it (SPEC.md §25.2). */
 const SERVER_MEMORY_MIB = 1024;
@@ -140,8 +119,6 @@ async function resolveRuff(): Promise<ServerCommand | null> {
 export const LANGUAGE_SERVERS: Record<LanguageServerId, LanguageServerEntry> = {
 	python: {
 		id: "python",
-		languages: ["python"],
-		features: ALL_FEATURES.filter((feature) => feature !== "format"),
 		counted: true,
 		initializationOptions: {},
 		clientCapabilities: {},
@@ -149,8 +126,6 @@ export const LANGUAGE_SERVERS: Record<LanguageServerId, LanguageServerEntry> = {
 	},
 	typescript: {
 		id: "typescript",
-		languages: ["typescript", "javascript"],
-		features: ALL_FEATURES,
 		counted: true,
 		// Automatic type acquisition runs npm. The server reads that setting
 		// only from initializationOptions when the client cannot answer
@@ -163,8 +138,6 @@ export const LANGUAGE_SERVERS: Record<LanguageServerId, LanguageServerEntry> = {
 	},
 	ruff: {
 		id: "ruff",
-		languages: ["python"],
-		features: ["format"],
 		counted: false,
 		initializationOptions: { settings: { lint: { enable: false } } },
 		clientCapabilities: {},

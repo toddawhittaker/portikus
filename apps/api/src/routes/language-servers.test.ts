@@ -215,7 +215,7 @@ test.skipIf(skip)(
 		}
 		const extra = await open(path("ruff"));
 		expect(await extra.closed).toEqual({
-			code: CloseCode.POLICY,
+			code: CloseCode.TOO_MANY_SOCKETS,
 			reason: "too many connections",
 		});
 

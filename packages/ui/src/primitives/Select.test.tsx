@@ -50,6 +50,15 @@ describe("Select", () => {
 		expect(document.getElementById("dir-hint")?.textContent).toBe("Not trusted.");
 	});
 
+	it("stays focusable and is announced as unavailable while busy", () => {
+		render(<Select id="busy" label="Busy" options={OPTIONS} ariaDisabled />);
+		const trigger = screen.getByRole("combobox") as HTMLButtonElement;
+		expect(trigger.getAttribute("aria-disabled")).toBe("true");
+		expect(trigger.disabled).toBe(false);
+		trigger.focus();
+		expect(document.activeElement).toBe(trigger);
+	});
+
 	it("has no description without a hint", () => {
 		render(<Select id="bare" label="Bare" options={OPTIONS} />);
 		expect(screen.getByRole("combobox").hasAttribute("aria-describedby")).toBe(false);

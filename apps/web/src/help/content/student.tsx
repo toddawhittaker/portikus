@@ -28,6 +28,14 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		what: "Move to notifications, from anywhere, the editor included.",
 	},
 	{
+		keys: "Ctrl+Space",
+		what: "In the editor, show suggestions for the name you are typing. Code help must be on.",
+	},
+	{
+		keys: "Ctrl+K, then Ctrl+I",
+		what: "In the editor, show what the name at the cursor is, and move into the box so a screen reader can read it. Use Command instead of Ctrl on a Mac. Code help must be on.",
+	},
+	{
 		keys: "Alt+F8, Shift+Alt+F8",
 		what: "In the editor, go to the next or the previous problem in the file. Code help must be on.",
 	},
@@ -83,7 +91,8 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							In the middle of the screen, choose <strong>Open a terminal</strong> or{" "}
-							<strong>Start Claude Code</strong>.
+							<strong>Start Claude Code</strong>. Your course may hide Claude Code and
+							Codex, and then only <strong>Open a terminal</strong> is there.
 						</li>
 						<li>
 							Your files are listed on the right. Choose a file to open it in the
@@ -109,7 +118,7 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>The work area</strong>, in the middle, holds tabs: terminals, files,
 						diffs and previews. The <strong>+</strong> at the end of the tab bar, named
 						New tab, opens a terminal, Claude Code, Codex or a preview in the project's
-						folder.
+						folder. Your course may hide Claude Code and Codex.
 					</li>
 					<li>
 						<strong>The right pane</strong> has up to five tabs. <strong>Files</strong>{" "}
@@ -256,10 +265,14 @@ export const STUDENT_HELP: HelpPart = {
 					<ul>
 						<li>
 							<strong>Completion</strong>: suggestions as you type, from your code and
-							the libraries it uses.
+							the libraries it uses. <kbd className="pk-mono-body">Ctrl+Space</kbd> asks
+							for them.
 						</li>
 						<li>
-							<strong>Hover</strong>: rest the pointer on a name to see what it is.
+							<strong>Hover</strong>: rest the pointer on a name to see what it is. From
+							the keyboard, press <kbd className="pk-mono-body">Ctrl+K</kbd> and then{" "}
+							<kbd className="pk-mono-body">Ctrl+I</kbd>, with Command in place of Ctrl
+							on a Mac.
 						</li>
 						<li>
 							<strong>Go to definition</strong>: <kbd className="pk-mono-body">F12</kbd>{" "}
@@ -292,8 +305,8 @@ export const STUDENT_HELP: HelpPart = {
 					</p>
 					<h4>What the editor bar says</h4>
 					<p>
-						The bar above the file shows the state of its language server. Editing never
-						waits for it.
+						The bar under the file, beside the zoom buttons, shows the state of its
+						language server. Editing never waits for it.
 					</p>
 					<ul>
 						<li>

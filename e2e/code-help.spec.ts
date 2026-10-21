@@ -7,6 +7,7 @@ import {
 	holdCodeHelpSwitch,
 	hoverWidget,
 	type LanguageServerId,
+	monacoAnnouncements,
 	openProjectFiles,
 	renameTo,
 	saveQuickly,
@@ -127,6 +128,10 @@ test.describe("code help features", () => {
 
 				await renameTo(page, "renamed");
 				await expect(editorMessage(page)).toHaveText("Renamed in 1 file.");
+				// One announcement: Monaco's own "Made 0 edits in 0 files" is not made.
+				await page.waitForTimeout(500);
+				await expect(monacoAnnouncements(page)).not.toContainText("renamed");
+				await expect(monacoAnnouncements(page)).not.toContainText("Made");
 				// The scripted edit replaces the first character with the new name.
 				await expect(editorLines(page, sample.path)).toContainText(
 					sample.first.slice(1),

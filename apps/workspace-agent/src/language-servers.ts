@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import type { WebSocket } from "@fastify/websocket";
 import {
 	CloseCode,
+	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	type LanguageServerId,
 	MAX_LANGUAGE_SERVERS_PER_WORKSPACE,
@@ -23,6 +24,9 @@ import { encodeMessage, FramingError, MessageReader } from "./stdio-messages.js"
 // kernel picks a server before the agent when memory runs out, and a fork
 // bomb runs out of processes before the agent cannot fork.
 const OOM_SCORE_ADJ = "500";
+// Absolute, because a Python server's PATH starts with the project's .venv/bin.
+const PRLIMIT = "/usr/bin/prlimit";
+const CHOOM = "/usr/bin/choom";
 const MAX_PROCESSES = 1700;
 
 const IDLE_MS = 15 * 60_000;
@@ -39,10 +43,8 @@ const REASON = {
 	replaced: "opened in another window",
 	idle: "no messages for 15 minutes",
 	evicted: "stopped to make room for another language server",
-	// The API forwards these two exactly (LANGUAGE_SERVER_CLOSE_REASONS in
-	// packages/contracts) and replaces every other reason with its own.
-	crashed: "crashed",
-	outOfMemory: "crashed: may have run out of memory",
+	// The API forwards these two exactly and replaces every other reason.
+	...LANGUAGE_SERVER_CLOSE_REASONS,
 	tooManyCrashes: "language server crashed too often",
 	notInstalled: "language server is not installed",
 	notInitialize: "the first message must be initialize",
@@ -177,11 +179,6 @@ export class LanguageServerHost {
 		this.log = options.log;
 	}
 
-	/** How many servers are running, for tests and capacity checks. */
-	running(): string[] {
-		return [...this.sessions.keys()];
-	}
-
 	/**
 	 * Serve one browser socket. `early` holds what arrived before this call;
 	 * the listeners go on before anything is awaited, so nothing is lost.
@@ -288,11 +285,11 @@ export class LanguageServerHost {
 
 		const maxProcesses = this.options.maxProcesses ?? MAX_PROCESSES;
 		const child = spawn(
-			"prlimit",
+			PRLIMIT,
 			[
 				`--nproc=${maxProcesses}:${maxProcesses}`,
 				"--",
-				"choom",
+				CHOOM,
 				"-n",
 				OOM_SCORE_ADJ,
 				"--",

@@ -30,7 +30,7 @@ export function openDefinition(
 ): boolean {
 	const where = projectModelPath(resource);
 	if (where === null) {
-		if (resource.scheme !== "file") return false;
+		// Any other scheme too: Monaco would open an https target in a new window.
 		showEditorMessage(source, OUTSIDE_PROJECT_MESSAGE);
 		return true;
 	}

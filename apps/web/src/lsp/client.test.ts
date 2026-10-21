@@ -11,6 +11,7 @@ import {
 	fitsDocumentLimit,
 	initializeParams,
 	LanguageClient,
+	MAX_BROWSER_FRAME_BYTES,
 	statusAfterClose,
 } from "./client.js";
 import { closeAction, MAX_RETRY_MS, nextBackoff } from "./connection.js";
@@ -167,6 +168,18 @@ test("the document limit is 512 KiB of UTF-8, not of characters", () => {
 	expect(fitsDocumentLimit("€".repeat(200 * 1024))).toBe(false);
 });
 
+test("a document whose didOpen frame would pass the 1 MiB browser cap is not sent", () => {
+	expect(MAX_BROWSER_FRAME_BYTES).toBe(1024 * 1024);
+	// Under 512 KiB of text, but JSON writes every control character as six bytes.
+	const escaped = "\u0001".repeat(200 * 1024);
+	expect(new TextEncoder().encode(escaped).length).toBeLessThan(512 * 1024);
+	expect(fitsDocumentLimit(escaped)).toBe(false);
+	// Quotes double, and a file of them that fits the frame is still sent.
+	expect(fitsDocumentLimit('"'.repeat(400 * 1024))).toBe(true);
+	expect(fitsDocumentLimit('"'.repeat(500 * 1024))).toBe(true);
+	expect(fitsDocumentLimit("\n\t".repeat(256 * 1024))).toBe(false);
+});
+
 test("close codes map to what the client does next", () => {
 	expect(closeAction(CloseCode.LANGUAGE_SERVER_REPLACED)).toBe("replaced");
 	expect(closeAction(CloseCode.LANGUAGE_SERVER_IDLE)).toBe("idle");
@@ -250,6 +263,48 @@ test("a file over the limit is never sent", async () => {
 	client.track(asModel(fakeModel("a".repeat(600 * 1024))), "big.py");
 	await latest().ready();
 	expect(latest().methods()).not.toContain("textDocument/didOpen");
+	client.dispose();
+});
+
+test("an error answer to initialize shows unavailable, not starting for ever", async () => {
+	const client = makeClient();
+	client.track(asModel(fakeModel("x = 1\n")), "main.py");
+	const socket = latest();
+	socket.open();
+	const init = socket.sent.find((message) => message.method === "initialize");
+	socket.receive({ id: init?.id, error: { code: -32603, message: "broken install" } });
+	await Promise.resolve();
+	await Promise.resolve();
+	expect(status()?.state).toBe("unavailable");
+	expect(socket.readyState).toBe(3);
+	// It waits for Restart rather than retrying on its own.
+	vi.advanceTimersByTime(60_000);
+	expect(FakeWebSocket.all).toHaveLength(1);
+	client.restart();
+	expect(FakeWebSocket.all).toHaveLength(2);
+	client.dispose();
+});
+
+test("a file with no problems left keeps no entry in the store", async () => {
+	const client = makeClient();
+	const model = fakeModel("x\n");
+	client.track(asModel(model), "main.py");
+	await latest().ready();
+	latest().receive({
+		method: "textDocument/publishDiagnostics",
+		params: {
+			uri: "file:///home/student/projects/demo/main.py",
+			diagnostics: [
+				{
+					range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+					message: "x",
+				},
+			],
+		},
+	});
+	expect(useCodeHelpStore.getState().problems.p1?.["main.py"]?.python).toHaveLength(1);
+	client.untrack(asModel(model));
+	expect(useCodeHelpStore.getState().problems.p1).toEqual({});
 	client.dispose();
 });
 

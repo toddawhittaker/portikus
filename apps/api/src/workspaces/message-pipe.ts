@@ -71,6 +71,9 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 	let inputStopped = false;
 
 	const backpressure = pipeBackpressure(socket, upstream);
+	// The reverse direction: an agent that stops reading must stop the API
+	// reading the browser (SPEC.md §24.1).
+	const inbound = pipeBackpressure(upstream, socket);
 
 	// The agent is told only that the browser went away, never the browser's
 	// own reason bytes (SPEC.md §24.1).
@@ -109,6 +112,7 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 			closed = true;
 			clearInterval(sessionTimer);
 			backpressure.cancel();
+			inbound.cancel();
 			resolve();
 		}
 
@@ -121,6 +125,7 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 			const text = data.toString();
 			if (upstream.readyState === WebSocketClient.OPEN) {
 				upstream.send(text);
+				inbound.apply();
 			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
 				queuedBytes += Buffer.byteLength(text);
 				if (queuedBytes > MAX_QUEUED_BYTES) {
@@ -187,20 +192,10 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 	});
 }
 
-export interface OneWayPipeOptions {
-	db: Kysely<Database>;
-	socket: WebSocket;
-	/** The agent socket to read from, and its authorization header. */
-	url: string;
-	authHeader: string;
-	workspaceId: string;
-	sessionToken: string | null;
-	log: FastifyBaseLogger;
-	/** The fixed reason the browser hears when the agent closes. */
-	closeReason: (safeCode: number) => string;
-	/** The log message for an agent socket error. */
-	failureMessage: string;
-}
+export type OneWayPipeOptions = Omit<
+	MessagePipeOptions,
+	"forwardBrowserFrames" | "maxAgentFrameBytes" | "missingRoute"
+>;
 
 /**
  * Forward frames from one agent socket to one browser socket. Nothing travels
@@ -212,6 +207,5 @@ export function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
 		...options,
 		forwardBrowserFrames: false,
 		maxAgentFrameBytes: MAX_AGENT_FRAME_BYTES,
-		closeReason: (safeCode) => options.closeReason(safeCode),
 	});
 }

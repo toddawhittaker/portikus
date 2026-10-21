@@ -151,29 +151,26 @@ export function registerProviders(monaco: typeof Monaco): void {
 		monaco.languages.registerRenameProvider(language, {
 			async provideRenameEdits(model, at, newName) {
 				// The edits are applied here, not by Monaco, which can only edit
-				// files already open; Monaco's own rejection notice is not shown in
-				// a standalone editor, so the outcome is said at the cursor.
+				// files already open. The outcome is said at the cursor, and the
+				// answer is a rejection so Monaco adds no "Made 0 edits" summary
+				// of its own; its rejection notice only reaches the console in a
+				// standalone editor.
 				const say = (text: string) => {
 					const editor = editorOf(monaco, model);
 					if (editor) showEditorMessage(editor, text);
+					return { edits: [], rejectReason: text };
 				};
-				const none = { edits: [] };
 				const found = lookup(model, "rename");
 				if (!found?.client.ready?.renameProvider) {
-					say("Rename is not available right now.");
-					return none;
+					return say("Rename is not available right now.");
 				}
 				const edit = await found.client.request<WorkspaceEdit>(
 					model,
 					"textDocument/rename",
 					(uri) => ({ ...position(uri, at), newName }),
 				);
-				if (edit === null) {
-					say("Nothing to rename here.");
-					return none;
-				}
-				say(await applyRename(monaco, found.manager, found.client, edit));
-				return none;
+				if (edit === null) return say("Nothing to rename here.");
+				return say(await applyRename(monaco, found.manager, found.client, edit));
 			},
 		});
 
