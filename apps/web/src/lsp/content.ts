@@ -12,16 +12,17 @@ const SAFE_LINK = /^https?:\/\//i;
 export function sanitizeMarkdown(markdown: string): string {
 	return (
 		markdown
-			// An image anywhere loads from any https host the CSP allows; keep its alt text.
-			.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-			.replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "$1")
+			// An image anywhere loads from any https host the CSP allows. Escaping
+			// every "![" removes every image form, reference ones included, and
+			// leaves the alt text readable.
+			.replaceAll("![", "!\\[")
 			.replace(/<img\b[^>]*>/gi, "")
 			// A reference definition whose target is not http(s) is dropped.
 			.replace(/^ {0,3}\[[^\]]+\]:\s*(\S+).*$/gm, (line, target: string) =>
 				SAFE_LINK.test(target.replace(/^<|>$/g, "")) ? line : "",
 			)
 			.replace(
-				/\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g,
+				/(?<!\\)\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g,
 				(link, text: string, target: string) => (SAFE_LINK.test(target) ? link : text),
 			)
 			// Autolinks such as <command:x> or <file:///etc/passwd>.

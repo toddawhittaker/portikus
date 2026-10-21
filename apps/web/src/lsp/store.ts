@@ -65,13 +65,14 @@ export const useCodeHelpStore = create<CodeHelpState>()((set) => ({
 		})),
 	setProblems: (projectId, server, path, problems) =>
 		set((state) => {
-			const project = state.problems[projectId] ?? {};
-			return {
-				problems: {
-					...state.problems,
-					[projectId]: { ...project, [path]: { ...project[path], [server]: problems } },
-				},
-			};
+			const project = { ...state.problems[projectId] };
+			const byServer: ByServer = { ...project[path] };
+			// An empty list is dropped, so a long session does not keep a key per file.
+			if (problems.length > 0) byServer[server] = problems;
+			else delete byServer[server];
+			if (Object.keys(byServer).length > 0) project[path] = byServer;
+			else delete project[path];
+			return { problems: { ...state.problems, [projectId]: project } };
 		}),
 	clearProject: (projectId) =>
 		set((state) => {

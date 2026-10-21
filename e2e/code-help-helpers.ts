@@ -215,6 +215,21 @@ export function codeHelpStatus(page: Page, path: string) {
 	return page.getByTestId(`editor-code-help-${path}`);
 }
 
+/** The part of the status that is announced: only states that ask for action. */
+export function codeHelpLiveRegion(page: Page, path: string) {
+	return codeHelpStatus(page, path).getByRole("status");
+}
+
+/** The focused element when it is inside one file's Monaco editor. */
+export function editorFocus(page: Page, path: string) {
+	return page.locator(`[data-testid="editor-${path}"] .pk-editor-host :focus`);
+}
+
+/** Monaco's own screen-reader announcements. */
+export function monacoAnnouncements(page: Page) {
+	return page.locator(".monaco-aria-container");
+}
+
 /** The hover that is showing; Monaco keeps hidden ones in the page. */
 export function hoverWidget(page: Page) {
 	return page.locator(".monaco-hover:not(.hidden)").first();

@@ -84,7 +84,7 @@ test.describe("code help when the server stops", () => {
 		const status = codeHelpStatus(page, PATH);
 		await expect(status).toHaveText("Code help is on in another window");
 		await expect(button(page, "Use here")).toBeVisible();
-		await expect(button(page, "Restart")).toHaveCount(0);
+		await expect(button(page, "Restart code help")).toHaveCount(0);
 
 		// Waiting, editing and refocusing the window do not take the server back.
 		await page.waitForTimeout(RETRY_WINDOW_MS);
@@ -113,7 +113,7 @@ test.describe("code help when the server stops", () => {
 
 		await wire.close("python", 4413, "idle");
 		await expect(codeHelpStatus(page, PATH)).toHaveText("");
-		await expect(button(page, "Restart")).toHaveCount(0);
+		await expect(button(page, "Restart code help")).toHaveCount(0);
 		await expect(button(page, "Use here")).toHaveCount(0);
 		await page.waitForTimeout(RETRY_WINDOW_MS);
 		expect(wire.opened("python")).toBe(1);
@@ -147,14 +147,14 @@ test.describe("code help when the server stops", () => {
 		const status = codeHelpStatus(page, PATH);
 		await expect(status).toHaveText("Code help stopped");
 		await expect(status).not.toContainText("memory");
-		await expect(button(page, "Restart")).toBeVisible();
+		await expect(button(page, "Restart code help")).toBeVisible();
 		await page.waitForTimeout(RETRY_WINDOW_MS);
 		expect(wire.opened("python")).toBe(1);
 
-		await button(page, "Restart").click();
+		await button(page, "Restart code help").click();
 		await ready(page);
 		expect(wire.opened("python")).toBe(2);
-		await expect(button(page, "Restart")).toHaveCount(0);
+		await expect(button(page, "Restart code help")).toHaveCount(0);
 	});
 
 	test("the memory wording appears only for the exact out-of-memory reason", async ({
@@ -178,7 +178,7 @@ test.describe("code help when the server stops", () => {
 		for (const reason of lookalikes) {
 			await wire.close("python", 4414, reason);
 			await expect(status, JSON.stringify(reason)).toHaveText("Code help stopped");
-			await button(page, "Restart").click();
+			await button(page, "Restart code help").click();
 			await ready(page);
 		}
 
@@ -186,7 +186,7 @@ test.describe("code help when the server stops", () => {
 		await expect(status).toHaveText(
 			"Code help stopped. It may have run out of memory.",
 		);
-		await expect(button(page, "Restart")).toBeVisible();
+		await expect(button(page, "Restart code help")).toBeVisible();
 		// The words come from the client, not from the reason text.
 		await expect(status).not.toContainText(OUT_OF_MEMORY);
 	});
@@ -201,7 +201,7 @@ test.describe("code help when the server stops", () => {
 
 		await wire.close("python", 4415, "unavailable");
 		await expect(codeHelpStatus(page, PATH)).toHaveText("Code help unavailable");
-		await expect(button(page, "Restart")).toBeVisible();
+		await expect(button(page, "Restart code help")).toBeVisible();
 
 		await editorLines(page, PATH).click();
 		await page.keyboard.press("Control+Home");
@@ -222,7 +222,7 @@ test.describe("code help when the server stops", () => {
 		await page.waitForTimeout(RETRY_WINDOW_MS);
 		expect(wire.opened("python")).toBe(1);
 
-		await button(page, "Restart").click();
+		await button(page, "Restart code help").click();
 		await ready(page);
 	});
 
@@ -247,7 +247,7 @@ test.describe("code help when the server stops", () => {
 		await wire.closeAll(4416, "code help is off");
 		const status = codeHelpStatus(page, PATH);
 		await expect(status).toHaveText("");
-		await expect(button(page, "Restart")).toHaveCount(0);
+		await expect(button(page, "Restart code help")).toHaveCount(0);
 		await expect(button(page, "Use here")).toHaveCount(0);
 
 		// Not on a timer, not on an edit, and not when the window is focused.
@@ -383,7 +383,7 @@ test.describe("code help and the site switch", () => {
 		expect(wire.closes[0]?.reason).toBe("code help is off");
 		const status = codeHelpStatus(page, PATH);
 		await expect(status).toHaveText("");
-		await expect(button(page, "Restart")).toHaveCount(0);
+		await expect(button(page, "Restart code help")).toHaveCount(0);
 
 		await typeAndSave(page, student, project.slug, "w");
 		await windowFocus(page);
@@ -424,13 +424,13 @@ test.describe("code help and the site switch", () => {
 		await closeFromAgent(4414);
 		await expect(status).toHaveText("Code help stopped");
 		expect(lastClose()).toMatchObject({ code: 4414, reason: "crashed" });
-		await button(page, "Restart").click();
+		await button(page, "Restart code help").click();
 		await ready(page);
 
 		await closeFromAgent(4415);
 		await expect(status).toHaveText("Code help unavailable");
 		expect(lastClose()).toMatchObject({ code: 4415, reason: "unavailable" });
-		await button(page, "Restart").click();
+		await button(page, "Restart code help").click();
 		await ready(page);
 
 		await closeFromAgent(4413);
