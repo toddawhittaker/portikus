@@ -1855,21 +1855,21 @@ Added by Epic 52 (ADR 0065). The editor gives real code help for Python, TypeScr
 - format;
 - diagnostics, shown as errors and warnings in the editor.
 
-A **Problems** list, a tab of the right pane (section 8.4), shows the diagnostics of the files that are open. It is not a project-wide list; the project-wide check is Checks (section 18.1). Signature help, find references, code actions, the outline and format on save are not built. Word-based suggestions are off, so every suggestion comes from a server.
+A **Problems** list, a tab of the right pane (section 8.4), shows the diagnostics of the files that are open. Alt+F8 and Shift+Alt+F8 go to the next and previous problem in the editor; F8 stays the page's key for notifications. It is not a project-wide list; the project-wide check is Checks (section 18.1). Signature help, find references, code actions, the outline and format on save are not built. Word-based suggestions are off, so every suggestion comes from a server.
 
 **Servers.** Three server ids, each started on demand for one project:
 
 | Id | Program | Files | Features |
 |---|---|---|---|
 | `python` | pyright | Python | all but format |
-| `typescript` | typescript-language-server | TypeScript and JavaScript | all six |
+| `typescript` | TypeScript's own language server (`tsc --lsp --stdio`) | TypeScript and JavaScript | all six |
 | `ruff` | `ruff server`, lint off | Python | format only |
 
 Python Format goes to `ruff`, and the other Python features go to `python`. The programs and their pinned versions are in STACK.md section 10. They ship in the package's agent tree, so they need no image rebuild. A server that is not installed is "unavailable". Adding a language later is one table entry in the agent, one value in the contracts, one line in the web client's server map, image packages and tests.
 
-**Where they run.** A server runs as the student, inside the workspace container, with its working directory set to the project's real path. This is scope, not a security boundary (sections 9.7 and 24.4): a server has the student's rights and no more, and a student can start the same programs by hand. For Python, the project's `.venv/bin`, or `venv/bin`, comes first on the server's `PATH`. TypeScript's automatic type acquisition is off, so a server never runs `npm` or uses the network. Each server starts under `prlimit` with a process limit and a raised out-of-memory score, as Checks do, and is stopped by killing its whole process tree. The Node servers get a 1,024 MiB heap cap (`maxTsServerMemory` is 1,024 too). The workspace's memory limit is the ceiling, and the load test (section 25.2) may tune the heap caps.
+**Where they run.** A server runs as the student, inside the workspace container, with its working directory set to the project's real path. This is scope, not a security boundary (sections 9.7 and 24.4): a server has the student's rights and no more, and a student can start the same programs by hand. For Python, the project's `.venv/bin`, or `venv/bin`, comes first on the server's `PATH`. TypeScript's automatic type acquisition is off, so a server never runs `npm` or uses the network. It is turned off twice, in the server's `initializationOptions` and by the agent, which tells TypeScript's server in `initialize` that the client cannot answer `workspace/configuration`, because an answer would override the setting. Each server starts under `prlimit` with a process limit and a raised out-of-memory score, as Checks do, and is stopped by killing its whole process tree. `prlimit` and `choom` are run by absolute path, so a project's own `.venv/bin` cannot stand in for them. Pyright gets a 1,024 MiB Node heap cap, and TypeScript's native server a 1,024 MiB soft Go memory limit. The workspace's memory limit is the ceiling, and the load test (section 25.2) may tune the heap caps.
 
-**The wire.** Plain LSP (Language Server Protocol) JSON-RPC, one message per WebSocket text frame; the agent does the stdio framing. The browser opens `GET /workspaces/:id/projects/:pid/language-servers/:server`, and the API relays to the agent's `GET /projects/:slug/language-servers/:server`. Only the owner of the workspace may open the browser socket: not an administrator, an instructor, someone viewing a share, or a live-help helper (section 5.2). The API applies the global Origin check, re-checks the session every second and allows 4 of these sockets per workspace. A frame from the browser may be at most 1 MiB. A frame from the agent may be at most 4 MiB, so the agent replaces a larger server answer with a JSON-RPC error that carries the same request id. The API never reads a frame, and its close reasons are fixed strings of its own. The agent reads only the first browser message, `initialize`. It overwrites `rootUri`, `rootPath`, `workspaceFolders` and `processId` (with the agent's own process id) and merges the server's `initializationOptions`; everything after that passes through unread. No message body is logged anywhere (STACK.md section 15, ADR 0012), and a server's standard error is read and dropped.
+**The wire.** Plain LSP (Language Server Protocol) JSON-RPC, one message per WebSocket text frame; the agent does the stdio framing. The browser opens `GET /workspaces/:id/projects/:pid/language-servers/:server`, and the API relays to the agent's `GET /projects/:slug/language-servers/:server`. Only the owner of the workspace may open the browser socket: not an administrator, an instructor, someone viewing a share, or a live-help helper (section 5.2). The API applies the global Origin check, re-checks the session every second and allows 4 of these sockets per workspace; a fifth closes with TOO_MANY_SOCKETS. A frame from the browser may be at most 1 MiB. A frame from the agent may be at most 4 MiB, so the agent replaces a larger server answer with a JSON-RPC error that carries the same request id. The API never reads a frame. Its close reasons are fixed strings of its own, except that it relays an agent's reason when it is exactly one of the two in `LANGUAGE_SERVER_CLOSE_REASONS` (`packages/contracts`). The agent reads only the first browser message, `initialize`. It overwrites `rootUri`, `rootPath`, `workspaceFolders` and `processId` (with the agent's own process id) and merges the server's `initializationOptions` and client capabilities over the browser's; everything after that passes through unread. No message body is logged anywhere (STACK.md section 15, ADR 0012), and a server's standard error is read and dropped.
 
 **Close codes.** A language-server socket closes with one of these:
 
@@ -1880,12 +1880,13 @@ Python Format goes to `ruff`, and the other Python features go to `python`. The 
 | 4414 | CRASHED | The server exited and the agent did not cause it |
 | 4415 | UNAVAILABLE | Not installed, the agent has no route, or too many crashes |
 | 4416 | DISABLED | The site switch is off |
+| 4429 | TOO_MANY_SOCKETS | The workspace already has 4 language-server sockets open; the browser retries with backoff |
 
 **Lifecycle.**
 
 - There is one server process per project and server id, started by the first socket.
 - One window at a time. A second socket for the same project and server restarts the server and closes the old socket with REPLACED.
-- The server stops 60 seconds after its last socket closes. It is sent `shutdown` and then `exit`, and its process tree is killed after 3 seconds if it is still running.
+- A server stops when its last socket closes, with no delay, because every new socket restarts the server anyway. It is sent `shutdown` and then `exit`, and its process tree is killed after 3 seconds if it is still running.
 - A socket with no browser message for 15 minutes closes with IDLE. The browser reconnects quietly at the next edit or when the window gets focus.
 - At most 3 `python` or `typescript` servers run per workspace; `ruff` is not counted. Starting a fourth stops the least recently used one and closes its socket with IDLE.
 - An exit the agent did not cause closes the socket with CRASHED. When the agent did not send the kill, the message says the server "may have run out of memory". Three crashes of one server in 5 minutes make it UNAVAILABLE for 5 minutes.
@@ -1894,9 +1895,10 @@ Python Format goes to `ruff`, and the other Python features go to `python`. The 
 **What the editor does.**
 
 - Only text models of files in the project (`pk:/<projectId>/...`) are synced to a server, never a diff side or a read-only text. The language comes from the file name.
-- Sync is incremental. A file over 512 KiB is not sent, and the editor bar says "Code help is off for files over 512 KB".
+- Sync is incremental. A file over 512 KiB is not sent, and the editor bar says "Code help is off for files over 512 KB". Diagnostics arrive pushed (pyright) or are pulled with `textDocument/diagnostic` (TypeScript).
+- The client answers a server's `client/registerCapability` and `workspace/configuration` requests, and sends `workspace/didChangeWatchedFiles` when the project's files change on disk.
 - Snippet completions and file operations are not requested. The client declines `workspace/applyEdit`, `window/showDocument` and `workspace/executeCommand` from a server.
-- Hover and completion text is untrusted, because it can come from a docstring in a file the student copied. It is never trusted Markdown and never HTML. Only `http` and `https` links are kept, and they open with `noopener`. Images are removed from hover Markdown, because the content security policy allows `https:` images (section 24.3).
+- Hover and completion text is untrusted, because it can come from a docstring in a file the student copied. It is never trusted Markdown and never HTML. Only `http` and `https` links are kept, and they open with `noopener`; any other link becomes its text. Every image form in Markdown is escaped, so none loads, because the content security policy allows `https:` images (section 24.3).
 - Rename stays inside the project, changes at most 20 files and applies all or nothing. It opens a file that is not open as a tab, and it saves every changed file through the version-aware path of section 13.5, so a newer version on disk is never overwritten.
 - Go to definition in another file of the project opens that file at the line. A target outside the project is not opened, and a short message says so.
 
@@ -4214,6 +4216,10 @@ opener.
 
 Added by Epic 52 (ADR 0065): code help adds a browser socket and an agent route that run language servers, which are programs the student's files can steer. The servers run as the student inside the workspace (zone 4), so they add no rights, and they are scope, not isolation (section 24.4). The browser socket is owner only; an administrator, an instructor, a share viewer and a live-help helper cannot open it. The API relays frames without reading them, the agent rewrites the `initialize` fields that name paths and the process id, and no message body is logged. Hover and completion text can come from files an agent or a classmate wrote, so the browser treats it as untrusted: no HTML, no script, only `http` and `https` links, and no images (section 13.6). A server that is killed or crashes affects only that student's workspace. A `setsid` child of a server can outlive it, as one of a terminal can (section 9.7).
 
+Accepted risk (ADR 0065): opening a Python file starts pyright with the project's `.venv/bin` first on its `PATH`, so pyright runs that environment's own `python`, and any code the project's venv holds, as the student, inside the student's own container. A student could run the same code from a terminal, so it adds no right. `prlimit` and `choom` are run by absolute path, so the venv cannot shadow them. The agent's own buffers for a server's output and for the browser's frames are not bounded, and nothing slows a server that writes faster than the API reads; the harm stays in the student's own container, which has a memory limit.
+
+Backpressure: in the terminal pipe and in the language-server pipe the API stops reading the browser socket while more than 1 MiB waits to be sent to the agent, and reads again below 256 KiB, so a stalled agent cannot make the API buffer browser frames without limit.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -4766,7 +4772,7 @@ restore folder writes `recovery.aside_deleted` (section 15.10). Changing the
 voice switch writes `settings.voice_input_updated` with `{from, to}`. No row
 holds a process name, command line or path.
 
-As built (Epic 52): changing the code-help switch writes `settings.code_help_updated` with `{from, to}`, and changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. No row holds source code, a path, or anything a language server said.
+As built (Epic 52): changing the code-help switch writes `settings.code_help_updated` with `{from, to}`, and changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. No row is written when a profile is set to the value it already has. No row holds source code, a path, or anything a language server said.
 
 As built (Epic 22): the listener `commandLine` field has existed since
 Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
@@ -5007,7 +5013,7 @@ Initial targets:
 
 Targets should be measured and revised from pilot telemetry.
 
-Code help (section 13.6), added by Epic 52: with 25 students on a 16 GiB server, each with a Python and a TypeScript file open, the p95 time for a completion is under 1 second, and at least 2 GiB of memory stays free. Measured on 2026-10-21 (docs/CAPACITY.md, "Code help on a 16 GiB VM"), with 25 students who also ran a stand-in coding agent on an 8 vCPU, 16 GiB server: completion p95 124 ms for Python and 54 ms for TypeScript, so the latency target is met; the edit-to-diagnostics p95 was 363 ms for Python and 51 ms for TypeScript. Free memory fell to 945 MiB, so the 2 GiB target is not met on 16 GiB with agents running.
+Code help (section 13.6), added by Epic 52: with students who each have a Python and a TypeScript file open, the p95 time for a completion is under 1 second, and at least 2 GiB of memory stays free. The memory target is stated by course profile (section 8.7): a 16 GiB server holds 25 students in a Traditional course, and about 23 in an Agentic course. Measured on 2026-10-21 (docs/CAPACITY.md, "Code help on a 16 GiB VM"), with 25 students who also ran a stand-in coding agent on an 8 vCPU, 16 GiB server: completion p95 124 ms for Python and 54 ms for TypeScript, so the latency target is met; the edit-to-diagnostics p95 was 363 ms for Python and 51 ms for TypeScript. Free memory fell to 945 MiB, so the 2 GiB target is not met for 25 Agentic students on 16 GiB.
 
 The web app loads `/admin`, `/course` and `/help` on first visit, as separate files, so a student's first page does not carry them (Epic 25). When such a file is gone after a deploy, the page reloads once, guarded in `sessionStorage`; if that fails too, the router's error page shows.
 
@@ -5020,7 +5026,7 @@ Pilot design target:
 
 The architecture must not encode these numbers as hard limits.
 
-Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on: it holds about nine students with code help and 2 GiB kept free. An administrator can turn code help off for the site. Measured resident memory per student, mean and highest: pyright 167 and 250 MiB, TypeScript's native server 57 and 66 MiB, ruff 18 and 41 MiB, all three 241 and 322 MiB. With a coding agent as well, a student used about 550 MiB, so a 16 GiB server holds about 23 students with 2 GiB free, and 25 need about 18 GiB (20 GiB leaves room for real agents).
+Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on: it holds about nine students with code help and 2 GiB kept free. An administrator can turn code help off for the site. Measured resident memory per student, mean and highest: pyright 167 and 250 MiB, TypeScript's native server 57 and 66 MiB, ruff 18 and 41 MiB, all three 241 and 322 MiB. With a coding agent as well, as in an Agentic course, a student used about 550 MiB, so a 16 GiB server holds about 23 Agentic students with 2 GiB free, and 25 Agentic students need 20 GiB. A Traditional course runs no coding agent, so a 16 GiB server holds 25 students with about 4.6 GiB free; that figure is calculated from the measured per-student figures, not measured.
 
 ### 25.3 Reliability
 
@@ -6804,6 +6810,28 @@ Acceptance:
 - a pruned image set still holds every image a workspace was made from;
 - the instructor's terminal fits a 1280x600 window and clicking into it keeps the heading in view;
 - two browsers on one project keep a split made by either.
+
+### Epic 52 — Code help and course profiles
+
+Built on `epic/52-code-help`, issue #1246. Migration 0050, ADRs 0065 and 0066. See sections 2.6, 5.2, 8.7, 13.6, 20.1, 24.1, 24.11, 25.1, 25.2 and 26.
+
+Includes:
+
+- language servers in each workspace (pyright, TypeScript's built-in server, and `ruff server` for Python format) feeding Monaco through a client of our own: completion, hover, go to definition, rename, format and diagnostics;
+- a Problems tab in the right pane for open files;
+- an owner-only language-server socket in the API and a language-server route in the workspace agent;
+- an administrator switch that turns code help off for the site;
+- Agentic and Traditional course profiles, set by the course's instructor or an administrator, with Traditional hiding the coding-agent launchers, the Docker controls and the Running pane's system rows;
+- the pinned ruff binary in the package, smoke checks for the three servers, and a load test with the measured memory figures.
+
+Acceptance:
+
+- completion, hover, go to definition, rename, format and error marks work in a Python and a TypeScript file with no network access;
+- no one but the workspace owner can open the language-server socket, and no frame is read or logged by the API;
+- hover and completion text never runs script and never loads an image;
+- with the site switch off, no language-server socket opens and the editor is the plain editor;
+- a change of course profile hides or shows the three Traditional items at the next page load or window focus, and blocks nothing;
+- completion p95 is under 1 second with 25 students on a 16 GiB server, and the memory target holds by course profile (section 25.2).
 
 ### Estimated total
 
