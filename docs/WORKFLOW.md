@@ -151,7 +151,12 @@ stops and starts workspaces and, on a VM with none, it shortens the
 platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
 name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
 serves on (8443 on the pilot). For the pilot, `make` sets both for you
-(`pilot.portikus.thewhittakers.org` and 8443). Without a name, the script's
+(`pilot.portikus.thewhittakers.org` and 8443). A git worktree has no
+OpenTofu state of its own, so the Makefile reads the pilot's state from the
+main checkout (the parent of `git rev-parse --git-common-dir`); `make
+deploy-app` and `make smoke-test` work from a worktree with no `VM_IP` or
+public host overrides. Passing `VM_IP` for a host other than the pilot still
+makes it a foreign host. Without a name, the script's
 HTTPS checks fall back to `portikus.<vm-ip>.nip.io` and it prints a
 warning.
 
