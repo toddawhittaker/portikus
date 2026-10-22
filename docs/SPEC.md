@@ -577,6 +577,8 @@ Added by Epic 28 (issue #955): **Keep running until.** The owner can hold a runn
 - Audit: `workspace.keep_running_set` (`until`, `previousUntil`, or `reason: "cut_by_cap"` from the worker), `workspace.keep_running_ended` (`reason` `ended_early`, `expired` or `cut_by_cap`) and `settings.keep_running_updated`.
 - The status bar shows "Kept running until {time}" in the student's timezone setting, with the date added when the end is six or more days ahead. The dialog's button names its result ("Keep running until …"), and "Don't keep running" ends a hold early. While a hold lasts, the admin workspace detail's guard summary says "Kept running by its owner until …".
 
+As built (Epic 53): on the admin Settings tab the three values above are the "When workspaces stop" section: Disconnect grace (shown in minutes; the API still keeps seconds), Idle stop (minutes) and Longest keep running (hours), each with its unit after the box. They save together with **Save stop times**, which sends only the fields that changed (section 20.1). The per-workspace dialogs on the Users tab use the same labels and units.
+
 ### 6.5 Graceful stop
 
 A stop should allow the workspace operating system and inner services a bounded period to shut down cleanly.
@@ -1708,7 +1710,7 @@ P0 should use Monaco Editor or an equivalent embeddable editor with mature synta
 
 The project is not intended to become a complete VS Code clone.
 
-Added by Epic 52 (ADR 0065): the editor has real code help, from language servers in the workspace, for Python, TypeScript and JavaScript (section 13.6). Monaco's own TypeScript, CSS and HTML language services stay out of the bundle. An administrator can turn code help off, and the editor is then the plain editor described here.
+Added by Epic 52 (ADR 0065): the editor has real code help, from language servers in the workspace, for Python, TypeScript and JavaScript (section 13.6). Monaco's own TypeScript, CSS and HTML language services stay out of the bundle. An administrator chooses which languages have code help, and a file of a language that is off is the plain editor described here.
 
 ### 13.2 Editing scope
 
@@ -1865,7 +1867,7 @@ A **Problems** list, a tab of the right pane (section 8.4), shows the diagnostic
 | `typescript` | TypeScript's own language server (`tsc --lsp --stdio`) | TypeScript and JavaScript | all six |
 | `ruff` | `ruff server`, lint off | Python | format only |
 
-Python Format goes to `ruff`, and the other Python features go to `python`. The programs and their pinned versions are in STACK.md section 10. They ship in the package's agent tree, so they need no image rebuild. A server that is not installed is "unavailable". Adding a language later is one table entry in the agent, one value in the contracts, one line in the web client's server map, image packages and tests.
+Python Format goes to `ruff`, and the other Python features go to `python`. The programs and their pinned versions are in STACK.md section 10. They ship in the package's agent tree, so they need no image rebuild. A server that is not installed is "unavailable". Adding a language later is one table entry in the agent, one value in the contracts, one line in the web client's server map, a language id with its server mapping in `CODE_HELP_LANGUAGE_OF_SERVER`, a row on the Settings tab, image packages and tests.
 
 **Where they run.** A server runs as the student, inside the workspace container, with its working directory set to the project's real path. This is scope, not a security boundary (sections 9.7 and 24.4): a server has the student's rights and no more, and a student can start the same programs by hand. For Python, the project's `.venv/bin`, or `venv/bin`, comes first on the server's `PATH`. TypeScript's automatic type acquisition is off, so a server never runs `npm` or uses the network. It is turned off twice, in the server's `initializationOptions` and by the agent, which tells TypeScript's server in `initialize` that the client cannot answer `workspace/configuration`, because an answer would override the setting. Each server starts under `prlimit` with a process limit and a raised out-of-memory score, as Checks do, and is stopped by killing its whole process tree. `prlimit` and `choom` are run by absolute path, so a project's own `.venv/bin` cannot stand in for them. Pyright gets a 1,024 MiB Node heap cap, and TypeScript's native server a 1,024 MiB soft Go memory limit. The workspace's memory limit is the ceiling, and the load test (section 25.2) may tune the heap caps.
 
@@ -1879,7 +1881,7 @@ Python Format goes to `ruff`, and the other Python features go to `python`. The 
 | 4413 | IDLE | No browser message for 15 minutes, or this was the least recently used server past the cap |
 | 4414 | CRASHED | The server exited and the agent did not cause it |
 | 4415 | UNAVAILABLE | Not installed, the agent has no route, or too many crashes |
-| 4416 | DISABLED | The site switch is off |
+| 4416 | DISABLED | Code help is off for this server's language |
 | 4429 | TOO_MANY_SOCKETS | The workspace already has 4 language-server sockets open; the browser retries with backoff |
 
 **Lifecycle.**
@@ -1907,9 +1909,9 @@ Python Format goes to `ruff`, and the other Python features go to `python`. The 
 - Unavailable and crashed show a Restart button. A crash says the server may have run out of memory when that is the likely cause.
 - Replaced shows "Code help is on in another window" with a "Use here" button. This window does not reconnect by itself.
 - Idle shows nothing. The next edit or focus reconnects.
-- With code help off (below), the editor is the plain editor of section 13.1: no socket, no Problems tab and no code-help status.
+- A file of a language with code help off (below) is the plain editor of section 13.1: no socket and no code-help status. The Problems tab is shown while at least one language is on.
 
-**The site switch.** An administrator switch on the Settings tab, `settings.code_help_enabled` (migration 0050), is on by default. Changing it is audited as `settings.code_help_updated` with `{from, to}`. The browser learns it from the read-only `codeHelpEnabled` on `GET /me/settings`. While it is off, the API refuses the language-server socket with DISABLED, and the browser opens none, shows no Problems tab and no status, and never retries a DISABLED close. A socket already open closes at its next reconnect. Course profiles (section 8.7) do not change it: code help is the same in Agentic and Traditional.
+**Languages with code help.** The administrator ticks one box per language on the Settings tab, under Student tools (section 20.1). The set is `settings.code_help_languages` (migration 0051, a text array), with the ids `python` and `typescript`; `typescript` covers JavaScript. A new site has both on. The server ids map to languages through `CODE_HELP_LANGUAGE_OF_SERVER` in `packages/contracts`, which is total over the server ids, so Python and Ruff follow `python` together. A language added later is off on every existing site until an administrator ticks it (ADR 0067). Changing the set is audited as `settings.code_help_updated` with `{from, to}` as arrays of language ids (section 24.11). The browser learns the set from the read-only `codeHelpLanguages` on `GET /me/settings`, and reads it again when the window regains focus. For each connect, the API reads the set fresh and refuses the socket with DISABLED when the server's language is off, before it dials the agent; the agent never learns the set (section 24.1). The browser opens no socket for a file of a language that is off, and shows no status for it. A DISABLED close stops only that language's servers, and the page does not retry it, while other languages keep running. A socket already open keeps running until it ends for another reason, and the next connect for that language is refused. Course profiles (section 8.7) do not change the set: code help is the same in Agentic and Traditional. The Settings page estimates the memory the ticked languages add per student and the students a server holds (section 25.2). Languages not yet shipped (HTML, CSS and JSON, Java, C and C++, SQL) are listed there as "Coming later" and cannot be ticked; the API answers 400 for an id it does not know.
 
 ## 14. Application preview and port proxying
 
@@ -2747,7 +2749,7 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 
 **Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
-**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab in four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25): CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes` and, since Epic 28, `keepRunningMaxHours` (section 6.4); a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+**Settings and overrides.** The platform values are columns on the `settings` row, edited in the "Resource guard" section of the admin Settings tab, saved with **Save resource guard** (section 20.1). The section opens with the measuring period, which sets the averaging for both CPU and memory, then has four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25). As built (Epic 53), the fields are labelled Measuring period (minutes), Heavy CPU use (%), Speed while slowed (%), Quiet time (minutes), Quiet means under (%), Slowdowns before a hold, Hold period (hours) and High memory (%), and the per-workspace guard dialog uses the same labels. The values are: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes` and, since Epic 28, `keepRunningMaxHours` (section 6.4); a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
 **Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
 
@@ -2779,7 +2781,17 @@ P0 administration must support:
 
 Added by Epic 50 (ADR 0064): in the Users detail panel, with account email on (section 5.3), an administrator can add a Dex user with an emailed set-password link instead of a shown one-time password, email an SSO invitation and resend it, email invitations from a CSV import, and send a reset link. The email boxes are unticked by default. An administrator can also edit a Dex user's email or username (`PATCH /admin/dex-users/:id`). Dex cannot change a password's email, so an email change deletes the Dex password and creates it again under the same Dex user ID with a random hash; the account keeps its id, its Dex subject and its workspace. It ends the user's sessions and revokes their links before Dex is called, then sets "must change password" or, with account email on, sends a set-password link to the new address and a notice to the old one. If the create step fails after the delete, the account fails closed and a retry creates the missing password. A username change happens in place and keeps the password. The install administrator, your own account and a disabled account cannot be edited this way.
 
-Added by Epic 52 (ADRs 0065 and 0066): the Sign-in tab has a Courses group, beside the LMS group, that lists the LTI courses with their profile (`GET /admin/courses`) and sets one (`PUT /admin/courses/:courseId/profile`, section 8.7). The Settings tab has a code-help switch beside voice input, on by default, that turns the language servers off for the whole site (section 13.6). Each change writes an audit row (section 24.11).
+Added by Epic 52 (ADRs 0065 and 0066): the Sign-in tab has a Courses group, beside the LMS group, that lists the LTI courses with their profile (`GET /admin/courses`) and sets one (`PUT /admin/courses/:courseId/profile`, section 8.7). Each change writes an audit row (section 24.11).
+
+As built (Epic 53): the Settings tab has five sections, in this order: "When workspaces stop" (section 6.4), "Resource guard" (section 19.4), "Student tools", "Acceptable use" and "Email and alerts". A sticky index links to them, and becomes a wrapped row of links when the page is narrow.
+
+- Each section is its own form with its own Save, named for it: **Save stop times**, **Save resource guard**, **Save student tools**, **Save and ask everyone to accept** and **Save email and alerts**. Nothing saves on a click. A changed field shows "Not saved. Was …", the footer counts the unsaved changes and says "Saved." after a save, and **Discard changes** puts the saved values back. A save sends only the fields that changed, so it never rewrites another administrator's concurrent change to another field. A value the browser can check is named under its field; a server refusal shows in the footer and keeps every edit. Save has `aria-disabled` and says why when there is nothing to save. A field edited while its save is in flight stays unsaved.
+- The one action that saves without its section's Save is "Restore built-in text…" on Acceptable use, after its confirm, which stores null as Reset to default did.
+- Email and alerts saves the account-email box first, then the notification job; if the second fails, the footer says which part was saved. The mail server is its own group and is set whenever any of its fields is filled in. The SMTP password and the ntfy token are never shown again, never quoted in a "Was" line and never in the leave dialog.
+- Leaving the Settings tab with unsaved changes opens a "Leave without saving?" dialog that names the sections and how many changes each holds, never their values. The section index's `#` links do not ask, and closing or reloading the browser tab gets the browser's own prompt.
+- While the read is pending, each section shows a skeleton in the shape of its rows. A failed read shows a notice with **Load again**, announced once.
+- One site-wide "Last changed" line shows `updatedAt` of the platform settings. It moves with every section but Email and alerts, which a root job applies and reports on its own line, and also moves when the log level changes on the Logs tab.
+- Student tools holds Code help and Voice input. Code help is a box for each language that is shipped (Python, and TypeScript and JavaScript) with its memory per student, and an estimate (section 25.2): memory per student and students per server, for a Traditional and an Agentic course, read from the server's total memory on the Health data. Without that memory it says "Server memory not known yet". The estimate is a worst case that counts memory only and does not cap anything. The voice-input switch (section 25.10) is in the same section.
 
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
@@ -4216,6 +4228,8 @@ opener.
 
 Added by Epic 52 (ADR 0065): code help adds a browser socket and an agent route that run language servers, which are programs the student's files can steer. The servers run as the student inside the workspace (zone 4), so they add no rights, and they are scope, not isolation (section 24.4). The browser socket is owner only; an administrator, an instructor, a share viewer and a live-help helper cannot open it. The API relays frames without reading them, the agent rewrites the `initialize` fields that name paths and the process id, and no message body is logged. Hover and completion text can come from files an agent or a classmate wrote, so the browser treats it as untrusted: no HTML, no script, only `http` and `https` links, and no images (section 13.6). A server that is killed or crashes affects only that student's workspace. A `setsid` child of a server can outlive it, as one of a terminal can (section 9.7).
 
+As built (Epic 53): an administrator turns code help off for a language, not for the site. Only the API refuses the socket, per language, with DISABLED (section 13.6); the agent does not know the set. It is a resource control for memory, not a trust boundary: a student can still start pyright or the TypeScript server by hand in a terminal (ADR 0065), and the browser socket is still owner only. The set is changed by the administrator-only `PUT /admin/settings`, which validates ids strictly (ADR 0067).
+
 Accepted risk (ADR 0065): opening a Python file starts pyright with the project's `.venv/bin` first on its `PATH`, so pyright runs that environment's own `python`, and any code the project's venv holds, as the student, inside the student's own container. A student could run the same code from a terminal, so it adds no right. `prlimit` and `choom` are run by absolute path, so the venv cannot shadow them. The agent's own buffers for a server's output and for the browser's frames are not bounded, and nothing slows a server that writes faster than the API reads; the harm stays in the student's own container, which has a memory limit.
 
 Backpressure: in the terminal pipe and in the language-server pipe the API stops reading the browser socket while more than 1 MiB waits to be sent to the agent, and reads again below 256 KiB, so a stalled agent cannot make the API buffer browser frames without limit.
@@ -4772,7 +4786,9 @@ restore folder writes `recovery.aside_deleted` (section 15.10). Changing the
 voice switch writes `settings.voice_input_updated` with `{from, to}`. No row
 holds a process name, command line or path.
 
-As built (Epic 52): changing the code-help switch writes `settings.code_help_updated` with `{from, to}`, and changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. No row is written when a profile is set to the value it already has. No row holds source code, a path, or anything a language server said.
+As built (Epic 52): changing the code-help languages writes `settings.code_help_updated` with `{from, to}`, and changing a course's profile writes `course.profile_changed` (actor `user:<id>`, target the course) with `{from, to}`, in the same transaction as the change, whether an instructor or an administrator made it. No row is written when a profile is set to the value it already has. No row holds source code, a path, or anything a language server said.
+
+As built (Epic 53): `settings.code_help_updated` carries `{from, to}` as arrays of language ids in the contract's order, written in the same transaction as the change, and no row is written when the set is unchanged, in any order. Rows written before Epic 53 hold booleans there; the Audit tab shows the raw details, so both read.
 
 As built (Epic 22): the listener `commandLine` field has existed since
 Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
@@ -5026,7 +5042,7 @@ Pilot design target:
 
 The architecture must not encode these numbers as hard limits.
 
-Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on: it holds about nine students with code help and 2 GiB kept free. An administrator can turn code help off for the site. Measured resident memory per student, mean and highest: pyright 167 and 250 MiB, TypeScript's native server 57 and 66 MiB, ruff 18 and 41 MiB, all three 241 and 322 MiB. With a coding agent as well, as in an Agentic course, a student used about 550 MiB, so a 16 GiB server holds about 23 Agentic students with 2 GiB free, and 25 Agentic students need 20 GiB. A Traditional course runs no coding agent, so a 16 GiB server holds 25 students with about 4.6 GiB free; that figure is calculated from the measured per-student figures, not measured.
+Code help (section 13.6) needs more memory per active student than a plain workspace. The 8 GiB pilot server cannot hold a full class with code help on: it holds about nine students with code help and 2 GiB kept free. An administrator can untick languages under Student tools on the Settings tab, which shows what each costs and how many students the server holds; the estimate is a worst case that counts memory only. Its constants are the table "Estimate on the Settings page" in docs/CAPACITY.md, and a unit test keeps the page's figures equal to it. Measured resident memory per student, mean and highest: pyright 167 and 250 MiB, TypeScript's native server 57 and 66 MiB, ruff 18 and 41 MiB, all three 241 and 322 MiB. With a coding agent as well, as in an Agentic course, a student used about 550 MiB, so a 16 GiB server holds about 23 Agentic students with 2 GiB free, and 25 Agentic students need 20 GiB. A Traditional course runs no coding agent, so a 16 GiB server holds 25 students with about 4.6 GiB free; that figure is calculated from the measured per-student figures, not measured.
 
 ### 25.3 Reliability
 
@@ -5273,6 +5289,8 @@ left open by accident (ADR 0055). A click that cannot be held (keyboard or
 screen reader click) says in the status region how to hold.
 The app header and the Course page work down to 320 px.
 
+Added by Epic 53: a field with a unit (`TextField`'s `unit`, or `UnitInput` in `packages/ui`) puts the unit in a span with an id that comes first in the field's `aria-describedby`, not `aria-hidden`, so a screen reader reads "Disconnect grace, edit text, minutes"; ids the caller passes follow it. On the Settings tab (section 20.1), a language that is "Coming later" is a checkbox with `aria-disabled` that stays in the tab order, cannot be ticked, is drawn muted, and says in its description that its language server is not installed yet. The "Leave without saving?" dialog is a `ConfirmDialog` that names sections and counts and never values. The estimate's headline is the only live `output`, read politely as the boxes change; the table is not announced. While the Health read is pending the student counts show a skeleton, not "not known". A section's Save with nothing to save stays focusable with `aria-disabled`, described by the footer's "No unsaved changes." line. A failed read is announced once.
+
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
 ### 25.9 Browser support
@@ -5424,7 +5442,8 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0043_agent_usage_days` (ADR 0057): `agent_usage_days`, counts per user, boot id, day, agent and model, with no content column.
 - `0048_live_help` (ADR 0063): `live_help_sessions` (workspace, project, helper, course, typing, start, end limit, ended time and `end_reason`; at most one open session per workspace); `live_help_session_id` on `preview_grants` and `preview_sessions`; `projects.layout_version`.
 - `0049_account_email` (section 5.3, ADR 0064): `account_email_tokens` (`id`, `user_id` cascading on delete, `purpose` `reset` or `invite`, unique `token_hash`, `created_by`, `created_at`, `expires_at`, `used_at`, `revoked_at`), granted to the API's role only; `settings.account_email_enabled` (default false).
-- `0050_course_profile` (sections 8.7 and 13.6, ADR 0066): `lti_contexts.profile`, text with a check constraint (`agentic` or `traditional`, default `agentic`); `settings.code_help_enabled` (default true).
+- `0050_course_profile` (sections 8.7 and 13.6, ADR 0066): `lti_contexts.profile`, text with a check constraint (`agentic` or `traditional`, default `agentic`); `settings.code_help_enabled` (default true). Migration 0051 replaced that column.
+- `0051_code_help_languages` (sections 13.6 and 20.1, ADR 0067): `settings.code_help_languages`, `text[]`, not null, default `{python,typescript}`, with no check constraint, so a language added later needs no migration. It replaces `code_help_enabled`: a site with code help off becomes `{}` and one with it on becomes both languages. The down migration restores the boolean as true when any language is on.
 
 ## 27. API principles
 
@@ -6832,6 +6851,26 @@ Acceptance:
 - with the site switch off, no language-server socket opens and the editor is the plain editor;
 - a change of course profile hides or shows the three Traditional items at the next page load or window focus, and blocks nothing;
 - completion p95 is under 1 second with 25 students on a 16 GiB server, and the memory target holds by course profile (section 25.2).
+
+### Epic 53 — Settings redesign and per-language code help
+
+Built on `epic/53-settings-redesign`, issues #1653, #1651, #1649 and #1650. Migration 0051, ADR 0067. See sections 6.4, 13.6, 19.4, 20.1, 24.1, 24.11, 25.2, 25.8 and 26.
+
+Includes:
+
+- Administration > Settings as five sections, each with its own Save, "Not saved. Was …" marks, Discard changes, a leave guard, designed loading and error states, units and defaults in place, and one "Last changed" line;
+- code help chosen per language, with a live estimate of memory per student and students per server, and "Coming later" rows for the languages not shipped;
+- the language set stored in `settings.code_help_languages`, refused per language at the API with DISABLED, and followed by the editor;
+- the Keep running fields and the storage meters lined up, and the editor's right-click menu fixed after a round trip through the diff view;
+- hover text that cannot form an image, and one announcement of a code-help crash in a split view.
+
+Acceptance:
+
+- unticking one language leaves a file of that language as the plain editor, with no socket and no status, while the other language keeps its code help;
+- the API answers 400 for a language it does not ship, and the audit row holds the old and new sets;
+- nothing on the Settings tab saves on a click except the confirmed "Restore built-in text…", and leaving with unsaved changes asks first;
+- the estimate follows the ticked boxes and the server's memory, and says when the memory is not known;
+- the right-click menu, F2, F12 and Ctrl+Space work in the editor after the diff view.
 
 ### Estimated total
 

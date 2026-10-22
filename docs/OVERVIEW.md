@@ -40,11 +40,15 @@ job with trials that are put back unless kept (SPEC.md section 20.1, ADRs
 0059 and 0060). Epic 52 gave the editor real code
 help (completion, hover, go to definition, rename, format and error marks) for
 Python, TypeScript and JavaScript, from language servers that run inside each
-student's workspace, with a Problems tab and an administrator switch to turn it
-off (SPEC.md section 13.6, ADR 0065). It also added course profiles: an
+student's workspace, with a Problems tab (SPEC.md section 13.6, ADR 0065). It also added course profiles: an
 instructor or administrator can set an LTI course to Traditional, which hides
 the coding-agent launchers, the Docker controls and the Running pane's system
-rows without blocking anything (SPEC.md section 8.7, ADR 0066).
+rows without blocking anything (SPEC.md section 8.7, ADR 0066). Epic 53
+redesigned Administration > Settings into five sections with one Save each
+and a warning when leaving with unsaved changes, and replaced the code-help
+switch with one box per language and a memory estimate, so an administrator
+can run code help for one language only (SPEC.md sections 13.6 and 20.1,
+ADR 0067).
 
 ## Planned architecture
 

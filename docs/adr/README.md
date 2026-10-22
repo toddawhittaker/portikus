@@ -94,3 +94,4 @@ has four sections:
 | [0064](0064-account-email-and-provider-groups.md) | Emailed reset and invitation links behind a switch, roles from Google groups and Entra group IDs, and a passkey at link confirm (accepted, Epic 50) |
 | [0065](0065-language-servers-in-the-workspace.md) | Real language servers run in each workspace and feed Monaco through a thin client of our own (accepted, Epic 52) |
 | [0066](0066-course-profiles-hide-stored-on-the-lti-course.md) | Course profiles hide and never block, are stored on the LTI course, and are set by the instructor or an administrator (accepted, Epic 52) |
+| [0067](0067-code-help-chosen-per-language.md) | Code help is chosen per language: the column stores the enabled set, only the API refuses, writes are strict and reads lenient, and the estimate is a worst case (accepted, Epic 53) |
