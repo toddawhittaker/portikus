@@ -124,8 +124,10 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 			}),
 			create: (
 				_host: HTMLElement,
-				options: { model: FakeModel } & Record<string, unknown>,
+				options?: { model: FakeModel } & Record<string, unknown>,
 			) => {
+				// The diff viewer's closing builds and drops a bare editor.
+				if (!options) return { dispose: () => {} };
 				state.model = options.model;
 				state.created = options;
 				let position = 1;
