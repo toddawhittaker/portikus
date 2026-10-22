@@ -2,7 +2,8 @@
  * The code-help state on the editor bar (SPEC.md §13.6). Idle, and code
  * help turned off, show nothing.
  */
-import type { ServerStatus } from "./store.js";
+import { useEffect, useId } from "react";
+import { type ServerStatus, useCodeHelpStore } from "./store.js";
 
 export const TOO_LARGE_MESSAGE = "Code help is off for files over 512 KB";
 const REPLACED_MESSAGE = "Code help is on in another window";
@@ -33,22 +34,41 @@ export function statusView(
 	}
 }
 
+/**
+ * Whether this bar is the one that announces its server's state. Editors side
+ * by side show the same state, and one announcement is enough (SPEC.md §25.8).
+ */
+function useAnnounces(key: string): boolean {
+	const viewer = useId();
+	useEffect(() => {
+		const { addViewer, removeViewer } = useCodeHelpStore.getState();
+		addViewer(key, viewer);
+		return () => removeViewer(key, viewer);
+	}, [key, viewer]);
+	return useCodeHelpStore((state) => state.viewers[key]?.[0] === viewer);
+}
+
 export function CodeHelpStatus({
 	path,
+	announceKey,
 	status,
 	tooLarge,
 	onRestart,
 }: {
 	path: string;
+	/** The project and server, shared by every bar that shows this state. */
+	announceKey: string;
 	status: ServerStatus | undefined;
 	tooLarge: boolean;
 	/** Also moves focus off the button, which goes away while the server starts. */
 	onRestart: () => void;
 }) {
 	const view = statusView(status, tooLarge);
+	const announces = useAnnounces(announceKey);
 	// Only a state that asks for action is announced: a quiet reconnect after
-	// idle or a dropped socket is not read out (SPEC.md §13.6, §25.8).
-	const announced = view !== null && (view.action !== null || tooLarge);
+	// idle or a dropped socket is not read out (SPEC.md §13.6, §25.8). Too large
+	// belongs to this file alone, so its own bar announces it.
+	const announced = view !== null && (tooLarge || (view.action !== null && announces));
 	return (
 		<>
 			<span

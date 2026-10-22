@@ -2,7 +2,11 @@
  * Code help for one open project: one client per server id, created when the
  * first file of its language opens (SPEC.md §13.6). WorkspacePage owns it.
  */
-import type { LanguageServerId } from "@portikus/contracts";
+import {
+	CODE_HELP_LANGUAGE_OF_SERVER,
+	type CodeHelpLanguage,
+	type LanguageServerId,
+} from "@portikus/contracts";
 import type * as Monaco from "monaco-editor";
 import { wsUrl } from "../api/ws.js";
 import { LanguageClient } from "./client.js";
@@ -18,6 +22,8 @@ export interface ManagerOptions {
 	/** The project's real path in the workspace. */
 	root: string;
 	projectName: string;
+	/** The languages the site has code help on for; any other gets no socket. */
+	languages: ReadonlySet<CodeHelpLanguage>;
 	/** Opens a project file as a tab, at a line when given. */
 	openFile: (path: string, line?: number) => void;
 }
@@ -25,7 +31,8 @@ export interface ManagerOptions {
 export class CodeHelpManager {
 	private clients = new Map<LanguageServerId, LanguageClient>();
 	private monaco: typeof Monaco | null = null;
-	private disabled = false;
+	/** Languages the API refused, though the page believed them on. */
+	private refused = new Set<CodeHelpLanguage>();
 	private readonly onFocus = () => {
 		for (const client of this.clients.values()) client.wake();
 	};
@@ -41,15 +48,16 @@ export class CodeHelpManager {
 		model: Monaco.editor.ITextModel,
 		path: string,
 	): () => void {
-		if (this.disabled) return () => {};
+		const servers = serversForLanguage(model.getLanguageId()).filter((server) =>
+			this.allows(server),
+		);
+		if (servers.length === 0) return () => {};
 		if (this.monaco === null) {
 			this.monaco = monaco;
 			registerProviders(monaco);
 			registerOpener(monaco);
 		}
-		const clients = serversForLanguage(model.getLanguageId()).map((server) =>
-			this.client(server),
-		);
+		const clients = servers.map((server) => this.client(server));
 		for (const client of clients) client.track(model, path);
 		const listener = model.onDidChangeContent((event) => {
 			for (const client of clients) client.change(model, event);
@@ -58,6 +66,12 @@ export class CodeHelpManager {
 			listener.dispose();
 			for (const client of clients) client.untrack(model);
 		};
+	}
+
+	/** Whether code help is on for this server's language. */
+	allows(server: LanguageServerId): boolean {
+		const language = CODE_HELP_LANGUAGE_OF_SERVER[server];
+		return this.options.languages.has(language) && !this.refused.has(language);
 	}
 
 	private client(server: LanguageServerId): LanguageClient {
@@ -73,7 +87,7 @@ export class CodeHelpManager {
 			root,
 			projectName,
 			server,
-			onDisabled: () => this.disable(),
+			onDisabled: () => this.disable(server),
 		});
 		this.clients.set(server, client);
 		return client;
@@ -98,12 +112,16 @@ export class CodeHelpManager {
 		for (const client of this.clients.values()) client.filesChanged(paths);
 	}
 
-	/** The site switch is off: no socket again and no status (SPEC.md §13.6). */
-	private disable(): void {
-		this.disabled = true;
-		for (const client of this.clients.values()) client.dispose();
-		this.clients.clear();
-		useCodeHelpStore.getState().clearProject(this.options.projectId);
+	/** The API refused a server: its language, and only that one, stops (SPEC.md §13.6). */
+	private disable(refused: LanguageServerId): void {
+		const language = CODE_HELP_LANGUAGE_OF_SERVER[refused];
+		this.refused.add(language);
+		for (const [server, client] of this.clients) {
+			if (CODE_HELP_LANGUAGE_OF_SERVER[server] !== language) continue;
+			client.dispose();
+			this.clients.delete(server);
+			useCodeHelpStore.getState().clearServer(this.options.projectId, server);
+		}
 	}
 
 	dispose(): void {

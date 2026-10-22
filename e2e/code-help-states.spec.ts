@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	codeHelpLiveRegion,
 	codeHelpStatus,
 	DROP,
 	editorLines,
@@ -10,11 +11,14 @@ import {
 } from "./code-help-helpers";
 import {
 	CODE_HELP_ALL_LANGUAGES,
+	createProject,
 	createStudent,
 	query,
 	readSeededFile,
 	routeApi,
+	seedFile,
 	type TestStudent,
+	workspacePath,
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
@@ -67,6 +71,46 @@ const RETRY_WINDOW_MS = 2500;
 
 async function windowFocus(page: Page) {
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+}
+
+/** What the browser fires when the student comes back to the window; settings are read again. */
+async function windowVisible(page: Page) {
+	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+}
+
+/** Open a project whose one tab holds these files side by side. */
+async function openSplit(
+	page: Page,
+	student: TestStudent,
+	name: string,
+	files: Record<string, string>,
+) {
+	const project = await createProject(student.workspaceId, { name });
+	const paths = Object.keys(files);
+	for (const path of paths) {
+		await seedFile(student.workspaceId, project.slug, path, files[path] ?? "");
+	}
+	await query("update projects set layout = $2 where id = $1", [
+		project.id,
+		JSON.stringify({
+			tabs: [
+				{
+					id: "side-by-side",
+					root: {
+						type: "split",
+						direction: "row",
+						sizes: paths.map(() => 100 / paths.length),
+						children: paths.map((path) => ({ type: "file", path })),
+					},
+				},
+			],
+		}),
+	]);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	for (const path of paths) {
+		await expect(editorLines(page, path)).toBeVisible({ timeout: 60_000 });
+	}
+	return project;
 }
 
 test.describe("code help when the server stops", () => {
@@ -240,6 +284,43 @@ test.describe("code help when the server stops", () => {
 		await ready(page);
 	});
 
+	for (const [name, code, text] of [
+		["crashed", 4414, "Code help stopped"],
+		["replaced", 4412, "Code help is on in another window"],
+	] as const) {
+		test(`two editors side by side announce ${name} once`, async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const wire = await watchLanguageServers(page);
+			await saveQuickly(student.userId);
+			await openSplit(page, student, "Side by side", {
+				"one.py": CONTENT,
+				"two.py": CONTENT,
+			});
+			for (const path of ["one.py", "two.py"]) {
+				await expect(codeHelpStatus(page, path)).toHaveText("Code help ready", {
+					timeout: 30_000,
+				});
+			}
+
+			await wire.close("python", code, name);
+			// Both bars say it, so each editor shows its own state.
+			for (const path of ["one.py", "two.py"]) {
+				await expect(codeHelpStatus(page, path)).toContainText(text);
+			}
+			// One live region carries the words, so a screen reader hears them once.
+			await expect(page.getByRole("status").filter({ hasText: text })).toHaveCount(1);
+			const spoken = await Promise.all(
+				["one.py", "two.py"].map((path) =>
+					codeHelpLiveRegion(page, path).textContent(),
+				),
+			);
+			expect(spoken.sort()).toEqual(["", text]);
+		});
+	}
+
 	test("disabled shows nothing and is never retried", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const { wire, project } = await openPython(page, student);
@@ -247,7 +328,7 @@ test.describe("code help when the server stops", () => {
 
 		await wire.closeAll(4416, "code help is off");
 		const status = codeHelpStatus(page, PATH);
-		await expect(status).toHaveText("");
+		await expect(status).toHaveCount(0);
 		await expect(button(page, "Restart code help")).toHaveCount(0);
 		await expect(button(page, "Use here")).toHaveCount(0);
 
@@ -257,7 +338,7 @@ test.describe("code help when the server stops", () => {
 		await page.waitForTimeout(RETRY_WINDOW_MS + 1000);
 		expect(wire.opened("python")).toBe(1);
 		expect(wire.opened("ruff")).toBe(1);
-		await expect(status).toHaveText("");
+		await expect(status).toHaveCount(0);
 	});
 });
 
@@ -388,7 +469,7 @@ test.describe("code help and the site switch", () => {
 			.toBeGreaterThan(0);
 		expect(wire.closes[0]?.reason).toBe("code help is off");
 		const status = codeHelpStatus(page, PATH);
-		await expect(status).toHaveText("");
+		await expect(status).toHaveCount(0);
 		await expect(button(page, "Restart code help")).toHaveCount(0);
 
 		await typeAndSave(page, student, project.slug, "w");
@@ -396,7 +477,144 @@ test.describe("code help and the site switch", () => {
 		await page.waitForTimeout(RETRY_WINDOW_MS + 1000);
 		expect(wire.opened("python")).toBe(1);
 		expect(wire.opened("ruff")).toBe(1);
-		await expect(status).toHaveText("");
+		await expect(status).toHaveCount(0);
+	});
+
+	test("Python off and TypeScript on: a .py file is plain and a .ts file keeps code help", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await setLanguages("{typescript}");
+		const wire = await watchLanguageServers(page);
+		await saveQuickly(student.userId);
+		await openProjectFiles(page, student, "Mixed", {
+			[PATH]: CONTENT,
+			"app.ts": "export const answer: number = 42;\n",
+		});
+		await expect(editorLines(page, PATH)).toContainText("answer", { timeout: 60_000 });
+
+		// The TypeScript file has code help, so its squiggle shows.
+		await page.getByTestId("tab-file:app.ts").click();
+		await expect(codeHelpStatus(page, "app.ts")).toHaveText("Code help ready", {
+			timeout: 30_000,
+		});
+		await expect(
+			page.getByTestId("editor-app.ts").locator(".squiggly-error").first(),
+		).toBeVisible({ timeout: 30_000 });
+
+		// The Python file, in the same page, is a plain editor with colours only.
+		await page.getByTestId(`tab-file:${PATH}`).click();
+		await expect(page.getByTestId(`editor-${PATH}`)).toBeVisible();
+		await expect(page.getByTestId(`editor-code-help-${PATH}`)).toHaveCount(0);
+		await expect(
+			page.getByTestId(`editor-${PATH}`).locator(".squiggly-warning"),
+		).toHaveCount(0);
+		await expect
+			.poll(async () =>
+				editorLines(page, PATH)
+					.locator("span[class^='mtk']")
+					.evaluateAll((spans) => new Set(spans.map((span) => span.className)).size),
+			)
+			.toBeGreaterThan(1);
+		expect(wire.opened("python")).toBe(0);
+		expect(wire.opened("ruff")).toBe(0);
+		expect(wire.opened("typescript")).toBe(1);
+
+		// Problems lists the TypeScript file alone, and the tab is there.
+		await page.getByTestId("right-pane-tab-problems").click();
+		await expect(page.getByTestId("right-pane-count-problems")).toHaveText("1");
+		await expect(page.getByTestId("problem-app.ts:1")).toBeVisible();
+		await expect(page.getByTestId(`problem-${PATH}:1`)).toHaveCount(0);
+	});
+
+	test("the editor follows the set of languages when the window comes back", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { wire } = await openPython(page, student);
+		await ready(page);
+		const problemsTab = page.getByTestId("right-pane-tab-problems");
+		await expect(problemsTab).toBeVisible();
+
+		// The settings count as old after five seconds, so ask until it is read again.
+		const followed = (count: number) => async () => {
+			await windowVisible(page);
+			return codeHelpStatus(page, PATH)
+				.count()
+				.then((now) => now === count);
+		};
+
+		// Python off, TypeScript on: the file turns plain, and Problems stays.
+		await setLanguages("{typescript}");
+		await expect.poll(followed(0), { timeout: 30_000 }).toBe(true);
+		await expect(problemsTab).toBeVisible();
+
+		// Both off: the Problems tab goes too.
+		await setLanguages("{}");
+		await expect
+			.poll(
+				async () => {
+					await windowVisible(page);
+					return problemsTab.count();
+				},
+				{ timeout: 30_000 },
+			)
+			.toBe(0);
+		expect(wire.opened("python")).toBe(1);
+
+		// Python on again: the open file gets code help without a reload.
+		await setLanguages("{python}");
+		await expect.poll(followed(1), { timeout: 30_000 }).toBe(true);
+		await ready(page);
+		expect(wire.opened("python")).toBe(2);
+		await expect(problemsTab).toBeVisible();
+	});
+
+	test("a refusal for Python leaves TypeScript code help running", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await setLanguages("{typescript}");
+		// The page believes both languages are on, as one loaded before the change would.
+		await page.route("**/me/settings", async (route) => {
+			const response = await route.fetch();
+			const body = (await response.json()) as Record<string, unknown>;
+			await route.fulfill({
+				response,
+				json: { ...body, codeHelpLanguages: ["python", "typescript"] },
+			});
+		});
+		const wire = await watchLanguageServers(page);
+		await saveQuickly(student.userId);
+		await openProjectFiles(page, student, "Refused", {
+			[PATH]: CONTENT,
+			"app.ts": "export const answer: number = 42;\n",
+		});
+
+		await expect
+			.poll(() => wire.closes.filter((close) => close.code === 4416).length, {
+				timeout: 30_000,
+			})
+			.toBeGreaterThan(0);
+		await page.getByTestId("tab-file:app.ts").click();
+		await expect(codeHelpStatus(page, "app.ts")).toHaveText("Code help ready", {
+			timeout: 30_000,
+		});
+		await expect(
+			page.getByTestId("editor-app.ts").locator(".squiggly-error").first(),
+		).toBeVisible({ timeout: 30_000 });
+		expect(wire.closes.every((close) => close.server !== "typescript")).toBe(true);
+		await expect(codeHelpStatus(page, PATH)).toHaveCount(0);
+
+		// The refused language is not tried again.
+		await windowFocus(page);
+		await page.waitForTimeout(RETRY_WINDOW_MS);
+		expect(wire.opened("python")).toBe(1);
+		expect(wire.opened("ruff")).toBe(1);
+		expect(wire.opened("typescript")).toBe(1);
 	});
 
 	test("the agent's own close codes reach the page with fixed reasons", async ({
