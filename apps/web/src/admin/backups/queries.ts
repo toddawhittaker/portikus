@@ -13,9 +13,10 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { request, sendJson, toApiError } from "../../api/request.js";
+import { errorText, request, sendJson, toApiError } from "../../api/request.js";
 import { downloadBlob } from "../../common/download.js";
 import { adminKeys } from "../queries.js";
+import type { DeleteTarget } from "./selection.js";
 
 const backupsKey = ["admin", "backups"] as const;
 
@@ -52,24 +53,8 @@ function useBackupWrite<T>(
 	});
 }
 
-const del: RequestInit = { method: "DELETE" };
-
 export function useRunBackup() {
 	return useBackupWrite<void>(() => ["/admin/backups/run", { method: "POST" }]);
-}
-
-export function useDeleteSet() {
-	return useBackupWrite<string>((stamp) => [
-		`/admin/backups/sets/${encodeURIComponent(stamp)}`,
-		del,
-	]);
-}
-
-export function useDeleteDump() {
-	return useBackupWrite<string>((file) => [
-		`/admin/backups/dumps/${encodeURIComponent(file)}`,
-		del,
-	]);
 }
 
 export function useRestoreCopy() {
@@ -91,15 +76,6 @@ export function useReplaceHome() {
 			{ method: "POST" },
 		],
 		adminKeys.users,
-	);
-}
-
-export function useDeleteSnapshot() {
-	return useBackupWrite<{ volume: string; snapshot: string }>(
-		({ volume, snapshot }) => [
-			`/admin/backups/snapshots/${encodeURIComponent(volume)}/${encodeURIComponent(snapshot)}`,
-			del,
-		],
 	);
 }
 
@@ -150,9 +126,47 @@ export function useUploadBackupKey() {
 	});
 }
 
-export function useDeleteKeptHome() {
-	return useBackupWrite<string>((volume) => [
-		`/admin/backups/kept-homes/${encodeURIComponent(volume)}`,
-		del,
-	]);
+/** The existing per-item delete route for one item. */
+function deletePath(target: DeleteTarget): string {
+	switch (target.kind) {
+		case "set":
+			return `/admin/backups/sets/${encodeURIComponent(target.stamp)}`;
+		case "dump":
+			return `/admin/backups/dumps/${encodeURIComponent(target.file)}`;
+		case "snapshot":
+			return `/admin/backups/snapshots/${encodeURIComponent(target.volume)}/${encodeURIComponent(target.snapshot)}`;
+		case "kept":
+			return `/admin/backups/kept-homes/${encodeURIComponent(target.volume)}`;
+	}
+}
+
+export interface DeleteOutcome {
+	done: DeleteTarget[];
+	failed: { target: DeleteTarget; reason: string }[];
+}
+
+/**
+ * Requests each delete through its own route, so each is its own audited
+ * request (SPEC.md section 24.11). One at a time, so each refusal is tied to
+ * its item, and one refresh for the whole run.
+ */
+export function useDeleteBackups() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: async (targets: readonly DeleteTarget[]): Promise<DeleteOutcome> => {
+			const outcome: DeleteOutcome = { done: [], failed: [] };
+			for (const target of targets) {
+				try {
+					await request(BackupRequestView, deletePath(target), { method: "DELETE" });
+					outcome.done.push(target);
+				} catch (error) {
+					outcome.failed.push({ target, reason: errorText(error) });
+				}
+			}
+			return outcome;
+		},
+		onSettled: () => {
+			void client.invalidateQueries({ queryKey: backupsKey });
+		},
+	});
 }

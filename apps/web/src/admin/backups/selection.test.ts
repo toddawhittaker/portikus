@@ -1,0 +1,141 @@
+import { expect, test } from "vitest";
+import {
+	allBoxState,
+	type DeleteTarget,
+	deleteCopy,
+	kindsText,
+	NEWEST_KEPT,
+	pickables,
+	pickedItems,
+	targetKey,
+	targetName,
+	withKeys,
+} from "./selection.js";
+import { ALICE_INSTANCE, backups, FAILED, NEW, OLD, view } from "./testBackups.js";
+
+const SET: DeleteTarget = { kind: "set", stamp: OLD };
+const DUMP: DeleteTarget = { kind: "dump", file: "a.dump" };
+const SNAP: DeleteTarget = { kind: "snapshot", volume: "v-home", snapshot: "pre-x" };
+const KEPT: DeleteTarget = { kind: "kept", volume: "v-home-replaced-1", name: "Alice" };
+
+test("every item has its own key, and the same item always the same one", () => {
+	const keys = [SET, DUMP, SNAP, KEPT].map(targetKey);
+	expect(new Set(keys).size).toBe(4);
+	expect(targetKey({ kind: "set", stamp: OLD })).toBe(targetKey(SET));
+	// A dump and a set never share a key, even with the same text.
+	expect(targetKey({ kind: "dump", file: OLD })).not.toBe(targetKey(SET));
+});
+
+test("the tab's items run in page order, and the newest complete set says why it cannot be ticked", () => {
+	const items = pickables(backups());
+	expect(items.map((item) => item.target.kind)).toEqual([
+		"set",
+		"set",
+		"set",
+		"snapshot",
+		"kept",
+		"dump",
+	]);
+	const blocked = Object.fromEntries(items.map((item) => [item.key, item.blocked]));
+	expect(blocked[targetKey({ kind: "set", stamp: NEW })]).toBe(NEWEST_KEPT);
+	expect(blocked[targetKey({ kind: "set", stamp: FAILED })]).toBeNull();
+	expect(blocked[targetKey({ kind: "set", stamp: OLD })]).toBeNull();
+	// The kept home is named after its workspace, as its row is.
+	expect(items[4]?.target).toMatchObject({ kind: "kept", name: "Alice Smith (alice)" });
+});
+
+test("an item whose delete is already waiting cannot be ticked again", () => {
+	const items = pickables(
+		backups({
+			requests: [
+				view({
+					kind: "delete_snapshot",
+					args: { volume: `${ALICE_INSTANCE}-home`, snapshot: "pre-upgrade" },
+					state: "claimed",
+				}),
+				// A finished delete no longer blocks.
+				view({ kind: "delete_dump", args: { file: "portikus-pre-upgrade.dump" } }),
+			],
+		}),
+	);
+	const snapshot = items.find((item) => item.target.kind === "snapshot");
+	const dump = items.find((item) => item.target.kind === "dump");
+	expect(snapshot?.blocked).toBe("A delete is already waiting");
+	expect(dump?.blocked).toBeNull();
+});
+
+test("only ticked items still listed and deletable are picked", () => {
+	const items = pickables(backups());
+	const selected = new Set([
+		targetKey({ kind: "set", stamp: OLD }),
+		targetKey({ kind: "set", stamp: NEW }),
+		targetKey({ kind: "dump", file: "gone.dump" }),
+		targetKey({ kind: "dump", file: "portikus-pre-upgrade.dump" }),
+	]);
+	expect(pickedItems(items, selected).map((item) => item.target)).toEqual([
+		{ kind: "set", stamp: OLD },
+		{ kind: "dump", file: "portikus-pre-upgrade.dump" },
+	]);
+});
+
+test("ticking and unticking keys leaves the rest alone", () => {
+	const start = new Set(["a", "b"]);
+	expect([...withKeys(start, ["c"], true)]).toEqual(["a", "b", "c"]);
+	expect([...withKeys(start, ["a", "z"], false)]).toEqual(["b"]);
+	// The original set is not changed.
+	expect([...start]).toEqual(["a", "b"]);
+});
+
+test("a list's select-all box is off, dashed or ticked, and unavailable when nothing can be ticked", () => {
+	const sets = pickables(backups()).filter((item) => item.target.kind === "set");
+	const open = sets.filter((item) => item.blocked === null).map((item) => item.key);
+	expect(allBoxState(sets, new Set())).toEqual({
+		checked: false,
+		indeterminate: false,
+		unavailable: false,
+	});
+	expect(allBoxState(sets, new Set(open.slice(0, 1)))).toMatchObject({
+		checked: false,
+		indeterminate: true,
+	});
+	// The newest set is never ticked, so the others alone make the list all ticked.
+	expect(allBoxState(sets, new Set(open))).toMatchObject({
+		checked: true,
+		indeterminate: false,
+	});
+	const onlyNewest = sets.filter((item) => item.blocked !== null);
+	expect(allBoxState(onlyNewest, new Set()).unavailable).toBe(true);
+});
+
+test("kinds are counted in page order with their plurals", () => {
+	expect(kindsText([DUMP, SET, DUMP])).toBe("1 backup set and 2 database dumps");
+	expect(kindsText([KEPT, SNAP, SET, DUMP])).toBe(
+		"1 backup set, 1 snapshot, 1 kept home and 1 database dump",
+	);
+});
+
+test("one item's confirm names it; several name only their count and kinds", () => {
+	expect(deleteCopy([DUMP]).title).toBe("Delete a.dump?");
+	expect(deleteCopy([KEPT]).title).toBe("Delete the kept home of Alice?");
+
+	const dumps = deleteCopy([DUMP, { kind: "dump", file: "b.dump" }]);
+	expect(dumps.title).toBe("Delete 2 database dumps?");
+	expect(dumps.description).toEqual(["The host removes the database dumps."]);
+	expect(dumps.description.join(" ")).not.toContain("a.dump");
+
+	const mixed = deleteCopy([DUMP, SET, SNAP, SET]);
+	expect(mixed.title).toBe("Delete 4 items?");
+	expect(mixed.description).toEqual([
+		"2 backup sets, 1 snapshot and 1 database dump.",
+		"Workspaces can no longer be restored from the deleted sets.",
+		"Deleting a snapshot leaves its volume unchanged.",
+		"The host removes the database dumps.",
+	]);
+});
+
+test("a failure names the item it is about", () => {
+	expect(targetName(DUMP)).toBe("a.dump");
+	expect(targetName(SNAP)).toBe("Snapshot pre-x of v-home");
+	expect(targetName(KEPT)).toBe("The kept home of Alice");
+	expect(targetName(SET)).toMatch(/^The backup set from .* UTC$/);
+});
