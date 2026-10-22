@@ -17,9 +17,14 @@ export function useSaveSettings() {
 		pending: update.isPending,
 		send(
 			body: UpdatePlatformSettingsRequest,
-			draft: { saved: () => void; fail: (message: string) => void },
+			draft: {
+				sending: () => void;
+				saved: () => void;
+				fail: (message: string) => void;
+			},
 			onSaved?: () => void,
 		) {
+			draft.sending();
 			update.mutate(body, {
 				onSuccess: (saved) => {
 					client.setQueryData(adminKeys.settings, saved);

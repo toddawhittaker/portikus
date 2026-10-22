@@ -292,7 +292,12 @@ test("while a change waits, Save says why it is unavailable, and a second save i
 	);
 
 	await playAlertsJob();
-	await expect(save).not.toHaveAttribute("aria-disabled", "true", { timeout: 10_000 });
+	// The change was applied, so Save no longer waits on it. With nothing left to
+	// save it stays idle and says so instead.
+	await expect(save).not.toHaveAccessibleDescription(/A change is being applied/, {
+		timeout: 10_000,
+	});
+	await expect(save).toHaveAccessibleDescription(/No unsaved changes\./);
 	await expect(section.getByTestId("notify-job")).toContainText(
 		"The new settings are in use.",
 	);
@@ -465,7 +470,8 @@ test("a change the job never took is shown as not finished, and a new save goes 
 		"The last change did not finish",
 	);
 	const save = section.getByRole("button", { name: "Save email and alerts" });
-	await expect(save).not.toHaveAttribute("aria-disabled", "true");
+	// Not waiting on the dead job; with nothing changed yet it is idle instead.
+	await expect(save).not.toHaveAccessibleDescription(/A change is being applied/);
 
 	await toggleRootShellAlert(page, true);
 	const answer = page.waitForResponse(

@@ -33,9 +33,15 @@ test.afterAll(async () => {
 });
 
 /** The Health report with its host memory replaced, or the read failing. */
-async function serverMemory(page: Page, totalBytes: number | null | "fail") {
+async function serverMemory(
+	page: Page,
+	totalBytes: number | null | "fail",
+	/** Holds the answer back until this resolves. */
+	gate?: Promise<void>,
+) {
 	await routeApi(page, "**/admin/health", async (route, request) => {
 		if (request.method() !== "GET") return route.fallback();
+		await gate;
 		if (totalBytes === "fail") return route.fulfill({ status: 500, json: {} });
 		const response = await route.fetch();
 		const report = await response.json();
@@ -89,7 +95,9 @@ test("at 16 GiB the table follows the ticked boxes before anything is saved", as
 	await serverMemory(page, 16 * GIB);
 	const tools = await open(page);
 	const headline = page.getByTestId("code-help-headline");
-	await expect(headline).toHaveText("Code help adds about 242 MiB per student.");
+	await expect(headline).toHaveText(
+		"Code help adds at most 242 MiB per student, if every student opens every ticked language.",
+	);
 	// Only the headline is a live region, not the table.
 	await expect(headline).toHaveJSProperty("tagName", "OUTPUT");
 	await expect(
@@ -106,7 +114,9 @@ test("at 16 GiB the table follows the ticked boxes before anything is saved", as
 	);
 
 	await tools.getByRole("checkbox", { name: "Python" }).click();
-	await expect(headline).toHaveText("Code help adds about 57 MiB per student.");
+	await expect(headline).toHaveText(
+		"Code help adds at most 57 MiB per student, if every student opens every ticked language.",
+	);
 	await expect
 		.poll(() => rows(page))
 		.toEqual([
@@ -157,3 +167,27 @@ for (const [name, memory] of [
 		);
 	});
 }
+
+test("while the Health read is still out, the counts are not called unknown", async ({
+	page,
+}) => {
+	let letGo: () => void = () => {};
+	const held = new Promise<void>((done) => {
+		letGo = done;
+	});
+	await serverMemory(page, 16 * GIB, held);
+	await open(page);
+	const estimate = page.getByTestId("code-help-estimate");
+	// The memory per student needs no server figure, so it is already there.
+	await expect(estimate).toContainText("402 MiB");
+	await expect(estimate).not.toContainText("not known");
+	await expect(estimate).not.toContainText(/about \d+/);
+	letGo();
+	await expect
+		.poll(() => rows(page), { timeout: 15_000 })
+		.toEqual([
+			["Traditional, no coding agent", "402 MiB", expect.stringMatching(/^about \d+$/)],
+			["Agentic, with a coding agent", "552 MiB", expect.stringMatching(/^about \d+$/)],
+		]);
+	await expect(estimate).not.toContainText("not known");
+});

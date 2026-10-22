@@ -72,7 +72,7 @@ export function AupSection() {
 		save.send({ acceptableUseText: text }, draft);
 	}
 
-	if (!saved || !settings.data) {
+	if (!settings.data) {
 		return (
 			<SectionNotLoaded
 				section={SECTION}

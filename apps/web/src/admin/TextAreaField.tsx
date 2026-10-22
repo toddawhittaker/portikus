@@ -5,6 +5,7 @@ import {
 	fieldDescribedBy,
 	LABEL_CLASS,
 } from "@portikus/ui";
+import type { ReactNode } from "react";
 
 /** A labelled multi-line field with a hint and an error, laid out as TextField is. */
 export function TextAreaField({
@@ -20,7 +21,7 @@ export function TextAreaField({
 }: {
 	id: string;
 	label: string;
-	hint?: string;
+	hint?: ReactNode;
 	error: string | undefined;
 	rows: number;
 	mono?: boolean;

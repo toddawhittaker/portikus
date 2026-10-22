@@ -68,10 +68,13 @@ function health(totalBytes: number | null) {
 function stubSettings({
 	settings = SETTINGS,
 	memory = 16 * GIB,
+	healthGate,
 	put,
 }: {
 	settings?: Record<string, unknown> | null;
 	memory?: number | null;
+	/** Holds the Health answer back until it resolves. */
+	healthGate?: Promise<void>;
 	put?: (body: Record<string, unknown>) => Response;
 } = {}) {
 	const writes: Record<string, unknown>[] = [];
@@ -79,7 +82,11 @@ function stubSettings({
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url === "/admin/root-shell") return json(200, { enabled: false });
-		if (url === "/admin/health") return json(200, health(memory));
+		if (url === "/admin/health") {
+			return healthGate
+				? healthGate.then(() => json(200, health(memory)))
+				: json(200, health(memory));
+		}
 		if (url === "/admin/settings" && init?.method === "PUT") {
 			const body = JSON.parse(String(init.body));
 			writes.push(body);
@@ -101,6 +108,14 @@ function stubSettings({
 		throw new Error(`unexpected request: ${url}`);
 	});
 	return writes;
+}
+
+/** The text of every element an element's aria-describedby names, in order. */
+function describedBy(element: HTMLElement): string {
+	return (element.getAttribute("aria-describedby") ?? "")
+		.split(" ")
+		.map((id) => document.getElementById(id)?.textContent?.trim())
+		.join(" ");
 }
 
 const input = (testId: string) => screen.getByTestId(testId) as HTMLInputElement;
@@ -391,6 +406,24 @@ describe("Resource guard", () => {
 	});
 });
 
+describe("Save with nothing to save", () => {
+	test("stays focusable, says there is nothing to save, and writes nothing", async () => {
+		const writes = stubSettings();
+		await openSettings();
+		const save = screen.getByRole("button", { name: "Save student tools" });
+		expect(save.getAttribute("aria-disabled")).toBe("true");
+		expect(describedBy(save)).toBe("No unsaved changes.");
+		save.focus();
+		expect(document.activeElement).toBe(save);
+		fireEvent.click(save);
+		expect(writes).toEqual([]);
+
+		fireEvent.click(screen.getByRole("checkbox", { name: "Allow voice input" }));
+		expect(save.getAttribute("aria-disabled")).toBeNull();
+		expect(save.hasAttribute("aria-describedby")).toBe(false);
+	});
+});
+
 describe("Student tools", () => {
 	test("lists the shipped languages with their memory, and the rest as coming later", async () => {
 		stubSettings();
@@ -411,8 +444,8 @@ describe("Student tools", () => {
 				document.getElementById(box.getAttribute("aria-describedby") ?? "")
 					?.textContent,
 			).toMatch(/Coming later: its language server is not installed yet/);
-			fireEvent.click(box);
-			expect(box.checked).toBe(false);
+			// The click is cancelled, so Space never ticks the box even for a moment.
+			expect(fireEvent.click(box)).toBe(false);
 		}
 		expect(screen.getByTestId("settings-tools-state").textContent).toBe(
 			"No unsaved changes.",
@@ -429,13 +462,17 @@ describe("Student tools", () => {
 		expect(within(estimate).getByText("about 23")).toBeDefined();
 		const headline = screen.getByTestId("code-help-headline");
 		expect(headline.tagName).toBe("OUTPUT");
-		expect(headline.textContent).toBe("Code help adds about 242 MiB per student.");
+		expect(headline.textContent).toBe(
+			"Code help adds at most 242 MiB per student, if every student opens every ticked language.",
+		);
 		// Only the headline is a live region; the table is not.
 		expect(estimate.querySelector("table")?.closest("output")).toBeNull();
 		expect(estimate.textContent).toContain("This server has 16 GiB");
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Python" }));
-		expect(headline.textContent).toBe("Code help adds about 57 MiB per student.");
+		expect(headline.textContent).toBe(
+			"Code help adds at most 57 MiB per student, if every student opens every ticked language.",
+		);
 		fireEvent.click(
 			screen.getByRole("checkbox", { name: "TypeScript and JavaScript" }),
 		);
@@ -443,6 +480,19 @@ describe("Student tools", () => {
 			"Code help is off. The editor shows syntax colouring only.",
 		);
 		expect(within(estimate).getByText("about 80")).toBeDefined();
+	});
+
+	test("while the server's memory is still loading, it does not say the memory is unknown", async () => {
+		let release = () => {};
+		stubSettings({ healthGate: new Promise<void>((resolve) => (release = resolve)) });
+		await openSettings();
+		const estimate = screen.getByTestId("code-help-estimate");
+		expect(within(estimate).getByText("402 MiB")).toBeDefined();
+		expect(estimate.textContent).not.toMatch(/not known/);
+		expect(estimate.textContent).not.toMatch(/about \d+$/m);
+		release();
+		await waitFor(() => expect(within(estimate).getByText("about 23")).toBeDefined());
+		expect(estimate.textContent).not.toMatch(/not known/);
 	});
 
 	test("with the server's memory unknown, it gives memory per student only", async () => {
@@ -489,10 +539,9 @@ describe("Acceptable use", () => {
 		const save = screen.getByRole("button", {
 			name: "Save and ask everyone to accept",
 		});
-		expect(
-			document.getElementById(save.getAttribute("aria-describedby") ?? "")?.textContent,
-		).toBe(
-			"Saving a changed statement asks everyone to accept it again at their next page load.",
+		// With nothing changed, the note comes after the line saying so.
+		expect(describedBy(save)).toBe(
+			"No unsaved changes. Saving a changed statement asks everyone to accept it again at their next page load.",
 		);
 
 		fireEvent.change(text, { target: { value: "   " } });
