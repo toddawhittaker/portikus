@@ -63,6 +63,46 @@ export function SectionGroup({
 }
 
 /**
+ * A section whose settings have not arrived: the shape of its rows while
+ * they load, or what went wrong if the read failed.
+ */
+export function SectionNotLoaded({
+	section,
+	description,
+	read,
+	announce,
+	skeleton,
+}: {
+	section: SettingsSection;
+	description: ReactNode;
+	read: {
+		isError: boolean;
+		error: unknown;
+		isFetching: boolean;
+		refetch: () => unknown;
+	};
+	announce: boolean;
+	skeleton: ReactNode;
+}) {
+	return (
+		<SectionCard section={section} description={description}>
+			{read.isError ? (
+				<LoadFailed
+					error={read.error}
+					retrying={read.isFetching}
+					announce={announce}
+					onRetry={() => void read.refetch()}
+				/>
+			) : (
+				<div aria-busy="true" className="grid gap-5">
+					{skeleton}
+				</div>
+			)}
+		</SectionCard>
+	);
+}
+
+/**
  * The settings could not be read. Nothing changed on the server, so the
  * notice says so and offers to read them again.
  */

@@ -78,5 +78,3 @@ export function useDraft<T extends Values>(saved: T | undefined) {
 		},
 	};
 }
-
-export type Draft<T extends Values> = ReturnType<typeof useDraft<T>>;

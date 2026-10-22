@@ -17,7 +17,7 @@ import { type FormEvent, useState } from "react";
 import { usePlatformSettings } from "../queries.js";
 import { useDraft } from "./draft.js";
 import { footerState, SaveFooter } from "./SaveFooter.js";
-import { LoadFailed, SectionCard } from "./SectionCard.js";
+import { SectionCard, SectionNotLoaded } from "./SectionCard.js";
 import { NotSaved } from "./SettingRow.js";
 import { useFocusFirstError, useSaveSettings } from "./save.js";
 import { SECTIONS } from "./sections.js";
@@ -30,7 +30,7 @@ const FIELD = "aup-text";
 const numbers = new Intl.NumberFormat("en");
 
 /** What is wrong with a statement before it is sent; null when it can be saved. */
-export function acceptableUseError(text: string): string | null {
+function acceptableUseError(text: string): string | null {
 	if (text.trim() === "") {
 		return "Enter the statement, or restore the built-in text.";
 	}
@@ -74,21 +74,18 @@ export function AupSection() {
 
 	if (!saved || !settings.data) {
 		return (
-			<SectionCard section={SECTION} description={DESCRIPTION}>
-				{settings.isError ? (
-					<LoadFailed
-						error={settings.error}
-						retrying={settings.isFetching}
-						announce={false}
-						onRetry={() => void settings.refetch()}
-					/>
-				) : (
-					<div aria-busy="true" className="grid gap-1.5">
+			<SectionNotLoaded
+				section={SECTION}
+				description={DESCRIPTION}
+				read={settings}
+				announce={false}
+				skeleton={
+					<div className="grid gap-1.5">
 						<Skeleton variant="block" width="5rem" height={14} />
 						<Skeleton variant="block" height="19rem" />
 					</div>
-				)}
-			</SectionCard>
+				}
+			/>
 		);
 	}
 

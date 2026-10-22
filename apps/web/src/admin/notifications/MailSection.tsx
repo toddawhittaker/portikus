@@ -79,7 +79,7 @@ const PORT_TEXT: Record<string, string> = { "587": "587, STARTTLS", "465": "465,
  * The saved value of a field in words, for "Not saved. Was …"; null for a
  * secret, which is never quoted, and for a list too long to quote.
  */
-export function savedText(field: string, baseline: NotifyForm): string | null {
+function savedText(field: string, baseline: NotifyForm): string | null {
 	if (
 		SECRET_FIELDS.has(field) ||
 		field === "email.to" ||

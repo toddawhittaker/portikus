@@ -26,7 +26,7 @@ export const RESERVE_MIB = 2048;
 
 const MIB = 1024 * 1024;
 
-export interface ProfileEstimate {
+interface ProfileEstimate {
 	perStudentMiB: number;
 	/** Students the server's memory holds; null when its memory is not known. */
 	students: number | null;

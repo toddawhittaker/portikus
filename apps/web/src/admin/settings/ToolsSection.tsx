@@ -12,7 +12,7 @@ import { COMING_LATER_LANGUAGES, SHIPPED_LANGUAGES } from "./codeHelpLanguages.j
 import { useDraft } from "./draft.js";
 import { estimate, LANGUAGE_MIB } from "./estimate.js";
 import { footerState, SaveFooter } from "./SaveFooter.js";
-import { LoadFailed, SectionCard, SectionGroup } from "./SectionCard.js";
+import { SectionCard, SectionGroup, SectionNotLoaded } from "./SectionCard.js";
 import { NotSaved } from "./SettingRow.js";
 import { useSaveSettings } from "./save.js";
 import { SECTIONS } from "./sections.js";
@@ -27,7 +27,7 @@ export type ToolValues = Record<CodeHelpLanguage, boolean> & {
 	voiceInputEnabled: boolean;
 };
 
-export function toolValues(settings: PlatformSettings): ToolValues {
+function toolValues(settings: PlatformSettings): ToolValues {
 	const values = { voiceInputEnabled: settings.voiceInputEnabled } as ToolValues;
 	for (const id of CODE_HELP_LANGUAGE_IDS) {
 		values[id] = settings.codeHelpLanguages.includes(id);
@@ -75,22 +75,19 @@ export function ToolsSection() {
 
 	if (!saved) {
 		return (
-			<SectionCard section={SECTION} description={DESCRIPTION}>
-				{settings.isError ? (
-					<LoadFailed
-						error={settings.error}
-						retrying={settings.isFetching}
-						announce={false}
-						onRetry={() => void settings.refetch()}
-					/>
-				) : (
-					<div aria-busy="true" className="grid max-w-[42rem] gap-5">
-						<Skeleton variant="block" height="22rem" />
-						<Skeleton variant="block" height="11rem" />
+			<SectionNotLoaded
+				section={SECTION}
+				description={DESCRIPTION}
+				read={settings}
+				announce={false}
+				skeleton={
+					<>
+						<Skeleton variant="block" width="min(100%, 42rem)" height="22rem" />
+						<Skeleton variant="block" width="min(100%, 42rem)" height="11rem" />
 						<Skeleton variant="block" height="4rem" />
-					</div>
-				)}
-			</SectionCard>
+					</>
+				}
+			/>
 		);
 	}
 

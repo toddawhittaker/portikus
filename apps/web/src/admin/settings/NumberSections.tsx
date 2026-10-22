@@ -10,14 +10,14 @@ import {
 	withUnit,
 } from "./numberSettings.js";
 import { footerState, SaveFooter } from "./SaveFooter.js";
-import { LoadFailed, SectionCard, SectionGroup } from "./SectionCard.js";
+import { SectionCard, SectionGroup, SectionNotLoaded } from "./SectionCard.js";
 import { SettingRow, SettingRowSkeleton, SettingRows } from "./SettingRow.js";
 import { useFocusFirstError, useSaveSettings } from "./save.js";
 import { SECTIONS, type SettingsSection } from "./sections.js";
 import { useReportUnsaved } from "./unsaved.js";
 
 /** Each number field's id, which is also its test id. */
-export const fieldId = (key: string) => `settings-${key}`;
+const fieldId = (key: string) => `settings-${key}`;
 
 const STOP_KEYS = [
 	"shutdownGraceSeconds",
@@ -98,23 +98,14 @@ function NumberSection<K extends NumberKey>({
 
 	if (!saved) {
 		return (
-			<SectionCard section={section} description={description}>
-				{settings.isError ? (
-					<LoadFailed
-						error={settings.error}
-						retrying={settings.isFetching}
-						announce={announceLoadFailure}
-						onRetry={() => void settings.refetch()}
-					/>
-				) : (
-					// The same layout with each row's shape, so nothing moves when the values arrive.
-					<div aria-busy="true" className="grid gap-5">
-						{layout((key) => (
-							<SettingRowSkeleton key={key} />
-						))}
-					</div>
-				)}
-			</SectionCard>
+			<SectionNotLoaded
+				section={section}
+				description={description}
+				read={settings}
+				announce={announceLoadFailure}
+				// The same layout with each row's shape, so nothing moves when the values arrive.
+				skeleton={layout((key) => <SettingRowSkeleton key={key} />)}
+			/>
 		);
 	}
 
