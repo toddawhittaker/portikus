@@ -654,7 +654,9 @@ elif [ "$we_start_mode" = "open" ]; then
     ok "the administrator switches to allow-list mode through the API, and it is applied"
     we_check_allow_list
     we_check_nftables_restart
-    if [ "$SEC_HEAVY" = "1" ]; then
+    if [ "$SEC_MODE" = host ]; then
+      sec_na "allow-list mode after a reboot" "plain-host mode never reboots the host the suite runs on; run against a VM"
+    elif [ "$SEC_HEAVY" = "1" ]; then
       we_check_reboots
     else
       sec_na "allow-list mode after a reboot" "set PORTIKUS_SECURITY_HEAVY=1 to reboot the VM"
