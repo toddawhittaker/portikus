@@ -2,20 +2,19 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	lockSharedState,
 	loginAs,
-	openToggletip,
 	query,
 	SETTINGS_ROW_LOCK,
 	settledAxe,
-	toast,
 	WCAG_TAGS,
 } from "./helpers";
 import { expectTokenFill } from "./token-colour";
 
 /**
- * The Settings tab layout (SPEC.md section 20.1): one column of sections
- * split by hairlines, the resource guard in four
- * groups, the grace period in minutes. These tests write the one settings
- * row, so they run one after another under a lock every worker shares.
+ * The Settings tab (SPEC.md section 20.1): five sections, each with its
+ * own Save, a section index beside them on a wide page and above them on a
+ * narrow one, and rows that lay out by their card's width. These tests
+ * write the one settings row, so they run one after another under a lock
+ * every worker shares. Each save sends only the fields it changed.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -41,152 +40,88 @@ async function box(locator: Locator) {
 async function open(page: Page) {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
-	await expect(page.getByTestId("guard-settings-save")).toBeEnabled({
+	await expect(page.getByTestId("settings-idleStopMinutes")).not.toHaveValue("", {
 		timeout: 15_000,
 	});
-	await expect(page.getByTestId("grace-input")).not.toHaveValue("");
+	await expect(page.getByTestId("notify-loading")).toHaveCount(0);
 }
 
-for (const width of [1920, 1024]) {
-	test.describe(`at ${width} px`, () => {
-		test.use({ viewport: { width, height: 1080 } });
+const SECTIONS = [
+	"When workspaces stop",
+	"Resource guard",
+	"Student tools",
+	"Acceptable use",
+	"Email and alerts",
+];
 
-		test("sections stack in one column of cards, with no log level", async ({
-			page,
-		}) => {
-			await open(page);
-			const column = page.getByTestId("settings-sections");
-			const sections = column.locator(":scope > section");
-			await expect(sections).toHaveCount(7);
-			await expect(column.getByRole("heading", { level: 3 })).toHaveText([
-				"When workspaces stop",
-				"Resource guard",
-				"Acceptable use",
-				"Voice input",
-				"Code help",
-				"Account email",
-				"Notifications",
-			]);
-			// Stacked, each below the last, in a column no wider than 72ch.
-			const tops = [];
-			for (let index = 0; index < 7; index++) {
-				tops.push((await box(sections.nth(index))).y);
-			}
-			expect(tops).toEqual([...tops].sort((a, b) => a - b));
-			expect((await box(column)).width).toBeLessThan(700);
-			// Each is the admin card the other tabs use: raised, with a full border.
-			for (let index = 0; index < 4; index++) {
-				await expectTokenFill(sections.nth(index), "--surface-raised");
-				await expect(sections.nth(index)).toHaveCSS("border-bottom-width", "1px");
-				await expect(sections.nth(index)).toHaveCSS("border-left-width", "1px");
-			}
-			await expect(page.getByTestId("log-level-select")).toHaveCount(0);
-		});
+test.describe("at 1280 px", () => {
+	test.use({ viewport: { width: 1280, height: 900 } });
 
-		test("grace and idle stop sit side by side, and every Save is below its fields", async ({
-			page,
-		}) => {
-			await open(page);
-			// Both read in one go, so nothing can move between the two.
-			const [grace, idle] = await page.evaluate(() =>
-				["grace-input", "idle-input"].map((id) => {
-					const rect = document
-						.querySelector(`[data-testid="${id}"]`)
-						?.getBoundingClientRect();
-					return { x: rect?.x ?? 0, y: rect?.y ?? 0, right: rect?.right ?? 0 };
-				}),
-			);
-			expect(idle?.y).toBe(grace?.y);
-			expect(idle?.x).toBeGreaterThan(grace?.right ?? 0);
-			const pairs: [string, string][] = [
-				["grace-input", "grace-save"],
-				["idle-input", "idle-save"],
-				["settings-memoryThresholdPercent", "guard-settings-save"],
-				["aup-text", "aup-save"],
-			];
-			for (const [field, save] of pairs) {
-				const above = await box(page.getByTestId(field));
-				expect((await box(page.getByTestId(save))).y).toBeGreaterThan(
-					above.y + above.height,
-				);
-			}
-		});
-	});
-}
-
-test("the resource guard is four named groups with one line each and no long paragraph", async ({
-	page,
-}) => {
-	await open(page);
-	const guard = page.getByRole("region", { name: "Resource guard" });
-	await expect(guard.getByRole("group")).toHaveCount(4);
-	const expected: [string, string[]][] = [
-		[
-			"Slow down heavy CPU use",
-			["CPU threshold (%)", "Window (minutes)", "Throttled share (%)"],
-		],
-		["Give full speed back", ["Quiet time to lift (minutes)", "Quiet below (%)"]],
-		["Keep repeat cases slowed", ["Hold after throttles", "Hold window (hours)"]],
-		["Flag high memory", ["Memory threshold (%)"]],
-	];
-	for (const [name, fields] of expected) {
-		const group = guard.getByRole("group", { name });
-		await expect(group).toBeVisible();
-		for (const label of fields) {
-			await expect(group.getByLabel(label, { exact: true })).toBeVisible();
+	test("five cards in one column, the index beside them, rows label left and box right", async ({
+		page,
+	}) => {
+		await open(page);
+		const column = page.getByTestId("settings-sections");
+		await expect(column.getByRole("heading", { level: 3 })).toHaveText(SECTIONS);
+		const cards = column.locator(":scope > section");
+		await expect(cards).toHaveCount(5);
+		for (let index = 0; index < 5; index++) {
+			await expectTokenFill(cards.nth(index), "--surface-raised");
+			await expect(cards.nth(index)).toHaveCSS("border-left-width", "1px");
 		}
-		const described = await group.getAttribute("aria-describedby");
-		await expect(page.locator(`[id="${described}"]`)).toHaveText(/\.$/);
-	}
-	for (const key of [
-		"cpuThresholdPercent",
-		"memoryThresholdPercent",
-		"windowMinutes",
-	]) {
-		expect((await box(page.getByTestId(`settings-${key}`))).width).toBe(208);
-	}
-	// No paragraph in the section runs past a couple of lines.
-	for (const text of await guard.locator("p").allTextContents()) {
-		expect(text.split(/\s+/).length).toBeLessThan(30);
-	}
+		const index = page.getByRole("navigation", { name: "Settings sections" });
+		const indexBox = await box(index);
+		const columnBox = await box(column);
+		expect(indexBox.x + indexBox.width).toBeLessThan(columnBox.x);
+		// The index stays in view while the page scrolls.
+		await expect(index).toHaveCSS("position", "sticky");
+
+		// The label sits left of its box, on the same row.
+		const label = await box(page.locator('label[for="settings-idleStopMinutes"]'));
+		const input = await box(page.getByTestId("settings-idleStopMinutes"));
+		expect(input.x).toBeGreaterThan(label.x + label.width);
+		expect(Math.abs(input.y - label.y)).toBeLessThan(input.height);
+		await expect(page.getByTestId("log-level-select")).toHaveCount(0);
+	});
+
+	test("an index link moves to its section without asking, even with unsaved changes", async ({
+		page,
+	}) => {
+		await open(page);
+		await page.getByTestId("settings-idleStopMinutes").fill("45");
+		await page
+			.getByRole("navigation", { name: "Settings sections" })
+			.getByRole("link", { name: "Acceptable use" })
+			.click();
+		await expect(page).toHaveURL(/\/admin\/settings#settings-aup$/);
+		await expect(page.getByRole("alertdialog")).toHaveCount(0);
+		await expect(
+			page.getByRole("heading", { name: "Acceptable use" }),
+		).toBeInViewport();
+		await expect(page.getByTestId("settings-idleStopMinutes")).toHaveValue("45");
+	});
 });
 
-test("a field with a help button lines its input up with one without", async ({
-	page,
-}) => {
-	await open(page);
-	// From the top of each field to the top of its control: the label row plus the gap.
-	const offsets = await page.evaluate(() =>
-		[...document.querySelectorAll<HTMLElement>(".pk-field")].flatMap((field) => {
-			// A Radix Select in a form adds a hidden native select for form posts; only visible controls count.
-			const control = field.querySelector(
-				"input, textarea, select:not([aria-hidden='true'])",
-			);
-			if (!control) return [];
-			return [
-				{
-					id: control.id,
-					help: field.querySelector(".pk-toggletip") !== null,
-					offset:
-						control.getBoundingClientRect().top - field.getBoundingClientRect().top,
-				},
-			];
-		}),
-	);
-	const withHelp = offsets.filter((entry) => entry.help);
-	const without = offsets.filter((entry) => !entry.help);
-	// The guard fields, grace and idle stop have help; the statement has none.
-	expect(withHelp.length).toBeGreaterThanOrEqual(10);
-	expect(without.map((entry) => entry.id)).toContain("aup-text");
-	const reference = without[0]?.offset ?? -1;
-	for (const entry of offsets) {
-		expect(Math.abs(entry.offset - reference), entry.id).toBeLessThanOrEqual(0.5);
-	}
-	// Side by side, grace (help) and idle stop (help) start on one line.
-	const [grace, idle] = await Promise.all(
-		["grace-input", "idle-input"].map((id) => box(page.getByTestId(id))),
-	);
-	expect(Math.abs((grace?.y ?? 0) - (idle?.y ?? 1))).toBeLessThanOrEqual(0.5);
+test.describe("at 390 px", () => {
+	test.use({ viewport: { width: 390, height: 844 } });
+
+	test("the index wraps above the sections, rows stack, and nothing scrolls sideways", async ({
+		page,
+	}) => {
+		await open(page);
+		const index = await box(
+			page.getByRole("navigation", { name: "Settings sections" }),
+		);
+		const first = await box(page.getByTestId("settings-stop"));
+		expect(index.y + index.height).toBeLessThanOrEqual(first.y);
+		const label = await box(page.locator('label[for="settings-idleStopMinutes"]'));
+		const input = await box(page.getByTestId("settings-idleStopMinutes"));
+		expect(input.y).toBeGreaterThan(label.y + label.height);
+		const overflow = await page
+			.getByTestId("page-admin")
+			.evaluate((main) => main.scrollWidth - main.clientWidth);
+		expect(overflow).toBeLessThanOrEqual(0);
+	});
 });
 
 test("the grace period is shown and saved in minutes, stored in seconds", async ({
@@ -197,26 +132,32 @@ test("the grace period is shown and saved in minutes, stored in seconds", async 
 	);
 	try {
 		await open(page);
-		const input = page.getByRole("textbox", { name: "Disconnect grace (minutes)" });
+		const input = page.getByRole("textbox", { name: "Disconnect grace" });
 		await input.fill("90");
-		await expect(page.getByText("1 hour 30 minutes")).toBeVisible();
-		// Enter saves: the field sits in its own form.
+		await expect(page.getByTestId("settings-stop-state")).toHaveText(
+			"1 unsaved change",
+		);
+		// Enter saves: the section is one form.
 		await input.press("Enter");
-		await expect(toast(page, "Grace period saved")).toBeVisible();
+		await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 		const [row] = await query<{ seconds: number }>(
 			"select shutdown_grace_seconds as seconds from settings where id = 1",
 		);
 		expect(row?.seconds).toBe(5400);
 		await page.reload();
-		await expect(page.getByTestId("grace-input")).toHaveValue("90", {
+		await expect(page.getByTestId("settings-shutdownGraceSeconds")).toHaveValue("90", {
 			timeout: 15_000,
 		});
+		await expect(page.getByTestId("settings-last-changed")).toContainText(
+			"Last changed",
+		);
 
-		await page.getByTestId("grace-input").fill("ten");
-		await page.getByTestId("grace-save").click();
-		await expect(page.getByRole("alert")).toHaveText(
+		await page.getByTestId("settings-shutdownGraceSeconds").fill("ten");
+		await page.getByRole("button", { name: "Save stop times" }).click();
+		await expect(page.locator("#settings-shutdownGraceSeconds-err")).toHaveText(
 			"Enter a number of minutes, 0 or more.",
 		);
+		await expect(page.getByTestId("settings-shutdownGraceSeconds")).toBeFocused();
 	} finally {
 		await query("update settings set shutdown_grace_seconds = $1 where id = 1", [
 			before?.seconds ?? 600,
@@ -224,24 +165,27 @@ test("the grace period is shown and saved in minutes, stored in seconds", async 
 	}
 });
 
-test("the stop settings work from the keyboard alone", async ({ page }) => {
+test("the stop times work from the keyboard alone, with no help buttons between fields", async ({
+	page,
+}) => {
 	const [before] = await query<{ minutes: number }>(
 		"select idle_stop_minutes as minutes from settings where id = 1",
 	);
 	try {
 		await open(page);
-		await page.getByTestId("grace-input").focus();
+		await page.getByTestId("settings-shutdownGraceSeconds").focus();
 		await page.keyboard.press("Tab");
-		await expect(page.getByTestId("grace-save")).toBeFocused();
-		// The help button beside the next label comes first, then its field.
-		await page.keyboard.press("Tab");
-		await expect(page.getByRole("button", { name: "About Idle stop" })).toBeFocused();
-		await page.keyboard.press("Tab");
-		await expect(page.getByTestId("idle-input")).toBeFocused();
+		await expect(page.getByTestId("settings-idleStopMinutes")).toBeFocused();
 		await page.keyboard.press("ControlOrMeta+A");
 		await page.keyboard.type("45");
+		await page.keyboard.press("Tab");
+		await expect(page.getByTestId("settings-keepRunningMaxHours")).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(page.getByRole("button", { name: "Discard changes" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(page.getByRole("button", { name: "Save stop times" })).toBeFocused();
 		await page.keyboard.press("Enter");
-		await expect(toast(page, "Idle stop saved")).toBeVisible();
+		await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 		const [row] = await query<{ minutes: number }>(
 			"select idle_stop_minutes as minutes from settings where id = 1",
 		);
@@ -259,91 +203,39 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await page.emulateMedia({ colorScheme });
 		await open(page);
-		// With an error showing, so the error state is checked too.
-		await page.getByLabel("Window (minutes)", { exact: true }).fill("1");
-		await page.getByTestId("guard-settings-save").click();
-		await expect(page.getByRole("alert")).toBeVisible();
+		// With an unsaved change and an error showing, so those states are checked too.
+		await page.getByTestId("settings-shutdownGraceSeconds").fill("15");
+		await page.getByRole("textbox", { name: "Measuring period" }).fill("1");
+		await page.getByRole("button", { name: "Save resource guard" }).click();
+		await expect(page.getByTestId("settings-guard-state")).toHaveText(/^Not saved\./);
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }
 
-test("a setting's help opens on click, shows its text, and Escape returns focus", async ({
-	page,
-}) => {
-	await open(page);
-	await expect(page.getByTestId("intro-admin-settings")).toContainText(
-		"Site-wide rules for when workspaces stop",
-	);
-	const button = page.getByRole("button", { name: "About Quiet below (%)" });
-	await button.click();
-	const tip = openToggletip(page);
-	await expect(tip).toContainText("0 turns the automatic lift off.");
-	await page.keyboard.press("Escape");
-	await expect(tip).toHaveCount(0);
-	await expect(button).toBeFocused();
-	// From the keyboard too.
-	await page.keyboard.press("Enter");
-	await expect(tip).toBeVisible();
-});
-
-/**
- * An open help tip keeps focus on its button, reads its
- * text out through a live region, and Tab or Shift+Tab moves on and closes it.
- */
-test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and closes it", async ({
-	page,
-}) => {
-	await open(page);
-	const button = page.getByRole("button", { name: "About Idle stop" });
-	const tip = openToggletip(page);
-
-	await button.focus();
-	await page.keyboard.press("Enter");
-	await expect(tip).toBeVisible();
-	await expect(button).toBeFocused();
-	await expect(button).toHaveAttribute("aria-expanded", "true");
-	// The tip itself is hidden from screen readers; they hear its text from a
-	// live region kept outside the button's label or header.
-	await expect(tip).toHaveAttribute("aria-hidden", "true");
-	await expect(button).not.toHaveAttribute("aria-haspopup");
-	const text = await tip.innerText();
-	const status = page.locator("body > [aria-live='polite']").filter({ hasText: text });
-	await expect(status).toHaveCount(1);
-
-	await page.keyboard.press("Tab");
-	await expect(tip).toHaveCount(0);
-	await expect(page.getByTestId("idle-input")).toBeFocused();
-	await expect(status).toHaveCount(0);
-
-	await page.keyboard.press("Shift+Tab");
-	await expect(button).toBeFocused();
-	await page.keyboard.press("Space");
-	await expect(tip).toBeVisible();
-	await page.keyboard.press("Shift+Tab");
-	await expect(tip).toHaveCount(0);
-	await expect(page.getByTestId("grace-save")).toBeFocused();
-
-	// A click elsewhere closes it too.
-	await button.click();
-	await expect(tip).toBeVisible();
-	await page.getByRole("heading", { name: "When workspaces stop" }).click();
-	await expect(tip).toHaveCount(0);
-});
-
-test("account email is off by default, says it needs SMTP, and each change is audited", async ({
+test("account email waits for Save, says it uses the mail server, and each change is audited", async ({
 	page,
 }) => {
 	await query("update settings set account_email_enabled = false where id = 1");
 	await open(page);
-	const card = page.getByRole("region", { name: "Account email" });
-	await expect(card).toContainText("needs an SMTP server set under Notifications");
-	const box = card.getByRole("checkbox", { name: /Send account email/ });
+	const section = page.getByTestId("settings-mail");
+	const box = section.getByRole("checkbox", {
+		name: "Email password reset and invitation links",
+	});
+	await expect(box).toHaveAccessibleDescription(
+		/Sends through the mail server above\./,
+	);
 	await expect(box).not.toBeChecked();
 
-	await box.click();
-	await expect(toast(page, "Account email on")).toBeVisible();
+	await section.getByText("Email password reset and invitation links").click();
 	await expect(box).toBeChecked();
+	// Nothing saves on a click.
+	const [unsaved] = await query<{ on: boolean }>(
+		"select account_email_enabled as on from settings where id = 1",
+	);
+	expect(unsaved?.on).toBe(false);
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
+	await expect(page.getByTestId("settings-mail-state")).toHaveText("Saved.");
 	const audit = await query<{ metadata: unknown }>(
 		"select metadata from audit_events where action = 'settings.account_email_updated' order by id desc limit 1",
 	);
@@ -351,20 +243,8 @@ test("account email is off by default, says it needs SMTP, and each change is au
 
 	await page.reload();
 	await expect(box).toBeChecked({ timeout: 15_000 });
-	await box.click();
-	await expect(toast(page, "Account email off")).toBeVisible();
+	await section.getByText("Email password reset and invitation links").click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
+	await expect(page.getByTestId("settings-mail-state")).toHaveText("Saved.");
 	await expect(box).not.toBeChecked();
 });
-
-for (const colorScheme of ["light", "dark"] as const) {
-	test(`the Settings tab with a help tip open has no automatic accessibility violations (${colorScheme})`, async ({
-		page,
-	}) => {
-		await page.emulateMedia({ colorScheme });
-		await open(page);
-		await page.getByRole("button", { name: "About Disconnect grace" }).click();
-		await expect(openToggletip(page)).toBeVisible();
-		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-	});
-}

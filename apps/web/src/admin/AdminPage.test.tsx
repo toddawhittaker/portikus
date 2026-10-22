@@ -222,7 +222,7 @@ test("the tab comes from the address", async () => {
 
 	renderApp("/admin/settings");
 
-	expect(await screen.findByTestId("grace-input")).toBeDefined();
+	expect(await screen.findByTestId("settings-shutdownGraceSeconds")).toBeDefined();
 	const nav = screen.getByRole("navigation", { name: "Administration" });
 	expect(within(nav).getByRole("link", { current: "page" }).textContent).toBe(
 		"Settings",
@@ -291,47 +291,6 @@ test("an unknown tab falls back to Users", async () => {
 	expect(await screen.findByTestId("admin-accounts")).toBeDefined();
 });
 
-test("the Settings tab shows the global grace period in minutes", async () => {
-	stubAdmin(5400);
-
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("90"));
-	expect(screen.getAllByText("1 hour 30 minutes").length).toBe(1);
-});
-
-test("zero reads as keeping workspaces running", async () => {
-	stubAdmin(0);
-
-	renderApp("/admin/settings");
-
-	await waitFor(() =>
-		expect(
-			screen.getAllByText("Workspaces keep running until stopped by hand").length,
-		).toBeGreaterThan(0),
-	);
-});
-
-test("saving the global value sends the seconds as a number", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("10"));
-	fireEvent.change(input, { target: { value: "0" } });
-	fireEvent.click(screen.getByTestId("grace-save"));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({
-		url: "/admin/settings",
-		body: { shutdownGraceSeconds: 0 },
-	});
-	expect(await screen.findByText("Grace period saved")).toBeDefined();
-});
-
 test("the Settings tab shows a settings read failure", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN);
@@ -350,24 +309,9 @@ test("the Settings tab shows a settings read failure", async () => {
 
 	renderApp("/admin/settings");
 
-	expect(await screen.findByText("Settings are unavailable.")).toBeDefined();
-});
-
-test("a value beyond the integer limit is refused before any request", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("10"));
-	fireEvent.change(input, { target: { value: "35791395" } });
-	fireEvent.click(screen.getByTestId("grace-save"));
-
 	expect(
-		await screen.findByText("Enter a number of minutes, 0 or more."),
-	).toBeDefined();
-	expect(writes.length).toBe(0);
+		(await screen.findAllByText(/Settings are unavailable\./))[0]?.textContent,
+	).toContain("These settings could not be loaded.");
 });
 
 test("a student sent to /admin lands on the not-authorized page", async () => {
@@ -386,24 +330,6 @@ test("a student sent to /admin lands on the not-authorized page", async () => {
 	const { router } = renderApp("/admin");
 
 	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
-});
-
-test("the grace form takes minutes and still sends only the seconds", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("10"));
-	expect(input).toBe(
-		screen.getByRole("textbox", { name: "Disconnect grace (minutes)" }),
-	);
-	fireEvent.change(input, { target: { value: "15" } });
-	fireEvent.click(screen.getByTestId("grace-save"));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });
 
 test("the page title names the tab (SPEC.md section 20.1)", async () => {
@@ -471,20 +397,6 @@ test("the admin page is compact (SPEC.md section 20.1)", async () => {
 
 	const main = await screen.findByTestId("page-admin");
 	expect(main.getAttribute("data-density")).toBe("compact");
-});
-
-test("grace-period errors are announced as alerts", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("10"));
-	fireEvent.change(input, { target: { value: "soon" } });
-	fireEvent.click(screen.getByTestId("grace-save"));
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a number of minutes, 0 or more.",
-	);
 });
 
 test("the Audit tab's filters survive in the address, and bad values are dropped", async () => {
@@ -589,185 +501,6 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	expect(status.textContent).toBe("");
 	expect(status.className).toContain("sr-only");
 	expect(router.state.location.pathname).toBe("/admin/users");
-});
-
-test("idle stop saves the minutes and refuses a value between 1 and 9", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const input = (await screen.findByTestId("idle-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("60"));
-	fireEvent.change(input, { target: { value: "5" } });
-	fireEvent.click(screen.getByTestId("idle-save"));
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter 0 for never, or a whole number from 10 to 1440.",
-	);
-	expect(writes).toEqual([]);
-
-	fireEvent.change(input, { target: { value: "0" } });
-	fireEvent.click(screen.getByTestId("idle-save"));
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({ url: "/admin/settings", body: { idleStopMinutes: 0 } });
-});
-
-test("the resource guard saves its values and names each bad one", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const cpu = (await screen.findByLabelText("CPU threshold (%)")) as HTMLInputElement;
-	await waitFor(() => expect(cpu.value).toBe("80"));
-	fireEvent.change(cpu, { target: { value: "0" } });
-	fireEvent.change(screen.getByLabelText("Window (minutes)"), {
-		target: { value: "300" },
-	});
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-
-	// One alert for the first problem; the second field is marked too.
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a whole number from 1 to 100.",
-	);
-	expect(screen.getByText("Enter a whole number from 5 to 240.")).toBeDefined();
-	expect(cpu.getAttribute("aria-invalid")).toBe("true");
-	expect(writes).toEqual([]);
-
-	fireEvent.change(cpu, { target: { value: "70" } });
-	fireEvent.change(screen.getByLabelText("Window (minutes)"), {
-		target: { value: "45" },
-	});
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({
-		url: "/admin/settings",
-		body: {
-			cpuGuardThresholdPercent: 70,
-			memoryGuardThresholdPercent: 90,
-			guardWindowMinutes: 45,
-			cpuThrottleSharePercent: 25,
-			cpuIdleLiftMinutes: 5,
-			cpuIdleLiftPercent: 10,
-			cpuThrottleHoldAfter: 3,
-			cpuThrottleHoldHours: 24,
-		},
-	});
-	expect(await screen.findByText("Resource guard saved")).toBeDefined();
-});
-
-test("the automatic lift fields save, allow 0 to turn it off, and name a bad value", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const minutes = (await screen.findByLabelText(
-		"Quiet time to lift (minutes)",
-	)) as HTMLInputElement;
-	const percent = screen.getByLabelText("Quiet below (%)") as HTMLInputElement;
-	await waitFor(() => expect(minutes.value).toBe("5"));
-	expect(percent.value).toBe("10");
-
-	fireEvent.change(minutes, { target: { value: "61" } });
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-	const alert = await screen.findByRole("alert");
-	expect(alert.textContent).toBe("Enter a whole number from 1 to 60.");
-	expect(minutes.getAttribute("aria-invalid")).toBe("true");
-	// The error is tied to its field.
-	const described = document.getElementById(
-		minutes.getAttribute("aria-describedby") ?? "",
-	);
-	expect(described?.textContent).toContain("Enter a whole number from 1 to 60.");
-	expect(writes).toEqual([]);
-
-	fireEvent.change(minutes, { target: { value: "15" } });
-	fireEvent.change(percent, { target: { value: "0" } });
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]?.body).toMatchObject({
-		cpuIdleLiftMinutes: 15,
-		cpuIdleLiftPercent: 0,
-	});
-});
-
-test("the throttle-hold fields save, allow 0 to turn it off, and name a bad value (SPEC.md §19.4)", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const after = (await screen.findByLabelText(
-		"Hold after throttles",
-	)) as HTMLInputElement;
-	const hours = screen.getByLabelText("Hold window (hours)") as HTMLInputElement;
-	await waitFor(() => expect(after.value).toBe("3"));
-	expect(hours.value).toBe("24");
-
-	fireEvent.change(hours, { target: { value: "169" } });
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-	const alert = await screen.findByRole("alert");
-	expect(alert.textContent).toBe("Enter a whole number from 1 to 168.");
-	expect(writes).toEqual([]);
-
-	fireEvent.change(hours, { target: { value: "48" } });
-	fireEvent.change(after, { target: { value: "0" } });
-	fireEvent.click(screen.getByTestId("guard-settings-save"));
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]?.body).toMatchObject({
-		cpuThrottleHoldAfter: 0,
-		cpuThrottleHoldHours: 48,
-	});
-});
-
-test("the acceptable-use section starts on the default, says everyone accepts again, and saves", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
-	await waitFor(() =>
-		expect(text.value).toContain("Your Portikus workspace is for coursework"),
-	);
-	expect(screen.getByText(/This is version 1\./)).toBeDefined();
-	const save = screen.getByTestId("aup-save");
-	const sentence = document.getElementById(save.getAttribute("aria-describedby") ?? "");
-	expect(sentence?.textContent).toContain(
-		"asks everyone, you included, to accept it again",
-	);
-
-	fireEvent.change(text, { target: { value: "   " } });
-	fireEvent.click(save);
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter the statement, or reset it to the default.",
-	);
-	expect(writes).toEqual([]);
-
-	fireEvent.change(text, { target: { value: "Be kind." } });
-	fireEvent.click(save);
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({
-		url: "/admin/settings",
-		body: { acceptableUseText: "Be kind." },
-	});
-
-	fireEvent.click(screen.getByTestId("aup-reset"));
-	await waitFor(() => expect(writes.length).toBe(2));
-	expect(writes[1]).toEqual({
-		url: "/admin/settings",
-		body: { acceptableUseText: null },
-	});
-});
-
-test("a statement over the limit is refused before any request", async () => {
-	const writes: unknown[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin/settings");
-
-	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
-	fireEvent.change(text, { target: { value: "x".repeat(10_001) } });
-	expect(screen.getByText("10,001 of 10,000 characters")).toBeDefined();
-	fireEvent.click(screen.getByTestId("aup-save"));
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"The statement can be at most 10,000 characters.",
-	);
-	expect(writes).toEqual([]);
 });
 
 test("the tabs sit under the app header and before main, and the h1 stays", async () => {

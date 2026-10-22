@@ -8,7 +8,6 @@ import {
 	query,
 	SETTINGS_ROW_LOCK,
 	terminalIds,
-	toast,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -88,11 +87,11 @@ test("an administrator sets the idle time to 10 minutes in Settings", async ({
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
-	const input = page.getByTestId("idle-input");
+	const input = page.getByTestId("settings-idleStopMinutes");
 	await expect(input).toHaveValue(String(saved), { timeout: 15_000 });
 	await input.fill("10");
-	await page.getByTestId("idle-save").click();
-	await expect(toast(page, "Idle stop saved")).toBeVisible();
+	await page.getByRole("button", { name: "Save stop times" }).click();
+	await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 	expect(await idleSetting()).toBe(10);
 });
 

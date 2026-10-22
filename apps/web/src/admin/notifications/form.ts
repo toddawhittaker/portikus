@@ -12,16 +12,19 @@ import {
 } from "@portikus/contracts";
 
 /**
- * The Notifications form (ADR 0052): what the page holds while editing, how
- * it becomes a `NotificationSettingsUpdate`, and the sentences it shows.
- * Secret fields start blank; a blank secret is left out of the update, so
- * the stored one is kept.
+ * The mail server, alert channels and root-shell alert of Email and alerts
+ * (ADR 0052): what the page holds while editing, how it becomes a
+ * `NotificationSettingsUpdate`, and the sentences it shows. Secret fields
+ * start blank; a blank secret is left out of the update, so the stored one
+ * is kept.
  */
 
 type SmtpPort = "587" | "465";
 
 export interface NotifyForm {
+	/** The mail server, and whether alerts go by email through it. */
 	email: {
+		/** Alerts go by email; the mail server is set whether or not they do. */
 		on: boolean;
 		host: string;
 		port: SmtpPort;
@@ -101,13 +104,23 @@ function hostOf(url: string): string | null {
 }
 
 /**
+ * Whether the form sets a mail server. Clearing its host name, user name
+ * and sender removes it, and its password with it.
+ */
+export function mailServerSet(form: NotifyForm): boolean {
+	const { host, username, from } = form.email;
+	return [host, username, from].some((value) => value.trim() !== "");
+}
+
+/**
  * The root job clears the stored SMTP password when the host, port or user
  * name changes and no new one comes with it (ADR 0052).
  */
 export function smtpPasswordCleared(form: NotifyForm, view: NotificationSettingsView) {
 	const stored = view.smtp;
 	const { email } = form;
-	if (!stored?.passwordSet || !email.on || email.password !== "") return false;
+	if (!stored?.passwordSet || !mailServerSet(form) || email.password !== "")
+		return false;
 	if (email.username.trim() === "") return false;
 	return (
 		email.host.trim().toLowerCase() !== stored.host.toLowerCase() ||
@@ -148,6 +161,52 @@ export function channelChanged(
 	return JSON.stringify(form[kind]) !== JSON.stringify(initialForm(view)[kind]);
 }
 
+/** Fields whose value is never shown again once saved, so never quoted back. */
+export const SECRET_FIELDS: ReadonlySet<string> = new Set([
+	"email.password",
+	"pushover.userKey",
+	"pushover.appToken",
+	"ntfy.url",
+	"ntfy.token",
+	"teams.url",
+	"webhook.url",
+]);
+
+const CHANNELS = ["email", "pushover", "ntfy", "teams", "webhook"] as const;
+
+/** The mail server's own fields, which count whether or not alerts go by email. */
+const MAIL_SERVER_FIELDS = new Set(["host", "port", "username", "password", "from"]);
+
+/**
+ * The fields that differ from `baseline`, as "email.host" and so on, in the
+ * page's order. A channel that is off counts only its switch, since none of
+ * its fields would be sent.
+ */
+export function changedFields(form: NotifyForm, baseline: NotifyForm): string[] {
+	const out: string[] = [];
+	for (const kind of CHANNELS) {
+		const now: Record<string, string | boolean> = form[kind];
+		const was: Record<string, string | boolean> = baseline[kind];
+		for (const key of Object.keys(now)) {
+			const sent =
+				key === "on" ||
+				form[kind].on ||
+				(kind === "email" && MAIL_SERVER_FIELDS.has(key));
+			const a = now[key];
+			const b = was[key];
+			const differ =
+				typeof a === "string" && typeof b === "string"
+					? a.trim() !== b.trim()
+					: a !== b;
+			if (sent && differ) out.push(`${kind}.${key}`);
+		}
+	}
+	if (form.rootShellOpenedAlert !== baseline.rootShellOpenedAlert) {
+		out.push("rootShellOpenedAlert");
+	}
+	return out;
+}
+
 /** The update to send. Only call it once `validate` found nothing. */
 export function toUpdate(form: NotifyForm): NotificationSettingsUpdate {
 	const { email, pushover, ntfy, teams, webhook } = form;
@@ -158,7 +217,7 @@ export function toUpdate(form: NotifyForm): NotificationSettingsUpdate {
 		email.password !== "" ? email.password : username === "" ? "" : undefined;
 	const ntfyToken = ntfy.token !== "" ? ntfy.token : ntfy.removeToken ? "" : undefined;
 	return {
-		smtp: email.on
+		smtp: mailServerSet(form)
 			? {
 					host: email.host.trim(),
 					port: email.port === "465" ? 465 : 587,
@@ -241,6 +300,28 @@ function fieldFor(path: string): { id: FieldId; text: string } | null {
 	return null;
 }
 
+/** What the mail server needs: set in full, or, while alerts go by email, set at all. */
+function mailServerErrors(
+	form: NotifyForm,
+	view: NotificationSettingsView,
+	need: (id: FieldId, text: string) => void,
+) {
+	const { email } = form;
+	if (!mailServerSet(form)) {
+		if (email.on) {
+			need(FIELD_ID.smtpHost, "Alert email needs a mail server. Enter its host name.");
+		}
+		return;
+	}
+	if (email.host.trim() === "")
+		need(FIELD_ID.smtpHost, "Enter the mail server's host name.");
+	const stored = view.smtp?.passwordSet === true && !smtpPasswordCleared(form, view);
+	if (email.username.trim() !== "" && email.password === "" && !stored) {
+		need(FIELD_ID.smtpPassword, "Enter the password for this user name.");
+	}
+	if (email.from.trim() === "") need(FIELD_ID.smtpFrom, "Enter the sender address.");
+}
+
 /** What is wrong with the form, by field id, in the order the page shows them. */
 export function validate(form: NotifyForm, view: NotificationSettingsView): FormErrors {
 	const found: FormErrors = {};
@@ -249,15 +330,8 @@ export function validate(form: NotifyForm, view: NotificationSettingsView): Form
 	};
 	const { email, pushover, ntfy, teams, webhook } = form;
 	const { alerts } = view;
+	mailServerErrors(form, view, need);
 	if (email.on) {
-		if (email.host.trim() === "")
-			need(FIELD_ID.smtpHost, "Enter the mail server's host name.");
-		const username = email.username.trim();
-		const stored = view.smtp?.passwordSet === true && !smtpPasswordCleared(form, view);
-		if (username !== "" && email.password === "" && !stored) {
-			need(FIELD_ID.smtpPassword, "Enter the password for this user name.");
-		}
-		if (email.from.trim() === "") need(FIELD_ID.smtpFrom, "Enter the sender address.");
 		const to = recipients(email.to);
 		if (to.length === 0)
 			need(FIELD_ID.emailTo, "Enter at least one address to send alerts to.");

@@ -155,6 +155,23 @@ describe("UnitInput", () => {
 		expect(document.getElementById("idle-unit")?.textContent).toBe("minutes");
 	});
 
+	it("keeps the caller's own description ids after its own", () => {
+		render(
+			<UnitInput
+				id="grace"
+				unit="minutes"
+				error="Enter 0 or more."
+				aria-label="Disconnect grace"
+				aria-describedby="grace-desc grace-meta"
+			/>,
+		);
+		const input = screen.getByLabelText("Disconnect grace");
+		expect(input.getAttribute("aria-describedby")).toBe(
+			"grace-unit grace-err grace-desc grace-meta",
+		);
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+	});
+
 	it("is a narrow box a parent can widen, and its unit does not shrink", () => {
 		render(<UnitInput id="mem" unit="MiB" aria-label="Memory" />);
 		const input = screen.getByLabelText("Memory");

@@ -8,7 +8,7 @@ import {
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
-import { NotificationsSection } from "./NotificationsSection.js";
+import { MailSection } from "./MailSection.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -47,14 +47,52 @@ function job(over: Partial<NotifyJobView> = {}): NotifyJobView {
 	};
 }
 
-/** Answers GET with `page`, PUT with `put` and the test with `tested`. */
+/** The platform settings, for the account email switch. */
+const PLATFORM = {
+	shutdownGraceSeconds: 600,
+	logLevel: null,
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	cpuIdleLiftMinutes: 5,
+	cpuIdleLiftPercent: 10,
+	cpuThrottleHoldAfter: 3,
+	cpuThrottleHoldHours: 24,
+	keepRunningMaxHours: 12,
+	voiceInputEnabled: true,
+	codeHelpLanguages: ["python", "typescript"],
+	accountEmailEnabled: false,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+	updatedAt: null,
+};
+
+/**
+ * Answers the notifications GET with `page`, its PUT with `put`, the test
+ * with `tested`, and a save of the platform settings with `account`.
+ */
 function serve(
 	page: Omit<AdminNotifications, "storedFileUnreadable"> & {
 		storedFileUnreadable?: boolean;
 	},
-	answers: { put?: () => Response; tested?: () => Response } = {},
+	answers: {
+		put?: () => Response;
+		tested?: () => Response;
+		account?: () => Response;
+	} = {},
 ) {
 	return stubFetch((url, init) => {
+		if (url === "/admin/root-shell") return json(200, { enabled: true });
+		if (url === "/admin/settings") {
+			if (init?.method === "PUT") {
+				return answers.account
+					? answers.account()
+					: json(200, { ...PLATFORM, ...JSON.parse(String(init.body)) });
+			}
+			return json(200, PLATFORM);
+		}
 		if (url === "/admin/alerts/test") {
 			return answers.tested
 				? answers.tested()
@@ -65,6 +103,13 @@ function serve(
 		}
 		return json(200, { storedFileUnreadable: false, ...page });
 	});
+}
+
+/** Tick the root-shell alert, so the section has a change to save. */
+async function changeSomething() {
+	fireEvent.click(
+		await screen.findByRole("checkbox", { name: /^Alert when a root shell opens/ }),
+	);
 }
 
 function box(name: string | RegExp): HTMLInputElement {
@@ -85,22 +130,44 @@ function sent(fetch: ReturnType<typeof stubFetch>, url: string, method: string) 
 		.map(([, init]) => JSON.parse(String(init?.body)));
 }
 
-test("says the section is off when the API answers 404", async () => {
-	stubFetch(() => json(404, { code: "NOT_FOUND", message: "Not found." }));
-	renderWithQuery(<NotificationsSection />);
+test("without the alerts job, only account email is offered", async () => {
+	stubFetch((url) =>
+		url === "/admin/settings"
+			? json(200, PLATFORM)
+			: json(404, { code: "NOT_FOUND", message: "Not found." }),
+	);
+	renderWithQuery(<MailSection />);
 	expect((await screen.findByTestId("notify-off")).textContent).toContain(
 		"This site runs without the alerts job",
 	);
+	expect(
+		screen.getByRole("checkbox", { name: "Email password reset and invitation links" }),
+	).toBeDefined();
+	expect(screen.queryByLabelText("Host name")).toBeNull();
+});
+
+test("a failed read offers to load again", async () => {
+	stubFetch((url) =>
+		url === "/admin/settings"
+			? json(200, PLATFORM)
+			: json(500, { code: "INTERNAL", message: "The server did not answer." }),
+	);
+	renderWithQuery(<MailSection />);
+	expect((await screen.findByRole("alert")).textContent).toContain(
+		"These settings could not be loaded.",
+	);
+	expect(screen.getByRole("button", { name: "Load again" })).toBeDefined();
 });
 
 test("shows each channel with a switch, and saved secrets only as set and their host", async () => {
 	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	await screen.findByRole("group", { name: "Email" });
-	for (const name of ["Email", "Pushover", "ntfy", "Microsoft Teams", "Webhook"]) {
-		expect(screen.getByRole("group", { name })).toBeTruthy();
-	}
+	await screen.findByTestId("notify-email");
+	// The mail server first, then account email, the channels and the root-shell alert.
+	expect(
+		screen.getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent),
+	).toEqual(["Mail server", "Account email", "Alert channels", "Root shell"]);
 	expect(box("Send alerts by email").checked).toBe(true);
 	expect(box("Send alerts to Pushover").checked).toBe(false);
 	expect(box(/^Alert when a root shell opens/).checked).toBe(false);
@@ -125,7 +192,7 @@ test("warns when the stored settings could not be read, and only then", async ()
 		job: null,
 		storedFileUnreadable: true,
 	});
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 	expect((await screen.findByTestId("notify-unreadable")).textContent).toBe(
 		"The stored notification settings could not be read, so every channel shows as off. Saving replaces them.",
 	);
@@ -134,16 +201,9 @@ test("warns when the stored settings could not be read, and only then", async ()
 
 test("shows no unreadable warning for a readable file", async () => {
 	serve({ settings: SETTINGS, job: null, storedFileUnreadable: false });
-	renderWithQuery(<NotificationsSection />);
-	await screen.findByRole("group", { name: "Email" });
+	renderWithQuery(<MailSection />);
+	await screen.findByTestId("notify-email");
 	expect(screen.queryByTestId("notify-unreadable")).toBeNull();
-});
-
-test("links its help topic", async () => {
-	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
-	const link = await screen.findByRole("link", { name: /More in Help/ });
-	expect(link.getAttribute("href")).toBe("/admin/help#admin-notifications");
 });
 
 test("with root shells off, the root-shell alert stays and its description says they are off", async () => {
@@ -151,9 +211,11 @@ test("with root shells off, the root-shell alert stays and its description says 
 		stubFetch((url) =>
 			url === "/admin/root-shell"
 				? json(200, { enabled })
-				: json(200, { settings: SETTINGS, job: null, storedFileUnreadable: false }),
+				: url === "/admin/settings"
+					? json(200, PLATFORM)
+					: json(200, { settings: SETTINGS, job: null, storedFileUnreadable: false }),
 		);
-		renderWithQuery(<NotificationsSection />);
+		renderWithQuery(<MailSection />);
 		const alert = await screen.findByRole("checkbox", {
 			name: /^Alert when a root shell opens/,
 		});
@@ -174,7 +236,7 @@ test("with root shells off, the root-shell alert stays and its description says 
 
 test("a save sends no secret that was not typed, and drops the typed ones after", async () => {
 	const fetch = serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	fireEvent.click(
 		await screen.findByRole("checkbox", { name: /^Alert when a root shell opens/ }),
@@ -182,7 +244,7 @@ test("a save sends no secret that was not typed, and drops the typed ones after"
 	fireEvent.click(screen.getByRole("checkbox", { name: "Send alerts to Pushover" }));
 	fireEvent.change(screen.getByLabelText("User key"), { target: { value: "u123" } });
 	fireEvent.change(screen.getByLabelText("API token"), { target: { value: "a456" } });
-	fireEvent.click(screen.getByRole("button", { name: "Save notification settings" }));
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
 
 	await waitFor(() =>
 		expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(1),
@@ -211,12 +273,12 @@ test("a save sends no secret that was not typed, and drops the typed ones after"
 
 test("a field error stops the save and takes focus", async () => {
 	const fetch = serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	fireEvent.click(
 		await screen.findByRole("checkbox", { name: "Send alerts to Microsoft Teams" }),
 	);
-	fireEvent.click(screen.getByRole("button", { name: "Save notification settings" }));
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
 
 	const url = screen.getByLabelText("Workflows webhook URL");
 	await waitFor(() => expect(document.activeElement).toBe(url));
@@ -227,9 +289,9 @@ test("a field error stops the save and takes focus", async () => {
 
 test("a new mail server warns, once it is left, that the stored password is cleared", async () => {
 	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const host = await screen.findByLabelText("Mail server");
+	const host = await screen.findByLabelText("Host name");
 	const password = screen.getByLabelText("Password");
 	fireEvent.change(host, { target: { value: "mail.example.edu" } });
 	// Nothing flashes while the person is still typing.
@@ -252,7 +314,7 @@ test("a new mail server warns, once it is left, that the stored password is clea
 
 test("an ntfy URL on another server warns, once it is left, that the token is cleared", async () => {
 	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	const url = await screen.findByLabelText("Topic URL");
 	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
@@ -268,7 +330,7 @@ test("an ntfy URL on another server warns, once it is left, that the token is cl
 
 test("Enter in the topic URL stops once at the token warning, and a second Save goes ahead", async () => {
 	const fetch = serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	const url = await screen.findByLabelText("Topic URL");
 	fireEvent.change(url, { target: { value: "https://ntfy.example.edu/alerts" } });
@@ -282,7 +344,7 @@ test("Enter in the topic URL stops once at the token warning, and a second Save 
 	);
 	expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(0);
 
-	fireEvent.click(screen.getByRole("button", { name: "Save notification settings" }));
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
 	await waitFor(() =>
 		expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(1),
 	);
@@ -293,7 +355,7 @@ test("Enter in the topic URL stops once at the token warning, and a second Save 
 
 test("a warning that goes away and comes back is read out again", async () => {
 	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	const url = await screen.findByLabelText("Topic URL");
 	const announce = screen.getByTestId("notify-warning-announce");
@@ -310,9 +372,9 @@ test("a warning that goes away and comes back is read out again", async () => {
 
 test("a test button says tests use the saved settings once its channel is edited", async () => {
 	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const webhook = await screen.findByRole("group", { name: "Webhook" });
+	const webhook = await screen.findByTestId("notify-webhook");
 	const button = within(webhook).getByRole("button", {
 		name: "Send test to the webhook",
 	});
@@ -325,14 +387,100 @@ test("a test button says tests use the saved settings once its channel is edited
 	expect(screen.queryAllByText("Tests use the saved settings.")).toHaveLength(1);
 });
 
-test("the email switch says turning it off deletes the mail server settings", async () => {
-	serve({ settings: SETTINGS, job: null });
-	renderWithQuery(<NotificationsSection />);
+test("email alerts turned off keep the mail server, which account email needs", async () => {
+	const fetch = serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<MailSection />);
 
 	const box = await screen.findByRole("checkbox", { name: "Send alerts by email" });
-	expect(description(box)).toBe(
-		"Turning this off deletes the mail server settings and password.",
+	expect(description(box)).toBe("Sends each alert through the mail server above.");
+	fireEvent.click(box);
+	expect(screen.getByTestId("settings-mail-state").textContent).toBe(
+		"1 unsaved change",
 	);
+	expect(description(box)).toContain("Not saved. Was on.");
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
+	await waitFor(() =>
+		expect(sent(fetch, "/admin/notifications", "PUT")).toHaveLength(1),
+	);
+	const update = sent(fetch, "/admin/notifications", "PUT")[0];
+	expect(update.smtp).toMatchObject({ host: "smtp.example.edu" });
+	expect(update.alerts.email).toBeNull();
+	// Nothing was sent for account email, which did not change.
+	expect(sent(fetch, "/admin/settings", "PUT")).toEqual([]);
+});
+
+test("a changed field says it is not saved, and never quotes a secret", async () => {
+	serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<MailSection />);
+
+	const host = await screen.findByLabelText("Host name");
+	fireEvent.change(host, { target: { value: "mail.example.edu" } });
+	expect(description(host).trim()).toBe("Not saved. Was smtp.example.edu.");
+	const password = screen.getByLabelText("Password");
+	fireEvent.change(password, { target: { value: "fake-password" } });
+	expect(description(password).trim()).toMatch(/^Not saved\. Set\./);
+	expect(document.body.textContent).not.toContain("fake-password");
+	expect(screen.getByTestId("settings-mail-state").textContent).toBe(
+		"2 unsaved changes",
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+	expect((host as HTMLInputElement).value).toBe("smtp.example.edu");
+	expect((password as HTMLInputElement).value).toBe("");
+	expect(screen.getByTestId("settings-mail-state").textContent).toBe(
+		"No unsaved changes.",
+	);
+});
+
+test("account email saves first, then the rest, and says which part failed", async () => {
+	const fetch = serve(
+		{ settings: SETTINGS, job: null },
+		{
+			put: () =>
+				json(409, {
+					code: "NOTIFY_JOB_BUSY",
+					message: "A notification settings change is already waiting or running.",
+				}),
+		},
+	);
+	renderWithQuery(<MailSection />);
+
+	fireEvent.click(
+		await screen.findByRole("checkbox", {
+			name: "Email password reset and invitation links",
+		}),
+	);
+	await changeSomething();
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-mail-state").textContent).toBe(
+			"Not saved. Account email was saved, but the mail server and alert settings were not. A notification settings change is already waiting or running.",
+		),
+	);
+	expect(sent(fetch, "/admin/settings", "PUT")).toEqual([
+		{ accountEmailEnabled: true },
+	]);
+	// The part that failed stays unsaved.
+	expect(box(/^Alert when a root shell opens/).checked).toBe(true);
+});
+
+test("account email alone saves without asking the alerts job", async () => {
+	const fetch = serve({ settings: SETTINGS, job: null });
+	renderWithQuery(<MailSection />);
+
+	fireEvent.click(
+		await screen.findByRole("checkbox", {
+			name: "Email password reset and invitation links",
+		}),
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-mail-state").textContent).toBe("Saved."),
+	);
+	expect(sent(fetch, "/admin/settings", "PUT")).toEqual([
+		{ accountEmailEnabled: true },
+	]);
+	expect(sent(fetch, "/admin/notifications", "PUT")).toEqual([]);
 });
 
 test("secret fields ask the browser not to fill in a saved sign-in", async () => {
@@ -343,7 +491,7 @@ test("secret fields ask the browser not to fill in a saved sign-in", async () =>
 		},
 		job: null,
 	});
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	for (const label of ["Password", "User key", "API token", "Access token"]) {
 		expect((await screen.findByLabelText(label)).getAttribute("autocomplete")).toBe(
@@ -363,23 +511,23 @@ test("a busy answer is shown under the button", async () => {
 				}),
 		},
 	);
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Save notification settings" }),
-	);
-	expect((await screen.findByTestId("notify-error")).textContent).toContain(
-		"A notification settings change is already waiting or running.",
+	await changeSomething();
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-mail-state").textContent).toContain(
+			"A notification settings change is already waiting or running.",
+		),
 	);
 });
 
 test("while a job waits, Save is unavailable and says why", async () => {
 	const fetch = serve({ settings: SETTINGS, job: job() });
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const save = await screen.findByRole("button", {
-		name: "Save notification settings",
-	});
+	await changeSomething();
+	const save = screen.getByRole("button", { name: "Save email and alerts" });
 	expect(save.getAttribute("aria-disabled")).toBe("true");
 	expect(description(save)).toMatch(/A change is being applied/);
 	expect(screen.getByTestId("notify-job").textContent).toContain(
@@ -398,7 +546,7 @@ test("a refused job says why in plain words", async () => {
 			finishedAt: "2026-10-06T10:00:05.000Z",
 		}),
 	});
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
 	expect((await screen.findByTestId("notify-job")).textContent).toContain(
 		"Not saved. A channel was turned on without its key or URL",
@@ -415,9 +563,9 @@ test("Send test goes to that saved channel only, and says what happened", async 
 				}),
 		},
 	);
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const webhook = await screen.findByRole("group", { name: "Webhook" });
+	const webhook = await screen.findByTestId("notify-webhook");
 	fireEvent.click(
 		within(webhook).getByRole("button", { name: "Send test to the webhook" }),
 	);
@@ -427,7 +575,7 @@ test("Send test goes to that saved channel only, and says what happened", async 
 	expect(sent(fetch, "/admin/alerts/test", "POST")).toEqual([{ channel: "webhook" }]);
 	// An unsaved channel offers no test.
 	expect(
-		within(screen.getByRole("group", { name: "Pushover" })).queryByRole("button"),
+		within(screen.getByTestId("notify-pushover")).queryByRole("button"),
 	).toBeNull();
 });
 
@@ -436,11 +584,10 @@ test("a job queued long ago is shown as not finished, and Save is offered again"
 		settings: SETTINGS,
 		job: job({ requestedAt: new Date(Date.now() - 6 * 60_000).toISOString() }),
 	});
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const save = await screen.findByRole("button", {
-		name: "Save notification settings",
-	});
+	await changeSomething();
+	const save = screen.getByRole("button", { name: "Save email and alerts" });
 	expect(screen.getByTestId("notify-job").textContent).toContain(
 		"The last change did not finish",
 	);
@@ -462,9 +609,9 @@ test("too many tests in a minute says to wait", async () => {
 				}),
 		},
 	);
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	const webhook = await screen.findByRole("group", { name: "Webhook" });
+	const webhook = await screen.findByTestId("notify-webhook");
 	fireEvent.click(
 		within(webhook).getByRole("button", { name: "Send test to the webhook" }),
 	);
@@ -484,11 +631,10 @@ test("after a save the page follows its own job, though the API still reports a 
 		{ settings: SETTINGS, job: dead },
 		{ put: () => json(202, job({ requestedAt: new Date().toISOString() })) },
 	);
-	renderWithQuery(<NotificationsSection />);
+	renderWithQuery(<MailSection />);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Save notification settings" }),
-	);
+	await changeSomething();
+	fireEvent.click(screen.getByRole("button", { name: "Save email and alerts" }));
 	await waitFor(() =>
 		expect(screen.getByTestId("notify-job").textContent).toContain(
 			"Saving. Waiting for the server",

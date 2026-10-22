@@ -6,7 +6,6 @@ import {
 	loginAs,
 	query,
 	SETTINGS_ROW_LOCK,
-	toast,
 	workspacePath,
 } from "./helpers";
 
@@ -173,11 +172,11 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
 	const stop = page.getByRole("region", { name: "When workspaces stop" });
-	const cap = stop.getByLabel("Longest keep running (hours)", { exact: true });
+	const cap = stop.getByRole("textbox", { name: "Longest keep running" });
 	await expect(cap).toHaveValue("12", { timeout: 15_000 });
 	await cap.fill("2");
-	await stop.getByTestId("keep-running-max-save").click();
-	await expect(toast(page, "Keep running saved")).toBeVisible();
+	await stop.getByRole("button", { name: "Save stop times" }).click();
+	await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 	await expectNoViolations(page);
 
 	const studentContext = await browser.newContext();
@@ -204,8 +203,8 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	expect(await holdUntil(student.workspaceId)).toBeNull();
 
 	await cap.fill("0");
-	await stop.getByTestId("keep-running-max-save").click();
-	await expect(toast(page, "Keep running saved")).toBeVisible();
+	await stop.getByRole("button", { name: "Save stop times" }).click();
+	await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 	await studentPage.reload();
 	await expect(studentPage.getByTestId("workspace-state")).toHaveText("Running", {
 		timeout: 15_000,

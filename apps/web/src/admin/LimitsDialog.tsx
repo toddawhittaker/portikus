@@ -16,6 +16,7 @@ export type LimitKey = keyof UpdateLimitsRequest;
 const LIMIT_FIELDS: {
 	key: LimitKey;
 	label: string;
+	unit?: string;
 	min: number;
 	max: number;
 	hint: string;
@@ -23,7 +24,8 @@ const LIMIT_FIELDS: {
 	{ key: "cpu", label: "CPUs", min: 1, max: 64, hint: "At most the host's CPU count." },
 	{
 		key: "memoryMiB",
-		label: "Memory (MiB)",
+		label: "Memory",
+		unit: "MiB",
 		min: 512,
 		max: 262144,
 		hint: "Below what the workspace uses now, the kernel stops its largest process.",
@@ -202,7 +204,7 @@ export function LimitsDialog({
 							.join(" ")
 					}
 					// Only the input is narrow; the label and hint use the dialog's width.
-					fieldClassName="[&>input]:w-40"
+					fieldClassName="[&_input]:w-40"
 					layoutClassName="flex flex-col gap-4"
 					serverError={serverError}
 				/>

@@ -405,22 +405,36 @@ test.describe("the code-help site switch", () => {
 			const admin = await adminContext.newPage();
 			await loginAs(admin, "carol");
 			await admin.goto("/admin/settings");
-			const card = admin.getByRole("region", { name: "Code help" });
-			const box = card.getByRole("checkbox", { name: /Allow code help/ });
-			await expect(box).toBeEnabled({ timeout: 15_000 });
-			await expect(box).toBeChecked();
-			// It sits beside voice input, and says what turning it off does.
-			await expect(card).toContainText("When off, the editor is plain");
+			const card = admin.getByRole("region", { name: "Student tools" });
+			const python = card.getByRole("checkbox", { name: "Python" });
+			const typescript = card.getByRole("checkbox", {
+				name: "TypeScript and JavaScript",
+			});
+			const save = card.getByRole("button", { name: "Save student tools" });
+			await expect(python).toBeChecked({ timeout: 15_000 });
+			await expect(typescript).toBeChecked();
+			// It sits beside voice input, and says what an unticked language gets.
+			await expect(card).toContainText(
+				"A language left unticked still opens in the editor with syntax colouring",
+			);
 			expect(await studentSees(page)).toBe(true);
 
-			await box.click();
-			await expect(toast(admin, "Code help off")).toBeVisible();
-			await expect(box).not.toBeChecked();
+			await python.click();
+			await typescript.click();
+			// Nothing changes for students until Save.
+			expect(await studentSees(page)).toBe(true);
+			await save.click();
+			await expect(admin.getByTestId("settings-tools-state")).toHaveText("Saved.");
+			await expect(admin.getByTestId("code-help-headline")).toHaveText(
+				"Code help is off. The editor shows syntax colouring only.",
+			);
 			expect(await studentSees(page)).toBe(false);
 
-			await box.click();
-			await expect(toast(admin, "Code help on")).toBeVisible();
-			await expect(box).toBeChecked();
+			await python.click();
+			await typescript.click();
+			await save.click();
+			await expect(admin.getByTestId("settings-tools-state")).toHaveText("Saved.");
+			await expect(python).toBeChecked();
 			expect(await studentSees(page)).toBe(true);
 
 			const audit = await query<{ metadata: unknown }>(

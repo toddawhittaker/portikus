@@ -76,8 +76,11 @@ test("an administrator sets limits, sees them pending, then applied", async ({
 		name: `Limits for ${student.name}'s workspace`,
 	});
 	// Each blank field says what it falls back to, memory in MiB and GiB.
-	await expect(dialog.getByLabel("Memory (MiB)")).toHaveAccessibleDescription(
-		"Site value: 4,096 MiB (4 GiB). Below what the workspace uses now, the kernel stops its largest process.",
+	// The unit is read first, then what the field falls back to.
+	await expect(
+		dialog.getByRole("textbox", { name: "Memory", exact: true }),
+	).toHaveAccessibleDescription(
+		"MiB Site value: 4,096 MiB (4 GiB). Below what the workspace uses now, the kernel stops its largest process.",
 	);
 	await expect(dialog.getByLabel("CPUs")).toHaveAccessibleDescription(
 		"Site value: 2. At most the host's CPU count.",
@@ -92,7 +95,7 @@ test("an administrator sets limits, sees them pending, then applied", async ({
 	);
 
 	await dialog.getByLabel("CPUs").fill("3");
-	await dialog.getByLabel("Memory (MiB)").fill("6144");
+	await dialog.getByRole("textbox", { name: "Memory", exact: true }).fill("6144");
 	await dialog.getByTestId("limits-save").click();
 	await expect(toast(page, "Limits saved")).toBeVisible();
 	await expect(dialog).toBeHidden();
@@ -184,7 +187,7 @@ for (const scheme of ["light", "dark"] as const) {
 		const dialog = page.getByRole("dialog", {
 			name: `Limits for ${student.name}'s workspace`,
 		});
-		await dialog.getByLabel("Memory (MiB)").fill("1");
+		await dialog.getByRole("textbox", { name: "Memory", exact: true }).fill("1");
 		await dialog.getByTestId("limits-save").click();
 		await expect(dialog.getByRole("alert")).toBeVisible();
 		await expectNoViolations(page);
