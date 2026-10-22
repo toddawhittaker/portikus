@@ -26,7 +26,9 @@ export async function pruneAuditEvents(
 		}>`select public.prune_audit_events(${batchSize}) as deleted`.execute(db);
 		const deleted = rows[0]?.deleted ?? 0;
 		total += deleted;
-		if (deleted < batchSize) return total;
+		// An empty batch ends it, not a short one: the SQL clamps the batch size,
+		// so a size of 0 or above 10000 must neither spin nor stop early.
+		if (deleted === 0) return total;
 	}
 }
 

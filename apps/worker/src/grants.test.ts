@@ -211,7 +211,8 @@ function grantsFor(worker: string, member: string): [string, string] {
 		.replaceAll('"portikus-worker"', `"${worker}"`)
 		.replaceAll("'portikus-worker'", `'${worker}'`)
 		.replaceAll("'portikus'", `'${member}'`)
-		.replaceAll("REVOKE portikus FROM", `REVOKE "${member}" FROM`);
+		.replaceAll("REVOKE portikus FROM", `REVOKE "${member}" FROM`)
+		.replaceAll("OWNER TO portikus;", `OWNER TO "${member}";`);
 	const [before, after] = text.split(/^BEGIN;$/m);
 	return [before ?? "", `BEGIN;${after ?? ""}`];
 }
@@ -224,6 +225,14 @@ beforeAll(async () => {
 	tdb = await createTestDb();
 	await sql
 		.raw(`DROP ROLE IF EXISTS "${role}"; CREATE ROLE "${role}" NOLOGIN`)
+		.execute(tdb.db);
+	// The owner stands in for portikus, which migrates and so owns the tables.
+	await sql
+		.raw(
+			`DROP ROLE IF EXISTS "${owner}"; CREATE ROLE "${owner}" NOLOGIN;
+			GRANT CREATE ON SCHEMA public TO "${owner}";
+			ALTER TABLE audit_events OWNER TO "${owner}"`,
+		)
 		.execute(tdb.db);
 	for (const part of grantsFor(role, owner)) await sql.raw(part).execute(tdb.db);
 	// A startup option makes every connection act as the role, as peer auth does.
@@ -453,19 +462,55 @@ describe.skipIf(skip)("the worker's role", () => {
 			);
 		});
 
-		test("is locked down: definer rights, a fixed search path, no access for the public", async () => {
+		test("deletes every old row when the batch size is zero", async () => {
+			for (let n = 0; n < 4; n++) await addEvent(400 + n);
+			await addEvent(1);
+
+			expect(await pruneAuditEvents(worker, 0)).toBe(4);
+			expect(await ages()).toEqual([1]);
+		});
+
+		test("deletes every old row when the batch size is above the 10000 clamp", async () => {
+			await sql`insert into audit_events (actor, target, action, result, at)
+				select 'actor', 'target', 'auth.login', 'ok', now() - interval '400 days'
+				from generate_series(1, 10005)`.execute(tdb.db);
+			await addEvent(1);
+
+			expect(await pruneAuditEvents(worker, 20_000)).toBe(10_005);
+			expect(await ages()).toEqual([1]);
+		});
+
+		test("is locked down: definer rights owned by the table owner, a fixed search path, only the worker may run it", async () => {
 			const { rows } = await sql<{
 				secdef: boolean;
 				config: string[];
-				acl: string;
-			}>`select prosecdef as secdef, proconfig as config, proacl::text as acl
-				from pg_proc where proname = 'prune_audit_events'`.execute(tdb.db);
+				owner: string;
+				table_owner: string;
+				owner_is_super: boolean;
+				body: string;
+				grantees: string[];
+			}>`select p.prosecdef as secdef, p.proconfig as config,
+					o.rolname as owner, t.rolname as table_owner, o.rolsuper as owner_is_super,
+					p.prosrc as body,
+					array(select coalesce(g.rolname::text, 'PUBLIC')
+						from aclexplode(p.proacl) a
+						left join pg_roles g on g.oid = a.grantee
+						where a.privilege_type = 'EXECUTE') as grantees
+				from pg_proc p
+				join pg_roles o on o.oid = p.proowner
+				join pg_class c on c.relname = 'audit_events' and c.relkind = 'r'
+				join pg_roles t on t.oid = c.relowner
+				where p.proname = 'prune_audit_events'`.execute(tdb.db);
 			expect(rows).toHaveLength(1);
-			expect(rows[0]?.secdef).toBe(true);
-			expect(rows[0]?.config).toEqual(["search_path=pg_catalog, public"]);
-			// An ACL entry with an empty grantee is PUBLIC.
-			expect(rows[0]?.acl).not.toMatch(/(^\{|,)=/);
-			expect(rows[0]?.acl).toContain(`${role}=X/`);
+			const fn = rows[0];
+			expect(fn?.secdef).toBe(true);
+			expect(fn?.config).toEqual(["search_path=pg_catalog, public, pg_temp"]);
+			expect(fn?.owner).toBe(owner);
+			expect(fn?.owner).toBe(fn?.table_owner);
+			expect(fn?.owner_is_super).toBe(false);
+			expect(fn?.body).toContain("public.audit_events");
+			// The owner always holds EXECUTE; the worker is the only other holder.
+			expect([...(fn?.grantees ?? [])].sort()).toEqual([owner, role].sort());
 		});
 
 		test("the daily sweep logs the count and nothing from the rows", async () => {
@@ -482,9 +527,7 @@ describe.skipIf(skip)("the worker's role", () => {
 	});
 
 	test("loses its membership in portikus even when a grant then fails", async () => {
-		await sql
-			.raw(`CREATE ROLE "${owner}" NOLOGIN; GRANT "${owner}" TO "${role}"`)
-			.execute(tdb.db);
+		await sql.raw(`GRANT "${owner}" TO "${role}"`).execute(tdb.db);
 		const [before, after] = grantsFor(role, owner);
 		await sql.raw(before).execute(tdb.db);
 		await tdb.db.connection().execute(async (conn) => {
