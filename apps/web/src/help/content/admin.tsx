@@ -289,6 +289,14 @@ export const ADMIN_HELP: HelpPart = {
 						host before each deploy. Nothing deletes them on its own; delete them once
 						the change checks out.
 					</p>
+					<p>
+						To delete several at once, tick their rows, in one list or across lists, or
+						tick the box at the top of a list to select all of it, then choose{" "}
+						<strong>Delete selected</strong> beside any list with ticked rows. One
+						confirmation covers them all. If some cannot be deleted, the confirmation
+						says which and why, and they stay ticked. The newest complete backup set is
+						always kept, so it cannot be ticked.
+					</p>
 				</>
 			),
 		},

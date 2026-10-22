@@ -7,15 +7,20 @@ import { Button, Toggletip } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { sampleAge } from "../health/HealthTab.js";
-import type { DeleteTarget } from "./BackupDialogs.js";
+import { longTime, newestCompleteStamp, runningText, setTime } from "./model.js";
+import { FocusCatchGroup, SELECT_CELL, Table } from "./parts.js";
 import {
-	longTime,
-	newestCompleteStamp,
-	runningText,
-	setTime,
-	waitingRequest,
-} from "./model.js";
-import { FocusCatchGroup, Table } from "./parts.js";
+	DeleteSelectedButton,
+	type ListSelection,
+	SelectAllBox,
+	SelectBox,
+} from "./SelectBoxes.js";
+import {
+	type DeleteTarget,
+	deleteWaiting,
+	NEWEST_KEPT,
+	targetKey,
+} from "./selection.js";
 
 export type Host = NonNullable<AdminBackups["host"]>;
 
@@ -90,15 +95,28 @@ export function SetsPart({
 	requests,
 	onRestore,
 	onDelete,
+	selection,
 }: {
 	host: Host;
 	requests: BackupRequestView[];
 	onRestore: (set: HostBackupSet) => void;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	const newest = newestCompleteStamp(host.sets);
 	return (
-		<FocusCatchGroup level={4} id="backups-sets-title" title="Backup sets">
+		<FocusCatchGroup
+			level={4}
+			id="backups-sets-title"
+			title="Backup sets"
+			actions={
+				<DeleteSelectedButton
+					kind="set"
+					listId="backups-sets-title"
+					selection={selection}
+				/>
+			}
+		>
 			{!host.keyInstalled ? (
 				<p id="backups-key-note" className="pk-muted m-0 text-[13px]">
 					Restore is off until the restore key is installed on the host.
@@ -130,6 +148,7 @@ export function SetsPart({
 					"",
 				]}
 				empty={host.sets.length === 0 ? "No backup sets yet." : null}
+				selectAll={<SelectAllBox kind="set" noun="backup sets" selection={selection} />}
 			>
 				{host.sets.map((set) => (
 					<SetRow
@@ -137,11 +156,10 @@ export function SetsPart({
 						set={set}
 						keyInstalled={host.keyInstalled}
 						isNewest={set.stamp === newest}
-						deleting={
-							waitingRequest(requests, "delete_set", { stamp: set.stamp }) !== undefined
-						}
+						deleting={deleteWaiting(requests, { kind: "set", stamp: set.stamp })}
 						onRestore={onRestore}
 						onDelete={onDelete}
+						selection={selection}
 					/>
 				))}
 			</Table>
@@ -185,7 +203,7 @@ function setNotes(
 			key: "newest",
 			node: (
 				<span id={`backup-set-note-${set.stamp}`} className="pk-muted">
-					The newest complete set is always kept
+					{NEWEST_KEPT}
 				</span>
 			),
 		});
@@ -251,6 +269,7 @@ function SetRow({
 	deleting,
 	onRestore,
 	onDelete,
+	selection,
 }: {
 	set: HostBackupSet;
 	keyInstalled: boolean;
@@ -258,6 +277,7 @@ function SetRow({
 	deleting: boolean;
 	onRestore: (set: HostBackupSet) => void;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	const when = setTime(set.stamp);
 	const noteId = `backup-set-note-${set.stamp}`;
@@ -265,6 +285,13 @@ function SetRow({
 		!keyInstalled || set.verified === false || set.instances.length === 0;
 	return (
 		<tr data-testid={`backup-set-${set.stamp}`}>
+			<td className={SELECT_CELL}>
+				<SelectBox
+					itemKey={targetKey({ kind: "set", stamp: set.stamp })}
+					label={`Select the set from ${when}`}
+					selection={selection}
+				/>
+			</td>
 			<th scope="row">{when}</th>
 			<td>
 				<SetResult set={set} notes={setNotes(set, keyInstalled, isNewest)} />

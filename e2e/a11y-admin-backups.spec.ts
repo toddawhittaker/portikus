@@ -200,6 +200,134 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
+/** Answers each per-item delete with a recorded request, or `refuse` for the paths it names. */
+async function stubDeletes(
+	page: Page,
+	refuse: (path: string) => boolean = () => false,
+) {
+	const paths: string[] = [];
+	await routeApi(
+		page,
+		"**/admin/backups/{sets,dumps,snapshots,kept-homes}/**",
+		(route) => {
+			if (route.request().method() !== "DELETE") return route.fallback();
+			const path = decodeURIComponent(new URL(route.request().url()).pathname);
+			paths.push(path);
+			return refuse(path)
+				? route.fulfill({
+						status: 409,
+						json: {
+							code: "BACKUP_RUNNING",
+							message: "A backup is running. Try after it ends.",
+						},
+					})
+				: route.fulfill({
+						status: 202,
+						json: {
+							...BACKUPS.requests[1],
+							state: "pending",
+							error: null,
+							finishedAt: null,
+						},
+					});
+		},
+	);
+	return paths;
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`rows are ticked and deleted with the keyboard alone (${colorScheme})`, async ({
+		page,
+	}) => {
+		const paths = await stubDeletes(page);
+		await openTab(page, colorScheme);
+
+		// Each list's select-all box follows its heading's help button.
+		await page.getByRole("button", { name: "About pre-change snapshots" }).focus();
+		await page.keyboard.press("Tab");
+		const snapshots = page.getByRole("checkbox", {
+			name: "Select all pre-change snapshots",
+		});
+		await expect(snapshots).toBeFocused();
+		await page.keyboard.press("Space");
+		await expect(snapshots).toBeChecked();
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("1 selected");
+
+		await page.getByRole("button", { name: "About pre-change database dumps" }).focus();
+		await page.keyboard.press("Tab");
+		const dump = page.getByRole("checkbox", {
+			name: "Select all pre-change database dumps",
+		});
+		await expect(dump).toBeFocused();
+		await page.keyboard.press("Space");
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("2 selected");
+
+		// The list's Delete selected button sits between its heading and its table.
+		await page.keyboard.press("Shift+Tab");
+		const button = page.getByTestId("backups-dumps-title-delete-selected");
+		await expect(button).toBeFocused();
+		await expect(button).toHaveText("Delete 2 selected…");
+		await expectNoViolations(page);
+		await page.keyboard.press("Enter");
+
+		const dialog = page.getByTestId("backup-delete-dialog");
+		await expect(dialog.getByRole("heading")).toHaveText("Delete 2 items?");
+		await expect(dialog).toContainText("1 snapshot and 1 database dump.");
+		await expectNoViolations(page);
+		const confirm = dialog.getByTestId("dialog-confirm");
+		for (let tries = 0; tries < 3; tries += 1) {
+			if (await confirm.evaluate((el) => el === document.activeElement)) break;
+			await page.keyboard.press("Tab");
+		}
+		await expect(confirm).toBeFocused();
+		await page.keyboard.press("Enter");
+
+		await expect(dialog).toHaveCount(0);
+		expect(paths).toEqual([
+			`/admin/backups/snapshots/${INSTANCE}-home/pre-upgrade`,
+			"/admin/backups/dumps/portikus-pre-upgrade.dump",
+		]);
+		// The result is read out, and focus lands on the heading of the list it came from.
+		const done = page
+			.locator(".pk-toast")
+			.filter({ hasText: "Delete requested for 1 snapshot and 1 database dump" });
+		await expect(done.getByRole("status")).toHaveCount(1);
+		await expect(
+			page.getByRole("heading", { level: 4, name: "Pre-change database dumps" }),
+		).toBeFocused();
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("");
+	});
+
+	test(`a delete that partly failed has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await stubDeletes(page, (path) => path.includes("/kept-homes/"));
+		await openTab(page, colorScheme);
+		await page.getByRole("checkbox", { name: "Select all kept homes" }).check();
+		await page
+			.getByRole("checkbox", { name: "Select all pre-change snapshots" })
+			.check();
+		await page.getByTestId("backups-kept-title-delete-selected").click();
+		const dialog = page.getByTestId("backup-delete-dialog");
+		await expect(dialog.getByRole("heading")).toHaveText("Delete 2 items?");
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(dialog.getByRole("alert")).toContainText(
+			"Delete requested for 1 snapshot. This was not deleted:",
+		);
+		await expect(dialog.getByRole("alert")).toContainText(
+			"The kept home of Alice Smith (alice): A backup is running. Try after it ends.",
+		);
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+		// What failed is still ticked, so its button is still there to take focus back.
+		await expect(page.getByTestId("backups-kept-title-delete-selected")).toBeFocused();
+		await expect(
+			page.getByRole("checkbox", { name: "Select all kept homes" }),
+		).toBeChecked();
+	});
+}
+
 test("focus inside Activity lands on the Restores heading when the first request arrives", async ({
 	page,
 }) => {
