@@ -37,23 +37,6 @@ const ASSERTED_HERE: ReadonlySet<string> = new Set([
 	INVITATION_EMAILED,
 ]);
 
-/**
- * Outcome rows the worker writes from the table OUTCOME_ACTIONS in
- * apps/worker/src/backups.ts. Their sibling kinds are asserted in
- * apps/worker/src/backups.test.ts; these seven are written by the same code
- * and no test names them. Fix the gap in the worker test, then delete the name
- * here: the test below fails while a name stays after a test names it.
- */
-const UNASSERTED_WORKER_OUTCOMES: ReadonlySet<string> = new Set([
-	"backup.failed",
-	"backup.set_deleted",
-	"backup.set_delete_failed",
-	"backup.dump_deleted",
-	"backup.home_imported",
-	"backup.home_import_failed",
-	"backup.snapshot_delete_failed",
-]);
-
 const SELF = fileURLToPath(import.meta.url);
 
 /** Test files of the API, the worker, the controller and the shared packages. */
@@ -99,21 +82,9 @@ describe("every SPEC.md section 24.11 action has a test that names it", () => {
 		expect(names).toContain("preview.denied");
 	});
 
-	test("each listed action appears in a test, bar the known worker gaps", () => {
-		const missing = names.filter(
-			(name) =>
-				!named(name) &&
-				!ASSERTED_HERE.has(name) &&
-				!UNASSERTED_WORKER_OUTCOMES.has(name),
-		);
+	test("each listed action appears in a test", () => {
+		const missing = names.filter((name) => !named(name) && !ASSERTED_HERE.has(name));
 		expect(missing).toEqual([]);
-	});
-
-	test("the known gaps are real listed actions that still lack a test", () => {
-		const stale = [...UNASSERTED_WORKER_OUTCOMES].filter(
-			(name) => !names.includes(name) || named(name),
-		);
-		expect(stale).toEqual([]);
 	});
 
 	test("the actions asserted here are listed", () => {
