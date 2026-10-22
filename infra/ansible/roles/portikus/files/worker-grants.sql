@@ -63,4 +63,32 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON agent_usage_days TO "portikus-worker";
 GRANT USAGE ON SEQUENCE audit_events_id_seq, health_samples_id_seq,
 	workspace_usage_samples_id_seq TO "portikus-worker";
 
+-- The worker may only append to audit_events, so the daily retention sweep
+-- (SPEC.md section 25.10) goes through this function.  It runs as the role
+-- that applies this file (postgres), which owns audit_events' rows.  The
+-- 365-day cutoff is fixed here: the caller picks only the batch size, so it
+-- cannot reach a recent row.  One call is one short statement.
+CREATE OR REPLACE FUNCTION public.prune_audit_events(batch_size integer)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+	removed integer;
+BEGIN
+	WITH old AS (
+		SELECT id FROM public.audit_events
+		WHERE at < pg_catalog.now() - interval '365 days'
+		ORDER BY id
+		LIMIT greatest(1, least(coalesce(batch_size, 5000), 10000))
+	)
+	DELETE FROM public.audit_events a USING old WHERE a.id = old.id;
+	GET DIAGNOSTICS removed = ROW_COUNT;
+	RETURN removed;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.prune_audit_events(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.prune_audit_events(integer) TO "portikus-worker";
+
 COMMIT;

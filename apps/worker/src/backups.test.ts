@@ -412,6 +412,87 @@ test.skipIf(skip)("report records a failure with the host's reason", async () =>
 	]);
 });
 
+// Every request kind has a done row and a failed row (SPEC.md section 24.11).
+const HOST_OUTCOMES = [
+	{
+		kind: "backup",
+		args: {},
+		target: "backups",
+		done: "backup.completed",
+		failed: "backup.failed",
+	},
+	{
+		kind: "delete_set",
+		args: { stamp: STAMP },
+		target: STAMP,
+		done: "backup.set_deleted",
+		failed: "backup.set_delete_failed",
+	},
+	{
+		kind: "delete_dump",
+		args: { file: "portikus-pre-upgrade.dump" },
+		target: "portikus-pre-upgrade.dump",
+		done: "backup.dump_deleted",
+		failed: "backup.dump_delete_failed",
+	},
+	{
+		kind: "restore_copy",
+		args: restoreArgs,
+		target: STAMP,
+		done: "backup.restore_copied",
+		failed: "backup.restore_failed",
+	},
+	{
+		kind: "import_home",
+		args: { stamp: STAMP, instance: INSTANCE },
+		target: STAMP,
+		done: "backup.home_imported",
+		failed: "backup.home_import_failed",
+	},
+] as const;
+
+for (const outcome of HOST_OUTCOMES) {
+	for (const state of ["done", "failed"] as const) {
+		const action = state === "done" ? outcome.done : outcome.failed;
+		test.skipIf(skip)(
+			`a ${state} ${outcome.kind} report writes ${action}`,
+			async () => {
+				const id = await insertRequest({
+					kind: outcome.kind,
+					args: outcome.args,
+					state: "claimed",
+					claimed_at: NOW,
+				});
+				await acceptReport(
+					tdb.db,
+					doc({
+						request: {
+							id,
+							state,
+							error: state === "failed" ? "refused by the host" : null,
+							stamp: null,
+						},
+						status: status(),
+					}),
+					NOW,
+				);
+				expect(await auditRows()).toEqual([
+					{
+						actor: "host",
+						target: outcome.target,
+						action,
+						result: state === "done" ? "ok" : "failed",
+						metadata:
+							state === "done"
+								? { requestId: id }
+								: { requestId: id, error: "refused by the host" },
+					},
+				]);
+			},
+		);
+	}
+}
+
 test.skipIf(skip)(
 	"a finished side copy notifies the student and drops presence",
 	async () => {
@@ -612,6 +693,32 @@ test.skipIf(skip)("deletes run through the controller with audit rows", async ()
 		},
 	]);
 });
+
+test.skipIf(skip)(
+	"a refused snapshot delete writes backup.snapshot_delete_failed",
+	async () => {
+		const id = await insertRequest({
+			kind: "delete_snapshot",
+			args: { volume: `${INSTANCE}-docker`, snapshot: "pre-upgrade" },
+		});
+		fake.deleteError = new ControllerClientError("OPERATION_FAILED", "snapshot in use");
+		await runVmDeletes(tdb.db, fake, () => NOW);
+		expect(await auditRows()).toEqual([
+			{
+				actor: "worker",
+				target: `${INSTANCE}-docker`,
+				action: "backup.snapshot_delete_failed",
+				result: "failed",
+				metadata: {
+					requestId: id,
+					volume: `${INSTANCE}-docker`,
+					snapshot: "pre-upgrade",
+					error: "snapshot in use",
+				},
+			},
+		]);
+	},
+);
 
 test.skipIf(skip)("a refused delete fails; one already gone is done", async () => {
 	const refused = await insertRequest({
