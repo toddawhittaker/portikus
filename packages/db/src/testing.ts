@@ -62,7 +62,7 @@ function perFileDbName(url: URL, testPath: string): string {
  * that looks dead here might still be alive on another machine or in
  * another PID namespace sharing the same PostgreSQL server.
  */
-async function dropOrphanedDbs(url: string, prefix: string): Promise<void> {
+export async function dropOrphanedDbs(url: string, prefix: string): Promise<void> {
 	const client = new pg.Client({ connectionString: url });
 	await client.connect();
 	try {
