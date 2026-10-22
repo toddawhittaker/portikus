@@ -123,11 +123,25 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		console.error("usage: check-changed-coverage.mjs <base-ref> [lcov-path]");
 		process.exit(2);
 	}
-	const diff = execFileSync(
-		"git",
-		["-c", "core.quotePath=false", "diff", "-U0", "--no-renames", `${base}...HEAD`],
-		{ encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
-	);
+	let diff;
+	try {
+		diff = execFileSync(
+			"git",
+			["-c", "core.quotePath=false", "diff", "-U0", "--no-renames", `${base}...HEAD`],
+			{
+				encoding: "utf8",
+				maxBuffer: 256 * 1024 * 1024,
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
+	} catch (error) {
+		// Usually a shallow clone with no merge base; say so in one line.
+		const reason = String(error.stderr ?? error.message)
+			.trim()
+			.split("\n")[0];
+		console.error(`Cannot diff against ${base}: ${reason}`);
+		process.exit(2);
+	}
 	const result = evaluate(parseDiff(diff), parseLcov(readFileSync(lcovPath, "utf8")));
 	const text = report(result);
 	console.log(text);

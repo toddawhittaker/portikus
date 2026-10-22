@@ -250,6 +250,16 @@ describe("script against a real git repository", () => {
 		expect(readFileSync(summary, "utf8")).toContain("0.0% (0 of 1 lines)");
 	});
 
+	test("exits 2 with one line, not a stack trace, when git finds no merge base", () => {
+		const dir = repo((d) => write(d, "apps/api/src/new.ts", "x\n"));
+		git(dir, "switch", "-q", "--orphan", "unrelated");
+		git(dir, "commit", "-q", "--allow-empty", "-m", "unrelated");
+		const result = run(dir, {});
+		expect(result.status).toBe(2);
+		expect(result.err.trim().split("\n")).toHaveLength(1);
+		expect(result.err).toContain("Cannot diff against main");
+	});
+
 	test("exits 2 without a base argument", () => {
 		const result = spawnSync("node", [script], { encoding: "utf8" });
 		expect(result.status).toBe(2);
