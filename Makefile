@@ -2,7 +2,7 @@
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
 .PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
-       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
+       infra-check backup-scope-test bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight rehearsal-lti tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
@@ -191,11 +191,14 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/apt-failures-test.yml
 	ansible-playbook infra/tests/workspace-image-test.yml
 	ansible-playbook infra/tests/registry-cache-size-test.yml
-	bash infra/tests/backup-scope-test.sh
+	@$(MAKE) --no-print-directory backup-scope-test
 	bash infra/tests/backup-channel-test.sh
 	bash scripts/tests/publish-apt-repo-test.sh
 	bash infra/tests/backup-local-test.sh
 	bash infra/tests/backup-offsite-test.sh
+
+backup-scope-test: ## Check what the backup and restore scripts may touch, with fakes for ssh and Incus (no VM)
+	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
