@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -102,19 +102,32 @@ test("the report names usernames only", () => {
 });
 
 const main = fileURLToPath(new URL("./dex-import-main.ts", import.meta.url));
-function run(args: string[], env: Record<string, string | undefined> = {}) {
-	return spawnSync(process.execPath, ["--import", "tsx", main, ...args], {
-		encoding: "utf8",
-		env: { ...process.env, DATABASE_URL: undefined, DEX_GRPC_ADDR: undefined, ...env },
+// Asynchronous, so a slow child never blocks the test worker's event loop.
+function run(args: string[]): Promise<{ status: number | null; stderr: string }> {
+	return new Promise((resolve) => {
+		execFile(
+			process.execPath,
+			["--import", "tsx", main, ...args],
+			{ env: { ...process.env, DATABASE_URL: undefined, DEX_GRPC_ADDR: undefined } },
+			(error, _stdout, stderr) => {
+				resolve({ status: error ? (error.code as number) : 0, stderr });
+			},
+		);
 	});
 }
 
-// Four child processes; with coverage on a busy CI runner they can pass 5 seconds.
-test("the command refuses bad arguments and missing settings", () => {
-	expect(run([]).stderr).toContain("--input is required");
-	expect(run(["--issuer", "https://dex.example"]).status).toBe(2);
-	expect(run(["--input", "x.json"]).stderr).toContain("DATABASE_URL is not set");
-	expect(run(["--bogus"]).status).toBe(2);
+// Four real Node processes, started together; sized to that work.
+test("the command refuses bad arguments and missing settings", async () => {
+	const [noArgs, issuer, input, bogus] = await Promise.all([
+		run([]),
+		run(["--issuer", "https://dex.example"]),
+		run(["--input", "x.json"]),
+		run(["--bogus"]),
+	]);
+	expect(noArgs.stderr).toContain("--input is required");
+	expect(issuer.status).toBe(2);
+	expect(input.stderr).toContain("DATABASE_URL is not set");
+	expect(bogus.status).toBe(2);
 }, 30_000);
 
 if (!hasTestDb()) {
@@ -124,9 +137,10 @@ if (!hasTestDb()) {
 describe.skipIf(!hasTestDb())("importUsersFile", () => {
 	let t: TestDb;
 
+	// A new database and the full migration chain.
 	beforeAll(async () => {
 		t = await createTestDb();
-	});
+	}, 30_000);
 	afterAll(async () => {
 		await t?.close();
 	});
