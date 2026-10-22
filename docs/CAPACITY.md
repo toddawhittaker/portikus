@@ -8,7 +8,7 @@ This note records how Portikus behaves with many students working at once, and w
 - **Recommended pilot VM:** 8 vCPUs and 16 GiB of RAM, with the 100 GiB data disk grown to 200 GiB. The pilot today has 4 vCPUs and 8 GiB, which cannot hold 25.
 - **Once workspaces are running, the target is met with a wide margin.** At 25 and at 40 workspaces, every steady-state latency was far inside its limit, and nothing failed.
 - **Code help (the language servers) answers fast but costs memory.** On a 16 GiB VM with 25 students, completions came back at a p95 of 124 ms for Python and 54 ms for TypeScript, far inside the 1 second target. But with a coding agent running for each student, free memory fell to 945 MiB, below the 2 GiB the target asks for. The three servers add about 240 MiB per student. The target is stated by course profile (SPEC.md section 8.7): a 16 GiB server holds 25 students in a Traditional course, which has no coding agent, and about 23 in an Agentic course; 25 Agentic students need 20 GiB. See "Code help on a 16 GiB VM" below.
-- **The 8 GiB pilot cannot hold a full class with code help on.** At about 550 MiB per student with code help, 8 GiB holds about nine students with the 2 GiB reserve. An administrator can turn code help off for the site.
+- **The 8 GiB pilot cannot hold a full class with code help on.** At about 550 MiB per student with code help, 8 GiB holds about nine students with the 2 GiB reserve. An administrator can untick languages under Student tools on the Settings tab, which shows the memory each one costs and how many students the server holds.
 - **Starting many workspaces at once is much better, but still just over the target.** The first run found that the worker started workspaces one at a time, so the last of 25 waited over a minute (start p95 77 seconds). The worker now starts up to six at once (PR #464). The rerun on 2026-09-23 measured a start p95 of 12.6 seconds against the 10 second target, and a p50 of 8.9 seconds. See "Rerun after parallel starts" below.
 
 ## Method
@@ -130,9 +130,26 @@ What this means:
 - **Completions are far inside the target.** The 1 second p95 holds with a wide margin, even with the VM short of memory.
 - **The 2 GiB reserve is not met at 25 Agentic students on 16 GiB.** The run used about 550 MiB per student. With 2 GiB kept free, 16 GiB holds about 23 such students in an Agentic course. For 25 Agentic students the VM needs 20 GiB, which also leaves room for real agents, which use more than the stand-in.
 - **A Traditional course fits 25 students on 16 GiB.** The stand-in's 150 MiB across 25 students is 3.7 GiB, so a class that uses code help but runs no agent (a Traditional course, SPEC.md section 8.7, which hides the agent launchers) keeps about 4.6 GiB free. That figure is calculated from the measured per-student figures, not measured.
-- **The levers, if 16 GiB must hold 25 with agents:** start ruff only when a student formats, lower the servers' memory caps (today 1 GiB each, far above what they used, so this changes little), or turn code help off for the site.
+- **The levers, if 16 GiB must hold 25 with agents:** start ruff only when a student formats, lower the servers' memory caps (today 1 GiB each, far above what they used, so this changes little), or untick languages on the Settings tab (Python costs the most).
 
-**The 8 GiB pilot VM cannot hold a full class with code help on.** It has about 7 GiB available for workspaces. At 550 MiB per student with code help and a coding agent, it holds about nine students with the 2 GiB reserve, and about 16 with code help turned off.
+**The 8 GiB pilot VM cannot hold a full class with code help on.** It has about 7 GiB available for workspaces. At 550 MiB per student with code help and a coding agent, it holds about nine students with the 2 GiB reserve, and about 16 with no language ticked for code help.
+
+### Estimate on the Settings page
+
+The Student tools section of the Settings tab estimates the memory each student needs with the ticked languages, and how many students the server holds. It reads the server's total memory from the Health data. These are its figures, in MiB. A unit test (`apps/web/src/admin/settings/estimate.test.ts`) reads this table and fails if `estimate.ts` differs.
+
+| Figure | MiB | How it was worked out |
+|---|---|---|
+| Python, per student | 185 | pyright 167 plus ruff 18, the means in the table above |
+| TypeScript and JavaScript, per student | 57 | TypeScript's native server, the mean above |
+| Traditional workspace without code help | 160 | 550 per student in the run, less 240 for the servers and 150 for the stand-in agent, which a Traditional course does not run |
+| Agentic workspace without code help | 310 | 550 per student in the run, less 240 for the servers |
+| Platform | 1434 | 16 GiB less the 14.6 GiB available before the run (16 384 less 14 950) |
+| Reserve kept free | 2048 | the 2 GiB target |
+
+Students on a server = (total memory - platform - reserve) / memory per student, rounded down. On 16 GiB with both languages ticked, that is 32 Traditional or 23 Agentic students. The figure is a worst case: it assumes every ticked language is open for every student at once, and it counts memory only.
+
+Two things make it a little conservative. The 310 for an Agentic workspace comes from this 16 GiB run, while "Cost per workspace" below gives about 340 from the 24 GiB run, so the two runs differ by about 30 MiB. And the platform figure was taken against a nominal 16 GiB, while the Health data reports the kernel's MemTotal, which is a little smaller, so the count can be about one student low. A real coding agent can use more than the stand-in, which pulls the other way.
 
 ## Cost per workspace
 

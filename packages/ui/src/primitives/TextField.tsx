@@ -65,7 +65,14 @@ function TextInput({
 			)}
 			data-warning={!error && warning ? true : undefined}
 			aria-invalid={error ? true : undefined}
-			aria-describedby={fieldDescribedBy({ id, hint, error, warning, unit: hasUnit })}
+			aria-describedby={
+				[
+					fieldDescribedBy({ id, hint, error, warning, unit: hasUnit }),
+					rest["aria-describedby"],
+				]
+					.filter(Boolean)
+					.join(" ") || undefined
+			}
 		/>
 	);
 }
@@ -78,8 +85,9 @@ export type UnitInputProps = Omit<TextInputProps, "hasUnit" | "className"> & {
  * A narrow number box with its unit after it. The unit is part of the box's
  * description, so a screen reader hears "10, minutes". `hint`, `error` and
  * `warning` only link the box to messages the caller renders with
- * `FieldMessages` and the same `id`; size the box with `[&_input]:w-*` on a
- * parent.
+ * `FieldMessages` and the same `id`; the caller's own `aria-describedby` ids
+ * come after them, for text elsewhere in its layout. Size the box with
+ * `[&_input]:w-*` on a parent.
  */
 export function UnitInput({ unit, id, ...rest }: UnitInputProps): React.ReactElement {
 	return (
