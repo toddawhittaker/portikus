@@ -11,8 +11,8 @@ import { AdminSection } from "../AdminSection.js";
 import { Notice } from "../Notice.js";
 import { ActivityGroups } from "./Activity.js";
 import {
-	type DeleteConfirm,
 	DeleteDialog,
+	type PendingDelete,
 	ReplaceHomeDialog,
 	RestoreDialog,
 } from "./BackupDialogs.js";
@@ -115,7 +115,7 @@ function BackupsView({
 	const restore = useRestoreCopy();
 	const replace = useReplaceHome();
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-	const [deleting, setDeleting] = useState<DeleteConfirm | null>(null);
+	const [deleting, setDeleting] = useState<PendingDelete | null>(null);
 	const [restoring, setRestoring] = useState<HostBackupSet | null>(null);
 	const [restoreError, setRestoreError] = useState<string | null>(null);
 	const [replacing, setReplacing] = useState<BackupRequestView | null>(null);
@@ -140,12 +140,15 @@ function BackupsView({
 				targets: picked.map((item) => item.target),
 				done: [],
 				failed: [],
+				selectedAtOpen: picked.length,
 				// The button leaves with the selection, so focus falls back to the list's heading.
 				returnTo: () =>
 					document.getElementById(deleteSelectedId(listId)) ??
 					document.getElementById(listId),
 			}),
 	};
+
+	const announced = deleting ? deleting.selectedAtOpen : picked.length;
 
 	function requested(title: string) {
 		return () => toast.show({ tone: "success", title });
@@ -157,10 +160,17 @@ function BackupsView({
 
 	/** A row's own Delete: that item alone, whatever is ticked. */
 	function deleteOne(target: DeleteTarget) {
-		setDeleting({ targets: [target], done: [], failed: [] });
+		setDeleting({
+			targets: [target],
+			done: [],
+			failed: [],
+			selectedAtOpen: picked.length,
+		});
 	}
 
-	function confirmDelete(confirm: DeleteConfirm) {
+	function confirmDelete(confirm: PendingDelete) {
+		// Clears the last failures, so a retry that fails the same way is new text in the alert.
+		setDeleting({ ...confirm, done: [], failed: [] });
 		remove.mutate(confirm.targets, {
 			onSuccess: ({ done, failed: notDone }) => {
 				setSelected((current) => withKeys(current, done.map(targetKey), false));
@@ -254,9 +264,10 @@ function BackupsView({
 				selection={selection}
 			/>
 
-			{/* Stays mounted, so each new count is read out. */}
+			{/* Stays mounted, so each new count is read out. It holds still while the
+			    confirm is open, so a partial failure is announced once, by the dialog's alert. */}
 			<span className="sr-only" aria-live="polite" data-testid="backup-selected-count">
-				{picked.length > 0 ? `${picked.length} selected` : ""}
+				{announced > 0 ? `${announced} selected` : ""}
 			</span>
 			<DeleteDialog
 				confirm={deleting}

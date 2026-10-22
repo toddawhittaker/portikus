@@ -3,6 +3,7 @@ import {
 	allBoxState,
 	type DeleteTarget,
 	deleteCopy,
+	deleteSelectedText,
 	kindsText,
 	NEWEST_KEPT,
 	pickables,
@@ -138,4 +139,9 @@ test("a failure names the item it is about", () => {
 	expect(targetName(SNAP)).toBe("Snapshot pre-x of v-home");
 	expect(targetName(KEPT)).toBe("The kept home of Alice");
 	expect(targetName(SET)).toMatch(/^The backup set from .* UTC$/);
+});
+
+test("the delete button says when the ticks reach past its own list", () => {
+	expect(deleteSelectedText(2, 2)).toBe("Delete 2 selected…");
+	expect(deleteSelectedText(3, 1)).toBe("Delete 3 selected on this tab…");
 });

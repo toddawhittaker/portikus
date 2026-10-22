@@ -164,6 +164,16 @@ export function allBoxState(
 	};
 }
 
+/**
+ * The Delete selected button's words. Ticks span the whole tab, so when some
+ * are in another list the label says so rather than implying this list's rows.
+ */
+export function deleteSelectedText(total: number, here: number): string {
+	return total > here
+		? `Delete ${total} selected on this tab…`
+		: `Delete ${total} selected…`;
+}
+
 /** "2 backup sets and 1 database dump", kinds in page order. */
 export function kindsText(targets: readonly DeleteTarget[]): string {
 	return joinWords(

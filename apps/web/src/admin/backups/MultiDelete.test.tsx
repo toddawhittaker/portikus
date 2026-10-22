@@ -55,9 +55,16 @@ test("ticking rows in two lists deletes them all with one confirm naming count a
 	fireEvent.click(box("Select all backup sets"));
 	fireEvent.click(box("Select portikus-pre-upgrade.dump"));
 	const button = screen.getByTestId("backups-dumps-title-delete-selected");
-	expect(button.textContent).toBe("Delete 3 selected…");
+	// The count is the whole tab's, so the label says the ticks are not all in this list.
+	expect(button.textContent).toBe("Delete 3 selected on this tab…");
+	// The visible text is the accessible name, on each list's button.
+	expect(
+		screen.getAllByRole("button", { name: "Delete 3 selected on this tab…" }),
+	).toContain(button);
 	// The sets list shows the same action, since it has ticked rows too.
-	expect(screen.getByTestId("backups-sets-title-delete-selected")).toBeTruthy();
+	expect(screen.getByTestId("backups-sets-title-delete-selected").textContent).toBe(
+		"Delete 3 selected on this tab…",
+	);
 	expect(screen.queryByTestId("backups-kept-title-delete-selected")).toBeNull();
 
 	fireEvent.click(button);
@@ -170,4 +177,88 @@ test("a row whose delete is waiting cannot be ticked", async () => {
 	expect(all.getAttribute("aria-disabled")).toBe("true");
 	fireEvent.click(all);
 	expect(dump.checked).toBe(false);
+});
+
+/** Holds each delete of `stamp` until the test lets it through, then refuses it. */
+function gatedRefusals(stamp: string) {
+	const gates: (() => void)[] = [];
+	const write = (url: string) =>
+		url.includes(stamp)
+			? new Promise<Response>((resolve) =>
+					gates.push(() =>
+						resolve(
+							json(409, {
+								code: "BACKUP_RUNNING",
+								message: "The host is busy with that set.",
+							}),
+						),
+					),
+				)
+			: json(202, view({}));
+	return { write, gates };
+}
+
+async function openTwoSets() {
+	renderApp("/admin/backups");
+	await screen.findByTestId(`backup-set-${OLD}`);
+	fireEvent.click(box("Select all backup sets"));
+	fireEvent.click(screen.getByTestId("backups-sets-title-delete-selected"));
+	return screen.findByTestId("backup-delete-dialog");
+}
+
+test("a retry that fails with the same words clears the alert first, so it is announced again", async () => {
+	const { write, gates } = gatedRefusals(OLD);
+	stubBackups(backups(), write);
+	const dialog = await openTwoSets();
+	const alert = within(dialog).getByTestId("backup-delete-failed");
+	const confirm = within(dialog).getByTestId("dialog-confirm");
+
+	fireEvent.click(confirm);
+	await waitFor(() => expect(gates).toHaveLength(1));
+	gates[0]?.();
+	await waitFor(() => expect(alert.textContent).toContain("The host is busy"));
+
+	fireEvent.click(confirm);
+	await waitFor(() => expect(gates).toHaveLength(2));
+	// The old failure is gone while the retry runs.
+	expect(alert.textContent).toBe("");
+	gates[1]?.();
+	await waitFor(() => expect(alert.textContent).toContain("The host is busy"));
+});
+
+test("the selected count holds still while the confirm is open and updates when it closes", async () => {
+	const { write, gates } = gatedRefusals(OLD);
+	stubBackups(backups(), write);
+	const dialog = await openTwoSets();
+	const count = screen.getByTestId("backup-selected-count");
+	expect(count.textContent).toBe("2 selected");
+
+	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
+	await waitFor(() => expect(gates).toHaveLength(1));
+	gates[0]?.();
+	await within(dialog).findByText(/This was not deleted/);
+	// One set went, yet the live region says nothing new: the alert speaks for it.
+	expect(count.textContent).toBe("2 selected");
+
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("backup-delete-dialog")).toBeNull());
+	expect(count.textContent).toBe("1 selected");
+});
+
+test("while the deletes run, Cancel and Escape leave the confirm open", async () => {
+	const { write, gates } = gatedRefusals(OLD);
+	stubBackups(backups(), write);
+	const dialog = await openTwoSets();
+	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
+	await waitFor(() => expect(gates).toHaveLength(1));
+
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	fireEvent.keyDown(dialog, { key: "Escape" });
+	expect(screen.getByTestId("backup-delete-dialog")).toBe(dialog);
+
+	gates[0]?.();
+	await within(dialog).findByText(/This was not deleted/);
+	// Once the run is over, Cancel works again.
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByTestId("backup-delete-dialog")).toBeNull());
 });

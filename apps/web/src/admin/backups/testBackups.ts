@@ -133,7 +133,7 @@ export function backups(overrides: Partial<AdminBackups> = {}): AdminBackups {
 /** Serves the Backups API and records every write. */
 export function stubBackups(
 	data: AdminBackups,
-	write: (url: string) => Response = () => json(202, view({})),
+	write: (url: string) => Response | Promise<Response> = () => json(202, view({})),
 ) {
 	const writes: { method: string; url: string; body: unknown }[] = [];
 	stubFetch((url, init) => {

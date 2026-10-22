@@ -30,11 +30,13 @@ const STOPPED_WARNING =
 	"Start this workspace first. The copy is written by the student's own account inside the running workspace.";
 
 /** What the delete confirm asks about, and how the last try went. */
-export interface DeleteConfirm {
+export interface PendingDelete {
 	targets: DeleteTarget[];
 	/** What the last try requested; the dialog stays open only when some failed. */
 	done: DeleteTarget[];
 	failed: DeleteOutcome["failed"];
+	/** The ticked count when the dialog opened; the page announces it again once the dialog closes. */
+	selectedAtOpen: number;
 	/** Where focus goes when the dialog closes; unset returns it to the opener. */
 	returnTo?: () => HTMLElement | null;
 }
@@ -50,10 +52,10 @@ export function DeleteDialog({
 	onClose,
 	onConfirm,
 }: {
-	confirm: DeleteConfirm | null;
+	confirm: PendingDelete | null;
 	pending: boolean;
 	onClose: () => void;
-	onConfirm: (confirm: DeleteConfirm) => void;
+	onConfirm: (confirm: PendingDelete) => void;
 }) {
 	const copy = confirm ? deleteCopy(confirm.targets) : null;
 	return (
