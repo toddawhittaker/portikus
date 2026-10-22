@@ -104,9 +104,16 @@ endif
 tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_READ_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(call tofu_attr,libvirt_domain,vm,name)
 
-# First recipe line of every OpenTofu target: name the VM, and never let a
-# non-pilot environment act on a state file that holds the pilot.
+# Set when the pilot's state is only readable from the main checkout, so a
+# tofu command here would start from empty state and plan a second pilot.
+# A first-ever apply in the main checkout has no state either, so it is exempt.
+TOFU_IN_WORKTREE := $(and $(filter-out $(TOFU_STATE),$(TOFU_READ_STATE)),$(filter-out $(MAIN_CHECKOUT),$(CURDIR)))
+
+# First recipe line of every OpenTofu target: name the VM, refuse in a
+# worktree that has no state, and never let a non-pilot environment act on a
+# state file that holds the pilot.
 TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), VM '$(or $(TOFU_VM_NAME),<none yet>)'"; \
+	test -z "$(TOFU_IN_WORKTREE)" || { echo "$@: run OpenTofu from the main checkout: this worktree has no state of its own"; exit 1; }; \
 	test "$(TOFU_ENV)" = dev-libvirt || test "$(TOFU_VM_NAME)" != portikus || { echo "$@: that state holds the pilot VM; refusing"; exit 1; }
 
 # Recipe line for targets that need the VM; $(call REQUIRE_VM_IP,<target>)

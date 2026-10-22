@@ -17,7 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "./auth-options.js";
 import { buildServer } from "./server.js";
-import { REPO_ROOT, specActionNames } from "./testing/spec-actions.js";
+import { REPO_ROOT, specActionNames, walkFiles } from "./testing/spec-actions.js";
 import { stubDex } from "./testing/stub-dex.js";
 import { PUBLIC_URL, testConfig } from "./testing/test-support.js";
 
@@ -25,7 +25,9 @@ import { PUBLIC_URL, testConfig } from "./testing/test-support.js";
  * SPEC.md section 24.11 lists the audit events the platform writes. The
  * action names are checked against the code in security/audit-coverage.test.ts.
  * This file checks that a test names each of them, and drives the two
- * administrator email actions that no route test asserted.
+ * administrator email actions that no route test asserted. The name check is
+ * a cheap tripwire: a name appearing in some test file. It does not prove
+ * that the test asserts that action's audit row.
  */
 
 const RESET_LINK_SENT = "dex_user.reset_link_sent";
@@ -39,17 +41,10 @@ const ASSERTED_HERE: ReadonlySet<string> = new Set([
 
 const SELF = fileURLToPath(import.meta.url);
 
-/** Test files of the API, the worker, the controller and the shared packages. */
-function testFiles(dir: string, out: string[] = []): string[] {
-	for (const entry of readdirSync(dir)) {
-		if (entry === "node_modules" || entry === "dist") continue;
-		const path = join(dir, entry);
-		if (statSync(path).isDirectory()) testFiles(path, out);
-		else if (/\.test\.tsx?$/.test(path) && path !== SELF) out.push(path);
-	}
-	return out;
-}
+/** Test files other than this one. */
+const isOtherTestFile = (path: string) => /\.test\.tsx?$/.test(path) && path !== SELF;
 
+/** Test files of the API, the worker, the controller and the shared packages. */
 function testSource(): string {
 	const roots = [
 		...["api", "worker", "workspace-controller", "workspace-agent"].map((app) =>
@@ -67,7 +62,7 @@ function testSource(): string {
 				return false;
 			}
 		})
-		.flatMap((root) => testFiles(root))
+		.flatMap((root) => walkFiles(root, isOtherTestFile))
 		.map((file) => readFileSync(file, "utf8"))
 		.join("\n");
 }

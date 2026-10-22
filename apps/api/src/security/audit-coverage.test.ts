@@ -11,7 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
-import { REPO_ROOT, specActionNames } from "../testing/spec-actions.js";
+import { REPO_ROOT, specActionNames, walkFiles } from "../testing/spec-actions.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
@@ -26,15 +26,8 @@ import {
  * the right actor, target and result, and no secret in its metadata.
  */
 
-function sourceFiles(dir: string, out: string[] = []): string[] {
-	for (const entry of readdirSync(dir)) {
-		if (entry === "node_modules" || entry === "dist") continue;
-		const path = join(dir, entry);
-		if (statSync(path).isDirectory()) sourceFiles(path, out);
-		else if (path.endsWith(".ts") && !path.endsWith(".test.ts")) out.push(path);
-	}
-	return out;
-}
+const isProductSource = (path: string) =>
+	path.endsWith(".ts") && !path.endsWith(".test.ts");
 
 /** All non-test TypeScript under the apps and packages, as one string. */
 function productSource(): string {
@@ -49,7 +42,7 @@ function productSource(): string {
 				return false;
 			}
 		})
-		.flatMap((root) => sourceFiles(root))
+		.flatMap((root) => walkFiles(root, isProductSource))
 		.map((file) => readFileSync(file, "utf8"))
 		.join("\n");
 }
