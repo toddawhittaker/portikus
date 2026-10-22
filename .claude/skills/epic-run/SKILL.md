@@ -21,6 +21,13 @@ line per step, so the run survives a context reset.
    may touch, issues it closes) and land it on the epic branch through a
    plan PR. Ask Todd plan questions one at a time, each with a
    recommendation.
+   **Then stop for Todd's approval.** Show Todd the plan itself, not just
+   a link: each task with its owner agent, model, files and the issues it
+   closes, the waves, and the rulings made. Ask for approval and wait.
+   Change the plan if Todd asks, and show it again. Spawn no task agent
+   until Todd approves, unless the request already said to run the epic
+   through without stopping (an AFK run). Record the approval in the
+   epic's memory file so a continued run does not ask again.
 4. **Split tasks** so no two agents edit the same files. When files must
    overlap, put the later task in a second wave cut from the epic head
    after the first wave lands.
