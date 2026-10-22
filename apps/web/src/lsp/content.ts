@@ -13,11 +13,12 @@ export function sanitizeMarkdown(markdown: string): string {
 	return (
 		// An image anywhere loads from any https host the CSP allows. Tags go
 		// first, because removing "<img>" from "!<img>[" would make an image.
-		// Then escaping every "![" removes every image form, reference ones
-		// included, and leaves the alt text readable.
+		// Escaping every "![" goes last, because dropping an unsafe link or
+		// autolink leaves its text, which can end in "!" before the next "[".
+		// The escape removes every image form, reference ones included, and
+		// leaves the alt text readable.
 		markdown
 			.replace(/<img\b[^>]*>/gi, "")
-			.replaceAll("![", "!\\[")
 			// A reference definition whose target is not http(s) is dropped.
 			.replace(/^ {0,3}\[[^\]]+\]:\s*(\S+).*$/gm, (line, target: string) =>
 				SAFE_LINK.test(target.replace(/^<|>$/g, "")) ? line : "",
@@ -32,6 +33,7 @@ export function sanitizeMarkdown(markdown: string): string {
 			.replace(/<([a-z][a-z0-9+.-]*:[^>\s]*)>/gi, (link, target: string) =>
 				SAFE_LINK.test(target) ? link : target,
 			)
+			.replaceAll("![", "!\\[")
 	);
 }
 

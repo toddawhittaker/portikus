@@ -74,6 +74,8 @@ export interface CodeEditorProps {
 	 * with false, for hold-to-talk (SPEC.md §25.10).
 	 */
 	onVoiceHold?: (held: boolean) => void;
+	/** False while the editor is in a background tab or behind the diff view. */
+	visible?: boolean;
 	/** Lets the tab scroll this editor to a line. */
 	ref?: Ref<CodeEditorHandle>;
 }
@@ -99,6 +101,7 @@ export function CodeEditor({
 	onViewState,
 	onTopLine,
 	onVoiceHold,
+	visible = true,
 	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
@@ -441,6 +444,7 @@ export function CodeEditor({
 					<CodeHelpStatus
 						path={path}
 						announceKey={`${projectId}:${server}`}
+						shown={visible}
 						status={serverStatus}
 						tooLarge={tooLarge}
 						onRestart={() => {
