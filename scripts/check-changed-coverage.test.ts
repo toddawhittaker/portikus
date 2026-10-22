@@ -59,6 +59,22 @@ describe("parseDiff", () => {
 	});
 });
 
+describe("parseDiff, added lines that look like file headers", () => {
+	test("an added line whose text starts with `++ ` is counted, not read as a header", () => {
+		const diff = [
+			"diff --git a/apps/api/src/a.ts b/apps/api/src/a.ts",
+			"--- a/apps/api/src/a.ts",
+			"+++ b/apps/api/src/a.ts",
+			"@@ -3,0 +4,2 @@",
+			"+++ b/apps/api/src/not-a-file.ts",
+			"+two",
+		].join("\n");
+		const files = parseDiff(diff);
+		expect([...files.keys()]).toEqual(["apps/api/src/a.ts"]);
+		expect([...files.get("apps/api/src/a.ts")]).toEqual([4, 5]);
+	});
+});
+
 describe("parseLcov", () => {
 	test("makes absolute paths relative and keeps the highest count for repeated lines", () => {
 		const text = lcov({

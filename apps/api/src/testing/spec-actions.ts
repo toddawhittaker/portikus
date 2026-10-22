@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,4 +19,19 @@ export function specActionNames(): string[] {
 	const section = spec.slice(start, end);
 	const names = [...section.matchAll(/`([a-z_]+\.[a-z_]+)`/g)].map((m) => m[1] ?? "");
 	return [...new Set(names)].filter((name) => !RETIRED_ACTIONS.has(name)).sort();
+}
+
+/** Every file under `dir` that `keep` accepts, skipping node_modules and dist. */
+export function walkFiles(
+	dir: string,
+	keep: (path: string) => boolean,
+	out: string[] = [],
+): string[] {
+	for (const entry of readdirSync(dir)) {
+		if (entry === "node_modules" || entry === "dist") continue;
+		const path = join(dir, entry);
+		if (statSync(path).isDirectory()) walkFiles(path, keep, out);
+		else if (keep(path)) out.push(path);
+	}
+	return out;
 }
