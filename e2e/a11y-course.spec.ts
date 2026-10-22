@@ -319,7 +319,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		}
 	});
 
-	test(`the code help switch on the Settings tab has no automatic accessibility violations (${colorScheme})`, async ({
+	test(`the code help languages on the Settings tab have no automatic accessibility violations (${colorScheme})`, async ({
 		browser,
 	}) => {
 		const context = await browser.newContext({ baseURL: WEB_ORIGIN, colorScheme });
@@ -328,9 +328,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await loginAs(page, "carol");
 			await page.goto("/admin/settings");
 			const card = page.getByRole("region", { name: "Code help" });
-			const box = card.getByRole("checkbox", { name: /Allow code help/ });
+			const box = card.getByRole("checkbox", { name: "Python" });
 			await expect(box).toBeEnabled({ timeout: 15_000 });
-			await expect(box).toHaveAccessibleDescription(/When off, the editor is plain/);
+			await expect(box).toHaveAccessibleDescription(/About 185 MiB per student\./);
+			await expect(
+				card.getByRole("checkbox", { name: "Java", exact: true }),
+			).toHaveAttribute("aria-disabled", "true");
 			await expectNoViolations(page, '[aria-labelledby="code-help-title"]');
 		} finally {
 			await context.close();

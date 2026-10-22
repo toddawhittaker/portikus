@@ -88,7 +88,8 @@ export function SettingRow({
 export function NotSaved({ id, was }: { id?: string; was: string | null }) {
 	return (
 		<span id={id} className="block text-[12px] font-semibold leading-4 text-ink">
-			{was === null ? "Not saved." : `Not saved. Was ${was}.`}
+			{/* The spaces keep it a sentence of its own in the text it is read with. */}{" "}
+			{was === null ? "Not saved." : `Not saved. Was ${was}.`}{" "}
 		</span>
 	);
 }

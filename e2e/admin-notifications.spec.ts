@@ -21,7 +21,7 @@ import {
 } from "./notify-jobs";
 
 /**
- * The Notifications section of the Settings tab (ADR 0052, ADR 0051). The
+ * The Email and alerts section of the Settings tab (ADR 0052, ADR 0051). The
  * API writes request files into a fake job directory and the tests play the
  * root alerts job with playAlertsJob, which writes the settings file the API
  * reads back. Every test starts from no settings file. Delivery itself is
@@ -85,8 +85,8 @@ async function open(
 ) {
 	await signIn();
 	await page.goto("/admin/settings");
-	const section = page.getByTestId("notify-section");
-	await expect(section.getByRole("heading", { name: "Notifications" })).toBeVisible({
+	const section = page.getByTestId("settings-mail");
+	await expect(section.getByRole("heading", { name: "Email and alerts" })).toBeVisible({
 		timeout: 15_000,
 	});
 	await expect(section.getByTestId("notify-loading")).toHaveCount(0);
@@ -126,9 +126,9 @@ test("channels and the root-shell alert save through the root job, and reload as
 	const section = await open(page);
 
 	await section.getByRole("checkbox", { name: "Send alerts by email" }).check();
-	await section.getByLabel("Mail server").fill("smtp.example.invalid");
+	await section.getByLabel("Host name").fill("smtp.example.invalid");
 	await section.getByLabel("User name").fill("portikus");
-	await section.getByLabel("Password").fill(SECRETS.smtpPassword);
+	await section.getByLabel("Password", { exact: true }).fill(SECRETS.smtpPassword);
 	await section.getByLabel("From").fill("Portikus <portikus@example.edu>");
 	await section.getByLabel("Send to").fill("ops@example.edu\ndean@example.edu");
 	await section.getByRole("checkbox", { name: "Send alerts to a webhook" }).check();
@@ -136,11 +136,11 @@ test("channels and the root-shell alert save through the root job, and reload as
 		.getByLabel("Webhook URL", { exact: true })
 		.fill(`https://hooks.example.invalid/${SECRETS.webhookPath}`);
 	await toggleRootShellAlert(page, true);
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 
 	// The page waits for the job and keeps no typed secret meanwhile.
 	await expect(section.getByTestId("notify-job")).toContainText("Saving.");
-	await expect(section.getByLabel("Password")).toHaveValue("");
+	await expect(section.getByLabel("Password", { exact: true })).toHaveValue("");
 	await expect(section.getByLabel("Webhook URL", { exact: true })).toHaveValue("");
 
 	const job = await playAlertsJob();
@@ -163,7 +163,7 @@ test("channels and the root-shell alert save through the root job, and reload as
 	await expect(
 		section.getByRole("checkbox", { name: "Send alerts by email" }),
 	).toBeChecked();
-	await expect(section.getByLabel("Mail server")).toHaveValue("smtp.example.invalid");
+	await expect(section.getByLabel("Host name")).toHaveValue("smtp.example.invalid");
 	await expect(section.getByLabel("Send to")).toHaveValue(
 		"ops@example.edu\ndean@example.edu",
 	);
@@ -173,7 +173,7 @@ test("channels and the root-shell alert save through the root job, and reload as
 
 	// Turning the alert off saves and reloads too.
 	await toggleRootShellAlert(page, false);
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	const off = await playAlertsJob();
 	expect(off.settings.rootShellOpenedAlert).toBe(false);
 	// Nothing typed this time, so every stored secret is kept.
@@ -209,7 +209,10 @@ test("stored secrets never reach the page, only that they are set and their host
 	]) {
 		await expect(section.getByLabel(label, { exact: true })).toHaveValue("");
 	}
-	await expect(section.getByLabel("Password")).toHaveAttribute("type", "password");
+	await expect(section.getByLabel("Password", { exact: true })).toHaveAttribute(
+		"type",
+		"password",
+	);
 	await expect(
 		section.getByText("Set, sending to ntfy.example.invalid."),
 	).toBeVisible();
@@ -228,7 +231,7 @@ test("a refused change says why in plain words and leaves the settings alone", a
 	await section
 		.getByLabel("Workflows webhook URL")
 		.fill(`https://teams.example.invalid/${SECRETS.teamsPath}`);
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	await playAlertsJob({ refuse: "invalid_teams" });
 
 	await expect(section.getByTestId("notify-job")).toContainText(
@@ -238,14 +241,14 @@ test("a refused change says why in plain words and leaves the settings alone", a
 	expect((await readNotifyFile()).alerts.teams).toBeNull();
 	// Save is offered again once the job has ended.
 	await expect(
-		section.getByRole("button", { name: "Save notification settings" }),
+		section.getByRole("button", { name: "Save email and alerts" }),
 	).not.toHaveAttribute("aria-disabled", "true");
 });
 
 test("a failed change says what to do on the server", async ({ page }) => {
 	const section = await open(page);
 	await toggleRootShellAlert(page, true);
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	await playAlertsJob({ fail: "write_failed" });
 	await expect(section.getByTestId("notify-job")).toContainText(
 		"Look for portikus-alerts-job in the server's journal.",
@@ -270,22 +273,22 @@ test("while a change waits, Save says why it is unavailable, and a second save i
 		});
 	});
 	await other.goto("/admin/settings");
-	const otherSection = other.getByTestId("notify-section");
+	const otherSection = other.getByTestId("settings-mail");
 	await expect(otherSection.getByTestId("notify-loading")).toHaveCount(0, {
 		timeout: 15_000,
 	});
 
 	await toggleRootShellAlert(page, true);
-	const save = section.getByRole("button", { name: "Save notification settings" });
+	const save = section.getByRole("button", { name: "Save email and alerts" });
 	await save.click();
 	await expect(save).toHaveAttribute("aria-disabled", "true");
 	await expect(section.getByText("A change is being applied.")).toBeVisible();
 
-	await otherSection
-		.getByRole("button", { name: "Save notification settings" })
-		.click();
-	await expect(otherSection.getByTestId("notify-error")).toHaveText(
-		"A notification settings change is already waiting or running.",
+	// The second tab has a change of its own to save.
+	await other.getByText("Alert when a root shell opens", { exact: true }).click();
+	await otherSection.getByRole("button", { name: "Save email and alerts" }).click();
+	await expect(other.getByTestId("settings-mail-state")).toHaveText(
+		"Not saved. A notification settings change is already waiting or running.",
 	);
 
 	await playAlertsJob();
@@ -301,23 +304,21 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 	await putNotifyFile(ALL_ON);
 	const section = await open(page);
 
-	await section.getByLabel("Mail server").fill("mail.example.invalid");
+	await section.getByLabel("Host name").fill("mail.example.invalid");
 	// The warning is worked out once the field is left, and read out then.
 	await expect(section.getByText(/will be cleared/)).toHaveCount(0);
-	await section.getByLabel("Mail server").blur();
+	await section.getByLabel("Host name").blur();
 	await expect(page.getByTestId("notify-warning-announce")).toHaveText(
 		/the stored password will be cleared/,
 	);
 	await expect(
-		section
-			.getByTestId("notify-email")
-			.getByText(/the stored password will be cleared/),
+		section.getByTestId("notify-smtp").getByText(/the stored password will be cleared/),
 	).toBeVisible();
 	// The first Save stops at the warning, on the password field; the second checks the form.
-	await section.getByRole("button", { name: "Save notification settings" }).click();
-	await expect(section.getByLabel("Password")).toBeFocused();
-	await section.getByRole("button", { name: "Save notification settings" }).click();
-	await expect(section.getByLabel("Password")).toBeFocused();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
+	await expect(section.getByLabel("Password", { exact: true })).toBeFocused();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
+	await expect(section.getByLabel("Password", { exact: true })).toBeFocused();
 	await expect(
 		section.getByText("Enter the password for this user name."),
 	).toBeVisible();
@@ -330,11 +331,11 @@ test("a new mail server or ntfy host warns that its stored secret is cleared", a
 			.getByText(/not on ntfy\.example\.invalid, so the stored token will be cleared/),
 	).toBeVisible();
 
-	await section.getByLabel("Password").fill("fake-new-password-e2e");
+	await section.getByLabel("Password", { exact: true }).fill("fake-new-password-e2e");
 	// Save stops once at the token warning it has not stopped for yet.
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	await expect(section.getByLabel("Access token")).toBeFocused();
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	const job = await playAlertsJob();
 	expect(job.settings.smtp).toMatchObject({
 		host: "mail.example.invalid",
@@ -388,6 +389,7 @@ test("Send test goes to the one saved channel named, through the saved settings"
 	).toHaveAccessibleDescription(/^Tests use the saved settings\./);
 
 	// A channel turned on but not saved yet has nothing to test.
+	await webhook.page().getByRole("button", { name: "Discard changes" }).click();
 	await putNotifyFile({ ...ALL_ON, alerts: { ...ALL_ON.alerts, teams: null } });
 	await page.reload();
 	await section
@@ -462,7 +464,7 @@ test("a change the job never took is shown as not finished, and a new save goes 
 	await expect(section.getByTestId("notify-job")).toContainText(
 		"The last change did not finish",
 	);
-	const save = section.getByRole("button", { name: "Save notification settings" });
+	const save = section.getByRole("button", { name: "Save email and alerts" });
 	await expect(save).not.toHaveAttribute("aria-disabled", "true");
 
 	await toggleRootShellAlert(page, true);
@@ -495,13 +497,13 @@ test("an unreadable settings file still loads the page, warns, and a save repair
 		section.getByRole("checkbox", { name: "Send alerts by email" }),
 	).not.toBeChecked();
 	await expect(section).not.toContainText(SECRETS.smtpPassword);
-	await expectNoViolations(page, '[data-testid="notify-section"]');
+	await expectNoViolations(page, '[data-testid="settings-mail"]');
 
 	await toggleRootShellAlert(page, true);
 	const answer = page.waitForResponse(
 		(r) => r.url().endsWith("/admin/notifications") && r.request().method() === "PUT",
 	);
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	expect((await answer).status()).toBe(202);
 	await playAlertsJob();
 	await expect(section.getByTestId("notify-job")).toContainText(
@@ -536,7 +538,7 @@ test("Enter in the topic URL after a host change stops at the token warning, and
 	);
 	expect(puts).toBe(0);
 
-	await section.getByRole("button", { name: "Save notification settings" }).click();
+	await section.getByRole("button", { name: "Save email and alerts" }).click();
 	const job = await playAlertsJob();
 	expect(puts).toBe(1);
 	expect(job.settings.alerts.ntfy).toEqual({

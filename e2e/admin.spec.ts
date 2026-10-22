@@ -77,30 +77,26 @@ test.describe("administration", () => {
 	test("an administrator changes the platform grace period", async ({ page }) => {
 		await openAdmin(page);
 
-		const input = page.getByTestId("grace-input");
+		const input = page.getByTestId("settings-shutdownGraceSeconds");
 		await expect(input).toHaveValue(/\d+/);
 		await input.fill("0");
-		await expect(
-			page.getByText("Workspaces keep running until stopped by hand").first(),
-		).toBeVisible();
-		await page.getByTestId("grace-save").click();
-
-		await expect(toast(page, "Grace period saved")).toBeVisible();
+		await page.getByRole("button", { name: "Save stop times" }).click();
+		await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 
 		await page.reload();
-		await expect(page.getByTestId("grace-input")).toHaveValue("0");
+		await expect(page.getByTestId("settings-shutdownGraceSeconds")).toHaveValue("0");
 
 		// Put it back through the page itself, in minutes, so the saved value is checked twice.
-		await page.getByTestId("grace-input").fill("10");
-		await page.getByTestId("grace-save").click();
-		await expect(toast(page, "Grace period saved")).toBeVisible();
+		await page.getByTestId("settings-shutdownGraceSeconds").fill("10");
+		await expect(page.getByText("Not saved. Was 0 minutes.")).toBeVisible();
+		await page.getByRole("button", { name: "Save stop times" }).click();
+		await expect(page.getByTestId("settings-stop-state")).toHaveText("Saved.");
 		const [row] = await query<{ seconds: number }>(
 			"select shutdown_grace_seconds as seconds from settings where id = 1",
 		);
 		expect(row?.seconds).toBe(600);
 		await page.reload();
-		await expect(page.getByTestId("grace-input")).toHaveValue("10");
-		await expect(page.getByText("10 minutes").first()).toBeVisible();
+		await expect(page.getByTestId("settings-shutdownGraceSeconds")).toHaveValue("10");
 	});
 
 	test("an administrator sets and clears one student's override", async ({ page }) => {
@@ -117,7 +113,7 @@ test.describe("administration", () => {
 		const grace = page.getByTestId("detail-grace");
 		const edit = page.getByTestId("detail-grace-edit");
 		const dialog = page.getByTestId("grace-dialog");
-		const minutes = dialog.getByLabel("Disconnect grace (minutes)");
+		const minutes = dialog.getByRole("textbox", { name: "Disconnect grace" });
 		await edit.click();
 		await minutes.fill("30");
 		await page.getByTestId("grace-dialog-save").click();

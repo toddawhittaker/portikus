@@ -320,7 +320,7 @@ test("the disconnect grace is edited in minutes and saved as seconds", async ({
 	const dialog = page.getByRole("dialog", {
 		name: `Disconnect grace for ${student.name}`,
 	});
-	const minutes = dialog.getByRole("textbox", { name: "Disconnect grace (minutes)" });
+	const minutes = dialog.getByRole("textbox", { name: "Disconnect grace" });
 	await minutes.fill("soon");
 	await dialog.getByRole("button", { name: "Save" }).click();
 	await expect(dialog.getByRole("alert")).toHaveText(

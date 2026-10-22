@@ -300,7 +300,8 @@ function MailForm({
 		event.preventDefault();
 		if (count === 0 || save.isPending || saveAccount.isPending) return;
 		const alertsChanged = changed.length > 0 && form !== null && view !== null;
-		if (alertsChanged && busy) return;
+		// One change at a time: account email waits with the rest.
+		if (busy) return;
 		if (alertsChanged) {
 			// Enter in a field, or a click on Save straight from it, skips the
 			// field's blur; a secret is never cleared before its warning is seen once.
@@ -460,7 +461,7 @@ function MailForm({
 					justSaved,
 				})}
 				note={SAVE_NOTE}
-				busy={busy && changed.length > 0 ? BUSY_NOTE : undefined}
+				busy={busy ? BUSY_NOTE : undefined}
 				saveLabel="Save email and alerts"
 				pending={save.isPending || saveAccount.isPending}
 				onDiscard={discard}
