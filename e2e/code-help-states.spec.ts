@@ -321,6 +321,37 @@ test.describe("code help when the server stops", () => {
 		});
 	}
 
+	test("a crash is announced by the editor on screen, not by one in a background tab", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const wire = await watchLanguageServers(page);
+		await saveQuickly(student.userId);
+		await openProjectFiles(page, student, "Background tab", {
+			"one.py": CONTENT,
+			"two.py": CONTENT,
+		});
+		await expect(editorLines(page, "one.py")).toBeVisible({ timeout: 60_000 });
+		// one.py opened first; two.py comes to the front and one.py is hidden.
+		await page.getByRole("tab", { name: /two\.py/ }).click();
+		await expect(editorLines(page, "two.py")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByTestId("terminal-group-file:one.py")).toBeHidden();
+		for (const path of ["one.py", "two.py"]) {
+			await expect(codeHelpStatus(page, path)).toHaveText("Code help ready", {
+				timeout: 30_000,
+			});
+		}
+
+		await wire.close("python", 4414, "crashed");
+		// A screen reader ignores a live region in hidden content, so the words
+		// must be in the one that is on screen.
+		await expect(codeHelpLiveRegion(page, "two.py")).toHaveText("Code help stopped");
+		await expect(codeHelpStatus(page, "one.py").locator("[role=status]")).toHaveText(
+			"",
+		);
+	});
+
 	test("disabled shows nothing and is never retried", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const { wire, project } = await openPython(page, student);

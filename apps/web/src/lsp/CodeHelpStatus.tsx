@@ -37,20 +37,24 @@ export function statusView(
 /**
  * Whether this bar is the one that announces its server's state. Editors side
  * by side show the same state, and one announcement is enough (SPEC.md §25.8).
+ * A bar that is not shown stays out, because a screen reader ignores a live
+ * region in hidden content and a crash would go unannounced.
  */
-function useAnnounces(key: string): boolean {
+function useAnnounces(key: string, shown: boolean): boolean {
 	const viewer = useId();
 	useEffect(() => {
+		if (!shown) return;
 		const { addViewer, removeViewer } = useCodeHelpStore.getState();
 		addViewer(key, viewer);
 		return () => removeViewer(key, viewer);
-	}, [key, viewer]);
+	}, [key, viewer, shown]);
 	return useCodeHelpStore((state) => state.viewers[key]?.[0] === viewer);
 }
 
 export function CodeHelpStatus({
 	path,
 	announceKey,
+	shown,
 	status,
 	tooLarge,
 	onRestart,
@@ -58,13 +62,15 @@ export function CodeHelpStatus({
 	path: string;
 	/** The project and server, shared by every bar that shows this state. */
 	announceKey: string;
+	/** False while the editor is in a background tab or behind the diff view. */
+	shown: boolean;
 	status: ServerStatus | undefined;
 	tooLarge: boolean;
 	/** Also moves focus off the button, which goes away while the server starts. */
 	onRestart: () => void;
 }) {
 	const view = statusView(status, tooLarge);
-	const announces = useAnnounces(announceKey);
+	const announces = useAnnounces(announceKey, shown);
 	// Only a state that asks for action is announced: a quiet reconnect after
 	// idle or a dropped socket is not read out (SPEC.md §13.6, §25.8). Too large
 	// belongs to this file alone, so its own bar announces it.

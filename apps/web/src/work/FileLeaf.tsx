@@ -408,6 +408,7 @@ function FileTab({
 					ref={editorHandle}
 					onTopLine={markdown ? followEditor : undefined}
 					onVoiceHold={voiceOn ? holdVoice : undefined}
+					visible={visible && !inDiff && conflictDiff === null}
 				/>
 			</Suspense>
 		);

@@ -79,6 +79,27 @@ test.describe("editor after a diff round trip", () => {
 		await expect(editorLines(page, PATH)).toContainText("# formatted");
 	});
 
+	test("Shift+F10 opens the menu, before and after the diff, and runs Format Document", async ({
+		page,
+	}) => {
+		await open(page);
+		const menu = page.locator(".monaco-menu-container");
+
+		await editorLines(page, PATH).click();
+		await page.keyboard.press("Shift+F10");
+		await expect(menu).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(menu).toBeHidden();
+
+		await roundTrip(page);
+
+		await page.keyboard.press("Shift+F10");
+		await expect(menu).toBeVisible();
+		await menu.getByRole("menuitem", { name: /Format Document/ }).hover();
+		await page.keyboard.press("Enter");
+		await expect(editorLines(page, PATH)).toContainText("# formatted");
+	});
+
 	test("Ctrl+Space still offers completions", async ({ page }) => {
 		await open(page);
 		await roundTrip(page);
