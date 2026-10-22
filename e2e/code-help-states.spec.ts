@@ -9,6 +9,7 @@ import {
 	watchLanguageServers,
 } from "./code-help-helpers";
 import {
+	CODE_HELP_ALL_LANGUAGES,
 	createStudent,
 	query,
 	readSeededFile,
@@ -304,13 +305,13 @@ test.describe("code help switched off for the site", () => {
 	test.describe.configure({ timeout: 120_000 });
 	holdCodeHelpSwitch(test);
 
-	/** The settings the page reads, with the site switch as given. */
-	async function stubSwitch(page: Page, codeHelpEnabled: boolean) {
+	/** The settings the page reads, with code help on for the languages given. */
+	async function stubLanguages(page: Page, codeHelpLanguages: string[]) {
 		await routeApi(page, "**/me/settings", async (route, request) => {
 			if (request.method() !== "GET") return route.fallback();
 			const response = await route.fetch();
 			const body = (await response.json()) as Record<string, unknown>;
-			return route.fulfill({ response, json: { ...body, codeHelpEnabled } });
+			return route.fulfill({ response, json: { ...body, codeHelpLanguages } });
 		});
 	}
 
@@ -319,7 +320,7 @@ test.describe("code help switched off for the site", () => {
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await stubSwitch(page, false);
+		await stubLanguages(page, []);
 		const { wire, project } = await openPython(page, student);
 
 		await page.waitForTimeout(RETRY_WINDOW_MS + 1000);
@@ -348,30 +349,35 @@ test.describe("code help and the site switch", () => {
 	test.describe.configure({ timeout: 180_000 });
 	holdCodeHelpSwitch(test, { alone: true });
 
-	async function setSwitch(on: boolean) {
-		await query("update settings set code_help_enabled = $1 where id = 1", [on]);
+	async function setLanguages(languages: string) {
+		await query("update settings set code_help_languages = $1 where id = 1", [
+			languages,
+		]);
 	}
 
-	test.beforeEach(async () => setSwitch(true));
+	test.beforeEach(async () => setLanguages(CODE_HELP_ALL_LANGUAGES));
 
 	test("the API refuses the socket with DISABLED and the browser never retries", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		await setSwitch(false);
+		await setLanguages("{}");
 		// The real settings say the switch is off.
 		await page.goto("/");
 		const real = await page.request.get("/me/settings");
-		expect(((await real.json()) as { codeHelpEnabled: boolean }).codeHelpEnabled).toBe(
-			false,
-		);
+		expect(
+			((await real.json()) as { codeHelpLanguages: string[] }).codeHelpLanguages,
+		).toEqual([]);
 		// The page believes code help is on, as a page loaded before the switch
 		// was turned off would; the API's own check is what answers.
 		await page.route("**/me/settings", async (route) => {
 			const response = await route.fetch();
 			const body = (await response.json()) as Record<string, unknown>;
-			await route.fulfill({ response, json: { ...body, codeHelpEnabled: true } });
+			await route.fulfill({
+				response,
+				json: { ...body, codeHelpLanguages: ["python", "typescript"] },
+			});
 		});
 		const { wire, project } = await openPython(page, student);
 

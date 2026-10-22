@@ -102,8 +102,14 @@ export const SETTINGS_ROW_LOCK = "e2e-settings-row";
 /** Held shared by specs that need the microphone, and alone by the spec that turns it off. */
 export const VOICE_SWITCH_LOCK = "e2e-voice-switch";
 
-/** Held shared by specs that need code help on, and alone by the spec that turns it off. */
+/**
+ * Held shared by specs that need code help on for both languages, and alone
+ * by the specs that change the language set.
+ */
 export const CODE_HELP_SWITCH_LOCK = "e2e-code-help-switch";
+
+/** The stored form of every code-help language that has shipped (e2e cannot import the contracts). */
+export const CODE_HELP_ALL_LANGUAGES = "{python,typescript}";
 
 /**
  * Take a lock that every Playwright worker shares, for a spec that changes
@@ -140,6 +146,13 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 	} finally {
 		await client.end();
 	}
+}
+
+/** Put code help back on for every language; call while holding the settings row lock. */
+export async function resetCodeHelpLanguages(): Promise<void> {
+	await query("update settings set code_help_languages = $1 where id = 1", [
+		CODE_HELP_ALL_LANGUAGES,
+	]);
 }
 
 export interface TestStudent {

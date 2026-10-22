@@ -7,7 +7,7 @@ export function meSettingsBody(courseProfile: CourseProfile) {
 		appearance: "system",
 		appearanceStored: true,
 		timezones: ["America/New_York"],
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile,
 	};
 }

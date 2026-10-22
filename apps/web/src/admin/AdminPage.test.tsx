@@ -33,7 +33,7 @@ const GUARD_SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
-	codeHelpEnabled: true,
+	codeHelpLanguages: ["python", "typescript"],
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,

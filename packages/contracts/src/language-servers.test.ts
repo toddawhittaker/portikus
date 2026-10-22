@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { CloseCode } from "./close-codes.js";
 import {
+	CODE_HELP_LANGUAGE_IDS,
+	CODE_HELP_LANGUAGE_OF_SERVER,
+	CodeHelpLanguage,
+	LANGUAGE_SERVER_IDS,
 	LANGUAGE_SERVER_MAX_DOCUMENT_BYTES,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	LanguageServerId,
@@ -11,6 +15,22 @@ import {
 test("LanguageServerId names python, typescript and ruff", () => {
 	expect(LanguageServerId.options).toEqual(["python", "typescript", "ruff"]);
 	expect(LanguageServerId.safeParse("clangd").success).toBe(false);
+});
+
+test("code help is offered for python and typescript only", () => {
+	expect(CODE_HELP_LANGUAGE_IDS).toEqual(["python", "typescript"]);
+	expect(CodeHelpLanguage.safeParse("java").success).toBe(false);
+});
+
+test("every language server belongs to a code-help language", () => {
+	expect(Object.keys(CODE_HELP_LANGUAGE_OF_SERVER).sort()).toEqual(
+		[...LANGUAGE_SERVER_IDS].sort(),
+	);
+	expect(CODE_HELP_LANGUAGE_OF_SERVER).toEqual({
+		python: "python",
+		ruff: "python",
+		typescript: "typescript",
+	});
 });
 
 test("the limits are the ones the plan fixes", () => {

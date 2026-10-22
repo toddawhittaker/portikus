@@ -83,7 +83,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -105,7 +105,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -121,7 +121,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -141,7 +141,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -238,7 +238,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -260,7 +260,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -302,7 +302,7 @@ test.skipIf(skip)(
 			screenReaderMode: false,
 			timezones: [...systemTimezones()],
 			voiceInputEnabled: true,
-			codeHelpEnabled: true,
+			codeHelpLanguages: ["python", "typescript"],
 			courseProfile: "agentic",
 			appearanceStored: false,
 		});
@@ -320,7 +320,7 @@ test.skipIf(skip)(
 			appearanceStored: false,
 			timezones: [...systemTimezones()],
 			voiceInputEnabled: true,
-			codeHelpEnabled: true,
+			codeHelpLanguages: ["python", "typescript"],
 			courseProfile: "agentic",
 		});
 	},
@@ -365,7 +365,7 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: false,
 	});
@@ -405,7 +405,7 @@ test.skipIf(skip)("an invalid stored key loses only that key", async () => {
 		screenReaderMode: false,
 		timezones: [...systemTimezones()],
 		voiceInputEnabled: true,
-		codeHelpEnabled: true,
+		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
 		appearanceStored: true,
 	});
@@ -668,16 +668,37 @@ test.skipIf(skip)("GET and PUT carry the read-only course profile", async () => 
 	expect(refused.statusCode).toBe(400);
 });
 
-test.skipIf(skip)("GET and PUT carry the site code-help switch", async () => {
+test.skipIf(skip)("GET and PUT carry the site code-help languages", async () => {
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);
-	const enabled = async () => (await getAs(jar, "/me/settings")).json().codeHelpEnabled;
+	const languages = async () =>
+		(await getAs(jar, "/me/settings")).json().codeHelpLanguages;
 
-	expect(await enabled()).toBe(true);
+	expect(await languages()).toEqual(["python", "typescript"]);
 	await testDb.db
 		.insertInto("settings")
-		.values({ id: 1, shutdown_grace_seconds: 600, code_help_enabled: false })
+		.values({ id: 1, shutdown_grace_seconds: 600, code_help_languages: [] })
 		.execute();
-	expect(await enabled()).toBe(false);
-	expect((await put(jar, { wordWrap: false })).json().codeHelpEnabled).toBe(false);
+	expect(await languages()).toEqual([]);
+	expect((await put(jar, { wordWrap: false })).json().codeHelpLanguages).toEqual([]);
 });
+
+test.skipIf(skip)(
+	"code-help languages are in canonical order and unknown ids are dropped",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		await testDb.db
+			.insertInto("settings")
+			.values({
+				id: 1,
+				shutdown_grace_seconds: 600,
+				code_help_languages: ["java", "typescript", "python"],
+			})
+			.execute();
+		expect((await getAs(jar, "/me/settings")).json().codeHelpLanguages).toEqual([
+			"python",
+			"typescript",
+		]);
+	},
+);

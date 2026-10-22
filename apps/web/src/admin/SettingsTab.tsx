@@ -1,4 +1,5 @@
 import {
+	CODE_HELP_LANGUAGE_IDS,
 	CpuIdleLiftMinutes,
 	CpuIdleLiftPercent,
 	CpuThrottleHoldAfter,
@@ -106,8 +107,8 @@ function CodeHelpSection() {
 	const toast = useToast();
 	// While saving, show the value asked for rather than the old one.
 	const enabled = update.isPending
-		? (update.variables?.codeHelpEnabled ?? true)
-		: (settings.data?.codeHelpEnabled ?? true);
+		? (update.variables?.codeHelpLanguages?.length ?? 0) > 0
+		: (settings.data?.codeHelpLanguages.length ?? CODE_HELP_LANGUAGE_IDS.length) > 0;
 	return (
 		<AdminGroup
 			id="code-help-title"
@@ -123,12 +124,19 @@ function CodeHelpSection() {
 				onChange={(event) =>
 					!update.isPending &&
 					update.mutate(
-						{ codeHelpEnabled: event.target.checked },
+						{
+							codeHelpLanguages: event.target.checked
+								? [...CODE_HELP_LANGUAGE_IDS]
+								: [],
+						},
 						{
 							onSuccess: (saved) =>
 								toast.show({
 									tone: "success",
-									title: saved.codeHelpEnabled ? "Code help on" : "Code help off",
+									title:
+										saved.codeHelpLanguages.length > 0
+											? "Code help on"
+											: "Code help off",
 								}),
 							onError: (failure) =>
 								toast.show({

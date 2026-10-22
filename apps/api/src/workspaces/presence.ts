@@ -131,7 +131,8 @@ export function createPendingWork(): {
 	return {
 		track(work) {
 			pending.add(work);
-			void work.finally(() => pending.delete(work));
+			// The caller handles a rejection; the derived promise must not report it again.
+			work.finally(() => pending.delete(work)).catch(() => {});
 		},
 		async drain() {
 			// A handler already running can start more work, so keep draining.

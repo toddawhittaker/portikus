@@ -1,4 +1,6 @@
 import {
+	CODE_HELP_LANGUAGE_IDS,
+	type CodeHelpLanguage,
 	type CourseProfile,
 	EDITOR_SETTINGS_DEFAULTS,
 	MeSettings,
@@ -10,7 +12,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { request, sendJson } from "../api/request.js";
 import {
 	markThemeCarriedOver,
@@ -94,12 +96,22 @@ export function useScreenReaderMode(): boolean {
 }
 
 /**
- * Whether the site's code help is on (SPEC.md §13.6). Off until the settings
- * say otherwise, so no language-server socket opens on a guess.
+ * The languages the site has code help on for (SPEC.md §13.6). Empty until
+ * the settings arrive, so no language-server socket opens on a guess. Ids the
+ * browser does not know are dropped.
  */
-export function useCodeHelpEnabled(): boolean {
+export function useCodeHelpLanguages(): ReadonlySet<CodeHelpLanguage> {
 	const settings = useEditorSettings();
-	return settings.data?.codeHelpEnabled ?? false;
+	const stored = settings.data?.codeHelpLanguages;
+	return useMemo(
+		() => new Set(CODE_HELP_LANGUAGE_IDS.filter((id) => stored?.includes(id))),
+		[stored],
+	);
+}
+
+/** Whether code help is on for any language. */
+export function useCodeHelpEnabled(): boolean {
+	return useCodeHelpLanguages().size > 0;
 }
 
 /**

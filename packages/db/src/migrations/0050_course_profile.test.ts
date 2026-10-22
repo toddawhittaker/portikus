@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { createTestDb, hasTestDb, type TestDb } from "../testing.js";
 
-/** A course starts agentic and only the two profiles are stored; code help starts on (SPEC.md sections 8.7, 13.6). */
+/** A course starts agentic and only the two profiles are stored (SPEC.md section 8.7). */
 
 if (!hasTestDb()) {
 	console.log("TEST_DATABASE_URL is not set — skipping migration 0050 tests.");
@@ -41,17 +41,5 @@ describe.skipIf(!hasTestDb())("migration 0050_course_profile", () => {
 	test("traditional is accepted and any other value is refused", async () => {
 		expect((await course("c2", "traditional")).profile).toBe("traditional");
 		await expect(course("c3", "classic")).rejects.toThrow(/lti_contexts_profile_check/);
-	});
-
-	test("a new settings row has code help on", async () => {
-		await t.db
-			.insertInto("settings")
-			.values({ id: 1, shutdown_grace_seconds: 600 })
-			.execute();
-		const row = await t.db
-			.selectFrom("settings")
-			.select("code_help_enabled")
-			.executeTakeFirstOrThrow();
-		expect(row.code_help_enabled).toBe(true);
 	});
 });
