@@ -40,6 +40,17 @@ test("student help explains code help: features, Problems, the size limit and ev
 	expect(text).toContain("Shift+Alt+F8");
 });
 
+test("the code-help topic says the administrator chooses languages, and what a turned-off one gets", () => {
+	const text = topicText("student-code-help");
+	expect(text).toContain("chooses which languages have code help");
+	expect(text).toContain(
+		"Code help is off for a language your administrator has turned off",
+	);
+	expect(text).toContain("plain editor");
+	expect(text).toContain("gone only when every language is off");
+	expect(text).not.toContain("for the whole site");
+});
+
 test("the code-help topic gives the keyboard routes to completion and hover, and says where the bar is", () => {
 	const text = topicText("student-code-help");
 	expect(text).toContain("Ctrl+Space");
@@ -73,7 +84,9 @@ test("the keyboard topic lists the problem keys beside F8, which still goes to n
 test("the layout topic names the Problems tab and says when it appears", () => {
 	const text = topicText("student-layout");
 	expect(text).toContain("Problems");
-	expect(text).toContain("appears only while code help is on");
+	expect(text).toContain(
+		"appears only while code help is on for at least one language",
+	);
 });
 
 test("topic ids stay unique, because each is a link target", () => {

@@ -3,8 +3,8 @@
  * is carried over once, not overwritten by the server default.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { focusManager, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type * as React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
@@ -46,6 +46,15 @@ test("code help is off until the settings say it is on (SPEC.md §13.6)", async 
 	await waitFor(() => expect(result.current).toBe(true));
 });
 
+test("code help is on while any one language is on", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => settingsWith({ codeHelpLanguages: ["typescript"] })),
+	);
+	const { result } = loadHook(() => useCodeHelpEnabled());
+	await waitFor(() => expect(result.current).toBe(true));
+});
+
 test("code help stays off when no language is on", async () => {
 	const fetch = vi.fn(async () => settingsWith({ codeHelpLanguages: [] }));
 	vi.stubGlobal("fetch", fetch);
@@ -73,6 +82,31 @@ test("the language set is empty when the settings carry no languages", async () 
 	const { result } = loadHook(() => useCodeHelpLanguages());
 	await waitFor(() => expect(fetch).toHaveBeenCalled());
 	expect(result.current.size).toBe(0);
+});
+
+test("the language set is read again when the window comes back, and the hook follows it", async () => {
+	let languages = ["python", "typescript"];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => settingsWith({ codeHelpLanguages: languages })),
+	);
+	// Only the clock is faked: the settings count as stale after five seconds
+	// (api/queryClient.ts), and the test should not wait them out.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const { result } = loadHook(() => useCodeHelpLanguages());
+		await waitFor(() => expect([...result.current]).toEqual(["python", "typescript"]));
+
+		languages = ["typescript"];
+		vi.setSystemTime(Date.now() + 6_000);
+		act(() => {
+			focusManager.setFocused(false);
+			focusManager.setFocused(true);
+		});
+		await waitFor(() => expect([...result.current]).toEqual(["typescript"]));
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("the course profile is Agentic until known, then the one the settings give", async () => {

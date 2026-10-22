@@ -142,6 +142,12 @@ test("every image form is escaped in hover Markdown, keeping its alt text", () =
 	expect(sanitizeMarkdown('x <img src="https://evil.example/p.png"> y')).toBe("x  y");
 });
 
+test("removing an img tag cannot join the pieces of an image", () => {
+	const safe = sanitizeMarkdown("!<img src=x>[a](https://evil.example/p.png)");
+	expect(safe).toBe("!\\[a](https://evil.example/p.png)");
+	expect(safe).not.toMatch(/(^|[^\\])!\[/);
+});
+
 test("only http and https links are kept", () => {
 	expect(sanitizeMarkdown("[docs](https://docs.python.org)")).toBe(
 		"[docs](https://docs.python.org)",

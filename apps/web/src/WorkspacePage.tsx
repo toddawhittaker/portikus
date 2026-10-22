@@ -4,7 +4,7 @@ import { Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
-	useCodeHelpEnabled,
+	useCodeHelpLanguages,
 	useEditorSettings,
 	useTerminalThemeAttribute,
 } from "./editor/settingsQueries.js";
@@ -120,7 +120,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const codeHelp = useCodeHelpManager(
 		workspaceId,
 		running ? project : undefined,
-		useCodeHelpEnabled(),
+		useCodeHelpLanguages(),
 		(path, line) => layoutStore.getState().openFile(path, { line }),
 	);
 

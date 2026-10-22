@@ -38,7 +38,7 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show, monitorFocus, setMonitorFocus } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
-	// Problems needs an open project and the site's code help; without them
+	// Problems needs an open project and code help on for some language; without them
 	// the tab is gone and a pane left on it shows Files.
 	const problemFiles = useProblems(open ? project.id : undefined);
 	const hasProblems = useCodeHelpEnabled() && open;

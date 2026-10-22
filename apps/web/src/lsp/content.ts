@@ -11,12 +11,13 @@ const SAFE_LINK = /^https?:\/\//i;
 /** Untrusted Markdown with images removed and only http(s) links kept. */
 export function sanitizeMarkdown(markdown: string): string {
 	return (
+		// An image anywhere loads from any https host the CSP allows. Tags go
+		// first, because removing "<img>" from "!<img>[" would make an image.
+		// Then escaping every "![" removes every image form, reference ones
+		// included, and leaves the alt text readable.
 		markdown
-			// An image anywhere loads from any https host the CSP allows. Escaping
-			// every "![" removes every image form, reference ones included, and
-			// leaves the alt text readable.
-			.replaceAll("![", "!\\[")
 			.replace(/<img\b[^>]*>/gi, "")
+			.replaceAll("![", "!\\[")
 			// A reference definition whose target is not http(s) is dropped.
 			.replace(/^ {0,3}\[[^\]]+\]:\s*(\S+).*$/gm, (line, target: string) =>
 				SAFE_LINK.test(target.replace(/^<|>$/g, "")) ? line : "",
