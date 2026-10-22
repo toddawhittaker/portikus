@@ -1,5 +1,10 @@
 import { Button, Checkbox } from "@portikus/ui";
-import { allBoxState, type DeleteKind, type Pickable } from "./selection.js";
+import {
+	allBoxState,
+	type DeleteKind,
+	deleteSelectedText,
+	type Pickable,
+} from "./selection.js";
 
 /** The tab's one selection across its four lists, as each list sees it. */
 export interface ListSelection {
@@ -92,20 +97,21 @@ export function DeleteSelectedButton({
 	listId: string;
 	selection: ListSelection;
 }) {
-	const here = itemsOf(selection, kind).some(
+	const here = itemsOf(selection, kind).filter(
 		(item) => item.blocked === null && selection.selected.has(item.key),
-	);
-	if (!here) return null;
+	).length;
+	if (here === 0) return null;
 	return (
 		<Button
 			size="sm"
-			// Taller than the heading row, so it overhangs instead of pushing the table down when it appears.
-			className="-my-1"
+			// Taller than the heading row, so it overhangs instead of pushing the table down when it appears;
+			// in a narrow card it takes its own row rather than squeezing the heading.
+			className="-my-1 @max-lg:basis-full"
 			id={deleteSelectedId(listId)}
 			data-testid={deleteSelectedId(listId)}
 			onClick={() => selection.onDeleteSelected(listId)}
 		>
-			Delete {selection.count} selected…
+			{deleteSelectedText(selection.count, here)}
 		</Button>
 	);
 }

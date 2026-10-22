@@ -495,7 +495,10 @@ test("ticked items across lists go with one confirm, one audited request each; a
 				})
 			: route.fallback(),
 	);
-	await page.getByTestId("backups-dumps-title-delete-selected").click();
+	const deleteSelected = page.getByTestId("backups-dumps-title-delete-selected");
+	// The count is the tab's, and the ticks are in two lists, so the label says so.
+	await expect(deleteSelected).toHaveText("Delete 3 selected on this tab…");
+	await deleteSelected.click();
 	const dialog = page.getByTestId("backup-delete-dialog");
 	await expect(dialog.getByRole("heading")).toHaveText("Delete 3 items?");
 	await expect(dialog).toContainText("2 backup sets and 1 database dump.");
@@ -540,7 +543,9 @@ test("ticked items across lists go with one confirm, one audited request each; a
 
 	// Once the host can take it, the leftover goes on its own.
 	await page.unroute(`**/admin/backups/sets/${OLDER}`);
-	await page.getByTestId("backups-sets-title-delete-selected").click();
+	const leftover = page.getByTestId("backups-sets-title-delete-selected");
+	await expect(leftover).toHaveText("Delete 1 selected…");
+	await leftover.click();
 	await expect(dialog.getByRole("heading")).toHaveText(/^Delete the backup set from /);
 	await dialog.getByTestId("dialog-confirm").click();
 	await expect(toast(page, "Delete requested")).toBeVisible();

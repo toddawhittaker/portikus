@@ -77,6 +77,52 @@ describe("ConfirmDialog", () => {
 		expect(confirm.getAttribute("aria-describedby")).toBe(region.id);
 	});
 
+	it("keeps Cancel focusable but inert, with its reason, while cancelDisabled", () => {
+		const onCancel = vi.fn();
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog
+					title="Delete?"
+					confirmLabel="Delete"
+					cancelDisabled
+					cancelDisabledReason="Wait for the deletes to finish"
+					onCancel={onCancel}
+				/>
+			</ConfirmDialogRoot>,
+		);
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		expect(cancel.hasAttribute("disabled")).toBe(false);
+		expect(cancel.getAttribute("aria-disabled")).toBe("true");
+		cancel.focus();
+		expect(document.activeElement).toBe(cancel);
+		const reason = document.getElementById(
+			cancel.getAttribute("aria-describedby") ?? "",
+		);
+		expect(reason?.textContent).toBe("Wait for the deletes to finish");
+		// The reason sits in the always-mounted status region, so it is announced.
+		expect(screen.getByRole("status").contains(reason)).toBe(true);
+
+		fireEvent.click(cancel);
+		fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+		expect(onCancel).not.toHaveBeenCalled();
+		expect(screen.getByRole("alertdialog")).toBeDefined();
+	});
+
+	it("leaves Cancel and Escape working when cancelDisabled is not set", async () => {
+		const onCancel = vi.fn();
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog title="Delete?" confirmLabel="Delete" onCancel={onCancel} />
+			</ConfirmDialogRoot>,
+		);
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		expect(cancel.hasAttribute("aria-disabled")).toBe(false);
+		expect(cancel.hasAttribute("aria-describedby")).toBe(false);
+		fireEvent.click(cancel);
+		expect(onCancel).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	});
+
 	it("keeps the confirm button focusable but inert while pending", () => {
 		const onConfirm = vi.fn();
 		render(<Fixture pending onConfirm={onConfirm} />);

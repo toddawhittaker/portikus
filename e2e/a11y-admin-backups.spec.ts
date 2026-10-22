@@ -204,15 +204,18 @@ for (const colorScheme of ["light", "dark"] as const) {
 async function stubDeletes(
 	page: Page,
 	refuse: (path: string) => boolean = () => false,
+	/** Awaited before each answer, so a test can hold a delete pending. */
+	gate: () => Promise<void> = () => Promise.resolve(),
 ) {
 	const paths: string[] = [];
 	await routeApi(
 		page,
 		"**/admin/backups/{sets,dumps,snapshots,kept-homes}/**",
-		(route) => {
+		async (route) => {
 			if (route.request().method() !== "DELETE") return route.fallback();
 			const path = decodeURIComponent(new URL(route.request().url()).pathname);
 			paths.push(path);
+			await gate();
 			return refuse(path)
 				? route.fulfill({
 						status: 409,
@@ -266,7 +269,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Shift+Tab");
 		const button = page.getByTestId("backups-dumps-title-delete-selected");
 		await expect(button).toBeFocused();
-		await expect(button).toHaveText("Delete 2 selected…");
+		// Ticks in two lists: the label says the count is the tab's.
+		await expect(button).toHaveText("Delete 2 selected on this tab…");
+		await expect(button).toHaveAccessibleName("Delete 2 selected on this tab…");
 		await expectNoViolations(page);
 		await page.keyboard.press("Enter");
 
@@ -325,6 +330,70 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(
 			page.getByRole("checkbox", { name: "Select all kept homes" }),
 		).toBeChecked();
+	});
+
+	test(`the delete button names its scope, and a retry and the live count are announced once (${colorScheme})`, async ({
+		page,
+	}) => {
+		let release: () => void = () => {};
+		let hold: Promise<void> | null = null;
+		await stubDeletes(
+			page,
+			(path) => path.includes("/kept-homes/"),
+			() => hold ?? Promise.resolve(),
+		);
+		await openTab(page, colorScheme);
+		const count = page.getByTestId("backup-selected-count");
+		const button = page.getByTestId("backups-kept-title-delete-selected");
+
+		// Ticks only in this list: the plain label.
+		await page.getByRole("checkbox", { name: "Select all kept homes" }).check();
+		await expect(button).toHaveText("Delete 1 selected…");
+		await expect(button).toHaveAccessibleName("Delete 1 selected…");
+		await page
+			.getByRole("checkbox", { name: "Select all pre-change snapshots" })
+			.check();
+		await expect(button).toHaveText("Delete 2 selected on this tab…");
+		await expect(button).toHaveAccessibleName("Delete 2 selected on this tab…");
+		await expect(count).toHaveText("2 selected");
+
+		await button.click();
+		const dialog = page.getByTestId("backup-delete-dialog");
+		const alert = dialog.getByRole("alert");
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(alert).toContainText("This was not deleted:");
+		const failure = (await alert.textContent()) ?? "";
+		// The snapshot went, yet the polite count has nothing new to say: the alert speaks.
+		await expect(count).toHaveText("2 selected");
+
+		// The retry fails with the same words, and is held while it runs.
+		hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(alert).toHaveText("");
+		// Cancel and Escape do nothing until the deletes finish.
+		const cancel = dialog.getByRole("button", { name: "Cancel" });
+		await expect(cancel).toHaveAttribute("aria-disabled", "true");
+		await expect(cancel).toHaveAccessibleDescription("Wait for the deletes to finish");
+		await cancel.focus();
+		await expect(cancel).toBeFocused();
+		// Playwright treats aria-disabled as not actionable, so the click is forced.
+		await cancel.click({ force: true });
+		await page.keyboard.press("Escape");
+		await expect(dialog).toBeVisible();
+		await expectNoViolations(page);
+		release();
+		await expect(alert).toContainText("This was not deleted:");
+		expect(await alert.textContent()).toContain(
+			failure.replace(/^Delete requested for 1 snapshot\. /, ""),
+		);
+		await expect(count).toHaveText("2 selected");
+		await expectNoViolations(page);
+
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toHaveCount(0);
+		await expect(count).toHaveText("1 selected");
 	});
 }
 
