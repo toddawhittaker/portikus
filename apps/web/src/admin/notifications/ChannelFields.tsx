@@ -81,7 +81,7 @@ function testErrorText(error: unknown): string {
 	return errorText(error);
 }
 
-export interface ChannelProps {
+interface ChannelProps {
 	form: NotifyForm;
 	view: NotificationSettingsView;
 	errors: FormErrors;
@@ -93,8 +93,6 @@ export interface ChannelProps {
 	onCheck: (next?: NotifyForm) => void;
 	/** "Not saved. Was …" for a field such as "email.host", or null while it is saved. */
 	notSaved: (field: string) => ReactNode;
-	/** Whether a field such as "email.to" differs from what is saved. */
-	isChanged: (field: string) => boolean;
 }
 
 /** A field's hint with its "Not saved" line first; undefined when there is neither. */
@@ -317,7 +315,6 @@ export function EmailChannel({
 	onChange,
 	onEdit,
 	notSaved,
-	isChanged,
 }: ChannelProps) {
 	const email = form.email;
 	const set = (patch: Partial<NotifyForm["email"]>) =>
@@ -335,7 +332,10 @@ export function EmailChannel({
 				id={FIELD_ID.emailTo}
 				label="Send to"
 				rows={3}
-				hint={`${isChanged("email.to") ? "Not saved. " : ""}One address per line, up to ${MAX_ALERT_EMAIL_RECIPIENTS}.`}
+				hint={hintWith(
+					notSaved("email.to"),
+					`One address per line, up to ${MAX_ALERT_EMAIL_RECIPIENTS}.`,
+				)}
 				error={errors[FIELD_ID.emailTo]}
 				value={email.to}
 				onChange={(to) => {

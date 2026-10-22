@@ -20,6 +20,7 @@ import { useRootShellStatus } from "../root-shell/status.js";
 import { footerState, SaveFooter } from "../settings/SaveFooter.js";
 import { LoadFailed, SectionCard, SectionGroup } from "../settings/SectionCard.js";
 import { NotSaved } from "../settings/SettingRow.js";
+import { useFocusFirstError } from "../settings/save.js";
 import { SECTIONS } from "../settings/sections.js";
 import { useReportUnsaved } from "../settings/unsaved.js";
 import {
@@ -50,6 +51,8 @@ import {
 import { useNotifications, useSaveNotifications } from "./queries.js";
 
 const SECTION = SECTIONS.mail;
+/** A field's error key is its element id. */
+const fieldId = (key: string) => key;
 const DESCRIPTION =
 	"The mail server Portikus sends through, whether it emails people their account links, and where administrator alerts go. A root job on the server applies each save, and a saved secret is never shown again.";
 const UNREADABLE_NOTE =
@@ -183,7 +186,7 @@ function MailForm({
 	const [justSaved, setJustSaved] = useState(false);
 	const [warned, setWarned] = useState<ClearWarnings>({ smtp: false, ntfy: false });
 	const [announcement, setAnnouncement] = useState("");
-	const focusError = useRef(false);
+	const focusFirstError = useFocusFirstError(errors, fieldId);
 	// The warnings Save has already stopped for once; a second Save goes ahead.
 	const heeded = useRef<ClearWarnings>({ smtp: false, ntfy: false });
 	const busy = isJobActive(job, NOTIFY_JOB_STALE_MS);
@@ -201,13 +204,6 @@ function MailForm({
 		setAnnouncement("");
 		heeded.current = { smtp: false, ntfy: false };
 	}
-
-	useEffect(() => {
-		if (!focusError.current) return;
-		focusError.current = false;
-		const first = Object.keys(errors)[0];
-		if (first) document.getElementById(first)?.focus();
-	}, [errors]);
 
 	const baseline = view ? (busy && sent ? sent : initialForm(view)) : null;
 	const changed = form && baseline ? changedFields(form, baseline) : [];
@@ -323,7 +319,7 @@ function MailForm({
 			setErrors(found);
 			setFailure(null);
 			if (Object.keys(found).length > 0) {
-				focusError.current = true;
+				focusFirstError();
 				return;
 			}
 		}
@@ -362,7 +358,6 @@ function MailForm({
 					warned,
 					onCheck: checkWarnings,
 					notSaved,
-					isChanged: (field: string) => changed.includes(field),
 				}
 			: null;
 	const firstError = Object.keys(errors)[0];

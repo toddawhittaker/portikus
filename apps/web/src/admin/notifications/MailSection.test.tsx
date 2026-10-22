@@ -420,8 +420,13 @@ test("a changed field says it is not saved, and never quotes a secret", async ()
 	fireEvent.change(password, { target: { value: "fake-password" } });
 	expect(description(password).trim()).toMatch(/^Not saved\. Set\./);
 	expect(document.body.textContent).not.toContain("fake-password");
+	const recipients = screen.getByLabelText("Send to");
+	fireEvent.change(recipients, { target: { value: "help@example.edu" } });
+	expect(description(recipients).trim()).toMatch(
+		/^Not saved\.\s+One address per line, up to \d+\.$/,
+	);
 	expect(screen.getByTestId("settings-mail-state").textContent).toBe(
-		"2 unsaved changes",
+		"3 unsaved changes",
 	);
 
 	fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));

@@ -281,3 +281,76 @@ test("a failed save keeps the section's edits and every other section's", async 
 	await expect(window).toHaveValue("35");
 	expect((await row()).guard_window_minutes).toBe(stored.guard_window_minutes);
 });
+
+test("Save stays focusable but says there is nothing to save until a field changes", async ({
+	page,
+}) => {
+	await open(page);
+	const writes = recordWrites(page);
+	const sections = [
+		["stop", "Save stop times"],
+		["guard", "Save resource guard"],
+		["tools", "Save student tools"],
+		["aup", "Save and ask everyone to accept"],
+		["mail", "Save email and alerts"],
+	] as const;
+	for (const [id, name] of sections) {
+		const save = page.getByRole("button", { name });
+		await expect(save).toHaveAttribute("aria-disabled", "true");
+		await expect(save).toHaveAccessibleDescription(/No unsaved changes\./);
+		await save.focus();
+		await expect(save).toBeFocused();
+		// Playwright treats aria-disabled as not enabled, so the click is forced.
+		await save.click({ force: true });
+		await expect(page.getByTestId(`settings-${id}-state`)).toHaveText(
+			"No unsaved changes.",
+		);
+	}
+	expect(writes).toEqual([]);
+
+	await page.getByTestId("settings-idleStopMinutes").fill("41");
+	const save = page.getByRole("button", { name: "Save stop times" });
+	await expect(save).not.toHaveAttribute("aria-disabled", "true");
+	await expect(save).not.toHaveAccessibleDescription(/No unsaved changes/);
+	await page.getByTestId("settings-stop-discard").click();
+	// Discard hands focus to Save, which is idle again.
+	await expect(save).toBeFocused();
+	await expect(save).toHaveAttribute("aria-disabled", "true");
+});
+
+test("a field edited while its save is on the way stays unsaved after the save lands", async ({
+	page,
+}) => {
+	await query("update settings set idle_stop_minutes = 60 where id = 1");
+	await open(page);
+	let letGo: () => void = () => {};
+	const held = new Promise<void>((done) => {
+		letGo = done;
+	});
+	await routeApi(page, "**/admin/settings", async (route, request) => {
+		if (request.method() !== "PUT") return route.fallback();
+		await held;
+		return route.fallback();
+	});
+	const idle = page.getByTestId("settings-idleStopMinutes");
+	const save = page.getByRole("button", { name: "Save stop times" });
+	await idle.fill("44");
+	await save.click();
+	await expect(save).toHaveAttribute("aria-busy", "true");
+	await idle.fill("46");
+	letGo();
+
+	await expect(save).not.toHaveAttribute("aria-busy", "true");
+	expect((await row()).idle_stop_minutes).toBe(44);
+	await expect(idle).toHaveValue("46");
+	await expect(page.getByTestId("settings-stop-state")).toHaveText("1 unsaved change");
+	await expect(page.getByTestId("settings-stop")).toContainText("Not saved. Was 44");
+	// Leaving still asks, because the edit is still unsaved.
+	await page
+		.getByRole("navigation", { name: "Administration" })
+		.getByRole("link", { name: "Users", exact: true })
+		.click();
+	await expect(
+		page.getByRole("alertdialog", { name: "Leave without saving?" }),
+	).toBeVisible();
+});

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 /** A section's values: text for a box, true or false for a checkbox. */
 export type Values = Record<string, string | boolean>;
@@ -33,6 +33,8 @@ export function useDraft<T extends Values>(saved: T | undefined) {
 	const [failure, setFailure] = useState<string | null>(null);
 	const [justSaved, setJustSaved] = useState(false);
 	const changed = saved ? changedKeys(saved, draft) : [];
+	// The edits as a save went out, so an edit made while it is in flight survives it.
+	const sent = useRef<Partial<T>>({});
 
 	return {
 		changed,
@@ -70,8 +72,28 @@ export function useDraft<T extends Values>(saved: T | undefined) {
 		fail(message: string) {
 			setFailure(message);
 		},
+		/**
+		 * Call as a save goes out. It remembers every edit so far, not only the
+		 * changed ones: an edit put back to its old value must not turn into a
+		 * change when the saved value moves under it.
+		 */
+		sending() {
+			sent.current = draft;
+		},
+		/** The save landed: drops the fields that were sent, unless they were edited since. */
 		saved() {
-			setDraft({});
+			const carried = sent.current;
+			setDraft((now) => {
+				const left: Partial<T> = {};
+				for (const key of Object.keys(now) as (keyof T)[]) {
+					const edit = now[key];
+					const was = carried[key];
+					if (edit !== undefined && (was === undefined || !same(edit, was))) {
+						left[key] = edit;
+					}
+				}
+				return left;
+			});
 			setErrors({});
 			setFailure(null);
 			setJustSaved(true);

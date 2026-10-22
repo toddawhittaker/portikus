@@ -53,7 +53,7 @@ export function SaveFooter({
 	note?: string;
 	/** Another action, placed before Discard changes. */
 	extra?: ReactNode;
-	/** Why Save cannot act yet; it stays focusable and says so. */
+	/** Why Save cannot act yet; it stays focusable and says so. With nothing to save it says so too. */
 	busy?: string;
 	onDiscard: () => void;
 	/** More status under the state, such as the alerts job's line. */
@@ -61,6 +61,10 @@ export function SaveFooter({
 }) {
 	const save = useRef<HTMLButtonElement>(null);
 	const noteId = busy ? `${id}-busy` : note ? `${id}-note` : undefined;
+	// Nothing to save: Save stays focusable but says why it will not act.
+	const idle = count === 0 && !busy;
+	const stateId = `${id}-status`;
+	const describedBy = [idle ? stateId : null, noteId].filter(Boolean).join(" ");
 	return (
 		<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
 			<div className="grid min-w-0 flex-[1_1_16rem] gap-1 text-[length:var(--pk-font)]">
@@ -68,6 +72,7 @@ export function SaveFooter({
 				<p
 					role="status"
 					className={`m-0 [overflow-wrap:anywhere] ${state.strong ? "font-semibold text-ink" : "pk-muted"}`}
+					id={stateId}
 					data-testid={`${id}-state`}
 				>
 					{state.text}
@@ -99,8 +104,8 @@ export function SaveFooter({
 					variant={count > 0 ? "primary" : "secondary"}
 					data-testid={`${id}-save`}
 					loading={pending}
-					aria-disabled={busy ? true : undefined}
-					aria-describedby={noteId}
+					aria-disabled={busy || idle ? true : undefined}
+					aria-describedby={describedBy || undefined}
 				>
 					{saveLabel}
 				</Button>

@@ -1,5 +1,6 @@
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { changedKeys } from "./draft.js";
+import { changedKeys, useDraft } from "./draft.js";
 import { numberBody, withUnit } from "./numberSettings.js";
 import { footerState } from "./SaveFooter.js";
 import { toolsBody } from "./ToolsSection.js";
@@ -104,4 +105,41 @@ test("the leave text names each section and count", () => {
 	).toBe(
 		"Resource guard has 2 unsaved changes. Email and alerts has 1 unsaved change. They are lost if you leave.",
 	);
+});
+
+describe("useDraft after a save", () => {
+	const saved = { grace: "10", idle: "60", voice: false };
+
+	test("keeps a field edited while the save was in flight, and drops the ones that were sent", () => {
+		const { result } = renderHook(() => useDraft(saved));
+		act(() => result.current.edit("grace", "15"));
+		act(() => result.current.edit("idle", "30"));
+		act(() => result.current.sending());
+		// The request is out; the person keeps typing.
+		act(() => result.current.edit("idle", "45"));
+		act(() => result.current.saved());
+		expect(result.current.changed).toEqual(["idle"]);
+		expect(result.current.value("idle")).toBe("45");
+		expect(result.current.isChanged("grace")).toBe(false);
+	});
+
+	test("a field edited in flight and then put back to what was sent is done", () => {
+		const { result } = renderHook(() => useDraft(saved));
+		act(() => result.current.edit("voice", true));
+		act(() => result.current.sending());
+		act(() => result.current.edit("voice", false));
+		act(() => result.current.edit("voice", true));
+		act(() => result.current.saved());
+		expect(result.current.changed).toEqual([]);
+	});
+
+	test("a field first edited in flight stays dirty", () => {
+		const { result } = renderHook(() => useDraft(saved));
+		act(() => result.current.edit("grace", "15"));
+		act(() => result.current.sending());
+		act(() => result.current.edit("voice", true));
+		act(() => result.current.saved());
+		expect(result.current.changed).toEqual(["voice"]);
+		expect(result.current.justSaved).toBe(true);
+	});
 });

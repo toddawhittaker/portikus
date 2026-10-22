@@ -213,6 +213,70 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
+/** A computed colour property of `node` equals what a theme token resolves to in the same document. */
+async function expectToken(
+	node: Locator,
+	property: "backgroundColor" | "borderTopColor" | "color",
+	token: string,
+) {
+	const { actual, expected } = await node.evaluate(
+		(element, [prop, name]) => {
+			const probe = document.createElement("span");
+			// A border colour reads back as its own property only once it is set as one.
+			const set = prop === "borderTopColor" ? "borderColor" : prop;
+			probe.style[set as "color"] = `var(${name})`;
+			element.append(probe);
+			const colour = getComputedStyle(probe)[prop as "color"];
+			probe.remove();
+			return { actual: getComputedStyle(element)[prop as "color"], expected: colour };
+		},
+		[property, token],
+	);
+	expect(actual).toBe(expected);
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a Coming later row is drawn muted and cannot be ticked (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		const tools = page.getByRole("region", { name: "Student tools" });
+		const java = tools.getByRole("checkbox", { name: "Java", exact: true });
+		const label = tools.locator("label.pk-check", {
+			has: page.getByRole("checkbox", { name: "Java", exact: true }),
+		});
+		const face = label.locator(".pk-check-box");
+		const python = tools.locator("label.pk-check", {
+			has: page.getByRole("checkbox", { name: "Python" }),
+		});
+
+		await expect(java).toHaveAttribute("aria-disabled", "true");
+		await expectToken(face, "backgroundColor", "--surface-sunken");
+		await expectToken(face, "borderTopColor", "--line");
+		await expectToken(label, "color", "--ink-muted");
+		// An available language keeps the raised box with the stronger line.
+		await expectToken(python.locator(".pk-check-box"), "borderTopColor", "--accent");
+
+		// Hovering changes nothing.
+		await label.hover();
+		await expectToken(face, "backgroundColor", "--surface-sunken");
+		await expectToken(face, "borderTopColor", "--line");
+
+		// Neither a click nor Space ticks it, and nothing becomes unsaved.
+		await label.click({ force: true });
+		await expect(java).not.toBeChecked();
+		await java.focus();
+		await page.keyboard.press("Space");
+		await expect(java).not.toBeChecked();
+		// The focus ring is unchanged, so the row can still be found by keyboard.
+		await expect(face).toHaveCSS("outline-style", "solid");
+		await expect(page.getByTestId("settings-tools-state")).toHaveText(
+			"No unsaved changes.",
+		);
+	});
+}
+
 test("account email waits for Save, says it uses the mail server, and each change is audited", async ({
 	page,
 }) => {

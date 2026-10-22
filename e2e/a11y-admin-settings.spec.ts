@@ -38,6 +38,26 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expectNoViolations(page);
 		});
 
+		test("the page with nothing to save, every Save idle, has no violations", async ({
+			page,
+		}) => {
+			await open(page);
+			for (const name of [
+				"Save stop times",
+				"Save resource guard",
+				"Save student tools",
+				"Save and ask everyone to accept",
+				"Save email and alerts",
+			]) {
+				await expect(page.getByRole("button", { name })).toHaveAttribute(
+					"aria-disabled",
+					"true",
+				);
+			}
+			await page.getByRole("checkbox", { name: "Java", exact: true }).focus();
+			await expectNoViolations(page);
+		});
+
 		test("the loading skeletons have no violations", async ({ page }) => {
 			let hold: () => void = () => {};
 			const held = new Promise<void>((done) => {

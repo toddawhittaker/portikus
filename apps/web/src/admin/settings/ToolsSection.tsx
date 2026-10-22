@@ -199,7 +199,6 @@ function LanguageRow({
 	return (
 		<li className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-4 gap-y-1 py-2 @min-[30rem]/card:grid-cols-[minmax(0,1fr)_auto]">
 			<Checkbox
-				className={later ? "cursor-not-allowed text-ink-muted" : undefined}
 				label={name}
 				description={
 					<>
@@ -240,10 +239,19 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 	const health = useSiteLimits();
 	const totalBytes = health.data?.host?.memory.totalBytes ?? null;
 	const result = estimate(totalBytes, ticked);
+	// Until the Health read settles the memory is not "unknown", only not here yet.
+	const loading = health.isPending;
 	const students = (n: number | null) =>
-		n === null ? "Server memory not known yet" : `about ${count.format(n)}`;
-	const memory =
-		totalBytes === null
+		loading ? (
+			<Skeleton width="6rem" className="ms-auto" />
+		) : n === null ? (
+			"Server memory not known yet"
+		) : (
+			`about ${count.format(n)}`
+		);
+	const memory = loading
+		? ""
+		: totalBytes === null
 			? "Server memory is not known yet, so the number of students is not shown. The platform itself uses about 1.4 GiB, and 2 GiB is kept free."
 			: `This server has ${gib.format(totalBytes / 1024 ** 3)} GiB, the platform itself uses about 1.4 GiB, and 2 GiB is kept free.`;
 	return (
@@ -254,7 +262,7 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 			>
 				{ticked.length === 0
 					? "Code help is off. The editor shows syntax colouring only."
-					: `Code help adds about ${count.format(result.addedMiB)} MiB per student.`}
+					: `Code help adds at most ${count.format(result.addedMiB)} MiB per student, if every student opens every ticked language.`}
 			</output>
 			<div className="pk-table-wrap">
 				<table className="pk-table [&_th]:whitespace-normal">
@@ -294,9 +302,9 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 				</table>
 			</div>
 			<p className={`${HINT_CLASS} max-w-[72ch]`}>
-				Worst case, with every ticked language open at once. Memory only. {memory}{" "}
-				Workspace figures are from the 25-student load test; a real coding agent can use
-				more than the test's.
+				Worst case, with every ticked language open at once. Memory only.
+				{memory ? ` ${memory}` : ""} Workspace figures are from the 25-student load
+				test; a real coding agent can use more than the test's.
 			</p>
 		</div>
 	);
