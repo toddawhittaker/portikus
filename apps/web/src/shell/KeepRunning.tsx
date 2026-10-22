@@ -154,6 +154,23 @@ function useKeepRunning(workspaceId: string) {
 	});
 }
 
+/** What the hold is now: when it ends, or what Keep running does. */
+function HoldSummary({ until, timeZone }: { until: string | null; timeZone?: string }) {
+	if (until)
+		return (
+			<p className="pk-text-body m-0" data-testid="keep-running-status">
+				Kept running until <strong>{formatHoldEnd(until, timeZone)}</strong>. Closing
+				this page or leaving it idle does not stop it before then.
+			</p>
+		);
+	return (
+		<p className="pk-text-compact m-0 text-ink-muted">
+			Your workspace stays on until the time you pick, even if you close this page or
+			leave it idle. Then it stops as usual, with a warning first.
+		</p>
+	);
+}
+
 /**
  * "Keep running" in the workspace dialog: hold the workspace up for a
  * while, so leaving and idle time do not stop it, then end the hold early.
@@ -234,20 +251,12 @@ export function KeepRunningSection({
 					<h3 id="workspace-keep-running-title" className="pk-text-heading m-0">
 						Keep running
 					</h3>
-					{active && workspace.keepRunningUntil ? (
-						<p className="pk-text-body m-0" data-testid="keep-running-status">
-							Kept running until{" "}
-							<strong>{formatHoldEnd(workspace.keepRunningUntil, timeZone)}</strong>.
-							Closing this page or leaving it idle does not stop it before then.
-						</p>
-					) : (
-						<p className="pk-text-compact m-0 text-ink-muted">
-							Your workspace stays on until the time you pick, even if you close this
-							page or leave it idle. Then it stops as usual, with a warning first.
-						</p>
-					)}
+					<HoldSummary
+						until={active ? workspace.keepRunningUntil : null}
+						timeZone={timeZone}
+					/>
 					<form
-						className="flex flex-wrap items-end gap-2"
+						className="flex flex-col items-start gap-2"
 						onSubmit={(event) => {
 							event.preventDefault();
 							// Measured from the click, not from when the dialog opened.
@@ -261,7 +270,9 @@ export function KeepRunningSection({
 						}}
 					>
 						{choices.length > 0 ? (
-							<>
+							// Top-aligned, so the labels share a line and the inputs share a line,
+							// with the timezone hint hanging below the time box.
+							<div className="flex flex-wrap items-start gap-2">
 								<Select
 									id="keep-running-hours"
 									label="Keep running for"
@@ -279,6 +290,8 @@ export function KeepRunningSection({
 									id="keep-running-at"
 									type="time"
 									label="Or until"
+									// The box is as wide as a time, not as wide as the hint under it.
+									className="[&>input]:w-auto [&>input]:justify-self-start"
 									value={clock}
 									onChange={(event) => setClock(event.target.value)}
 									hint={timeZone ? `In your timezone, ${timeZone}` : undefined}
@@ -288,6 +301,10 @@ export function KeepRunningSection({
 											: undefined
 									}
 								/>
+							</div>
+						) : null}
+						<div className="flex flex-wrap items-start gap-2">
+							{choices.length > 0 ? (
 								<Button
 									type="submit"
 									variant="primary"
@@ -302,17 +319,17 @@ export function KeepRunningSection({
 								>
 									Keep running until {until ? formatHoldEnd(until, timeZone) : "…"}
 								</Button>
-							</>
-						) : null}
-						{active ? (
-							<Button
-								data-testid="keep-running-end"
-								loading={keep.isPending && keep.variables === null}
-								onClick={() => !keep.isPending && release()}
-							>
-								Don't keep running
-							</Button>
-						) : null}
+							) : null}
+							{active ? (
+								<Button
+									data-testid="keep-running-end"
+									loading={keep.isPending && keep.variables === null}
+									onClick={() => !keep.isPending && release()}
+								>
+									Don't keep running
+								</Button>
+							) : null}
+						</div>
 					</form>
 					<DialogError error={keep.error} />
 				</section>

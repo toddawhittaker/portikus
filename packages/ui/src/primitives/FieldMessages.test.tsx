@@ -11,6 +11,14 @@ describe("fieldDescribedBy", () => {
 		expect(fieldDescribedBy({ id: "f", hint: "h", error: "e" })).toBe("f-hint f-err");
 	});
 
+	it("lists the unit before the hint, and only when there is one", () => {
+		expect(fieldDescribedBy({ id: "f", unit: true, hint: "h", error: "e" })).toBe(
+			"f-unit f-hint f-err",
+		);
+		expect(fieldDescribedBy({ id: "f", unit: true })).toBe("f-unit");
+		expect(fieldDescribedBy({ id: "f", unit: false })).toBeUndefined();
+	});
+
 	it("lists the warning only when there is no error", () => {
 		expect(fieldDescribedBy({ id: "f", hint: "h", warning: "w" })).toBe(
 			"f-hint f-warn",

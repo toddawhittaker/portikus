@@ -34,4 +34,6 @@ export {
 	LABEL_CLASS,
 	TextField,
 	type TextFieldProps,
+	UnitInput,
+	type UnitInputProps,
 } from "./TextField.js";

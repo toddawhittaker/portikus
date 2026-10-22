@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	expectNoViolations,
@@ -359,5 +359,94 @@ for (const scheme of ["light", "dark"] as const) {
 		} finally {
 			await setCap(12);
 		}
+	});
+}
+
+interface Box {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+async function boxOf(locator: Locator): Promise<Box> {
+	const box = await locator.boundingBox();
+	if (!box) throw new Error("the element has no box");
+	return box;
+}
+
+/**
+ * The hours select and the time field either share a row, and then their
+ * labels and inputs share lines, or the time field has wrapped whole below
+ * the select. Returns whether they share a row.
+ */
+async function expectFieldsAligned(page: Page, sameRow: boolean): Promise<boolean> {
+	const section = page.getByRole("region", { name: "Keep running" });
+	const select = await boxOf(section.locator("#keep-running-hours"));
+	const time = await boxOf(section.getByLabel("Or until"));
+	const selectLabel = await boxOf(
+		section.getByText("Keep running for", { exact: true }),
+	);
+	const timeLabel = await boxOf(section.getByText("Or until", { exact: true }));
+	const shared = time.y < select.y + select.height;
+	if (sameRow) expect(shared).toBe(true);
+	if (shared) {
+		expect(Math.abs(time.y - select.y)).toBeLessThan(0.5);
+		expect(Math.abs(timeLabel.y - selectLabel.y)).toBeLessThan(0.5);
+		expect(Math.abs(time.height - select.height)).toBeLessThan(0.5);
+	} else {
+		expect(time.y).toBeGreaterThanOrEqual(select.y + select.height);
+	}
+	// The hint hangs below the time input, never beside it.
+	const hint = await boxOf(section.locator("#keep-running-at-hint"));
+	expect(hint.y).toBeGreaterThanOrEqual(time.y + time.height);
+	return shared;
+}
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`the Keep running fields line up on their tops, and the time field fits its content (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		await setCap(12);
+		const student = await createStudent(context);
+		await query("update users set editor_settings = $2 where id = $1", [
+			student.userId,
+			JSON.stringify({ timezone: ZONE }),
+		]);
+		const shot = (name: string) =>
+			page.screenshot({ path: `screenshots/keep-running-align-${name}-${scheme}.png` });
+
+		// The default window: both fields on one row.
+		const dialog = await openWorkspaceDialog(page, student.workspaceId);
+		const section = dialog.getByRole("region", { name: "Keep running" });
+		await expect(section.locator("#keep-running-at-hint")).toBeVisible();
+		await expectFieldsAligned(page, true);
+		// The time box is as wide as a time, not stretched to the hint under it.
+		const time = await boxOf(section.getByLabel("Or until"));
+		const hint = await boxOf(section.locator("#keep-running-at-hint"));
+		expect(time.width).toBeLessThan(hint.width);
+		await shot("default");
+		await expectNoViolations(page);
+
+		// A narrow window: aligned if side by side, whole below if wrapped.
+		await page.setViewportSize({ width: 320, height: 720 });
+		await expectFieldsAligned(page, false);
+		await shot("narrow");
+
+		// Text at 200% in a 640 px window.
+		await page.setViewportSize({ width: 640, height: 720 });
+		await page.addStyleTag({
+			content:
+				"html:root { --density-comfortable-font: 28px !important; --density-compact-font: 26px !important; }",
+		});
+		await expect(section.getByTestId("keep-running-set")).toHaveCSS(
+			"font-size",
+			"28px",
+		);
+		await expectFieldsAligned(page, false);
+		await shot("text200");
+		await expectNoViolations(page);
 	});
 }
