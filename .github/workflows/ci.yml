@@ -397,8 +397,8 @@ jobs:
 
   # Sign-in through a real Dex at the commit site.yml pins, configured by the
   # role's own template and themed by the role's own task file, as on the
-  # pilot (ADR 0023). Not a required
-  # check, so a Dex upgrade shows its failure here without blocking merges.
+  # pilot (ADR 0023). A required check on the main and epic rulesets; skipped,
+  # which counts as passing, when neither app nor infra code changed.
   dex-signin:
     name: Dex sign-in
     runs-on: ubuntu-26.04
