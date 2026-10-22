@@ -81,7 +81,7 @@ settings** in a workspace's panel sets it for that workspace. While a
 student's hold lasts, the workspace's resource guard summary shows "Kept
 running by its owner until …".
 
-![The Settings tab: when workspaces stop, and the resource guard thresholds](images/admin-settings.png)
+![The Settings tab: the section index and the When workspaces stop section](images/admin-settings.png)
 
 **Settings** holds the site-wide rules in five sections: **When workspaces
 stop**, **Resource guard**, **Student tools** (code help for each language,
