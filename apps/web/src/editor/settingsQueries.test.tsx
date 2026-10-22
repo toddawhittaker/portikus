@@ -10,6 +10,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import {
 	useCodeHelpEnabled,
+	useCodeHelpLanguages,
 	useCourseProfile,
 	useEditorSettings,
 } from "./settingsQueries.js";
@@ -38,19 +39,40 @@ function settingsWith(extra: Record<string, unknown>) {
 test("code help is off until the settings say it is on (SPEC.md §13.6)", async () => {
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async () => settingsWith({ codeHelpEnabled: true })),
+		vi.fn(async () => settingsWith({ codeHelpLanguages: ["python"] })),
 	);
 	const { result } = loadHook(() => useCodeHelpEnabled());
 	expect(result.current).toBe(false);
 	await waitFor(() => expect(result.current).toBe(true));
 });
 
-test("code help stays off when the site switch is off", async () => {
-	const fetch = vi.fn(async () => settingsWith({ codeHelpEnabled: false }));
+test("code help stays off when no language is on", async () => {
+	const fetch = vi.fn(async () => settingsWith({ codeHelpLanguages: [] }));
 	vi.stubGlobal("fetch", fetch);
 	const { result } = loadHook(() => useCodeHelpEnabled());
 	await waitFor(() => expect(fetch).toHaveBeenCalled());
 	expect(result.current).toBe(false);
+});
+
+test("the language set is empty until known, then holds the shipped languages in order", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			settingsWith({ codeHelpLanguages: ["typescript", "java", "python"] }),
+		),
+	);
+	const { result } = loadHook(() => useCodeHelpLanguages());
+	expect(result.current.size).toBe(0);
+	await waitFor(() => expect(result.current.size).toBe(2));
+	expect([...result.current]).toEqual(["python", "typescript"]);
+});
+
+test("the language set is empty when the settings carry no languages", async () => {
+	const fetch = vi.fn(async () => settingsWith({}));
+	vi.stubGlobal("fetch", fetch);
+	const { result } = loadHook(() => useCodeHelpLanguages());
+	await waitFor(() => expect(fetch).toHaveBeenCalled());
+	expect(result.current.size).toBe(0);
 });
 
 test("the course profile is Agentic until known, then the one the settings give", async () => {

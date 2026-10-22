@@ -16,6 +16,7 @@ import {
 	lockSharedState,
 	loginAs,
 	query,
+	resetCodeHelpLanguages,
 	SETTINGS_ROW_LOCK,
 	seedListening,
 	seedStorage,
@@ -376,17 +377,20 @@ test.describe("the code-help site switch", () => {
 		test.setTimeout(600_000);
 		releases.push(await lockSharedState(SETTINGS_ROW_LOCK));
 		releases.push(await lockSharedState(CODE_HELP_SWITCH_LOCK));
-		await query("update settings set code_help_enabled = true where id = 1");
+		await resetCodeHelpLanguages();
 	});
 
 	test.afterAll(async () => {
-		await query("update settings set code_help_enabled = true where id = 1");
+		await resetCodeHelpLanguages();
 		for (const release of releases.reverse()) await release();
 	});
 
 	async function studentSees(page: Page): Promise<boolean> {
 		const response = await page.request.get("/me/settings");
-		return ((await response.json()) as { codeHelpEnabled: boolean }).codeHelpEnabled;
+		const { codeHelpLanguages } = (await response.json()) as {
+			codeHelpLanguages: string[];
+		};
+		return codeHelpLanguages.length > 0;
 	}
 
 	test("an administrator turns code help off and on, each change is audited, and students are told", async ({
@@ -423,8 +427,8 @@ test.describe("the code-help site switch", () => {
 				"select metadata from audit_events where action = 'settings.code_help_updated' order by id desc limit 2",
 			);
 			expect(audit.map((row) => row.metadata)).toMatchObject([
-				{ from: false, to: true },
-				{ from: true, to: false },
+				{ from: [], to: ["python", "typescript"] },
+				{ from: ["python", "typescript"], to: [] },
 			]);
 		} finally {
 			await adminContext.close();

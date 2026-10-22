@@ -10,6 +10,7 @@ import {
 	createProject,
 	lockSharedState,
 	query,
+	resetCodeHelpLanguages,
 	SETTINGS_ROW_LOCK,
 	seedFile,
 	type TestProject,
@@ -294,9 +295,7 @@ export function holdCodeHelpSwitch(
 		releases.push(await lockSharedState(CODE_HELP_SWITCH_LOCK, { shared: !alone }));
 	});
 	hooks.afterAll(async () => {
-		if (alone) {
-			await query("update settings set code_help_enabled = true where id = 1");
-		}
+		if (alone) await resetCodeHelpLanguages();
 		for (const release of releases.reverse()) await release();
 		releases.length = 0;
 	});

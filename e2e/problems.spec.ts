@@ -265,7 +265,7 @@ test.describe("Problems tab with code help off", () => {
 			const settings = await response.json();
 			await route.fulfill({
 				response,
-				json: { ...settings, codeHelpEnabled: false },
+				json: { ...settings, codeHelpLanguages: [] },
 			});
 		});
 

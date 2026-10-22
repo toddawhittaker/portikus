@@ -8,7 +8,7 @@ import {
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocket from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
@@ -321,33 +321,107 @@ test.skipIf(skip)(
 	},
 );
 
+const setLanguages = (code_help_languages: string[]) =>
+	testDb.db
+		.updateTable("settings")
+		.set({ code_help_languages })
+		.where("id", "=", 1)
+		.execute();
+
 test.skipIf(skip)(
-	"with the site switch off the socket closes with 4416 and the agent is never called",
+	"with code help off for the language the socket closes with 4416 and the agent is never called",
 	async () => {
-		await testDb.db
-			.updateTable("settings")
-			.set({ code_help_enabled: false })
-			.where("id", "=", 1)
-			.execute();
-		const socket = await open(path("python"));
-		socket.ws.send(INITIALIZE);
-		expect(await socket.closed).toEqual({
-			code: CloseCode.LANGUAGE_SERVER_DISABLED,
-			reason: "code help is off",
-		});
+		await setLanguages([]);
+		for (const id of ["python", "ruff", "typescript"]) {
+			const socket = await open(path(id));
+			socket.ws.send(INITIALIZE);
+			expect(await socket.closed).toEqual({
+				code: CloseCode.LANGUAGE_SERVER_DISABLED,
+				reason: "code help is off",
+			});
+		}
 		expect(languageServerCalls()).toEqual([]);
 		expect(agent.languageServers.received).toEqual([]);
 
 		// Turned back on, the next socket opens.
-		await testDb.db
-			.updateTable("settings")
-			.set({ code_help_enabled: true })
-			.where("id", "=", 1)
-			.execute();
+		await setLanguages(["python", "typescript"]);
 		const again = await open(path("python"));
 		again.ws.send(INITIALIZE);
 		expect(JSON.parse(await again.next()).id).toBe(1);
 		again.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"each server follows its own language: ruff goes with python, typescript is separate",
+	async () => {
+		await setLanguages(["python"]);
+		const refused = await open(path("typescript"));
+		refused.ws.send(INITIALIZE);
+		expect(await refused.closed).toEqual({
+			code: CloseCode.LANGUAGE_SERVER_DISABLED,
+			reason: "code help is off",
+		});
+		expect(languageServerCalls()).toEqual([]);
+		for (const id of ["python", "ruff"]) {
+			const socket = await open(path(id));
+			socket.ws.send(INITIALIZE);
+			expect(JSON.parse(await socket.next()).id).toBe(1);
+			socket.ws.close();
+		}
+
+		await setLanguages(["typescript"]);
+		const python = await open(path("python"));
+		python.ws.send(INITIALIZE);
+		expect((await python.closed).code).toBe(CloseCode.LANGUAGE_SERVER_DISABLED);
+		const ruff = await open(path("ruff"));
+		ruff.ws.send(INITIALIZE);
+		expect((await ruff.closed).code).toBe(CloseCode.LANGUAGE_SERVER_DISABLED);
+		const typescript = await open(path("typescript"));
+		typescript.ws.send(INITIALIZE);
+		expect(JSON.parse(await typescript.next()).id).toBe(1);
+		typescript.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a refused socket releases its slot, so refusals never fill the cap",
+	async () => {
+		await setLanguages([]);
+		for (let i = 0; i < 6; i++) {
+			const socket = await open(path("python"));
+			expect((await socket.closed).code).toBe(CloseCode.LANGUAGE_SERVER_DISABLED);
+		}
+		await setLanguages(["python"]);
+		const socket = await open(path("python"));
+		socket.ws.send(INITIALIZE);
+		expect(JSON.parse(await socket.next()).id).toBe(1);
+		socket.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a failed read of the language set closes the socket with a server error and frees the slot",
+	async () => {
+		const real = testDb.db.selectFrom.bind(testDb.db);
+		const spy = vi.spyOn(testDb.db, "selectFrom").mockImplementation(((
+			table: Parameters<typeof real>[0],
+		) => {
+			if (table === "settings") throw new Error("database unavailable");
+			return real(table);
+		}) as typeof real);
+		try {
+			for (let i = 0; i < MAX_LANGUAGE_SERVER_SOCKETS + 1; i += 1) {
+				const socket = await open(path("python"));
+				expect(await socket.closed).toEqual({
+					code: CloseCode.SERVER_ERROR,
+					reason: "language server failed",
+				});
+			}
+		} finally {
+			spy.mockRestore();
+		}
+		expect(languageServerCalls()).toEqual([]);
 	},
 );
 

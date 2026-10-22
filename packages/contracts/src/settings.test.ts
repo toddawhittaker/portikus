@@ -31,7 +31,7 @@ const GUARD_SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
-	codeHelpEnabled: true,
+	codeHelpLanguages: ["python", "typescript"],
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
@@ -523,17 +523,63 @@ test("CreateDexUserRequest refuses a bad name, email, username or role, and extr
 	}
 });
 
-test("MeSettings carries the code-help switch and course profile, both optional", () => {
+test("MeSettings carries the code-help languages and course profile, both optional", () => {
 	const base = { ...EDITOR_SETTINGS_DEFAULTS, timezones: [] };
-	expect(MeSettings.parse(base).codeHelpEnabled).toBeUndefined();
+	expect(MeSettings.parse(base).codeHelpLanguages).toBeUndefined();
 	expect(
-		MeSettings.parse({ ...base, codeHelpEnabled: false, courseProfile: "traditional" }),
-	).toMatchObject({ codeHelpEnabled: false, courseProfile: "traditional" });
+		MeSettings.parse({
+			...base,
+			codeHelpLanguages: ["python"],
+			courseProfile: "traditional",
+		}),
+	).toMatchObject({ codeHelpLanguages: ["python"], courseProfile: "traditional" });
 	expect(MeSettings.safeParse({ ...base, courseProfile: "other" }).success).toBe(false);
 });
 
-test("UpdatePlatformSettingsRequest takes the code-help switch on its own", () => {
-	expect(UpdatePlatformSettingsRequest.parse({ codeHelpEnabled: false })).toEqual({
-		codeHelpEnabled: false,
+test("reading is lenient: an id that has not shipped still parses", () => {
+	const base = { ...EDITOR_SETTINGS_DEFAULTS, timezones: [] };
+	expect(
+		MeSettings.parse({ ...base, codeHelpLanguages: ["java"] }).codeHelpLanguages,
+	).toEqual(["java"]);
+	expect(
+		PlatformSettings.parse({
+			shutdownGraceSeconds: 600,
+			logLevel: null,
+			updatedAt: null,
+			...GUARD_SETTINGS,
+			codeHelpLanguages: ["java"],
+		}).codeHelpLanguages,
+	).toEqual(["java"]);
+});
+
+test("UpdatePlatformSettingsRequest takes the code-help languages on their own", () => {
+	expect(
+		UpdatePlatformSettingsRequest.parse({ codeHelpLanguages: ["python"] }),
+	).toEqual({
+		codeHelpLanguages: ["python"],
 	});
+	// An empty set is a request, not an empty body: it turns code help off.
+	expect(UpdatePlatformSettingsRequest.parse({ codeHelpLanguages: [] })).toEqual({
+		codeHelpLanguages: [],
+	});
+});
+
+test("writing is strict: unshipped ids, duplicates and non-arrays are refused", () => {
+	for (const codeHelpLanguages of [
+		["java"],
+		["python", "java"],
+		["python", "python"],
+		"python",
+		true,
+		null,
+		[1],
+	]) {
+		expect(
+			UpdatePlatformSettingsRequest.safeParse({ codeHelpLanguages }).success,
+			JSON.stringify(codeHelpLanguages),
+		).toBe(false);
+	}
+	expect(
+		UpdatePlatformSettingsRequest.safeParse({ codeHelpEnabled: false }).success,
+	).toBe(false);
 });

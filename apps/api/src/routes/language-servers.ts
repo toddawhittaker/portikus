@@ -1,6 +1,7 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
 	CloseCode,
+	CODE_HELP_LANGUAGE_OF_SERVER,
 	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	LanguageServerId,
@@ -108,9 +109,11 @@ export function registerLanguageServerSocket(
 			try {
 				const switches = siteSwitches(db);
 				track(switches);
-				enabled = (await switches).codeHelpEnabled;
+				enabled = (await switches).codeHelpLanguages.includes(
+					CODE_HELP_LANGUAGE_OF_SERVER[server.data],
+				);
 			} catch (error) {
-				request.log.error({ err: error }, "code help switch could not be read");
+				request.log.error({ err: error }, "code help languages could not be read");
 				release();
 				socket.close(CloseCode.SERVER_ERROR, "language server failed");
 				socket.resume();

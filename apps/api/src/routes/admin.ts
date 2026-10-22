@@ -33,6 +33,7 @@ import { queryAdminUsers } from "../admin/users-query.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
+import { knownCodeHelpLanguages } from "../site/switches.js";
 import { workspaceViews } from "../workspaces/workspace-view.js";
 
 /** The settings columns this route may write. */
@@ -60,7 +61,7 @@ const SETTINGS_COLUMNS = [
 	"idle_stop_minutes",
 	"keep_running_max_hours",
 	"voice_input_enabled",
-	"code_help_enabled",
+	"code_help_languages",
 	"account_email_enabled",
 	"acceptable_use_text",
 	"acceptable_use_version",
@@ -81,7 +82,7 @@ function toPlatformSettings(row: {
 	idle_stop_minutes: number;
 	keep_running_max_hours: number;
 	voice_input_enabled: boolean;
-	code_help_enabled: boolean;
+	code_help_languages: string[];
 	account_email_enabled: boolean;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
@@ -101,12 +102,31 @@ function toPlatformSettings(row: {
 		idleStopMinutes: row.idle_stop_minutes,
 		keepRunningMaxHours: row.keep_running_max_hours,
 		voiceInputEnabled: row.voice_input_enabled,
-		codeHelpEnabled: row.code_help_enabled,
+		codeHelpLanguages: knownCodeHelpLanguages(row.code_help_languages),
 		accountEmailEnabled: row.account_email_enabled,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
 		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
 	};
+}
+
+/**
+ * Add the language set to a settings change and its audit rows, unless the
+ * request leaves the set as it is. Both sides are in the contract's order, so
+ * equal sets compare equal whatever order they came in.
+ */
+function applyCodeHelpLanguages(
+	changes: SettingsUpdate,
+	audits: { action: string; details: Record<string, unknown> }[],
+	stored: readonly string[],
+	requested: readonly string[] | undefined,
+): void {
+	if (requested === undefined) return;
+	const from = knownCodeHelpLanguages(stored);
+	const to = knownCodeHelpLanguages(requested);
+	if (from.join() === to.join()) return;
+	changes.code_help_languages = to;
+	audits.push({ action: "settings.code_help_updated", details: { from, to } });
 }
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -224,7 +244,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				"settings.keep_running_updated",
 			],
 			["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
-			["codeHelpEnabled", "code_help_enabled", "settings.code_help_updated"],
 			[
 				"accountEmailEnabled",
 				"account_email_enabled",
@@ -237,6 +256,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			Object.assign(changes, { [column]: value });
 			audits.push({ action, details: { from: before[column], to: value } });
 		}
+		applyCodeHelpLanguages(
+			changes,
+			audits,
+			before.code_help_languages,
+			body.data.codeHelpLanguages,
+		);
 		if (body.data.acceptableUseText !== undefined) {
 			changes.acceptable_use_text = body.data.acceptableUseText;
 			// Any change to the text everyone sees asks everyone to accept again;

@@ -18,7 +18,7 @@ const SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
-	codeHelpEnabled: true,
+	codeHelpLanguages: ["python", "typescript"],
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
@@ -240,7 +240,7 @@ test("the code help switch is on by default, explains itself and saves as soon a
 	expect(card.textContent).toContain("Problems tab");
 	await waitFor(() => expect(box.checked).toBe(true));
 	fireEvent.click(box);
-	await waitFor(() => expect(puts).toEqual([{ codeHelpEnabled: false }]));
+	await waitFor(() => expect(puts).toEqual([{ codeHelpLanguages: [] }]));
 	expect(await screen.findByText("Code help off")).toBeTruthy();
 	// Voice input is a separate switch and was not touched.
 	expect(puts).toHaveLength(1);
@@ -274,7 +274,7 @@ test("while the code help switch saves, it shows the value asked for and ignores
 	await waitFor(() => expect(box.getAttribute("aria-disabled")).toBe("true"));
 	expect(box.checked).toBe(false);
 	fireEvent.click(box);
-	expect(puts).toEqual([{ codeHelpEnabled: false }]);
+	expect(puts).toEqual([{ codeHelpLanguages: [] }]);
 });
 
 test("the account email switch is off by default, says it needs SMTP, and saves as soon as it changes", async () => {
