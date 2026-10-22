@@ -75,6 +75,8 @@ export function DeleteDialog({
 					))}
 					confirmLabel="Delete"
 					pending={pending}
+					cancelDisabled={pending}
+					cancelDisabledReason="Wait for the deletes to finish"
 					returnFocusTo={confirm.returnTo}
 					onConfirm={() => onConfirm(confirm)}
 				>

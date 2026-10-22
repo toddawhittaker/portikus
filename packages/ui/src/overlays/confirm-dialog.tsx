@@ -25,6 +25,10 @@ export interface ConfirmDialogProps {
 	disabled?: boolean;
 	/** Why confirm is off, announced and tied to the button while `disabled`. */
 	disabledReason?: React.ReactNode;
+	/** Keeps Cancel and Escape from closing, while Cancel stays focusable; say why in `cancelDisabledReason`. */
+	cancelDisabled?: boolean;
+	/** Why Cancel is off, announced and tied to the button while `cancelDisabled`. */
+	cancelDisabledReason?: React.ReactNode;
 	inline?: boolean;
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
@@ -34,6 +38,41 @@ export interface ConfirmDialogProps {
 	destructive?: boolean;
 	/** Where focus goes on close; null falls back to the usual return. */
 	returnFocusTo?: () => HTMLElement | null;
+}
+
+/** Cancel, which can be held off: it stays focusable, its reason is its description, and it does not close. */
+function CancelButton({
+	id,
+	label,
+	disabled,
+	reason,
+	onCancel,
+}: {
+	id: string;
+	label: string;
+	disabled?: boolean;
+	reason?: React.ReactNode;
+	onCancel?: () => void;
+}) {
+	return (
+		<RadixAlertDialog.Cancel asChild>
+			<Button
+				variant="secondary"
+				aria-disabled={disabled ? true : undefined}
+				aria-describedby={disabled && reason ? `${id}-cancel-reason` : undefined}
+				onClick={(event) => {
+					// Stops the Cancel wrapper's close, which runs after this handler.
+					if (disabled) {
+						event.preventDefault();
+						return;
+					}
+					onCancel?.();
+				}}
+			>
+				{label}
+			</Button>
+		</RadixAlertDialog.Cancel>
+	);
 }
 
 /** The destructive confirmation. Render it inside a ConfirmDialogRoot. */
@@ -52,6 +91,8 @@ export function ConfirmDialog({
 	pending,
 	disabled,
 	disabledReason,
+	cancelDisabled,
+	cancelDisabledReason,
 	inline,
 	testId,
 	typedValue,
@@ -72,6 +113,9 @@ export function ConfirmDialog({
 				data-testid={testId}
 				onOpenAutoFocus={returnFocus.onOpenAutoFocus}
 				onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+				onEscapeKeyDown={(event) => {
+					if (cancelDisabled) event.preventDefault();
+				}}
 				className={`pk-dialog ${inline ? "pk-dialog--inline" : ""}`}
 			>
 				<div className="flex items-start gap-3 px-6 pt-6">
@@ -95,6 +139,15 @@ export function ConfirmDialog({
 							{disabled && disabledReason ? (
 								<p className="m-0 mt-2" data-testid="dialog-disabled-reason">
 									{disabledReason}
+								</p>
+							) : null}
+							{cancelDisabled && cancelDisabledReason ? (
+								<p
+									id={`${id}-cancel-reason`}
+									className="m-0 mt-2"
+									data-testid="dialog-cancel-disabled-reason"
+								>
+									{cancelDisabledReason}
 								</p>
 							) : null}
 						</div>
@@ -149,11 +202,13 @@ export function ConfirmDialog({
 					</div>
 				) : null}
 				<div className="flex justify-end gap-2 p-6">
-					<RadixAlertDialog.Cancel asChild>
-						<Button variant="secondary" onClick={onCancel}>
-							{cancelLabel ?? "Cancel"}
-						</Button>
-					</RadixAlertDialog.Cancel>
+					<CancelButton
+						id={id}
+						label={cancelLabel ?? "Cancel"}
+						disabled={cancelDisabled}
+						reason={cancelDisabledReason}
+						onCancel={onCancel}
+					/>
 					<Button
 						data-testid="dialog-confirm"
 						variant={destructive ? "danger" : "primary"}

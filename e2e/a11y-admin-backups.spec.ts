@@ -373,9 +373,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await dialog.getByTestId("dialog-confirm").click();
 		await expect(alert).toHaveText("");
 		// Cancel and Escape do nothing until the deletes finish.
-		await dialog.getByRole("button", { name: "Cancel" }).click();
+		const cancel = dialog.getByRole("button", { name: "Cancel" });
+		await expect(cancel).toHaveAttribute("aria-disabled", "true");
+		await expect(cancel).toHaveAccessibleDescription("Wait for the deletes to finish");
+		await cancel.focus();
+		await expect(cancel).toBeFocused();
+		// Playwright treats aria-disabled as not actionable, so the click is forced.
+		await cancel.click({ force: true });
 		await page.keyboard.press("Escape");
 		await expect(dialog).toBeVisible();
+		await expectNoViolations(page);
 		release();
 		await expect(alert).toContainText("This was not deleted:");
 		expect(await alert.textContent()).toContain(

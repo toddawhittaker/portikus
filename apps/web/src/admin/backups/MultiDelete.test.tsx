@@ -252,13 +252,20 @@ test("while the deletes run, Cancel and Escape leave the confirm open", async ()
 	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
 	await waitFor(() => expect(gates).toHaveLength(1));
 
-	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+	expect(cancel.getAttribute("aria-disabled")).toBe("true");
+	expect(cancel.hasAttribute("disabled")).toBe(false);
+	expect(
+		document.getElementById(cancel.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Wait for the deletes to finish");
+	fireEvent.click(cancel);
 	fireEvent.keyDown(dialog, { key: "Escape" });
 	expect(screen.getByTestId("backup-delete-dialog")).toBe(dialog);
 
 	gates[0]?.();
 	await within(dialog).findByText(/This was not deleted/);
-	// Once the run is over, Cancel works again.
-	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	// Once the run is over, Cancel works again, with no reason left.
+	expect(cancel.hasAttribute("aria-disabled")).toBe(false);
+	fireEvent.click(cancel);
 	await waitFor(() => expect(screen.queryByTestId("backup-delete-dialog")).toBeNull());
 });
