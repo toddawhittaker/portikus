@@ -256,8 +256,12 @@ jobs:
         run: |
           echo "Shards: $RESULT"
           [ "$RESULT" = "success" ]
+      # Pull requests need history to find the merge base for the
+      # changed-line coverage check; push runs never run that check.
       - uses: actions/checkout@v7
         if: needs.changes.outputs.app == 'true'
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
       - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.app == 'true'
       - uses: actions/setup-node@v7
@@ -275,6 +279,15 @@ jobs:
           merge-multiple: true
       - if: needs.changes.outputs.app == 'true'
         run: pnpm exec vitest --merge-reports --coverage
+      # At least 80% of the lines a pull request adds must be covered. Task
+      # pull requests into an epic are measured against the epic branch.
+      - name: Check coverage of changed lines
+        if: needs.changes.outputs.app == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --quiet origin "$BASE_REF"
+          node scripts/check-changed-coverage.mjs "origin/$BASE_REF"
       - name: Upload coverage report
         if: always() && needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v7
