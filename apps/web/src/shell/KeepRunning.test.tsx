@@ -99,6 +99,26 @@ test("with no hold, Keep running asks for a time within the cap", async () => {
 	);
 });
 
+test("the two fields share a top-aligned row, and the buttons sit on a row below", () => {
+	stubKeepRunning();
+	const workspace: Workspace = { ...WORKSPACE, keepRunningUntil: inHours(3) };
+	renderWithQuery(
+		<KeepRunningSection workspaceId={WORKSPACE.id} workspace={workspace} />,
+	);
+
+	const select = screen.getByRole("combobox", { name: "Keep running for" });
+	const time = screen.getByLabelText("Or until");
+	const fields = select.closest("form > div");
+	// Top-aligned, so the hint under the time box cannot push the select out of line.
+	expect(fields?.className).toContain("items-start");
+	expect(fields?.contains(time)).toBe(true);
+	const set = screen.getByTestId("keep-running-set");
+	const end = screen.getByTestId("keep-running-end");
+	expect(fields?.contains(set)).toBe(false);
+	expect(set.parentElement).toBe(end.parentElement);
+	expect(set.closest("form")).toBe(select.closest("form"));
+});
+
 test("with a hold, the end time shows and Don't keep running ends it", async () => {
 	const calls = stubKeepRunning();
 	const workspace: Workspace = { ...WORKSPACE, keepRunningUntil: inHours(3) };

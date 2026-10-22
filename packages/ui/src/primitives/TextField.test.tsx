@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { TextField } from "./TextField.js";
+import { TextField, UnitInput } from "./TextField.js";
 
 describe("TextField", () => {
 	it("renders with its label as the accessible name", () => {
@@ -97,5 +98,79 @@ describe("TextField", () => {
 		expect(plain?.className).toContain("leading-[18px]");
 		expect(withHelp?.parentElement?.className).toContain("h-[18px]");
 		expect(withHelp?.parentElement?.className).toContain("items-center");
+	});
+
+	describe("unit", () => {
+		it("shows the unit after the box and keeps the label as the name", () => {
+			render(<TextField id="grace" label="Disconnect grace" unit="minutes" />);
+			const input = screen.getByLabelText("Disconnect grace");
+			const unit = screen.getByText("minutes");
+			expect(input.getAttribute("inputmode")).toBe("numeric");
+			expect(unit.id).toBe("grace-unit");
+			// The unit follows the box in the same row.
+			expect(input.nextElementSibling).toBe(unit);
+		});
+
+		it("puts the unit in the description, before the hint and the error", () => {
+			render(
+				<TextField
+					id="grace"
+					label="Disconnect grace"
+					unit="minutes"
+					hint="Default 10."
+					error="Use a whole number."
+				/>,
+			);
+			const input = screen.getByLabelText("Disconnect grace");
+			expect(input.getAttribute("aria-describedby")).toBe(
+				"grace-unit grace-hint grace-err",
+			);
+			expect(input.getAttribute("aria-invalid")).toBe("true");
+			// Not hidden from assistive technology, so the description is read.
+			expect(screen.getByText("minutes").closest("[aria-hidden]")).toBeNull();
+		});
+
+		it("leaves a field with no unit as it was", () => {
+			render(<TextField id="name" label="Folder name" hint="Hint." />);
+			const input = screen.getByLabelText("Folder name");
+			expect(input.getAttribute("aria-describedby")).toBe("name-hint");
+			expect(input.parentElement?.className).toContain("pk-field");
+			expect(input.className).toContain("w-full");
+		});
+	});
+});
+
+describe("UnitInput", () => {
+	it("works without a TextField, named by the caller's own label", () => {
+		render(
+			<>
+				<label htmlFor="idle">Idle stop</label>
+				<UnitInput id="idle" unit="minutes" hint="Default 60." defaultValue="45" />
+				<p id="idle-hint">Default 60.</p>
+			</>,
+		);
+		const input = screen.getByLabelText("Idle stop") as HTMLInputElement;
+		expect(input.value).toBe("45");
+		expect(input.getAttribute("aria-describedby")).toBe("idle-unit idle-hint");
+		expect(document.getElementById("idle-unit")?.textContent).toBe("minutes");
+	});
+
+	it("is a narrow box a parent can widen, and its unit does not shrink", () => {
+		render(<UnitInput id="mem" unit="MiB" aria-label="Memory" />);
+		const input = screen.getByLabelText("Memory");
+		expect(input.className).toContain("w-[5.5rem]");
+		expect(input.className).not.toContain("w-full");
+		expect(screen.getByText("MiB").className).toContain("shrink-0");
+	});
+
+	it("forwards a ref and typing to the input", () => {
+		const ref = createRef<HTMLInputElement>();
+		const onChange = vi.fn();
+		render(
+			<UnitInput id="n" unit="%" aria-label="Share" ref={ref} onChange={onChange} />,
+		);
+		fireEvent.change(screen.getByLabelText("Share"), { target: { value: "25" } });
+		expect(ref.current).toBe(screen.getByLabelText("Share"));
+		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 });

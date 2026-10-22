@@ -15,18 +15,26 @@ export interface FieldMessagesProps {
 	warning?: React.ReactNode;
 }
 
+interface FieldDescribedByOptions extends FieldMessagesProps {
+	/** The control has a unit beside it, in an element with id `${id}-unit`. */
+	unit?: boolean;
+}
+
 /**
- * The control's aria-describedby: the hint first, then the error or warning,
- * so every field reads in the same order.
+ * The control's aria-describedby: the unit first, so "minutes" is read right
+ * after the value, then the hint, then the error or warning, so every field
+ * reads in the same order (SPEC.md section 25.8).
  */
 export function fieldDescribedBy({
 	id,
 	hint,
 	error,
 	warning,
-}: FieldMessagesProps): string | undefined {
+	unit,
+}: FieldDescribedByOptions): string | undefined {
 	return (
 		[
+			unit ? `${id}-unit` : null,
 			hint ? `${id}-hint` : null,
 			error ? `${id}-err` : null,
 			!error && warning ? `${id}-warn` : null,
