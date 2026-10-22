@@ -59,14 +59,20 @@ REHEARSAL_VCPUS ?= 12
 REHEARSAL_MEMORY_MB ?= 24576
 
 # tofu_attr TYPE,NAME,PATH -- one attribute of a resource, read straight from
-# the state file so no `tofu init` is needed; PATH is dot-separated.
-tofu_attr = $(shell python3 -c 'import functools, json, sys; a = next(r["instances"][0]["attributes"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == sys.argv[2] and r["name"] == sys.argv[3]); print(functools.reduce(lambda v, k: v[int(k)] if k.isdigit() else v[k], sys.argv[4].split("."), a))' '$(TOFU_STATE)' $(1) $(2) $(3) 2>/dev/null)
+# TOFU_READ_STATE so no `tofu init` is needed; PATH is dot-separated.
+tofu_attr = $(shell python3 -c 'import functools, json, sys; a = next(r["instances"][0]["attributes"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == sys.argv[2] and r["name"] == sys.argv[3]); print(functools.reduce(lambda v, k: v[int(k)] if k.isdigit() else v[k], sys.argv[4].split("."), a))' '$(TOFU_READ_STATE)' $(1) $(2) $(3) 2>/dev/null)
 
 ifeq ($(TOFU_ENV),dev-libvirt)
 TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
 TOFU_INIT_ARGS :=
+# A git worktree has no state of its own; read the pilot's from the main
+# checkout, the parent of the repository's common git directory. Only reads
+# fall back, tofu itself still uses TOFU_STATE.
+MAIN_CHECKOUT := $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/..)
+TOFU_READ_STATE := $(firstword $(wildcard $(TOFU_STATE)) $(MAIN_CHECKOUT)/$(TOFU_STATE))
 else ifeq ($(TOFU_ENV),rehearsal-libvirt)
 TOFU_STATE := $(REHEARSAL_STATE)
+TOFU_READ_STATE := $(REHEARSAL_STATE)
 TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
 export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
 export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
@@ -95,7 +101,7 @@ $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
 
 # Read straight from the state file, so no `tofu init` is needed to learn it.
-tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
+tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_READ_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(call tofu_attr,libvirt_domain,vm,name)
 
 # First recipe line of every OpenTofu target: name the VM, and never let a
