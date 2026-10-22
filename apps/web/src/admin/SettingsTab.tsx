@@ -31,7 +31,10 @@ export function SettingsTab() {
 				<div className="@container/settings">
 					<div className="grid grid-cols-[minmax(0,1fr)] gap-4 @min-[62rem]/settings:grid-cols-[11rem_minmax(0,58rem)] @min-[62rem]/settings:gap-6">
 						<SectionIndex />
-						<div className="grid min-w-0 gap-4" data-testid="settings-sections">
+						<div
+							className="grid min-w-0 max-w-[58rem] gap-4"
+							data-testid="settings-sections"
+						>
 							<StopSection />
 							<GuardSection />
 							<ToolsSection />
