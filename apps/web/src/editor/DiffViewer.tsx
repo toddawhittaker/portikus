@@ -82,8 +82,10 @@ export function DiffViewer({
 
 	useEffect(() => {
 		let disposed = false;
+		let loaded: typeof Monaco | null = null;
 		void getMonaco().then((monaco) => {
 			if (disposed || !host.current) return;
+			loaded = monaco;
 			const language = languageForPath(monaco, path);
 			const models = {
 				original: monaco.editor.createModel(latest.current.original, language),
@@ -123,6 +125,7 @@ export function DiffViewer({
 		return () => {
 			disposed = true;
 			editorRef.current?.dispose();
+			if (loaded) restoreHoverDelegates(loaded);
 			modelsRef.current?.original.dispose();
 			modelsRef.current?.modified.dispose();
 			editorRef.current = null;
@@ -189,4 +192,15 @@ function nameSides(
 	editor
 		.getModifiedEditor()
 		.updateOptions({ ariaLabel: editorAriaLabel(`Diff, ${modifiedLabel}`, path) });
+}
+
+/**
+ * Every Monaco 0.57 editor, when built, points a page-wide hover factory at
+ * the services it was built with. The diff editor's two inner editors are
+ * built with services the diff editor disposes, so after it closes every
+ * menu and toolbar on the page throws as it opens. Building and dropping a
+ * plain editor points the factory back at the page's lasting services.
+ */
+function restoreHoverDelegates(monaco: typeof Monaco): void {
+	monaco.editor.create(document.createElement("div")).dispose();
 }

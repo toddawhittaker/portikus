@@ -2,8 +2,8 @@ import { expect, type Page, test } from "@playwright/test";
 import { expectNoViolations, loginAs, routeApi } from "./helpers";
 
 /**
- * Automated accessibility checks (SPEC.md section 25.8) on the Notifications
- * section of the Settings tab, in both themes. The page data and the test
+ * Automated accessibility checks (SPEC.md section 25.8) on the Email and
+ * alerts section of the Settings tab, in both themes. The page data and the test
  * answer are served fixed, so these checks never write the settings file
  * that admin-notifications.spec.ts plays the root job on.
  */
@@ -42,7 +42,7 @@ const PAGE = {
 };
 
 for (const colorScheme of ["light", "dark"] as const) {
-	test(`the Notifications section has no automatic accessibility violations (${colorScheme})`, async ({
+	test(`the Email and alerts section has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
 		await routeApi(page, "**/admin/notifications", (route) =>
@@ -54,8 +54,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
 		await page.goto("/admin/settings");
-		const section = page.getByTestId("notify-section");
-		await expect(section.getByLabel("Mail server")).toBeVisible({ timeout: 15_000 });
+		const section = page.getByTestId("settings-mail");
+		await expect(section.getByLabel("Host name")).toBeVisible({ timeout: 15_000 });
 
 		// Every channel's fields, a refused job, a test result, a warning and an error.
 		await section
@@ -71,13 +71,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 			section.getByTestId("notify-ntfy").getByText(/the stored token will be cleared/),
 		).toBeVisible();
 		// The first Save stops at the token warning; the second checks the form.
-		await section.getByRole("button", { name: "Save notification settings" }).click();
+		await section.getByRole("button", { name: "Save email and alerts" }).click();
 		await expect(section.getByLabel("Access token")).toBeFocused();
-		await section.getByRole("button", { name: "Save notification settings" }).click();
+		await section.getByRole("button", { name: "Save email and alerts" }).click();
 		await expect(section.getByLabel("Workflows webhook URL")).toBeFocused();
 		await expect(section.getByTestId("notify-job")).toContainText("Not saved.");
 
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 	});
 }
 
@@ -95,8 +95,8 @@ async function openWith(
 	);
 	await routeApi(page, "**/admin/alerts/test", (route) => route.fulfill(tested));
 	await page.goto("/admin/settings");
-	const section = page.getByTestId("notify-section");
-	await expect(section.getByLabel("Mail server")).toBeVisible({ timeout: 15_000 });
+	const section = page.getByTestId("settings-mail");
+	await expect(section.getByLabel("Host name")).toBeVisible({ timeout: 15_000 });
 	return section;
 }
 
@@ -117,9 +117,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 		await expect(section.getByTestId("notify-job")).toContainText("Saving.");
 		await expect(
-			section.getByRole("button", { name: "Save notification settings" }),
+			section.getByRole("button", { name: "Save email and alerts" }),
 		).toHaveAttribute("aria-disabled", "true");
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 
 		// A job queued ten minutes ago: it did not finish.
 		await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -133,7 +133,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(section.getByTestId("notify-job")).toContainText(
 			"The last change did not finish",
 		);
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 
 		// Too many tests in a minute.
 		await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -153,7 +153,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(section.getByTestId("notify-webhook-test-result")).toHaveText(
 			"Not sent: too many test alerts just now. Try again in a minute.",
 		);
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 	});
 
 	test(`the section without the alerts job, and when it cannot load, has no automatic accessibility violations (${colorScheme})`, async ({
@@ -168,12 +168,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 			}),
 		);
 		await page.goto("/admin/settings");
-		const section = page.getByTestId("notify-section");
+		const section = page.getByTestId("settings-mail");
 		await expect(section.getByTestId("notify-off")).toContainText(
 			"This site runs without the alerts job",
 			{ timeout: 15_000 },
 		);
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 
 		await page.unrouteAll({ behavior: "ignoreErrors" });
 		await routeApi(page, "**/admin/notifications", (route) =>
@@ -184,7 +184,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		await page.goto("/admin/settings");
 		await expect(section.getByRole("alert")).toBeVisible({ timeout: 15_000 });
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 	});
 
 	test(`with root shells off, the root-shell alert says so and has no automatic accessibility violations (${colorScheme})`, async ({
@@ -199,6 +199,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(
 			section.getByRole("checkbox", { name: /^Alert when a root shell opens/ }),
 		).toHaveAccessibleDescription(/Root shells are off on this server\./);
-		await expectNoViolations(page, '[data-testid="notify-section"]');
+		await expectNoViolations(page, '[data-testid="settings-mail"]');
 	});
 }

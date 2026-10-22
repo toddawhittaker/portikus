@@ -9,7 +9,6 @@ import {
 	loginAs,
 	query,
 	SETTINGS_ROW_LOCK,
-	toast,
 	VOICE_SWITCH_LOCK,
 } from "./helpers";
 import { fakeSpeech, openTerminal } from "./voice-helpers";
@@ -31,13 +30,14 @@ test.afterAll(async () => {
 
 async function setVoice(page: Page, on: boolean) {
 	await page.goto("/admin/settings");
-	const card = page.getByRole("region", { name: "Voice input" });
+	const card = page.getByRole("region", { name: "Student tools" });
 	const box = card.getByRole("checkbox", { name: /Allow voice input/ });
 	await expect(box).toBeEnabled({ timeout: 15_000 });
 	await expect(box).toBeChecked({ checked: !on });
 	await box.click();
-	await expect(toast(page, on ? "Voice input on" : "Voice input off")).toBeVisible();
 	await expect(box).toBeChecked({ checked: on });
+	await card.getByRole("button", { name: "Save student tools" }).click();
+	await expect(page.getByTestId("settings-tools-state")).toHaveText("Saved.");
 }
 
 test("an administrator turns voice input off, students see no microphone, and on again brings it back", async ({

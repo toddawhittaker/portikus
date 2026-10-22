@@ -124,9 +124,8 @@ export const ADMIN_HELP: HelpPart = {
 					<strong>Settings</strong> and can be changed for one workspace from its panel.
 					A student can choose <strong>Keep running</strong> to hold their workspace up
 					while away; neither timer counts until the hold ends.{" "}
-					<strong>Longest keep running (hours)</strong> caps the hold (default 12; 0
-					turns it off), and <strong>Guard settings</strong> changes it for one
-					workspace.
+					<strong>Longest keep running</strong> caps the hold (default 12 hours; 0 turns
+					it off), and <strong>Guard settings</strong> changes it for one workspace.
 				</p>
 			),
 		},
@@ -523,20 +522,32 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<>
 					<p>
-						<strong>Settings</strong> holds the site-wide rules: when workspaces stop,
-						how heavy use is slowed, and the acceptable-use statement. Saving a new
-						statement asks everyone, you included, to accept it before they continue.
-						Most rules can be changed for one workspace from its panel on{" "}
+						<strong>Settings</strong> holds the site-wide rules in five sections: when
+						workspaces stop, the resource guard, student tools, the acceptable-use
+						statement, and email and alerts. Each section has its own Save button, and
+						nothing is saved until you press it. A changed field says it is not saved
+						and what it was; <strong>Discard changes</strong> puts the saved values
+						back. If you leave the tab with unsaved changes, Portikus asks first. Most
+						rules can be changed for one workspace from its panel on{" "}
 						<strong>Users</strong>.
 					</p>
 					<p>
-						<strong>Code help</strong> turns the editor's language servers on or off for
-						the whole site. It is on by default. Each student's workspace runs the
-						servers for Python, TypeScript and JavaScript, so they use memory: a full
-						class needs a server with 16 GiB. When you turn it off, the editor is plain,
-						with no Problems tab, and no new language server starts. Students see the
-						change when they next load the page or return to the window. Course
-						interfaces do not change it. Each change is written to the audit log.
+						Saving a new acceptable-use statement asks everyone, you included, to accept
+						it before they continue. <strong>Restore built-in text…</strong> saves at
+						once, after it asks.
+					</p>
+					<p>
+						Under <strong>Student tools</strong>, tick each language that gets code help
+						in the editor: completion, hover, rename, format and error checking. Python
+						and TypeScript with JavaScript are on by default. Each one runs a language
+						server in every student's workspace, so it costs memory, and the estimate
+						under the list shows how many students this server's memory holds with the
+						languages ticked. It is a worst case and counts memory only. A language left
+						unticked still opens in the editor, plainly, and no new server starts for
+						it. Students see a change when they next load the page or return to the
+						window. Languages marked <strong>Coming later</strong> cannot be ticked yet.
+						Course interfaces do not change this, and each change is written to the
+						audit log.
 					</p>
 				</>
 			),
@@ -547,13 +558,14 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<>
 					<p>
-						The <strong>Notifications</strong> section of <strong>Settings</strong>{" "}
+						The <strong>Email and alerts</strong> section of <strong>Settings</strong>{" "}
 						sends warnings and failures that need a person, and a Portikus service
 						stopping, to email, Pushover, ntfy, Microsoft Teams or a webhook. The
 						webhook also works for Slack, Mattermost, Google Chat and Discord. Email
-						needs an SMTP server on port 587 or 465 and a list of recipients. Every
-						other address must be an <code className="pk-mono-body">https://</code>{" "}
-						address on port 443.
+						alerts and account email both send through the mail server set at the top of
+						the section, on port 587 or 465; email alerts also need a list of
+						recipients. Every other address must be an{" "}
+						<code className="pk-mono-body">https://</code> address on port 443.
 					</p>
 					<p>
 						Passwords, tokens and secret addresses are never shown again: each field

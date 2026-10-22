@@ -97,3 +97,25 @@ test("each meter takes its name from its visible label, not a copy of it", () =>
 	expect(label?.textContent).toBe("Recovery");
 	expect(label?.closest(".pk-meter-label")).not.toBeNull();
 });
+
+test("every meter puts its value under the bar, so no bar's length depends on its text", () => {
+	render(
+		<StorageMeters
+			storage={{
+				home: at(5),
+				docker: at(96),
+				recovery: { usedBytes: 512 * GB, totalBytes: 1000 * GB },
+			}}
+		/>,
+	);
+	const lines = screen.getAllByRole("meter").map((meter) => {
+		const line = meter.closest(".pk-meter-line");
+		expect(line?.querySelector(".pk-meter-text")).not.toBeNull();
+		return line?.className ?? "";
+	});
+	expect(lines).toHaveLength(3);
+	for (const line of lines) {
+		expect(line).toContain("grid!");
+		expect(line).toContain("grid-cols-1");
+	}
+});

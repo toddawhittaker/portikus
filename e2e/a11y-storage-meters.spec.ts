@@ -83,3 +83,44 @@ for (const theme of ["light", "dark"] as const) {
 		await expectNoViolations(page, '[aria-labelledby="detail-resources"]');
 	});
 }
+
+// Value texts of very different widths: a short one, a long one with "nearly
+// full", and a four-digit size.
+const UNEVEN_FIGURES = {
+	home: { usedBytes: Math.round(4.1 * GIB), totalBytes: 20 * GIB },
+	docker: { usedBytes: 96 * GIB, totalBytes: 100 * GIB },
+	recovery: { usedBytes: 512 * GIB, totalBytes: 1000 * GIB },
+};
+
+for (const theme of ["light", "dark"] as const) {
+	for (const [name, width] of [
+		["default", 1280],
+		["narrow", 320],
+	] as const) {
+		test(`the three storage bars are the same length whatever their value text (${theme}, ${name})`, async ({
+			page,
+			context,
+		}) => {
+			await context.addInitScript((value) => {
+				localStorage.setItem("pk-theme", value);
+			}, theme);
+			const student = await createStudent(context);
+			await seedStorage(student.workspaceId, UNEVEN_FIGURES);
+			await page.setViewportSize({ width, height: 900 });
+			await page.goto(workspacePath(student.workspaceId));
+			await page.getByTestId("workspace-status").click();
+			const dialog = page.getByTestId("dialog-workspace-status");
+			const bars = dialog.locator('[data-testid="storage-meters"] meter');
+			await expect(bars).toHaveCount(3);
+			const widths = await bars.evaluateAll((nodes) =>
+				nodes.map((node) => node.getBoundingClientRect().width),
+			);
+			expect(widths.every((w) => w > 0)).toBe(true);
+			for (const w of widths)
+				expect(Math.abs(w - (widths[0] as number))).toBeLessThan(0.5);
+			await page.screenshot({
+				path: `screenshots/storage-meters-${theme}-${name}.png`,
+			});
+		});
+	}
+}

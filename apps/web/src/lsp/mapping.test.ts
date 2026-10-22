@@ -142,6 +142,25 @@ test("every image form is escaped in hover Markdown, keeping its alt text", () =
 	expect(sanitizeMarkdown('x <img src="https://evil.example/p.png"> y')).toBe("x  y");
 });
 
+test("removing an img tag cannot join the pieces of an image", () => {
+	const safe = sanitizeMarkdown("!<img src=x>[a](https://evil.example/p.png)");
+	expect(safe).toBe("!\\[a](https://evil.example/p.png)");
+	expect(safe).not.toMatch(/(^|[^\\])!\[/);
+});
+
+test("filtering a link cannot join its text to the next link as an image", () => {
+	// Dropping the unsafe link leaves its text, which ends in "!" and now
+	// sits right before a real link.
+	for (const markdown of [
+		"[a!](javascript:)[x](https://evil.example/p.png)",
+		"<a:b!>[x](https://evil.example/p.png)",
+	]) {
+		const safe = sanitizeMarkdown(markdown);
+		expect(safe, markdown).not.toMatch(/(^|[^\\])!\[/);
+		expect(safe).toContain("!\\[x](https://evil.example/p.png)");
+	}
+});
+
 test("only http and https links are kept", () => {
 	expect(sanitizeMarkdown("[docs](https://docs.python.org)")).toBe(
 		"[docs](https://docs.python.org)",
@@ -163,7 +182,7 @@ test("a link after a literal backslash is still filtered", () => {
 	// So is one after "!" and a backslash, which a lookbehind for the image escape would skip.
 	expect(sanitizeMarkdown("!\\\\[a](file:///x)")).toBe("!\\\\a");
 	// An image with a non-http target keeps its alt text and loses the target.
-	expect(sanitizeMarkdown("![a](file:///x)")).toBe("!\\a");
+	expect(sanitizeMarkdown("![a](file:///x)")).toBe("!a");
 });
 
 test("plain text and code blocks cannot become links or HTML", () => {

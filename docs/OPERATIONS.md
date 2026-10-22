@@ -1699,14 +1699,16 @@ keeps its memory near its limit, and stops one nobody has used for a
 while (SPEC.md sections 6.4 and 19.4, ADR 0032). Every value is a
 runtime setting; nothing is set in Ansible or an environment file.
 
-**Settings** (admin area, Settings tab):
+**Settings** (admin area, Settings tab). The first five are in the
+**Resource guard** section, saved with **Save resource guard**. **Idle stop**
+is in **When workspaces stop**, saved with **Save stop times**.
 
 | Setting | Default | Allowed |
 |---|---|---|
-| CPU threshold | 80% | 1 to 100 (100 turns the CPU check off) |
-| Memory threshold | 90% | 1 to 100 (100 turns the memory check off) |
-| Window | 30 minutes | 5 to 240 minutes |
-| Throttle share | 25% of the CPU limit | 5 to 100 (100 means the throttle changes nothing) |
+| Heavy CPU use | 80% | 1 to 100 (100 turns the CPU check off) |
+| High memory | 90% | 1 to 100 (100 turns the memory check off) |
+| Measuring period | 30 minutes | 5 to 240 minutes |
+| Speed while slowed | 25% of the CPU limit | 5 to 100 (100 means the throttle changes nothing) |
 | Idle stop | 60 minutes | 0 (never) or 10 to 1440 minutes |
 
 A change takes effect within a minute. Lowering the idle time never
@@ -1746,8 +1748,9 @@ files there can raise the memory flag.
 **The acceptable-use statement.** Every account, administrators
 included, accepts it at first sign-in and again after any change to its
 text. Edit it in the Settings tab, "Acceptable use": plain text, blank
-lines between paragraphs, at most 10,000 characters. **Reset to
-default** returns to the built-in text. Saving any change sends
+lines between paragraphs, at most 10,000 characters. **Restore built-in
+text…** returns to the built-in text, after a confirmation, and saves at
+once. Saving any change sends
 everyone, including people signed in right now, to the statement at
 their next request; their workspaces keep running. Make changes outside
 class time where you can.
@@ -1949,7 +1952,7 @@ is on by default, and an upgrade turns it on for an existing site.
   shown is recorded anywhere. If the API crashes, an opened row has no
   closed row, and the journal line is the record. An optional alert on
   each open is the "Alert when a root shell opens" box under
-  Settings, Notifications.
+  Settings, Email and alerts.
 - **When a shell ends.**
   - Closing a pane, reloading the page or leaving the admin area hangs
     the shell up (SIGHUP). A tmux you started keeps running.
@@ -1975,7 +1978,7 @@ is on by default, and an upgrade turns it on for an existing site.
 
 ## Alert settings
 
-Alert channels are set on the admin page, Settings, Notifications, and
+Alert channels are set on the admin page, Settings, Email and alerts, and
 kept in `/etc/portikus/notify.json` (root:portikus-notify, 0640). The
 API and worker read it at each send, so changes need no restart and
 alerts still go out when PostgreSQL is down. A root job,

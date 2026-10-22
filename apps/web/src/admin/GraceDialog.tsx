@@ -90,9 +90,9 @@ export function GraceDialog({
 				>
 					<TextField
 						id="grace-minutes"
-						label="Disconnect grace (minutes)"
+						label="Disconnect grace"
+						unit="minutes"
 						inputMode="decimal"
-						className="[&>input]:w-40"
 						data-testid="grace-dialog-minutes"
 						hint={[site, "0 keeps it running until it is stopped."]
 							.filter(Boolean)

@@ -83,4 +83,23 @@ describe("Checkbox", () => {
 		expect(input.disabled).toBe(false);
 		expect(input.getAttribute("aria-disabled")).toBe("true");
 	});
+
+	it("cancels the click while unavailable, and not otherwise", () => {
+		const { rerender } = render(
+			<Checkbox label="Go" checked={false} ariaDisabled onChange={() => {}} />,
+		);
+		const input = screen.getByRole("checkbox", { name: "Go" }) as HTMLInputElement;
+		// fireEvent returns false when the default action was prevented.
+		expect(fireEvent.click(input)).toBe(false);
+		rerender(<Checkbox label="Go" checked={false} onChange={() => {}} />);
+		expect(fireEvent.click(input)).toBe(true);
+	});
+
+	it("draws the unavailable box and its label muted", () => {
+		const { container } = render(<Checkbox label="Go" ariaDisabled />);
+		const box = container.querySelector(".pk-check-box");
+		expect(box?.className).toContain("peer-aria-disabled:bg-surface-sunken");
+		expect(box?.className).toContain("peer-aria-disabled:border-line");
+		expect(container.querySelector("label")?.className).toContain("text-ink-muted");
+	});
 });

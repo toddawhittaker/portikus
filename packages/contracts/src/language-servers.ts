@@ -9,6 +9,22 @@ export const LANGUAGE_SERVER_IDS = ["python", "typescript", "ruff"] as const;
 export const LanguageServerId = z.enum(LANGUAGE_SERVER_IDS);
 export type LanguageServerId = z.infer<typeof LanguageServerId>;
 
+/**
+ * The languages an administrator can turn code help on for. A language is
+ * listed here only when it ships (SPEC.md section 13.6, ADR 0067).
+ */
+export const CODE_HELP_LANGUAGE_IDS = ["python", "typescript"] as const;
+export const CodeHelpLanguage = z.enum(CODE_HELP_LANGUAGE_IDS);
+export type CodeHelpLanguage = z.infer<typeof CodeHelpLanguage>;
+
+/** Total over every server, so a server added without a language does not compile. */
+export const CODE_HELP_LANGUAGE_OF_SERVER: Record<LanguageServerId, CodeHelpLanguage> =
+	{
+		python: "python",
+		ruff: "python",
+		typescript: "typescript",
+	};
+
 /** Largest server-to-browser message the agent forwards; a bigger one becomes a JSON-RPC error. */
 export const LANGUAGE_SERVER_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 

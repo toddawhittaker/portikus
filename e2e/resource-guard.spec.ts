@@ -48,8 +48,8 @@ test("an administrator sets a workspace override and sees it", async ({
 	const dialog = page.getByRole("dialog", {
 		name: `Resource guard for ${student.name}'s workspace`,
 	});
-	await dialog.getByLabel("CPU threshold (%)").fill("95");
-	await dialog.getByLabel("Idle stop (minutes)").fill("0");
+	await dialog.getByRole("textbox", { name: "Heavy CPU use" }).fill("95");
+	await dialog.getByRole("textbox", { name: "Idle stop" }).fill("0");
 	await dialog.getByTestId("guard-save").click();
 	await expect(toast(page, "Guard settings saved")).toBeVisible();
 

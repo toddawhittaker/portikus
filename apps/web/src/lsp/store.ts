@@ -50,7 +50,16 @@ interface CodeHelpState {
 		path: string,
 		problems: Problem[],
 	) => void;
+	/** Forget one server's status, when its language is refused. */
+	clearServer: (projectId: string, server: LanguageServerId) => void;
 	clearProject: (projectId: string) => void;
+	/**
+	 * The status bars showing one server's state, oldest first, by
+	 * "project:server". Only the first announces it (SPEC.md §25.8).
+	 */
+	viewers: Record<string, string[]>;
+	addViewer: (key: string, viewer: string) => void;
+	removeViewer: (key: string, viewer: string) => void;
 }
 
 export const useCodeHelpStore = create<CodeHelpState>()((set) => ({
@@ -73,6 +82,24 @@ export const useCodeHelpStore = create<CodeHelpState>()((set) => ({
 			if (Object.keys(byServer).length > 0) project[path] = byServer;
 			else delete project[path];
 			return { problems: { ...state.problems, [projectId]: project } };
+		}),
+	clearServer: (projectId, server) =>
+		set((state) => {
+			const { [server]: _gone, ...rest } = state.status[projectId] ?? {};
+			return { status: { ...state.status, [projectId]: rest } };
+		}),
+	viewers: {},
+	addViewer: (key, viewer) =>
+		set((state) => {
+			const current = state.viewers[key] ?? [];
+			if (current.includes(viewer)) return state;
+			return { viewers: { ...state.viewers, [key]: [...current, viewer] } };
+		}),
+	removeViewer: (key, viewer) =>
+		set((state) => {
+			const rest = (state.viewers[key] ?? []).filter((id) => id !== viewer);
+			const { [key]: _gone, ...others } = state.viewers;
+			return { viewers: rest.length > 0 ? { ...others, [key]: rest } : others };
 		}),
 	clearProject: (projectId) =>
 		set((state) => {

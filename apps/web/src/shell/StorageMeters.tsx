@@ -59,6 +59,8 @@ export function StorageMeterRow({
 						aria-describedby={critical ? stepId : undefined}
 						valueText={`${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`}
 						high={nearlyFullAbove(figure.totalBytes)}
+						// One column puts the value under the bar, so every bar spans the same width whatever its text.
+						className="grid! grid-cols-1"
 					/>
 				</span>
 			) : (

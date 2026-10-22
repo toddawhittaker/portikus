@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AdminAccountMarkers, AdminWorkspaceSummary } from "./admin.js";
 import { Role } from "./auth.js";
 import { CourseProfile } from "./courses.js";
+import { CodeHelpLanguage } from "./language-servers.js";
 import {
 	CpuIdleLiftMinutes,
 	CpuIdleLiftPercent,
@@ -49,8 +50,8 @@ export const PlatformSettings = z.object({
 	keepRunningMaxHours: KeepRunningMaxHours,
 	/** Off hides the microphone for everyone (SPEC.md §25.10). */
 	voiceInputEnabled: z.boolean(),
-	/** Off turns code help off for everyone: no language-server sockets (SPEC.md §13.6). */
-	codeHelpEnabled: z.boolean(),
+	/** The languages code help is on for; none means off for everyone (SPEC.md §13.6). */
+	codeHelpLanguages: z.array(z.string()),
 	/** Off means no reset or invitation email is sent, even with SMTP set (SPEC.md §5.3). */
 	accountEmailEnabled: z.boolean(),
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
@@ -95,7 +96,10 @@ export const UpdatePlatformSettingsRequest = z
 		idleStopMinutes: IdleStopMinutes.optional(),
 		keepRunningMaxHours: KeepRunningMaxHours.optional(),
 		voiceInputEnabled: z.boolean().optional(),
-		codeHelpEnabled: z.boolean().optional(),
+		codeHelpLanguages: z
+			.array(CodeHelpLanguage)
+			.refine((ids) => new Set(ids).size === ids.length, "Languages must be unique")
+			.optional(),
 		accountEmailEnabled: z.boolean().optional(),
 		acceptableUseText: z
 			.string()
@@ -317,8 +321,8 @@ export const MeSettings = EditorSettings.extend({
 	appearanceStored: z.boolean().optional(),
 	/** The site switch for voice input; missing means on. */
 	voiceInputEnabled: z.boolean().optional(),
-	/** The site switch for code help; missing means on. */
-	codeHelpEnabled: z.boolean().optional(),
+	/** The languages code help is on for; missing means none. */
+	codeHelpLanguages: z.array(z.string()).optional(),
 	/** The fullest profile among the user's courses; read-only, missing means agentic. */
 	courseProfile: CourseProfile.optional(),
 });

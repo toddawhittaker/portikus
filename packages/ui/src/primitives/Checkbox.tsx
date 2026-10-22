@@ -10,7 +10,7 @@ export interface CheckboxProps {
 	/** Some but not all of a group are ticked; drawn as a dash. */
 	indeterminate?: boolean;
 	disabled?: boolean;
-	/** Busy: stays focusable and announced as unavailable; the caller ignores changes. */
+	/** Unavailable but focusable: drawn muted, announced as unavailable; the caller ignores changes. */
 	ariaDisabled?: boolean;
 	onChange?: React.ChangeEventHandler<HTMLInputElement>;
 	className?: string;
@@ -42,7 +42,11 @@ export function Checkbox({
 	}, [indeterminate]);
 	return (
 		<label
-			className={cx("pk-check inline-flex cursor-pointer items-start gap-2", className)}
+			className={cx(
+				"pk-check inline-flex items-start gap-2",
+				ariaDisabled ? "cursor-not-allowed text-ink-muted" : "cursor-pointer",
+				className,
+			)}
 		>
 			<input
 				ref={inputRef}
@@ -54,10 +58,12 @@ export function Checkbox({
 				aria-labelledby={labelId}
 				aria-describedby={description ? descriptionId : undefined}
 				onChange={onChange}
+				// Space would otherwise tick the box before the caller ignores the change.
+				onClick={ariaDisabled ? (event) => event.preventDefault() : undefined}
 				readOnly={onChange ? undefined : true}
 			/>
 			<span
-				className="pk-check-box mt-0.5 grid size-4 flex-none place-items-center rounded-xs border border-line-strong bg-surface-raised text-on-accent peer-checked:border-accent peer-checked:bg-accent peer-indeterminate:border-accent peer-indeterminate:bg-accent peer-focus-visible:outline peer-focus-visible:outline-[length:var(--ring-width)] peer-focus-visible:outline-offset-[var(--ring-offset)] peer-focus-visible:outline-focus"
+				className="pk-check-box mt-0.5 grid size-4 flex-none place-items-center rounded-xs border border-line-strong bg-surface-raised text-on-accent peer-checked:border-accent peer-checked:bg-accent peer-indeterminate:border-accent peer-indeterminate:bg-accent peer-focus-visible:outline peer-focus-visible:outline-[length:var(--ring-width)] peer-focus-visible:outline-offset-[var(--ring-offset)] peer-focus-visible:outline-focus peer-aria-disabled:border-line peer-aria-disabled:bg-surface-sunken peer-aria-disabled:text-ink-muted"
 				aria-hidden={true}
 			>
 				{indeterminate ? (

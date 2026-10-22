@@ -1661,8 +1661,10 @@ test.skipIf(skip)(
 	},
 );
 
+const CODE_HELP_BOTH = ["python", "typescript"];
+
 test.skipIf(skip)(
-	"code help is on by default and an administrator turns it off with an audit row",
+	"code help is on for both languages by default and an administrator changes the set with an audit row",
 	async () => {
 		await seedSettings();
 		const jar = await adminJar();
@@ -1672,22 +1674,22 @@ test.skipIf(skip)(
 			url: "/admin/settings",
 			headers: { cookie: jar.cookieHeader() },
 		});
-		expect(before.json().codeHelpEnabled).toBe(true);
+		expect(before.json().codeHelpLanguages).toEqual(CODE_HELP_BOTH);
 
 		const put = await app.inject({
 			method: "PUT",
 			url: "/admin/settings",
 			headers: csrfHeaders(jar, PUBLIC_URL),
-			payload: { codeHelpEnabled: false },
+			payload: { codeHelpLanguages: ["python"] },
 		});
 		expect(put.statusCode).toBe(200);
-		expect(put.json().codeHelpEnabled).toBe(false);
+		expect(put.json().codeHelpLanguages).toEqual(["python"]);
 
 		const refused = await app.inject({
 			method: "PUT",
 			url: "/admin/settings",
 			headers: csrfHeaders(student, PUBLIC_URL),
-			payload: { codeHelpEnabled: true },
+			payload: { codeHelpLanguages: CODE_HELP_BOTH },
 		});
 		expect(refused.statusCode).toBe(403);
 
@@ -1697,9 +1699,111 @@ test.skipIf(skip)(
 			.where("target", "=", "settings")
 			.execute();
 		expect(rows.map((row) => row.action)).toEqual(["settings.code_help_updated"]);
-		expect(rows[0]?.metadata).toMatchObject({ from: true, to: false });
+		expect(rows[0]?.metadata).toMatchObject({ from: CODE_HELP_BOTH, to: ["python"] });
 	},
 );
+
+test.skipIf(skip)(
+	"an empty set turns code help off, and the set is stored in canonical order",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const put = (codeHelpLanguages: string[]) =>
+			app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { codeHelpLanguages },
+			});
+		const off = await put([]);
+		expect(off.statusCode).toBe(200);
+		expect(off.json().codeHelpLanguages).toEqual([]);
+
+		const back = await put(["typescript", "python"]);
+		expect(back.json().codeHelpLanguages).toEqual(CODE_HELP_BOTH);
+		const stored = await testDb.db
+			.selectFrom("settings")
+			.select("code_help_languages")
+			.executeTakeFirstOrThrow();
+		expect(stored.code_help_languages).toEqual(CODE_HELP_BOTH);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "settings.code_help_updated")
+			.orderBy("id")
+			.execute();
+		expect(rows.map((row) => row.metadata)).toMatchObject([
+			{ from: CODE_HELP_BOTH, to: [] },
+			{ from: [], to: CODE_HELP_BOTH },
+		]);
+	},
+);
+
+test.skipIf(skip)(
+	"saving the same set, in any order, writes no audit row",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { codeHelpLanguages: ["typescript", "python"] },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().codeHelpLanguages).toEqual(CODE_HELP_BOTH);
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "settings.code_help_updated")
+			.execute();
+		expect(rows).toEqual([]);
+	},
+);
+
+test.skipIf(skip)(
+	"the code-help languages are refused with 400 when an id has not shipped, repeats or is not an array",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		for (const codeHelpLanguages of [
+			["java"],
+			["python", "python"],
+			"python",
+			true,
+			null,
+		]) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload: { codeHelpLanguages },
+			});
+			expect(res.statusCode, JSON.stringify(codeHelpLanguages)).toBe(400);
+		}
+		const stored = await testDb.db
+			.selectFrom("settings")
+			.select("code_help_languages")
+			.executeTakeFirstOrThrow();
+		expect(stored.code_help_languages).toEqual(CODE_HELP_BOTH);
+	},
+);
+
+test.skipIf(skip)("reading drops an id the build does not ship", async () => {
+	await seedSettings();
+	await testDb.db
+		.updateTable("settings")
+		.set({ code_help_languages: ["java", "typescript"] })
+		.execute();
+	const jar = await adminJar();
+	const res = await app.inject({
+		method: "GET",
+		url: "/admin/settings",
+		headers: { cookie: jar.cookieHeader() },
+	});
+	expect(res.json().codeHelpLanguages).toEqual(["typescript"]);
+});
 
 test.skipIf(skip)(
 	"account email is off by default and an administrator turns it on with an audit row",

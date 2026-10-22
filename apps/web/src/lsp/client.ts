@@ -180,7 +180,7 @@ export interface ClientOptions {
 	root: string;
 	projectName: string;
 	server: LanguageServerId;
-	/** A DISABLED close: code help is off for the whole page. */
+	/** A DISABLED close: code help is off for this server's language. */
 	onDisabled: () => void;
 }
 

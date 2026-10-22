@@ -75,16 +75,22 @@ async function tabBoxes(page: Page): Promise<Box[]> {
 /** The page gutter on each side of the frame (`--space-4`). */
 const GUTTER = 16;
 
-/** Text and forms keep their own cap, about 72 characters, however wide the frame is. */
-async function expectMeasure(locator: Locator): Promise<void> {
+/**
+ * Text and forms keep their own cap, however wide the frame is: about 72
+ * characters for a line of text, and less than `widest` for a form.
+ */
+async function expectMeasure(locator: Locator, widest = 800): Promise<void> {
 	const measure = await locator.evaluate((el) => ({
 		cap: getComputedStyle(el).maxWidth,
 		width: el.getBoundingClientRect().width,
 	}));
 	expect(measure.cap).toMatch(/px$/);
 	expect(measure.width).toBeLessThanOrEqual(Number.parseFloat(measure.cap));
-	expect(measure.width).toBeLessThan(800);
+	expect(measure.width).toBeLessThan(widest);
 }
+
+/** 58rem: a Settings card puts a setting's text and its box side by side, so it is wider than one line. */
+const SETTINGS_FORM_CAP = 58 * 16;
 
 /** A panel kept in view beside a long list is capped to what the framed content shows, less its padding. */
 async function expectFitsScroller(panel: Locator): Promise<void> {
@@ -122,7 +128,9 @@ test.describe("admin layout", () => {
 		expect(table.width).toBeGreaterThanOrEqual(content.width - 2 * 16 - 2);
 		await expectMeasure(page.getByTestId("intro-admin-users"));
 		await page.getByTestId("admin-tab-settings").click();
-		await expectMeasure(page.getByTestId("settings-sections"));
+		// The cards stop at their own width, and each setting's sentence at its reading measure.
+		await expectMeasure(page.getByTestId("settings-sections"), SETTINGS_FORM_CAP + 1);
+		await expectMeasure(page.locator("#settings-idleStopMinutes-desc"));
 
 		for (const [tab, name] of [
 			["users", "Users"],

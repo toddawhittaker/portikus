@@ -5,13 +5,12 @@ import {
 	loginAs,
 	query,
 	SETTINGS_ROW_LOCK,
-	toast,
 } from "./helpers";
 
 /**
  * The Resource guard card's saves in the admin Settings tab: the automatic
  * throttle lift (ADR 0032) and the throttle hold (SPEC.md §19.4).
- * Save writes every field of the card to the one settings row, so these
+ * Save writes the fields it changed to the one settings row, so these
  * tests share a file, run serially, and hold a lock every worker shares.
  */
 test.describe.configure({ mode: "serial" });
@@ -53,8 +52,8 @@ test("an administrator saves the quiet time and percent, and they show after a r
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
-	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
-	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
+	const minutes = guard.getByRole("textbox", { name: "Quiet time" });
+	const percent = guard.getByRole("textbox", { name: "Quiet means under" });
 	await expect(minutes).toHaveValue(String(saved.cpu_idle_lift_minutes), {
 		timeout: 15_000,
 	});
@@ -62,8 +61,13 @@ test("an administrator saves the quiet time and percent, and they show after a r
 
 	await minutes.fill("12");
 	await percent.fill("0");
-	await guard.getByTestId("guard-settings-save").click();
-	await expect(toast(page, "Resource guard saved")).toBeVisible();
+	// Nothing is saved until Save.
+	expect(await liftSettings()).toEqual({
+		cpu_idle_lift_minutes: saved.cpu_idle_lift_minutes,
+		cpu_idle_lift_percent: saved.cpu_idle_lift_percent,
+	});
+	await guard.getByRole("button", { name: "Save resource guard" }).click();
+	await expect(page.getByTestId("settings-guard-state")).toHaveText("Saved.");
 	expect(await liftSettings()).toEqual({
 		cpu_idle_lift_minutes: 12,
 		cpu_idle_lift_percent: 0,
@@ -80,21 +84,24 @@ test("out-of-range values are refused with an error tied to each field", async (
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
-	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
-	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
+	const minutes = guard.getByRole("textbox", { name: "Quiet time" });
+	const percent = guard.getByRole("textbox", { name: "Quiet means under" });
 	await expect(minutes).not.toHaveValue("", { timeout: 15_000 });
 	const before = await liftSettings();
 
 	await minutes.fill("61");
 	await percent.fill("101");
-	await guard.getByTestId("guard-settings-save").click();
+	await guard.getByRole("button", { name: "Save resource guard" }).click();
 	await expect(minutes).toHaveAttribute("aria-invalid", "true");
 	await expect(percent).toHaveAttribute("aria-invalid", "true");
 	await expect(minutes).toHaveAccessibleDescription(
-		"Enter a whole number from 1 to 60.",
+		/^minutes Enter a whole number from 1 to 60\./,
 	);
 	await expect(percent).toHaveAccessibleDescription(
-		"Enter 0 to turn it off, or a whole number up to 100.",
+		/Enter 0 to turn the automatic return off, or a whole number up to 100\./,
+	);
+	await expect(page.getByTestId("settings-guard-state")).toHaveText(
+		"Not saved. 2 unsaved changes; fix Quiet time and save again.",
 	);
 	expect(await liftSettings()).toEqual(before);
 });
@@ -104,14 +111,14 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
-	const after = page.getByLabel("Hold after throttles", { exact: true });
-	const hours = page.getByLabel("Hold window (hours)", { exact: true });
+	const after = page.getByRole("textbox", { name: "Slowdowns before a hold" });
+	const hours = page.getByRole("textbox", { name: "Hold period" });
 	await expect(after).toHaveValue("3", { timeout: 15_000 });
 	await expect(hours).toHaveValue("24");
 
 	await hours.fill("200");
-	await page.getByTestId("guard-settings-save").click();
-	await expect(page.getByRole("alert")).toHaveText(
+	await page.getByRole("button", { name: "Save resource guard" }).click();
+	await expect(page.locator("#settings-cpuThrottleHoldHours-err")).toHaveText(
 		"Enter a whole number from 1 to 168.",
 	);
 	await expectNoViolations(page);
@@ -119,19 +126,18 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 	try {
 		await after.fill("4");
 		await hours.fill("48");
-		await page.getByTestId("guard-settings-save").click();
-		await expect(toast(page, "Resource guard saved")).toBeVisible();
+		await page.getByRole("button", { name: "Save resource guard" }).click();
+		await expect(page.getByTestId("settings-guard-state")).toHaveText("Saved.");
 		const [row] = await query<{ after: number; hours: number }>(
 			"select cpu_throttle_hold_after as after, cpu_throttle_hold_hours as hours from settings where id = 1",
 		);
 		expect(row).toEqual({ after: 4, hours: 48 });
 		await page.reload();
-		await expect(page.getByLabel("Hold after throttles", { exact: true })).toHaveValue(
-			"4",
-			{
-				timeout: 15_000,
-			},
-		);
+		await expect(
+			page.getByRole("textbox", { name: "Slowdowns before a hold" }),
+		).toHaveValue("4", {
+			timeout: 15_000,
+		});
 	} finally {
 		await query(
 			"update settings set cpu_throttle_hold_after = 3, cpu_throttle_hold_hours = 24 where id = 1",

@@ -265,7 +265,7 @@ test.describe("Problems tab with code help off", () => {
 			const settings = await response.json();
 			await route.fulfill({
 				response,
-				json: { ...settings, codeHelpEnabled: false },
+				json: { ...settings, codeHelpLanguages: [] },
 			});
 		});
 
@@ -276,6 +276,56 @@ test.describe("Problems tab with code help off", () => {
 		await expect(page.getByRole("tab", { name: /Problems/ })).toHaveCount(0);
 		await expect(page.getByTestId("editor-main.py")).toBeVisible();
 		expect(sockets).toEqual([]);
+	});
+});
+
+test.describe("Problems tab with code help on for one language", () => {
+	holdCodeHelpSwitch(test);
+
+	/** The settings the page reads, with code help on for the languages given. */
+	async function stubLanguages(page: Page, codeHelpLanguages: string[]) {
+		await routeApi(page, "**/me/settings", async (route) => {
+			const response = await route.fetch();
+			const settings = await response.json();
+			await route.fulfill({ response, json: { ...settings, codeHelpLanguages } });
+		});
+	}
+
+	for (const languages of [["python"], ["typescript"]]) {
+		test(`the tab is shown with only ${languages[0]} on`, async ({ page, context }) => {
+			const student = await createStudent(context);
+			await stubLanguages(page, languages);
+			await openProject(page, student, "Problems one", { "main.py": PYTHON });
+			await expect(problemsTab(page)).toBeVisible();
+		});
+	}
+
+	test("a file of a language that is off adds no problems", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const sockets: string[] = [];
+		page.on("websocket", (socket) => {
+			if (socket.url().includes("/language-servers/")) sockets.push(socket.url());
+		});
+		await stubLanguages(page, ["typescript"]);
+		await openProject(page, student, "Problems mixed", {
+			"main.py": PYTHON,
+			"app.ts": TYPESCRIPT,
+		});
+
+		await expect(page.getByTestId("right-pane-count-problems")).toHaveText("1", {
+			timeout: 20_000,
+		});
+		await problemsTab(page).click();
+		const panel = page.getByRole("tabpanel", { name: /^Problems/ });
+		await expect(panel.getByRole("heading", { level: 3 })).toHaveText(["app.ts"]);
+		await expect(panel.getByTestId("problems-summary")).toHaveText(
+			"1 error in 1 open file",
+		);
+		expect(sockets.filter((url) => url.endsWith("/python"))).toEqual([]);
+		expect(sockets.filter((url) => url.endsWith("/ruff"))).toEqual([]);
 	});
 });
 

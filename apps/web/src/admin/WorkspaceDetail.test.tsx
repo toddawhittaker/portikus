@@ -172,7 +172,7 @@ const SETTINGS = {
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
 	voiceInputEnabled: true,
-	codeHelpEnabled: true,
+	codeHelpLanguages: ["python", "typescript"],
 	accountEmailEnabled: false,
 	stateVerified: true,
 	idleStopMinutes: 60,
@@ -1145,11 +1145,12 @@ test("the disconnect grace shows the site setting, and its dialog takes minutes 
 		name: "Disconnect grace for Alice Example",
 	});
 	const field = within(dialog).getByRole("textbox", {
-		name: "Disconnect grace (minutes)",
+		name: "Disconnect grace",
 	}) as HTMLInputElement;
 	expect(field.value).toBe("");
 	expect(
-		document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent,
+		// The unit comes first in its description, then this hint.
+		document.getElementById(`${field.id}-hint`)?.textContent,
 	).toBe("Site setting: 10 minutes. 0 keeps it running until it is stopped.");
 
 	fireEvent.change(field, { target: { value: "soon" } });
@@ -1177,9 +1178,7 @@ test("the disconnect grace shows the site setting, and its dialog takes minutes 
 	const again = await screen.findByRole("dialog", {
 		name: "Disconnect grace for Alice Example",
 	});
-	const minutes = within(again).getByLabelText(
-		"Disconnect grace (minutes)",
-	) as HTMLInputElement;
+	const minutes = within(again).getByLabelText("Disconnect grace") as HTMLInputElement;
 	expect(minutes.value).toBe("30");
 	fireEvent.change(minutes, { target: { value: "" } });
 	fireEvent.click(within(again).getByTestId("grace-dialog-save"));
@@ -1208,10 +1207,10 @@ test("without the site settings, the grace claims no value it does not know", as
 	const dialog = await screen.findByRole("dialog", {
 		name: "Disconnect grace for Alice Example",
 	});
-	const field = within(dialog).getByLabelText("Disconnect grace (minutes)");
-	expect(
-		document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toBe("0 keeps it running until it is stopped.");
+	const field = within(dialog).getByLabelText("Disconnect grace");
+	expect(document.getElementById(`${field.id}-hint`)?.textContent).toBe(
+		"0 keeps it running until it is stopped.",
+	);
 });
 
 test("grace minutes convert to and from the API's seconds", () => {
@@ -1642,14 +1641,14 @@ test("the overrides dialog refuses a bad value, then sends numbers and nulls", a
 	const dialog = await screen.findByRole("dialog", {
 		name: "Resource guard for Alice Example's workspace",
 	});
-	const cpu = within(dialog).getByLabelText("CPU threshold (%)") as HTMLInputElement;
+	const cpu = within(dialog).getByLabelText("Heavy CPU use") as HTMLInputElement;
 	expect(cpu.value).toBe("95");
 
-	const idle = within(dialog).getByLabelText("Idle stop (minutes)");
+	const idle = within(dialog).getByLabelText("Idle stop");
 	fireEvent.change(idle, { target: { value: "5" } });
 	fireEvent.click(within(dialog).getByTestId("guard-save"));
 	expect((await within(dialog).findByRole("alert")).textContent).toBe(
-		"Enter 0 for never, or a whole number from 10 to 1440.",
+		"Enter 0 to turn idle stop off, or a whole number from 10 to 1,440.",
 	);
 	expect(writes).toEqual([]);
 
@@ -1720,16 +1719,15 @@ test("the Limits dialog refuses a bad value, then sends numbers and nulls", asyn
 	// A blank field says what it falls back to, memory in MiB and GiB (S4, N6).
 	const hint = (label: string) => {
 		const input = within(dialog).getByLabelText(label);
-		return document.getElementById(input.getAttribute("aria-describedby") ?? "")
-			?.textContent;
+		return document.getElementById(`${input.id}-hint`)?.textContent;
 	};
-	expect(hint("Memory (MiB)")).toBe(
+	expect(hint("Memory")).toBe(
 		"Site value: 4,096 MiB (4 GiB). Below what the workspace uses now, the kernel stops its largest process.",
 	);
 	expect(hint("CPUs")).toBe("Site value: 2. At most the host's CPU count.");
 	const cpu = within(dialog).getByLabelText("CPUs") as HTMLInputElement;
 	expect(cpu.value).toBe("2");
-	const memory = within(dialog).getByLabelText("Memory (MiB)");
+	const memory = within(dialog).getByLabelText("Memory");
 	fireEvent.change(memory, { target: { value: "100" } });
 	fireEvent.click(within(dialog).getByTestId("limits-save"));
 	expect((await within(dialog).findByRole("alert")).textContent).toBe(

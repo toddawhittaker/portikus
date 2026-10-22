@@ -59,6 +59,8 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 		defineTheme: () => {},
 		setTheme: () => {},
 		createModel: (value: string) => new FakeModel(value),
+		// The diff viewer's closing builds and drops a bare editor.
+		create: () => ({ dispose: () => {} }),
 		createDiffEditor: (_host: unknown, options: Record<string, unknown>) => {
 			editorState.options.push(options);
 			return {

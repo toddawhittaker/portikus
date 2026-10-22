@@ -16,6 +16,7 @@ import {
 	lockSharedState,
 	loginAs,
 	query,
+	resetCodeHelpLanguages,
 	SETTINGS_ROW_LOCK,
 	seedListening,
 	seedStorage,
@@ -376,17 +377,20 @@ test.describe("the code-help site switch", () => {
 		test.setTimeout(600_000);
 		releases.push(await lockSharedState(SETTINGS_ROW_LOCK));
 		releases.push(await lockSharedState(CODE_HELP_SWITCH_LOCK));
-		await query("update settings set code_help_enabled = true where id = 1");
+		await resetCodeHelpLanguages();
 	});
 
 	test.afterAll(async () => {
-		await query("update settings set code_help_enabled = true where id = 1");
+		await resetCodeHelpLanguages();
 		for (const release of releases.reverse()) await release();
 	});
 
 	async function studentSees(page: Page): Promise<boolean> {
 		const response = await page.request.get("/me/settings");
-		return ((await response.json()) as { codeHelpEnabled: boolean }).codeHelpEnabled;
+		const { codeHelpLanguages } = (await response.json()) as {
+			codeHelpLanguages: string[];
+		};
+		return codeHelpLanguages.length > 0;
 	}
 
 	test("an administrator turns code help off and on, each change is audited, and students are told", async ({
@@ -401,30 +405,44 @@ test.describe("the code-help site switch", () => {
 			const admin = await adminContext.newPage();
 			await loginAs(admin, "carol");
 			await admin.goto("/admin/settings");
-			const card = admin.getByRole("region", { name: "Code help" });
-			const box = card.getByRole("checkbox", { name: /Allow code help/ });
-			await expect(box).toBeEnabled({ timeout: 15_000 });
-			await expect(box).toBeChecked();
-			// It sits beside voice input, and says what turning it off does.
-			await expect(card).toContainText("When off, the editor is plain");
+			const card = admin.getByRole("region", { name: "Student tools" });
+			const python = card.getByRole("checkbox", { name: "Python" });
+			const typescript = card.getByRole("checkbox", {
+				name: "TypeScript and JavaScript",
+			});
+			const save = card.getByRole("button", { name: "Save student tools" });
+			await expect(python).toBeChecked({ timeout: 15_000 });
+			await expect(typescript).toBeChecked();
+			// It sits beside voice input, and says what an unticked language gets.
+			await expect(card).toContainText(
+				"A language left unticked still opens in the editor with syntax colouring",
+			);
 			expect(await studentSees(page)).toBe(true);
 
-			await box.click();
-			await expect(toast(admin, "Code help off")).toBeVisible();
-			await expect(box).not.toBeChecked();
+			await python.click();
+			await typescript.click();
+			// Nothing changes for students until Save.
+			expect(await studentSees(page)).toBe(true);
+			await save.click();
+			await expect(admin.getByTestId("settings-tools-state")).toHaveText("Saved.");
+			await expect(admin.getByTestId("code-help-headline")).toHaveText(
+				"Code help is off. The editor shows syntax colouring only.",
+			);
 			expect(await studentSees(page)).toBe(false);
 
-			await box.click();
-			await expect(toast(admin, "Code help on")).toBeVisible();
-			await expect(box).toBeChecked();
+			await python.click();
+			await typescript.click();
+			await save.click();
+			await expect(admin.getByTestId("settings-tools-state")).toHaveText("Saved.");
+			await expect(python).toBeChecked();
 			expect(await studentSees(page)).toBe(true);
 
 			const audit = await query<{ metadata: unknown }>(
 				"select metadata from audit_events where action = 'settings.code_help_updated' order by id desc limit 2",
 			);
 			expect(audit.map((row) => row.metadata)).toMatchObject([
-				{ from: false, to: true },
-				{ from: true, to: false },
+				{ from: [], to: ["python", "typescript"] },
+				{ from: ["python", "typescript"], to: [] },
 			]);
 		} finally {
 			await adminContext.close();

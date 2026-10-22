@@ -10,10 +10,12 @@ import {
 import { describe, expect, test } from "vitest";
 import {
 	CODE_TEXT,
+	changedFields,
 	FIELD_ID,
 	initialForm,
 	isStale,
 	jobText,
+	mailServerSet,
 	type NotifyForm,
 	ntfyTokenCleared,
 	recipients,
@@ -100,7 +102,7 @@ describe("toUpdate", () => {
 		expect(update.rootShellOpenedAlert).toBe(true);
 	});
 
-	test("a channel turned off is null; email off also turns the mail server off", () => {
+	test("a channel turned off is null; email alerts off keeps the mail server", () => {
 		const update = toUpdate(
 			edit(ALL, (f) => {
 				f.email.on = false;
@@ -108,7 +110,8 @@ describe("toUpdate", () => {
 				f.rootShellOpenedAlert = false;
 			}),
 		);
-		expect(update.smtp).toBeNull();
+		// Account email still sends through it.
+		expect(update.smtp).toMatchObject({ host: "smtp.example.edu" });
 		expect(update.alerts.email).toBeNull();
 		expect(update.alerts.webhook).toBeNull();
 		expect(update.rootShellOpenedAlert).toBe(false);
@@ -228,9 +231,12 @@ describe("validate", () => {
 			}),
 			OFF,
 		);
+		// No mail server is set, so email alerts ask for one.
+		expect(errors[FIELD_ID.smtpHost]).toBe(
+			"Alert email needs a mail server. Enter its host name.",
+		);
 		expect(Object.keys(errors)).toEqual([
 			FIELD_ID.smtpHost,
-			FIELD_ID.smtpFrom,
 			FIELD_ID.emailTo,
 			FIELD_ID.pushoverUserKey,
 			FIELD_ID.pushoverAppToken,
@@ -267,6 +273,86 @@ describe("validate", () => {
 		expect(errors[FIELD_ID.emailTo]).toBe(
 			"Enter 1 to 10 email addresses, one per line.",
 		);
+	});
+});
+
+describe("the mail server stands on its own", () => {
+	test("it is set while any of host, user name or sender is filled in", () => {
+		expect(mailServerSet(initialForm(OFF))).toBe(false);
+		expect(mailServerSet(initialForm(ALL))).toBe(true);
+		expect(mailServerSet(edit(OFF, (f) => (f.email.from = "a@example.edu")))).toBe(
+			true,
+		);
+	});
+
+	test("set without email alerts, it is sent with no alert email", () => {
+		const update = toUpdate(
+			edit(OFF, (f) => {
+				f.email.host = "smtp.example.edu";
+				f.email.from = "Portikus <portikus@example.edu>";
+			}),
+		);
+		expect(update.smtp).toMatchObject({ host: "smtp.example.edu", username: "" });
+		expect(update.alerts.email).toBeNull();
+	});
+
+	test("clearing every field removes it, and its password with it", () => {
+		const cleared = edit(ALL, (f) => {
+			f.email.on = false;
+			f.email.host = "";
+			f.email.username = "";
+			f.email.from = "";
+		});
+		expect(toUpdate(cleared).smtp).toBeNull();
+		expect(validate(cleared, ALL)).toEqual({});
+		expect(smtpPasswordCleared(cleared, ALL)).toBe(false);
+	});
+
+	test("half filled in, it asks for the rest", () => {
+		const errors = validate(
+			edit(OFF, (f) => (f.email.username = "portikus")),
+			OFF,
+		);
+		expect(Object.keys(errors)).toEqual([
+			FIELD_ID.smtpHost,
+			FIELD_ID.smtpPassword,
+			FIELD_ID.smtpFrom,
+		]);
+	});
+});
+
+describe("changedFields", () => {
+	test("nothing differs from the form it started as", () => {
+		expect(changedFields(initialForm(ALL), initialForm(ALL))).toEqual([]);
+	});
+
+	test("names each changed field, ignoring outer spaces, and a typed secret", () => {
+		const form = edit(ALL, (f) => {
+			f.email.host = " smtp.example.edu ";
+			f.email.from = "Other <o@example.edu>";
+			f.email.password = "fake-password";
+			f.rootShellOpenedAlert = false;
+		});
+		expect(changedFields(form, initialForm(ALL))).toEqual([
+			"email.password",
+			"email.from",
+			"rootShellOpenedAlert",
+		]);
+	});
+
+	test("a channel turned off counts once, whatever was typed in it", () => {
+		const form = edit(ALL, (f) => {
+			f.webhook.url = "https://hooks.example.edu/new";
+			f.webhook.on = false;
+			f.email.on = false;
+			f.email.to = "new@example.edu";
+		});
+		expect(changedFields(form, initialForm(ALL))).toEqual(["email.on", "webhook.on"]);
+	});
+
+	test("the mail server's fields count with email alerts off", () => {
+		const form = edit(OFF, (f) => (f.email.host = "smtp.example.edu"));
+		expect(changedFields(form, initialForm(OFF))).toEqual(["email.host"]);
 	});
 });
 

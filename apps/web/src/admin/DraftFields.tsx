@@ -19,7 +19,8 @@ export function DraftFields<K extends string>({
 }: {
 	/** Prefixes each field's id and test id. */
 	idPrefix: string;
-	fields: { key: K; label: string }[];
+	/** `unit`, when given, is shown after a narrow box and read as part of its description. */
+	fields: { key: K; label: string; unit?: string }[];
 	drafts: Record<K, string>;
 	setDrafts: Dispatch<SetStateAction<Record<K, string>>>;
 	errors: Partial<Record<K, string>>;
@@ -39,6 +40,7 @@ export function DraftFields<K extends string>({
 							key={field.key}
 							id={`${idPrefix}-${field.key}`}
 							label={field.label}
+							unit={field.unit}
 							inputMode="numeric"
 							className={fieldClassName}
 							data-testid={`${idPrefix}-${field.key}`}

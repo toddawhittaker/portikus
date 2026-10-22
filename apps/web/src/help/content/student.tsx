@@ -129,7 +129,7 @@ export const STUDENT_HELP: HelpPart = {
 						processes running. Stop ends one of your programs, and the programs it
 						started if you tick the box, or lowers its priority instead.{" "}
 						<strong>Problems</strong> lists the errors and warnings in the files you
-						have open. It appears only while code help is on.
+						have open. It appears only while code help is on for at least one language.
 					</li>
 					<li>
 						<strong>The status bar</strong>, at the bottom, shows the project folder,
@@ -259,8 +259,10 @@ export const STUDENT_HELP: HelpPart = {
 				<>
 					<p>
 						For Python, TypeScript and JavaScript files, the editor gets help from a
-						program called a language server, which runs inside your workspace. It has
-						six features:
+						program called a language server, which runs inside your workspace. Your
+						administrator chooses which languages have code help: Python, and TypeScript
+						with JavaScript, are separate choices. For a language that is on, it has six
+						features:
 					</p>
 					<ul>
 						<li>
@@ -333,8 +335,8 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							Nothing shown: the server is resting after 15 minutes without use (your
-							next edit, or coming back to the window, wakes it), or the file's language
-							has no code help.
+							next edit, or coming back to the window, wakes it), or code help is off
+							for the file's language.
 						</li>
 					</ul>
 					<h4>Limits</h4>
@@ -345,8 +347,12 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>Other languages, such as C, C++ and Java, have no code help yet.</li>
 						<li>
-							Your administrator can turn code help off for the whole site. The editor
-							is then a plain editor, and there is no Problems tab.
+							Code help is off for a language your administrator has turned off. Its
+							files open in a plain editor, with colours for the code but no
+							suggestions, no problems and nothing on the bar, while the other languages
+							keep their code help. The <strong>Problems</strong> tab is gone only when
+							every language is off. A change reaches your open window when you come
+							back to it.
 						</li>
 					</ul>
 				</>

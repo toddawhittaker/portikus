@@ -74,6 +74,8 @@ export interface CodeEditorProps {
 	 * with false, for hold-to-talk (SPEC.md §25.10).
 	 */
 	onVoiceHold?: (held: boolean) => void;
+	/** False while the editor is in a background tab or behind the diff view. */
+	visible?: boolean;
 	/** Lets the tab scroll this editor to a line. */
 	ref?: Ref<CodeEditorHandle>;
 }
@@ -99,6 +101,7 @@ export function CodeEditor({
 	onViewState,
 	onTopLine,
 	onVoiceHold,
+	visible = true,
 	ref,
 }: CodeEditorProps) {
 	const host = useRef<HTMLDivElement | null>(null);
@@ -124,9 +127,10 @@ export function CodeEditor({
 	screenReaderRef.current = screenReaderMode;
 	const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	const monacoRef = useRef<typeof Monaco | null>(null);
-	// Code help for this file (SPEC.md §13.6); null when it is off.
+	// Code help for this file (SPEC.md §13.6); null when its language is off.
 	const codeHelp = useCodeHelp();
-	const server = codeHelp ? serverFor(language, "completion") : null;
+	const primary = codeHelp ? serverFor(language, "completion") : null;
+	const server = primary !== null && codeHelp?.allows(primary) ? primary : null;
 	const serverStatus = useServerStatus(projectId, server);
 	const [tooLarge, setTooLarge] = useState(false);
 	// Counts the models this editor has made, so code help attaches to each.
@@ -310,7 +314,7 @@ export function CodeEditor({
 	useEffect(() => {
 		const monaco = monacoRef.current;
 		const model = modelRef.current;
-		if (!codeHelp || !monaco || !model || serverFor(language, "completion") === null) {
+		if (!codeHelp || !monaco || !model || server === null) {
 			setTooLarge(false);
 			return;
 		}
@@ -322,7 +326,7 @@ export function CodeEditor({
 			listener.dispose();
 			detach();
 		};
-	}, [codeHelp, language, path, modelReady]);
+	}, [codeHelp, server, path, modelReady]);
 
 	// A refreshed file replaces the text through an edit operation, so the
 	// cursor and the scroll position survive (SPEC.md §13.3).
@@ -439,6 +443,8 @@ export function CodeEditor({
 				{server !== null ? (
 					<CodeHelpStatus
 						path={path}
+						announceKey={`${projectId}:${server}`}
+						shown={visible}
 						status={serverStatus}
 						tooLarge={tooLarge}
 						onRestart={() => {

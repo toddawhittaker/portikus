@@ -14,48 +14,56 @@ import type { z } from "zod";
 
 export type GuardKey = keyof GuardConfig;
 
-/** The per-workspace guard values, their labels, ranges and what a bad entry is told. */
+/** The per-workspace guard values, their labels, units, ranges and what a bad entry is told. */
 export const GUARD_FIELDS: {
 	key: GuardKey;
 	label: string;
+	/** Shown after the box and read as part of its description. */
+	unit: string;
 	schema: z.ZodType<number>;
 	rangeText: string;
 }[] = [
 	{
 		key: "cpuThresholdPercent",
-		label: "CPU threshold (%)",
+		label: "Heavy CPU use",
+		unit: "%",
 		schema: GuardThresholdPercent,
 		rangeText: "Enter a whole number from 1 to 100.",
 	},
 	{
 		key: "memoryThresholdPercent",
-		label: "Memory threshold (%)",
+		label: "High memory",
+		unit: "%",
 		schema: GuardThresholdPercent,
 		rangeText: "Enter a whole number from 1 to 100.",
 	},
 	{
 		key: "windowMinutes",
-		label: "Window (minutes)",
+		label: "Measuring period",
+		unit: "minutes",
 		schema: GuardWindowMinutes,
 		rangeText: "Enter a whole number from 5 to 240.",
 	},
 	{
 		key: "throttleSharePercent",
-		label: "Throttled share (%)",
+		label: "Speed while slowed",
+		unit: "%",
 		schema: ThrottleSharePercent,
 		rangeText: "Enter a whole number from 5 to 100.",
 	},
 	{
 		key: "idleStopMinutes",
-		label: "Idle stop (minutes)",
+		label: "Idle stop",
+		unit: "minutes",
 		schema: IdleStopMinutes,
-		rangeText: "Enter 0 for never, or a whole number from 10 to 1440.",
+		rangeText: "Enter 0 to turn idle stop off, or a whole number from 10 to 1,440.",
 	},
 	{
 		key: "keepRunningMaxHours",
-		label: "Longest keep running (hours)",
+		label: "Longest keep running",
+		unit: "hours",
 		schema: KeepRunningMaxHours,
-		rangeText: "Enter 0 to turn it off, or a whole number up to 168.",
+		rangeText: "Enter 0 to turn Keep running off, or a whole number up to 168.",
 	},
 ];
 

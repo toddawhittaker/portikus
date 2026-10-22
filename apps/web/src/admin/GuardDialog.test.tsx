@@ -68,8 +68,17 @@ test("each field names its site setting in a hint tied to the field", () => {
 	);
 	const field = screen.getByTestId("guard-windowMinutes");
 	expect(field.getAttribute("placeholder")).toBeNull();
-	const hint = document.getElementById(field.getAttribute("aria-describedby") ?? "");
-	expect(hint?.textContent).toBe("Site setting: 30");
+	// The unit is read first, then the site setting.
+	expect(field.getAttribute("aria-describedby")).toBe(
+		"guard-windowMinutes-unit guard-windowMinutes-hint",
+	);
+	expect(document.getElementById("guard-windowMinutes-unit")?.textContent).toBe(
+		"minutes",
+	);
+	expect(document.getElementById("guard-windowMinutes-hint")?.textContent).toBe(
+		"Site setting: 30",
+	);
+	expect(screen.getByLabelText("Measuring period")).toBe(field);
 	// Its own name, not the Limits dialog's (M5).
 	expect(
 		screen.getByRole("dialog", { name: "Resource guard for Ada's workspace" }),

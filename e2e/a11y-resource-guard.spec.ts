@@ -94,10 +94,12 @@ for (const scheme of ["light", "dark"] as const) {
 		await loginAs(page, "carol");
 		await page.goto("/admin/settings");
 		await expect(page.getByLabel("Statement")).toBeVisible({ timeout: 15_000 });
-		await page.getByTestId("idle-input").fill("5");
-		await page.getByTestId("idle-save").click();
-		await expect(page.getByRole("alert")).toBeVisible();
+		await page.getByTestId("settings-idleStopMinutes").fill("5");
+		await page.getByRole("button", { name: "Save stop times" }).click();
+		await expect(page.locator("#settings-idleStopMinutes-err")).toBeVisible();
 		await expectNoViolations(page);
+		// Nothing is left unsaved, so leaving does not ask.
+		await page.getByRole("button", { name: "Discard changes" }).click();
 
 		await page.goto("/admin/health");
 		await expect(page.getByTestId("health-guard")).toBeVisible({ timeout: 15_000 });
@@ -114,7 +116,7 @@ for (const scheme of ["light", "dark"] as const) {
 		const dialog = page.getByRole("dialog", {
 			name: `Resource guard for ${name}'s workspace`,
 		});
-		await dialog.getByLabel("Window (minutes)").fill("1");
+		await dialog.getByRole("textbox", { name: "Measuring period" }).fill("1");
 		await dialog.getByTestId("guard-save").click();
 		await expect(dialog.getByRole("alert")).toBeVisible();
 		await expectNoViolations(page);

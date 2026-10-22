@@ -54,10 +54,14 @@ test("the dialog warns about lowering memory and the terminals' own process limi
 			onSave={() => undefined}
 		/>,
 	);
-	const memory = screen.getByLabelText("Memory (MiB)");
-	expect(
-		document.getElementById(memory.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toBe("Below what the workspace uses now, the kernel stops its largest process.");
+	const memory = screen.getByLabelText("Memory");
+	expect(memory.getAttribute("aria-describedby")).toBe(
+		"limits-memoryMiB-unit limits-memoryMiB-hint",
+	);
+	expect(document.getElementById("limits-memoryMiB-unit")?.textContent).toBe("MiB");
+	expect(document.getElementById("limits-memoryMiB-hint")?.textContent).toBe(
+		"Below what the workspace uses now, the kernel stops its largest process.",
+	);
 	const processes = screen.getByLabelText("Processes");
 	expect(
 		document.getElementById(processes.getAttribute("aria-describedby") ?? "")
