@@ -55,7 +55,7 @@ use; a blank field uses the site value.
 
 Portikus slows a workspace that keeps its CPUs busy for a long time, and
 flags one that uses a lot of memory. A memory flag slows nothing. Set the
-thresholds on **Settings**, and change them for one workspace with **Guard
+thresholds under **Resource guard** on **Settings**, and change them for one workspace with **Guard
 settings** in its panel. Throttled and flagged workspaces are listed on
 **Health**.
 
@@ -64,14 +64,16 @@ settings** in its panel. Throttled and flagged workspaces are listed on
 A workspace keeps running for the **disconnect grace period** after its last
 browser tab closes. With no input for the **idle stop** time, the student is
 asked "Still working?", and the workspace stops five minutes later unless
-they answer. Both are set on **Settings** and can be changed for one
-workspace from its panel.
+they answer. Both are set under **When workspaces stop** on **Settings**
+(**Disconnect grace** and **Idle stop**, in minutes, saved with **Save stop
+times**) and can be changed for one workspace from its panel.
 
 A student can choose **Keep running** in their workspace dialog, for
 example to leave a coding agent working overnight. Until the time they
 pick, neither the grace period nor idle stop counts; afterwards both start
 again, with the "Still working?" warning first. Resource guard limits still
-apply. **Longest keep running (hours)** on **Settings**, default 12, caps
+apply. **Longest keep running**, in hours, under **When workspaces stop** on
+**Settings**, default 12, caps
 how far ahead a student can hold their workspace, and 0 turns the feature
 off. It limits how far ahead a hold reaches, not how often it is renewed.
 Lowering it shortens holds already set at the next worker pass. **Guard
@@ -81,8 +83,13 @@ running by its owner until …".
 
 ![The Settings tab: when workspaces stop, and the resource guard thresholds](images/admin-settings.png)
 
-**Settings** holds the site-wide rules: when workspaces stop, how heavy use
-is slowed, and the acceptable-use statement. Saving a new statement asks
+**Settings** holds the site-wide rules in five sections: **When workspaces
+stop**, **Resource guard**, **Student tools** (code help for each language,
+and voice input), **Acceptable use** and **Email and alerts**. Each section
+has its own Save button, and nothing saves until you press it. Leaving the
+page with unsaved changes asks first. **Student tools** shows how much memory
+each language costs per student and how many students the server holds with
+the boxes you have ticked. Saving a new acceptable-use statement asks
 everyone, you included, to accept it before they continue. Most rules can be
 changed for one workspace from its panel on **Users**.
 
@@ -593,7 +600,7 @@ because the reset command falls back to it.
 ## Users: email links and edits
 
 These need **Account email** turned on under **Settings**, and a mail server
-set under **Notifications**. While account email is off, nothing below sends
+set under **Email and alerts**. While account email is off, nothing below sends
 mail.
 
 - **Add user…** offers a box, "Email them a link to choose their password".
@@ -791,7 +798,7 @@ starts with** to see every workspace action.
 
 ## Alerts
 
-**Settings**, then **Notifications**, decides where Portikus sends
+**Settings**, then **Email and alerts**, decides where Portikus sends
 warnings and failures that need a person, such as a service stopping, a
 backup failing or a certificate about to expire. Channels:
 
