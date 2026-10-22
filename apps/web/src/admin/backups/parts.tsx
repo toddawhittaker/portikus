@@ -40,12 +40,16 @@ export function FocusCatchGroup(props: Parameters<typeof AdminGroup>[0]) {
 	);
 }
 
+/** The checkbox column's cells: as narrow as the box, with no trailing padding so it sits by the name. */
+export const SELECT_CELL = "w-px pe-0";
+
 /** A table, or one line of text in its place when there is nothing to list. */
 export function Table({
 	testId,
 	caption,
 	headers,
 	empty,
+	selectAll,
 	children,
 }: {
 	testId: string;
@@ -53,6 +57,8 @@ export function Table({
 	/** Column names; "" for the actions column, or a name with its toggletip. */
 	headers: (string | { name: string; help: ReactNode })[];
 	empty: string | null;
+	/** A deletable list's select-all box, heading a first column; each row then starts with a `SELECT_CELL`. */
+	selectAll?: ReactNode;
 	children: ReactNode;
 }) {
 	if (empty !== null) {
@@ -68,6 +74,11 @@ export function Table({
 				<caption className="sr-only">{caption}</caption>
 				<thead>
 					<tr>
+						{selectAll ? (
+							<th scope="col" className={SELECT_CELL}>
+								{selectAll}
+							</th>
+						) : null}
 						{headers.map((header) =>
 							typeof header === "string" ? (
 								<th key={header} scope="col">

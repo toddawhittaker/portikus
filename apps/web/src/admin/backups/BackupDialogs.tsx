@@ -17,75 +17,104 @@ import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { ConfirmByLabelDialog } from "../ConfirmByLabelDialog.js";
 import { setTime, workspaceName } from "./model.js";
-import { useAdminBackups, useRestoreCopy } from "./queries.js";
+import { type DeleteOutcome, useAdminBackups, useRestoreCopy } from "./queries.js";
+import {
+	type DeleteTarget,
+	deleteCopy,
+	kindsText,
+	targetKey,
+	targetName,
+} from "./selection.js";
 
 const STOPPED_WARNING =
 	"Start this workspace first. The copy is written by the student's own account inside the running workspace.";
 
-/** What a Delete button asked to delete. */
-export type DeleteTarget =
-	| { kind: "set"; stamp: string }
-	| { kind: "dump"; file: string }
-	| { kind: "snapshot"; volume: string; snapshot: string }
-	| { kind: "kept"; volume: string; name: string };
-
-function deleteCopy(target: DeleteTarget): { title: string; description: string } {
-	switch (target.kind) {
-		case "set":
-			return {
-				title: `Delete the backup set from ${setTime(target.stamp)}?`,
-				description:
-					"The host removes this set. Workspaces can no longer be restored from it.",
-			};
-		case "dump":
-			return {
-				title: `Delete ${target.file}?`,
-				description: "The host removes this pre-change database dump.",
-			};
-		case "snapshot":
-			return {
-				title: `Delete snapshot ${target.snapshot}?`,
-				description: `The snapshot is removed from ${target.volume}. The volume itself does not change.`,
-			};
-		case "kept":
-			return {
-				title: `Delete the kept home of ${target.name}?`,
-				description:
-					"This is the home folder a replace took out of service. Once deleted it cannot be put back.",
-			};
-	}
+/** What the delete confirm asks about, and how the last try went. */
+export interface DeleteConfirm {
+	targets: DeleteTarget[];
+	/** What the last try requested; the dialog stays open only when some failed. */
+	done: DeleteTarget[];
+	failed: DeleteOutcome["failed"];
+	/** Where focus goes when the dialog closes; unset returns it to the opener. */
+	returnTo?: () => HTMLElement | null;
 }
 
-/** Confirm one delete; the host or the worker carries it out a little later. */
+/**
+ * Confirm one delete or several; the host or the worker carries each out a
+ * little later. After a partial failure the dialog stays open on the items
+ * that were not deleted, each with its reason.
+ */
 export function DeleteDialog({
-	target,
+	confirm,
 	pending,
 	onClose,
 	onConfirm,
 }: {
-	target: DeleteTarget | null;
+	confirm: DeleteConfirm | null;
 	pending: boolean;
 	onClose: () => void;
-	onConfirm: (target: DeleteTarget) => void;
+	onConfirm: (confirm: DeleteConfirm) => void;
 }) {
-	const copy = target ? deleteCopy(target) : null;
+	const copy = confirm ? deleteCopy(confirm.targets) : null;
 	return (
 		<ConfirmDialogRoot
-			open={target !== null}
-			onOpenChange={(open) => (open ? undefined : onClose())}
+			open={confirm !== null}
+			onOpenChange={(open) => (open || pending ? undefined : onClose())}
 		>
-			{target && copy ? (
+			{confirm && copy ? (
 				<ConfirmDialog
 					id="backup-delete-dialog"
 					testId="backup-delete-dialog"
 					title={copy.title}
-					description={copy.description}
+					description={copy.description.map((line) => (
+						<span key={line} className="block">
+							{line}
+						</span>
+					))}
 					confirmLabel="Delete"
 					pending={pending}
-					onConfirm={() => onConfirm(target)}
-				/>
+					returnFocusTo={confirm.returnTo}
+					onConfirm={() => onConfirm(confirm)}
+				>
+					{/* Always mounted, so the failures are read out when they arrive. */}
+					<div
+						role="alert"
+						className="pk-text-compact"
+						data-testid="backup-delete-failed"
+					>
+						{confirm.failed.length > 0 ? (
+							<DeleteFailures done={confirm.done} failed={confirm.failed} />
+						) : null}
+					</div>
+				</ConfirmDialog>
 			) : null}
 		</ConfirmDialogRoot>
+	);
+}
+
+function DeleteFailures({
+	done,
+	failed,
+}: {
+	done: DeleteTarget[];
+	failed: DeleteOutcome["failed"];
+}) {
+	return (
+		<div className="flex flex-col gap-1">
+			<p className="m-0">
+				{done.length > 0 ? `Delete requested for ${kindsText(done)}. ` : null}
+				{failed.length === 1
+					? "This was not deleted:"
+					: `These ${failed.length} were not deleted:`}
+			</p>
+			<ul className="m-0 list-none p-0 text-status-error [overflow-wrap:anywhere]">
+				{failed.map((failure) => (
+					<li key={targetKey(failure.target)}>
+						{targetName(failure.target)}: {failure.reason}
+					</li>
+				))}
+			</ul>
+		</div>
 	);
 }
 
