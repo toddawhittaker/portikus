@@ -355,6 +355,9 @@ runs everything; pull request runs always run in full.
   shellcheck. Each skipped until the matching directory or files exist.
 - **Package build**: builds the control-plane Debian package with `nfpm`
   (ADR 0007) and uploads it as a build artifact kept for seven days.
+- **Dex sign-in**: signs in through a real Dex. It is a required check on
+  the main and epic rulesets since Epic 54, and is skipped (which counts
+  as passing) when neither app nor infra code changed.
 
 Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
