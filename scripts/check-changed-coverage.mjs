@@ -34,8 +34,13 @@ export function isMeasured(path) {
 export function parseDiff(diff) {
 	const files = new Map();
 	let lines = null;
+	let previous = "";
 	for (const line of diff.split("\n")) {
-		if (line.startsWith("+++ ")) {
+		const prior = previous;
+		previous = line;
+		// A file header follows its `--- ` line; an added line whose text
+		// starts with `++ ` also begins `+++ ` but never follows one.
+		if (line.startsWith("+++ ") && prior.startsWith("--- ")) {
 			// `+++ /dev/null` is a deleted file: nothing was added.
 			lines = null;
 			if (line.startsWith("+++ b/")) {

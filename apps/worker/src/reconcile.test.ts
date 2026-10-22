@@ -346,7 +346,6 @@ test.skipIf(skip)(
 	},
 );
 
-/** Wait until a background controller call has moved the row to `state`. */
 /** Polls until the in-flight lifecycle call lands; the test timeout bounds it. */
 async function untilState(id: string, state: string): Promise<void> {
 	while ((await getWorkspace(id)).state !== state) {

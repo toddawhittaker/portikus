@@ -256,12 +256,13 @@ jobs:
         run: |
           echo "Shards: $RESULT"
           [ "$RESULT" = "success" ]
-      # Pull requests need history to find the merge base for the
-      # changed-line coverage check; push runs never run that check.
+      # A pull request run checks out the merge commit, whose first parent is
+      # the base tip; two commits are enough for the changed-line coverage
+      # check. Push runs never run that check.
       - uses: actions/checkout@v7
         if: needs.changes.outputs.app == 'true'
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
       - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.app == 'true'
       - uses: actions/setup-node@v7
@@ -279,15 +280,12 @@ jobs:
           merge-multiple: true
       - if: needs.changes.outputs.app == 'true'
         run: pnpm exec vitest --merge-reports --coverage
-      # At least 80% of the lines a pull request adds must be covered. Task
-      # pull requests into an epic are measured against the epic branch.
+      # At least 80% of the lines a pull request adds must be covered. HEAD is
+      # the merge commit, so HEAD^1 is the base branch tip (the epic branch for
+      # a task pull request) and the diff is the lines the pull request adds.
       - name: Check coverage of changed lines
         if: needs.changes.outputs.app == 'true' && github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          git fetch --no-tags --quiet origin "$BASE_REF"
-          node scripts/check-changed-coverage.mjs "origin/$BASE_REF"
+        run: node scripts/check-changed-coverage.mjs HEAD^1
       - name: Upload coverage report
         if: always() && needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v7
