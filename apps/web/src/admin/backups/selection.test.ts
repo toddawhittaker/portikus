@@ -216,6 +216,13 @@ describe("the host's retention floor", () => {
 		}
 	});
 
+	test("with no complete nightly set, the newest complete set of any kind is kept", () => {
+		const reasons = floorReasons(
+			host([complete(E, true), incomplete(D), complete(C, true)], 3),
+		);
+		expect([...reasons]).toEqual([[E, NEWEST_KEPT]]);
+	});
+
 	test("an older host that reports no floor protects only the newest complete set", () => {
 		const reasons = floorReasons(host([incomplete(D), complete(C), complete(B)]));
 		expect([...reasons]).toEqual([[C, NEWEST_KEPT]]);

@@ -210,17 +210,21 @@ export type HostBackupStatus = z.infer<typeof HostBackupStatus>;
 /**
  * The sets a hand delete is refused for, newest first, by backup-channel.sh's
  * rule: the newest `floor.keepComplete` complete sets not made on request, and
- * at least the newest one (SPEC.md section 24, "Host-side bounds"). A host
+ * at least the newest one (SPEC.md section 24, "Host-side bounds"). With no
+ * complete nightly set, the newest complete set of any kind is kept. A host
  * that reports no floor gets only the newest complete set.
  */
 export function keptSetStamps(status: HostBackupStatus): string[] {
 	const keep = Math.max(status.floor?.keepComplete ?? 1, 1);
-	return status.sets
-		.filter((set) => set.complete && set.requested !== true)
-		.map((set) => set.stamp)
-		.sort()
-		.reverse()
-		.slice(0, keep);
+	const newestFirst = (sets: HostBackupSet[]) =>
+		sets
+			.map((set) => set.stamp)
+			.sort()
+			.reverse();
+	const complete = status.sets.filter((set) => set.complete);
+	const nightly = newestFirst(complete.filter((set) => set.requested !== true));
+	if (nightly.length > 0) return nightly.slice(0, keep);
+	return newestFirst(complete).slice(0, 1);
 }
 
 /**

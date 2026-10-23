@@ -4523,20 +4523,25 @@ restored from the admin Backups tab (section 20.1).
 - **Host-side bounds.** The host, not the request, sets every limit. A
   delete through the channel always keeps the newest 3 complete nightly
   sets; a set the channel made on request carries a `REQUESTED` marker,
-  does not count toward the 3 and can itself be deleted, so asking for
-  backups cannot push nightly sets out. `backup.sh`'s own retention keeps
-  the newest 3 complete sets and every set younger than 14 days. Each
-  report carries the channel's keep count and which sets were requested,
-  so the Backups tab can mark the sets it keeps; that copy is advisory, and the host
-  still refuses such a delete (ADR 0039). It
-  refuses a requested backup within 60 minutes of the last one, and while
-  3 requested sets are younger than the minimum age. Every run needs free
-  space of at least the newest complete set plus a fifth, and at least
-  1 GiB, and then has a byte budget of the free space less that floor;
-  passing it stops the run and keeps nothing. Only the home and recovery
-  volumes of instances the VM listed are fetched. The per-file index,
-  path lengths, entry counts and every answer from the VM are capped. One
-  host-wide lock covers a run; the units have a 12-hour start timeout.
+  which backup.sh writes before the set is moved into place, does not
+  count toward the 3 and can itself be deleted, so asking for backups
+  cannot push nightly sets out. When no nightly set is complete, the
+  delete keeps the newest complete set of any kind. `backup.sh`'s own
+  retention keeps the newest 3 complete sets and every set younger than 14
+  days. Each report carries the channel's keep count and which sets were
+  requested, so the Backups tab can mark the sets it keeps; that copy is
+  advisory, and the host still refuses such a delete (ADR 0039). It
+  refuses a requested backup within 60 minutes of the last one, and once 3
+  requested runs started within the minimum age, counted from the
+  channel's own log in its state directory rather than from surviving
+  sets, so deleting requested sets does not free the cap. Every run needs
+  free space of at least the newest complete set plus a fifth, and at
+  least 1 GiB, and then has a byte budget of the free space less that
+  floor; passing it stops the run and keeps nothing. Only the home and
+  recovery volumes of instances the VM listed are fetched. The per-file
+  index, path lengths, entry counts and every answer from the VM are
+  capped. One host-wide lock covers a run; the units have a 12-hour start
+  timeout.
 - **The host holds the restore key.** The private age key is installed
   root-only at `/etc/portikus-backup/age-key.txt` by `make
   backup-install-key KEY=<path>`. Only the channel's restore steps read

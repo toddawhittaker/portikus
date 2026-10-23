@@ -274,6 +274,38 @@ test("an older host that reports no floor keeps only the newest complete set mar
 	}
 });
 
+test("with no complete nightly set, the newest complete set is kept even if requested", async ({
+	page,
+}) => {
+	const ws = await student(page);
+	const BROKEN = "20260925T023000Z";
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(BROKEN, [ws.instance], {
+					complete: false,
+					failedVolumes: ["v-home"],
+				}),
+				backupSet(NEW, [ws.instance], { requested: true }),
+				backupSet(OLD, [ws.instance], { requested: true }),
+			],
+			floor: { keepComplete: 3 },
+		}),
+	);
+	await openTab(page);
+	const kept = page.getByTestId(`backup-set-${NEW}`);
+	await expect(kept.getByRole("checkbox")).toHaveAccessibleDescription(
+		"The newest complete set is always kept",
+	);
+	await expect(kept.getByTestId("backup-set-delete")).toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await expect(
+		page.getByTestId(`backup-set-${OLD}`).getByRole("checkbox"),
+	).not.toHaveAttribute("aria-disabled", "true");
+});
+
 test("empty lists are one line each, and Clean up stays closed until there is something to delete", async ({
 	page,
 }) => {

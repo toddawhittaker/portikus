@@ -29,8 +29,8 @@
 #   PORTIKUS_RESTORE_COPY_CMD      restore-copy.sh (default: portikus-restore-copy beside this script)
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   the age window of the requested-backup limit, and backup.sh's nightly floor (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a requested backup needs this much free space at least (default 1024)
-#   PORTIKUS_BACKUP_MAX_REQUESTED  requested sets younger than the minimum age allowed at once (default 3)
-#   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest complete sets (default 3)
+#   PORTIKUS_BACKUP_MAX_REQUESTED  requested runs allowed within the minimum age (default 3)
+#   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest nightly sets (default 3)
 #   PORTIKUS_BACKUP_MIN_GAP_MINUTES  a requested backup waits this long after the last one (default 60)
 set -euo pipefail
 umask 077
@@ -43,6 +43,8 @@ RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-}"
 KEY="${PORTIKUS_BACKUP_KEY:-/etc/portikus-backup/age-key.txt}"
 NIGHTLY="${PORTIKUS_BACKUP_NIGHTLY-portikus-backup}"
 STATE="${PORTIKUS_BACKUP_CHANNEL_STATE:-/var/lib/portikus-backup-channel}"
+# One line per requested run, its start in Unix seconds; never from the VM.
+REQUESTED_LOG="${STATE}/requested-runs"
 BACKUP_CMD="${PORTIKUS_BACKUP_CMD:-${here}/portikus-backup}"
 RESTORE_COPY_CMD="${PORTIKUS_RESTORE_COPY_CMD:-${here}/portikus-restore-copy}"
 MAC_KEY="${PORTIKUS_BACKUP_MAC_KEY:-}"
@@ -390,9 +392,18 @@ list_sets() {
 }
 
 # Requested sets do not count, so a VM cannot push nightly sets out of the
-# floor by asking for backups (ADR 0039).
+# floor by asking for backups (ADR 0039).  With no complete nightly set, the
+# newest complete set of any kind is kept instead.
 newest_nightly_set() {
-  newest_nightly_sets 1
+  local s
+  s=$(newest_nightly_sets 1)
+  if [ -z "$s" ]; then
+    for s in $(list_sets); do
+      [ -e "${HOST_DIR}/${s}/FAILED" ] || { echo "$s"; return 0; }
+    done
+    return 0
+  fi
+  echo "$s"
 }
 
 # newest_nightly_sets N -- the N newest complete sets made without a request, newest first.
@@ -405,16 +416,14 @@ newest_nightly_sets() {
 }
 
 
-# young_requested_sets -- how many sets this channel made on request are
-# younger than the minimum age.  REQUESTED is written here, never by the VM.
-young_requested_sets() {
-  local s n=0 now
-  now=$(date +%s)
-  for s in $(list_sets); do
-    [ -e "${HOST_DIR}/${s}/REQUESTED" ] || continue
-    [ $((now - $(stamp_epoch "$s"))) -ge $((MIN_AGE_DAYS * 86400)) ] || n=$((n + 1))
-  done
-  echo "$n"
+# recent_requested_runs -- how many requested runs started within the
+# minimum age, from the host's own log, so deleting the sets does not free
+# the cap (ADR 0039).  Older lines are dropped.
+recent_requested_runs() {
+  local cutoff=$(( $(date +%s) - MIN_AGE_DAYS * 86400 ))
+  awk -v c="$cutoff" '$1 ~ /^[0-9]+$/ && $1 > c' "$REQUESTED_LOG" 2>/dev/null >"${REQUESTED_LOG}.new" || true
+  mv -f "${REQUESTED_LOG}.new" "$REQUESTED_LOG"
+  wc -l <"$REQUESTED_LOG"
 }
 
 # stamp_epoch STAMP -- seconds since the epoch for a set name.
@@ -432,7 +441,7 @@ job_fail() { job_state=failed job_error=$1; }
 
 run_backup() {
   local id=$1 before after start end err="${scratch}/backup.err"
-  local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE" PORTIKUS_BACKUP_MIN_FREE_MB="$MIN_FREE_MB")
+  local env=(PORTIKUS_BACKUP_REQUESTED=1 PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE" PORTIKUS_BACKUP_MIN_FREE_MB="$MIN_FREE_MB")
   [ -z "${PORTIKUS_BACKUP_MAX_INDEX_ENTRIES:-}" ] || env+=(PORTIKUS_BACKUP_MAX_INDEX_ENTRIES="$PORTIKUS_BACKUP_MAX_INDEX_ENTRIES")
   local last_end ago
   [ -z "$RECIPIENTS" ] || env+=(PORTIKUS_BACKUP_RECIPIENTS="$RECIPIENTS")
@@ -447,8 +456,8 @@ run_backup() {
       return
     fi
   fi
-  # The floor keeps young sets, so cap how many of them a VM can ask for.
-  if [ "$(young_requested_sets)" -ge "$MAX_REQUESTED" ]; then
+  # Each requested run holds the host-wide backup lock, so cap how often a VM can ask.
+  if [ "$(recent_requested_runs)" -ge "$MAX_REQUESTED" ]; then
     job_fail "refused by the host: ${MAX_REQUESTED} requested backups in the last ${MIN_AGE_DAYS} days"
     return
   fi
@@ -458,6 +467,7 @@ run_backup() {
   fi
   before=$(list_sets)
   start=$(date +%s)
+  echo "$start" >>"$REQUESTED_LOG"
   info "request ${id}: backup of ${VM_NAME}"
   local target=(--vm-name "$VM_NAME" "$VM")
   [ "$LOCAL" = no ] || target=(--local)
@@ -472,7 +482,6 @@ run_backup() {
   after=$(list_sets)
   job_stamp=$(comm -13 <(sort <<<"$before") <(sort <<<"$after") | sort -r | head -1)
   [[ "$job_stamp" =~ $SET_PATTERN ]] || job_stamp=""
-  [ -z "$job_stamp" ] || : >"${HOST_DIR}/${job_stamp}/REQUESTED"
   if [ "$job_state" = "done" ]; then
     echo "${start} ${end} success" >"${STATE}/last-run"
   else
@@ -486,7 +495,7 @@ run_delete_set() {
   [[ "$stamp" =~ $SET_PATTERN ]] || { job_fail "refused by the host: not a set name"; return; }
   if [ -L "$dir" ] || [ ! -d "$dir" ]; then job_fail "refused by the host: there is no set ${stamp}"; return; fi
   if [ "$stamp" = "$(newest_nightly_set)" ]; then
-    job_fail "refused by the host: ${stamp} is the newest nightly set"
+    job_fail "refused by the host: ${stamp} is the newest nightly set, or the newest complete one when no nightly set is complete"
     return
   fi
   if newest_nightly_sets "$KEEP_COMPLETE" | grep -qx "$stamp"; then

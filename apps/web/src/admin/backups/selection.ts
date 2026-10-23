@@ -43,8 +43,19 @@ function keptNightlyText(count: number): string {
 export function floorReasons(host: AdminBackups["host"]): Map<string, string> {
 	if (!host) return new Map();
 	const floor = host.floor;
-	const reason = floor ? keptNightlyText(Math.max(floor.keepComplete, 1)) : NEWEST_KEPT;
-	return new Map(keptSetStamps(host).map((stamp) => [stamp, reason]));
+	const nightly = floor
+		? keptNightlyText(Math.max(floor.keepComplete, 1))
+		: NEWEST_KEPT;
+	// A requested set is kept only when no nightly set is complete.
+	const requested = new Set(
+		host.sets.filter((set) => set.requested).map((set) => set.stamp),
+	);
+	return new Map(
+		keptSetStamps(host).map((stamp) => [
+			stamp,
+			requested.has(stamp) ? NEWEST_KEPT : nightly,
+		]),
+	);
 }
 
 /** Unique within the tab; Incus volume and snapshot names and dump files hold no slash. */

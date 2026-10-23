@@ -235,6 +235,15 @@ describe("the report", () => {
 			"20260928T000000Z",
 		]);
 		// An older host sends neither the floor nor the marker.
+		// With no complete nightly set, the newest complete set of any kind is kept.
+		const asked = [
+			set("20260930T000000Z", { requested: true }),
+			set("20260929T000000Z", { complete: false }),
+			set("20260928T000000Z", { requested: true }),
+		];
+		expect(
+			keptSetStamps({ ...status, sets: asked, floor: { keepComplete: 3 } }),
+		).toEqual(["20260930T000000Z"]);
 		const old = [set("20260930T000000Z"), set("20260928T000000Z")];
 		expect(keptSetStamps({ ...status, sets: old })).toEqual(["20260930T000000Z"]);
 	});

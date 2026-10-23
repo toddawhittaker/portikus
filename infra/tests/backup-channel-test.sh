@@ -122,6 +122,8 @@ printf 'backup %s dir=%s\n' "$*" "$PORTIKUS_BACKUP_DIR" >>"$FAKE_DIR/calls.log"
 echo "${PORTIKUS_BACKUP_MIN_AGE_DAYS:-unset} ${PORTIKUS_BACKUP_KEEP_COMPLETE:-unset}" >"$FAKE_DIR/floor"
 [ -z "${FAKE_BACKUP_FAILS:-}" ] || { echo "[backup] FAIL: vm said no" >&2; exit 1; }
 mkdir -p "$PORTIKUS_BACKUP_DIR/portikus/$FAKE_BACKUP_STAMP"
+# As backup.sh does, before its rename.
+if [ "${PORTIKUS_BACKUP_REQUESTED:-}" = 1 ]; then : >"$PORTIKUS_BACKUP_DIR/portikus/$FAKE_BACKUP_STAMP/REQUESTED"; fi
 EOF
 # df: fixed free space, so no test depends on this host's disk.  It reports
 # FAKE_FREE_BYTES (default 100 GiB) less the size of FAKE_USED_FILE, if any.
@@ -409,24 +411,36 @@ echo "$(( $(date +%s) - 7200 )) $(( $(date +%s) - 3660 )) success" >"${state}/la
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 run_channel
 expect "a requested backup after the gap runs" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
-expect "the channel marks the set it made as requested" "[ -f '${sets}/${FAKE_BACKUP_STAMP}/REQUESTED' ]"
+expect "the backup is told it was requested, so the set carries the marker" "[ -f '${sets}/${FAKE_BACKUP_STAMP}/REQUESTED' ]"
+# With a minimum age of 0 the earlier run has left the window, so one line stays.
+expect "the requested run is logged in the host's state" "[ \"\$(cat '${state}/requested-runs')\" -ge \"\$(( \$(date +%s) - 60 ))\" ]"
 
-# The retention floor keeps young sets, so a VM may ask for only a few (ADR 0039).
-ago_stamp() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
+# Requested runs hold the host-wide backup lock, so a VM may ask for only a
+# few within the minimum age, counted from the host's log (ADR 0039).
 reset
-for d in 1 2; do st=$(ago_stamp "$d"); make_set "$st"; touch "${sets}/${st}/REQUESTED"; done
-old_req=$(ago_stamp 20)
-make_set "$old_req"
-touch "${sets}/${old_req}/REQUESTED"
+mkdir -p "$state"
+now=$(date +%s)
+printf '%s\n' "$((now - 86400))" "$((now - 20 * 86400))" "junk" >"${state}/requested-runs"
 : >"$log"
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 MIN_AGE=14 run_channel
-expect "two young requested sets, and an old one, still allow a request" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
+expect "one young logged run, an old one and a junk line still allow a request" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
+expect "old and junk lines are dropped from the log" "[ \"\$(wc -l <'${state}/requested-runs')\" = 2 ]"
+# Deleting the requested sets does not free the cap.
+rm -rf "${sets:?}/${FAKE_BACKUP_STAMP}"
+rm -f "${state}/last-run"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+MIN_AGE=14 run_channel
+expect "a third request runs" "[ \"\$(field \"r['request']['state']\")\" = done ]"
+del_req="{\"id\":\"${ID}\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"${FAKE_BACKUP_STAMP}\"}}"
+pull "$del_req"
+MIN_AGE=14 run_channel
+expect "the requested set is deleted at once" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${FAKE_BACKUP_STAMP}' ]"
 rm -f "${state}/last-run"
 : >"$log"
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 MIN_AGE=14 run_channel
-expect "a fourth request with three young requested sets is refused" \
+expect "after request, delete, request, the next request within the window is refused" \
   "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: 3 requested backups in the last 14 days' ] && ! grep -q '^backup ' '$log'"
 
 reset
@@ -504,7 +518,19 @@ KEEP=0 run_channel
 expect "the newest set, made on request, can be deleted even with no floor" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${r3}' ]"
 del "$n1"
 KEEP=0 run_channel
-expect "the newest nightly set is always kept" "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: ${n1} is the newest nightly set' ] && [ -d '${sets}/${n1}' ]"
+expect "the newest nightly set is always kept" "field \"r['request']['error']\" | grep -q '^refused by the host: ${n1} is the newest nightly set' && [ -d '${sets}/${n1}' ]"
+# With no complete nightly set, the newest complete set of any kind is kept.
+reset
+rm -rf "${sets:?}/${OLD}" "${sets:?}/${GOOD}" "${sets:?}/${NEWEST}" "${sets:?}/${BROKEN}"
+q1=$(ago 3); q2=$(ago 2); nf=$(ago 1)
+for st in "$q1" "$q2"; do make_set "$st"; touch "${sets}/${st}/REQUESTED"; done
+make_set "$nf" failed
+del "$q2"
+KEEP=3 run_channel
+expect "with no complete nightly set, the newest complete requested set is kept" "field \"r['request']['error']\" | grep -q 'newest complete one when no nightly set is complete' && [ -d '${sets}/${q2}' ]"
+del "$q1"
+KEEP=3 run_channel
+expect "and an older requested set can still go" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${q1}' ]"
 
 echo "--- side copy ---"
 copy_req="{\"id\":\"${ID}\",\"kind\":\"restore_copy\",\"args\":{\"stamp\":\"${GOOD}\",\"instance\":\"${INST}\",\"dir\":\"restored-2026-09-24-0230\"}}"

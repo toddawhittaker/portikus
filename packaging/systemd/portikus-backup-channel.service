@@ -11,7 +11,8 @@ After=postgresql.service incus.service
 Type=oneshot
 Environment=PORTIKUS_BACKUP_DIR=/var/backups/portikus
 Environment=PORTIKUS_BACKUP_NIGHTLY=portikus-backup
-# The retention floor the worker cannot lower (ADR 0039).
+# The window of the requested-backup cap and of backup.sh's retention floor,
+# which the VM cannot change (ADR 0039).
 Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
 Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024
 Environment=PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=1000000
