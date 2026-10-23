@@ -5,10 +5,11 @@ import {
 	createRouter,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { shortTime } from "../../text.js";
+import { ADMIN_REFRESH_MS } from "../queries.js";
 import { isUsersList, usersBody } from "../users/testRows.js";
 import {
 	AuditTab,
@@ -18,7 +19,10 @@ import {
 } from "./AuditTab.js";
 import { auditQueryString } from "./queries.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -464,4 +468,59 @@ test("only Time sorts, and it flips the page's own order", async () => {
 		within(table).getByRole("columnheader", { name: "Time" }).getAttribute("aria-sort"),
 	).toBe("ascending");
 	expect(screen.getByRole("table", { name: /oldest first/ })).toBe(table);
+});
+
+/** Let one refresh interval pass; the test must have called vi.useFakeTimers. */
+async function refresh() {
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(ADMIN_REFRESH_MS);
+	});
+}
+
+test("the newest page refreshes on its own and keeps the admin's place", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const long = { note: "x".repeat(200) };
+	let events = [event(5, { metadata: long })];
+	const fetch = stubAudit(() => json(200, { events, nextBefore: null }));
+
+	renderTab("/admin/audit");
+
+	const row = await screen.findByTestId("audit-row-5");
+	const details = within(row).getByTestId("audit-details-full") as HTMLDetailsElement;
+	details.open = true;
+	const summary = within(details).getByText("Show full details");
+	summary.focus();
+	const action = screen.getByRole("textbox", { name: /Action starts with/ });
+	fireEvent.change(action, { target: { value: "user." } });
+
+	events = [event(6), event(5, { metadata: long })];
+	await refresh();
+
+	await screen.findByTestId("audit-row-6");
+	expect(auditCalls(fetch)).toEqual(["/admin/audit", "/admin/audit"]);
+	// The same row stays on screen, so its open details and focus survive.
+	expect(screen.getByTestId("audit-row-5")).toBe(row);
+	expect(details.open).toBe(true);
+	expect(document.activeElement).toBe(summary);
+	expect((action as HTMLInputElement).value).toBe("user.");
+});
+
+test("an older page is fixed by its cursor and is not refreshed", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const fetch = stubAudit((url) =>
+		url === "/admin/audit"
+			? json(200, { events: [event(60)], nextBefore: 60 })
+			: json(200, { events: [event(3)], nextBefore: null }),
+	);
+
+	renderTab("/admin/audit");
+
+	await screen.findByTestId("audit-row-60");
+	fireEvent.click(screen.getByRole("button", { name: "Older audit events" }));
+	await screen.findByTestId("audit-row-3");
+	expect(auditCalls(fetch)).toEqual(["/admin/audit", "/admin/audit?before=60"]);
+
+	await refresh();
+	await refresh();
+	expect(auditCalls(fetch)).toEqual(["/admin/audit", "/admin/audit?before=60"]);
 });
