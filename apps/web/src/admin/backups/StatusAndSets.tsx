@@ -7,7 +7,7 @@ import { Button, Toggletip } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { sampleAge } from "../health/HealthTab.js";
-import { longTime, newestCompleteStamp, runningText, setTime } from "./model.js";
+import { longTime, runningText, setTime } from "./model.js";
 import { FocusCatchGroup, SELECT_CELL, Table } from "./parts.js";
 import {
 	DeleteSelectedButton,
@@ -18,7 +18,7 @@ import {
 import {
 	type DeleteTarget,
 	deleteWaiting,
-	NEWEST_KEPT,
+	floorReasons,
 	targetKey,
 } from "./selection.js";
 
@@ -103,7 +103,7 @@ export function SetsPart({
 	onDelete: (target: DeleteTarget) => void;
 	selection: ListSelection;
 }) {
-	const newest = newestCompleteStamp(host.sets);
+	const kept = floorReasons(host);
 	return (
 		<FocusCatchGroup
 			level={4}
@@ -155,7 +155,7 @@ export function SetsPart({
 						key={set.stamp}
 						set={set}
 						keyInstalled={host.keyInstalled}
-						isNewest={set.stamp === newest}
+						keptReason={kept.get(set.stamp) ?? null}
 						deleting={deleteWaiting(requests, { kind: "set", stamp: set.stamp })}
 						onRestore={onRestore}
 						onDelete={onDelete}
@@ -171,7 +171,7 @@ export function SetsPart({
 function setNotes(
 	set: HostBackupSet,
 	keyInstalled: boolean,
-	isNewest: boolean,
+	keptReason: string | null,
 ): { key: string; node: ReactNode }[] {
 	const notes: { key: string; node: ReactNode }[] = [];
 	if (set.verified === false && keyInstalled) {
@@ -198,12 +198,12 @@ function setNotes(
 			),
 		});
 	}
-	if (isNewest) {
+	if (keptReason) {
 		notes.push({
-			key: "newest",
+			key: "kept",
 			node: (
 				<span id={`backup-set-note-${set.stamp}`} className="pk-muted">
-					{NEWEST_KEPT}
+					{keptReason}
 				</span>
 			),
 		});
@@ -265,7 +265,7 @@ function SetResult({
 function SetRow({
 	set,
 	keyInstalled,
-	isNewest,
+	keptReason,
 	deleting,
 	onRestore,
 	onDelete,
@@ -273,7 +273,7 @@ function SetRow({
 }: {
 	set: HostBackupSet;
 	keyInstalled: boolean;
-	isNewest: boolean;
+	keptReason: string | null;
 	deleting: boolean;
 	onRestore: (set: HostBackupSet) => void;
 	onDelete: (target: DeleteTarget) => void;
@@ -294,7 +294,7 @@ function SetRow({
 			</td>
 			<th scope="row">{when}</th>
 			<td>
-				<SetResult set={set} notes={setNotes(set, keyInstalled, isNewest)} />
+				<SetResult set={set} notes={setNotes(set, keyInstalled, keptReason)} />
 			</td>
 			<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
 			<td className="tabular-nums">{set.instances.length}</td>
@@ -319,10 +319,10 @@ function SetRow({
 						aria-label={
 							deleting ? `Deleting the set from ${when}` : `Delete the set from ${when}`
 						}
-						aria-disabled={isNewest || deleting ? true : undefined}
-						aria-describedby={isNewest ? noteId : undefined}
+						aria-disabled={keptReason || deleting ? true : undefined}
+						aria-describedby={keptReason ? noteId : undefined}
 						onClick={() => {
-							if (!isNewest && !deleting) onDelete({ kind: "set", stamp: set.stamp });
+							if (!keptReason && !deleting) onDelete({ kind: "set", stamp: set.stamp });
 						}}
 					>
 						{deleting ? "Deleting…" : "Delete…"}

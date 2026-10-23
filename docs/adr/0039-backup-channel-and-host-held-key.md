@@ -167,3 +167,21 @@ over the live home, with the backup's ID map, as `restore.sh` does
 - The rehearsal and the pilot share one channel unit, so a rehearsal of
   the channel points it away from the pilot until `make
   backup-install-timer` is run again.
+
+## Changed 2026-10-23
+
+A delete the administrator asks for keeps only the newest
+`PORTIKUS_BACKUP_KEEP_COMPLETE` complete nightly sets; the channel no
+longer refuses a set for being younger than
+`PORTIKUS_BACKUP_MIN_AGE_DAYS`. Todd ruled this because the age floor
+refused every delete he tried on the pilot. The cost he accepted: a
+compromised VM can delete all but the newest 3 complete nightly sets.
+Only nightly sets count: a set carrying the channel's `REQUESTED` marker
+does not count toward the floor and can itself be deleted, and the
+"newest complete set" refusal became "newest nightly set". Otherwise a
+compromised VM could request 3 backups in about 3 hours, making them the
+newest 3, then delete every older set. The minimum age still bounds
+`backup.sh`'s own retention and the requested-backup limit. Each report
+now carries the keep count as `floor.keepComplete` and each set's
+`requested` flag, so the Backups tab can mark the sets a delete would be
+refused for; the host still enforces it.

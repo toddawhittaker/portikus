@@ -8,9 +8,10 @@
 #     oversized, malformed or multi-line document is reported "refused by the
 #     host", and nothing runs: no backup, no delete, no decryption, no command
 #     beyond pull and report reaches the VM;
-#   - a delete never removes the newest complete set, a symbolic link, or
+#   - a delete never removes the newest nightly set, a symbolic link, or
 #     anything outside this VM's directory, and keeps the host's retention
-#     floor (a minimum age and the newest complete sets);
+#     floor (the newest complete sets not made on request; a hand delete has
+#     no age floor);
 #   - a restore into an instance whose home is not in the set, or onto a VM
 #     with another hostname, is refused; a side copy runs as uid 1000 inside
 #     the workspace, refuses an existing folder and a copy larger than the
@@ -216,7 +217,9 @@ assert len(raw.encode()) <= 262144, "over 256 KiB"
 r = json.loads(raw)
 assert set(r) == {"request", "status"}
 s = r["status"]
-assert set(s) == {"vm", "reportedAt", "nextRunAt", "lastRun", "lastFailure", "running", "keyInstalled", "sets", "dumps"}, set(s)
+assert set(s) == {"vm", "reportedAt", "nextRunAt", "lastRun", "lastFailure", "running", "keyInstalled", "sets", "dumps", "floor"}, set(s)
+assert set(s["floor"]) == {"keepComplete"}
+assert isinstance(s["floor"]["keepComplete"], int) and 0 <= s["floor"]["keepComplete"] <= 999
 ts = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?([+-]\d\d:\d\d|Z)")
 assert re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", s["vm"])
 assert ts.fullmatch(s["reportedAt"])
@@ -224,7 +227,8 @@ assert s["nextRunAt"] is None or ts.fullmatch(s["nextRunAt"])
 assert isinstance(s["keyInstalled"], bool)
 assert len(s["sets"]) <= 60 and len(s["dumps"]) <= 200
 for x in s["sets"]:
-    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes", "verified"}
+    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes", "verified", "requested"}
+    assert isinstance(x["requested"], bool)
     assert isinstance(x["skippedVolumes"], int) and x["skippedVolumes"] >= 0
     assert isinstance(x["verified"], bool)
     assert re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", x["stamp"]) and isinstance(x["complete"], bool)
@@ -444,6 +448,14 @@ FAKE_NIGHTLY_ACTIVE=1 run_channel
 expect "a backup is refused while the nightly one runs" "[ \"\$(field \"r['request']['state']\")\" = failed ] && ! grep -q '^backup ' '$log'"
 
 echo "--- the host's retention floor ---"
+reset
+pull ""
+MIN_AGE=9 KEEP=4 run_channel
+expect "the report carries the unit's floor" "[ \"\$(field \"r['status']['floor']\")\" = \"{'keepComplete': 4}\" ]"
+MIN_AGE='' KEEP='' run_channel
+expect "the reported floor is the defaults when the unit sets none" "[ \"\$(field \"r['status']['floor']\")\" = \"{'keepComplete': 3}\" ]"
+MIN_AGE=abc KEEP=-1 run_channel
+expect "a malformed floor is reported as the defaults the host enforces" "[ \"\$(field \"r['status']['floor']\")\" = \"{'keepComplete': 3}\" ]"
 ago() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
 floor_refused() { refused && field "r['request']['error']" | grep -q '^refused by the host: retention floor ('; }
 del() { pull "{\"id\":\"${ID}\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"$1\"}}"; }
@@ -456,8 +468,8 @@ young=$(ago 2)
 make_set "$young"
 make_set "$(ago 1)"
 del "$young"
-MIN_AGE=7 run_channel
-expect "a set younger than the minimum age is kept" "floor_refused && [ -d '${sets}/${young}' ]"
+MIN_AGE=7 KEEP=1 run_channel
+expect "a young set outside the newest complete ones is deleted; a hand delete has no age floor" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${young}' ]"
 # With the unit's defaults (7 days, 3 sets) and four old complete sets, only the oldest can go.
 reset
 rm -rf "${sets:?}/${OLD}" "${sets:?}/${GOOD}" "${sets:?}/${NEWEST}" "${sets:?}/${BROKEN}"
@@ -470,6 +482,29 @@ expect "with the defaults an old set beyond the newest three is deleted" "[ \"\$
 del "$third"
 MIN_AGE='' KEEP='' run_channel
 expect "with the defaults the third newest complete set is kept" "floor_refused && [ -d '${sets}/${third}' ]"
+# Requested sets do not count toward the floor, so asking for backups cannot
+# push nightly sets out of it (ADR 0039).
+reset
+rm -rf "${sets:?}/${OLD}" "${sets:?}/${GOOD}" "${sets:?}/${NEWEST}" "${sets:?}/${BROKEN}"
+n3=$(ago 30); n2=$(ago 20); n1=$(ago 10)
+for st in "$n3" "$n2" "$n1"; do make_set "$st"; done
+r1=$(ago 3); r2=$(ago 2); r3=$(ago 1)
+for st in "$r1" "$r2" "$r3"; do make_set "$st"; touch "${sets}/${st}/REQUESTED"; done
+pull ""
+KEEP=3 run_channel
+expect "the report marks which sets were made on request" "[ \"\$(field \"[s['requested'] for s in r['status']['sets']]\")\" = '[True, True, True, False, False, False]' ]"
+del "$n3"
+KEEP=3 run_channel
+expect "three newer requested sets do not push the third nightly set out of the floor" "floor_refused && [ -d '${sets}/${n3}' ]"
+del "$r2"
+KEEP=3 run_channel
+expect "a requested set among the newest three overall can be deleted" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${r2}' ]"
+del "$r3"
+KEEP=0 run_channel
+expect "the newest set, made on request, can be deleted even with no floor" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${r3}' ]"
+del "$n1"
+KEEP=0 run_channel
+expect "the newest nightly set is always kept" "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: ${n1} is the newest nightly set' ] && [ -d '${sets}/${n1}' ]"
 
 echo "--- side copy ---"
 copy_req="{\"id\":\"${ID}\",\"kind\":\"restore_copy\",\"args\":{\"stamp\":\"${GOOD}\",\"instance\":\"${INST}\",\"dir\":\"restored-2026-09-24-0230\"}}"

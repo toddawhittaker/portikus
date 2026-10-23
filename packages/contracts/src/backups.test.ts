@@ -14,6 +14,7 @@ import {
 	BackupSnapshotVolume,
 	BackupStamp,
 	type HostBackupStatus,
+	keptSetStamps,
 	restoreDirFor,
 } from "./backups.js";
 
@@ -179,6 +180,63 @@ describe("the report", () => {
 			BackupChannelReport.safeParse({ request: null, status: { ...status, key: "x" } })
 				.success,
 		).toBe(false);
+	});
+
+	test("the host's retention floor is optional, whole, and inside the shell's bound", () => {
+		const withFloor = (floor: unknown) =>
+			BackupChannelReport.safeParse({ request: null, status: { ...status, floor } })
+				.success;
+		expect(withFloor({ keepComplete: 3 })).toBe(true);
+		expect(withFloor({ keepComplete: 0 })).toBe(true);
+		expect(withFloor({ keepComplete: 999 })).toBe(true);
+		expect(withFloor({ keepComplete: 1000 })).toBe(false);
+		expect(withFloor({ keepComplete: -1 })).toBe(false);
+		expect(withFloor({ keepComplete: 2.5 })).toBe(false);
+		expect(withFloor({})).toBe(false);
+		expect(withFloor({ keepComplete: 3, minAgeDays: 14 })).toBe(false);
+		expect(withFloor({ keepComplete: 3, extra: 1 })).toBe(false);
+		// An older host sends none.
+		expect(BackupChannelReport.safeParse({ request: null, status }).success).toBe(true);
+	});
+
+	test("a set says whether it was made on request; older hosts leave it out", () => {
+		const set = status.sets[0];
+		const withSet = (extra: object) =>
+			BackupChannelReport.safeParse({
+				request: null,
+				status: { ...status, sets: [{ ...set, ...extra }] },
+			}).success;
+		expect(withSet({ requested: true })).toBe(true);
+		expect(withSet({ requested: false })).toBe(true);
+		expect(withSet({ requested: "yes" })).toBe(false);
+	});
+
+	test("the kept sets are the newest nightly complete ones, at least one", () => {
+		const set = (stamp: string, extra: object = {}) => ({
+			stamp,
+			complete: true,
+			sizeBytes: 1,
+			instances: [],
+			failedVolumes: [],
+			...extra,
+		});
+		const sets = [
+			set("20260930T000000Z", { requested: true }),
+			set("20260929T000000Z", { complete: false }),
+			set("20260928T000000Z"),
+			set("20260927T000000Z"),
+			set("20260926T000000Z"),
+		];
+		expect(keptSetStamps({ ...status, sets, floor: { keepComplete: 2 } })).toEqual([
+			"20260928T000000Z",
+			"20260927T000000Z",
+		]);
+		expect(keptSetStamps({ ...status, sets, floor: { keepComplete: 0 } })).toEqual([
+			"20260928T000000Z",
+		]);
+		// An older host sends neither the floor nor the marker.
+		const old = [set("20260930T000000Z"), set("20260928T000000Z")];
+		expect(keptSetStamps({ ...status, sets: old })).toEqual(["20260930T000000Z"]);
 	});
 
 	test("the size cap is 256 KiB", () => {

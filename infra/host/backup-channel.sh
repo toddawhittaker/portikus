@@ -27,7 +27,7 @@
 #   PORTIKUS_BACKUP_CHANNEL_STATE  state directory (default /var/lib/portikus-backup-channel)
 #   PORTIKUS_BACKUP_CMD            backup.sh (default: portikus-backup beside this script)
 #   PORTIKUS_RESTORE_COPY_CMD      restore-copy.sh (default: portikus-restore-copy beside this script)
-#   PORTIKUS_BACKUP_MIN_AGE_DAYS   a delete never removes a set younger than this (default 14)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   the age window of the requested-backup limit, and backup.sh's nightly floor (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a requested backup needs this much free space at least (default 1024)
 #   PORTIKUS_BACKUP_MAX_REQUESTED  requested sets younger than the minimum age allowed at once (default 3)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest complete sets (default 3)
@@ -231,7 +231,7 @@ if st and stat.S_ISDIR(st.st_mode):
         if sst and stat.S_ISREG(sst.st_mode) and sst.st_size <= 16:
             text = read(os.path.join(top, "SKIPPED")).strip()
             skipped = int(text) if text.isdigit() and len(text) <= 7 else 0
-        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped, "verified": verified(top)})
+        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped, "verified": verified(top), "requested": os.path.isfile(os.path.join(top, "REQUESTED"))})
 dumps = []
 ddir = os.path.join(host_dir, "dumps")
 st = lstat(ddir)
@@ -254,6 +254,7 @@ status = {
     "keyInstalled": os.environ.get("CH_KEY_INSTALLED") == "yes",
     "sets": sets,
     "dumps": dumps,
+    "floor": {"keepComplete": int(os.environ["CH_KEEP_COMPLETE"])},
 }
 doc = {"request": request, "status": status}
 # The VM refuses a larger document; the oldest sets go first.
@@ -356,7 +357,7 @@ record_nightly_failure() {
 report() {
   local out="${scratch}/report.$$.${RANDOM}.json"
   if key_installed; then export CH_KEY_INSTALLED=yes; else export CH_KEY_INSTALLED=no; fi
-  export CH_KEY="$KEY" CH_MAC_CMD="$MAC_CMD"
+  export CH_KEY="$KEY" CH_MAC_CMD="$MAC_CMD" CH_KEEP_COMPLETE="$KEEP_COMPLETE"
   python3 -c "$BUILD_REPORT" "$HOST_DIR" "$VM_NAME" "$STATE" "$1" "${scratch}/nightly" "${2:-}" 262144 >"$out"
   vm_in sudo portikus backup-channel report <"$out" >/dev/null
 }
@@ -388,19 +389,18 @@ list_sets() {
   find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | { grep -E "$SET_PATTERN" || true; } | sort -r
 }
 
-newest_complete_set() {
-  local s
-  for s in $(list_sets); do
-    [ -e "${HOST_DIR}/${s}/FAILED" ] || { echo "$s"; return 0; }
-  done
+# Requested sets do not count, so a VM cannot push nightly sets out of the
+# floor by asking for backups (ADR 0039).
+newest_nightly_set() {
+  newest_nightly_sets 1
 }
 
-# newest_complete_sets N -- the N newest complete sets, newest first.
-newest_complete_sets() {
+# newest_nightly_sets N -- the N newest complete sets made without a request, newest first.
+newest_nightly_sets() {
   local s n=0
   for s in $(list_sets); do
     [ "$n" -lt "$1" ] || return 0
-    [ -e "${HOST_DIR}/${s}/FAILED" ] || { echo "$s"; n=$((n + 1)); }
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || [ -e "${HOST_DIR}/${s}/REQUESTED" ] || { echo "$s"; n=$((n + 1)); }
   done
 }
 
@@ -485,16 +485,12 @@ run_delete_set() {
   local stamp=$1 dir="${HOST_DIR}/${1}"
   [[ "$stamp" =~ $SET_PATTERN ]] || { job_fail "refused by the host: not a set name"; return; }
   if [ -L "$dir" ] || [ ! -d "$dir" ]; then job_fail "refused by the host: there is no set ${stamp}"; return; fi
-  if [ "$stamp" = "$(newest_complete_set)" ]; then
-    job_fail "refused by the host: ${stamp} is the newest complete set"
+  if [ "$stamp" = "$(newest_nightly_set)" ]; then
+    job_fail "refused by the host: ${stamp} is the newest nightly set"
     return
   fi
-  if newest_complete_sets "$KEEP_COMPLETE" | grep -qx "$stamp"; then
-    job_fail "refused by the host: retention floor (the newest ${KEEP_COMPLETE} complete sets are kept)"
-    return
-  fi
-  if [ $(( $(date +%s) - $(stamp_epoch "$stamp") )) -lt $((MIN_AGE_DAYS * 86400)) ]; then
-    job_fail "refused by the host: retention floor (sets younger than ${MIN_AGE_DAYS} days are kept)"
+  if newest_nightly_sets "$KEEP_COMPLETE" | grep -qx "$stamp"; then
+    job_fail "refused by the host: retention floor (the newest ${KEEP_COMPLETE} nightly sets are kept)"
     return
   fi
   rm -rf -- "$dir"

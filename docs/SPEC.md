@@ -2795,7 +2795,7 @@ As built (Epic 53): the Settings tab has five sections, in this order: "When wor
 
 As built (Epic 54): each of the Backups tab's four lists (backup sets, pre-change snapshots, kept homes and pre-change database dumps) has a checkbox on every row and a select-all box in its table head, and the selection covers the whole tab.
 
-- The newest complete set cannot be ticked: its box is `aria-disabled` and described by "The newest complete set is always kept", and select all skips it. A row whose delete is already waiting cannot be ticked either.
+- A set the host's floor keeps cannot be ticked or deleted: with the keep count the host reports, the newest that many complete nightly sets are described by "Kept by the server: the newest 3 nightly sets" (the host's number); incomplete and requested sets do not count and can be ticked. A host that reports no count marks only the newest complete set, described by "The newest complete set is always kept". Select all skips these sets. A row whose delete is already waiting cannot be ticked either.
 - A **Delete N selected…** button beside a list's heading opens one confirm. It names a single item by name, and several by count and kind only ("2 backup sets, 1 kept home and 1 database dump"), never a list of contents.
 - The browser sends the existing per-item delete request for each selected item, one at a time. There is no bulk route, so each item is its own audited request (section 24.11), and one refresh follows the run.
 - If some fail, the confirm stays open on the items that were not deleted, lists each with its reason in an alert region, and keeps them ticked. Pressing Delete again retries only those.
@@ -4520,9 +4520,15 @@ restored from the admin Backups tab (section 20.1).
   VM work, done by the worker through the controller, which refuses any
   other snapshot or volume name. Pre-change dumps live in
   `/var/backups/portikus/<VM name>/dumps/`.
-- **Host-side bounds.** The host, not the request, sets every limit. It
-  never deletes a set younger than 14 days and always keeps the newest 3
-  complete sets, in the channel and in `backup.sh`'s own retention. It
+- **Host-side bounds.** The host, not the request, sets every limit. A
+  delete through the channel always keeps the newest 3 complete nightly
+  sets; a set the channel made on request carries a `REQUESTED` marker,
+  does not count toward the 3 and can itself be deleted, so asking for
+  backups cannot push nightly sets out. `backup.sh`'s own retention keeps
+  the newest 3 complete sets and every set younger than 14 days. Each
+  report carries the channel's keep count and which sets were requested,
+  so the Backups tab can mark the sets it keeps; that copy is advisory, and the host
+  still refuses such a delete (ADR 0039). It
   refuses a requested backup within 60 minutes of the last one, and while
   3 requested sets are younger than the minimum age. Every run needs free
   space of at least the newest complete set plus a fifth, and at least

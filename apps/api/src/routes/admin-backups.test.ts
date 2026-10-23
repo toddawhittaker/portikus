@@ -267,6 +267,19 @@ describe.skipIf(skip)("deleting a set", () => {
 		expect(await requests()).toEqual([]);
 	});
 
+	test("a requested set newer than the newest nightly one can go; the nightly one cannot", async () => {
+		const sets = hostStatus().sets.map((set) =>
+			set.stamp === NEWEST ? { ...set, requested: true } : set,
+		);
+		await report(hostStatus({ sets, floor: { keepComplete: 3 } }));
+		expect(
+			(await send(carol, "DELETE", `/admin/backups/sets/${NEWEST}`)).statusCode,
+		).toBe(202);
+		const res = await send(carol, "DELETE", `/admin/backups/sets/${OLD}`);
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("BACKUP_NEWEST_SET");
+	});
+
 	test("a malformed or unknown stamp is refused", async () => {
 		for (const bad of ["20260925T023000Z..", "x%2F..%2Fetc", "20260925T023000Z%0A"]) {
 			expect(

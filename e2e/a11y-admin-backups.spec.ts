@@ -145,6 +145,38 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(tip).toBeFocused();
 	});
 
+	test(`sets kept by the host's floor have no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		const OLDEST = "20260910T023000Z";
+		const complete = (stamp: string) => ({
+			stamp,
+			complete: true,
+			sizeBytes: 1024 ** 3,
+			instances: [INSTANCE],
+			failedVolumes: [],
+		});
+		await openTab(page, colorScheme, {
+			...BACKUPS,
+			host: {
+				...BACKUPS.host,
+				sets: [complete(NEW), complete(OLD), complete(OLDEST)],
+				floor: { keepComplete: 2 },
+			},
+			hostStale: false,
+		});
+		const reason = "Kept by the server: the newest 2 nightly sets";
+		const kept = page.getByTestId(`backup-set-${OLD}`);
+		await expect(kept.getByRole("checkbox")).toHaveAccessibleDescription(reason);
+		await expect(kept.getByTestId("backup-set-delete")).toHaveAccessibleDescription(
+			reason,
+		);
+		await expect(
+			page.getByTestId(`backup-set-${OLDEST}`).getByRole("checkbox"),
+		).not.toHaveAttribute("aria-disabled", "true");
+		await expectNoViolations(page);
+	});
+
 	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {

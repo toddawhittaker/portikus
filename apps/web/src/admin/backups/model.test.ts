@@ -1,7 +1,6 @@
 import type { BackupRequestView } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
-	newestCompleteStamp,
 	requestText,
 	runningText,
 	stampIso,
@@ -13,11 +12,6 @@ import { BOB_INSTANCE, backups, NEW, view, WORKSPACES } from "./testBackups.js";
 
 test("a stamp reads as its UTC time", () => {
 	expect(stampIso(NEW)).toBe("2026-09-24T02:30:00Z");
-});
-
-test("the newest complete set is the one the host keeps", () => {
-	expect(newestCompleteStamp(backups().host?.sets ?? [])).toBe(NEW);
-	expect(newestCompleteStamp([])).toBeNull();
 });
 
 test("requests read in words, naming the workspace", () => {
