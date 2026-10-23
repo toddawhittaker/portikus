@@ -1,15 +1,11 @@
-import type {
-	AdminBackups,
-	BackupRequestKind,
-	BackupRequestView,
+import {
+	type AdminBackups,
+	type BackupRequestKind,
+	type BackupRequestView,
+	keptSetStamps,
 } from "@portikus/contracts";
 import { joinWords, plural } from "../../text.js";
-import {
-	newestCompleteStamp,
-	setTime,
-	waitingRequest,
-	workspaceName,
-} from "./model.js";
+import { setTime, waitingRequest, workspaceName } from "./model.js";
 
 /** One item a Delete button or a ticked row asks to delete. */
 export type DeleteTarget =
@@ -32,6 +28,35 @@ const NOUN: Record<DeleteKind, [one: string, many: string]> = {
 
 export const NEWEST_KEPT = "The newest complete set is always kept";
 const ALREADY_WAITING = "A delete is already waiting";
+
+function keptNightlyText(count: number): string {
+	return count === 1
+		? "Kept by the server: the newest nightly set"
+		: `Kept by the server: the newest ${count} nightly sets`;
+}
+
+/**
+ * Why the host would refuse to delete each set, by stamp. The floor is
+ * advisory; the host enforces it (ADR 0039). An older host reports none, so
+ * only the newest complete set is marked.
+ */
+export function floorReasons(host: AdminBackups["host"]): Map<string, string> {
+	if (!host) return new Map();
+	const floor = host.floor;
+	const nightly = floor
+		? keptNightlyText(Math.max(floor.keepComplete, 1))
+		: NEWEST_KEPT;
+	// A requested set is kept only when no nightly set is complete.
+	const requested = new Set(
+		host.sets.filter((set) => set.requested).map((set) => set.stamp),
+	);
+	return new Map(
+		keptSetStamps(host).map((stamp) => [
+			stamp,
+			requested.has(stamp) ? NEWEST_KEPT : nightly,
+		]),
+	);
+}
 
 /** Unique within the tab; Incus volume and snapshot names and dump files hold no slash. */
 export function targetKey(target: DeleteTarget): string {
@@ -93,7 +118,7 @@ export interface Pickable {
 /** Every listed item on the tab, in page order. */
 export function pickables(data: AdminBackups): Pickable[] {
 	const { host, vm, requests, workspaces } = data;
-	const newest = host ? newestCompleteStamp(host.sets) : null;
+	const kept = floorReasons(host);
 	const targets: DeleteTarget[] = [
 		...(host?.sets ?? []).map(
 			(set): DeleteTarget => ({ kind: "set", stamp: set.stamp }),
@@ -120,11 +145,8 @@ export function pickables(data: AdminBackups): Pickable[] {
 		key: targetKey(target),
 		target,
 		blocked:
-			target.kind === "set" && target.stamp === newest
-				? NEWEST_KEPT
-				: deleteWaiting(requests, target)
-					? ALREADY_WAITING
-					: null,
+			(target.kind === "set" ? kept.get(target.stamp) : undefined) ??
+			(deleteWaiting(requests, target) ? ALREADY_WAITING : null),
 	}));
 }
 

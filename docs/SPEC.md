@@ -2795,7 +2795,7 @@ As built (Epic 53): the Settings tab has five sections, in this order: "When wor
 
 As built (Epic 54): each of the Backups tab's four lists (backup sets, pre-change snapshots, kept homes and pre-change database dumps) has a checkbox on every row and a select-all box in its table head, and the selection covers the whole tab.
 
-- The newest complete set cannot be ticked: its box is `aria-disabled` and described by "The newest complete set is always kept", and select all skips it. A row whose delete is already waiting cannot be ticked either.
+- A set the host's floor keeps cannot be ticked or deleted: with the keep count the host reports, the newest that many complete nightly sets are described by "Kept by the server: the newest 3 nightly sets" (the host's number); incomplete and requested sets do not count and can be ticked. A host that reports no count marks only the newest complete set, described by "The newest complete set is always kept". Select all skips these sets. A row whose delete is already waiting cannot be ticked either.
 - A **Delete N selected…** button beside a list's heading opens one confirm. It names a single item by name, and several by count and kind only ("2 backup sets, 1 kept home and 1 database dump"), never a list of contents.
 - The browser sends the existing per-item delete request for each selected item, one at a time. There is no bulk route, so each item is its own audited request (section 24.11), and one refresh follows the run.
 - If some fail, the confirm stays open on the items that were not deleted, lists each with its reason in an alert region, and keeps them ticked. Pressing Delete again retries only those.
@@ -4520,17 +4520,28 @@ restored from the admin Backups tab (section 20.1).
   VM work, done by the worker through the controller, which refuses any
   other snapshot or volume name. Pre-change dumps live in
   `/var/backups/portikus/<VM name>/dumps/`.
-- **Host-side bounds.** The host, not the request, sets every limit. It
-  never deletes a set younger than 14 days and always keeps the newest 3
-  complete sets, in the channel and in `backup.sh`'s own retention. It
-  refuses a requested backup within 60 minutes of the last one, and while
-  3 requested sets are younger than the minimum age. Every run needs free
-  space of at least the newest complete set plus a fifth, and at least
-  1 GiB, and then has a byte budget of the free space less that floor;
-  passing it stops the run and keeps nothing. Only the home and recovery
-  volumes of instances the VM listed are fetched. The per-file index,
-  path lengths, entry counts and every answer from the VM are capped. One
-  host-wide lock covers a run; the units have a 12-hour start timeout.
+- **Host-side bounds.** The host, not the request, sets every limit. A
+  delete through the channel always keeps the newest 3 complete nightly
+  sets; a set the channel made on request carries a `REQUESTED` marker,
+  which backup.sh writes before the set is moved into place, does not
+  count toward the 3 and can itself be deleted, so asking for backups
+  cannot push nightly sets out. When no nightly set is complete, the
+  delete keeps the newest complete set of any kind. `backup.sh`'s own
+  retention keeps the newest 3 complete sets and every set younger than 14
+  days. Each report carries the channel's keep count and which sets were
+  requested, so the Backups tab can mark the sets it keeps; that copy is
+  advisory, and the host still refuses such a delete (ADR 0039). It
+  refuses a requested backup within 60 minutes of the last one, and once 3
+  requested runs started within the minimum age, counted from the
+  channel's own log in its state directory rather than from surviving
+  sets, so deleting requested sets does not free the cap. Every run needs
+  free space of at least the newest complete set plus a fifth, and at
+  least 1 GiB, and then has a byte budget of the free space less that
+  floor; passing it stops the run and keeps nothing. Only the home and
+  recovery volumes of instances the VM listed are fetched. The per-file
+  index, path lengths, entry counts and every answer from the VM are
+  capped. One host-wide lock covers a run; the units have a 12-hour start
+  timeout.
 - **The host holds the restore key.** The private age key is installed
   root-only at `/etc/portikus-backup/age-key.txt` by `make
   backup-install-key KEY=<path>`. Only the channel's restore steps read
@@ -6906,7 +6917,7 @@ Includes:
 Acceptance:
 
 - ticking rows across the four lists and confirming sends one delete request per item, and a failure leaves that item ticked;
-- the newest complete set cannot be ticked;
+- the sets the host keeps (the newest complete set, or with the host's reported floor the newest N nightly sets, Epic 54) cannot be ticked;
 - a row 366 days old is deleted by the sweep and a row 364 days old stays, and the worker role still cannot delete from `audit_events` itself;
 - `make -n smoke-test` from a worktree reaches the pilot's address and public host;
 - a pull request with under 80% of its measured changed lines covered fails the `unit` job;

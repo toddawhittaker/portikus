@@ -14,7 +14,8 @@ Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
 Environment=PORTIKUS_BACKUP_MAC_KEY=@MAC_KEY@
 Environment=PORTIKUS_BACKUP_NIGHTLY=@NIGHTLY@
-# The retention floor a compromised VM cannot lower (ADR 0039).
+# The window of the requested-backup cap and of backup.sh's retention floor,
+# which the VM cannot change (ADR 0039).
 Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
 Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024
 Environment=PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=1000000

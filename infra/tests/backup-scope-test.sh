@@ -273,6 +273,7 @@ expect "the set holds the second-factor key, encrypted" \
 expect "the set holds the notification settings, encrypted" \
   "[ -f '${newest}/notify.json.age' ] && ! grep -rq fake-notify-secret-d4d4d4d4 '$newest'"
 expect "a complete set has no FAILED file" "[ ! -e '${newest}/FAILED' ]"
+expect "a nightly set has no REQUESTED marker" "[ ! -e '${newest}/REQUESTED' ]"
 expect "nothing in the set is readable without the key" "! grep -rq 'PGDMP' '$newest'"
 expect "the set directory is private" "[ \"\$(stat -c %a '$newest')\" = 700 ]"
 expect "fourteen sets are kept" "[ \$(set_count) = 14 ]"
@@ -825,6 +826,13 @@ orphan=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -
 run_restore --remove --target-name portikus-rehearsal 10.101.0.210 "$orphan" >/dev/null 2>&1
 expect "--remove deletes every volume on a volume line, not only those of named instances" \
   "grep -q 'volume delete workspace-data ${HOME_VOL} ' '$log' && grep -q 'volume delete workspace-data ${REC_VOL} ' '$log'"
+
+# A run the channel asked for is marked before the rename, so the marker
+# lands with the set (ADR 0039).
+sleep 1
+PORTIKUS_BACKUP_REQUESTED=1 run_backup >/dev/null 2>&1
+asked=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+expect "a requested run's set carries the REQUESTED marker" "[ -n '$asked' ] && [ '$asked' != '$orphan' ] && [ -f '${asked}/REQUESTED' ]"
 
 echo ""
 echo "--- backup scope: ${pass} passed, ${fail} failed ---"

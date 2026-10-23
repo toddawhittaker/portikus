@@ -29,6 +29,7 @@
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  retention always keeps this many newest complete sets (default 3)
+#   PORTIKUS_BACKUP_REQUESTED      1 when backup-channel.sh asked for this run; marks the set REQUESTED
 #   PORTIKUS_BACKUP_MAX_INDEX_ENTRIES  files indexed per volume before the run stops (default 1000000)
 #   PORTIKUS_BACKUP_LOCK_WAIT_SECONDS  how long to wait for another VM's run on this host (default 3600)
 set -euo pipefail
@@ -36,8 +37,8 @@ umask 077
 
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
-# The same retention floor as backup-channel.sh's delete (ADR 0039), so
-# repeated requested backups cannot prune recent sets either.
+# Retention's own floor (ADR 0039), so repeated requested backups cannot
+# prune recent sets.
 MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-14}"
 KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
 MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
@@ -441,6 +442,9 @@ age -R "$RECIPIENTS" -o "${work}/MANIFEST.age" "$manifest"
 python3 "$MAC_SCRIPT" sign "$MAC_KEY" "$work" || die "could not sign the set; nothing was kept"
 # Also in plain text, so retention can tell an incomplete set without the key.
 if [ "${#failed[@]}" -gt 0 ]; then printf '%s\n' "${failed[@]}" >"${work}/FAILED"; fi
+# Marked before the rename, so a killed channel never leaves a requested set
+# counting as nightly toward the delete floor (ADR 0039).
+if [ "${PORTIKUS_BACKUP_REQUESTED:-}" = 1 ]; then : >"${work}/REQUESTED"; fi
 # -T: a set of the same second is never nested inside another.
 mv -T "$work" "${HOST_DIR}/${stamp}"
 

@@ -1,9 +1,11 @@
-import { expect, test } from "vitest";
+import type { AdminBackups, HostBackupSet } from "@portikus/contracts";
+import { describe, expect, test } from "vitest";
 import {
 	allBoxState,
 	type DeleteTarget,
 	deleteCopy,
 	deleteSelectedText,
+	floorReasons,
 	kindsText,
 	NEWEST_KEPT,
 	pickables,
@@ -144,4 +146,120 @@ test("a failure names the item it is about", () => {
 test("the delete button says when the ticks reach past its own list", () => {
 	expect(deleteSelectedText(2, 2)).toBe("Delete 2 selected…");
 	expect(deleteSelectedText(3, 1)).toBe("Delete 3 selected on this tab…");
+});
+
+describe("the host's retention floor", () => {
+	const complete = (stamp: string, requested?: boolean): HostBackupSet => ({
+		stamp,
+		complete: true,
+		sizeBytes: 1,
+		instances: [],
+		failedVolumes: [],
+		...(requested === undefined ? {} : { requested }),
+	});
+	const incomplete = (stamp: string): HostBackupSet => ({
+		...complete(stamp),
+		complete: false,
+		failedVolumes: ["v-home"],
+	});
+	const host = (sets: HostBackupSet[], keepComplete?: number): AdminBackups["host"] => {
+		const base = backups().host;
+		if (!base) throw new Error("the fixture has a host");
+		return {
+			...base,
+			sets,
+			...(keepComplete === undefined ? {} : { floor: { keepComplete } }),
+		};
+	};
+	const F = "20260928T000000Z";
+	const E = "20260925T000000Z";
+	const D = "20260920T000000Z";
+	const C = "20260910T000000Z";
+	const B = "20260905T000000Z";
+	const A = "20260901T000000Z";
+
+	test("keeps the newest N nightly sets; incomplete ones do not count toward N", () => {
+		const reasons = floorReasons(
+			host([incomplete(E), complete(D), incomplete(C), complete(B), complete(A)], 2),
+		);
+		expect([...reasons]).toEqual([
+			[D, "Kept by the server: the newest 2 nightly sets"],
+			[B, "Kept by the server: the newest 2 nightly sets"],
+		]);
+	});
+
+	test("requested sets do not push nightly sets out, and can themselves be deleted", () => {
+		const reasons = floorReasons(
+			host(
+				[
+					complete(F, true),
+					complete(E, true),
+					complete(D),
+					complete(C, false),
+					complete(B),
+					complete(A),
+				],
+				3,
+			),
+		);
+		expect([...reasons.keys()]).toEqual([D, C, B]);
+		expect(reasons.has(F)).toBe(false);
+		expect(reasons.has(E)).toBe(false);
+	});
+
+	test("a floor of one, or none, still keeps the newest nightly set, as the host does", () => {
+		for (const keep of [0, 1]) {
+			const reasons = floorReasons(
+				host([complete(C, true), complete(B), complete(A)], keep),
+			);
+			expect([...reasons]).toEqual([[B, "Kept by the server: the newest nightly set"]]);
+		}
+	});
+
+	test("with no complete nightly set, the newest complete set of any kind is kept", () => {
+		const reasons = floorReasons(
+			host([complete(E, true), incomplete(D), complete(C, true)], 3),
+		);
+		expect([...reasons]).toEqual([[E, NEWEST_KEPT]]);
+	});
+
+	test("an older host that reports no floor protects only the newest complete set", () => {
+		const reasons = floorReasons(host([incomplete(D), complete(C), complete(B)]));
+		expect([...reasons]).toEqual([[C, NEWEST_KEPT]]);
+		expect(floorReasons(null).size).toBe(0);
+	});
+
+	test("select all skips every set the floor protects", () => {
+		const data = backups({
+			host: host(
+				[
+					complete(F, true),
+					complete(E),
+					complete(D),
+					incomplete(C),
+					complete(B),
+					complete(A),
+				],
+				3,
+			),
+		});
+		const sets = pickables(data).filter((item) => item.target.kind === "set");
+		const open = sets
+			.filter((item) => item.blocked === null)
+			.map((item) => item.target);
+		expect(open).toEqual([
+			{ kind: "set", stamp: F },
+			{ kind: "set", stamp: C },
+			{ kind: "set", stamp: A },
+		]);
+		const everyKey = withKeys(
+			new Set(),
+			sets.map((item) => item.key),
+			true,
+		);
+		expect(pickedItems(sets, everyKey).map((item) => item.target)).toEqual(open);
+		expect(
+			allBoxState(sets, withKeys(new Set(), open.map(targetKey), true)).checked,
+		).toBe(true);
+	});
 });
