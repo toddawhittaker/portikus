@@ -2793,6 +2793,14 @@ As built (Epic 53): the Settings tab has five sections, in this order: "When wor
 - One site-wide "Last changed" line shows `updatedAt` of the platform settings. It moves with every section but Email and alerts, which a root job applies and reports on its own line, and also moves when the log level changes on the Logs tab.
 - Student tools holds Code help and Voice input. Code help is a box for each language that is shipped (Python, and TypeScript and JavaScript) with its memory per student, and an estimate (section 25.2): memory per student and students per server, for a Traditional and an Agentic course, read from the server's total memory on the Health data. Without that memory it says "Server memory not known yet". The estimate is a worst case that counts memory only and does not cap anything. The voice-input switch (section 25.10) is in the same section.
 
+As built (Epic 54): each of the Backups tab's four lists (backup sets, pre-change snapshots, kept homes and pre-change database dumps) has a checkbox on every row and a select-all box in its table head, and the selection covers the whole tab.
+
+- A set the host's floor keeps cannot be ticked or deleted: with the keep count the host reports, the newest that many complete nightly sets are described by "Kept by the server: the newest 3 nightly sets" (the host's number); incomplete and requested sets do not count and can be ticked. A host that reports no count marks only the newest complete set, described by "The newest complete set is always kept". Select all skips these sets. A row whose delete is already waiting cannot be ticked either.
+- A **Delete N selected…** button beside a list's heading opens one confirm. It names a single item by name, and several by count and kind only ("2 backup sets, 1 kept home and 1 database dump"), never a list of contents.
+- The browser sends the existing per-item delete request for each selected item, one at a time. There is no bulk route, so each item is its own audited request (section 24.11), and one refresh follows the run.
+- If some fail, the confirm stays open on the items that were not deleted, lists each with its reason in an alert region, and keeps them ticked. Pressing Delete again retries only those.
+- The row's own **Delete** stays and deletes only that row, whatever is ticked.
+
 As built (Epic 11, ADR 0022): revoking access and disabling are one action,
 Disable account, which ends the user's sessions and preview sessions and
 stops their workspace; an administrator cannot disable their own account.
@@ -4512,17 +4520,28 @@ restored from the admin Backups tab (section 20.1).
   VM work, done by the worker through the controller, which refuses any
   other snapshot or volume name. Pre-change dumps live in
   `/var/backups/portikus/<VM name>/dumps/`.
-- **Host-side bounds.** The host, not the request, sets every limit. It
-  never deletes a set younger than 14 days and always keeps the newest 3
-  complete sets, in the channel and in `backup.sh`'s own retention. It
-  refuses a requested backup within 60 minutes of the last one, and while
-  3 requested sets are younger than the minimum age. Every run needs free
-  space of at least the newest complete set plus a fifth, and at least
-  1 GiB, and then has a byte budget of the free space less that floor;
-  passing it stops the run and keeps nothing. Only the home and recovery
-  volumes of instances the VM listed are fetched. The per-file index,
-  path lengths, entry counts and every answer from the VM are capped. One
-  host-wide lock covers a run; the units have a 12-hour start timeout.
+- **Host-side bounds.** The host, not the request, sets every limit. A
+  delete through the channel always keeps the newest 3 complete nightly
+  sets; a set the channel made on request carries a `REQUESTED` marker,
+  which backup.sh writes before the set is moved into place, does not
+  count toward the 3 and can itself be deleted, so asking for backups
+  cannot push nightly sets out. When no nightly set is complete, the
+  delete keeps the newest complete set of any kind. `backup.sh`'s own
+  retention keeps the newest 3 complete sets and every set younger than 14
+  days. Each report carries the channel's keep count and which sets were
+  requested, so the Backups tab can mark the sets it keeps; that copy is
+  advisory, and the host still refuses such a delete (ADR 0039). It
+  refuses a requested backup within 60 minutes of the last one, and once 3
+  requested runs started within the minimum age, counted from the
+  channel's own log in its state directory rather than from surviving
+  sets, so deleting requested sets does not free the cap. Every run needs
+  free space of at least the newest complete set plus a fifth, and at
+  least 1 GiB, and then has a byte budget of the free space less that
+  floor; passing it stops the run and keeps nothing. Only the home and
+  recovery volumes of instances the VM listed are fetched. The per-file
+  index, path lengths, entry counts and every answer from the VM are
+  capped. One host-wide lock covers a run; the units have a 12-hour start
+  timeout.
 - **The host holds the restore key.** The private age key is installed
   root-only at `/etc/portikus-backup/age-key.txt` by `make
   backup-install-key KEY=<path>`. Only the channel's restore steps read
@@ -4637,6 +4656,12 @@ itself up.
   operator's filesystem quota on the target account is the real bound on
   bursts (docs/INSTALL.md); a broken-into server can keep one unfinished set
   for up to KEEP days.
+
+As built (Epic 54): the worker's database role stays append-only on `audit_events`: it holds no `DELETE` there, and a test pins that. Retention (section 25.10) goes through `public.prune_audit_events(batch_size integer)`, created in `worker-grants.sql` and re-applied on every deploy.
+
+- It is `SECURITY DEFINER`, owned by `portikus` (the role that owns `audit_events`), not by a superuser, with `search_path` fixed to `pg_catalog, public, pg_temp`.
+- The 365-day cutoff is inside the function. The caller passes only a batch size, which the function clamps to 1 through 10000, so the worker cannot reach a recent row or choose which rows go.
+- `EXECUTE` is revoked from PUBLIC and granted to the worker role only. A test pins the owner, the search path and the grants.
 
 ### 24.10 Transport security
 
@@ -5291,6 +5316,8 @@ The app header and the Course page work down to 320 px.
 
 Added by Epic 53: a field with a unit (`TextField`'s `unit`, or `UnitInput` in `packages/ui`) puts the unit in a span with an id that comes first in the field's `aria-describedby`, not `aria-hidden`, so a screen reader reads "Disconnect grace, edit text, minutes"; ids the caller passes follow it. On the Settings tab (section 20.1), a language that is "Coming later" is a checkbox with `aria-disabled` that stays in the tab order, cannot be ticked, is drawn muted, and says in its description that its language server is not installed yet. The "Leave without saving?" dialog is a `ConfirmDialog` that names sections and counts and never values. The estimate's headline is the only live `output`, read politely as the boxes change; the table is not announced. While the Health read is pending the student counts show a skeleton, not "not known". A section's Save with nothing to save stays focusable with `aria-disabled`, described by the footer's "No unsaved changes." line. A failed read is announced once.
 
+Added by Epic 54: `ConfirmDialog` takes `cancelDisabled` and `cancelDisabledReason`, which mirror `disabled` and `disabledReason` on the confirm button. While `cancelDisabled`, Cancel is `aria-disabled` and stays focusable, its reason is its description in the always-mounted status region so it is announced, and neither a click nor Escape closes the dialog. The Backups delete confirm uses them while deletes run, with "Wait for the deletes to finish". A bulk button's label names its scope: **Delete N selected…** when every tick is in its own list, and **Delete N selected on this tab…** when the ticks span more than one list, the visible text being the accessible name. A polite "N selected" region holds its value while the confirm is open, so a partial failure is announced once, by the alert, and the failure list is cleared when a try starts so a repeated failure is new text. After a full success focus goes to the list's heading; after a partial failure and Cancel it returns to the button.
+
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
 ### 25.9 Browser support
@@ -5323,6 +5350,8 @@ student's own agents and can be forged, so they are for reporting, never
 enforcement. The worker stores only real days from 40 days back to one
 day ahead and at most 48 boot ids per user per day. They are kept 365
 days.
+
+Added by Epic 54: rows in `audit_events` older than 365 days are deleted by a daily worker sweep, one window for every action type, with no setting and no export. The sweep deletes in batches through the database function of section 24.9 and logs only the count (STACK.md section 15). Nightly database backups still hold older rows until they age out.
 
 ## 26. Control-plane data model
 
@@ -6871,6 +6900,28 @@ Acceptance:
 - nothing on the Settings tab saves on a click except the confirmed "Restore built-in text…", and leaving with unsaved changes asks first;
 - the estimate follows the ticked boxes and the server's memory, and says when the memory is not known;
 - the right-click menu, F2, F12 and Ctrl+Space work in the editor after the diff view.
+
+### Epic 54 — Fix batch after Epic 53
+
+Built on `epic/54-fix-batch`, issues #1642, #1602, #1665, #1245, #1223 and #1138. No migration. See sections 20.1, 24.9, 24.11, 25.8 and 25.10.
+
+Includes:
+
+- six unit tests that waited on the clock now wait on events, so they pass on a busy host;
+- the Backups tab deleting several items at once, with one confirm and one audited request per item;
+- audit rows older than 365 days deleted daily through a locked-down database function;
+- `make deploy-app` and `make smoke-test` from a git worktree with no overrides, and OpenTofu refusing to run from a worktree that has no state of its own;
+- a check that 80% of a pull request's changed, measured lines are covered;
+- the security suite on a plain apt-installed host, a check that recovery points hold no coding-agent login and that a restore keeps owners and modes, `make backup-scope-test`, and a test that every section 24.11 action is named by a test.
+
+Acceptance:
+
+- ticking rows across the four lists and confirming sends one delete request per item, and a failure leaves that item ticked;
+- the sets the host keeps (the newest complete set, or with the host's reported floor the newest N nightly sets, Epic 54) cannot be ticked;
+- a row 366 days old is deleted by the sweep and a row 364 days old stays, and the worker role still cannot delete from `audit_events` itself;
+- `make -n smoke-test` from a worktree reaches the pilot's address and public host;
+- a pull request with under 80% of its measured changed lines covered fails the `unit` job;
+- `make security-test SECURITY_TARGET=host` passes on a fresh apt-installed host.
 
 ### Estimated total
 

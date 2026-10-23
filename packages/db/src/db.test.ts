@@ -1,7 +1,7 @@
 import type { PendingOperation, WorkspaceState } from "@portikus/contracts";
 import { type Kysely, sql } from "kysely";
 import pg from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	createDb,
 	createPool,
@@ -12,6 +12,7 @@ import {
 import {
 	basePrefix,
 	createTestDb,
+	dropOrphanedDbs,
 	hasTestDb,
 	hostId,
 	insertTestLtiMembership,
@@ -19,6 +20,9 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "./testing.js";
+
+// Each block creates, migrates and drops a real database in its hooks.
+vi.setConfig({ hookTimeout: 30_000 });
 
 /** Workspace labels are unique, so each test row needs its own. */
 let labelCounter = 0;
@@ -2337,9 +2341,8 @@ describe("orphaned test database sweep", () => {
 				await client.query(`DROP DATABASE IF EXISTS "${thisHostDb}" WITH (FORCE)`);
 				await client.query(`CREATE DATABASE "${thisHostDb}"`);
 
-				// Creating a database runs the sweep as a side effect.
-				const swept = await createTestDb();
-				await swept.close();
+				// The sweep alone, without the full migration a new test database runs.
+				await dropOrphanedDbs(sharedUrl, base);
 
 				const { rows } = await client.query<{ datname: string }>(
 					"SELECT datname FROM pg_database WHERE datname = $1 OR datname = $2",
@@ -2355,6 +2358,8 @@ describe("orphaned test database sweep", () => {
 				await client.end();
 			}
 		},
+		// Two real CREATE DATABASE calls on a shared server.
+		30_000,
 	);
 });
 

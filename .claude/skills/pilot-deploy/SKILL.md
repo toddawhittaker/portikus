@@ -42,10 +42,9 @@ is 10.100.0.120, the SSH user is `deploy`, the database is
 8. **Workspace image, only when the image VERSION changed.** Build it on
    the pilot, make it the default, and keep the previous image as the
    rollback.
-9. **Run the smoke test** from the worktree. Until issue #1602 is fixed,
-   pass the address by hand: `make smoke-test VM_IP=10.100.0.120
-   PORTIKUS_PUBLIC_HOST=pilot.portikus.thewhittakers.org
-   PORTIKUS_PUBLIC_PORT=8443`. A handful of skips is normal (checks that
+9. **Run the smoke test** from the worktree with `make smoke-test` and
+   no overrides: a worktree has no OpenTofu state, so the Makefile reads
+   the pilot's address and public host from the main checkout. A handful of skips is normal (checks that
    need setup the pilot lacks); name each skip in the report and treat
    any failure as real.
 10. **Clean up.** Remove the build worktree once Todd is happy with the

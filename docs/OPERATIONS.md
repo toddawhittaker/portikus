@@ -1831,6 +1831,18 @@ whose size changed, so it would plan to swap the grown disk for an empty
   of a run that was killed. `PORTIKUS_SECURITY_HEAVY=1` adds tests that
   push a workspace past its memory limit; they need a VM with no other
   workspace running, so stop or delete the pilot's test workspaces first.
+  On a host installed straight from the apt package, with no VM, run
+  `make security-test SECURITY_TARGET=host` on that host from a checkout,
+  as a user with sudo. Checks that need a libvirt host in front are
+  listed as not applicable (infra/README.md, "Security test"). So are the
+  heavy checks that reboot the host or kill Caddy and PostgreSQL, since
+  the suite would be acting on the host it runs on. Among its
+  checks, a recovery point made in the suite's own workspace must hold no
+  Claude Code or Codex login, and restoring it must bring back every
+  owner and mode.
+- **`make backup-scope-test`** checks what the backup and restore scripts
+  may touch, with fake Incus and SSH commands and no VM. `make
+  infra-check` runs it too.
 - **`make load-test TOFU_ENV=rehearsal-libvirt N=25`** runs the load test
   (`infra/tests/load-test.sh`) on the rehearsal VM. The script refuses
   the pilot, a VM Ansible or a restore is using, and a VM without memory

@@ -13,10 +13,11 @@ import {
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import { type Kysely, sql } from "kysely";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { pruneAgentUsage, storeAgentUsage } from "./agent-usage.js";
 import { createAlertSources } from "./alert-sources.js";
 import { createAlertForwarder } from "./alerts.js";
+import { pruneAuditEvents, startAuditRetention } from "./audit-retention.js";
 import { backupVmTick, pullRequest } from "./backups.js";
 import { createEgressSync } from "./egress.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -210,7 +211,8 @@ function grantsFor(worker: string, member: string): [string, string] {
 		.replaceAll('"portikus-worker"', `"${worker}"`)
 		.replaceAll("'portikus-worker'", `'${worker}'`)
 		.replaceAll("'portikus'", `'${member}'`)
-		.replaceAll("REVOKE portikus FROM", `REVOKE "${member}" FROM`);
+		.replaceAll("REVOKE portikus FROM", `REVOKE "${member}" FROM`)
+		.replaceAll("OWNER TO portikus;", `OWNER TO "${member}";`);
 	const [before, after] = text.split(/^BEGIN;$/m);
 	return [before ?? "", `BEGIN;${after ?? ""}`];
 }
@@ -223,6 +225,14 @@ beforeAll(async () => {
 	tdb = await createTestDb();
 	await sql
 		.raw(`DROP ROLE IF EXISTS "${role}"; CREATE ROLE "${role}" NOLOGIN`)
+		.execute(tdb.db);
+	// The owner stands in for portikus, which migrates and so owns the tables.
+	await sql
+		.raw(
+			`DROP ROLE IF EXISTS "${owner}"; CREATE ROLE "${owner}" NOLOGIN;
+			GRANT CREATE ON SCHEMA public TO "${owner}";
+			ALTER TABLE audit_events OWNER TO "${owner}"`,
+		)
 		.execute(tdb.db);
 	for (const part of grantsFor(role, owner)) await sql.raw(part).execute(tdb.db);
 	// A startup option makes every connection act as the role, as peer auth does.
@@ -267,6 +277,7 @@ describe.skipIf(skip)("the worker's role", () => {
 		await notifyAdministrators(worker, { tone: "warning", title: "t", body: "b" });
 		await pruneNotifications(worker, new Date());
 		await pruneEndedTerminals(worker, new Date());
+		await pruneAuditEvents(worker);
 		await reconcile(
 			worker,
 			controller,
@@ -373,10 +384,150 @@ describe.skipIf(skip)("the worker's role", () => {
 		await expect(worker.deleteFrom("audit_events").execute()).rejects.toThrow(denied);
 	});
 
+	describe("the audit retention function", () => {
+		const DAY = 86_400_000;
+		const addEvent = (daysAgo: number, secret = "actor") =>
+			tdb.db
+				.insertInto("audit_events")
+				.values({
+					actor: secret,
+					target: "target",
+					action: "auth.login",
+					result: "ok",
+					at: new Date(Date.now() - daysAgo * DAY).toISOString(),
+				})
+				.execute();
+		const ages = async () =>
+			(await tdb.db.selectFrom("audit_events").select("at").execute())
+				.map((r) => Math.round((Date.now() - r.at.getTime()) / DAY))
+				.sort((a, b) => a - b);
+		beforeEach(async () => {
+			await sql`delete from audit_events`.execute(tdb.db);
+		});
+
+		test("deletes a row 366 days old and keeps one 364 days old", async () => {
+			await addEvent(366);
+			await addEvent(364);
+			await addEvent(400);
+			await addEvent(0);
+
+			expect(await pruneAuditEvents(worker)).toBe(2);
+			expect(await ages()).toEqual([0, 364]);
+		});
+
+		test("deletes every old row across several batches", async () => {
+			for (let n = 0; n < 7; n++) await addEvent(400 + n);
+			await addEvent(1);
+
+			expect(await pruneAuditEvents(worker, 3)).toBe(7);
+			expect(await ages()).toEqual([1]);
+		});
+
+		test("deletes old rows that fill a whole number of batches", async () => {
+			for (let n = 0; n < 6; n++) await addEvent(400 + n);
+
+			expect(await pruneAuditEvents(worker, 3)).toBe(6);
+			expect(await ages()).toEqual([]);
+		});
+
+		test("clamps a batch size that is zero, negative or missing to a small, safe one", async () => {
+			for (let n = 0; n < 4; n++) await addEvent(400 + n);
+			const call = async (size: string) =>
+				(
+					await sql<{
+						n: number;
+					}>`select public.prune_audit_events(${sql.raw(size)}) as n`.execute(worker)
+				).rows[0]?.n;
+
+			expect(await call("0")).toBe(1);
+			expect(await call("-5")).toBe(1);
+			expect((await ages()).length).toBe(2);
+			expect(await call("null")).toBe(2);
+		});
+
+		test("takes no date, so the worker cannot reach a recent row", async () => {
+			await addEvent(10);
+			await addEvent(364);
+			await expect(
+				sql`select public.prune_audit_events(10, now())`.execute(worker),
+			).rejects.toThrow(/does not exist/);
+			await expect(
+				sql`select public.prune_audit_events(now())`.execute(worker),
+			).rejects.toThrow(/does not exist/);
+			// The most it can do is the batch size, which only limits the old rows.
+			await sql`select public.prune_audit_events(10000)`.execute(worker);
+			expect(await ages()).toEqual([10, 364]);
+			await expect(worker.deleteFrom("audit_events").execute()).rejects.toThrow(
+				/permission denied/,
+			);
+		});
+
+		test("deletes every old row when the batch size is zero", async () => {
+			for (let n = 0; n < 4; n++) await addEvent(400 + n);
+			await addEvent(1);
+
+			expect(await pruneAuditEvents(worker, 0)).toBe(4);
+			expect(await ages()).toEqual([1]);
+		});
+
+		test("deletes every old row when the batch size is above the 10000 clamp", async () => {
+			await sql`insert into audit_events (actor, target, action, result, at)
+				select 'actor', 'target', 'auth.login', 'ok', now() - interval '400 days'
+				from generate_series(1, 10005)`.execute(tdb.db);
+			await addEvent(1);
+
+			expect(await pruneAuditEvents(worker, 20_000)).toBe(10_005);
+			expect(await ages()).toEqual([1]);
+		});
+
+		test("is locked down: definer rights owned by the table owner, a fixed search path, only the worker may run it", async () => {
+			const { rows } = await sql<{
+				secdef: boolean;
+				config: string[];
+				owner: string;
+				table_owner: string;
+				owner_is_super: boolean;
+				body: string;
+				grantees: string[];
+			}>`select p.prosecdef as secdef, p.proconfig as config,
+					o.rolname as owner, t.rolname as table_owner, o.rolsuper as owner_is_super,
+					p.prosrc as body,
+					array(select coalesce(g.rolname::text, 'PUBLIC')
+						from aclexplode(p.proacl) a
+						left join pg_roles g on g.oid = a.grantee
+						where a.privilege_type = 'EXECUTE') as grantees
+				from pg_proc p
+				join pg_roles o on o.oid = p.proowner
+				join pg_class c on c.relname = 'audit_events' and c.relkind = 'r'
+				join pg_roles t on t.oid = c.relowner
+				where p.proname = 'prune_audit_events'`.execute(tdb.db);
+			expect(rows).toHaveLength(1);
+			const fn = rows[0];
+			expect(fn?.secdef).toBe(true);
+			expect(fn?.config).toEqual(["search_path=pg_catalog, public, pg_temp"]);
+			expect(fn?.owner).toBe(owner);
+			expect(fn?.owner).toBe(fn?.table_owner);
+			expect(fn?.owner_is_super).toBe(false);
+			expect(fn?.body).toContain("public.audit_events");
+			// The owner always holds EXECUTE; the worker is the only other holder.
+			expect([...(fn?.grantees ?? [])].sort()).toEqual([owner, role].sort());
+		});
+
+		test("the daily sweep logs the count and nothing from the rows", async () => {
+			await addEvent(366, "secret-actor");
+			const { logger, lines } = collectingLogger();
+
+			const stop = startAuditRetention({ db: worker, logger });
+			await vi.waitFor(() => expect(lines.some((l) => l.deleted === 1)).toBe(true));
+			stop();
+
+			expect(JSON.stringify(lines)).not.toMatch(/secret/);
+			expect(await ages()).toEqual([]);
+		});
+	});
+
 	test("loses its membership in portikus even when a grant then fails", async () => {
-		await sql
-			.raw(`CREATE ROLE "${owner}" NOLOGIN; GRANT "${owner}" TO "${role}"`)
-			.execute(tdb.db);
+		await sql.raw(`GRANT "${owner}" TO "${role}"`).execute(tdb.db);
 		const [before, after] = grantsFor(role, owner);
 		await sql.raw(before).execute(tdb.db);
 		await tdb.db.connection().execute(async (conn) => {

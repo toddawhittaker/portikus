@@ -2,7 +2,7 @@
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
 .PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
-       infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
+       infra-check backup-scope-test bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight rehearsal-lti tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
@@ -59,14 +59,20 @@ REHEARSAL_VCPUS ?= 12
 REHEARSAL_MEMORY_MB ?= 24576
 
 # tofu_attr TYPE,NAME,PATH -- one attribute of a resource, read straight from
-# the state file so no `tofu init` is needed; PATH is dot-separated.
-tofu_attr = $(shell python3 -c 'import functools, json, sys; a = next(r["instances"][0]["attributes"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == sys.argv[2] and r["name"] == sys.argv[3]); print(functools.reduce(lambda v, k: v[int(k)] if k.isdigit() else v[k], sys.argv[4].split("."), a))' '$(TOFU_STATE)' $(1) $(2) $(3) 2>/dev/null)
+# TOFU_READ_STATE so no `tofu init` is needed; PATH is dot-separated.
+tofu_attr = $(shell python3 -c 'import functools, json, sys; a = next(r["instances"][0]["attributes"] for r in json.load(open(sys.argv[1]))["resources"] if r["type"] == sys.argv[2] and r["name"] == sys.argv[3]); print(functools.reduce(lambda v, k: v[int(k)] if k.isdigit() else v[k], sys.argv[4].split("."), a))' '$(TOFU_READ_STATE)' $(1) $(2) $(3) 2>/dev/null)
 
 ifeq ($(TOFU_ENV),dev-libvirt)
 TOFU_STATE := $(TOFU_DIR)/terraform.tfstate
 TOFU_INIT_ARGS :=
+# A git worktree has no state of its own; read the pilot's from the main
+# checkout, the parent of the repository's common git directory. Only reads
+# fall back, tofu itself still uses TOFU_STATE.
+MAIN_CHECKOUT := $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/..)
+TOFU_READ_STATE := $(firstword $(wildcard $(TOFU_STATE)) $(MAIN_CHECKOUT)/$(TOFU_STATE))
 else ifeq ($(TOFU_ENV),rehearsal-libvirt)
 TOFU_STATE := $(REHEARSAL_STATE)
+TOFU_READ_STATE := $(REHEARSAL_STATE)
 TOFU_INIT_ARGS := -backend-config=path=$(REHEARSAL_STATE)
 export TF_VAR_ssh_public_key := $(shell cat $(REHEARSAL_SSH_KEY) 2>/dev/null)
 export TF_VAR_vcpus := $(REHEARSAL_VCPUS)
@@ -95,12 +101,19 @@ $(error TOFU_ENV must be dev-libvirt or rehearsal-libvirt, not '$(TOFU_ENV)')
 endif
 
 # Read straight from the state file, so no `tofu init` is needed to learn it.
-tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
+tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_READ_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(call tofu_attr,libvirt_domain,vm,name)
 
-# First recipe line of every OpenTofu target: name the VM, and never let a
-# non-pilot environment act on a state file that holds the pilot.
+# Set when the pilot's state is only readable from the main checkout, so a
+# tofu command here would start from empty state and plan a second pilot.
+# A first-ever apply in the main checkout has no state either, so it is exempt.
+TOFU_IN_WORKTREE := $(and $(filter-out $(TOFU_STATE),$(TOFU_READ_STATE)),$(filter-out $(MAIN_CHECKOUT),$(CURDIR)))
+
+# First recipe line of every OpenTofu target: name the VM, refuse in a
+# worktree that has no state, and never let a non-pilot environment act on a
+# state file that holds the pilot.
 TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), VM '$(or $(TOFU_VM_NAME),<none yet>)'"; \
+	test -z "$(TOFU_IN_WORKTREE)" || { echo "$@: run OpenTofu from the main checkout: this worktree has no state of its own"; exit 1; }; \
 	test "$(TOFU_ENV)" = dev-libvirt || test "$(TOFU_VM_NAME)" != portikus || { echo "$@: that state holds the pilot VM; refusing"; exit 1; }
 
 # Recipe line for targets that need the VM; $(call REQUIRE_VM_IP,<target>)
@@ -191,11 +204,14 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/apt-failures-test.yml
 	ansible-playbook infra/tests/workspace-image-test.yml
 	ansible-playbook infra/tests/registry-cache-size-test.yml
-	bash infra/tests/backup-scope-test.sh
+	@$(MAKE) --no-print-directory backup-scope-test
 	bash infra/tests/backup-channel-test.sh
 	bash scripts/tests/publish-apt-repo-test.sh
 	bash infra/tests/backup-local-test.sh
 	bash infra/tests/backup-offsite-test.sh
+
+backup-scope-test: ## Check what the backup and restore scripts may touch, with fakes for ssh and Incus (no VM)
+	bash infra/tests/backup-scope-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh

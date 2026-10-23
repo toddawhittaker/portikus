@@ -12,7 +12,7 @@ import { Notice } from "../Notice.js";
 import { ActivityGroups } from "./Activity.js";
 import {
 	DeleteDialog,
-	type DeleteTarget,
+	type PendingDelete,
 	ReplaceHomeDialog,
 	RestoreDialog,
 } from "./BackupDialogs.js";
@@ -23,15 +23,21 @@ import { FocusCatchGroup } from "./parts.js";
 import {
 	useAdminBackups,
 	useBackupKey,
-	useDeleteDump,
-	useDeleteKeptHome,
-	useDeleteSet,
-	useDeleteSnapshot,
+	useDeleteBackups,
 	useReplaceHome,
 	useRestoreCopy,
 	useRunBackup,
 } from "./queries.js";
+import { deleteSelectedId, type ListSelection } from "./SelectBoxes.js";
 import { type Host, SetsPart, StatusPart } from "./StatusAndSets.js";
+import {
+	type DeleteTarget,
+	kindsText,
+	pickables,
+	pickedItems,
+	targetKey,
+	withKeys,
+} from "./selection.js";
 
 const INTRO = {
 	id: "admin-backups",
@@ -105,13 +111,11 @@ function BackupsView({
 	const { requests, workspaces } = data;
 	const toast = useToast();
 	const run = useRunBackup();
-	const deleteSet = useDeleteSet();
-	const deleteDump = useDeleteDump();
-	const deleteSnapshot = useDeleteSnapshot();
-	const deleteKept = useDeleteKeptHome();
+	const remove = useDeleteBackups();
 	const restore = useRestoreCopy();
 	const replace = useReplaceHome();
-	const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+	const [deleting, setDeleting] = useState<PendingDelete | null>(null);
 	const [restoring, setRestoring] = useState<HostBackupSet | null>(null);
 	const [restoreError, setRestoreError] = useState<string | null>(null);
 	const [replacing, setReplacing] = useState<BackupRequestView | null>(null);
@@ -122,11 +126,29 @@ function BackupsView({
 		: host.running !== null || backupWaiting
 			? "A backup is already waiting or running."
 			: null;
-	const deletePending =
-		deleteSet.isPending ||
-		deleteDump.isPending ||
-		deleteSnapshot.isPending ||
-		deleteKept.isPending;
+
+	// Rows the host has since removed, or whose delete is now waiting, drop out on their own.
+	const items = pickables(data);
+	const picked = pickedItems(items, selected);
+	const selection: ListSelection = {
+		items,
+		selected,
+		count: picked.length,
+		onPick: (keys, on) => setSelected((current) => withKeys(current, keys, on)),
+		onDeleteSelected: (listId) =>
+			setDeleting({
+				targets: picked.map((item) => item.target),
+				done: [],
+				failed: [],
+				selectedAtOpen: picked.length,
+				// The button leaves with the selection, so focus falls back to the list's heading.
+				returnTo: () =>
+					document.getElementById(deleteSelectedId(listId)) ??
+					document.getElementById(listId),
+			}),
+	};
+
+	const announced = deleting ? deleting.selectedAtOpen : picked.length;
 
 	function requested(title: string) {
 		return () => toast.show({ tone: "success", title });
@@ -136,18 +158,40 @@ function BackupsView({
 			toast.show({ tone: "danger", title, children: errorText(error) });
 	}
 
-	function confirmDelete(target: DeleteTarget) {
-		const options = {
-			onSuccess: () => {
-				requested("Delete requested")();
+	/** A row's own Delete: that item alone, whatever is ticked. */
+	function deleteOne(target: DeleteTarget) {
+		setDeleting({
+			targets: [target],
+			done: [],
+			failed: [],
+			selectedAtOpen: picked.length,
+		});
+	}
+
+	function confirmDelete(confirm: PendingDelete) {
+		// Clears the last failures, so a retry that fails the same way is new text in the alert.
+		setDeleting({ ...confirm, done: [], failed: [] });
+		remove.mutate(confirm.targets, {
+			onSuccess: ({ done, failed: notDone }) => {
+				setSelected((current) => withKeys(current, done.map(targetKey), false));
+				if (notDone.length > 0) {
+					// Stays open on what is left, which stays ticked.
+					setDeleting({
+						...confirm,
+						targets: notDone.map((failure) => failure.target),
+						done,
+						failed: notDone,
+					});
+					return;
+				}
+				requested(
+					done.length === 1
+						? "Delete requested"
+						: `Delete requested for ${kindsText(done)}`,
+				)();
 				setDeleting(null);
 			},
-			onError: failed("Could not request the delete"),
-		};
-		if (target.kind === "set") deleteSet.mutate(target.stamp, options);
-		else if (target.kind === "dump") deleteDump.mutate(target.file, options);
-		else if (target.kind === "snapshot") deleteSnapshot.mutate(target, options);
-		else deleteKept.mutate(target.volume, options);
+		});
 	}
 
 	return (
@@ -200,7 +244,8 @@ function BackupsView({
 						setRestoreError(null);
 						setRestoring(set);
 					}}
-					onDelete={setDeleting}
+					onDelete={deleteOne}
+					selection={selection}
 				/>
 			</FocusCatchGroup>
 
@@ -212,11 +257,21 @@ function BackupsView({
 				onReplace={setReplacing}
 			/>
 
-			<CleanUpGroup data={data} host={host} onDelete={setDeleting} />
+			<CleanUpGroup
+				data={data}
+				host={host}
+				onDelete={deleteOne}
+				selection={selection}
+			/>
 
+			{/* Stays mounted, so each new count is read out. It holds still while the
+			    confirm is open, so a partial failure is announced once, by the dialog's alert. */}
+			<span className="sr-only" aria-live="polite" data-testid="backup-selected-count">
+				{announced > 0 ? `${announced} selected` : ""}
+			</span>
 			<DeleteDialog
-				target={deleting}
-				pending={deletePending}
+				confirm={deleting}
+				pending={remove.isPending}
 				onClose={() => setDeleting(null)}
 				onConfirm={confirmDelete}
 			/>

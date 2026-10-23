@@ -21,8 +21,14 @@ echo ""
 echo "--- Bounded resource limits ---"
 
 lim_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-lim_site="${lim_here}/../../ansible/site.yml"
-lim_var() { awk -v k="$1:" '$1 == k { gsub(/"/, "", $2); print $2; exit }' "$lim_site"; }
+# A VM is configured from this checkout; a packaged host from the copy its
+# package installed, whatever release the checkout is at.
+if [ "$SEC_MODE" = host ]; then
+  lim_site_text=$(sec_ssh "cat /usr/share/portikus/ansible/site.yml")
+else
+  lim_site_text=$(cat "${lim_here}/../../ansible/site.yml")
+fi
+lim_var() { awk -v k="$1:" '$1 == k { gsub(/"/, "", $2); print $2; exit }' <<<"$lim_site_text"; }
 lim_cpu=$(lim_var workspace_cpu_limit)
 lim_mem=$(lim_var workspace_memory_limit)
 lim_pids=$(lim_var workspace_process_limit)
@@ -496,24 +502,31 @@ setTimeout(() => process.exit(1), 60000);'
   }
   lim_db_ok() { [ "$(sec_http a GET "/workspaces/$(sec_ws_id a)")" = 200 ]; }
   lim_main_pid() { sec_ssh "systemctl show -p MainPID --value $1"; }
-  lim_pid_before=$(lim_main_pid caddy)
-  sec_ssh "sudo systemctl kill -s KILL caddy"
-  lim_took=$(lim_back_in 20 lim_edge_ok)
-  echo "Caddy killed: the site answered again after ${lim_took} s"
-  check "heavy: the site answers within 15 s of Caddy being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 15
-  check "heavy: Caddy runs as a new process" test "$(lim_main_pid caddy)" != "$lim_pid_before"
-  lim_pid_before=$(lim_main_pid postgresql@17-main)
-  lim_api_pid=$(lim_main_pid portikus-api)
-  lim_worker_pid=$(lim_main_pid portikus-worker)
-  sec_ssh "sudo systemctl kill -s KILL postgresql@17-main"
-  lim_took=$(lim_back_in 40 lim_db_ok)
-  echo "PostgreSQL killed: the API read the database again after ${lim_took} s"
-  check "heavy: the API reads the database within 30 s of PostgreSQL being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 30
-  check "heavy: PostgreSQL runs as a new process" test "$(lim_main_pid postgresql@17-main)" != "$lim_pid_before"
-  check "heavy: the API survives PostgreSQL being killed" test "$(lim_main_pid portikus-api)" = "$lim_api_pid"
-  check "heavy: the worker survives PostgreSQL being killed" test "$(lim_main_pid portikus-worker)" = "$lim_worker_pid"
-  check "heavy: the API, worker and controller are all active afterwards" \
-    sec_ssh systemctl is-active portikus-api portikus-worker portikus-controller
-  sec_hold_presence a
-  sec_hold_presence b
+  # The suite runs on a plain host itself, so it never kills the edge and
+  # database there; a VM run checks this recovery.
+  if [ "$SEC_MODE" = host ]; then
+    sec_na "heavy: Caddy and PostgreSQL come back after being killed" \
+      "plain-host mode never kills the platform's own Caddy or PostgreSQL on the host the suite runs on; run against a VM"
+  else
+    lim_pid_before=$(lim_main_pid caddy)
+    sec_ssh "sudo systemctl kill -s KILL caddy"
+    lim_took=$(lim_back_in 20 lim_edge_ok)
+    echo "Caddy killed: the site answered again after ${lim_took} s"
+    check "heavy: the site answers within 15 s of Caddy being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 15
+    check "heavy: Caddy runs as a new process" test "$(lim_main_pid caddy)" != "$lim_pid_before"
+    lim_pid_before=$(lim_main_pid postgresql@17-main)
+    lim_api_pid=$(lim_main_pid portikus-api)
+    lim_worker_pid=$(lim_main_pid portikus-worker)
+    sec_ssh "sudo systemctl kill -s KILL postgresql@17-main"
+    lim_took=$(lim_back_in 40 lim_db_ok)
+    echo "PostgreSQL killed: the API read the database again after ${lim_took} s"
+    check "heavy: the API reads the database within 30 s of PostgreSQL being killed" test "$lim_took" != never -a "${lim_took/never/99}" -le 30
+    check "heavy: PostgreSQL runs as a new process" test "$(lim_main_pid postgresql@17-main)" != "$lim_pid_before"
+    check "heavy: the API survives PostgreSQL being killed" test "$(lim_main_pid portikus-api)" = "$lim_api_pid"
+    check "heavy: the worker survives PostgreSQL being killed" test "$(lim_main_pid portikus-worker)" = "$lim_worker_pid"
+    check "heavy: the API, worker and controller are all active afterwards" \
+      sec_ssh systemctl is-active portikus-api portikus-worker portikus-controller
+    sec_hold_presence a
+    sec_hold_presence b
+  fi
 fi
