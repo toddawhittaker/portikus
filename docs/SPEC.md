@@ -6912,7 +6912,7 @@ Includes:
 Acceptance:
 
 - ticking rows across the four lists and confirming sends one delete request per item, and a failure leaves that item ticked;
-- the newest complete set cannot be ticked;
+- the sets the host keeps (the newest complete set, or with the host's reported floor the newest N nightly sets, Epic 54) cannot be ticked;
 - a row 366 days old is deleted by the sweep and a row 364 days old stays, and the worker role still cannot delete from `audit_events` itself;
 - `make -n smoke-test` from a worktree reaches the pilot's address and public host;
 - a pull request with under 80% of its measured changed lines covered fails the `unit` job;
