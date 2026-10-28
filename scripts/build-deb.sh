@@ -40,8 +40,8 @@ nfpm_bin="$(find_nfpm)"
 
 # The Node the units run, bundled so the package needs nothing outside Debian
 # (docs/SPEC.md section 21.12). Keep the major in step with .nvmrc.
-NODE_VERSION="24.21.0"
-NODE_SHA256="fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+NODE_VERSION="24.22.2"
+NODE_SHA256="48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75"
 
 if [ "${NODE_VERSION%%.*}" != "$(tr -d '[:space:]v' < .nvmrc)" ]; then
 	echo "NODE_VERSION ${NODE_VERSION} does not match .nvmrc" >&2
