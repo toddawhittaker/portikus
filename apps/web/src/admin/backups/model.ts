@@ -2,7 +2,6 @@ import type {
 	BackupRequestKind,
 	BackupRequestView,
 	BackupWorkspace,
-	HostBackupSet,
 } from "@portikus/contracts";
 
 /** `20260924T023000Z` as an ISO time, `2026-09-24T02:30:00Z`. */
@@ -33,17 +32,6 @@ export function setTime(stamp: string): string {
 		timeZone: "UTC",
 	});
 	return `${text} UTC`;
-}
-
-/** The set the host refuses to delete: stamps sort by time. */
-export function newestCompleteStamp(sets: HostBackupSet[]): string | null {
-	return (
-		sets
-			.filter((set) => set.complete)
-			.map((set) => set.stamp)
-			.sort()
-			.at(-1) ?? null
-	);
 }
 
 export function isWaiting(request: BackupRequestView): boolean {

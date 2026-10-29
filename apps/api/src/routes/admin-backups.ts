@@ -12,6 +12,7 @@ import {
 	BackupStamp,
 	BackupVmListing,
 	HostBackupStatus,
+	keptSetStamps,
 	restoreDirFor,
 } from "@portikus/contracts";
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
@@ -222,18 +223,13 @@ export function registerAdminBackupRoutes(
 		const { host } = await loadStatus();
 		const set = host?.sets.find((s) => s.stamp === stamp.data);
 		if (!host || !set) return sendError(reply, 404, "NOT_FOUND", "No such backup set");
-		// Stamps sort by time, so the newest complete set is the greatest.
-		const newest = host.sets
-			.filter((s) => s.complete)
-			.map((s) => s.stamp)
-			.sort()
-			.at(-1);
-		if (newest === stamp.data) {
+		// The host enforces the rest of its floor (ADR 0039).
+		if (keptSetStamps(host)[0] === stamp.data) {
 			return sendError(
 				reply,
 				409,
 				"BACKUP_NEWEST_SET",
-				"The newest complete backup cannot be deleted.",
+				"The newest nightly backup cannot be deleted.",
 			);
 		}
 		return record(

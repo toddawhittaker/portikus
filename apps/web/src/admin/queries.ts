@@ -41,7 +41,7 @@ export const adminKeys = {
 };
 
 /** The list and the detail panel refresh this often. */
-const ADMIN_REFRESH_MS = 5000;
+export const ADMIN_REFRESH_MS = 5000;
 
 function json(method: string, body: unknown): RequestInit {
 	return {

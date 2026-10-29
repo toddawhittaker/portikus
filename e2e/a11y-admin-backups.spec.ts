@@ -145,6 +145,38 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(tip).toBeFocused();
 	});
 
+	test(`sets kept by the host's floor have no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		const OLDEST = "20260910T023000Z";
+		const complete = (stamp: string) => ({
+			stamp,
+			complete: true,
+			sizeBytes: 1024 ** 3,
+			instances: [INSTANCE],
+			failedVolumes: [],
+		});
+		await openTab(page, colorScheme, {
+			...BACKUPS,
+			host: {
+				...BACKUPS.host,
+				sets: [complete(NEW), complete(OLD), complete(OLDEST)],
+				floor: { keepComplete: 2 },
+			},
+			hostStale: false,
+		});
+		const reason = "Kept by the server: the newest 2 nightly sets";
+		const kept = page.getByTestId(`backup-set-${OLD}`);
+		await expect(kept.getByRole("checkbox")).toHaveAccessibleDescription(reason);
+		await expect(kept.getByTestId("backup-set-delete")).toHaveAccessibleDescription(
+			reason,
+		);
+		await expect(
+			page.getByTestId(`backup-set-${OLDEST}`).getByRole("checkbox"),
+		).not.toHaveAttribute("aria-disabled", "true");
+		await expectNoViolations(page);
+	});
+
 	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
@@ -197,6 +229,203 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("backup-replace-dialog")).toHaveCount(0);
 		// Focus goes back to the button that opened it.
 		await expect(page.getByTestId("backup-copy-replace")).toBeFocused();
+	});
+}
+
+/** Answers each per-item delete with a recorded request, or `refuse` for the paths it names. */
+async function stubDeletes(
+	page: Page,
+	refuse: (path: string) => boolean = () => false,
+	/** Awaited before each answer, so a test can hold a delete pending. */
+	gate: () => Promise<void> = () => Promise.resolve(),
+) {
+	const paths: string[] = [];
+	await routeApi(
+		page,
+		"**/admin/backups/{sets,dumps,snapshots,kept-homes}/**",
+		async (route) => {
+			if (route.request().method() !== "DELETE") return route.fallback();
+			const path = decodeURIComponent(new URL(route.request().url()).pathname);
+			paths.push(path);
+			await gate();
+			return refuse(path)
+				? route.fulfill({
+						status: 409,
+						json: {
+							code: "BACKUP_RUNNING",
+							message: "A backup is running. Try after it ends.",
+						},
+					})
+				: route.fulfill({
+						status: 202,
+						json: {
+							...BACKUPS.requests[1],
+							state: "pending",
+							error: null,
+							finishedAt: null,
+						},
+					});
+		},
+	);
+	return paths;
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`rows are ticked and deleted with the keyboard alone (${colorScheme})`, async ({
+		page,
+	}) => {
+		const paths = await stubDeletes(page);
+		await openTab(page, colorScheme);
+
+		// Each list's select-all box follows its heading's help button.
+		await page.getByRole("button", { name: "About pre-change snapshots" }).focus();
+		await page.keyboard.press("Tab");
+		const snapshots = page.getByRole("checkbox", {
+			name: "Select all pre-change snapshots",
+		});
+		await expect(snapshots).toBeFocused();
+		await page.keyboard.press("Space");
+		await expect(snapshots).toBeChecked();
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("1 selected");
+
+		await page.getByRole("button", { name: "About pre-change database dumps" }).focus();
+		await page.keyboard.press("Tab");
+		const dump = page.getByRole("checkbox", {
+			name: "Select all pre-change database dumps",
+		});
+		await expect(dump).toBeFocused();
+		await page.keyboard.press("Space");
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("2 selected");
+
+		// The list's Delete selected button sits between its heading and its table.
+		await page.keyboard.press("Shift+Tab");
+		const button = page.getByTestId("backups-dumps-title-delete-selected");
+		await expect(button).toBeFocused();
+		// Ticks in two lists: the label says the count is the tab's.
+		await expect(button).toHaveText("Delete 2 selected on this tab…");
+		await expect(button).toHaveAccessibleName("Delete 2 selected on this tab…");
+		await expectNoViolations(page);
+		await page.keyboard.press("Enter");
+
+		const dialog = page.getByTestId("backup-delete-dialog");
+		await expect(dialog.getByRole("heading")).toHaveText("Delete 2 items?");
+		await expect(dialog).toContainText("1 snapshot and 1 database dump.");
+		await expectNoViolations(page);
+		const confirm = dialog.getByTestId("dialog-confirm");
+		for (let tries = 0; tries < 3; tries += 1) {
+			if (await confirm.evaluate((el) => el === document.activeElement)) break;
+			await page.keyboard.press("Tab");
+		}
+		await expect(confirm).toBeFocused();
+		await page.keyboard.press("Enter");
+
+		await expect(dialog).toHaveCount(0);
+		expect(paths).toEqual([
+			`/admin/backups/snapshots/${INSTANCE}-home/pre-upgrade`,
+			"/admin/backups/dumps/portikus-pre-upgrade.dump",
+		]);
+		// The result is read out, and focus lands on the heading of the list it came from.
+		const done = page
+			.locator(".pk-toast")
+			.filter({ hasText: "Delete requested for 1 snapshot and 1 database dump" });
+		await expect(done.getByRole("status")).toHaveCount(1);
+		await expect(
+			page.getByRole("heading", { level: 4, name: "Pre-change database dumps" }),
+		).toBeFocused();
+		await expect(page.getByTestId("backup-selected-count")).toHaveText("");
+	});
+
+	test(`a delete that partly failed has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await stubDeletes(page, (path) => path.includes("/kept-homes/"));
+		await openTab(page, colorScheme);
+		await page.getByRole("checkbox", { name: "Select all kept homes" }).check();
+		await page
+			.getByRole("checkbox", { name: "Select all pre-change snapshots" })
+			.check();
+		await page.getByTestId("backups-kept-title-delete-selected").click();
+		const dialog = page.getByTestId("backup-delete-dialog");
+		await expect(dialog.getByRole("heading")).toHaveText("Delete 2 items?");
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(dialog.getByRole("alert")).toContainText(
+			"Delete requested for 1 snapshot. This was not deleted:",
+		);
+		await expect(dialog.getByRole("alert")).toContainText(
+			"The kept home of Alice Smith (alice): A backup is running. Try after it ends.",
+		);
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+		// What failed is still ticked, so its button is still there to take focus back.
+		await expect(page.getByTestId("backups-kept-title-delete-selected")).toBeFocused();
+		await expect(
+			page.getByRole("checkbox", { name: "Select all kept homes" }),
+		).toBeChecked();
+	});
+
+	test(`the delete button names its scope, and a retry and the live count are announced once (${colorScheme})`, async ({
+		page,
+	}) => {
+		let release: () => void = () => {};
+		let hold: Promise<void> | null = null;
+		await stubDeletes(
+			page,
+			(path) => path.includes("/kept-homes/"),
+			() => hold ?? Promise.resolve(),
+		);
+		await openTab(page, colorScheme);
+		const count = page.getByTestId("backup-selected-count");
+		const button = page.getByTestId("backups-kept-title-delete-selected");
+
+		// Ticks only in this list: the plain label.
+		await page.getByRole("checkbox", { name: "Select all kept homes" }).check();
+		await expect(button).toHaveText("Delete 1 selected…");
+		await expect(button).toHaveAccessibleName("Delete 1 selected…");
+		await page
+			.getByRole("checkbox", { name: "Select all pre-change snapshots" })
+			.check();
+		await expect(button).toHaveText("Delete 2 selected on this tab…");
+		await expect(button).toHaveAccessibleName("Delete 2 selected on this tab…");
+		await expect(count).toHaveText("2 selected");
+
+		await button.click();
+		const dialog = page.getByTestId("backup-delete-dialog");
+		const alert = dialog.getByRole("alert");
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(alert).toContainText("This was not deleted:");
+		const failure = (await alert.textContent()) ?? "";
+		// The snapshot went, yet the polite count has nothing new to say: the alert speaks.
+		await expect(count).toHaveText("2 selected");
+
+		// The retry fails with the same words, and is held while it runs.
+		hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await dialog.getByTestId("dialog-confirm").click();
+		await expect(alert).toHaveText("");
+		// Cancel and Escape do nothing until the deletes finish.
+		const cancel = dialog.getByRole("button", { name: "Cancel" });
+		await expect(cancel).toHaveAttribute("aria-disabled", "true");
+		await expect(cancel).toHaveAccessibleDescription("Wait for the deletes to finish");
+		await cancel.focus();
+		await expect(cancel).toBeFocused();
+		// Playwright treats aria-disabled as not actionable, so the click is forced.
+		await cancel.click({ force: true });
+		await page.keyboard.press("Escape");
+		await expect(dialog).toBeVisible();
+		await expectNoViolations(page);
+		release();
+		await expect(alert).toContainText("This was not deleted:");
+		expect(await alert.textContent()).toContain(
+			failure.replace(/^Delete requested for 1 snapshot\. /, ""),
+		);
+		await expect(count).toHaveText("2 selected");
+		await expectNoViolations(page);
+
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toHaveCount(0);
+		await expect(count).toHaveText("1 selected");
 	});
 }
 

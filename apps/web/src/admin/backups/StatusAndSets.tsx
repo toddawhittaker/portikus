@@ -7,15 +7,20 @@ import { Button, Toggletip } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { sampleAge } from "../health/HealthTab.js";
-import type { DeleteTarget } from "./BackupDialogs.js";
+import { longTime, runningText, setTime } from "./model.js";
+import { FocusCatchGroup, SELECT_CELL, Table } from "./parts.js";
 import {
-	longTime,
-	newestCompleteStamp,
-	runningText,
-	setTime,
-	waitingRequest,
-} from "./model.js";
-import { FocusCatchGroup, Table } from "./parts.js";
+	DeleteSelectedButton,
+	type ListSelection,
+	SelectAllBox,
+	SelectBox,
+} from "./SelectBoxes.js";
+import {
+	type DeleteTarget,
+	deleteWaiting,
+	floorReasons,
+	targetKey,
+} from "./selection.js";
 
 export type Host = NonNullable<AdminBackups["host"]>;
 
@@ -90,15 +95,28 @@ export function SetsPart({
 	requests,
 	onRestore,
 	onDelete,
+	selection,
 }: {
 	host: Host;
 	requests: BackupRequestView[];
 	onRestore: (set: HostBackupSet) => void;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
-	const newest = newestCompleteStamp(host.sets);
+	const kept = floorReasons(host);
 	return (
-		<FocusCatchGroup level={4} id="backups-sets-title" title="Backup sets">
+		<FocusCatchGroup
+			level={4}
+			id="backups-sets-title"
+			title="Backup sets"
+			actions={
+				<DeleteSelectedButton
+					kind="set"
+					listId="backups-sets-title"
+					selection={selection}
+				/>
+			}
+		>
 			{!host.keyInstalled ? (
 				<p id="backups-key-note" className="pk-muted m-0 text-[13px]">
 					Restore is off until the restore key is installed on the host.
@@ -130,18 +148,18 @@ export function SetsPart({
 					"",
 				]}
 				empty={host.sets.length === 0 ? "No backup sets yet." : null}
+				selectAll={<SelectAllBox kind="set" noun="backup sets" selection={selection} />}
 			>
 				{host.sets.map((set) => (
 					<SetRow
 						key={set.stamp}
 						set={set}
 						keyInstalled={host.keyInstalled}
-						isNewest={set.stamp === newest}
-						deleting={
-							waitingRequest(requests, "delete_set", { stamp: set.stamp }) !== undefined
-						}
+						keptReason={kept.get(set.stamp) ?? null}
+						deleting={deleteWaiting(requests, { kind: "set", stamp: set.stamp })}
 						onRestore={onRestore}
 						onDelete={onDelete}
+						selection={selection}
 					/>
 				))}
 			</Table>
@@ -153,7 +171,7 @@ export function SetsPart({
 function setNotes(
 	set: HostBackupSet,
 	keyInstalled: boolean,
-	isNewest: boolean,
+	keptReason: string | null,
 ): { key: string; node: ReactNode }[] {
 	const notes: { key: string; node: ReactNode }[] = [];
 	if (set.verified === false && keyInstalled) {
@@ -180,12 +198,12 @@ function setNotes(
 			),
 		});
 	}
-	if (isNewest) {
+	if (keptReason) {
 		notes.push({
-			key: "newest",
+			key: "kept",
 			node: (
 				<span id={`backup-set-note-${set.stamp}`} className="pk-muted">
-					The newest complete set is always kept
+					{keptReason}
 				</span>
 			),
 		});
@@ -247,17 +265,19 @@ function SetResult({
 function SetRow({
 	set,
 	keyInstalled,
-	isNewest,
+	keptReason,
 	deleting,
 	onRestore,
 	onDelete,
+	selection,
 }: {
 	set: HostBackupSet;
 	keyInstalled: boolean;
-	isNewest: boolean;
+	keptReason: string | null;
 	deleting: boolean;
 	onRestore: (set: HostBackupSet) => void;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	const when = setTime(set.stamp);
 	const noteId = `backup-set-note-${set.stamp}`;
@@ -265,9 +285,16 @@ function SetRow({
 		!keyInstalled || set.verified === false || set.instances.length === 0;
 	return (
 		<tr data-testid={`backup-set-${set.stamp}`}>
+			<td className={SELECT_CELL}>
+				<SelectBox
+					itemKey={targetKey({ kind: "set", stamp: set.stamp })}
+					label={`Select the set from ${when}`}
+					selection={selection}
+				/>
+			</td>
 			<th scope="row">{when}</th>
 			<td>
-				<SetResult set={set} notes={setNotes(set, keyInstalled, isNewest)} />
+				<SetResult set={set} notes={setNotes(set, keyInstalled, keptReason)} />
 			</td>
 			<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
 			<td className="tabular-nums">{set.instances.length}</td>
@@ -292,10 +319,10 @@ function SetRow({
 						aria-label={
 							deleting ? `Deleting the set from ${when}` : `Delete the set from ${when}`
 						}
-						aria-disabled={isNewest || deleting ? true : undefined}
-						aria-describedby={isNewest ? noteId : undefined}
+						aria-disabled={keptReason || deleting ? true : undefined}
+						aria-describedby={keptReason ? noteId : undefined}
 						onClick={() => {
-							if (!isNewest && !deleting) onDelete({ kind: "set", stamp: set.stamp });
+							if (!keptReason && !deleting) onDelete({ kind: "set", stamp: set.stamp });
 						}}
 					>
 						{deleting ? "Deleting…" : "Delete…"}

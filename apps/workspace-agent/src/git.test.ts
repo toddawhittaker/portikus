@@ -414,19 +414,22 @@ test("an unmerged entry carries the conflict flag", async () => {
 	expect(status.entries.find((entry) => entry.path === "a.txt")?.unmerged).toBe(true);
 });
 
+// Over five thousand real files and a real git run: sized to that work.
 test("the ignored list is capped with the entries and says so", async () => {
 	await initRepo(project);
 	await writeFile(join(project, ".gitignore"), "*.log\n");
 	const noise = join(project, "noise");
 	await mkdir(noise);
-	for (let i = 0; i < MAX_GIT_ENTRIES + 10; i += 1) {
-		await writeFile(join(noise, `f-${i}.log`), "x");
-	}
+	await Promise.all(
+		Array.from({ length: MAX_GIT_ENTRIES + 10 }, (_, i) =>
+			writeFile(join(noise, `f-${i}.log`), "x"),
+		),
+	);
 
 	const status = await gitStatus(homeDir, SLUG, { hidden: true });
 	expect(status.entries.length + status.ignored.length).toBe(MAX_GIT_ENTRIES);
 	expect(status.truncated).toBe(true);
-});
+}, 30_000);
 
 test("a file in a project that is not a repository reads as added", async () => {
 	await writeFile(join(project, "loose.txt"), "hello\n");

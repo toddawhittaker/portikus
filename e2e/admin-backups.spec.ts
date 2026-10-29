@@ -182,6 +182,130 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 	await expect(page.getByRole("heading", { name: "Backup sets" })).toBeFocused();
 });
 
+test("sets the host's retention floor keeps cannot be ticked or deleted, and say why", async ({
+	page,
+}) => {
+	const ws = await student(page);
+	const OLDER = "20260915T023000Z";
+	const OLDEST = "20260910T023000Z";
+	const BROKEN = "20260925T023000Z";
+	const ASKED = "20260926T023000Z";
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(ASKED, [ws.instance], { requested: true }),
+				backupSet(BROKEN, [ws.instance], {
+					complete: false,
+					failedVolumes: ["v-home"],
+				}),
+				backupSet(NEW, [ws.instance]),
+				backupSet(OLD, [ws.instance]),
+				backupSet(OLDER, [ws.instance]),
+				backupSet(OLDEST, [ws.instance]),
+			],
+			floor: { keepComplete: 3 },
+		}),
+	);
+	await openTab(page);
+
+	const reason = "Kept by the server: the newest 3 nightly sets";
+	for (const stamp of [NEW, OLD, OLDER]) {
+		const row = page.getByTestId(`backup-set-${stamp}`);
+		await expect(row).toContainText(`${reason}.`);
+		const box = row.getByRole("checkbox");
+		await expect(box).toHaveAttribute("aria-disabled", "true");
+		await expect(box).toHaveAccessibleDescription(reason);
+		const remove = row.getByTestId("backup-set-delete");
+		await expect(remove).toHaveAttribute("aria-disabled", "true");
+		await expect(remove).toHaveAccessibleDescription(reason);
+	}
+	await page.getByTestId(`backup-set-${OLDER}`).getByTestId("backup-set-delete").click({
+		force: true,
+	});
+	await expect(page.getByTestId("backup-delete-dialog")).toHaveCount(0);
+
+	// Neither the requested set nor the incomplete one counts toward the
+	// three, so both can go, and the oldest is past them.
+	const asked = page.getByTestId(`backup-set-${ASKED}`);
+	await expect(asked).not.toContainText("Kept by the server");
+	await expect(asked.getByTestId("backup-set-delete")).not.toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await page.getByRole("checkbox", { name: "Select all backup sets" }).check();
+	for (const stamp of [ASKED, BROKEN, OLDEST]) {
+		await expect(
+			page.getByTestId(`backup-set-${stamp}`).getByRole("checkbox"),
+		).toBeChecked();
+	}
+	for (const stamp of [NEW, OLD, OLDER]) {
+		await expect(
+			page.getByTestId(`backup-set-${stamp}`).getByRole("checkbox"),
+		).not.toBeChecked();
+	}
+	await expect(page.getByTestId("backup-selected-count")).toHaveText("3 selected");
+});
+
+test("an older host that reports no floor keeps only the newest complete set marked", async ({
+	page,
+}) => {
+	const ws = await student(page);
+	const OLDER = "20260915T023000Z";
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(NEW, [ws.instance]),
+				backupSet(OLD, [ws.instance]),
+				backupSet(OLDER, [ws.instance]),
+			],
+		}),
+	);
+	await openTab(page);
+	await expect(
+		page.getByTestId(`backup-set-${NEW}`).getByRole("checkbox"),
+	).toHaveAccessibleDescription("The newest complete set is always kept");
+	for (const stamp of [OLD, OLDER]) {
+		const row = page.getByTestId(`backup-set-${stamp}`);
+		await expect(row.getByRole("checkbox")).not.toHaveAttribute(
+			"aria-disabled",
+			"true",
+		);
+		await expect(row).not.toContainText("Kept by the server");
+	}
+});
+
+test("with no complete nightly set, the newest complete set is kept even if requested", async ({
+	page,
+}) => {
+	const ws = await student(page);
+	const BROKEN = "20260925T023000Z";
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(BROKEN, [ws.instance], {
+					complete: false,
+					failedVolumes: ["v-home"],
+				}),
+				backupSet(NEW, [ws.instance], { requested: true }),
+				backupSet(OLD, [ws.instance], { requested: true }),
+			],
+			floor: { keepComplete: 3 },
+		}),
+	);
+	await openTab(page);
+	const kept = page.getByTestId(`backup-set-${NEW}`);
+	await expect(kept.getByRole("checkbox")).toHaveAccessibleDescription(
+		"The newest complete set is always kept",
+	);
+	await expect(kept.getByTestId("backup-set-delete")).toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await expect(
+		page.getByTestId(`backup-set-${OLD}`).getByRole("checkbox"),
+	).not.toHaveAttribute("aria-disabled", "true");
+});
+
 test("empty lists are one line each, and Clean up stays closed until there is something to delete", async ({
 	page,
 }) => {
@@ -437,6 +561,123 @@ test("pre-change snapshots and kept homes are deleted through the platform", asy
 	]);
 	// These are VM work for the worker; the host is never handed them.
 	expect(hostPull()).toBeNull();
+});
+
+test("ticked items across lists go with one confirm, one audited request each; a refused one stays ticked", async ({
+	page,
+}) => {
+	const ws = await student(page);
+	const OLDER = "20260915T023000Z";
+	const DUMP = "portikus-pre-multi-a.dump";
+	const KEPT_DUMP = "portikus-pre-multi-b.dump";
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(NEW, [ws.instance]),
+				backupSet(OLD, [ws.instance]),
+				backupSet(OLDER, [ws.instance]),
+			],
+			dumps: [DUMP, KEPT_DUMP].map((file) => ({
+				file,
+				sizeBytes: 4096,
+				modifiedAt: "2026-09-26T09:00:00.000Z",
+			})),
+		}),
+	);
+	const [started] = await query<{ at: string }>("select now()::text as at");
+	await openTab(page);
+
+	// The newest complete set cannot be ticked, and says why.
+	const newest = page.getByTestId(`backup-set-${NEW}`).getByRole("checkbox");
+	await expect(newest).toHaveAttribute("aria-disabled", "true");
+	await expect(newest).toHaveAccessibleDescription(
+		"The newest complete set is always kept",
+	);
+	await newest.click({ force: true });
+	await expect(newest).not.toBeChecked();
+
+	await page.getByRole("checkbox", { name: "Select all backup sets" }).check();
+	await expect(
+		page.getByTestId(`backup-set-${OLD}`).getByRole("checkbox"),
+	).toBeChecked();
+	await expect(
+		page.getByTestId(`backup-set-${OLDER}`).getByRole("checkbox"),
+	).toBeChecked();
+	await expect(newest).not.toBeChecked();
+	await page.getByRole("checkbox", { name: `Select ${DUMP}` }).check();
+	await expect(page.getByTestId("backup-selected-count")).toHaveText("3 selected");
+
+	// The host refuses the oldest set this once.
+	await page.route(`**/admin/backups/sets/${OLDER}`, (route) =>
+		route.request().method() === "DELETE"
+			? route.fulfill({
+					status: 409,
+					json: {
+						code: "BACKUP_RUNNING",
+						message: "A backup is running. Try after it ends.",
+					},
+				})
+			: route.fallback(),
+	);
+	const deleteSelected = page.getByTestId("backups-dumps-title-delete-selected");
+	// The count is the tab's, and the ticks are in two lists, so the label says so.
+	await expect(deleteSelected).toHaveText("Delete 3 selected on this tab…");
+	await deleteSelected.click();
+	const dialog = page.getByTestId("backup-delete-dialog");
+	await expect(dialog.getByRole("heading")).toHaveText("Delete 3 items?");
+	await expect(dialog).toContainText("2 backup sets and 1 database dump.");
+	await expect(dialog).not.toContainText(DUMP);
+	await dialog.getByTestId("dialog-confirm").click();
+
+	const failed = dialog.getByRole("alert");
+	await expect(failed).toContainText(
+		"Delete requested for 1 backup set and 1 database dump. This was not deleted:",
+	);
+	await expect(failed).toContainText("A backup is running. Try after it ends.");
+	await expect(dialog.getByRole("heading")).toHaveText(/^Delete the backup set from /);
+	await dialog.getByRole("button", { name: "Cancel" }).click();
+	await expect(dialog).toHaveCount(0);
+
+	// The refused set stays ticked; the requested ones show their delete waiting.
+	await expect(
+		page.getByTestId(`backup-set-${OLDER}`).getByRole("checkbox"),
+	).toBeChecked();
+	await expect(page.getByTestId(`backup-set-${OLD}`)).toContainText("Deleting…");
+	await expect(
+		page.getByTestId(`backup-set-${OLD}`).getByRole("checkbox"),
+	).toHaveAttribute("aria-disabled", "true", SOON);
+	await expect(page.getByTestId("backup-selected-count")).toHaveText("1 selected");
+
+	// Each item was its own request and its own audit entry (SPEC.md section 24.11).
+	const rows = await query<{ kind: string; args: Record<string, string> }>(
+		"select kind, args from backup_requests order by requested_at",
+	);
+	expect(rows).toEqual([
+		{ kind: "delete_set", args: { stamp: OLD } },
+		{ kind: "delete_dump", args: { file: DUMP } },
+	]);
+	const audited = await query<{ action: string; target: string }>(
+		"select action, target from audit_events where action like 'backup.%_delete_requested' and at >= $1::timestamptz order by id",
+		[started?.at],
+	);
+	expect(audited).toEqual([
+		{ action: "backup.set_delete_requested", target: OLD },
+		{ action: "backup.dump_delete_requested", target: DUMP },
+	]);
+
+	// Once the host can take it, the leftover goes on its own.
+	await page.unroute(`**/admin/backups/sets/${OLDER}`);
+	const leftover = page.getByTestId("backups-sets-title-delete-selected");
+	await expect(leftover).toHaveText("Delete 1 selected…");
+	await leftover.click();
+	await expect(dialog.getByRole("heading")).toHaveText(/^Delete the backup set from /);
+	await dialog.getByTestId("dialog-confirm").click();
+	await expect(toast(page, "Delete requested")).toBeVisible();
+	await expect(dialog).toHaveCount(0);
+	// The button went with the selection, so focus lands on the list heading.
+	await expect(page.getByRole("heading", { name: "Backup sets" })).toBeFocused();
+	await expect(page.getByTestId("backup-selected-count")).toHaveText("");
+	await expect(page.getByTestId(`backup-set-${OLDER}`)).toContainText("Deleting…");
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

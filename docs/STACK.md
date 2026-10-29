@@ -783,6 +783,11 @@ Use **Vitest**.
 
 Use it across shared packages and Node services where practical.
 
+`scripts/check-changed-coverage.mjs` fails a pull request when under 80%
+of its added or changed lines that the vitest coverage config measures are
+covered. It runs in the `unit` job on pull requests only, against the merge
+commit's first parent, and push runs skip it.
+
 ### Browser end-to-end tests
 
 Use **Playwright**.

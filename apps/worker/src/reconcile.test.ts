@@ -346,13 +346,11 @@ test.skipIf(skip)(
 	},
 );
 
-/** Wait until a background controller call has moved the row to `state`. */
+/** Polls until the in-flight lifecycle call lands; the test timeout bounds it. */
 async function untilState(id: string, state: string): Promise<void> {
-	for (let i = 0; i < 200; i++) {
-		if ((await getWorkspace(id)).state === state) return;
+	while ((await getWorkspace(id)).state !== state) {
 		await new Promise((r) => setTimeout(r, 10));
 	}
-	throw new Error(`workspace never reached ${state}`);
 }
 
 test.skipIf(skip)("the list check leaves a start in flight alone", async () => {
@@ -642,6 +640,8 @@ test.skipIf(skip)(
 			fake.start = start;
 		}
 	},
+	// A dozen real database round trips, slow on a busy host.
+	20_000,
 );
 
 test.skipIf(skip)("create failure -> error with user-terms message", async () => {

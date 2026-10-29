@@ -85,6 +85,8 @@ async function openSocket(
 	let output = "";
 	const textFrames: unknown[] = [];
 	const decoder = new TextDecoder();
+	// Each waiter rechecks on every output frame, so no wait depends on host speed.
+	const waiters = new Set<() => void>();
 
 	if (sendOnOpen !== undefined) {
 		ws.addEventListener(
@@ -104,39 +106,35 @@ async function openSocket(
 			return;
 		}
 		output += decoder.decode(new Uint8Array(event.data as ArrayBuffer));
+		for (const waiter of [...waiters]) waiter();
 	});
 
 	const closed = new Promise<number>((resolve) => {
 		ws.addEventListener("close", (event) => resolve(event.code), { once: true });
 	});
 
-	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("socket never opened")), 5000);
-		ws.addEventListener(
-			"open",
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
-		ws.addEventListener(
-			"close",
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
+	// The test's own timeout bounds this wait.
+	await new Promise<void>((resolve) => {
+		ws.addEventListener("open", () => resolve(), { once: true });
+		ws.addEventListener("close", () => resolve(), { once: true });
 	});
 
-	async function waitFor(needle: string, times = 1): Promise<void> {
-		const deadline = Date.now() + 10000;
-		while (Date.now() < deadline) {
-			if (output.split(needle).length - 1 >= times) return;
-			await new Promise((resolve) => setTimeout(resolve, 25));
-		}
-		throw new Error(`never saw ${needle} ${times}x in: ${JSON.stringify(output)}`);
+	function waitFor(needle: string, times = 1): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const check = () => {
+				if (output.split(needle).length - 1 < times) return;
+				waiters.delete(check);
+				resolve();
+			};
+			waiters.add(check);
+			check();
+			void closed.then(() => {
+				if (!waiters.delete(check)) return;
+				reject(
+					new Error(`never saw ${needle} ${times}x in: ${JSON.stringify(output)}`),
+				);
+			});
+		});
 	}
 
 	return {
@@ -335,9 +333,9 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 			expect(refused.json().error.code).toBe("PROCESS_PROTECTED");
 
 			socket.ws.send(JSON.stringify({ type: "input", data: "sleep 300\r" }));
+			// Polls /proc until the shell has forked the program; the test timeout bounds it.
 			let program: number | undefined;
-			const deadline = Date.now() + 5000;
-			while (program === undefined && Date.now() < deadline) {
+			while (program === undefined) {
 				const descendants = [shell];
 				for (let at = 0; at < descendants.length; at++) {
 					descendants.push(...(await childPids(descendants[at] as number)));
@@ -359,6 +357,8 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 			await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 		}
 	},
+	// Real tmux, shells and child processes, sized like the tests below.
+	30000,
 );
 
 /** A `sleep` that is `pid` or one of its descendants, from /proc. */
@@ -395,8 +395,7 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 			});
 			expect(started.statusCode).toBe(201);
 			let program: number | undefined;
-			const deadline = Date.now() + 5000;
-			while (program === undefined && Date.now() < deadline) {
+			while (program === undefined) {
 				for (const pid of await childPids(process.pid)) {
 					if (!before.has(pid)) program ??= await sleepUnder(pid);
 				}
@@ -416,6 +415,8 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 			}
 		}
 	},
+	// Real tmux, shells and child processes, sized like the tests below.
+	30000,
 );
 
 test.skipIf(!haveTmux)(
