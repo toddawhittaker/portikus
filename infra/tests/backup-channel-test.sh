@@ -73,7 +73,10 @@ n=$(wc -l <"$f/calls.log")
 case "$cmd" in
   "sudo portikus backup-channel pull")
     [ -z "${FAKE_SSH_FAIL:-}" ] || exit 255
-    cat "$f/pull" 2>/dev/null ;;
+    # A claimed request is gone: queued ones first, in order, then the single pull answer.
+    first=$(ls "$f/queue" 2>/dev/null | head -1)
+    if [ -n "$first" ]; then cat "$f/queue/$first"; rm -f "$f/queue/$first"
+    else cat "$f/pull" 2>/dev/null; rm -f "$f/pull"; fi ;;
   "sudo portikus backup-channel report")
     [ -z "${FAKE_SSH_FAIL:-}" ] || exit 255
     cat >"$f/report.$n.json"
@@ -135,6 +138,17 @@ if [ -n "${FAKE_USED_FILE:-}" ] && [ -e "$FAKE_USED_FILE" ]; then
 fi
 printf 'Avail\n%s\n' "$free"
 EOF
+# date: +%s moves FAKE_CLOCK_STEP seconds on per read when set; every other call is the real date.
+cat >"${work}/bin/date" <<'EOF'
+#!/usr/bin/env bash
+if [ "$*" = "+%s" ] && [ -n "${FAKE_CLOCK_STEP:-}" ]; then
+  n=$(cat "$FAKE_DIR/clock" 2>/dev/null || echo 1790000000)
+  echo "$n"
+  echo $((n + FAKE_CLOCK_STEP)) >"$FAKE_DIR/clock"
+else
+  exec /usr/bin/date "$@"
+fi
+EOF
 chmod +x "${work}/bin/"*
 export FAKE_DIR="$fakes"
 FAKE_BACKUP_STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -184,7 +198,7 @@ reset() {
   touch -d '2026-09-20' "${sets}/dumps/portikus-pre-older.dump"
   : >"$log"
   unset FAKE_SSH_FAIL FAKE_HOSTNAME FAKE_INSTANCE_STATE FAKE_DIR_EXISTS FAKE_AVAIL FAKE_IMPORT_EXISTS
-  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS FAKE_HANG
+  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS FAKE_HANG FAKE_CLOCK_STEP
 }
 
 run_channel() {
@@ -196,8 +210,16 @@ run_channel() {
     bash "$channel" --operator "$(id -un)" --vm-name "$VM_NAME" "$VM_IP" >"${work}/out" 2>&1
 }
 
-# pull LINE -- what the VM answers to pull.
+# pull LINE -- what the VM answers to the next pull; later pulls get nothing.
 pull() { printf '%s\n' "$1" >"${fakes}/pull"; }
+# queue LINE... -- the VM's pending requests, one per pull, in order.
+queue() {
+  local n=0 line
+  mkdir -p "${fakes}/queue"
+  for line in "$@"; do n=$((n + 1)); printf '%s\n' "$line" >"${fakes}/queue/$(printf '%03d' "$n")"; done
+}
+# delete_dump_req N -- a request to delete dump portikus-pre-dN.dump.
+delete_dump_req() { printf '{"id":"0b6f5c3e-8d2a-4c1e-9f7a-%012d","kind":"delete_dump","args":{"file":"portikus-pre-d%s.dump"}}' "$1" "$1"; }
 
 # field EXPR -- a Python expression over the last report, as r.
 field() { python3 -c "import json; r = json.load(open('${fakes}/last-report.json')); print($1)"; }
@@ -618,6 +640,81 @@ pull "$import_req"
 run_channel
 expect "an import from a set with no MAC is refused before the VM is asked anything" \
   "field \"r['request']['error']\" | grep -q 'not verified' && [ -z \"\$(vm_commands)\" ]"
+
+echo "--- deletes in a row, one request at a time ---"
+make_dumps() { local i; for i in $(seq 1 "$1"); do echo dump >"${sets}/dumps/portikus-pre-d${i}.dump"; done; }
+# dumps_left -- how many of the numbered dumps are still there.
+dumps_left() { find "${sets}/dumps" -name 'portikus-pre-d*.dump' | wc -l; }
+queue_left() { find "${fakes}/queue" -type f | wc -l; }
+# reported_requests -- reports that carried a request result.
+reported_requests() { grep -l '"request": {' "${fakes}"/report.*.json | wc -l; }
+pulls() { grep -c 'backup-channel pull$' "$log"; }
+# queue_dumps N -- queue deletes of dumps 1 to N.
+queue_dumps() {
+  local i lines=()
+  for i in $(seq 1 "$1"); do lines+=("$(delete_dump_req "$i")"); done
+  queue "${lines[@]}"
+}
+
+reset
+make_dumps 3
+queue "$(delete_dump_req 1)" \
+  "{\"id\":\"0b6f5c3e-8d2a-4c1e-9f7a-0000000000a1\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"${OLD}\"}}" \
+  "$(delete_dump_req 2)" "$(delete_dump_req 3)"
+run_channel
+expect "queued deletes all run in one invocation" \
+  "[ \$(dumps_left) = 0 ] && [ ! -e '${sets}/${OLD}' ] && [ \$(queue_left) = 0 ]"
+expect "each delete is reported on its own, and the last report has the contract's shape" \
+  "[ \$(reported_requests) = 4 ] && [ \$(grep -c 'backup-channel report\$' '$log') = 4 ] && [ ! -e '${state}/pending.json' ] && shape_ok"
+expect "after the last delete one more claim finds nothing and ends the run" "[ \$(pulls) = 5 ]"
+expect "the last report no longer lists the deleted set" \
+  "[ \"\$(field \"'${OLD}' in [s['stamp'] for s in r['status']['sets']]\")\" = False ]"
+
+reset
+make_dumps 25
+queue_dumps 25
+run_channel
+expect "the drain stops after 20 requests, leaving the rest unclaimed" \
+  "[ \$(dumps_left) = 5 ] && [ \$(queue_left) = 5 ] && [ \$(reported_requests) = 20 ] && [ \$(pulls) = 20 ]"
+
+# Each fake clock read moves 10 seconds on, so the third request ends the 25 seconds.
+reset
+make_dumps 10
+queue_dumps 10
+FAKE_CLOCK_STEP=10 run_channel
+expect "the drain claims nothing new once 25 seconds have passed" \
+  "[ \$(dumps_left) = 7 ] && [ \$(queue_left) = 7 ] && [ \$(reported_requests) = 3 ]"
+
+reset
+make_dumps 4
+queue "$(delete_dump_req 1)" "$(delete_dump_req 2)" "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}" \
+  "$(delete_dump_req 3)" "$(delete_dump_req 4)"
+run_channel
+expect "a backup after deletes runs, and the run ends after reporting it" \
+  "grep -q '^backup ' '$log' && [ \$(dumps_left) = 2 ] && [ \$(queue_left) = 2 ] && [ \$(reported_requests) = 3 ] \
+    && [ \"\$(field \"(r['request']['id'], r['request']['state'])\")\" = \"('${ID}', 'done')\" ]"
+expect "and its report names the new set" "[ \"\$(field \"r['request']['stamp']\")\" = '${FAKE_BACKUP_STAMP}' ]"
+
+reset
+make_dumps 2
+queue "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}" "$(delete_dump_req 1)"
+run_channel
+expect "a first request that is not a delete runs alone" \
+  "grep -q '^backup ' '$log' && [ \$(dumps_left) = 2 ] && [ \$(queue_left) = 1 ] && [ \$(reported_requests) = 1 ]"
+
+reset
+make_dumps 3
+queue "$(delete_dump_req 1)" "{\"id\":\"${ID}\",\"kind\":\"shell\",\"args\":{}}" "$(delete_dump_req 2)"
+run_channel
+expect "a refused request ends the drain, and is reported failed" \
+  "refused && [ \$(dumps_left) = 2 ] && [ \$(queue_left) = 1 ] && [ \$(reported_requests) = 2 ]"
+
+reset
+make_dumps 2
+queue "$(delete_dump_req 1)" "$(delete_dump_req 7)" "$(delete_dump_req 2)"
+run_channel
+expect "a failed delete does not stop the drain, and its error is not carried to the next request" \
+  "[ \$(dumps_left) = 0 ] && grep -l 'there is no dump' '${fakes}'/report.*.json | grep -q . && [ \"\$(field \"(r['request']['state'], r['request']['error'])\")\" = \"('done', None)\" ]"
 
 echo "--- a result the VM did not take ---"
 reset

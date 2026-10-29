@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Host half of the backup channel (docs/adr/0039-backup-channel-and-host-held-key.md).
 # portikus-backup-channel.timer runs it as root every 30 seconds.  Each run
-# asks the VM for at most one claimed request, checks it, runs it, and sends
-# the VM the result and a fresh status.  The VM never writes to the host.
+# asks the VM for a claimed request, checks it, runs it, and sends the VM the
+# result and a fresh status.  A delete is quick, so after one the run claims
+# the next request too, up to the limits below; any other kind ends the run.
+# The VM never writes to the host.
 #
 # The VM is not trusted (ADR 0024): a request is parsed with a size cap and
 # every value is checked against a strict pattern before it reaches a path or
@@ -63,6 +65,9 @@ MIN_GAP_MINUTES="${PORTIKUS_BACKUP_MIN_GAP_MINUTES:-60}"
 # A real request line is under 300 bytes.
 PULL_MAX_BYTES=4096
 HEARTBEAT_SECONDS=30
+# One run handles at most this many requests in a row, and claims no new one after this many seconds.
+MAX_DRAIN_REQUESTS=20
+MAX_DRAIN_SECONDS=25
 
 # The same forms as packages/contracts/src/backups.ts.
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -301,6 +306,7 @@ install -d -m 0700 "$STATE"
 exec {lock}>"${STATE}/lock"
 # A long job holds the lock; the next timer run has nothing to do.
 flock -n "$lock" || { info "another channel run is active"; exit 0; }
+run_start=$(date +%s)
 scratch=$(mktemp -d)
 heartbeat=""
 cleanup() {
@@ -547,51 +553,68 @@ if [ -s "${STATE}/pending.json" ]; then
   rm -f "${STATE}/pending.json"
 fi
 
-# Plain pipefail would make an oversized answer look like a failed ssh.
-set +o pipefail
-vm sudo portikus backup-channel pull | head -c $((PULL_MAX_BYTES + 1)) >"${scratch}/pull"
-pull_rc=${PIPESTATUS[0]}
-set -o pipefail
-pulled_bytes=$(stat -c %s "${scratch}/pull")
-if [ "$pull_rc" != 0 ] && [ "$pulled_bytes" -le "$PULL_MAX_BYTES" ]; then
-  die "could not pull from ${VM} (ssh exit ${pull_rc})"
-fi
+# handle_request -- claim one request, check it, run it and report it.  Ends
+# the run on "none" or a refusal; returns 0 after a delete, 1 after any other kind.
+handle_request() {
+  job_state="" job_error="" job_stamp=""
+  # Plain pipefail would make an oversized answer look like a failed ssh.
+  set +o pipefail
+  vm sudo portikus backup-channel pull | head -c $((PULL_MAX_BYTES + 1)) >"${scratch}/pull"
+  local pull_rc=${PIPESTATUS[0]}
+  set -o pipefail
+  local pulled_bytes
+  pulled_bytes=$(stat -c %s "${scratch}/pull")
+  if [ "$pull_rc" != 0 ] && [ "$pulled_bytes" -le "$PULL_MAX_BYTES" ]; then
+    die "could not pull from ${VM} (ssh exit ${pull_rc})"
+  fi
 
-IFS=$'\t' read -r verdict f1 f2 f3 f4 f5 f6 < <(python3 -c "$PARSE_REQUEST" "${scratch}/pull" "$PULL_MAX_BYTES")
-case "$verdict" in
-  none)
-    report "" || die "could not report to ${VM}"
-    exit 0
-    ;;
-  refused)
-    printf '[backup-channel] refused a request from the VM: %s\n' "$f2" >&2
-    if [[ "$f1" =~ $UUID_PATTERN ]]; then
-      finish "$f1" failed "refused by the host: ${f2}" ""
-    else
-      report "" || die "could not report to ${VM}"
-    fi
-    exit 0
-    ;;
-  ok) ;;
-  *) die "could not read the request" ;;
-esac
+  local verdict f1 f2 f3 f4 f5 f6
+  IFS=$'\t' read -r verdict f1 f2 f3 f4 f5 f6 < <(python3 -c "$PARSE_REQUEST" "${scratch}/pull" "$PULL_MAX_BYTES")
+  case "$verdict" in
+    none)
+      # After a delete, finish has just sent a fresh status.
+      [ "$handled" -gt 0 ] || report "" || die "could not report to ${VM}"
+      exit 0
+      ;;
+    refused)
+      printf '[backup-channel] refused a request from the VM: %s\n' "$f2" >&2
+      if [[ "$f1" =~ $UUID_PATTERN ]]; then
+        finish "$f1" failed "refused by the host: ${f2}" ""
+      else
+        report "" || die "could not report to ${VM}"
+      fi
+      exit 0
+      ;;
+    ok) ;;
+    *) die "could not read the request" ;;
+  esac
 
-kind=$f1 id=$f2 stamp=$f3 instance=$f4 file=$f5 dir=$f6
-# Checked once more here, so this file alone shows no unchecked value is used.
-[[ "$id" =~ $UUID_PATTERN ]] || die "request id is not in the expected form"
+  local kind=$f1 id=$f2 stamp=$f3 instance=$f4 file=$f5 dir=$f6
+  # Checked once more here, so this file alone shows no unchecked value is used.
+  [[ "$id" =~ $UUID_PATTERN ]] || die "request id is not in the expected form"
 
-case "$kind" in
-  backup | restore_copy | import_home) start_heartbeat "$id" ;;
-esac
-case "$kind" in
-  backup) run_backup "$id" ;;
-  delete_set) run_delete_set "$stamp" ;;
-  delete_dump) run_delete_dump "$file" ;;
-  restore_copy) run_restore copy "$stamp" "$instance" "$dir" ;;
-  import_home) run_restore import "$stamp" "$instance" ;;
-  *) job_fail "refused by the host: unknown kind" ;;
-esac
-stop_heartbeat
-# The run may have changed the nightly's state or the key; report it fresh.
-nightly_state >"${scratch}/nightly"
-finish "$id" "$job_state" "$job_error" "$job_stamp"
+  case "$kind" in
+    backup | restore_copy | import_home) start_heartbeat "$id" ;;
+  esac
+  case "$kind" in
+    backup) run_backup "$id" ;;
+    delete_set) run_delete_set "$stamp" ;;
+    delete_dump) run_delete_dump "$file" ;;
+    restore_copy) run_restore copy "$stamp" "$instance" "$dir" ;;
+    import_home) run_restore import "$stamp" "$instance" ;;
+    *) job_fail "refused by the host: unknown kind" ;;
+  esac
+  stop_heartbeat
+  # The run may have changed the nightly's state or the key; report it fresh.
+  nightly_state >"${scratch}/nightly"
+  finish "$id" "$job_state" "$job_error" "$job_stamp"
+  case "$kind" in delete_set | delete_dump) return 0 ;; esac
+  return 1
+}
+
+handled=0
+while handle_request; do
+  handled=$((handled + 1))
+  [ "$handled" -lt "$MAX_DRAIN_REQUESTS" ] || break
+  [ $(( $(date +%s) - run_start )) -lt "$MAX_DRAIN_SECONDS" ] || break
+done
