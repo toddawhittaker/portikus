@@ -236,6 +236,12 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   else
     skip "headless Chromium (image $(ws_exec "head -n 1 /etc/portikus-image-version" 2>/dev/null) predates the Playwright browser)"
   fi
+  if image_older_than 2026.10.6; then
+    skip "apt has Debian's security suite (image ${image_version} predates it)"
+  else
+    check "apt has Debian's security suite" \
+      ws_exec "grep -qs -- '-security main' /etc/apt/sources.list"
+  fi
   check "gh --version"                          ws_student "gh --version"
   check "node --version"                        ws_student "node --version"
   check "python3 --version"                     ws_student "python3 --version"

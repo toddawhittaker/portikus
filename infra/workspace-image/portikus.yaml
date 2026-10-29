@@ -2097,6 +2097,15 @@ packages:
   update: true
   cleanup: true
 
+  # debootstrap writes only the release suite, which never carries
+  # security-only fixes; this file also serves the student's own apt.
+  repositories:
+  - name: sources.list
+    url: |-
+      deb https://deb.debian.org/debian {{ image.release }} main
+      deb https://deb.debian.org/debian {{ image.release }}-updates main
+      deb https://deb.debian.org/debian-security {{ image.release }}-security main
+
   sets:
   # Base Debian packages
   - packages:
