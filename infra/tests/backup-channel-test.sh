@@ -149,6 +149,14 @@ else
   exec /usr/bin/date "$@"
 fi
 EOF
+# rm: fails on FAKE_RM_FAIL_FILE, so a delete can break part-way; everything else is the real rm.
+cat >"${work}/bin/rm" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${FAKE_RM_FAIL_FILE:-}" ]; then
+  for a in "$@"; do [ "${a##*/}" != "$FAKE_RM_FAIL_FILE" ] || exit 1; done
+fi
+exec /usr/bin/rm "$@"
+EOF
 chmod +x "${work}/bin/"*
 export FAKE_DIR="$fakes"
 FAKE_BACKUP_STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -198,7 +206,7 @@ reset() {
   touch -d '2026-09-20' "${sets}/dumps/portikus-pre-older.dump"
   : >"$log"
   unset FAKE_SSH_FAIL FAKE_HOSTNAME FAKE_INSTANCE_STATE FAKE_DIR_EXISTS FAKE_AVAIL FAKE_IMPORT_EXISTS
-  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS FAKE_HANG FAKE_CLOCK_STEP
+  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS FAKE_HANG FAKE_CLOCK_STEP FAKE_RM_FAIL_FILE
 }
 
 run_channel() {
@@ -715,6 +723,14 @@ queue "$(delete_dump_req 1)" "$(delete_dump_req 7)" "$(delete_dump_req 2)"
 run_channel
 expect "a failed delete does not stop the drain, and its error is not carried to the next request" \
   "[ \$(dumps_left) = 0 ] && grep -l 'there is no dump' '${fakes}'/report.*.json | grep -q . && [ \"\$(field \"(r['request']['state'], r['request']['error'])\")\" = \"('done', None)\" ]"
+
+reset
+make_dumps 4
+queue_dumps 4
+FAKE_RM_FAIL_FILE=portikus-pre-d2.dump run_channel
+rc=$?
+expect "a command that fails inside a drained request still aborts the run, and nothing further is claimed" \
+  "[ $rc != 0 ] && [ \$(queue_left) = 2 ] && [ \$(reported_requests) = 1 ] && [ -e '${sets}/dumps/portikus-pre-d2.dump' ]"
 
 echo "--- a result the VM did not take ---"
 reset

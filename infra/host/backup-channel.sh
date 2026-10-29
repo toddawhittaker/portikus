@@ -554,7 +554,8 @@ if [ -s "${STATE}/pending.json" ]; then
 fi
 
 # handle_request -- claim one request, check it, run it and report it.  Ends
-# the run on "none" or a refusal; returns 0 after a delete, 1 after any other kind.
+# the run on "none" or a refusal; sets last_kind.  It is never called in a
+# condition, which would turn off errexit for everything it runs.
 handle_request() {
   job_state="" job_error="" job_stamp=""
   # Plain pipefail would make an oversized answer look like a failed ssh.
@@ -608,13 +609,14 @@ handle_request() {
   # The run may have changed the nightly's state or the key; report it fresh.
   nightly_state >"${scratch}/nightly"
   finish "$id" "$job_state" "$job_error" "$job_stamp"
-  case "$kind" in delete_set | delete_dump) return 0 ;; esac
-  return 1
+  last_kind=$kind
 }
 
-handled=0
-while handle_request; do
+handled=0 last_kind=""
+while :; do
+  handle_request
   handled=$((handled + 1))
+  case "$last_kind" in delete_set | delete_dump) ;; *) break ;; esac
   [ "$handled" -lt "$MAX_DRAIN_REQUESTS" ] || break
   [ $(( $(date +%s) - run_start )) -lt "$MAX_DRAIN_SECONDS" ] || break
 done
