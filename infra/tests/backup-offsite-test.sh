@@ -52,7 +52,7 @@ mac="${repo}/infra/host/portikus-backup-mac"
 # shellcheck source=/dev/null
 . "${here}/lib.sh"
 
-for t in sshd rsync rrsync ssh-keygen age age-keygen python3; do
+for t in sshd rsync rrsync ssh-keygen age age-keygen python3 flock; do
   command -v "$t" >/dev/null || [ -x "/usr/sbin/$t" ] || { echo "backup-offsite-test: $t is not installed"; exit 1; }
 done
 SSHD=$(command -v sshd || echo /usr/sbin/sshd)
@@ -224,15 +224,31 @@ echo "== what the server's key cannot do"
 ssh_key=(ssh -F /dev/null -i "${conf}/id_ed25519" -p "$port" -o IdentitiesOnly=yes -o BatchMode=yes
   -o "UserKnownHostsFile=${conf}/known_hosts" -o HostKeyAlias=portikus-backup-offsite)
 remote="${me}@127.0.0.1"
+# rrsync holds a lock on incoming while it runs and refuses any other
+# connection meanwhile, and a refused copy can return before the target's
+# rrsync exits.  Without this wait a refusal for the lock would pass a
+# negative check for the wrong reason.
+wait_for_rrsync() {
+  flock -w 10 "$incoming" true && return 0
+  bad "the target's rrsync released its lock on incoming within 10 seconds"
+  echo "backup-offsite-test: ${pass} passed, ${fail} failed"
+  exit 1
+}
+wait_for_rrsync
 check "no shell: rm -rf is refused" bash -c "! $(printf '%q ' "${ssh_key[@]}") '${remote}' 'rm -rf ${target}/${newest}'"
+wait_for_rrsync
 check "no listing or reading" bash -c "! rsync -e '${ssh_key[*]}' '${remote}:' '${work}/stolen/' 2>/dev/null"
 mkdir -p "${work}/empty"
+wait_for_rrsync
 check "no --delete" bash -c "! rsync -r --delete -e '${ssh_key[*]}' '${work}/empty/' '${remote}:' 2>/dev/null"
+wait_for_rrsync
 check "no .. out of incoming" bash -c "! rsync -e '${ssh_key[*]}' '${key}' '${remote}:../${newest}/home.age' 2>/dev/null"
 echo forged >"${work}/forged"
+wait_for_rrsync
 rsync -e "${ssh_key[*]}" "${work}/forged" "${remote}:${target}/${newest}/home.age" 2>/dev/null
 check "an absolute path to the set does not reach it" diff -r "${sets}/${newest}" "${target}/${newest}"
 rm -rf "${incoming:?}"/*
+wait_for_rrsync
 # A replacement set, marked whole, as a broken-into server would send it.
 mkdir -p "${work}/fake/${newest}"
 echo forged >"${work}/fake/${newest}/home.age"
