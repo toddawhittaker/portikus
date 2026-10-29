@@ -4508,7 +4508,12 @@ restored from the admin Backups tab (section 20.1).
   `portikus-backup-channel.timer`, every 30 seconds asks the VM over SSH
   (`sudo portikus backup-channel pull`) for at most one claimed request,
   checks it, runs it, and sends the result and a fresh status back
-  (`sudo portikus backup-channel report`). Everything that talks to the
+  (`sudo portikus backup-channel report`). Since Epic 55, after a delete
+  that succeeded, the same run claims the next request, up to 20 requests
+  or 25 seconds since the run started, so several deletes finish in one
+  run; every request is still claimed, checked, run and reported alone.
+  Any other kind, and a delete that was refused or failed, ends the run,
+  so a VM that repeats a refused delete gets one request per run. Everything that talks to the
   VM runs as the operator's account, so the VM trusts no new key. The
   host treats every request as hostile: one of five kinds (`backup`,
   `delete_set`, `delete_dump`, `restore_copy`, `import_home`), each
@@ -6922,6 +6927,22 @@ Acceptance:
 - `make -n smoke-test` from a worktree reaches the pilot's address and public host;
 - a pull request with under 80% of its measured changed lines covered fails the `unit` job;
 - `make security-test SECURITY_TARGET=host` passes on a fresh apt-installed host.
+
+### Epic 55 — Quick fixes
+
+Built on `epic/55-quick-fixes`, issues #1695 and #1685. No migration. See section 24.9.
+
+Includes:
+
+- the backup channel claiming the next request after a delete that succeeded, up to 20 requests or 25 seconds since the run started, so deleting several sets takes one run instead of one run each;
+- the offsite backup test waiting, with a checked and named failure, for the target's rrsync lock before every connection in its restriction section.
+
+Acceptance:
+
+- four queued deletes finish in one run, each checked, run and reported on its own;
+- a delete that is refused or fails ends the run, and a VM that repeats a refused delete gets one request per run;
+- a `backup`, `restore_copy` or `import_home` request ends the run after it is reported;
+- the offsite test waits on rrsync's lock before every target connection and fails by name if the lock is not released.
 
 ### Estimated total
 
