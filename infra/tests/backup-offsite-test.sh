@@ -52,7 +52,7 @@ mac="${repo}/infra/host/portikus-backup-mac"
 # shellcheck source=/dev/null
 . "${here}/lib.sh"
 
-for t in sshd rsync rrsync ssh-keygen age age-keygen python3; do
+for t in sshd rsync rrsync ssh-keygen age age-keygen python3 flock; do
   command -v "$t" >/dev/null || [ -x "/usr/sbin/$t" ] || { echo "backup-offsite-test: $t is not installed"; exit 1; }
 done
 SSHD=$(command -v sshd || echo /usr/sbin/sshd)
@@ -233,6 +233,9 @@ echo forged >"${work}/forged"
 rsync -e "${ssh_key[*]}" "${work}/forged" "${remote}:${target}/${newest}/home.age" 2>/dev/null
 check "an absolute path to the set does not reach it" diff -r "${sets}/${newest}" "${target}/${newest}"
 rm -rf "${incoming:?}"/*
+# rrsync refuses a connection while another holds its lock on incoming, and
+# the failed copy above can return before its rrsync on the target exits.
+flock -w 10 "$incoming" true
 # A replacement set, marked whole, as a broken-into server would send it.
 mkdir -p "${work}/fake/${newest}"
 echo forged >"${work}/fake/${newest}/home.age"
