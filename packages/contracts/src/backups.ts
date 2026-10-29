@@ -148,6 +148,11 @@ export const HostBackupSet = z
 		 * that is not verified is never restored; absent from older hosts.
 		 */
 		verified: z.boolean().optional(),
+		/**
+		 * Whether the channel made the set on request; such sets do not count
+		 * toward the retention floor (ADR 0039). Absent from older hosts.
+		 */
+		requested: z.boolean().optional(),
 	})
 	.strict();
 export type HostBackupSet = z.infer<typeof HostBackupSet>;
@@ -186,9 +191,41 @@ export const HostBackupStatus = z
 		/** Newest first. */
 		sets: z.array(HostBackupSet).max(60),
 		dumps: z.array(HostBackupDump).max(200),
+		/**
+		 * The host unit's retention floor, the newest `keepComplete` nightly
+		 * sets, so the page can mark sets a delete
+		 * would be refused for. Advisory: the host enforces it (ADR 0039).
+		 * Absent from older hosts. The bound matches backup-channel.sh's check.
+		 */
+		floor: z
+			.object({
+				keepComplete: z.number().int().min(0).max(999),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 export type HostBackupStatus = z.infer<typeof HostBackupStatus>;
+
+/**
+ * The sets a hand delete is refused for, newest first, by backup-channel.sh's
+ * rule: the newest `floor.keepComplete` complete sets not made on request, and
+ * at least the newest one (SPEC.md section 24, "Host-side bounds"). With no
+ * complete nightly set, the newest complete set of any kind is kept. A host
+ * that reports no floor gets only the newest complete set.
+ */
+export function keptSetStamps(status: HostBackupStatus): string[] {
+	const keep = Math.max(status.floor?.keepComplete ?? 1, 1);
+	const newestFirst = (sets: HostBackupSet[]) =>
+		sets
+			.map((set) => set.stamp)
+			.sort()
+			.reverse();
+	const complete = status.sets.filter((set) => set.complete);
+	const nightly = newestFirst(complete.filter((set) => set.requested !== true));
+	if (nightly.length > 0) return nightly.slice(0, keep);
+	return newestFirst(complete).slice(0, 1);
+}
 
 /**
  * The document the host sends `portikus backup-channel report` on standard

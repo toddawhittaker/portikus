@@ -151,7 +151,12 @@ stops and starts workspaces and, on a VM with none, it shortens the
 platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
 name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
 serves on (8443 on the pilot). For the pilot, `make` sets both for you
-(`pilot.portikus.thewhittakers.org` and 8443). Without a name, the script's
+(`pilot.portikus.thewhittakers.org` and 8443). A git worktree has no
+OpenTofu state of its own, so the Makefile reads the pilot's state from the
+main checkout (the parent of `git rev-parse --git-common-dir`); `make
+deploy-app` and `make smoke-test` work from a worktree with no `VM_IP` or
+public host overrides. Passing `VM_IP` for a host other than the pilot still
+makes it a foreign host. Without a name, the script's
 HTTPS checks fall back to `portikus.<vm-ip>.nip.io` and it prints a
 warning.
 
@@ -350,6 +355,9 @@ runs everything; pull request runs always run in full.
   shellcheck. Each skipped until the matching directory or files exist.
 - **Package build**: builds the control-plane Debian package with `nfpm`
   (ADR 0007) and uploads it as a build artifact kept for seven days.
+- **Dex sign-in**: signs in through a real Dex. It is a required check on
+  the main and epic rulesets since Epic 54, and is skipped (which counts
+  as passing) when neither app nor infra code changed.
 
 Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code

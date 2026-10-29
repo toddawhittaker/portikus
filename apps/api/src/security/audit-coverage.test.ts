@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -12,6 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { REPO_ROOT, specActionNames, walkFiles } from "../testing/spec-actions.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
@@ -26,35 +26,13 @@ import {
  * the right actor, target and result, and no secret in its metadata.
  */
 
-const REPO = fileURLToPath(new URL("../../../../", import.meta.url));
-
-/** Section 24.11 names these only to say they are no longer written. */
-const RETIRED = new Set(["setup.code_issued", "setup.code_claimed"]);
-
-/** Every `area.event` name written in backticks in SPEC.md section 24.11. */
-function specActionNames(): string[] {
-	const spec = readFileSync(join(REPO, "docs/SPEC.md"), "utf8");
-	const start = spec.indexOf("### 24.11 Audit logging");
-	const end = spec.indexOf("\n### ", start + 1);
-	const section = spec.slice(start, end);
-	const names = [...section.matchAll(/`([a-z_]+\.[a-z_]+)`/g)].map((m) => m[1] ?? "");
-	return [...new Set(names)].filter((name) => !RETIRED.has(name)).sort();
-}
-
-function sourceFiles(dir: string, out: string[] = []): string[] {
-	for (const entry of readdirSync(dir)) {
-		if (entry === "node_modules" || entry === "dist") continue;
-		const path = join(dir, entry);
-		if (statSync(path).isDirectory()) sourceFiles(path, out);
-		else if (path.endsWith(".ts") && !path.endsWith(".test.ts")) out.push(path);
-	}
-	return out;
-}
+const isProductSource = (path: string) =>
+	path.endsWith(".ts") && !path.endsWith(".test.ts");
 
 /** All non-test TypeScript under the apps and packages, as one string. */
 function productSource(): string {
 	const roots = ["apps", "packages"].flatMap((top) =>
-		readdirSync(join(REPO, top)).map((name) => join(REPO, top, name, "src")),
+		readdirSync(join(REPO_ROOT, top)).map((name) => join(REPO_ROOT, top, name, "src")),
 	);
 	return roots
 		.filter((root) => {
@@ -64,7 +42,7 @@ function productSource(): string {
 				return false;
 			}
 		})
-		.flatMap((root) => sourceFiles(root))
+		.flatMap((root) => walkFiles(root, isProductSource))
 		.map((file) => readFileSync(file, "utf8"))
 		.join("\n");
 }

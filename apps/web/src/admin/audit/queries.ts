@@ -1,6 +1,7 @@
 import { AuditPage } from "@portikus/contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { request } from "../../api/request.js";
+import { ADMIN_REFRESH_MS } from "../queries.js";
 
 /** The filters of the Audit tab; an empty string means "any". */
 export interface AuditFilters {
@@ -26,6 +27,8 @@ export function useAuditPage(filters: AuditFilters, before: number | null) {
 		queryKey: ["admin", "audit", filters, before],
 		queryFn: () =>
 			request(AuditPage, `/admin/audit${auditQueryString(filters, before)}`),
+		// Older pages are fixed by their `before` cursor; only the newest page gains rows.
+		refetchInterval: before === null ? ADMIN_REFRESH_MS : false,
 		placeholderData: keepPreviousData,
 	});
 }

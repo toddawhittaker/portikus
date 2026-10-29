@@ -3,10 +3,16 @@ import { Button, Icon, Toggletip } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { plural } from "../../text.js";
-import type { DeleteTarget } from "./BackupDialogs.js";
-import { longTime, waitingRequest, workspaceName } from "./model.js";
-import { FocusCatchGroup, Table, useFocusCatch } from "./parts.js";
+import { longTime, workspaceName } from "./model.js";
+import { FocusCatchGroup, SELECT_CELL, Table, useFocusCatch } from "./parts.js";
+import {
+	DeleteSelectedButton,
+	type ListSelection,
+	SelectAllBox,
+	SelectBox,
+} from "./SelectBoxes.js";
 import type { Host } from "./StatusAndSets.js";
+import { type DeleteTarget, deleteWaiting, targetKey } from "./selection.js";
 
 /**
  * Snapshots, kept homes and dumps, which only need a look now and then, so the
@@ -16,10 +22,12 @@ export function CleanUpGroup({
 	data,
 	host,
 	onDelete,
+	selection,
 }: {
 	data: AdminBackups;
 	host: Host;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	const { vm } = data;
 	const dumps = plural(host.dumps.length, "dump");
@@ -63,8 +71,13 @@ export function CleanUpGroup({
 					</span>
 				</summary>
 				<div className="mt-6 grid gap-6">
-					<VmParts data={data} onDelete={onDelete} />
-					<DumpsPart host={host} requests={data.requests} onDelete={onDelete} />
+					<VmParts data={data} onDelete={onDelete} selection={selection} />
+					<DumpsPart
+						host={host}
+						requests={data.requests}
+						onDelete={onDelete}
+						selection={selection}
+					/>
 				</div>
 			</details>
 		</section>
@@ -74,9 +87,11 @@ export function CleanUpGroup({
 function VmParts({
 	data,
 	onDelete,
+	selection,
 }: {
 	data: AdminBackups;
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	const { vm, requests, workspaces } = data;
 	const notListed = vm === null ? "Not listed yet." : null;
@@ -93,6 +108,13 @@ function VmParts({
 						on its own. Delete them once the change checks out.
 					</Toggletip>
 				}
+				actions={
+					<DeleteSelectedButton
+						kind="snapshot"
+						listId="backups-snapshots-title"
+						selection={selection}
+					/>
+				}
 			>
 				<Table
 					testId="backup-snapshots"
@@ -101,14 +123,30 @@ function VmParts({
 					empty={
 						notListed ?? (vm?.snapshots.length ? null : "No pre-change snapshots.")
 					}
+					selectAll={
+						<SelectAllBox
+							kind="snapshot"
+							noun="pre-change snapshots"
+							selection={selection}
+						/>
+					}
 				>
 					{vm?.snapshots.map((snap) => {
-						const deleting = waitingRequest(requests, "delete_snapshot", {
+						const target: DeleteTarget = {
+							kind: "snapshot",
 							volume: snap.volume,
 							snapshot: snap.name,
-						});
+						};
+						const deleting = deleteWaiting(requests, target);
 						return (
 							<tr key={`${snap.volume}/${snap.name}`} data-testid="backup-snapshot">
+								<td className={SELECT_CELL}>
+									<SelectBox
+										itemKey={targetKey(target)}
+										label={`Select snapshot ${snap.name} of ${snap.volume}`}
+										selection={selection}
+									/>
+								</td>
 								<td className="font-mono">{snap.volume}</td>
 								<th scope="row" className="font-mono">
 									{snap.name}
@@ -125,12 +163,7 @@ function VmParts({
 										}
 										aria-disabled={deleting ? true : undefined}
 										onClick={() => {
-											if (!deleting)
-												onDelete({
-													kind: "snapshot",
-													volume: snap.volume,
-													snapshot: snap.name,
-												});
+											if (!deleting) onDelete(target);
 										}}
 									>
 										{deleting ? "Deleting…" : "Delete…"}
@@ -151,20 +184,36 @@ function VmParts({
 						out. Delete it once they confirm the restored home is right.
 					</Toggletip>
 				}
+				actions={
+					<DeleteSelectedButton
+						kind="kept"
+						listId="backups-kept-title"
+						selection={selection}
+					/>
+				}
 			>
 				<Table
 					testId="backup-kept-homes"
 					caption="Home folders a replace took out of service"
 					headers={["Workspace", "Kept since", ""]}
 					empty={notListed ?? (vm?.keptHomes.length ? null : "No kept homes.")}
+					selectAll={
+						<SelectAllBox kind="kept" noun="kept homes" selection={selection} />
+					}
 				>
 					{vm?.keptHomes.map((kept) => {
 						const name = workspaceName(kept.instance, workspaces);
-						const deleting = waitingRequest(requests, "delete_kept_home", {
-							volume: kept.volume,
-						});
+						const target: DeleteTarget = { kind: "kept", volume: kept.volume, name };
+						const deleting = deleteWaiting(requests, target);
 						return (
 							<tr key={kept.volume} data-testid="backup-kept-home">
+								<td className={SELECT_CELL}>
+									<SelectBox
+										itemKey={targetKey(target)}
+										label={`Select the kept home of ${name}`}
+										selection={selection}
+									/>
+								</td>
 								<th scope="row">
 									<span className="pk-cell-stack">
 										<span>{name}</span>
@@ -185,8 +234,7 @@ function VmParts({
 										}
 										aria-disabled={deleting ? true : undefined}
 										onClick={() => {
-											if (!deleting)
-												onDelete({ kind: "kept", volume: kept.volume, name });
+											if (!deleting) onDelete(target);
 										}}
 									>
 										{deleting ? "Deleting…" : "Delete…"}
@@ -205,10 +253,12 @@ function DumpsPart({
 	host,
 	requests,
 	onDelete,
+	selection,
 }: {
 	host: Host;
 	requests: BackupRequestView[];
 	onDelete: (target: DeleteTarget) => void;
+	selection: ListSelection;
 }) {
 	return (
 		<FocusCatchGroup
@@ -221,17 +271,39 @@ function DumpsPart({
 					before each deploy or other change. Delete them once the change has settled.
 				</Toggletip>
 			}
+			actions={
+				<DeleteSelectedButton
+					kind="dump"
+					listId="backups-dumps-title"
+					selection={selection}
+				/>
+			}
 		>
 			<Table
 				testId="backup-dumps"
 				caption="Pre-change database dumps on the host"
 				headers={["File", "Size", "Taken", ""]}
 				empty={host.dumps.length === 0 ? "No pre-change dumps." : null}
+				selectAll={
+					<SelectAllBox
+						kind="dump"
+						noun="pre-change database dumps"
+						selection={selection}
+					/>
+				}
 			>
 				{host.dumps.map((dump) => {
-					const deleting = waitingRequest(requests, "delete_dump", { file: dump.file });
+					const target: DeleteTarget = { kind: "dump", file: dump.file };
+					const deleting = deleteWaiting(requests, target);
 					return (
 						<tr key={dump.file} data-testid="backup-dump">
+							<td className={SELECT_CELL}>
+								<SelectBox
+									itemKey={targetKey(target)}
+									label={`Select ${dump.file}`}
+									selection={selection}
+								/>
+							</td>
 							<th scope="row" className="font-mono">
 								{dump.file}
 							</th>
@@ -246,7 +318,7 @@ function DumpsPart({
 									}
 									aria-disabled={deleting ? true : undefined}
 									onClick={() => {
-										if (!deleting) onDelete({ kind: "dump", file: dump.file });
+										if (!deleting) onDelete(target);
 									}}
 								>
 									{deleting ? "Deleting…" : "Delete…"}

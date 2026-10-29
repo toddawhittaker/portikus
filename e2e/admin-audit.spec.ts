@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	loginAs,
@@ -214,6 +214,78 @@ test.describe("admin audit", () => {
 		await targetFilter.getByRole("button", { name: "Show all targets" }).click();
 		await expect(page).not.toHaveURL(/workspace=/);
 		await expect(targetFilter).toHaveCount(0);
+	});
+
+	/** A real admin action that records one audit event about the workspace. */
+	async function setMemoryLimit(
+		page: Page,
+		workspaceId: string,
+		memoryMiB: number,
+	): Promise<void> {
+		const res = await page.request.put(`/admin/workspaces/${workspaceId}/limits`, {
+			data: { cpu: null, memoryMiB, processes: null },
+			headers: { origin: WEB_ORIGIN },
+		});
+		expect(res.status()).toBe(204);
+	}
+
+	test("a new event appears on the newest page without a reload", async ({
+		page,
+		browser,
+	}) => {
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+		const student = await createStudent(context, { state: "stopped" });
+		await context.close();
+
+		await loginAs(page, "carol");
+		await page.goto(`/admin/audit?workspace=${student.workspaceId}`);
+		await expect(page.getByTestId("audit-page")).toHaveText("Page 1, 0 events", {
+			timeout: 15_000,
+		});
+		const rows = page.getByRole("table", { name: /Audit events/ }).locator("tbody tr");
+		await expect(rows).toHaveCount(0);
+
+		await setMemoryLimit(page, student.workspaceId, 4096);
+		await expect(rows).toHaveCount(1, { timeout: 10_000 });
+		await expect(rows.first()).toContainText("workspace.limits_updated");
+		await expect(page.getByTestId("audit-page")).toHaveText("Page 1, 1 event");
+
+		await setMemoryLimit(page, student.workspaceId, 6144);
+		await expect(rows).toHaveCount(2, { timeout: 10_000 });
+		await expect(rows.first()).toContainText("6144");
+	});
+
+	test("a refresh keeps an open details row and the typed filter", async ({
+		page,
+		browser,
+	}) => {
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+		const student = await createStudent(context, { state: "stopped" });
+		await context.close();
+		await query(
+			`insert into audit_events (actor, target, action, result, metadata)
+			 values ('worker', $1, 'e2e.refresh.long', 'ok', $2::jsonb)`,
+			[student.workspaceId, JSON.stringify({ note: "x".repeat(200) })],
+		);
+
+		await loginAs(page, "carol");
+		await page.goto(`/admin/audit?workspace=${student.workspaceId}`);
+		const rows = page.getByRole("table", { name: /Audit events/ }).locator("tbody tr");
+		await expect(rows).toHaveCount(1, { timeout: 15_000 });
+		const details = rows.first().getByTestId("audit-details-full");
+		await details.getByText("Show full details").click();
+		await expect(details).toHaveJSProperty("open", true);
+		const action = page.getByRole("textbox", { name: "Action starts with" });
+		await action.fill("workspace.");
+
+		await setMemoryLimit(page, student.workspaceId, 4096);
+		await expect(rows).toHaveCount(2, { timeout: 10_000 });
+		await expect(rows.first()).toContainText("workspace.limits_updated");
+		await expect(rows.last().getByTestId("audit-details-full")).toHaveJSProperty(
+			"open",
+			true,
+		);
+		await expect(action).toHaveValue("workspace.");
 	});
 
 	for (const colorScheme of ["light", "dark"] as const) {

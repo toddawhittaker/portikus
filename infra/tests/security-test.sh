@@ -74,7 +74,7 @@ check_output "a opens its own presence socket through the edge (control)" "101" 
 # Modules run in this order; one that is not there yet is skipped.  The
 # network module goes last because it briefly claims b's address from a.
 # workspace-egress puts the site's egress policy back before the next runs.
-for module in cross-user container preview-edge lti observability egress workspace-egress limits network; do
+for module in cross-user recovery container preview-edge lti observability egress workspace-egress limits network; do
   if [ -f "${here}/security/${module}.sh" ]; then
     # shellcheck source=/dev/null
     . "${here}/security/${module}.sh"
