@@ -105,12 +105,12 @@ cat >"${work}/bin/df" <<'EOF'
 #!/usr/bin/env bash
 printf 'Avail\n%s\n' 107374182400
 EOF
-# The local portikus command: pull prints the waiting request, report keeps the document.
+# The local portikus command: pull prints the waiting request once, report keeps the document.
 cat >"${work}/bin/portikus" <<'EOF'
 #!/usr/bin/env bash
 printf 'portikus %s\n' "$*" >>"$FAKE_DIR/calls.log"
 case "$*" in
-  "backup-channel pull") cat "$FAKE_DIR/pull" 2>/dev/null ;;
+  "backup-channel pull") if [ -f "$FAKE_DIR/pull" ]; then cat "$FAKE_DIR/pull"; rm -f "$FAKE_DIR/pull"; fi ;;
   "backup-channel report") cat >"$FAKE_DIR/last-report.json" ;;
 esac
 EOF

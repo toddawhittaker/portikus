@@ -232,6 +232,15 @@ delete_dump_req() { printf '{"id":"0b6f5c3e-8d2a-4c1e-9f7a-%012d","kind":"delete
 # field EXPR -- a Python expression over the last report, as r.
 field() { python3 -c "import json; r = json.load(open('${fakes}/last-report.json')); print($1)"; }
 
+# first_request_field EXPR -- like field, over the first report that carried a request.
+first_request_field() {
+  python3 -c "
+import glob, json, re
+files = sorted(glob.glob('${fakes}/report.*.json'), key=lambda f: int(re.search(r'report\.(\d+)\.json', f).group(1)))
+r = next(r for r in map(lambda f: json.load(open(f)), files) if r.get('request'))
+print($1)"
+}
+
 # Everything the VM was asked besides pull and report.
 vm_commands() { grep '^ssh ' "$log" | grep -v 'backup-channel \(pull\|report\)$' || true; }
 nothing_ran() {
@@ -721,8 +730,22 @@ reset
 make_dumps 2
 queue "$(delete_dump_req 1)" "$(delete_dump_req 7)" "$(delete_dump_req 2)"
 run_channel
-expect "a failed delete does not stop the drain, and its error is not carried to the next request" \
-  "[ \$(dumps_left) = 0 ] && grep -l 'there is no dump' '${fakes}'/report.*.json | grep -q . && [ \"\$(field \"(r['request']['state'], r['request']['error'])\")\" = \"('done', None)\" ]"
+expect "a failed delete ends the run, and the next queued request stays unclaimed" \
+  "[ \$(dumps_left) = 1 ] && [ \$(queue_left) = 1 ] && [ \$(reported_requests) = 2 ] && [ \$(pulls) = 2 ] \
+    && [ \"\$(field \"(r['request']['state'], 'there is no dump' in r['request']['error'])\")\" = \"('failed', True)\" ]"
+expect "a delete that succeeded before it is reported done, with no error from the failure after it" \
+  "[ \"\$(first_request_field \"(r['request']['state'], r['request']['error'])\")\" = \"('done', None)\" ]"
+
+# A hostile VM can answer every pull with the same delete of a set that is not there.
+reset
+bogus="{\"id\":\"${ID}\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"20200101T000000Z\"}}"
+bogus_lines=()
+for _ in $(seq 1 30); do bogus_lines+=("$bogus"); done
+queue "${bogus_lines[@]}"
+run_channel
+expect "the same bogus delete served on every pull is handled once per run" \
+  "[ \$(pulls) = 1 ] && [ \$(reported_requests) = 1 ] && [ \$(queue_left) = 29 ] && [ -d '${sets}/${OLD}' ] \
+    && [ \"\$(field \"r['request']['state']\")\" = failed ]"
 
 reset
 make_dumps 4
