@@ -2,8 +2,9 @@
 # Host half of the backup channel (docs/adr/0039-backup-channel-and-host-held-key.md).
 # portikus-backup-channel.timer runs it as root every 30 seconds.  Each run
 # asks the VM for a claimed request, checks it, runs it, and sends the VM the
-# result and a fresh status.  A delete is quick, so after one the run claims
-# the next request too, up to the limits below; any other kind ends the run.
+# result and a fresh status.  A delete is quick, so after one that succeeded the
+# run claims the next request too, up to the limits below; any other kind, and a
+# delete the host refused or that failed, ends the run.
 # The VM never writes to the host.
 #
 # The VM is not trusted (ADR 0024): a request is parsed with a size cap and
@@ -554,10 +555,11 @@ if [ -s "${STATE}/pending.json" ]; then
 fi
 
 # handle_request -- claim one request, check it, run it and report it.  Ends
-# the run on "none" or a refusal; sets last_kind.  It is never called in a
-# condition, which would turn off errexit for everything it runs.
+# the run on "none" or a refusal.  It sets drain_next to yes only after a delete
+# that succeeded, so a request the VM repeats cannot keep the host busy.  It is
+# never called in a condition, which would turn off errexit for everything it runs.
 handle_request() {
-  job_state="" job_error="" job_stamp=""
+  job_state="" job_error="" job_stamp="" drain_next=no
   # Plain pipefail would make an oversized answer look like a failed ssh.
   set +o pipefail
   vm sudo portikus backup-channel pull | head -c $((PULL_MAX_BYTES + 1)) >"${scratch}/pull"
@@ -609,14 +611,14 @@ handle_request() {
   # The run may have changed the nightly's state or the key; report it fresh.
   nightly_state >"${scratch}/nightly"
   finish "$id" "$job_state" "$job_error" "$job_stamp"
-  last_kind=$kind
+  case "$kind:$job_state" in delete_set:done | delete_dump:done) drain_next=yes ;; esac
 }
 
-handled=0 last_kind=""
+handled=0
 while :; do
   handle_request
   handled=$((handled + 1))
-  case "$last_kind" in delete_set | delete_dump) ;; *) break ;; esac
+  [ "$drain_next" = yes ] || break
   [ "$handled" -lt "$MAX_DRAIN_REQUESTS" ] || break
   [ $(( $(date +%s) - run_start )) -lt "$MAX_DRAIN_SECONDS" ] || break
 done
