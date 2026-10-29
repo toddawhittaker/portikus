@@ -196,3 +196,15 @@ starving nightly runs. backup.sh writes the REQUESTED marker into the
 set before moving it into place, when the channel passes
 PORTIKUS_BACKUP_REQUESTED=1, so a killed channel cannot leave a
 requested set counting as nightly.
+
+## Changed 2026-10-29
+
+After a delete that succeeded, the same run of the channel's 30-second
+timer claims the next request, up to 20 requests or 25 seconds since the
+run started (Epic 55). Deleting several sets took about 30 seconds per
+item, because each run handled one request. Each request is still
+claimed, checked, run and reported on its own. Any other kind of request,
+and a delete the host refused or that failed, ends the run, so long jobs
+stay one per run. The success-only rule is deliberate: if a refused delete
+also continued the run, a hostile VM could repeat one without end and keep
+the host busy. The VM side, the API and the timer did not change.
