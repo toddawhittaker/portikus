@@ -175,7 +175,6 @@ test("No thanks saves off without asking the browser", async () => {
 test.each([
 	["the setting is on", "on", "default"],
 	["the setting is off", "off", "default"],
-	["the browser already granted", "ask", "granted"],
 	["the browser already blocked", "ask", "denied"],
 ] as const)("the offer is empty when %s", async (_name, setting, permission) => {
 	FakeNotification.permission = permission;
@@ -192,4 +191,15 @@ test("the offer is empty when the browser has no Notification", async () => {
 	renderWithQuery(<PermissionOffer />);
 	await new Promise((resolve) => setTimeout(resolve, 30));
 	expect(document.body.querySelectorAll("button")).toHaveLength(0);
+});
+
+test("when the browser already allows them, Turn on saves on without asking", async () => {
+	FakeNotification.permission = "granted";
+	const writes = stored("ask");
+	renderWithQuery(<PermissionOffer />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Turn on desktop notifications" }),
+	);
+	await waitFor(() => expect(writes).toEqual([{ body: { agentNotifications: "on" } }]));
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
 });

@@ -12,7 +12,7 @@ import {
 
 /**
  * The two actions of the first-alert toast. Nothing renders unless the
- * student has not chosen yet and the browser has not been asked.
+ * student has not chosen yet and the browser has not blocked them.
  */
 export function PermissionOffer() {
 	const settings = useEditorSettings();
@@ -21,7 +21,7 @@ export function PermissionOffer() {
 	if (
 		answered ||
 		!desktopSupported() ||
-		desktopPermission() !== "default" ||
+		desktopPermission() === "denied" ||
 		settings.data?.agentNotifications !== "ask"
 	) {
 		return null;
@@ -30,9 +30,14 @@ export function PermissionOffer() {
 		setAnswered(true);
 		update.mutate({ agentNotifications });
 	}
+	// A browser that already allows them is not asked again.
+	function turnOn() {
+		if (desktopPermission() === "granted") save("on");
+		else void askDesktopPermission().then(save);
+	}
 	return (
 		<>
-			<Button size="sm" onClick={() => void askDesktopPermission().then(save)}>
+			<Button size="sm" onClick={turnOn}>
 				Turn on desktop notifications
 			</Button>
 			<Button size="sm" variant="quiet" onClick={() => save("off")}>
