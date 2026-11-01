@@ -195,7 +195,7 @@ export function parseMountPoints(text: string): Set<string> {
 }
 
 export function diskBytes(stat: DiskStat): { usedBytes: number; totalBytes: number } {
-	const block = stat.bsize > 0 ? stat.bsize : 0;
+	const block = Math.max(stat.bsize, 0);
 	const totalBytes = whole(stat.blocks * block);
 	const freeBytes = whole(stat.bfree * block);
 	return { totalBytes, usedBytes: Math.max(0, totalBytes - freeBytes) };

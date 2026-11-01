@@ -269,9 +269,13 @@ test("a lazy page whose chunk resolves undefined keeps loading instead of failin
 	expect(screen.getByText("loading")).toBeTruthy();
 });
 
+function ThePage() {
+	return <p>the page</p>;
+}
+
 test("a lazy page renders the component picked from its module", async () => {
 	const Page = lazyPage(
-		() => Promise.resolve({ Page: () => <p>the page</p> }),
+		() => Promise.resolve({ Page: ThePage }),
 		(module) => module.Page,
 	);
 	render(

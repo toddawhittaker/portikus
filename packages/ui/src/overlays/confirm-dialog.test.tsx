@@ -33,6 +33,87 @@ function Fixture(props: {
 	);
 }
 
+function Failing() {
+	const [pending, setPending] = React.useState(false);
+	return (
+		<ConfirmDialogRoot defaultOpen>
+			<ConfirmDialog
+				title="Archive todo-api?"
+				confirmLabel="Archive project"
+				pending={pending}
+				onConfirm={() => {
+					setPending(true);
+					// The request fails a moment later.
+					Promise.reject(new Error("503"))
+						.catch(() => undefined)
+						.finally(() => setPending(false));
+				}}
+			/>
+		</ConfirmDialogRoot>
+	);
+}
+
+function RowMenuFixture() {
+	const [menuOpen, setMenuOpen] = React.useState(true);
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" id="row-menu">
+				Row actions
+			</button>
+			{menuOpen ? (
+				<div role="menu" aria-labelledby="row-menu">
+					<button
+						type="button"
+						role="menuitem"
+						onClick={() => {
+							setOpen(true);
+							setMenuOpen(false);
+						}}
+					>
+						Delete…
+					</button>
+				</div>
+			) : null}
+			<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
+				<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
+function DensityMenuFixture() {
+	const [menuOpen, setMenuOpen] = React.useState(true);
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<div data-density="compact">
+				<button type="button" id="row-menu">
+					Row actions
+				</button>
+			</div>
+			{/* A menu portals to the body, outside the compact area. */}
+			{menuOpen ? (
+				<div role="menu" aria-labelledby="row-menu">
+					<button
+						type="button"
+						role="menuitem"
+						onClick={() => {
+							setOpen(true);
+							setMenuOpen(false);
+						}}
+					>
+						Delete…
+					</button>
+				</div>
+			) : null}
+			<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
+				<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
 describe("ConfirmDialog", () => {
 	it("shows what is lost and what survives, and confirms", () => {
 		const onConfirm = vi.fn();
@@ -136,25 +217,6 @@ describe("ConfirmDialog", () => {
 	});
 
 	it("keeps focus on the confirm button through a failed request", async () => {
-		function Failing() {
-			const [pending, setPending] = React.useState(false);
-			return (
-				<ConfirmDialogRoot defaultOpen>
-					<ConfirmDialog
-						title="Archive todo-api?"
-						confirmLabel="Archive project"
-						pending={pending}
-						onConfirm={() => {
-							setPending(true);
-							// The request fails a moment later.
-							Promise.reject(new Error("503"))
-								.catch(() => undefined)
-								.finally(() => setPending(false));
-						}}
-					/>
-				</ConfirmDialogRoot>
-			);
-		}
 		render(<Failing />);
 		const confirm = screen.getByTestId("dialog-confirm");
 		confirm.focus();
@@ -180,35 +242,7 @@ describe("ConfirmDialog", () => {
 	});
 
 	it("returns focus to the menu trigger when the opening item is gone", async () => {
-		function MenuFixture() {
-			const [menuOpen, setMenuOpen] = React.useState(true);
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" id="row-menu">
-						Row actions
-					</button>
-					{menuOpen ? (
-						<div role="menu" aria-labelledby="row-menu">
-							<button
-								type="button"
-								role="menuitem"
-								onClick={() => {
-									setOpen(true);
-									setMenuOpen(false);
-								}}
-							>
-								Delete…
-							</button>
-						</div>
-					) : null}
-					<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
-						<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
-					</ConfirmDialogRoot>
-				</>
-			);
-		}
-		render(<MenuFixture />);
+		render(<RowMenuFixture />);
 		const item = screen.getByRole("menuitem");
 		item.focus();
 		fireEvent.click(item);
@@ -300,38 +334,7 @@ describe("ConfirmDialog", () => {
 	});
 
 	it("takes the density around the menu that opened it", () => {
-		function MenuFixture() {
-			const [menuOpen, setMenuOpen] = React.useState(true);
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<div data-density="compact">
-						<button type="button" id="row-menu">
-							Row actions
-						</button>
-					</div>
-					{/* A menu portals to the body, outside the compact area. */}
-					{menuOpen ? (
-						<div role="menu" aria-labelledby="row-menu">
-							<button
-								type="button"
-								role="menuitem"
-								onClick={() => {
-									setOpen(true);
-									setMenuOpen(false);
-								}}
-							>
-								Delete…
-							</button>
-						</div>
-					) : null}
-					<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
-						<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
-					</ConfirmDialogRoot>
-				</>
-			);
-		}
-		render(<MenuFixture />);
+		render(<DensityMenuFixture />);
 		const item = screen.getByRole("menuitem");
 		item.focus();
 		fireEvent.click(item);

@@ -175,6 +175,11 @@ test("the footer is a single Close button and it does not undo a change", async 
 });
 
 /** A save that fails after the dialog has closed is not silent. */
+function Host() {
+	const [open, setOpen] = useState(true);
+	return open ? <SettingsDialog onClose={() => setOpen(false)} /> : null;
+}
+
 test("a save that fails after the dialog has closed shows a danger toast", async () => {
 	let release: () => void = () => {};
 	const held = new Promise<void>((resolve) => {
@@ -193,10 +198,6 @@ test("a save that fails after the dialog has closed shows a danger toast", async
 		}
 		return json(404, { code: "NOT_FOUND", message: "no" });
 	});
-	function Host() {
-		const [open, setOpen] = useState(true);
-		return open ? <SettingsDialog onClose={() => setOpen(false)} /> : null;
-	}
 	renderWithQuery(<Host />);
 	await screen.findByRole("region", { name: "Editor" });
 

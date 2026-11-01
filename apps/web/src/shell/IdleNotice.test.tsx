@@ -36,28 +36,39 @@ test("asks Still working?, counts down, and Keep working has focus and answers",
 	expect(onKeepWorking).toHaveBeenCalledTimes(1);
 });
 
+function Page({
+	idle,
+	deadline,
+	onKeepWorking,
+}: {
+	idle: boolean;
+	deadline: string;
+	onKeepWorking: () => void;
+}) {
+	return (
+		<>
+			<DialogRoot open>
+				<Dialog title="Workspace">
+					<button type="button">Inside the dialog</button>
+				</Dialog>
+			</DialogRoot>
+			{idle ? (
+				<IdleNotice deadline={deadline} minutes={60} onKeepWorking={onKeepWorking} />
+			) : null}
+		</>
+	);
+}
+
 test("over an open dialog it is an alert dialog of its own, announced and focusable", async () => {
 	const onKeepWorking = vi.fn();
 	const deadline = new Date(Date.now() + 4 * 60_000 + 30_000).toISOString();
-	function Page({ idle }: { idle: boolean }) {
-		return (
-			<>
-				<DialogRoot open>
-					<Dialog title="Workspace">
-						<button type="button">Inside the dialog</button>
-					</Dialog>
-				</DialogRoot>
-				{idle ? (
-					<IdleNotice deadline={deadline} minutes={60} onKeepWorking={onKeepWorking} />
-				) : null}
-			</>
-		);
-	}
-	const view = render(<Page idle={false} />);
+	const view = render(
+		<Page idle={false} deadline={deadline} onKeepWorking={onKeepWorking} />,
+	);
 	const inside = await screen.findByRole("button", { name: "Inside the dialog" });
 	inside.focus();
 
-	view.rerender(<Page idle />);
+	view.rerender(<Page idle deadline={deadline} onKeepWorking={onKeepWorking} />);
 
 	// Found by role, so it is not hidden from screen readers by the open dialog.
 	const alert = await screen.findByRole("alertdialog", { name: "Still working?" });
@@ -70,30 +81,20 @@ test("over an open dialog it is an alert dialog of its own, announced and focusa
 	expect(onKeepWorking).toHaveBeenCalledTimes(1);
 
 	// Answered, the notice goes and focus is back in the dialog underneath.
-	view.rerender(<Page idle={false} />);
+	view.rerender(
+		<Page idle={false} deadline={deadline} onKeepWorking={onKeepWorking} />,
+	);
 	await waitFor(() => expect(document.activeElement).toBe(inside));
 });
 
 test("over an open dialog, Escape answers it too, and no inline notice sits under the scrim", async () => {
 	const onKeepWorking = vi.fn();
 	const deadline = new Date(Date.now() + 4 * 60_000).toISOString();
-	function Page({ idle }: { idle: boolean }) {
-		return (
-			<>
-				<DialogRoot open>
-					<Dialog title="Workspace">
-						<button type="button">Inside the dialog</button>
-					</Dialog>
-				</DialogRoot>
-				{idle ? (
-					<IdleNotice deadline={deadline} minutes={60} onKeepWorking={onKeepWorking} />
-				) : null}
-			</>
-		);
-	}
-	const view = render(<Page idle={false} />);
+	const view = render(
+		<Page idle={false} deadline={deadline} onKeepWorking={onKeepWorking} />,
+	);
 	await screen.findByRole("button", { name: "Inside the dialog" });
-	view.rerender(<Page idle />);
+	view.rerender(<Page idle deadline={deadline} onKeepWorking={onKeepWorking} />);
 
 	const alert = await screen.findByRole("alertdialog", { name: "Still working?" });
 	expect(screen.queryByTestId("idle-notice")).toBeNull();
