@@ -89,6 +89,32 @@ test("the layout topic names the Problems tab and says when it appears", () => {
 	);
 });
 
+test("the agent status topic covers the marks, alerts, desktop notifications, usage and the Esc gap", () => {
+	const text = topicText("student-agent-status");
+	for (const phrase of [
+		"needs your input",
+		"These messages are not kept in Notifications",
+		"moves to the newest one, even from inside a terminal",
+		"does not ask your browser",
+		"Allow in this browser",
+		"site settings",
+		"85 percent",
+		"tokens and cost for today",
+		"its tab keeps showing",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the terminals and files topics describe dropping a file and Copy path", () => {
+	expect(topicText("student-terminals")).toContain(
+		"content dragged from other pages is ignored",
+	);
+	const files = topicText("student-files");
+	expect(files).toContain("Copy path");
+	expect(files).toContain("separated by spaces");
+});
+
 test("topic ids stay unique, because each is a link target", () => {
 	const ids = STUDENT_HELP.topics.map((topic) => topic.id);
 	expect(new Set(ids).size).toBe(ids.length);

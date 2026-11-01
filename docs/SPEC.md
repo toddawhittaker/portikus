@@ -973,6 +973,21 @@ user per minute. Titles and bodies are never logged, because they can
 name files and projects. If recording fails, the toast still shows, and
 the failure is neither retried nor reported.
 
+Added by Epic 56 (ADR 0068): the toasts that say a coding agent finished or
+needs input are not recorded, because they are frequent and say nothing the
+tab marks do not. The warning that a plan limit is at 85 percent is rare and
+is recorded. Those toasts, and the offer to turn on desktop notifications,
+carry actions, so they stay until answered or until the student views that
+terminal. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
+default `ask`) decides whether an agent alert also becomes an operating-system
+notification. Choosing On saves the choice and never asks the browser; an
+"Allow in this browser" button in Settings > Preferences, or "Turn on desktop
+notifications" in the first alert toast while the setting is `ask`, is the only
+place the browser permission is asked, and only from a click. The notification
+fires only when the page is hidden or unfocused. Its text is the agent and
+the state ("Claude Code needs your input") and never a project, terminal or
+file name, because lab computers are shared.
+
 The unread count is its own button in the top bar, right after the account
 button, in the accent colour: "9+" above nine and hidden at zero, named
 "Notifications, 3 unread notifications", and it opens the Notifications
@@ -1112,6 +1127,23 @@ space, never a newline, so the paste cannot run a command. Image bytes are
 never logged. Pastes older than 7 days are removed on the next paste in that
 project (#885).
 
+Added by Epic 56 (ADR 0068): dropping a file on a terminal types its path the
+same way, with a trailing space and never a newline. A file dragged from the
+desktop is saved through the same upload route to
+`.portikus/pastes/<stamp>/<name>`, and the whole drop is refused, with a toast
+and nothing saved, if any name holds a control character or any file is over
+the upload limit. Files in the stamp folders are removed after 7 days with the
+pastes, and an empty stamp folder after that; symlinks and nested folders are
+never followed. A file dragged from the file tree onto the middle of a pane
+types its absolute path without saving anything; the edges still split the
+pane. A tree drop counts only while the page's own tree drag is in progress,
+so content dragged in from another page or window is ignored. A path is typed
+bare when it uses only `A-Z a-z 0-9 . _ / @ % + = : , -`, is otherwise
+single-quoted, and is refused when it holds any code from 0 to 31, 127 or 128
+to 159. "Copy path" in the file tree's row menu (right-click or Shift+F10)
+copies the same quoted text, joined by spaces for a selection, so a student
+can reach it without dragging.
+
 ### 9.7 Session model and wire protocol
 
 Each terminal is one tmux session inside the workspace, named
@@ -1160,6 +1192,11 @@ program that left the session with `setsid` or `nohup`, or a tmux or
 ssh-agent a student started inside the terminal, ends with it. A program
 that clears its own environment, or double-forks and clears it, escapes;
 only a control group per terminal would close that.
+
+Added by Epic 56 (ADR 0068): a coding agent's state is not read from the
+terminal socket, which stays a byte pipe. The workspace agent keeps the state
+board and sends it to the API on its listening socket, and the API sends it to
+the workspace owner's workspace socket only (§10.8).
 
 Terminal metadata (§9.6, §26) is a durable control-plane row holding at
 least the terminal ID, its workspace, display name, working directory,
@@ -1356,6 +1393,33 @@ P1 may use this metadata to show:
 - usage/cost information where available.
 
 The platform must not depend on private or undocumented agent internals for P0.
+
+Added by Epic 56 (ADR 0068): each terminal running Claude Code or Codex has a
+state of working, needs input or finished, and the tabs, the project list and
+toasts show it (§8.5, §25.8). The state comes only from the agents' own hooks,
+never from guessing at terminal output. The controller writes the hooks into
+Claude Code's managed settings and Codex's system config at every workspace
+start. One script per state, `portikus-agent-state`, posts the terminal id,
+agent and state to the receiver on `127.0.0.1:7401`; it throws its input away
+unread, has a 1-second limit and always exits 0. The workspace agent keeps the
+states in memory, up to 20 terminals, and reports them on its listening
+socket. The API drops terminal ids that are not in the database for that
+workspace, throttles to four notifications a second per workspace, and sends
+only to the owner. Claude Code has no hook for Esc, so a stopped turn keeps
+"working" until the next prompt.
+
+Plan limits come from documented sources. For Claude Code, the managed
+settings set `statusLine` to a script that keeps only the five-hour and
+seven-day percentages and reset times, posts them to the receiver and prints
+them in Claude Code's own status line. For Codex, the workspace agent briefly
+runs `codex app-server` and calls `account/rateLimits/read`, at most every
+three minutes and after a Codex turn, keeps the window percentages, labels and
+reset times, and never calls `account/read`. Neither limit source sends a
+prompt, reply, tool input, path or terminal content. The status bar shows the
+fullest window per agent, hides a window past its reset time, and warns once
+at 85 percent (§25.8). Codex's background app-server daemon is turned off
+(`daemon_auto_start = false`), because it keeps the environment of the first
+terminal that started it and later sessions would report that terminal's id.
 
 ### 10.9 Agent-session baseline and review unit
 
@@ -4236,6 +4300,8 @@ opener.
 
 Added by Epic 52 (ADR 0065): code help adds a browser socket and an agent route that run language servers, which are programs the student's files can steer. The servers run as the student inside the workspace (zone 4), so they add no rights, and they are scope, not isolation (section 24.4). The browser socket is owner only; an administrator, an instructor, a share viewer and a live-help helper cannot open it. The API relays frames without reading them, the agent rewrites the `initialize` fields that name paths and the process id, and no message body is logged. Hover and completion text can come from files an agent or a classmate wrote, so the browser treats it as untrusted: no HTML, no script, only `http` and `https` links, and no images (section 13.6). A server that is killed or crashes affects only that student's workspace. A `setsid` child of a server can outlive it, as one of a terminal can (section 9.7).
 
+Added by Epic 56 (ADR 0068): the agent-state and Claude-limit routes of the receiver on the workspace's loopback are open to any process in the workspace, and the frames the workspace agent sends the API on its listening socket come from student-controlled hooks. A forged post changes only that student's own screen: nothing is stored or enforced, contracts cap sizes, ranges and the number of terminals, and the API drops terminal ids the database does not hold for that workspace. The API throttles agent-state notifications to four a second per workspace and sends at most one read and one waiting send per socket, so a flood cannot pile up work. The state and the meter reach the workspace owner only; an administrator, an instructor and a live-help helper do not receive them. A terminal accepts a path from a tree drag only while the page's own drag is in progress, and a path is refused if it holds a control character and quoted otherwise before it is typed into a shell (section 9.6).
+
 As built (Epic 53): an administrator turns code help off for a language, not for the site. Only the API refuses the socket, per language, with DISABLED (section 13.6); the agent does not know the set. It is a resource control for memory, not a trust boundary: a student can still start pyright or the TypeScript server by hand in a terminal (ADR 0065), and the browser socket is still owner only. The set is changed by the administrator-only `PUT /admin/settings`, which validates ids strictly (ADR 0067).
 
 Accepted risk (ADR 0065): opening a Python file starts pyright with the project's `.venv/bin` first on its `PATH`, so pyright runs that environment's own `python`, and any code the project's venv holds, as the student, inside the student's own container. A student could run the same code from a terminal, so it adds no right. `prlimit` and `choom` are run by absolute path, so the venv cannot shadow them. The agent's own buffers for a server's output and for the browser's frames are not bounded, and nothing slows a server that writes faster than the API reads; the harm stays in the student's own container, which has a memory limit.
@@ -5323,6 +5389,8 @@ Added by Epic 53: a field with a unit (`TextField`'s `unit`, or `UnitInput` in `
 
 Added by Epic 54: `ConfirmDialog` takes `cancelDisabled` and `cancelDisabledReason`, which mirror `disabled` and `disabledReason` on the confirm button. While `cancelDisabled`, Cancel is `aria-disabled` and stays focusable, its reason is its description in the always-mounted status region so it is announced, and neither a click nor Escape closes the dialog. The Backups delete confirm uses them while deletes run, with "Wait for the deletes to finish". A bulk button's label names its scope: **Delete N selected…** when every tick is in its own list, and **Delete N selected on this tab…** when the ticks span more than one list, the visible text being the accessible name. A polite "N selected" region holds its value while the confirm is open, so a partial failure is announced once, by the alert, and the failure list is cleared when a try starts so a repeated failure is new text. After a full success focus goes to the list's heading; after a partial failure and Cancel it returns to the button.
 
+Added by Epic 56 (ADR 0068): an agent's state is shown by a shape as well as a colour (an open ring for working, a triangle for needs input, a check for finished), and it is in the tab's and the project row's accessible name ("needs input, unread"), so it does not rest on colour alone. A bare F8 passes through the terminal, so the toast shortcut reaches the newest notification from inside a terminal; a shifted or modified F8 still goes to the shell. Tab then reaches the toast's buttons, such as "Open project". Answering the desktop notification offer, or choosing "Open project", moves focus to the work area's selected tab. In Settings > Preferences, the Desktop notifications radios save only their own value and never open the browser prompt; "Allow in this browser" asks, focus then moves to the checked radio, the outcome is announced in an always-mounted polite region, and a blocked browser is explained in the group's description. The dialog reads the permission again when the window regains focus. The meter in the status bar is a button that opens a native popover, which Escape closes. Every drag has a click alternative here too: dragging a file onto a terminal types a path, and "Copy path" in the file's menu (right-click or Shift+F10) copies the same text to paste.
+
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
 ### 25.9 Browser support
@@ -5349,8 +5417,12 @@ Added by Epic 42 (ADR 0057): coding-agent usage is collected as counts
 only: sessions, input, output and cache tokens, Claude Code's estimated
 API cost, and lines added and removed, per user, UTC day, agent and
 model. Never a prompt, a response, a file name or code. Instructors see
-totals for their course members and administrators see everyone; there
-is no student view. Students are told in Help. The counts come from the
+totals for their course members and administrators see everyone. Students
+are told in Help. Added by Epic 56 (ADR 0068): a student sees their own
+counts for the current UTC day in the status bar, when their agent reports
+no plan limit (a student with an API key); a student whose agent reports a
+plan limit sees that limit instead. There is still no student history
+view, and instructors and administrators do not see the plan limits. The counts come from the
 student's own agents and can be forged, so they are for reporting, never
 enforcement. The worker stores only real days from 40 days back to one
 day ahead and at most 48 boot ids per user per day. They are kept 365
@@ -6943,6 +7015,27 @@ Acceptance:
 - a delete that is refused or fails ends the run, and a VM that repeats a refused delete gets one request per run;
 - a `backup`, `restore_copy` or `import_home` request ends the run after it is reported;
 - the offsite test waits on rrsync's lock before every target connection and fails by name if the lock is not released.
+
+### Epic 56 — Agent status, usage and file drop
+
+Built on `epic/56-agent-status`, issues #1707, #1710 and #1709. No migration. See sections 8.5, 9.6, 9.7, 10.8, 24.1, 25.8 and 25.10, and ADR 0068.
+
+Includes:
+
+- a state mark (working, needs input, finished) and an unread mark on each Claude Code or Codex terminal tab, the most urgent state on each project row, and toasts with "Open project" that are not recorded in the notification history;
+- a per-user Ask, On or Off setting for operating-system notifications, with the agent and state as the only text;
+- a status bar meter of each agent's plan limits (Claude Code through its status line, Codex through `codex app-server`), today's tokens and cost for a student without a plan limit, and a saved warning at 85 percent;
+- dropping desktop files and file tree rows on a terminal to type their quoted paths, "Copy path" in the file menu, and F8 reaching toasts from a terminal.
+
+Acceptance:
+
+- each state a hook reports shows on the right tab and project row, and never reaches a browser other than the workspace owner's;
+- a finished or needs-input state in a tab the student is not viewing raises one toast, with no notification-history row, and an operating-system notification only when the page is hidden or unfocused and the setting is On;
+- with the setting at Ask, choosing On never opens the browser prompt;
+- a plan-limit window at 85 percent warns once per reset time, and a student with no plan limit sees today's counts;
+- a dropped file lands under `.portikus/pastes/<stamp>/` and its path is typed with no Enter; a name with a control character refuses the whole drop;
+- a hook script that cannot reach the receiver exits 0 within a second;
+- a second Codex terminal reports its own terminal id.
 
 ### Estimated total
 

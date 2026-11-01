@@ -104,3 +104,19 @@ administrators get 404 (SPEC.md 5.2).
 - Instructor-initiated viewing, or a per-course opt-in: weaker privacy for
   the same help.
 - A student usage view, budgets, and a retention setting: no need yet.
+
+## Changed 2026-11-01
+
+Epic 56 (ADR 0068) changes three statements above.
+
+- Item 7, "Who sees usage": a student also sees their own counts for the
+  current UTC day in the status bar, when their agent reports no plan limit
+  (a student signed in with an API key). Instructors and administrators see
+  what they saw before, and a student still has no history view.
+- The "Rejected: a student usage view" bullet is superseded by ADR 0068 for
+  the current day only. Budgets and a retention setting stay rejected.
+- Item 6, the receiver: it no longer takes `POST /v1/metrics` only. On the
+  same loopback port it also takes `POST /coding-agent-state` and
+  `POST /claude-limits` from the agents' hooks and status line. Both are
+  JSON only, at most 4 KiB, strictly checked and not logged. They carry
+  state words and limit numbers and store nothing in the database.
