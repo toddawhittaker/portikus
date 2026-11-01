@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_USAGE_PORT } from "@portikus/contracts";
+import { parse } from "smol-toml";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
 	AGENT_SCRIPTS_DIR,
@@ -218,6 +219,37 @@ describe("codexSystemConfig", () => {
 		}
 		// Nothing but hook tables follows the first one.
 		expect(hooks.match(/^\[\[hooks\.[A-Za-z]+\]\]$/gm)).toHaveLength(6);
+	});
+
+	test("parses as TOML with one command hook per event", () => {
+		const parsed = parse(codexSystemConfig(TEMPLATE)) as {
+			developer_instructions: string;
+			hooks: Record<
+				string,
+				{ hooks: { type: string; command: string; timeout: number }[] }[]
+			>;
+		};
+		expect(parsed.developer_instructions).toBe(TEMPLATE);
+		const states: Record<string, string> = {
+			UserPromptSubmit: "working",
+			PostToolUse: "working",
+			PermissionRequest: "needs-input",
+			Stop: "finished",
+			Interrupt: "finished",
+			SessionEnd: "clear",
+		};
+		expect(Object.keys(parsed.hooks).sort()).toEqual(Object.keys(states).sort());
+		for (const [event, state] of Object.entries(states)) {
+			const groups = parsed.hooks[event];
+			expect(groups).toHaveLength(1);
+			expect(groups?.[0]?.hooks).toEqual([
+				{
+					type: "command",
+					command: `${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}`,
+					timeout: 5,
+				},
+			]);
+		}
 	});
 });
 

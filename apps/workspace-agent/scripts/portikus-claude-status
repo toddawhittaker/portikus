@@ -7,7 +7,11 @@
 limits=$(jq -c '
 	.rate_limits // {}
 	| {five_hour, seven_day}
-	| with_entries(select(.value | type == "object") | .value |= {used_percentage, resets_at})
+	| with_entries(
+		select(.value | type == "object"
+			and (.used_percentage | type == "number")
+			and (.resets_at | type == "number"))
+		| .value |= {used_percentage, resets_at})
 ' 2>/dev/null)
 
 [[ -n $limits && $limits != "{}" ]] || exit 0

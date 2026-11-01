@@ -56,7 +56,6 @@ export const AgentLimitWindow = z.object({
 		.refine((at) => Date.parse(at) <= Date.now() + MAX_LIMIT_RESET_DAYS * 86_400_000, {
 			message: `must be within ${MAX_LIMIT_RESET_DAYS} days`,
 		}),
-	windowMinutes: z.number().int().positive().optional(),
 });
 export type AgentLimitWindow = z.infer<typeof AgentLimitWindow>;
 

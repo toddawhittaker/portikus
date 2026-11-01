@@ -346,8 +346,8 @@ const ClaudeLimitsPost = z
 	.strict();
 
 const CLAUDE_WINDOWS = [
-	["five_hour", "5h", 5 * 60],
-	["seven_day", "7d", 7 * 24 * 60],
+	["five_hour", "5h"],
+	["seven_day", "7d"],
 ] as const;
 
 /** Claude Code's windows in the contract's shape, or null when one is out of range. */
@@ -355,7 +355,7 @@ function claudeLimits(
 	post: z.infer<typeof ClaudeLimitsPost>,
 	now: Date,
 ): AgentLimits | null {
-	const windows = CLAUDE_WINDOWS.flatMap(([key, name, windowMinutes]) => {
+	const windows = CLAUDE_WINDOWS.flatMap(([key, name]) => {
 		const window = post[key];
 		if (!window) return [];
 		return [
@@ -363,7 +363,6 @@ function claudeLimits(
 				name,
 				usedPercent: window.used_percentage,
 				resetsAt: new Date(window.resets_at * 1000).toISOString(),
-				windowMinutes,
 			},
 		];
 	});

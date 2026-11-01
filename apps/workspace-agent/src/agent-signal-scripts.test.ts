@@ -5,7 +5,7 @@
  */
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
@@ -139,6 +139,25 @@ test("a hook exits 0 at once when the receiver is down", async () => {
 	expect(ms).toBeLessThan(1500);
 });
 
+test("a hook exits 0 within its second when the receiver never answers", async () => {
+	const held: Socket[] = [];
+	const silent = createServer(() => {});
+	silent.on("connection", (socket) => held.push(socket));
+	await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+	try {
+		const { code, ms } = await run(STATE_SCRIPT, ["claude", "finished"], "", {
+			PORTIKUS_TERMINAL: `pk-${TERMINAL_ID}`,
+			PORTIKUS_AGENT_RECEIVER: `http://127.0.0.1:${(silent.address() as AddressInfo).port}`,
+		});
+		expect(code).toBe(0);
+		expect(ms).toBeLessThan(1500);
+		expect(held.length).toBeGreaterThan(0);
+	} finally {
+		for (const socket of held) socket.destroy();
+		await new Promise<void>((resolve) => silent.close(() => resolve()));
+	}
+});
+
 const STATUS_INPUT = JSON.stringify({
 	cwd: "/home/student/secret-project",
 	model: { id: "claude-secret-model", display_name: "Secret" },
@@ -194,6 +213,49 @@ test("input that is not JSON prints nothing and exits 0", async () => {
 	const { code, stdout } = await run(STATUS_SCRIPT, [], "not json", {
 		PORTIKUS_AGENT_RECEIVER: receiverUrl,
 	});
+	expect(code).toBe(0);
+	expect(stdout).toBe("");
+	expect(received).toEqual([]);
+});
+
+test("a window with a null or non-numeric value is dropped, the good one kept", async () => {
+	for (const bad of [
+		{ used_percentage: null, resets_at: 1_800_000_000 },
+		{ used_percentage: 42, resets_at: null },
+		{ used_percentage: "42", resets_at: 1_800_000_000 },
+		{ used_percentage: 42, resets_at: "soon" },
+		{ resets_at: 1_800_000_000 },
+	]) {
+		received = [];
+		const { code, stdout } = await run(
+			STATUS_SCRIPT,
+			[],
+			JSON.stringify({
+				rate_limits: {
+					five_hour: bad,
+					seven_day: { used_percentage: 18, resets_at: 1_800_300_000 },
+				},
+			}),
+			{ PORTIKUS_AGENT_RECEIVER: receiverUrl },
+		);
+		expect(code).toBe(0);
+		expect(stdout.trim()).toBe("7d 18%");
+		expect(received).toHaveLength(1);
+		expect(JSON.parse(received[0]?.body ?? "")).toEqual({
+			seven_day: { used_percentage: 18, resets_at: 1_800_300_000 },
+		});
+	}
+});
+
+test("when every window is bad the status line prints and sends nothing", async () => {
+	const { code, stdout } = await run(
+		STATUS_SCRIPT,
+		[],
+		JSON.stringify({
+			rate_limits: { five_hour: { used_percentage: null, resets_at: null } },
+		}),
+		{ PORTIKUS_AGENT_RECEIVER: receiverUrl },
+	);
 	expect(code).toBe(0);
 	expect(stdout).toBe("");
 	expect(received).toEqual([]);

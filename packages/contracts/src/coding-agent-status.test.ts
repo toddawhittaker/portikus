@@ -85,21 +85,13 @@ test("a limit window resets within 31 days", () => {
 	expect(AgentLimitWindow.safeParse(window("soon")).success).toBe(false);
 });
 
-test("a limit window name is short and its minutes a positive integer", () => {
+test("a limit window name is short", () => {
 	const base = { usedPercent: 10, resetsAt: inDays(1) };
 	expect(AgentLimitWindow.safeParse({ ...base, name: "" }).success).toBe(false);
 	expect(AgentLimitWindow.safeParse({ ...base, name: "x".repeat(17) }).success).toBe(
 		false,
 	);
-	expect(
-		AgentLimitWindow.safeParse({ ...base, name: "5h", windowMinutes: 300 }).success,
-	).toBe(true);
-	expect(
-		AgentLimitWindow.safeParse({ ...base, name: "5h", windowMinutes: 0 }).success,
-	).toBe(false);
-	expect(
-		AgentLimitWindow.safeParse({ ...base, name: "5h", windowMinutes: 1.5 }).success,
-	).toBe(false);
+	expect(AgentLimitWindow.safeParse({ ...base, name: "5h" }).success).toBe(true);
 });
 
 test("an agent reports at most four limit windows", () => {
