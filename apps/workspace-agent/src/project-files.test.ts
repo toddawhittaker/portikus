@@ -421,6 +421,57 @@ describe("old pastes", () => {
 		expect(await readFile(outside, "utf8")).toBe("x");
 	});
 
+	test("dropped-file folders lose files past the cap and empty old folders", async () => {
+		const dir = await pastesDir("p");
+		const old = join(dir, "2026-01-01T10-00-00");
+		const mixed = join(dir, "2026-01-02T10-00-00-2");
+		const recent = join(dir, "2026-09-28T10-00-00");
+		for (const folder of [old, mixed, recent]) await mkdir(folder);
+		await aged(join(old, "screenshot with spaces.png"));
+		await aged(join(old, "notes.pdf"));
+		await aged(join(mixed, "stale.png"));
+		await writeFile(join(mixed, "fresh.png"), "fresh");
+		await writeFile(join(recent, "new.png"), "recent");
+		await utimes(old, eightDaysAgo, eightDaysAgo);
+		await utimes(mixed, eightDaysAgo, eightDaysAgo);
+		await removeOldPastes(join(projectsRoot, "p"));
+		// The old folder is gone; a folder with a fresh file keeps only that file.
+		expect((await readdir(dir)).sort()).toEqual([
+			"2026-01-02T10-00-00-2",
+			"2026-09-28T10-00-00",
+		]);
+		expect(await readdir(mixed)).toEqual(["fresh.png"]);
+		expect(await readdir(recent)).toEqual(["new.png"]);
+	});
+
+	test("a fresh empty drop folder survives the cleanup", async () => {
+		const dir = await pastesDir("p");
+		await mkdir(join(dir, "2026-09-29T10-00-00"));
+		await removeOldPastes(join(projectsRoot, "p"));
+		expect(await readdir(dir)).toEqual(["2026-09-29T10-00-00"]);
+	});
+
+	test("symlinks and other folders inside drop folders are left alone", async () => {
+		const dir = await pastesDir("p");
+		const outside = join(homeDir, "outside-drop.png");
+		await aged(outside);
+		const folder = join(dir, "2026-01-01T10-00-00");
+		await mkdir(join(folder, "nested"), { recursive: true });
+		await aged(join(folder, "nested", "deep.png"));
+		await symlink(outside, join(folder, "link.png"));
+		await utimes(folder, eightDaysAgo, eightDaysAgo);
+		// A symlinked stamp folder is never entered.
+		const target = join(homeDir, "elsewhere-drop");
+		await mkdir(target, { recursive: true });
+		await aged(join(target, "x.png"));
+		await symlink(target, join(dir, "2026-01-01T10-00-01"));
+		await removeOldPastes(join(projectsRoot, "p"));
+		expect((await readdir(folder)).sort()).toEqual(["link.png", "nested"]);
+		expect(await readdir(join(folder, "nested"))).toEqual(["deep.png"]);
+		expect(await readFile(outside, "utf8")).toBe("x");
+		expect(await readdir(target)).toEqual(["x.png"]);
+	});
+
 	test("a symlinked pastes folder is never followed", async () => {
 		const target = join(homeDir, "elsewhere");
 		await mkdir(target, { recursive: true });

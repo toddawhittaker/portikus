@@ -11,6 +11,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	rmdir,
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -135,12 +136,35 @@ export async function writePortikusReadme(projectPath: string): Promise<void> {
 
 /** The names the web client gives pasted images (apps/web TerminalPane pastePath). */
 const PASTE_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.(png|jpeg)$/;
+/** The folders the web client makes for dropped files (apps/web terminalDrop). */
+const DROP_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?$/;
 export const PASTES_DIR = ".portikus/pastes";
 const PASTE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Delete the regular files in a drop folder older than the cap, then the folder if it is empty and old. */
+async function removeOldDrops(folder: string, now: number): Promise<void> {
+	const folderOld = now - (await lstat(folder)).mtimeMs > PASTE_MAX_AGE_MS;
+	for (const name of await readdir(folder)) {
+		const file = join(folder, name);
+		const info = await lstat(file);
+		if (info.isFile() && now - info.mtimeMs > PASTE_MAX_AGE_MS) {
+			await rm(file);
+		}
+	}
+	// A folder changed within the cap may be mid-drop, so only old ones go.
+	if (!folderOld) return;
+	try {
+		await rmdir(folder);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOTEMPTY" && code !== "ENOENT") throw error;
+	}
+}
+
 /**
  * Delete pastes in `<project>/.portikus/pastes` last modified more than 7
- * days before `now`. Only regular files with a paste name go; a
+ * days before `now`: pasted images, and the files inside the dated folders
+ * that dropped files go to. Only regular files with those names go; a
  * symlinked folder or file is never followed.
  */
 export async function removeOldPastes(
@@ -153,11 +177,14 @@ export async function removeOldPastes(
 		if (!(await lstat(dir)).isDirectory()) return;
 	}
 	for (const name of await readdir(pastes)) {
-		if (!PASTE_NAME.test(name)) continue;
-		const file = join(pastes, name);
-		const info = await lstat(file);
-		if (info.isFile() && now - info.mtimeMs > PASTE_MAX_AGE_MS) {
-			await rm(file);
+		const path = join(pastes, name);
+		if (PASTE_NAME.test(name)) {
+			const info = await lstat(path);
+			if (info.isFile() && now - info.mtimeMs > PASTE_MAX_AGE_MS) {
+				await rm(path);
+			}
+		} else if (DROP_FOLDER.test(name) && (await lstat(path)).isDirectory()) {
+			await removeOldDrops(path, now);
 		}
 	}
 }

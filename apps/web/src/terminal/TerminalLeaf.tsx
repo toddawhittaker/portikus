@@ -3,13 +3,31 @@
  * itself (SPEC.md §9.3). A terminal ended by a workspace stop keeps its
  * place and offers a new one (SPEC.md §6.8).
  */
-import type { Terminal, TerminalTheme } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import {
+	MAX_UPLOAD_BYTES,
+	type Terminal,
+	type TerminalTheme,
+} from "@portikus/contracts";
+import { Button, useToast } from "@portikus/ui";
+import { type DragEvent, useEffect, useRef, useState } from "react";
+import { fileErrorToast, tooLargeToast } from "../files/errors.js";
+import { displayName } from "../files/paths.js";
+import { saveDroppedFile } from "../files/queries.js";
+import { draggedTreeNodes } from "../files/treeDrag.js";
+import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import { useProjects } from "../projects/queries.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
+import { dropZone } from "../work/dropZone.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
+import {
+	type DropKind,
+	dropKind,
+	dropNameError,
+	dropPaths,
+	droppedPathsInput,
+} from "./terminalDrop.js";
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -75,11 +93,117 @@ export function TerminalLeaf({
 	// Voice input types into this pane's terminal through the ref it fills.
 	const dictation = useRef<((text: string) => void) | null>(null);
 	const speech = useSpeechInput((text) => dictation.current?.(text));
+	const toast = useToast();
+	const projects = useProjects(workspaceId, "active");
+	const projectSlug = projects.data?.find((project) => project.id === projectId)?.slug;
+	const dropHost = useRef<HTMLDivElement | null>(null);
+	const [dropActive, setDropActive] = useState(false);
 	const stopSpeech = speech.stop;
 	// A terminal that ends mid-dictation must not keep the microphone open.
 	useEffect(() => {
 		if (ended) stopSpeech();
 	}, [ended, stopSpeech]);
+
+	/**
+	 * What a drag over the terminal would do, or null when it does nothing.
+	 * Desktop files drop anywhere on the terminal; a tree row drops only on the
+	 * middle, because its edges split the pane (SPEC.md §9.3, §9.6).
+	 */
+	function acceptedKind(event: DragEvent): DropKind | null {
+		const kind = dropKind(event.dataTransfer.types);
+		if (kind !== "tree") return kind;
+		const pane = dropHost.current?.closest("section");
+		if (!pane) return null;
+		const zone = dropZone(pane.getBoundingClientRect(), event.clientX, event.clientY);
+		return zone === "center" ? kind : null;
+	}
+
+	function onDragOver(event: DragEvent) {
+		const kind = acceptedKind(event);
+		setDropActive(kind !== null);
+		if (kind === null) return;
+		event.preventDefault();
+		// A dragged row only allows a move, so a copy would be refused.
+		event.dataTransfer.dropEffect = kind === "tree" ? "move" : "copy";
+	}
+
+	function onDragLeave(event: DragEvent) {
+		const next = event.relatedTarget;
+		if (next instanceof Node && dropHost.current?.contains(next)) return;
+		setDropActive(false);
+	}
+
+	/** Type the paths of `relative` project paths at the cursor, without Enter. */
+	function typePaths(relative: readonly string[]) {
+		const text = projectSlug ? droppedPathsInput(projectSlug, relative) : null;
+		if (text === null) {
+			toast.show({
+				tone: "danger",
+				title: "That path cannot be typed into a terminal",
+				children: "Rename it without special characters, then try again.",
+			});
+			return;
+		}
+		dictation.current?.(text);
+	}
+
+	/** Save each desktop file in the project, then type where they went. */
+	async function dropFiles(files: File[]) {
+		if (files.length === 0) return;
+		for (const file of files) {
+			const bad = dropNameError(file.name);
+			if (bad) {
+				toast.show({
+					tone: "danger",
+					title: `${displayName(file.name)} cannot be dropped`,
+					children: bad,
+				});
+				return;
+			}
+			if (file.size > MAX_UPLOAD_BYTES) {
+				toast.show(tooLargeToast());
+				return;
+			}
+		}
+		if (!projectSlug) {
+			toast.show(fileErrorToast(null));
+			return;
+		}
+		const now = new Date();
+		try {
+			const saved: string[] = [];
+			for (const file of files) {
+				saved.push(
+					await saveDroppedFile(
+						workspaceId,
+						projectId,
+						dropPaths(now, file.name),
+						file,
+					),
+				);
+			}
+			typePaths(saved);
+		} catch (error) {
+			toast.show(fileErrorToast(error));
+		}
+	}
+
+	function onDrop(event: DragEvent) {
+		const kind = acceptedKind(event);
+		setDropActive(false);
+		if (kind === null) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (kind === "files") {
+			// The list empties once the handler returns.
+			void dropFiles(Array.from(event.dataTransfer.files));
+			return;
+		}
+		const dragged = draggedTreeNodes().map((node) => node.path);
+		const first = event.dataTransfer.getData(TREE_DRAG_TYPE);
+		const paths = dragged.length > 0 ? dragged : first === "" ? [] : [first];
+		if (paths.length > 0) typePaths(paths);
+	}
 
 	return (
 		<PaneFrame
@@ -118,24 +242,42 @@ export function TerminalLeaf({
 					</Button>
 				</div>
 			) : (
-				<TerminalPane
-					workspaceId={workspaceId}
-					projectId={projectId}
-					terminal={terminal}
-					visible={visible}
-					focusOnMount={focused}
-					onExited={onExited}
-					onCwd={setLiveCwd}
-					onFocus={onFocus}
-					onLeave={onLeave}
-					// Unsupported browsers (Firefox) keep Alt+Shift+M for the shell.
-					onVoiceHold={
-						speech.state === "unsupported"
-							? undefined
-							: (held) => (held ? speech.start() : speech.stop())
-					}
-					dictation={dictation}
-				/>
+				// `contents` keeps the wrapper out of the layout, so the pane
+				// sizes as before; its drag events still bubble through it.
+				// biome-ignore lint/a11y/noStaticElementInteractions: a drop area; pasting a picture is the keyboard way
+				<div
+					ref={dropHost}
+					style={{ display: "contents" }}
+					onDragOver={onDragOver}
+					onDragLeave={onDragLeave}
+					onDrop={onDrop}
+				>
+					<TerminalPane
+						workspaceId={workspaceId}
+						projectId={projectId}
+						terminal={terminal}
+						visible={visible}
+						focusOnMount={focused}
+						onExited={onExited}
+						onCwd={setLiveCwd}
+						onFocus={onFocus}
+						onLeave={onLeave}
+						// Unsupported browsers (Firefox) keep Alt+Shift+M for the shell.
+						onVoiceHold={
+							speech.state === "unsupported"
+								? undefined
+								: (held) => (held ? speech.start() : speech.stop())
+						}
+						dictation={dictation}
+					/>
+					{dropActive ? (
+						<div
+							className="pk-term-drop pk-term-drop--center"
+							data-testid={`file-drop-target-${terminal.id}`}
+							aria-hidden="true"
+						/>
+					) : null}
+				</div>
 			)}
 		</PaneFrame>
 	);

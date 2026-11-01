@@ -511,6 +511,51 @@ export function flushWrite(
 	}).catch(() => {});
 }
 
+/** Make `dir`; a folder that is already there is fine. Its parent must exist. */
+async function ensureDirectory(
+	workspaceId: string,
+	projectId: string,
+	dir: string,
+): Promise<void> {
+	try {
+		await sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, { path: dir });
+	} catch (error) {
+		if (!isFileExists(error)) throw error;
+	}
+}
+
+/**
+ * Write `body` at the first of `paths` that is free, and return it; no file is
+ * overwritten. `prepare` runs before each try, to make the path's folder.
+ */
+async function writeFirstFree(
+	workspaceId: string,
+	projectId: string,
+	paths: readonly string[],
+	body: Blob,
+	prepare?: (path: string) => Promise<void>,
+): Promise<string> {
+	let lastError: unknown;
+	for (const path of paths) {
+		try {
+			await prepare?.(path);
+			await request(WriteFileResponse, fileUrl(workspaceId, projectId, path), {
+				method: "PUT",
+				headers: {
+					"if-none-match": "*",
+					"content-type": "application/octet-stream",
+				},
+				body,
+			});
+			return path;
+		} catch (error) {
+			if (!isFileExists(error)) throw error;
+			lastError = error;
+		}
+	}
+	throw lastError;
+}
+
 /**
  * Save a pasted picture at the first of `paths` that is free, and return it, creating `.portikus/pastes` first because
  * mkdir needs its parent to exist. A folder that is already there is fine;
@@ -523,30 +568,27 @@ export async function savePastedImage(
 	image: Blob,
 ): Promise<string> {
 	for (const dir of [".portikus", ".portikus/pastes"]) {
-		try {
-			await sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
-				path: dir,
-			});
-		} catch (error) {
-			if (!isFileExists(error)) throw error;
-		}
+		await ensureDirectory(workspaceId, projectId, dir);
 	}
-	let lastError: unknown;
-	for (const path of paths) {
-		try {
-			await request(WriteFileResponse, fileUrl(workspaceId, projectId, path), {
-				method: "PUT",
-				headers: {
-					"if-none-match": "*",
-					"content-type": "application/octet-stream",
-				},
-				body: image,
-			});
-			return path;
-		} catch (error) {
-			if (!isFileExists(error)) throw error;
-			lastError = error;
-		}
+	return writeFirstFree(workspaceId, projectId, paths, image);
+}
+
+/**
+ * Save a file dropped on a terminal at the first of `paths` that is free, and
+ * return it. Each path is `.portikus/pastes/<stamp>/<name>`; the stamp folder
+ * is made first, and the same limits apply as for any upload (SPEC.md §9.6,
+ * §11.2, §13.5).
+ */
+export async function saveDroppedFile(
+	workspaceId: string,
+	projectId: string,
+	paths: readonly string[],
+	file: Blob,
+): Promise<string> {
+	for (const dir of [".portikus", ".portikus/pastes"]) {
+		await ensureDirectory(workspaceId, projectId, dir);
 	}
-	throw lastError;
+	return writeFirstFree(workspaceId, projectId, paths, file, (path) =>
+		ensureDirectory(workspaceId, projectId, parentOf(path)),
+	);
 }
