@@ -11,5 +11,111 @@
 		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",
 		"OTEL_METRICS_INCLUDE_SESSION_ID": "false",
 		"OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false"
+	},
+	"hooks": {
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude working",
+						"async": true
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude working",
+						"async": true
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "AskUserQuestion|ExitPlanMode",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input",
+						"async": true
+					}
+				]
+			}
+		],
+		"PermissionRequest": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input",
+						"async": true
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"matcher": "elicitation_dialog|elicitation_url_dialog",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input",
+						"async": true
+					}
+				]
+			},
+			{
+				"matcher": "idle_prompt",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished",
+						"async": true
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished",
+						"async": true
+					}
+				]
+			}
+		],
+		"StopFailure": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished",
+						"async": true
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude clear",
+						"async": true
+					}
+				]
+			}
+		]
+	},
+	"statusLine": {
+		"type": "command",
+		"command": "/opt/portikus/workspace-agent/scripts/portikus-claude-status"
 	}
 }

@@ -144,6 +144,7 @@ export class TerminalRegistry {
 	private readonly attachments = new Map<string, Set<Attachment>>();
 	/** Per terminal, the attachment whose size the window last took (SPEC.md §9.7). */
 	private readonly claimers = new Map<string, Attachment>();
+	private readonly closedListeners = new Set<(id: string) => void>();
 
 	constructor(
 		private readonly homeDir: string,
@@ -312,6 +313,14 @@ export class TerminalRegistry {
 		this.panes.clear(id);
 	}
 
+	/** Call a listener with each terminal id that closeAll ends. */
+	onClosed(listener: (id: string) => void): () => void {
+		this.closedListeners.add(listener);
+		return () => {
+			this.closedListeners.delete(listener);
+		};
+	}
+
 	/** Close every attachment to a terminal, used when the terminal is deleted. */
 	closeAll(id: string, code: number, reason: string): void {
 		for (const attachment of this.attachments.get(id) ?? []) {
@@ -322,6 +331,7 @@ export class TerminalRegistry {
 		// The terminal is going away, so it leaves the poll whether or not each
 		// socket's close handler has run yet.
 		this.panes.drop(id);
+		for (const listener of this.closedListeners) listener(id);
 	}
 
 	/** Tear down every attachment on shutdown. */

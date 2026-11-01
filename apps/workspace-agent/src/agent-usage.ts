@@ -2,15 +2,20 @@ import { randomUUID } from "node:crypto";
 import {
 	AGENT_USAGE_METRICS_PATH,
 	AGENT_USAGE_REPORT_DAYS,
+	AgentLimits,
 	type AgentUsageCounts,
 	AgentUsageModel,
 	type AgentUsageReport,
 	type AgentUsageReportRow,
-	type CodingAgent,
+	CodingAgent,
+	CodingAgentState,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
+	TerminalId,
 } from "@portikus/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { AgentLimitsStore } from "./agent-limits-route.js";
+import type { CodingAgentBoard } from "./coding-agent-status.js";
 
 /**
  * Coding-agent usage counters, fed by Claude Code and Codex exporting
@@ -301,12 +306,88 @@ function modelOf(attributes: Attribute[] | undefined): string | null {
 	return AgentUsageModel.safeParse(model).success ? model : null;
 }
 
+/** Where the state hook script posts (scripts/portikus-agent-state). */
+export const CODING_AGENT_STATE_PATH = "/coding-agent-state";
+
+/** Where Claude Code's status line script posts (scripts/portikus-claude-status). */
+export const CLAUDE_LIMITS_PATH = "/claude-limits";
+
+/** Largest hook or status-line body taken; a real one is under 200 bytes. */
+export const MAX_SIGNAL_BODY_BYTES = 4 * 1024;
+
+/** How far ahead of this agent's clock a hook's time may be; both share the container's clock. */
+const MAX_HOOK_CLOCK_AHEAD_MS = 60_000;
+
+/** A hook's report: the terminal, the agent, and a state word or "clear". */
+const CodingAgentStatePost = z
+	.object({
+		terminal: TerminalId,
+		agent: CodingAgent,
+		state: z.union([CodingAgentState, z.literal("clear")]),
+		/** When the hook fired, in microseconds since the epoch (a safe integer, unlike nanoseconds); orders late posts. */
+		at: z.number().int().positive(),
+	})
+	.strict();
+
+const ClaudeLimitWindow = z
+	.object({
+		used_percentage: z.number().min(0).max(100),
+		/** Epoch seconds, as Claude Code's status line gives it. */
+		resets_at: z.number().int().positive(),
+	})
+	.strict();
+
+/** The two windows the status line script keeps from Claude Code's rate_limits. */
+const ClaudeLimitsPost = z
+	.object({
+		five_hour: ClaudeLimitWindow.optional(),
+		seven_day: ClaudeLimitWindow.optional(),
+	})
+	.strict();
+
+const CLAUDE_WINDOWS = [
+	["five_hour", "5h", 5 * 60],
+	["seven_day", "7d", 7 * 24 * 60],
+] as const;
+
+/** Claude Code's windows in the contract's shape, or null when one is out of range. */
+function claudeLimits(
+	post: z.infer<typeof ClaudeLimitsPost>,
+	now: Date,
+): AgentLimits | null {
+	const windows = CLAUDE_WINDOWS.flatMap(([key, name, windowMinutes]) => {
+		const window = post[key];
+		if (!window) return [];
+		return [
+			{
+				name,
+				usedPercent: window.used_percentage,
+				resetsAt: new Date(window.resets_at * 1000).toISOString(),
+				windowMinutes,
+			},
+		];
+	});
+	const parsed = AgentLimits.safeParse({ windows, observedAt: now.toISOString() });
+	return parsed.success ? parsed.data : null;
+}
+
+export interface AgentSignals {
+	board: CodingAgentBoard;
+	limits: AgentLimitsStore;
+	now?: () => Date;
+}
+
 /**
- * The loopback OTLP/HTTP receiver. JSON only (Fastify answers 415 to any
- * other type) and at most MAX_AGENT_USAGE_BODY_BYTES (413). It logs
- * nothing: a body is the sender's, and may hold anything.
+ * The loopback receiver: OTLP/HTTP metrics, hook states and Claude Code's
+ * plan limits. JSON only (Fastify answers 415 to any other type), size
+ * capped (413), and anything off-contract is refused (400). It logs
+ * nothing: a body is the sender's, and may hold anything (ADR 0012).
  */
-export function buildAgentUsageReceiver(usage: AgentUsage): FastifyInstance {
+export function buildAgentUsageReceiver(
+	usage: AgentUsage,
+	signals: AgentSignals,
+): FastifyInstance {
+	const now = signals.now ?? (() => new Date());
 	const app = Fastify({ logger: false, bodyLimit: MAX_AGENT_USAGE_BODY_BYTES });
 	app.post(AGENT_USAGE_METRICS_PATH, async (request, reply) => {
 		const parsed = OtlpMetricsRequest.safeParse(request.body);
@@ -315,6 +396,32 @@ export function buildAgentUsageReceiver(usage: AgentUsage): FastifyInstance {
 		// An empty ExportMetricsServiceResponse: everything was accepted.
 		return reply.code(200).send({});
 	});
+	app.post(
+		CODING_AGENT_STATE_PATH,
+		{ bodyLimit: MAX_SIGNAL_BODY_BYTES },
+		async (request, reply) => {
+			const parsed = CodingAgentStatePost.safeParse(request.body);
+			if (!parsed.success) return reply.code(400).send({});
+			const { terminal, agent, state, at } = parsed.data;
+			if (at > (now().getTime() + MAX_HOOK_CLOCK_AHEAD_MS) * 1000) {
+				return reply.code(400).send({});
+			}
+			if (state === "clear") signals.board.clear(terminal, at);
+			else signals.board.set(terminal, agent, state, at);
+			return reply.code(204).send();
+		},
+	);
+	app.post(
+		CLAUDE_LIMITS_PATH,
+		{ bodyLimit: MAX_SIGNAL_BODY_BYTES },
+		async (request, reply) => {
+			const parsed = ClaudeLimitsPost.safeParse(request.body);
+			const limits = parsed.success ? claudeLimits(parsed.data, now()) : null;
+			if (!limits) return reply.code(400).send({});
+			signals.limits.setClaude(limits);
+			return reply.code(204).send();
+		},
+	);
 	return app;
 }
 
