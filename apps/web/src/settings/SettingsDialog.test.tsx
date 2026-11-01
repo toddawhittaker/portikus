@@ -810,6 +810,41 @@ test("Allow in this browser asks once and says the browser allowed it", async ()
 	expect(screen.queryByTestId("settings-notifications-allow")).toBeNull();
 });
 
+test("the permission is read again when the window regains focus", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications: "on" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByTestId("settings-notifications-allow");
+	// The student allowed notifications in the browser's own settings.
+	FakeNotification.permission = "granted";
+	fireEvent(window, new Event("focus"));
+	await waitFor(() =>
+		expect(screen.queryByTestId("settings-notifications-allow")).toBeNull(),
+	);
+	// And blocked them again, seen when the tab becomes visible.
+	FakeNotification.permission = "denied";
+	fireEvent(document, new Event("visibilitychange"));
+	await screen.findByTestId("settings-notifications-blocked");
+});
+
+test("focus moves to the checked radio when the browser answers", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.answer = "granted";
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications: "on" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const allow = await screen.findByTestId("settings-notifications-allow");
+	allow.focus();
+	fireEvent.click(allow);
+	await waitFor(() =>
+		expect(screen.queryByTestId("settings-notifications-allow")).toBeNull(),
+	);
+	expect(document.activeElement).toBe(
+		within(notificationGroup()).getByRole("radio", { name: "On" }),
+	);
+});
+
 test("a refused prompt keeps On, shows the blocked note and announces it", async () => {
 	vi.stubGlobal("Notification", FakeNotification);
 	FakeNotification.permission = "default";

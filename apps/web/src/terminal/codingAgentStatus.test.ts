@@ -159,6 +159,17 @@ describe("unread", () => {
 		expect(store.getSnapshot().unread.size).toBe(0);
 	});
 
+	it("clears when the agent starts working again", () => {
+		const { store } = makeStore();
+		store.update([term("a", "working")], true);
+		store.update([term("a", "finished")], false);
+		expect(store.getSnapshot().unread.has("a")).toBe(true);
+		store.update([term("a", "working")], false);
+		expect(store.getSnapshot().unread.has("a")).toBe(false);
+		store.update([term("a", "finished")], false);
+		expect(store.getSnapshot().unread.has("a")).toBe(true);
+	});
+
 	it("is kept across a list that leaves the state alone", () => {
 		const { store } = makeStore();
 		store.update([term("a", "working")], true);

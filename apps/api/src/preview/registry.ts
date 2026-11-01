@@ -296,8 +296,9 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	}
 
 	/**
-	 * Tell listeners on the trailing edge of a quiet 250 ms, so a workspace
-	 * that floods frames costs one notification, of its newest list, per window.
+	 * Tell listeners once per fixed 250 ms window that starts at the first frame,
+	 * with the newest list, so a workspace that floods frames costs one
+	 * notification per window.
 	 */
 	function scheduleCodingAgentsNotify(workspaceId: string, entry: Entry): void {
 		if (entry.codingAgentsTimer) return;

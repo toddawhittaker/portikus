@@ -118,5 +118,6 @@ test("every coding-agents list reaches the store once, even two in one tick", ()
 	expect(alerts).toEqual([
 		expect.objectContaining({ terminalId: T, state: "finished" }),
 	]);
-	expect(store.getSnapshot().unread.has(T)).toBe(true);
+	// The agent is working again, so nothing is unread.
+	expect(store.getSnapshot().unread.has(T)).toBe(false);
 });

@@ -523,7 +523,10 @@ function CopyPathItem({ targets }: { targets: readonly FileNode[] }) {
 					refused === 1
 						? "One path cannot be copied"
 						: `${refused} paths cannot be copied`,
-				children: "Rename it without special characters, then try again.",
+				children:
+					refused === 1
+						? "Rename it without special characters, then try again."
+						: "Rename them without special characters, then try again.",
 			});
 		}
 		if (words.length === 0) return;

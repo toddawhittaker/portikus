@@ -5,7 +5,7 @@
  */
 import type { CodingAgentState, CodingAgentTerminal } from "@portikus/contracts";
 import { createContext, useContext, useSyncExternalStore } from "react";
-import { CODING_AGENT_NAME } from "../admin/image/codingAgents.js";
+import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 
 /** The toast title for an agent that stopped: "Claude Code needs your input". */
 export function alertTitle(
@@ -71,8 +71,10 @@ function reconcile(input: {
 	const alerts: AgentAlert[] = [];
 	for (const item of input.next) {
 		const seen = input.focused && input.viewing.has(item.terminalId);
+		// A working agent has nothing unread: the student's next message started it.
+		if (item.state === "working") continue;
 		if (input.unread.has(item.terminalId) && !seen) unread.add(item.terminalId);
-		if (input.initial || item.state === "working") continue;
+		if (input.initial) continue;
 		if (input.previous.get(item.terminalId) === item.state) continue;
 		if (seen) continue;
 		unread.add(item.terminalId);

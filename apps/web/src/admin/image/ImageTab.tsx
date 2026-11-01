@@ -20,13 +20,13 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
+import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { ApiError, errorText } from "../../api/request.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
 import { CodingAgentsSection } from "./CodingAgentsSection.js";
-import { CODING_AGENT_NAME } from "./codingAgents.js";
 import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { isActive, useAdminImage, useImageJob, useRequestImageJob } from "./queries.js";
