@@ -4,12 +4,12 @@ import {
 	createStudent,
 	expectConnected,
 	newTerminal,
+	setAgents,
 	terminalIds,
 	toast,
 	workspacePath,
 	workTabs,
 } from "./helpers";
-import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * F8 reaches an agent toast from a focused terminal (SPEC.md §25.8). xterm
@@ -46,15 +46,15 @@ test("F8 from a focused terminal reaches the toast and Open project navigates", 
 	if (!shell) throw new Error("the terminal row was not created");
 	await expectConnected(page, shell);
 
-	const response = await fetch(`${FAKE_AGENT_URL}/__test/coding-agents`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			key: student.workspaceId,
-			terminals: [{ terminalId: agent, agent: "claude", state: "needs-input" }],
-		}),
-	});
-	expect(response.ok).toBe(true);
+	// A seen "working" list first, so the page's first list is the baseline.
+	const row = page.getByTestId(`project-item-${other.id}`).getByRole("link");
+	await setAgents(student.workspaceId, [
+		{ terminalId: agent, agent: "claude", state: "working" },
+	]);
+	await expect(row).toHaveAccessibleName("Other work (working)");
+	await setAgents(student.workspaceId, [
+		{ terminalId: agent, agent: "claude", state: "needs-input" },
+	]);
 	const message = toast(page, "Claude Code needs your input");
 	await expect(message).toBeVisible();
 
