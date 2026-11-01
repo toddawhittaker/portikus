@@ -43,6 +43,13 @@ const CODEX_OTEL_TABLE =
 	'trace_exporter = "none"\n' +
 	`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}${AGENT_USAGE_METRICS_PATH}", protocol = "json" } }\n`;
 
+/**
+ * Codex runs hooks inside a long-lived app-server daemon that keeps the
+ * environment of the first terminal that started it. With the daemon off,
+ * hooks run in the session's own process and carry its PORTIKUS_TERMINAL.
+ */
+const CODEX_FEATURES_TABLE = "[features]\ndaemon_auto_start = false\n";
+
 /** The workspace agent's scripts as a workspace sees them, through the agent bind mount. */
 export const AGENT_SCRIPTS_DIR = "/opt/portikus/workspace-agent/scripts";
 
@@ -76,6 +83,7 @@ export function codexSystemConfig(template: string): string {
 		`${CODEX_UPDATE_LINE}\n` +
 		`developer_instructions = ${JSON.stringify(template)}\n` +
 		// A TOML table ends the top-level keys, so the tables come last.
+		`\n${CODEX_FEATURES_TABLE}` +
 		`\n${CODEX_OTEL_TABLE}` +
 		`\n${CODEX_HOOK_TABLES}`
 	);

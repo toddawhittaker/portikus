@@ -224,12 +224,14 @@ describe("codexSystemConfig", () => {
 	test("parses as TOML with one command hook per event", () => {
 		const parsed = parse(codexSystemConfig(TEMPLATE)) as {
 			developer_instructions: string;
+			features: Record<string, unknown>;
 			hooks: Record<
 				string,
 				{ hooks: { type: string; command: string; timeout: number }[] }[]
 			>;
 		};
 		expect(parsed.developer_instructions).toBe(TEMPLATE);
+		expect(parsed.features.daemon_auto_start).toBe(false);
 		const states: Record<string, string> = {
 			UserPromptSubmit: "working",
 			PostToolUse: "working",
