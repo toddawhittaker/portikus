@@ -19,6 +19,7 @@ import { agentUsageRoute } from "./agent-usage-route.js";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
+import { CodexLimits } from "./codex-limits.js";
 import { CodingAgentBoard } from "./coding-agent-status.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
 import { ERROR_STATUS } from "./errors.js";
@@ -234,7 +235,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	const agentUsage = options.agentUsage ?? new AgentUsage();
 	const codingAgents = options.codingAgents ?? new CodingAgentBoard();
 	registry.onClosed((id) => codingAgents.remove(id));
-	const agentLimits = options.agentLimits ?? new AgentLimitsStore();
+	let agentLimits = options.agentLimits;
+	if (!agentLimits) {
+		const codexLimits = new CodexLimits();
+		codexLimits.watch(codingAgents);
+		agentLimits = new AgentLimitsStore({ codex: codexLimits.read });
+	}
 	const agentUsagePort = options.agentUsagePort;
 	if (agentUsagePort !== undefined) {
 		const receiver = buildAgentUsageReceiver(agentUsage, {

@@ -1,6 +1,6 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"ignoreBinaries": ["openssl", "prlimit", "rg", "mkfifo", "unshare"],
+	"ignoreBinaries": ["openssl", "prlimit", "rg", "mkfifo", "unshare", "codex"],
 	"workspaces": {
 		".": {
 			"entry": [
