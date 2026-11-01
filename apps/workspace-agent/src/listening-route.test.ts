@@ -185,7 +185,6 @@ test("GET /agent-limits answers the report, and only with the token", async () =
 				name: "5h",
 				usedPercent: 42,
 				resetsAt: new Date(Date.now() + 3_600_000).toISOString(),
-				windowMinutes: 300,
 			},
 		],
 		observedAt: new Date().toISOString(),

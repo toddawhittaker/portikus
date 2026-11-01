@@ -100,12 +100,39 @@ describe("CodingAgentBoard", () => {
 		expect(board.current()).toEqual([expect.objectContaining({ state: "working" })]);
 	});
 
-	test("a closed terminal's times are forgotten", () => {
+	test("a late post for a removed terminal does not bring it back", () => {
+		const board = new CodingAgentBoard();
+		const seen = vi.fn();
+		board.set(ID, "claude", "working", 20);
+		board.subscribe(seen);
+		board.remove(ID);
+		seen.mockClear();
+		board.set(ID, "claude", "finished", 15);
+		board.set(ID, "claude", "working", 20);
+		board.clear(ID, 20);
+		expect(board.current()).toEqual([]);
+		expect(seen).not.toHaveBeenCalled();
+	});
+
+	test("a removed terminal's id still accepts a newer post", () => {
 		const board = new CodingAgentBoard();
 		board.set(ID, "claude", "working", 20);
 		board.remove(ID);
-		board.set(ID, "codex", "working", 5);
+		board.set(ID, "codex", "working", 21);
 		expect(board.current()).toEqual([expect.objectContaining({ agent: "codex" })]);
+	});
+
+	test("removed terminals' times stay capped", () => {
+		const board = new CodingAgentBoard();
+		for (let n = 0; n < 100; n++) {
+			board.set(terminalId(n), "claude", "working", 10);
+			board.remove(terminalId(n));
+		}
+		// The newest removals are still remembered; the oldest have aged out.
+		board.set(terminalId(99), "claude", "working", 10);
+		expect(board.current()).toEqual([]);
+		board.set(terminalId(0), "claude", "working", 10);
+		expect(board.current()).toHaveLength(1);
 	});
 
 	test("an unsubscribed listener hears nothing more", () => {
@@ -225,13 +252,11 @@ describe("the Claude limits route", () => {
 						name: "5h",
 						usedPercent: 42.5,
 						resetsAt: "2027-01-15T08:00:00.000Z",
-						windowMinutes: 300,
 					},
 					{
 						name: "7d",
 						usedPercent: 18,
 						resetsAt: "2027-01-18T07:00:00.000Z",
-						windowMinutes: 10_080,
 					},
 				],
 				observedAt: NOW.toISOString(),
