@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import type { Terminal } from "@portikus/contracts";
+import { ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
+	createEvent,
 	fireEvent,
 	render,
 	screen,
@@ -12,7 +14,12 @@ import {
 import { type ReactNode, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { editorSettingsKey } from "../editor/settingsQueries";
+import { setDraggedTreeNodes } from "../files/treeDrag";
+import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop";
 import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
+
+/** What the mocked terminal was asked to type, in order. */
+const typed = vi.hoisted(() => vi.fn());
 
 /** Settings already cached, so the voice button never fetches them. */
 function SettingsCache({ children }: { children: ReactNode }) {
@@ -21,9 +28,17 @@ function SettingsCache({ children }: { children: ReactNode }) {
 			defaultOptions: { queries: { staleTime: Infinity } },
 		});
 		made.setQueryData(editorSettingsKey, { voiceInputEnabled: true });
+		made.setQueryData(
+			["projects", "22222222-2222-4222-8222-222222222222", "active"],
+			[{ id: "33333333-3333-4333-8333-333333333333", slug: "todo-api" }],
+		);
 		return made;
 	});
-	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+	return (
+		<QueryClientProvider client={client}>
+			<ToastProvider>{children}</ToastProvider>
+		</QueryClientProvider>
+	);
 }
 
 // The pane itself is covered by TerminalPane.test.tsx; here it would only drag
@@ -33,29 +48,39 @@ vi.mock("./TerminalPane", () => ({
 		terminal,
 		onCwd,
 		onVoiceHold,
+		dictation,
 	}: {
 		terminal: Terminal;
 		onCwd: (path: string) => void;
 		onVoiceHold?: (held: boolean) => void;
-	}) => (
-		<>
-			<button
-				type="button"
-				data-testid={`terminal-pane-${terminal.id}`}
-				onClick={() => onCwd("/home/student/projects/todo-api/src")}
-			/>
-			{onVoiceHold ? (
+		dictation?: { current: ((text: string) => void) | null };
+	}) => {
+		if (dictation) dictation.current = typed;
+		return (
+			<>
 				<button
 					type="button"
-					data-testid="voice-shortcut"
-					onClick={() => onVoiceHold(true)}
+					data-testid={`terminal-pane-${terminal.id}`}
+					onClick={() => onCwd("/home/student/projects/todo-api/src")}
 				/>
-			) : null}
-		</>
-	),
+				{onVoiceHold ? (
+					<button
+						type="button"
+						data-testid="voice-shortcut"
+						onClick={() => onVoiceHold(true)}
+					/>
+				) : null}
+			</>
+		);
+	},
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	typed.mockReset();
+	setDraggedTreeNodes([]);
+	vi.unstubAllGlobals();
+});
 
 const terminal: Terminal = {
 	id: "44444444-4444-4444-8444-444444444444",
@@ -398,4 +423,226 @@ test("a terminal that ends while dictating stops listening", () => {
 test("without speech support the terminal keeps Alt+Shift+M", () => {
 	renderLeaf();
 	expect(screen.queryByTestId("voice-shortcut")).toBeNull();
+});
+
+// Dropping on the terminal (SPEC.md §9.6).
+
+const PANE_ID = `terminal-pane-${terminal.id}`;
+const PATH_START = "/home/student/projects/todo-api";
+
+/** A drag with the given types and data, as the browser hands one to the pane. */
+function dragData(
+	types: string[],
+	data: Record<string, string> = {},
+	files: File[] = [],
+) {
+	return {
+		types,
+		files,
+		dropEffect: "none",
+		getData: (type: string) => data[type] ?? "",
+	};
+}
+
+/** Give the pane a size, since jsdom lays nothing out. */
+function sizePane() {
+	const section = screen.getByTestId(`terminal-leaf-${terminal.id}`);
+	section.getBoundingClientRect = () =>
+		({ left: 0, top: 0, width: 300, height: 300 }) as DOMRect;
+}
+
+const MIDDLE = { clientX: 150, clientY: 150 };
+const RIGHT_EDGE = { clientX: 290, clientY: 150 };
+
+/** jsdom has no DragEvent, so the pointer position is put on the event by hand. */
+function drag(
+	type: "dragOver" | "drop",
+	target: Element,
+	init: { dataTransfer: ReturnType<typeof dragData> } & Partial<typeof MIDDLE>,
+) {
+	const event = createEvent[type](target, { dataTransfer: init.dataTransfer });
+	Object.defineProperties(event, {
+		clientX: { value: init.clientX ?? 0 },
+		clientY: { value: init.clientY ?? 0 },
+	});
+	fireEvent(target, event);
+}
+
+test("a tree row dropped on the middle types its quoted absolute path, without Enter", () => {
+	renderLeaf();
+	sizePane();
+	const target = screen.getByTestId(PANE_ID);
+	const dataTransfer = dragData([TREE_DRAG_TYPE], {
+		[TREE_DRAG_TYPE]: "my docs/a b.md",
+	});
+	drag("dragOver", target, { dataTransfer, ...MIDDLE });
+	expect(screen.getByTestId(`file-drop-target-${terminal.id}`)).not.toBeNull();
+	expect(dataTransfer.dropEffect).toBe("move");
+	drag("drop", target, { dataTransfer, ...MIDDLE });
+	expect(typed).toHaveBeenCalledExactlyOnceWith(`'${PATH_START}/my docs/a b.md' `);
+	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
+});
+
+test("a tree selection types every path, space separated", () => {
+	renderLeaf();
+	sizePane();
+	const node = (path: string) => ({
+		path,
+		name: path,
+		isDir: false,
+	});
+	setDraggedTreeNodes([node("a.md"), node("src/it's.ts")] as never);
+	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "a.md" });
+	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer, ...MIDDLE });
+	expect(typed).toHaveBeenCalledExactlyOnceWith(
+		`${PATH_START}/a.md '${PATH_START}/src/it'\\''s.ts' `,
+	);
+});
+
+test("a tree row over an edge shows no target and types nothing", () => {
+	renderLeaf();
+	sizePane();
+	const target = screen.getByTestId(PANE_ID);
+	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "a.md" });
+	drag("dragOver", target, { dataTransfer, ...RIGHT_EDGE });
+	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
+	drag("drop", target, { dataTransfer, ...RIGHT_EDGE });
+	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a tree path with a control character is refused with a toast", async () => {
+	renderLeaf();
+	sizePane();
+	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "a\nb.md" });
+	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer, ...MIDDLE });
+	expect(typed).not.toHaveBeenCalled();
+	expect(
+		await screen.findByText("That path cannot be typed into a terminal"),
+	).not.toBeNull();
+});
+
+test("something that is not a file is ignored", () => {
+	renderLeaf();
+	sizePane();
+	const target = screen.getByTestId(PANE_ID);
+	const dataTransfer = dragData(["text/plain"], { "text/plain": "hi" });
+	drag("dragOver", target, { dataTransfer, ...MIDDLE });
+	drag("drop", target, { dataTransfer, ...MIDDLE });
+	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
+	expect(typed).not.toHaveBeenCalled();
+});
+
+test("leaving the pane hides the target", () => {
+	renderLeaf();
+	sizePane();
+	const target = screen.getByTestId(PANE_ID);
+	const dataTransfer = dragData(["Files"]);
+	drag("dragOver", target, { dataTransfer, ...MIDDLE });
+	expect(screen.getByTestId(`file-drop-target-${terminal.id}`)).not.toBeNull();
+	fireEvent.dragLeave(target, { relatedTarget: document.body });
+	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
+});
+
+/** Record every request the drop makes and answer each as the agent would. */
+function stubUpload(answer: (url: string, init: RequestInit) => Response) {
+	const calls: { url: string; method: string; body: unknown }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+			const url = String(input);
+			calls.push({ url, method: init.method ?? "GET", body: init.body });
+			return answer(url, init);
+		}),
+	);
+	return calls;
+}
+
+const json = (body: unknown, status = 200) =>
+	new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
+
+test("desktop files are saved under a dated folder and their paths typed", async () => {
+	const calls = stubUpload((url) =>
+		url.includes("/mkdir") ? json({}) : json({ etag: "e", size: 1 }),
+	);
+	renderLeaf();
+	sizePane();
+	const shot = new File(["x"], "my shot.png", { type: "image/png" });
+	const notes = new File(["y"], "notes.txt");
+	const dataTransfer = dragData(["Files"], {}, [shot, notes]);
+	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer, ...RIGHT_EDGE });
+
+	await waitFor(() => expect(typed).toHaveBeenCalledTimes(1));
+	const puts = calls.filter((call) => call.method === "PUT");
+	expect(puts).toHaveLength(2);
+	for (const put of puts) {
+		expect(decodeURIComponent(put.url)).toMatch(
+			/path=\.portikus\/pastes\/\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d\/(my shot\.png|notes\.txt)$/,
+		);
+	}
+	const text = String(typed.mock.calls[0]?.[0]);
+	expect(text).toMatch(
+		new RegExp(
+			`^'${PATH_START}/\\.portikus/pastes/[0-9T-]+/my shot\\.png' ${PATH_START}/\\.portikus/pastes/[0-9T-]+/notes\\.txt $`,
+		),
+	);
+	expect(text).not.toMatch(/[\r\n]/);
+});
+
+test("a name already taken moves on to the next folder", async () => {
+	let puts = 0;
+	stubUpload((url) => {
+		if (url.includes("/mkdir")) return json({});
+		puts += 1;
+		return puts === 1
+			? json({ code: "FILE_EXISTS", message: "exists" }, 409)
+			: json({ etag: "e", size: 1 });
+	});
+	renderLeaf();
+	const dataTransfer = dragData(["Files"], {}, [new File(["x"], "a.png")]);
+	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer });
+	await waitFor(() => expect(typed).toHaveBeenCalledTimes(1));
+	expect(String(typed.mock.calls[0]?.[0])).toMatch(/pastes\/[0-9T-]+-2\/a\.png $/);
+});
+
+test("a name with a control character is refused and nothing is saved or typed", async () => {
+	const calls = stubUpload(() => json({}));
+	renderLeaf();
+	const dataTransfer = dragData(["Files"], {}, [
+		new File(["x"], "fine.png"),
+		new File(["x"], "bad\u001b[2Jname.png"),
+	]);
+	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer });
+	expect(await screen.findByText(/cannot be dropped/)).not.toBeNull();
+	expect(calls).toHaveLength(0);
+	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a file over the upload limit is refused and nothing is saved or typed", async () => {
+	const calls = stubUpload(() => json({}));
+	renderLeaf();
+	const big = new File(["x"], "big.bin");
+	Object.defineProperty(big, "size", { value: 50 * 1024 * 1024 + 1 });
+	drag("drop", screen.getByTestId(PANE_ID), {
+		dataTransfer: dragData(["Files"], {}, [big]),
+	});
+	expect(await screen.findByText(/must be 50 MB or smaller/)).not.toBeNull();
+	expect(calls).toHaveLength(0);
+	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a failed upload shows a toast and types nothing", async () => {
+	stubUpload((url) =>
+		url.includes("/mkdir")
+			? json({})
+			: json({ code: "STORAGE_FULL", message: "full" }, 507),
+	);
+	renderLeaf();
+	drag("drop", screen.getByTestId(PANE_ID), {
+		dataTransfer: dragData(["Files"], {}, [new File(["x"], "a.png")]),
+	});
+	expect(await screen.findByText(/home folder is full/)).not.toBeNull();
+	expect(typed).not.toHaveBeenCalled();
 });
