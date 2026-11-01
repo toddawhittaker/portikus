@@ -23,9 +23,10 @@ export class CodingAgentBoard {
 	private readonly entries = new Map<string, AgentCodingAgentStatus>();
 	private readonly listeners = new Set<Listener>();
 	/**
-	 * When each terminal's latest accepted hook fired, kept after a clear or a
-	 * removal so a late post from before it cannot bring the entry back. Hooks
-	 * run in the background, so their posts can arrive out of order.
+	 * When each terminal's latest accepted hook fired, kept after a clear so a
+	 * late post from before it cannot bring the entry back, and a mark for
+	 * removed terminals. Hooks run in the background, so their posts can arrive
+	 * out of order.
 	 */
 	private readonly firedAt = new Map<string, { at: number; removed: boolean }>();
 
@@ -73,18 +74,18 @@ export class CodingAgentBoard {
 	}
 
 	/**
-	 * Drop a terminal's entry when it closes. Its last time stays, so a hook
-	 * post that arrives late cannot bring the entry back.
+	 * Drop a terminal's entry when it closes. Terminal ids are never reused, so
+	 * every later post for the id is refused: a hook that fired before the close
+	 * but arrived after it cannot bring the entry back.
 	 */
 	remove(terminalId: string): void {
-		const last = this.firedAt.get(terminalId);
-		if (last) this.remember(terminalId, last.at, true);
+		this.remember(terminalId, this.firedAt.get(terminalId)?.at ?? 0, true);
 		if (this.entries.delete(terminalId)) this.changed();
 	}
 
 	private accept(terminalId: string, at: number): boolean {
 		const last = this.firedAt.get(terminalId);
-		if (last && (last.removed ? at <= last.at : at < last.at)) return false;
+		if (last && (last.removed || at < last.at)) return false;
 		this.remember(terminalId, at, false);
 		return true;
 	}

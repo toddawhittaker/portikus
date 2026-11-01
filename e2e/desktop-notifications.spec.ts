@@ -109,6 +109,7 @@ test("Allow in this browser asks once and announces that it is allowed", async (
 		"Desktop notifications are allowed in this browser.",
 	);
 	await expect(allow).toHaveCount(0);
+	await expect(group.getByRole("radio", { name: "On" })).toBeFocused();
 	expect(await saved(page)).toBe("on");
 });
 
@@ -128,6 +129,7 @@ test("a refused prompt keeps On, shows the blocked note and announces it", async
 		"Your browser blocked notifications.",
 	);
 	await expect(dialog.getByTestId("settings-notifications-blocked")).toBeVisible();
+	await expect(group.getByRole("radio", { name: "On" })).toBeFocused();
 	await expect(group).toHaveAccessibleDescription(
 		/blocked notifications for this site/,
 	);

@@ -114,12 +114,19 @@ describe("CodingAgentBoard", () => {
 		expect(seen).not.toHaveBeenCalled();
 	});
 
-	test("a removed terminal's id still accepts a newer post", () => {
+	test("a removed terminal's id refuses every later post, even a newer one", () => {
 		const board = new CodingAgentBoard();
 		board.set(ID, "claude", "working", 20);
 		board.remove(ID);
 		board.set(ID, "codex", "working", 21);
-		expect(board.current()).toEqual([expect.objectContaining({ agent: "codex" })]);
+		expect(board.current()).toEqual([]);
+	});
+
+	test("a post that fired before the close but arrived after makes no ghost", () => {
+		const board = new CodingAgentBoard();
+		board.remove(ID);
+		board.set(ID, "claude", "working", 5);
+		expect(board.current()).toEqual([]);
 	});
 
 	test("removed terminals' times stay capped", () => {

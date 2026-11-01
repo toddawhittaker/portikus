@@ -9,7 +9,6 @@ import { useCourseProfile } from "../editor/settingsQueries.js";
 import { formatHoldEnd, useStudentTimezone } from "../shell/KeepRunning.js";
 import { METER_CLEAR_BELOW, METER_WARN_AT } from "../shell/meterLevel.js";
 import {
-	AGENT_NAMES,
 	chooseDisplay,
 	formatCost,
 	formatCount,
@@ -20,6 +19,7 @@ import {
 	warnKey,
 	windowsToWarn,
 } from "./agentDisplay.js";
+import { CODING_AGENT_NAME } from "./codingAgentName.js";
 import { useAgentMeter } from "./useAgentMeter.js";
 import "./agent-meter.css";
 
@@ -81,7 +81,7 @@ export function AgentMeters({
 				changed = true;
 				toast.show({
 					tone: "warning",
-					title: `${AGENT_NAMES[entry.agent]} usage is at ${percentText(window.usedPercent)}`,
+					title: `${CODING_AGENT_NAME[entry.agent]} usage is at ${percentText(window.usedPercent)}`,
 					children: `The ${window.name} limit resets ${formatHoldEnd(window.resetsAt, timeZone)}.`,
 				});
 			}
@@ -112,7 +112,7 @@ function AgentStatus({
 	const popoverId = useId();
 	const warned = useRef(false);
 	const display = chooseDisplay(entry, now);
-	const name = AGENT_NAMES[entry.agent];
+	const name = CODING_AGENT_NAME[entry.agent];
 	if (display?.kind !== "limits") warned.current = false;
 	if (!display) return null;
 
@@ -179,7 +179,7 @@ function Details({
 	timeZone: string | undefined;
 	id: string;
 }) {
-	const name = AGENT_NAMES[entry.agent];
+	const name = CODING_AGENT_NAME[entry.agent];
 	const windows = entry.limits ? liveWindows(entry.limits.windows, now) : [];
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls

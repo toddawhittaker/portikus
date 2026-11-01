@@ -1371,6 +1371,22 @@ describe("the file tree", () => {
 				expect(writeText).toHaveBeenCalledWith("/home/student/projects/todo-api/ok.md"),
 			);
 			expect(await screen.findByText("One path cannot be copied")).toBeDefined();
+			expect(screen.getByText(/^Rename it without/)).toBeDefined();
+		});
+
+		it("says 'them' when several names are refused", async () => {
+			stubClipboard();
+			stubEntries([entry("bad\u0007one.md"), entry("bad\u0007two.md")]);
+			renderWithProject();
+			const first = await screen.findByTestId("file-row-bad\u0007one.md");
+			const second = await screen.findByTestId("file-row-bad\u0007two.md");
+			fireEvent.keyDown(first, { key: " ", ctrlKey: true });
+			fireEvent.keyDown(second, { key: " ", ctrlKey: true });
+			second.focus();
+			fireEvent.keyDown(second, { key: "F10", shiftKey: true });
+			fireEvent.click(await screen.findByTestId("row-copy-path"));
+			expect(await screen.findByText("2 paths cannot be copied")).toBeDefined();
+			expect(screen.getByText(/^Rename them without/)).toBeDefined();
 		});
 	});
 });

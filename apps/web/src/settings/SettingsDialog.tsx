@@ -180,6 +180,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	// The browser's answer arrives after render, so the page keeps its own copy.
 	const [permission, setPermission] = useState(desktopPermission);
 	const [notificationNote, setNotificationNote] = useState("");
+	const notificationsField = useRef<HTMLDivElement>(null);
+
+	// The student may allow or block notifications in the browser's own
+	// settings while this dialog is open; read the answer again on return.
+	useEffect(() => {
+		const reread = () => setPermission(desktopPermission());
+		window.addEventListener("focus", reread);
+		document.addEventListener("visibilitychange", reread);
+		return () => {
+			window.removeEventListener("focus", reread);
+			document.removeEventListener("visibilitychange", reread);
+		};
+	}, []);
 
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
@@ -345,6 +358,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 		await askDesktopPermission();
 		const answer = desktopPermission();
 		setPermission(answer);
+		// The button goes once the browser has answered; keep focus in the dialog.
+		if (answer !== "default") {
+			notificationsField.current
+				?.querySelector<HTMLInputElement>("input[type=radio]:checked")
+				?.focus();
+		}
 		if (answer === "granted") {
 			setNotificationNote("Desktop notifications are allowed in this browser.");
 		} else if (answer === "denied") {
@@ -453,7 +472,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					);
 				}
 				return (
-					<div className="grid gap-2">
+					<div className="grid gap-2" ref={notificationsField}>
 						<ChoiceField
 							label={control.label}
 							hint="Shows a notification outside the browser when a coding agent needs you or finishes and this page is not in front. It names the agent only."

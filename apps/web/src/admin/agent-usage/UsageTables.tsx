@@ -5,7 +5,7 @@ import {
 } from "@portikus/contracts";
 import { Select, Toggletip } from "@portikus/ui";
 import { useState } from "react";
-import { CODING_AGENT_NAME } from "../image/codingAgents.js";
+import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { cost, count } from "./format.js";
 
 const WINDOWS: AgentUsageWindow[] = [7, 30, 90];

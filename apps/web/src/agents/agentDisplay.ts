@@ -4,10 +4,7 @@ import type {
 	AgentUsageCounts,
 	CodingAgent,
 } from "@portikus/contracts";
-import { CODING_AGENT_NAME } from "../admin/image/codingAgents.js";
 import { METER_CLEAR_BELOW, METER_WARN_AT } from "../shell/meterLevel.js";
-
-export const AGENT_NAMES: Record<CodingAgent, string> = CODING_AGENT_NAME;
 
 /** What the status bar shows for one agent. */
 export type AgentDisplay =
