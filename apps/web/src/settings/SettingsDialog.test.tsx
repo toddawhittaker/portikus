@@ -66,6 +66,7 @@ test("it shows the settings the server holds", async () => {
 		timezone: "America/New_York",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
@@ -355,6 +356,7 @@ test("the stored terminal theme is shown and a switch saves it", async () => {
 		timezone: "America/New_York",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -387,6 +389,7 @@ test("the stored timezone is shown", async () => {
 		timezone: "Europe/Berlin",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>

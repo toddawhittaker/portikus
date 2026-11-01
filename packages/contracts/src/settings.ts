@@ -282,6 +282,8 @@ export const EditorSettings = z.object({
 	appearance: Appearance,
 	/** Turns on xterm's screen-reader mode in every terminal. */
 	screenReaderMode: z.boolean(),
+	/** Desktop notifications for agent alerts; "ask" until the student answers. */
+	agentNotifications: z.enum(["ask", "on", "off"]),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -293,6 +295,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	timezone: DEFAULT_TIMEZONE,
 	appearance: "system",
 	screenReaderMode: false,
+	agentNotifications: "ask",
 };
 
 /**

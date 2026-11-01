@@ -1,5 +1,7 @@
 import type { ApiConfig } from "@portikus/config";
 import {
+	type AgentCodingAgentStatus,
+	AgentCodingAgentsChanged,
 	type AgentListeningService,
 	AgentListeningServicesChanged,
 	type ListeningService,
@@ -43,6 +45,8 @@ interface Entry {
 	timer: NodeJS.Timeout | null;
 	attempts: number;
 	services: ListeningService[];
+	/** The latest agent states the workspace agent reported, by terminal. */
+	codingAgents: AgentCodingAgentStatus[];
 	/**
 	 * Forwards this workspace is opening right now, by port. They count
 	 * towards the cap from the moment the work starts, so calls that race
@@ -54,6 +58,13 @@ interface Entry {
 }
 
 type ListeningListener = (services: ListeningService[]) => void;
+type CodingAgentsListener = (
+	workspaceId: string,
+	terminals: AgentCodingAgentStatus[],
+) => void;
+
+/** The frame type the workspace agent sends for agent states. */
+const CODING_AGENTS_FRAME = "workspace.coding-agents.changed";
 
 /**
  * The control plane's view of what is listening inside every running
@@ -76,6 +87,16 @@ export interface ListeningRegistry {
 		workspaceId: string,
 		port: number,
 	): Promise<ListeningService | undefined>;
+	/**
+	 * The latest agent states a workspace reported, as the agent sent them:
+	 * the terminal ids are not yet checked against the database.
+	 */
+	codingAgents(workspaceId: string): AgentCodingAgentStatus[];
+	/**
+	 * Called with the whole list on every change in any workspace, and with an
+	 * empty list when a workspace's agent connection drops. Returns an unsubscribe.
+	 */
+	subscribeCodingAgents(listener: CodingAgentsListener): () => void;
 	/** Called on every change for one workspace; returns an unsubscribe. */
 	subscribe(workspaceId: string, listener: ListeningListener): () => void;
 	/**
@@ -194,11 +215,20 @@ export interface RegistryDeps {
 	pollIntervalMs?: number;
 }
 
+function isCodingAgentsFrame(frame: unknown): boolean {
+	return (
+		typeof frame === "object" &&
+		frame !== null &&
+		(frame as { type?: unknown }).type === CODING_AGENTS_FRAME
+	);
+}
+
 export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	const { db, config, logger } = deps;
 	const pollIntervalMs = deps.pollIntervalMs ?? POLL_INTERVAL_MS;
 	const entries = new Map<string, Entry>();
 	const listeners = new Map<string, Set<ListeningListener>>();
+	const codingAgentListeners = new Set<CodingAgentsListener>();
 	let poller: NodeJS.Timeout | null = null;
 	let stopped = false;
 	const pending = new Set<Promise<unknown>>();
@@ -244,6 +274,19 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		}
 	}
 
+	function notifyCodingAgents(
+		workspaceId: string,
+		terminals: AgentCodingAgentStatus[],
+	): void {
+		for (const listener of codingAgentListeners) {
+			try {
+				listener(workspaceId, terminals);
+			} catch (error) {
+				logger.error({ err: error, workspaceId }, "coding agents listener failed");
+			}
+		}
+	}
+
 	function connect(workspaceId: string, entry: Entry): void {
 		if (stopped || entry.closed) return;
 		const socket = new WebSocketClient(entry.client.listeningEventsUrl(), {
@@ -263,6 +306,29 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				parsed = JSON.parse(raw.toString());
 			} catch {
 				return; // A malformed frame from the container is ignored.
+			}
+			if (isCodingAgentsFrame(parsed)) {
+				const states = AgentCodingAgentsChanged.safeParse(parsed);
+				if (!states.success) {
+					// Field names only: the values come from the student's container.
+					logger.debug(
+						{
+							workspaceId,
+							fields: states.error.issues.map((issue) => issue.path.join(".")),
+						},
+						"coding agents frame rejected",
+					);
+					return;
+				}
+				// The agent resends the whole list on connect; only a change is news.
+				if (
+					JSON.stringify(states.data.terminals) === JSON.stringify(entry.codingAgents)
+				) {
+					return;
+				}
+				entry.codingAgents = states.data.terminals;
+				notifyCodingAgents(workspaceId, entry.codingAgents);
+				return;
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
 			// Over-long or invalid frames are dropped and the last list kept;
@@ -311,6 +377,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		probeGuard.forget(workspaceId);
 		// A stopped workspace has nothing listening, and the UI must be told.
 		notify(workspaceId, []);
+		notifyCodingAgents(workspaceId, []);
 		// A preview must stop working the moment its workspace leaves running
 		// (BROWSER-HANDLING.md §9.2). A shutdown is not that: the sessions
 		// outlive this process.
@@ -360,6 +427,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				timer: null,
 				attempts: 0,
 				services: [],
+				codingAgents: [],
 				opening: new Map(),
 				closed: false,
 			};
@@ -395,6 +463,17 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			};
 			entry.services = entry.services.map((one) => (one.port === port ? settled : one));
 			return settled;
+		},
+
+		codingAgents(workspaceId) {
+			return entries.get(workspaceId)?.codingAgents ?? [];
+		},
+
+		subscribeCodingAgents(listener) {
+			codingAgentListeners.add(listener);
+			return () => {
+				codingAgentListeners.delete(listener);
+			};
 		},
 
 		subscribe(workspaceId, listener) {
@@ -493,6 +572,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				drop(workspaceId, { revoke: false });
 			}
 			listeners.clear();
+			codingAgentListeners.clear();
 			while (pending.size > 0) await Promise.allSettled([...pending]);
 		},
 	};

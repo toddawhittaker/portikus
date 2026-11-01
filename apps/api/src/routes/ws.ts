@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
 import type { ServerDeps } from "../deps.js";
 import type { ListeningRegistry } from "../preview/registry.js";
+import { withProjects } from "../workspaces/coding-agents.js";
 import {
 	createPendingWork,
 	dropPresence,
@@ -90,6 +91,33 @@ export function registerWorkspaceSocket(
 		if (socket.readyState !== socket.OPEN) return;
 		const message: ServerMessage = { type: "listening-services", services };
 		socket.send(JSON.stringify(message));
+	}
+
+	/**
+	 * A function that sends the workspace's current agent states to one socket.
+	 * Sends are chained so a slow database read cannot deliver an older list
+	 * after a newer one, and each reads the list as it is when its turn comes.
+	 */
+	function codingAgentsSender(socket: WebSocket, workspaceId: string): () => void {
+		let chain = Promise.resolve();
+		return () => {
+			chain = chain.then(async () => {
+				try {
+					if (socket.readyState !== socket.OPEN) return;
+					const terminals = await withProjects(
+						db,
+						workspaceId,
+						registry.codingAgents(workspaceId),
+					);
+					if (socket.readyState !== socket.OPEN) return;
+					const message: ServerMessage = { type: "coding-agents", terminals };
+					socket.send(JSON.stringify(message));
+				} catch (error) {
+					logger.error({ err: error, workspaceId }, "coding agents send failed");
+				}
+			});
+			track(chain);
+		};
 	}
 
 	/** Each project's layout version, so a reconnecting browser catches up (SPEC.md §7.5). */
@@ -244,9 +272,19 @@ export function registerWorkspaceSocket(
 				let unsubscribe = (): void => {};
 				if (present) {
 					sendListening(socket, registry.services(workspaceId));
-					unsubscribe = registry.subscribe(workspaceId, (services) => {
+					const unsubscribeListening = registry.subscribe(workspaceId, (services) => {
 						sendListening(socket, services);
 					});
+					// Agent states go to the owner only, like the layout version.
+					const sendAgents = codingAgentsSender(socket, workspaceId);
+					sendAgents();
+					const unsubscribeAgents = registry.subscribeCodingAgents((changed) => {
+						if (changed === workspaceId) sendAgents();
+					});
+					unsubscribe = (): void => {
+						unsubscribeListening();
+						unsubscribeAgents();
+					};
 					// Join before reading, so a save in between is announced, not lost.
 					socket.once("close", workspaceHub.add(workspaceId, socket));
 					await sendLayoutVersions(socket, workspaceId);

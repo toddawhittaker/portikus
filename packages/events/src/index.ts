@@ -1,4 +1,10 @@
-import { AgentErrorCode, ListeningService, Workspace } from "@portikus/contracts";
+import {
+	AgentErrorCode,
+	CodingAgentTerminal,
+	ListeningService,
+	MAX_CODING_AGENT_TERMINALS,
+	Workspace,
+} from "@portikus/contracts";
 import { z } from "zod";
 
 /**
@@ -27,6 +33,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
 		type: z.literal("layout"),
 		projectId: z.string().uuid(),
 		version: z.number().int().nonnegative(),
+	}),
+	// The whole list of agent states for the workspace's terminals, resent on
+	// every change. Sent to the owner's sockets only.
+	z.object({
+		type: z.literal("coding-agents"),
+		terminals: z.array(CodingAgentTerminal).max(MAX_CODING_AGENT_TERMINALS),
 	}),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
