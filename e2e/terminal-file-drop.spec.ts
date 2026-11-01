@@ -8,6 +8,7 @@ import {
 	seedFile,
 	type TestStudent,
 	terminalIds,
+	toast,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -201,7 +202,7 @@ test.describe("file drop on a terminal", () => {
 			{ name: "bad\u001b[2Jname.png", content: "no" },
 		]);
 
-		await expect(page.getByText(/cannot be dropped/)).toBeVisible({ timeout: 15_000 });
+		await expect(toast(page, "cannot be dropped")).toBeVisible({ timeout: 15_000 });
 		await page.waitForTimeout(1000);
 		await expect(rows(page, terminalId)).not.toContainText(".portikus/pastes");
 		// Not even the fine file was saved.
@@ -221,7 +222,7 @@ test.describe("file drop on a terminal", () => {
 			{ name: "huge.bin", content: "x", size: 50 * 1024 * 1024 + 1 },
 		]);
 
-		await expect(page.getByText(/must be 50 MB or smaller/)).toBeVisible({
+		await expect(toast(page, "must be 50 MB or smaller")).toBeVisible({
 			timeout: 15_000,
 		});
 		await page.waitForTimeout(1000);
