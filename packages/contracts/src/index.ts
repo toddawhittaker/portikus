@@ -23,6 +23,7 @@ export * from "./browser.js";
 export * from "./certificate.js";
 export * from "./checks.js";
 export * from "./close-codes.js";
+export * from "./coding-agent-status.js";
 export * from "./controller.js";
 export * from "./courses.js";
 export * from "./csv.js";

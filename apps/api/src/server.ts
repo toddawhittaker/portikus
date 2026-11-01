@@ -44,6 +44,7 @@ import { registerAdminProxyHostRoutes } from "./routes/admin-proxy-hosts.js";
 import { registerAdminRootShellRoutes } from "./routes/admin-root-shell.js";
 import { registerAdminSigninRoutes } from "./routes/admin-signin.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
+import { registerAgentMeterRoutes } from "./routes/agent-meter.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCheckRoutes } from "./routes/checks.js";
@@ -301,6 +302,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerGitSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
 		registerUsageRoutes(instance, deps);
+		registerAgentMeterRoutes(instance, deps);
 		registerProcessRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerLanguageServerSocket(instance, deps);

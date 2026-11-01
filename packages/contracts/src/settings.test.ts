@@ -350,6 +350,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 		timezone: "America/New_York",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 });
 
@@ -456,6 +457,19 @@ test("screen-reader mode defaults to off and takes only a boolean", () => {
 	).toBe(true);
 	expect(
 		UpdateEditorSettingsRequest.safeParse({ screenReaderMode: "on" }).success,
+	).toBe(false);
+});
+
+/** Desktop notifications ask first, and the student's answer is on or off. */
+test("agent notifications default to ask and take ask, on or off", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.agentNotifications).toBe("ask");
+	for (const value of ["ask", "on", "off"]) {
+		expect(
+			UpdateEditorSettingsRequest.safeParse({ agentNotifications: value }).success,
+		).toBe(true);
+	}
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ agentNotifications: true }).success,
 	).toBe(false);
 });
 
