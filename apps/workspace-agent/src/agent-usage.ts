@@ -315,12 +315,17 @@ export const CLAUDE_LIMITS_PATH = "/claude-limits";
 /** Largest hook or status-line body taken; a real one is under 200 bytes. */
 export const MAX_SIGNAL_BODY_BYTES = 4 * 1024;
 
+/** How far ahead of this agent's clock a hook's time may be; both share the container's clock. */
+const MAX_HOOK_CLOCK_AHEAD_MS = 60_000;
+
 /** A hook's report: the terminal, the agent, and a state word or "clear". */
 const CodingAgentStatePost = z
 	.object({
 		terminal: TerminalId,
 		agent: CodingAgent,
 		state: z.union([CodingAgentState, z.literal("clear")]),
+		/** When the hook fired, in microseconds since the epoch (a safe integer, unlike nanoseconds); orders late posts. */
+		at: z.number().int().positive(),
 	})
 	.strict();
 
@@ -397,9 +402,12 @@ export function buildAgentUsageReceiver(
 		async (request, reply) => {
 			const parsed = CodingAgentStatePost.safeParse(request.body);
 			if (!parsed.success) return reply.code(400).send({});
-			const { terminal, agent, state } = parsed.data;
-			if (state === "clear") signals.board.remove(terminal);
-			else signals.board.set(terminal, agent, state);
+			const { terminal, agent, state, at } = parsed.data;
+			if (at > (now().getTime() + MAX_HOOK_CLOCK_AHEAD_MS) * 1000) {
+				return reply.code(400).send({});
+			}
+			if (state === "clear") signals.board.clear(terminal, at);
+			else signals.board.set(terminal, agent, state, at);
 			return reply.code(204).send();
 		},
 	);

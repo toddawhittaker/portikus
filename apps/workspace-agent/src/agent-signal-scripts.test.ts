@@ -86,16 +86,21 @@ test("a hook posts only the terminal id, the agent and the state", async () => {
 	);
 	expect(code).toBe(0);
 	expect(stdout).toBe("");
-	expect(received).toEqual([
-		{
-			path: "/coding-agent-state",
-			body: JSON.stringify({
-				terminal: TERMINAL_ID,
-				agent: "claude",
-				state: "needs-input",
-			}),
-		},
-	]);
+	expect(received).toHaveLength(1);
+	expect(received[0]?.path).toBe("/coding-agent-state");
+	const body = received[0]?.body ?? "";
+	const at = /"at":(\d+)}$/.exec(body)?.[1] ?? "";
+	expect(body).toBe(
+		JSON.stringify({
+			terminal: TERMINAL_ID,
+			agent: "claude",
+			state: "needs-input",
+		}).replace(/}$/, `,"at":${at}}`),
+	);
+	// Microseconds since the epoch, taken when the hook ran.
+	const atMs = Number(BigInt(at) / 1000n);
+	expect(atMs).toBeGreaterThan(Date.now() - 10_000);
+	expect(atMs).toBeLessThanOrEqual(Date.now());
 });
 
 test("a hook reads its whole input, so the agent's write never fails", async () => {

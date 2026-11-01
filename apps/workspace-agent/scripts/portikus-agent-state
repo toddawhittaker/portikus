@@ -5,6 +5,8 @@
 # unread (ADR 0012). It never blocks or fails the agent: one second at most,
 # and the exit status is always 0.
 
+# Taken first: hooks run in the background, so posts can arrive out of order.
+at=$(date +%s%6N)
 cat >/dev/null
 
 # PORTIKUS_TERMINAL is pk-<terminal id>, set in every Portikus terminal.
@@ -13,10 +15,10 @@ agent=${1:-}
 state=${2:-}
 # Only plain words go into the body; the receiver checks the rest.
 [[ $PORTIKUS_TERMINAL == pk-* && $id =~ ^[0-9a-f-]+$ ]] || exit 0
-[[ $agent =~ ^[a-z]+$ && $state =~ ^[a-z-]+$ ]] || exit 0
+[[ $agent =~ ^[a-z]+$ && $state =~ ^[a-z-]+$ && $at =~ ^[0-9]+$ ]] || exit 0
 
 curl --silent --output /dev/null --max-time 1 \
 	--header 'content-type: application/json' \
-	--data "{\"terminal\":\"$id\",\"agent\":\"$agent\",\"state\":\"$state\"}" \
+	--data "{\"terminal\":\"$id\",\"agent\":\"$agent\",\"state\":\"$state\",\"at\":$at}" \
 	"${PORTIKUS_AGENT_RECEIVER:-http://127.0.0.1:7401}/coding-agent-state" || true
 exit 0

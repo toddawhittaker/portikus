@@ -142,7 +142,7 @@ test("an open events socket keeps the timer scanning", async () => {
 });
 
 test("the events socket sends coding-agent states on connect and on each change", async () => {
-	board.set(AGENT_TERMINAL, "claude", "working");
+	board.set(AGENT_TERMINAL, "claude", "working", 1);
 	const ws = new WebSocket(`ws://127.0.0.1:${port}/listening/events`, {
 		headers: auth(),
 	} as unknown as string[]);
@@ -156,7 +156,7 @@ test("the events socket sends coding-agent states on connect and on each change"
 		expect(AgentCodingAgentsChanged.parse(frames[0]).terminals).toEqual([
 			expect.objectContaining({ terminalId: AGENT_TERMINAL, state: "working" }),
 		]);
-		board.set(AGENT_TERMINAL, "claude", "needs-input");
+		board.set(AGENT_TERMINAL, "claude", "needs-input", 2);
 		await vi.waitFor(() => expect(frames).toHaveLength(2));
 		expect(AgentCodingAgentsChanged.parse(frames[1]).terminals).toEqual([
 			expect.objectContaining({ terminalId: AGENT_TERMINAL, state: "needs-input" }),

@@ -17,6 +17,8 @@ import { CodingAgentBoard } from "./coding-agent-status.js";
 
 const NOW = new Date("2027-01-15T07:00:00.000Z");
 const ID = "4f7d2a8e-3b1c-4d5e-9f60-718293a4b5c6";
+/** NOW in microseconds, as the hook script sends it. */
+const AT = NOW.getTime() * 1000;
 
 function terminalId(n: number): string {
 	return `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
@@ -28,9 +30,9 @@ describe("CodingAgentBoard", () => {
 		const board = new CodingAgentBoard({ now: () => now });
 		const seen = vi.fn();
 		board.subscribe(seen);
-		board.set(ID, "claude", "working");
+		board.set(ID, "claude", "working", 1);
 		now = new Date(NOW.getTime() + 1000);
-		board.set(ID, "claude", "needs-input");
+		board.set(ID, "claude", "needs-input", 2);
 		expect(board.current()).toEqual([
 			{
 				terminalId: ID,
@@ -45,18 +47,18 @@ describe("CodingAgentBoard", () => {
 	test("a repeated state keeps its time and is not announced", () => {
 		let now = NOW;
 		const board = new CodingAgentBoard({ now: () => now });
-		board.set(ID, "codex", "working");
+		board.set(ID, "codex", "working", 1);
 		const seen = vi.fn();
 		board.subscribe(seen);
 		now = new Date(NOW.getTime() + 5000);
-		board.set(ID, "codex", "working");
+		board.set(ID, "codex", "working", 2);
 		expect(seen).not.toHaveBeenCalled();
 		expect(board.current()[0]?.since).toBe(NOW.toISOString());
 	});
 
 	test("remove forgets a terminal; removing an unknown one says nothing", () => {
 		const board = new CodingAgentBoard();
-		board.set(ID, "claude", "finished");
+		board.set(ID, "claude", "finished", 1);
 		const seen = vi.fn();
 		board.subscribe(seen);
 		board.remove(terminalId(1));
@@ -69,7 +71,7 @@ describe("CodingAgentBoard", () => {
 	test("past the cap the oldest terminal goes", () => {
 		const board = new CodingAgentBoard();
 		for (let n = 0; n <= MAX_CODING_AGENT_TERMINALS; n++) {
-			board.set(terminalId(n), "claude", "working");
+			board.set(terminalId(n), "claude", "working", 1);
 		}
 		const ids = board.current().map((t) => t.terminalId);
 		expect(ids).toHaveLength(MAX_CODING_AGENT_TERMINALS);
@@ -77,11 +79,40 @@ describe("CodingAgentBoard", () => {
 		expect(ids).toContain(terminalId(MAX_CODING_AGENT_TERMINALS));
 	});
 
+	test("a late post older than the current state is ignored", () => {
+		const board = new CodingAgentBoard();
+		// Stop fired after PostToolUse, but its post arrived first.
+		board.set(ID, "claude", "finished", 20);
+		board.set(ID, "claude", "working", 10);
+		expect(board.current()).toEqual([expect.objectContaining({ state: "finished" })]);
+	});
+
+	test("an old clear is ignored, and a clear keeps out older posts", () => {
+		const board = new CodingAgentBoard();
+		board.set(ID, "claude", "working", 20);
+		board.clear(ID, 10);
+		expect(board.current()).toEqual([expect.objectContaining({ state: "working" })]);
+		board.clear(ID, 30);
+		expect(board.current()).toEqual([]);
+		board.set(ID, "claude", "finished", 25);
+		expect(board.current()).toEqual([]);
+		board.set(ID, "claude", "working", 40);
+		expect(board.current()).toEqual([expect.objectContaining({ state: "working" })]);
+	});
+
+	test("a closed terminal's times are forgotten", () => {
+		const board = new CodingAgentBoard();
+		board.set(ID, "claude", "working", 20);
+		board.remove(ID);
+		board.set(ID, "codex", "working", 5);
+		expect(board.current()).toEqual([expect.objectContaining({ agent: "codex" })]);
+	});
+
 	test("an unsubscribed listener hears nothing more", () => {
 		const board = new CodingAgentBoard();
 		const seen = vi.fn();
 		board.subscribe(seen)();
-		board.set(ID, "claude", "working");
+		board.set(ID, "claude", "working", 1);
 		expect(seen).not.toHaveBeenCalled();
 	});
 });
@@ -111,6 +142,7 @@ describe("the state route", () => {
 			terminal: ID,
 			agent: "codex",
 			state: "working",
+			at: AT,
 		});
 		expect(set.statusCode).toBe(204);
 		expect(board.current()).toEqual([
@@ -120,6 +152,7 @@ describe("the state route", () => {
 			terminal: ID,
 			agent: "codex",
 			state: "clear",
+			at: AT + 1000,
 		});
 		expect(clear.statusCode).toBe(204);
 		expect(board.current()).toEqual([]);
@@ -128,13 +161,22 @@ describe("the state route", () => {
 	test.each([
 		[
 			"a terminal that is not a uuid",
-			{ terminal: `pk-${ID}`, agent: "claude", state: "working" },
+			{ terminal: `pk-${ID}`, agent: "claude", state: "working", at: AT },
 		],
-		["an unknown agent", { terminal: ID, agent: "gemini", state: "working" }],
-		["an unknown state", { terminal: ID, agent: "claude", state: "thinking" }],
+		["an unknown agent", { terminal: ID, agent: "gemini", state: "working", at: AT }],
+		["an unknown state", { terminal: ID, agent: "claude", state: "thinking", at: AT }],
 		[
 			"an extra field",
-			{ terminal: ID, agent: "claude", state: "working", prompt: "x" },
+			{ terminal: ID, agent: "claude", state: "working", at: AT, prompt: "x" },
+		],
+		["no time", { terminal: ID, agent: "claude", state: "working" }],
+		[
+			"a time that is not an integer",
+			{ terminal: ID, agent: "claude", state: "working", at: "1" },
+		],
+		[
+			"a time over a minute ahead",
+			{ terminal: ID, agent: "claude", state: "working", at: AT + 61_000 * 1000 },
 		],
 		["no body fields", {}],
 	])("%s is refused", async (_name, body) => {
@@ -148,7 +190,7 @@ describe("the state route", () => {
 		const { board, post } = receiver();
 		const response = await post(
 			CODING_AGENT_STATE_PATH,
-			JSON.stringify({ terminal: ID, agent: "claude", state: "working" }) +
+			JSON.stringify({ terminal: ID, agent: "claude", state: "working", at: AT }) +
 				" ".repeat(MAX_SIGNAL_BODY_BYTES),
 		);
 		expect(response.statusCode).toBe(413);

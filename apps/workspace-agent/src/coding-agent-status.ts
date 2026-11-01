@@ -22,6 +22,12 @@ export class CodingAgentBoard {
 	/** Insertion order is age, so the oldest entry goes first past the cap. */
 	private readonly entries = new Map<string, AgentCodingAgentStatus>();
 	private readonly listeners = new Set<Listener>();
+	/**
+	 * When each terminal's latest accepted hook fired, kept after a clear so a
+	 * late post from before it cannot bring the entry back. Hooks run in the
+	 * background, so their posts can arrive out of order.
+	 */
+	private readonly firedAt = new Map<string, number>();
 
 	constructor(options: CodingAgentBoardOptions = {}) {
 		this.now = options.now ?? (() => new Date());
@@ -31,8 +37,18 @@ export class CodingAgentBoard {
 		return [...this.entries.values()].map((entry) => ({ ...entry }));
 	}
 
-	/** Record a state; a repeat of the current one keeps its time and tells no one. */
-	set(terminalId: string, agent: CodingAgent, state: CodingAgentState): void {
+	/**
+	 * Record a state that a hook reported at `at`. A post older than the last
+	 * accepted one is ignored; a repeat of the current state keeps its time
+	 * and tells no one.
+	 */
+	set(
+		terminalId: string,
+		agent: CodingAgent,
+		state: CodingAgentState,
+		at: number,
+	): void {
+		if (!this.accept(terminalId, at)) return;
 		const existing = this.entries.get(terminalId);
 		if (existing?.agent === agent && existing.state === state) return;
 		this.entries.delete(terminalId);
@@ -50,9 +66,30 @@ export class CodingAgentBoard {
 		this.changed();
 	}
 
-	/** Forget a terminal, when its agent ends or the terminal closes. */
-	remove(terminalId: string): void {
+	/** The agent ended; ignored when older than the last accepted post. */
+	clear(terminalId: string, at: number): void {
+		if (!this.accept(terminalId, at)) return;
 		if (this.entries.delete(terminalId)) this.changed();
+	}
+
+	/** Forget a terminal entirely, when it closes. */
+	remove(terminalId: string): void {
+		this.firedAt.delete(terminalId);
+		if (this.entries.delete(terminalId)) this.changed();
+	}
+
+	private accept(terminalId: string, at: number): boolean {
+		const last = this.firedAt.get(terminalId);
+		if (last !== undefined && at < last) return false;
+		this.firedAt.delete(terminalId);
+		this.firedAt.set(terminalId, at);
+		// Cleared terminals leave a time behind; keep that bounded too.
+		while (this.firedAt.size > 2 * MAX_CODING_AGENT_TERMINALS) {
+			const oldest = this.firedAt.keys().next().value;
+			if (oldest === undefined) break;
+			this.firedAt.delete(oldest);
+		}
+		return true;
 	}
 
 	subscribe(listener: Listener): () => void {
