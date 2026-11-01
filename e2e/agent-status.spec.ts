@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
@@ -6,6 +6,7 @@ import {
 	expectNoViolations,
 	terminalIds,
 	toast,
+	WEB_ORIGIN,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -218,3 +219,92 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 	});
 }
+
+/** The setting the account has saved for desktop notifications. */
+async function savedChoice(page: Page): Promise<string> {
+	const response = await page.request.get("/me/settings");
+	return ((await response.json()) as { agentNotifications: string }).agentNotifications;
+}
+
+/** A page with an agent tab out of sight, ready for an alert. */
+async function readyForAlert(page: Page, context: BrowserContext) {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Offer" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	const { agent } = await openAgentAndShell(page, student.workspaceId, project.id);
+	return { student, agent };
+}
+
+test.describe("the desktop notification offer", () => {
+	test.describe.configure({ timeout: 90_000 });
+
+	test("Turn on saves on, and later alert toasts time out on their own", async ({
+		page,
+		context,
+	}) => {
+		await context.grantPermissions(["notifications"], { origin: WEB_ORIGIN });
+		// Headless Chromium reports "denied" for the property even when granted, so
+		// show an undecided browser; the click's request is answered by the grant.
+		await page.addInitScript(() => {
+			Object.defineProperty(Notification, "permission", { get: () => "default" });
+		});
+		const { student, agent } = await readyForAlert(page, context);
+		expect(await savedChoice(page)).toBe("ask");
+
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "needs-input" },
+		]);
+		const first = toast(page, "Claude Code needs your input");
+		await expect(
+			first.getByRole("button", { name: "Turn on desktop notifications" }),
+		).toBeVisible();
+		await expect(first.getByRole("button", { name: "No thanks" })).toBeVisible();
+		await expectNoViolations(page, ".pk-toast");
+		// It waits for an answer.
+		await page.waitForTimeout(6000);
+		await expect(first).toBeVisible();
+
+		await first.getByRole("button", { name: "Turn on desktop notifications" }).click();
+		await expect.poll(() => savedChoice(page)).toBe("on");
+
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "finished" },
+		]);
+		const second = toast(page, "Claude Code finished");
+		await expect(second).toBeVisible();
+		await expect(second.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
+		await expect(second.getByRole("button", { name: "No thanks" })).toHaveCount(0);
+		await expect(second).toBeHidden({ timeout: 10_000 });
+	});
+
+	test("No thanks saves off in a browser that has not decided", async ({
+		page,
+		context,
+	}) => {
+		await page.addInitScript(() => {
+			Object.defineProperty(Notification, "permission", { get: () => "default" });
+		});
+		const { student, agent } = await readyForAlert(page, context);
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "finished" },
+		]);
+		const first = toast(page, "Claude Code finished");
+		await first.getByRole("button", { name: "No thanks" }).focus();
+		await page.keyboard.press("Enter");
+		await expect.poll(() => savedChoice(page)).toBe("off");
+		await expect(first.getByRole("button", { name: "No thanks" })).toHaveCount(0);
+	});
+
+	test("an alert toast without the offer times out", async ({ page, context }) => {
+		// Headless Chromium blocks notifications, so there is nothing to offer.
+		const { student, agent } = await readyForAlert(page, context);
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "needs-input" },
+		]);
+		const message = toast(page, "Claude Code needs your input");
+		await expect(message).toBeVisible();
+		await expect(message.getByRole("button", { name: "No thanks" })).toHaveCount(0);
+		await expect(message).toBeHidden({ timeout: 10_000 });
+	});
+});

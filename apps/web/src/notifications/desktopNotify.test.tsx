@@ -3,13 +3,15 @@ import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetStubs, stubSettings } from "../settings/test-data.js";
 import { renderWithQuery } from "../test-utils.js";
-import { notifyAgentAlert, PermissionOffer } from "./desktopNotify.js";
+import {
+	notifyAgentAlert,
+	OPEN_PROJECT_EVENT,
+	type OpenProject,
+	PermissionOffer,
+} from "./desktopNotify.js";
 
 // SPEC.md section 25.8: desktop notifications are opt-in and name no project.
 const navigate = vi.fn();
-vi.mock("../router.js", () => ({
-	router: { navigate: (arg: unknown) => navigate(arg) },
-}));
 
 const ALERT = {
 	agent: "claude",
@@ -121,15 +123,13 @@ test("clicking it focuses the window and opens that project", async () => {
 	notifyAgentAlert(ALERT);
 	await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
 	const [shown] = FakeNotification.shown;
+	const heard = (event: Event) => navigate((event as CustomEvent<OpenProject>).detail);
+	window.addEventListener(OPEN_PROJECT_EVENT, heard);
 	shown?.onclick?.();
+	window.removeEventListener(OPEN_PROJECT_EVENT, heard);
 	expect(focus).toHaveBeenCalled();
 	expect(shown?.close).toHaveBeenCalled();
-	await waitFor(() =>
-		expect(navigate).toHaveBeenCalledWith({
-			to: "/workspaces/$id/projects/$projectId",
-			params: { id: "w1", projectId: "p1" },
-		}),
-	);
+	expect(navigate).toHaveBeenCalledWith({ workspaceId: "w1", projectId: "p1" });
 });
 
 test("the offer asks the browser only when Turn on is clicked, then saves on", async () => {
