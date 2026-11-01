@@ -149,6 +149,18 @@ async function setAgents(terminals: unknown[]): Promise<void> {
 	expect(response.status).toBe(204);
 }
 
+async function holdFirstFrame(hold: boolean): Promise<void> {
+	const response = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/coding-agents-hold`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ key: workspaceId, hold }),
+		},
+	);
+	expect(response.status).toBe(204);
+}
+
 async function until(check: () => boolean, attempts = 200): Promise<void> {
 	for (let i = 0; i < attempts && !check(); i++) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
@@ -236,11 +248,28 @@ function stateAt(i: number): unknown {
 test.skipIf(skip)(
 	"a socket opened before the agent's first frame is never sent an empty baseline",
 	async () => {
+		// Start the registry's connection over with the agent's first frame held
+		// back, as after an API restart.
+		const setState = (state: string) =>
+			testDb.db
+				.updateTable("workspaces")
+				.set({ state: state as "running" })
+				.where("id", "=", workspaceId)
+				.execute();
+		await setState("stopped");
+		await sleep(400);
+		await holdFirstFrame(true);
 		await setAgents([stateAt(0)]);
+		await setState("running");
+		await sleep(400);
+
 		const owner = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await sleep(400);
+		expect(agentsMessages(owner)).toEqual([]);
+
+		await holdFirstFrame(false);
 		await until(() => agentsMessages(owner).length > 0);
-		// Whichever of the connect and the first frame came first, the browser's
-		// first list is the agent's real one.
+		// The browser's first list is the agent's real one, never an empty baseline.
 		expect(agentsMessages(owner)[0]?.terminals).toHaveLength(1);
 		await owner.close();
 	},
