@@ -29,6 +29,7 @@ export {
 } from "./menu";
 export { PaneHandle, type PaneHandleProps } from "./pane-handle";
 export {
+	AgentStateMark,
 	type TabItem,
 	Tabs,
 	TabsContent,

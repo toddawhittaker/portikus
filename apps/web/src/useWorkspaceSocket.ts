@@ -1,4 +1,9 @@
-import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
+import {
+	CloseCode,
+	type CodingAgentTerminal,
+	type ListeningService,
+	type Workspace,
+} from "@portikus/contracts";
 import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionEnded } from "./api/sessionEnded.js";
@@ -17,6 +22,13 @@ function socketUrl(workspaceId: string): string {
 	return wsUrl(`/workspaces/${workspaceId}/ws`);
 }
 
+/** One `coding-agents` message: the whole list, and whether it is the connection's first. */
+export interface CodingAgentsUpdate {
+	terminals: CodingAgentTerminal[];
+	/** The first list on this connection, which is a baseline and not news. */
+	initial: boolean;
+}
+
 export interface WorkspaceSocket {
 	/** The last `workspace` message the server sent, or null before the first. */
 	workspace: Workspace | null;
@@ -25,6 +37,8 @@ export interface WorkspaceSocket {
 	 * `listening-services` message, or null before the first (SPEC.md §18.2).
 	 */
 	listening: ListeningService[] | null;
+	/** The last `coding-agents` message, or null before the first. */
+	codingAgents: CodingAgentsUpdate | null;
 	/** Drop the socket and connect again now, without waiting for the backoff. */
 	reconnect: () => void;
 	/** Report activity now, as Keep working does (ADR 0032). */
@@ -39,6 +53,7 @@ export interface WorkspaceSocket {
 export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [listening, setListening] = useState<ListeningService[] | null>(null);
+	const [codingAgents, setCodingAgents] = useState<CodingAgentsUpdate | null>(null);
 	const [attempt, setAttempt] = useState(0);
 
 	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
@@ -76,6 +91,7 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 		if (!workspaceId) {
 			setWorkspace(null);
 			setListening(null);
+			setCodingAgents(null);
 			return;
 		}
 
@@ -91,6 +107,7 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 			socket = next;
 			current.current = next;
 			let opened = false;
+			let gotAgents = false;
 
 			next.onopen = () => {
 				opened = true;
@@ -114,6 +131,10 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 				const message = parsed.data;
 				if (message.type === "workspace") setWorkspace(message.workspace);
 				if (message.type === "listening-services") setListening(message.services);
+				if (message.type === "coding-agents") {
+					setCodingAgents({ terminals: message.terminals, initial: !gotAgents });
+					gotAgents = true;
+				}
 				if (message.type === "layout") {
 					announceLayout(id, message.projectId, message.version);
 				}
@@ -159,5 +180,5 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 		};
 	}, [workspaceId, attempt]);
 
-	return { workspace, listening, reconnect, sendActivity };
+	return { workspace, listening, codingAgents, reconnect, sendActivity };
 }

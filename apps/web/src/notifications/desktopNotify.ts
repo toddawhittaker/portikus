@@ -12,6 +12,13 @@ export interface AgentAlert {
 	terminalId: string;
 }
 
+/** Sent when a notification is clicked; the workspace page navigates, so this file need not import the router. */
+export const OPEN_PROJECT_EVENT = "portikus:open-project";
+export interface OpenProject {
+	workspaceId: string;
+	projectId: string;
+}
+
 const AGENT_NAME = { claude: "Claude Code", codex: "Codex" } as const;
 const STATE_TEXT = { "needs-input": "needs your input", finished: "finished" } as const;
 
@@ -41,11 +48,9 @@ function show({ agent, state, workspaceId, projectId, terminalId }: AgentAlert):
 	note.onclick = () => {
 		window.focus();
 		note.close();
-		// Loaded on click: the router imports the pages that import this file.
-		void import("../router.js").then(({ router }) =>
-			router.navigate({
-				to: "/workspaces/$id/projects/$projectId",
-				params: { id: workspaceId, projectId },
+		window.dispatchEvent(
+			new CustomEvent<OpenProject>(OPEN_PROJECT_EVENT, {
+				detail: { workspaceId, projectId },
 			}),
 		);
 	};

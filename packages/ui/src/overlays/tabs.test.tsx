@@ -312,3 +312,46 @@ describe("Tabs", () => {
 		expect(screen.queryByRole("menu")).toBeNull();
 	});
 });
+
+describe("agent state", () => {
+	it("is part of the tab's accessible name, with its own glyph", () => {
+		renderTabs({
+			tabs: [
+				{
+					id: "a",
+					kind: "claude",
+					label: "Claude Code",
+					agentState: "working",
+					testId: "tab-a",
+				},
+				{
+					id: "b",
+					kind: "codex",
+					label: "Codex",
+					agentState: "needs-input",
+					unread: true,
+					testId: "tab-b",
+				},
+				{
+					id: "c",
+					kind: "claude",
+					label: "Claude Code",
+					agentState: "finished",
+					unread: true,
+				},
+				{ id: "d", kind: "terminal", label: "zsh" },
+			],
+			activeId: "d",
+		});
+		expect(screen.getByRole("tab", { name: "Claude Code (working)" })).toBeTruthy();
+		expect(screen.getByRole("tab", { name: "Codex (needs input)" })).toBeTruthy();
+		expect(
+			screen.getByRole("tab", { name: "Claude Code (finished, unread)" }),
+		).toBeTruthy();
+		expect(screen.getByRole("tab", { name: "zsh" })).toBeTruthy();
+		expect(screen.getByTestId("tab-a-agent").getAttribute("data-agent-state")).toBe(
+			"working",
+		);
+		expect(screen.getByTestId("tab-b").className).toContain("pk-tab--unread");
+	});
+});
