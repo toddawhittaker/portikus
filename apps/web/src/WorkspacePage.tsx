@@ -73,10 +73,23 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 }
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {
-	const { workspace, listening, codingAgents, reconnect, sendActivity } =
-		useWorkspaceSocket(workspaceId);
 	// Held here so unread marks survive switching projects.
 	const [agentStatus] = useState(() => createAgentStatusStore());
+	const workRef = useRef<HTMLElement>(null);
+	// The project route is a child of this one, so its parameter may be absent.
+	const { projectId } = useParams({ strict: false }) as { projectId?: string };
+	const projects = useProjects(workspaceId, "active");
+	const handleCodingAgents = useCodingAgentAlerts(
+		agentStatus,
+		workspaceId,
+		projectId,
+		projects.data,
+		workRef,
+	);
+	const { workspace, listening, reconnect, sendActivity } = useWorkspaceSocket(
+		workspaceId,
+		handleCodingAgents,
+	);
 	useEffect(() => {
 		const refresh = () => agentStatus.refresh();
 		window.addEventListener("focus", refresh);
@@ -93,19 +106,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const idleStopReason = useIdleStopReason(workspace);
 	// The status bar, the error screen and the throttle notice all open this dialog.
 	const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialogMode>("closed");
-	const workRef = useRef<HTMLElement>(null);
-	// The project route is a child of this one, so its parameter may be absent.
-	const { projectId } = useParams({ strict: false }) as { projectId?: string };
-	const projects = useProjects(workspaceId, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
 	usePageTitle(project?.name ?? "");
-	useCodingAgentAlerts(
-		agentStatus,
-		codingAgents,
-		workspaceId,
-		projectId,
-		projects.data,
-	);
 	const running = workspace?.state === "running";
 	const { starter } = useSearch({ from: "/workspaces/$id" });
 	// A stop ends the terminals, so the next start is not an upgrade (SPEC.md §22.5).

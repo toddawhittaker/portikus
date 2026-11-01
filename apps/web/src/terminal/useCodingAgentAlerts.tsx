@@ -1,19 +1,14 @@
 import type { Project } from "@portikus/contracts";
 import { Button, useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useRef } from "react";
 import { useEditorSettings } from "../editor/settingsQueries.js";
-import {
-	notifyAgentAlert,
-	OPEN_PROJECT_EVENT,
-	type OpenProject,
-	PermissionOffer,
-} from "../notifications/desktopNotify.js";
+import { notifyAgentAlert, PermissionOffer } from "../notifications/desktopNotify.js";
 import {
 	desktopPermission,
 	desktopSupported,
 } from "../notifications/desktopSupport.js";
-import type { CodingAgentsUpdate } from "../useWorkspaceSocket.js";
+import type { CodingAgentsHandler } from "../useWorkspaceSocket.js";
 import {
 	type AgentAlert,
 	type AgentStatusStore,
@@ -21,17 +16,17 @@ import {
 } from "./codingAgentStatus.js";
 
 /**
- * Feeds each `coding-agents` list to the store, and for every alert it raises
- * shows a toast and asks for a desktop notification. Agent toasts stay out of
- * the notification history (SPEC.md §8.5).
+ * Returns the handler for each `coding-agents` list: it feeds the list to the
+ * store, and for every alert it raises shows a toast and asks for a desktop
+ * notification. Agent toasts stay out of the notification history (SPEC.md §8.5).
  */
 export function useCodingAgentAlerts(
 	store: AgentStatusStore,
-	update: CodingAgentsUpdate | null,
 	workspaceId: string,
 	currentProjectId: string | undefined,
 	projects: readonly Project[] | undefined,
-): void {
+	work: RefObject<HTMLElement | null>,
+): CodingAgentsHandler {
 	const toast = useToast();
 	const asking = useEditorSettings().data?.agentNotifications === "ask";
 	const navigate = useNavigate();
@@ -39,82 +34,101 @@ export function useCodingAgentAlerts(
 	const latest = useRef({ currentProjectId, projects, toast, navigate, asking });
 	latest.current = { currentProjectId, projects, toast, navigate, asking };
 	const shown = useRef(new Map<string, () => void>());
-	// Only the first agent toast on a page load carries the notification offer.
+	// The offer is made once per page load, and counts as made only when it is
+	// answered or dismissed, so a newer toast that replaces it carries it on.
 	const offered = useRef(false);
+	// The terminal whose toast carries the offer now, so two toasts never both do.
+	const offerOn = useRef<string | null>(null);
 
-	// A clicked desktop notification opens its project.
-	useEffect(() => {
-		function open(event: Event) {
-			const { workspaceId: id, projectId } = (event as CustomEvent<OpenProject>).detail;
-			void latest.current.navigate({
-				to: "/workspaces/$id/projects/$projectId",
-				params: { id, projectId },
-			});
-		}
-		window.addEventListener(OPEN_PROJECT_EVENT, open);
-		return () => window.removeEventListener(OPEN_PROJECT_EVENT, open);
+	const removeToast = useCallback((terminalId: string) => {
+		shown.current.get(terminalId)?.();
+		shown.current.delete(terminalId);
+		if (offerOn.current === terminalId) offerOn.current = null;
 	}, []);
 
-	useEffect(() => {
-		const remove = shown.current;
-		return store.onSeen((ids) => {
-			for (const id of ids) remove.get(id)?.();
-		});
-	}, [store]);
+	useEffect(
+		() =>
+			store.onSeen((ids) => {
+				for (const id of ids) removeToast(id);
+			}),
+		[store, removeToast],
+	);
 
-	useEffect(() => {
-		if (!update) return;
-		for (const alert of store.update(update.terminals, update.initial)) {
-			raise(alert);
-		}
+	return useCallback(
+		(terminals, initial) => {
+			for (const alert of store.update(terminals, initial)) raise(alert);
 
-		function raise(alert: AgentAlert) {
-			const { currentProjectId, projects, toast, navigate, asking } = latest.current;
-			// A newer alert for the same terminal replaces the older toast.
-			shown.current.get(alert.terminalId)?.();
-			const elsewhere = alert.projectId !== currentProjectId;
-			// Only a toast whose offer will show waits for an answer; the rest time out.
-			const offer =
-				!offered.current &&
-				asking &&
-				desktopSupported() &&
-				desktopPermission() !== "denied";
-			if (offer) offered.current = true;
-			const name = projects?.find((project) => project.id === alert.projectId)?.name;
-			const remove = toast.show({
-				title: alertTitle(alert.agent, alert.state),
-				children: elsewhere && name ? `In ${name}` : undefined,
-				unrecorded: true,
-				persistent: offer,
-				actions:
-					elsewhere || offer ? (
-						<>
-							{elsewhere ? (
-								<Button
-									size="sm"
-									onClick={() => {
-										shown.current.get(alert.terminalId)?.();
-										void navigate({
-											to: "/workspaces/$id/projects/$projectId",
-											params: { id: workspaceId, projectId: alert.projectId },
-										});
-									}}
-								>
-									Open project
-								</Button>
-							) : null}
-							{offer ? <PermissionOffer /> : null}
-						</>
-					) : undefined,
-			});
-			shown.current.set(alert.terminalId, remove);
-			notifyAgentAlert({
-				agent: alert.agent,
-				state: alert.state,
-				workspaceId,
-				projectId: alert.projectId,
-				terminalId: alert.terminalId,
-			});
-		}
-	}, [update, store, workspaceId]);
+			// Focus follows the student's choice into the work area, not back to the page.
+			async function openProject(projectId: string) {
+				await latest.current.navigate({
+					to: "/workspaces/$id/projects/$projectId",
+					params: { id: workspaceId, projectId },
+				});
+				work.current?.focus();
+			}
+
+			function afterOffer() {
+				const tab = work.current?.querySelector<HTMLElement>(
+					'[role="tab"][aria-selected="true"]',
+				);
+				(tab ?? work.current)?.focus();
+			}
+
+			function raise(alert: AgentAlert) {
+				const { currentProjectId, projects, toast, asking } = latest.current;
+				// A newer alert for the same terminal replaces the older toast.
+				removeToast(alert.terminalId);
+				const elsewhere = alert.projectId !== currentProjectId;
+				// Only a toast whose offer will show waits for an answer; the rest time out.
+				const offer =
+					!offered.current &&
+					offerOn.current === null &&
+					asking &&
+					desktopSupported() &&
+					desktopPermission() !== "denied";
+				if (offer) offerOn.current = alert.terminalId;
+				const name = projects?.find((project) => project.id === alert.projectId)?.name;
+				const remove = toast.show({
+					title: alertTitle(alert.agent, alert.state),
+					children: elsewhere && name ? `In ${name}` : undefined,
+					unrecorded: true,
+					persistent: offer,
+					onDismiss: offer
+						? () => {
+								offered.current = true;
+								if (offerOn.current === alert.terminalId) offerOn.current = null;
+							}
+						: undefined,
+					actions:
+						elsewhere || offer ? (
+							<>
+								{elsewhere ? (
+									<Button
+										size="sm"
+										onClick={() => {
+											removeToast(alert.terminalId);
+											void openProject(alert.projectId);
+										}}
+									>
+										Open project
+									</Button>
+								) : null}
+								{offer ? (
+									<PermissionOffer
+										onAnswered={() => {
+											offered.current = true;
+											removeToast(alert.terminalId);
+											afterOffer();
+										}}
+									/>
+								) : null}
+							</>
+						) : undefined,
+				});
+				shown.current.set(alert.terminalId, remove);
+				notifyAgentAlert(alert, () => void openProject(alert.projectId));
+			}
+		},
+		[store, workspaceId, work, removeToast],
+	);
 }

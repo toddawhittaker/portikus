@@ -1,6 +1,7 @@
 import type { Project } from "@portikus/contracts";
 import {
 	AgentStateMark,
+	agentStateWords,
 	Icon,
 	IconButton,
 	Menu,
@@ -18,7 +19,6 @@ import { StartLiveHelpDialog } from "../livehelp/StartLiveHelpDialog.js";
 import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
 import {
 	type AgentMark,
-	markLabel,
 	marksByProject,
 	useAgentStatus,
 } from "../terminal/codingAgentStatus.js";
@@ -40,8 +40,14 @@ import { isOpenShare, ShareDialog } from "./ShareDialog.js";
 function ProjectAgentMark({ projectId, mark }: { projectId: string; mark: AgentMark }) {
 	return (
 		<>
-			<AgentStateMark state={mark.state} testId={`project-agent-${projectId}`} />{" "}
-			<span className="pk-visually-hidden">({markLabel(mark)})</span>
+			<AgentStateMark
+				state={mark.state}
+				unread={mark.unread}
+				testId={`project-agent-${projectId}`}
+			/>{" "}
+			<span className="pk-visually-hidden">
+				({agentStateWords(mark.state, mark.unread)})
+			</span>
 		</>
 	);
 }
@@ -158,6 +164,7 @@ export function ProjectPane({
 				<ul className="pk-list" data-testid="project-list">
 					{projects.map((project) => {
 						const current = project.id === currentProjectId;
+						const mark = marks.get(project.id);
 						return (
 							<li
 								key={project.id}
@@ -172,11 +179,8 @@ export function ProjectPane({
 								>
 									<Icon name={current ? "folder-open" : "folder"} size="md" />
 									<span className="pk-list-label">{project.name}</span>
-									{marks.get(project.id) ? (
-										<ProjectAgentMark
-											projectId={project.id}
-											mark={marks.get(project.id) as AgentMark}
-										/>
+									{mark ? (
+										<ProjectAgentMark projectId={project.id} mark={mark} />
 									) : null}
 									{project.missing ? (
 										<span className="pk-tag pk-tag--warning">missing</span>

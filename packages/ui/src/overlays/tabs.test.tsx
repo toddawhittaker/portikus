@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { type TabItem, Tabs, tabDomId, tabPanelDomId } from "./tabs";
+import { agentStateWords, type TabItem, Tabs, tabDomId, tabPanelDomId } from "./tabs";
 
 const TABS: TabItem[] = [
 	{ id: "t1", kind: "terminal", label: "zsh — todo-api", testId: "tab-t1" },
@@ -344,7 +344,9 @@ describe("agent state", () => {
 			activeId: "d",
 		});
 		expect(screen.getByRole("tab", { name: "Claude Code (working)" })).toBeTruthy();
-		expect(screen.getByRole("tab", { name: "Codex (needs input)" })).toBeTruthy();
+		expect(
+			screen.getByRole("tab", { name: "Codex (needs input, unread)" }),
+		).toBeTruthy();
 		expect(
 			screen.getByRole("tab", { name: "Claude Code (finished, unread)" }),
 		).toBeTruthy();
@@ -353,5 +355,17 @@ describe("agent state", () => {
 			"working",
 		);
 		expect(screen.getByTestId("tab-b").className).toContain("pk-tab--unread");
+		// Each glyph names its state on hover.
+		expect(screen.getByTestId("tab-a-agent").getAttribute("title")).toBe("working");
+		expect(screen.getByTestId("tab-b-agent").getAttribute("title")).toBe(
+			"needs input, unread",
+		);
+	});
+
+	it("builds the same words for any caller", () => {
+		expect(agentStateWords("working", true)).toBe("working");
+		expect(agentStateWords("needs-input")).toBe("needs input");
+		expect(agentStateWords("needs-input", true)).toBe("needs input, unread");
+		expect(agentStateWords("finished", true)).toBe("finished, unread");
 	});
 });

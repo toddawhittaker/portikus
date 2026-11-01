@@ -67,13 +67,23 @@ export function tabPanelDomId(id: string): string {
 	return `pk-tabpanel-${encodeURIComponent(id)}`;
 }
 
-const AGENT_STATE_WORDS: Record<NonNullable<TabItem["agentState"]>, string> = {
+export type AgentState = NonNullable<TabItem["agentState"]>;
+
+const AGENT_STATE_WORDS: Record<AgentState, string> = {
 	working: "working",
 	"needs-input": "needs input",
-	finished: "finished, unread",
+	finished: "finished",
 };
 
-export type AgentState = NonNullable<TabItem["agentState"]>;
+/**
+ * The words for a coding agent's state, such as "needs input, unread". Tabs and
+ * the project list both use them, so the two never drift apart. A working agent
+ * has nothing unread.
+ */
+export function agentStateWords(state: AgentState, unread = false): string {
+	const words = AGENT_STATE_WORDS[state];
+	return unread && state !== "working" ? `${words}, unread` : words;
+}
 
 /**
  * The glyph for what a coding agent is doing. Each state has its own shape,
@@ -81,15 +91,19 @@ export type AgentState = NonNullable<TabItem["agentState"]>;
  */
 export function AgentStateMark({
 	state,
+	unread,
 	testId,
 }: {
 	state: AgentState;
+	unread?: boolean | undefined;
 	testId?: string | undefined;
 }): React.ReactElement {
 	return (
 		<span
 			className={`pk-agent-mark pk-agent-mark--${state}`}
 			aria-hidden="true"
+			// Hover text, so the three shapes can be learnt.
+			title={agentStateWords(state, unread)}
 			data-testid={testId}
 			data-agent-state={state}
 		>
@@ -179,7 +193,7 @@ function TabTrigger({
 					<>
 						{" "}
 						<span className="pk-visually-hidden">
-							({AGENT_STATE_WORDS[tab.agentState]})
+							({agentStateWords(tab.agentState, tab.unread)})
 						</span>
 					</>
 				) : null}
@@ -187,6 +201,7 @@ function TabTrigger({
 			{tab.agentState ? (
 				<AgentStateMark
 					state={tab.agentState}
+					unread={tab.unread}
 					testId={tab.testId ? `${tab.testId}-agent` : undefined}
 				/>
 			) : null}

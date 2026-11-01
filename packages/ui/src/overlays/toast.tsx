@@ -50,7 +50,7 @@ export interface ToastProps {
 	 * duration. An explicit `false` times out even when the toast has actions.
 	 */
 	persistent?: boolean;
-	/** Kept out of the history because the server records the same notice itself. */
+	/** Kept out of the notification history: for notices that are not worth saving, or that the server records itself. */
 	unrecorded?: boolean;
 	className?: string;
 }
