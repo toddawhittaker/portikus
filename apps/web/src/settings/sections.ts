@@ -80,6 +80,16 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				controls: [{ id: "terminal-colours", label: "Terminal colors" }],
 			},
 			{
+				title: "Notifications",
+				controls: [
+					{
+						id: "desktop-notifications",
+						label: "Desktop notifications",
+						terms: "alerts agent browser popup",
+					},
+				],
+			},
+			{
 				title: "Accessibility",
 				controls: [
 					{ id: "screen-reader-mode", label: "Screen reader mode" },

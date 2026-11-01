@@ -33,6 +33,11 @@ import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
+import {
+	askDesktopPermission,
+	desktopPermission,
+	desktopSupported,
+} from "../notifications/desktopSupport.js";
 import { ChangePasswordForm } from "../password/ChangePasswordForm.js";
 import {
 	readThemePreference,
@@ -58,6 +63,12 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 	{ value: "system", label: "System" },
 	{ value: "light", label: "Light" },
 	{ value: "dark", label: "Dark" },
+];
+
+const NOTIFICATION_OPTIONS = [
+	{ value: "ask", label: "Ask me" },
+	{ value: "on", label: "On" },
+	{ value: "off", label: "Off" },
 ];
 
 /** Two or three options, shown together. A menu hides the choices until it opens. */
@@ -164,6 +175,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const terminalTheme = draft.terminalTheme ?? current.terminalTheme;
 	const screenReaderMode = draft.screenReaderMode ?? current.screenReaderMode;
 	const timezone = draft.timezone ?? current.timezone;
+	const agentNotifications = draft.agentNotifications ?? current.agentNotifications;
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
 
@@ -309,6 +321,17 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	if (saving > 0) savedStatus = "Saving…";
 	else if (saved) savedStatus = "Saved";
 
+	// The browser is asked only here, from the click that chose "On".
+	async function chooseNotifications(value: string) {
+		if (value === "ask" || value === "on" || value === "off") {
+			if (value === "on" && desktopPermission() === "default") {
+				change({ agentNotifications: await askDesktopPermission() });
+			} else {
+				change({ agentNotifications: value });
+			}
+		}
+	}
+
 	function chooseAppearance(value: ThemePreference) {
 		setAppearanceChoice(value);
 		rememberThemePreference(value);
@@ -397,6 +420,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						<p className={HINT_CLASS} id="terminal-colours-hint">
 							What a new terminal starts with.
 						</p>
+					</div>
+				);
+			case "desktop-notifications":
+				if (!desktopSupported()) {
+					return (
+						<p className="pk-text-compact m-0 text-ink-muted">
+							This browser does not offer desktop notifications.
+						</p>
+					);
+				}
+				return (
+					<div className="grid gap-2">
+						<ChoiceField
+							label={control.label}
+							hint="Shows a notification outside the browser when a coding agent needs you or finishes and this page is not in front. It names the agent only."
+							name="desktop-notifications"
+							options={NOTIFICATION_OPTIONS}
+							value={agentNotifications}
+							onChange={(value) => void chooseNotifications(value)}
+						/>
+						{desktopPermission() === "denied" ? (
+							<p
+								className="pk-text-compact m-0 text-ink-muted"
+								data-testid="settings-notifications-blocked"
+							>
+								Your browser has blocked notifications for this site. Allow them in the
+								site settings next to the address, then choose On.
+							</p>
+						) : null}
 					</div>
 				);
 			case "screen-reader-mode":
