@@ -122,9 +122,9 @@ export function evenSizes(count: number): number[] {
 
 /** Scale sizes so they add up to 100; falls back to even sizes if they cannot. */
 export function normaliseSizes(sizes: number[]): number[] {
-	const total = sizes.reduce((sum, size) => sum + (size > 0 ? size : 0), 0);
+	const total = sizes.reduce((sum, size) => sum + Math.max(size, 0), 0);
 	if (total <= 0) return evenSizes(sizes.length);
-	const scaled = sizes.map((size) => round2(((size > 0 ? size : 0) / total) * 100));
+	const scaled = sizes.map((size) => round2((Math.max(size, 0) / total) * 100));
 	const last = scaled.length - 1;
 	scaled[last] = round2(
 		100 - scaled.slice(0, last).reduce((sum, size) => sum + size, 0),

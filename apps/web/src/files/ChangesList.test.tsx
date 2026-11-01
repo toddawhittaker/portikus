@@ -84,19 +84,20 @@ test("a session review names the agent session, not the last commit", () => {
 	expect(sessionReviewLabel("codex")).toBe("Changes since Codex session started");
 });
 
+function Harness() {
+	const [review, setReview] = useState(false);
+	return (
+		<ChangesList
+			projectId="pid"
+			status={EMPTY}
+			sessionLabel={review ? sessionReviewLabel("claude") : undefined}
+			onReviewSession={review ? undefined : () => setReview(true)}
+			onShowGit={review ? () => setReview(false) : undefined}
+		/>
+	);
+}
+
 test("switching review mode moves focus and announces the new heading", () => {
-	function Harness() {
-		const [review, setReview] = useState(false);
-		return (
-			<ChangesList
-				projectId="pid"
-				status={EMPTY}
-				sessionLabel={review ? sessionReviewLabel("claude") : undefined}
-				onReviewSession={review ? undefined : () => setReview(true)}
-				onShowGit={review ? () => setReview(false) : undefined}
-			/>
-		);
-	}
 	const store = createLayoutStore();
 	render(
 		<ToastProvider>

@@ -103,31 +103,32 @@ test("a held throttle says a restart keeps it slowed, and why (SPEC.md §19.4)",
 	expect(text).not.toContain("Stopping and starting the workspace restores full speed");
 });
 
+function Page({ shown }: { shown: boolean }) {
+	const work = useRef<HTMLElement>(null);
+	return (
+		<>
+			<main ref={work} tabIndex={-1} data-testid="work" />
+			{shown ? (
+				<ThrottleNotice
+					throttle={{
+						at: "2026-09-25T12:00:00.000Z",
+						thresholdPercent: 80,
+						windowMinutes: 30,
+						sharePercent: 25,
+						idleLiftMinutes: null,
+						idleLiftPercent: null,
+					}}
+					onDismiss={() => {}}
+					onOpenWorkspace={() => {}}
+					onShowMonitor={() => {}}
+					fallbackFocus={work}
+				/>
+			) : null}
+		</>
+	);
+}
+
 test("focus goes to the work area when the throttle lifts while the notice has focus", () => {
-	function Page({ shown }: { shown: boolean }) {
-		const work = useRef<HTMLElement>(null);
-		return (
-			<>
-				<main ref={work} tabIndex={-1} data-testid="work" />
-				{shown ? (
-					<ThrottleNotice
-						throttle={{
-							at: "2026-09-25T12:00:00.000Z",
-							thresholdPercent: 80,
-							windowMinutes: 30,
-							sharePercent: 25,
-							idleLiftMinutes: null,
-							idleLiftPercent: null,
-						}}
-						onDismiss={() => {}}
-						onOpenWorkspace={() => {}}
-						onShowMonitor={() => {}}
-						fallbackFocus={work}
-					/>
-				) : null}
-			</>
-		);
-	}
 	const view = render(<Page shown />);
 	screen.getByRole("button", { name: "See what's using CPU" }).focus();
 	view.rerender(<Page shown={false} />);

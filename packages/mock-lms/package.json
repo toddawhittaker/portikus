@@ -9,9 +9,9 @@
 		"start": "tsc -b && node dist/main.js"
 	},
 	"dependencies": {
-		"jose": "6.2.12"
+		"jose": "6.2.13"
 	},
 	"devDependencies": {
-		"@types/node": "24.19.0"
+		"@types/node": "24.19.2"
 	}
 }

@@ -19,6 +19,128 @@ function Fixture() {
 	);
 }
 
+function StateFixture() {
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" onClick={() => setOpen(true)}>
+				Rename
+			</button>
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Rename" />
+			</DialogRoot>
+		</>
+	);
+}
+
+function MovedFixture() {
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" onClick={() => setOpen(true)}>
+				Disable
+			</button>
+			<p tabIndex={-1} data-testid="summary">
+				Done
+			</p>
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Disable" />
+			</DialogRoot>
+		</>
+	);
+}
+
+function MenuFixture() {
+	const [menuOpen, setMenuOpen] = React.useState(true);
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" id="menu-trigger">
+				Project actions
+			</button>
+			{menuOpen ? (
+				<div role="menu" aria-labelledby="menu-trigger">
+					<button
+						type="button"
+						role="menuitem"
+						onClick={() => {
+							setOpen(true);
+							setMenuOpen(false);
+						}}
+					>
+						Rename…
+					</button>
+				</div>
+			) : null}
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Rename project" />
+			</DialogRoot>
+		</>
+	);
+}
+
+function HiddenItemFixture() {
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" id="hidden-trigger">
+				Tab actions
+			</button>
+			<div role="menu" aria-labelledby="hidden-trigger">
+				<button type="button" role="menuitem" onClick={() => setOpen(true)}>
+					Rename…
+				</button>
+			</div>
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Rename tab" />
+			</DialogRoot>
+		</>
+	);
+}
+
+function ContextFixture() {
+	const [menuOpen, setMenuOpen] = React.useState(false);
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<button type="button" onClick={() => setMenuOpen(true)}>
+				README.md
+			</button>
+			{menuOpen ? (
+				<div role="menu" aria-label="Actions for README.md">
+					<button
+						type="button"
+						role="menuitem"
+						onClick={() => {
+							setOpen(true);
+							setMenuOpen(false);
+						}}
+					>
+						Delete…
+					</button>
+				</div>
+			) : null}
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Delete README.md" />
+			</DialogRoot>
+		</>
+	);
+}
+
+function ReturnFixture({ target }: { target: () => HTMLElement | null }) {
+	return (
+		<>
+			<h2 id="heading" tabIndex={-1}>
+				Heading
+			</h2>
+			<DialogRoot>
+				<DialogTrigger>Open</DialogTrigger>
+				<Dialog title="Pick" returnFocusTo={target} />
+			</DialogRoot>
+		</>
+	);
+}
+
 describe("Dialog", () => {
 	it("opens with its title, description and body", () => {
 		render(<Fixture />);
@@ -51,19 +173,6 @@ describe("Dialog", () => {
 	});
 
 	it("returns focus to the button that opened it from state, with no trigger", async () => {
-		function StateFixture() {
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" onClick={() => setOpen(true)}>
-						Rename
-					</button>
-					<DialogRoot open={open} onOpenChange={setOpen}>
-						<Dialog title="Rename" />
-					</DialogRoot>
-				</>
-			);
-		}
 		render(<StateFixture />);
 		const opener = screen.getByText("Rename", { selector: "button" });
 		opener.focus();
@@ -75,22 +184,6 @@ describe("Dialog", () => {
 	});
 
 	it("leaves focus where the caller moved it while the dialog closed", async () => {
-		function MovedFixture() {
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" onClick={() => setOpen(true)}>
-						Disable
-					</button>
-					<p tabIndex={-1} data-testid="summary">
-						Done
-					</p>
-					<DialogRoot open={open} onOpenChange={setOpen}>
-						<Dialog title="Disable" />
-					</DialogRoot>
-				</>
-			);
-		}
 		render(<MovedFixture />);
 		const opener = screen.getByText("Disable", { selector: "button" });
 		opener.focus();
@@ -105,34 +198,6 @@ describe("Dialog", () => {
 	});
 
 	it("falls back to the menu trigger when the opening menu item is gone", async () => {
-		function MenuFixture() {
-			const [menuOpen, setMenuOpen] = React.useState(true);
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" id="menu-trigger">
-						Project actions
-					</button>
-					{menuOpen ? (
-						<div role="menu" aria-labelledby="menu-trigger">
-							<button
-								type="button"
-								role="menuitem"
-								onClick={() => {
-									setOpen(true);
-									setMenuOpen(false);
-								}}
-							>
-								Rename…
-							</button>
-						</div>
-					) : null}
-					<DialogRoot open={open} onOpenChange={setOpen}>
-						<Dialog title="Rename project" />
-					</DialogRoot>
-				</>
-			);
-		}
 		render(<MenuFixture />);
 		const item = screen.getByRole("menuitem");
 		item.focus();
@@ -147,24 +212,6 @@ describe("Dialog", () => {
 	});
 
 	it("skips a return target that is still mounted but hidden", async () => {
-		function HiddenItemFixture() {
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" id="hidden-trigger">
-						Tab actions
-					</button>
-					<div role="menu" aria-labelledby="hidden-trigger">
-						<button type="button" role="menuitem" onClick={() => setOpen(true)}>
-							Rename…
-						</button>
-					</div>
-					<DialogRoot open={open} onOpenChange={setOpen}>
-						<Dialog title="Rename tab" />
-					</DialogRoot>
-				</>
-			);
-		}
 		render(<HiddenItemFixture />);
 		const item = screen.getByRole("menuitem");
 		item.focus();
@@ -181,34 +228,6 @@ describe("Dialog", () => {
 
 	it("falls back to what had focus before an unlabelled menu opened", async () => {
 		// A right-click menu has no trigger button to go back to.
-		function ContextFixture() {
-			const [menuOpen, setMenuOpen] = React.useState(false);
-			const [open, setOpen] = React.useState(false);
-			return (
-				<>
-					<button type="button" onClick={() => setMenuOpen(true)}>
-						README.md
-					</button>
-					{menuOpen ? (
-						<div role="menu" aria-label="Actions for README.md">
-							<button
-								type="button"
-								role="menuitem"
-								onClick={() => {
-									setOpen(true);
-									setMenuOpen(false);
-								}}
-							>
-								Delete…
-							</button>
-						</div>
-					) : null}
-					<DialogRoot open={open} onOpenChange={setOpen}>
-						<Dialog title="Delete README.md" />
-					</DialogRoot>
-				</>
-			);
-		}
 		render(<ContextFixture />);
 		const row = screen.getByText("README.md");
 		row.focus();
@@ -221,20 +240,6 @@ describe("Dialog", () => {
 
 		await waitFor(() => expect(document.activeElement).toBe(row));
 	});
-
-	function ReturnFixture({ target }: { target: () => HTMLElement | null }) {
-		return (
-			<>
-				<h2 id="heading" tabIndex={-1}>
-					Heading
-				</h2>
-				<DialogRoot>
-					<DialogTrigger>Open</DialogTrigger>
-					<Dialog title="Pick" returnFocusTo={target} />
-				</DialogRoot>
-			</>
-		);
-	}
 
 	it("focuses the element returnFocusTo gives on close", async () => {
 		render(<ReturnFixture target={() => document.getElementById("heading")} />);

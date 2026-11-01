@@ -100,7 +100,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await about.click();
 		await expect(openToggletip(page)).toBeVisible();
 		// The tip's text is read out elsewhere, so it never joins the header's name.
-		const tipText = (await openToggletip(page).innerText()).trim();
+		const tipText = ((await openToggletip(page).textContent()) ?? "").trim();
 		const header = page.getByRole("columnheader").filter({ has: about });
 		await expect(header).toHaveAccessibleName(/Account tags/);
 		const opening = tipText.slice(0, 24).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

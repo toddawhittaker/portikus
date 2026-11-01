@@ -67,7 +67,7 @@ export function usePaneActions({
 		const tabs = strip.current?.querySelectorAll<HTMLElement>('[role="tab"]');
 		if (!tabs) return;
 		const index = layout.tabs.findIndex((tab) => tab.id === activeTabId);
-		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
+		(tabs[Math.max(index, 0)] ?? tabs[0])?.focus();
 	}
 
 	/** Give a pane a tab of its own after its current one. */

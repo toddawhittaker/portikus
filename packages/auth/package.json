@@ -18,8 +18,8 @@
 		"mock-oidc": "tsx src/testing/mock-oidc-main.ts"
 	},
 	"dependencies": {
-		"@fastify/cookie": "11.1.2",
-		"@grpc/grpc-js": "1.14.5",
+		"@fastify/cookie": "11.1.5",
+		"@grpc/grpc-js": "1.14.6",
 		"@grpc/proto-loader": "0.8.1",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/db": "workspace:*",
@@ -27,15 +27,15 @@
 		"@portikus/observability": "workspace:*",
 		"@simplewebauthn/server": "14.0.3",
 		"bcryptjs": "3.0.3",
-		"fastify": "5.12.6",
-		"fastify-plugin": "6.0.0",
-		"jose": "6.2.12",
-		"kysely": "0.29.6",
+		"fastify": "5.12.7",
+		"fastify-plugin": "6.0.1",
+		"jose": "6.2.13",
+		"kysely": "0.29.7",
 		"openid-client": "6.8.8",
 		"zod": "4.6.7"
 	},
 	"devDependencies": {
-		"@types/node": "24.19.0",
+		"@types/node": "24.19.2",
 		"tsx": "4.23.15"
 	}
 }

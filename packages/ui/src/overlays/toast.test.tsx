@@ -28,6 +28,38 @@ function Fixture() {
 	);
 }
 
+function PersistentProgress() {
+	const { show } = useToast();
+	const dismiss = React.useRef<(() => void) | null>(null);
+	return (
+		<>
+			<button
+				type="button"
+				onClick={() => {
+					dismiss.current = show({ title: "Extracting", persistent: true });
+				}}
+			>
+				Show
+			</button>
+			<button type="button" onClick={() => dismiss.current?.()}>
+				Done
+			</button>
+		</>
+	);
+}
+
+function Progress({ onShown }: { onShown: (dismiss: () => void) => void }) {
+	const { show } = useToast();
+	return (
+		<button
+			type="button"
+			onClick={() => onShown(show({ title: "Extracting", persistent: true }))}
+		>
+			Show
+		</button>
+	);
+}
+
 describe("Toast", () => {
 	it("keeps ref out of the props callers pass to show", () => {
 		const props: ToastProps = {
@@ -186,30 +218,11 @@ describe("toast timing and recording", () => {
 	});
 
 	it("keeps a persistent toast until its caller dismisses it", () => {
-		function Progress() {
-			const { show } = useToast();
-			const dismiss = React.useRef<(() => void) | null>(null);
-			return (
-				<>
-					<button
-						type="button"
-						onClick={() => {
-							dismiss.current = show({ title: "Extracting", persistent: true });
-						}}
-					>
-						Show
-					</button>
-					<button type="button" onClick={() => dismiss.current?.()}>
-						Done
-					</button>
-				</>
-			);
-		}
 		vi.useFakeTimers();
 		try {
 			render(
 				<ToastProvider>
-					<Progress />
+					<PersistentProgress />
 				</ToastProvider>,
 			);
 			fireEvent.click(screen.getByText("Show"));
@@ -226,22 +239,9 @@ describe("toast timing and recording", () => {
 
 	it("moves focus to the viewport when its caller dismisses a focused toast", () => {
 		let dismiss: () => void = () => {};
-		function Progress() {
-			const { show } = useToast();
-			return (
-				<button
-					type="button"
-					onClick={() => {
-						dismiss = show({ title: "Extracting", persistent: true });
-					}}
-				>
-					Show
-				</button>
-			);
-		}
 		render(
 			<ToastProvider>
-				<Progress />
+				<Progress onShown={(d) => (dismiss = d)} />
 			</ToastProvider>,
 		);
 		fireEvent.click(screen.getByText("Show"));
@@ -253,22 +253,9 @@ describe("toast timing and recording", () => {
 
 	it("leaves focus alone when a dismissed toast did not hold it", () => {
 		let dismiss: () => void = () => {};
-		function Progress() {
-			const { show } = useToast();
-			return (
-				<button
-					type="button"
-					onClick={() => {
-						dismiss = show({ title: "Extracting", persistent: true });
-					}}
-				>
-					Show
-				</button>
-			);
-		}
 		render(
 			<ToastProvider>
-				<Progress />
+				<Progress onShown={(d) => (dismiss = d)} />
 			</ToastProvider>,
 		);
 		const button = screen.getByText("Show");

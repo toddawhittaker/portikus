@@ -266,6 +266,26 @@ test("one tab stop on the table; arrow keys show and announce a cell's exact val
 	expect(readout.textContent).toContain("arrow keys");
 });
 
+function Refreshing({
+	f,
+	ann,
+	bo,
+}: {
+	f: ChartFrame;
+	ann: HealthSeries["usage"]["workspaces"][number];
+	bo: HealthSeries["usage"]["workspaces"][number];
+}) {
+	const [series, setSeries] = useState(body(f, [ann, bo]));
+	return (
+		<>
+			<button type="button" onClick={() => setSeries(body(f, [bo, ann]))}>
+				Refresh
+			</button>
+			<UsageHeatMap series={series} frame={f} />
+		</>
+	);
+}
+
 test("a refresh that reorders the rows keeps the cursor on the same workspace", async () => {
 	const f = frame("1h", 60, 4);
 	const ann = row(f);
@@ -275,18 +295,7 @@ test("a refresh that reorders the rows keeps the cursor on the same workspace", 
 		owner: { id: OWNER, displayName: "Bo Diaz" },
 		cells: [{ at: at(f, 3), cpuPercent: 7, memoryPercent: 9 }],
 	};
-	function Refreshing() {
-		const [series, setSeries] = useState(body(f, [ann, bo]));
-		return (
-			<>
-				<button type="button" onClick={() => setSeries(body(f, [bo, ann]))}>
-					Refresh
-				</button>
-				<UsageHeatMap series={series} frame={f} />
-			</>
-		);
-	}
-	renderMap(body(f, []), f, Refreshing);
+	renderMap(body(f, []), f, () => <Refreshing f={f} ann={ann} bo={bo} />);
 
 	const table = await screen.findByTestId("health-heat-map-table");
 	fireEvent.keyDown(table, { key: "ArrowLeft" });

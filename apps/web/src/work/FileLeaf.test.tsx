@@ -1040,27 +1040,28 @@ test("the model is named after the project as well as the file", async () => {
 	expect(state.uris.at(-1)).toBe(`pk:/${PROJECT}/${PATH}`);
 });
 
+function Reopen() {
+	const [opened, setOpened] = useState(0);
+	const view: PendingView =
+		opened === 0 ? { mode: "diff", seq: 1 } : { mode: "edit", seq: 2 };
+	return (
+		<>
+			<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
+				Open the file again
+			</button>
+			<FileLeaf
+				path={PATH}
+				workspaceId={WORKSPACE}
+				projectId={PROJECT}
+				onClose={() => {}}
+				pendingView={view}
+				consumePendingView={() => view}
+			/>
+		</>
+	);
+}
+
 test("opening a file again brings a tab in diff view back to the editor", async () => {
-	function Reopen() {
-		const [opened, setOpened] = useState(0);
-		const view: PendingView =
-			opened === 0 ? { mode: "diff", seq: 1 } : { mode: "edit", seq: 2 };
-		return (
-			<>
-				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
-					Open the file again
-				</button>
-				<FileLeaf
-					path={PATH}
-					workspaceId={WORKSPACE}
-					projectId={PROJECT}
-					onClose={() => {}}
-					pendingView={view}
-					consumePendingView={() => view}
-				/>
-			</>
-		);
-	}
 	renderWithQuery(<Reopen />);
 	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
 
