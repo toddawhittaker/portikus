@@ -1,0 +1,22 @@
+#!/bin/bash
+# A coding agent's hook: tells the workspace agent what the agent in this
+# terminal is doing (SPEC.md §10.8). Usage: portikus-agent-state <agent> <state|clear>
+# The hook's input may hold prompts and tool input, so it is thrown away
+# unread (ADR 0012). It never blocks or fails the agent: one second at most,
+# and the exit status is always 0.
+
+cat >/dev/null
+
+# PORTIKUS_TERMINAL is pk-<terminal id>, set in every Portikus terminal.
+id=${PORTIKUS_TERMINAL#pk-}
+agent=${1:-}
+state=${2:-}
+# Only plain words go into the body; the receiver checks the rest.
+[[ $PORTIKUS_TERMINAL == pk-* && $id =~ ^[0-9a-f-]+$ ]] || exit 0
+[[ $agent =~ ^[a-z]+$ && $state =~ ^[a-z-]+$ ]] || exit 0
+
+curl --silent --output /dev/null --max-time 1 \
+	--header 'content-type: application/json' \
+	--data "{\"terminal\":\"$id\",\"agent\":\"$agent\",\"state\":\"$state\"}" \
+	"${PORTIKUS_AGENT_RECEIVER:-http://127.0.0.1:7401}/coding-agent-state" || true
+exit 0

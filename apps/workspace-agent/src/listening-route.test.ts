@@ -8,8 +8,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AgentCodingAgentsChanged, AgentLimitsReport } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { AgentLimitsStore } from "./agent-limits-route.js";
+import { CodingAgentBoard } from "./coding-agent-status.js";
 import { buildServer } from "./server.js";
 
 const TOKEN = "d".repeat(64);
@@ -18,6 +21,9 @@ const HEADER =
 	"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
 
 let app: FastifyInstance;
+const board = new CodingAgentBoard();
+const limits = new AgentLimitsStore();
+const AGENT_TERMINAL = "4f7d2a8e-3b1c-4d5e-9f60-718293a4b5c6";
 let procRoot: string;
 let port: number;
 let echo: Server;
@@ -60,6 +66,8 @@ beforeAll(async () => {
 			docker: null,
 			intervalMs: 50,
 		},
+		codingAgents: board,
+		agentLimits: limits,
 	});
 	await app.listen({ host: "127.0.0.1", port: 0 });
 	port = (app.server.address() as AddressInfo).port;
@@ -112,7 +120,9 @@ test("an open events socket keeps the timer scanning", async () => {
 	} as unknown as string[]);
 	const frames: { port: number }[][] = [];
 	ws.addEventListener("message", (event) => {
-		frames.push(JSON.parse(event.data as string).services);
+		const frame = JSON.parse(event.data as string);
+		if (frame.type === "workspace.listening-services.changed")
+			frames.push(frame.services);
 	});
 	await vi.waitFor(() => expect(frames.length).toBeGreaterThan(0));
 	// A new port reaches the socket through the timer alone.
@@ -129,6 +139,64 @@ test("an open events socket keeps the timer scanning", async () => {
 		ws.close();
 		await writeProcNet([HEADER, row(hexLoopback(echoPort))].join("\n"));
 	}
+});
+
+test("the events socket sends coding-agent states on connect and on each change", async () => {
+	board.set(AGENT_TERMINAL, "claude", "working");
+	const ws = new WebSocket(`ws://127.0.0.1:${port}/listening/events`, {
+		headers: auth(),
+	} as unknown as string[]);
+	const frames: unknown[] = [];
+	ws.addEventListener("message", (event) => {
+		const frame = JSON.parse(event.data as string);
+		if (frame.type === "workspace.coding-agents.changed") frames.push(frame);
+	});
+	try {
+		await vi.waitFor(() => expect(frames).toHaveLength(1));
+		expect(AgentCodingAgentsChanged.parse(frames[0]).terminals).toEqual([
+			expect.objectContaining({ terminalId: AGENT_TERMINAL, state: "working" }),
+		]);
+		board.set(AGENT_TERMINAL, "claude", "needs-input");
+		await vi.waitFor(() => expect(frames).toHaveLength(2));
+		expect(AgentCodingAgentsChanged.parse(frames[1]).terminals).toEqual([
+			expect.objectContaining({ terminalId: AGENT_TERMINAL, state: "needs-input" }),
+		]);
+		board.remove(AGENT_TERMINAL);
+		await vi.waitFor(() => expect(frames).toHaveLength(3));
+		expect(AgentCodingAgentsChanged.parse(frames[2]).terminals).toEqual([]);
+	} finally {
+		ws.close();
+	}
+});
+
+test("GET /agent-limits answers the report, and only with the token", async () => {
+	const anonymous = await app.inject({ method: "GET", url: "/agent-limits" });
+	expect(anonymous.statusCode).toBe(401);
+	const empty = await app.inject({
+		method: "GET",
+		url: "/agent-limits",
+		headers: auth(),
+	});
+	expect(empty.statusCode).toBe(200);
+	expect(AgentLimitsReport.parse(empty.json())).toEqual({ claude: null, codex: null });
+	const claude = {
+		windows: [
+			{
+				name: "5h",
+				usedPercent: 42,
+				resetsAt: new Date(Date.now() + 3_600_000).toISOString(),
+				windowMinutes: 300,
+			},
+		],
+		observedAt: new Date().toISOString(),
+	};
+	limits.setClaude(claude);
+	const filled = await app.inject({
+		method: "GET",
+		url: "/agent-limits",
+		headers: auth(),
+	});
+	expect(AgentLimitsReport.parse(filled.json())).toEqual({ claude, codex: null });
 });
 
 test("a forward opens, lists, and closes", async () => {

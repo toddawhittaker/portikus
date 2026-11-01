@@ -1506,13 +1506,14 @@ files:
 # (BROWSER-HANDLING.md 19.2).  Managed settings win over the
 # student's own settings and reach every way Claude Code is started.
 # The OTEL lines send usage counts, never prompts, to the workspace agent
-# on loopback (ADR 0057).  The controller rewrites this file at every start
+# on loopback (ADR 0057).  The hooks and status line report agent state
+# and plan limits there too, never prompts (SPEC.md 10.8).  The controller rewrites this file at every start
 # from the workspace agent's claude-managed-settings.json; keep the two equal.
 - path: /etc/claude-code/managed-settings.json
   generator: dump
   mode: "0644"
   content: |-
-    {"env": {"BROWSER": "", "DISABLE_AUTOUPDATER": "1", "CLAUDE_CODE_ENABLE_TELEMETRY": "1", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "none", "OTEL_TRACES_EXPORTER": "none", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:7401", "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta", "OTEL_METRICS_INCLUDE_SESSION_ID": "false", "OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false"}}
+    {"env": {"BROWSER": "", "DISABLE_AUTOUPDATER": "1", "CLAUDE_CODE_ENABLE_TELEMETRY": "1", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "none", "OTEL_TRACES_EXPORTER": "none", "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:7401", "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta", "OTEL_METRICS_INCLUDE_SESSION_ID": "false", "OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false"}, "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude working", "async": true}]}], "PostToolUse": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude working", "async": true}]}], "PreToolUse": [{"matcher": "AskUserQuestion|ExitPlanMode", "hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input", "async": true}]}], "PermissionRequest": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input", "async": true}]}], "Notification": [{"matcher": "elicitation_dialog|elicitation_url_dialog", "hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude needs-input", "async": true}]}, {"matcher": "idle_prompt", "hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished", "async": true}]}], "Stop": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished", "async": true}]}], "StopFailure": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude finished", "async": true}]}], "SessionEnd": [{"hooks": [{"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-agent-state claude clear", "async": true}]}]}, "statusLine": {"type": "command", "command": "/opt/portikus/workspace-agent/scripts/portikus-claude-status"}}
 
 # Codex has no updater environment variable.  This is the system config
 # layer it reads on Linux, and the platform owns the version.
