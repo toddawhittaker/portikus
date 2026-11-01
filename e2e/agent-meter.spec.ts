@@ -5,7 +5,7 @@
  * the fake agent's hook; counts are seeded into agent_usage_days.
  */
 import { randomUUID } from "node:crypto";
-import { type BrowserContext, expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createStudent,
 	expectNoViolations,
@@ -40,12 +40,6 @@ async function seedToday(userId: string, agent: string, cost: number | null) {
 		         1000, 234, $4, 0, 0)`,
 		[userId, randomUUID(), agent, cost],
 	);
-}
-
-async function open(page: Page, context: BrowserContext): Promise<TestStudent> {
-	const student = await createStudent(context);
-	await page.goto(workspacePath(student.workspaceId));
-	return student;
 }
 
 async function reopen(page: Page, student: TestStudent) {
@@ -135,13 +129,14 @@ test("with no limit, today's counts show tokens and cost, and the details list t
 });
 
 test("an agent with no limit and no counts is not shown", async ({ page, context }) => {
-	const student = await open(page, context);
+	const student = await createStudent(context);
+	// Registered before the page loads, so a fast first poll is not missed.
+	const answered = page.waitForResponse((r) => r.url().includes("/agent-meter"));
+	await page.goto(workspacePath(student.workspaceId));
+	await answered;
 	await expect(page.getByTestId("workspace-state")).toHaveText("Running");
-	// Let the first poll finish before asserting there is nothing.
-	await page.waitForResponse((r) => r.url().includes("/agent-meter"));
 	await expect(page.getByTestId("agent-meter-claude")).toHaveCount(0);
 	await expect(page.getByTestId("agent-meter-codex")).toHaveCount(0);
-	expect(student.workspaceId).toBeTruthy();
 });
 
 test("a window past its reset is hidden", async ({ page, context }) => {
