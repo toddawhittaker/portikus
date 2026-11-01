@@ -744,3 +744,63 @@ test("Accessibility says how to dictate, that the browser has no voice input, or
 		),
 	);
 });
+
+const FakeNotification = {
+	permission: "default" as NotificationPermission,
+	answer: "granted" as NotificationPermission,
+	requestPermission: vi.fn(async () => FakeNotification.answer),
+};
+
+function notificationGroup() {
+	return screen.getByRole("group", { name: "Desktop notifications" });
+}
+
+test("desktop notifications show the saved choice and Off saves without asking the browser", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.requestPermission.mockClear();
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	expect(
+		(
+			within(notificationGroup()).getByRole("radio", {
+				name: "Ask me",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(true);
+	fireEvent.click(within(notificationGroup()).getByRole("radio", { name: "Off" }));
+	await waitFor(() =>
+		expect(writes).toEqual([{ body: { agentNotifications: "off" } }]),
+	);
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+});
+
+test("choosing On asks the browser and saves its answer", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.answer = "denied";
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	fireEvent.click(within(notificationGroup()).getByRole("radio", { name: "On" }));
+	await waitFor(() =>
+		expect(writes).toEqual([{ body: { agentNotifications: "off" } }]),
+	);
+});
+
+test("a blocked browser gets a note", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "denied";
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	expect(await screen.findByTestId("settings-notifications-blocked")).toBeTruthy();
+});
+
+test("with no Notification API nothing is offered", async () => {
+	vi.stubGlobal("Notification", undefined);
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByText("This browser does not offer desktop notifications.");
+	expect(screen.queryByRole("group", { name: "Desktop notifications" })).toBeNull();
+});
