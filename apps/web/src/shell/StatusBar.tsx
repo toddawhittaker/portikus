@@ -1,6 +1,7 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import { Icon, Meter, meterText } from "@portikus/ui";
 import { useRef } from "react";
+import { AgentMeters } from "../agents/AgentMeter.js";
 import { useCourseProfile } from "../editor/settingsQueries.js";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
@@ -8,6 +9,7 @@ import { formatBytes } from "../monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "../monitor/usage.js";
 import { CRITICAL_AT, storageWarning } from "../recovery/storage.js";
 import { formatHoldEnd, holdActive, useStudentTimezone } from "./KeepRunning.js";
+import { METER_CLEAR_BELOW, METER_WARN_AT } from "./meterLevel.js";
 import { useShowMonitor } from "./rightPane.js";
 import { useCountdown } from "./useCountdown.js";
 import {
@@ -28,12 +30,6 @@ const TONE_CLASS: Record<string, string> = {
 	stopped: "pk-tone-stopped",
 	error: "pk-tone-error",
 };
-
-/** A status bar meter turns to the warning tone from this share of the limit up. */
-const METER_WARN_AT = 0.85;
-
-/** Once warning, a meter stays so until use falls below this, so it does not flicker. */
-const METER_CLEAR_BELOW = 0.8;
 
 /** Disk turns to the error tone here, the storage warning's "nearly full" line. */
 const METER_FULL_AT = CRITICAL_AT;
@@ -210,6 +206,7 @@ export function StatusBar({
 						onClick={() => setStatusOpen(true)}
 					/>
 				) : null}
+				<AgentMeters workspaceId={workspaceId} enabled={running} />
 				{warning ? (
 					<button
 						type="button"
