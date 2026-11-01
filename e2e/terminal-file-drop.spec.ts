@@ -273,4 +273,59 @@ test.describe("file drop on a terminal", () => {
 		await page.waitForTimeout(1000);
 		await expect(rows(page, terminalId)).not.toContainText("notes.md");
 	});
+	test("a drop that only claims to be a tree drag types nothing", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const { terminalId } = await setUp(page, student);
+
+		await page.evaluate((id) => {
+			const target = document.querySelector(
+				`[data-testid=terminal-pane-${id}]`,
+			) as HTMLElement;
+			const box = target.getBoundingClientRect();
+			const data = new DataTransfer();
+			data.setData("application/x-portikus-tree-path", "/etc/passwd");
+			const init = {
+				bubbles: true,
+				cancelable: true,
+				clientX: box.left + box.width / 2,
+				clientY: box.top + box.height / 2,
+				dataTransfer: data,
+			};
+			target.dispatchEvent(new DragEvent("dragover", init));
+			target.dispatchEvent(new DragEvent("drop", init));
+		}, terminalId);
+
+		await expect(page.getByTestId(`file-drop-target-${terminalId}`)).toHaveCount(0);
+		await page.waitForTimeout(1000);
+		await expect(rows(page, terminalId)).not.toContainText("passwd");
+	});
+
+	test("Copy path from the row menu, opened by keyboard, pastes the quoted path into a terminal", async ({
+		page,
+		context,
+	}) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		const student = await createStudent(context);
+		const { project, terminalId } = await setUp(page, student);
+
+		await page.getByTestId("file-row-my docs").click();
+		const target = row(page, "my docs/a b.md");
+		await expect(target).toBeVisible();
+		await target.focus();
+		await page.keyboard.press("Shift+F10");
+		await page.getByRole("menuitem", { name: "Copy path" }).click();
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe(`'/home/student/projects/${project.slug}/my docs/a b.md'`);
+
+		await page.getByTestId(`terminal-pane-${terminalId}`).click();
+		await page.keyboard.press("Control+Shift+V");
+		await expect(rows(page, terminalId)).toContainText(
+			`'/home/student/projects/${project.slug}/my docs/a b.md'`,
+			{ timeout: 15_000 },
+		);
+	});
 });

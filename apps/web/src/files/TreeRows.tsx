@@ -16,9 +16,12 @@ import {
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
+	useToast,
 } from "@portikus/ui";
 import { memo, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { useProjects } from "../projects/queries.js";
+import { droppedPathsInput } from "../terminal/terminalDrop.js";
 import { fileIconName } from "./fileIcon.js";
 import { type GitDecoration, isIgnored } from "./gitStatus.js";
 import {
@@ -494,6 +497,57 @@ export function CreateMenuItems({
 	);
 }
 
+/**
+ * "Copy path": the absolute path of each target, quoted as a drop types it,
+ * for a student who cannot drag a row onto a terminal (WCAG 2.5.7).
+ */
+function CopyPathItem({ targets }: { targets: readonly FileNode[] }) {
+	const api = useTreeApi();
+	const toast = useToast();
+	const projects = useProjects(api.workspaceId, "active");
+	const slug = projects.data?.find((project) => project.id === api.projectId)?.slug;
+
+	async function copy() {
+		if (!slug) return;
+		const words: string[] = [];
+		let refused = 0;
+		for (const target of targets) {
+			const typed = droppedPathsInput(slug, [target.path]);
+			if (typed === null) refused += 1;
+			else words.push(typed.trimEnd());
+		}
+		if (refused > 0) {
+			toast.show({
+				tone: "danger",
+				title:
+					refused === 1
+						? "One path cannot be copied"
+						: `${refused} paths cannot be copied`,
+				children: "Rename it without special characters, then try again.",
+			});
+		}
+		if (words.length === 0) return;
+		try {
+			await navigator.clipboard.writeText(words.join(" "));
+			api.announce(words.length === 1 ? "Path copied" : `${words.length} paths copied`);
+		} catch {
+			toast.show({
+				tone: "danger",
+				title: "The path could not be copied",
+				children: "Your browser did not allow it. Try again.",
+			});
+		}
+	}
+
+	return (
+		<MenuItem onSelect={() => void copy()}>
+			<span data-testid="row-copy-path">
+				{targets.length > 1 ? `Copy ${targets.length} paths` : "Copy path"}
+			</span>
+		</MenuItem>
+	);
+}
+
 /** The same actions on the right-click menu and on the row's ⋯ button. */
 function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	const api = useTreeApi();
@@ -554,6 +608,7 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 			<MenuItem onSelect={() => api.pickUpload(dir)}>
 				<span data-testid="row-upload">Upload files…</span>
 			</MenuItem>
+			<CopyPathItem targets={targets} />
 			<MenuSeparator />
 			<MenuItem danger onSelect={() => api.remove(node)}>
 				<span data-testid="row-delete">

@@ -14,7 +14,6 @@ import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
 import { saveDroppedFile } from "../files/queries.js";
 import { draggedTreeNodes } from "../files/treeDrag.js";
-import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { useProjects } from "../projects/queries.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
@@ -112,6 +111,8 @@ export function TerminalLeaf({
 	function acceptedKind(event: DragEvent): DropKind | null {
 		const kind = dropKind(event.dataTransfer.types);
 		if (kind !== "tree") return kind;
+		// Page content can forge the drag type; only a real tree drag counts.
+		if (draggedTreeNodes().length === 0) return null;
 		const pane = dropHost.current?.closest("section");
 		if (!pane) return null;
 		const zone = dropZone(pane.getBoundingClientRect(), event.clientX, event.clientY);
@@ -199,9 +200,7 @@ export function TerminalLeaf({
 			void dropFiles(Array.from(event.dataTransfer.files));
 			return;
 		}
-		const dragged = draggedTreeNodes().map((node) => node.path);
-		const first = event.dataTransfer.getData(TREE_DRAG_TYPE);
-		const paths = dragged.length > 0 ? dragged : first === "" ? [] : [first];
+		const paths = draggedTreeNodes().map((node) => node.path);
 		if (paths.length > 0) typePaths(paths);
 	}
 
