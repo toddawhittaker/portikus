@@ -468,10 +468,18 @@ function drag(
 	fireEvent(target, event);
 }
 
+/** A real tree drag records its rows in the page; forged drag data does not. */
+function dragTreeRows(...paths: string[]) {
+	setDraggedTreeNodes(
+		paths.map((path) => ({ path, name: path, isDir: false })) as never,
+	);
+}
+
 test("a tree row dropped on the middle types its quoted absolute path, without Enter", () => {
 	renderLeaf();
 	sizePane();
 	const target = screen.getByTestId(PANE_ID);
+	dragTreeRows("my docs/a b.md");
 	const dataTransfer = dragData([TREE_DRAG_TYPE], {
 		[TREE_DRAG_TYPE]: "my docs/a b.md",
 	});
@@ -503,6 +511,7 @@ test("a tree row over an edge shows no target and types nothing", () => {
 	renderLeaf();
 	sizePane();
 	const target = screen.getByTestId(PANE_ID);
+	dragTreeRows("a.md");
 	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "a.md" });
 	drag("dragOver", target, { dataTransfer, ...RIGHT_EDGE });
 	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
@@ -510,9 +519,21 @@ test("a tree row over an edge shows no target and types nothing", () => {
 	expect(typed).not.toHaveBeenCalled();
 });
 
+test("a drop carrying only the tree drag type, with no tree drag, types nothing", () => {
+	renderLeaf();
+	sizePane();
+	const target = screen.getByTestId(PANE_ID);
+	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "secret.md" });
+	drag("dragOver", target, { dataTransfer, ...MIDDLE });
+	expect(screen.queryByTestId(`file-drop-target-${terminal.id}`)).toBeNull();
+	drag("drop", target, { dataTransfer, ...MIDDLE });
+	expect(typed).not.toHaveBeenCalled();
+});
+
 test("a tree path with a control character is refused with a toast", async () => {
 	renderLeaf();
 	sizePane();
+	dragTreeRows("a\nb.md");
 	const dataTransfer = dragData([TREE_DRAG_TYPE], { [TREE_DRAG_TYPE]: "a\nb.md" });
 	drag("drop", screen.getByTestId(PANE_ID), { dataTransfer, ...MIDDLE });
 	expect(typed).not.toHaveBeenCalled();

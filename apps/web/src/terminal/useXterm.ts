@@ -139,6 +139,28 @@ export function pastedImageType(types: readonly string[]): string | null {
 	return types[0] ?? null;
 }
 
+/** Alt+Shift+Q leaves the terminal. */
+function isLeaveShortcut(event: KeyboardEvent): boolean {
+	return (
+		event.type === "keydown" &&
+		event.altKey &&
+		event.shiftKey &&
+		event.key.toLowerCase() === "q"
+	);
+}
+
+/** F8 alone: the page's key for reaching a toast, so the shell never sees it. */
+function isBareF8(event: KeyboardEvent): boolean {
+	return (
+		event.type === "keydown" &&
+		event.key === "F8" &&
+		!event.altKey &&
+		!event.ctrlKey &&
+		!event.metaKey &&
+		!event.shiftKey
+	);
+}
+
 /** Copy to the system clipboard, ignoring a browser that refuses. */
 async function writeClipboard(text: string): Promise<void> {
 	if (text === "") return;
@@ -447,16 +469,14 @@ export function useXterm({
 					return false;
 				}
 			}
-			if (
-				event.type === "keydown" &&
-				event.altKey &&
-				event.shiftKey &&
-				event.key.toLowerCase() === "q"
-			) {
+			if (isLeaveShortcut(event)) {
 				event.preventDefault();
 				handlers.current.onLeave();
 				return false;
 			}
+			// xterm would turn F8 into an escape sequence and cancel the event,
+			// so the toast landmark shortcut never sees it (SPEC.md §25.8).
+			if (isBareF8(event)) return false;
 			const action = decide(event, term.hasSelection(), platform);
 			if (action === "copy") {
 				const selection = term.getSelection();

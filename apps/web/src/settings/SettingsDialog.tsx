@@ -79,6 +79,7 @@ function ChoiceField({
 	value,
 	options,
 	onChange,
+	alsoDescribedBy,
 }: {
 	label: string;
 	hint: string;
@@ -86,9 +87,16 @@ function ChoiceField({
 	value: string;
 	options: readonly { value: string; label: string }[];
 	onChange: (value: string) => void;
+	/** Id of a note about this field that shows only some of the time. */
+	alsoDescribedBy?: string;
 }) {
 	return (
-		<fieldset className="m-0 min-w-0 border-0 p-0" aria-describedby={`${name}-hint`}>
+		<fieldset
+			className="m-0 min-w-0 border-0 p-0"
+			aria-describedby={
+				alsoDescribedBy ? `${name}-hint ${alsoDescribedBy}` : `${name}-hint`
+			}
+		>
 			{/* A legend is not a grid item, so the rest sits in its own grid below it. */}
 			<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>{label}</legend>
 			<div className="grid gap-1.5">
@@ -169,6 +177,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const [sectionId, setSectionId] = useState(PREFERENCES?.id ?? "preferences");
 	const [query, setQuery] = useState("");
 	const [highlightId, setHighlightId] = useState<string | null>(null);
+	// The browser's answer arrives after render, so the page keeps its own copy.
+	const [permission, setPermission] = useState(desktopPermission);
+	const [notificationNote, setNotificationNote] = useState("");
 
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
@@ -321,14 +332,25 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	if (saving > 0) savedStatus = "Saving…";
 	else if (saved) savedStatus = "Saved";
 
-	// The browser is asked only here, from the click that chose "On".
-	async function chooseNotifications(value: string) {
+	// Arrowing through the radios must never open the browser's prompt, so a
+	// radio saves only its own value; the prompt is the button's job.
+	function chooseNotifications(value: string) {
 		if (value === "ask" || value === "on" || value === "off") {
-			if (value === "on" && desktopPermission() === "default") {
-				change({ agentNotifications: await askDesktopPermission() });
-			} else {
-				change({ agentNotifications: value });
-			}
+			setNotificationNote("");
+			change({ agentNotifications: value });
+		}
+	}
+
+	async function allowInBrowser() {
+		await askDesktopPermission();
+		const answer = desktopPermission();
+		setPermission(answer);
+		if (answer === "granted") {
+			setNotificationNote("Desktop notifications are allowed in this browser.");
+		} else if (answer === "denied") {
+			setNotificationNote("Your browser blocked notifications.");
+		} else {
+			setNotificationNote("Your browser did not allow notifications yet.");
 		}
 	}
 
@@ -438,10 +460,34 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							name="desktop-notifications"
 							options={NOTIFICATION_OPTIONS}
 							value={agentNotifications}
-							onChange={(value) => void chooseNotifications(value)}
+							onChange={chooseNotifications}
+							alsoDescribedBy={
+								permission === "denied" ? "desktop-notifications-blocked" : undefined
+							}
 						/>
-						{desktopPermission() === "denied" ? (
+						{agentNotifications === "on" && permission === "default" ? (
+							<div>
+								<Button
+									size="sm"
+									variant="secondary"
+									data-testid="settings-notifications-allow"
+									onClick={() => void allowInBrowser()}
+								>
+									Allow in this browser
+								</Button>
+							</div>
+						) : null}
+						{/* Always mounted, so a screen reader hears the outcome. */}
+						<p
+							className="sr-only"
+							aria-live="polite"
+							data-testid="settings-notifications-status"
+						>
+							{notificationNote}
+						</p>
+						{permission === "denied" ? (
 							<p
+								id="desktop-notifications-blocked"
 								className="pk-text-compact m-0 text-ink-muted"
 								data-testid="settings-notifications-blocked"
 							>
