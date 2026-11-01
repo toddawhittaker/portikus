@@ -1,5 +1,6 @@
 import { tabFocusKey } from "../../platform.js";
 import type { HelpPart } from "./part.js";
+import { AGENT_STATUS_TOPIC } from "./studentAgentStatus.js";
 
 /** The keys that are hard to discover (moved here from Settings). */
 const KEYS: readonly { keys: string; what: string }[] = [
@@ -25,7 +26,7 @@ const KEYS: readonly { keys: string; what: string }[] = [
 	},
 	{
 		keys: "F8",
-		what: "Move to notifications, from anywhere, the editor included.",
+		what: "Move to notifications, from anywhere, the editor and a terminal included. Move to the newest one, then press Tab to reach its buttons, such as Open project.",
 	},
 	{
 		keys: "Ctrl+Space",
@@ -133,9 +134,10 @@ export const STUDENT_HELP: HelpPart = {
 					</li>
 					<li>
 						<strong>The status bar</strong>, at the bottom, shows the project folder,
-						the Git branch, memory and disk use, and your workspace's state. Choose the
-						state to open <strong>Your workspace</strong>, where you can restart or stop
-						it, see its storage, and reset Docker.
+						the Git branch, memory and disk use, how much of its plan limit each coding
+						agent has used, and your workspace's state. Choose the state to open{" "}
+						<strong>Your workspace</strong>, where you can restart or stop it, see its
+						storage, and reset Docker.
 					</li>
 				</ul>
 			),
@@ -190,6 +192,16 @@ export const STUDENT_HELP: HelpPart = {
 							<strong>Close tab</strong>.
 						</li>
 						<li>
+							Drag a file from your desktop, or from the file tree, onto a terminal to
+							type its path at the cursor. Portikus never presses Enter. A file from
+							your desktop is first saved in the project's{" "}
+							<code className="pk-mono-body">.portikus/pastes</code> folder, and saved
+							files there are removed after 7 days. Only a file dragged from the file
+							tree or your desktop types a path; content dragged from other pages is
+							ignored. A name with a control character, or a file over 50 MiB, is
+							refused.
+						</li>
+						<li>
 							After the workspace stops or restarts, an old terminal says it ended.
 							Choose <strong>New terminal here</strong> to open a fresh one in its
 							place.
@@ -198,6 +210,7 @@ export const STUDENT_HELP: HelpPart = {
 				</>
 			),
 		},
+		AGENT_STATUS_TOPIC,
 		{
 			id: "student-voice",
 			title: "Voice input in a terminal",
@@ -245,6 +258,13 @@ export const STUDENT_HELP: HelpPart = {
 					<li>
 						Right-click a file, or press <kbd className="pk-mono-body">Shift+F10</kbd>,
 						for new file, new folder, rename, move, download, upload and delete.
+					</li>
+					<li>
+						<strong>Copy path</strong>, in a file's menu (right-click or{" "}
+						<kbd className="pk-mono-body">Shift+F10</kbd>), copies its full path, quoted
+						for the shell. With several files selected it copies all the paths,
+						separated by spaces. Paste it into a terminal: it is the keyboard way to do
+						what dragging a file onto a terminal does.
 					</li>
 					<li>
 						<strong>Find in files</strong> is the magnifier at the top of Files.
@@ -576,7 +596,8 @@ export const STUDENT_HELP: HelpPart = {
 					Claude Code and Codex: how many sessions you ran, how many tokens they used,
 					the estimated cost, and how many lines were added and removed. They never see
 					your prompts, the agents' answers, or your code. These counts do not need you
-					to share anything.
+					to share anything. You see your own counts for today in the status bar when
+					your agent reports no plan limit.
 				</p>
 			),
 		},
@@ -596,8 +617,8 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							<strong>Preferences</strong> covers the color scheme, editor auto-save and
-							word wrap, terminal colors, screen reader mode and your workspace's
-							timezone.
+							word wrap, terminal colors, screen reader mode, desktop notifications for
+							coding agents and your workspace's timezone.
 						</li>
 						<li>
 							<strong>Password</strong> appears when your account has a Portikus

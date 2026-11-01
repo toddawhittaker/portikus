@@ -1216,7 +1216,7 @@ not in the status pull request.
   the dangling object, and the review then has nothing to compare.
 - No admin screen for pasting institutional keys. The API forwards a key
   only when the process already has one.
-- No busy or idle indicator, and no cost display, for a running agent.
+- No busy or idle indicator, and no cost display, for a running agent. Epic 56 added both.
 - No general screen for configuring agents. The Codex update check is
   one line in the image, the same way Claude's updater is one environment
   variable.
@@ -5611,3 +5611,42 @@ Verified: `make infra-check` was green for each task PR, shellcheck and the comm
 Gaps:
 
 - None known.
+
+## Epic 56 — Agent status, usage and file drop
+
+Built on `epic/56-agent-status` (task PRs #1713 to #1724 and #1726, and the fold). Issues #1707, #1710 and #1709 (the epic pull request closes them). No migration and no workspace image rebuild. ADR 0068 is new, and ADR 0057 gained a dated change note. SPEC.md sections 8.5, 9.6, 9.7, 10.8, 24.1, 25.8, 25.10 and 29.
+
+Delivered:
+
+- Agent status (#1707): each terminal tab running Claude Code or Codex shows a mark for working (open ring), needs input (triangle) or finished (check), and a bold label with an unread mark until the student looks at it. The state is also in the tab's accessible name. The project list shows the most urgent state of each project, so agents in other projects are visible. When an agent finishes or needs input in a tab the student is not looking at, a toast says so, with "Open project" for another project. These toasts are not recorded in the notification history (SPEC.md 8.5). A terminal that goes back to "working" loses its unread mark.
+- Desktop notifications (#1707): a per-user setting, Ask me (the default), On or Off, in Settings > Preferences. While it is "ask", the first agent toast on a page load offers "Turn on desktop notifications" and "No thanks". Choosing On saves the choice only. An "Allow in this browser" button asks the browser, and a refusal keeps On and says the browser blocked it. A notification fires only when the page is hidden or unfocused, and its text is the agent and the state only ("Claude Code needs your input"), never a project or terminal name.
+- Usage meter (#1710): each agent has a status bar meter of its fullest plan limit window, with a popover listing every window, its reset time in the student's zone and today's counts. Claude Code's limits come from its status line and Codex's from `codex app-server`. A student with an API key, whose agent reports no plan limit, sees today's tokens and cost for the current UTC day instead (this reverses ADR 0057's "no student usage view" for the current day, ADR 0068). A warning toast, saved in the notification history, fires once per agent, window and reset time at 85 percent. Windows past their reset time are hidden, and a Traditional course hides the meter.
+- File drop (#1709): a file dragged from the desktop onto a terminal is saved to `.portikus/pastes/<stamp>/<name>` and its quoted absolute path is typed at the cursor, with a trailing space and never Enter. A file dragged from the file tree onto the middle of a pane types its path without saving anything; edge drops still split the pane. A name with a control character, or a file over 50 MiB, refuses the whole drop with a toast. "Copy path" in the file tree menu (right-click or Shift+F10) is the keyboard way to the same text, one path or several separated by spaces. Files in the `<stamp>` folders are pruned after 7 days like pasted images.
+- F8 reaches the newest toast from inside a terminal (a bare F8 now passes through xterm; a shifted F8 still goes to the shell).
+- Help: the student Help page describes the marks and alerts, desktop notifications, the meter and today's counts, F8, Copy path and the Esc note.
+
+How it works, in brief:
+
+- Signals come from the agents' own hooks, never from terminal output (SPEC.md 10.8). The controller writes the hook and status-line settings at every workspace start. `apps/workspace-agent/scripts/portikus-agent-state` throws its input away unread, has a 1-second limit and always exits 0. `portikus-claude-status` keeps only the two `rate_limits` windows, posts them and prints a line such as "5h 42% · resets 3:00 pm  7d 18%". A student's own Claude Code status line is replaced.
+- The loopback receiver on port 7401 gained `POST /coding-agent-state` and `POST /claude-limits` (JSON only, 4 KiB, strict checks, no logging). An in-memory board keeps up to 20 terminals, and once a terminal is removed every later post for its id is refused. The state travels on the existing listening socket as `workspace.coding-agents.changed`. The API drops terminal ids the database does not hold for that workspace, adds each terminal's project, throttles notifications to four a second per workspace, and sends a `coding-agents` message to the owner's sockets only. An administrator watching a workspace does not receive it. `GET /workspaces/:id/agent-meter` is owner only.
+- Codex limits (`apps/workspace-agent/src/codex-limits.ts`): the agent runs `codex app-server` as the student, sends initialize and `account/rateLimits/read`, keeps only the window percentages, labels and reset times, and kills the child after the reply or 10 seconds. A cache answers at once, refreshes in the background, runs one reader at a time and at most every three minutes, and refreshes after a Codex "finished" state. `account/read` is never called.
+- The Codex system config sets `daemon_auto_start = false`. Codex ran hooks inside a long-lived background app-server that kept the first terminal's environment, so later sessions reported the first terminal's id and states landed on the wrong tab.
+- Nothing is logged or stored: only state words and numbers travel (STACK.md section 15, ADR 0012). Forged posts from inside a workspace change only the student's own screen.
+
+Reviews: the code reviewer, the security reviewer and the accessibility reviewer all ran over the epic. Their findings were fixed in #1719 to #1723 and #1726 (alerts lost when two lists arrived together, focus after the permission offer, state in tab names, throttling and coalescing in the API, forged tree drops, F8 in a terminal, the Settings radios opening the browser prompt, late posts for a removed terminal), and each reviewer confirmed its findings closed.
+
+Verified: both unit shards pass as CI shards them, with a private test database, and typecheck, lint, knip and `make infra-check` are clean. New Playwright specs are `e2e/agent-status.spec.ts`, `e2e/agent-meter.spec.ts`, `e2e/desktop-notifications.spec.ts`, `e2e/terminal-file-drop.spec.ts` and `e2e/keyboard-f8-toast.spec.ts`, with axe checks in both themes. The Codex reader and the hook scripts have unit tests against a fake `codex` and a fake receiver. Rehearsal VM: <result>
+
+Gaps:
+
+- If a student stops Claude Code with Esc, its tab keeps showing "working" until the next prompt. Claude sends no hook for it. Todd accepted this, and Help says so.
+- Claude's 5-hour window was never sent for the test account, so only the 7-day window was seen on a real Claude Code.
+- The first Codex limits after a workspace start appear on the next minute's poll.
+- A Codex token refresh during the app-server read was not exercised.
+- Codex's background app-server daemon is turned off, so hooks carry the right terminal.
+- Unread marks do not survive a page reload.
+- Usage warnings are remembered per browser (local storage), not per user.
+- Hiding the meter in a Traditional course is unit-tested only.
+- The meter popover can cover a toast while it is open.
+- Toasts with actions (the permission offer and "Open project") stay until dismissed or until the student views that terminal.
+- Flaky test #1725 (a workspace-agent attach test that sometimes answers 500) is open.
