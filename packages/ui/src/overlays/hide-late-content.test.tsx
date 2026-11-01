@@ -69,28 +69,25 @@ it("hides content that mounts beside a live region after a modal opens, and keep
 	expect(hidden(screen.getByTestId("late"))).toBe(false);
 });
 
+function Confirm({ late }: { late: boolean }) {
+	return (
+		<>
+			<main>
+				<span aria-live="polite" />
+				{late ? (
+					<button type="button" data-testid="late">
+						Mounted late
+					</button>
+				) : null}
+			</main>
+			<ConfirmDialogRoot open>
+				<ConfirmDialog title="Delete it?" confirmLabel="Delete" onConfirm={() => {}} />
+			</ConfirmDialogRoot>
+		</>
+	);
+}
+
 it("does the same under a confirm dialog", async () => {
-	function Confirm({ late }: { late: boolean }) {
-		return (
-			<>
-				<main>
-					<span aria-live="polite" />
-					{late ? (
-						<button type="button" data-testid="late">
-							Mounted late
-						</button>
-					) : null}
-				</main>
-				<ConfirmDialogRoot open>
-					<ConfirmDialog
-						title="Delete it?"
-						confirmLabel="Delete"
-						onConfirm={() => {}}
-					/>
-				</ConfirmDialogRoot>
-			</>
-		);
-	}
 	const view = render(<Confirm late={false} />);
 	await screen.findByRole("alertdialog");
 	await act(async () => view.rerender(<Confirm late />));
