@@ -169,6 +169,8 @@ export function createFakeAgentState(token: string) {
 	const listeningSockets = new Map<string, Set<WebSocket>>();
 	/** Coding-agent states and plan limits the fake reports, by workspace key. */
 	const codingAgents = new Map<string, AgentCodingAgentStatus[]>();
+	/** Workspace keys whose agent-state frames are held back, so a test can open a socket first. */
+	const codingAgentsHeld = new Set<string>();
 	const agentLimits = new Map<string, AgentLimitsReport>();
 	const forwards = new Map<string, Set<number>>();
 	const probes = new Map<string, number[]>();
@@ -385,6 +387,7 @@ export function createFakeAgentState(token: string) {
 		listening,
 		listeningSockets,
 		codingAgents,
+		codingAgentsHeld,
 		agentLimits,
 		forwards,
 		probes,

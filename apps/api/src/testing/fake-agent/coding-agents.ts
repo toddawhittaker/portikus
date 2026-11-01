@@ -20,7 +20,26 @@ export function registerCodingAgentRoutes(
 	app: FastifyInstance,
 	s: FakeAgentState,
 ): void {
-	const { codingAgents, agentLimits, listeningSockets, keyOf } = s;
+	const { codingAgents, codingAgentsHeld, agentLimits, listeningSockets, keyOf } = s;
+
+	/**
+	 * Hold back every agent-state frame for a workspace key (`hold: true`), as
+	 * an agent that has not reported yet; `hold: false` sends the current
+	 * list to the listening sockets as the first frame.
+	 */
+	app.post("/__test/coding-agents-hold", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string; hold?: boolean };
+		const key = body.key ?? "";
+		if (body.hold === false) {
+			codingAgentsHeld.delete(key);
+			for (const socket of listeningSockets.get(key) ?? []) {
+				sendCodingAgents(socket, codingAgents.get(key) ?? []);
+			}
+		} else {
+			codingAgentsHeld.add(key);
+		}
+		return reply.status(204).send();
+	});
 
 	app.get("/agent-limits", async (request) => ({
 		claude: agentLimits.get(keyOf(request))?.claude ?? null,
@@ -42,6 +61,7 @@ export function registerCodingAgentRoutes(
 			since: one.since ?? new Date().toISOString(),
 		}));
 		codingAgents.set(key, terminals);
+		if (codingAgentsHeld.has(key)) return reply.status(204).send();
 		for (const socket of listeningSockets.get(key) ?? []) {
 			sendCodingAgents(socket, terminals);
 		}

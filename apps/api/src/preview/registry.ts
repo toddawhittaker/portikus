@@ -45,8 +45,14 @@ interface Entry {
 	timer: NodeJS.Timeout | null;
 	attempts: number;
 	services: ListeningService[];
-	/** The latest agent states the workspace agent reported, by terminal. */
-	codingAgents: AgentCodingAgentStatus[];
+	/**
+	 * The latest agent states the workspace agent reported, by terminal. Null
+	 * until its first frame arrives, so a browser is never given an empty
+	 * baseline the agent did not send.
+	 */
+	codingAgents: AgentCodingAgentStatus[] | null;
+	/** Set while a throttled coding-agents notification is waiting to go out. */
+	codingAgentsTimer: NodeJS.Timeout | null;
 	/**
 	 * Forwards this workspace is opening right now, by port. They count
 	 * towards the cap from the moment the work starts, so calls that race
@@ -58,10 +64,10 @@ interface Entry {
 }
 
 type ListeningListener = (services: ListeningService[]) => void;
-type CodingAgentsListener = (
-	workspaceId: string,
-	terminals: AgentCodingAgentStatus[],
-) => void;
+type CodingAgentsListener = () => void;
+
+/** At most four coding-agents notifications a second per workspace (SPEC.md §24). */
+const CODING_AGENTS_NOTIFY_MS = 250;
 
 /** The frame type the workspace agent sends for agent states. */
 const CODING_AGENTS_FRAME = "workspace.coding-agents.changed";
@@ -89,14 +95,19 @@ export interface ListeningRegistry {
 	): Promise<ListeningService | undefined>;
 	/**
 	 * The latest agent states a workspace reported, as the agent sent them:
-	 * the terminal ids are not yet checked against the database.
+	 * the terminal ids are not yet checked against the database. Null until
+	 * the agent's first frame, and again once the workspace has dropped.
 	 */
-	codingAgents(workspaceId: string): AgentCodingAgentStatus[];
+	codingAgents(workspaceId: string): AgentCodingAgentStatus[] | null;
 	/**
-	 * Called with the whole list on every change in any workspace, and with an
-	 * empty list when a workspace's agent connection drops. Returns an unsubscribe.
+	 * Called when one workspace's list changes, at most four times a second
+	 * with the newest list ready to read, and at once when the workspace's
+	 * agent connection drops (the list is then null). Returns an unsubscribe.
 	 */
-	subscribeCodingAgents(listener: CodingAgentsListener): () => void;
+	subscribeCodingAgents(
+		workspaceId: string,
+		listener: CodingAgentsListener,
+	): () => void;
 	/** Called on every change for one workspace; returns an unsubscribe. */
 	subscribe(workspaceId: string, listener: ListeningListener): () => void;
 	/**
@@ -228,7 +239,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	const pollIntervalMs = deps.pollIntervalMs ?? POLL_INTERVAL_MS;
 	const entries = new Map<string, Entry>();
 	const listeners = new Map<string, Set<ListeningListener>>();
-	const codingAgentListeners = new Set<CodingAgentsListener>();
+	const codingAgentListeners = new Map<string, Set<CodingAgentsListener>>();
 	let poller: NodeJS.Timeout | null = null;
 	let stopped = false;
 	const pending = new Set<Promise<unknown>>();
@@ -274,17 +285,29 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		}
 	}
 
-	function notifyCodingAgents(
-		workspaceId: string,
-		terminals: AgentCodingAgentStatus[],
-	): void {
-		for (const listener of codingAgentListeners) {
+	function notifyCodingAgents(workspaceId: string): void {
+		for (const listener of codingAgentListeners.get(workspaceId) ?? []) {
 			try {
-				listener(workspaceId, terminals);
+				listener();
 			} catch (error) {
 				logger.error({ err: error, workspaceId }, "coding agents listener failed");
 			}
 		}
+	}
+
+	/**
+	 * Tell listeners on the trailing edge of a quiet 250 ms, so a workspace
+	 * that floods frames costs one notification, of its newest list, per window.
+	 */
+	function scheduleCodingAgentsNotify(workspaceId: string, entry: Entry): void {
+		if (entry.codingAgentsTimer) return;
+		const timer = setTimeout(() => {
+			entry.codingAgentsTimer = null;
+			if (entry.closed) return;
+			notifyCodingAgents(workspaceId);
+		}, CODING_AGENTS_NOTIFY_MS);
+		timer.unref?.();
+		entry.codingAgentsTimer = timer;
 	}
 
 	function connect(workspaceId: string, entry: Entry): void {
@@ -327,7 +350,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 					return;
 				}
 				entry.codingAgents = states.data.terminals;
-				notifyCodingAgents(workspaceId, entry.codingAgents);
+				scheduleCodingAgentsNotify(workspaceId, entry);
 				return;
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
@@ -372,12 +395,13 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		if (!entry) return;
 		entry.closed = true;
 		if (entry.timer) clearTimeout(entry.timer);
+		if (entry.codingAgentsTimer) clearTimeout(entry.codingAgentsTimer);
 		entry.socket?.close();
 		entries.delete(workspaceId);
 		probeGuard.forget(workspaceId);
 		// A stopped workspace has nothing listening, and the UI must be told.
 		notify(workspaceId, []);
-		notifyCodingAgents(workspaceId, []);
+		notifyCodingAgents(workspaceId);
 		// A preview must stop working the moment its workspace leaves running
 		// (BROWSER-HANDLING.md §9.2). A shutdown is not that: the sessions
 		// outlive this process.
@@ -427,7 +451,8 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				timer: null,
 				attempts: 0,
 				services: [],
-				codingAgents: [],
+				codingAgents: null,
+				codingAgentsTimer: null,
 				opening: new Map(),
 				closed: false,
 			};
@@ -466,13 +491,19 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		},
 
 		codingAgents(workspaceId) {
-			return entries.get(workspaceId)?.codingAgents ?? [];
+			return entries.get(workspaceId)?.codingAgents ?? null;
 		},
 
-		subscribeCodingAgents(listener) {
-			codingAgentListeners.add(listener);
+		subscribeCodingAgents(workspaceId, listener) {
+			const set =
+				codingAgentListeners.get(workspaceId) ?? new Set<CodingAgentsListener>();
+			set.add(listener);
+			codingAgentListeners.set(workspaceId, set);
 			return () => {
-				codingAgentListeners.delete(listener);
+				set.delete(listener);
+				if (set.size === 0 && codingAgentListeners.get(workspaceId) === set) {
+					codingAgentListeners.delete(workspaceId);
+				}
 			};
 		},
 

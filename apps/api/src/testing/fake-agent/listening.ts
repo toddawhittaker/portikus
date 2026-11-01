@@ -26,6 +26,7 @@ export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState)
 		listening,
 		listeningSockets,
 		codingAgents,
+		codingAgentsHeld,
 		forwards,
 		probes,
 		httpsApps,
@@ -133,7 +134,8 @@ export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState)
 			socket.on("close", () => peers.delete(socket));
 			// Like the real agent, the first frame is the whole list.
 			sendListening(socket, listeningFor(key));
-			sendCodingAgents(socket, codingAgents.get(key) ?? []);
+			if (!codingAgentsHeld.has(key))
+				sendCodingAgents(socket, codingAgents.get(key) ?? []);
 		},
 	);
 

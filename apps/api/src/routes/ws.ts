@@ -95,28 +95,49 @@ export function registerWorkspaceSocket(
 
 	/**
 	 * A function that sends the workspace's current agent states to one socket.
-	 * Sends are chained so a slow database read cannot deliver an older list
-	 * after a newer one, and each reads the list as it is when its turn comes.
+	 * One send runs at a time and at most one more waits; the waiting one reads
+	 * the list when it starts, so a slow database read cannot make work pile up
+	 * and an older list is never delivered after a newer one.
 	 */
 	function codingAgentsSender(socket: WebSocket, workspaceId: string): () => void {
-		let chain = Promise.resolve();
+		let running = false;
+		let waiting = false;
+
+		async function sendOnce(): Promise<void> {
+			try {
+				if (socket.readyState !== socket.OPEN) return;
+				// Null means the workspace's agent connection dropped: nothing is running.
+				const terminals = await withProjects(
+					db,
+					workspaceId,
+					registry.codingAgents(workspaceId) ?? [],
+				);
+				if (socket.readyState !== socket.OPEN) return;
+				const message: ServerMessage = { type: "coding-agents", terminals };
+				socket.send(JSON.stringify(message));
+			} catch (error) {
+				logger.error({ err: error, workspaceId }, "coding agents send failed");
+			}
+		}
+
+		async function drain(): Promise<void> {
+			running = true;
+			try {
+				do {
+					waiting = false;
+					await sendOnce();
+				} while (waiting);
+			} finally {
+				running = false;
+			}
+		}
+
 		return () => {
-			chain = chain.then(async () => {
-				try {
-					if (socket.readyState !== socket.OPEN) return;
-					const terminals = await withProjects(
-						db,
-						workspaceId,
-						registry.codingAgents(workspaceId),
-					);
-					if (socket.readyState !== socket.OPEN) return;
-					const message: ServerMessage = { type: "coding-agents", terminals };
-					socket.send(JSON.stringify(message));
-				} catch (error) {
-					logger.error({ err: error, workspaceId }, "coding agents send failed");
-				}
-			});
-			track(chain);
+			if (running) {
+				waiting = true;
+				return;
+			}
+			track(drain());
 		};
 	}
 
@@ -276,11 +297,14 @@ export function registerWorkspaceSocket(
 						sendListening(socket, services);
 					});
 					// Agent states go to the owner only, like the layout version.
+					// Until the agent's first frame there is no list to give; that frame
+					// reaches the socket through the subscription.
 					const sendAgents = codingAgentsSender(socket, workspaceId);
-					sendAgents();
-					const unsubscribeAgents = registry.subscribeCodingAgents((changed) => {
-						if (changed === workspaceId) sendAgents();
-					});
+					const unsubscribeAgents = registry.subscribeCodingAgents(
+						workspaceId,
+						sendAgents,
+					);
+					if (registry.codingAgents(workspaceId) !== null) sendAgents();
 					unsubscribe = (): void => {
 						unsubscribeListening();
 						unsubscribeAgents();

@@ -75,23 +75,24 @@ async function waitFor(check: () => boolean): Promise<void> {
 
 test("the registry keeps the last coding-agent list and tells subscribers", async () => {
 	await withRegistry(async ({ registry, setAgents }) => {
-		const seen: Array<[string, number]> = [];
-		const unsubscribe = registry.subscribeCodingAgents((workspaceId, terminals) => {
-			seen.push([workspaceId, terminals.length]);
+		const seen: Array<number | null> = [];
+		const unsubscribe = registry.subscribeCodingAgents(WORKSPACE, () => {
+			seen.push(registry.codingAgents(WORKSPACE)?.length ?? null);
 		});
 		await setAgents([{ terminalId: TERMINAL, agent: "claude", state: "working" }]);
-		await waitFor(() => registry.codingAgents(WORKSPACE).length === 1);
-		expect(registry.codingAgents(WORKSPACE)[0]).toMatchObject({
+		await waitFor(() => registry.codingAgents(WORKSPACE)?.length === 1);
+		expect(registry.codingAgents(WORKSPACE)?.[0]).toMatchObject({
 			terminalId: TERMINAL,
 			agent: "claude",
 			state: "working",
 		});
-		expect(seen).toContainEqual([WORKSPACE, 1]);
+		await waitFor(() => seen.includes(1));
 
 		unsubscribe();
 		const before = seen.length;
 		await setAgents([]);
-		await waitFor(() => registry.codingAgents(WORKSPACE).length === 0);
+		await waitFor(() => registry.codingAgents(WORKSPACE)?.length === 0);
+		await new Promise((resolve) => setTimeout(resolve, 400));
 		expect(seen).toHaveLength(before);
 	});
 });
@@ -99,7 +100,7 @@ test("the registry keeps the last coding-agent list and tells subscribers", asyn
 test("an invalid coding-agent frame is ignored and only field names are logged", async () => {
 	await withRegistry(async ({ registry, lines, setAgents }) => {
 		await setAgents([{ terminalId: TERMINAL, agent: "claude", state: "working" }]);
-		await waitFor(() => registry.codingAgents(WORKSPACE).length === 1);
+		await waitFor(() => registry.codingAgents(WORKSPACE)?.length === 1);
 
 		await setAgents([
 			{ terminalId: TERMINAL, agent: "claude", state: "SECRET-prompt-text" },
@@ -107,7 +108,7 @@ test("an invalid coding-agent frame is ignored and only field names are logged",
 		await waitFor(() =>
 			lines.some((line) => line.msg === "coding agents frame rejected"),
 		);
-		expect(registry.codingAgents(WORKSPACE)[0]?.state).toBe("working");
+		expect(registry.codingAgents(WORKSPACE)?.[0]?.state).toBe("working");
 		const line = lines.find((one) => one.msg === "coding agents frame rejected");
 		expect(line?.fields).toEqual(["terminals.0.state"]);
 		expect(JSON.stringify(lines)).not.toContain("SECRET-prompt-text");
@@ -127,24 +128,81 @@ test("an invalid coding-agent frame is ignored and only field names are logged",
 
 test("a workspace that drops notifies an empty coding-agent list", async () => {
 	await withRegistry(async ({ registry, rows, setAgents }) => {
-		const seen: Array<[string, number]> = [];
-		registry.subscribeCodingAgents((workspaceId, terminals) => {
-			seen.push([workspaceId, terminals.length]);
+		let calls = 0;
+		registry.subscribeCodingAgents(WORKSPACE, () => {
+			calls += 1;
 		});
 		await setAgents([{ terminalId: TERMINAL, agent: "codex", state: "needs-input" }]);
-		await waitFor(() => registry.codingAgents(WORKSPACE).length === 1);
+		await waitFor(() => registry.codingAgents(WORKSPACE)?.length === 1);
+		await waitFor(() => calls >= 1);
+		const before = calls;
 
 		rows.length = 0; // the workspace stops running
-		await waitFor(() => seen.at(-1)?.[1] === 0);
-		expect(seen.at(-1)).toEqual([WORKSPACE, 0]);
-		expect(registry.codingAgents(WORKSPACE)).toEqual([]);
+		// The drop tells listeners at once, not after the throttle window.
+		await waitFor(() => registry.codingAgents(WORKSPACE) === null);
+		expect(calls).toBe(before + 1);
 	});
 });
 
 test("a connection made after the states were set gets them in the first frame", async () => {
 	await withRegistry(async ({ registry, setAgents }) => {
 		await setAgents([{ terminalId: TERMINAL, agent: "claude", state: "finished" }]);
-		await waitFor(() => registry.codingAgents(WORKSPACE).length === 1);
-		expect(registry.codingAgents(WORKSPACE)[0]?.state).toBe("finished");
+		await waitFor(() => registry.codingAgents(WORKSPACE)?.length === 1);
+		expect(registry.codingAgents(WORKSPACE)?.[0]?.state).toBe("finished");
+	});
+});
+
+test("the list is null until the agent's first frame arrives", async () => {
+	await withRegistry(async ({ registry, setAgents }) => {
+		// Nothing has connected yet, and an empty list would be a baseline
+		// the agent never sent.
+		expect(registry.codingAgents(WORKSPACE)).toBeNull();
+		await setAgents([]);
+		await waitFor(() => registry.codingAgents(WORKSPACE) !== null);
+		expect(registry.codingAgents(WORKSPACE)).toEqual([]);
+	});
+});
+
+test("a burst of differing frames is throttled and ends on the newest list", async () => {
+	await withRegistry(async ({ registry, setAgents }) => {
+		await waitFor(() => registry.codingAgents(WORKSPACE) !== null);
+		const seen: string[] = [];
+		registry.subscribeCodingAgents(WORKSPACE, () => {
+			seen.push(registry.codingAgents(WORKSPACE)?.[0]?.since ?? "");
+		});
+		// Every frame differs, as a workspace trying to flood the API would send.
+		const started = Date.now();
+		for (let i = 0; i < 1000; i++) {
+			await setAgents([
+				{
+					terminalId: TERMINAL,
+					agent: "claude",
+					state: "working",
+					since: new Date(1_000_000 + i).toISOString(),
+				},
+			]);
+		}
+		const elapsed = Date.now() - started;
+		const newest = new Date(1_000_000 + 999).toISOString();
+		await waitFor(() => seen.at(-1) === newest);
+		// At most four a second, plus the one that ends the burst.
+		expect(seen.length).toBeLessThanOrEqual(Math.ceil(elapsed / 250) + 1);
+		expect(seen.length).toBeLessThan(50);
+	});
+});
+
+test("only listeners of the workspace that changed are called", async () => {
+	await withRegistry(async ({ registry, setAgents }) => {
+		let otherCalls = 0;
+		let ownCalls = 0;
+		registry.subscribeCodingAgents("44444444-4444-4444-8444-444444444444", () => {
+			otherCalls += 1;
+		});
+		registry.subscribeCodingAgents(WORKSPACE, () => {
+			ownCalls += 1;
+		});
+		await setAgents([{ terminalId: TERMINAL, agent: "claude", state: "working" }]);
+		await waitFor(() => ownCalls >= 1);
+		expect(otherCalls).toBe(0);
 	});
 });
