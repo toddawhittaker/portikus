@@ -13,8 +13,9 @@ import {
 /**
  * The two actions of the first-alert toast. Nothing renders unless the
  * student has not chosen yet and the browser has not blocked them.
+ * `onAnswered` runs once either button has been used.
  */
-export function PermissionOffer() {
+export function PermissionOffer({ onAnswered }: { onAnswered: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
 	const [answered, setAnswered] = useState(false);
@@ -29,6 +30,7 @@ export function PermissionOffer() {
 	function save(agentNotifications: "on" | "off") {
 		setAnswered(true);
 		update.mutate({ agentNotifications });
+		onAnswered();
 	}
 	// A browser that already allows them is not asked again.
 	function turnOn() {

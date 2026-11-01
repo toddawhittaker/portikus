@@ -1,5 +1,6 @@
 import { act, fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createAgentStatusStore } from "./terminal/codingAgentStatus.js";
 import { WORKSPACE } from "./test-utils.js";
 import { ACTIVITY_MS, useWorkspaceSocket } from "./useWorkspaceSocket.js";
 
@@ -83,4 +84,39 @@ test("the page stops listening when it leaves the workspace", () => {
 	socket.readyState = 1;
 	fireEvent.keyDown(document.body, { key: "a" });
 	expect(socket.activity()).toBe(0);
+});
+
+const P = "11111111-1111-4111-8111-111111111111";
+const SINCE = "2026-11-01T12:00:00.000Z";
+const T = "22222222-2222-4222-8222-222222222222";
+
+function agents(state: "working" | "finished") {
+	return JSON.stringify({
+		type: "coding-agents",
+		terminals: [{ terminalId: T, projectId: P, agent: "claude", state, since: SINCE }],
+	});
+}
+
+test("every coding-agents list reaches the store once, even two in one tick", () => {
+	// Not focused, so a finish counts as news.
+	const store = createAgentStatusStore(() => false);
+	const alerts: unknown[] = [];
+	renderHook(() =>
+		useWorkspaceSocket(WORKSPACE.id, (terminals, initial) => {
+			alerts.push(...store.update(terminals, initial));
+		}),
+	);
+	const socket = RecordingSocket.last as RecordingSocket;
+	act(() => socket.open());
+	// The first list is a baseline; the quick finish and restart after it are not.
+	act(() => {
+		socket.onmessage?.({ data: agents("working") });
+		expect(alerts).toEqual([]);
+		socket.onmessage?.({ data: agents("finished") });
+		socket.onmessage?.({ data: agents("working") });
+	});
+	expect(alerts).toEqual([
+		expect.objectContaining({ terminalId: T, state: "finished" }),
+	]);
+	expect(store.getSnapshot().unread.has(T)).toBe(true);
 });

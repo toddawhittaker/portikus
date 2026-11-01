@@ -5,25 +5,14 @@
  */
 import type { CodingAgentState, CodingAgentTerminal } from "@portikus/contracts";
 import { createContext, useContext, useSyncExternalStore } from "react";
-
-/** The word the student reads for each state. */
-const STATE_LABEL: Record<CodingAgentState, string> = {
-	working: "working",
-	"needs-input": "needs input",
-	finished: "finished",
-};
-
-const AGENT_NAME: Record<CodingAgentTerminal["agent"], string> = {
-	claude: "Claude Code",
-	codex: "Codex",
-};
+import { CODING_AGENT_NAME } from "../admin/image/codingAgents.js";
 
 /** The toast title for an agent that stopped: "Claude Code needs your input". */
 export function alertTitle(
 	agent: CodingAgentTerminal["agent"],
 	state: Extract<CodingAgentState, "needs-input" | "finished">,
 ): string {
-	return `${AGENT_NAME[agent]} ${state === "finished" ? "finished" : "needs your input"}`;
+	return `${CODING_AGENT_NAME[agent]} ${state === "finished" ? "finished" : "needs your input"}`;
 }
 
 /** What a tab or a project row shows for one or more terminals. */
@@ -49,11 +38,6 @@ export function mostUrgent(marks: Iterable<AgentMark>): AgentMark | null {
 		if (urgency(mark) > (best ? urgency(best) : 0)) best = mark;
 	}
 	return best;
-}
-
-/** The words appended to an accessible name, such as "needs input". */
-export function markLabel(mark: AgentMark): string {
-	return mark.state === "finished" ? "finished, unread" : STATE_LABEL[mark.state];
 }
 
 /** One alert: an agent changed to finished or needs input while out of sight. */

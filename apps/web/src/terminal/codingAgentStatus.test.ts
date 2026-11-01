@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	alertTitle,
 	createAgentStatusStore,
-	markLabel,
 	marksByProject,
 	mostUrgent,
 	urgency,
@@ -51,9 +50,7 @@ describe("urgency", () => {
 		expect(mostUrgent([])).toBeNull();
 	});
 
-	it("names the state in words", () => {
-		expect(markLabel({ state: "finished", unread: true })).toBe("finished, unread");
-		expect(markLabel({ state: "needs-input", unread: false })).toBe("needs input");
+	it("words the alert title", () => {
 		expect(alertTitle("claude", "needs-input")).toBe("Claude Code needs your input");
 		expect(alertTitle("codex", "finished")).toBe("Codex finished");
 	});

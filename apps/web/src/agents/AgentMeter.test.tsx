@@ -44,7 +44,7 @@ test("limits show a meter of the fullest window, with every live window in the d
 	});
 	renderWithQuery(<AgentMeters workspaceId="w1" enabled />);
 	const button = await screen.findByTestId("agent-meter-claude");
-	expect(button.textContent).toContain("Claude");
+	expect(button.textContent).toContain("Claude Code");
 	expect(button.textContent).toContain("42%");
 	expect(button.getAttribute("data-level")).toBe("ok");
 	expect(screen.queryByTestId("agent-meter-codex")).toBeNull();
@@ -66,7 +66,7 @@ test("without limits, today's counts show tokens and cost, and the details list 
 	});
 	renderWithQuery(<AgentMeters workspaceId="w1" enabled />);
 	expect((await screen.findByTestId("agent-meter-claude")).textContent).toBe(
-		"Claude today: 1.2M tokens · ≈$3.40",
+		"Claude Code today: 1.2M tokens · ≈$3.40",
 	);
 	expect(screen.getByTestId("agent-meter-codex").textContent).toBe(
 		"Codex today: 1.2M tokens",
@@ -110,13 +110,13 @@ test("crossing the warning share shows one warning toast per window and reset ti
 		],
 	});
 	const client = renderWithQuery(<AgentMeters workspaceId="w1" enabled />);
-	expect(await screen.findByText("Claude usage is at 91%")).toBeTruthy();
+	expect(await screen.findByText("Claude Code usage is at 91%")).toBeTruthy();
 	expect(screen.getByTestId("agent-meter-claude").getAttribute("data-level")).toBe(
 		"warning",
 	);
 	await client.invalidateQueries();
 	await waitFor(() =>
-		expect(screen.getAllByText("Claude usage is at 91%")).toHaveLength(1),
+		expect(screen.getAllByText("Claude Code usage is at 91%")).toHaveLength(1),
 	);
 });
 

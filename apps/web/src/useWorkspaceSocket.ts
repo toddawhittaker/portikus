@@ -22,12 +22,14 @@ function socketUrl(workspaceId: string): string {
 	return wsUrl(`/workspaces/${workspaceId}/ws`);
 }
 
-/** One `coding-agents` message: the whole list, and whether it is the connection's first. */
-export interface CodingAgentsUpdate {
-	terminals: CodingAgentTerminal[];
-	/** The first list on this connection, which is a baseline and not news. */
-	initial: boolean;
-}
+/**
+ * Takes each `coding-agents` list as it arrives. `initial` is true for the
+ * connection's first list, which is a baseline and not news.
+ */
+export type CodingAgentsHandler = (
+	terminals: CodingAgentTerminal[],
+	initial: boolean,
+) => void;
 
 export interface WorkspaceSocket {
 	/** The last `workspace` message the server sent, or null before the first. */
@@ -37,8 +39,6 @@ export interface WorkspaceSocket {
 	 * `listening-services` message, or null before the first (SPEC.md §18.2).
 	 */
 	listening: ListeningService[] | null;
-	/** The last `coding-agents` message, or null before the first. */
-	codingAgents: CodingAgentsUpdate | null;
 	/** Drop the socket and connect again now, without waiting for the backoff. */
 	reconnect: () => void;
 	/** Report activity now, as Keep working does (ADR 0032). */
@@ -50,14 +50,19 @@ export interface WorkspaceSocket {
  * counts as presence (SPEC.md §6.4), so it stays open for as long as the
  * page is on a workspace screen.
  */
-export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket {
+export function useWorkspaceSocket(
+	workspaceId: string | null,
+	onCodingAgents?: CodingAgentsHandler,
+): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [listening, setListening] = useState<ListeningService[] | null>(null);
-	const [codingAgents, setCodingAgents] = useState<CodingAgentsUpdate | null>(null);
 	const [attempt, setAttempt] = useState(0);
 
 	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
 	const current = useRef<WebSocket | null>(null);
+	// Lists go straight to the handler from the socket, so none is lost to a render that batches two.
+	const agentsHandler = useRef(onCodingAgents);
+	agentsHandler.current = onCodingAgents;
 	const lastActivity = useRef(0);
 
 	const sendActivity = useCallback(() => {
@@ -91,7 +96,6 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 		if (!workspaceId) {
 			setWorkspace(null);
 			setListening(null);
-			setCodingAgents(null);
 			return;
 		}
 
@@ -132,7 +136,7 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 				if (message.type === "workspace") setWorkspace(message.workspace);
 				if (message.type === "listening-services") setListening(message.services);
 				if (message.type === "coding-agents") {
-					setCodingAgents({ terminals: message.terminals, initial: !gotAgents });
+					agentsHandler.current?.(message.terminals, !gotAgents);
 					gotAgents = true;
 				}
 				if (message.type === "layout") {
@@ -180,5 +184,5 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 		};
 	}, [workspaceId, attempt]);
 
-	return { workspace, listening, codingAgents, reconnect, sendActivity };
+	return { workspace, listening, reconnect, sendActivity };
 }

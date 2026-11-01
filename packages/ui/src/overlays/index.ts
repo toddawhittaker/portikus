@@ -30,6 +30,7 @@ export {
 export { PaneHandle, type PaneHandleProps } from "./pane-handle";
 export {
 	AgentStateMark,
+	agentStateWords,
 	type TabItem,
 	Tabs,
 	TabsContent,

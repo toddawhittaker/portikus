@@ -79,7 +79,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// The shell is on screen, so the agent tab is out of sight.
 			await setAgents(student.workspaceId, [{ ...base, state: "needs-input" }]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input)" }),
+				page.getByRole("tab", { name: "Claude Code (needs input, unread)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code needs your input")).toBeVisible();
 
@@ -89,10 +89,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 			).toBeVisible();
 			await expect(toast(page, "Claude Code finished")).toBeVisible();
 			// The three states use three different glyphs.
-			await expect(page.getByTestId(/^tab-.*-agent$/)).toHaveAttribute(
-				"data-agent-state",
-				"finished",
-			);
+			const glyph = page.getByTestId(/^tab-.*-agent$/);
+			await expect(glyph).toHaveAttribute("data-agent-state", "finished");
+			// The glyph names its state on hover.
+			await expect(glyph).toHaveAttribute("title", "finished, unread");
 			await expectNoViolations(page, '[data-testid="work-tabs"]', ".pk-toast");
 
 			// Looking at the tab clears the mark and takes its toast away.
@@ -121,7 +121,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 				{ terminalId: agent, agent: "claude", state: "needs-input" },
 			]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input)" }),
+				page.getByRole("tab", { name: "Claude Code (needs input, unread)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code needs your input")).toBeVisible();
 
@@ -179,6 +179,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await page.keyboard.press("Enter");
 			await expect(page).toHaveURL(new RegExp(`/projects/${other.id}$`));
 			await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
+			// Focus moves into the opened project's work area.
+			await expect(page.getByRole("main", { name: "Work area" })).toBeFocused();
 			// Showing the tab clears the mark, the toast and the row's badge.
 			await expect(row).toHaveAccessibleName("Other work");
 			await expect(toast(page, "Claude Code finished")).toHaveCount(0);
@@ -210,7 +212,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 				{ terminalId: first, agent: "claude", state: "working" },
 				{ terminalId: second, agent: "codex", state: "needs-input" },
 			]);
-			await expect(row).toHaveAccessibleName("Busy (needs input)");
+			await expect(row).toHaveAccessibleName("Busy (needs input, unread)");
 			await setAgents(student.workspaceId, [
 				{ terminalId: first, agent: "claude", state: "working" },
 				{ terminalId: second, agent: "codex", state: "working" },
@@ -267,6 +269,9 @@ test.describe("the desktop notification offer", () => {
 
 		await first.getByRole("button", { name: "Turn on desktop notifications" }).click();
 		await expect.poll(() => savedChoice(page)).toBe("on");
+		// The answered toast goes, and focus lands on the work area's selected tab.
+		await expect(first).toHaveCount(0);
+		await expect(workTabs(page).getByRole("tab", { selected: true })).toBeFocused();
 
 		await setAgents(student.workspaceId, [
 			{ terminalId: agent, agent: "claude", state: "finished" },
@@ -289,11 +294,19 @@ test.describe("the desktop notification offer", () => {
 		await setAgents(student.workspaceId, [
 			{ terminalId: agent, agent: "claude", state: "finished" },
 		]);
-		const first = toast(page, "Claude Code finished");
+		await expect(
+			toast(page, "Claude Code finished").getByRole("button", { name: "No thanks" }),
+		).toBeVisible();
+		// A newer alert replaces the offer toast and carries the offer on.
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "needs-input" },
+		]);
+		const first = toast(page, "Claude Code needs your input");
 		await first.getByRole("button", { name: "No thanks" }).focus();
 		await page.keyboard.press("Enter");
 		await expect.poll(() => savedChoice(page)).toBe("off");
-		await expect(first.getByRole("button", { name: "No thanks" })).toHaveCount(0);
+		await expect(first).toHaveCount(0);
+		await expect(workTabs(page).getByRole("tab", { selected: true })).toBeFocused();
 	});
 
 	test("an alert toast without the offer times out", async ({ page, context }) => {
