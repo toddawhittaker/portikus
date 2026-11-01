@@ -13,7 +13,7 @@
 		"typecheck": "tsc -b"
 	},
 	"devDependencies": {
-		"@types/node": "24.19.0"
+		"@types/node": "24.19.2"
 	},
 	"dependencies": {
 		"@portikus/contracts": "workspace:*"
