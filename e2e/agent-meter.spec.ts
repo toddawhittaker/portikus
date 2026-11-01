@@ -62,10 +62,10 @@ test("a plan limit shows as a meter of the fullest window, with the details by k
 	});
 	await page.goto(workspacePath(student.workspaceId));
 	const meter = page.getByTestId("agent-meter-claude");
-	await expect(meter).toHaveText("Claude42%");
+	await expect(meter).toHaveText("Claude Code42%");
 	await expect(meter).toHaveAttribute("data-level", "ok");
 	await expect(meter).toHaveAccessibleName(
-		/^Claude 42% of the 5h limit, resets .+\. Show usage details$/,
+		/^Claude Code 42% of the 5h limit, resets .+\. Show usage details$/,
 	);
 	await expect(page.getByTestId("agent-meter-codex")).toHaveCount(0);
 
@@ -105,7 +105,7 @@ test("with no limit, today's counts show tokens and cost, and the details list t
 	await seedToday(student.userId, "codex", null);
 	await page.goto(workspacePath(student.workspaceId));
 	await expect(page.getByTestId("agent-meter-claude")).toHaveText(
-		"Claude today: 1.2M tokens · ≈$3.40",
+		"Claude Code today: 1.2M tokens · ≈$3.40",
 	);
 	// Codex reports no cost, so it shows tokens only.
 	await expect(page.getByTestId("agent-meter-codex")).toHaveText(
@@ -151,7 +151,7 @@ test("a window past its reset is hidden", async ({ page, context }) => {
 		},
 	});
 	await page.goto(workspacePath(student.workspaceId));
-	await expect(page.getByTestId("agent-meter-claude")).toHaveText("Claude12%");
+	await expect(page.getByTestId("agent-meter-claude")).toHaveText("Claude Code12%");
 });
 
 test("crossing the warning share shows one saved warning, not again on reload", async ({
@@ -163,7 +163,9 @@ test("crossing the warning share shows one saved warning, not again on reload", 
 		claude: { windows: [{ name: "5h", usedPercent: 91, resetsAt: inHours(2) }] },
 	});
 	await page.goto(workspacePath(student.workspaceId));
-	const toast = page.getByRole("alert").filter({ hasText: "Claude usage is at 91%" });
+	const toast = page
+		.getByRole("alert")
+		.filter({ hasText: "Claude Code usage is at 91%" });
 	await expect(toast).toBeVisible();
 	await expect(toast).toContainText("The 5h limit resets");
 
@@ -180,7 +182,7 @@ test("crossing the warning share shows one saved warning, not again on reload", 
 			async () =>
 				(
 					await query(
-						"select 1 from notifications where user_id = $1 and tone = 'warning' and title = 'Claude usage is at 91%'",
+						"select 1 from notifications where user_id = $1 and tone = 'warning' and title = 'Claude Code usage is at 91%'",
 						[student.userId],
 					)
 				).length,
