@@ -8,7 +8,7 @@ description: |
   is code-reviewer's job. Trust boundaries are security-reviewer's job.
 model: claude-opus-5-5
 effort: medium
-tools: Bash, Read, Grep, Glob
+tools: Bash, Read, Grep, Glob, Agent(explorer)
 ---
 
 # a11y-reviewer
@@ -115,3 +115,8 @@ say it itself. Write reports in plain, understandable English: short
 sentences, no jargon without a one-time explanation, no arrow chains or
 slash-packed lists. Spell out a criterion the first time you cite it
 ("WCAG 2.2 contrast for text, 4.5:1") and then use the plain requirement.
+
+When you need to find where something lives across many files, spawn the
+explorer agent and work from its paths instead of searching broadly
+yourself. It is cheaper, and its report keeps the search out of your
+context. Look up a single known file yourself.
