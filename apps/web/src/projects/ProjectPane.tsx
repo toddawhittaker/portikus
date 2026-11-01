@@ -1,5 +1,6 @@
 import type { Project } from "@portikus/contracts";
 import {
+	AgentStateMark,
 	Icon,
 	IconButton,
 	Menu,
@@ -15,6 +16,12 @@ import { downloadErrorToast } from "../files/errors.js";
 import { downloadCheckUrl, startDownload } from "../files/queries.js";
 import { StartLiveHelpDialog } from "../livehelp/StartLiveHelpDialog.js";
 import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
+import {
+	type AgentMark,
+	markLabel,
+	marksByProject,
+	useAgentStatus,
+} from "../terminal/codingAgentStatus.js";
 import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
 import { DeleteConfirm } from "./DeleteConfirm.js";
@@ -28,6 +35,16 @@ import {
 } from "./queries.js";
 import { RenameDialog } from "./RenameDialog.js";
 import { isOpenShare, ShareDialog } from "./ShareDialog.js";
+
+/** The most urgent agent state in a project; the words are for assistive technology. */
+function ProjectAgentMark({ projectId, mark }: { projectId: string; mark: AgentMark }) {
+	return (
+		<>
+			<AgentStateMark state={mark.state} testId={`project-agent-${projectId}`} />{" "}
+			<span className="pk-visually-hidden">({markLabel(mark)})</span>
+		</>
+	);
+}
 
 /** The "Shared" tag on a row while the project's share is open. */
 function ShareBadge({ project }: { project: Project }) {
@@ -70,6 +87,7 @@ export function ProjectPane({
 	const [showArchived, setShowArchived] = useState(false);
 
 	const projects = active.data ?? [];
+	const marks = marksByProject(useAgentStatus());
 
 	function goTo(project: Project) {
 		void navigate({
@@ -154,6 +172,12 @@ export function ProjectPane({
 								>
 									<Icon name={current ? "folder-open" : "folder"} size="md" />
 									<span className="pk-list-label">{project.name}</span>
+									{marks.get(project.id) ? (
+										<ProjectAgentMark
+											projectId={project.id}
+											mark={marks.get(project.id) as AgentMark}
+										/>
+									) : null}
 									{project.missing ? (
 										<span className="pk-tag pk-tag--warning">missing</span>
 									) : null}

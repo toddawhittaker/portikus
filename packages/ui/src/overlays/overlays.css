@@ -288,6 +288,28 @@
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;
 }
+.pk-tab--unread .pk-tab-label {
+	font-weight: 600;
+}
+/* Working is an open ring, needs input a triangle, finished a check. */
+.pk-agent-mark {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 14px;
+	height: 14px;
+}
+.pk-agent-mark--working {
+	box-sizing: border-box;
+	border: 2px solid var(--status-starting);
+	border-radius: var(--radius-full);
+}
+.pk-agent-mark--needs-input {
+	color: var(--status-warning);
+}
+.pk-agent-mark--finished {
+	color: var(--status-running);
+}
 /* The unsaved dot sits where the close control does and the two swap on
    hover or focus, as Chrome and VS Code do. */
 .pk-tab-dirty {
