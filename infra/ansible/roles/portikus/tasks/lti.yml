@@ -1,6 +1,6 @@
 ---
 # LTI launch on the VM (ADR 0025).  api.env
-# always names both files; a missing platforms file means LTI is off.
+# always names both files; no platforms file at the default path means LTI is off.
 # lti_load.yml has already read the file on the Ansible host.
 
 # The tool key is generated once and never replaced, because every LMS
@@ -49,7 +49,7 @@
     group: portikus
     mode: "0640"
     validate: "{{ portikus_node }} {{ portikus_lti_platforms_check_script }} %s"
-  when: portikus_lti_platforms is not none and not portikus_lti_platforms_kept
+  when: portikus_lti_platforms is not none
   notify: Restart portikus-api
 
 - name: Remove the LTI platforms file, which turns LTI off

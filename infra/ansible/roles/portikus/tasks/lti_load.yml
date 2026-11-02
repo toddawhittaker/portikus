@@ -18,42 +18,26 @@
 - name: Start with LTI off
   ansible.builtin.set_fact:
     portikus_lti_platforms: null
-    portikus_lti_platforms_kept: false
     portikus_lti_keyset_egress: []
 
 # A source the operator named but that is missing is far more likely a
-# mistake than a request to turn LTI off, so the installed list stays.
-# Only the default source being absent turns LTI off.
-- name: Keep the installed LTI platforms file when the named source is missing
+# deleted file than a request to turn LTI off, so setup stops here, before
+# any task changes or removes the installed list.  Only a missing file at
+# the default path turns LTI off.
+- name: Refuse a named LTI platforms file that does not exist
+  ansible.builtin.fail:
+    msg: >-
+      The LTI platforms file {{ portikus_lti_platforms_file }} does not exist,
+      so setup stopped and left {{ portikus_lti_platforms_path }} unchanged.
+      Copy the platforms list to {{ portikus_lti_platforms_file }}, or remove
+      the portikus_lti_platforms_file setting (PORTIKUS_LTI_PLATFORMS_FILE for
+      make configure-vm) and make sure {{ portikus_lti_platforms_default_file }}
+      does not exist.  With neither file present, setup turns LTI off and
+      removes {{ portikus_lti_platforms_path }}.  Then run setup again.
   when:
     - not portikus_lti_platforms_stat.stat.exists
     - portikus_lti_platforms_file != portikus_lti_platforms_default_file
-  block:
-    - name: Look at the installed LTI platforms file
-      ansible.builtin.stat:
-        path: "{{ portikus_lti_platforms_path }}"
-      register: portikus_lti_installed_stat
-
-    - name: Read the installed LTI platforms file
-      ansible.builtin.slurp:
-        src: "{{ portikus_lti_platforms_path }}"
-      register: portikus_lti_installed
-      when: portikus_lti_installed_stat.stat.exists
-
-    - name: Use the installed LTI platforms file
-      ansible.builtin.set_fact:
-        portikus_lti_platforms: "{{ portikus_lti_installed.content | b64decode | from_json }}"
-        portikus_lti_platforms_kept: true
-      when: portikus_lti_installed_stat.stat.exists
-
-    - name: Warn that the LTI platforms source is missing
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: the LTI platforms file {{ portikus_lti_platforms_file }} does not exist.
-          {{ ('The installed list ' ~ portikus_lti_platforms_path ~ ' is kept unchanged.')
-             if portikus_lti_platforms_kept else 'LTI stays off.' }}
-          Copy the platforms list to {{ portikus_lti_platforms_file }}, or remove
-          portikus_lti_platforms_file from your settings to turn LTI off, then run setup again.
+  run_once: true
 
 - name: Read the LTI platforms file
   when: portikus_lti_platforms_stat.stat.exists

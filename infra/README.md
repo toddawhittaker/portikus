@@ -547,9 +547,10 @@ default `~/.config/portikus/lti-platforms.json` (override with
 `PORTIKUS_LTI_PLATFORMS_FILE=<path>`). It holds no secret. `make
 configure-vm` checks it, copies it to `/etc/portikus/lti-platforms.json`
 (`root:portikus`, mode 0640) and restarts the API, which validates it in
-full and refuses to start on a bad file. With no file on your machine,
-Ansible removes the copy on the VM and LTI is off: every `/lti/*` route
-answers 404.
+full and refuses to start on a bad file. With no file at the default
+path, Ansible removes the copy on the VM and LTI is off: every `/lti/*`
+route answers 404. A `PORTIKUS_LTI_PLATFORMS_FILE` that names a missing
+file makes setup fail and leaves the copy on the VM untouched.
 
 Each LMS registration asks for the tool's keyset URL,
 `https://<public-host>:<port>/lti/jwks`. The key behind it is generated on
