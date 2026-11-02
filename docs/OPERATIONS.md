@@ -1121,7 +1121,9 @@ Apply it with `make configure-vm` (after "Before a
 change"). Ansible copies the file to `/etc/portikus/lti-platforms.json`
 and checks it with the API's own parser before installing it, so a bad
 file stops the run with the problem named. To turn LTI off, delete the
-file and run `make configure-vm` again.
+file and run `make configure-vm` again. A file named in
+`PORTIKUS_LTI_PLATFORMS_FILE` that is missing does not turn LTI off: the
+installed list is kept and the run prints a warning.
 
 **On a server installed with apt** (docs/INSTALL.md), setup runs on the
 server itself, so the file lives there. Put it somewhere other than
@@ -1134,7 +1136,10 @@ portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json
 ```
 
 Then run `sudo portikus setup`. Setup checks and installs the file the
-same way. To turn LTI off, delete the file and run setup again. The pilot
+same way. If the named file is missing, setup keeps the installed
+`/etc/portikus/lti-platforms.json` unchanged and prints a warning naming
+the missing path. To turn LTI off, remove the `portikus_lti_platforms_file`
+line, delete the source file, and run setup again. The pilot
 was set up this way on 2026-09-29.
 
 ### Changes made from the admin pages

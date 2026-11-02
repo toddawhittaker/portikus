@@ -24,8 +24,11 @@ command -v ansible-playbook >/dev/null || {
 }
 
 # load FILE — reads the file as the role does; prints the result line, fails when it refuses.
+# The default source is absent.json and the installed file installed.json, both in ${work}.
 load() {
-  ansible-playbook "${PLAYBOOK}" -e "portikus_lti_platforms_file=$1" >"${work}/run.log" 2>&1 || return 1
+  ansible-playbook "${PLAYBOOK}" -e "portikus_lti_platforms_file=$1" \
+    -e "portikus_lti_platforms_default_file=${work}/absent.json" \
+    -e "portikus_lti_platforms_path=${work}/installed.json" >"${work}/run.log" 2>&1 || return 1
   grep -o 'LTI-RESULT {.*}' "${work}/run.log" | head -1 | sed 's/^LTI-RESULT //; s/\\"/"/g'
 }
 
@@ -60,6 +63,16 @@ file() { # NAME PLATFORM-JSON...
 echo "--- Reading the platforms file and deriving the egress proxy entries ---"
 
 accepts "no file means LTI is off" "${work}/absent.json" '{"on": false, "egress": []}'
+# A named source that is missing keeps the installed list rather than turning LTI off.
+accepts "a named missing source with nothing installed leaves LTI off" "${work}/missing.json" \
+  '{"on": false, "egress": []}'
+cp "$(file canvas-installed "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" \
+  "${work}/installed.json"
+accepts "a named missing source keeps the installed file and its egress" "${work}/missing.json" \
+  '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
+check "the warning names the missing source" grep -q "${work}/missing.json does not exist" "${work}/run.log"
+accepts "the default source missing still turns LTI off" "${work}/absent.json" '{"on": false, "egress": []}'
+rm -f "${work}/installed.json"
 accepts "the mock registration's keyset address and port are allowed" \
   "$(file mock "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)")" \
   '{"on": true, "egress": ["10.100.0.1:8765"]}'
@@ -105,7 +118,7 @@ tasks = yaml.safe_load(open(sys.argv[1]))
 copy = next(t for t in tasks if "ansible.builtin.copy" in t)
 remove = next(t for t in tasks if t.get("ansible.builtin.file", {}).get("state") == "absent")
 assert "portikus_lti_platforms_check_script" in copy["ansible.builtin.copy"]["validate"]
-assert copy["when"] == "portikus_lti_platforms is not none"
+assert copy["when"] == "portikus_lti_platforms is not none and not portikus_lti_platforms_kept"
 assert remove["when"] == "portikus_lti_platforms is none"
 assert copy["notify"] == remove["notify"]
 PY
