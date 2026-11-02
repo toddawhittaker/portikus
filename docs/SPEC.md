@@ -861,8 +861,12 @@ owns this document and writes it back, at most once a second. Each
 project's layout has a version (`projects.layout_version`, migration
 0048): GET returns it as `ETag: "<n>"`, on a 204 too, and PUT needs a
 matching `If-Match`; a missing or stale one gets 412 `LAYOUT_CHANGED` and
-the browser loads the server's layout. The write is one update guarded by
-the version, which it increments. After a save the API sends
+the browser loads the server's layout. The version travels in the ETag,
+and the browser reads the number from it even when a proxy that compresses
+the response has appended `-<encoding>` (Caddy sends `"5-gzip"`); unlike the
+file routes, which send `Cache-Control: no-transform`, the layout route is
+compressed. The write is one update guarded by the version, which it
+increments. After a save the API sends
 `{"type":"layout","projectId","version"}` to the owner's workspace
 sockets only, never an administrator's, and a newly opened owner socket
 gets each project's current version. A layout loaded from another browser
@@ -3775,10 +3779,12 @@ Epic 24 (issue #626, ADR 0042):
   When its image version differs from the running image and some listed
   packages are not installed now, `GET /workspaces/:id/reinstall-note`
   (owner only, passed to the agent's `GET /packages/reinstall-note`)
-  returns them, and the student sees a dismissible notice: "Packages you
-  had installed with sudo apt were removed when your workspace was
-  rebuilt: … Reinstall them with:" and a copyable `sudo apt install …`
-  line. Dismiss rewrites the header to the current image through the
+  returns them, and the student sees a dismissible notice. Its title is
+  one sentence that ends with the removed packages as a comma-separated
+  list in code style: "Packages you had installed with sudo apt were
+  removed when your workspace was rebuilt: `file`, `htop`." Below it is
+  the `sudo apt install …` line with a copy icon button named "Copy
+  command", shown on hover, on keyboard focus and on any touch pointer. Dismiss rewrites the header to the current image through the
   agent. The note empties once dpkg shows the packages installed. Every
   name is checked against Debian's package-name form before it is shown
   or put in the command line.
@@ -7036,6 +7042,24 @@ Acceptance:
 - a dropped file lands under `.portikus/pastes/<stamp>/` and its path is typed with no Enter; a name with a control character refuses the whole drop;
 - a hook script that cannot reach the receiver exits 0 within a second;
 - a second Codex terminal reports its own terminal id.
+
+### Epic 57 — Pilot fixes
+
+Built on `epic/57-pilot-fixes`, issues #1731, #1732, #1725 and #1703. No migration. See sections 7.5, 22.3 and 25.8; the LTI platforms file rule is in docs/OPERATIONS.md.
+
+Includes:
+
+- the saved layout's version read from the ETag even when Caddy has added `-gzip`, and a save queued while leaving a project based on the version the save in flight returned;
+- the rebuild notice's title ending with the removed packages as a list in code style, and a copy icon on the command in place of the separate button;
+- workspace-agent tests that run their own tmux server keeping it alive, with unique terminal ids, and the hook time test no longer assuming the wall clock never steps back;
+- setup failing, with the installed LTI platforms file untouched, when the platforms file the operator named is missing.
+
+Acceptance:
+
+- a layout over 512 bytes saves twice in a row through Caddy;
+- the rebuild notice lists each removed package in its title, and the copy icon is reachable by hover, keyboard focus and a touch pointer;
+- the workspace-agent unit tests pass with no `server exited unexpectedly` failure, and the hook time test passes when the wall clock steps back;
+- a missing named LTI platforms file fails setup and leaves `/etc/portikus/lti-platforms.json` as it was; only a missing file at the default path turns LTI off.
 
 ### Estimated total
 
