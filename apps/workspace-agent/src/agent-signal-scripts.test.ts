@@ -97,10 +97,12 @@ test("a hook posts only the terminal id, the agent and the state", async () => {
 			state: "needs-input",
 		}).replace(/}$/, `,"at":${at}}`),
 	);
-	// Microseconds since the epoch, taken when the hook ran.
+	// Microseconds since the epoch, taken when the hook ran. The wall clock
+	// can be stepped back while the test runs, so a reading a little ahead of
+	// Date.now() is still right; milliseconds or nanoseconds would be off by
+	// a factor of a thousand.
 	const atMs = Number(BigInt(at) / 1000n);
-	expect(atMs).toBeGreaterThan(Date.now() - 10_000);
-	expect(atMs).toBeLessThanOrEqual(Date.now());
+	expect(Math.abs(atMs - Date.now())).toBeLessThan(10_000);
 });
 
 test("a hook reads its whole input, so the agent's write never fails", async () => {
