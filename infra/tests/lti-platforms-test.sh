@@ -63,16 +63,19 @@ file() { # NAME PLATFORM-JSON...
 echo "--- Reading the platforms file and deriving the egress proxy entries ---"
 
 accepts "no file means LTI is off" "${work}/absent.json" '{"on": false, "egress": []}'
-# A named source that is missing keeps the installed list rather than turning LTI off.
-accepts "a named missing source with nothing installed leaves LTI off" "${work}/missing.json" \
-  '{"on": false, "egress": []}'
+# A named source that is missing stops setup before anything is changed, so
+# deleting the source cannot quietly leave LTI on.
+refuses "a named missing source with nothing installed fails setup" "${work}/missing.json"
+check "the failure names the path" grep -q "${work}/missing.json does not exist" "${work}/run.log"
+check "the failure names both fixes" grep -q \
+  "Copy the platforms list to ${work}/missing.json, or remove the portikus_lti_platforms_file setting" "${work}/run.log"
 cp "$(file canvas-installed "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" \
   "${work}/installed.json"
-accepts "a named missing source keeps the installed file and its egress" "${work}/missing.json" \
-  '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
-check "the warning names the missing source" grep -q "${work}/missing.json does not exist" "${work}/run.log"
+cp "${work}/installed.json" "${work}/installed.before"
+refuses "a named missing source with a file installed fails setup" "${work}/missing.json"
+check "the installed file is unchanged byte for byte" cmp "${work}/installed.json" "${work}/installed.before"
 accepts "the default source missing still turns LTI off" "${work}/absent.json" '{"on": false, "egress": []}'
-rm -f "${work}/installed.json"
+rm -f "${work}/installed.json" "${work}/installed.before"
 accepts "the mock registration's keyset address and port are allowed" \
   "$(file mock "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)")" \
   '{"on": true, "egress": ["10.100.0.1:8765"]}'
@@ -118,7 +121,7 @@ tasks = yaml.safe_load(open(sys.argv[1]))
 copy = next(t for t in tasks if "ansible.builtin.copy" in t)
 remove = next(t for t in tasks if t.get("ansible.builtin.file", {}).get("state") == "absent")
 assert "portikus_lti_platforms_check_script" in copy["ansible.builtin.copy"]["validate"]
-assert copy["when"] == "portikus_lti_platforms is not none and not portikus_lti_platforms_kept"
+assert copy["when"] == "portikus_lti_platforms is not none"
 assert remove["when"] == "portikus_lti_platforms is none"
 assert copy["notify"] == remove["notify"]
 PY

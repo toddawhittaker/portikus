@@ -1121,9 +1121,12 @@ Apply it with `make configure-vm` (after "Before a
 change"). Ansible copies the file to `/etc/portikus/lti-platforms.json`
 and checks it with the API's own parser before installing it, so a bad
 file stops the run with the problem named. To turn LTI off, delete the
-file and run `make configure-vm` again. A file named in
-`PORTIKUS_LTI_PLATFORMS_FILE` that is missing does not turn LTI off: the
-installed list is kept and the run prints a warning.
+file and run `make configure-vm` again. That works only for the default
+path: with no file there, setup removes the installed list and LTI is off.
+A file named in `PORTIKUS_LTI_PLATFORMS_FILE` that is missing does not turn
+LTI off. Setup fails, naming the path, and leaves the installed list as it
+was. Copy the platforms list back to that path, or unset
+`PORTIKUS_LTI_PLATFORMS_FILE` and delete the default file.
 
 **On a server installed with apt** (docs/INSTALL.md), setup runs on the
 server itself, so the file lives there. Put it somewhere other than
@@ -1136,11 +1139,16 @@ portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json
 ```
 
 Then run `sudo portikus setup`. Setup checks and installs the file the
-same way. If the named file is missing, setup keeps the installed
-`/etc/portikus/lti-platforms.json` unchanged and prints a warning naming
-the missing path. To turn LTI off, remove the `portikus_lti_platforms_file`
-line, delete the source file, and run setup again. The pilot
-was set up this way on 2026-09-29.
+same way. If the named file is missing, setup fails with a message naming
+the path and leaves `/etc/portikus/lti-platforms.json` unchanged, so
+deleting the source file alone does not turn LTI off. To turn LTI off,
+remove the `portikus_lti_platforms_file` line from
+`/etc/portikus/portikus.yaml`, delete the source file, make sure
+`/root/.config/portikus/lti-platforms.json` does not exist (that is the
+default path when setup runs as root), and run setup again. With no file at
+the default path, setup removes `/etc/portikus/lti-platforms.json` and LTI
+is off. To keep LTI on, copy the platforms list back to the named path. The
+pilot was set up this way on 2026-09-29.
 
 ### Changes made from the admin pages
 
