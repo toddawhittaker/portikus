@@ -155,6 +155,8 @@ const PATHS = {
 	// The sign-out door with the arrow coming in, and Lucide map-pin, for the
 	// Sign-in and Site address admin tabs.
 	"sign-in": ["M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4", "M9 16l4-4-4-4", "M13 12H3"],
+	// Lucide copy, for copying a command or value to the clipboard.
+	copy: ["R8 8 14 14 2", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"],
 	"map-pin": [
 		"M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0",
 		"C12 10 3",

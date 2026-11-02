@@ -3,7 +3,7 @@ import { createRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../test-utils.js";
 import {
-	REINSTALL_TITLE,
+	REINSTALL_LEAD,
 	ReinstallNotice,
 	reinstallAnnouncement,
 } from "./ReinstallNotice.js";
@@ -12,21 +12,35 @@ afterEach(() => vi.unstubAllGlobals());
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
-test("lists the removed packages and the line that puts them back", async () => {
-	stubFetch((url) => {
-		if (url === `/workspaces/${ID}/reinstall-note`) {
-			return json(200, { packages: ["python3-venv", "htop"] });
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
+test("the title is one sentence ending with each package in code style", async () => {
+	stubFetch(() => json(200, { packages: ["python3-venv", "htop", "jq"] }));
 	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
-	expect(await screen.findByText(REINSTALL_TITLE)).toBeTruthy();
-	expect(screen.getByTestId("reinstall-packages").textContent).toBe(
-		"python3-venv, htop",
-	);
+	const title = await screen.findByTestId("reinstall-title");
+	expect(title.textContent).toBe(`${REINSTALL_LEAD}: python3-venv, htop, jq.`);
+	expect([...title.querySelectorAll("code")].map((c) => c.textContent)).toEqual([
+		"python3-venv",
+		"htop",
+		"jq",
+	]);
 	expect(screen.getByTestId("reinstall-command").textContent).toBe(
-		"sudo apt install python3-venv htop",
+		"sudo apt install python3-venv htop jq",
 	);
+});
+
+test("one package reads as a sentence with no comma", async () => {
+	stubFetch(() => json(200, { packages: ["htop"] }));
+	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
+	const title = await screen.findByTestId("reinstall-title");
+	expect(title.textContent).toBe(`${REINSTALL_LEAD}: htop.`);
+	expect(title.querySelectorAll("code")).toHaveLength(1);
+});
+
+test("the visible title and the status announcement say the same words", async () => {
+	const packages = ["file", "htop"];
+	stubFetch(() => json(200, { packages }));
+	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
+	const title = await screen.findByTestId("reinstall-title");
+	expect(title.textContent).toBe(reinstallAnnouncement(packages));
 });
 
 test("nothing shows when nothing was removed", async () => {
@@ -45,12 +59,14 @@ test("a first 503 while the agent starts is retried, and the notice shows", asyn
 			: json(200, { packages: ["htop"] });
 	});
 	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
-	expect(await screen.findByText(REINSTALL_TITLE, {}, { timeout: 4000 })).toBeTruthy();
+	expect(
+		await screen.findByTestId("reinstall-title", {}, { timeout: 4000 }),
+	).toBeTruthy();
 	expect(calls).toBe(2);
 });
 
 test("the announcement names the removed packages, and nothing when none", () => {
-	expect(reinstallAnnouncement(["htop", "jq"])).toBe(`${REINSTALL_TITLE}: htop, jq.`);
+	expect(reinstallAnnouncement(["htop", "jq"])).toBe(`${REINSTALL_LEAD}: htop, jq.`);
 	expect(reinstallAnnouncement([])).toBe("");
 });
 
@@ -61,13 +77,33 @@ test("a stopped workspace is not asked", () => {
 	expect(screen.queryByTestId("reinstall-notice")).toBeNull();
 });
 
-test("Copy command puts the line on the clipboard", async () => {
+test("the copy icon button has a name, is a native button, and copies the line", async () => {
 	stubFetch(() => json(200, { packages: ["htop"] }));
 	const writeText = vi.fn(async () => {});
 	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
 	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
-	fireEvent.click(await screen.findByTestId("reinstall-copy"));
+	const copy = await screen.findByRole("button", { name: "Copy command" });
+	expect(copy.tagName).toBe("BUTTON");
+	// No separate text button remains beside the icon.
+	expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1);
+	copy.focus();
+	expect(document.activeElement).toBe(copy);
+	fireEvent.click(copy);
 	await waitFor(() => expect(writeText).toHaveBeenCalledWith("sudo apt install htop"));
+	expect(await screen.findByText("Command copied")).toBeTruthy();
+});
+
+test("a refused clipboard says to select the command instead", async () => {
+	stubFetch(() => json(200, { packages: ["htop"] }));
+	const writeText = vi.fn(async () => {
+		throw new Error("denied");
+	});
+	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
+	fireEvent.click(await screen.findByRole("button", { name: "Copy command" }));
+	expect(
+		await screen.findByText("Could not copy. Select the command instead."),
+	).toBeTruthy();
 });
 
 test("dismiss asks the workspace, hides the notice and moves focus", async () => {
