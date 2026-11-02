@@ -4,35 +4,24 @@ import {
 	createStudent,
 	expectConnected,
 	expectNoViolations,
+	setAgents,
 	terminalIds,
 	toast,
 	WEB_ORIGIN,
 	workspacePath,
 	workTabs,
 } from "./helpers";
-import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * Agent status in tabs, the project list and toasts (SPEC.md §8.5, §25.8).
  * The fake agent stands in for the hooks: each post replaces the whole list.
  */
 
-type AgentState = "working" | "needs-input" | "finished";
-
-async function setAgents(
-	workspaceId: string,
-	terminals: { terminalId: string; agent: "claude" | "codex"; state: AgentState }[],
-): Promise<void> {
-	const response = await fetch(`${FAKE_AGENT_URL}/__test/coding-agents`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, terminals }),
-	});
-	if (!response.ok)
-		throw new Error(`the fake agent refused the states: ${response.status}`);
-}
-
-/** Open Claude Code, then a plain terminal, so the shell is the tab on screen. */
+/**
+ * Open Claude Code, then a plain terminal, so the shell is the tab on screen.
+ * A first "working" list is posted and seen, so the page's first list is the
+ * baseline and every later change is news (SPEC.md §8.5).
+ */
 async function openAgentAndShell(page: Page, workspaceId: string, projectId: string) {
 	await page.getByTestId("launcher").click();
 	await page.getByTestId("launcher-claude").click();
@@ -47,6 +36,14 @@ async function openAgentAndShell(page: Page, workspaceId: string, projectId: str
 	const [agent, shell] = await terminalIds(workspaceId, projectId);
 	if (!agent || !shell) throw new Error("the terminal rows were not created");
 	await expectConnected(page, shell);
+	await expect(page.getByRole("tab", { name: /^Claude Code/ })).toHaveAttribute(
+		"aria-selected",
+		"false",
+	);
+	await setAgents(workspaceId, [
+		{ terminalId: agent, agent: "claude", state: "working" },
+	]);
+	await expect(page.getByRole("tab", { name: "Claude Code (working)" })).toBeVisible();
 	return { agent, shell };
 }
 
@@ -208,6 +205,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const row = page.getByTestId(`project-item-${other.id}`).getByRole("link");
 			await expect(row).toBeVisible({ timeout: 15_000 });
 
+			// A first list the page has seen, so the next one is news and marks unread.
+			await setAgents(student.workspaceId, [
+				{ terminalId: first, agent: "claude", state: "working" },
+				{ terminalId: second, agent: "codex", state: "working" },
+			]);
+			await expect(row).toHaveAccessibleName("Busy (working)");
 			await setAgents(student.workspaceId, [
 				{ terminalId: first, agent: "claude", state: "working" },
 				{ terminalId: second, agent: "codex", state: "needs-input" },

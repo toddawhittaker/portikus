@@ -354,6 +354,22 @@ export async function endTerminal(terminalId: string): Promise<void> {
 	await query("update terminals set ended_at = now() where id = $1", [terminalId]);
 }
 
+export type AgentState = "working" | "needs-input" | "finished";
+
+/** Replace the coding-agent states the fake agent reports; each post is the whole list. */
+export async function setAgents(
+	workspaceId: string,
+	terminals: { terminalId: string; agent: "claude" | "codex"; state: AgentState }[],
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/coding-agents`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, terminals }),
+	});
+	if (!response.ok)
+		throw new Error(`the fake agent refused the states: ${response.status}`);
+}
+
 export async function terminalIds(
 	workspaceId: string,
 	projectId?: string,
