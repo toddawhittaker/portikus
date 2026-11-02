@@ -265,10 +265,11 @@
 
     # ── LTI launch (ADR 0025) ─────────────────────────────────────
     # The registered LMS platforms, on the machine that runs Ansible.  The
-    # role copies it to the VM; no file here means LTI is off.
+    # role copies it to the VM; no file at the default path means LTI is off.
+    portikus_lti_platforms_default_file: "{{ lookup('env', 'HOME') ~ '/.config/portikus/lti-platforms.json' }}"
     portikus_lti_platforms_file: >-
       {{ lookup('env', 'PORTIKUS_LTI_PLATFORMS_FILE')
-         | default(lookup('env', 'HOME') ~ '/.config/portikus/lti-platforms.json', true)
+         | default(portikus_lti_platforms_default_file, true)
          | expanduser }}
 
     # ── API egress (ADR 0027) ─────────────────────────────────────

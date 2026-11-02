@@ -17,6 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { readProcess } from "./processes.js";
 import { buildServer } from "./server.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { userTaskCount } from "./test-support/user-tasks.js";
 import {
 	attachArgs,
@@ -155,6 +156,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-agent-"));
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
+	await keepTmuxServerAlive(SOCKET_NAME);
 	app = buildServer({
 		tokenPath,
 		homeDir,

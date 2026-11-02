@@ -14,6 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { baselineDiff, baselineStatus, recordBaseline } from "./git-baseline.js";
 import { buildServer } from "./server.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { commandForAgent, createSession, killSession } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -42,6 +43,9 @@ async function tmuxAvailable(): Promise<boolean> {
 const haveTmux = await tmuxAvailable();
 const SOCKET_NAME = `portikus-agent-${process.pid}`;
 const SERVER = { socketName: SOCKET_NAME, external: false };
+// Closing a terminal stops every process marked with its id, on any tmux
+// server (SPEC.md §9.7), so the 94xx terminal ids below are used by no
+// other test file that may run alongside this one.
 
 let homeDir: string;
 let project: string;
@@ -109,6 +113,7 @@ beforeAll(async () => {
 			callback();
 		},
 	});
+	if (haveTmux) await keepTmuxServerAlive(SOCKET_NAME);
 	app = buildServer({
 		tokenPath,
 		homeDir,
@@ -142,7 +147,7 @@ test("the agent enum is the only argv", () => {
 test.skipIf(!haveTmux)(
 	"claude and codex become that argv, with institutional keys only on the session",
 	async () => {
-		const claudeId = "00000000-0000-4000-8000-000000009101";
+		const claudeId = "00000000-0000-4000-8000-000000009401";
 		const created = await createSession(
 			claudeId,
 			project,
@@ -191,7 +196,7 @@ test.skipIf(!haveTmux)(
 		).rejects.toThrow();
 		expect(logText).not.toContain(SECRET);
 
-		const codexId = "00000000-0000-4000-8000-000000009102";
+		const codexId = "00000000-0000-4000-8000-000000009402";
 		await createSession(codexId, project, homeDir, "dark", "Europe/Berlin", SERVER, {
 			command: commandForAgent("codex"),
 			recordBaseline,

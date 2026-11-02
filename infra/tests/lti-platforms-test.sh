@@ -24,8 +24,11 @@ command -v ansible-playbook >/dev/null || {
 }
 
 # load FILE — reads the file as the role does; prints the result line, fails when it refuses.
+# The default source is absent.json and the installed file installed.json, both in ${work}.
 load() {
-  ansible-playbook "${PLAYBOOK}" -e "portikus_lti_platforms_file=$1" >"${work}/run.log" 2>&1 || return 1
+  ansible-playbook "${PLAYBOOK}" -e "portikus_lti_platforms_file=$1" \
+    -e "portikus_lti_platforms_default_file=${work}/absent.json" \
+    -e "portikus_lti_platforms_path=${work}/installed.json" >"${work}/run.log" 2>&1 || return 1
   grep -o 'LTI-RESULT {.*}' "${work}/run.log" | head -1 | sed 's/^LTI-RESULT //; s/\\"/"/g'
 }
 
@@ -60,6 +63,19 @@ file() { # NAME PLATFORM-JSON...
 echo "--- Reading the platforms file and deriving the egress proxy entries ---"
 
 accepts "no file means LTI is off" "${work}/absent.json" '{"on": false, "egress": []}'
+# A named source that is missing stops setup before anything is changed, so
+# deleting the source cannot quietly leave LTI on.
+refuses "a named missing source with nothing installed fails setup" "${work}/missing.json"
+check "the failure names the path" grep -q "${work}/missing.json does not exist" "${work}/run.log"
+check "the failure names both fixes" grep -q \
+  "Copy the platforms list to ${work}/missing.json, or remove the portikus_lti_platforms_file setting" "${work}/run.log"
+cp "$(file canvas-installed "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" \
+  "${work}/installed.json"
+cp "${work}/installed.json" "${work}/installed.before"
+refuses "a named missing source with a file installed fails setup" "${work}/missing.json"
+check "the installed file is unchanged byte for byte" cmp "${work}/installed.json" "${work}/installed.before"
+accepts "the default source missing still turns LTI off" "${work}/absent.json" '{"on": false, "egress": []}'
+rm -f "${work}/installed.json" "${work}/installed.before"
 accepts "the mock registration's keyset address and port are allowed" \
   "$(file mock "$(platform mock-lms http://10.100.0.1:8765 http://10.100.0.1:8765/.well-known/jwks.json true)")" \
   '{"on": true, "egress": ["10.100.0.1:8765"]}'

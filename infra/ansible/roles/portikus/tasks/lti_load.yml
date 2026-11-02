@@ -20,6 +20,25 @@
     portikus_lti_platforms: null
     portikus_lti_keyset_egress: []
 
+# A source the operator named but that is missing is far more likely a
+# deleted file than a request to turn LTI off, so setup stops here, before
+# any task changes or removes the installed list.  Only a missing file at
+# the default path turns LTI off.
+- name: Refuse a named LTI platforms file that does not exist
+  ansible.builtin.fail:
+    msg: >-
+      The LTI platforms file {{ portikus_lti_platforms_file }} does not exist,
+      so setup stopped and left {{ portikus_lti_platforms_path }} unchanged.
+      Copy the platforms list to {{ portikus_lti_platforms_file }}, or remove
+      the portikus_lti_platforms_file setting (PORTIKUS_LTI_PLATFORMS_FILE for
+      make configure-vm) and make sure {{ portikus_lti_platforms_default_file }}
+      does not exist.  With neither file present, setup turns LTI off and
+      removes {{ portikus_lti_platforms_path }}.  Then run setup again.
+  when:
+    - not portikus_lti_platforms_stat.stat.exists
+    - portikus_lti_platforms_file != portikus_lti_platforms_default_file
+  run_once: true
+
 - name: Read the LTI platforms file
   when: portikus_lti_platforms_stat.stat.exists
   run_once: true

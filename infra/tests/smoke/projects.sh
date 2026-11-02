@@ -181,6 +181,43 @@ else
   check_output "unarchived project is active again" "smoke-renamed" \
     active_field smoke-renamed slug
 
+  # 15.7b A saved layout survives Caddy's gzip, which rewrites the entity
+  #       tag of a compressed response from "5" to "5-gzip" (SPEC.md 7.5).
+  #       The layout is over 512 bytes so Caddy compresses the read of it.
+  layout_url="${PROJECTS_URL}/${proj_id}/layout"
+  layout_body=$(python3 -c '
+import json
+
+tabs = []
+for n in range(20):
+    path = "notes/smoke-layout-%02d.txt" % n
+    tabs.append({"id": "file:" + path, "root": {"type": "file", "path": path}})
+print(json.dumps({"tabs": tabs}, separators=(",", ":")))
+')
+
+  # One setup save so there is a layout to read back.
+  check_output "saving a layout over 512 bytes returns 204" "204" \
+    http_status alice "${layout_url}" \
+    "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -H 'If-Match: \"0\"' -d '${layout_body}'"
+
+  # The raw tag must carry Caddy's suffix, or nothing was compressed and the
+  # save below proves nothing.
+  layout_etag=$(vm_get alice "${layout_url}" \
+    "-H 'Accept-Encoding: gzip' -o /dev/null -D -" |
+    tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+  layout_etag_ok="no (etag: ${layout_etag:-none})"
+  [[ "$layout_etag" == *-gzip\" ]] && layout_etag_ok="yes"
+  check_output "the compressed layout read carries a -gzip entity tag" "yes" \
+    echo "$layout_etag_ok"
+
+  # The version is read the way the browser reads it (persist.ts versionOf).
+  layout_version=$(sed -nE 's/^"([0-9]+)(-[a-z]+)?"$/\1/p' <<<"$layout_etag")
+  check_output "a save named by the compressed read's tag returns 204" "204" \
+    http_status alice "${layout_url}" \
+    "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -H 'If-Match: \"${layout_version}\"' -d '${layout_body}'"
+
   # 15.8 Leave ~/projects as the run found it.  There is no delete route,
   #      so the rows go with the workspace the cleanup function removes.
   if [ -n "$proj_term_id" ]; then

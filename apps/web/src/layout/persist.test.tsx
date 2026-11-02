@@ -117,6 +117,10 @@ test("an active tab change is never saved", async () => {
 	expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(0);
 });
 
+function ifMatch(call: [string, RequestInit?] | undefined): string | undefined {
+	return (call?.[1]?.headers as Record<string, string> | undefined)?.["if-match"];
+}
+
 function isPut(call: [string, RequestInit?]): boolean {
 	return call[1]?.method === "PUT";
 }
@@ -232,4 +236,69 @@ test("any other failed save stays silent", async () => {
 		await Promise.resolve();
 	});
 	expect(screen.queryByText("Boom.")).toBeNull();
+});
+
+test.each([
+	['"7"', 7],
+	['"7-gzip"', 7],
+	['"7-br"', 7],
+])(
+	"a version tagged %s is read as %i, so the next save names it",
+	async (etag, version) => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+			if (init?.method === "PUT") {
+				return new Response(null, { status: 204, headers: { etag: '"8"' } });
+			}
+			return new Response(null, { status: 204, headers: { etag } });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const store = createLayoutStore();
+		render(<Harness store={store} />);
+		await waitFor(() => expect(store.getState().version).toBe(version));
+
+		await changeAndSave(store, "a");
+		await waitFor(() => expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(1));
+		const put = fetchMock.mock.calls.find(isPut);
+		expect(ifMatch(put)).toBe(`"${version}"`);
+	},
+);
+
+test("a change made during a save that is sent as the project is left names the saved version", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const releases: Array<() => void> = [];
+	const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+		if (init?.method !== "PUT") {
+			return new Response(null, { status: 204, headers: { etag: '"3"' } });
+		}
+		// The first save is held until the test lets it finish.
+		if (releases.length === 0) {
+			await new Promise<void>((resolve) => releases.push(resolve));
+			return new Response(null, { status: 204, headers: { etag: '"4"' } });
+		}
+		return new Response(null, { status: 204, headers: { etag: '"5"' } });
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	const store = createLayoutStore();
+	const view = render(<Harness store={store} />);
+	await waitFor(() => expect(store.getState().version).toBe(3));
+
+	await changeAndSave(store, "first");
+	await waitFor(() => expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(1));
+	act(() => {
+		store.getState().addTab("second");
+	});
+	view.unmount();
+	expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(1);
+
+	await act(async () => {
+		releases[0]?.();
+	});
+	await waitFor(() => expect(fetchMock.mock.calls.filter(isPut)).toHaveLength(2));
+	const second = fetchMock.mock.calls.filter(isPut)[1];
+	expect(ifMatch(second)).toBe('"4"');
+	const ids = JSON.parse(String(second?.[1]?.body)).tabs.map(
+		(tab: { id: string }) => tab.id,
+	);
+	expect(ids).toEqual(["first", "second"]);
 });
