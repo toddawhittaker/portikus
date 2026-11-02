@@ -1,12 +1,12 @@
 import { ReinstallNote, reinstallCommand } from "@portikus/contracts";
-import { Button, Icon, IconButton, useToast } from "@portikus/ui";
+import { Icon, IconButton, useToast } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { RefObject } from "react";
+import { Fragment, type RefObject } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
 import { useFocusFallback } from "./useFocusFallback.js";
 
-export const REINSTALL_TITLE =
+export const REINSTALL_LEAD =
 	"Packages you had installed with sudo apt were removed when your workspace was rebuilt";
 
 function noteKey(workspaceId: string) {
@@ -33,7 +33,7 @@ export function useReinstallPackages(workspaceId: string, running: boolean): str
 /** The words for the page's always-mounted status region. */
 export function reinstallAnnouncement(packages: string[]): string {
 	if (packages.length === 0) return "";
-	return `${REINSTALL_TITLE}: ${packages.join(", ")}.`;
+	return `${REINSTALL_LEAD}: ${packages.join(", ")}.`;
 }
 
 /**
@@ -91,19 +91,47 @@ export function ReinstallNotice({
 				<Icon name="info" size="md" />
 			</span>
 			<div className="pk-notice-main">
-				<p className="pk-notice-title">{REINSTALL_TITLE}</p>
-				<p className="pk-notice-body" data-testid="reinstall-packages">
-					{packages.join(", ")}
+				<p
+					className="pk-notice-title [overflow-wrap:anywhere]"
+					data-testid="reinstall-title"
+				>
+					{REINSTALL_LEAD}:{" "}
+					{packages.map((name, index) => (
+						<Fragment key={name}>
+							{index > 0 ? ", " : null}
+							<code className="font-mono text-[13px]">{name}</code>
+						</Fragment>
+					))}
+					.
 				</p>
 				<p className="pk-notice-body">Reinstall them with:</p>
-				<code className="pk-techdetail select-all" data-testid="reinstall-command">
-					{command}
-				</code>
+				<div className="group relative">
+					<code
+						className="pk-techdetail select-all block [overflow-wrap:anywhere]"
+						// Room for the copy button; .pk-techdetail sets padding outside the utility layer.
+						style={{
+							paddingInlineEnd: "calc(var(--size-control-sm) + var(--space-3))",
+						}}
+						data-testid="reinstall-command"
+					>
+						{command}
+					</code>
+					{/* Shown on hover and focus, and always where there is no hover (touch). */}
+					<span
+						className="absolute end-1 top-1 opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+						data-testid="reinstall-copy-wrap"
+					>
+						<IconButton
+							icon="copy"
+							size="sm"
+							label="Copy command"
+							data-testid="reinstall-copy"
+							onClick={() => void copy()}
+						/>
+					</span>
+				</div>
 			</div>
 			<div className="pk-notice-actions">
-				<Button size="sm" data-testid="reinstall-copy" onClick={() => void copy()}>
-					Copy command
-				</Button>
 				<IconButton
 					icon="x"
 					size="sm"
