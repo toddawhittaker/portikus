@@ -14,6 +14,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { ClearScanner, PanePipes } from "./pane-pipes.js";
 import { buildServer } from "./server.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { createSession, sessionName } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -36,6 +37,7 @@ function makeId(): string {
 
 beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-pipes-"));
+	if (haveTmux) await keepTmuxServerAlive(SOCKET_NAME);
 });
 
 afterAll(async () => {

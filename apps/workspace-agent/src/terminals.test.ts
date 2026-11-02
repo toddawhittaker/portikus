@@ -9,6 +9,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { IPty, spawn } from "node-pty";
 import { afterAll, afterEach, beforeAll, describe, expect, it, test, vi } from "vitest";
 import { type AttachOptions, attachExitReason, TerminalRegistry } from "./terminals.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { claimWindowSize, createSession, killSession } from "./tmux.js";
 
 // Calls through to the real function, so tests can count claims.
@@ -162,6 +163,7 @@ async function attachFake(): Promise<Harness> {
 beforeAll(async () => {
 	if (!haveTmux) return;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-queue-"));
+	await keepTmuxServerAlive(SOCKET_NAME);
 });
 
 afterAll(async () => {
