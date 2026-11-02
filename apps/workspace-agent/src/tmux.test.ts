@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import {
 	attachArgs,
 	claimWindowSize,
@@ -26,6 +27,9 @@ import {
 const run = promisify(execFile);
 const SOCKET_NAME = `portikus-options-${process.pid}`;
 const SERVER = { socketName: SOCKET_NAME, external: false };
+// Closing a terminal stops every process marked with its id, on any tmux
+// server (SPEC.md §9.7), so these 90xx and 91xx ids are used by no other
+// test file that may run alongside this one.
 const ID = "00000000-0000-4000-8000-000000009001";
 
 async function tmuxAvailable(): Promise<boolean> {
@@ -57,6 +61,7 @@ let homeDir: string;
 beforeAll(async () => {
 	if (!haveTmux) return;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-options-"));
+	await keepTmuxServerAlive(SOCKET_NAME);
 	await createSession(ID, homeDir, homeDir, "dark", "Europe/Berlin", SERVER);
 });
 

@@ -14,6 +14,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { spawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { type AttachOptions, TerminalRegistry } from "./terminals.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { attachArgs, createSession, killSession, sessionName } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -133,6 +134,7 @@ async function attach(id: string, options: AttachOptions): Promise<FakeSocket> {
 beforeAll(async () => {
 	if (!haveTmux) return;
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-livehelp-"));
+	await keepTmuxServerAlive(SOCKET_NAME);
 	const { logger } = collectingLogger();
 	registry = new TerminalRegistry(
 		homeDir,
