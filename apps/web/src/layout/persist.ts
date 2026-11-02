@@ -26,9 +26,14 @@ function layoutUrl(workspaceId: string, projectId: string): string {
 	return `/workspaces/${workspaceId}/projects/${projectId}/layout`;
 }
 
-/** The version an ETag header names, or null. */
+/**
+ * The version an ETag header names, or null. Caddy's gzip turns `"5"` into
+ * `"5-gzip"`, and a proxy may add a weak `W/` prefix, so both are accepted.
+ */
 function versionOf(response: Response): number | null {
-	const match = /^"(\d+)"$/.exec(response.headers.get("etag") ?? "");
+	const match = /^(?:W\/)?"(\d+)(?:-[a-z]+)?"$/.exec(
+		response.headers.get("etag") ?? "",
+	);
 	return match ? Number(match[1]) : null;
 }
 
@@ -60,7 +65,7 @@ export function useLayoutPersistence(
 	useEffect(() => {
 		let cancelled = false;
 		let loaded = false;
-		let saving: Promise<void> | null = null;
+		let saving: Promise<number | null> | null = null;
 		// The newest version announced for this project.
 		let announced = -1;
 		const url = layoutUrl(workspaceId, projectId);
@@ -140,9 +145,13 @@ export function useLayoutPersistence(
 			writeLocalLayout(projectId, { activeTabId: state.activeTabId, viewStates });
 		}
 
-		async function put(): Promise<void> {
+		/**
+		 * Sends the layout and returns the version the server gave it, or null.
+		 * `base` names the version to save over when the store's is out of date.
+		 */
+		async function put(base?: number): Promise<number | null> {
 			const state = store.getState();
-			const basedOn = state.version;
+			const basedOn = base ?? state.version;
 			state.clearDirty();
 			try {
 				const response = await fetch(url, {
@@ -150,7 +159,7 @@ export function useLayoutPersistence(
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"if-match": `"${state.version ?? 0}"`,
+						"if-match": `"${basedOn ?? 0}"`,
 					},
 					body: JSON.stringify(state.layout),
 				});
@@ -163,11 +172,12 @@ export function useLayoutPersistence(
 				if (version !== null && !cancelled && store.getState().version === basedOn) {
 					store.getState().setVersion(version);
 				}
+				return version;
 			} catch (error) {
 				if (error instanceof ApiError && error.code === "LAYOUT_CHANGED") {
 					// Another browser saved first; its layout wins (SPEC.md §7.5).
 					if (!cancelled) await loadRemote();
-					return;
+					return null;
 				}
 				// Other failures are retried by the next change; the layout is a
 				// convenience, not the user's work. Only the size limit needs
@@ -177,6 +187,7 @@ export function useLayoutPersistence(
 					toast.show({ tone: "warning", title: error.message });
 				}
 				failed(error);
+				return null;
 			}
 		}
 
@@ -186,8 +197,11 @@ export function useLayoutPersistence(
 			// One save at a time, so each names the version the last one made.
 			if (saving !== null) {
 				if (cancelled) {
-					// Leaving the project: send the last change after the one in flight.
-					void saving.then(() => (store.getState().dirty ? put() : undefined));
+					// Leaving the project: send the last change after the one in flight,
+					// based on the version that save returned, which the store skipped.
+					void saving.then((saved) =>
+						store.getState().dirty ? put(saved ?? undefined) : undefined,
+					);
 				} else {
 					timer = setTimeout(save, SAVE_DEBOUNCE_MS);
 				}
