@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import { createStudent, settledAxe, toast, WCAG_TAGS, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
@@ -179,6 +179,38 @@ test.describe("on a touch screen", () => {
 		await expect(notice).toBeVisible({ timeout: 15_000 });
 		await expect(notice.getByTestId("reinstall-copy-wrap")).toHaveCSS("opacity", "1");
 	});
+});
+
+// A touchscreen laptop: a fine, hovering primary pointer (the trackpad) plus a
+// coarse one (the screen). Playwright's hasTouch flips both, and test.use cannot
+// set launch arguments inside a describe, so this test starts its own browser.
+test("on a touchscreen laptop the copy icon is shown for a finger tap", async ({
+	baseURL,
+}) => {
+	const browser = await chromium.launch({
+		args: [
+			"--blink-settings=primaryPointerType=4,availablePointerTypes=6,primaryHoverType=2,availableHoverTypes=2",
+		],
+	});
+	try {
+		const context = await browser.newContext({ baseURL });
+		const page = await context.newPage();
+		const student = await createStudent(context);
+		await seedNote(student.workspaceId, ["htop"]);
+		await page.goto(workspacePath(student.workspaceId));
+		const notice = page.getByTestId("reinstall-notice");
+		await expect(notice).toBeVisible({ timeout: 15_000 });
+		expect(
+			await page.evaluate(() => ({
+				fine: matchMedia("(pointer: fine)").matches,
+				hover: matchMedia("(hover: hover)").matches,
+				anyCoarse: matchMedia("(any-pointer: coarse)").matches,
+			})),
+		).toEqual({ fine: true, hover: true, anyCoarse: true });
+		await expect(notice.getByTestId("reinstall-copy-wrap")).toHaveCSS("opacity", "1");
+	} finally {
+		await browser.close();
+	}
 });
 
 test("dismissing the note asks the workspace and it stays gone after a reload", async ({

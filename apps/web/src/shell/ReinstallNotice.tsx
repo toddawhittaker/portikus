@@ -116,9 +116,9 @@ export function ReinstallNotice({
 					>
 						{command}
 					</code>
-					{/* Shown on hover and focus, and always where there is no hover (touch). */}
+					{/* Shown on hover and focus, and always on a device with no hover or any touch pointer. */}
 					<span
-						className="absolute end-1 top-1 opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+						className="absolute end-1 top-1 opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none),(any-pointer:coarse)]:opacity-100"
 						data-testid="reinstall-copy-wrap"
 					>
 						<IconButton
