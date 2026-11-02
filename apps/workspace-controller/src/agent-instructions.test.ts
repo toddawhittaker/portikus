@@ -2,12 +2,14 @@
  * The platform's agent instructions are system files rewritten at every
  * start from one template (SPEC.md §3).
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_USAGE_PORT } from "@portikus/contracts";
+import { parse } from "smol-toml";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+	AGENT_SCRIPTS_DIR,
 	CLAUDE_MANAGED_SETTINGS_PATH,
 	CLAUDE_SYSTEM_PATH,
 	CODEX_SYSTEM_PATH,
@@ -196,6 +198,61 @@ describe("codexSystemConfig", () => {
 			`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}/v1/metrics", protocol = "json" } }\n`,
 		);
 	});
+
+	test("hooks each state event to the state script, with a 5-second backstop", () => {
+		const config = codexSystemConfig(TEMPLATE);
+		const hooks = config.slice(config.indexOf("[[hooks."));
+		expect(config.indexOf("[otel]")).toBeLessThan(config.indexOf("[[hooks."));
+		for (const [event, state] of [
+			["UserPromptSubmit", "working"],
+			["PostToolUse", "working"],
+			["PermissionRequest", "needs-input"],
+			["Stop", "finished"],
+			["Interrupt", "finished"],
+			["SessionEnd", "clear"],
+		]) {
+			expect(hooks).toContain(
+				`[[hooks.${event}]]\n[[hooks.${event}.hooks]]\ntype = "command"\n` +
+					`command = "${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}"\n` +
+					"timeout = 5\n",
+			);
+		}
+		// Nothing but hook tables follows the first one.
+		expect(hooks.match(/^\[\[hooks\.[A-Za-z]+\]\]$/gm)).toHaveLength(6);
+	});
+
+	test("parses as TOML with one command hook per event", () => {
+		const parsed = parse(codexSystemConfig(TEMPLATE)) as {
+			developer_instructions: string;
+			features: Record<string, unknown>;
+			hooks: Record<
+				string,
+				{ hooks: { type: string; command: string; timeout: number }[] }[]
+			>;
+		};
+		expect(parsed.developer_instructions).toBe(TEMPLATE);
+		expect(parsed.features.daemon_auto_start).toBe(false);
+		const states: Record<string, string> = {
+			UserPromptSubmit: "working",
+			PostToolUse: "working",
+			PermissionRequest: "needs-input",
+			Stop: "finished",
+			Interrupt: "finished",
+			SessionEnd: "clear",
+		};
+		expect(Object.keys(parsed.hooks).sort()).toEqual(Object.keys(states).sort());
+		for (const [event, state] of Object.entries(states)) {
+			const groups = parsed.hooks[event];
+			expect(groups).toHaveLength(1);
+			expect(groups?.[0]?.hooks).toEqual([
+				{
+					type: "command",
+					command: `${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}`,
+					timeout: 5,
+				},
+			]);
+		}
+	});
 });
 
 describe("the shipped template", () => {
@@ -226,6 +283,80 @@ describe("the shipped managed settings", () => {
 			recipe.split("- path: /etc/claude-code/managed-settings.json")[1] ?? "";
 		const imageContent = entry.split("content: |-\n")[1]?.split("\n")[0]?.trim();
 		expect(JSON.parse(shipped)).toEqual(JSON.parse(imageContent ?? ""));
+	});
+
+	test("hook every agent state to the state script, in the background", () => {
+		const { hooks } = JSON.parse(
+			readFileSync(
+				join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
+				"utf8",
+			),
+		) as {
+			hooks: Record<
+				string,
+				{
+					matcher?: string;
+					hooks: { type: string; command: string; async: boolean }[];
+				}[]
+			>;
+		};
+		const wired = Object.entries(hooks).flatMap(([event, groups]) =>
+			groups.flatMap((group) =>
+				group.hooks.map((hook) => {
+					expect(hook).toMatchObject({ type: "command", async: true });
+					return `${event} ${group.matcher ?? "*"} ${hook.command}`;
+				}),
+			),
+		);
+		const script = `${AGENT_SCRIPTS_DIR}/portikus-agent-state claude`;
+		expect(wired.sort()).toEqual(
+			[
+				`UserPromptSubmit * ${script} working`,
+				`PostToolUse * ${script} working`,
+				`PreToolUse AskUserQuestion|ExitPlanMode ${script} needs-input`,
+				`PermissionRequest * ${script} needs-input`,
+				`Notification elicitation_dialog|elicitation_url_dialog ${script} needs-input`,
+				`Notification idle_prompt ${script} finished`,
+				`Stop * ${script} finished`,
+				`StopFailure * ${script} finished`,
+				`SessionEnd * ${script} clear`,
+			].sort(),
+		);
+	});
+
+	test("replace the status line with the limits script", () => {
+		const { statusLine } = JSON.parse(
+			readFileSync(
+				join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
+				"utf8",
+			),
+		) as { statusLine: unknown };
+		expect(statusLine).toEqual({
+			type: "command",
+			command: `${AGENT_SCRIPTS_DIR}/portikus-claude-status`,
+		});
+	});
+
+	test("name only scripts the workspace agent ships", () => {
+		const shipped = readFileSync(
+			join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
+			"utf8",
+		);
+		const scripts = new Set(
+			[
+				...shipped.matchAll(/\/opt\/portikus\/workspace-agent\/scripts\/([a-z-]+)/g),
+			].map((m) => m[1] ?? ""),
+		);
+		expect([...scripts].sort()).toEqual([
+			"portikus-agent-state",
+			"portikus-claude-status",
+		]);
+		for (const name of scripts) {
+			expect(
+				statSync(join(import.meta.dirname, "../../workspace-agent/scripts", name))
+					.mode & 0o111,
+			).not.toBe(0);
+		}
 	});
 
 	test("export usage metrics to the loopback receiver, and no logs or prompts", () => {

@@ -6,8 +6,8 @@ import type {
 } from "@portikus/contracts";
 import { Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import { useState } from "react";
+import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { AdminGroup as Group } from "../AdminSection.js";
-import { CODING_AGENT_NAME } from "./codingAgents.js";
 import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const TOOLS: CodingAgentTool[] = ["claude", "codex"];

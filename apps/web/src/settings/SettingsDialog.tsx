@@ -33,6 +33,11 @@ import {
 	useEditorSettings,
 	useUpdateEditorSettings,
 } from "../editor/settingsQueries.js";
+import {
+	askDesktopPermission,
+	desktopPermission,
+	desktopSupported,
+} from "../notifications/desktopSupport.js";
 import { ChangePasswordForm } from "../password/ChangePasswordForm.js";
 import {
 	readThemePreference,
@@ -60,6 +65,12 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 	{ value: "dark", label: "Dark" },
 ];
 
+const NOTIFICATION_OPTIONS = [
+	{ value: "ask", label: "Ask me" },
+	{ value: "on", label: "On" },
+	{ value: "off", label: "Off" },
+];
+
 /** Two or three options, shown together. A menu hides the choices until it opens. */
 function ChoiceField({
 	label,
@@ -68,6 +79,7 @@ function ChoiceField({
 	value,
 	options,
 	onChange,
+	alsoDescribedBy,
 }: {
 	label: string;
 	hint: string;
@@ -75,9 +87,16 @@ function ChoiceField({
 	value: string;
 	options: readonly { value: string; label: string }[];
 	onChange: (value: string) => void;
+	/** Id of a note about this field that shows only some of the time. */
+	alsoDescribedBy?: string;
 }) {
 	return (
-		<fieldset className="m-0 min-w-0 border-0 p-0" aria-describedby={`${name}-hint`}>
+		<fieldset
+			className="m-0 min-w-0 border-0 p-0"
+			aria-describedby={
+				alsoDescribedBy ? `${name}-hint ${alsoDescribedBy}` : `${name}-hint`
+			}
+		>
 			{/* A legend is not a grid item, so the rest sits in its own grid below it. */}
 			<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>{label}</legend>
 			<div className="grid gap-1.5">
@@ -158,12 +177,29 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const [sectionId, setSectionId] = useState(PREFERENCES?.id ?? "preferences");
 	const [query, setQuery] = useState("");
 	const [highlightId, setHighlightId] = useState<string | null>(null);
+	// The browser's answer arrives after render, so the page keeps its own copy.
+	const [permission, setPermission] = useState(desktopPermission);
+	const [notificationNote, setNotificationNote] = useState("");
+	const notificationsField = useRef<HTMLDivElement>(null);
+
+	// The student may allow or block notifications in the browser's own
+	// settings while this dialog is open; read the answer again on return.
+	useEffect(() => {
+		const reread = () => setPermission(desktopPermission());
+		window.addEventListener("focus", reread);
+		document.addEventListener("visibilitychange", reread);
+		return () => {
+			window.removeEventListener("focus", reread);
+			document.removeEventListener("visibilitychange", reread);
+		};
+	}, []);
 
 	const autoSave = draft.autoSave ?? current.autoSave;
 	const wordWrap = draft.wordWrap ?? current.wordWrap;
 	const terminalTheme = draft.terminalTheme ?? current.terminalTheme;
 	const screenReaderMode = draft.screenReaderMode ?? current.screenReaderMode;
 	const timezone = draft.timezone ?? current.timezone;
+	const agentNotifications = draft.agentNotifications ?? current.agentNotifications;
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
 
@@ -309,6 +345,34 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	if (saving > 0) savedStatus = "Saving…";
 	else if (saved) savedStatus = "Saved";
 
+	// Arrowing through the radios must never open the browser's prompt, so a
+	// radio saves only its own value; the prompt is the button's job.
+	function chooseNotifications(value: string) {
+		if (value === "ask" || value === "on" || value === "off") {
+			setNotificationNote("");
+			change({ agentNotifications: value });
+		}
+	}
+
+	async function allowInBrowser() {
+		await askDesktopPermission();
+		const answer = desktopPermission();
+		setPermission(answer);
+		// The button goes once the browser has answered; keep focus in the dialog.
+		if (answer !== "default") {
+			notificationsField.current
+				?.querySelector<HTMLInputElement>("input[type=radio]:checked")
+				?.focus();
+		}
+		if (answer === "granted") {
+			setNotificationNote("Desktop notifications are allowed in this browser.");
+		} else if (answer === "denied") {
+			setNotificationNote("Your browser blocked notifications.");
+		} else {
+			setNotificationNote("Your browser did not allow notifications yet.");
+		}
+	}
+
 	function chooseAppearance(value: ThemePreference) {
 		setAppearanceChoice(value);
 		rememberThemePreference(value);
@@ -397,6 +461,59 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						<p className={HINT_CLASS} id="terminal-colours-hint">
 							What a new terminal starts with.
 						</p>
+					</div>
+				);
+			case "desktop-notifications":
+				if (!desktopSupported()) {
+					return (
+						<p className="pk-text-compact m-0 text-ink-muted">
+							This browser does not offer desktop notifications.
+						</p>
+					);
+				}
+				return (
+					<div className="grid gap-2" ref={notificationsField}>
+						<ChoiceField
+							label={control.label}
+							hint="Shows a notification outside the browser when a coding agent needs you or finishes and this page is not in front. It names the agent only."
+							name="desktop-notifications"
+							options={NOTIFICATION_OPTIONS}
+							value={agentNotifications}
+							onChange={chooseNotifications}
+							alsoDescribedBy={
+								permission === "denied" ? "desktop-notifications-blocked" : undefined
+							}
+						/>
+						{agentNotifications === "on" && permission === "default" ? (
+							<div>
+								<Button
+									size="sm"
+									variant="secondary"
+									data-testid="settings-notifications-allow"
+									onClick={() => void allowInBrowser()}
+								>
+									Allow in this browser
+								</Button>
+							</div>
+						) : null}
+						{/* Always mounted, so a screen reader hears the outcome. */}
+						<p
+							className="sr-only"
+							aria-live="polite"
+							data-testid="settings-notifications-status"
+						>
+							{notificationNote}
+						</p>
+						{permission === "denied" ? (
+							<p
+								id="desktop-notifications-blocked"
+								className="pk-text-compact m-0 text-ink-muted"
+								data-testid="settings-notifications-blocked"
+							>
+								Your browser has blocked notifications for this site. Allow them in the
+								site settings next to the address, then choose On.
+							</p>
+						) : null}
 					</div>
 				);
 			case "screen-reader-mode":

@@ -38,6 +38,12 @@ import {
 } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
+import {
+	marksByTerminal,
+	mostUrgent,
+	useAgentStatus,
+	useAgentStatusStore,
+} from "../terminal/codingAgentStatus.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { dropTreeFiles, type MoveIntoTarget } from "./moveInto.js";
@@ -337,6 +343,17 @@ export function WorkArea({
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, []);
 
+	const agentMarks = marksByTerminal(useAgentStatus());
+	const agentStatus = useAgentStatusStore();
+	// The terminals in the tab on screen are the ones the student is looking at.
+	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
+	const viewingKey = activeTab ? terminalIds(activeTab.root).join(",") : "";
+	useEffect(() => {
+		if (!agentStatus) return;
+		agentStatus.setViewing(viewingKey === "" ? [] : viewingKey.split(","));
+		return () => agentStatus.setViewing([]);
+	}, [agentStatus, viewingKey]);
+
 	const items: TabItem[] = layout.tabs.map((tab) => {
 		if (tab.root.type === "preview") {
 			const port = tab.root.port;
@@ -369,9 +386,18 @@ export function WorkArea({
 		// shell (design system, Iconography). The terminal record is the source.
 		const agent =
 			first?.agent === "claude" || first?.agent === "codex" ? first.agent : null;
+		// A split tab shows its most urgent pane.
+		const mark = mostUrgent(
+			ids.flatMap((id) => {
+				const found = agentMarks.get(id);
+				return found ? [found] : [];
+			}),
+		);
 		return {
 			id: tab.id,
 			kind: agent ?? "terminal",
+			agentState: mark?.state,
+			unread: mark?.unread,
 			label:
 				agent === "claude"
 					? "Claude Code"

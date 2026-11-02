@@ -1,0 +1,201 @@
+import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { resetStubs, stubSettings } from "../settings/test-data.js";
+import { renderWithQuery } from "../test-utils.js";
+import { notifyAgentAlert, PermissionOffer } from "./desktopNotify.js";
+
+// SPEC.md section 25.8: desktop notifications are opt-in and name no project.
+const open = vi.fn();
+const answered = vi.fn();
+
+const ALERT = {
+	agent: "claude",
+	state: "needs-input",
+	projectId: "p1",
+	terminalId: "t1",
+} as const;
+
+class FakeNotification {
+	static permission: NotificationPermission = "granted";
+	static requestPermission = vi.fn(async () => FakeNotification.permission);
+	static shown: FakeNotification[] = [];
+	onclick: (() => void) | null = null;
+	close = vi.fn();
+	constructor(
+		readonly title: string,
+		readonly options: NotificationOptions,
+	) {
+		FakeNotification.shown.push(this);
+	}
+}
+
+function pageState(hidden: boolean, focused: boolean) {
+	vi.spyOn(document, "hidden", "get").mockReturnValue(hidden);
+	vi.spyOn(document, "hasFocus").mockReturnValue(focused);
+}
+
+function stored(agentNotifications: "ask" | "on" | "off") {
+	return stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications });
+}
+
+beforeEach(() => {
+	FakeNotification.permission = "granted";
+	FakeNotification.shown = [];
+	FakeNotification.requestPermission.mockClear();
+	open.mockClear();
+	answered.mockClear();
+	vi.stubGlobal("Notification", FakeNotification);
+	pageState(true, false);
+});
+
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+	resetStubs();
+});
+
+test("a hidden page gets a notification naming only the agent and the state", async () => {
+	stored("on");
+	notifyAgentAlert(ALERT, open);
+	await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
+	const [shown] = FakeNotification.shown;
+	expect(shown?.title).toBe("Portikus");
+	expect(shown?.options.body).toBe("Claude Code needs your input");
+	expect(shown?.options.tag).toBe("t1");
+});
+
+test("Codex finishing reads as such", async () => {
+	stored("on");
+	notifyAgentAlert({ ...ALERT, agent: "codex", state: "finished" }, open);
+	await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
+	expect(FakeNotification.shown[0]?.options.body).toBe("Codex finished");
+});
+
+test("a visible page without focus still gets one", async () => {
+	stored("on");
+	pageState(false, false);
+	notifyAgentAlert(ALERT, open);
+	await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
+});
+
+test.each([
+	["the page is in front", () => pageState(false, true), "on"],
+	["the setting is off", () => {}, "off"],
+	["the setting is still ask", () => {}, "ask"],
+	[
+		"the browser has not granted",
+		() => {
+			FakeNotification.permission = "default";
+		},
+		"on",
+	],
+	[
+		"the browser has blocked them",
+		() => {
+			FakeNotification.permission = "denied";
+		},
+		"on",
+	],
+] as const)("nothing shows when %s", async (_name, arrange, setting) => {
+	const writes = stored(setting);
+	arrange();
+	notifyAgentAlert(ALERT, open);
+	// The settings read, if any, has time to land.
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	expect(FakeNotification.shown).toHaveLength(0);
+	expect(writes).toHaveLength(0);
+});
+
+test("nothing shows, and nothing breaks, when the browser has no Notification", () => {
+	vi.stubGlobal("Notification", undefined);
+	expect(() => notifyAgentAlert(ALERT, open)).not.toThrow();
+});
+
+test("clicking it focuses the window and calls the open callback", async () => {
+	stored("on");
+	const focus = vi.spyOn(window, "focus").mockImplementation(() => {});
+	notifyAgentAlert(ALERT, open);
+	await waitFor(() => expect(FakeNotification.shown).toHaveLength(1));
+	const [shown] = FakeNotification.shown;
+	shown?.onclick?.();
+	expect(focus).toHaveBeenCalled();
+	expect(shown?.close).toHaveBeenCalled();
+	expect(open).toHaveBeenCalledTimes(1);
+});
+
+test("the offer asks the browser only when Turn on is clicked, then saves on", async () => {
+	FakeNotification.permission = "default";
+	FakeNotification.requestPermission.mockImplementation(async () => "granted");
+	const writes = stored("ask");
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	const turnOn = await screen.findByRole("button", {
+		name: "Turn on desktop notifications",
+	});
+	expect(screen.getByRole("button", { name: "No thanks" })).toBeTruthy();
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+	fireEvent.click(turnOn);
+	await waitFor(() => expect(writes).toEqual([{ body: { agentNotifications: "on" } }]));
+	expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+	expect(answered).toHaveBeenCalledTimes(1);
+	expect(screen.queryByRole("button", { name: "No thanks" })).toBeNull();
+});
+
+test("a refused browser prompt saves off", async () => {
+	FakeNotification.permission = "default";
+	FakeNotification.requestPermission.mockImplementation(async () => "denied");
+	const writes = stored("ask");
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Turn on desktop notifications" }),
+	);
+	await waitFor(() =>
+		expect(writes).toEqual([{ body: { agentNotifications: "off" } }]),
+	);
+});
+
+test("No thanks saves off without asking the browser", async () => {
+	FakeNotification.permission = "default";
+	const writes = stored("ask");
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	fireEvent.click(await screen.findByRole("button", { name: "No thanks" }));
+	await waitFor(() =>
+		expect(writes).toEqual([{ body: { agentNotifications: "off" } }]),
+	);
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+	expect(answered).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+	["the setting is on", "on", "default"],
+	["the setting is off", "off", "default"],
+	["the browser already blocked", "ask", "denied"],
+] as const)("the offer is empty when %s", async (_name, setting, permission) => {
+	FakeNotification.permission = permission;
+	const writes = stored(setting);
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	expect(document.body.querySelectorAll("button")).toHaveLength(0);
+	expect(writes).toHaveLength(0);
+	expect(answered).not.toHaveBeenCalled();
+});
+
+test("the offer is empty when the browser has no Notification", async () => {
+	vi.stubGlobal("Notification", undefined);
+	stored("ask");
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	expect(document.body.querySelectorAll("button")).toHaveLength(0);
+});
+
+test("when the browser already allows them, Turn on saves on without asking", async () => {
+	FakeNotification.permission = "granted";
+	const writes = stored("ask");
+	renderWithQuery(<PermissionOffer onAnswered={answered} />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Turn on desktop notifications" }),
+	);
+	await waitFor(() => expect(writes).toEqual([{ body: { agentNotifications: "on" } }]));
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+});

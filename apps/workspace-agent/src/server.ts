@@ -9,6 +9,7 @@ import {
 	silentLogger,
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import { AgentLimitsStore, agentLimitsRoute } from "./agent-limits-route.js";
 import {
 	AgentUsage,
 	buildAgentUsageReceiver,
@@ -18,6 +19,8 @@ import { agentUsageRoute } from "./agent-usage-route.js";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
+import { CodexLimits } from "./codex-limits.js";
+import { CodingAgentBoard } from "./coding-agent-status.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
 import { ERROR_STATUS } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
@@ -99,6 +102,10 @@ export interface ServerOptions {
 	agentUsagePort?: number;
 	/** Overrides the usage counters, so a test can feed them. For tests. */
 	agentUsage?: AgentUsage;
+	/** Overrides the coding-agent state board, so a test can drive it. For tests. */
+	codingAgents?: CodingAgentBoard;
+	/** Overrides the plan limits store, so a test can feed it. For tests. */
+	agentLimits?: AgentLimitsStore;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -226,9 +233,20 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// The receiver is its own loopback server: the coding agents cannot send
 	// this listener's token (ADR 0057).
 	const agentUsage = options.agentUsage ?? new AgentUsage();
+	const codingAgents = options.codingAgents ?? new CodingAgentBoard();
+	registry.onClosed((id) => codingAgents.remove(id));
+	let agentLimits = options.agentLimits;
+	if (!agentLimits) {
+		const codexLimits = new CodexLimits();
+		codexLimits.watch(codingAgents);
+		agentLimits = new AgentLimitsStore({ codex: codexLimits.read });
+	}
 	const agentUsagePort = options.agentUsagePort;
 	if (agentUsagePort !== undefined) {
-		const receiver = buildAgentUsageReceiver(agentUsage);
+		const receiver = buildAgentUsageReceiver(agentUsage, {
+			board: codingAgents,
+			limits: agentLimits,
+		});
 		app.addHook("onReady", async () => {
 			await startAgentUsageReceiver(receiver, agentUsagePort, app.log);
 		});
@@ -306,13 +324,14 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			...options.packages,
 			homeDir: options.homeDir,
 		});
-		instance.register(listeningRoutes, { monitor, forwards });
+		instance.register(listeningRoutes, { monitor, forwards, codingAgents });
 		instance.register(dockerInventoryRoute, { run: options.dockerRunner });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
 			protectedPids: () => protectedPids(true),
 		});
 		instance.register(agentUsageRoute, { usage: agentUsage });
+		instance.register(agentLimitsRoute, { limits: agentLimits });
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,

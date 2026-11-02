@@ -12,6 +12,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer } from "../testing/test-support.js";
+import { todayUsageFor } from "./agent-usage.js";
 
 /** Coding-agent usage views (SPEC.md §25.10, ADR 0057). */
 
@@ -205,4 +206,36 @@ test.skipIf(skip)(
 test.skipIf(skip)("days other than 7, 30 or 90 is a 400", async () => {
 	const { admin } = await seed();
 	expect((await get("/admin/agent-usage?days=14", admin)).statusCode).toBe(400);
+});
+
+test.skipIf(skip)(
+	"today's usage sums one user's current UTC day by agent",
+	async () => {
+		const { sam, zed } = await seed();
+		await addUsage(sam, 0, { input: 10, cost: 0.5 });
+		await addUsage(sam, 0, { model: "sonnet", input: 20, cost: 0.25 });
+		await addUsage(sam, 0, { agent: "codex", input: 3 });
+		await addUsage(sam, 1, { input: 1000 });
+		await addUsage(zed, 0, { input: 5000 });
+
+		const today = await todayUsageFor(testDb.db, sam, new Date());
+		expect(today.claude).toMatchObject({ sessions: 2, inputTokens: 30, costUsd: 0.75 });
+		expect(today.codex).toMatchObject({ sessions: 1, inputTokens: 3, costUsd: null });
+	},
+);
+
+test.skipIf(skip)("today's usage is null for an agent with no rows today", async () => {
+	const { sam } = await seed();
+	await addUsage(sam, 1, { input: 1000 });
+	expect(await todayUsageFor(testDb.db, sam, new Date())).toEqual({
+		claude: null,
+		codex: null,
+	});
+});
+
+test.skipIf(skip)("the current day follows the clock given, in UTC", async () => {
+	const { sam } = await seed();
+	await addUsage(sam, 0, { input: 10 });
+	const tomorrow = new Date(Date.now() + 86_400_000);
+	expect((await todayUsageFor(testDb.db, sam, tomorrow)).claude).toBeNull();
 });

@@ -43,14 +43,49 @@ const CODEX_OTEL_TABLE =
 	'trace_exporter = "none"\n' +
 	`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}${AGENT_USAGE_METRICS_PATH}", protocol = "json" } }\n`;
 
+/**
+ * Codex runs hooks inside a long-lived app-server daemon that keeps the
+ * environment of the first terminal that started it. With the daemon off,
+ * hooks run in the session's own process and carry its PORTIKUS_TERMINAL.
+ */
+const CODEX_FEATURES_TABLE = "[features]\ndaemon_auto_start = false\n";
+
+/** The workspace agent's scripts as a workspace sees them, through the agent bind mount. */
+export const AGENT_SCRIPTS_DIR = "/opt/portikus/workspace-agent/scripts";
+
+/**
+ * Codex's hooks report the terminal's agent state to the workspace agent
+ * (SPEC.md §10.8). The script throws its input away unread and always
+ * exits 0 within a second, so the timeout is only a backstop.
+ */
+const CODEX_HOOKS: [event: string, state: string][] = [
+	["UserPromptSubmit", "working"],
+	["PostToolUse", "working"],
+	["PermissionRequest", "needs-input"],
+	["Stop", "finished"],
+	["Interrupt", "finished"],
+	["SessionEnd", "clear"],
+];
+
+const CODEX_HOOK_TABLES = CODEX_HOOKS.map(
+	([event, state]) =>
+		`[[hooks.${event}]]\n` +
+		`[[hooks.${event}.hooks]]\n` +
+		'type = "command"\n' +
+		`command = "${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}"\n` +
+		"timeout = 5\n",
+).join("\n");
+
 /** The Codex system config holding the template. A JSON string is a valid TOML basic string. */
 export function codexSystemConfig(template: string): string {
 	return (
 		"# Written by Portikus at every workspace start; edits do not last.\n" +
 		`${CODEX_UPDATE_LINE}\n` +
 		`developer_instructions = ${JSON.stringify(template)}\n` +
-		// A TOML table ends the top-level keys, so it comes last.
-		`\n${CODEX_OTEL_TABLE}`
+		// A TOML table ends the top-level keys, so the tables come last.
+		`\n${CODEX_FEATURES_TABLE}` +
+		`\n${CODEX_OTEL_TABLE}` +
+		`\n${CODEX_HOOK_TABLES}`
 	);
 }
 

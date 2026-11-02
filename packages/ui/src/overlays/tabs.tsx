@@ -34,6 +34,10 @@ export interface TabItem {
 	ended?: boolean;
 	/** Unsaved changes: the dot takes the close button's place. */
 	dirty?: boolean;
+	/** What a coding agent in the tab is doing; a finish the student has seen is omitted. */
+	agentState?: "working" | "needs-input" | "finished";
+	/** The agent stopped while the student was elsewhere; the label turns bold. */
+	unread?: boolean;
 	/** Test hook: set as `data-testid` on the trigger, plus `-close` on the close control. */
 	testId?: string;
 }
@@ -61,6 +65,55 @@ export function tabDomId(id: string): string {
 
 export function tabPanelDomId(id: string): string {
 	return `pk-tabpanel-${encodeURIComponent(id)}`;
+}
+
+export type AgentState = NonNullable<TabItem["agentState"]>;
+
+const AGENT_STATE_WORDS: Record<AgentState, string> = {
+	working: "working",
+	"needs-input": "needs input",
+	finished: "finished",
+};
+
+/**
+ * The words for a coding agent's state, such as "needs input, unread". Tabs and
+ * the project list both use them, so the two never drift apart. A working agent
+ * has nothing unread.
+ */
+export function agentStateWords(state: AgentState, unread = false): string {
+	const words = AGENT_STATE_WORDS[state];
+	return unread && state !== "working" ? `${words}, unread` : words;
+}
+
+/**
+ * The glyph for what a coding agent is doing. Each state has its own shape,
+ * so colour is never the only signal. Decorative: the caller names the state.
+ */
+export function AgentStateMark({
+	state,
+	unread,
+	testId,
+}: {
+	state: AgentState;
+	unread?: boolean | undefined;
+	testId?: string | undefined;
+}): React.ReactElement {
+	return (
+		<span
+			className={`pk-agent-mark pk-agent-mark--${state}`}
+			aria-hidden="true"
+			// Hover text, so the three shapes can be learnt.
+			title={agentStateWords(state, unread)}
+			data-testid={testId}
+			data-agent-state={state}
+		>
+			{state === "needs-input" ? (
+				<Icon name="alert" size="sm" />
+			) : state === "finished" ? (
+				<Icon name="check" size="sm" />
+			) : null}
+		</span>
+	);
 }
 
 const KIND_ICON: Record<TabItem["kind"], IconName> = {
@@ -104,6 +157,7 @@ function TabTrigger({
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
 				tab.ended ? "pk-tab--ended" : "",
+				tab.unread ? "pk-tab--unread" : "",
 				sortable.isDragging ? "pk-tab--dragging" : "",
 			]
 				.filter(Boolean)
@@ -135,7 +189,22 @@ function TabTrigger({
 			<span className="pk-tab-label">
 				{tab.label}
 				{tab.ended ? <span className="pk-visually-hidden">(session ended)</span> : null}
+				{tab.agentState ? (
+					<>
+						{" "}
+						<span className="pk-visually-hidden">
+							({agentStateWords(tab.agentState, tab.unread)})
+						</span>
+					</>
+				) : null}
 			</span>
+			{tab.agentState ? (
+				<AgentStateMark
+					state={tab.agentState}
+					unread={tab.unread}
+					testId={tab.testId ? `${tab.testId}-agent` : undefined}
+				/>
+			) : null}
 			{/* An unsaved tab shows a dot where the close button goes; CSS swaps
 			    the two back on hover or focus, as Chrome and VS Code do. */}
 			{tab.dirty ? (

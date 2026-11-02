@@ -15,6 +15,7 @@ import {
 import { silentLogger } from "@portikus/observability";
 import type { FastifyBaseLogger } from "fastify";
 import { describe, expect, test, vi } from "vitest";
+import { AgentLimitsStore } from "./agent-limits-route.js";
 import {
 	AgentUsage,
 	buildAgentUsageReceiver,
@@ -23,6 +24,7 @@ import {
 	OtlpMetricsRequest,
 	startAgentUsageReceiver,
 } from "./agent-usage.js";
+import { CodingAgentBoard } from "./coding-agent-status.js";
 import { buildServer } from "./server.js";
 import { isSystemListener } from "./socket-owners.js";
 
@@ -108,7 +110,13 @@ const NOON = new Date(`${DAY}T12:00:00Z`);
 
 function receiver(now = () => NOON) {
 	const usage = new AgentUsage({ now });
-	return { usage, app: buildAgentUsageReceiver(usage) };
+	return {
+		usage,
+		app: buildAgentUsageReceiver(usage, {
+			board: new CodingAgentBoard(),
+			limits: new AgentLimitsStore(),
+		}),
+	};
 }
 
 function post(app: ReturnType<typeof buildAgentUsageReceiver>, body: unknown) {

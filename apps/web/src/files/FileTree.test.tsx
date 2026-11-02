@@ -1302,4 +1302,91 @@ describe("the file tree", () => {
 		await within(dialog).findByTestId("move-folder-node_modules");
 		expect(within(dialog).queryByTestId("move-folder-src")).toBeNull();
 	});
+
+	/** WCAG 2.5.7: copying a path is the keyboard way to drag a row to a terminal. */
+	describe("Copy path", () => {
+		function stubEntries(entries: ReturnType<typeof entry>[]) {
+			stubFetch((url) => {
+				if (url.includes("/terminals")) return json(200, { terminals: [] });
+				if (url.includes("/git/status")) return json(200, gitStatus);
+				if (url.includes("/tree?path="))
+					return json(200, { entries, truncated: false });
+				throw new Error(`unexpected request: ${url}`);
+			});
+		}
+
+		function renderWithProject() {
+			const client = createQueryClient();
+			client.setQueryData(["projects", WORKSPACE.id, "active"], [PROJECT]);
+			renderPane(createLayoutStore(), client);
+		}
+
+		function stubClipboard() {
+			const writeText = vi.fn().mockResolvedValue(undefined);
+			vi.stubGlobal("navigator", { clipboard: { writeText } });
+			return writeText;
+		}
+
+		it("copies the absolute path of the row", async () => {
+			const writeText = stubClipboard();
+			renderWithProject();
+			const row = await screen.findByTestId("file-row-README.md");
+			row.focus();
+			fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+			fireEvent.click(await screen.findByTestId("row-copy-path"));
+			await waitFor(() =>
+				expect(writeText).toHaveBeenCalledWith(
+					"/home/student/projects/todo-api/README.md",
+				),
+			);
+		});
+
+		it("quotes a path that needs it", async () => {
+			const writeText = stubClipboard();
+			stubEntries([entry("a b.md")]);
+			renderWithProject();
+			const row = await screen.findByTestId("file-row-a b.md");
+			row.focus();
+			fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+			fireEvent.click(await screen.findByTestId("row-copy-path"));
+			await waitFor(() =>
+				expect(writeText).toHaveBeenCalledWith(
+					"'/home/student/projects/todo-api/a b.md'",
+				),
+			);
+		});
+
+		it("skips a name with a control character and says so", async () => {
+			const writeText = stubClipboard();
+			stubEntries([entry("ok.md"), entry("bad\u0007name.md")]);
+			renderWithProject();
+			const first = await screen.findByTestId("file-row-ok.md");
+			const second = await screen.findByTestId("file-row-bad\u0007name.md");
+			fireEvent.keyDown(first, { key: " ", ctrlKey: true });
+			fireEvent.keyDown(second, { key: " ", ctrlKey: true });
+			second.focus();
+			fireEvent.keyDown(second, { key: "F10", shiftKey: true });
+			fireEvent.click(await screen.findByTestId("row-copy-path"));
+			await waitFor(() =>
+				expect(writeText).toHaveBeenCalledWith("/home/student/projects/todo-api/ok.md"),
+			);
+			expect(await screen.findByText("One path cannot be copied")).toBeDefined();
+			expect(screen.getByText(/^Rename it without/)).toBeDefined();
+		});
+
+		it("says 'them' when several names are refused", async () => {
+			stubClipboard();
+			stubEntries([entry("bad\u0007one.md"), entry("bad\u0007two.md")]);
+			renderWithProject();
+			const first = await screen.findByTestId("file-row-bad\u0007one.md");
+			const second = await screen.findByTestId("file-row-bad\u0007two.md");
+			fireEvent.keyDown(first, { key: " ", ctrlKey: true });
+			fireEvent.keyDown(second, { key: " ", ctrlKey: true });
+			second.focus();
+			fireEvent.keyDown(second, { key: "F10", shiftKey: true });
+			fireEvent.click(await screen.findByTestId("row-copy-path"));
+			expect(await screen.findByText("2 paths cannot be copied")).toBeDefined();
+			expect(screen.getByText(/^Rename them without/)).toBeDefined();
+		});
+	});
 });

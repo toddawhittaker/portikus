@@ -132,6 +132,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 
 	"GET /workspaces/:id/usage": owner,
 	"HEAD /workspaces/:id/usage": owner,
+	"GET /workspaces/:id/agent-meter": owner,
+	"HEAD /workspaces/:id/agent-meter": owner,
 	"GET /workspaces/:id/listening": owner,
 	"HEAD /workspaces/:id/listening": owner,
 	"POST /workspaces/:id/listening/:port/stop": owner,

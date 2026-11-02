@@ -1,5 +1,6 @@
 import { requireRole } from "@portikus/auth";
 import {
+	type AgentUsageCounts,
 	AgentUsageQuery,
 	type AgentUsageResponse,
 	type AgentUsageWindow,
@@ -24,6 +25,65 @@ function windowDays(days: AgentUsageWindow, now: Date): { from: string; to: stri
 const total = (col: string) => sql<string>`sum(${sql.ref(col)})::text`;
 
 /** Sums over boot ids and models; cost stays null when every row is null. */
+const sumColumns = [
+	total("u.sessions").as("sessions"),
+	total("u.input_tokens").as("input_tokens"),
+	total("u.output_tokens").as("output_tokens"),
+	total("u.cache_read_tokens").as("cache_read_tokens"),
+	total("u.cache_write_tokens").as("cache_write_tokens"),
+	sql<string | null>`sum(u.cost_usd)::text`.as("cost_usd"),
+	total("u.lines_added").as("lines_added"),
+	total("u.lines_removed").as("lines_removed"),
+] as const;
+
+/** Turn a summed row's text columns into the contract's counts. */
+function counts(r: {
+	sessions: string;
+	input_tokens: string;
+	output_tokens: string;
+	cache_read_tokens: string;
+	cache_write_tokens: string;
+	cost_usd: string | null;
+	lines_added: string;
+	lines_removed: string;
+}): AgentUsageCounts {
+	return {
+		sessions: Number(r.sessions),
+		inputTokens: Number(r.input_tokens),
+		outputTokens: Number(r.output_tokens),
+		cacheReadTokens: Number(r.cache_read_tokens),
+		cacheWriteTokens: Number(r.cache_write_tokens),
+		costUsd: r.cost_usd === null ? null : Number(r.cost_usd),
+		linesAdded: Number(r.lines_added),
+		linesRemoved: Number(r.lines_removed),
+	};
+}
+
+/**
+ * One user's counts for the current UTC day, summed over boot ids and
+ * models, by agent. An agent with no rows today is null.
+ */
+export async function todayUsageFor(
+	db: Kysely<Database>,
+	userId: string,
+	now: Date,
+): Promise<Record<CodingAgent, AgentUsageCounts | null>> {
+	const today = now.toISOString().slice(0, 10);
+	const rows = await db
+		.selectFrom("agent_usage_days as u")
+		.where("u.user_id", "=", userId)
+		.where(sql<boolean>`u.day = ${today}::date`)
+		.select(["u.agent", ...sumColumns])
+		.groupBy("u.agent")
+		.execute();
+	const byAgent: Record<CodingAgent, AgentUsageCounts | null> = {
+		claude: null,
+		codex: null,
+	};
+	for (const row of rows) byAgent[row.agent] = counts(row);
+	return byAgent;
+}
+
 async function usageFor(
 	db: Kysely<Database>,
 	days: AgentUsageWindow,
@@ -38,17 +98,6 @@ async function usageFor(
 		if (userIds) q = q.where("u.user_id", "in", userIds);
 		return q;
 	};
-	const sumColumns = [
-		total("u.sessions").as("sessions"),
-		total("u.input_tokens").as("input_tokens"),
-		total("u.output_tokens").as("output_tokens"),
-		total("u.cache_read_tokens").as("cache_read_tokens"),
-		total("u.cache_write_tokens").as("cache_write_tokens"),
-		sql<string | null>`sum(u.cost_usd)::text`.as("cost_usd"),
-		total("u.lines_added").as("lines_added"),
-		total("u.lines_removed").as("lines_removed"),
-	] as const;
-
 	// An empty member list would make `in ()` invalid SQL.
 	if (userIds && userIds.length === 0) return { days, from, to, users: [], daily: [] };
 
@@ -72,17 +121,6 @@ async function usageFor(
 		.orderBy("u.agent")
 		.execute();
 
-	const counts = (r: (typeof dayRows)[number]) => ({
-		sessions: Number(r.sessions),
-		inputTokens: Number(r.input_tokens),
-		outputTokens: Number(r.output_tokens),
-		cacheReadTokens: Number(r.cache_read_tokens),
-		cacheWriteTokens: Number(r.cache_write_tokens),
-		costUsd: r.cost_usd === null ? null : Number(r.cost_usd),
-		linesAdded: Number(r.lines_added),
-		linesRemoved: Number(r.lines_removed),
-	});
-
 	return {
 		days,
 		from,
@@ -91,7 +129,7 @@ async function usageFor(
 			userId: r.user_id,
 			displayName: r.display_name,
 			agent: CodingAgent.parse(r.agent),
-			...counts(r as never),
+			...counts(r),
 		})),
 		daily: dayRows.map((r) => ({
 			day: r.day,

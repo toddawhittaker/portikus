@@ -1,0 +1,58 @@
+/* The usage details opened from a status bar agent button. A native popover in the top layer, pinned above the bar's end because the bar is the anchor for all of them. */
+.pk-agent-popover {
+	position: fixed;
+	inset: auto var(--space-3) 36px auto;
+	margin: 0;
+	box-sizing: border-box;
+	inline-size: max-content;
+	max-inline-size: min(26rem, calc(100vw - 2 * var(--space-3)));
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
+	color: var(--ink);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-agent-popover:not(:popover-open) {
+	display: none;
+}
+.pk-agent-popover:popover-open {
+	display: grid;
+	gap: var(--space-3);
+}
+.pk-agent-popover-table {
+	border-collapse: collapse;
+}
+.pk-agent-popover-table th,
+.pk-agent-popover-table td {
+	padding: var(--space-0\.5) var(--space-3) var(--space-0\.5) 0;
+	text-align: start;
+	font-weight: 400;
+	vertical-align: baseline;
+}
+.pk-agent-popover-table thead th {
+	color: var(--ink-muted);
+}
+.pk-agent-popover-list {
+	display: grid;
+	gap: var(--space-0\.5);
+	margin: 0;
+}
+.pk-agent-popover-list div {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-4);
+}
+.pk-agent-popover-list dt {
+	color: var(--ink-muted);
+}
+.pk-agent-popover-list dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+.pk-agent-popover-note {
+	margin: 0;
+	color: var(--ink-muted);
+}

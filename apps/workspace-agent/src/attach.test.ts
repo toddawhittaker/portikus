@@ -187,3 +187,14 @@ test("the pane poll speeds up while a full-screen program holds a terminal", asy
 
 	socket.close();
 });
+
+test("closing a terminal tells each onClosed listener its id, until unsubscribed", () => {
+	const registry = buildRegistry();
+	const closed: string[] = [];
+	const unsubscribe = registry.onClosed((id) => closed.push(id));
+	registry.closeAll(ID, 1000, "terminal deleted");
+	unsubscribe();
+	registry.closeAll(ID, 1000, "terminal deleted");
+	expect(closed).toEqual([ID]);
+	registry.closeEverything();
+});

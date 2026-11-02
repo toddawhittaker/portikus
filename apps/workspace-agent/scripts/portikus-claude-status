@@ -1,0 +1,32 @@
+#!/bin/bash
+# Claude Code's status line: reports the plan limits to the workspace agent
+# and prints them, such as "5h 42% · resets 3:00 pm  7d 18%". The input
+# also holds the folder, model, cost and transcript path; only the two
+# rate_limits windows are kept, and nothing else is sent or printed (ADR 0012).
+
+limits=$(jq -c '
+	.rate_limits // {}
+	| {five_hour, seven_day}
+	| with_entries(
+		select(.value | type == "object"
+			and (.used_percentage | type == "number")
+			and (.resets_at | type == "number"))
+		| .value |= {used_percentage, resets_at})
+' 2>/dev/null)
+
+[[ -n $limits && $limits != "{}" ]] || exit 0
+
+printf '%s' "$limits" | curl --silent --output /dev/null --max-time 1 \
+	--header 'content-type: application/json' --data-binary @- \
+	"${PORTIKUS_AGENT_RECEIVER:-http://127.0.0.1:7401}/claude-limits" || true
+
+printf '%s' "$limits" | jq -r '
+	def pct: "\(.used_percentage | round)%";
+	[
+		(.five_hour // empty
+			| "5h \(pct)"
+			+ (if .resets_at then " · resets \(.resets_at | strflocaltime("%-I:%M %p") | ascii_downcase)" else "" end)),
+		(.seven_day // empty | "7d \(pct)")
+	] | join("  ")
+' 2>/dev/null
+exit 0

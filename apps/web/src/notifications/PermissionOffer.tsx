@@ -1,0 +1,50 @@
+import { Button } from "@portikus/ui";
+import { useState } from "react";
+import {
+	useEditorSettings,
+	useUpdateEditorSettings,
+} from "../editor/settingsQueries.js";
+import {
+	askDesktopPermission,
+	desktopPermission,
+	desktopSupported,
+} from "./desktopSupport.js";
+
+/**
+ * The two actions of the first-alert toast. Nothing renders unless the
+ * student has not chosen yet and the browser has not blocked them.
+ * `onAnswered` runs once either button has been used.
+ */
+export function PermissionOffer({ onAnswered }: { onAnswered: () => void }) {
+	const settings = useEditorSettings();
+	const update = useUpdateEditorSettings();
+	const [answered, setAnswered] = useState(false);
+	if (
+		answered ||
+		!desktopSupported() ||
+		desktopPermission() === "denied" ||
+		settings.data?.agentNotifications !== "ask"
+	) {
+		return null;
+	}
+	function save(agentNotifications: "on" | "off") {
+		setAnswered(true);
+		update.mutate({ agentNotifications });
+		onAnswered();
+	}
+	// A browser that already allows them is not asked again.
+	function turnOn() {
+		if (desktopPermission() === "granted") save("on");
+		else void askDesktopPermission().then(save);
+	}
+	return (
+		<>
+			<Button size="sm" onClick={turnOn}>
+				Turn on desktop notifications
+			</Button>
+			<Button size="sm" variant="quiet" onClick={() => save("off")}>
+				No thanks
+			</Button>
+		</>
+	);
+}

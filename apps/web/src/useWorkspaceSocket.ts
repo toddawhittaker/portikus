@@ -1,4 +1,9 @@
-import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
+import {
+	CloseCode,
+	type CodingAgentTerminal,
+	type ListeningService,
+	type Workspace,
+} from "@portikus/contracts";
 import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionEnded } from "./api/sessionEnded.js";
@@ -16,6 +21,15 @@ const MAX_RECONNECT_MS = 60_000;
 function socketUrl(workspaceId: string): string {
 	return wsUrl(`/workspaces/${workspaceId}/ws`);
 }
+
+/**
+ * Takes each `coding-agents` list as it arrives. `initial` is true for the
+ * connection's first list, which is a baseline and not news.
+ */
+export type CodingAgentsHandler = (
+	terminals: CodingAgentTerminal[],
+	initial: boolean,
+) => void;
 
 export interface WorkspaceSocket {
 	/** The last `workspace` message the server sent, or null before the first. */
@@ -36,13 +50,19 @@ export interface WorkspaceSocket {
  * counts as presence (SPEC.md §6.4), so it stays open for as long as the
  * page is on a workspace screen.
  */
-export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket {
+export function useWorkspaceSocket(
+	workspaceId: string | null,
+	onCodingAgents?: CodingAgentsHandler,
+): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [listening, setListening] = useState<ListeningService[] | null>(null);
 	const [attempt, setAttempt] = useState(0);
 
 	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
 	const current = useRef<WebSocket | null>(null);
+	// Lists go straight to the handler from the socket, so none is lost to a render that batches two.
+	const agentsHandler = useRef(onCodingAgents);
+	agentsHandler.current = onCodingAgents;
 	const lastActivity = useRef(0);
 
 	const sendActivity = useCallback(() => {
@@ -91,6 +111,7 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 			socket = next;
 			current.current = next;
 			let opened = false;
+			let gotAgents = false;
 
 			next.onopen = () => {
 				opened = true;
@@ -114,6 +135,10 @@ export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket 
 				const message = parsed.data;
 				if (message.type === "workspace") setWorkspace(message.workspace);
 				if (message.type === "listening-services") setListening(message.services);
+				if (message.type === "coding-agents") {
+					agentsHandler.current?.(message.terminals, !gotAgents);
+					gotAgents = true;
+				}
 				if (message.type === "layout") {
 					announceLayout(id, message.projectId, message.version);
 				}

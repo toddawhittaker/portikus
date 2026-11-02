@@ -217,6 +217,30 @@ describe("toast timing and recording", () => {
 		}
 	});
 
+	it("times out a toast with actions when persistent is explicitly false", () => {
+		vi.useFakeTimers();
+		try {
+			render(
+				<ToastProvider>
+					<Shower
+						toast={{
+							title: "Agent finished",
+							persistent: false,
+							actions: <button type="button">Open</button>,
+						}}
+					/>
+				</ToastProvider>,
+			);
+			fireEvent.click(screen.getByText("Show"));
+			act(() => {
+				vi.advanceTimersByTime(TOAST_DURATION_MS.neutral + 1000);
+			});
+			expect(screen.queryByText("Agent finished")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps a persistent toast until its caller dismisses it", () => {
 		vi.useFakeTimers();
 		try {

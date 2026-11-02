@@ -9,6 +9,7 @@ import type { WebSocket } from "@fastify/websocket";
 import type { AgentListeningService } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { WebSocketServer } from "ws";
+import { sendCodingAgents } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
 /** The workspace interface address a loopback forward listens on. */
@@ -24,6 +25,8 @@ export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState)
 		processesFor,
 		listening,
 		listeningSockets,
+		codingAgents,
+		codingAgentsHeld,
 		forwards,
 		probes,
 		httpsApps,
@@ -131,6 +134,8 @@ export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState)
 			socket.on("close", () => peers.delete(socket));
 			// Like the real agent, the first frame is the whole list.
 			sendListening(socket, listeningFor(key));
+			if (!codingAgentsHeld.has(key))
+				sendCodingAgents(socket, codingAgents.get(key) ?? []);
 		},
 	);
 

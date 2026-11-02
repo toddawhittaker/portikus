@@ -107,6 +107,38 @@ test("a pasted picture goes to pasteImage and never reaches the terminal as text
 	expect(pasteImage).toHaveBeenCalledWith(image, "image/png");
 });
 
+test("a bare F8 is left to the page and never sent to the shell", () => {
+	const sent: string[] = [];
+	const attach = vi.fn((term: { onData: (cb: (d: string) => void) => void }) => {
+		term.onData((data) => sent.push(data));
+		return { resized: vi.fn(), dispose: vi.fn() };
+	});
+	const { view } = renderHost({ attach: attach as never });
+	const textarea = view.container.querySelector("textarea");
+	if (!textarea) throw new Error("no xterm textarea");
+	const press = (init: KeyboardEventInit) => {
+		const event = new KeyboardEvent("keydown", {
+			key: "F8",
+			code: "F8",
+			keyCode: 119,
+			bubbles: true,
+			cancelable: true,
+			...init,
+		});
+		act(() => {
+			textarea.dispatchEvent(event);
+		});
+		return event;
+	};
+	const bare = press({});
+	expect(sent).toEqual([]);
+	// xterm cancels a key it handles, which would hide F8 from the page.
+	expect(bare.defaultPrevented).toBe(false);
+	// A shifted F8 still belongs to the shell.
+	press({ shiftKey: true });
+	expect(sent.length).toBeGreaterThan(0);
+});
+
 test("without pasteImage a pasted picture is ignored", () => {
 	const { view } = renderHost();
 	expect(() =>

@@ -2,6 +2,8 @@ import type { Server } from "node:http";
 import type { Server as HttpsServer } from "node:https";
 import type { WebSocket } from "@fastify/websocket";
 import type {
+	AgentCodingAgentStatus,
+	AgentLimitsReport,
 	AgentListeningService,
 	AgentRecoveryAside,
 	GitDiff,
@@ -165,6 +167,11 @@ export function createFakeAgentState(token: string) {
 	// ports have a loopback forward open (BROWSER-HANDLING.md §11.1).
 	const listening = new Map<string, AgentListeningService[]>();
 	const listeningSockets = new Map<string, Set<WebSocket>>();
+	/** Coding-agent states and plan limits the fake reports, by workspace key. */
+	const codingAgents = new Map<string, AgentCodingAgentStatus[]>();
+	/** Workspace keys whose agent-state frames are held back, so a test can open a socket first. */
+	const codingAgentsHeld = new Set<string>();
+	const agentLimits = new Map<string, AgentLimitsReport>();
 	const forwards = new Map<string, Set<number>>();
 	const probes = new Map<string, number[]>();
 	/** Test apps that serve HTTPS, which only a probe reveals. */
@@ -379,6 +386,9 @@ export function createFakeAgentState(token: string) {
 		pendingFsTimers,
 		listening,
 		listeningSockets,
+		codingAgents,
+		codingAgentsHeld,
+		agentLimits,
 		forwards,
 		probes,
 		httpsApps,

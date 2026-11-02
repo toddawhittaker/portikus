@@ -1,5 +1,7 @@
 import type { ApiConfig } from "@portikus/config";
 import {
+	type AgentCodingAgentStatus,
+	AgentCodingAgentsChanged,
 	type AgentListeningService,
 	AgentListeningServicesChanged,
 	type ListeningService,
@@ -44,6 +46,14 @@ interface Entry {
 	attempts: number;
 	services: ListeningService[];
 	/**
+	 * The latest agent states the workspace agent reported, by terminal. Null
+	 * until its first frame arrives, so a browser is never given an empty
+	 * baseline the agent did not send.
+	 */
+	codingAgents: AgentCodingAgentStatus[] | null;
+	/** Set while a throttled coding-agents notification is waiting to go out. */
+	codingAgentsTimer: NodeJS.Timeout | null;
+	/**
 	 * Forwards this workspace is opening right now, by port. They count
 	 * towards the cap from the moment the work starts, so calls that race
 	 * cannot all read the same "seven are open" and make eight more.
@@ -54,6 +64,13 @@ interface Entry {
 }
 
 type ListeningListener = (services: ListeningService[]) => void;
+type CodingAgentsListener = () => void;
+
+/** At most four coding-agents notifications a second per workspace (SPEC.md §24). */
+const CODING_AGENTS_NOTIFY_MS = 250;
+
+/** The frame type the workspace agent sends for agent states. */
+const CODING_AGENTS_FRAME = "workspace.coding-agents.changed";
 
 /**
  * The control plane's view of what is listening inside every running
@@ -76,6 +93,21 @@ export interface ListeningRegistry {
 		workspaceId: string,
 		port: number,
 	): Promise<ListeningService | undefined>;
+	/**
+	 * The latest agent states a workspace reported, as the agent sent them:
+	 * the terminal ids are not yet checked against the database. Null until
+	 * the agent's first frame, and again once the workspace has dropped.
+	 */
+	codingAgents(workspaceId: string): AgentCodingAgentStatus[] | null;
+	/**
+	 * Called when one workspace's list changes, at most four times a second
+	 * with the newest list ready to read, and at once when the workspace's
+	 * agent connection drops (the list is then null). Returns an unsubscribe.
+	 */
+	subscribeCodingAgents(
+		workspaceId: string,
+		listener: CodingAgentsListener,
+	): () => void;
 	/** Called on every change for one workspace; returns an unsubscribe. */
 	subscribe(workspaceId: string, listener: ListeningListener): () => void;
 	/**
@@ -194,11 +226,20 @@ export interface RegistryDeps {
 	pollIntervalMs?: number;
 }
 
+function isCodingAgentsFrame(frame: unknown): boolean {
+	return (
+		typeof frame === "object" &&
+		frame !== null &&
+		(frame as { type?: unknown }).type === CODING_AGENTS_FRAME
+	);
+}
+
 export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	const { db, config, logger } = deps;
 	const pollIntervalMs = deps.pollIntervalMs ?? POLL_INTERVAL_MS;
 	const entries = new Map<string, Entry>();
 	const listeners = new Map<string, Set<ListeningListener>>();
+	const codingAgentListeners = new Map<string, Set<CodingAgentsListener>>();
 	let poller: NodeJS.Timeout | null = null;
 	let stopped = false;
 	const pending = new Set<Promise<unknown>>();
@@ -244,6 +285,32 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		}
 	}
 
+	function notifyCodingAgents(workspaceId: string): void {
+		for (const listener of codingAgentListeners.get(workspaceId) ?? []) {
+			try {
+				listener();
+			} catch (error) {
+				logger.error({ err: error, workspaceId }, "coding agents listener failed");
+			}
+		}
+	}
+
+	/**
+	 * Tell listeners once per fixed 250 ms window that starts at the first frame,
+	 * with the newest list, so a workspace that floods frames costs one
+	 * notification per window.
+	 */
+	function scheduleCodingAgentsNotify(workspaceId: string, entry: Entry): void {
+		if (entry.codingAgentsTimer) return;
+		const timer = setTimeout(() => {
+			entry.codingAgentsTimer = null;
+			if (entry.closed) return;
+			notifyCodingAgents(workspaceId);
+		}, CODING_AGENTS_NOTIFY_MS);
+		timer.unref?.();
+		entry.codingAgentsTimer = timer;
+	}
+
 	function connect(workspaceId: string, entry: Entry): void {
 		if (stopped || entry.closed) return;
 		const socket = new WebSocketClient(entry.client.listeningEventsUrl(), {
@@ -263,6 +330,29 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				parsed = JSON.parse(raw.toString());
 			} catch {
 				return; // A malformed frame from the container is ignored.
+			}
+			if (isCodingAgentsFrame(parsed)) {
+				const states = AgentCodingAgentsChanged.safeParse(parsed);
+				if (!states.success) {
+					// Field names only: the values come from the student's container.
+					logger.debug(
+						{
+							workspaceId,
+							fields: states.error.issues.map((issue) => issue.path.join(".")),
+						},
+						"coding agents frame rejected",
+					);
+					return;
+				}
+				// The agent resends the whole list on connect; only a change is news.
+				if (
+					JSON.stringify(states.data.terminals) === JSON.stringify(entry.codingAgents)
+				) {
+					return;
+				}
+				entry.codingAgents = states.data.terminals;
+				scheduleCodingAgentsNotify(workspaceId, entry);
+				return;
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
 			// Over-long or invalid frames are dropped and the last list kept;
@@ -306,11 +396,13 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		if (!entry) return;
 		entry.closed = true;
 		if (entry.timer) clearTimeout(entry.timer);
+		if (entry.codingAgentsTimer) clearTimeout(entry.codingAgentsTimer);
 		entry.socket?.close();
 		entries.delete(workspaceId);
 		probeGuard.forget(workspaceId);
 		// A stopped workspace has nothing listening, and the UI must be told.
 		notify(workspaceId, []);
+		notifyCodingAgents(workspaceId);
 		// A preview must stop working the moment its workspace leaves running
 		// (BROWSER-HANDLING.md §9.2). A shutdown is not that: the sessions
 		// outlive this process.
@@ -360,6 +452,8 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				timer: null,
 				attempts: 0,
 				services: [],
+				codingAgents: null,
+				codingAgentsTimer: null,
 				opening: new Map(),
 				closed: false,
 			};
@@ -395,6 +489,23 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			};
 			entry.services = entry.services.map((one) => (one.port === port ? settled : one));
 			return settled;
+		},
+
+		codingAgents(workspaceId) {
+			return entries.get(workspaceId)?.codingAgents ?? null;
+		},
+
+		subscribeCodingAgents(workspaceId, listener) {
+			const set =
+				codingAgentListeners.get(workspaceId) ?? new Set<CodingAgentsListener>();
+			set.add(listener);
+			codingAgentListeners.set(workspaceId, set);
+			return () => {
+				set.delete(listener);
+				if (set.size === 0 && codingAgentListeners.get(workspaceId) === set) {
+					codingAgentListeners.delete(workspaceId);
+				}
+			};
 		},
 
 		subscribe(workspaceId, listener) {
@@ -493,6 +604,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				drop(workspaceId, { revoke: false });
 			}
 			listeners.clear();
+			codingAgentListeners.clear();
 			while (pending.size > 0) await Promise.allSettled([...pending]);
 		},
 	};

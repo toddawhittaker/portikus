@@ -316,6 +316,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"The workspace layout",
 		"Keep your workspace running while you are away",
 		"Terminals",
+		"Coding agent status, alerts and usage",
 		"Voice input in a terminal",
 		"Files and the editor",
 		"Code help in the editor",

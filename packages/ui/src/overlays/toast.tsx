@@ -45,9 +45,12 @@ export interface ToastProps {
 	children?: React.ReactNode;
 	actions?: React.ReactNode;
 	onDismiss?: () => void;
-	/** Stays until the caller dismisses it, for progress that outlasts the usual duration. */
+	/**
+	 * Stays until the caller dismisses it, for progress that outlasts the usual
+	 * duration. An explicit `false` times out even when the toast has actions.
+	 */
 	persistent?: boolean;
-	/** Kept out of the history because the server records the same notice itself. */
+	/** Kept out of the notification history: for notices that are not worth saving, or that the server records itself. */
 	unrecorded?: boolean;
 	className?: string;
 }
@@ -70,7 +73,9 @@ export function Toast({
 			type={urgent ? "foreground" : "background"}
 			// A toast that asks for an answer stays until answered; Radix pauses the rest on hover or focus.
 			duration={
-				actions || persistent ? Number.POSITIVE_INFINITY : TOAST_DURATION_MS[tone]
+				persistent || (actions && persistent !== false)
+					? Number.POSITIVE_INFINITY
+					: TOAST_DURATION_MS[tone]
 			}
 			onOpenChange={(open) => {
 				if (!open) onDismiss?.();

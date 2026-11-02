@@ -33,7 +33,12 @@ import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
 import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
+import {
+	AgentStatusContext,
+	createAgentStatusStore,
+} from "./terminal/codingAgentStatus.js";
 import { forgetAgentBuild } from "./terminal/terminalFrames.js";
+import { useCodingAgentAlerts } from "./terminal/useCodingAgentAlerts.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -68,8 +73,32 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 }
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {
-	const { workspace, listening, reconnect, sendActivity } =
-		useWorkspaceSocket(workspaceId);
+	// Held here so unread marks survive switching projects.
+	const [agentStatus] = useState(() => createAgentStatusStore());
+	const workRef = useRef<HTMLElement>(null);
+	// The project route is a child of this one, so its parameter may be absent.
+	const { projectId } = useParams({ strict: false }) as { projectId?: string };
+	const projects = useProjects(workspaceId, "active");
+	const handleCodingAgents = useCodingAgentAlerts(
+		agentStatus,
+		workspaceId,
+		projectId,
+		projects.data,
+		workRef,
+	);
+	const { workspace, listening, reconnect, sendActivity } = useWorkspaceSocket(
+		workspaceId,
+		handleCodingAgents,
+	);
+	useEffect(() => {
+		const refresh = () => agentStatus.refresh();
+		window.addEventListener("focus", refresh);
+		document.addEventListener("visibilitychange", refresh);
+		return () => {
+			window.removeEventListener("focus", refresh);
+			document.removeEventListener("visibilitychange", refresh);
+		};
+	}, [agentStatus]);
 	// A throttle is dismissed for the page's life; a new one shows again (ADR 0032).
 	const [dismissedThrottleAt, setDismissedThrottleAt] = useState<string | null>(null);
 	const [dismissedMemoryAt, setDismissedMemoryAt] = useState<string | null>(null);
@@ -77,10 +106,6 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const idleStopReason = useIdleStopReason(workspace);
 	// The status bar, the error screen and the throttle notice all open this dialog.
 	const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialogMode>("closed");
-	const workRef = useRef<HTMLElement>(null);
-	// The project route is a child of this one, so its parameter may be absent.
-	const { projectId } = useParams({ strict: false }) as { projectId?: string };
-	const projects = useProjects(workspaceId, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
 	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
@@ -294,19 +319,21 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	return (
 		<LayoutStoreContext.Provider value={projectId ? layoutStore : null}>
 			<ListeningContext.Provider value={listeningValue}>
-				<RightPaneContext.Provider value={rightPaneApi}>
-					{/* One events socket for the open project, whatever pane is showing (SPEC.md §11.4). */}
-					<CodeHelpContext.Provider value={codeHelp}>
-						<ProjectEvents
-							workspaceId={workspaceId}
-							projectId={running ? project?.id : undefined}
-							layoutStore={layoutStore}
-							onFilesChanged={(paths) => codeHelp?.filesChanged(paths)}
-						>
-							{shell}
-						</ProjectEvents>
-					</CodeHelpContext.Provider>
-				</RightPaneContext.Provider>
+				<AgentStatusContext.Provider value={agentStatus}>
+					<RightPaneContext.Provider value={rightPaneApi}>
+						{/* One events socket for the open project, whatever pane is showing (SPEC.md §11.4). */}
+						<CodeHelpContext.Provider value={codeHelp}>
+							<ProjectEvents
+								workspaceId={workspaceId}
+								projectId={running ? project?.id : undefined}
+								layoutStore={layoutStore}
+								onFilesChanged={(paths) => codeHelp?.filesChanged(paths)}
+							>
+								{shell}
+							</ProjectEvents>
+						</CodeHelpContext.Provider>
+					</RightPaneContext.Provider>
+				</AgentStatusContext.Provider>
 			</ListeningContext.Provider>
 		</LayoutStoreContext.Provider>
 	);

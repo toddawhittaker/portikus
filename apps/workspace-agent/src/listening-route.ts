@@ -5,11 +5,14 @@
  */
 import type { WebSocket } from "@fastify/websocket";
 import {
+	type AgentCodingAgentStatus,
+	type AgentCodingAgentsChanged,
 	type AgentListeningService,
 	LoopbackForwardRequest,
 	PortNumber,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
+import type { CodingAgentBoard } from "./coding-agent-status.js";
 import { sendError } from "./errors.js";
 import type { Forwards } from "./forwards.js";
 import type { ListeningMonitor } from "./listening.js";
@@ -17,13 +20,14 @@ import type { ListeningMonitor } from "./listening.js";
 export interface ListeningRouteOptions {
 	monitor: ListeningMonitor;
 	forwards: Forwards;
+	codingAgents: CodingAgentBoard;
 }
 
 export async function listeningRoutes(
 	instance: FastifyInstance,
 	options: ListeningRouteOptions,
 ): Promise<void> {
-	const { monitor, forwards } = options;
+	const { monitor, forwards, codingAgents } = options;
 
 	instance.get("/listening", async () => {
 		await monitor.refresh();
@@ -34,15 +38,21 @@ export async function listeningRoutes(
 		const unsubscribe = monitor.subscribe((services) => {
 			send(socket, services);
 		});
+		// Coding-agent states ride the same socket to the API (SPEC.md §10.8).
+		const unsubscribeAgents = codingAgents.subscribe((terminals) => {
+			sendAgents(socket, terminals);
+		});
 		// An open events socket is what keeps the timer scanning (SPEC.md §18.2).
 		const unwatch = monitor.watch();
 		socket.on("close", () => {
 			unsubscribe();
+			unsubscribeAgents();
 			unwatch();
 		});
-		// The first frame is the whole list, so a client that connects
+		// The first frames are the whole lists, so a client that connects
 		// between changes still knows what is running.
 		send(socket, monitor.current());
+		sendAgents(socket, codingAgents.current());
 		await monitor.refresh();
 	});
 
@@ -125,4 +135,13 @@ function send(socket: WebSocket, services: AgentListeningService[]): void {
 			observedAt: new Date().toISOString(),
 		}),
 	);
+}
+
+function sendAgents(socket: WebSocket, terminals: AgentCodingAgentStatus[]): void {
+	if (socket.readyState !== socket.OPEN) return;
+	const frame: AgentCodingAgentsChanged = {
+		type: "workspace.coding-agents.changed",
+		terminals,
+	};
+	socket.send(JSON.stringify(frame));
 }

@@ -66,6 +66,7 @@ test("it shows the settings the server holds", async () => {
 		timezone: "America/New_York",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
@@ -355,6 +356,7 @@ test("the stored terminal theme is shown and a switch saves it", async () => {
 		timezone: "America/New_York",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -387,6 +389,7 @@ test("the stored timezone is shown", async () => {
 		timezone: "Europe/Berlin",
 		appearance: "system",
 		screenReaderMode: false,
+		agentNotifications: "ask",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>
@@ -740,4 +743,155 @@ test("Accessibility says how to dictate, that the browser has no voice input, or
 			"Your administrator turned voice input off for this site.",
 		),
 	);
+});
+
+const FakeNotification = {
+	permission: "default" as NotificationPermission,
+	answer: "granted" as NotificationPermission,
+	requestPermission: vi.fn(async () => {
+		// A real browser records its answer on the permission.
+		FakeNotification.permission = FakeNotification.answer;
+		return FakeNotification.answer;
+	}),
+};
+
+function notificationGroup() {
+	return screen.getByRole("group", { name: "Desktop notifications" });
+}
+
+test("desktop notifications show the saved choice and Off saves without asking the browser", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.requestPermission.mockClear();
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	expect(
+		(
+			within(notificationGroup()).getByRole("radio", {
+				name: "Ask me",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(true);
+	fireEvent.click(within(notificationGroup()).getByRole("radio", { name: "Off" }));
+	await waitFor(() =>
+		expect(writes).toEqual([{ body: { agentNotifications: "off" } }]),
+	);
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+});
+
+test("choosing On saves On and never asks the browser, so arrowing is safe", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.requestPermission.mockClear();
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	fireEvent.click(within(notificationGroup()).getByRole("radio", { name: "On" }));
+	await waitFor(() => expect(writes).toEqual([{ body: { agentNotifications: "on" } }]));
+	expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+	expect(screen.getByTestId("settings-notifications-allow")).toBeTruthy();
+});
+
+test("Allow in this browser asks once and says the browser allowed it", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.answer = "granted";
+	FakeNotification.requestPermission.mockClear();
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications: "on" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByTestId("settings-notifications-allow"));
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-notifications-status").textContent).toBe(
+			"Desktop notifications are allowed in this browser.",
+		),
+	);
+	expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+	expect(screen.queryByTestId("settings-notifications-allow")).toBeNull();
+});
+
+test("the permission is read again when the window regains focus", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications: "on" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByTestId("settings-notifications-allow");
+	// The student allowed notifications in the browser's own settings.
+	FakeNotification.permission = "granted";
+	fireEvent(window, new Event("focus"));
+	await waitFor(() =>
+		expect(screen.queryByTestId("settings-notifications-allow")).toBeNull(),
+	);
+	// And blocked them again, seen when the tab becomes visible.
+	FakeNotification.permission = "denied";
+	fireEvent(document, new Event("visibilitychange"));
+	await screen.findByTestId("settings-notifications-blocked");
+});
+
+test("focus moves to the checked radio when the browser answers", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.answer = "granted";
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, agentNotifications: "on" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const allow = await screen.findByTestId("settings-notifications-allow");
+	allow.focus();
+	fireEvent.click(allow);
+	await waitFor(() =>
+		expect(screen.queryByTestId("settings-notifications-allow")).toBeNull(),
+	);
+	expect(document.activeElement).toBe(
+		within(notificationGroup()).getByRole("radio", { name: "On" }),
+	);
+});
+
+test("a refused prompt keeps On, shows the blocked note and announces it", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	FakeNotification.answer = "denied";
+	const writes = stubSettings({
+		...EDITOR_SETTINGS_DEFAULTS,
+		agentNotifications: "on",
+	});
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	fireEvent.click(await screen.findByTestId("settings-notifications-allow"));
+	const note = await screen.findByTestId("settings-notifications-blocked");
+	expect(screen.getByTestId("settings-notifications-status").textContent).toBe(
+		"Your browser blocked notifications.",
+	);
+	expect(notificationGroup().getAttribute("aria-describedby")).toContain(note.id);
+	expect(
+		(
+			within(notificationGroup()).getByRole("radio", {
+				name: "On",
+			}) as HTMLInputElement
+		).checked,
+	).toBe(true);
+	expect(writes).toEqual([]);
+});
+
+test("Allow in this browser is not offered for Ask me or Off", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "default";
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByLabelText("Workspace timezone")).toBeTruthy());
+	expect(screen.queryByTestId("settings-notifications-allow")).toBeNull();
+});
+
+test("a blocked browser gets a note", async () => {
+	vi.stubGlobal("Notification", FakeNotification);
+	FakeNotification.permission = "denied";
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const note = await screen.findByTestId("settings-notifications-blocked");
+	expect(notificationGroup().getAttribute("aria-describedby")).toContain(note.id);
+});
+
+test("with no Notification API nothing is offered", async () => {
+	vi.stubGlobal("Notification", undefined);
+	stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByText("This browser does not offer desktop notifications.");
+	expect(screen.queryByRole("group", { name: "Desktop notifications" })).toBeNull();
 });
