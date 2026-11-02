@@ -28,12 +28,10 @@ function layoutUrl(workspaceId: string, projectId: string): string {
 
 /**
  * The version an ETag header names, or null. Caddy's gzip turns `"5"` into
- * `"5-gzip"`, and a proxy may add a weak `W/` prefix, so both are accepted.
+ * `"5-gzip"`, so an encoding suffix is accepted.
  */
 function versionOf(response: Response): number | null {
-	const match = /^(?:W\/)?"(\d+)(?:-[a-z]+)?"$/.exec(
-		response.headers.get("etag") ?? "",
-	);
+	const match = /^"(\d+)(?:-[a-z]+)?"$/.exec(response.headers.get("etag") ?? "");
 	return match ? Number(match[1]) : null;
 }
 

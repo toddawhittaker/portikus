@@ -56,7 +56,7 @@ test("a layout saved behind a gzip entity tag is still restored", async ({
 		.toBe(true);
 
 	await page.getByTestId(`terminal-actions-${first}`).click();
-	await page.getByTestId("split-right").click();
+	await page.getByRole("menu").getByTestId("split-right").click();
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, alpha.id)).length)
 		.toBe(2);

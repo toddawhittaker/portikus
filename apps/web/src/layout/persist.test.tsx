@@ -242,8 +242,6 @@ test.each([
 	['"7"', 7],
 	['"7-gzip"', 7],
 	['"7-br"', 7],
-	['W/"7"', 7],
-	['W/"7-gzip"', 7],
 ])(
 	"a version tagged %s is read as %i, so the next save names it",
 	async (etag, version) => {
