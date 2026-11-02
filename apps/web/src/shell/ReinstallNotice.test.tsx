@@ -130,3 +130,15 @@ test("dismiss asks the workspace, hides the notice and moves focus", async () =>
 	expect(document.activeElement).toBe(main);
 	main.remove();
 });
+
+test("the copy icon is always shown on any touch pointer, and on hover or focus otherwise", async () => {
+	stubFetch(() => json(200, { packages: ["htop"] }));
+	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
+	const wrap = await screen.findByTestId("reinstall-copy-wrap");
+	const classes = wrap.className.split(/\s+/);
+	expect(classes).toContain("opacity-0");
+	expect(classes).toContain("group-hover:opacity-100");
+	expect(classes).toContain("group-focus-within:opacity-100");
+	// A touchscreen laptop's primary pointer is the trackpad, so (hover: none) alone misses it.
+	expect(classes).toContain("[@media(hover:none),(any-pointer:coarse)]:opacity-100");
+});
