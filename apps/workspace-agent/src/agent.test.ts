@@ -17,6 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { readProcess } from "./processes.js";
 import { buildServer } from "./server.js";
+import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import { userTaskCount } from "./test-support/user-tasks.js";
 import {
 	attachArgs,
@@ -155,19 +156,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-agent-"));
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	// A tmux server exits when its last session closes, and a terminal
-	// opened in that moment fails with "server exited unexpectedly". The
-	// workspace's terminals server never exits (SPEC.md §9.7), so this one
-	// is kept alive the same way. Not a pk-* session, so no route lists it.
-	await run("tmux", [
-		"-L",
-		SOCKET_NAME,
-		"new-session",
-		"-d",
-		"-s",
-		"keep-alive",
-		"sleep 1d",
-	]);
+	await keepTmuxServerAlive(SOCKET_NAME);
 	app = buildServer({
 		tokenPath,
 		homeDir,

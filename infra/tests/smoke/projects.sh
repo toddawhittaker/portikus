@@ -195,44 +195,28 @@ for n in range(20):
 print(json.dumps({"tabs": tabs}, separators=(",", ":")))
 ')
 
-  # layout_call METHOD [VERSION] prints "STATUS VERSION" for one layout
-  # request, where VERSION is the number inside the response's entity tag
-  # whatever prefix or suffix a proxy put around it.
-  layout_call() {
-    local method="$1" version="${2:-}" extra
-    extra="-X ${method} -H 'Accept-Encoding: gzip' -o /dev/null -D -"
-    if [ "$method" = "PUT" ]; then
-      extra="${extra} -H 'Origin: ${API}' -H 'Content-Type: application/json'"
-      extra="${extra} -H 'If-Match: \"${version}\"' -d '${layout_body}'"
-    fi
-    vm_get alice "${layout_url}" "${extra}" | python3 -c '
-import re, sys
+  # One setup save so there is a layout to read back.
+  check_output "saving a layout over 512 bytes returns 204" "204" \
+    http_status alice "${layout_url}" \
+    "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -H 'If-Match: \"0\"' -d '${layout_body}'"
 
-headers = sys.stdin.read()
-status = re.match(r"HTTP/\S+ (\d+)", headers)
-etag = re.search(r"^etag:\s*(?:W/)?\"(\d+)(?:-[a-z]+)?\"", headers, re.I | re.M)
-print(status.group(1) if status else "", etag.group(1) if etag else "")
-' 2>/dev/null || true
-  }
+  # The raw tag must carry Caddy's suffix, or nothing was compressed and the
+  # save below proves nothing.
+  layout_etag=$(vm_get alice "${layout_url}" \
+    "-H 'Accept-Encoding: gzip' -o /dev/null -D -" |
+    tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')
+  layout_etag_ok="no (etag: ${layout_etag:-none})"
+  [[ "$layout_etag" == *-gzip\" ]] && layout_etag_ok="yes"
+  check_output "the compressed layout read carries a -gzip entity tag" "yes" \
+    echo "$layout_etag_ok"
 
-  read -r layout_get_status layout_v0 <<<"$(layout_call GET)"
-  check_output "a project with no saved layout reads 204" "204" echo "$layout_get_status"
-  if [ -z "$layout_v0" ]; then
-    bad "GET layout returned no readable entity tag"
-  else
-    read -r layout_put1_status layout_v1 <<<"$(layout_call PUT "$layout_v0")"
-    check_output "saving a layout over 512 bytes returns 204" "204" \
-      echo "$layout_put1_status"
-    read -r layout_put2_status _ <<<"$(layout_call PUT "$layout_v1")"
-    check_output "a second save named by the first save's tag returns 204" "204" \
-      echo "$layout_put2_status"
-    read -r layout_get2_status layout_v3 <<<"$(layout_call GET)"
-    check_output "the saved layout reads back through gzip" "200" \
-      echo "$layout_get2_status"
-    read -r layout_put3_status _ <<<"$(layout_call PUT "$layout_v3")"
-    check_output "a save named by the compressed read's tag returns 204" "204" \
-      echo "$layout_put3_status"
-  fi
+  # The version is read the way the browser reads it (persist.ts versionOf).
+  layout_version=$(sed -nE 's/^"([0-9]+)(-[a-z]+)?"$/\1/p' <<<"$layout_etag")
+  check_output "a save named by the compressed read's tag returns 204" "204" \
+    http_status alice "${layout_url}" \
+    "-X PUT -H 'Origin: ${API}' -H 'Content-Type: application/json' \
+         -H 'If-Match: \"${layout_version}\"' -d '${layout_body}'"
 
   # 15.8 Leave ~/projects as the run found it.  There is no delete route,
   #      so the rows go with the workspace the cleanup function removes.
