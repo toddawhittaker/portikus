@@ -159,7 +159,7 @@ export class ClaudeMessageMapper {
 				id: toolId,
 				name,
 				title: toolTitle(name, block.input),
-				input: asJson(block.input),
+				input: shortenedInput(block.input),
 			});
 		}
 		return events;

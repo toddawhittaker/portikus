@@ -50,8 +50,8 @@ const START_EFFORT: ChatEffort = "high";
 export interface ChatHostOptions {
 	terminalId: string;
 	/**
-	 * The Claude session to continue: an ended chat's id when this chat
-	 * resumes it, otherwise the terminal id (SPEC.md §10.8).
+	 * The Claude session this tab runs, as `recordChatSession` resolved it;
+	 * absent means the terminal id (SPEC.md §10.8).
 	 */
 	sessionId?: string;
 	/** The chat's project directory, also Claude's working directory. */

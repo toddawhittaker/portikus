@@ -192,6 +192,32 @@ describe("cards", () => {
 		).toEqual({ behavior: "allow", updatedInput: input });
 	});
 
+	test("a tool call with a huge input starts with it shortened, so its frame is not dropped", () => {
+		const events = new ClaudeMessageMapper().map({
+			type: "assistant",
+			message: {
+				id: "msg_big",
+				content: [
+					{
+						type: "tool_use",
+						id: "toolu_w",
+						name: "Write",
+						input: { file_path: "big.txt", content: "z".repeat(12 * 1024 * 1024) },
+					},
+				],
+			},
+		} as never);
+		const started = events.find((e) => e.type === "tool.started");
+		expect(Buffer.byteLength(JSON.stringify(started))).toBeLessThan(
+			MAX_CARD_INPUT_BYTES + 1024,
+		);
+		expect(
+			(started as unknown as { input: { content: string } }).input.content.endsWith(
+				"… (shortened)",
+			),
+		).toBe(true);
+	});
+
 	test("a small input is shown whole, and many short strings still fit", () => {
 		expect(shortenedInput({ command: "ls" })).toEqual({ command: "ls" });
 		const many = { items: Array.from({ length: 2000 }, () => "y".repeat(200)) };
