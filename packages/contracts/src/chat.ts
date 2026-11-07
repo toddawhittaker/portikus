@@ -7,8 +7,10 @@ import { CodingAgent, TerminalId } from "./terminal.js";
  * a second agent can produce the same events.
  */
 
-/** Largest text frame either side may send on the chat socket. */
-export const MAX_CHAT_FRAME_BYTES = 1024 * 1024;
+/** Largest frame the browser may send; attachments travel as paths, so this is ample. */
+export const MAX_CHAT_CLIENT_FRAME_BYTES = 1024 * 1024;
+/** Largest frame the server may send: a 5 MiB image as base64 plus its envelope. */
+export const MAX_CHAT_SERVER_FRAME_BYTES = 8 * 1024 * 1024;
 /** Largest decoded image in a tool result. */
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Most files one `send` may attach. */
@@ -21,12 +23,16 @@ export const MAX_CHAT_QUESTION_OPTIONS = 4;
 /** The model is asked for 12 characters but does not always obey. */
 export const MAX_CHAT_QUESTION_HEADER_CHARS = 40;
 
-/** A raw socket frame, refused before parsing when it is too large. */
-export const ChatFrame = z
-	.string()
-	.refine((s) => new TextEncoder().encode(s).byteLength <= MAX_CHAT_FRAME_BYTES, {
+function frameOfAtMost(maxBytes: number) {
+	return z.string().refine((s) => new TextEncoder().encode(s).byteLength <= maxBytes, {
 		message: "Frame too large",
 	});
+}
+
+/** A raw browser-to-server frame, refused before parsing when it is too large. */
+export const ChatClientFrame = frameOfAtMost(MAX_CHAT_CLIENT_FRAME_BYTES);
+/** A raw server-to-browser frame, refused before parsing when it is too large. */
+export const ChatServerFrame = frameOfAtMost(MAX_CHAT_SERVER_FRAME_BYTES);
 
 export const ChatAgent = CodingAgent;
 export type ChatAgent = CodingAgent;
@@ -138,6 +144,8 @@ export const ChatToolOutputPart = z.discriminatedUnion("type", [
 		mediaType: ChatImageMediaType,
 		data: Base64Image,
 	}),
+	/** A history image left out so the snapshot fits in one server frame. */
+	z.object({ type: z.literal("imageOmitted"), mediaType: ChatImageMediaType }),
 ]);
 export type ChatToolOutputPart = z.infer<typeof ChatToolOutputPart>;
 
@@ -148,12 +156,20 @@ const Envelope = {
 };
 
 export const ChatServerEvent = z.discriminatedUnion("type", [
+	/**
+	 * The whole snapshot must fit in one MAX_CHAT_SERVER_FRAME_BYTES frame.
+	 * The host fills it newest first. A history image that would overflow
+	 * becomes an `imageOmitted` part. When older history no longer fits, the
+	 * host stops adding it and sets `truncated`.
+	 */
 	z.object({
 		type: z.literal("snapshot"),
 		...Envelope,
 		messages: z.array(ChatMessage),
 		cards: z.array(ChatOpenCard),
 		turnRunning: z.boolean(),
+		/** Earlier history was left out. */
+		truncated: z.boolean(),
 	}),
 	z.object({ type: z.literal("turn.started"), ...Envelope }),
 	z.object({

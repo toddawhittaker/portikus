@@ -1,13 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
+	ChatClientFrame,
 	ChatClientMessage,
-	ChatFrame,
 	type ChatQuestion,
 	ChatServerEvent,
+	ChatServerFrame,
 	MAX_CHAT_ATTACHMENTS,
-	MAX_CHAT_FRAME_BYTES,
+	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_QUESTION_HEADER_CHARS,
+	MAX_CHAT_SERVER_FRAME_BYTES,
 	MAX_CHAT_TEXT_CHARS,
 } from "./chat.js";
 import { CreateTerminalRequest, Terminal } from "./terminal.js";
@@ -58,6 +60,21 @@ describe("chat server events (SPEC.md §10.8)", () => {
 				{ type: "question", id: "q1", questions: [question()] },
 			],
 			turnRunning: true,
+			truncated: false,
+		},
+		{
+			type: "snapshot",
+			...env,
+			messages: [],
+			cards: [],
+			turnRunning: false,
+			truncated: true,
+		},
+		{
+			type: "tool.output",
+			...env,
+			id: "t1",
+			part: { type: "imageOmitted", mediaType: "image/webp" },
 		},
 		{ type: "turn.started", ...env },
 		{ type: "text.delta", ...env, messageId: "m2", text: "Hel" },
@@ -209,18 +226,28 @@ describe("chat client messages (SPEC.md §10.8)", () => {
 	});
 });
 
-describe("chat frame cap", () => {
-	test("a frame is accepted at 1 MiB and refused one byte over", () => {
-		expect(ChatFrame.safeParse("x".repeat(MAX_CHAT_FRAME_BYTES)).success).toBe(true);
-		expect(ChatFrame.safeParse("x".repeat(MAX_CHAT_FRAME_BYTES + 1)).success).toBe(
-			false,
-		);
+describe("chat frame caps", () => {
+	test("a client frame is accepted at 1 MiB and refused one byte over", () => {
+		const at = "x".repeat(MAX_CHAT_CLIENT_FRAME_BYTES);
+		expect(ChatClientFrame.safeParse(at).success).toBe(true);
+		expect(ChatClientFrame.safeParse(`${at}x`).success).toBe(false);
+	});
+
+	test("a server frame is accepted at 8 MiB and refused one byte over", () => {
+		const at = "x".repeat(MAX_CHAT_SERVER_FRAME_BYTES);
+		expect(ChatServerFrame.safeParse(at).success).toBe(true);
+		expect(ChatServerFrame.safeParse(`${at}x`).success).toBe(false);
+	});
+
+	test("a 5 MiB image in tool.output fits one server frame", () => {
+		const frame = JSON.stringify(image(base64Of(MAX_CHAT_IMAGE_BYTES)));
+		expect(ChatServerFrame.safeParse(frame).success).toBe(true);
+		expect(ChatServerEvent.safeParse(JSON.parse(frame)).success).toBe(true);
 	});
 
 	test("the cap counts bytes, not characters", () => {
-		expect(ChatFrame.safeParse("é".repeat(MAX_CHAT_FRAME_BYTES / 2 + 1)).success).toBe(
-			false,
-		);
+		const twoByte = "é".repeat(MAX_CHAT_CLIENT_FRAME_BYTES / 2 + 1);
+		expect(ChatClientFrame.safeParse(twoByte).success).toBe(false);
 	});
 });
 
