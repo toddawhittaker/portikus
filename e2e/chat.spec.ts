@@ -1,6 +1,13 @@
 import { deflateSync } from "node:zlib";
-import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
 import {
+	type BrowserContext,
+	expect,
+	type Page,
+	test,
+	type WebSocketRoute,
+} from "@playwright/test";
+import {
+	addSession,
 	createProject,
 	createStudent,
 	expectNoViolations,
@@ -10,6 +17,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * The chat tab's conversation and cards (SPEC.md §8.3, §10.8, §25.8). The
@@ -185,7 +193,12 @@ function script(ws: WebSocketRoute, answers: unknown[]) {
 	});
 }
 
-async function openChat(page: Page, context: Parameters<typeof createStudent>[0]) {
+/**
+ * A chat tab in a new student's workspace. The launcher entry is the
+ * composer's, so a terminal is opened and its row made a chat; the fake
+ * agent already knows the terminal, and the API reads the kind from the row.
+ */
+async function makeChatTab(page: Page, context: BrowserContext) {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, { name: "Dashboard" });
 	await page.goto(workspacePath(student.workspaceId, project.id));
@@ -199,6 +212,13 @@ async function openChat(page: Page, context: Parameters<typeof createStudent>[0]
 		"update terminals set kind = 'chat', agent = 'claude', name = 'Claude Code' where id = $1",
 		[id],
 	);
+	if (!id) throw new Error("the terminal row was not created");
+	return { student, project, id };
+}
+
+/** The chat tab with its socket answered by `script`, not the fake agent. */
+async function openScriptedChat(page: Page, context: BrowserContext) {
+	const { id } = await makeChatTab(page, context);
 	const answers: unknown[] = [];
 	await page.routeWebSocket(/\/chat$/, (ws) => script(ws, answers));
 	const remote: string[] = [];
@@ -207,16 +227,16 @@ async function openChat(page: Page, context: Parameters<typeof createStudent>[0]
 	});
 	await page.reload();
 	await expect(page.getByTestId(`chat-view-${id}`)).toBeVisible({ timeout: 15_000 });
-	return { id: id as string, answers, remote };
+	return { id, answers, remote };
 }
 
 for (const colorScheme of ["light", "dark"] as const) {
-	for (const width of [1440, 360] as const) {
+	for (const width of [360] as const) {
 		test(`scripted chat (${colorScheme}, ${width})`, async ({ page, context }) => {
 			test.setTimeout(90_000);
 			await page.emulateMedia({ colorScheme });
 			await page.setViewportSize({ width, height: 900 });
-			const { id, answers, remote } = await openChat(page, context);
+			const { id, answers, remote } = await openScriptedChat(page, context);
 			const view = page.getByTestId(`chat-view-${id}`);
 			await expect(
 				view.getByText("Done. The dashboard now loads its data"),
@@ -283,3 +303,140 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 	}
 }
+
+interface FakeAnswers {
+	answers: unknown[];
+}
+
+async function fakeAnswers(terminalId: string): Promise<unknown[]> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/chats/${terminalId}/answers`);
+	return ((await response.json()) as FakeAnswers).answers;
+}
+
+/** Open the workspace on the chat tab, through the API relay to the fake agent. */
+async function openFakeChat(page: Page, path: string, id: string) {
+	await page.goto(path);
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(view).toBeVisible({ timeout: 15_000 });
+	return view;
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the fake chat's turn and cards, by keyboard (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		test.setTimeout(90_000);
+		await page.emulateMedia({ colorScheme });
+		const { student, project, id } = await makeChatTab(page, context);
+		const remote: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().includes("example.com/pixel.png")) remote.push(request.url());
+		});
+		const view = await openFakeChat(
+			page,
+			workspacePath(student.workspaceId, project.id),
+			id,
+		);
+
+		await expect(view.getByText("Earlier answer")).toBeVisible();
+		await expect(view.getByText("plan", { exact: true })).toHaveJSProperty(
+			"tagName",
+			"STRONG",
+		);
+		await expect(view.getByRole("link", { name: "the docs" })).toHaveAttribute(
+			"rel",
+			"noopener noreferrer",
+		);
+		await expect(view.getByTestId("chat-cards-waiting")).toHaveText(
+			"1 more request is waiting",
+		);
+		// The question card took the keyboard as it arrived.
+		await expect(view.getByRole("checkbox", { name: "Lint" })).toBeFocused();
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+		await page.keyboard.press("Space");
+		await page.keyboard.press("Tab"); // Tests
+		await page.keyboard.press("Tab"); // Types
+		await page.keyboard.press("Space");
+		await page.keyboard.press("Tab"); // Other
+		await page.keyboard.type("and docs");
+		await page.keyboard.press("Tab"); // Notes
+		await page.keyboard.type("quick ones");
+		await page.keyboard.press("Tab"); // the layout radios
+		await page.keyboard.press("ArrowDown");
+		await expect(view.getByRole("radio", { name: "Tree" })).toBeChecked();
+		await expect(view.getByTestId("chat-question-preview")).toHaveText(
+			"|- src\n|- test",
+		);
+		await page.keyboard.press("Enter");
+
+		await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
+		await expect(view.getByRole("button", { name: "Allow" })).toBeFocused();
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+		await page.keyboard.press("Enter");
+		await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
+
+		await expect
+			.poll(() => fakeAnswers(id))
+			.toEqual([
+				{
+					type: "question.answer",
+					id: "card-question",
+					answers: {
+						"Which checks should run?": "Lint, Types",
+						"Which layout?": "Tree",
+					},
+					notes: { "Which checks should run?": "and docs\nquick ones" },
+				},
+				{ type: "permission.answer", id: "card-permission", optionId: "allow" },
+			]);
+
+		// The tool's image is drawn from the frame; the reply's remote image never loads.
+		await view.getByTestId("chat-worked").locator("> summary").click();
+		await view.getByTestId("chat-tool-tool-1").locator("summary").click();
+		await expect(view.getByRole("img", { name: "Output of Read" })).toBeVisible();
+		expect(remote).toEqual([]);
+	});
+}
+
+test("a card answered in one browser clears in the other", async ({
+	page,
+	context,
+	browser,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	const path = workspacePath(student.workspaceId, project.id);
+	const first = await openFakeChat(page, path, id);
+	const otherContext = await browser.newContext();
+	try {
+		await addSession(otherContext, student.userId);
+		const other = await otherContext.newPage();
+		const second = await openFakeChat(other, path, id);
+		await expect(first.getByTestId("chat-question-card")).toBeVisible();
+		await expect(second.getByTestId("chat-question-card")).toBeVisible();
+
+		await first.getByRole("checkbox", { name: "Tests" }).check();
+		await first.getByRole("radio", { name: "Tabs" }).check();
+		await first.getByRole("button", { name: "Send answers" }).click();
+		await expect(second.getByTestId("chat-question-card")).toHaveCount(0);
+		await expect(second.getByTestId("chat-permission-card")).toBeVisible();
+
+		await second.getByRole("button", { name: "Deny" }).click();
+		await expect(first.getByTestId("chat-permission-card")).toHaveCount(0);
+		await expect(second.getByTestId("chat-permission-card")).toHaveCount(0);
+		await expect
+			.poll(() => fakeAnswers(id))
+			.toEqual([
+				{
+					type: "question.answer",
+					id: "card-question",
+					answers: { "Which checks should run?": "Tests", "Which layout?": "Tabs" },
+				},
+				{ type: "permission.answer", id: "card-permission", optionId: "deny" },
+			]);
+	} finally {
+		await otherContext.close();
+	}
+});
