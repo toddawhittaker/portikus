@@ -156,7 +156,7 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	expect(screen.queryByTestId("chat-working")).toBeNull();
 	const worked = screen.getByTestId("chat-worked");
 	expect(worked.querySelector("summary")?.textContent).toBe(
-		"Worked for 0m 12s1 tool call",
+		"Worked for 3m 43s1 tool call",
 	);
 	expect(within(worked).getByText("Still checking")).toBeTruthy();
 	expect(within(worked).getByTestId("chat-tool-t1")).toBeTruthy();

@@ -1,7 +1,7 @@
-import { deflateSync } from "node:zlib";
 import {
 	type BrowserContext,
 	expect,
+	type Locator,
 	type Page,
 	test,
 	type WebSocketRoute,
@@ -17,6 +17,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { png } from "./png";
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
@@ -24,40 +25,6 @@ import { FAKE_AGENT_URL } from "./ports";
  * page's chat socket is answered by a script in the test, so each frame
  * and each answer is exact; the fake agent's chat covers the API relay.
  */
-
-/** A solid PNG, so the tool's image is a real one. */
-function png(width: number, height: number): string {
-	const crcTable = Array.from({ length: 256 }, (_, n) => {
-		let c = n;
-		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-		return c >>> 0;
-	});
-	const crc = (buf: Buffer) => {
-		let c = 0xffffffff;
-		for (const byte of buf) c = (crcTable[(c ^ byte) & 0xff] ?? 0) ^ (c >>> 8);
-		return (c ^ 0xffffffff) >>> 0;
-	};
-	const chunk = (type: string, data: Buffer) => {
-		const len = Buffer.alloc(4);
-		len.writeUInt32BE(data.length);
-		const body = Buffer.concat([Buffer.from(type), data]);
-		const sum = Buffer.alloc(4);
-		sum.writeUInt32BE(crc(body));
-		return Buffer.concat([len, body, sum]);
-	};
-	const header = Buffer.alloc(13);
-	header.writeUInt32BE(width, 0);
-	header.writeUInt32BE(height, 4);
-	header.set([8, 2, 0, 0, 0], 8);
-	const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x5a)]);
-	const raw = Buffer.concat(Array.from({ length: height }, () => row));
-	return Buffer.concat([
-		Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-		chunk("IHDR", header),
-		chunk("IDAT", deflateSync(raw)),
-		chunk("IEND", Buffer.alloc(0)),
-	]).toString("base64");
-}
 
 const QUESTION = {
 	id: "q1",
@@ -111,19 +78,14 @@ function script(ws: WebSocketRoute, answers: unknown[]) {
 	const session = "00000000-0000-4000-8000-000000000000";
 	const send = (type: string, body: Record<string, unknown> = {}) =>
 		ws.send(JSON.stringify({ type, sessionId: session, seq: seq++, ...body }));
-	send("snapshot", {
-		messages: [
-			{
-				id: "u1",
-				role: "user",
-				markdown: "Make the dashboard load faster and show me what changed.",
-			},
-		],
-		cards: [],
-		turnRunning: false,
-		truncated: true,
+	const at = Date.now() - 223_000;
+	send("snapshot", { cards: [], turnRunning: false, truncated: true });
+	send("message", {
+		id: "u1",
+		role: "user",
+		markdown: "Make the dashboard load faster and show me what changed.",
 	});
-	send("turn.started");
+	send("turn.started", { at });
 	send("text.delta", {
 		messageId: "a1",
 		text: "I'll start by profiling the **dashboard** route. ",
@@ -180,7 +142,13 @@ function script(ws: WebSocketRoute, answers: unknown[]) {
 		markdown:
 			"Done. The dashboard now loads its data **once**.\n\n- Removed the duplicate query\n- Added a test\n\n```ts\nconst data = useDashboardQuery();\n```\n\nSee [the React docs](https://react.dev/reference/react/useEffect).",
 	});
-	send("turn.finished", { status: "done" });
+	send("turn.finished", { at: at + 223_000, status: "done" });
+	send("settings", {
+		agent: "claude",
+		model: "default",
+		effort: "high",
+		mode: "default",
+	});
 	send("question.requested", QUESTION);
 	ws.onMessage((raw) => {
 		const message = JSON.parse(String(raw));
@@ -241,9 +209,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(
 				view.getByText("Done. The dashboard now loads its data"),
 			).toBeVisible();
-			// The card takes the keyboard as it arrives.
-			await expect(view.getByRole("radio", { name: "Grid" })).toBeFocused();
-			await expect(view.getByTestId("chat-worked").locator("> summary")).toBeVisible();
+			await expect(view.getByTestId("chat-question-card")).toBeVisible();
+			// The replayed turn keeps its real length.
+			await expect(view.getByTestId("chat-worked").locator("> summary")).toHaveText(
+				/^Worked for 3m 4[2-4]s2 tool calls$/,
+			);
 			await view.getByTestId("chat-worked").locator("> summary").click();
 			await view.getByTestId("chat-tool-t1").locator("summary").click();
 			await expect(
@@ -262,7 +232,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 			);
 			await page.keyboard.press("Tab"); // Other text
 			await page.keyboard.press("Tab"); // preview
-			await page.keyboard.press("Tab"); // notes
+			await page.keyboard.press("Tab"); // Add a note
+			await page.keyboard.press("Enter");
+			await expect(
+				view.getByRole("textbox", { name: "Notes (optional)" }),
+			).toBeFocused();
 			await page.keyboard.type("Keep it simple");
 			await page.keyboard.press("Tab"); // first checkbox
 			await page.keyboard.press("Space");
@@ -321,6 +295,14 @@ async function openFakeChat(page: Page, path: string, id: string) {
 	return view;
 }
 
+/** The fake chat's scripted turn, with its cards, starts on the first message. */
+async function startTurn(view: Locator, text = "Look at the project") {
+	const box = view.getByTestId("chat-composer-input");
+	await box.fill(text);
+	await box.press("Enter");
+	await expect(view.getByTestId("chat-question-card")).toBeVisible();
+}
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the fake chat's turn and cards, by keyboard (${colorScheme})`, async ({
 		page,
@@ -340,6 +322,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 
 		await expect(view.getByText("Earlier answer")).toBeVisible();
+		await startTurn(view);
 		await expect(view.getByText("plan", { exact: true })).toHaveJSProperty(
 			"tagName",
 			"STRONG",
@@ -349,19 +332,21 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"noopener noreferrer",
 		);
 		await expect(view.getByTestId("chat-cards-waiting")).toHaveText(
-			"1 more request is waiting",
+			"1 more request is waiting.",
 		);
-		// The question card took the keyboard as it arrived.
-		await expect(view.getByRole("checkbox", { name: "Lint" })).toBeFocused();
+		// The card waits for the student; the keyboard stays in the message box.
+		await expect(view.getByTestId("chat-composer-input")).toBeFocused();
 		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 
+		await view.getByRole("checkbox", { name: "Lint" }).focus();
 		await page.keyboard.press("Space");
 		await page.keyboard.press("Tab"); // Tests
 		await page.keyboard.press("Tab"); // Types
 		await page.keyboard.press("Space");
 		await page.keyboard.press("Tab"); // Other
 		await page.keyboard.type("and docs");
-		await page.keyboard.press("Tab"); // Notes
+		await page.keyboard.press("Tab"); // Add a note
+		await page.keyboard.press("Enter");
 		await page.keyboard.type("quick ones");
 		await page.keyboard.press("Tab"); // the layout radios
 		await page.keyboard.press("ArrowDown");
@@ -414,7 +399,7 @@ test("a card answered in one browser clears in the other", async ({
 		await addSession(otherContext, student.userId);
 		const other = await otherContext.newPage();
 		const second = await openFakeChat(other, path, id);
-		await expect(first.getByTestId("chat-question-card")).toBeVisible();
+		await startTurn(first);
 		await expect(second.getByTestId("chat-question-card")).toBeVisible();
 
 		await first.getByRole("checkbox", { name: "Tests" }).check();
@@ -439,4 +424,122 @@ test("a card answered in one browser clears in the other", async ({
 	} finally {
 		await otherContext.close();
 	}
+});
+
+test("typing in the message box while a card arrives keeps the keyboard there and never answers it", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	const view = await openFakeChat(
+		page,
+		workspacePath(student.workspaceId, project.id),
+		id,
+	);
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await box.fill("Look at the project");
+	await box.press("Enter");
+	// The cards arrive while the student is still in the box.
+	await expect(view.getByTestId("chat-question-card")).toBeVisible();
+	await expect(box).toBeFocused();
+	await page.keyboard.type("and check the tests");
+	await page.keyboard.press("Enter");
+	await expect(view.getByText("and check the tests")).toBeVisible();
+	await expect(view.getByTestId("chat-question-card")).toBeVisible();
+	expect(await fakeAnswers(id)).toEqual([]);
+	await expect(view.getByTestId("chat-announcer")).toHaveText(
+		"Claude has 2 questions. 1 more request is waiting.",
+	);
+});
+
+test("a card whose answer was lost with the connection can be answered after the reconnect", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { id } = await makeChatTab(page, context);
+	const answers: unknown[] = [];
+	let connections = 0;
+	await page.routeWebSocket(/\/chat$/, (ws) => {
+		connections += 1;
+		const first = connections === 1;
+		let seq = 100 * connections;
+		const send = (type: string, body: Record<string, unknown> = {}) =>
+			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+		send("snapshot", {
+			cards: [{ type: "permission", ...PERMISSION }],
+			turnRunning: false,
+			truncated: false,
+		});
+		ws.onMessage((raw) => {
+			// The first answer is lost as the connection drops; the host still waits.
+			if (first) {
+				void ws.close({ code: 1006 });
+				return;
+			}
+			answers.push(JSON.parse(String(raw)));
+			send("card.resolved", { id: "p1" });
+		});
+	});
+	await page.reload();
+	const view = page.getByTestId(`chat-view-${id}`);
+	const allow = view.getByRole("button", { name: "Allow", exact: true });
+	await allow.click();
+	await expect(view.getByTestId("chat-connection")).toHaveText("Reconnecting…");
+	await expect(view.getByTestId("chat-connection")).toHaveText("", { timeout: 15_000 });
+	await expect(allow).not.toHaveAttribute("aria-busy", "true");
+	await allow.click();
+	await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
+	expect(answers).toEqual([{ type: "permission.answer", id: "p1", optionId: "allow" }]);
+});
+
+test("Resume continues an ended chat in a new chat in its place", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	await query("update terminals set ended_at = now() where id = $1", [id]);
+	await page.reload();
+	await expect(page.getByTestId(`terminal-ended-${id}`)).toContainText(
+		"This chat ended when the workspace stopped",
+	);
+	const posted = page.waitForRequest(
+		(request) => request.method() === "POST" && request.url().includes("/terminals"),
+	);
+	await page.getByRole("button", { name: "Resume chat" }).click();
+	expect((await posted).postDataJSON()).toEqual({
+		projectId: project.id,
+		kind: "chat",
+		agent: "claude",
+		resumeChatOf: id,
+	});
+	// The ended record goes, and the new chat takes its place with the keyboard.
+	await expect
+		.poll(async () => terminalIds(student.workspaceId, project.id))
+		.not.toContain(id);
+	const [next] = await terminalIds(student.workspaceId, project.id);
+	const view = page.getByTestId(`chat-view-${next}`);
+	await expect(view).toBeVisible({ timeout: 15_000 });
+	await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+	await expect(page.getByRole("tab", { name: /Claude Code \(GUI\)/ })).toHaveCount(1);
+});
+
+test("chat and terminal Claude Code tabs are told apart, and the pane matches its tab", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { id } = await makeChatTab(page, context);
+	await page.reload();
+	await expect(page.getByTestId(`chat-view-${id}`)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-claude").click();
+	await expect(page.getByRole("tab", { name: /Claude Code \(TUI\)/ })).toHaveCount(1);
+	await page.getByRole("tab", { name: /Claude Code \(GUI\)/ }).click();
+	await expect(page.getByTestId(`terminal-handle-${id}`)).toHaveText(
+		/^Claude Code \(GUI\) · /,
+	);
 });

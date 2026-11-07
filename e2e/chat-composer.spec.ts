@@ -10,6 +10,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { png } from "./png";
 import { FAKE_AGENT_URL } from "./ports";
 import { type FakeSpeechWindow, fakeSpeech } from "./voice-helpers";
 
@@ -221,7 +222,9 @@ test("a pasted picture, a dropped picture and an attached file each become a chi
 
 	await view.getByTestId("chat-composer-input").fill("look at these");
 	await view.getByTestId("chat-composer-send").click();
+	// Cleared once the host has echoed the message.
 	await expect(chips).toHaveCount(0);
+	await expect(view.getByTestId("chat-composer-input")).toHaveValue("");
 	await expect.poll(async () => (await frames(id, "send")).length).toBe(1);
 	const [send] = await frames(id, "send");
 	const paths = ((send?.attachments ?? []) as { path: string }[]).map((a) => a.path);
@@ -276,7 +279,9 @@ test("each picker sends its set and shows what the host reports", async ({
 	await expect(effort).toHaveValue("xhigh");
 	await mode.selectOption("bypassPermissions");
 	await expect(mode).toHaveValue("bypassPermissions");
-	await expect(view.getByText(/without asking you first/)).toBeVisible();
+	await expect(view.getByTestId("chat-bypass-warning")).toContainText(
+		"without asking you first",
+	);
 
 	await expect
 		.poll(async () => frames(id, "set"))
@@ -293,7 +298,7 @@ test("each picker sends its set and shows what the host reports", async ({
 		await picker.selectOption(value);
 		await expect(picker).toHaveValue(value);
 	}
-	await expect(view.getByText(/without asking you first/)).toHaveCount(0);
+	await expect(view.getByTestId("chat-bypass-warning")).toHaveCount(0);
 });
 
 test("while a turn runs, Stop sends interrupt", async ({ page, context }) => {
@@ -310,6 +315,9 @@ test("while a turn runs, Stop sends interrupt", async ({ page, context }) => {
 		});
 	});
 	const { id, view } = await openChat(page, student);
+	// The fake's turn starts on the first message.
+	await view.getByTestId("chat-composer-input").fill("Run the tests");
+	await view.getByTestId("chat-composer-input").press("Enter");
 	const stop = view.getByTestId("chat-composer-stop");
 	await expect(stop).toBeVisible();
 	await expect(view.getByTestId("chat-composer-send")).toHaveCount(0);
@@ -326,8 +334,6 @@ test("the microphone dictates into the box and never sends", async ({
 	await fakeSpeech(page);
 	const student = await createStudent(context);
 	const { id, view } = await openChat(page, student);
-	// The scripted turn's card takes the keyboard as it arrives; let it settle first.
-	await expect(view.getByTestId("chat-question-card")).toBeVisible();
 	const box = view.getByTestId("chat-composer-input");
 	await box.fill("fix the bug");
 	await box.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(3, 3));
@@ -383,4 +389,80 @@ test("at 360 px wide the composer does not scroll sideways", async ({
 	});
 	expect(overflow).toEqual({ page: 0, form: 0 });
 	await expect(view.getByTestId("chat-composer-send")).toBeVisible();
+});
+
+test("a chat opened from the New tab menu by keyboard puts the keyboard in its message box", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Keys" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").focus();
+	await page.keyboard.press("Enter");
+	const gui = page.getByRole("menuitem", { name: "Claude Code (GUI)" });
+	await expect(gui).toBeVisible();
+	while (!(await gui.evaluate((node) => node === document.activeElement))) {
+		await page.keyboard.press("ArrowDown");
+	}
+	await page.keyboard.press("Enter");
+	const box = page.getByTestId("chat-composer-input");
+	await expect(box).toBeFocused({ timeout: 15_000 });
+	await page.keyboard.type("hello");
+	await expect(box).toHaveValue("hello");
+});
+
+test("removing a chip by keyboard moves to the next chip, then the box", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { view } = await openChat(page, student);
+	await view.getByTestId("chat-composer-input").focus();
+	await giveFile(page, "paste", { name: "one.png", ...PNG_FILE });
+	await giveFile(page, "paste", { name: "two.png", ...PNG_FILE });
+	await expect(view.getByTestId("composer-chip")).toHaveCount(2);
+	await view.getByRole("button", { name: "Remove one.png" }).focus();
+	await page.keyboard.press("Enter");
+	await expect(view.getByRole("button", { name: "Remove two.png" })).toBeFocused();
+	await expect(view.getByTestId("chat-composer-status")).toHaveText("Removed one.png.");
+	await page.keyboard.press("Enter");
+	await expect(view.getByTestId("composer-chip")).toHaveCount(0);
+	await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+});
+
+test("a picture over 2000 px is made smaller in the browser before it is saved", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(60_000);
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student);
+	const uploaded = page.waitForRequest(
+		(request) => request.method() !== "GET" && request.url().includes("big.webp"),
+	);
+	await view.getByTestId("chat-composer-file").setInputFiles({
+		name: "big.png",
+		mimeType: "image/png",
+		buffer: Buffer.from(png(3200, 1800), "base64"),
+	});
+	const chip = view.getByTestId("composer-chip");
+	await expect(chip).toContainText("big.webp");
+	const body = (await uploaded).postDataBuffer();
+	const size = await page.evaluate(
+		async (bytes) => {
+			const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)]));
+			return [bitmap.width, bitmap.height];
+		},
+		Array.from(body ?? []),
+	);
+	expect(size).toEqual([2000, 1125]);
+	await view.getByTestId("chat-composer-input").fill("this one");
+	await view.getByTestId("chat-composer-input").press("Enter");
+	await expect.poll(async () => (await frames(id, "send")).length).toBe(1);
+	const [send] = await frames(id, "send");
+	expect(((send?.attachments ?? []) as { path: string }[])[0]?.path).toMatch(
+		/\/big\.webp$/,
+	);
 });

@@ -435,7 +435,7 @@ test("Claude Code and Codex tabs share the agent icon and those labels", async (
 	const claude = screen.getByTestId("tab-tab1");
 	const codex = screen.getByTestId("tab-tab2");
 	const ordinary = screen.getByTestId("tab-tab3");
-	expect(claude.textContent).toContain("Claude Code");
+	expect(claude.textContent).toContain("Claude Code (TUI)");
 	expect(claude.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
 	expect(codex.textContent).toContain("Codex");
 	expect(codex.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
@@ -796,4 +796,45 @@ test("Claude Code (GUI) creates a chat terminal for Claude, and (TUI) does not",
 	await waitFor(() => expect(posts()).toHaveLength(2));
 	expect(posts()[1]).toMatchObject({ agent: "claude" });
 	expect(posts()[1]).not.toHaveProperty("kind");
+});
+
+test("a chat tab reads GUI, and Resume continues an ended chat in its place", async () => {
+	const { fetchMock, created } = stubFetch({
+		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
+		terminals: [
+			{
+				...terminal(ONE, "Terminal 1", "2026-01-02T00:00:00.000Z"),
+				agent: "claude",
+				kind: "chat",
+			},
+		],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId(`terminal-ended-${ONE}`)).toBeTruthy());
+	expect(screen.getByTestId("tab-tab1").textContent).toContain("Claude Code (GUI)");
+	fireEvent.click(screen.getByRole("button", { name: "Resume chat" }));
+	const calls = () =>
+		fetchMock.mock.calls.filter((call) => String(call[0]).includes("/terminals"));
+	await waitFor(() =>
+		expect(
+			calls().some((call) => (call[1] as RequestInit | undefined)?.method === "DELETE"),
+		).toBe(true),
+	);
+	const post = calls().find(
+		(call) => (call[1] as RequestInit | undefined)?.method === "POST",
+	);
+	expect(JSON.parse(String((post?.[1] as RequestInit | undefined)?.body))).toEqual({
+		projectId: PROJECT,
+		kind: "chat",
+		agent: "claude",
+		resumeChatOf: ONE,
+	});
+	const deleted = calls().find(
+		(call) => (call[1] as RequestInit | undefined)?.method === "DELETE",
+	);
+	expect(String(deleted?.[0])).toContain(ONE);
+	// The new chat takes the ended one's place.
+	await waitFor(() =>
+		expect(screen.getByTestId(`terminal-leaf-${created.id}`)).toBeTruthy(),
+	);
 });
