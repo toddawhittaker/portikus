@@ -81,7 +81,7 @@ cleanup_lifecycle() {
     done
   fi
 
-  ssh_cmd "rm -f /tmp/portikus-smoke-*.jar /tmp/portikus-smoke-project.* ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP}" 2>/dev/null || true
+  ssh_cmd "rm -f /tmp/portikus-smoke-*.jar /tmp/portikus-smoke-project.* ${WS_PROBE} ${WS_STOP} ${TERM_PROBE} ${TERM_STOP} /tmp/portikus-smoke-chat-probe.mjs" 2>/dev/null || true
 
   if [ "${#left[@]}" -gt 0 ]; then
     echo "Cleanup failed: the destroy reported an error, so these instances or their volumes may be left behind: ${left[*]}"
