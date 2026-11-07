@@ -8,6 +8,7 @@ import {
 	type SearchMatch,
 } from "@portikus/contracts";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerChatRoutes } from "./chat.js";
 import { registerCheckRoutes } from "./checks.js";
 import { registerCodingAgentRoutes } from "./coding-agents.js";
 import { registerEventRoutes } from "./events.js";
@@ -302,6 +303,7 @@ export async function startFakeAgent(
 	registerProcessRoutes(app, s);
 	registerListeningRoutes(app, s);
 	registerCodingAgentRoutes(app, s);
+	registerChatRoutes(app, s);
 	const languageServers = registerLanguageServerRoutes(app);
 
 	await app.listen({ port: options.port ?? 0, host: "127.0.0.1" });
