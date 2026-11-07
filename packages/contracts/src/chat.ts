@@ -157,10 +157,14 @@ const Envelope = {
 
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	/**
-	 * The whole snapshot must fit in one MAX_CHAT_SERVER_FRAME_BYTES frame.
-	 * The host fills it newest first. A history image that would overflow
-	 * becomes an `imageOmitted` part. When older history no longer fits, the
-	 * host stops adding it and sets `truncated`.
+	 * Sent first on every attach. It holds the open cards, whether a turn is
+	 * running, and in `messages` only the reply streaming now (else empty).
+	 * History follows it as ordinary events, one frame each with rising
+	 * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
+	 * `turn.finished` (left out for a turn still running). At most the last
+	 * 20 turns are replayed, and `truncated` says older turns exist. Tool
+	 * images older than the last 5 turns, or too large for one frame, are
+	 * replayed as `imageOmitted`. Live events follow the replay.
 	 */
 	z.object({
 		type: z.literal("snapshot"),
@@ -168,7 +172,7 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		messages: z.array(ChatMessage),
 		cards: z.array(ChatOpenCard),
 		turnRunning: z.boolean(),
-		/** Earlier history was left out. */
+		/** Turns older than the replayed ones exist. */
 		truncated: z.boolean(),
 	}),
 	z.object({ type: z.literal("turn.started"), ...Envelope }),

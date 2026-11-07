@@ -202,18 +202,25 @@ describe("starting", () => {
 });
 
 describe("attaching", () => {
-	test("the snapshot comes first, with history, then the settings", async () => {
+	test("the snapshot comes first, then history replayed as events, then the settings", async () => {
 		const client = await attach();
-		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(2));
+		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(5));
 		expect(client.events[0]).toMatchObject({
 			type: "snapshot",
 			sessionId: ID,
-			messages: [{ id: "u1", role: "user", markdown: "earlier question" }],
+			messages: [],
 			cards: [],
 			turnRunning: false,
 			truncated: false,
 		});
-		expect(client.events[1]).toMatchObject({
+		expect(client.events.slice(1, 4)).toMatchObject([
+			{ type: "turn.started" },
+			{ type: "message", id: "u1", role: "user", markdown: "earlier question" },
+			{ type: "turn.finished", status: "done" },
+		]);
+		const seqs = client.events.map((event) => event.seq);
+		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
+		expect(client.events[4]).toMatchObject({
 			type: "settings",
 			agent: "claude",
 			effort: "high",
@@ -327,14 +334,15 @@ describe("messages and controls", () => {
 			role: "user",
 			content: [{ type: "text", text: "hello" }],
 		});
-		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(1));
-		expect(ofType(a, "message")[0]).toMatchObject({ role: "user", markdown: "hello" });
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		expect(ofType(a, "message").at(-1)).toMatchObject({
+			role: "user",
+			markdown: "hello",
+		});
 
 		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
 		await vi.waitFor(() =>
-			expect(ofType(a, "turn.finished")).toEqual([
-				expect.objectContaining({ status: "done" }),
-			]),
+			expect(ofType(a, "turn.finished").at(-1)).toMatchObject({ status: "done" }),
 		);
 	});
 
@@ -364,7 +372,7 @@ describe("messages and controls", () => {
 	test("interrupt stops the running turn", async () => {
 		const a = await attach();
 		a.send({ type: "send", text: "go", attachments: [] });
-		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
 		a.send({ type: "interrupt" });
 		const fake = queries[0] as FakeQuery;
 		await vi.waitFor(() => expect(fake.calls).toContain("interrupt"));
@@ -374,9 +382,9 @@ describe("messages and controls", () => {
 			is_error: true,
 		} as never);
 		await vi.waitFor(() =>
-			expect(ofType(a, "turn.finished")).toEqual([
-				expect.objectContaining({ status: "interrupted" }),
-			]),
+			expect(ofType(a, "turn.finished").at(-1)).toMatchObject({
+				status: "interrupted",
+			}),
 		);
 	});
 
@@ -422,7 +430,10 @@ describe("messages and controls", () => {
 		await vi.waitFor(() => expect(ofType(a, "snapshot")).toHaveLength(1));
 		expect(ofType(a, "snapshot")[0]).toMatchObject({
 			turnRunning: true,
-			messages: [{ id: "u1" }, { id: "msg_1", role: "assistant", markdown: "Work" }],
+			messages: [{ id: "msg_1", role: "assistant", markdown: "Work" }],
 		});
+		// The running turn is replayed without its finish.
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		expect(ofType(a, "turn.finished")).toHaveLength(0);
 	});
 });

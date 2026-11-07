@@ -35,7 +35,7 @@ import {
 	questionResult,
 	type ToolAsk,
 } from "./claude-adapter.js";
-import { buildSnapshot, historyMessages } from "./snapshot.js";
+import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1, plan ruling 3). */
@@ -342,29 +342,31 @@ export class ChatHost {
 		});
 		this.options.log.info({ attachments: this.clients.size }, "chat attached");
 
-		let history: ChatMessage[] = [];
+		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
 		try {
-			history = historyMessages(
+			replay = replayHistory(
 				await this.sdk.sessionMessages(
 					this.options.terminalId,
 					this.options.projectDir,
 				),
+				this.turnRunning,
 			);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
 		const partial = this.partial;
-		if (partial && !history.some((message) => message.id === partial.id)) {
-			history.push({ id: partial.id, role: "assistant", markdown: partial.text });
-		}
 		const snapshot = buildSnapshot({
 			sessionId: this.options.terminalId,
 			seq: this.seq,
-			history,
 			cards: [...this.cards.values()].map((open) => open.card),
 			turnRunning: this.turnRunning,
+			truncated: replay.truncated,
+			streaming: partial
+				? { id: partial.id, role: "assistant", markdown: partial.text }
+				: null,
 		});
 		writeLine(socket, JSON.stringify(snapshot));
+		for (const event of replay.events) writeLine(socket, this.frame(event));
 		const held = client.held ?? [];
 		client.held = null;
 		for (const line of held) writeLine(socket, line);
