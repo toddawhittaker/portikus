@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The Claude Code chat tab's socket, end to end, without a Claude login:
 # create a chat tab, attach, receive the snapshot, change the permission
-# mode, receive the settings event (SPEC.md 9.7, 10.2; docs/EPIC-58.md).
+# mode, receive the settings event (SPEC.md 9.7, 10.2).
 # No prompt is sent, so no Claude account is needed; a real turn belongs to
 # the rehearsal.
 # Sourced by terminals.sh while alice's workspace is running.
