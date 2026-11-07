@@ -95,7 +95,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// Looking at the tab clears the mark and takes its toast away.
 			await claude.click();
 			await expect(
-				page.getByRole("tab", { name: "Claude Code", exact: true }),
+				page.getByRole("tab", { name: "Claude Code (TUI)", exact: true }),
 			).toBeVisible();
 			await expect(page.getByTestId(/^tab-.*-agent$/)).toHaveCount(0);
 			await expect(toast(page, "Claude Code finished")).toHaveCount(0);

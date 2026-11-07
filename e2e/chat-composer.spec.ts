@@ -271,7 +271,7 @@ test("each picker sends its set and shows what the host reports", async ({
 	await expect(agent).toHaveValue("claude");
 	await expect(
 		agent.getByRole("option", { name: "Codex (coming soon)" }),
-	).toBeDisabled();
+	).toHaveJSProperty("disabled", true);
 
 	await model.selectOption("opus");
 	await expect(model).toHaveValue("opus");
@@ -449,14 +449,12 @@ test("a picture over 2000 px is made smaller in the browser before it is saved",
 	});
 	const chip = view.getByTestId("composer-chip");
 	await expect(chip).toContainText("big.webp");
-	const body = (await uploaded).postDataBuffer();
-	const size = await page.evaluate(
-		async (bytes) => {
-			const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)]));
-			return [bitmap.width, bitmap.height];
-		},
-		Array.from(body ?? []),
-	);
+	const saved = (await uploaded).url();
+	// Read the saved file back and measure it.
+	const size = await page.evaluate(async (url) => {
+		const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+		return [bitmap.width, bitmap.height];
+	}, saved);
 	expect(size).toEqual([2000, 1125]);
 	await view.getByTestId("chat-composer-input").fill("this one");
 	await view.getByTestId("chat-composer-input").press("Enter");

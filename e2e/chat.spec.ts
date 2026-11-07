@@ -10,10 +10,12 @@ import {
 	addSession,
 	createProject,
 	createStudent,
+	endTerminal,
 	expectNoViolations,
 	newTerminal,
 	query,
 	terminalIds,
+	waitForSavedLeaf,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -215,12 +217,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 				/^Worked for 3m 4[2-4]s2 tool calls$/,
 			);
 			await view.getByTestId("chat-worked").locator("> summary").click();
-			await view.getByTestId("chat-tool-t1").locator("summary").click();
+			await view.getByTestId("chat-tool-t1").locator("> summary").click();
 			await expect(
 				view.getByRole("img", { name: "Output of Screenshot" }),
 			).toBeVisible();
 			await expect(view.getByTestId("chat-question-card")).toBeVisible();
-			await view.getByTestId("chat-tool-t2").locator("summary").click();
+			await view.getByTestId("chat-tool-t2").locator("> summary").click();
 			await view.locator(".pk-chat-scroll").evaluate((box) => box.scrollTo(0, 0));
 			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 
@@ -248,9 +250,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await page.keyboard.press("Enter");
 			await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
 			await expect(view.getByTestId("chat-permission-card")).toBeVisible();
-			await expect(
-				view.getByRole("button", { name: "Allow", exact: true }),
-			).toBeFocused();
+			// The answered card handed the keyboard to the message box, and the next
+			// card does not take it from there.
+			await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+			await page.keyboard.press("Shift+Tab");
+			await expect(view.getByRole("button", { name: "Deny" })).toBeFocused();
+			await view.getByRole("button", { name: "Allow", exact: true }).focus();
 			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 			await page.keyboard.press("Enter");
 			await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
@@ -379,7 +384,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		// The tool's image is drawn from the frame; the reply's remote image never loads.
 		await view.getByTestId("chat-worked").locator("> summary").click();
-		await view.getByTestId("chat-tool-tool-1").locator("summary").click();
+		await view.getByTestId("chat-tool-tool-1").locator("> summary").click();
 		await expect(view.getByRole("img", { name: "Output of Read" })).toBeVisible();
 		expect(remote).toEqual([]);
 	});
@@ -462,9 +467,9 @@ test("a card whose answer was lost with the connection can be answered after the
 	const { id } = await makeChatTab(page, context);
 	const answers: unknown[] = [];
 	let connections = 0;
+	let dropped = false;
 	await page.routeWebSocket(/\/chat$/, (ws) => {
 		connections += 1;
-		const first = connections === 1;
 		let seq = 100 * connections;
 		const send = (type: string, body: Record<string, unknown> = {}) =>
 			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
@@ -475,8 +480,9 @@ test("a card whose answer was lost with the connection can be answered after the
 		});
 		ws.onMessage((raw) => {
 			// The first answer is lost as the connection drops; the host still waits.
-			if (first) {
-				void ws.close({ code: 1006 });
+			if (!dropped) {
+				dropped = true;
+				void ws.close({ code: 4000 });
 				return;
 			}
 			answers.push(JSON.parse(String(raw)));
@@ -501,7 +507,8 @@ test("Resume continues an ended chat in a new chat in its place", async ({
 }) => {
 	test.setTimeout(90_000);
 	const { student, project, id } = await makeChatTab(page, context);
-	await query("update terminals set ended_at = now() where id = $1", [id]);
+	await waitForSavedLeaf(project.id, id);
+	await endTerminal(id);
 	await page.reload();
 	await expect(page.getByTestId(`terminal-ended-${id}`)).toContainText(
 		"This chat ended when the workspace stopped",
