@@ -74,7 +74,7 @@ export function toolResultParts(content: unknown): ChatToolOutputPart[] {
 }
 
 /** A one-line label for a tool call, from the input fields people recognise. */
-export function toolTitle(name: string, input: unknown): string {
+function toolTitle(name: string, input: unknown): string {
 	const fields = (typeof input === "object" && input !== null ? input : {}) as Block;
 	for (const key of [
 		"description",
@@ -187,7 +187,7 @@ export class ClaudeMessageMapper {
 }
 
 /** One plan-limit window as the loopback receiver's `/claude-limits` takes it. */
-export interface ClaudeLimitWindow {
+interface ClaudeLimitWindow {
 	used_percentage: number;
 	resets_at: number;
 }
@@ -319,7 +319,7 @@ export function permissionResult(
 
 /**
  * The SDK's answer for a question card, following the rules of
- * claude-agent-acp's `applyAskElicitationResponse` (plan ruling 9). The
+ * claude-agent-acp's `applyAskElicitationResponse`. The
  * browser sends one answer string per question, multi-select picks already
  * joined with ", ", and any "Other" text as that question's note. A note
  * with nothing picked is the answer; a note beside a pick rides along in

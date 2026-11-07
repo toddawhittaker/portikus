@@ -11,8 +11,8 @@ import { readLines } from "./wire.js";
 
 /**
  * One turn against the real Claude Code through the Agent SDK, with Haiku:
- * a Bash permission card, a question answered with a note, and Epic 56's
- * state hooks. Skipped where no local `claude` is installed, as in CI.
+ * a Bash permission card, a question answered with a note, and the
+ * coding-agent state hooks (SPEC.md §10.8). Skipped where no local `claude` is installed, as in CI.
  */
 const CLAUDE =
 	process.env.PORTIKUS_TEST_CLAUDE ?? join(homedir(), ".local", "bin", "claude");

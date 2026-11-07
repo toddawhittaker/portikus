@@ -41,7 +41,7 @@ export type UserContentBlock =
 	  };
 
 /**
- * The user message for one `send` (plan ruling 10). Each path is resolved
+ * The user message for one `send`. Each path is resolved
  * inside the chat's project, symlinks followed, and refused if it leaves
  * it (SPEC.md §24.6). Images become image blocks; any other file becomes a
  * line naming its path, which Claude can read itself. SVG is refused

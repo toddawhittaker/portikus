@@ -444,4 +444,22 @@ describe("messages and controls", () => {
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		expect(ofType(a, "turn.finished")).toHaveLength(0);
 	});
+
+	test("a session that ends clears its cards, finishes the turn and restarts on the next send", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "go", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		const { result } = fake.ask("Bash", { command: "ls" }, "toolu_end");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		fake.close();
+		expect((await result).behavior).toBe("deny");
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "card.resolved")).toEqual([
+			expect.objectContaining({ id: "toolu_end" }),
+		]);
+		expect(ofType(a, "turn.finished").at(-1)).toMatchObject({ status: "error" });
+		a.send({ type: "send", text: "again", attachments: [] });
+		await vi.waitFor(() => expect(queries).toHaveLength(2));
+	});
 });

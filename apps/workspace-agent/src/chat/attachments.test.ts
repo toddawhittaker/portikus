@@ -26,6 +26,9 @@ beforeAll(async () => {
 		Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(MAX_CHAT_IMAGE_BYTES)]),
 	);
 	await writeFile(join(home, "secret.png"), PNG);
+	await writeFile(join(project, "a.jpg"), Buffer.from("ffd8ffe000104a464946", "hex"));
+	await writeFile(join(project, "a.gif"), "GIF89a....");
+	await writeFile(join(project, "a.webp"), "RIFF\0\0\0\0WEBPVP8 ");
 	await symlink(join(home, "secret.png"), join(project, "escape.png"));
 });
 
@@ -80,5 +83,18 @@ describe("send attachments", () => {
 		await expect(
 			userContent(home, home, "", [{ path: "secret.png" }]),
 		).rejects.toThrow();
+	});
+
+	test("jpeg, gif and webp are recognised by their first bytes", async () => {
+		const content = await userContent(home, project, "", [
+			{ path: "a.jpg" },
+			{ path: "a.gif" },
+			{ path: "a.webp" },
+		]);
+		expect(
+			content.map((block) =>
+				block.type === "image" ? block.source.media_type : block.type,
+			),
+		).toEqual(["image/jpeg", "image/gif", "image/webp"]);
 	});
 });

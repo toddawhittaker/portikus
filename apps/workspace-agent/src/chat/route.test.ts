@@ -174,3 +174,21 @@ test("a chat tab's tmux command is the chat host on the agent's own Node", async
 	expect(id).toBe(ID);
 	expect(() => chatHostCommand("../x")).toThrow();
 });
+
+test("a binary browser frame closes with 1003", async () => {
+	await startFakeHost();
+	const sock = await open();
+	sock.ws.send(new Uint8Array([1, 2, 3]));
+	expect(await sock.closed).toBe(1003);
+});
+
+test("a slow browser pauses the host until it drains", async () => {
+	await startFakeHost();
+	const sock = await open();
+	await vi.waitFor(() => expect(hostSockets).toHaveLength(1));
+	const big = `${JSON.stringify({ type: "error", sessionId: ID, seq: 2, message: "x".repeat(1024 * 1024) })}\n`;
+	for (let i = 0; i < 4; i++) hostSockets[0]?.write(big);
+	await vi.waitFor(() => expect(sock.frames).toHaveLength(5), { timeout: 10_000 });
+	sock.ws.close();
+	await sock.closed;
+});

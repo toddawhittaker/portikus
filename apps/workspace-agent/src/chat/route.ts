@@ -12,7 +12,7 @@ import { DRAIN_POLL_MS, HIGH_WATER_BYTES, LOW_WATER_BYTES } from "../terminals.j
 import { chatSocketPath, FrameTooLarge, readLines, writeLine } from "./wire.js";
 
 /** Close code for a chat with no host behind it, as the API's relay uses. */
-export const CHAT_NOT_FOUND = 4404;
+const CHAT_NOT_FOUND = 4404;
 
 export interface ChatRouteOptions {
 	/** Where the chat hosts listen; CHAT_SOCKET_DIR in a workspace. */

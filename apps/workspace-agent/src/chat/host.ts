@@ -38,8 +38,8 @@ import {
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
-/** The shared, unmodified Claude Code binary (SPEC.md §10.1, plan ruling 3). */
-export const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
+/** The shared, unmodified Claude Code binary (SPEC.md §10.1, SPEC.md §10.1). */
+const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
 
 /**
  * Named explicitly so the composer always shows the effort in force; the
@@ -69,7 +69,7 @@ export interface ChatSdk {
 	sessionMessages: (id: string, dir: string) => Promise<SessionMessage[]>;
 }
 
-export const realSdk: ChatSdk = {
+const realSdk: ChatSdk = {
 	query,
 	sessionExists: async (id, dir) => (await getSessionInfo(id, { dir })) !== undefined,
 	sessionMessages: (id, dir) => getSessionMessages(id, { dir }),
@@ -114,7 +114,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
 }
 
 /**
- * One chat tab's host (SPEC.md §10.8, plan rulings 4 and 8). It runs the
+ * One chat tab's host (SPEC.md §10.2, §10.8). It runs the
  * Agent SDK in tmux session `pk-<id>`, so it outlives a workspace-agent
  * restart, and serves each browser attachment, relayed by the agent, as
  * one connection on a Unix socket only the workspace user can open.
@@ -188,7 +188,7 @@ export class ChatHost {
 			options: {
 				cwd: projectDir,
 				// The terminal id is the session id, so `claude --resume <id>`
-				// in a terminal continues this chat (plan ruling 5).
+				// in a terminal continues this chat.
 				...(exists ? { resume: terminalId } : { sessionId: terminalId }),
 				pathToClaudeCodeExecutable: this.options.claudePath ?? CLAUDE_PATH,
 				includePartialMessages: true,
@@ -282,7 +282,7 @@ export class ChatHost {
 
 	/**
 	 * Raise a card and wait, with no time limit, for the first answer from
-	 * any attachment (plan ruling 8). An aborted call clears the card.
+	 * any attachment. An aborted call clears the card.
 	 */
 	private askCard(
 		toolName: string,

@@ -43,7 +43,7 @@ for (const signal of ["SIGHUP", "SIGTERM", "SIGINT"] as const) {
 	});
 }
 
-// The SDK version is pinned in this package's manifest (plan ruling 3).
+// The SDK version is pinned in this package's manifest.
 const manifest = JSON.parse(
 	await readFile(new URL("../../package.json", import.meta.url), "utf8"),
 ) as { dependencies?: Record<string, string> };
