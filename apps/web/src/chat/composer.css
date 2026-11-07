@@ -111,6 +111,8 @@
 	color: var(--ink-muted);
 	font: inherit;
 	text-overflow: ellipsis;
+	/* As wide as the value shown, not the longest option. */
+	field-sizing: content;
 	appearance: none;
 	cursor: pointer;
 }

@@ -20,7 +20,8 @@
 .pk-chat-main {
 	position: relative;
 	flex: 1;
-	min-height: 0;
+	/* A short pane keeps some conversation in view; the cards and composer scroll instead. */
+	min-height: min(8rem, 40%);
 	display: flex;
 	flex-direction: column;
 }
@@ -629,8 +630,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-question + .pk-chat-question {
-	padding-block-start: var(--space-3);
-	border-block-start: 1px solid var(--line);
+	margin-block-start: var(--space-2);
 }
 
 .pk-chat-question-legend {
