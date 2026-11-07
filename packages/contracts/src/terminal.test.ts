@@ -19,6 +19,7 @@ const sampleTerminal = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
 	theme: "dark",
+	kind: "terminal",
 };
 
 test("Terminal round-trips a complete record", () => {

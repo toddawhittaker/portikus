@@ -97,6 +97,7 @@ function toTerminal(row: {
 	project_id: string | null;
 	theme: string;
 	agent: string | null;
+	kind: string;
 	baseline_object_id: string | null;
 	baseline_head: string | null;
 	recovery_point_id: string | null;
@@ -115,6 +116,7 @@ function toTerminal(row: {
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
 		// A row written before migration 0010, or by hand, reads as dark.
 		theme: TerminalTheme.catch("dark").parse(row.theme),
+		kind: row.kind === "chat" ? "chat" : "terminal",
 		agent,
 		baselineObjectId: gitObjectOrNull(row.baseline_object_id),
 		baselineHead: gitObjectOrNull(row.baseline_head),
