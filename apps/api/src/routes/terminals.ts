@@ -411,6 +411,7 @@ export function registerTerminalRoutes(
 					project_id: project ? project.id : null,
 					theme,
 					agent: body.data.agent ?? null,
+					kind: body.data.kind ?? "terminal",
 				})
 				.execute();
 			return true;
@@ -433,6 +434,7 @@ export function registerTerminalRoutes(
 				theme,
 				timezone: settings.timezone,
 				...launcherFields(body.data.agent),
+				...(body.data.kind === "chat" ? { kind: "chat" as const } : {}),
 			});
 			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
 			baselineHead = gitObjectOrNull(created.baselineHead);

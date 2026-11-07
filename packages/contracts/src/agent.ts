@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CloneUrl, MAX_PROJECT_NAME_LENGTH, ProjectSlug } from "./project.js";
 import { TerminalTheme, Timezone } from "./settings.js";
-import { CodingAgent, TerminalId } from "./terminal.js";
+import { CodingAgent, TerminalId, TerminalKind } from "./terminal.js";
 
 /** Response body for `GET /health` on the workspace agent (SPEC.md §26; STACK.md §10). */
 export const AgentHealthResponse = z.object({
@@ -51,6 +51,8 @@ export const AgentCreateTerminalRequest = z
 		 * There is no command string: the agent picks the CLI.
 		 */
 		agent: CodingAgent.optional(),
+		/** `chat` starts the chat host instead of the CLI; absent means a terminal. */
+		kind: TerminalKind.optional(),
 		/**
 		 * Institution-provided keys for this process only (SPEC.md §10.6,
 		 * §24.8). No other environment variable is accepted.

@@ -123,8 +123,8 @@ const adminSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "admin",
 );
 
-test("the seven browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(7);
+test("the eight browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(8);
 	expect(courseSocketKeys).toEqual([
 		"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws",
 	]);
@@ -280,7 +280,9 @@ describe.skipIf(skip)("a socket with A's workspace and B's child id is a 404", (
 					origin: PUBLIC_ORIGIN,
 					cookie: world.a.jar.cookieHeader(),
 				});
-				expect(result.status).toBe(404);
+				// The chat socket answers a wrong terminal by closing 4404 after the
+				// upgrade, so the browser can tell it from a lost session.
+				expect(result.status).toBe(key.endsWith("/chat") ? 101 : 404);
 				expect(result.calls).toEqual([]);
 			}),
 		);
