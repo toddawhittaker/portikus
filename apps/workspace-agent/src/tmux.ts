@@ -272,6 +272,23 @@ export function commandForAgent(agent: CodingAgent): string[] {
 	}
 }
 
+/**
+ * The chat host's entry point. It ships in this package, so it reaches
+ * every workspace through the agent's bind mount, as the shell wrapper does.
+ */
+const CHAT_HOST_ENTRY = fileURLToPath(new URL("./chat/main.js", import.meta.url));
+
+/**
+ * The command of a chat tab's tmux session: the chat host on the agent's
+ * own Node, in place of the CLI (SPEC.md §10.2, §10.8).
+ */
+export function chatHostCommand(id: string): string[] {
+	if (!TerminalId.safeParse(id).success) {
+		throw new AgentFailure("TERMINAL_NOT_FOUND", "invalid terminal id");
+	}
+	return [process.execPath, CHAT_HOST_ENTRY, id];
+}
+
 export interface SessionBaseline {
 	baselineObjectId: string | null;
 	baselineHead: string | null;
