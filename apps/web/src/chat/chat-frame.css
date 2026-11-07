@@ -1,0 +1,12 @@
+/*
+ * A chat is platform UI, not a terminal, so it follows the page's theme:
+ * the pane frame's terminal tokens point at the page surfaces. Loaded with
+ * the pane rather than the chat, so the frame is right while the chat loads.
+ */
+.pk-term:has(> .pk-chat) {
+	--terminal-bg: var(--surface);
+	--terminal-fg: var(--ink);
+	--terminal-muted: var(--ink-muted);
+	--terminal-line: var(--line);
+	--terminal-selection: var(--surface-hover);
+}

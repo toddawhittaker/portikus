@@ -8,10 +8,11 @@ import {
 	type Terminal,
 	type TerminalTheme,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { Button, Skeleton, useToast } from "@portikus/ui";
+import { type DragEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
+import "../chat/chat-frame.css";
 import { saveDroppedFile } from "../files/queries.js";
 import { draggedTreeNodes } from "../files/treeDrag.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
@@ -27,6 +28,11 @@ import {
 	dropPaths,
 	droppedPathsInput,
 } from "./terminalDrop.js";
+
+// Markdown rendering loads only when a chat tab opens (SPEC.md §25.1).
+const ChatView = lazy(() =>
+	import("../chat/ChatView.js").then((module) => ({ default: module.ChatView })),
+);
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -88,6 +94,7 @@ export function TerminalLeaf({
 	// The agent reports the directory as the student cds around (SPEC.md §9.3).
 	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
+	const chat = terminal.kind === "chat";
 	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
 	// Voice input types into this pane's terminal through the ref it fills.
 	const dictation = useRef<((text: string) => void) | null>(null);
@@ -223,13 +230,16 @@ export function TerminalLeaf({
 			onLeave={onLeave}
 			onClose={onClose}
 			onRename={onRename}
-			onSetTheme={onSetTheme}
-			voice={ended ? undefined : speech}
+			// A chat follows the page's theme, and its composer holds the microphone.
+			onSetTheme={chat ? undefined : onSetTheme}
+			voice={ended || chat ? undefined : speech}
 		>
 			{ended ? (
 				<div className="pk-term-ended" data-testid={`terminal-ended-${terminal.id}`}>
 					<p className="pk-term-ended-text">
-						This terminal ended when the workspace stopped
+						{chat
+							? "This chat ended when the workspace stopped"
+							: "This terminal ended when the workspace stopped"}
 					</p>
 					<Button
 						variant="secondary"
@@ -240,6 +250,14 @@ export function TerminalLeaf({
 						New terminal here
 					</Button>
 				</div>
+			) : chat ? (
+				<Suspense fallback={<ChatLoading />}>
+					<ChatView
+						workspaceId={workspaceId}
+						terminalId={terminal.id}
+						visible={visible}
+					/>
+				</Suspense>
 			) : (
 				// `contents` keeps the wrapper out of the layout, so the pane
 				// sizes as before; its drag events still bubble through it.
@@ -279,5 +297,14 @@ export function TerminalLeaf({
 				</div>
 			)}
 		</PaneFrame>
+	);
+}
+
+/** Holds the chat's place while its code loads, so nothing jumps. */
+function ChatLoading() {
+	return (
+		<div className="pk-chat pk-term-screen" data-testid="chat-view-loading">
+			<Skeleton lines={3} width="60%" />
+		</div>
 	);
 }
