@@ -41,6 +41,8 @@ export interface MessagePipeOptions {
 	closeReason: (safeCode: number, agentReason: string) => string;
 	/** What the browser hears when the agent answers the upgrade with a 404; none means a plain failure. */
 	missingRoute?: { code: number; reason: string };
+	/** What the browser hears when the agent sends a frame over the cap; none means a plain failure. */
+	oversizedFrame?: { code: number; reason: string };
 	/** The log message for an agent socket error. */
 	failureMessage: string;
 }
@@ -185,7 +187,14 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 			if (closed || refused || inputStopped) log.info(line, options.failureMessage);
 			else log.error(line, options.failureMessage);
 			if (socket.readyState === socket.OPEN) {
-				socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
+				const { oversizedFrame } = options;
+				const tooBig =
+					(error as { code?: string }).code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH";
+				if (oversizedFrame && tooBig) {
+					socket.close(oversizedFrame.code, oversizedFrame.reason);
+				} else {
+					socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
+				}
 			}
 			finish();
 		});
@@ -194,7 +203,7 @@ export async function pipeMessages(options: MessagePipeOptions): Promise<void> {
 
 export type OneWayPipeOptions = Omit<
 	MessagePipeOptions,
-	"forwardBrowserFrames" | "maxAgentFrameBytes" | "missingRoute"
+	"forwardBrowserFrames" | "maxAgentFrameBytes" | "missingRoute" | "oversizedFrame"
 >;
 
 /**

@@ -151,6 +151,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PATCH /workspaces/:id/terminals/:tid": owner,
 	"DELETE /workspaces/:id/terminals/:tid": owner,
 	"GET /workspaces/:id/terminals/:tid/ws": ownerSocket,
+	"GET /workspaces/:id/terminals/:tid/chat": ownerSocket,
 
 	"GET /workspaces/:id/projects": owner,
 	"HEAD /workspaces/:id/projects": owner,
