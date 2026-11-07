@@ -8,15 +8,14 @@ import { type ComponentPropsWithoutRef, memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../editor/markdown.css";
-import { sanitizeMarkdown } from "../lsp/content.js";
+import { isSafeLink, sanitizeMarkdown } from "../markdown/sanitize.js";
 
 const PLUGINS = [remarkGfm];
-const SAFE_LINK = /^https?:\/\//i;
 const NO_IMAGES = ["img"];
 
 /** Anything but an http(s) address is dropped, whatever attribute holds it. */
 export function chatUrl(url: string): string {
-	return SAFE_LINK.test(url) ? url : "";
+	return isSafeLink(url) ? url : "";
 }
 
 function Link({

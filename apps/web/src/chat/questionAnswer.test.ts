@@ -47,8 +47,8 @@ test("Other becomes a note when something is picked, ahead of the student's note
 		buildQuestionAnswer(
 			[multi, single],
 			[
-				{ picked: ["Red"], other: "and teal", notes: "for the header" },
-				{ picked: ["Blue"], other: "", notes: "  " },
+				{ ...emptyDraft, picked: ["Red"], other: "and teal", notes: "for the header" },
+				{ ...emptyDraft, picked: ["Blue"], notes: "  " },
 			],
 		),
 	).toEqual({
@@ -60,7 +60,10 @@ test("Other becomes a note when something is picked, ahead of the student's note
 
 test("a note goes with an Other answer too", () => {
 	expect(
-		buildQuestionAnswer([single], [{ picked: [], other: "Teal", notes: "darker" }]),
+		buildQuestionAnswer(
+			[single],
+			[{ ...emptyDraft, otherPicked: true, other: "Teal", notes: "darker" }],
+		),
 	).toEqual({
 		ok: true,
 		answers: { "Which colour?": "Teal" },

@@ -65,7 +65,6 @@ function emit(type: string, body: Record<string, unknown> = {}) {
 
 function snapshot(body: Record<string, unknown> = {}) {
 	emit("snapshot", {
-		messages: [],
 		cards: [],
 		turnRunning: false,
 		truncated: false,
@@ -89,7 +88,7 @@ afterEach(() => {
 	vi.mocked(sessionEnded).mockClear();
 });
 
-function draw() {
+function draw({ focused = false, onLeave = vi.fn() } = {}) {
 	const view = render(
 		<QueryClientProvider
 			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -100,14 +99,22 @@ function draw() {
 					projectId={PROJECT}
 					terminalId={TERMINAL}
 					visible={true}
+					focused={focused}
+					onLeave={onLeave}
 				/>
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
-	// The socket opens on the next timer turn.
-	act(() => vi.advanceTimersByTime(0));
 	open();
-	return view;
+	return { ...view, onLeave };
+}
+
+/** One finished turn, as the host replays it: real times, one frame each. */
+function replayTurn(at: number, ms: number, user: string, answer: string) {
+	emit("message", { id: `u-${at}`, role: "user", markdown: user });
+	emit("turn.started", { at });
+	emit("message", { id: `a-${at}`, role: "assistant", markdown: answer });
+	emit("turn.finished", { at: at + ms, status: "done" });
 }
 
 test("it connects to the tab's chat socket and shows a skeleton until the snapshot", () => {
@@ -122,14 +129,10 @@ test("it connects to the tab's chat socket and shows a skeleton until the snapsh
 
 test("a streamed turn shows Working, then folds its work into Worked for", () => {
 	draw();
-	snapshot({
-		messages: [{ id: "u0", role: "user", markdown: "Fix the bug" }],
-		truncated: true,
-	});
+	snapshot({ truncated: true });
+	emit("message", { id: "u0", role: "user", markdown: "Fix the bug" });
 	expect(screen.getByText("Earlier messages are not shown")).toBeTruthy();
-	// Past the replay of history, so this turn is timed live.
-	act(() => vi.advanceTimersByTime(2_000));
-	emit("turn.started");
+	emit("turn.started", { at: Date.now() });
 	emit("text.delta", { messageId: "a1", text: "Looking at " });
 	emit("text.delta", { messageId: "a1", text: "**the code**" });
 	expect(screen.getByText("the code").tagName).toBe("STRONG");
@@ -148,21 +151,26 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	emit("tool.finished", { id: "t1", isError: false });
 	emit("message", { id: "a2", role: "assistant", markdown: "Still checking" });
 	emit("message", { id: "a3", role: "assistant", markdown: "Fixed it." });
-	act(() => vi.advanceTimersByTime(211_000));
-	emit("turn.finished", { status: "done" });
+	emit("turn.finished", { at: Date.now() + 211_000, status: "done" });
 
 	expect(screen.queryByTestId("chat-working")).toBeNull();
 	const worked = screen.getByTestId("chat-worked");
-	expect(worked.querySelector("summary")?.textContent).toBe("Worked for 3m 43s");
+	expect(worked.querySelector("summary")?.textContent).toBe(
+		"Worked for 0m 12s1 tool call",
+	);
 	expect(within(worked).getByText("Still checking")).toBeTruthy();
 	expect(within(worked).getByTestId("chat-tool-t1")).toBeTruthy();
 	const shown = screen
 		.getAllByTestId("chat-assistant-message")
 		.filter((li) => !worked.contains(li));
 	expect(shown.map((li) => li.textContent)).toEqual([
-		"Claude said:Looking at the code",
-		"Claude said:Fixed it.",
+		"Looking at the code",
+		"Fixed it.",
 	]);
+	// The turn carries Claude's byline once.
+	expect(within(screen.getByTestId("chat-turn")).getAllByText("Claude")).toHaveLength(
+		1,
+	);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe("Claude finished.");
 });
 
@@ -211,7 +219,10 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 	});
 	snapshot({ cards: [permission("p1"), permission("p2")] });
 	expect(screen.getByTestId("chat-cards-waiting").textContent).toBe(
-		"1 more request is waiting",
+		"1 more request is waiting.",
+	);
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Claude wants to use Bash. 1 more request is waiting.",
 	);
 	emit("card.resolved", { id: "p1" });
 	expect(screen.getAllByTestId("chat-permission-card")).toHaveLength(1);
@@ -222,21 +233,107 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 	]);
 });
 
-test("the composer sends what was typed", () => {
+test("the composer sends what was typed, and clears it when the host echoes it", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-composer-input");
+	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
 	fireEvent.change(box, { target: { value: "Add a test" } });
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([
 		{ type: "send", text: "Add a test", attachments: [] },
 	]);
-	expect((box as HTMLTextAreaElement).value).toBe("");
+	// Not yet echoed: the draft stays, and a second Enter does not send it again.
+	expect(box.value).toBe("Add a test");
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(latest().sent).toHaveLength(1);
+	emit("message", { id: "u1", role: "user", markdown: "Add a test" });
+	expect(box.value).toBe("");
+});
+
+test("a send the host refuses keeps the draft to try again", () => {
+	draw();
+	snapshot();
+	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
+	fireEvent.change(box, { target: { value: "Look at this" } });
+	fireEvent.keyDown(box, { key: "Enter" });
+	emit("error", { message: "That picture is not a PNG." });
+	expect(screen.getByTestId("chat-error").textContent).toContain("not a PNG");
+	expect(box.value).toBe("Look at this");
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(latest().sent).toHaveLength(2);
+});
+
+test("typing in the composer keeps the keyboard when a card arrives", () => {
+	draw();
+	snapshot();
+	const box = screen.getByTestId("chat-composer-input");
+	box.focus();
+	fireEvent.change(box, { target: { value: "and also" } });
+	emit("permission.requested", {
+		id: "p1",
+		toolName: "Bash",
+		title: "",
+		input: { command: "rm -rf build" },
+		options: [{ id: "allow", label: "Allow" }],
+	});
+	expect(document.activeElement).toBe(box);
+	// Enter sends the message; it never answers the card.
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(latest().sent).toEqual([{ type: "send", text: "and also", attachments: [] }]);
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Claude wants to use Bash.",
+	);
+});
+
+test("a chat opened as the focused pane puts the keyboard in its message box", () => {
+	draw({ focused: true });
+	expect(document.activeElement).toBe(screen.getByTestId("chat-composer-input"));
+});
+
+test("Alt+Shift+Q leaves the chat for the tab strip", () => {
+	const { onLeave } = draw();
+	snapshot();
+	fireEvent.keyDown(screen.getByTestId("chat-composer-input"), {
+		key: "Q",
+		altKey: true,
+		shiftKey: true,
+	});
+	expect(onLeave).toHaveBeenCalledTimes(1);
+});
+
+test("a card shown again by a new snapshot can be answered again", () => {
+	draw();
+	const card = {
+		type: "permission",
+		id: "p1",
+		toolName: "Bash",
+		title: "",
+		input: { command: "ls" },
+		options: [{ id: "allow", label: "Allow" }],
+	};
+	snapshot({ cards: [card] });
+	fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+	expect(screen.getByRole("button", { name: "Allow" }).getAttribute("aria-busy")).toBe(
+		"true",
+	);
+	// The answer was lost with the connection; the host still holds the card.
+	act(() => latest().onclose?.({ code: 1006 }));
+	act(() => vi.advanceTimersByTime(RECONNECT_MS));
+	open();
+	act(() => vi.advanceTimersByTime(5));
+	snapshot({ cards: [card] });
+	const allow = screen.getByRole("button", { name: "Allow" });
+	expect(allow.getAttribute("aria-busy")).toBeNull();
+	fireEvent.click(allow);
+	expect(latest().sent).toEqual([
+		{ type: "permission.answer", id: "p1", optionId: "allow" },
+	]);
 });
 
 test("a dropped socket reconnects and takes a fresh snapshot", () => {
 	draw();
-	snapshot({ messages: [{ id: "a1", role: "assistant", markdown: "before" }] });
+	snapshot();
+	emit("message", { id: "a1", role: "assistant", markdown: "before" });
 	act(() => latest().onclose?.({ code: 1006 }));
 	expect(screen.getByTestId("chat-connection").textContent).toBe("Reconnecting…");
 	// The conversation stays on screen while reconnecting.
@@ -245,8 +342,10 @@ test("a dropped socket reconnects and takes a fresh snapshot", () => {
 	expect(FakeSocket.all).toHaveLength(2);
 	open();
 	seq = 0;
-	snapshot({ messages: [{ id: "a1", role: "assistant", markdown: "after" }] });
+	snapshot();
+	emit("message", { id: "a1", role: "assistant", markdown: "after" });
 	expect(screen.getByText("after")).toBeTruthy();
+	expect(screen.queryByText("before")).toBeNull();
 	expect(screen.getByTestId("chat-connection").textContent).toBe("");
 });
 
@@ -280,23 +379,27 @@ test("unmounting closes the socket", () => {
 	expect(socket.closed).toBe(true);
 });
 
-test("history replayed after the snapshot folds its turns without a made-up length", () => {
+test("history replayed after the snapshot keeps each turn's real length", () => {
 	draw();
-	snapshot({ messages: [{ id: "u0", role: "user", markdown: "Earlier question" }] });
-	emit("turn.started");
+	const now = Date.now();
+	snapshot({ turnRunning: true });
+	emit("message", { id: "u0", role: "user", markdown: "Earlier question" });
+	emit("turn.started", { at: now - 600_000 });
 	emit("message", { id: "a1", role: "assistant", markdown: "First look" });
 	emit("tool.started", { id: "t1", name: "Read", title: "a.ts", input: {} });
 	emit("tool.finished", { id: "t1", isError: false });
 	emit("message", { id: "a2", role: "assistant", markdown: "Answer" });
-	emit("turn.finished", { status: "done" });
+	emit("turn.finished", { at: now - 600_000 + 223_000, status: "done" });
 	emit("message", { id: "u1", role: "user", markdown: "Still running?" });
-	emit("turn.started");
+	emit("turn.started", { at: now - 34_000 });
 	expect(screen.getByTestId("chat-worked").querySelector("summary")?.textContent).toBe(
-		"Worked",
+		"Worked for 3m 43s1 tool call",
 	);
-	expect(screen.getByTestId("chat-working").textContent).toBe("Working");
+	expect(screen.getByTestId("chat-working").textContent).toBe("Working 0m 34s");
 	const users = screen.getAllByTestId("chat-user-message").map((li) => li.textContent);
 	expect(users).toEqual(["You said:Earlier question", "You said:Still running?"]);
+	replayTurn(now, 5_000, "More", "Done");
+	expect(screen.getAllByTestId("chat-worked")).toHaveLength(1);
 });
 
 test("too many open sockets stops retrying and says what to do", () => {
@@ -347,25 +450,9 @@ test("scrolling up stops the view following new text", () => {
 	fireEvent.scroll(box);
 	emit("message", { id: "a1", role: "assistant", markdown: "new" });
 	expect(box.scrollTop).toBe(100);
-});
-
-test("a view unmounted before its first timer turn never opens a socket", () => {
-	const view = draw();
-	view.unmount();
-	FakeSocket.all = [];
-	const again = render(
-		<QueryClientProvider client={new QueryClient()}>
-			<ToastProvider>
-				<ChatView
-					workspaceId={WORKSPACE}
-					projectId={PROJECT}
-					terminalId={TERMINAL}
-					visible={true}
-				/>
-			</ToastProvider>
-		</QueryClientProvider>,
-	);
-	again.unmount();
-	act(() => vi.advanceTimersByTime(10));
-	expect(FakeSocket.all).toHaveLength(0);
+	// The way back to the end, which hands the keyboard to the message box.
+	fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
+	expect(box.scrollTop).toBe(2000);
+	expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+	expect(document.activeElement).toBe(screen.getByTestId("chat-composer-input"));
 });

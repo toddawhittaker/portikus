@@ -34,7 +34,14 @@ const QUESTION: Extract<ChatOpenCard, { type: "question" }> = {
 };
 
 function drawQuestion(onAnswer = vi.fn(() => true), takeFocus = () => true) {
-	render(<QuestionCard card={QUESTION} onAnswer={onAnswer} takeFocus={takeFocus} />);
+	render(
+		<QuestionCard
+			card={QUESTION}
+			onAnswer={onAnswer}
+			takeFocus={takeFocus}
+			waiting={0}
+		/>,
+	);
 	const [first, second] = screen.getAllByRole("group");
 	if (!first || !second) throw new Error("two questions expected");
 	return { onAnswer, first: within(first), second: within(second) };
@@ -68,10 +75,15 @@ test("the focused option's preview is shown", () => {
 	expect(screen.getByText("Preview: Stack")).toBeTruthy();
 });
 
+function openNotes(question: ReturnType<typeof within>): HTMLElement {
+	fireEvent.click(question.getByRole("button", { name: "Add a note" }));
+	return question.getByRole("textbox", { name: "Notes (optional)" });
+}
+
 test("a single pick, multiple picks, Other and notes send the right answer", () => {
 	const { onAnswer, first, second } = drawQuestion();
 	fireEvent.click(first.getByRole("radio", { name: "Stack" }));
-	fireEvent.change(first.getByRole("textbox", { name: "Notes (optional)" }), {
+	fireEvent.change(openNotes(first), {
 		target: { value: "keep it simple" },
 	});
 	fireEvent.click(second.getByRole("checkbox", { name: "Tests" }));
@@ -116,15 +128,61 @@ test("Enter on an option sends, and an unanswered question is named and focused"
 	expect(onAnswer).toHaveBeenCalledTimes(1);
 });
 
-test("Enter in a note sends; Shift+Enter does not", () => {
+test("Enter in a note adds a line, and Ctrl+Enter sends, as its hint says", () => {
 	const { onAnswer, first, second } = drawQuestion();
 	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
 	fireEvent.click(second.getByRole("checkbox", { name: "Lint" }));
-	const notes = second.getByRole("textbox", { name: "Notes (optional)" });
+	const notes = openNotes(second);
+	// "Add a note" goes away with its click, so the field takes the keyboard.
+	expect(document.activeElement).toBe(notes);
+	expect(notes.getAttribute("aria-describedby")).toBeTruthy();
+	const hint = document.getElementById(notes.getAttribute("aria-describedby") ?? "");
+	expect(hint?.textContent).toContain("Ctrl+Enter");
+	fireEvent.keyDown(notes, { key: "Enter" });
 	fireEvent.keyDown(notes, { key: "Enter", shiftKey: true });
 	expect(onAnswer).not.toHaveBeenCalled();
-	fireEvent.keyDown(notes, { key: "Enter" });
+	fireEvent.keyDown(notes, { key: "Enter", ctrlKey: true });
 	expect(onAnswer).toHaveBeenCalledTimes(1);
+});
+
+test("choosing Other checks its radio before anything is written, and moves to its field", () => {
+	const { first } = drawQuestion();
+	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
+	const other = first.getByRole("radio", { name: "Other" }) as HTMLInputElement;
+	fireEvent.click(other);
+	expect(other.checked).toBe(true);
+	expect((first.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(
+		false,
+	);
+	expect(document.activeElement).toBe(
+		first.getByRole("textbox", { name: "Your own answer" }),
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
+	// Other with no text is not an answer yet.
+	expect(screen.getByRole("alert").textContent).toContain("Answer every question");
+});
+
+test("each option with a preview is described by its own preview", () => {
+	const { first } = drawQuestion();
+	const stack = first.getByRole("radio", { name: "Stack" });
+	const described = (stack.getAttribute("aria-describedby") ?? "")
+		.split(" ")
+		.map((id) => document.getElementById(id)?.textContent);
+	expect(described).toEqual(["One column", "Preview: +-----+"]);
+});
+
+test("a card says how many more wait behind it", () => {
+	render(
+		<QuestionCard
+			card={QUESTION}
+			onAnswer={() => true}
+			takeFocus={() => false}
+			waiting={2}
+		/>,
+	);
+	expect(screen.getByTestId("chat-cards-waiting").textContent).toBe(
+		"2 more requests are waiting.",
+	);
 });
 
 test("an answer that could not be sent says so and can be sent again", () => {
@@ -157,13 +215,22 @@ const PERMISSION: Extract<ChatOpenCard, { type: "permission" }> = {
 test("a permission card shows the tool, its input and the options, and focuses the first", () => {
 	const onAnswer = vi.fn(() => true);
 	render(
-		<PermissionCard card={PERMISSION} onAnswer={onAnswer} takeFocus={() => true} />,
+		<PermissionCard
+			card={PERMISSION}
+			onAnswer={onAnswer}
+			takeFocus={() => true}
+			waiting={1}
+		/>,
 	);
 	expect(
-		screen.getByRole("heading", { name: "Claude wants to use Bash" }),
+		screen.getByRole("heading", { name: "Claude wants to run a command" }),
 	).toBeTruthy();
 	expect(screen.getByText("Run the test suite")).toBeTruthy();
-	expect(screen.getByText("command").nextElementSibling?.textContent).toBe("pnpm test");
+	// The bare command, not a JSON object.
+	expect(screen.getByTestId("chat-permission-command").textContent).toBe("pnpm test");
+	expect(screen.getByTestId("chat-cards-waiting").textContent).toBe(
+		"1 more request is waiting.",
+	);
 	expect(document.activeElement).toBe(screen.getByRole("button", { name: "Allow" }));
 	fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 	expect(onAnswer).toHaveBeenCalledWith("deny");
@@ -185,11 +252,14 @@ test("ExitPlanMode shows its plan as Markdown", () => {
 			}}
 			onAnswer={() => true}
 			takeFocus={() => false}
+			waiting={0}
 		/>,
 	);
 	expect(
 		screen.getByRole("heading", { name: "Claude has a plan for you to review" }),
 	).toBeTruthy();
+	// The plan scrolls on its own, so the keyboard can reach it.
+	expect(screen.getByTestId("chat-plan").tabIndex).toBe(0);
 	expect(screen.getByRole("heading", { name: "Plan" })).toBeTruthy();
 	expect(screen.getAllByRole("listitem")).toHaveLength(2);
 	expect(document.querySelector("img")).toBeNull();
@@ -219,7 +289,7 @@ test("a tool block opens to its input and output, images included", () => {
 	expect(block.querySelector("summary")?.textContent).toBe(
 		"Screenshotthe home pageFailed",
 	);
-	expect(screen.getByText("Error")).toBeTruthy();
+	expect(screen.getByRole("region", { name: "Error" })).toBeTruthy();
 	expect(
 		screen
 			.getByRole("img", { name: "Output of Screenshot", hidden: true })
@@ -227,4 +297,73 @@ test("a tool block opens to its input and output, images included", () => {
 	).toBe("data:image/png;base64,iVBORw0KGgo=");
 	expect(screen.getByText("Image not kept", { exact: true })).toBeTruthy();
 	expect(block.textContent).toContain('"url": "http://localhost:3000"');
+});
+
+test("an Edit permission shows its change as a diff, with the file named", () => {
+	render(
+		<PermissionCard
+			card={{
+				...PERMISSION,
+				toolName: "Edit",
+				title: "Edit src/Sidebar.tsx",
+				input: {
+					file_path: "src/Sidebar.tsx",
+					old_string: "a {\n  width: 320px;\n}",
+					new_string: "a {\n  inline-size: 20rem;\n}",
+				},
+			}}
+			onAnswer={() => true}
+			takeFocus={() => false}
+			waiting={0}
+		/>,
+	);
+	expect(
+		screen.getByRole("heading", { name: "Claude wants to edit a file" }),
+	).toBeTruthy();
+	expect(screen.getByText("src/Sidebar.tsx")).toBeTruthy();
+	// The host's "Edit …" title would only repeat the heading.
+	expect(screen.queryByText("Edit src/Sidebar.tsx")).toBeNull();
+	expect(screen.getByTestId("chat-diff").textContent).toBe(
+		"  a {\n-   width: 320px;\n+   inline-size: 20rem;\n  }\n",
+	);
+});
+
+function tool(overrides: Partial<Parameters<typeof ToolBlock>[0]["tool"]> = {}) {
+	return {
+		kind: "tool" as const,
+		key: "tool:t2",
+		id: "t2",
+		name: "Bash",
+		title: "Run the tests",
+		input: { command: "pnpm vitest run" },
+		output: [],
+		status: "done" as const,
+		turnId: null,
+		...overrides,
+	};
+}
+
+test("a Bash block shows the bare command and Done, with the raw input one click in", () => {
+	render(<ToolBlock tool={tool()} />);
+	const block = screen.getByTestId("chat-tool-t2");
+	expect(block.querySelector("summary")?.textContent).toBe("Bashpnpm vitest runDone");
+	expect(screen.getByText("Raw input")).toBeTruthy();
+	expect(block.textContent).toContain('"command": "pnpm vitest run"');
+});
+
+test("a stopped tool says so", () => {
+	render(<ToolBlock tool={tool({ status: "stopped" })} />);
+	expect(screen.getByTestId("chat-tool-state").textContent).toBe("Stopped");
+});
+
+test("long output is cut short until Show more", () => {
+	const text = Array.from({ length: 30 }, (_, at) => `line ${at + 1}`).join("\n");
+	render(<ToolBlock tool={tool({ output: [{ type: "text", text }] })} />);
+	const output = screen.getByRole("region", { name: "Output" });
+	expect(output.querySelector("pre")?.textContent?.split("\n")).toHaveLength(12);
+	const more = within(output).getByRole("button", { name: "Show 18 more lines" });
+	expect(more.getAttribute("aria-expanded")).toBe("false");
+	fireEvent.click(more);
+	expect(output.querySelector("pre")?.textContent).toBe(text);
+	expect(within(output).getByRole("button", { name: "Show less" })).toBeTruthy();
 });

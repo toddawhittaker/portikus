@@ -23,7 +23,7 @@
 .pk-composer-text {
 	box-sizing: border-box;
 	inline-size: 100%;
-	min-block-size: calc(var(--pk-control) - var(--space-2));
+	min-block-size: calc(var(--pk-control) + var(--space-2));
 	max-block-size: 40vh;
 	padding: var(--space-1);
 	border: 0;
@@ -59,6 +59,7 @@
 	display: flex;
 	flex: 1 1 auto;
 	flex-wrap: wrap;
+	align-items: center;
 	gap: var(--space-1);
 	min-inline-size: 0;
 	margin: 0;
@@ -66,23 +67,100 @@
 	border: 0;
 }
 
-.pk-composer-pick {
+/* A picker is its label and value in one quiet control; the select fills it. */
+.pk-pick {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
 	min-inline-size: 0;
 	max-inline-size: 100%;
 	block-size: var(--size-control-sm);
-	padding-inline: var(--space-1);
-	border: 1px solid var(--line);
+	padding-inline: var(--space-2) var(--space-1);
+	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-sm);
-	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: 13px;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-pick:hover {
+	background: var(--surface-hover);
+}
+
+.pk-pick:has(.pk-pick-select:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
+.pk-pick-label {
+	flex: none;
+	color: var(--ink-muted);
+}
+
+/* The native select draws only its text; the label owns the box and chevron. */
+.pk-pick-select {
+	min-inline-size: 0;
+	max-inline-size: 12rem;
+	block-size: 100%;
+	padding: 0 var(--space-4) 0 0;
+	margin-inline-end: calc(-1 * var(--space-4));
+	border: 0;
+	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
-	font-size: 13px;
+	text-overflow: ellipsis;
+	appearance: none;
+	cursor: pointer;
+}
+
+.pk-pick-select:focus {
+	outline: none;
+}
+
+.pk-pick-select option {
+	background: var(--surface-raised);
+	color: var(--ink);
+}
+
+.pk-pick-chevron {
+	flex: none;
+	pointer-events: none;
+	color: var(--ink-muted);
+}
+
+/* A value the student changed reads as set. */
+.pk-pick.is-changed .pk-pick-select {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.pk-pick.is-warning {
+	border-color: var(--status-warning);
+	background: var(--status-warning-soft);
+}
+
+.pk-pick.is-warning,
+.pk-pick.is-warning .pk-pick-select,
+.pk-pick.is-warning .pk-pick-label,
+.pk-pick.is-warning .pk-pick-chevron {
+	color: var(--status-warning);
+}
+
+.pk-pick-icon {
+	flex: none;
+}
+
+.pk-pick.is-waiting {
+	cursor: default;
+	padding-inline-end: var(--space-2);
 }
 
 .pk-composer-chips {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--space-1);
+	gap: var(--space-2);
 	margin: 0;
 	padding: 0;
 	list-style: none;
@@ -91,20 +169,34 @@
 .pk-composer-chip {
 	display: flex;
 	align-items: center;
-	gap: var(--space-1);
+	gap: var(--space-2);
 	min-inline-size: 0;
-	max-inline-size: 100%;
-	padding-inline-start: var(--space-1);
+	max-inline-size: min(100%, 18rem);
+	padding: var(--space-1);
 	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-md);
+	background: var(--surface);
 	font-size: 13px;
 }
 
 .pk-composer-thumb {
-	inline-size: 28px;
-	block-size: 28px;
+	flex: none;
+	inline-size: 56px;
+	block-size: 56px;
 	border-radius: var(--radius-sm);
 	object-fit: cover;
+	background: var(--surface-sunken);
+}
+
+.pk-composer-thumb--file {
+	display: grid;
+	place-items: center;
+	color: var(--ink-muted);
+}
+
+.pk-composer-chip-copy {
+	display: grid;
+	min-inline-size: 0;
 }
 
 .pk-composer-chip-name {
@@ -112,6 +204,12 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: var(--ink);
+}
+
+.pk-composer-chip-size {
+	color: var(--ink-muted);
+	font-size: 12px;
 }
 
 .pk-composer-note {
@@ -119,6 +217,30 @@
 	color: var(--ink-muted);
 	font-size: 13px;
 	overflow-wrap: anywhere;
+}
+
+/* The line under the box: a key hint, or the bypass warning in its place. */
+.pk-composer-foot {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1\.5);
+	min-block-size: 16px;
+	margin: 0;
+	padding-inline: var(--space-1);
+	color: var(--ink-muted);
+	font-size: 12px;
+	line-height: 16px;
+	overflow-wrap: anywhere;
+}
+
+.pk-composer-foot > svg {
+	flex: none;
+	margin-block-start: 1px;
+}
+
+.pk-composer-foot.is-warning {
+	color: var(--status-warning);
+	font-weight: 500;
 }
 
 /* In a narrow pane the pickers take a row of their own, so Send stays beside the tools. */

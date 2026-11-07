@@ -25,7 +25,6 @@ function frame<T extends ChatServerEvent["type"]>(
 
 function snapshot(seq: number, extra: Partial<Body<"snapshot">> = {}): string {
 	return frame("snapshot", seq, {
-		messages: [],
 		cards: [],
 		turnRunning: false,
 		truncated: false,
@@ -47,15 +46,15 @@ function texts(state: ChatState): string[] {
 	);
 }
 
-test("events that arrive before the snapshot wait for it, then apply in seq order", () => {
+test("events that arrive before the snapshot are dropped", () => {
 	const state = feed([
 		frame("text.delta", 3, { messageId: "m1", text: " world" }),
-		frame("text.delta", 2, { messageId: "m1", text: "Hello" }),
-		snapshot(1),
+		snapshot(4),
+		frame("text.delta", 5, { messageId: "m1", text: "Hello" }),
 	]);
 	expect(state.loaded).toBe(true);
-	expect(texts(state)).toEqual(["Hello world"]);
-	expect(state.lastSeq).toBe(3);
+	expect(texts(state)).toEqual(["Hello"]);
+	expect(state.lastSeq).toBe(5);
 });
 
 test("an event at or before the last applied seq is dropped", () => {
@@ -68,12 +67,68 @@ test("an event at or before the last applied seq is dropped", () => {
 	expect(texts(state)).toEqual(["fresh"]);
 });
 
-test("an early event already covered by the snapshot is not applied twice", () => {
+test("history is built only from the events replayed after the snapshot, with real times", () => {
 	const state = feed([
-		frame("message", 2, { id: "m1", role: "assistant", markdown: "old" }),
-		snapshot(4, { messages: [{ id: "m1", role: "assistant", markdown: "old" }] }),
+		snapshot(10),
+		frame("turn.started", 11, { at: 50_000 }),
+		frame("message", 12, { id: "u1", role: "user", markdown: "Earlier question" }),
+		frame("message", 13, { id: "a1", role: "assistant", markdown: "Earlier answer" }),
+		frame("turn.finished", 14, { at: 273_000, status: "interrupted" }),
 	]);
-	expect(texts(state)).toEqual(["old"]);
+	expect(texts(state)).toEqual(["Earlier question", "Earlier answer"]);
+	const [turn] = Object.values(state.turns);
+	// The replayed turn keeps its length although it arrived in one burst.
+	expect(turn).toMatchObject({
+		startedAt: 50_000,
+		finishedAt: 273_000,
+		status: "interrupted",
+	});
+	expect(state.lastUserMessageSeq).toBe(12);
+});
+
+test("a turn running at attach takes its start time from the replayed turn.started", () => {
+	let state = feed([snapshot(1, { turnRunning: true })], initialChatState, 9_000);
+	const estimated = state.currentTurnId ?? "";
+	expect(state.turns[estimated]).toMatchObject({ startedAt: 9_000, estimated: true });
+	state = feed([frame("turn.started", 2, { at: 4_000 })], state, 9_000);
+	expect(state.currentTurnId).toBe(estimated);
+	expect(Object.keys(state.turns)).toEqual([estimated]);
+	expect(state.turns[estimated]).toMatchObject({ startedAt: 4_000, estimated: false });
+});
+
+test("a repeated tool.started updates the block instead of adding a second", () => {
+	const started = { id: "t1", name: "Bash", title: "ls", input: { command: "ls" } };
+	const state = feed([
+		snapshot(0),
+		frame("tool.started", 1, started),
+		frame("tool.started", 2, { ...started, title: "ls -la" }),
+	]);
+	expect(state.items).toHaveLength(1);
+	expect(state.items[0]).toMatchObject({ kind: "tool", title: "ls -la" });
+});
+
+test("a tool its turn ended without finishing shows as done or stopped, never running", () => {
+	const turn = (seq: number, status: "done" | "interrupted" | "error") => [
+		frame("turn.started", seq, { at: 0 }),
+		frame("tool.started", seq + 1, {
+			id: `t${seq}`,
+			name: "Bash",
+			title: "",
+			input: {},
+		}),
+		frame("turn.finished", seq + 2, { at: 1, status }),
+	];
+	const state = feed([
+		snapshot(0),
+		...turn(1, "done"),
+		...turn(4, "interrupted"),
+		...turn(7, "error"),
+	]);
+	expect(state.items.map((item) => item.kind === "tool" && item.status)).toEqual([
+		"done",
+		"stopped",
+		"stopped",
+	]);
 });
 
 test("invalid frames are dropped and counted", () => {
@@ -97,8 +152,7 @@ test("a snapshot replaces the conversation and its cards", () => {
 	const state = feed([
 		snapshot(0),
 		frame("message", 1, { id: "u1", role: "user", markdown: "hi" }),
-		snapshot(0, {
-			messages: [{ id: "a9", role: "assistant", markdown: "restored" }],
+		snapshot(2, {
 			cards: [
 				{
 					type: "permission",
@@ -111,6 +165,7 @@ test("a snapshot replaces the conversation and its cards", () => {
 			],
 			truncated: true,
 		}),
+		frame("message", 3, { id: "a9", role: "assistant", markdown: "restored" }),
 	]);
 	expect(texts(state)).toEqual(["restored"]);
 	expect(state.cards.map((card) => card.id)).toEqual(["p1"]);
@@ -119,7 +174,7 @@ test("a snapshot replaces the conversation and its cards", () => {
 
 test("a turn streams, runs a tool, and finishes with its times", () => {
 	let state = feed([snapshot(0)], initialChatState, 0);
-	state = receiveChatFrame(state, frame("turn.started", 1, {}), 1_000);
+	state = receiveChatFrame(state, frame("turn.started", 1, { at: 1_000 }), 1_000);
 	state = feed(
 		[
 			frame("text.delta", 2, { messageId: "a1", text: "Let me look" }),
@@ -149,8 +204,8 @@ test("a turn streams, runs a tool, and finishes with its times", () => {
 
 	state = receiveChatFrame(
 		state,
-		frame("turn.finished", 8, { status: "done" }),
-		224_000,
+		frame("turn.finished", 8, { at: 224_000, status: "done" }),
+		5,
 	);
 	expect(state.currentTurnId).toBeNull();
 	expect(state.turns[turnId ?? ""]).toMatchObject({
@@ -202,6 +257,7 @@ test("settings and errors are kept", () => {
 		}),
 		frame("error", 2, { message: "Claude Code is not signed in" }),
 	]);
+	expect(state.lastError).toEqual({ seq: 2, message: "Claude Code is not signed in" });
 	expect(state.settings).toEqual({
 		agent: "claude",
 		model: "opus",
@@ -261,12 +317,14 @@ test("a new socket waits for its own snapshot", () => {
 	actions.receive(frame("text.delta", 1, { messageId: "a1", text: "one" }));
 	actions.setConnection("open");
 	expect(store.getState().awaitingSnapshot).toBe(true);
-	// The reconnected socket's events wait, then follow its snapshot.
+	// Until the new snapshot the old conversation stays, and nothing is applied.
 	actions.receive(frame("text.delta", 6, { messageId: "a2", text: "two" }));
 	expect(texts(store.getState())).toEqual(["one"]);
+	actions.receive(snapshot(5));
 	actions.receive(
-		snapshot(5, { messages: [{ id: "a1", role: "assistant", markdown: "one" }] }),
+		frame("message", 6, { id: "a1", role: "assistant", markdown: "one" }),
 	);
+	actions.receive(frame("text.delta", 7, { messageId: "a2", text: "two" }));
 	expect(texts(store.getState())).toEqual(["one", "two"]);
 	expect(store.getState().connection).toBe("open");
 });

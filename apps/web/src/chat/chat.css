@@ -1,7 +1,10 @@
 /* The chat tab (SPEC.md §8.3); chat-frame.css themes the pane around it. */
 .pk-chat {
-	/* The conversation keeps a readable measure in a wide pane. */
-	--pk-chat-gutter: max(var(--space-4), calc((100% - 48rem) / 2));
+	/* One column for the log, the cards and the composer: wide enough for
+	   tool output and images, with prose held to a reading measure inside it. */
+	--pk-chat-column: 60rem;
+	--pk-chat-measure: 46rem;
+	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
 	flex: 1;
 	min-height: 0;
 	min-width: 0;
@@ -14,30 +17,46 @@
 	line-height: var(--pk-leading);
 }
 
+.pk-chat-main {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
 .pk-chat-scroll {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
 	scrollbar-gutter: stable;
-	padding: var(--space-4) var(--pk-chat-gutter);
+	overflow-anchor: none;
+	padding: var(--space-5) var(--pk-chat-gutter) var(--space-6);
 }
 
-.pk-chat-log {
+.pk-chat-log,
+.pk-chat-steps {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-4);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
-.pk-chat-entry {
-	min-width: 0;
-	/* Long histories: off-screen entries are not laid out until scrolled to. */
-	content-visibility: auto;
-	contain-intrinsic-size: auto 3rem;
+.pk-chat-log {
+	gap: var(--space-6);
 }
 
+.pk-chat-steps {
+	gap: var(--space-3);
+}
+
+.pk-chat-entry,
+.pk-chat-step {
+	min-width: 0;
+}
+
+/* What the student wrote: on the right, in a quiet box. */
 .pk-chat-entry--user {
 	display: flex;
 	justify-content: flex-end;
@@ -63,7 +82,7 @@
 
 .pk-chat-attachments {
 	display: flex;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: var(--space-1);
 	margin: 0;
 	padding: 0;
@@ -71,24 +90,92 @@
 }
 
 .pk-chat-attachment {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
 	min-width: 0;
-	padding: 0 var(--space-1\.5);
-	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
 	color: var(--ink-muted);
+}
+
+.pk-chat-attachment > svg {
+	flex: none;
+}
+
+.pk-chat-attachment-name {
+	min-width: 0;
 	font-family: var(--font-mono);
 	font-size: 12px;
 	font-variant-ligatures: none;
 	overflow-wrap: anywhere;
 }
 
-/* The shared Markdown look, without the document's own scroll box. */
+/* Claude's turn: a byline, then its words and work. */
+.pk-chat-turn {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.pk-chat-author {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 600;
+}
+
+/* The shared Markdown look, without the document's own scroll box, and with
+   a chat's tighter rhythm: space before a heading, less after. */
 .pk-markdown.pk-chat-md {
 	flex: none;
 	overflow: visible;
 	padding: 0;
 	font-size: inherit;
+	line-height: 1.6;
 	overflow-wrap: anywhere;
+}
+
+.pk-markdown.pk-chat-md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+	max-inline-size: var(--pk-chat-measure);
+}
+
+.pk-markdown.pk-chat-md :is(h1, h2, h3, h4) {
+	margin: var(--space-5) 0 var(--space-2);
+	line-height: 1.35;
+}
+
+.pk-markdown.pk-chat-md h1 {
+	font-size: 18px;
+}
+
+.pk-markdown.pk-chat-md h2 {
+	font-size: 16px;
+}
+
+.pk-markdown.pk-chat-md :is(h3, h4) {
+	font-size: 15px;
+}
+
+.pk-markdown.pk-chat-md :is(p, ul, ol, blockquote, pre, table) {
+	margin: 0 0 var(--space-3);
+}
+
+.pk-markdown.pk-chat-md li + li {
+	margin-block-start: var(--space-1);
+}
+
+.pk-markdown.pk-chat-md li > :is(ul, ol) {
+	margin: var(--space-1) 0 0;
+}
+
+.pk-markdown.pk-chat-md pre {
+	padding: var(--space-3);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	border-color: var(--line);
 }
 
 .pk-markdown.pk-chat-md a {
@@ -96,8 +183,18 @@
 	text-underline-offset: 2px;
 }
 
+.pk-markdown.pk-chat-md > *:first-child {
+	margin-top: 0;
+}
+
 .pk-markdown.pk-chat-md > *:last-child {
 	margin-bottom: 0;
+}
+
+/* A link or a code block inside a reply keeps its ring inside its own edge. */
+.pk-markdown.pk-chat-md :is(a, pre):focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
 }
 
 .pk-chat-input {
@@ -137,6 +234,7 @@
 	display: flex;
 	align-items: flex-start;
 	gap: var(--space-2);
+	max-inline-size: var(--pk-chat-measure);
 	margin: 0;
 	padding: var(--space-2) var(--space-3);
 	border-radius: var(--radius-sm);
@@ -150,27 +248,28 @@
 	margin-block-start: 3px;
 }
 
-/* A disclosure row: "Worked for …" and each tool call. */
+/* Disclosure rows: "Worked for …", each tool call, and a tool's raw input. */
 .pk-chat-worked-summary,
-.pk-chat-tool-summary {
+.pk-chat-tool-summary,
+.pk-chat-raw-summary {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
 	min-width: 0;
-	min-block-size: var(--pk-row);
 	cursor: pointer;
 	list-style: none;
 	color: var(--ink-muted);
+	transition:
+		color var(--duration-fast) var(--ease-standard),
+		background-color var(--duration-fast) var(--ease-standard);
 }
 
-.pk-chat-worked-summary::-webkit-details-marker,
-.pk-chat-tool-summary::-webkit-details-marker {
+:is(
+	.pk-chat-worked-summary,
+	.pk-chat-tool-summary,
+	.pk-chat-raw-summary
+)::-webkit-details-marker {
 	display: none;
-}
-
-.pk-chat-worked-summary:hover,
-.pk-chat-tool-summary:hover {
-	color: var(--ink);
 }
 
 .pk-chat-chevron {
@@ -182,24 +281,36 @@ details[open] > summary > .pk-chat-chevron {
 	transform: rotate(90deg);
 }
 
+/* "Worked for" is a control: a bordered button-sized row, not a caption. */
 .pk-chat-worked-summary {
 	inline-size: fit-content;
 	max-inline-size: 100%;
-	padding-inline-end: var(--space-2);
+	min-block-size: var(--size-control-sm);
+	padding-inline: var(--space-2) var(--space-3);
+	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-sm);
+	font-size: 13px;
+}
+
+.pk-chat-worked-summary:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+
+.pk-chat-worked-count::before {
+	content: "·";
+	margin-inline-end: var(--space-2);
 }
 
 .pk-chat-worked-log {
-	padding-block: var(--space-3) 0;
+	margin-block-start: var(--space-3);
 	padding-inline-start: var(--space-4);
 	border-inline-start: 1px solid var(--line);
-	gap: var(--space-3);
 }
 
 .pk-chat-tool {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
-	background: var(--surface-raised);
 }
 
 .pk-chat-tool.is-error {
@@ -207,17 +318,29 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-tool-summary {
-	padding-inline: var(--space-2);
+	min-block-size: var(--size-control-md);
+	padding-inline: var(--space-2) var(--space-3);
 	border-radius: var(--radius-md);
+	font-size: 13px;
+}
+
+.pk-chat-tool-summary:hover {
+	background: var(--surface-hover);
+}
+
+.pk-chat-tool[open] > .pk-chat-tool-summary {
+	border-end-start-radius: 0;
+	border-end-end-radius: 0;
 }
 
 .pk-chat-tool-name {
 	flex: none;
-	max-inline-size: 50%;
+	max-inline-size: 40%;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--ink);
+	font-weight: 600;
 }
 
 .pk-chat-tool-title {
@@ -226,6 +349,10 @@ details[open] > summary > .pk-chat-chevron {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.pk-chat-tool-title.pk-mono-body {
+	font-size: 12.5px;
 }
 
 .pk-chat-tool-state {
@@ -237,33 +364,58 @@ details[open] > summary > .pk-chat-chevron {
 	font-size: 12px;
 }
 
-.pk-chat-tool-state--error {
+.pk-chat-tool-state.is-error {
 	color: var(--status-error);
 }
 
 .pk-chat-tool-body {
 	display: grid;
-	gap: var(--space-1);
-	margin: 0;
-	padding: var(--space-2) var(--space-3) var(--space-3);
+	gap: var(--space-2);
+	min-width: 0;
+	padding: var(--space-3);
 	border-block-start: 1px solid var(--line);
 }
 
-.pk-chat-tool-part {
+.pk-chat-tool-output {
 	display: grid;
 	gap: var(--space-2);
 	min-width: 0;
-	margin: 0 0 var(--space-2);
+}
+
+.pk-chat-raw-summary {
+	inline-size: fit-content;
+	min-block-size: var(--size-control-sm);
+	padding-inline-end: var(--space-2);
+	border-radius: var(--radius-sm);
+	font-size: 12px;
+}
+
+.pk-chat-raw-summary:hover {
+	color: var(--ink);
+}
+
+.pk-chat-raw[open] > .pk-chat-raw-summary {
+	margin-block-end: var(--space-1);
 }
 
 .pk-chat-label {
 	color: var(--ink-muted);
+	font-size: 12px;
 }
 
-/* Tool input and output, and option previews: literal, never reflowed as prose. */
-.pk-chat-code {
+/* Literal text: tool output, commands, diffs and previews, never reflowed as prose. */
+.pk-chat-codeblock {
+	display: grid;
+	justify-items: start;
+	gap: var(--space-1);
 	min-width: 0;
-	max-block-size: 20rem;
+}
+
+.pk-chat-code {
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-width: 0;
+	max-block-size: 24rem;
 	margin: 0;
 	padding: var(--space-2) var(--space-3);
 	overflow: auto;
@@ -283,12 +435,56 @@ details[open] > summary > .pk-chat-chevron {
 	outline-offset: var(--ring-offset-inset);
 }
 
+.pk-chat-command {
+	color: var(--ink);
+}
+
+.pk-chat-diff {
+	padding-inline: 0;
+}
+
+.pk-chat-diff-line {
+	display: block;
+	padding-inline: var(--space-3);
+}
+
+.pk-chat-diff-line.is-removed {
+	background: var(--status-error-soft);
+}
+
+.pk-chat-diff-line.is-added {
+	background: var(--status-running-soft);
+}
+
+.pk-chat-diff-line.is-same {
+	color: var(--ink-muted);
+}
+
+.pk-chat-more {
+	color: var(--accent-text);
+}
+
 .pk-chat-tool-image {
 	display: block;
 	max-inline-size: 100%;
 	block-size: auto;
 	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
+}
+
+/* Back to the end of the conversation, over its bottom edge. */
+.pk-chat-jump {
+	position: absolute;
+	inset-inline: 0;
+	inset-block-end: var(--space-3);
+	display: flex;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.pk-chat-jump > * {
+	pointer-events: auto;
+	box-shadow: var(--shadow-md);
 }
 
 .pk-chat-notice {
@@ -320,24 +516,20 @@ details[open] > summary > .pk-chat-chevron {
 	font-weight: 600;
 }
 
-/* Cards wait here, pinned above the composer, so they never scroll away. */
+/* Cards wait here, docked above the composer, so they never scroll away. */
 .pk-chat-cards {
 	flex: 0 1 auto;
-	max-block-size: 45%;
+	max-block-size: 60%;
 	overflow-y: auto;
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	padding: var(--space-3) var(--pk-chat-gutter);
-	border-block-start: 1px solid var(--line);
+	padding: var(--space-2) var(--pk-chat-gutter) 0;
 }
 
 .pk-chat-card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--space-2);
 	min-width: 0;
-	padding: var(--space-4);
+	padding: var(--space-3) var(--space-3) 0;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
@@ -350,10 +542,17 @@ details[open] > summary > .pk-chat-chevron {
 	overflow-wrap: anywhere;
 }
 
+.pk-chat-card-path {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12.5px;
+	overflow-wrap: anywhere;
+}
+
 .pk-chat-card-form {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-4);
+	gap: var(--space-3);
 }
 
 .pk-chat-card-error {
@@ -365,10 +564,26 @@ details[open] > summary > .pk-chat-chevron {
 	display: none;
 }
 
+/* The answer buttons stay in view while a long card scrolls in its dock. */
 .pk-chat-card-actions {
+	position: sticky;
+	inset-block-end: 0;
+	z-index: 1;
 	display: flex;
 	flex-wrap: wrap;
+	align-items: center;
 	gap: var(--space-2);
+	margin-inline: calc(-1 * var(--space-3));
+	padding: var(--space-2) var(--space-3) var(--space-3);
+	border-end-start-radius: var(--radius-md);
+	border-end-end-radius: var(--radius-md);
+	background: var(--surface-raised);
+}
+
+.pk-chat-card-waiting {
+	margin: 0 0 0 auto;
+	color: var(--ink-muted);
+	font-size: 13px;
 }
 
 .pk-chat-plan {
@@ -378,6 +593,11 @@ details[open] > summary > .pk-chat-chevron {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
 	background: var(--surface);
+}
+
+.pk-chat-plan:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
 }
 
 .pk-chat-fields {
@@ -400,11 +620,17 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-question {
 	display: flex;
 	flex-direction: column;
+	align-items: flex-start;
 	gap: var(--space-2);
 	min-width: 0;
 	margin: 0;
 	padding: 0;
 	border: none;
+}
+
+.pk-chat-question + .pk-chat-question {
+	padding-block-start: var(--space-3);
+	border-block-start: 1px solid var(--line);
 }
 
 .pk-chat-question-legend {
@@ -428,6 +654,7 @@ details[open] > summary > .pk-chat-chevron {
 
 /* Options and the focused option's preview side by side, stacked when narrow. */
 .pk-chat-question-body {
+	align-self: stretch;
 	display: grid;
 	gap: var(--space-3);
 	min-width: 0;
@@ -443,7 +670,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-options {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-2);
+	gap: var(--space-1\.5);
 	min-width: 0;
 	margin: 0;
 	padding: 0;
@@ -463,6 +690,18 @@ details[open] > summary > .pk-chat-chevron {
 	accent-color: var(--accent);
 }
 
+/* Label and description on one line when there is room. */
+.pk-chat-option-copy {
+	display: flex;
+	flex-wrap: wrap;
+	column-gap: var(--space-2);
+	min-width: 0;
+}
+
+.pk-chat-option-label {
+	color: var(--ink);
+}
+
 .pk-chat-other {
 	display: flex;
 	flex-wrap: wrap;
@@ -472,6 +711,8 @@ details[open] > summary > .pk-chat-chevron {
 
 .pk-chat-other .pk-chat-input {
 	flex: 1 1 12rem;
+	min-block-size: var(--size-control-sm);
+	padding-block: var(--space-1);
 }
 
 .pk-chat-preview {
@@ -497,14 +738,33 @@ details[open] > summary > .pk-chat-chevron {
 	color: var(--ink-muted);
 }
 
+.pk-chat-note {
+	align-self: stretch;
+	display: grid;
+	gap: var(--space-1);
+}
+
 .pk-chat-notes {
 	resize: vertical;
+}
+
+.pk-chat-hint {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-chat-add-note {
+	gap: var(--space-1);
+	color: var(--ink-muted);
 }
 
 .pk-chat-composer {
 	/* Scrolls rather than clips when the pane is very short. */
 	flex: 0 1 auto;
 	overflow-y: auto;
-	padding: var(--space-3) var(--pk-chat-gutter);
-	border-block-start: 1px solid var(--line);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1\.5);
+	padding: var(--space-2) var(--pk-chat-gutter) var(--space-2);
 }

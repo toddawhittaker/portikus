@@ -1,12 +1,12 @@
 /**
- * Claude's AskUserQuestion as a form (SPEC.md §10.8): per
- * question a header chip, the options with their descriptions, an "Other"
- * answer and a note. Options with a preview show the focused one beside the
- * list, or under it in a narrow pane. Enter sends from any field; Shift+Enter
- * starts a new line in a note.
+ * Claude's AskUserQuestion as a form (SPEC.md §10.8): per question a header
+ * chip, the options with their descriptions, an "Other" answer and an
+ * optional note. Options with a preview show the focused one beside the
+ * list, or under it in a narrow pane. Enter on an option sends; in a note
+ * Enter adds a line and Ctrl+Enter sends, as the hint under it says.
  */
 import type { ChatOpenCard, ChatQuestion } from "@portikus/contracts";
-import { Button, Checkbox } from "@portikus/ui";
+import { Button, Checkbox, Icon } from "@portikus/ui";
 import {
 	type FormEvent,
 	type KeyboardEvent,
@@ -20,6 +20,7 @@ import {
 	emptyDraft,
 	type QuestionDraft,
 } from "./questionAnswer.js";
+import { waitingText } from "./waiting.js";
 
 type QuestionCardData = Extract<ChatOpenCard, { type: "question" }>;
 
@@ -32,12 +33,19 @@ export interface QuestionCardProps {
 	) => boolean;
 	/** Whether the card may take the keyboard as it appears. */
 	takeFocus: () => boolean;
+	/** Cards waiting behind this one. */
+	waiting: number;
 }
 
 const NOT_SENT =
 	"Your answer was not sent because the chat is not connected. Wait for it to reconnect, then send again.";
 
-export function QuestionCard({ card, onAnswer, takeFocus }: QuestionCardProps) {
+export function QuestionCard({
+	card,
+	onAnswer,
+	takeFocus,
+	waiting,
+}: QuestionCardProps) {
 	const titleId = useId();
 	const form = useRef<HTMLFormElement | null>(null);
 	const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
@@ -59,8 +67,8 @@ export function QuestionCard({ card, onAnswer, takeFocus }: QuestionCardProps) {
 		setError("");
 	}
 
-	function submit(event: FormEvent) {
-		event.preventDefault();
+	function submit(event?: FormEvent) {
+		event?.preventDefault();
 		if (sent) return;
 		const answer = buildQuestionAnswer(card.questions, drafts);
 		if (!answer.ok) {
@@ -87,16 +95,19 @@ export function QuestionCard({ card, onAnswer, takeFocus }: QuestionCardProps) {
 		if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
 			return;
 		const target = event.target as HTMLElement;
-		// Buttons and text fields already submit on Enter; boxes and notes do not.
+		// Ctrl+Enter sends from anywhere, a note included.
+		if (event.ctrlKey || event.metaKey) {
+			event.preventDefault();
+			submit();
+			return;
+		}
+		// Buttons and text fields already submit on Enter; boxes do not. A note adds a line.
 		if (
 			target instanceof HTMLInputElement &&
 			(target.type === "radio" || target.type === "checkbox")
 		) {
 			event.preventDefault();
-			form.current?.requestSubmit();
-		} else if (target instanceof HTMLTextAreaElement) {
-			event.preventDefault();
-			form.current?.requestSubmit();
+			submit();
 		}
 	}
 
@@ -138,6 +149,11 @@ export function QuestionCard({ card, onAnswer, takeFocus }: QuestionCardProps) {
 					>
 						{count === 1 ? "Send answer" : "Send answers"}
 					</Button>
+					{waiting > 0 ? (
+						<p className="pk-chat-card-waiting" data-testid="chat-cards-waiting">
+							{waitingText(waiting)}
+						</p>
+					) : null}
 				</div>
 			</form>
 		</section>
@@ -155,9 +171,16 @@ function QuestionFields({
 }) {
 	const id = useId();
 	const name = `${id}-pick`;
+	const otherField = useRef<HTMLInputElement | null>(null);
+	const notesField = useRef<HTMLTextAreaElement | null>(null);
 	const [focused, setFocused] = useState<string | null>(null);
+	const [noting, setNoting] = useState(false);
+
+	// "Add a note" goes away with its own click, so the new field takes the keyboard.
+	useEffect(() => {
+		if (noting) notesField.current?.focus();
+	}, [noting]);
 	const single = !question.multiSelect;
-	const otherChosen = single && draft.picked.length === 0 && draft.other !== "";
 	const withPreview = question.options.filter((option) => option.preview !== undefined);
 	const shown =
 		withPreview.find((option) => option.label === focused) ??
@@ -165,7 +188,7 @@ function QuestionFields({
 		withPreview[0];
 
 	function toggle(label: string, on: boolean) {
-		if (single) onChange({ picked: [label] });
+		if (single) onChange({ picked: [label], otherPicked: false });
 		else
 			onChange({
 				picked: on
@@ -196,39 +219,62 @@ function QuestionFields({
 			</p>
 			<div className={`pk-chat-question-body${shown ? " has-preview" : ""}`}>
 				<ul className="pk-chat-options">
-					{question.options.map((option) => (
-						<li
-							key={option.label}
-							onFocus={() => setFocused(option.label)}
-							onMouseEnter={() =>
-								option.preview !== undefined && setFocused(option.label)
-							}
-						>
-							{single ? (
-								<Radio
-									name={name}
-									label={option.label}
-									description={option.description}
-									checked={draft.picked[0] === option.label}
-									onChange={() => toggle(option.label, true)}
-								/>
-							) : (
-								<Checkbox
-									label={option.label}
-									description={option.description || undefined}
-									checked={draft.picked.includes(option.label)}
-									onChange={(event) => toggle(option.label, event.target.checked)}
-								/>
-							)}
-						</li>
-					))}
+					{question.options.map((option, at) => {
+						const previewId =
+							option.preview !== undefined ? `${id}-preview-${at}` : undefined;
+						return (
+							<li
+								key={option.label}
+								onFocus={() => setFocused(option.label)}
+								onMouseEnter={() =>
+									option.preview !== undefined && setFocused(option.label)
+								}
+							>
+								{single ? (
+									<Radio
+										name={name}
+										label={option.label}
+										description={option.description}
+										describedBy={previewId}
+										checked={!draft.otherPicked && draft.picked[0] === option.label}
+										onChange={() => toggle(option.label, true)}
+									/>
+								) : (
+									<Checkbox
+										label={option.label}
+										description={
+											option.preview !== undefined ? (
+												<>
+													{option.description}
+													<span className="sr-only">{` Preview: ${option.preview}`}</span>
+												</>
+											) : (
+												option.description || undefined
+											)
+										}
+										checked={draft.picked.includes(option.label)}
+										onChange={(event) => toggle(option.label, event.target.checked)}
+									/>
+								)}
+								{/* The preview read with its option, which the panel beside the list shows to the eye. */}
+								{single && previewId ? (
+									<span id={previewId} hidden={true}>
+										{`Preview: ${option.preview}`}
+									</span>
+								) : null}
+							</li>
+						);
+					})}
 					<li className="pk-chat-other">
 						{single ? (
 							<Radio
 								name={name}
 								label="Other"
-								checked={otherChosen}
-								onChange={() => onChange({ picked: [] })}
+								checked={draft.otherPicked}
+								onChange={() => {
+									onChange({ picked: [], otherPicked: true });
+									otherField.current?.focus();
+								}}
 							/>
 						) : null}
 						<label
@@ -238,6 +284,7 @@ function QuestionFields({
 							{single ? "Your own answer" : "Other"}
 						</label>
 						<input
+							ref={otherField}
 							id={`${id}-other`}
 							className="pk-chat-input pk-focus-ring"
 							type="text"
@@ -247,7 +294,7 @@ function QuestionFields({
 							onChange={(event) =>
 								onChange(
 									single && event.target.value !== ""
-										? { other: event.target.value, picked: [] }
+										? { other: event.target.value, picked: [], otherPicked: true }
 										: { other: event.target.value },
 								)
 							}
@@ -270,36 +317,61 @@ function QuestionFields({
 					</figure>
 				) : null}
 			</div>
-			<label className="pk-chat-field-label" htmlFor={`${id}-notes`}>
-				Notes <span className="pk-chat-muted">(optional)</span>
-			</label>
-			<textarea
-				id={`${id}-notes`}
-				className="pk-chat-input pk-chat-notes pk-focus-ring"
-				rows={2}
-				value={draft.notes}
-				data-testid="chat-question-notes"
-				onChange={(event) => onChange({ notes: event.target.value })}
-			/>
+			{noting || draft.notes !== "" ? (
+				<div className="pk-chat-note">
+					<label className="pk-chat-field-label" htmlFor={`${id}-notes`}>
+						Notes <span className="pk-chat-muted">(optional)</span>
+					</label>
+					<textarea
+						ref={notesField}
+						id={`${id}-notes`}
+						className="pk-chat-input pk-chat-notes pk-focus-ring"
+						rows={2}
+						value={draft.notes}
+						aria-describedby={`${id}-notes-hint`}
+						data-testid="chat-question-notes"
+						onChange={(event) => onChange({ notes: event.target.value })}
+					/>
+					<p id={`${id}-notes-hint`} className="pk-chat-hint">
+						Enter adds a line. Ctrl+Enter or the Send button sends.
+					</p>
+				</div>
+			) : (
+				<Button
+					variant="quiet"
+					size="sm"
+					className="pk-chat-add-note"
+					data-testid="chat-question-add-note"
+					onClick={() => setNoting(true)}
+				>
+					<Icon name="plus" size="sm" />
+					Add a note
+				</Button>
+			)}
 		</fieldset>
 	);
 }
 
-/** A native radio laid out like the Checkbox primitive, label over description. */
+/** A native radio laid out like the Checkbox primitive, label beside description. */
 function Radio({
 	name,
 	label,
 	description,
+	describedBy,
 	checked,
 	onChange,
 }: {
 	name: string;
 	label: string;
 	description?: string;
+	describedBy?: string;
 	checked: boolean;
 	onChange: () => void;
 }) {
 	const id = useId();
+	const described = [description ? `${id}-description` : null, describedBy ?? null]
+		.filter((part) => part !== null)
+		.join(" ");
 	return (
 		<label className="pk-chat-radio">
 			<input
@@ -309,11 +381,13 @@ function Radio({
 				checked={checked}
 				// The description describes the option; it is not part of its name.
 				aria-labelledby={`${id}-label`}
-				aria-describedby={description ? `${id}-description` : undefined}
+				aria-describedby={described || undefined}
 				onChange={onChange}
 			/>
-			<span className="pk-checkbox-copy">
-				<span id={`${id}-label`}>{label}</span>
+			<span className="pk-chat-option-copy">
+				<span id={`${id}-label`} className="pk-chat-option-label">
+					{label}
+				</span>
 				{description ? (
 					<span id={`${id}-description`} className="pk-chat-muted">
 						{description}

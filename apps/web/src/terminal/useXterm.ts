@@ -15,6 +15,7 @@ import { type MutableRefObject, type RefObject, useEffect, useRef } from "react"
 import { wrappedUrlsOnRow } from "../links.js";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
+import { isLeaveShortcut } from "./leaveShortcut.js";
 import { decide } from "./terminalClipboard.js";
 
 /** Quiet time after the pane's last size change before the size is sent. */
@@ -137,16 +138,6 @@ export function pastedImageType(types: readonly string[]): string | null {
 	if (types.length === 0) return null;
 	if (!types.every((type) => PASTE_IMAGE_TYPES.includes(type))) return null;
 	return types[0] ?? null;
-}
-
-/** Alt+Shift+Q leaves the terminal. */
-function isLeaveShortcut(event: KeyboardEvent): boolean {
-	return (
-		event.type === "keydown" &&
-		event.altKey &&
-		event.shiftKey &&
-		event.key.toLowerCase() === "q"
-	);
 }
 
 /** F8 alone: the page's key for reaching a toast, so the shell never sees it. */
