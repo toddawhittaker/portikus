@@ -430,8 +430,16 @@ describe("messages and controls", () => {
 		await vi.waitFor(() => expect(ofType(a, "snapshot")).toHaveLength(1));
 		expect(ofType(a, "snapshot")[0]).toMatchObject({
 			turnRunning: true,
-			messages: [{ id: "msg_1", role: "assistant", markdown: "Work" }],
+			messages: [],
 		});
+		// After the replay, the partial reply arrives as one delta.
+		await vi.waitFor(() =>
+			expect(ofType(a, "text.delta")).toEqual([
+				expect.objectContaining({ messageId: "msg_1", text: "Work" }),
+			]),
+		);
+		const types = a.events.map((event) => event.type);
+		expect(types.indexOf("text.delta")).toBeGreaterThan(types.indexOf("message"));
 		// The running turn is replayed without its finish.
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		expect(ofType(a, "turn.finished")).toHaveLength(0);

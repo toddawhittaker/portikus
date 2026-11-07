@@ -361,12 +361,16 @@ export class ChatHost {
 			cards: [...this.cards.values()].map((open) => open.card),
 			turnRunning: this.turnRunning,
 			truncated: replay.truncated,
-			streaming: partial
-				? { id: partial.id, role: "assistant", markdown: partial.text }
-				: null,
 		});
 		writeLine(socket, JSON.stringify(snapshot));
 		for (const event of replay.events) writeLine(socket, this.frame(event));
+		// The reply streaming now, as one delta that later deltas append to.
+		if (partial) {
+			writeLine(
+				socket,
+				this.frame({ type: "text.delta", messageId: partial.id, text: partial.text }),
+			);
+		}
 		const held = client.held ?? [];
 		client.held = null;
 		for (const line of held) writeLine(socket, line);

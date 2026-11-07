@@ -1,6 +1,5 @@
 import type { SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
-	type ChatMessage,
 	type ChatOpenCard,
 	type ChatServerEvent,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -92,7 +91,7 @@ export function replayHistory(
 
 /**
  * The snapshot sent first on every attach (SPEC.md §10.8). History follows
- * it as replayed events, so its messages hold only the reply streaming now.
+ * it as replayed events, so its messages are always empty.
  */
 export function buildSnapshot(input: {
 	sessionId: string;
@@ -100,13 +99,12 @@ export function buildSnapshot(input: {
 	cards: readonly ChatOpenCard[];
 	turnRunning: boolean;
 	truncated: boolean;
-	streaming: ChatMessage | null;
 }): Extract<ChatServerEvent, { type: "snapshot" }> {
 	return {
 		type: "snapshot",
 		sessionId: input.sessionId,
 		seq: input.seq,
-		messages: input.streaming ? [input.streaming] : [],
+		messages: [],
 		cards: [...input.cards],
 		turnRunning: input.turnRunning,
 		truncated: input.truncated,

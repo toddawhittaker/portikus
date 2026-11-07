@@ -124,30 +124,19 @@ describe("history replay", () => {
 });
 
 describe("snapshot", () => {
-	test("holds cards, the turn state, truncated, and only the reply streaming now", () => {
+	test("holds cards, the turn state and truncated, and never messages", () => {
 		const snapshot = buildSnapshot({
 			sessionId: SESSION,
 			seq: 4,
 			cards: [],
 			turnRunning: true,
 			truncated: true,
-			streaming: { id: "m1", role: "assistant", markdown: "Wor" },
 		});
 		expect(snapshot).toMatchObject({
-			messages: [{ id: "m1", markdown: "Wor" }],
+			messages: [],
 			turnRunning: true,
 			truncated: true,
 		});
 		expect(ChatServerEvent.safeParse(snapshot).success).toBe(true);
-		expect(
-			buildSnapshot({
-				sessionId: SESSION,
-				seq: 0,
-				cards: [],
-				turnRunning: false,
-				truncated: false,
-				streaming: null,
-			}).messages,
-		).toEqual([]);
 	});
 });

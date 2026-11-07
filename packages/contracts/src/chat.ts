@@ -158,13 +158,14 @@ const Envelope = {
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	/**
 	 * Sent first on every attach. It holds the open cards, whether a turn is
-	 * running, and in `messages` only the reply streaming now (else empty).
+	 * running; `messages` is always empty.
 	 * History follows it as ordinary events, one frame each with rising
 	 * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
 	 * `turn.finished` (left out for a turn still running). At most the last
 	 * 20 turns are replayed, and `truncated` says older turns exist. Tool
 	 * images older than the last 5 turns, or too large for one frame, are
-	 * replayed as `imageOmitted`. Live events follow the replay.
+	 * replayed as `imageOmitted`. A reply streaming now follows as one
+	 * `text.delta` holding its text so far; live events come after.
 	 */
 	z.object({
 		type: z.literal("snapshot"),
