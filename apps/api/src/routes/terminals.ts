@@ -227,8 +227,7 @@ function createFailed(reply: FastifyReply, error: unknown) {
 async function createRefs(
 	db: Kysely<Database>,
 	workspaceId: string,
-	// TEMP-FA: type this as CreateTerminalRequest once the contract has the field.
-	body: { projectId?: string; resumeChatOf?: string },
+	body: CreateTerminalRequest,
 	rows: Array<{ id: string; kind: string; ended_at: unknown }>,
 ): Promise<
 	| { ok: true; project: TerminalProject | null }
@@ -398,8 +397,7 @@ export function registerTerminalRoutes(
 		const refs = await createRefs(db, params.id, body.data, rows);
 		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
 		const { project } = refs;
-		// TEMP-FA: drop the cast once the contract has the field.
-		const resumeChatOf = (body.data as { resumeChatOf?: string }).resumeChatOf;
+		const resumeChatOf = body.data.resumeChatOf;
 
 		const id = crypto.randomUUID();
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
@@ -462,7 +460,7 @@ export function registerTerminalRoutes(
 				...launcherFields(body.data.agent),
 				...(body.data.kind === "chat" ? { kind: "chat" as const } : {}),
 				...(resumeChatOf && { resumeChatOf }),
-			} as Parameters<typeof agent.createTerminal>[0]);
+			});
 			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
 			baselineHead = gitObjectOrNull(created.baselineHead);
 		} catch (error) {

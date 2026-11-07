@@ -349,11 +349,12 @@ async function endedTerminal(
 	const made = await create(jar, id, payload);
 	expect(made.statusCode).toBe(201);
 	const terminalId = made.json().id as string;
-	await app.inject({
-		method: "DELETE",
-		url: `/workspaces/${id}/terminals/${terminalId}`,
-		headers: csrfHeaders(jar, PUBLIC_URL),
-	});
+	// The platform ends a terminal by marking the row; closing one deletes it.
+	await testDb.db
+		.updateTable("terminals")
+		.set({ ended_at: new Date().toISOString() })
+		.where("id", "=", terminalId)
+		.execute();
 	return terminalId;
 }
 

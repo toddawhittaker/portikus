@@ -280,8 +280,6 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			});
 			emit(id, [socket], {
 				type: "snapshot",
-				// Dropped by the contract once it no longer has this field.
-				messages: [],
 				cards: chat.openCards,
 				turnRunning: false,
 				truncated: false,
