@@ -1,16 +1,22 @@
 import { readFileSync } from "node:fs";
 import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
-import { ChatServerEvent, MAX_CHAT_IMAGE_BYTES } from "@portikus/contracts";
+import {
+	ChatServerEvent,
+	MAX_CHAT_IMAGE_BYTES,
+	MAX_CHAT_SERVER_FRAME_BYTES,
+} from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
 import {
 	type ChatEventBody,
 	ClaudeMessageMapper,
 	cardForTool,
 	imagePart,
+	MAX_CARD_INPUT_BYTES,
 	mergeRateLimits,
 	PERMISSION_OPTION,
 	permissionResult,
 	questionResult,
+	shortenedInput,
 	toolResultParts,
 } from "./claude-adapter.js";
 
@@ -166,6 +172,34 @@ const multi = {
 };
 
 describe("cards", () => {
+	test("a card for a huge input fits a frame, shortened visibly, and the tool keeps the full input", () => {
+		const content = "x".repeat(12 * 1024 * 1024);
+		const input = { file_path: "big.txt", content };
+		const card = cardForTool("Write", input, { toolUseID: "toolu_big" });
+		const frame = JSON.stringify({
+			...card,
+			type: "permission.requested",
+			sessionId: "5d0f4a7e-0a51-4b8e-9d0e-6c3f1b2a9e10",
+			seq: 1,
+		});
+		expect(Buffer.byteLength(frame)).toBeLessThanOrEqual(MAX_CARD_INPUT_BYTES + 1024);
+		expect(Buffer.byteLength(frame)).toBeLessThan(MAX_CHAT_SERVER_FRAME_BYTES);
+		const shown = card.type === "permission" ? (card.input as typeof input) : null;
+		expect(shown?.file_path).toBe("big.txt");
+		expect(shown?.content.endsWith("… (shortened)")).toBe(true);
+		expect(
+			permissionResult(PERMISSION_OPTION.allowOnce, input, { toolUseID: "t" }),
+		).toEqual({ behavior: "allow", updatedInput: input });
+	});
+
+	test("a small input is shown whole, and many short strings still fit", () => {
+		expect(shortenedInput({ command: "ls" })).toEqual({ command: "ls" });
+		const many = { items: Array.from({ length: 2000 }, () => "y".repeat(200)) };
+		expect(
+			Buffer.byteLength(JSON.stringify(shortenedInput(many, 64 * 1024))),
+		).toBeLessThanOrEqual(64 * 1024);
+	});
+
 	test("AskUserQuestion becomes a question card keyed by the tool call", () => {
 		expect(
 			cardForTool("AskUserQuestion", { questions: [question] }, { toolUseID: "t1" }),

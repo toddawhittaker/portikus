@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CHAT_IMAGE_BYTES } from "@portikus/contracts";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { userContent } from "./attachments.js";
+import { splitAttachmentLines, userContent } from "./attachments.js";
 
 const PNG = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg==",
@@ -43,7 +43,10 @@ describe("send attachments", () => {
 			{ path: "notes.txt" },
 		]);
 		expect(content).toEqual([
-			{ type: "text", text: "look\n\nAttached file: notes.txt" },
+			{
+				type: "text",
+				text: "look\n\nAttached file: .portikus/pastes/1/red.png\n\nAttached file: notes.txt",
+			},
 			{
 				type: "image",
 				source: {
@@ -95,6 +98,30 @@ describe("send attachments", () => {
 			content.map((block) =>
 				block.type === "image" ? block.source.media_type : block.type,
 			),
-		).toEqual(["image/jpeg", "image/gif", "image/webp"]);
+		).toEqual(["text", "image/jpeg", "image/gif", "image/webp"]);
+	});
+});
+
+describe("attachment lines on replay", () => {
+	test("the lines a send wrote split back into the typed text and the paths", async () => {
+		const [block] = await userContent(home, project, "look\n\nhere", [
+			{ path: ".portikus/pastes/1/red.png" },
+			{ path: "notes.txt" },
+		]);
+		expect(splitAttachmentLines((block as { text: string }).text)).toEqual({
+			text: "look\n\nhere",
+			attachments: [{ path: ".portikus/pastes/1/red.png" }, { path: "notes.txt" }],
+		});
+	});
+
+	test("files with no text leave the text empty", () => {
+		expect(splitAttachmentLines("Attached file: a.png")).toEqual({
+			text: "",
+			attachments: [{ path: "a.png" }],
+		});
+	});
+
+	test("text without attachment lines is unchanged", () => {
+		expect(splitAttachmentLines("plain")).toEqual({ text: "plain", attachments: [] });
 	});
 });

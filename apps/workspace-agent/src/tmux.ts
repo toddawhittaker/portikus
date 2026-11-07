@@ -280,13 +280,15 @@ const CHAT_HOST_ENTRY = fileURLToPath(new URL("./chat/main.js", import.meta.url)
 
 /**
  * The command of a chat tab's tmux session: the chat host on the agent's
- * own Node, in place of the CLI (SPEC.md §10.2, §10.8).
+ * own Node, in place of the CLI (SPEC.md §10.2, §10.8). `resumeChatOf`
+ * names the ended chat whose Claude session this one continues.
  */
-export function chatHostCommand(id: string): string[] {
-	if (!TerminalId.safeParse(id).success) {
+export function chatHostCommand(id: string, resumeChatOf?: string): string[] {
+	const ids = resumeChatOf === undefined ? [id] : [id, resumeChatOf];
+	if (!ids.every((each) => TerminalId.safeParse(each).success)) {
 		throw new AgentFailure("TERMINAL_NOT_FOUND", "invalid terminal id");
 	}
-	return [process.execPath, CHAT_HOST_ENTRY, id];
+	return [process.execPath, CHAT_HOST_ENTRY, ...ids];
 }
 
 export interface SessionBaseline {

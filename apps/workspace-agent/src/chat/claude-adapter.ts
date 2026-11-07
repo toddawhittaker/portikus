@@ -10,8 +10,10 @@ import {
 	ChatQuestion,
 	type ChatServerEvent,
 	type ChatToolOutputPart,
+	decodedBase64Bytes,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_QUESTIONS,
+	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { z } from "zod";
 
@@ -42,12 +44,6 @@ function stringOf(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
-/** Decoded size of base64 data, without decoding it. */
-function base64Bytes(data: string): number {
-	const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-	return Math.floor((data.length * 3) / 4) - padding;
-}
-
 /** One image block as a tool output part; anything SVG or unknown is text. */
 export function imagePart(block: Block): ChatToolOutputPart {
 	const source = (block.source ?? {}) as Block;
@@ -56,7 +52,7 @@ export function imagePart(block: Block): ChatToolOutputPart {
 	if (!mediaType.success || source.type !== "base64" || data === undefined) {
 		return { type: "text", text: "[image in a format the chat does not show]" };
 	}
-	if (base64Bytes(data) > MAX_CHAT_IMAGE_BYTES) {
+	if (decodedBase64Bytes(data) > MAX_CHAT_IMAGE_BYTES) {
 		return { type: "imageOmitted", mediaType: mediaType.data };
 	}
 	return { type: "image", mediaType: mediaType.data, data };
@@ -124,8 +120,6 @@ export class ClaudeMessageMapper {
 				return this.assistant(message.message as unknown as Block);
 			case "user":
 				return this.toolResults(message.message.content);
-			case "result":
-				return [];
 			default:
 				return [];
 		}
@@ -233,6 +227,43 @@ export function mergeRateLimits(
 	return next;
 }
 
+/**
+ * Most bytes a card's input may take, so a snapshot holding many open
+ * cards still fits one server frame.
+ */
+export const MAX_CARD_INPUT_BYTES = MAX_CHAT_SERVER_FRAME_BYTES / 32;
+const SHORTENED = "… (shortened)";
+
+function jsonBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function shortenStrings(value: Json, limit: number): Json {
+	if (typeof value === "string") {
+		return value.length > limit ? `${value.slice(0, limit)}${SHORTENED}` : value;
+	}
+	if (Array.isArray(value)) return value.map((item) => shortenStrings(item, limit));
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, item]) => [key, shortenStrings(item, limit)]),
+	);
+}
+
+/**
+ * A card's input for display, its long strings cut, with a visible marker,
+ * until it fits MAX_CARD_INPUT_BYTES. The tool still runs on the full input.
+ */
+export function shortenedInput(input: unknown, maxBytes = MAX_CARD_INPUT_BYTES): Json {
+	const full = asJson(input);
+	let limit = Math.floor(maxBytes / 2);
+	let shown = full;
+	while (jsonBytes(shown) > maxBytes && limit >= 1) {
+		shown = shortenStrings(full, limit);
+		limit = Math.floor(limit / 2);
+	}
+	return shown;
+}
+
 /** The ids the permission card's buttons carry. */
 export const PERMISSION_OPTION = {
 	allowOnce: "allow",
@@ -274,7 +305,7 @@ export function cardForTool(
 			id: ask.toolUseID,
 			toolName,
 			title: "Claude has a plan. Start working on it?",
-			input: asJson(input),
+			input: shortenedInput(input),
 			options: [
 				{ id: PERMISSION_OPTION.allowOnce, label: "Yes, go ahead" },
 				{ id: PERMISSION_OPTION.deny, label: "No, keep planning" },
@@ -293,7 +324,7 @@ export function cardForTool(
 		id: ask.toolUseID,
 		toolName,
 		title: ask.title ?? `Allow ${toolName}?`,
-		input: asJson(input),
+		input: shortenedInput(input),
 		options,
 	};
 }
