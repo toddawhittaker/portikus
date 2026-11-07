@@ -43,7 +43,9 @@ async function openAgentAndShell(page: Page, workspaceId: string, projectId: str
 	await setAgents(workspaceId, [
 		{ terminalId: agent, agent: "claude", state: "working" },
 	]);
-	await expect(page.getByRole("tab", { name: "Claude Code (working)" })).toBeVisible();
+	await expect(
+		page.getByRole("tab", { name: "Claude Code (TUI) (working)" }),
+	).toBeVisible();
 	return { agent, shell };
 }
 
@@ -69,20 +71,20 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 			await setAgents(student.workspaceId, [{ ...base, state: "working" }]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (working)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (working)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code")).toHaveCount(0);
 
 			// The shell is on screen, so the agent tab is out of sight.
 			await setAgents(student.workspaceId, [{ ...base, state: "needs-input" }]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input, unread)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (needs input, unread)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code needs your input")).toBeVisible();
 
 			await setAgents(student.workspaceId, [{ ...base, state: "finished" }]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (finished, unread)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (finished, unread)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code finished")).toBeVisible();
 			// The three states use three different glyphs.
@@ -103,7 +105,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// A change in the tab being viewed raises no alert.
 			await setAgents(student.workspaceId, [{ ...base, state: "needs-input" }]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (needs input)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code needs your input")).toHaveCount(0);
 		});
@@ -118,7 +120,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 				{ terminalId: agent, agent: "claude", state: "needs-input" },
 			]);
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input, unread)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (needs input, unread)" }),
 			).toBeVisible();
 			await expect(toast(page, "Claude Code needs your input")).toBeVisible();
 
@@ -128,7 +130,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 				timeout: 15_000,
 			});
 			await expect(
-				page.getByRole("tab", { name: "Claude Code (needs input)" }),
+				page.getByRole("tab", { name: "Claude Code (TUI) (needs input)" }),
 			).toBeVisible();
 			await expect(page.locator(".pk-toast")).toHaveCount(0);
 		});
