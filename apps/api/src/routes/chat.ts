@@ -52,7 +52,27 @@ export function registerChatSocket(
 			websocket: true,
 			// A HEAD twin would reach the socket handler and crash.
 			exposeHeadRoute: false,
-			preHandler: [workspaceUpgradeGuard(db, config, { ownerOnly: true })],
+			preHandler: [
+				workspaceUpgradeGuard(db, config, { ownerOnly: true }),
+				// A wrong terminal is refused before the upgrade, like the other sockets.
+				async (request, reply) => {
+					const params = TerminalParam.safeParse(request.params);
+					const terminal = params.success
+						? await db
+								.selectFrom("terminals")
+								.select("kind")
+								.where("id", "=", params.data.tid)
+								.where("workspace_id", "=", params.data.id)
+								.where("ended_at", "is", null)
+								.executeTakeFirst()
+						: undefined;
+					if (terminal?.kind !== "chat") {
+						return reply
+							.status(404)
+							.send({ code: "TERMINAL_NOT_FOUND", message: "Terminal not found" });
+					}
+				},
+			],
 		},
 		async (socket: WebSocket, request: FastifyRequest) => {
 			// Hold incoming frames until the pipe's listeners are attached.
@@ -66,19 +86,6 @@ export function registerChatSocket(
 				return;
 			}
 			const { id: workspaceId, tid: terminalId } = params.data;
-
-			const terminal = await db
-				.selectFrom("terminals")
-				.select("kind")
-				.where("id", "=", terminalId)
-				.where("workspace_id", "=", workspaceId)
-				.where("ended_at", "is", null)
-				.executeTakeFirst();
-			if (terminal?.kind !== "chat") {
-				socket.close(CloseCode.NOT_FOUND, "chat not found");
-				socket.resume();
-				return;
-			}
 
 			// The guard is owner-only, so the owner is the user on this socket.
 			const userId = workspace.owner_user_id;

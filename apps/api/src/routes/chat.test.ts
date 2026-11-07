@@ -217,7 +217,7 @@ test.skipIf(skip)("only the owner may open the socket", async () => {
 });
 
 test.skipIf(skip)(
-	"a terminal, another workspace's chat, or a missing id closes 4404",
+	"a terminal, another workspace's chat, or a missing id is a 404 before the upgrade",
 	async () => {
 		const bobChat = await createChat(app, world.b);
 		for (const target of [
@@ -225,9 +225,9 @@ test.skipIf(skip)(
 			path(bobChat),
 			path("00000000-0000-4000-8000-000000000000"),
 		]) {
-			const socket = await open(target);
-			expect((await socket.closed).code).toBe(4404);
+			await expect(open(target)).rejects.toMatchObject({ status: 404 });
 		}
+		expect(agent.requests.filter((one) => one.url.endsWith("/chat"))).toEqual([]);
 	},
 );
 
