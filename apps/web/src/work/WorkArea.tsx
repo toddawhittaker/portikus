@@ -45,7 +45,7 @@ import {
 	useAgentStatusStore,
 } from "../terminal/codingAgentStatus.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
-import { useTerminals } from "../terminal/useTerminals.js";
+import { type Terminals, useTerminals } from "../terminal/useTerminals.js";
 import { dropTreeFiles, type MoveIntoTarget } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TreeFileDrop } from "./TreeFileDrop.js";
@@ -208,7 +208,7 @@ export function WorkArea({
 	// sees a terminal that has no pane yet and gives it a tab of its own.
 	async function createAndPlace(
 		place: (created: Terminal) => void,
-		init?: { agent?: CodingAgent },
+		init?: Parameters<Terminals["create"]>[0],
 	) {
 		let created: Terminal | null;
 		try {
@@ -233,6 +233,10 @@ export function WorkArea({
 
 	async function openAgent(agent: CodingAgent) {
 		await createAndPlace(placeFocusedTab, { agent });
+	}
+
+	async function openChat() {
+		await createAndPlace(placeFocusedTab, { kind: "chat", agent: "claude" });
 	}
 
 	async function split(terminalId: string, direction: SplitDirection) {
@@ -487,7 +491,16 @@ export function WorkArea({
 													void openAgent("claude");
 												}}
 											>
-												<span data-testid="launcher-claude">Claude Code</span>
+												<span data-testid="launcher-claude">Claude Code (TUI)</span>
+											</MenuItem>
+											<MenuItem
+												icon="agent"
+												onSelect={() => {
+													launcherMenu.declineTriggerFocus();
+													void openChat();
+												}}
+											>
+												<span data-testid="launcher-claude-gui">Claude Code (GUI)</span>
 											</MenuItem>
 											<MenuItem
 												icon="agent"

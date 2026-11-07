@@ -1,4 +1,6 @@
 import { CloseCode } from "@portikus/contracts";
+import { ToastProvider } from "@portikus/ui";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -15,6 +17,7 @@ import { ChatView } from "./ChatView";
 vi.mock("../api/sessionEnded.js", () => ({ sessionEnded: vi.fn() }));
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
+const PROJECT = "33333333-3333-4333-8333-333333333333";
 const TERMINAL = "11111111-1111-4111-8111-111111111111";
 
 class FakeSocket {
@@ -87,8 +90,24 @@ afterEach(() => {
 });
 
 function draw() {
-	render(<ChatView workspaceId={WORKSPACE} terminalId={TERMINAL} visible={true} />);
+	const view = render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+		>
+			<ToastProvider>
+				<ChatView
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					terminalId={TERMINAL}
+					visible={true}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	// The socket opens on the next timer turn.
+	act(() => vi.advanceTimersByTime(0));
 	open();
+	return view;
 }
 
 test("it connects to the tab's chat socket and shows a skeleton until the snapshot", () => {
@@ -177,7 +196,7 @@ test("a question card is pinned, announced, answered, and cleared on card.resolv
 	emit("card.resolved", { id: "q1" });
 	expect(screen.queryByTestId("chat-question-card")).toBeNull();
 	// The answered card took the focus with it; it goes to the composer.
-	expect(document.activeElement).toBe(screen.getByTestId("chat-placeholder-input"));
+	expect(document.activeElement).toBe(screen.getByTestId("chat-composer-input"));
 });
 
 test("a card resolved elsewhere goes, and the next waiting card shows", () => {
@@ -203,10 +222,10 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 	]);
 });
 
-test("the placeholder composer sends what was typed", () => {
+test("the composer sends what was typed", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-placeholder-input");
+	const box = screen.getByTestId("chat-composer-input");
 	fireEvent.change(box, { target: { value: "Add a test" } });
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([
@@ -255,9 +274,7 @@ test("a tab that is not a chat says so, and a signed-out session hands over", ()
 });
 
 test("unmounting closes the socket", () => {
-	const view = render(
-		<ChatView workspaceId={WORKSPACE} terminalId={TERMINAL} visible={true} />,
-	);
+	const view = draw();
 	const socket = latest();
 	view.unmount();
 	expect(socket.closed).toBe(true);
@@ -312,7 +329,7 @@ test("an answer or message on a closed socket says it was not sent", () => {
 	expect(screen.getByTestId("chat-permission-card").textContent).toContain(
 		"Your answer was not sent",
 	);
-	const box = screen.getByTestId("chat-placeholder-input");
+	const box = screen.getByTestId("chat-composer-input");
 	fireEvent.change(box, { target: { value: "hello" } });
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(screen.getByText(/Your message was not sent/)).toBeTruthy();
@@ -330,4 +347,25 @@ test("scrolling up stops the view following new text", () => {
 	fireEvent.scroll(box);
 	emit("message", { id: "a1", role: "assistant", markdown: "new" });
 	expect(box.scrollTop).toBe(100);
+});
+
+test("a view unmounted before its first timer turn never opens a socket", () => {
+	const view = draw();
+	view.unmount();
+	FakeSocket.all = [];
+	const again = render(
+		<QueryClientProvider client={new QueryClient()}>
+			<ToastProvider>
+				<ChatView
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					terminalId={TERMINAL}
+					visible={true}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	again.unmount();
+	act(() => vi.advanceTimersByTime(10));
+	expect(FakeSocket.all).toHaveLength(0);
 });

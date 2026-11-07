@@ -322,8 +322,8 @@ details[open] > summary > .pk-chat-chevron {
 
 /* Cards wait here, pinned above the composer, so they never scroll away. */
 .pk-chat-cards {
-	flex: none;
-	max-block-size: 60%;
+	flex: 0 1 auto;
+	max-block-size: 45%;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
@@ -502,23 +502,9 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-composer {
-	flex: none;
+	/* Scrolls rather than clips when the pane is very short. */
+	flex: 0 1 auto;
+	overflow-y: auto;
 	padding: var(--space-3) var(--pk-chat-gutter);
 	border-block-start: 1px solid var(--line);
-}
-
-.pk-chat-placeholder {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: flex-end;
-	gap: var(--space-2);
-}
-
-.pk-chat-placeholder .pk-chat-input {
-	flex: 1 1 12rem;
-	resize: vertical;
-}
-
-.pk-chat-placeholder .pk-chat-card-error {
-	flex-basis: 100%;
 }

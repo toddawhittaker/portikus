@@ -1,0 +1,134 @@
+/* One bordered box: files, text, then the controls along the bottom edge. */
+.pk-composer {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-inline-size: 0;
+	padding: var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+}
+
+.pk-composer:has(.pk-composer-text:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
+.pk-composer.is-dragging {
+	outline: 2px dashed var(--accent);
+	outline-offset: 2px;
+}
+
+.pk-composer-text {
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-block-size: calc(var(--pk-control) - var(--space-2));
+	max-block-size: 40vh;
+	padding: var(--space-1);
+	border: 0;
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	resize: none;
+	overflow-y: auto;
+}
+
+.pk-composer-text:focus {
+	outline: none;
+}
+
+.pk-composer-text::placeholder {
+	color: var(--ink-faint);
+}
+
+.pk-composer-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.pk-composer-tools {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.pk-composer-picks {
+	display: flex;
+	flex: 1 1 auto;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.pk-composer-pick {
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	block-size: var(--size-control-sm);
+	padding-inline: var(--space-1);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: 13px;
+}
+
+.pk-composer-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-composer-chip {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	padding-inline-start: var(--space-1);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	font-size: 13px;
+}
+
+.pk-composer-thumb {
+	inline-size: 28px;
+	block-size: 28px;
+	border-radius: var(--radius-sm);
+	object-fit: cover;
+}
+
+.pk-composer-chip-name {
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pk-composer-note {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 13px;
+	overflow-wrap: anywhere;
+}
+
+/* In a narrow pane the pickers take a row of their own, so Send stays beside the tools. */
+@container pk-chat (max-width: 34rem) {
+	.pk-composer-bar {
+		justify-content: space-between;
+	}
+
+	.pk-composer-picks {
+		order: 1;
+		flex-basis: 100%;
+	}
+}

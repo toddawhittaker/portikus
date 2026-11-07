@@ -60,6 +60,36 @@ test("a created terminal is in the cached list before any refetch", async () => 
 	expect(cached?.terminals.map((terminal) => terminal.id)).toEqual([created.id]);
 });
 
+test("a chat launch posts kind chat with agent claude", async () => {
+	const posted: unknown[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (_input: string, init?: RequestInit) => {
+			if (init?.method === "POST") {
+				posted.push(JSON.parse(String(init.body)));
+				return { status: 201, ok: true, json: async () => created } as Response;
+			}
+			return {
+				status: 200,
+				ok: true,
+				json: async () => ({ terminals: [] }),
+			} as Response;
+		}),
+	);
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	const wrapper = ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>{children}</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { result } = renderHook(() => useTerminals(WORKSPACE, PROJECT, true), {
+		wrapper,
+	});
+	await waitFor(() => expect(result.current.loaded).toBe(true));
+	await result.current.create({ kind: "chat", agent: "claude" });
+	expect(posted).toEqual([{ projectId: PROJECT, kind: "chat", agent: "claude" }]);
+});
+
 // The limit is named, anything else stays generic.
 test("TERMINAL_LIMIT names the limit and other failures stay generic", () => {
 	expect(terminalFailureMessage(new ApiError(409, "at most", "TERMINAL_LIMIT"))).toBe(

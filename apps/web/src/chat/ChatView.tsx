@@ -8,16 +8,17 @@ import type { ChatOpenCard } from "@portikus/contracts";
 import { Skeleton } from "@portikus/ui";
 import { useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
+import { Composer } from "./Composer.js";
 import type { ChatState } from "./chatStore.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
-import { PlaceholderComposer } from "./PlaceholderComposer.js";
 import { QuestionCard } from "./QuestionCard.js";
 import { useChatSession } from "./useChatSession.js";
 import "./chat.css";
 
 export interface ChatViewProps {
 	workspaceId: string;
+	projectId: string;
 	terminalId: string;
 	visible: boolean;
 }
@@ -55,7 +56,12 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-export function ChatView({ workspaceId, terminalId, visible }: ChatViewProps) {
+export function ChatView({
+	workspaceId,
+	projectId,
+	terminalId,
+	visible,
+}: ChatViewProps) {
 	const store = useChatSession(workspaceId, terminalId);
 	const state = useStore(store);
 	const root = useRef<HTMLDivElement | null>(null);
@@ -170,9 +176,13 @@ export function ChatView({ workspaceId, terminalId, visible }: ChatViewProps) {
 					) : null}
 				</div>
 			) : null}
-			{/* The composer mounts here. */}
 			<div className="pk-chat-composer">
-				<PlaceholderComposer store={store} />
+				<Composer
+					store={store}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					terminalId={terminalId}
+				/>
 			</div>
 			<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
 				{announcement(state)}

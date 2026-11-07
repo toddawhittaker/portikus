@@ -233,6 +233,7 @@ export function TerminalLeaf({
 			// A chat follows the page's theme, and its composer holds the microphone.
 			onSetTheme={chat ? undefined : onSetTheme}
 			voice={ended || chat ? undefined : speech}
+			chat={chat}
 		>
 			{ended ? (
 				<div className="pk-term-ended" data-testid={`terminal-ended-${terminal.id}`}>
@@ -254,6 +255,7 @@ export function TerminalLeaf({
 				<Suspense fallback={<ChatLoading />}>
 					<ChatView
 						workspaceId={workspaceId}
+						projectId={projectId}
 						terminalId={terminal.id}
 						visible={visible}
 					/>

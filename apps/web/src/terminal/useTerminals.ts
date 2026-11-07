@@ -21,11 +21,18 @@ import { sessionEnded } from "../api/sessionEnded.js";
 /** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
 const REFETCH_MS = 15_000;
 
+/** What a launcher may ask for; a chat needs agent claude (SPEC.md §10.8). */
+interface CreateInit {
+	name?: string;
+	agent?: CodingAgent;
+	kind?: "chat";
+}
+
 export interface Terminals {
 	terminals: Terminal[];
 	loaded: boolean;
 	error: string | null;
-	create: (init?: { name?: string; agent?: CodingAgent }) => Promise<Terminal>;
+	create: (init?: CreateInit) => Promise<Terminal>;
 	rename: (terminalId: string, name: string) => Promise<void>;
 	/** Switch one terminal between the light and dark scheme. */
 	setTheme: (terminalId: string, theme: TerminalTheme) => Promise<void>;
@@ -75,13 +82,14 @@ export function useTerminals(
 	}
 
 	const create = useMutation({
-		mutationFn: (init?: { name?: string; agent?: CodingAgent }) =>
+		mutationFn: (init?: CreateInit) =>
 			// The API answers with the created terminal. A launcher sends the
 			// agent enum and no command string (SPEC.md §10.2).
 			sendJson(Terminal, url, {
 				projectId,
 				...(init?.name ? { name: init.name } : {}),
 				...(init?.agent ? { agent: init.agent } : {}),
+				...(init?.kind ? { kind: init.kind } : {}),
 			}),
 		// No refetch here on purpose: a list answer holding a terminal the caller
 		// has not placed yet would be reconciled into a tab of its own. The
