@@ -489,6 +489,16 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)("a workspace with no agent address closes 1011", async () => {
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ agent_address: null })
+		.where("id", "=", world.a.workspaceId)
+		.execute();
+	const socket = await open(path());
+	expect(await socket.closed).toEqual({ code: 1011, reason: "agent unavailable" });
+});
+
 test.skipIf(skip)("an open chat refreshes its presence every 15 seconds", async () => {
 	vi.useFakeTimers({ toFake: ["setInterval"] });
 	try {
