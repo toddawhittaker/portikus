@@ -8,7 +8,7 @@ every task below.
 
 ## What it delivers
 
-A new kind of centre-pane tab, "Claude Code (chat)", that replaces the
+A new kind of centre-pane tab, "Claude Code (GUI)", that replaces the
 terminal view of Claude Code with a chat view, in the manner of
 Anthropic's Remote Control web view and t3code:
 
@@ -104,13 +104,19 @@ rows under each project are Epic 59; Codex chat is Epic 60 (below).
 13. **Voice.** Reuse the existing speech input (ADR 0055,
     `apps/web/src/voice/VoiceButton.tsx`) and its administrator switch.
     Dictated text lands in the composer and is never sent on its own.
-14. **Terminal interop.** "Claude Code (chat)" joins the "New tab" menu
-    next to "Claude Code"; the Traditional course profile hides it
-    (section 8.7). After a chat tab closes, `claude --resume <id>` in a
+14. **Terminal interop.** The "New tab" menu offers "Claude Code (GUI)"
+    next to the existing entry, which is renamed "Claude Code (TUI)"
+    (Todd's wording); the Traditional course profile hides the GUI entry
+    (section 8.7). After a GUI tab closes, `claude --resume <id>` in a
     terminal continues the session; Help says not to run both at once.
 15. **Limits meter.** The status line does not run under the SDK, so the
     five-hour and seven-day figures come from the SDK's
     `rate_limit_event` into the same store `/claude-limits` feeds.
+
+## Approval
+
+Todd approved this plan on 2026-11-07, with the GUI and TUI menu names
+and issue #1747 for @-mentions.
 
 ## Tasks
 
@@ -174,7 +180,7 @@ cards and the composer; section 25.8).
   issue.
 - Live help in chat tabs, opening a terminal session in the chat view,
   and preventing a chat and a terminal from running one session at once.
-- Slash commands and @-mentions of files in the composer.
+- @-mentions of files in the composer (issue #1747) and slash commands.
 - Commit & push, and choosing a worktree: the platform never commits or
   branches for the student (SPEC.md section 12.5).
 - The per-turn diff viewer, thread search and snoozed and settled groups
