@@ -75,6 +75,13 @@ vi.mock("./TerminalPane", () => ({
 	},
 }));
 
+// The chat view has its own tests; here it stands in for the pane's content.
+vi.mock("../chat/ChatView", () => ({
+	ChatView: ({ terminalId, visible }: { terminalId: string; visible: boolean }) => (
+		<div data-testid={`chat-view-${terminalId}`} data-visible={String(visible)} />
+	),
+}));
+
 afterEach(() => {
 	cleanup();
 	typed.mockReset();
@@ -667,4 +674,36 @@ test("a failed upload shows a toast and types nothing", async () => {
 	});
 	expect(await screen.findByText(/home folder is full/)).not.toBeNull();
 	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a chat tab shows the chat in the same frame, without the terminal's voice or theme", async () => {
+	const props = renderLeaf({ kind: "chat", agent: "claude", name: "Claude Code" });
+	expect((await screen.findByTestId(`chat-view-${terminal.id}`)).dataset.visible).toBe(
+		"true",
+	);
+	expect(screen.queryByTestId(`terminal-pane-${terminal.id}`)).toBeNull();
+	expect(screen.queryByTestId(`terminal-voice-${terminal.id}`)).toBeNull();
+	expect(screen.getByText("Claude Code · ~/projects/todo-api")).toBeTruthy();
+	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+	expect(screen.queryByRole("menuitemcheckbox", { name: "Light terminal" })).toBeNull();
+	fireEvent.click(screen.getByTestId("terminal-close"));
+	await flushCloseFocus();
+	expect(props.onClose).toHaveBeenCalledWith(terminal.id);
+});
+
+test("an ended chat says it ended and offers a new terminal", () => {
+	const props = renderLeaf({
+		kind: "chat",
+		agent: "claude",
+		endedAt: "2026-01-02T00:00:00.000Z",
+	});
+	expect(screen.getByTestId(`terminal-ended-${terminal.id}`).textContent).toContain(
+		"This chat ended when the workspace stopped",
+	);
+	expect(screen.queryByTestId(`chat-view-${terminal.id}`)).toBeNull();
+	fireEvent.click(screen.getByTestId("new-terminal-here"));
+	expect(props.onReplace).toHaveBeenCalledWith(terminal.id);
 });

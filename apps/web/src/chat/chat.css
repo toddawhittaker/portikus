@@ -1,0 +1,519 @@
+/* The chat tab (SPEC.md §8.3); chat-frame.css themes the pane around it. */
+.pk-chat {
+	/* The conversation keeps a readable measure in a wide pane. */
+	--pk-chat-gutter: max(var(--space-4), calc((100% - 48rem) / 2));
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	container: pk-chat / inline-size;
+	background: var(--surface);
+	color: var(--ink);
+	font-size: var(--pk-font);
+	line-height: var(--pk-leading);
+}
+
+.pk-chat-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+	padding: var(--space-4) var(--pk-chat-gutter);
+}
+
+.pk-chat-log {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-chat-entry {
+	min-width: 0;
+	/* Long histories: off-screen entries are not laid out until scrolled to. */
+	content-visibility: auto;
+	contain-intrinsic-size: auto 3rem;
+}
+
+.pk-chat-entry--user {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.pk-chat-bubble {
+	min-width: 0;
+	max-inline-size: min(85%, 40rem);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+}
+
+.pk-chat-user-text {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-chat-attachment {
+	min-width: 0;
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-variant-ligatures: none;
+	overflow-wrap: anywhere;
+}
+
+/* The shared Markdown look, without the document's own scroll box. */
+.pk-markdown.pk-chat-md {
+	flex: none;
+	overflow: visible;
+	padding: 0;
+	font-size: inherit;
+	overflow-wrap: anywhere;
+}
+
+.pk-markdown.pk-chat-md > *:last-child {
+	margin-bottom: 0;
+}
+
+.pk-chat-input {
+	min-width: 0;
+	min-block-size: var(--pk-control);
+	padding: var(--space-1\.5) var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+}
+
+.pk-chat-input::placeholder {
+	color: var(--ink-faint);
+}
+
+.pk-chat-muted {
+	margin: 0;
+	color: var(--ink-muted);
+}
+
+.pk-chat-truncated {
+	text-align: center;
+	font-size: 12px;
+}
+
+.pk-chat-working {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--ink-muted);
+}
+
+.pk-chat-error {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	border-radius: var(--radius-sm);
+	background: var(--status-error-soft);
+	color: var(--status-error);
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-error > svg {
+	flex: none;
+	margin-block-start: 3px;
+}
+
+/* A disclosure row: "Worked for …" and each tool call. */
+.pk-chat-worked-summary,
+.pk-chat-tool-summary {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	min-block-size: var(--pk-row);
+	cursor: pointer;
+	list-style: none;
+	color: var(--ink-muted);
+}
+
+.pk-chat-worked-summary::-webkit-details-marker,
+.pk-chat-tool-summary::-webkit-details-marker {
+	display: none;
+}
+
+.pk-chat-worked-summary:hover,
+.pk-chat-tool-summary:hover {
+	color: var(--ink);
+}
+
+.pk-chat-chevron {
+	flex: none;
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+details[open] > summary > .pk-chat-chevron {
+	transform: rotate(90deg);
+}
+
+.pk-chat-worked-summary {
+	inline-size: fit-content;
+	max-inline-size: 100%;
+	padding-inline-end: var(--space-2);
+	border-radius: var(--radius-sm);
+}
+
+.pk-chat-worked-log {
+	padding-block: var(--space-3) 0;
+	padding-inline-start: var(--space-4);
+	border-inline-start: 1px solid var(--line);
+	gap: var(--space-3);
+}
+
+.pk-chat-tool {
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+}
+
+.pk-chat-tool.is-error {
+	border-color: var(--status-error);
+}
+
+.pk-chat-tool-summary {
+	padding-inline: var(--space-2);
+	border-radius: var(--radius-md);
+}
+
+.pk-chat-tool-name {
+	flex: none;
+	max-inline-size: 50%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ink);
+}
+
+.pk-chat-tool-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pk-chat-tool-state {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	margin-inline-start: auto;
+	font-size: 12px;
+}
+
+.pk-chat-tool-state--error {
+	color: var(--status-error);
+}
+
+.pk-chat-tool-body {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: var(--space-2) var(--space-3) var(--space-3);
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-chat-tool-part {
+	display: grid;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0 0 var(--space-2);
+}
+
+.pk-chat-label {
+	color: var(--ink-muted);
+}
+
+/* Tool input and output, and option previews: literal, never reflowed as prose. */
+.pk-chat-code {
+	min-width: 0;
+	max-block-size: 20rem;
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	overflow: auto;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	line-height: 1.5;
+	font-variant-ligatures: none;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-code:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-chat-tool-image {
+	display: block;
+	max-inline-size: 100%;
+	block-size: auto;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+}
+
+.pk-chat-notice {
+	flex: none;
+	margin: 0;
+	padding-inline: var(--pk-chat-gutter);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-chat-notice:not(:empty) {
+	padding-block: var(--space-1);
+}
+
+.pk-chat-loading,
+.pk-chat-empty {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.pk-chat-empty {
+	max-inline-size: 36rem;
+	padding-block-start: var(--space-10);
+}
+
+.pk-chat-empty-title {
+	margin: 0;
+	font-weight: 600;
+}
+
+/* Cards wait here, pinned above the composer, so they never scroll away. */
+.pk-chat-cards {
+	flex: none;
+	max-block-size: 60%;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--pk-chat-gutter);
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-chat-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--space-4);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	container: pk-chat-card / inline-size;
+}
+
+.pk-chat-card-subtitle {
+	margin: 0;
+	color: var(--ink-muted);
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-card-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.pk-chat-card-error {
+	margin: 0;
+	color: var(--status-error);
+}
+
+.pk-chat-card-error:empty {
+	display: none;
+}
+
+.pk-chat-card-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.pk-chat-plan {
+	max-block-size: 24rem;
+	overflow: auto;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+}
+
+.pk-chat-fields {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.pk-chat-field {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.pk-chat-field dd {
+	margin: 0;
+	min-width: 0;
+}
+
+.pk-chat-question {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: none;
+}
+
+.pk-chat-question-legend {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-2);
+	padding: 0;
+	margin-block-end: var(--space-2);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-chip {
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	overflow-wrap: anywhere;
+}
+
+/* Options and the focused option's preview side by side, stacked when narrow. */
+.pk-chat-question-body {
+	display: grid;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+@container pk-chat-card (width >= 36rem) {
+	.pk-chat-question-body.has-preview {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		align-items: start;
+	}
+}
+
+.pk-chat-options {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-chat-radio {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	cursor: pointer;
+}
+
+.pk-chat-radio input {
+	flex: none;
+	margin-block-start: 3px;
+	accent-color: var(--accent);
+}
+
+.pk-chat-other {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.pk-chat-other .pk-chat-input {
+	flex: 1 1 12rem;
+}
+
+.pk-chat-preview {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	margin: 0;
+}
+
+.pk-chat-preview .pk-chat-code {
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
+.pk-chat-preview-caption {
+	color: var(--ink-muted);
+	font-size: 12px;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-field-label {
+	color: var(--ink-muted);
+}
+
+.pk-chat-notes {
+	resize: vertical;
+}
+
+.pk-chat-composer {
+	flex: none;
+	padding: var(--space-3) var(--pk-chat-gutter);
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-chat-placeholder {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-2);
+}
+
+.pk-chat-placeholder .pk-chat-input {
+	flex: 1 1 12rem;
+	resize: vertical;
+}
+
+.pk-chat-placeholder .pk-chat-card-error {
+	flex-basis: 100%;
+}
