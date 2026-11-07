@@ -281,3 +281,53 @@ test("history replayed after the snapshot folds its turns without a made-up leng
 	const users = screen.getAllByTestId("chat-user-message").map((li) => li.textContent);
 	expect(users).toEqual(["You said:Earlier question", "You said:Still running?"]);
 });
+
+test("too many open sockets stops retrying and says what to do", () => {
+	draw();
+	act(() => latest().onclose?.({ code: CloseCode.TOO_MANY_SOCKETS }));
+	act(() => vi.advanceTimersByTime(60_000));
+	expect(FakeSocket.all).toHaveLength(1);
+	expect(screen.getByTestId("chat-connection").textContent).toContain("too many chats");
+});
+
+test("an answer or message on a closed socket says it was not sent", () => {
+	draw();
+	snapshot({
+		cards: [
+			{
+				type: "permission",
+				id: "p1",
+				toolName: "Bash",
+				title: "",
+				input: {},
+				options: [{ id: "allow", label: "Allow" }],
+			},
+		],
+	});
+	act(() => {
+		latest().readyState = 3;
+		latest().onclose?.({ code: 1006 });
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+	expect(screen.getByTestId("chat-permission-card").textContent).toContain(
+		"Your answer was not sent",
+	);
+	const box = screen.getByTestId("chat-placeholder-input");
+	fireEvent.change(box, { target: { value: "hello" } });
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(screen.getByText(/Your message was not sent/)).toBeTruthy();
+	expect((box as HTMLTextAreaElement).value).toBe("hello");
+});
+
+test("scrolling up stops the view following new text", () => {
+	draw();
+	snapshot();
+	const box = document.querySelector<HTMLElement>(".pk-chat-scroll");
+	if (!box) throw new Error("no scroll box");
+	Object.defineProperty(box, "scrollHeight", { value: 2000, configurable: true });
+	Object.defineProperty(box, "clientHeight", { value: 400, configurable: true });
+	box.scrollTop = 100;
+	fireEvent.scroll(box);
+	emit("message", { id: "a1", role: "assistant", markdown: "new" });
+	expect(box.scrollTop).toBe(100);
+});
