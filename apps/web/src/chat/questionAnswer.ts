@@ -38,7 +38,7 @@ export function buildQuestionAnswer(
 		answers[question.question] = answer;
 		const note = [draft.picked.length > 0 ? other : "", draft.notes.trim()]
 			.filter((part) => part !== "")
-			.join("\n\n");
+			.join("\n");
 		if (note !== "") notes[question.question] = note;
 	});
 	if (missing.length > 0) return { ok: false, missing };

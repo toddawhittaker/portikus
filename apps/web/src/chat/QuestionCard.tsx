@@ -1,5 +1,5 @@
 /**
- * Claude's AskUserQuestion as a form (Epic 58 plan, rulings 8 and 9): per
+ * Claude's AskUserQuestion as a form (SPEC.md §10.8): per
  * question a header chip, the options with their descriptions, an "Other"
  * answer and a note. Options with a preview show the focused one beside the
  * list, or under it in a narrow pane. Enter sends from any field; Shift+Enter

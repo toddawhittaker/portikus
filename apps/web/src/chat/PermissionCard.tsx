@@ -1,5 +1,5 @@
 /**
- * Claude asking to use a tool (Epic 58 plan, ruling 9): what it wants to
+ * Claude asking to use a tool (SPEC.md §10.8): what it wants to
  * run, in a readable form, and one button per option the agent offers.
  * `ExitPlanMode` carries a plan, which is shown as Markdown.
  */

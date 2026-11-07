@@ -41,7 +41,7 @@ export interface ChatToolItem {
 	turnId: string | null;
 }
 
-export interface ChatErrorItem {
+interface ChatErrorItem {
 	kind: "error";
 	key: string;
 	message: string;
@@ -56,16 +56,27 @@ export interface ChatTurn {
 	startedAt: number;
 	finishedAt: number | null;
 	status: "running" | "done" | "interrupted" | "error";
+	/**
+	 * The browser saw the turn start and end live, so its length is real.
+	 * History is replayed as events right after the snapshot, and a turn
+	 * already running at attach started before the browser saw it.
+	 */
+	timed: boolean;
 }
 
-export interface ChatSettings {
+/** A turn that starts this soon after the snapshot is part of the replay. */
+const REPLAY_WINDOW_MS = 1_000;
+/** A turn shorter than this is taken as replayed rather than timed. */
+const MIN_TIMED_TURN_MS = 1_000;
+
+interface ChatSettings {
 	agent: "claude" | "codex";
 	model: string;
 	effort: ChatEffort;
 	mode: ChatPermissionMode;
 }
 
-export type ChatConnection =
+type ChatConnection =
 	| "connecting"
 	| "open"
 	| "reconnecting"
@@ -92,6 +103,8 @@ export interface ChatState {
 	settings: ChatSettings | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
+	/** When the last snapshot was applied, by the browser clock. */
+	snapshotAt: number;
 	/** The `seq` of the last applied event; -1 before any. */
 	lastSeq: number;
 	/** A (re)connected socket has not sent its snapshot yet. */
@@ -110,13 +123,14 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	invalidFrames: 0,
+	snapshotAt: 0,
 	lastSeq: -1,
 	awaitingSnapshot: true,
 	early: [],
 };
 
 /** Parse one raw socket frame; null when it is not a valid server event. */
-export function parseChatFrame(data: unknown): ChatServerEvent | null {
+function parseChatFrame(data: unknown): ChatServerEvent | null {
 	if (typeof data !== "string") return null;
 	// Each character is at least one byte, so a longer string is surely too big.
 	if (data.length > MAX_CHAT_SERVER_FRAME_BYTES) return null;
@@ -177,6 +191,7 @@ function applySnapshot(
 		...state,
 		loaded: true,
 		awaitingSnapshot: false,
+		snapshotAt: now,
 		early: [],
 		lastSeq: event.seq,
 		truncated: event.truncated,
@@ -193,7 +208,13 @@ function applySnapshot(
 		})),
 		turns: turnId
 			? {
-					[turnId]: { id: turnId, startedAt: now, finishedAt: null, status: "running" },
+					[turnId]: {
+						id: turnId,
+						startedAt: now,
+						finishedAt: null,
+						status: "running",
+						timed: false,
+					},
 				}
 			: {},
 		currentTurnId: turnId,
@@ -218,7 +239,7 @@ function replaceItem(
 }
 
 /** One live event applied to the state, with no ordering checks. */
-export function applyChatEvent(
+function applyChatEvent(
 	state: ChatState,
 	event: ChatServerEvent,
 	now: number,
@@ -234,7 +255,13 @@ export function applyChatEvent(
 				currentTurnId: id,
 				turns: {
 					...state.turns,
-					[id]: { id, startedAt: now, finishedAt: null, status: "running" },
+					[id]: {
+						id,
+						startedAt: now,
+						finishedAt: null,
+						status: "running",
+						timed: now - state.snapshotAt >= REPLAY_WINDOW_MS,
+					},
 				},
 			};
 		}
@@ -247,7 +274,12 @@ export function applyChatEvent(
 				turns: turn
 					? {
 							...state.turns,
-							[turnId]: { ...turn, finishedAt: now, status: event.status },
+							[turnId]: {
+								...turn,
+								finishedAt: now,
+								status: event.status,
+								timed: turn.timed && now - turn.startedAt >= MIN_TIMED_TURN_MS,
+							},
 						}
 					: state.turns,
 				items: state.items.map((item) =>
@@ -391,7 +423,7 @@ export type ChatTransport = (message: ChatClientMessage) => boolean;
  * open. The conversation updates only when the server echoes the result,
  * so a `send` shows up as a user `message` event, never optimistically.
  */
-export interface ChatActions {
+interface ChatActions {
 	/** Start a turn, or queue it behind the running one. Attachments are project-relative paths. */
 	send: (text: string, attachments: ChatAttachment[]) => boolean;
 	/** Change the model, effort or permission mode for the next turns. */

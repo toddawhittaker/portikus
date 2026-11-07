@@ -54,7 +54,7 @@ test("Other becomes a note when something is picked, ahead of the student's note
 	).toEqual({
 		ok: true,
 		answers: { "Which colours?": "Red", "Which colour?": "Blue" },
-		notes: { "Which colours?": "and teal\n\nfor the header" },
+		notes: { "Which colours?": "and teal\nfor the header" },
 	});
 });
 

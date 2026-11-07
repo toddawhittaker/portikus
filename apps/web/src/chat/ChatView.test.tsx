@@ -108,6 +108,8 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 		truncated: true,
 	});
 	expect(screen.getByText("Earlier messages are not shown")).toBeTruthy();
+	// Past the replay of history, so this turn is timed live.
+	act(() => vi.advanceTimersByTime(2_000));
 	emit("turn.started");
 	emit("text.delta", { messageId: "a1", text: "Looking at " });
 	emit("text.delta", { messageId: "a1", text: "**the code**" });
@@ -259,4 +261,23 @@ test("unmounting closes the socket", () => {
 	const socket = latest();
 	view.unmount();
 	expect(socket.closed).toBe(true);
+});
+
+test("history replayed after the snapshot folds its turns without a made-up length", () => {
+	draw();
+	snapshot({ messages: [{ id: "u0", role: "user", markdown: "Earlier question" }] });
+	emit("turn.started");
+	emit("message", { id: "a1", role: "assistant", markdown: "First look" });
+	emit("tool.started", { id: "t1", name: "Read", title: "a.ts", input: {} });
+	emit("tool.finished", { id: "t1", isError: false });
+	emit("message", { id: "a2", role: "assistant", markdown: "Answer" });
+	emit("turn.finished", { status: "done" });
+	emit("message", { id: "u1", role: "user", markdown: "Still running?" });
+	emit("turn.started");
+	expect(screen.getByTestId("chat-worked").querySelector("summary")?.textContent).toBe(
+		"Worked",
+	);
+	expect(screen.getByTestId("chat-working").textContent).toBe("Working");
+	const users = screen.getAllByTestId("chat-user-message").map((li) => li.textContent);
+	expect(users).toEqual(["You said:Earlier question", "You said:Still running?"]);
 });

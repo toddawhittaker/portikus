@@ -91,6 +91,11 @@
 	overflow-wrap: anywhere;
 }
 
+.pk-markdown.pk-chat-md a {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
 .pk-markdown.pk-chat-md > *:last-child {
 	margin-bottom: 0;
 }

@@ -1,7 +1,7 @@
 /**
  * The conversation, oldest first. A running turn shows its work as it
  * happens and a "Working" line; a finished one folds its tool work and
- * middle narration into "Worked for 3m 43s" (Epic 58 plan, ruling 1).
+ * middle narration into "Worked for 3m 43s" (SPEC.md §10.8).
  * The list is not a live region: streaming text would be read out word by
  * word, so ChatView announces the turn's state instead.
  */
@@ -18,7 +18,7 @@ type Entry =
 	| { kind: "item"; item: ChatItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] };
 
-export function groupByTurn(items: readonly ChatItem[]): Entry[] {
+function groupByTurn(items: readonly ChatItem[]): Entry[] {
 	const entries: Entry[] = [];
 	const turns = new Map<string, ChatItem[]>();
 	for (const item of items) {
@@ -92,10 +92,10 @@ function Item({ item }: { item: ChatItem }) {
 	}
 }
 
-const SUMMARY: Record<Exclude<ChatTurn["status"], "running">, string> = {
-	done: "Worked for",
-	interrupted: "Stopped after",
-	error: "Failed after",
+const SUMMARY: Record<Exclude<ChatTurn["status"], "running">, [string, string]> = {
+	done: ["Worked for", "Worked"],
+	interrupted: ["Stopped after", "Stopped"],
+	error: ["Failed after", "Failed"],
 };
 
 function FinishedTurn({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
@@ -110,8 +110,14 @@ function FinishedTurn({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
 					<details className="pk-chat-worked" data-testid="chat-worked">
 						<summary className="pk-chat-worked-summary pk-focus-ring">
 							<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
-							{SUMMARY[status]}{" "}
-							<time dateTime={isoDuration(length)}>{formatElapsed(length)}</time>
+							{turn.timed ? (
+								<>
+									{SUMMARY[status][0]}{" "}
+									<time dateTime={isoDuration(length)}>{formatElapsed(length)}</time>
+								</>
+							) : (
+								SUMMARY[status][1]
+							)}
 						</summary>
 						<ol className="pk-chat-log pk-chat-worked-log">
 							{folded.map((item) => (
@@ -129,8 +135,21 @@ function FinishedTurn({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
 	);
 }
 
+function Working({ turn }: { turn: ChatTurn }) {
+	return turn.timed ? (
+		<Ticking since={turn.startedAt} />
+	) : (
+		<li className="pk-chat-entry">
+			<p className="pk-chat-working" data-testid="chat-working">
+				<span className="pk-spin" aria-hidden={true} />
+				Working
+			</p>
+		</li>
+	);
+}
+
 /** Ticks once a second; only this line renders as it does. */
-function Working({ since }: { since: number }) {
+function Ticking({ since }: { since: number }) {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -179,7 +198,7 @@ export function MessageList({
 				}
 				return <FinishedTurn key={entry.turnId} turn={turn} items={entry.items} />;
 			})}
-			{current ? <Working since={current.startedAt} /> : null}
+			{current ? <Working turn={current} /> : null}
 		</ol>
 	);
 }
