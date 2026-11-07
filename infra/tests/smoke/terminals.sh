@@ -296,6 +296,9 @@ else
   check "workspace page serves the web bundle to a browser" workspace_page_is_bundle
   check "terminal list under the same prefix is still JSON" terminal_list_is_json
 
+  # shellcheck disable=SC1090,SC1091  # checked on its own
+  . "${TESTS_DIR}/smoke/chat.sh"
+
   # Deleting a terminal ends its tmux session (SPEC.md 9.3).
   echo ""
   echo "Deleting the terminal..."

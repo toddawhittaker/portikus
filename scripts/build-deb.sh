@@ -204,6 +204,8 @@ if [ ! -x "$agent_tsc" ]; then
 	exit 1
 fi
 
+bash scripts/check-agent-tree.sh dist/deploy/workspace-agent
+
 mkdir -p dist/deploy/node
 tar -xJf "$node_archive" -C dist/deploy/node --strip-components=1
 chmod -R u=rwX,go=rX dist/deploy/node

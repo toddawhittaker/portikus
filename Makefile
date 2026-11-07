@@ -185,9 +185,11 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash packaging/tests/enable-units-test.sh
 	bash packaging/tests/prerm-units-test.sh
 	bash packaging/tests/agents-links-order-test.sh
+	bash packaging/tests/agent-tree-check-test.sh
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
+	bash infra/tests/chat-probe-test.sh
 	bash infra/tests/playwright-link-test.sh
 	bash infra/tests/host-hardening-test.sh
 	bash infra/tests/alert-command-test.sh
