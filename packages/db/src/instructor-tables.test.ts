@@ -78,6 +78,7 @@ describe("instructor feature tables", () => {
 					provider: { getMigrations: async () => migrations },
 				});
 				for (const name of [
+					"0052_terminal_kind",
 					"0051_code_help_languages",
 					"0050_course_profile",
 					"0049_account_email",
@@ -109,6 +110,7 @@ describe("instructor feature tables", () => {
 					"0049_account_email",
 					"0050_course_profile",
 					"0051_code_help_languages",
+					"0052_terminal_kind",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);
