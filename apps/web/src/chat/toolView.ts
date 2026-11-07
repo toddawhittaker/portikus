@@ -151,7 +151,7 @@ export function diffLines(before: string, after: string): DiffLine[] {
 }
 
 /** Long output is cut to this many lines until the student asks for the rest. */
-export const OUTPUT_PREVIEW_LINES = 12;
+const OUTPUT_PREVIEW_LINES = 12;
 
 /** The first `lines` lines of `value`, and how many were left out. */
 export function previewText(

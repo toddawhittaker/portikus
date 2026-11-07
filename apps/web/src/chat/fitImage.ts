@@ -8,7 +8,7 @@
 import { MAX_CHAT_IMAGE_BYTES } from "@portikus/contracts";
 
 /** Claude scales anything larger down itself, so more pixels only cost bytes. */
-export const MAX_IMAGE_SIDE = 2000;
+const MAX_IMAGE_SIDE = 2000;
 
 /** Pictures this can redraw; a GIF would lose its animation, so it is left alone. */
 const SCALABLE = new Set(["image/png", "image/jpeg", "image/webp"]);
