@@ -143,6 +143,8 @@ export function registerCourseLiveHelpRoutes(
 				.where("workspace_id", "=", scope.workspaceId)
 				.where("project_id", "=", scope.projectId)
 				.where("ended_at", "is", null)
+				// A chat tab is the student's own conversation, never shared (SPEC.md §24.1).
+				.where("kind", "=", "terminal")
 				.orderBy("position")
 				.orderBy("created_at")
 				.execute();
@@ -204,6 +206,7 @@ export function registerCourseLiveHelpRoutes(
 								.where("workspace_id", "=", scope.workspaceId)
 								.where("project_id", "=", scope.projectId)
 								.where("ended_at", "is", null)
+								.where("kind", "=", "terminal")
 								.executeTakeFirst()
 						: undefined;
 					if (!terminal) return sendError(reply, 404, "NOT_FOUND", "Not found.");

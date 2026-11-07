@@ -141,10 +141,11 @@ function open(
 }
 
 /** Read the snapshot and the scripted turn the fake sends on first attach. */
+/** Read an attach's opening frames: the snapshot, the replay, then the settings. */
 async function drainScript(socket: Socket): Promise<void> {
 	for (;;) {
 		const event = JSON.parse(await socket.next()) as { type: string };
-		if (event.type === "turn.finished") return;
+		if (event.type === "settings") return;
 	}
 }
 

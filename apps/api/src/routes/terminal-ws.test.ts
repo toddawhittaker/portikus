@@ -281,6 +281,22 @@ test.skipIf(skip)("an unauthenticated or cross-origin upgrade is refused", async
 	).rejects.toMatchObject({ status: 403 });
 });
 
+test.skipIf(skip)(
+	"the terminal socket refuses a chat tab, even the owner's",
+	async () => {
+		const chat = await app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/terminals`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { kind: "chat", agent: "claude" },
+		});
+		expect(chat.statusCode).toBe(201);
+		await expect(
+			openTerminal(workspaceId, chat.json().id, alice),
+		).rejects.toMatchObject({ status: 404 });
+	},
+);
+
 test.skipIf(skip)("attaching to an ended terminal is refused", async () => {
 	await app.inject({
 		method: "DELETE",

@@ -65,6 +65,9 @@ const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 	],
 };
 
+/** When the fake's earlier turn began, in epoch milliseconds. */
+const EARLIER_TURN_AT = Date.UTC(2026, 0, 1, 12, 0, 0);
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -74,7 +77,8 @@ type FakeChatAnswer = Extract<
 interface FakeChat {
 	seq: number;
 	started: boolean;
-	messages: ChatMessage[];
+	/** Finished history, replayed to each later attachment as events (SPEC.md §9.7). */
+	history: Record<string, unknown>[];
 	openCards: ChatOpenCard[];
 	answers: FakeChatAnswer[];
 	received: string[];
@@ -83,9 +87,9 @@ interface FakeChat {
 }
 
 /**
- * The agent's chat socket, scripted (SPEC.md §9.7). The first attachment
- * starts one fixed turn; later attachments get a snapshot that holds the
- * cards still open. Every frame is checked against the contract before it
+ * The agent's chat socket, scripted (SPEC.md §9.7). The first `send`
+ * starts one fixed turn; every attachment gets a snapshot with the cards
+ * still open, the finished history as events, then the settings. Every frame is checked against the contract before it
  * is sent.
  */
 export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): void {
@@ -98,9 +102,21 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			chat = {
 				seq: 0,
 				started: false,
-				messages: [
-					{ id: "m-old-user", role: "user", markdown: "Earlier question" },
-					{ id: "m-old-assistant", role: "assistant", markdown: "Earlier answer" },
+				history: [
+					{ type: "turn.started", at: EARLIER_TURN_AT },
+					{
+						type: "message",
+						id: "m-old-user",
+						role: "user",
+						markdown: "Earlier question",
+					},
+					{
+						type: "message",
+						id: "m-old-assistant",
+						role: "assistant",
+						markdown: "Earlier answer",
+					},
+					{ type: "turn.finished", at: EARLIER_TURN_AT + 4000, status: "done" },
 				],
 				openCards: [],
 				answers: [],
@@ -129,10 +145,19 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
+	/** Send an event to the sockets and keep it for later attachments. */
+	function record(
+		id: string,
+		to: Iterable<WebSocket>,
+		event: Record<string, unknown>,
+	): void {
+		chatOf(id).history.push(event);
+		emit(id, to, event);
+	}
+
 	function runScriptedTurn(id: string): void {
 		const chat = chatOf(id);
 		const all = chat.sockets;
-		emit(id, all, { type: "turn.started" });
 		for (const text of ["Looking ", "at the ", "project."]) {
 			emit(id, all, { type: "text.delta", messageId: "m-turn", text });
 		}
@@ -141,30 +166,29 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			role: "assistant",
 			markdown: FINAL_MARKDOWN,
 		};
-		chat.messages.push(final);
-		emit(id, all, { type: "message", ...final });
-		emit(id, all, {
+		record(id, all, { type: "message", ...final });
+		record(id, all, {
 			type: "tool.started",
 			id: "tool-1",
 			name: "Read",
 			title: "Read README.md",
 			input: { file_path: "README.md" },
 		});
-		emit(id, all, {
+		record(id, all, {
 			type: "tool.output",
 			id: "tool-1",
 			part: { type: "text", text: "# README" },
 		});
-		emit(id, all, {
+		record(id, all, {
 			type: "tool.output",
 			id: "tool-1",
 			part: { type: "image", mediaType: "image/png", data: TINY_PNG },
 		});
-		emit(id, all, { type: "tool.finished", id: "tool-1", isError: false });
+		record(id, all, { type: "tool.finished", id: "tool-1", isError: false });
 		chat.openCards.push(QUESTION_CARD, PERMISSION_CARD);
 		emit(id, all, { type: "question.requested", ...withoutType(QUESTION_CARD) });
 		emit(id, all, { type: "permission.requested", ...withoutType(PERMISSION_CARD) });
-		emit(id, all, { type: "turn.finished", status: "done" });
+		record(id, all, { type: "turn.finished", at: Date.now(), status: "done" });
 	}
 
 	function answer(id: string, message: FakeChatAnswer): void {
@@ -186,15 +210,25 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 					role: "user",
 					markdown: message.text,
 				};
-				chat.messages.push(user);
-				emit(id, chat.sockets, { type: "message", ...user });
-				const reply: ChatMessage = {
+				const first = !chat.started;
+				chat.started = true;
+				record(id, chat.sockets, { type: "turn.started", at: Date.now() });
+				record(id, chat.sockets, { type: "message", ...user });
+				if (first) {
+					runScriptedTurn(id);
+					return;
+				}
+				record(id, chat.sockets, {
+					type: "message",
 					id: `m-reply-${chat.seq}`,
 					role: "assistant",
 					markdown: "This is a canned reply.",
-				};
-				chat.messages.push(reply);
-				emit(id, chat.sockets, { type: "message", ...reply });
+				});
+				record(id, chat.sockets, {
+					type: "turn.finished",
+					at: Date.now(),
+					status: "done",
+				});
 				return;
 			}
 			case "permission.answer":
@@ -210,7 +244,11 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				emit(id, chat.sockets, { type: "settings", agent: "claude", ...chat.settings });
 				return;
 			case "interrupt":
-				emit(id, chat.sockets, { type: "turn.finished", status: "interrupted" });
+				record(id, chat.sockets, {
+					type: "turn.finished",
+					at: Date.now(),
+					status: "interrupted",
+				});
 				return;
 		}
 	}
@@ -242,15 +280,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			});
 			emit(id, [socket], {
 				type: "snapshot",
-				messages: chat.messages,
+				// Dropped by the contract once it no longer has this field.
+				messages: [],
 				cards: chat.openCards,
 				turnRunning: false,
 				truncated: false,
 			});
-			if (!chat.started) {
-				chat.started = true;
-				runScriptedTurn(id);
-			}
+			for (const event of chat.history) emit(id, [socket], event);
+			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
 	);
 
