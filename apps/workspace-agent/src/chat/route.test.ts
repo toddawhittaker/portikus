@@ -175,6 +175,13 @@ test("a chat tab's tmux command is the chat host on the agent's own Node", async
 	expect(() => chatHostCommand("../x")).toThrow();
 });
 
+test("a chat resuming an ended one names that session after its own id", async () => {
+	const { chatHostCommand } = await import("../tmux.js");
+	const old = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
+	expect(chatHostCommand(ID, old).slice(2)).toEqual([ID, old]);
+	expect(() => chatHostCommand(ID, "../x")).toThrow();
+});
+
 test("a binary browser frame closes with 1003", async () => {
 	await startFakeHost();
 	const sock = await open();

@@ -99,7 +99,7 @@ export async function terminalsRoutes(
 					? {
 							command:
 								parsed.data.kind === "chat"
-									? chatHostCommand(parsed.data.id)
+									? chatHostCommand(parsed.data.id, parsed.data.resumeChatOf)
 									: commandForAgent(parsed.data.agent),
 							institutionalEnv: parsed.data.institutionalEnv,
 							recordBaseline,

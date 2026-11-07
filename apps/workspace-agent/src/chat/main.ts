@@ -5,14 +5,17 @@ import { createLogger } from "@portikus/observability";
 import { CLAUDE_LIMITS_PATH } from "../agent-usage.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { ChatHost } from "./host.js";
+import { recordChatSession } from "./session-record.js";
 import { CHAT_SOCKET_DIR } from "./wire.js";
 
 /**
- * `portikus-chat-host <terminal id>`: the command of a chat tab's tmux
- * session, started in the project directory (SPEC.md §10.2, §10.8).
+ * `portikus-chat-host <terminal id> [<ended chat id>]`: the command of a
+ * chat tab's tmux session, started in the project directory (SPEC.md
+ * §10.2, §10.8). The second id names an ended chat this one resumes.
  * Its log holds lifecycle events and versions only (ADR 0012).
  */
 const terminalId = TerminalId.parse(process.argv[2]);
+const sessionId = await recordChatSession(homedir(), terminalId, process.argv[3]);
 const log = createLogger({
 	service: "chat-host",
 	level: "info",
@@ -23,6 +26,7 @@ const receiver =
 
 const host = new ChatHost({
 	terminalId,
+	sessionId,
 	projectDir: process.cwd(),
 	homeDir: homedir(),
 	socketDir: CHAT_SOCKET_DIR,

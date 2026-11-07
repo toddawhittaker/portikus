@@ -10,16 +10,17 @@ import { ChatHost } from "./host.js";
 import { readLines } from "./wire.js";
 
 /**
- * One turn against the real Claude Code through the Agent SDK, with Haiku:
+ * Two turns against the real Claude Code through the Agent SDK, with Haiku:
  * a Bash permission card, a question answered with a note, and the
- * coding-agent state hooks (SPEC.md §10.8). Skipped where no local `claude` is installed, as in CI.
+ * coding-agent state hooks; then bypass mode, which runs Bash with no card
+ * (SPEC.md §10.8). Skipped where no local `claude` is installed, as in CI.
  */
 const CLAUDE =
 	process.env.PORTIKUS_TEST_CLAUDE ?? join(homedir(), ".local", "bin", "claude");
 const ID = "3e9f6c1a-2b4d-4c8e-9f1a-5b6c7d8e9f01";
 
 test.skipIf(!existsSync(CLAUDE))(
-	"a question with a note reaches the model, and the state hooks fire",
+	"a question with a note reaches the model, the state hooks fire, and bypass runs without a card",
 	async () => {
 		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
 		const project = join(home, "projects", "demo");
@@ -102,11 +103,34 @@ test.skipIf(!existsSync(CLAUDE))(
 					expect(fired).toContain(`${word} pk-${ID}`);
 				}
 			});
+
+			const cardsBefore = events.filter(
+				(e) => e.type === "permission.requested",
+			).length;
+			send({ type: "set", mode: "bypassPermissions" });
+			await vi.waitFor(() =>
+				expect(events.filter((e) => e.type === "settings").at(-1)).toMatchObject({
+					mode: "bypassPermissions",
+				}),
+			);
+			send({
+				type: "send",
+				text: "Run `touch bypass.txt` with the Bash tool, then say done.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => expect(events.filter((e) => e.type === "turn.finished")).toHaveLength(2),
+				{ timeout: 120_000, interval: 500 },
+			);
+			expect(existsSync(join(project, "bypass.txt"))).toBe(true);
+			expect(events.filter((e) => e.type === "permission.requested")).toHaveLength(
+				cardsBefore,
+			);
 		} finally {
 			socket.destroy();
 			await host.stop();
 			await rm(home, { recursive: true, force: true });
 		}
 	},
-	180_000,
+	300_000,
 );

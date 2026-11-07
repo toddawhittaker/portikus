@@ -23,6 +23,7 @@ build/
 
 # Test and build output
 coverage/
+.vitest/
 playwright-report/
 test-results/
 .playwright/

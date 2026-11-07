@@ -113,12 +113,18 @@ export const CreateTerminalRequest = z
 		agent: CodingAgent.optional(),
 		/** Defaults to `terminal`. */
 		kind: TerminalKind.optional(),
+		/** An ended chat whose Claude session this new chat continues (SPEC.md §10.8). */
+		resumeChatOf: TerminalId.optional(),
 	})
 	.strict()
 	// Only Claude has a chat host so far (SPEC.md §10.8).
 	.refine((body) => body.kind !== "chat" || body.agent === "claude", {
 		message: "A chat needs agent claude",
 		path: ["agent"],
+	})
+	.refine((body) => body.resumeChatOf === undefined || body.kind === "chat", {
+		message: "Only a chat can resume a chat",
+		path: ["resumeChatOf"],
 	});
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;
 

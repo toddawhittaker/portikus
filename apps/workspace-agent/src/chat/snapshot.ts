@@ -4,6 +4,7 @@ import {
 	type ChatServerEvent,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
+import { splitAttachmentLines } from "./attachments.js";
 import { type ChatEventBody, ClaudeMessageMapper } from "./claude-adapter.js";
 
 /** Most turns replayed on attach (SPEC.md §10.8). */
@@ -14,31 +15,124 @@ export const REPLAY_IMAGE_TURNS = 5;
 const ENVELOPE_BYTES = 128;
 
 type Block = Record<string, unknown>;
+type TurnStatus = "done" | "interrupted" | "error";
 
-function typedText(entry: SessionMessage): string | null {
+/** Fields Claude Code writes on transcript entries that the SDK type leaves out. */
+interface EntryExtras {
+	timestamp?: string;
+	is_meta?: boolean;
+	isCompletedLocalCommand?: boolean;
+	origin?: { kind?: string };
+}
+
+/** What Claude Code writes when the student interrupts a turn. */
+const INTERRUPT_MARKER = /^\[Request interrupted by user[^\]]*\]$/;
+
+function extras(entry: SessionMessage): EntryExtras {
+	return entry as unknown as EntryExtras;
+}
+
+/** The text of a top-level user entry that holds no tool result, else null. */
+function userText(entry: SessionMessage): string | null {
 	if (entry.type !== "user" || entry.parent_tool_use_id !== null) return null;
 	const content = ((entry.message ?? {}) as Block).content;
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return null;
 	const blocks = content as Block[];
 	if (blocks.some((block) => block?.type === "tool_result")) return null;
-	const text = blocks
+	return blocks
 		.filter((block) => block?.type === "text" && typeof block.text === "string")
 		.map((block) => block.text as string)
 		.join("");
-	return text === "" ? null : text;
+}
+
+function isInterruptMarker(entry: SessionMessage): boolean {
+	const text = userText(entry);
+	return text !== null && INTERRUPT_MARKER.test(text.trim());
+}
+
+/**
+ * A message the student typed. Claude Code also writes user entries of its
+ * own (interrupt markers, local command echoes, task notifications); those
+ * are not shown. An image-only message has no text and still counts.
+ */
+function isTyped(entry: SessionMessage): boolean {
+	if (userText(entry) === null || isInterruptMarker(entry)) return false;
+	const { is_meta, isCompletedLocalCommand, origin } = extras(entry);
+	if (is_meta || isCompletedLocalCommand) return false;
+	return origin?.kind === undefined || origin.kind === "human";
+}
+
+/** Claude Code records a failed API call as a synthetic assistant message. */
+function isApiError(entry: SessionMessage): boolean {
+	const message = (entry.message ?? {}) as Block;
+	return entry.type === "assistant" && message.model === "<synthetic>";
+}
+
+function timeOf(entry: SessionMessage | undefined, fallback: number): number {
+	const parsed = Date.parse(extras(entry ?? ({} as SessionMessage)).timestamp ?? "");
+	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function statusOf(turn: readonly SessionMessage[]): TurnStatus {
+	if (turn.some(isInterruptMarker)) return "interrupted";
+	const last = [...turn].reverse().find((entry) => entry.type === "assistant");
+	return last && isApiError(last) ? "error" : "done";
 }
 
 function fits(event: ChatEventBody, maxBytes: number): boolean {
 	return Buffer.byteLength(JSON.stringify(event), "utf8") + ENVELOPE_BYTES <= maxBytes;
 }
 
+/** One transcript entry as replayed events, or none for an entry not shown. */
+function entryEvents(
+	entry: SessionMessage,
+	mapper: ClaudeMessageMapper,
+	keepImages: boolean,
+	maxBytes: number,
+): ChatEventBody[] {
+	if (isTyped(entry)) {
+		const { text, attachments } = splitAttachmentLines(userText(entry) ?? "");
+		return [
+			{
+				type: "message",
+				id: entry.uuid,
+				role: "user",
+				markdown: text,
+				...(attachments.length > 0 ? { attachments } : {}),
+			},
+		];
+	}
+	const toolResults = entry.type === "user" && userText(entry) === null;
+	if ((entry.type !== "assistant" && !toolResults) || isApiError(entry)) return [];
+	const events: ChatEventBody[] = [];
+	for (const event of mapper.map({
+		type: entry.type,
+		message: entry.message,
+	} as SDKMessage)) {
+		if (
+			event.type === "tool.output" &&
+			event.part.type === "image" &&
+			(!keepImages || !fits(event, maxBytes))
+		) {
+			events.push({
+				...event,
+				part: { type: "imageOmitted", mediaType: event.part.mediaType },
+			});
+		} else if (fits(event, maxBytes)) {
+			events.push(event);
+		}
+	}
+	return events;
+}
+
 /**
  * The transcript replayed as ordinary events after the snapshot (SPEC.md
  * §10.8): per turn, `turn.started`, the typed message, Claude's messages
- * and tool events, then `turn.finished`. Only the last REPLAY_TURNS turns
- * are replayed; tool images older than REPLAY_IMAGE_TURNS turns, or too
- * large for one frame, become `imageOmitted`. A running turn is left open.
+ * and tool events, then `turn.finished`, each turn event carrying the time
+ * from the transcript. Only the last REPLAY_TURNS turns are replayed; tool
+ * images older than REPLAY_IMAGE_TURNS turns, or too large for one frame,
+ * become `imageOmitted`. A running turn is left open.
  */
 export function replayHistory(
 	entries: readonly SessionMessage[],
@@ -48,51 +142,29 @@ export function replayHistory(
 	const turns: SessionMessage[][] = [];
 	for (const entry of entries) {
 		if (entry.parent_tool_use_id !== null) continue;
-		if (typedText(entry) !== null || turns.length === 0) turns.push([]);
+		if (isTyped(entry) || turns.length === 0) turns.push([]);
 		turns.at(-1)?.push(entry);
 	}
 	const kept = turns.slice(-REPLAY_TURNS);
 	const mapper = new ClaudeMessageMapper();
 	const events: ChatEventBody[] = [];
+	let lastAt = 0;
 	kept.forEach((turn, index) => {
 		const keepImages = index >= kept.length - REPLAY_IMAGE_TURNS;
-		events.push({ type: "turn.started" });
+		lastAt = timeOf(turn[0], lastAt);
+		events.push({ type: "turn.started", at: lastAt });
 		for (const entry of turn) {
-			const text = typedText(entry);
-			if (text !== null) {
-				events.push({ type: "message", id: entry.uuid, role: "user", markdown: text });
-				continue;
-			}
-			if (entry.type !== "user" && entry.type !== "assistant") continue;
-			for (const event of mapper.map({
-				type: entry.type,
-				message: entry.message,
-			} as SDKMessage)) {
-				if (
-					event.type === "tool.output" &&
-					event.part.type === "image" &&
-					(!keepImages || !fits(event, maxBytes))
-				) {
-					events.push({
-						...event,
-						part: { type: "imageOmitted", mediaType: event.part.mediaType },
-					});
-				} else if (fits(event, maxBytes)) {
-					events.push(event);
-				}
-			}
+			events.push(...entryEvents(entry, mapper, keepImages, maxBytes));
 		}
 		if (!(turnRunning && index === kept.length - 1)) {
-			events.push({ type: "turn.finished", status: "done" });
+			lastAt = timeOf(turn.at(-1), lastAt);
+			events.push({ type: "turn.finished", status: statusOf(turn), at: lastAt });
 		}
 	});
 	return { events, truncated: turns.length > kept.length };
 }
 
-/**
- * The snapshot sent first on every attach (SPEC.md §10.8). History follows
- * it as replayed events, so its messages are always empty.
- */
+/** The snapshot sent first on every attach (SPEC.md §10.8). History follows it as replayed events. */
 export function buildSnapshot(input: {
 	sessionId: string;
 	seq: number;
@@ -104,7 +176,6 @@ export function buildSnapshot(input: {
 		type: "snapshot",
 		sessionId: input.sessionId,
 		seq: input.seq,
-		messages: [],
 		cards: [...input.cards],
 		turnRunning: input.turnRunning,
 		truncated: input.truncated,

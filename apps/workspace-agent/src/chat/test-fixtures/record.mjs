@@ -1,5 +1,6 @@
 // Records real Agent SDK frames for the chat adapter's tests.
-// Usage: node scripts/record-chat-frames.mjs <empty folder> <out.jsonl>
+// Usage, from apps/workspace-agent:
+//   node src/chat/test-fixtures/record.mjs <empty folder> <out.jsonl>
 // The folder must hold red.png. Uses the local `claude` with Haiku.
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
