@@ -1,8 +1,8 @@
 /**
  * The state of one chat tab, built from the events on its socket (SPEC.md
- * §10.8). The socket sends a `snapshot` first and live events after it; the
- * store applies the snapshot, then every later event in `seq` order, and
- * drops anything stale or malformed. Nothing here is persisted or logged:
+ * §10.8). The socket sends a `snapshot` first, then the history as replayed
+ * events, then live ones; the store applies them in `seq` order and drops
+ * anything stale, malformed, or sent before the snapshot. Nothing here is persisted or logged:
  * the conversation lives in the workspace only (SPEC.md §25.10).
  */
 import {
@@ -37,7 +37,8 @@ export interface ChatToolItem {
 	title: string;
 	input: unknown;
 	output: ChatToolOutputPart[];
-	status: "running" | "done" | "error";
+	/** A tool the turn ended without finishing is "stopped". */
+	status: "running" | "done" | "error" | "stopped";
 	turnId: string | null;
 }
 
@@ -52,22 +53,16 @@ export type ChatItem = ChatMessageItem | ChatToolItem | ChatErrorItem;
 
 export interface ChatTurn {
 	id: string;
-	/** Browser clock, in milliseconds. A turn found running in a snapshot starts when the snapshot arrived. */
+	/** Epoch milliseconds from the host's `at`, so replayed turns keep their real length. */
 	startedAt: number;
 	finishedAt: number | null;
 	status: "running" | "done" | "interrupted" | "error";
 	/**
-	 * The browser saw the turn start and end live, so its length is real.
-	 * History is replayed as events right after the snapshot, and a turn
-	 * already running at attach started before the browser saw it.
+	 * Only the snapshot said a turn was running, so `startedAt` is when the
+	 * snapshot arrived; the replayed `turn.started` corrects it.
 	 */
-	timed: boolean;
+	estimated: boolean;
 }
-
-/** A turn that starts this soon after the snapshot is part of the replay. */
-const REPLAY_WINDOW_MS = 1_000;
-/** A turn shorter than this is taken as replayed rather than timed. */
-const MIN_TIMED_TURN_MS = 1_000;
 
 interface ChatSettings {
 	agent: "claude" | "codex";
@@ -109,8 +104,10 @@ export interface ChatState {
 	lastSeq: number;
 	/** A (re)connected socket has not sent its snapshot yet. */
 	awaitingSnapshot: boolean;
-	/** Events that arrived before the snapshot, applied after it. */
-	early: ChatServerEvent[];
+	/** The `seq` of the newest user message, which tells the composer its send arrived. */
+	lastUserMessageSeq: number;
+	/** The newest `error` event, which tells the composer a send or change was refused. */
+	lastError: { seq: number; message: string } | null;
 }
 
 export const initialChatState: ChatState = {
@@ -126,7 +123,8 @@ export const initialChatState: ChatState = {
 	snapshotAt: 0,
 	lastSeq: -1,
 	awaitingSnapshot: true,
-	early: [],
+	lastUserMessageSeq: -1,
+	lastError: null,
 };
 
 /** Parse one raw socket frame; null when it is not a valid server event. */
@@ -160,15 +158,9 @@ export function receiveChatEvent(
 	event: ChatServerEvent,
 	now: number,
 ): ChatState {
-	if (event.type === "snapshot") {
-		let next = applySnapshot(state, event, now);
-		const later = state.early
-			.filter((early) => early.seq > event.seq)
-			.sort((a, b) => a.seq - b.seq);
-		for (const early of later) next = applyInOrder(next, early, now);
-		return next;
-	}
-	if (state.awaitingSnapshot) return { ...state, early: [...state.early, event] };
+	if (event.type === "snapshot") return applySnapshot(state, event, now);
+	// The contract puts the snapshot first, so anything earlier is stale.
+	if (state.awaitingSnapshot) return state;
 	return applyInOrder(state, event, now);
 }
 
@@ -192,20 +184,10 @@ function applySnapshot(
 		loaded: true,
 		awaitingSnapshot: false,
 		snapshotAt: now,
-		early: [],
 		lastSeq: event.seq,
 		truncated: event.truncated,
 		cards: event.cards,
-		items: event.messages.map((message) => ({
-			kind: "message",
-			key: `message:${message.id}`,
-			id: message.id,
-			role: message.role,
-			markdown: message.markdown,
-			attachments: message.attachments ?? [],
-			streaming: false,
-			turnId: null,
-		})),
+		items: [],
 		turns: turnId
 			? {
 					[turnId]: {
@@ -213,7 +195,7 @@ function applySnapshot(
 						startedAt: now,
 						finishedAt: null,
 						status: "running",
-						timed: false,
+						estimated: true,
 					},
 				}
 			: {},
@@ -249,7 +231,8 @@ function applyChatEvent(
 		case "snapshot":
 			return applySnapshot(state, event, now);
 		case "turn.started": {
-			const id = `turn-${event.seq}`;
+			const open = turnId === null ? undefined : state.turns[turnId];
+			const id = open?.estimated ? open.id : `turn-${event.seq}`;
 			return {
 				...state,
 				currentTurnId: id,
@@ -257,10 +240,10 @@ function applyChatEvent(
 					...state.turns,
 					[id]: {
 						id,
-						startedAt: now,
+						startedAt: event.at,
 						finishedAt: null,
 						status: "running",
-						timed: now - state.snapshotAt >= REPLAY_WINDOW_MS,
+						estimated: false,
 					},
 				},
 			};
@@ -268,25 +251,23 @@ function applyChatEvent(
 		case "turn.finished": {
 			if (turnId === null) return state;
 			const turn = state.turns[turnId];
+			const left = TOOL_LEFT_RUNNING[event.status];
 			return {
 				...state,
 				currentTurnId: null,
 				turns: turn
 					? {
 							...state.turns,
-							[turnId]: {
-								...turn,
-								finishedAt: now,
-								status: event.status,
-								timed: turn.timed && now - turn.startedAt >= MIN_TIMED_TURN_MS,
-							},
+							[turnId]: { ...turn, finishedAt: event.at, status: event.status },
 						}
 					: state.turns,
-				items: state.items.map((item) =>
-					item.kind === "message" && item.streaming
-						? { ...item, streaming: false }
-						: item,
-				),
+				items: state.items.map((item) => {
+					if (item.kind === "message" && item.streaming)
+						return { ...item, streaming: false };
+					if (item.kind === "tool" && item.status === "running")
+						return { ...item, status: left };
+					return item;
+				}),
 			};
 		}
 		case "text.delta": {
@@ -324,9 +305,12 @@ function applyChatEvent(
 			const items = replaceItem(state.items, key, (item) =>
 				item.kind === "message" ? { ...item, ...fields } : item,
 			);
-			if (items) return { ...state, items };
+			const lastUserMessageSeq =
+				event.role === "user" ? event.seq : state.lastUserMessageSeq;
+			if (items) return { ...state, items, lastUserMessageSeq };
 			return {
 				...state,
+				lastUserMessageSeq,
 				items: [
 					...state.items,
 					{
@@ -341,24 +325,30 @@ function applyChatEvent(
 				],
 			};
 		}
-		case "tool.started":
+		case "tool.started": {
+			const key = `tool:${event.id}`;
+			const fields = { name: event.name, title: event.title, input: event.input };
+			// A held live event can repeat a replayed one; it updates, never doubles.
+			const items = replaceItem(state.items, key, (item) =>
+				item.kind === "tool" ? { ...item, ...fields } : item,
+			);
+			if (items) return { ...state, items };
 			return {
 				...state,
 				items: [
 					...state.items,
 					{
 						kind: "tool",
-						key: `tool:${event.id}`,
+						key,
 						id: event.id,
-						name: event.name,
-						title: event.title,
-						input: event.input,
+						...fields,
 						output: [],
 						status: "running",
 						turnId,
 					},
 				],
 			};
+		}
 		case "tool.output": {
 			const items = replaceItem(state.items, `tool:${event.id}`, (item) =>
 				item.kind === "tool" ? { ...item, output: [...item.output, event.part] } : item,
@@ -386,6 +376,7 @@ function applyChatEvent(
 		case "error":
 			return {
 				...state,
+				lastError: { seq: event.seq, message: event.message },
 				items: [
 					...state.items,
 					{ kind: "error", key: `error:${event.seq}`, message: event.message, turnId },
@@ -403,6 +394,12 @@ function applyChatEvent(
 			};
 	}
 }
+
+/** What a tool still running becomes when its turn ends. */
+const TOOL_LEFT_RUNNING: Record<
+	Extract<ChatServerEvent, { type: "turn.finished" }>["status"],
+	ChatToolItem["status"]
+> = { done: "done", interrupted: "stopped", error: "stopped" };
 
 function addCard(cards: ChatOpenCard[], card: ChatOpenCard): ChatOpenCard[] {
 	return cards.some((open) => open.id === card.id) ? cards : [...cards, card];
@@ -470,7 +467,7 @@ export function createChatStore(
 			set(
 				connection === "open"
 					? // A new socket starts with a snapshot of its own.
-						{ connection, awaitingSnapshot: true, early: [] }
+						{ connection, awaitingSnapshot: true }
 					: { connection },
 			),
 	}));

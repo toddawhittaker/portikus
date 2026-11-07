@@ -1,12 +1,16 @@
 /**
- * Claude asking to use a tool (SPEC.md §10.8): what it wants to
- * run, in a readable form, and one button per option the agent offers.
- * `ExitPlanMode` carries a plan, which is shown as Markdown.
+ * Claude asking to use a tool (SPEC.md §10.8): what it wants to do, in the
+ * form a student checks fastest (a command as the command, an edit as a
+ * diff), and one button per option the agent offers. `ExitPlanMode` carries
+ * a plan, which is shown as Markdown.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
+import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
+import { toolView } from "./toolView.js";
+import { waitingText } from "./waiting.js";
 
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
@@ -15,6 +19,8 @@ export interface PermissionCardProps {
 	/** False when the answer could not be sent. */
 	onAnswer: (optionId: string) => boolean;
 	takeFocus: () => boolean;
+	/** Cards waiting behind this one. */
+	waiting: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -33,23 +39,15 @@ function asText(value: unknown): string {
 /** Top-level fields as label and value; anything else as JSON. */
 function ToolInput({ input }: { input: unknown }) {
 	if (!isRecord(input) || Object.keys(input).length === 0) {
-		return (
-			// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
-			<pre className="pk-chat-code" tabIndex={0}>
-				{asText(input)}
-			</pre>
-		);
+		return <CodeBlock text={asText(input)} />;
 	}
 	return (
 		<dl className="pk-chat-fields">
 			{Object.entries(input).map(([key, value]) => (
 				<div key={key} className="pk-chat-field">
-					<dt className="pk-text-label pk-chat-label">{key}</dt>
+					<dt className="pk-chat-label pk-mono-body">{key}</dt>
 					<dd>
-						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
-						<pre className="pk-chat-code" tabIndex={0}>
-							{asText(value)}
-						</pre>
+						<CodeBlock text={asText(value)} />
 					</dd>
 				</div>
 			))}
@@ -57,12 +55,74 @@ function ToolInput({ input }: { input: unknown }) {
 	);
 }
 
-export function PermissionCard({ card, onAnswer, takeFocus }: PermissionCardProps) {
+function Body({ card }: { card: PermissionCardData }) {
+	const plan = planOf(card);
+	if (plan !== null) {
+		return (
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+			<div className="pk-chat-plan" tabIndex={0} data-testid="chat-plan">
+				<ChatMarkdown text={plan} />
+			</div>
+		);
+	}
+	const view = toolView(card.toolName, card.input, card.title);
+	switch (view.detail?.kind) {
+		case "command":
+			return (
+				<CodeBlock
+					text={view.detail.command}
+					className="pk-chat-command"
+					testId="chat-permission-command"
+				/>
+			);
+		case "edit":
+			return (
+				<>
+					<p className="pk-chat-card-path pk-mono-body">{view.detail.path}</p>
+					<DiffBlock changes={view.detail.changes} />
+				</>
+			);
+		case "write":
+			return (
+				<>
+					<p className="pk-chat-card-path pk-mono-body">{view.detail.path}</p>
+					<CodeBlock text={view.detail.content} />
+				</>
+			);
+		default:
+			return <ToolInput input={card.input} />;
+	}
+}
+
+function heading(card: PermissionCardData): string {
+	if (planOf(card) !== null) return "Claude has a plan for you to review";
+	switch (card.toolName) {
+		case "Bash":
+			return "Claude wants to run a command";
+		case "Edit":
+		case "MultiEdit":
+			return "Claude wants to edit a file";
+		case "Write":
+			return "Claude wants to write a file";
+		default:
+			return `Claude wants to use ${card.toolName}`;
+	}
+}
+
+export function PermissionCard({
+	card,
+	onAnswer,
+	takeFocus,
+	waiting,
+}: PermissionCardProps) {
 	const titleId = useId();
 	const actions = useRef<HTMLDivElement | null>(null);
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [error, setError] = useState("");
-	const plan = planOf(card);
+	const title = heading(card);
+	// The host's title adds something only when the heading does not already say it.
+	const subtitle =
+		card.title && !card.title.startsWith(card.toolName) ? card.title : null;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the card first appears
 	useEffect(() => {
@@ -88,18 +148,10 @@ export function PermissionCard({ card, onAnswer, takeFocus }: PermissionCardProp
 			data-testid="chat-permission-card"
 		>
 			<h2 id={titleId} className="pk-text-heading">
-				{plan !== null
-					? "Claude has a plan for you to review"
-					: `Claude wants to use ${card.toolName}`}
+				{title}
 			</h2>
-			{card.title ? <p className="pk-chat-card-subtitle">{card.title}</p> : null}
-			{plan !== null ? (
-				<div className="pk-chat-plan">
-					<ChatMarkdown text={plan} />
-				</div>
-			) : (
-				<ToolInput input={card.input} />
-			)}
+			{subtitle ? <p className="pk-chat-card-subtitle">{subtitle}</p> : null}
+			<Body card={card} />
 			<p className="pk-chat-card-error" role="alert">
 				{error}
 			</p>
@@ -116,6 +168,11 @@ export function PermissionCard({ card, onAnswer, takeFocus }: PermissionCardProp
 						{option.label}
 					</Button>
 				))}
+				{waiting > 0 ? (
+					<p className="pk-chat-card-waiting" data-testid="chat-cards-waiting">
+						{waitingText(waiting)}
+					</p>
+				) : null}
 			</div>
 		</section>
 	);

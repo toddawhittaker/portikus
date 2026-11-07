@@ -13,6 +13,7 @@ import {
 	createPendingWork,
 	dropPresence,
 	openPresence,
+	PRESENCE_INTERVAL_MS,
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "../workspaces/presence.js";
@@ -20,9 +21,6 @@ import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { terminalSockets } from "../workspaces/terminal-sockets.js";
 
 const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
-
-/** How often an attached chat refreshes its presence row (SPEC.md §6.4). */
-const PRESENCE_INTERVAL_MS = 15_000;
 
 /** Browser attachments per chat tab, as for a terminal (SPEC.md §9.7). */
 const chatAttachments = createSocketSlots(MAX_ATTACHMENTS_PER_TERMINAL);

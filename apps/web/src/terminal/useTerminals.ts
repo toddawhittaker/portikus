@@ -26,6 +26,8 @@ interface CreateInit {
 	name?: string;
 	agent?: CodingAgent;
 	kind?: "chat";
+	/** An ended chat whose session the new chat continues. */
+	resumeChatOf?: string;
 }
 
 export interface Terminals {
@@ -90,6 +92,7 @@ export function useTerminals(
 				...(init?.name ? { name: init.name } : {}),
 				...(init?.agent ? { agent: init.agent } : {}),
 				...(init?.kind ? { kind: init.kind } : {}),
+				...(init?.resumeChatOf ? { resumeChatOf: init.resumeChatOf } : {}),
 			}),
 		// No refetch here on purpose: a list answer holding a terminal the caller
 		// has not placed yet would be reconciled into a tab of its own. The

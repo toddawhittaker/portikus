@@ -7,17 +7,11 @@ import { type ChatClientMessage, CloseCode } from "@portikus/contracts";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { wsUrl } from "../api/ws.js";
 import {
+	FATAL_CLOSE_CODES,
 	MAX_RECONNECT_ATTEMPTS,
 	MAX_RECONNECT_MS,
 	RECONNECT_MS,
 } from "../terminal/terminalSocket.js";
-
-/** Close codes that retrying will not fix. */
-const FATAL_CLOSE_CODES = new Set<number>([
-	CloseCode.POLICY,
-	1009,
-	CloseCode.SERVER_ERROR,
-]);
 
 export interface ChatSocketEvents {
 	onOpen: () => void;

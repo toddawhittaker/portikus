@@ -38,7 +38,7 @@ import {
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
-/** The shared, unmodified Claude Code binary (SPEC.md §10.1, SPEC.md §10.1). */
+/** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
 const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
 
 /**
@@ -49,6 +49,11 @@ const START_EFFORT: ChatEffort = "high";
 
 export interface ChatHostOptions {
 	terminalId: string;
+	/**
+	 * The Claude session this tab runs, as `recordChatSession` resolved it;
+	 * absent means the terminal id (SPEC.md §10.8).
+	 */
+	sessionId?: string;
 	/** The chat's project directory, also Claude's working directory. */
 	projectDir: string;
 	homeDir: string;
@@ -84,8 +89,11 @@ interface OpenCard {
 
 interface Client {
 	socket: Socket;
-	/** Live events held until this client's snapshot has gone. */
-	held: string[] | null;
+	/**
+	 * Live events held, unnumbered, until this client's snapshot and replay
+	 * have gone; they are numbered as they are flushed.
+	 */
+	held: ChatEventBody[] | null;
 }
 
 /** Streaming input for the SDK: messages are pushed as the student sends them. */
@@ -125,6 +133,8 @@ export class ChatHost {
 	private readonly sdk: ChatSdk;
 	private server: Server | null = null;
 	private session: Query | null = null;
+	/** A session being started, shared so concurrent sends start only one. */
+	private starting: Promise<void> | null = null;
 	private input: InputQueue | null = null;
 	private mapper = new ClaudeMessageMapper();
 	private seq = 0;
@@ -141,6 +151,10 @@ export class ChatHost {
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
+	}
+
+	private get sessionId(): string {
+		return this.options.sessionId ?? this.options.terminalId;
 	}
 
 	get socketPath(): string {
@@ -161,7 +175,7 @@ export class ChatHost {
 		await chmod(this.socketPath, 0o600);
 		this.server = server;
 		this.options.log.info("chat host listening");
-		await this.startSession();
+		await this.ensureSession();
 	}
 
 	/** Stop Claude and close every attachment. The transcript stays. */
@@ -177,23 +191,33 @@ export class ChatHost {
 		await unlink(this.socketPath).catch(() => undefined);
 	}
 
+	private ensureSession(): Promise<void> {
+		if (this.session) return Promise.resolve();
+		this.starting ??= this.startSession().finally(() => {
+			this.starting = null;
+		});
+		return this.starting;
+	}
+
 	private async startSession(): Promise<void> {
-		const { terminalId, projectDir } = this.options;
+		const { projectDir } = this.options;
+		const sessionId = this.sessionId;
 		const exists = await this.sdk
-			.sessionExists(terminalId, projectDir)
+			.sessionExists(sessionId, projectDir)
 			.catch(() => false);
 		const input = new InputQueue();
 		const session = this.sdk.query({
 			prompt: input,
 			options: {
 				cwd: projectDir,
-				// The terminal id is the session id, so `claude --resume <id>`
-				// in a terminal continues this chat.
-				...(exists ? { resume: terminalId } : { sessionId: terminalId }),
+				// `claude --resume <session id>` in a terminal continues this chat.
+				...(exists ? { resume: sessionId } : { sessionId }),
 				pathToClaudeCodeExecutable: this.options.claudePath ?? CLAUDE_PATH,
 				includePartialMessages: true,
 				effort: this.settings.effort,
 				permissionMode: this.settings.mode,
+				// The picker offers bypass, so the SDK must allow switching to it.
+				allowDangerouslySkipPermissions: true,
 				...(this.settings.model === "default" ? {} : { model: this.settings.model }),
 				canUseTool: (toolName, toolInput, ask) =>
 					this.askCard(toolName, toolInput, ask),
@@ -270,14 +294,14 @@ export class ChatHost {
 	private beginTurn(): void {
 		this.turnRunning = true;
 		this.interrupting = false;
-		this.broadcast({ type: "turn.started" });
+		this.broadcast({ type: "turn.started", at: Date.now() });
 	}
 
 	private finishTurn(status: "done" | "interrupted" | "error"): void {
 		this.turnRunning = false;
 		this.interrupting = false;
 		this.partial = null;
-		this.broadcast({ type: "turn.finished", status });
+		this.broadcast({ type: "turn.finished", status, at: Date.now() });
 	}
 
 	/**
@@ -342,24 +366,25 @@ export class ChatHost {
 		});
 		this.options.log.info({ attachments: this.clients.size }, "chat attached");
 
+		// The state as of now; anything that changes during the read below
+		// arrives as a held event after the replay.
+		const partial = this.partial;
+		const cards = [...this.cards.values()].map((open) => open.card);
+		const turnRunning = this.turnRunning;
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
 		try {
 			replay = replayHistory(
-				await this.sdk.sessionMessages(
-					this.options.terminalId,
-					this.options.projectDir,
-				),
-				this.turnRunning,
+				await this.sdk.sessionMessages(this.sessionId, this.options.projectDir),
+				turnRunning,
 			);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
-		const partial = this.partial;
 		const snapshot = buildSnapshot({
 			sessionId: this.options.terminalId,
 			seq: this.seq,
-			cards: [...this.cards.values()].map((open) => open.card),
-			turnRunning: this.turnRunning,
+			cards,
+			turnRunning,
 			truncated: replay.truncated,
 		});
 		writeLine(socket, JSON.stringify(snapshot));
@@ -373,7 +398,10 @@ export class ChatHost {
 		}
 		const held = client.held ?? [];
 		client.held = null;
-		for (const line of held) writeLine(socket, line);
+		for (const event of held) {
+			const line = this.fitted(event);
+			if (line !== null) writeLine(socket, line);
+		}
 		writeLine(socket, this.frame(this.settingsEvent()));
 	}
 
@@ -440,7 +468,7 @@ export class ChatHost {
 			attachments,
 		);
 		if (content.length === 0) return;
-		if (!this.session) await this.startSession();
+		await this.ensureSession();
 		const uuid = randomUUID();
 		this.input?.push({
 			type: "user",
@@ -497,13 +525,25 @@ export class ChatHost {
 	}
 
 	private broadcast(event: ChatEventBody): void {
-		const line = this.frame(event);
-		// An event larger than a frame cannot be relayed; the transcript keeps it.
-		if (Buffer.byteLength(line, "utf8") > MAX_CHAT_SERVER_FRAME_BYTES) return;
+		let line: string | null | undefined;
 		for (const client of this.clients) {
-			if (client.held) client.held.push(line);
-			else writeLine(client.socket, line);
+			if (client.held) {
+				client.held.push(event);
+				continue;
+			}
+			if (line === undefined) line = this.fitted(event);
+			if (line !== null) writeLine(client.socket, line);
 		}
+	}
+
+	/**
+	 * The event as one numbered frame, or null when it is larger than a
+	 * frame: it cannot be relayed, and the transcript keeps it. Images over
+	 * the cap never get here; the adapter has made them `imageOmitted`.
+	 */
+	private fitted(event: ChatEventBody): string | null {
+		const line = this.frame(event);
+		return Buffer.byteLength(line, "utf8") <= MAX_CHAT_SERVER_FRAME_BYTES ? line : null;
 	}
 }
 

@@ -11,7 +11,7 @@ export const MAX_RECONNECT_ATTEMPTS = 5;
  * Close codes that will not get better by retrying: a policy refusal, a frame
  * that was too large, and a server error.
  */
-const FATAL_CLOSE_CODES = new Set<number>([
+export const FATAL_CLOSE_CODES = new Set<number>([
 	CloseCode.POLICY,
 	1009,
 	CloseCode.SERVER_ERROR,

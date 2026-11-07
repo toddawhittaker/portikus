@@ -64,8 +64,14 @@ export const AgentCreateTerminalRequest = z
 			})
 			.strict()
 			.optional(),
+		/** The Claude session id the chat host resumes (SPEC.md §10.8). */
+		resumeChatOf: TerminalId.optional(),
 	})
-	.strict();
+	.strict()
+	.refine((body) => body.resumeChatOf === undefined || body.kind === "chat", {
+		message: "Only a chat can resume a chat",
+		path: ["resumeChatOf"],
+	});
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
 
 /**

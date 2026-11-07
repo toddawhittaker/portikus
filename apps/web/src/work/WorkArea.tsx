@@ -38,6 +38,7 @@ import {
 } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
+import { agentLabel } from "../terminal/agentLabel.js";
 import {
 	marksByTerminal,
 	mostUrgent,
@@ -245,6 +246,21 @@ export function WorkArea({
 		);
 	}
 
+	/**
+	 * An ended chat goes on in a new chat in its place; the ended record is then
+	 * closed, as the new one carries its session (SPEC.md §10.8).
+	 */
+	async function resume(terminalId: string) {
+		await createAndPlace(
+			(created) => {
+				store.getState().replaceLeaf(terminalId, created.id);
+				store.getState().setFocused(created.id);
+				closeTerminal(terminalId);
+			},
+			{ kind: "chat", agent: "claude", resumeChatOf: terminalId },
+		);
+	}
+
 	async function replace(terminalId: string) {
 		await createAndPlace((created) => {
 			store.getState().replaceLeaf(terminalId, created.id);
@@ -390,6 +406,7 @@ export function WorkArea({
 		// shell (design system, Iconography). The terminal record is the source.
 		const agent =
 			first?.agent === "claude" || first?.agent === "codex" ? first.agent : null;
+		const named = first ? agentLabel(first) : null;
 		// A split tab shows its most urgent pane.
 		const mark = mostUrgent(
 			ids.flatMap((id) => {
@@ -402,12 +419,7 @@ export function WorkArea({
 			kind: agent ?? "terminal",
 			agentState: mark?.state,
 			unread: mark?.unread,
-			label:
-				agent === "claude"
-					? "Claude Code"
-					: agent === "codex"
-						? "Codex"
-						: (first?.name ?? "Terminal"),
+			label: named ?? first?.name ?? "Terminal",
 			testId: `tab-${tab.id}`,
 			ended: ids.length > 0 && ids.every((id) => byId.get(id)?.endedAt != null),
 			dirty,
@@ -580,6 +592,7 @@ export function WorkArea({
 							onClose={closePane}
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
+							onResume={(id) => void resume(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}

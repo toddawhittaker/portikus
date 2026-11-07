@@ -40,34 +40,58 @@ function connect(): Promise<{ ws: WebSocket; frames: string[] }> {
 
 const types = (frames: string[]) => frames.map((one) => JSON.parse(one).type as string);
 
-test("the scripted turn, an answer, a send, set and interrupt all validate", async () => {
+const send = (ws: WebSocket, text: string) =>
+	ws.send(JSON.stringify({ type: "send", text, attachments: [] }));
+
+test("an attach replays the earlier turn and ends with settings, and starts nothing", async () => {
 	const first = await connect();
-	const second = await connect();
-	await expect.poll(() => types(first.frames).includes("turn.finished")).toBe(true);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	first.ws.close();
 	expect(types(first.frames)).toEqual([
 		"snapshot",
 		"turn.started",
-		"text.delta",
-		"text.delta",
-		"text.delta",
 		"message",
-		"tool.started",
-		"tool.output",
-		"tool.output",
-		"tool.finished",
-		"question.requested",
-		"permission.requested",
+		"message",
 		"turn.finished",
+		"settings",
 	]);
-	// The second attachment sees the open cards in its snapshot.
-	await expect.poll(() => second.frames.length).toBeGreaterThan(0);
-	const snapshot = JSON.parse(second.frames[0] ?? "");
+	const snapshot = JSON.parse(first.frames[0] ?? "");
+	expect(snapshot).not.toHaveProperty("messages");
+	const turn = first.frames.map((one) => JSON.parse(one));
+	expect(turn[1].at).toBeLessThan(turn[4].at);
+	expect(turn[4].status).toBe("done");
+});
+
+test("the first send runs the scripted turn; later attachments replay it", async () => {
+	const first = await connect();
+	const second = await connect();
+	await expect.poll(() => types(second.frames).includes("settings")).toBe(true);
+	send(first.ws, "start");
+	await expect
+		.poll(() => types(first.frames).includes("permission.requested"))
+		.toBe(true);
+	await expect.poll(() => types(first.frames).at(-1)).toBe("turn.finished");
+
+	const late = await connect();
+	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+	const lateTypes = types(late.frames);
+	expect(lateTypes).toContain("tool.started");
+	expect(lateTypes).not.toContain("permission.requested");
+	expect(lateTypes.at(-1)).toBe("settings");
+	const snapshot = JSON.parse(late.frames[0] ?? "");
 	expect(snapshot.cards.map((card: { id: string }) => card.id)).toEqual([
 		"card-question",
 		"card-permission",
 	]);
-	expect(snapshot.truncated).toBe(false);
+	late.ws.close();
+	second.ws.close();
+	first.ws.close();
+});
 
+test("an answer, a send, set and interrupt all validate", async () => {
+	const first = await connect();
+	const second = await connect();
+	await expect.poll(() => types(second.frames).includes("settings")).toBe(true);
 	first.ws.send(
 		JSON.stringify({
 			type: "question.answer",
@@ -86,13 +110,16 @@ test("the scripted turn, an answer, a send, set and interrupt all validate", asy
 			answers: { a: "c" },
 		}),
 	);
-	first.ws.send(JSON.stringify({ type: "send", text: "hello", attachments: [] }));
+	const before = types(first.frames).filter((one) => one === "turn.finished").length;
+	send(first.ws, "hello");
 	first.ws.send(JSON.stringify({ type: "set", effort: "high" }));
 	first.ws.send(JSON.stringify({ type: "interrupt" }));
 	await expect
 		.poll(() => types(first.frames).filter((one) => one === "turn.finished").length)
+		.toBe(before + 2);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "settings").length)
 		.toBe(2);
-	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
 
 	for (const frame of [...first.frames, ...second.frames]) {
 		expect(ChatServerEvent.safeParse(JSON.parse(frame)).success, frame).toBe(true);

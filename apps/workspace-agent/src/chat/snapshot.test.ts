@@ -123,6 +123,129 @@ describe("history replay", () => {
 	});
 });
 
+describe("replayed turns", () => {
+	const at = (iso: string) => ({ timestamp: iso });
+	function stamped(e: SessionMessage, iso: string, more: object = {}): SessionMessage {
+		return { ...e, ...at(iso), ...more } as SessionMessage;
+	}
+	const marker = (text: string) =>
+		entry("user", { role: "user", content: [{ type: "text", text }] });
+
+	test("turn events carry the transcript's start and finish times", () => {
+		const [prompt, ...rest] = turn(1);
+		const entries = [
+			stamped(prompt as SessionMessage, "2026-11-07T10:00:00.000Z"),
+			...rest.slice(0, -1),
+			stamped(rest.at(-1) as SessionMessage, "2026-11-07T10:03:43.000Z"),
+		];
+		const { events } = replayHistory(entries, false);
+		expect(events[0]).toEqual({
+			type: "turn.started",
+			at: Date.parse("2026-11-07T10:00:00.000Z"),
+		});
+		expect(events.at(-1)).toEqual({
+			type: "turn.finished",
+			status: "done",
+			at: Date.parse("2026-11-07T10:03:43.000Z"),
+		});
+	});
+
+	test("an interrupted turn replays as interrupted, and its marker is not a student message", () => {
+		for (const text of [
+			"[Request interrupted by user]",
+			"[Request interrupted by user for tool use]",
+		]) {
+			const entries = [...turn(1).slice(0, 2), marker(text), ...turn(2)];
+			const { events } = replayHistory(entries, false);
+			expect(events.filter((e) => e.type === "turn.finished")).toMatchObject([
+				{ status: "interrupted" },
+				{ status: "done" },
+			]);
+			const typed = events.filter((e) => e.type === "message" && e.role === "user");
+			expect(typed.map((e) => (e as { markdown: string }).markdown)).toEqual([
+				"prompt 1",
+				"prompt 2",
+			]);
+		}
+	});
+
+	test("a turn ending in an API error replays as error, without the error as a reply", () => {
+		const entries = [
+			entry("user", { role: "user", content: "hi" }),
+			entry("assistant", {
+				id: "e1",
+				model: "<synthetic>",
+				content: [{ type: "text", text: "API Error: Can't reach the API server" }],
+			}),
+		];
+		const { events } = replayHistory(entries, false);
+		expect(events.at(-1)).toMatchObject({ type: "turn.finished", status: "error" });
+		expect(events.some((e) => e.type === "message" && e.role === "assistant")).toBe(
+			false,
+		);
+	});
+
+	test("Claude Code's own user entries are not shown and start no turn", () => {
+		const entries = [
+			...turn(1),
+			{
+				...marker("<task-notification>done</task-notification>"),
+				origin: { kind: "task-notification" },
+			} as SessionMessage,
+			{ ...marker("caveat"), is_meta: true } as SessionMessage,
+			{
+				...marker("<command-name>/clear</command-name>"),
+				isCompletedLocalCommand: true,
+			} as SessionMessage,
+			{
+				...entry("user", { role: "user", content: "typed" }),
+				origin: { kind: "human" },
+			} as SessionMessage,
+		];
+		const { events } = replayHistory(entries, false);
+		expect(events.filter((e) => e.type === "turn.started")).toHaveLength(2);
+		const typed = events.filter((e) => e.type === "message" && e.role === "user");
+		expect(typed.map((e) => (e as { markdown: string }).markdown)).toEqual([
+			"prompt 1",
+			"typed",
+		]);
+	});
+
+	test("an image-only message is a typed message, with its attachments as paths", () => {
+		const entries = [
+			entry("user", {
+				role: "user",
+				content: [
+					{ type: "text", text: "Attached file: .portikus/pastes/1/red.png" },
+					{
+						type: "image",
+						source: { type: "base64", media_type: "image/png", data: PNG },
+					},
+				],
+			}),
+			entry("user", {
+				role: "user",
+				content: [
+					{
+						type: "image",
+						source: { type: "base64", media_type: "image/png", data: PNG },
+					},
+				],
+			}),
+		];
+		const { events } = replayHistory(entries, false);
+		expect(events.filter((e) => e.type === "turn.started")).toHaveLength(2);
+		expect(events.filter((e) => e.type === "message")).toMatchObject([
+			{
+				role: "user",
+				markdown: "",
+				attachments: [{ path: ".portikus/pastes/1/red.png" }],
+			},
+			{ role: "user", markdown: "" },
+		]);
+	});
+});
+
 describe("snapshot", () => {
 	test("holds cards, the turn state and truncated, and never messages", () => {
 		const snapshot = buildSnapshot({
@@ -132,11 +255,8 @@ describe("snapshot", () => {
 			turnRunning: true,
 			truncated: true,
 		});
-		expect(snapshot).toMatchObject({
-			messages: [],
-			turnRunning: true,
-			truncated: true,
-		});
+		expect(snapshot).toMatchObject({ turnRunning: true, truncated: true });
+		expect(snapshot).not.toHaveProperty("messages");
 		expect(ChatServerEvent.safeParse(snapshot).success).toBe(true);
 	});
 });

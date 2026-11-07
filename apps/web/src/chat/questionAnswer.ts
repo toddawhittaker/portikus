@@ -4,11 +4,18 @@ import type { ChatQuestion } from "@portikus/contracts";
 export interface QuestionDraft {
 	/** Labels of the picked options; at most one for a single-select question. */
 	picked: string[];
+	/** A single-select question's Other radio is checked, even before its text is written. */
+	otherPicked: boolean;
 	other: string;
 	notes: string;
 }
 
-export const emptyDraft: QuestionDraft = { picked: [], other: "", notes: "" };
+export const emptyDraft: QuestionDraft = {
+	picked: [],
+	otherPicked: false,
+	other: "",
+	notes: "",
+};
 
 export type QuestionAnswer =
 	| { ok: true; answers: Record<string, string>; notes?: Record<string, string> }

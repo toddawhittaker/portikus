@@ -4,7 +4,8 @@ import { type ChatStore, type ChatTransport, createChatStore } from "./chatStore
 
 /**
  * The store for one chat tab, connected for as long as the view is mounted.
- * Closing the socket never stops the session; deleting the tab does.
+ * Closing the socket never stops the session; deleting the tab does. Every
+ * socket gets its own snapshot and replay, so a remount simply attaches again.
  */
 export function useChatSession(workspaceId: string, terminalId: string): ChatStore {
 	const [session] = useState(() => {
@@ -16,25 +17,18 @@ export function useChatSession(workspaceId: string, terminalId: string): ChatSto
 		const { link, store } = session;
 		const actions = store.getState();
 		actions.setConnection("connecting");
-		// React's development remount runs this effect twice back to back. A socket
-		// opened for the first run could attach to the host, be sent the live turn,
-		// and close before the page shows it, so the socket opens a turn later.
-		let socket: ReturnType<typeof openChatSocket> | null = null;
-		const timer = setTimeout(() => {
-			socket = openChatSocket(chatSocketPath(workspaceId, terminalId), {
-				onOpen: () => actions.setConnection("open"),
-				onFrame: (data) => actions.receive(data),
-				onReconnecting: () => actions.setConnection("reconnecting"),
-				onLost: () => actions.setConnection("lost"),
-				onTooMany: () => actions.setConnection("tooMany"),
-				onNotFound: () => actions.setConnection("notFound"),
-			});
-			link.send = socket.send;
-		}, 0);
+		const socket = openChatSocket(chatSocketPath(workspaceId, terminalId), {
+			onOpen: () => actions.setConnection("open"),
+			onFrame: (data) => actions.receive(data),
+			onReconnecting: () => actions.setConnection("reconnecting"),
+			onLost: () => actions.setConnection("lost"),
+			onTooMany: () => actions.setConnection("tooMany"),
+			onNotFound: () => actions.setConnection("notFound"),
+		});
+		link.send = socket.send;
 		return () => {
-			clearTimeout(timer);
 			link.send = () => false;
-			socket?.stop();
+			socket.stop();
 		};
 	}, [session, workspaceId, terminalId]);
 

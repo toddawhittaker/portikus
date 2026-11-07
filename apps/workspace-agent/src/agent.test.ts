@@ -204,6 +204,25 @@ test.skipIf(!haveTmux)("a refused POST /terminals creates no terminal", async ()
 	expect(await hasSession(id, SERVER)).toBe(false);
 });
 
+test.skipIf(!haveTmux)("only a chat may resume a chat", async () => {
+	const id = makeId();
+	const refused = await app.inject({
+		method: "POST",
+		url: "/terminals",
+		headers: auth(),
+		payload: {
+			id,
+			cwd: homeDir,
+			theme: "dark",
+			timezone: "America/New_York",
+			agent: "claude",
+			resumeChatOf: makeId(),
+		},
+	});
+	expect(refused.statusCode).toBe(400);
+	expect(await hasSession(id, SERVER)).toBe(false);
+});
+
 test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async () => {
 	const id = makeId();
 	const created = await app.inject({

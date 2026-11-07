@@ -23,20 +23,6 @@ export const MAX_CHAT_QUESTION_OPTIONS = 4;
 /** The model is asked for 12 characters but does not always obey. */
 export const MAX_CHAT_QUESTION_HEADER_CHARS = 40;
 
-function frameOfAtMost(maxBytes: number) {
-	return z.string().refine((s) => new TextEncoder().encode(s).byteLength <= maxBytes, {
-		message: "Frame too large",
-	});
-}
-
-/** A raw browser-to-server frame, refused before parsing when it is too large. */
-export const ChatClientFrame = frameOfAtMost(MAX_CHAT_CLIENT_FRAME_BYTES);
-/** A raw server-to-browser frame, refused before parsing when it is too large. */
-export const ChatServerFrame = frameOfAtMost(MAX_CHAT_SERVER_FRAME_BYTES);
-
-export const ChatAgent = CodingAgent;
-export type ChatAgent = CodingAgent;
-
 /** The SDK's permission modes, less `dontAsk`, which the picker does not offer. */
 export const ChatPermissionMode = z.enum([
 	"default",
@@ -59,9 +45,10 @@ export const ChatImageMediaType = z.enum([
 ]);
 export type ChatImageMediaType = z.infer<typeof ChatImageMediaType>;
 
-function decodedBase64Bytes(data: string): number {
+/** Decoded size of base64 data, without decoding it. */
+export function decodedBase64Bytes(data: string): number {
 	const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-	return (data.length / 4) * 3 - padding;
+	return Math.floor((data.length * 3) / 4) - padding;
 }
 
 const Base64Image = z
@@ -157,26 +144,31 @@ const Envelope = {
 
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	/**
-	 * Sent first on every attach. It holds the open cards, whether a turn is
-	 * running; `messages` is always empty.
+	 * Sent first on every attach. It holds the open cards and whether a turn
+	 * is running.
 	 * History follows it as ordinary events, one frame each with rising
 	 * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
 	 * `turn.finished` (left out for a turn still running). At most the last
 	 * 20 turns are replayed, and `truncated` says older turns exist. Tool
 	 * images older than the last 5 turns, or too large for one frame, are
 	 * replayed as `imageOmitted`. A reply streaming now follows as one
-	 * `text.delta` holding its text so far; live events come after.
+	 * `text.delta` holding its text so far, then live events, then
+	 * `settings`.
 	 */
 	z.object({
 		type: z.literal("snapshot"),
 		...Envelope,
-		messages: z.array(ChatMessage),
 		cards: z.array(ChatOpenCard),
 		turnRunning: z.boolean(),
 		/** Turns older than the replayed ones exist. */
 		truncated: z.boolean(),
 	}),
-	z.object({ type: z.literal("turn.started"), ...Envelope }),
+	z.object({
+		type: z.literal("turn.started"),
+		...Envelope,
+		/** Epoch milliseconds the turn started, from the transcript on replay. */
+		at: z.number().int().nonnegative(),
+	}),
 	z.object({
 		type: z.literal("text.delta"),
 		...Envelope,
@@ -219,12 +211,14 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		type: z.literal("turn.finished"),
 		...Envelope,
 		status: z.enum(["done", "interrupted", "error"]),
+		/** Epoch milliseconds the turn finished, from the transcript on replay. */
+		at: z.number().int().nonnegative(),
 	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
-		agent: ChatAgent,
+		agent: CodingAgent,
 		model: z.string().min(1),
 		effort: ChatEffort,
 		mode: ChatPermissionMode,

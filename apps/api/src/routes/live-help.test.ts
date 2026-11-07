@@ -296,6 +296,21 @@ describe.skipIf(skip)("the gate", () => {
 		return app.inject({ url: detailUrl(sid, courseId), headers: { cookie } });
 	}
 
+	test("never shows or attaches a helper to the student's chat tab", async () => {
+		const chat = await post(
+			world.a.jar,
+			`/workspaces/${world.a.workspaceId}/terminals`,
+			{ kind: "chat", agent: "claude", projectId: world.a.projectId },
+		);
+		expect(chat.statusCode).toBe(201);
+		const sid = await startedId();
+		await studentConnected();
+		const helper = world.instructor.cookieHeader();
+		const body = CourseLiveHelpDetail.parse((await detail(sid, helper)).json());
+		expect(body.terminals.map((one) => one.id)).toEqual([world.a.terminalId]);
+		expect(await upgradeStatus(socketPath(sid, chat.json().id), helper)).toBe(404);
+	});
+
 	test("lets the helper read the session, its terminals, and whether the student is there", async () => {
 		const sid = await startedId();
 		const before = await detail(sid, world.instructor.cookieHeader());

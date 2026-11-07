@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
+import { AgentCreateTerminalRequest } from "./agent.js";
 import {
-	ChatClientFrame,
 	ChatClientMessage,
 	type ChatQuestion,
 	ChatServerEvent,
-	ChatServerFrame,
+	decodedBase64Bytes,
 	MAX_CHAT_ATTACHMENTS,
-	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_QUESTION_HEADER_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -45,9 +44,6 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		{
 			type: "snapshot",
 			...env,
-			messages: [
-				{ id: "m1", role: "user", markdown: "hi", attachments: [{ path: "a.png" }] },
-			],
 			cards: [
 				{
 					type: "permission",
@@ -65,7 +61,6 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		{
 			type: "snapshot",
 			...env,
-			messages: [],
 			cards: [],
 			turnRunning: false,
 			truncated: true,
@@ -76,9 +71,17 @@ describe("chat server events (SPEC.md §10.8)", () => {
 			id: "t1",
 			part: { type: "imageOmitted", mediaType: "image/webp" },
 		},
-		{ type: "turn.started", ...env },
+		{ type: "turn.started", ...env, at: 1_800_000_000_000 },
 		{ type: "text.delta", ...env, messageId: "m2", text: "Hel" },
 		{ type: "message", ...env, id: "m2", role: "assistant", markdown: "**Hello**" },
+		{
+			type: "message",
+			...env,
+			id: "m1",
+			role: "user",
+			markdown: "",
+			attachments: [{ path: "a.png" }],
+		},
 		{
 			type: "tool.started",
 			...env,
@@ -101,7 +104,7 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		},
 		{ type: "question.requested", ...env, id: "q1", questions: [question()] },
 		{ type: "card.resolved", ...env, id: "q1" },
-		{ type: "turn.finished", ...env, status: "interrupted" },
+		{ type: "turn.finished", ...env, status: "interrupted", at: 1_800_000_001_000 },
 		{ type: "error", ...env, message: "boom" },
 		{
 			type: "settings",
@@ -120,11 +123,35 @@ describe("chat server events (SPEC.md §10.8)", () => {
 
 	test("seq must be a non-negative integer", () => {
 		expect(
-			ChatServerEvent.safeParse({ type: "turn.started", ...env, seq: -1 }).success,
+			ChatServerEvent.safeParse({ type: "turn.started", ...env, at: 0, seq: -1 })
+				.success,
 		).toBe(false);
 		expect(
-			ChatServerEvent.safeParse({ type: "turn.started", ...env, seq: 1.5 }).success,
+			ChatServerEvent.safeParse({ type: "turn.started", ...env, at: 0, seq: 1.5 })
+				.success,
 		).toBe(false);
+	});
+
+	test("turn events need the time they happened", () => {
+		expect(ChatServerEvent.safeParse({ type: "turn.started", ...env }).success).toBe(
+			false,
+		);
+		expect(
+			ChatServerEvent.safeParse({ type: "turn.finished", ...env, status: "done" })
+				.success,
+		).toBe(false);
+	});
+
+	test("a snapshot carries no messages", () => {
+		const snapshot = ChatServerEvent.parse({
+			type: "snapshot",
+			...env,
+			messages: [{ id: "m", role: "user", markdown: "x" }],
+			cards: [],
+			turnRunning: false,
+			truncated: false,
+		});
+		expect(snapshot).not.toHaveProperty("messages");
 	});
 
 	test("an image is accepted at 5 MiB and refused one byte over", () => {
@@ -227,27 +254,16 @@ describe("chat client messages (SPEC.md §10.8)", () => {
 });
 
 describe("chat frame caps", () => {
-	test("a client frame is accepted at 1 MiB and refused one byte over", () => {
-		const at = "x".repeat(MAX_CHAT_CLIENT_FRAME_BYTES);
-		expect(ChatClientFrame.safeParse(at).success).toBe(true);
-		expect(ChatClientFrame.safeParse(`${at}x`).success).toBe(false);
-	});
-
-	test("a server frame is accepted at 8 MiB and refused one byte over", () => {
-		const at = "x".repeat(MAX_CHAT_SERVER_FRAME_BYTES);
-		expect(ChatServerFrame.safeParse(at).success).toBe(true);
-		expect(ChatServerFrame.safeParse(`${at}x`).success).toBe(false);
+	test("decodedBase64Bytes counts padding", () => {
+		for (const n of [0, 1, 2, 3, 4, 5, MAX_CHAT_IMAGE_BYTES]) {
+			expect(decodedBase64Bytes(base64Of(n))).toBe(n);
+		}
 	});
 
 	test("a 5 MiB image in tool.output fits one server frame", () => {
 		const frame = JSON.stringify(image(base64Of(MAX_CHAT_IMAGE_BYTES)));
-		expect(ChatServerFrame.safeParse(frame).success).toBe(true);
+		expect(Buffer.byteLength(frame)).toBeLessThanOrEqual(MAX_CHAT_SERVER_FRAME_BYTES);
 		expect(ChatServerEvent.safeParse(JSON.parse(frame)).success).toBe(true);
-	});
-
-	test("the cap counts bytes, not characters", () => {
-		const twoByte = "é".repeat(MAX_CHAT_CLIENT_FRAME_BYTES / 2 + 1);
-		expect(ChatClientFrame.safeParse(twoByte).success).toBe(false);
 	});
 });
 
@@ -281,5 +297,37 @@ describe("terminal kind", () => {
 			CreateTerminalRequest.safeParse({ kind: "terminal", agent: "codex" }).success,
 		).toBe(true);
 		expect(CreateTerminalRequest.safeParse({}).success).toBe(true);
+	});
+
+	test("resumeChatOf is allowed only on a chat", () => {
+		const resumeChatOf = env.sessionId;
+		expect(
+			CreateTerminalRequest.safeParse({ kind: "chat", agent: "claude", resumeChatOf })
+				.success,
+		).toBe(true);
+		expect(
+			CreateTerminalRequest.safeParse({ agent: "claude", resumeChatOf }).success,
+		).toBe(false);
+		expect(
+			CreateTerminalRequest.safeParse({
+				kind: "chat",
+				agent: "claude",
+				resumeChatOf: "../x",
+			}).success,
+		).toBe(false);
+		const agentBody = {
+			id: env.sessionId,
+			cwd: "/home/student/projects/a",
+			theme: "dark",
+			timezone: "America/New_York",
+			agent: "claude",
+		};
+		expect(
+			AgentCreateTerminalRequest.safeParse({ ...agentBody, kind: "chat", resumeChatOf })
+				.success,
+		).toBe(true);
+		expect(
+			AgentCreateTerminalRequest.safeParse({ ...agentBody, resumeChatOf }).success,
+		).toBe(false);
 	});
 });

@@ -116,6 +116,7 @@ function renderLeaf(
 		onClose: vi.fn(),
 		onExited: vi.fn(),
 		onReplace: vi.fn(),
+		onResume: vi.fn(),
 		onLeave: vi.fn(),
 		onMoveToNewTab: vi.fn(),
 		onMoveInto: vi.fn(),
@@ -136,6 +137,7 @@ function renderLeaf(
 			onClose={props.onClose}
 			onExited={props.onExited}
 			onReplace={props.onReplace}
+			onResume={props.onResume}
 			onLeave={props.onLeave}
 			onMoveToNewTab={props.onMoveToNewTab}
 			moveTargets={moveTargets}
@@ -683,7 +685,8 @@ test("a chat tab shows the chat in the same frame, without the terminal's voice 
 	);
 	expect(screen.queryByTestId(`terminal-pane-${terminal.id}`)).toBeNull();
 	expect(screen.queryByTestId(`terminal-voice-${terminal.id}`)).toBeNull();
-	expect(screen.getByText("Claude Code · ~/projects/todo-api")).toBeTruthy();
+	// The pane is named as its tab is, never "Terminal N".
+	expect(screen.getByText("Claude Code (GUI) · ~/projects/todo-api")).toBeTruthy();
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
@@ -694,7 +697,7 @@ test("a chat tab shows the chat in the same frame, without the terminal's voice 
 	expect(props.onClose).toHaveBeenCalledWith(terminal.id);
 });
 
-test("an ended chat says it ended and offers a new terminal", () => {
+test("an ended chat says it ended and offers Resume and a new terminal", () => {
 	const props = renderLeaf({
 		kind: "chat",
 		agent: "claude",
@@ -704,6 +707,18 @@ test("an ended chat says it ended and offers a new terminal", () => {
 		"This chat ended when the workspace stopped",
 	);
 	expect(screen.queryByTestId(`chat-view-${terminal.id}`)).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Resume chat" }));
+	expect(props.onResume).toHaveBeenCalledWith(terminal.id);
 	fireEvent.click(screen.getByTestId("new-terminal-here"));
 	expect(props.onReplace).toHaveBeenCalledWith(terminal.id);
+});
+
+test("an ended terminal offers no Resume", () => {
+	renderLeaf({ endedAt: "2026-01-02T00:00:00.000Z" });
+	expect(screen.queryByTestId("chat-resume")).toBeNull();
+});
+
+test("a Claude Code terminal's pane reads TUI", () => {
+	renderLeaf({ agent: "claude", name: "Terminal 3" });
+	expect(screen.getByText("Claude Code (TUI) · ~/projects/todo-api")).toBeTruthy();
 });
