@@ -104,6 +104,8 @@ function draw() {
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
+	// The socket opens on the next timer turn.
+	act(() => vi.advanceTimersByTime(0));
 	open();
 	return view;
 }
@@ -345,4 +347,25 @@ test("scrolling up stops the view following new text", () => {
 	fireEvent.scroll(box);
 	emit("message", { id: "a1", role: "assistant", markdown: "new" });
 	expect(box.scrollTop).toBe(100);
+});
+
+test("a view unmounted before its first timer turn never opens a socket", () => {
+	const view = draw();
+	view.unmount();
+	FakeSocket.all = [];
+	const again = render(
+		<QueryClientProvider client={new QueryClient()}>
+			<ToastProvider>
+				<ChatView
+					workspaceId={WORKSPACE}
+					projectId={PROJECT}
+					terminalId={TERMINAL}
+					visible={true}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	again.unmount();
+	act(() => vi.advanceTimersByTime(10));
+	expect(FakeSocket.all).toHaveLength(0);
 });

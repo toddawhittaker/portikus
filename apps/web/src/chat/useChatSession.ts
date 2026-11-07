@@ -16,18 +16,25 @@ export function useChatSession(workspaceId: string, terminalId: string): ChatSto
 		const { link, store } = session;
 		const actions = store.getState();
 		actions.setConnection("connecting");
-		const socket = openChatSocket(chatSocketPath(workspaceId, terminalId), {
-			onOpen: () => actions.setConnection("open"),
-			onFrame: (data) => actions.receive(data),
-			onReconnecting: () => actions.setConnection("reconnecting"),
-			onLost: () => actions.setConnection("lost"),
-			onTooMany: () => actions.setConnection("tooMany"),
-			onNotFound: () => actions.setConnection("notFound"),
-		});
-		link.send = socket.send;
+		// React's development remount runs this effect twice back to back. A socket
+		// opened for the first run could attach to the host, be sent the live turn,
+		// and close before the page shows it, so the socket opens a turn later.
+		let socket: ReturnType<typeof openChatSocket> | null = null;
+		const timer = setTimeout(() => {
+			socket = openChatSocket(chatSocketPath(workspaceId, terminalId), {
+				onOpen: () => actions.setConnection("open"),
+				onFrame: (data) => actions.receive(data),
+				onReconnecting: () => actions.setConnection("reconnecting"),
+				onLost: () => actions.setConnection("lost"),
+				onTooMany: () => actions.setConnection("tooMany"),
+				onNotFound: () => actions.setConnection("notFound"),
+			});
+			link.send = socket.send;
+		}, 0);
 		return () => {
+			clearTimeout(timer);
 			link.send = () => false;
-			socket.stop();
+			socket?.stop();
 		};
 	}, [session, workspaceId, terminalId]);
 
