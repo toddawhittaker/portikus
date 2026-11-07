@@ -9,11 +9,12 @@ import {
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
+	MAX_TERMINAL_SOCKETS_PER_USER,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocket from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
@@ -23,6 +24,7 @@ import {
 	type MatrixWorld,
 	PUBLIC_URL,
 } from "../testing/test-support.js";
+import { terminalSockets } from "../workspaces/terminal-sockets.js";
 
 /**
  * The browser end of the chat relay (SPEC.md §9.7, §24.1): the owner alone
@@ -74,6 +76,8 @@ beforeEach(async () => {
 	await testDb.truncate();
 	agent.requests.length = 0;
 	agent.creates.length = 0;
+	presence.touched = 0;
+	presence.dropped = 0;
 	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	world = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
@@ -339,6 +343,8 @@ test.skipIf(skip)(
 
 test.skipIf(skip)("a plain terminal create forwards no kind", async () => {
 	agent.creates.length = 0;
+	presence.touched = 0;
+	presence.dropped = 0;
 	const created = await app.inject({
 		method: "POST",
 		url: `/workspaces/${world.a.workspaceId}/terminals`,
@@ -357,4 +363,142 @@ test("the create request refuses a codex chat and a chat with no agent", () => {
 	expect(
 		CreateTerminalRequest.safeParse({ kind: "chat", agent: "claude" }).success,
 	).toBe(true);
+});
+
+/** Test hooks on the presence helpers the chat socket calls; they pass through unless set. */
+const presence = vi.hoisted(() => ({
+	open: null as null | (() => Promise<void>),
+	drop: null as null | (() => Promise<void>),
+	touched: 0,
+	dropped: 0,
+}));
+
+vi.mock("../workspaces/presence.js", async (importOriginal) => {
+	const real = await importOriginal<typeof import("../workspaces/presence.js")>();
+	return {
+		...real,
+		openPresence: (...args: Parameters<typeof real.openPresence>) =>
+			presence.open ? presence.open() : real.openPresence(...args),
+		dropPresence: (...args: Parameters<typeof real.dropPresence>) => {
+			presence.dropped += 1;
+			return presence.drop ? presence.drop() : real.dropPresence(...args);
+		},
+		touchPresence: (...args: Parameters<typeof real.touchPresence>) => {
+			presence.touched += 1;
+			return real.touchPresence(...args);
+		},
+	};
+});
+
+async function agentCloses(code: number, reason: string): Promise<void> {
+	await fetch(`http://127.0.0.1:${agent.port}/__test/chats/${chatId}/close`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ code, reason }),
+	});
+}
+
+test.skipIf(skip)("the browser hears fixed words when the agent closes", async () => {
+	const cases: Array<[number, string]> = [
+		[4404, "chat not found"],
+		[1009, "frame too large"],
+		[1000, "chat closed"],
+	];
+	for (const [code, expected] of cases) {
+		const socket = await open(path());
+		await socket.next();
+		await agentCloses(code, "agent-secret-words");
+		expect(await socket.closed).toEqual({ code, reason: expected });
+	}
+});
+
+test.skipIf(skip)(
+	"a user at the terminal socket cap is refused with 4429",
+	async () => {
+		for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1) {
+			terminalSockets.take(world.a.userId);
+		}
+		try {
+			const socket = await open(path());
+			expect((await socket.closed).code).toBe(4429);
+		} finally {
+			for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1) {
+				terminalSockets.release(world.a.userId);
+			}
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a presence write that fails closes the socket and frees its slots",
+	async () => {
+		presence.open = () => Promise.reject(new Error("database down"));
+		const socket = await open(path());
+		await socket.closed;
+		expect(terminalSockets.open(world.a.userId)).toBe(0);
+		presence.open = null;
+		const again = await open(path());
+		expect(JSON.parse(await again.next()).type).toBe("snapshot");
+		again.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a browser that leaves during the presence write is cleaned up",
+	async () => {
+		presence.open = async () => {
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		};
+		const socket = await open(path());
+		socket.ws.terminate();
+		await socket.closed;
+		await expect.poll(() => presence.dropped).toBe(1);
+		expect(terminalSockets.open(world.a.userId)).toBe(0);
+		presence.open = null;
+	},
+);
+
+test.skipIf(skip)(
+	"a failed presence delete is logged without frame content",
+	async () => {
+		const { logger, lines } = collectingLogger();
+		const logged = buildTestServer(
+			testDb.db,
+			mock.issuer,
+			{ AGENT_PORT: agent.port },
+			logger,
+		);
+		await logged.listen({ port: 0, host: "127.0.0.1" });
+		try {
+			presence.drop = () => Promise.reject(new Error("database down"));
+			const socket = await open(
+				path(),
+				{ origin: ORIGIN, cookie: world.a.jar.cookieHeader() },
+				logged,
+			);
+			await socket.next();
+			socket.ws.close();
+			await socket.closed;
+			await expect
+				.poll(() => JSON.stringify(lines))
+				.toContain("failed to delete workspace connection");
+		} finally {
+			presence.drop = null;
+			await logged.close();
+		}
+	},
+);
+
+test.skipIf(skip)("an open chat refreshes its presence every 15 seconds", async () => {
+	vi.useFakeTimers({ toFake: ["setInterval"] });
+	try {
+		const socket = await open(path());
+		await socket.next();
+		vi.advanceTimersByTime(15_000);
+		expect(presence.touched).toBeGreaterThan(0);
+		socket.ws.close();
+		await socket.closed;
+	} finally {
+		vi.useRealTimers();
+	}
 });

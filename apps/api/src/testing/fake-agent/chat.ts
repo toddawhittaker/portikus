@@ -260,6 +260,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		return { received: chats.get(id)?.received ?? [] };
 	});
 
+	// Close every attachment from the agent's side with a code and reason.
+	app.post("/__test/chats/:id/close", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { code: number; reason: string };
+		for (const peer of chats.get(id)?.sockets ?? []) peer.close(body.code, body.reason);
+		return reply.status(204).send();
+	});
+
 	// One raw text frame of the given size, for the relay's frame cap.
 	app.post("/__test/chats/:id/raw", async (request, reply) => {
 		const id = (request.params as { id: string }).id;
