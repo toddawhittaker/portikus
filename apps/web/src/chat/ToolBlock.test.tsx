@@ -108,9 +108,9 @@ test("an opened command leaves out what the row already shows", () => {
 	);
 });
 
-test("running, failed and stopped each show a glyph and a word, and name the action", () => {
+test("running reads as it happens; failed and stopped show a glyph and a word and name the action", () => {
 	const running = row(tool({ status: "running" }));
-	expect(running.summary.textContent).toBe("Run pnpm vitest runRunning");
+	expect(running.summary.textContent).toBe("Running pnpm vitest run");
 	expect(running.summary.querySelector(".pk-spin")).toBeTruthy();
 	expect(running.body?.textContent).toContain("No output yet");
 	cleanup();
@@ -138,6 +138,12 @@ test("an unknown tool, or one missing its input, keeps its name and the host's t
 	expect(row(tool({ name: "Task", title: "", input: {} })).summary.textContent).toBe(
 		"Task",
 	);
+	cleanup();
+	// With no verb to say it, a running one keeps the word.
+	expect(
+		row(tool({ name: "Task", title: "look", input: {}, status: "running" })).summary
+			.textContent,
+	).toBe("Task lookRunning");
 });
 
 test("a tool's image is a button that says it opens the viewer", () => {

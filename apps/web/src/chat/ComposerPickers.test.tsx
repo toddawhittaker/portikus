@@ -23,12 +23,11 @@ let rerender: (
 ) => void;
 
 function draw(settings: ChatState["settings"] = START) {
-	const view = (s: ChatState["settings"], lastError: ChatState["lastError"] = null) => (
+	store.setState({ settings });
+	const view = (
 		<>
 			<ComposerPickers
 				store={store}
-				settings={s}
-				lastError={lastError}
 				warningId="bypass-warning"
 				onSet={(change) => {
 					asked.push(change);
@@ -39,8 +38,9 @@ function draw(settings: ChatState["settings"] = START) {
 			<p id="bypass-warning">{BYPASS_WARNING}</p>
 		</>
 	);
-	const result = render(view(settings));
-	rerender = (s, lastError = null) => act(() => result.rerender(view(s, lastError)));
+	render(view);
+	rerender = (s, lastError = null) =>
+		act(() => store.setState({ settings: s, lastError }));
 }
 
 function picker(name: string): HTMLElement {

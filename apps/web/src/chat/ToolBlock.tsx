@@ -68,15 +68,21 @@ const STATE: Record<
 	stopped: { label: "Stopped", icon: "stop" },
 };
 
-function ToolState({ status }: { status: ChatToolItem["status"] }) {
-	// A finished call needs no word; the past-tense verb already says it.
+function ToolState({
+	status,
+	verbSaysIt,
+}: {
+	status: ChatToolItem["status"];
+	/** The row's verb already tells the state: "Ran", or "Running pnpm test". */
+	verbSaysIt: boolean;
+}) {
 	if (status === "done") return null;
 	const state = STATE[status];
 	return (
 		<span className={`pk-chat-tool-state is-${status}`} data-testid="chat-tool-state">
 			{status === "running" ? <span className="pk-spin" aria-hidden={true} /> : null}
 			{state.icon ? <Icon name={state.icon} size="sm" /> : null}
-			{state.label}
+			{status === "running" && verbSaysIt ? null : state.label}
 		</span>
 	);
 }
@@ -118,7 +124,9 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 						{line.verb
 							? tool.status === "done"
 								? line.verb.done
-								: line.verb.pending
+								: tool.status === "running"
+									? line.verb.doing
+									: line.verb.pending
 							: tool.name}
 					</span>
 					{line.target ? (
@@ -135,7 +143,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 				</span>
 				<EditStat line={line} />
 				<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
-				<ToolState status={tool.status} />
+				<ToolState status={tool.status} verbSaysIt={line.verb !== null} />
 			</summary>
 			<div className="pk-chat-tool-body">
 				{line.path ? (

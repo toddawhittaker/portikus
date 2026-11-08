@@ -92,6 +92,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const lastSent = useRef<JSONContent | null>(null);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
+	/** Long pastes so far, so each gets its own file and chip name. */
+	const pastes = useRef(0);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
 	const bypass = settings?.mode === "bypassPermissions";
@@ -120,8 +122,11 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		if (bypass) setAnnounced(BYPASS_ON);
 	}, [bypass]);
 
+	// Emptied on leaving the block, so entering the next one is announced again.
 	useEffect(() => {
-		if (inCode) setAnnounced(CODE_ANNOUNCED);
+		setAnnounced((now) =>
+			inCode ? CODE_ANNOUNCED : now === CODE_ANNOUNCED ? "" : now,
+		);
 	}, [inCode]);
 
 	useLayoutEffect(() => {
@@ -166,7 +171,10 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}
 
 	function addLongPaste(text: string, lines: number) {
-		void files.add([new File([text], PASTED_NAME, { type: "text/plain" })], lines);
+		pastes.current += 1;
+		const name =
+			pastes.current === 1 ? PASTED_NAME : `pasted-text-${pastes.current}.txt`;
+		void files.add([new File([text], name, { type: "text/plain" })], lines);
 	}
 
 	function addPasted(pasted: File[]) {
@@ -310,8 +318,6 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					</div>
 					<ComposerPickers
 						store={store}
-						settings={settings}
-						lastError={lastError}
 						warningId={`${ids}-bypass`}
 						onSet={(next) => store.getState().set(next)}
 						onAnnounce={announce}

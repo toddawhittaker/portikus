@@ -5,7 +5,7 @@ import {
 	test,
 	type WebSocketRoute,
 } from "@playwright/test";
-import { makeChatTab } from "./chat-helpers";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
 import { expectNoViolations, terminalIds, workTabs } from "./helpers";
 import { splitPane } from "./split-helpers";
 
@@ -42,10 +42,7 @@ interface Script {
 }
 
 function script(ws: WebSocketRoute, into: Script, cards: unknown[]) {
-	let seq = 0;
-	const session = "00000000-0000-4000-8000-000000000000";
-	into.send = (type, body = {}) =>
-		ws.send(JSON.stringify({ type, sessionId: session, seq: seq++, ...body }));
+	into.send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
 	into.send("snapshot", { cards, turnRunning: false, truncated: false });
 	const at = Date.now() - 60_000;
 	for (let turn = 0; turn < 8; turn += 1) {
@@ -328,12 +325,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 				"Edited useDashboardQuery.ts+1 −3, 1 line added, 3 lines removed",
 			);
 			await expect(summary("lint")).toHaveText("Run pnpm lintFailed");
-			await expect(summary("test")).toHaveText("Run pnpm vitest runRunning");
-			// Only the failed and the running call carry a state.
-			await expect(view.getByTestId("chat-tool-state")).toHaveText([
-				"Failed",
-				"Running",
-			]);
+			await expect(summary("test")).toHaveText("Running pnpm vitest run");
+			// Only the failed and the running call carry a state; "Running" is said once.
+			await expect(view.getByTestId("chat-tool-state")).toHaveText(["Failed", ""]);
 			// No box around a row.
 			await expect(view.getByTestId("chat-tool-read")).toHaveCSS(
 				"border-top-width",

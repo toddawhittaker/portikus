@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { makeChatTab } from "./chat-helpers";
+import { expect, test } from "@playwright/test";
+import { makeChatTab, scriptChat } from "./chat-helpers";
 import {
 	createProject,
 	createStudent,
@@ -24,51 +24,6 @@ import { splitPane } from "./split-helpers";
 
 const SED = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 const GREP = { rule: "Bash(grep:*)", description: '"grep" commands in this session' };
-
-/** A frame the scripted host sends: its type and body. */
-type Frame = [string, object];
-
-/**
- * The chat socket answered by a script standing in for the host: a snapshot
- * with `snapshot` merged in, the settings, then `first`, and whatever
- * `reply` sends for each message from the browser.
- */
-async function scriptChat(
-	page: Page,
-	id: string,
-	{
-		snapshot = {},
-		first = [],
-		reply,
-	}: {
-		snapshot?: object;
-		first?: Frame[];
-		reply?: (
-			message: { type: string; rule?: string },
-			send: (frame: Frame) => void,
-		) => void;
-	},
-) {
-	await page.routeWebSocket(/\/chat$/, (ws) => {
-		let seq = 0;
-		const send = ([type, body]: Frame) =>
-			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
-		send([
-			"snapshot",
-			{ cards: [], turnRunning: false, truncated: false, ...snapshot },
-		]);
-		send([
-			"settings",
-			{ agent: "claude", model: "default", effort: "high", mode: "default" },
-		]);
-		for (const frame of first) send(frame);
-		ws.onMessage((raw) => reply?.(JSON.parse(String(raw)), send));
-	});
-	await page.reload();
-	const view = page.getByTestId(`chat-view-${id}`);
-	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
-	return view;
-}
 
 /** Whether two boxes share any area. */
 function overlap(

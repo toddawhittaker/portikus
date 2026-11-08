@@ -9,7 +9,7 @@
 import type { ChatOpenCard } from "@portikus/contracts";
 import { AgentStateMark, IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
-import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { Composer } from "./Composer.js";
@@ -106,6 +106,14 @@ function ChatViewBody({
 	const follow = useFollowEnd(log, content, visible);
 	const card = state.cards[0];
 	const waiting = state.cards.length - 1;
+	// A permission card's id is the id of the tool call it asks about.
+	const asking = useMemo(
+		() =>
+			new Set(
+				state.cards.flatMap((one) => (one.type === "permission" ? [one.id] : [])),
+			),
+		[state.cards],
+	);
 
 	// Opening a chat from the launcher puts the keyboard in its message box.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the chat first appears
@@ -156,11 +164,18 @@ function ChatViewBody({
 			?.focus({ preventScroll: true });
 	}
 
-	/** The composer's editor hangs on its element (TipTap's own handle), so no new prop is needed. */
+	/**
+	 * The composer's editor hangs on its element (TipTap's own handle), so no
+	 * new prop is needed. A draft already typed is kept, never replaced.
+	 */
 	function fillComposer(text: string) {
 		const editor =
 			root.current?.querySelector<TiptapEditorHTMLElement>(COMPOSER_BOX)?.editor;
 		if (!editor) return;
+		if (!editor.isEmpty) {
+			editor.view.focus();
+			return;
+		}
 		editor
 			.chain()
 			.setContent({
@@ -236,6 +251,7 @@ function ChatViewBody({
 								turns={state.turns}
 								currentTurnId={state.currentTurnId}
 								truncated={state.truncated}
+								asking={asking}
 							/>
 						)}
 					</div>

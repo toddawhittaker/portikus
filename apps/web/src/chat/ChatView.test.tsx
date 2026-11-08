@@ -128,7 +128,7 @@ test("it connects to the tab's chat socket and shows a skeleton until the snapsh
 	expect(screen.getByText("No messages yet")).toBeTruthy();
 });
 
-test("a starter prompt fills the message box to edit, and sends nothing", () => {
+test("a starter prompt fills an empty message box to edit, keeps a draft, and sends nothing", () => {
 	draw();
 	snapshot();
 	const empty = screen.getByTestId("chat-empty");
@@ -140,12 +140,18 @@ test("a starter prompt fills the message box to edit, and sends nothing", () => 
 		"Write tests for the main file",
 	]);
 	const box = screen.getByTestId("chat-composer-input");
-	setText(box, "my own words");
 	const sent = latest().sent.length;
-	fireEvent.click(
-		within(empty).getByRole("button", { name: "Write tests for the main file" }),
-	);
+	const writeTests = within(empty).getByRole("button", {
+		name: "Write tests for the main file",
+	});
+	fireEvent.click(writeTests);
 	expect(boxText(box)).toBe("Write tests for the main file");
+	expect(document.activeElement).toBe(box);
+	// A draft the student typed is never thrown away.
+	setText(box, "my own words");
+	writeTests.focus();
+	fireEvent.click(within(empty).getByRole("button", { name: /^Explain how/ }));
+	expect(boxText(box)).toBe("my own words");
 	expect(document.activeElement).toBe(box);
 	expect(latest().sent).toHaveLength(sent);
 	// Once a conversation exists the starters go.
@@ -239,6 +245,64 @@ test("what Claude asked stays in view after the turn, with each answer or Skippe
 	).toEqual(["B", "Skipped"]);
 	expect(screen.getByTestId("chat-worked").querySelector("summary")?.textContent).toBe(
 		"Worked for 0m 1s1 tool call",
+	);
+});
+
+test("a result in a form not read is shown once, under all the questions", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "q1",
+		name: "AskUserQuestion",
+		title: "AskUserQuestion",
+		input: { questions: [{ question: "Which?" }, { question: "Why?" }] },
+	});
+	emit("tool.output", {
+		id: "q1",
+		part: { type: "text", text: "Picked B, for speed." },
+	});
+	emit("tool.finished", { id: "q1", isError: false });
+	emit("turn.finished", { at: Date.now() + 1000, status: "done" });
+
+	const asked = screen.getByTestId("chat-asked");
+	expect(
+		within(asked)
+			.getAllByRole("term")
+			.map((dt) => dt.textContent),
+	).toEqual(["Which?", "Why?"]);
+	expect(
+		within(asked)
+			.getAllByRole("definition")
+			.map((dd) => dd.textContent),
+	).toEqual(["Picked B, for speed."]);
+	expect(screen.getByTestId("chat-asked-outcome").textContent).toBe("Answered");
+});
+
+test("the Working line says a step waits for permission while its card is open", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "p1",
+		name: "Bash",
+		title: "pnpm test",
+		input: { command: "pnpm test" },
+	});
+	emit("permission.requested", {
+		id: "p1",
+		toolName: "Bash",
+		title: "pnpm test",
+		input: { command: "pnpm test" },
+		options: [{ id: "allow", label: "Allow once" }],
+	});
+	const working = () => screen.getByTestId("chat-working").textContent ?? "";
+	expect(working()).toMatch(/^Waiting for your permission · /);
+	emit("card.resolved", { id: "p1" });
+	expect(working()).toMatch(/^Running pnpm test · /);
+	// Its row says it the same way.
+	expect(screen.getByTestId("chat-tool-p1").querySelector("summary")?.textContent).toBe(
+		"Running pnpm test",
 	);
 });
 

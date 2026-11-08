@@ -1,4 +1,11 @@
-import { expect, type Page, test } from "@playwright/test";
+import {
+	expect,
+	type Locator,
+	type Page,
+	test,
+	type WebSocketRoute,
+} from "@playwright/test";
+import { openChat, receivedFrames } from "./chat-helpers";
 import { join, newCourse } from "./course-profile-helpers";
 import {
 	createProject,
@@ -11,7 +18,6 @@ import {
 	workTabs,
 } from "./helpers";
 import { png } from "./png";
-import { FAKE_AGENT_URL } from "./ports";
 import { type FakeSpeechWindow, fakeSpeech } from "./voice-helpers";
 
 /**
@@ -37,35 +43,6 @@ const PNG = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
 	"base64",
 );
-
-/** Open the workspace and start a chat from the New tab menu. */
-async function openChat(page: Page, student: { workspaceId: string }) {
-	const project = await createProject(student.workspaceId, { name: "Composer" });
-	await page.goto(workspacePath(student.workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await page.getByTestId("launcher").click();
-	await page.getByTestId("launcher-claude-gui").click();
-	await expect
-		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-		.toBe(1);
-	const [id] = await terminalIds(student.workspaceId, project.id);
-	if (!id) throw new Error("the chat row was not created");
-	const view = page.getByTestId(`chat-view-${id}`);
-	await expect(view).toBeVisible({ timeout: 15_000 });
-	await expect(view.getByTestId("chat-composer-input")).toBeVisible();
-	return { id, view, project };
-}
-
-/** The frames the fake chat has received from the browser, parsed. */
-async function received(id: string): Promise<Record<string, unknown>[]> {
-	const response = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/received`);
-	const body = (await response.json()) as { received: string[] };
-	return body.received.map((frame) => JSON.parse(frame) as Record<string, unknown>);
-}
-
-async function frames(id: string, type: string) {
-	return (await received(id)).filter((frame) => frame.type === type);
-}
 
 /** Paste or drop a file by dispatching the event a browser would. */
 async function giveFile(
@@ -167,7 +144,7 @@ test("Enter sends, Shift+Enter makes a new line, and a sent message appears", as
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await expect(
 		view.getByRole("textbox", { name: "Message Claude Code" }),
@@ -176,11 +153,11 @@ test("Enter sends, Shift+Enter makes a new line, and a sent message appears", as
 	await box.fill("first line");
 	await box.press("Shift+Enter");
 	await box.pressSequentially("second line");
-	expect(await frames(id, "send")).toHaveLength(0);
+	expect(await receivedFrames(id, "send")).toHaveLength(0);
 	await box.press("Enter");
 	await expect(box).toHaveText("");
 	await expect
-		.poll(async () => frames(id, "send"))
+		.poll(async () => receivedFrames(id, "send"))
 		.toEqual([{ type: "send", text: "first line\nsecond line", attachments: [] }]);
 	await expect(view.getByText("first line")).toBeVisible();
 });
@@ -191,7 +168,7 @@ test("a pasted picture, a dropped picture and an attached file each become a chi
 }) => {
 	test.setTimeout(60_000);
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const chips = view.getByTestId("composer-chip");
 
 	await view.getByTestId("chat-composer-input").focus();
@@ -225,8 +202,8 @@ test("a pasted picture, a dropped picture and an attached file each become a chi
 	// Cleared once the host has echoed the message.
 	await expect(chips).toHaveCount(0);
 	await expect(view.getByTestId("chat-composer-input")).toHaveText("");
-	await expect.poll(async () => (await frames(id, "send")).length).toBe(1);
-	const [send] = await frames(id, "send");
+	await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+	const [send] = await receivedFrames(id, "send");
 	const paths = ((send?.attachments ?? []) as { path: string }[]).map((a) => a.path);
 	expect(paths).toHaveLength(3);
 	expect(paths[0]).toMatch(/^\.portikus\/pastes\/[\d-]+T[\d-]+(-\d)?\/image\.png$/);
@@ -240,7 +217,7 @@ test("an SVG and a picture over 5 MB are refused with a reason", async ({
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { view } = await openChat(page, student);
+	const { view } = await openChat(page, student.workspaceId, "Composer");
 	const alert = view.getByTestId("chat-composer-error");
 	await view.getByTestId("chat-composer-file").setInputFiles({
 		name: "logo.svg",
@@ -262,10 +239,15 @@ test("an SVG and a picture over 5 MB are refused with a reason", async ({
  * page has sent a message, the frame that ends the turn is held back, and so
  * is the fresh turn.started the fake sends with each later message, which a
  * real host does not send mid-turn. Replayed history, and the end after
- * Stop, pass untouched.
+ * Stop, pass untouched. With `holdReplies`, the fake's replies to later
+ * messages wait for `releaseReplies`, as Claude takes a message in only at
+ * its next step.
  */
-async function holdTurnOpen(page: Page) {
+async function holdTurnOpen(page: Page, holdReplies: boolean) {
+	const held: string[] = [];
+	let socket: WebSocketRoute | undefined;
 	await page.routeWebSocket(/\/chat$/, (ws) => {
+		socket = ws;
 		const server = ws.connectToServer();
 		let holding = false;
 		let started = false;
@@ -284,23 +266,47 @@ async function holdTurnOpen(page: Page) {
 					if (started) return;
 					started = true;
 				}
+				if (holdReplies && message.includes('"id":"m-reply-')) {
+					held.push(message);
+					return;
+				}
 			}
 			ws.send(message);
 		});
 	});
+	return {
+		releaseReplies: () => {
+			for (const message of held.splice(0)) socket?.send(message);
+		},
+	};
 }
 
 /** Start the fake's turn, which stays open, and wait for its Working line. */
-async function startHeldTurn(page: Page, student: { workspaceId: string }) {
-	await holdTurnOpen(page);
-	const opened = await openChat(page, student);
+async function startHeldTurn(
+	page: Page,
+	student: { workspaceId: string },
+	holdReplies = false,
+) {
+	const { releaseReplies } = await holdTurnOpen(page, holdReplies);
+	const opened = await openChat(page, student.workspaceId, "Composer");
 	const box = opened.view.getByTestId("chat-composer-input");
 	// The replayed history shows once the socket is open, so the send is not refused.
 	await expect(opened.view.getByText("Earlier answer")).toBeVisible();
 	await box.fill("Run the tests");
 	await box.press("Enter");
 	await expect(opened.view.getByTestId("chat-working")).toBeVisible();
-	return { ...opened, box };
+	return { ...opened, box, releaseReplies };
+}
+
+/** `later` comes after `earlier` in the page. */
+async function isAfter(earlier: Locator, later: Locator): Promise<boolean> {
+	return earlier.evaluate(
+		(node, other) =>
+			Boolean(
+				node.compareDocumentPosition(other as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+			),
+		await later.elementHandle(),
+	);
 }
 
 test("while a turn runs, Send stays beside Stop, sends, and marks the message", async ({
@@ -325,7 +331,7 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 	await send.click();
 	await expect(box).toHaveText("");
 	await expect
-		.poll(async () => (await frames(id, "send")).map((frame) => frame.text))
+		.poll(async () => (await receivedFrames(id, "send")).map((frame) => frame.text))
 		.toEqual(["Run the tests", "Skip the docs"]);
 	const sent = view
 		.getByTestId("chat-user-message")
@@ -336,18 +342,39 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 	await expect(view.getByTestId("chat-sent-while-working")).toHaveCount(1);
 	// The work after it is a new turn below it, still working.
 	await expect(view.getByTestId("chat-working")).toHaveCount(1);
-	const after = await sent.evaluate(
-		(li, working) =>
-			Boolean(
-				li.compareDocumentPosition(working as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
-			),
-		await view.getByTestId("chat-working").elementHandle(),
-	);
-	expect(after).toBe(true);
+	expect(await isAfter(sent, view.getByTestId("chat-working"))).toBe(true);
 	await stop.click();
 	await expect
-		.poll(async () => frames(id, "interrupt"))
+		.poll(async () => receivedFrames(id, "interrupt"))
 		.toEqual([{ type: "interrupt" }]);
+});
+
+test("a step still running when the student sends stays on the Working line until Claude takes the message in", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { view, box, releaseReplies } = await startHeldTurn(page, student, true);
+	const working = view.getByTestId("chat-working");
+	const folds = view.getByTestId("chat-worked");
+	const foldsBefore = await folds.count();
+	await box.fill("Skip the docs");
+	await box.press("Enter");
+	const sent = view
+		.getByTestId("chat-user-message")
+		.filter({ hasText: "Skip the docs" });
+	await expect(sent.getByTestId("chat-sent-while-working")).toBeVisible();
+	// Claude has not taken it in yet: the step in hand stays named, nothing folds.
+	await expect(working).toHaveText(/^Waiting for your answer · \d+m \d+s$/);
+	await expect(folds).toHaveCount(foldsBefore);
+	expect(await isAfter(working, sent)).toBe(true);
+	// Its next step does, and the work after the message is a new turn below it.
+	releaseReplies();
+	await expect(view.getByText("This is a canned reply.")).toBeVisible();
+	await expect(working).toHaveCount(1);
+	await expect(working).toHaveText(/^Working \d+m \d+s$/);
+	await expect(folds).toHaveCount(foldsBefore + 1);
+	expect(await isAfter(sent, working)).toBe(true);
 });
 
 test("Escape in the message box stops a running turn, but first closes an open picker", async ({
@@ -360,11 +387,11 @@ test("Escape in the message box stops a running turn, but first closes an open p
 	await expect(page.getByRole("menu")).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("menu")).toHaveCount(0);
-	expect(await frames(id, "interrupt")).toEqual([]);
+	expect(await receivedFrames(id, "interrupt")).toEqual([]);
 	await box.focus();
 	await box.press("Escape");
 	await expect
-		.poll(async () => frames(id, "interrupt"))
+		.poll(async () => receivedFrames(id, "interrupt"))
 		.toEqual([{ type: "interrupt" }]);
 });
 
@@ -386,13 +413,22 @@ test("entering a code block is announced with how to send and leave it", async (
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { view } = await openChat(page, student);
+	const { view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
+	const status = view.getByTestId("chat-composer-status");
+	const announced =
+		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/;
 	await box.pressSequentially("```");
 	await box.press("Enter");
-	await expect(view.getByTestId("chat-composer-status")).toHaveText(
-		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
-	);
+	await expect(status).toHaveText(announced);
+	// Leaving the block empties the region, so the next block is read out again.
+	await box.press("Enter");
+	await box.press("Enter");
+	await box.press("Enter");
+	await expect(status).toHaveText("");
+	await box.pressSequentially("```");
+	await box.press("Enter");
+	await expect(status).toHaveText(announced);
 });
 
 test("Up in an empty box brings back the last message sent", async ({
@@ -400,7 +436,7 @@ test("Up in an empty box brings back the last message sent", async ({
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { view } = await openChat(page, student);
+	const { view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.press("ArrowUp");
 	await expect(box).toHaveText("");
@@ -436,7 +472,7 @@ test("the microphone dictates into the box and never sends", async ({
 }) => {
 	await fakeSpeech(page);
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.fill("fix the bug");
 	await box.press("Home");
@@ -452,7 +488,7 @@ test("the microphone dictates into the box and never sends", async ({
 	await page.mouse.up();
 	await expect(box).toHaveText("fix now the bug");
 	await expect(mic).toHaveAttribute("aria-pressed", "false");
-	expect(await frames(id, "send")).toEqual([]);
+	expect(await receivedFrames(id, "send")).toEqual([]);
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
@@ -462,7 +498,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await page.emulateMedia({ colorScheme });
 		const student = await createStudent(context);
-		const { view } = await openChat(page, student);
+		const { view } = await openChat(page, student.workspaceId, "Composer");
 		await giveFile(page, "paste", { name: "image.png", ...PNG_FILE });
 		await expect(view.getByTestId("composer-chip")).toHaveCount(1);
 		await expectNoViolations(page, '[data-testid="chat-composer"]');
@@ -475,7 +511,7 @@ test("at 360 px wide the composer does not scroll sideways", async ({
 }) => {
 	await page.setViewportSize({ width: 360, height: 800 });
 	const student = await createStudent(context);
-	const { view } = await openChat(page, student);
+	const { view } = await openChat(page, student.workspaceId, "Composer");
 	await giveFile(page, "paste", {
 		name: "a-very-long-picture-name-that-keeps-going-and-going-and-going.png",
 		...PNG_FILE,
@@ -519,7 +555,7 @@ test("removing a chip by keyboard moves to the next chip, then the box", async (
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { view } = await openChat(page, student);
+	const { view } = await openChat(page, student.workspaceId, "Composer");
 	await view.getByTestId("chat-composer-input").focus();
 	await giveFile(page, "paste", { name: "one.png", ...PNG_FILE });
 	await giveFile(page, "paste", { name: "two.png", ...PNG_FILE });
@@ -539,7 +575,7 @@ test("a picture over 2000 px is made smaller in the browser before it is saved",
 }) => {
 	test.setTimeout(60_000);
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const uploaded = page.waitForRequest(
 		(request) => request.method() !== "GET" && request.url().includes("big.webp"),
 	);
@@ -559,8 +595,8 @@ test("a picture over 2000 px is made smaller in the browser before it is saved",
 	expect(size).toEqual([2000, 1125]);
 	await view.getByTestId("chat-composer-input").fill("this one");
 	await view.getByTestId("chat-composer-input").press("Enter");
-	await expect.poll(async () => (await frames(id, "send")).length).toBe(1);
-	const [send] = await frames(id, "send");
+	await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+	const [send] = await receivedFrames(id, "send");
 	expect(((send?.attachments ?? []) as { path: string }[])[0]?.path).toMatch(
 		/\/big\.webp$/,
 	);
@@ -571,7 +607,7 @@ test("Markdown typed in the box shows formatted and is sent as the same Markdown
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.click();
 	await page.keyboard.type("Fix **this** and `that` in *one* go");
@@ -595,10 +631,10 @@ test("Markdown typed in the box shows formatted and is sent as the same Markdown
 	await page.keyboard.press("Enter");
 	await page.keyboard.type("  a * 2 * 3;");
 	await expect(box.locator("pre")).toBeVisible();
-	expect(await frames(id, "send")).toHaveLength(0);
+	expect(await receivedFrames(id, "send")).toHaveLength(0);
 	await page.keyboard.press("ControlOrMeta+Enter");
 	await expect
-		.poll(async () => frames(id, "send"))
+		.poll(async () => receivedFrames(id, "send"))
 		.toEqual([
 			{
 				type: "send",
@@ -617,7 +653,7 @@ test("pasted rich text arrives as plain text, keeping its lines", async ({
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.click();
 	await page.evaluate(() => {
@@ -638,7 +674,7 @@ test("pasted rich text arrives as plain text, keeping its lines", async ({
 	await expect(box.locator("strong, h1, em")).toHaveCount(0);
 	await box.press("Enter");
 	await expect
-		.poll(async () => frames(id, "send"))
+		.poll(async () => receivedFrames(id, "send"))
 		.toEqual([{ type: "send", text: "Title\n\nbold *star*", attachments: [] }]);
 });
 
@@ -647,31 +683,41 @@ test("a paste of more than 40 lines is attached as a text file, not put in the b
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.click();
-	await page.evaluate(() => {
-		const transfer = new DataTransfer();
-		const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
-		transfer.setData("text/plain", log.join("\n"));
-		document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
-			new ClipboardEvent("paste", {
-				clipboardData: transfer,
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
-	});
+	const pasteLog = (lines: number) =>
+		page.evaluate((count) => {
+			const transfer = new DataTransfer();
+			const log = Array.from({ length: count }, (_, at) => `Error: step ${at} failed`);
+			transfer.setData("text/plain", log.join("\n"));
+			document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+				new ClipboardEvent("paste", {
+					clipboardData: transfer,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}, lines);
+	const status = view.getByTestId("chat-composer-status");
+	await pasteLog(60);
 	const chip = view.getByTestId("composer-chip");
 	await expect(chip).toHaveCount(1);
 	await expect(chip).toContainText("pasted-text.txt");
 	await expect(chip.getByTestId("composer-chip-size")).toHaveText("60 lines");
 	await expect(box).toHaveText("");
+	await expect(status).toHaveText("Pasted 60 lines, attached as pasted-text.txt.");
 	await expectNoViolations(page, '[data-testid="chat-composer"]');
+	// A second paste is a second file, named apart, and said so.
+	await pasteLog(45);
+	await expect(chip).toHaveCount(2);
+	await expect(status).toHaveText("Pasted 45 lines, attached as pasted-text-2.txt.");
+	await view.getByRole("button", { name: "Remove pasted-text-2.txt" }).click();
+	await expect(chip).toHaveCount(1);
 	await box.pressSequentially("Why does this fail?");
 	await box.press("Enter");
 	await expect
-		.poll(async () => frames(id, "send"))
+		.poll(async () => receivedFrames(id, "send"))
 		.toEqual([
 			{
 				type: "send",
@@ -693,7 +739,7 @@ test("Send is an icon button at the end of the row, with the microphone beside i
 }) => {
 	await fakeSpeech(page);
 	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const send = view.getByRole("button", { name: "Send", exact: true });
 	await expect(send).toHaveText("");
 	await expect(send.locator("svg")).toBeVisible();

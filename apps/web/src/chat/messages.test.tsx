@@ -49,7 +49,13 @@ function message(
 
 function list(items: ChatItem[], withImages = false) {
 	const log = (
-		<MessageList items={items} turns={{}} currentTurnId={null} truncated={false} />
+		<MessageList
+			items={items}
+			turns={{}}
+			currentTurnId={null}
+			truncated={false}
+			asking={new Set()}
+		/>
 	);
 	return render(
 		withImages ? (
@@ -226,6 +232,7 @@ function running(items: ChatItem[], startedAt: number) {
 				},
 			}}
 			currentTurnId="t1"
+			asking={new Set()}
 			truncated={false}
 		/>,
 	);
@@ -243,8 +250,15 @@ test("the Working line names the newest running step, and the time stays", () =>
 	expect(working([tool("Bash", { command: "pnpm build\n--filter web" })])).toBe(
 		"Running pnpm build … · 3m 43s",
 	);
+	// The same words as the tool's row: the file's name, not its whole path.
 	expect(working([tool("Read", { file_path: "src/a.ts" })])).toBe(
-		"Reading src/a.ts · 3m 43s",
+		"Reading a.ts · 3m 43s",
+	);
+	expect(working([tool("NotebookEdit", { notebook_path: "nb/plot.ipynb" })])).toBe(
+		"Editing plot.ipynb · 3m 43s",
+	);
+	expect(working([tool("Glob", { pattern: "**/*.ts" })])).toBe(
+		"Listing **/*.ts · 3m 43s",
 	);
 	expect(working([tool("Grep", { pattern: "TODO", path: "src" })])).toBe(
 		"Searching for TODO in src · 3m 43s",
@@ -253,7 +267,8 @@ test("the Working line names the newest running step, and the time stays", () =>
 		"Waiting for your answer · 3m 43s",
 	);
 	expect(working([tool("Task", { prompt: "look" })])).toBe("Using Task · 3m 43s");
-	expect(working([tool("Bash", {})])).toBe("Running Bash · 3m 43s");
+	// Without the input its verb needs, a tool is named, as its row names it.
+	expect(working([tool("Bash", {})])).toBe("Using Bash · 3m 43s");
 	// A finished tool is no longer the step in hand.
 	expect(working([tool("Bash", { command: "ls" }, { status: "done" })])).toBe(
 		"Working 3m 43s",

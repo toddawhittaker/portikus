@@ -76,6 +76,12 @@ function fileCount(count: number): string {
 	return count === 1 ? "1 file" : `${count} files`;
 }
 
+const LINES = new Intl.NumberFormat();
+
+export function lineText(lines: number): string {
+	return lines === 1 ? "1 line" : `${LINES.format(lines)} lines`;
+}
+
 export function useComposerAttachments(workspaceId: string, projectId: string) {
 	const toast = useToast();
 	const [items, setItems] = useState<ComposerAttachment[]>([]);
@@ -149,7 +155,15 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 					return;
 				}
 			}
-			setStatus(saved > 0 ? `Attached ${fileCount(saved)}.` : "");
+			// A long paste says where it went, so nobody pastes it again thinking it was lost.
+			const pasted = lines !== null && saved === 1 ? accepted[0] : undefined;
+			setStatus(
+				pasted
+					? `Pasted ${lineText(lines as number)}, attached as ${displayName(pasted.name)}.`
+					: saved > 0
+						? `Attached ${fileCount(saved)}.`
+						: "",
+			);
 		},
 		[workspaceId, projectId, toast],
 	);

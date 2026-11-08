@@ -1,4 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { openChat } from "./chat-helpers";
 import { join, newCourse } from "./course-profile-helpers";
 import {
 	createProject,
@@ -17,22 +18,6 @@ import { splitPane } from "./split-helpers";
  * (SPEC.md §8.7, §9.3, §10.8, §25.8).
  */
 
-/** Open a project with one chat pane, from the New tab menu. */
-async function openChat(page: Page, workspaceId: string) {
-	const project = await createProject(workspaceId, { name: "Splits" });
-	await page.goto(workspacePath(workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await page.getByTestId("launcher").click();
-	await page.getByTestId("launcher-claude-gui").click();
-	await expect
-		.poll(async () => (await terminalIds(workspaceId, project.id)).length)
-		.toBe(1);
-	const [chat] = await terminalIds(workspaceId, project.id);
-	if (!chat) throw new Error("the chat row was not created");
-	await expect(page.getByTestId(`chat-view-${chat}`)).toBeVisible({ timeout: 15_000 });
-	return { project, chat };
-}
-
 /** The id of the one terminal that is not `known`, once it exists. */
 async function newId(workspaceId: string, projectId: string, known: string) {
 	await expect
@@ -48,7 +33,7 @@ test("a terminal split from a chat pane: the keyboard way, and tab, header and c
 	context,
 }) => {
 	const student = await createStudent(context);
-	const { project, chat } = await openChat(page, student.workspaceId);
+	const { project, id: chat } = await openChat(page, student.workspaceId, "Splits");
 	const tab = workTabs(page).getByRole("tab");
 	await expect(tab).toHaveText(/Claude Code \(GUI\)/);
 

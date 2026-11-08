@@ -1,5 +1,5 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { makeChatTab } from "./chat-helpers";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
 import { expectNoViolations } from "./helpers";
 
 /**
@@ -19,16 +19,7 @@ async function openChat(page: Page, context: BrowserContext) {
 	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 	const { id } = await makeChatTab(page, context);
 	await page.routeWebSocket(/\/chat$/, (ws) => {
-		let seq = 0;
-		const send = (type: string, body: Record<string, unknown> = {}) =>
-			ws.send(
-				JSON.stringify({
-					type,
-					sessionId: "00000000-0000-4000-8000-000000000000",
-					seq: seq++,
-					...body,
-				}),
-			);
+		const send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
 		send("snapshot", { cards: [], turnRunning: false, truncated: false });
 		send("message", { id: "u1", role: "user", markdown: SENT });
 		send("turn.started", { at: Date.now() - 5_000 });
