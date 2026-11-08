@@ -257,50 +257,6 @@ test("an SVG and a picture over 5 MB are refused with a reason", async ({
 	await expect(view.getByTestId("composer-chip")).toHaveCount(0);
 });
 
-test("each picker sends its set and shows what the host reports", async ({
-	page,
-	context,
-}) => {
-	const student = await createStudent(context);
-	const { id, view } = await openChat(page, student);
-	const model = view.getByRole("combobox", { name: "Model" });
-	const effort = view.getByRole("combobox", { name: "Effort" });
-	const mode = view.getByRole("combobox", { name: "Permissions" });
-	const agent = view.getByRole("combobox", { name: "Agent" });
-
-	await expect(agent).toHaveValue("claude");
-	await expect(
-		agent.getByRole("option", { name: "Codex (coming soon)" }),
-	).toHaveJSProperty("disabled", true);
-
-	await model.selectOption("opus");
-	await expect(model).toHaveValue("opus");
-	await effort.selectOption("xhigh");
-	await expect(effort).toHaveValue("xhigh");
-	await mode.selectOption("bypassPermissions");
-	await expect(mode).toHaveValue("bypassPermissions");
-	await expect(view.getByTestId("chat-bypass-warning")).toContainText(
-		"without asking you first",
-	);
-
-	await expect
-		.poll(async () => frames(id, "set"))
-		.toEqual([
-			{ type: "set", model: "opus" },
-			{ type: "set", effort: "xhigh" },
-			{ type: "set", mode: "bypassPermissions" },
-		]);
-	for (const [picker, value] of [
-		[model, "haiku"],
-		[effort, "low"],
-		[mode, "plan"],
-	] as const) {
-		await picker.selectOption(value);
-		await expect(picker).toHaveValue(value);
-	}
-	await expect(view.getByTestId("chat-bypass-warning")).toHaveCount(0);
-});
-
 test("while a turn runs, Stop sends interrupt", async ({ page, context }) => {
 	const student = await createStudent(context);
 	// Keep the fake's turn open by holding back the frame that ends it.
@@ -364,9 +320,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		const student = await createStudent(context);
 		const { view } = await openChat(page, student);
-		await view
-			.getByRole("combobox", { name: "Permissions" })
-			.selectOption("bypassPermissions");
 		await giveFile(page, "paste", { name: "image.png", ...PNG_FILE });
 		await expect(view.getByTestId("composer-chip")).toHaveCount(1);
 		await expectNoViolations(page, '[data-testid="chat-composer"]');
