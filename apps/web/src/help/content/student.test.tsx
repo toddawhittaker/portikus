@@ -82,6 +82,11 @@ test("the chat topic lists the message box's typing shortcuts", () => {
 	}
 });
 
+test("the chat topic says a quick second paste puts long text in the box", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	expect(text).toContain("paste it again straight away, within a second");
+});
+
 test("the keyboard topic lists the completion and hover keys", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Ctrl+Space");

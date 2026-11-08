@@ -9,7 +9,9 @@
  * indent and outdent an item; elsewhere Tab leaves the box. Enter sends, except inside a code block, where it adds a line and
  * Ctrl+Enter (Cmd+Enter on a Mac) sends. Shift+Enter always adds a line.
  * Pasted text arrives as plain text, never as formatted HTML; a paste of
- * more than LONG_PASTE_LINES lines is handed back to be attached as a file.
+ * more than LONG_PASTE_LINES lines is handed back to be attached as a file,
+ * unless the same text is pasted again within REPASTE_MS, which puts it in
+ * the box instead.
  */
 import {
 	Editor,
@@ -57,6 +59,9 @@ const TASK = /^\s*\[( |x|X)?\]\s$/;
 /** A paste longer than this many lines, an error log say, is attached as a file instead. */
 export const LONG_PASTE_LINES = 40;
 
+/** A second paste of the same long text this soon after the first goes in the box. */
+const REPASTE_MS = 800;
+
 /** Lines in pasted text; a final newline does not start another. */
 export function lineCount(text: string): number {
 	return text.replace(/\n$/, "").split("\n").length;
@@ -71,6 +76,8 @@ export interface ComposerEditorOptions {
 	onFiles: (files: File[]) => void;
 	/** Text pasted of more than LONG_PASTE_LINES lines, with its line count. */
 	onLongPaste: (text: string, lines: number) => void;
+	/** The same long text pasted again within REPASTE_MS, now put in the box. */
+	onRepaste: (lines: number) => void;
 	/** Sees each key first; returning true stops the editor handling it. */
 	onKeyDown: (event: KeyboardEvent) => boolean;
 	onKeyUp: (event: KeyboardEvent) => void;
@@ -247,6 +254,15 @@ const markdownRules = Extension.create({
 const ITEMS = ["listItem", "taskItem"] as const;
 
 export function createComposerEditor(options: ComposerEditorOptions): EditorType {
+	/** The last long paste, held in memory only and only for REPASTE_MS (ADR 0012). */
+	let longPaste: string | null = null;
+	let forget: ReturnType<typeof setTimeout> | undefined;
+	const remember = (text: string | null) => {
+		clearTimeout(forget);
+		longPaste = text;
+		if (text !== null) forget = setTimeout(() => remember(null), REPASTE_MS);
+	};
+
 	const keys = Extension.create({
 		name: "composerKeys",
 		// Ahead of the list and code block keys, which would otherwise take Enter.
@@ -356,7 +372,11 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 				const text = (data?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n");
 				if (text === "") return true;
 				const lines = lineCount(text);
-				if (lines > LONG_PASTE_LINES) {
+				const repaste = longPaste === text;
+				remember(lines > LONG_PASTE_LINES && !repaste ? text : null);
+				if (repaste) {
+					options.onRepaste(lines);
+				} else if (lines > LONG_PASTE_LINES) {
 					options.onLongPaste(text, lines);
 					return true;
 				}
@@ -381,6 +401,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			clipboardTextSerializer: (slice) => toMarkdown(slice.content),
 		},
 		onUpdate: ({ editor }) => options.onChange(editor),
+		onDestroy: () => remember(null),
 		onSelectionUpdate: ({ editor }) => options.onChange(editor),
 	});
 }
