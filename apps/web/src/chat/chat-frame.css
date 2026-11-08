@@ -9,4 +9,6 @@
 	--terminal-muted: var(--ink-muted);
 	--terminal-line: var(--line);
 	--terminal-selection: var(--surface-hover);
+	/* The pane never scrolls, even by script; only the chat's log and card body do. */
+	overflow: clip;
 }
