@@ -1,8 +1,8 @@
 import { CHAT_START_EFFORT } from "@portikus/contracts";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
-import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
-import type { ChatState } from "./chatStore.js";
+import { ASK_RULES_HINT, BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
+import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
 
 type Settings = NonNullable<ChatState["settings"]>;
 
@@ -16,6 +16,7 @@ const START: Settings = {
 let asked: unknown[];
 let accept: boolean;
 let announced: string[];
+let store: ChatStore;
 let rerender: (
 	settings: ChatState["settings"],
 	lastError?: ChatState["lastError"],
@@ -25,6 +26,7 @@ function draw(settings: ChatState["settings"] = START) {
 	const view = (s: ChatState["settings"], lastError: ChatState["lastError"] = null) => (
 		<>
 			<ComposerPickers
+				store={store}
 				settings={s}
 				lastError={lastError}
 				warningId="bypass-warning"
@@ -56,6 +58,7 @@ function choose(name: string, option: string) {
 }
 
 beforeEach(() => {
+	store = createChatStore(() => true);
 	asked = [];
 	accept = true;
 	announced = [];
@@ -217,4 +220,44 @@ test("picking from the keyboard sends the change and closes the menu", () => {
 	});
 	expect(asked).toEqual([{ model: "opus" }]);
 	expect(screen.queryByRole("menu")).toBeNull();
+});
+
+/** The host reports session rules, as after an Always allow. */
+function holdRules(rules: { rule: string; description: string }[]) {
+	const sessionId = "11111111-1111-4111-8111-111111111111";
+	act(() => {
+		store.getState().receive(
+			JSON.stringify({
+				type: "snapshot",
+				sessionId,
+				seq: 0,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			}),
+		);
+		store
+			.getState()
+			.receive(JSON.stringify({ type: "rules", sessionId, seq: 1, rules }));
+	});
+}
+
+test("Ask says some actions run without asking only while session rules are held", () => {
+	draw();
+	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
+	holdRules([{ rule: "Bash(sed:*)", description: '"sed" commands in this session' }]);
+	const hint = screen.getByText(ASK_RULES_HINT);
+	expect(picker("Permissions").getAttribute("aria-describedby")).toBe(hint.id);
+	// Another mode says what it does on its own.
+	rerender({ ...START, mode: "auto" });
+	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
+	rerender(START);
+	expect(screen.getByText(ASK_RULES_HINT)).toBeTruthy();
+});
+
+test("Ask with no session rules shows no hint", () => {
+	draw();
+	holdRules([]);
+	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
+	expect(picker("Permissions").getAttribute("aria-describedby")).toBeNull();
 });

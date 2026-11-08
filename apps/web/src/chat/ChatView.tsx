@@ -88,7 +88,7 @@ function ChatViewBody({
 	focused,
 	onLeave,
 }: ChatViewProps) {
-	const store = useChatSession(workspaceId, terminalId);
+	const store = useChatSession(workspaceId, projectId, terminalId);
 	const state = useStore(store);
 	const root = useRef<HTMLDivElement | null>(null);
 	const log = useRef<HTMLDivElement | null>(null);

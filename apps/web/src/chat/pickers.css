@@ -86,3 +86,11 @@
 	flex: none;
 	block-size: 1lh;
 }
+
+/* A quiet line of its own under the pickers, so Ask never reads as the whole story. */
+.pk-picker-hint {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
+}

@@ -38,6 +38,7 @@ import {
 	permissionResult,
 	questionResult,
 	type ToolAsk,
+	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
@@ -147,6 +148,8 @@ export class ChatHost {
 	/** The assistant text streamed so far in this turn, for a snapshot. */
 	private partial: { id: string; text: string } | null = null;
 	private limits: ClaudeLimitWindows = {};
+	/** The session's init said a skipped question may be marked so. */
+	private reportSkipped = false;
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
 		model: "default",
 		effort: CHAT_START_EFFORT,
@@ -271,6 +274,8 @@ export class ChatHost {
 				{ claudeCode: message.claude_code_version },
 				"claude session started",
 			);
+			this.reportSkipped =
+				message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 			this.settings.model = message.model || this.settings.model;
 			this.settings.mode =
 				message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
@@ -483,6 +488,7 @@ export class ChatHost {
 								open.card.questions as ChatQuestion[],
 								message.answers,
 								message.notes,
+								this.reportSkipped,
 							)
 						: null,
 				);

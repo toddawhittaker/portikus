@@ -398,6 +398,11 @@ const PAYLOADS: Record<string, object> = {
 	"PUT /workspaces/:id/projects/:pid/layout": {
 		tabs: [{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } }],
 	},
+	"PUT /workspaces/:id/projects/:pid/chat-settings": {
+		model: "opus",
+		effort: "low",
+		mode: "auto",
+	},
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/projects/:pid/extract": { path: "starter.zip" },

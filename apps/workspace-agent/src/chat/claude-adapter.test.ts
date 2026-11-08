@@ -317,4 +317,26 @@ describe("question answers", () => {
 			updatedInput: { ...input, answers: { "Which colour?": "Green" } },
 		});
 	});
+
+	test("a skipped question is marked skipped when the session allows it", () => {
+		expect(
+			questionResult(input, [question, multi], { "Which colour?": "Blue" }, {}, true),
+		).toEqual({
+			behavior: "allow",
+			updatedInput: {
+				...input,
+				answers: { "Which colour?": "Blue" },
+				annotations: { "Which toppings?": { unanswered: "skipped" } },
+			},
+		});
+	});
+
+	test("without the capability a skipped question is only left out", () => {
+		expect(
+			questionResult(input, [question, multi], { "Which colour?": "Blue" }, {}, false),
+		).toEqual({
+			behavior: "allow",
+			updatedInput: { ...input, answers: { "Which colour?": "Blue" } },
+		});
+	});
 });

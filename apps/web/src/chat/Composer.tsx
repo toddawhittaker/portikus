@@ -259,6 +259,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 						/>
 					</div>
 					<ComposerPickers
+						store={store}
 						settings={settings}
 						lastError={lastError}
 						warningId={`${ids}-bypass`}

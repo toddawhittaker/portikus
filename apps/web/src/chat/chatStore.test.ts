@@ -2,8 +2,12 @@ import type { ChatClientMessage, ChatServerEvent } from "@portikus/contracts";
 import { expect, test, vi } from "vitest";
 import {
 	type ChatState,
+	changeToward,
 	createChatStore,
 	initialChatState,
+	isNewChat,
+	lastSettingsOf,
+	modelChoice,
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
@@ -346,4 +350,73 @@ test("the session rules the host reports are kept, and revoking one sends it", (
 	expect(store.getState().revokeRule("Bash(sed:*)")).toBe(true);
 	expect(store.getState().revokeRule("")).toBe(false);
 	expect(sent).toEqual([{ type: "rule.revoke", rule: "Bash(sed:*)" }]);
+});
+
+/** The settings a new chat starts with in the host (SPEC.md §10.8). */
+function startSettings(seq: number): string {
+	return frame("settings", seq, {
+		agent: "claude",
+		model: "default",
+		effort: "high",
+		mode: "default",
+	});
+}
+
+test("a chat with no turns at the host's start values is new; anything else is not", () => {
+	expect(isNewChat(initialChatState)).toBe(false);
+	const fresh = feed([snapshot(1), startSettings(2)]);
+	expect(isNewChat(fresh)).toBe(true);
+	const changed = feed(
+		[
+			frame("settings", 3, {
+				agent: "claude",
+				model: "opus",
+				effort: "high",
+				mode: "default",
+			}),
+		],
+		fresh,
+	);
+	expect(isNewChat(changed)).toBe(false);
+	const used = feed([
+		snapshot(1),
+		frame("turn.started", 2, { at: 1000 }),
+		startSettings(3),
+	]);
+	expect(isNewChat(used)).toBe(false);
+});
+
+test("the change toward the last-used values names only what differs", () => {
+	const start = {
+		agent: "claude" as const,
+		model: "default",
+		effort: "high" as const,
+		mode: "default" as const,
+	};
+	expect(changeToward(start, { model: "opus", effort: "high", mode: "auto" })).toEqual({
+		model: "opus",
+		mode: "auto",
+	});
+	expect(
+		changeToward(start, { model: "default", effort: "high", mode: "default" }),
+	).toBeNull();
+	expect(
+		changeToward(
+			{ ...start, model: "claude-opus-4-1" },
+			{ model: "opus", effort: "low", mode: "default" },
+		),
+	).toEqual({ effort: "low" });
+});
+
+test("what is kept is the picker's model choice and the host's effort and mode", () => {
+	expect(
+		lastSettingsOf({
+			agent: "claude",
+			model: "claude-haiku-4-5",
+			effort: "max",
+			mode: "bypassPermissions",
+		}),
+	).toEqual({ model: "haiku", effort: "max", mode: "bypassPermissions" });
+	expect(modelChoice("something-new")).toBe("default");
+	expect(modelChoice("sonnet")).toBe("sonnet");
 });
