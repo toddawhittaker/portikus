@@ -187,6 +187,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 				/^Worked for 3m 4[2-4]s2 tool calls$/,
 			);
 			await view.getByTestId("chat-worked").locator("> summary").click();
+			// The two calls in a row share one group, named for the tools used.
+			const group = view.getByTestId("chat-tool-group").locator("> summary");
+			await expect(group).toHaveText("2 tool callsScreenshot, Bash1 failed");
+			await group.click();
 			await view.getByTestId("chat-tool-t1").locator("> summary").click();
 			await expect(
 				view.getByRole("img", { name: "Output of Screenshot" }),

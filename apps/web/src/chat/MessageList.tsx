@@ -270,7 +270,7 @@ function doingLine(tool: ChatToolItem): string {
  */
 function ToolGroup({ run }: { run: ToolRun }) {
 	const { tools } = run;
-	const running = tools.findLast((tool) => tool.status === "running");
+	const running = tools.filter((tool) => tool.status === "running").at(-1);
 	const failed = tools.filter((tool) => tool.status === "error").length;
 	const stopped = tools.filter((tool) => tool.status === "stopped").length;
 	const what = running
@@ -300,9 +300,6 @@ function ToolGroup({ run }: { run: ToolRun }) {
 					>
 						{what}
 					</span>
-					{running ? (
-						<span className="pk-spin pk-turn-group-mark" aria-hidden={true} />
-					) : null}
 					{failed > 0 ? (
 						<span className="pk-chat-tool-state is-error pk-turn-group-mark">
 							<Icon name="alert" size="sm" />
