@@ -106,8 +106,28 @@ export async function readJson(
 	response: Response,
 	limitBytes = AGENT_JSON_LIMIT_BYTES,
 ): Promise<unknown> {
+	const body = await readCapped(response, limitBytes);
+	if (body === null) {
+		throw new AgentCallError("AGENT_UNAVAILABLE", "agent response too large");
+	}
+	if (body.length === 0) return undefined;
+	try {
+		return JSON.parse(body.toString("utf8"));
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Read a whole body, or null once it passes `limitBytes`; the rest is
+ * cancelled unread. A body that breaks mid-stream throws.
+ */
+export async function readCapped(
+	response: Response,
+	limitBytes: number,
+): Promise<Buffer | null> {
 	const body = response.body;
-	if (!body) return undefined;
+	if (!body) return Buffer.alloc(0);
 	const reader = body.getReader();
 	const chunks: Uint8Array[] = [];
 	let total = 0;
@@ -118,20 +138,14 @@ export async function readJson(
 			total += value.byteLength;
 			if (total > limitBytes) {
 				reader.cancel().catch(() => {});
-				throw new AgentCallError("AGENT_UNAVAILABLE", "agent response too large");
+				return null;
 			}
 			chunks.push(value);
 		}
-	} catch (error) {
-		if (error instanceof AgentCallError) throw error;
+	} catch {
 		throw new AgentStreamError();
 	}
-	if (total === 0) return undefined;
-	try {
-		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
-		return undefined;
-	}
+	return Buffer.concat(chunks);
 }
 
 function unreachable(): AgentCallError {
