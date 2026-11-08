@@ -247,6 +247,17 @@ export const STUDENT_HELP: HelpPart = {
 							files without asking. A warning shows while it is on.
 						</li>
 						<li>
+							A new chat starts with the model, effort and permissions you last chose in
+							that project. Bypass permissions is never carried over: a new chat starts
+							in Auto instead.
+						</li>
+						<li>
+							When Permissions shows Ask but you have chosen "Always allow" for
+							something in this chat, a line under the pickers says so. The list
+							"Allowed without asking in this session" shows each rule and lets you
+							revoke it.
+						</li>
+						<li>
 							Do not run a GUI tab and a TUI terminal on the same Claude session at
 							once. After a chat tab is closed, running{" "}
 							<code className="pk-mono-body">claude --resume</code> in a terminal

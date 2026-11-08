@@ -3,6 +3,7 @@ import {
 	createProject,
 	createStudent,
 	expectNoViolations,
+	query,
 	terminalIds,
 	workspacePath,
 	workTabs,
@@ -262,5 +263,185 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		await picker(view, "Agent").click();
 		await expectNoViolations(page, '[role="menu"]');
+	});
+}
+
+const RULE = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
+
+/**
+ * Stand in for the host on every chat socket of the page: each chat starts
+ * new, at the host's start values, and answers a set with what it now holds.
+ * `rules` are reported as held from the start.
+ */
+async function scriptHost(page: Page, rules: (typeof RULE)[] = []) {
+	const held = new Map<string, Record<string, string>>();
+	const received = new Map<string, Record<string, unknown>[]>();
+	await page.routeWebSocket(/\/chat$/, (ws) => {
+		const tid = /\/terminals\/([^/]+)\/chat$/.exec(ws.url())?.[1] ?? "";
+		let seq = 0;
+		const send = (type: string, body: Record<string, unknown> = {}) =>
+			ws.send(JSON.stringify({ type, sessionId: tid, seq: seq++, ...body }));
+		const settings = held.get(tid) ?? {
+			model: "default",
+			effort: "high",
+			mode: "default",
+		};
+		held.set(tid, settings);
+		send("snapshot", { cards: [], turnRunning: false, truncated: false });
+		send("settings", { agent: "claude", ...settings });
+		send("rules", { rules });
+		ws.onMessage((raw) => {
+			const message = JSON.parse(String(raw)) as Record<string, unknown>;
+			received.set(tid, [...(received.get(tid) ?? []), message]);
+			if (message.type !== "set") return;
+			for (const key of ["model", "effort", "mode"]) {
+				const value = message[key];
+				if (typeof value === "string") settings[key] = value;
+			}
+			send("settings", { agent: "claude", ...settings });
+		});
+	});
+	return { received: (tid: string) => received.get(tid) ?? [] };
+}
+
+/** Start one more chat from the New tab menu in the project open on the page. */
+async function launchChat(page: Page, workspaceId: string, projectId: string) {
+	const before = await terminalIds(workspaceId, projectId);
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-claude-gui").click();
+	await expect
+		.poll(async () => (await terminalIds(workspaceId, projectId)).length)
+		.toBe(before.length + 1);
+	const id = (await terminalIds(workspaceId, projectId)).find(
+		(one) => !before.includes(one),
+	);
+	if (!id) throw new Error("the chat row was not created");
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(picker(view, "Model")).toBeVisible({ timeout: 15_000 });
+	return { id, view };
+}
+
+async function expectShown(view: Locator, model: string, effort: string, mode: string) {
+	await expect(picker(view, "Model")).toHaveText(`Model ${model}`);
+	await expect(picker(view, "Effort")).toHaveText(`Effort ${effort}`);
+	await expect(picker(view, "Permissions")).toHaveText(`Permissions ${mode}`);
+}
+
+async function openProject(page: Page, workspaceId: string, projectId: string) {
+	await page.goto(workspacePath(workspaceId, projectId));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+}
+
+test("a new chat starts with the settings last used in its project, Bypass as Auto", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const student = await createStudent(context);
+	const first = await createProject(student.workspaceId, { name: "Sticky one" });
+	const second = await createProject(student.workspaceId, { name: "Sticky two" });
+	const host = await scriptHost(page);
+
+	await openProject(page, student.workspaceId, first.id);
+	const used = await launchChat(page, student.workspaceId, first.id);
+	await expectShown(used.view, "Default", "High", "Ask");
+	await choose(page, used.view, "Model", "Opus");
+	await choose(page, used.view, "Permissions", "Bypass permissions");
+	await expectShown(used.view, "Opus", "High", "Bypass permissions");
+	// Kept on the server for this project, Bypass already as Auto.
+	await expect
+		.poll(async () => {
+			const [row] = await query<{ chat_settings: unknown }>(
+				"select chat_settings from projects where id = $1",
+				[first.id],
+			);
+			return row?.chat_settings;
+		})
+		.toEqual({ model: "opus", effort: "high", mode: "auto" });
+
+	const next = await launchChat(page, student.workspaceId, first.id);
+	await expectShown(next.view, "Opus", "High", "Auto");
+	expect(host.received(next.id)).toEqual([
+		{ type: "set", model: "opus", mode: "auto" },
+	]);
+
+	await openProject(page, student.workspaceId, second.id);
+	const other = await launchChat(page, student.workspaceId, second.id);
+	await expectShown(other.view, "Default", "High", "Ask");
+	expect(host.received(other.id)).toEqual([]);
+});
+
+test("a changed effort carries over to the next new chat too", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Sticky effort" });
+	await scriptHost(page);
+	await openProject(page, student.workspaceId, project.id);
+	const used = await launchChat(page, student.workspaceId, project.id);
+	await choose(page, used.view, "Effort", "Low");
+	await choose(page, used.view, "Permissions", "Plan");
+	await expect
+		.poll(async () => {
+			const [row] = await query<{ chat_settings: unknown }>(
+				"select chat_settings from projects where id = $1",
+				[project.id],
+			);
+			return row?.chat_settings;
+		})
+		.toEqual({ model: "default", effort: "low", mode: "plan" });
+	const next = await launchChat(page, student.workspaceId, project.id);
+	await expectShown(next.view, "Default", "Low", "Plan");
+});
+
+test("Ask says when session rules let some actions run without asking", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Ask hint" });
+	await scriptHost(page, [RULE]);
+	await openProject(page, student.workspaceId, project.id);
+	const { view } = await launchChat(page, student.workspaceId, project.id);
+	const hint = view.getByTestId("composer-ask-hint");
+	await expect(hint).toContainText(
+		"Some actions are allowed without asking in this session.",
+	);
+	await expect(picker(view, "Permissions")).toHaveAccessibleDescription(
+		/allowed without asking/,
+	);
+	await choose(page, view, "Permissions", "Auto");
+	await expect(hint).toHaveCount(0);
+	await choose(page, view, "Permissions", "Ask");
+	await expect(hint).toBeVisible();
+});
+
+test("Ask shows no hint while the session holds no rules", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "No hint" });
+	await scriptHost(page);
+	await openProject(page, student.workspaceId, project.id);
+	const { view } = await launchChat(page, student.workspaceId, project.id);
+	await expect(picker(view, "Permissions")).toHaveText("Permissions Ask");
+	await expect(view.getByTestId("composer-ask-hint")).toHaveCount(0);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Ask hint has no accessibility violations (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Hint axe" });
+		await scriptHost(page, [RULE]);
+		await openProject(page, student.workspaceId, project.id);
+		const { view } = await launchChat(page, student.workspaceId, project.id);
+		await expect(view.getByTestId("composer-ask-hint")).toBeVisible();
+		await expectNoViolations(page, '[data-testid="composer-picks"]');
 	});
 }

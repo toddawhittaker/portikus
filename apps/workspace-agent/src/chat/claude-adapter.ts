@@ -357,27 +357,34 @@ export function permissionResult(
 	return { behavior: "deny", message: "The user declined this tool call." };
 }
 
+/** The init capability that lets an answer mark a question skipped; older CLIs refuse the mark. */
+export const UNANSWERED_CAPABILITY = "ask_user_question_unanswered_v1";
+
 /**
  * The SDK's answer for a question card, following the rules of
  * claude-agent-acp's `applyAskElicitationResponse`. The
  * browser sends one answer string per question, multi-select picks already
  * joined with ", ", and any "Other" text as that question's note. A note
  * with nothing picked is the answer; a note beside a pick rides along in
- * `annotations[question].notes`.
+ * `annotations[question].notes`. A question with neither was skipped; when
+ * `reportSkipped` is set it is marked `unanswered: "skipped"`, which only a
+ * session advertising {@link UNANSWERED_CAPABILITY} accepts.
  */
 export function questionResult(
 	input: Record<string, unknown>,
 	questions: readonly ChatQuestion[],
 	answers: Record<string, string>,
 	notes: Record<string, string> = {},
+	reportSkipped = false,
 ): PermissionResult {
 	const picked: Record<string, string> = {};
-	const annotations: Record<string, { notes: string }> = {};
+	const annotations: Record<string, { notes?: string; unanswered?: "skipped" }> = {};
 	for (const { question } of questions) {
 		const answer = (answers[question] ?? "").trim();
 		const note = (notes[question] ?? "").trim();
 		if (answer === "") {
 			if (note !== "") picked[question] = note;
+			else if (reportSkipped) annotations[question] = { unanswered: "skipped" };
 			continue;
 		}
 		picked[question] = answer;

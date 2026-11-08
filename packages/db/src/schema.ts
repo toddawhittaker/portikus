@@ -322,6 +322,12 @@ interface ProjectsTable {
 	recovery_checked_at: ColumnType<Date | null, string | null, string | null>;
 	/** Bumped by every layout write; the layout's ETag (ADR 0063). */
 	layout_version: Generated<number>;
+	/** The chat picker values last used here; values only, never content (ADR 0012). */
+	chat_settings: ColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
 }
 
 interface SettingsTable {

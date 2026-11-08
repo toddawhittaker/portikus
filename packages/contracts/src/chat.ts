@@ -39,6 +39,35 @@ export type ChatEffort = z.infer<typeof ChatEffort>;
 /** The effort a new chat starts at, for the host and the pickers alike. */
 export const CHAT_START_EFFORT: ChatEffort = "high";
 
+/** The model choices the picker offers; the host may report a fuller name. */
+export const ChatModelChoice = z.enum(["default", "opus", "sonnet", "haiku"]);
+export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
+
+/**
+ * The picker values a student last used in one project, which a new chat
+ * there starts with (SPEC.md §10.8). Only these values, never content.
+ */
+export const ChatLastSettings = z
+	.object({ model: ChatModelChoice, effort: ChatEffort, mode: ChatPermissionMode })
+	.strict();
+export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
+
+/**
+ * A stored value read back: a model no longer offered becomes the default,
+ * and Bypass permissions is never carried into a new chat, so it comes back
+ * as Auto (SPEC.md §10.8).
+ */
+export const StoredChatSettings = z
+	.object({
+		model: ChatModelChoice.catch("default"),
+		effort: ChatEffort.catch(CHAT_START_EFFORT),
+		mode: ChatPermissionMode.catch("default"),
+	})
+	.transform((value) => ({
+		...value,
+		mode: value.mode === "bypassPermissions" ? ("auto" as const) : value.mode,
+	}));
+
 /** SVG is refused because it can carry script. */
 export const ChatImageMediaType = z.enum([
 	"image/png",

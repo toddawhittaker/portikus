@@ -6,9 +6,12 @@
  * the conversation lives in the workspace only (SPEC.md §25.10).
  */
 import {
+	CHAT_START_EFFORT,
 	type ChatAttachment,
 	ChatClientMessage,
 	type ChatEffort,
+	type ChatLastSettings,
+	ChatModelChoice,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
@@ -65,7 +68,7 @@ export interface ChatTurn {
 	estimated: boolean;
 }
 
-interface ChatSettings {
+export interface ChatSettings {
 	agent: "claude" | "codex";
 	model: string;
 	effort: ChatEffort;
@@ -404,6 +407,54 @@ function applyChatEvent(
 /** Session rules are letting some tools run without a card. */
 export function selectSessionRulesActive(state: ChatState): boolean {
 	return state.sessionRules.length > 0;
+}
+
+/** The picker entry for the model id the host reports, which may be a full name. */
+export function modelChoice(model: string): ChatModelChoice {
+	const known = ChatModelChoice.options.find((choice) => choice === model);
+	if (known) return known;
+	const family = ChatModelChoice.options.find(
+		(choice) => choice !== "default" && model.includes(choice),
+	);
+	return family ?? "default";
+}
+
+/**
+ * A chat nobody has used yet: no turn has run and the host still reports
+ * its start values, so the last-used settings may be applied (SPEC.md §10.8).
+ */
+export function isNewChat(state: ChatState): boolean {
+	const { settings } = state;
+	return (
+		state.loaded &&
+		settings !== null &&
+		state.items.length === 0 &&
+		Object.keys(state.turns).length === 0 &&
+		settings.model === "default" &&
+		settings.effort === CHAT_START_EFFORT &&
+		settings.mode === "default"
+	);
+}
+
+/** The values worth keeping from what the host confirmed. */
+export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
+	return {
+		model: modelChoice(settings.model),
+		effort: settings.effort,
+		mode: settings.mode,
+	};
+}
+
+/** The change that brings a new chat to the last-used values; null when there is none. */
+export function changeToward(
+	settings: ChatSettings,
+	last: ChatLastSettings,
+): Partial<ChatLastSettings> | null {
+	const change: Partial<ChatLastSettings> = {};
+	if (modelChoice(settings.model) !== last.model) change.model = last.model;
+	if (settings.effort !== last.effort) change.effort = last.effort;
+	if (settings.mode !== last.mode) change.mode = last.mode;
+	return Object.keys(change).length > 0 ? change : null;
 }
 
 /** What a tool still running becomes when its turn ends. */

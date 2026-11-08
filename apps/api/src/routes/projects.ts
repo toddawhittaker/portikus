@@ -41,6 +41,7 @@ import {
 import { sharedUntil, stopShare } from "../workspaces/project-share.js";
 import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
+import { registerProjectChatSettingsRoutes } from "./project-chat-settings.js";
 import { registerProjectDeleteRoute } from "./project-delete.js";
 import { registerProjectDownloadRoute } from "./project-download.js";
 import { registerProjectLayoutRoutes } from "./project-layout.js";
@@ -663,4 +664,5 @@ export function registerProjectRoutes(
 	registerProjectDownloadRoute(app, owned, ownedProject);
 
 	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
+	registerProjectChatSettingsRoutes(app, db, limitWrites, owned, ownedProject);
 }

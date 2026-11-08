@@ -60,6 +60,19 @@ export interface Scope {
 	errorAgent: AgentClient | null;
 }
 
+/** The caller's own workspace, or null after answering the refusal. */
+export type OwnedScope = (
+	request: FastifyRequest,
+	reply: FastifyReply,
+) => Promise<Scope | null>;
+
+/** One project row of that workspace, or null after answering 404. */
+export type OwnedProject = (
+	workspaceId: string,
+	projectId: string,
+	reply: FastifyReply,
+) => Promise<ProjectRow | null>;
+
 /** The status and code each agent error becomes (SPEC.md §27). */
 const AGENT_ERROR_STATUS: Partial<
 	Record<AgentErrorCode | "AGENT_UNAVAILABLE", [number, ApiErrorCode]>

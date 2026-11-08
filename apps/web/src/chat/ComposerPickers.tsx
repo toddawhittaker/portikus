@@ -20,9 +20,19 @@ import {
 	MenuTrigger,
 	Skeleton,
 } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { ChatState } from "./chatStore.js";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { useStore } from "zustand";
+import {
+	type ChatState,
+	type ChatStore,
+	modelChoice,
+	selectSessionRulesActive,
+} from "./chatStore.js";
 import "./pickers.css";
+
+/** Ask with session rules lets some tools run without a card, so the picker says so (SPEC.md §10.8). */
+export const ASK_RULES_HINT =
+	"Some actions are allowed without asking in this session. See \u201cAllowed without asking in this session\u201d above.";
 
 export const BYPASS_WARNING =
 	"Bypass permissions lets Claude run every tool without asking you first.";
@@ -132,16 +142,6 @@ const LABEL: Record<keyof Change, string> = {
 	mode: "permissions",
 };
 
-/** The picker entry for the model id the host reports, which may be a full name. */
-function modelChoice(model: string): string {
-	const known = MODELS.find((choice) => choice.value === model);
-	if (known) return known.value;
-	const family = MODELS.find(
-		(choice) => choice.value !== "default" && model.includes(choice.value),
-	);
-	return family?.value ?? "default";
-}
-
 interface PickProps {
 	label: string;
 	testId: string;
@@ -227,6 +227,7 @@ function Waiting({ label }: { label: string }) {
 }
 
 interface PickersProps {
+	store: ChatStore;
 	settings: ChatState["settings"];
 	lastError: ChatState["lastError"];
 	warningId: string;
@@ -237,6 +238,7 @@ interface PickersProps {
 }
 
 export function ComposerPickers({
+	store,
 	settings,
 	lastError,
 	warningId,
@@ -247,6 +249,8 @@ export function ComposerPickers({
 	const pendingNow = useRef(pending);
 	pendingNow.current = pending;
 	const errorAtAsk = useRef<number>(-1);
+	const rulesActive = useStore(store, selectSessionRulesActive);
+	const hintId = useId();
 
 	// The host's report is the truth; it ends any wait.
 	useEffect(() => {
@@ -270,6 +274,8 @@ export function ComposerPickers({
 
 	const shown = settings ? { ...settings, ...pending } : null;
 	const bypass = shown?.mode === "bypassPermissions";
+	// The host's own mode, not one still waiting, decides whether Ask is the whole story.
+	const askWithRules = settings?.mode === "default" && rulesActive;
 
 	return (
 		<fieldset className="pk-composer-picks" data-testid="composer-picks">
@@ -308,7 +314,7 @@ export function ComposerPickers({
 						start={START.mode}
 						changed={shown.mode !== START.mode}
 						warning={bypass}
-						describedBy={bypass ? warningId : undefined}
+						describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
 						onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
 					/>
 				</>
@@ -319,6 +325,11 @@ export function ComposerPickers({
 					<Waiting label="Permissions" />
 				</>
 			)}
+			{askWithRules ? (
+				<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
+					{ASK_RULES_HINT}
+				</p>
+			) : null}
 		</fieldset>
 	);
 }
