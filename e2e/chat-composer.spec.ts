@@ -502,9 +502,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const { id, view } = await openChat(page, student.workspaceId, "Composer");
 		const box = view.getByTestId("chat-composer-input");
 		await box.fill("fix the bug");
+		await box.press("End");
+		await expect(box).toHaveText("fix the bug");
 		const mic = view.getByTestId(`chat-voice-${id}`);
 		await mic.hover();
 		await page.mouse.down();
+		await expect(mic).toHaveAttribute("aria-pressed", "true");
 		await expect(view.getByTestId(`chat-voice-status-${id}`)).toHaveText("Listening…");
 		await page.evaluate(() =>
 			(window as unknown as FakeSpeechWindow).__speech.say("pl", false),
