@@ -118,8 +118,8 @@ export const STUDENT_HELP: HelpPart = {
 					<li>
 						<strong>The work area</strong>, in the middle, holds tabs: terminals, files,
 						diffs and previews. The <strong>+</strong> at the end of the tab bar, named
-						New tab, opens a terminal, Claude Code, Codex or a preview in the project's
-						folder. Your course may hide Claude Code and Codex.
+						New tab, opens a terminal, Claude Code (GUI), Claude Code (TUI), Codex or a
+						preview in the project's folder. Your course may hide Claude Code and Codex.
 					</li>
 					<li>
 						<strong>The right pane</strong> has up to five tabs. <strong>Files</strong>{" "}
@@ -205,6 +205,46 @@ export const STUDENT_HELP: HelpPart = {
 							After the workspace stops or restarts, an old terminal says it ended.
 							Choose <strong>New terminal here</strong> to open a fresh one in its
 							place.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
+			id: "student-claude-chat",
+			title: "Claude Code (GUI) and Claude Code (TUI)",
+			body: (
+				<>
+					<p>
+						Claude Code opens two ways from <strong>New tab</strong>.{" "}
+						<strong>Claude Code (TUI)</strong> is Claude Code in a terminal.{" "}
+						<strong>Claude Code (GUI)</strong> is a chat tab: replies appear as
+						formatted text, its work is folded into a "Worked for" row, and when it
+						needs a permission or asks a question you answer on a card. You can paste,
+						drop or attach images, and choose the model, effort and permission mode
+						beside the message box.
+					</p>
+					<ul>
+						<li>
+							Sign in to Claude in the workspace, as you would in a terminal. Portikus
+							never sees your Claude sign-in. If you are not signed in, the chat says
+							so.
+						</li>
+						<li>
+							A chat tab keeps running when you close the browser. When the workspace
+							has stopped and started again, choose <strong>Resume chat</strong> on the
+							ended tab to carry on the same conversation. A reply that was still being
+							written when the workspace stopped is lost.
+						</li>
+						<li>
+							<strong>Bypass permissions</strong> lets Claude run commands and change
+							files without asking. A warning shows while it is on.
+						</li>
+						<li>
+							Do not run a GUI tab and a TUI terminal on the same Claude session at
+							once. After a chat tab is closed, running{" "}
+							<code className="pk-mono-body">claude --resume</code> in a terminal
+							continues it.
 						</li>
 					</ul>
 				</>

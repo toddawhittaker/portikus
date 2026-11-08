@@ -943,6 +943,8 @@ When a project has no tabs open, the centre pane says "No terminals open" and
 offers two buttons: "Open a terminal" (primary) and "Start Claude Code". The
 tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
 
+Added by Epic 58 (ADR 0069): "New tab" offers "Claude Code (GUI)", a chat tab, beside "Claude Code (TUI)", the existing terminal launcher under its new name. The Traditional course profile hides both (section 8.7). Tabs and pane headers read "Claude Code (GUI)" or "Claude Code (TUI)", never "Terminal N", for an agent. The chat view follows new content while the student is at the end and shows "Jump to latest" after they scroll up; a changed effort or permission mode is shown in bold, and the bypass warning has a reserved line so the composer does not jump. An ended chat tab offers "Resume chat".
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -1317,6 +1319,8 @@ were closed." or "Your workspace's terminals were closed.", with the body
 focus, focus moves to the work area's New control. Only the terminals
 unit's stop is explained; an agent restart no longer loses terminals.
 
+Added by Epic 58 (ADR 0069): a chat tab is a `terminals` row with `kind = 'chat'` (migration 0052). Its tmux session `pk-<id>` runs the chat host, `dist/chat/main.js` of the workspace agent, instead of `claude`, so the tab survives an agent restart and ends with the tab. The host listens on a socket in `/run/portikus-terminals/chat/` (directory mode 0700, socket 0600), and the API relays one JSON document per line between it and the browser without reading it. Client frames are at most 1 MiB, server frames at most 8 MiB, and an image at most 5 MiB (png, jpeg, gif or webp, ten per message). On attach the host sends a snapshot, then replays the last 20 turns as ordinary events that carry their real start and finish times (older or oversized tool images become `imageOmitted`), then `settings`. A card waits with no time limit and the first answer wins. A new tab may attach before the host listens, so the agent waits up to 10 seconds for the socket while the tmux session is alive. `resumeChatOf` on create starts a new chat from an ended chat of the same workspace. The chain of Claude session ids is the file `~/.local/state/portikus/chat-sessions/<tabId>` (directory 0700, written atomically), so `claude --resume <id>` also continues a closed chat. A turn running at a workspace stop is lost.
+
 ## 10. Coding-agent integration
 
 ### 10.1 Supported agents
@@ -1347,6 +1351,8 @@ A coding-agent launcher may create a terminal and invoke the appropriate CLI.
 The resulting session must remain a normal visible terminal.
 
 A launched agent starts in a new terminal whose tmux session runs the CLI directly, with no shell and no earlier output, so its scrollback starts empty (issue #886).
+
+Added by Epic 58 (ADR 0069): "Claude Code (GUI)" creates a chat tab (section 9.7) that drives the shared, unmodified Claude Code CLI through the Claude Agent SDK, for every sign-in, subscription included. Portikus never handles Claude credentials; the student signs in inside the workspace. "Claude Code (TUI)" is the terminal launcher above. A GUI and a TUI must not run one session at once; Help says so. The composer offers Claude Code and a disabled "Codex (coming soon)", and Ask, Accept edits, Plan, Auto and Bypass permissions; bypass is offered with a visible warning.
 
 ### 10.3 Direct CLI use
 
@@ -1424,6 +1430,8 @@ fullest window per agent, hides a window past its reset time, and warns once
 at 85 percent (§25.8). Codex's background app-server daemon is turned off
 (`daemon_auto_start = false`), because it keeps the environment of the first
 terminal that started it and later sessions would report that terminal's id.
+
+Added by Epic 58: the Claude Agent SDK's hooks fire in a chat tab, so the state marks of this section work unchanged. The five-hour and seven-day figures come from the SDK's `rate_limit_event`, posted to the same `/claude-limits` store, because the status line does not run under the SDK.
 
 ### 10.9 Agent-session baseline and review unit
 
@@ -4314,6 +4322,8 @@ Accepted risk (ADR 0065): opening a Python file starts pyright with the project'
 
 Backpressure: in the terminal pipe and in the language-server pipe the API stops reading the browser socket while more than 1 MiB waits to be sent to the agent, and reads again below 256 KiB, so a stalled agent cannot make the API buffer browser frames without limit.
 
+Added by Epic 58 (ADR 0069): the chat socket is owner-only, copying the language-server socket: administrators, instructors, share viewers and live-help helpers are refused, a helper sees no chat tab, and the API answers 404 before the upgrade for a missing, other-workspace or non-chat terminal. This holds at the API; it is not a guarantee against other processes of the same user inside the workspace, which can reach the host's socket. The platform logs and stores no prompt, answer, file content or image of a chat (STACK.md section 15, ADR 0012); history lives only in Claude's own transcripts in the workspace. Assistant Markdown is untrusted: it is cleaned by `sanitizeMarkdown` (no HTML, no remote images, only http and https links), so a prompt-injected image link cannot send data out.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -5399,6 +5409,8 @@ Added by Epic 56 (ADR 0068): an agent's state is shown by a shape as well as a c
 
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
+Added by Epic 58: the chat tab follows the same rules. A card never takes the keyboard from the composer, so Enter cannot grant a permission by accident; opening a chat as the focused pane focuses its message box. Focus rings are inset and not clipped. "Other" checks its radio, each option is described by its own preview, Enter in Notes adds a line and Ctrl+Enter or the button sends, and focus moves after an attachment is removed. A polite status region announces attachments, the bypass warning and a refused change; Send uses `aria-disabled` with a reason; the connection notice has an explicit `aria-live`, and "1 more request is waiting" is announced. Pickers have visible labels and `line-strong` borders, and show the requested value while the host confirms. Alt+Shift+Q leaves a chat. A tool's state is a glyph as well as a word.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -5435,6 +5447,8 @@ day ahead and at most 48 boot ids per user per day. They are kept 365
 days.
 
 Added by Epic 54: rows in `audit_events` older than 365 days are deleted by a daily worker sweep, one window for every action type, with no setting and no export. The sweep deletes in batches through the database function of section 24.9 and logs only the count (STACK.md section 15). Nightly database backups still hold older rows until they age out.
+
+Added by Epic 58: images pasted, dropped or attached to a chat are saved under `.portikus/pastes/<stamp>/` and sent as project-relative paths. The browser first redraws a picture over 2000 pixels on its long side or over 5 MiB (WebP, JPEG where WebP cannot be written, PNG when smaller; never enlarged; other files untouched). No prompt, reply, file or image is logged or stored by the platform.
 
 ## 26. Control-plane data model
 
@@ -5556,6 +5570,8 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0049_account_email` (section 5.3, ADR 0064): `account_email_tokens` (`id`, `user_id` cascading on delete, `purpose` `reset` or `invite`, unique `token_hash`, `created_by`, `created_at`, `expires_at`, `used_at`, `revoked_at`), granted to the API's role only; `settings.account_email_enabled` (default false).
 - `0050_course_profile` (sections 8.7 and 13.6, ADR 0066): `lti_contexts.profile`, text with a check constraint (`agentic` or `traditional`, default `agentic`); `settings.code_help_enabled` (default true). Migration 0051 replaced that column.
 - `0051_code_help_languages` (sections 13.6 and 20.1, ADR 0067): `settings.code_help_languages`, `text[]`, not null, default `{python,typescript}`, with no check constraint, so a language added later needs no migration. It replaces `code_help_enabled`: a site with code help off becomes `{}` and one with it on becomes both languages. The down migration restores the boolean as true when any language is on.
+
+- `0052_terminal_kind` (Epic 58, ADR 0069): `terminals.kind`, text with a check constraint (`terminal` or `chat`, default `terminal`), so existing rows read as terminals. Nothing about a chat's content is stored.
 
 ## 27. API principles
 
@@ -7060,6 +7076,24 @@ Acceptance:
 - the rebuild notice lists each removed package in its title, and the copy icon is reachable by hover, keyboard focus and a touch pointer;
 - the workspace-agent unit tests pass with no `server exited unexpectedly` failure, and the hook time test passes when the wall clock steps back;
 - a missing named LTI platforms file fails setup and leaves `/etc/portikus/lti-platforms.json` as it was; only a missing file at the default path turns LTI off.
+
+### Epic 58 — Claude Code chat tab
+
+Built on `epic/58-agent-chat`. Migration 0052. See sections 8.3, 9.7, 10.2, 10.8, 24.1, 25.8, 25.10 and 26, and ADR 0069.
+
+Includes:
+
+- a "Claude Code (GUI)" chat tab beside "Claude Code (TUI)", driven by the Claude Agent SDK through a chat host in the tab's tmux session;
+- streamed Markdown, a "Worked for" fold, permission and question cards, images both ways, and model, effort and permission pickers with bypass offered;
+- history replayed with real turn times, Resume for an ended chat, an owner-only relay that logs and stores nothing, and images downscaled in the browser;
+- the .deb build and smoke test checking the SDK and the chat host.
+
+Acceptance:
+
+- a helper, administrator, instructor or share viewer cannot see or attach to a chat tab;
+- a card answered in one browser tab clears in the others, and a reattach shows the history with real times;
+- an ended chat resumes the same conversation, and no platform SDK binary is in the package;
+- the chat smoke check creates a chat tab, receives a snapshot and a plan-mode `settings` event.
 
 ### Estimated total
 
