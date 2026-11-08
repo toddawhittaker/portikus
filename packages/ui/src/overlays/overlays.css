@@ -60,6 +60,30 @@
 	color: inherit;
 	text-decoration: none;
 }
+/* A choice with a line saying what it is for grows to fit both lines. */
+.pk-menu-item--described {
+	align-items: flex-start;
+	height: auto;
+	min-height: var(--density-comfortable-row);
+	padding-block: var(--space-1\.5);
+}
+.pk-menu-item--described > .pk-menu-check {
+	/* Level with the label's first line. */
+	height: 1lh;
+}
+.pk-menu-item-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+}
+.pk-menu-item-description {
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+.pk-menu-item[aria-disabled="true"] .pk-menu-item-description {
+	color: inherit;
+}
 .pk-menu-item-shortcut {
 	color: var(--ink-muted);
 	font-size: 12px;

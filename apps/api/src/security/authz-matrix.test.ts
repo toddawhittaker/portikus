@@ -346,6 +346,7 @@ interface Sample {
 
 const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/file": "?path=notes.txt",
+	"/workspaces/:id/projects/:pid/image": "?path=shot.png",
 	"/workspaces/:id/projects/:pid/git/diff": "?path=notes.txt",
 	"/courses/:courseId/shares/:projectId/file": "?path=notes.txt",
 	"/courses/:courseId/shares/:projectId/git/diff": "?path=notes.txt",

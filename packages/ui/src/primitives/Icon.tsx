@@ -95,6 +95,8 @@ const PATHS = {
 	// Lucide arrow-left, arrow-right and download.
 	"arrow-left": ["M12 19l-7-7 7-7", "M19 12H5"],
 	"arrow-right": ["M5 12h14", "M12 5l7 7-7 7"],
+	// Lucide arrow-up: Send in the chat composer.
+	"arrow-up": ["M5 12l7-7 7 7", "M12 19V5"],
 	download: ["M12 15V3", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M7 10l5 5 5-5"],
 	search: ["C11 11 6.5", "M20 20l-4.4-4.4"],
 	play: ["M8 5.5v13l10.5-6.5z"],

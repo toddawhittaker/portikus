@@ -982,9 +982,11 @@ the failure is neither retried nor reported.
 Added by Epic 56 (ADR 0068): the toasts that say a coding agent finished or
 needs input are not recorded, because they are frequent and say nothing the
 tab marks do not. The warning that a plan limit is at 85 percent is rare and
-is recorded. Those toasts, and the offer to turn on desktop notifications,
-carry actions, so they stay until answered or until the student views that
-terminal. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
+is recorded. Every agent alert toast, finished or needs input, stays until
+the student views that terminal, dismisses it, or a newer alert for the same
+terminal replaces it; it never times out. Several waiting agents give several
+toasts, which fit a 360 px screen. The offer to turn on desktop notifications
+also stays until answered. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
 default `ask`) decides whether an agent alert also becomes an operating-system
 notification. Choosing On saves the choice and never asks the browser; an
 "Allow in this browser" button in Settings > Preferences, or "Turn on desktop
@@ -1355,6 +1357,8 @@ A launched agent starts in a new terminal whose tmux session runs the CLI direct
 Added by Epic 58 (ADR 0069): "Claude Code (GUI)" creates a chat tab (section 9.7) that drives the shared, unmodified Claude Code CLI through the Claude Agent SDK, for every sign-in, subscription included. Portikus never handles Claude credentials; the student signs in inside the workspace. "Claude Code (TUI)" is the terminal launcher above. A GUI and a TUI must not run one session at once; Help says so. The composer offers Claude Code and a disabled "Codex (coming soon)", and Ask, Accept edits, Plan, Auto and Bypass permissions; bypass is offered with a visible warning.
 
 Added by Epic 58.1: a permission card's "Always allow" button names every grant Claude suggests and how long it lasts, for example "Always allow "sed" commands in this session", or a rule saved to the project's local settings, or a switch to accepting edits for the session. Allow rules that last for the session are held by the chat host, not handed to the SDK, and applied through the SDK's flag settings, so they can be taken back; the host reports them in a `rules` event and the browser lists them with a Revoke button each (`rule.revoke`). A new Claude process starts with none. Rules saved to a settings file and mode switches go to the SDK unchanged; a mode change Claude makes mid-turn reaches the permission picker at once.
+
+The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span, three backticks for a code block, and `- ` or `1. ` for a list show formatted as they are typed, with the markers hidden, and the message is sent as the Markdown text, never escaped. Pasted text arrives as plain text. Enter sends and Shift+Enter adds a line; in a code block Enter adds a line and Ctrl+Enter (Cmd+Enter on a Mac) sends. Send is an up-arrow icon button with the microphone beside it; while a turn runs, Stop sits beside Send. To a screen reader the editor is a labelled multi-line text box (section 25.8).
 
 ### 10.3 Direct CLI use
 
@@ -4325,6 +4329,8 @@ Accepted risk (ADR 0065): opening a Python file starts pyright with the project'
 Backpressure: in the terminal pipe and in the language-server pipe the API stops reading the browser socket while more than 1 MiB waits to be sent to the agent, and reads again below 256 KiB, so a stalled agent cannot make the API buffer browser frames without limit.
 
 Added by Epic 58 (ADR 0069): the chat socket is owner-only, copying the language-server socket: administrators, instructors, share viewers and live-help helpers are refused, a helper sees no chat tab, and the API answers 404 before the upgrade for a missing, other-workspace or non-chat terminal. This holds at the API; it is not a guarantee against other processes of the same user inside the workspace, which can reach the host's socket. The platform logs and stores no prompt, answer, file content or image of a chat (STACK.md section 15, ADR 0012); history lives only in Claude's own transcripts in the workspace. Assistant Markdown is untrusted: it is cleaned by `sanitizeMarkdown` (no HTML, no remote images, only http and https links), so a prompt-injected image link cannot send data out.
+
+Added by Epic 58.1: assistant Markdown may show the student's own local images, so Claude can show a screenshot it saved. An image target that is a path relative to the project, or an absolute path under the home folder, loads through `GET /workspaces/:id/projects/:pid/image?path=`, which is owner-only exactly like the file routes (404 for anyone else). The API refuses a path with a `.` or `..` segment or an extension other than png, jpg, jpeg, gif or webp before calling the workspace agent. The agent resolves the path with realpath, refuses anything whose real path leaves the home folder (so a symlink cannot escape), opens it without following a link, refuses a non-regular file or one over 5 MiB, and checks the first bytes match the extension, so SVG, HTML or a renamed file is never served. The API sends the bytes with the extension's image type, `nosniff`, `private, no-store` and the inline sandbox policy. This widens what a reply can load from nothing to the student's own image files; it cannot reach another user's files or anything outside the home folder, and nothing is copied into or kept by the platform. A remote http(s) or data: image is still never loaded and shows "Remote image not shown: <host>"; a refused or missing one shows "Image not found: <path>". The agent instructions tell Claude to save images it wants to show under `.portikus/images/` in the project and link them by relative path.
 
 ### 24.2 Student code is untrusted
 

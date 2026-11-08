@@ -11,6 +11,7 @@ import {
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 /**
  * Two browsers on one project see each other's layout changes, and a stale
@@ -62,8 +63,7 @@ async function projectWithTerminal(page: Page, workspaceId: string, name: string
 }
 
 async function splitRight(page: Page, terminalId: string) {
-	await page.getByTestId(`terminal-actions-${terminalId}`).click();
-	await page.getByTestId("split-right").click();
+	await splitPane(page, terminalId, "right");
 }
 
 test("a split made in one browser shows in the other", async ({ browser, context }) => {

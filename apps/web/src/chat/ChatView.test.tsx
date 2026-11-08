@@ -13,6 +13,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_MS } from "../terminal/terminalSocket.js";
 import { ChatView } from "./ChatView";
+import { boxText, setText } from "./composerTesting.js";
 
 vi.mock("../api/sessionEnded.js", () => ({ sessionEnded: vi.fn() }));
 
@@ -236,29 +237,29 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 test("the composer sends what was typed, and clears it when the host echoes it", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
-	fireEvent.change(box, { target: { value: "Add a test" } });
+	const box = screen.getByTestId("chat-composer-input");
+	setText(box, "Add a test");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([
 		{ type: "send", text: "Add a test", attachments: [] },
 	]);
 	// Not yet echoed: the draft stays, and a second Enter does not send it again.
-	expect(box.value).toBe("Add a test");
+	expect(boxText(box)).toBe("Add a test");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toHaveLength(1);
 	emit("message", { id: "u1", role: "user", markdown: "Add a test" });
-	expect(box.value).toBe("");
+	expect(boxText(box)).toBe("");
 });
 
 test("a send the host refuses keeps the draft to try again", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
-	fireEvent.change(box, { target: { value: "Look at this" } });
+	const box = screen.getByTestId("chat-composer-input");
+	setText(box, "Look at this");
 	fireEvent.keyDown(box, { key: "Enter" });
 	emit("error", { message: "That picture is not a PNG." });
 	expect(screen.getByTestId("chat-error").textContent).toContain("not a PNG");
-	expect(box.value).toBe("Look at this");
+	expect(boxText(box)).toBe("Look at this");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toHaveLength(2);
 });
@@ -268,7 +269,7 @@ test("typing in the composer keeps the keyboard when a card arrives", () => {
 	snapshot();
 	const box = screen.getByTestId("chat-composer-input");
 	box.focus();
-	fireEvent.change(box, { target: { value: "and also" } });
+	setText(box, "and also");
 	emit("permission.requested", {
 		id: "p1",
 		toolName: "Bash",
@@ -433,10 +434,10 @@ test("an answer or message on a closed socket says it was not sent", () => {
 		"Your answer was not sent",
 	);
 	const box = screen.getByTestId("chat-composer-input");
-	fireEvent.change(box, { target: { value: "hello" } });
+	setText(box, "hello");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(screen.getByText(/Your message was not sent/)).toBeTruthy();
-	expect((box as HTMLTextAreaElement).value).toBe("hello");
+	expect(boxText(box)).toBe("hello");
 });
 
 test("scrolling up stops the view following new text", () => {

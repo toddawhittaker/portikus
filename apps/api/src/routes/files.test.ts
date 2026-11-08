@@ -232,6 +232,7 @@ test.skipIf(skip)(
 		for (const jar of [bob, carol]) {
 			expect((await get(jar, "tree")).statusCode).toBe(404);
 			expect((await get(jar, "file", "?path=README.md")).statusCode).toBe(404);
+			expect((await get(jar, "image", "?path=shot.png")).statusCode).toBe(404);
 			const written = await app.inject({
 				method: "PUT",
 				url: url("file", "?path=README.md"),
@@ -578,6 +579,41 @@ test.skipIf(skip)(
 		// Shown in the page, so never an attachment.
 		expect(shown.headers["content-disposition"]).toBeUndefined();
 		expect(shown.body).toContain("<svg");
+	},
+);
+
+// SPEC.md §24.1: an assistant reply may show the owner's own images, and
+// the control plane refuses anything that is not an image path first.
+test.skipIf(skip)(
+	"a chat image is served to the owner with a pinned type",
+	async () => {
+		agent.files.set("lab/shot.png", {
+			type: "file",
+			content: Buffer.from("png-bytes"),
+		});
+		const shown = await get(alice, "image", "?path=shot.png");
+		expect(shown.statusCode).toBe(200);
+		expect(shown.headers["content-type"]).toBe("image/png");
+		expect(shown.headers["x-content-type-options"]).toBe("nosniff");
+		expect(shown.headers["content-security-policy"]).toBe(INLINE_CSP);
+		expect(shown.body).toBe("png-bytes");
+		expect((await get(alice, "image", "?path=missing.png")).statusCode).toBe(404);
+	},
+);
+
+test.skipIf(skip)(
+	"a chat image path that is not an image or traverses is refused",
+	async () => {
+		for (const path of [
+			"logo.svg",
+			"page.html",
+			"../other/shot.png",
+			"/home/student/../x.png",
+			"",
+		]) {
+			const refused = await get(alice, "image", `?path=${encodeURIComponent(path)}`);
+			expect(refused.statusCode, path).toBe(400);
+		}
 	},
 );
 

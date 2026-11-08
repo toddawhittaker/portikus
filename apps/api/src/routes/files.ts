@@ -1,8 +1,11 @@
 import { Transform } from "node:stream";
 import {
+	ChatImagePath,
+	chatImageType,
 	ExtractProgress,
 	ExtractRequest,
 	ExtractResponse,
+	MAX_CHAT_IMAGE_BYTES,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
 	MoveRequest,
@@ -23,6 +26,7 @@ import { sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import {
 	headersDeadline,
+	INLINE_CSP,
 	inlineType,
 	queryPath,
 	sendFile,
@@ -162,6 +166,40 @@ export function registerFileRoutes(
 			}
 
 			return sendFile(reply, response, response.body, path, download, inline);
+		});
+
+		// A local image an assistant reply shows (SPEC.md §24.1). The agent
+		// confines it to the home folder and checks its bytes; the type sent on
+		// is never the agent's own unless it is one of the allowed images.
+		instance.get("/workspaces/:id/projects/:pid/image", async (request, reply) => {
+			const scope = await scopedProject(db, config, request, reply);
+			if (!scope) return;
+			const parsed = ChatImagePath.safeParse(
+				(request.query as { path?: unknown }).path,
+			);
+			const type = parsed.success ? chatImageType(parsed.data) : null;
+			if (!parsed.success || type === null) {
+				return sendError(reply, 400, "VALIDATION_FAILED", "that is not an image path");
+			}
+			let response: Response;
+			try {
+				response = await scope.agent.fetchRaw(
+					"GET",
+					agentUrl(scope.slug, "image", { path: parsed.data }),
+					{ signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) },
+				);
+			} catch (error) {
+				return sendAgentError(reply, error);
+			}
+			if (!response.ok) return relayFailure(reply, response);
+			const body = Buffer.from(await response.arrayBuffer());
+			if (body.length > MAX_CHAT_IMAGE_BYTES) {
+				return tooLarge(reply);
+			}
+			reply.header("x-content-type-options", "nosniff");
+			reply.header("content-security-policy", INLINE_CSP);
+			reply.header("cache-control", "private, no-store");
+			return reply.type(type).send(body);
 		});
 
 		// A conditional write, streamed through (SPEC.md §13.5). It

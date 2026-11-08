@@ -13,6 +13,7 @@ import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { Composer } from "./Composer.js";
 import type { ChatState } from "./chatStore.js";
+import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
@@ -68,9 +69,18 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-const COMPOSER_BOX = ".pk-chat-composer textarea";
+const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
 
-export function ChatView({
+/** The chat with its images' viewer around it, so a reply or a tool can open one. */
+export function ChatView(props: ChatViewProps) {
+	return (
+		<ImageViewerProvider workspaceId={props.workspaceId} projectId={props.projectId}>
+			<ChatViewBody {...props} />
+		</ImageViewerProvider>
+	);
+}
+
+function ChatViewBody({
 	workspaceId,
 	projectId,
 	terminalId,

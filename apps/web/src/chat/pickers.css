@@ -1,0 +1,88 @@
+/* The composer's pickers: a quiet button holding its label and value, opening a radio menu. */
+.pk-picker {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	block-size: var(--size-control-sm);
+	padding-inline: var(--space-2) var(--space-1);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-picker:hover,
+.pk-picker[data-state="open"] {
+	background: var(--surface-hover);
+}
+
+.pk-picker:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
+.pk-picker > svg,
+.pk-picker-label {
+	flex: none;
+}
+
+/* A long value gives way before the label does. */
+.pk-picker-value {
+	min-inline-size: 0;
+	max-inline-size: 12rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A value the student changed reads as set. */
+.pk-picker.is-changed .pk-picker-value {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.pk-picker.is-warning,
+.pk-picker.is-warning:hover,
+.pk-picker.is-warning[data-state="open"] {
+	border-color: var(--status-warning);
+	background: var(--status-warning-soft);
+}
+
+.pk-picker.is-warning,
+.pk-picker.is-warning .pk-picker-value {
+	color: var(--status-warning);
+}
+
+.pk-picker.is-waiting {
+	cursor: default;
+	padding-inline-end: var(--space-2);
+}
+
+/* Wide enough for a choice and its line on one row, never wider than the window allows. */
+.pk-picker-menu {
+	inline-size: max-content;
+	max-inline-size: min(24rem, var(--radix-dropdown-menu-content-available-width));
+}
+
+.pk-picker-default {
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-picker-warning {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1);
+	color: var(--status-warning);
+}
+
+.pk-picker-warning > svg {
+	flex: none;
+	block-size: 1lh;
+}

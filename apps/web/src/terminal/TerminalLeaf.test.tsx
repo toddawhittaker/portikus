@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Terminal } from "@portikus/contracts";
-import { ToastProvider } from "@portikus/ui";
+import { MenuItem, ToastProvider } from "@portikus/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -131,7 +131,14 @@ function renderLeaf(
 			visible={true}
 			focused={false}
 			onFocus={props.onFocus}
-			onSplit={props.onSplit}
+			splitItems={(id, direction) => (
+				<MenuItem
+					testId={`pick-${direction}`}
+					onSelect={() => props.onSplit(id, direction)}
+				>
+					Terminal
+				</MenuItem>
+			)}
 			onRename={props.onRename}
 			onSetTheme={props.onSetTheme}
 			onClose={props.onClose}
@@ -157,20 +164,23 @@ test("the bar shows the name and the home-relative directory", () => {
 	expect(shortenPath("/srv/elsewhere")).toBe("/srv/elsewhere");
 });
 
-test("the actions menu splits right and down", () => {
+test("Split right and Split down open a submenu of what to open", () => {
 	const props = renderLeaf();
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
 	});
-	fireEvent.click(screen.getByTestId("split-right"));
+	fireEvent.keyDown(screen.getByTestId("split-right"), { key: "ArrowRight" });
+	expect(screen.getByRole("menu", { name: "Split right" })).toBeTruthy();
+	fireEvent.click(screen.getByTestId("pick-row"));
 	expect(props.onSplit).toHaveBeenCalledWith(terminal.id, "row");
 
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
 	});
-	fireEvent.click(screen.getByTestId("split-down"));
+	fireEvent.keyDown(screen.getByTestId("split-down"), { key: "Enter" });
+	fireEvent.click(screen.getByTestId("pick-column"));
 	expect(props.onSplit).toHaveBeenCalledWith(terminal.id, "column");
 });
 

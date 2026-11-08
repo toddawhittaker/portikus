@@ -5,43 +5,123 @@
  * host the picker shows the value asked for; a refused change goes back and
  * is announced. A value other than the start value is set in bold, and
  * Bypass permissions carries the warning colour and icon.
+ *
+ * Each picker is a menu button with a radio menu, like the New tab menu,
+ * so every choice can say what it is for and Bypass can warn before it is
+ * chosen (SPEC.md §25.8).
  */
 import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/contracts";
-import { Icon, Skeleton } from "@portikus/ui";
+import {
+	Icon,
+	Menu,
+	MenuRadioGroup,
+	MenuRadioItem,
+	MenuRoot,
+	MenuTrigger,
+	Skeleton,
+} from "@portikus/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ChatState } from "./chatStore.js";
+import "./pickers.css";
 
-const MODELS = [
-	{ value: "default", label: "Default" },
-	{ value: "opus", label: "Opus" },
-	{ value: "sonnet", label: "Sonnet" },
-	{ value: "haiku", label: "Haiku" },
+export const BYPASS_WARNING =
+	"Bypass permissions lets Claude run every tool without asking you first.";
+
+interface Choice {
+	value: string;
+	label: string;
+	description: ReactNode;
+	/** Shown but cannot be chosen yet. */
+	unavailable?: boolean;
+}
+
+const AGENTS: Choice[] = [
+	{ value: "claude", label: "Claude Code", description: "Anthropic's coding agent." },
+	{
+		value: "codex",
+		label: "Codex",
+		description: "Coming soon.",
+		unavailable: true,
+	},
 ];
 
-const EFFORTS: { value: ChatEffort; label: string }[] = [
-	{ value: "low", label: "Low" },
-	{ value: "medium", label: "Medium" },
-	{ value: "high", label: "High" },
-	{ value: "xhigh", label: "Extra high" },
-	{ value: "max", label: "Max" },
+const MODELS: Choice[] = [
+	{
+		value: "default",
+		label: "Default",
+		description: "The model Claude Code picks for your account.",
+	},
+	{
+		value: "opus",
+		label: "Opus",
+		description: "Most capable, for hard problems. Uses your limits fastest.",
+	},
+	{
+		value: "sonnet",
+		label: "Sonnet",
+		description: "Fast and capable, for most coding.",
+	},
+	{
+		value: "haiku",
+		label: "Haiku",
+		description: "Fastest, for small, simple changes.",
+	},
 ];
 
-const MODES: { value: ChatPermissionMode; label: string }[] = [
-	{ value: "default", label: "Ask" },
-	{ value: "acceptEdits", label: "Accept edits" },
-	{ value: "plan", label: "Plan" },
-	{ value: "auto", label: "Auto" },
-	{ value: "bypassPermissions", label: "Bypass permissions" },
+const EFFORTS: Choice[] = [
+	{ value: "low", label: "Low", description: "Answers quickly with little thinking." },
+	{ value: "medium", label: "Medium", description: "Thinks a little before acting." },
+	{
+		value: "high",
+		label: "High",
+		description: "Thinks it through. Slower, uses more.",
+	},
+	{
+		value: "xhigh",
+		label: "Extra high",
+		description: "Thinks at length. For tricky problems.",
+	},
+	{
+		value: "max",
+		label: "Max",
+		description: "Thinks the longest. Slowest, uses the most.",
+	},
+];
+
+const MODES: Choice[] = [
+	{
+		value: "default",
+		label: "Ask",
+		description: "Asks before it edits files or runs commands.",
+	},
+	{
+		value: "acceptEdits",
+		label: "Accept edits",
+		description: "Edits files on its own. Asks before commands.",
+	},
+	{ value: "plan", label: "Plan", description: "Reads and plans. Changes nothing." },
+	{
+		value: "auto",
+		label: "Auto",
+		description: "Runs what it judges safe. Asks about the rest.",
+	},
+	{
+		value: "bypassPermissions",
+		label: "Bypass permissions",
+		description: (
+			<span className="pk-picker-warning">
+				<Icon name="alert" size="sm" />
+				<span>{BYPASS_WARNING}</span>
+			</span>
+		),
+	},
 ];
 
 /**
  * The values a chat starts with, as the host sets them. The model is left
  * out: the host reports the model Claude chose, so any model may be the start.
  */
-const START = { effort: CHAT_START_EFFORT, mode: "default" } as const;
-
-export const BYPASS_WARNING =
-	"Bypass permissions lets Claude run every tool without asking you first.";
+const START = { agent: "claude", effort: CHAT_START_EFFORT, mode: "default" } as const;
 
 type ChatSettings = NonNullable<ChatState["settings"]>;
 type Change = Partial<Pick<ChatSettings, "model" | "effort" | "mode">>;
@@ -66,49 +146,81 @@ interface PickProps {
 	label: string;
 	testId: string;
 	value: string;
+	choices: Choice[];
+	/** The value a chat starts with, marked "Default" in the menu. */
+	start?: string;
 	onChoose: (value: string) => void;
 	describedBy?: string;
 	/** Not the start value, so it is set apart. */
 	changed?: boolean;
 	warning?: boolean;
-	children: ReactNode;
 }
 
 function Pick({
 	label,
 	testId,
 	value,
+	choices,
+	start,
 	onChoose,
 	describedBy,
 	changed = false,
 	warning = false,
-	children,
 }: PickProps) {
+	const current = choices.find((choice) => choice.value === value);
 	return (
-		<label
-			className={`pk-pick${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
-		>
-			<span className="pk-pick-label">{label}</span>
-			{warning ? <Icon name="alert" size="sm" className="pk-pick-icon" /> : null}
-			<select
-				className="pk-pick-select"
-				aria-describedby={describedBy}
-				data-testid={testId}
-				value={value}
-				onChange={(event) => onChoose(event.target.value)}
-			>
-				{children}
-			</select>
-			<Icon name="chevron-down" size="sm" className="pk-pick-chevron" />
-		</label>
+		<MenuRoot>
+			<MenuTrigger asChild={true}>
+				<button
+					type="button"
+					className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
+					aria-describedby={describedBy}
+					data-testid={testId}
+				>
+					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
+					<span className="pk-picker-label">{label}</span>{" "}
+					{warning ? <Icon name="alert" size="sm" /> : null}
+					<span className="pk-picker-value">{current?.label ?? value}</span>
+					<Icon name="chevron-down" size="sm" />
+				</button>
+			</MenuTrigger>
+			<Menu label={label} align="start" className="pk-picker-menu">
+				<MenuRadioGroup
+					label={label}
+					value={value}
+					// Choosing the value already shown asks the host for nothing.
+					onValueChange={(next) => {
+						if (next !== value) onChoose(next);
+					}}
+				>
+					{choices.map((choice) => (
+						<MenuRadioItem
+							key={choice.value}
+							value={choice.value}
+							description={choice.description}
+							unavailable={choice.unavailable}
+							testId={`${testId}-${choice.value}`}
+						>
+							{choice.label}
+							{choice.value === start ? (
+								<>
+									{" "}
+									<span className="pk-picker-default">Default</span>
+								</>
+							) : null}
+						</MenuRadioItem>
+					))}
+				</MenuRadioGroup>
+			</Menu>
+		</MenuRoot>
 	);
 }
 
 /** Holds a picker's place, with its label, until the host reports its settings. */
 function Waiting({ label }: { label: string }) {
 	return (
-		<span className="pk-pick is-waiting" data-testid="composer-pick-waiting">
-			<span className="pk-pick-label">{label}</span>
+		<span className="pk-picker is-waiting" data-testid="composer-pick-waiting">
+			<span className="pk-picker-label">{label}</span>
 			<Skeleton width="3.5rem" />
 		</span>
 	);
@@ -162,54 +274,43 @@ export function ComposerPickers({
 	return (
 		<fieldset className="pk-composer-picks" data-testid="composer-picks">
 			<legend className="sr-only">Chat settings</legend>
-			<Pick label="Agent" testId="composer-agent" value="claude" onChoose={() => {}}>
-				<option value="claude">Claude Code</option>
-				<option value="codex" disabled={true}>
-					Codex (coming soon)
-				</option>
-			</Pick>
+			<Pick
+				label="Agent"
+				testId="composer-agent"
+				value="claude"
+				choices={AGENTS}
+				start={START.agent}
+				onChoose={() => {}}
+			/>
 			{shown ? (
 				<>
 					<Pick
 						label="Model"
 						testId="composer-model"
 						value={modelChoice(shown.model)}
+						choices={MODELS}
 						onChoose={(model) => ask({ model })}
-					>
-						{MODELS.map((choice) => (
-							<option key={choice.value} value={choice.value}>
-								{choice.label}
-							</option>
-						))}
-					</Pick>
+					/>
 					<Pick
 						label="Effort"
 						testId="composer-effort"
 						value={shown.effort}
+						choices={EFFORTS}
+						start={START.effort}
 						changed={shown.effort !== START.effort}
 						onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
-					>
-						{EFFORTS.map((choice) => (
-							<option key={choice.value} value={choice.value}>
-								{choice.label}
-							</option>
-						))}
-					</Pick>
+					/>
 					<Pick
 						label="Permissions"
 						testId="composer-mode"
 						value={shown.mode}
+						choices={MODES}
+						start={START.mode}
 						changed={shown.mode !== START.mode}
 						warning={bypass}
 						describedBy={bypass ? warningId : undefined}
 						onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
-					>
-						{MODES.map((choice) => (
-							<option key={choice.value} value={choice.value}>
-								{choice.label}
-							</option>
-						))}
-					</Pick>
+					/>
 				</>
 			) : (
 				<>
