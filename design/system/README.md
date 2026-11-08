@@ -56,7 +56,7 @@ The application shell is three panes: project list on the left, tabbed work area
 
 ## Shape and elevation
 
-Corners are small. Real tools take `radius-none`. Controls, badges and menu items take `radius-sm`; tabs stay square; menus, toasts and cards `radius-md`; dialogs and the sign-in panel `radius-lg`. `radius-full` is only for status dots, the spinner and the pane grip.
+Corners are small. Real tools take `radius-none`. Controls, badges and menu items take `radius-sm`; tabs stay square; menus, toasts and cards `radius-md`; dialogs and the sign-in panel `radius-lg`. `radius-full` is only for status dots, the spinner, the pane grip and the round Jump to latest button.
 
 Panes and tables are separated by lines, never shadows. Only floating things have elevation: `shadow-sm` for a dragged tab, `shadow-md` for menus, selects, tooltips and toasts, `shadow-lg` for dialogs. In the dark theme `shadow-md` and `shadow-lg` include a hairline so edges stay visible. Layers stack by `z-pane-handle`, `z-sticky`, `z-menu`, `z-dialog`, `z-toast`.
 

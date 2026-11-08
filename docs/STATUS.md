@@ -5731,11 +5731,57 @@ Verified: each task ran both unit shards with a private database, lint, the comm
 
 Gaps:
 
-- The design system README keeps `radius-full` for dots, the spinner and the pane grip; it does not name the round Jump to latest button (#1796).
 - The sent-thumbnail e2e uses a replayed message, not a real paste and reload (#1794).
 - The "Sent while Claude was working" note is shown live only and is lost on reload, because the transcript does not record it (#1798).
 - The SDK's `unanswered` skip annotation is read by the Claude Code program, not by the model (#1793).
 - The larger design-review proposals are filed as issues #1780 to #1786; Rewind (#1786) needs Todd's ruling. Proposal 9 lives in #1769.
-- The round Jump to latest button can sit over the last message's corner while the student is scrolled back a little (#1800).
+- The round Jump to latest button can sit over the last message's corner while the student is scrolled back a little (#1800). Closed by Epic 58.2 (#1815): it now has a strip of its own below the log.
 - Haiku sometimes ignores a message sent while Claude works, treating it as an instruction injected into tool output (#1801); the host delivers it correctly.
 - No axe scan of the split submenu, and no Preview in a split (#1788).
+
+## Epic 58.2 — chat and phone fix batch
+
+Built on `epic/58.2-fix-batch` (task PRs #1814, #1815, #1816, #1817, #1818, #1819, #1821, #1822, #1823, #1824, #1825, #1826, #1827, #1828, and the fold). It closes #1764, #1769, #1805, #1806, #1807, #1808, #1809, #1811 and #1812, and refers to #1801, which stays open. Migration 0054. SPEC.md sections 8.1, 10.2, 24.3, 24.4, 24.13, 25.6, 25.8 and 29.
+
+Delivered:
+
+- Dependabot alerts (#1819): fast-uri (3.1.9 and 4.2.3) and source-map-js (1.2.2) were refreshed inside their ranges, which cleared those alerts. A pnpm override forces dompurify 3.4.17 for the packages that resolve it, because `monaco-editor` 0.57.0 pins 3.4.15 exactly; the override stays until Monaco moves past 3.4.15. The dompurify alerts were then dismissed, since Monaco bundles its own copy (#1829).
+- Composer row (#1816, #1824): the microphone and Send stay on the first line. Below 49rem of composer width each picker shows only its value ("Claude", "Opus", "Medium", "Ask"), and below 35rem the pickers take a line of their own. The accessible names keep the prefix word. The full label shows in a tooltip on hover and on keyboard focus (a new shared `Tooltip` in `packages/ui`), and each picker menu opens with a heading. The breakpoints were measured with the widest values, so choosing a longer value never moves them.
+- Dictation (#1821): the running guess shows greyed and italic at the cursor as an editor decoration. It is hidden from assistive technology and never part of the sent text; the old note under the pickers is gone. The composer bar wraps at every width.
+- Markdown in the composer (#1825): block quotes, strikethrough, separator lines, headings (one to three), bold italics, task lists, nested lists (Tab and Shift+Tab inside a list), and links. Only http and https links are kept, by the same `isSafeLink` check as replies. Tab outside a list still leaves the box. Five TipTap extensions were added at 3.33.0, and the lazy chat chunk grew from 416.8 KB to 453.1 KB. Help lists the shortcuts.
+- Double paste (#1826): the same text of more than 40 lines pasted twice within 0.8 seconds goes into the box once. The first chip goes and its saved file is deleted through the existing file route. The text is held in memory only and forgotten after 0.8 seconds.
+- Tool-call groups (#1815, #1823): two or more tool calls in a row sit under one native disclosure with a count and the tools used, or the running step; failures show in the summary. The "Claude" byline shows once per run, reloaded history included. "Jump to latest" sits in a strip below the log and never covers a message. The follow-end bug was real: a late scroll event after the log grew made the view think the student had scrolled away. The student now leaves the end only by scrolling up. A lone row that becomes a group keeps its open state and focus.
+- Alerts (#1817, #1822): the reboot-needed, sign-in spike and full system disk alerts keep their raised state in the `settings` row (migration 0054, three boolean columns), so a worker restart no longer repeats them. A missing settings row now fails the tick with a logged warning, instead of announcing every tick.
+- Phone drawers (#1818, #1827): below 56rem the work area fills the screen, and the project list and the right pane are slide-over modal drawers opened from the header (a Projects button left of the wordmark, a Files button at the right). A drawer keeps focus inside, closes on Escape, a tap outside, its close button, choosing a project or opening a file, and returns focus to its opener. The page behind is hidden with `aria-hidden`, not `inert`, so the chat announcer and status notices are still heard (ADR 0047); it uses a new `hideOutside` in `packages/ui`. A drawer closes on a project change; if the window widens while one is open, focus moves to the pane's selected tab. A request for a right-pane surface, such as the memory meter opening Monitor, opens the Files drawer on it. Screenshots at 360, 420 and 800 px in both themes were attached to #1818.
+- Help (#1814): a note that some models treat a message sent while Claude works with caution, and that Stop then send always works (#1801).
+- Install test (#1828): `make install-test` adds the platforms-file line and registers the mock LMS before its smoke step, fails if the smoke step skips an LTI check, and fetches the image from its `image-<version>` release (checked against `SHA256SUMS`) when the CI artifact has expired.
+- Fold: STATUS, SPEC.md sections 8.1, 10.2, 24.4, 24.13, 25.6, 25.8 and 29, the `.pk-chat-jump` override moved into `chat.css`, the round Jump button added to the design README's `radius-full` list, and `docs/EPIC-58.2.md` is deleted.
+
+Todd's rulings:
+
+- #1801: the Agent SDK is already on its newest release (0.3.319). Mid-turn steering stays and Help carries a note. The issue stays open to recheck on SDK upgrades.
+- #1809: the agent picker's short form is "Claude", shown only when the composer is narrow.
+- #1808 was built directly from the issue (option C) without a mockup.
+- #1786 (Rewind) is closed as not wanted, and #1747 as a duplicate of #1782. The design-review proposals #1780 to #1785 wait for a later chat epic.
+- Plan ruling 6 was wrong. The `settings` table is one typed row, not a key and value store, so keeping the alert state there needed migration 0054 (three columns). The task builder found this and stopped; the migration followed.
+
+Verified: each task PR ran both unit shards with a private test database, lint, the comment-history check, and the Playwright specs for its pages, with axe in both themes where a screen changed. Several PRs saw load-dependent timeouts on a busy host and passed on rerun.
+
+Gaps:
+
+- On a narrow composer, Tab visits the pickers before the microphone and Send. The accessibility review ruled this acceptable.
+- Inside a drawer, the first Escape closes a focused tooltip and the second closes the drawer. Ruled acceptable; the app's Radix dialogs behave the same.
+- A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11).
+- After widening from phone width, axe flags the pane resize handles' missing `aria-valuenow` until the panel library sets it. This comes from the library and predates the epic.
+- The Projects navigation has no `tabindex`, so after widening with a drawer open, focus lands on its first link.
+- The drawer's close bar repeats the pane's own title.
+- A lone tool call that grows into a group starts closed unless its row was open.
+- The picker tooltip does not open on touch; the menu heading covers that.
+- There is no key for a non-bulleted continuation paragraph inside a list item in the composer.
+- The empty stamped folder under `.portikus/pastes` stays after a double paste removes its file.
+- The `chat.spec.ts` flake "Skip leaves a question unanswered" failed in one task run and did not reproduce in seven later runs, so it is unfixed.
+- `chat-composer.spec.ts` has load-dependent flakes under several workers ("pasted rich text" and others); each passes alone, and the base fails the same way.
+- The Pebble certificate test flake is filed as #1830.
+- The dompurify Dependabot alerts were dismissed, not fixed in Monaco, because Monaco bundles 3.4.15 (#1829).
+- The install test's release fallback was tested on its own, not inside a run with an empty image cache.
+- #1801 is still open, for a recheck on SDK upgrades.
