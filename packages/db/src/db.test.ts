@@ -608,6 +608,9 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0054_alert_state",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0053_chat_settings",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -791,6 +794,7 @@ describe("database migrations and schema", () => {
 					"0051_code_help_languages",
 					"0052_terminal_kind",
 					"0053_chat_settings",
+					"0054_alert_state",
 				]);
 				throw rollback;
 			}),
@@ -813,6 +817,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -996,6 +1003,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1137,6 +1147,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -1583,6 +1596,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1737,6 +1753,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -2251,6 +2270,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2468,6 +2490,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2572,6 +2597,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -2901,6 +2929,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3018,6 +3049,7 @@ describe("resource guard migration", () => {
 						"0051_code_help_languages",
 						"0052_terminal_kind",
 						"0053_chat_settings",
+						"0054_alert_state",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
@@ -3096,6 +3128,7 @@ describe("resource guard migration", () => {
 						"0051_code_help_languages",
 						"0052_terminal_kind",
 						"0053_chat_settings",
+						"0054_alert_state",
 					]);
 					throw rollback;
 				}),
@@ -3129,6 +3162,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -3247,6 +3283,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3354,6 +3393,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3448,6 +3490,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -3591,6 +3636,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -3786,6 +3834,9 @@ describe("resource guard migration", () => {
 						.returning("id")
 						.executeTakeFirstOrThrow();
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3909,6 +3960,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -4066,6 +4120,9 @@ describe("backups migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -4226,6 +4283,9 @@ describe("backups migration", () => {
 					});
 					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -4359,6 +4419,9 @@ describe("api request samples migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
@@ -4607,6 +4670,9 @@ describe("throttle hold migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0054_alert_state",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0053_chat_settings",
 					);
