@@ -785,6 +785,52 @@ test("a paste of more than 40 lines is attached as a text file, not put in the b
 		]);
 });
 
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the same long text pasted twice at once goes in the box, and its file is deleted (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const { id, view } = await openChat(page, student.workspaceId, "Composer");
+		const box = view.getByTestId("chat-composer-input");
+		await box.click();
+		const deleted = page.waitForResponse(
+			(response) =>
+				response.request().method() === "DELETE" &&
+				response.url().includes("pasted-text.txt"),
+		);
+		// Both pastes inside one evaluate, well within 0.8 seconds of each other.
+		await page.evaluate(() => {
+			const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
+			for (let i = 0; i < 2; i += 1) {
+				const transfer = new DataTransfer();
+				transfer.setData("text/plain", log.join("\n"));
+				document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+					new ClipboardEvent("paste", {
+						clipboardData: transfer,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			}
+		});
+		await expect(view.getByTestId("chat-composer-status")).toHaveText(
+			"Pasted 60 lines inline.",
+		);
+		await expect(view.getByTestId("composer-chip")).toHaveCount(0);
+		await expect(box.locator("p")).toHaveCount(60);
+		expect((await deleted).ok()).toBe(true);
+		await expectNoViolations(page, '[data-testid="chat-composer"]');
+		await box.press("ControlOrMeta+End");
+		await box.press("Enter");
+		await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+		const [frame] = await receivedFrames(id, "send");
+		expect(frame?.attachments).toEqual([]);
+		expect(String(frame?.text).split("\n")).toHaveLength(60);
+	});
+}
+
 test("Send is an icon button at the end of the row, with the microphone beside it", async ({
 	page,
 	context,

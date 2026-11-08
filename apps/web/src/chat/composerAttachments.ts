@@ -14,7 +14,7 @@ import { useToast } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fileErrorToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
-import { saveDroppedFile } from "../files/queries.js";
+import { saveDroppedFile, useFileMutations } from "../files/queries.js";
 import { dropNameError, dropPaths } from "../terminal/terminalDrop.js";
 import { fitImage } from "./fitImage.js";
 
@@ -84,6 +84,7 @@ export function lineText(lines: number): string {
 
 export function useComposerAttachments(workspaceId: string, projectId: string) {
 	const toast = useToast();
+	const deleteFile = useFileMutations(workspaceId, projectId).remove.mutate;
 	const [items, setItems] = useState<ComposerAttachment[]>([]);
 	const [saving, setSaving] = useState(0);
 	const [refusal, setRefusal] = useState("");
@@ -103,12 +104,16 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 	}, []);
 
 	const add = useCallback(
-		/** `lines` is given for a long paste saved as one text file. */
-		async (files: File[], lines: number | null = null) => {
+		/**
+		 * `lines` is given for a long paste saved as one text file. Resolves
+		 * to the keys of the files attached.
+		 */
+		async (files: File[], lines: number | null = null): Promise<string[]> => {
 			const { accepted, refused } = sortOut(files, reserved.current);
 			reserved.current += accepted.length;
 			setRefusal(refused);
-			if (accepted.length === 0) return;
+			const keys: string[] = [];
+			if (accepted.length === 0) return keys;
 			setSaving((n) => n + accepted.length);
 			setStatus(`Attaching ${fileCount(accepted.length)}…`);
 			const now = new Date();
@@ -133,17 +138,18 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 						? URL.createObjectURL(file)
 						: null;
 					if (previewUrl) urls.current.add(previewUrl);
-					setItems((current) => [
-						...current,
-						{
-							key: crypto.randomUUID(),
-							path,
-							name: file.name,
-							previewUrl,
-							size: file.size,
-							lines,
-						},
-					]);
+					const item = {
+						key: crypto.randomUUID(),
+						path,
+						name: file.name,
+						previewUrl,
+						size: file.size,
+						lines,
+					};
+					keys.push(item.key);
+					// Known at once, so a discard straight after the save finds it before the next render.
+					current.current = [...current.current, item];
+					setItems((now) => [...now, item]);
 					setSaving((n) => n - 1);
 					saved += 1;
 				} catch (error) {
@@ -152,7 +158,7 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 					setSaving((n) => n - left);
 					setStatus(saved > 0 ? `Attached ${fileCount(saved)}.` : "");
 					toast.show(fileErrorToast(error));
-					return;
+					return keys;
 				}
 			}
 			// A long paste says where it went, so nobody pastes it again thinking it was lost.
@@ -164,6 +170,7 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 						? `Attached ${fileCount(saved)}.`
 						: "",
 			);
+			return keys;
 		},
 		[workspaceId, projectId, toast],
 	);
@@ -182,6 +189,29 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 		setRefusal("");
 	}, []);
 
+	/**
+	 * Take a file back that should not have been attached, and delete the
+	 * copy saved in the project. The chip goes even if the delete fails; the
+	 * copy then stays in `.portikus/pastes`, where nothing reads it.
+	 */
+	const discard = useCallback(
+		/** `said` is what the status region announces. */
+		(key: string, said: string) => {
+			const gone = current.current.find((item) => item.key === key);
+			if (!gone) return;
+			if (gone.previewUrl) {
+				URL.revokeObjectURL(gone.previewUrl);
+				urls.current.delete(gone.previewUrl);
+			}
+			reserved.current -= 1;
+			current.current = current.current.filter((item) => item.key !== key);
+			setItems((now) => now.filter((item) => item.key !== key));
+			setStatus(said);
+			deleteFile(gone.path);
+		},
+		[deleteFile],
+	);
+
 	/** Drop the files that went with a message; any attached since then stay. */
 	const clear = useCallback((keys: readonly string[]) => {
 		const sent = new Set(keys);
@@ -196,5 +226,5 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 		setRefusal("");
 	}, []);
 
-	return { items, saving, refusal, status, add, remove, clear };
+	return { items, saving, refusal, status, add, remove, discard, clear };
 }

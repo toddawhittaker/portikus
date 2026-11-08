@@ -17,11 +17,13 @@ let box: HTMLElement;
 let onSend: ReturnType<typeof vi.fn<() => void>>;
 let onFiles: ReturnType<typeof vi.fn<(files: File[]) => void>>;
 let onLongPaste: ReturnType<typeof vi.fn<(text: string, lines: number) => void>>;
+let onRepaste: ReturnType<typeof vi.fn<(lines: number) => void>>;
 
 beforeEach(() => {
 	onSend = vi.fn<() => void>();
 	onFiles = vi.fn<(files: File[]) => void>();
 	onLongPaste = vi.fn<(text: string, lines: number) => void>();
+	onRepaste = vi.fn<(lines: number) => void>();
 	const element = document.createElement("div");
 	document.body.append(element);
 	editor = createComposerEditor({
@@ -36,6 +38,7 @@ beforeEach(() => {
 		onSend,
 		onFiles,
 		onLongPaste,
+		onRepaste,
 		onKeyDown: () => false,
 		onKeyUp: () => {},
 		onChange: () => {},
@@ -284,6 +287,68 @@ test("a paste of more than 40 lines is handed back to attach, and the box stays 
 	paste({ "text/plain": `${log.join("\r\n")}\r\n` });
 	expect(onLongPaste).toHaveBeenCalledWith(`${log.join("\n")}\n`, 41);
 	expect(boxText(box)).toBe("");
+});
+
+const LOG = Array.from({ length: 60 }, (_, at) => `line ${at}`).join("\n");
+
+test("the same long text pasted again within 0.8 s goes in the box once, and its chip is taken back", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(700);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(1);
+		expect(onRepaste).toHaveBeenCalledWith(60);
+		expect(boxText(box)).toBe(LOG);
+		// A third paste is a new long paste, not another repeat.
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).toHaveBeenCalledTimes(1);
+		expect(boxText(box)).toBe(LOG);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("the same long text pasted again after 0.9 s is a second file", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(900);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+		expect(boxText(box)).toBe("");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("different long text pasted at once never counts as a repeat", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(100);
+		paste({ "text/plain": `${LOG}!` });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("short text pasted twice at once is simply pasted twice", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": "hi " });
+		vi.advanceTimersByTime(100);
+		paste({ "text/plain": "hi " });
+		expect(boxText(box)).toBe("hi hi ");
+		expect(onRepaste).not.toHaveBeenCalled();
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("a paste of exactly 40 lines goes into the box as text", () => {

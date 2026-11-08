@@ -39,7 +39,8 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					Pasting more than 40 lines, such as an error log, attaches it as a text file
-					instead of filling the message box.
+					instead of filling the message box. To put it in the box instead, paste it
+					again straight away, within a second.
 				</li>
 				<li>
 					Sign in to Claude in the workspace, as you would in a terminal. Portikus never
