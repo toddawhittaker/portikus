@@ -84,12 +84,6 @@
 	background: var(--surface-raised);
 }
 
-.pk-chat-user-text {
-	margin: 0;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
 .pk-chat-attachments {
 	display: flex;
 	flex-direction: column;

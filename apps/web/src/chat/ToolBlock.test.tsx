@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import type { ChatToolItem } from "./chatStore";
+import { ImageViewerProvider } from "./ImageViewer";
 import { ToolBlock } from "./ToolBlock";
 
 afterEach(cleanup);
@@ -137,6 +138,25 @@ test("an unknown tool, or one missing its input, keeps its name and the host's t
 	expect(row(tool({ name: "Task", title: "", input: {} })).summary.textContent).toBe(
 		"Task",
 	);
+});
+
+test("a tool's image is a button that says it opens the viewer", () => {
+	render(
+		<ImageViewerProvider workspaceId="w1" projectId="p1">
+			<ToolBlock
+				tool={tool({
+					name: "Screenshot",
+					input: {},
+					output: [{ type: "image", mediaType: "image/png", data: "iVBORw0KGgo=" }],
+				})}
+			/>
+		</ImageViewerProvider>,
+	);
+	const button = screen.getByRole("button", {
+		name: "View image Output of Screenshot",
+		hidden: true,
+	});
+	expect(button.querySelector("img")?.getAttribute("alt")).toBe("Output of Screenshot");
 });
 
 test("output keeps its Copy button", () => {

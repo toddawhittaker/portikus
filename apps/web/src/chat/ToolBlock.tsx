@@ -26,6 +26,7 @@ function ToolImage({ src, tool }: { src: string; tool: string }) {
 		<button
 			type="button"
 			className="pk-chat-image"
+			aria-label={`View image ${alt}`}
 			onClick={() => images.open({ src, name: alt, alt })}
 		>
 			{image}

@@ -155,7 +155,7 @@ test("a tool's image opens in the same viewer", async ({ page, context }) => {
 	const { view } = await openChatWithImage(page, context);
 	await view.getByTestId("chat-worked").locator("> summary").click();
 	await view.getByTestId("chat-tool-t1").locator("> summary").click();
-	await view.getByRole("button", { name: "Output of Screenshot" }).click();
+	await view.getByRole("button", { name: "View image Output of Screenshot" }).click();
 	const dialog = page.getByRole("dialog", { name: "Output of Screenshot" });
 	await expect(dialog.getByRole("img", { name: "Output of Screenshot" })).toBeVisible();
 	await expect(dialog.getByRole("button", { name: "Open in editor" })).toHaveCount(0);
