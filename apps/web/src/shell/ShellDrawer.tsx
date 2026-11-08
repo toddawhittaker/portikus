@@ -6,6 +6,7 @@ import {
 	useRef,
 	useSyncExternalStore,
 } from "react";
+import "./drawer.css";
 
 /** Below this width the side panes become drawers over the work area (SPEC.md §8.1). */
 export const PHONE_QUERY = "(width < 56rem)";
