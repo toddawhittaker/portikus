@@ -9,7 +9,15 @@ import {
 	type TerminalTheme,
 } from "@portikus/contracts";
 import { Button, Skeleton, useToast } from "@portikus/ui";
-import { type DragEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+	type DragEvent,
+	lazy,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
 import "../chat/chat-frame.css";
@@ -42,7 +50,8 @@ export interface TerminalLeafProps {
 	visible: boolean;
 	focused: boolean;
 	onFocus: (terminalId: string) => void;
-	onSplit: (terminalId: string, direction: SplitDirection) => void;
+	/** What Split right and Split down offer to open. */
+	splitItems: (terminalId: string, direction: SplitDirection) => ReactNode;
 	onRename: (terminalId: string, name: string) => void;
 	/** Switch this one terminal between the light and dark scheme. */
 	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
@@ -80,7 +89,7 @@ export function TerminalLeaf({
 	visible,
 	focused,
 	onFocus,
-	onSplit,
+	splitItems,
 	onRename,
 	onSetTheme,
 	onClose,
@@ -229,7 +238,7 @@ export function TerminalLeaf({
 			dropEdge={dropEdge}
 			moveTargets={moveTargets}
 			onFocus={onFocus}
-			onSplit={onSplit}
+			splitItems={splitItems}
 			onMoveToNewTab={onMoveToNewTab}
 			onMoveInto={onMoveInto}
 			onResetSizes={onResetSizes}

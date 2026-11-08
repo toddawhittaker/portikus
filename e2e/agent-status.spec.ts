@@ -227,6 +227,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
+/** Longer than the normal toast duration of ten seconds at most (SPEC.md §8.5). */
+const TOAST_WAIT_MS = 11_000;
+
 /** The setting the account has saved for desktop notifications. */
 async function savedChoice(page: Page): Promise<string> {
 	const response = await page.request.get("/me/settings");
@@ -246,7 +249,7 @@ async function readyForAlert(page: Page, context: BrowserContext) {
 test.describe("the desktop notification offer", () => {
 	test.describe.configure({ timeout: 90_000 });
 
-	test("Turn on saves on, and later alert toasts time out on their own", async ({
+	test("Turn on saves on, and later alert toasts stay too", async ({
 		page,
 		context,
 	}) => {
@@ -285,7 +288,9 @@ test.describe("the desktop notification offer", () => {
 		await expect(second).toBeVisible();
 		await expect(second.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
 		await expect(second.getByRole("button", { name: "No thanks" })).toHaveCount(0);
-		await expect(second).toBeHidden({ timeout: 10_000 });
+		// Past the normal toast duration, it is still there.
+		await page.waitForTimeout(TOAST_WAIT_MS);
+		await expect(second).toBeVisible();
 	});
 
 	test("No thanks saves off in a browser that has not decided", async ({
@@ -314,7 +319,10 @@ test.describe("the desktop notification offer", () => {
 		await expect(workTabs(page).getByRole("tab", { selected: true })).toBeFocused();
 	});
 
-	test("an alert toast without the offer times out", async ({ page, context }) => {
+	test("an alert toast without the offer stays until dismissed", async ({
+		page,
+		context,
+	}) => {
 		// Headless Chromium blocks notifications, so there is nothing to offer.
 		const { student, agent } = await readyForAlert(page, context);
 		await setAgents(student.workspaceId, [
@@ -323,6 +331,83 @@ test.describe("the desktop notification offer", () => {
 		const message = toast(page, "Claude Code needs your input");
 		await expect(message).toBeVisible();
 		await expect(message.getByRole("button", { name: "No thanks" })).toHaveCount(0);
-		await expect(message).toBeHidden({ timeout: 10_000 });
+		await page.waitForTimeout(TOAST_WAIT_MS);
+		await expect(message).toBeVisible();
+		await message.getByRole("button", { name: "Dismiss" }).click();
+		await expect(message).toHaveCount(0);
+	});
+
+	test("the toast closes when the student opens that terminal", async ({
+		page,
+		context,
+	}) => {
+		const { student, agent } = await readyForAlert(page, context);
+		await setAgents(student.workspaceId, [
+			{ terminalId: agent, agent: "claude", state: "finished" },
+		]);
+		const message = toast(page, "Claude Code finished");
+		await page.waitForTimeout(TOAST_WAIT_MS);
+		await expect(message).toBeVisible();
+		await page.getByRole("tab", { name: /^Claude Code/ }).click();
+		await expect(message).toHaveCount(0);
+	});
+});
+
+test.describe("several agent toasts", () => {
+	test.describe.configure({ timeout: 120_000 });
+
+	test("three toasts fit at 360 px and F8 reaches the newest", async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 360, height: 640 });
+		const student = await createStudent(context);
+		const here = await createProject(student.workspaceId, { name: "Here" });
+		const others = [];
+		for (const name of ["One", "Two", "Three"]) {
+			others.push(await createProject(student.workspaceId, { name }));
+		}
+		const agents: string[] = [];
+		for (const other of others) {
+			await page.goto(workspacePath(student.workspaceId, other.id));
+			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			await page.getByTestId("launcher").click();
+			await page.getByTestId("launcher-claude").click();
+			await expect
+				.poll(async () => (await terminalIds(student.workspaceId, other.id)).length)
+				.toBe(1);
+			const [id] = await terminalIds(student.workspaceId, other.id);
+			if (!id) throw new Error("the terminal row was not created");
+			agents.push(id);
+		}
+		await page.goto(workspacePath(student.workspaceId, here.id));
+		await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+		const list = (state: "working" | "finished") =>
+			agents.map((terminalId) => ({ terminalId, agent: "claude" as const, state }));
+		await setAgents(student.workspaceId, list("working"));
+		// Wait for the baseline to be taken before the news arrives.
+		await page.waitForTimeout(1000);
+		await setAgents(student.workspaceId, list("finished"));
+		const toasts = page.locator(".pk-toast", { hasText: "Claude Code finished" });
+		await expect(toasts).toHaveCount(3);
+		await page.waitForTimeout(TOAST_WAIT_MS);
+		await expect(toasts).toHaveCount(3);
+
+		const viewport = page.viewportSize();
+		for (let i = 0; i < 3; i++) {
+			const box = await toasts.nth(i).boundingBox();
+			if (!box || !viewport) throw new Error("no box");
+			expect(box.x).toBeGreaterThanOrEqual(0);
+			expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+			expect(box.y).toBeGreaterThanOrEqual(0);
+			expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+		}
+		await expectNoViolations(page, ".pk-toast");
+
+		await page.keyboard.press("F8");
+		// The newest toast is the one nearest the bottom of the region.
+		await page.keyboard.press("Tab");
+		const newest = toasts.last();
+		await expect(newest).toBeFocused();
 	});
 });

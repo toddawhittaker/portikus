@@ -23,6 +23,41 @@ export const ProjectPath = z
 export type ProjectPath = z.infer<typeof ProjectPath>;
 
 /**
+ * A local image an assistant reply may show: a path relative to the project,
+ * or an absolute one the agent confines to the student's home folder
+ * (SPEC.md §24.1). No `.` or `..` segment, so the API refuses a traversal
+ * before it reaches the agent.
+ */
+export const ChatImagePath = z
+	.string()
+	.min(1)
+	.max(1024)
+	.refine((value) => !value.includes("\0") && !value.includes("\\"), {
+		message: "path must not contain a NUL byte or a backslash",
+	})
+	.refine((value) => !value.split("/").some((part) => part === "." || part === ".."), {
+		message: "path must not contain a . or .. segment",
+	});
+export type ChatImagePath = z.infer<typeof ChatImagePath>;
+
+/** The image types chat shows from the student's files, by extension. Never SVG. */
+const CHAT_IMAGE_TYPES: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+};
+
+/** The image type a chat image path names by its extension, or null. */
+export function chatImageType(path: string): string | null {
+	const name = path.slice(path.lastIndexOf("/") + 1);
+	const dot = name.lastIndexOf(".");
+	if (dot <= 0) return null;
+	return CHAT_IMAGE_TYPES[name.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+/**
  * One entry's name: a single path segment and nothing else, so a listing
  * cannot smuggle a separator or a traversal into the tree (SPEC.md §24.6).
  */

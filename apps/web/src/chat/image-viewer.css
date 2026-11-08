@@ -1,0 +1,43 @@
+/* The chat's images: inline in a reply, and large in the viewer. */
+.pk-chat-image {
+	display: inline-block;
+	max-inline-size: 100%;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	background: none;
+	cursor: zoom-in;
+	vertical-align: top;
+}
+
+.pk-chat-image > img {
+	display: block;
+	max-inline-size: 100%;
+	max-block-size: 320px;
+	block-size: auto;
+	border-radius: inherit;
+}
+
+.pk-chat-image:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 2px;
+}
+
+.pk-chat-image-note {
+	display: inline-block;
+	color: var(--ink-muted);
+	font-size: 13px;
+	overflow-wrap: anywhere;
+}
+
+.pk-dialog.pk-image-viewer {
+	width: min(1200px, calc(100vw - 32px));
+}
+
+.pk-image-viewer-img {
+	display: block;
+	max-inline-size: 100%;
+	max-block-size: calc(100vh - 240px);
+	margin-inline: auto;
+	object-fit: contain;
+}

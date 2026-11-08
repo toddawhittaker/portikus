@@ -9,7 +9,7 @@ import {
 	MeasuringStrategy,
 	pointerWithin,
 } from "@dnd-kit/core";
-import type { CodingAgent, SplitNode, Terminal } from "@portikus/contracts";
+import type { SplitNode, Terminal } from "@portikus/contracts";
 import {
 	Button,
 	ConfirmDialog,
@@ -47,6 +47,7 @@ import {
 } from "../terminal/codingAgentStatus.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { type Terminals, useTerminals } from "../terminal/useTerminals.js";
+import { type Launch, LauncherItems, launchInit } from "./LauncherItems.js";
 import { dropTreeFiles, type MoveIntoTarget } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TreeFileDrop } from "./TreeFileDrop.js";
@@ -232,18 +233,16 @@ export function WorkArea({
 		await createAndPlace(placeFocusedTab);
 	}
 
-	async function openAgent(agent: CodingAgent) {
-		await createAndPlace(placeFocusedTab, { agent });
+	async function openTab(launch: Launch) {
+		await createAndPlace(placeFocusedTab, launchInit(launch));
 	}
 
-	async function openChat() {
-		await createAndPlace(placeFocusedTab, { kind: "chat", agent: "claude" });
-	}
-
-	async function split(terminalId: string, direction: SplitDirection) {
-		await createAndPlace((created) =>
-			store.getState().splitLeaf(terminalId, direction, created.id),
-		);
+	/** The new pane takes the keyboard; a chat's composer then focuses itself. */
+	async function split(terminalId: string, direction: SplitDirection, launch: Launch) {
+		await createAndPlace((created) => {
+			store.getState().splitLeaf(terminalId, direction, created.id);
+			store.getState().setFocused(created.id);
+		}, launchInit(launch));
 	}
 
 	/**
@@ -401,7 +400,11 @@ export function WorkArea({
 				testId: `tab-${tab.id}`,
 			};
 		}
-		const first = ids[0] ? byId.get(ids[0]) : undefined;
+		// A split tab is named for its focused pane, so a tab never names one
+		// pane while the keyboard is in another; otherwise for its first pane.
+		const shownId =
+			focusedPaneId !== null && ids.includes(focusedPaneId) ? focusedPaneId : ids[0];
+		const first = shownId ? byId.get(shownId) : undefined;
 		// Claude Code and Codex share the agent icon and are named apart from a
 		// shell (design system, Iconography). The terminal record is the source.
 		const agent =
@@ -484,47 +487,15 @@ export function WorkArea({
 								</MenuTrigger>
 								<Menu label="New tab" onCloseAutoFocus={launcherMenu.onCloseAutoFocus}>
 									<MenuLabel>Open in {projectPath}</MenuLabel>
-									<MenuItem
-										icon="terminal"
-										shortcut={["Mod", "Alt", "T"]}
-										onSelect={() => {
+									<LauncherItems
+										testIdPrefix="launcher"
+										traditional={traditional}
+										terminalShortcut={["Mod", "Alt", "T"]}
+										onLaunch={(launch) => {
 											launcherMenu.declineTriggerFocus();
-											void openTerminalTab();
+											void openTab(launch);
 										}}
-									>
-										<span data-testid="launcher-terminal">Terminal</span>
-									</MenuItem>
-									{traditional ? null : (
-										<>
-											<MenuItem
-												icon="agent"
-												onSelect={() => {
-													launcherMenu.declineTriggerFocus();
-													void openAgent("claude");
-												}}
-											>
-												<span data-testid="launcher-claude">Claude Code (TUI)</span>
-											</MenuItem>
-											<MenuItem
-												icon="agent"
-												onSelect={() => {
-													launcherMenu.declineTriggerFocus();
-													void openChat();
-												}}
-											>
-												<span data-testid="launcher-claude-gui">Claude Code (GUI)</span>
-											</MenuItem>
-											<MenuItem
-												icon="agent"
-												onSelect={() => {
-													launcherMenu.declineTriggerFocus();
-													void openAgent("codex");
-												}}
-											>
-												<span data-testid="launcher-codex">Codex</span>
-											</MenuItem>
-										</>
-									)}
+									/>
 									<MenuItem
 										icon="preview"
 										onSelect={() => setPickingPreview({ replacing: null })}
@@ -562,7 +533,7 @@ export function WorkArea({
 										variant="secondary"
 										iconStart="agent"
 										data-testid="empty-open-claude"
-										onClick={() => void openAgent("claude")}
+										onClick={() => void openTab({ kind: "agent", agent: "claude" })}
 									>
 										Start Claude Code
 									</Button>
@@ -586,7 +557,13 @@ export function WorkArea({
 							visible={tab.id === activeTabId}
 							focusedPaneId={focusedPaneId}
 							onFocus={(id) => store.getState().setFocused(id)}
-							onSplit={(id, direction) => void split(id, direction)}
+							splitItems={(id, direction) => (
+								<LauncherItems
+									testIdPrefix={`split-${direction === "row" ? "right" : "down"}`}
+									traditional={traditional}
+									onLaunch={(launch) => void split(id, direction, launch)}
+								/>
+							)}
 							onRename={(id, name) => void terminals.rename(id, name)}
 							onSetTheme={(id, theme) => void terminals.setTheme(id, theme)}
 							onClose={closePane}

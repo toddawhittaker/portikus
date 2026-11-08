@@ -54,6 +54,11 @@ test("a split pane moves to a tab of its own from the keyboard", async ({
 	const first = await openTerminal(page, student.workspaceId, project.id);
 
 	await chooseFromActions(page, first, "Split right");
+	// Enter opened the submenu on its first choice, a terminal.
+	await expect(
+		page.getByRole("menuitem", { name: "Terminal", exact: true }),
+	).toBeFocused();
+	await page.keyboard.press("Enter");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 		.toBe(2);
@@ -113,6 +118,11 @@ test("Close in a pane's menu moves the keyboard to the next pane, then to New ta
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	const first = await openTerminal(page, student.workspaceId, project.id);
 	await chooseFromActions(page, first, "Split right");
+	// Enter opened the submenu on its first choice, a terminal.
+	await expect(
+		page.getByRole("menuitem", { name: "Terminal", exact: true }),
+	).toBeFocused();
+	await page.keyboard.press("Enter");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 		.toBe(2);

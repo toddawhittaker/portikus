@@ -10,7 +10,27 @@ import { Icon, type IconName } from "@portikus/ui";
 import { memo } from "react";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
+import { useChatImages } from "./ImageViewer.js";
 import { type ToolDetail, toolView } from "./toolView.js";
+
+/** A tool's image opens large in the viewer, like an image in a reply. */
+function ToolImage({ src, tool }: { src: string; tool: string }) {
+	const images = useChatImages();
+	const alt = `Output of ${tool}`;
+	const image = (
+		<img className="pk-chat-tool-image" src={src} alt={alt} decoding="async" />
+	);
+	if (images === null) return image;
+	return (
+		<button
+			type="button"
+			className="pk-chat-image"
+			onClick={() => images.open({ src, name: alt, alt })}
+		>
+			{image}
+		</button>
+	);
+}
 
 function OutputPart({ part, tool }: { part: ChatToolOutputPart; tool: string }) {
 	switch (part.type) {
@@ -18,12 +38,7 @@ function OutputPart({ part, tool }: { part: ChatToolOutputPart; tool: string }) 
 			return <CodeBlock text={part.text} />;
 		case "image":
 			return (
-				<img
-					className="pk-chat-tool-image"
-					src={`data:${part.mediaType};base64,${part.data}`}
-					alt={`Output of ${tool}`}
-					decoding="async"
-				/>
+				<ToolImage src={`data:${part.mediaType};base64,${part.data}`} tool={tool} />
 			);
 		case "imageOmitted":
 			return <p className="pk-chat-muted">Image not kept</p>;

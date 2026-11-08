@@ -265,6 +265,8 @@ describe("the shipped template", () => {
 		expect(text).toContain("/usr/local/bin/portikus-open");
 		expect(text).toContain("Never commit");
 		expect(text).toContain("docker image ls");
+		// SPEC.md §24.1: the chat shows local images, so Claude is told where to save them.
+		expect(text).toContain("![Home page screenshot](.portikus/images/home.png)");
 		expect(text).not.toMatch(/#\d{3}|SPEC|ADR/);
 	});
 });
