@@ -9,7 +9,7 @@
  */
 import { chatImageType } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
@@ -268,6 +268,30 @@ function doingLine(tool: ChatToolItem): string {
  * used or, while one runs, what it is doing, and any failures. Each call
  * inside keeps its own row (SPEC.md §10.8).
  */
+function groupStatus(tools: readonly ChatToolItem[]): ChatToolItem["status"] {
+	if (tools.some((tool) => tool.status === "running")) return "running";
+	if (tools.some((tool) => tool.status === "error")) return "error";
+	if (tools.some((tool) => tool.status === "stopped")) return "stopped";
+	return "done";
+}
+
+/**
+ * How the student left a lone row that a second call is about to gather into
+ * a group. Read while the old row is still in the page, before React swaps it.
+ */
+function loneRow(id: string | undefined): { open: boolean; focused: boolean } {
+	const row =
+		id === undefined
+			? null
+			: document.querySelector<HTMLDetailsElement>(
+					`details[data-testid="chat-tool-${CSS.escape(id)}"]`,
+				);
+	if (row === null || row.closest(".pk-turn-group") !== null) {
+		return { open: false, focused: false };
+	}
+	return { open: row.open, focused: row.contains(document.activeElement) };
+}
+
 function ToolGroup({ run }: { run: ToolRun }) {
 	const { tools } = run;
 	const running = tools.filter((tool) => tool.status === "running").at(-1);
@@ -276,19 +300,26 @@ function ToolGroup({ run }: { run: ToolRun }) {
 	const what = running
 		? doingLine(running)
 		: [...new Set(tools.map((tool) => tool.name))].join(", ");
-	const status = running
-		? "running"
-		: failed > 0
-			? "error"
-			: stopped > 0
-				? "stopped"
-				: "done";
+	const [was] = useState(() => loneRow(tools[0]?.id));
+	const group = useRef<HTMLDetailsElement>(null);
+	// The row the student opened or was on stays open and keeps the keyboard nearby (SPEC.md §25.8).
+	useLayoutEffect(() => {
+		const node = group.current;
+		if (!node) return;
+		if (was.open) {
+			node.open = true;
+			const row = node.querySelector<HTMLDetailsElement>("details.pk-chat-tool");
+			if (row) row.open = true;
+		}
+		if (was.focused) node.querySelector("summary")?.focus();
+	}, [was]);
 	return (
 		<li className="pk-chat-step">
 			<details
+				ref={group}
 				className="pk-turn-group"
 				data-testid="chat-tool-group"
-				data-status={status}
+				data-status={groupStatus(tools)}
 			>
 				<summary className="pk-chat-worked-summary pk-turn-group-summary pk-focus-inset">
 					<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />

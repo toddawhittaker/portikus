@@ -427,6 +427,40 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}
 }
 
+test("a lone row the student opened stays open and keeps the keyboard when a second call joins it", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const { id, view, socket } = await openChat(page, context);
+	socket.send("turn.started", { at: Date.now() });
+	socket.send("tool.started", {
+		id: "one",
+		name: "Bash",
+		title: "Test",
+		input: { command: "pnpm test" },
+	});
+	socket.send("tool.output", { id: "one", part: { type: "text", text: "12 passed" } });
+	const row = view.getByTestId("chat-tool-one");
+	await row.locator("> summary").focus();
+	await page.keyboard.press("Enter");
+	await expect(row).toHaveAttribute("open", "");
+	socket.send("tool.finished", { id: "one", isError: false });
+	socket.send("tool.started", {
+		id: "two",
+		name: "Bash",
+		title: "Lint",
+		input: { command: "pnpm lint" },
+	});
+	const group = view.getByTestId("chat-tool-group");
+	await expect(group.locator("> summary")).toHaveText("2 tool callsRunning pnpm lint");
+	await expect(group.locator("> summary")).toBeFocused();
+	await expect(group).toHaveAttribute("open", "");
+	await expect(row.getByText("12 passed")).toBeVisible();
+	await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+});
+
 test("Claude's history outside a turn has one byline per run of its work", async ({
 	page,
 	context,
