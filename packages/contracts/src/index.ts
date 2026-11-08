@@ -21,6 +21,7 @@ export * from "./auth.js";
 export * from "./backups.js";
 export * from "./browser.js";
 export * from "./certificate.js";
+export * from "./chat.js";
 export * from "./checks.js";
 export * from "./close-codes.js";
 export * from "./coding-agent-status.js";

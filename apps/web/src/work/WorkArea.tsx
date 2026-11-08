@@ -38,6 +38,7 @@ import {
 } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
+import { agentLabel } from "../terminal/agentLabel.js";
 import {
 	marksByTerminal,
 	mostUrgent,
@@ -45,7 +46,7 @@ import {
 	useAgentStatusStore,
 } from "../terminal/codingAgentStatus.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
-import { useTerminals } from "../terminal/useTerminals.js";
+import { type Terminals, useTerminals } from "../terminal/useTerminals.js";
 import { dropTreeFiles, type MoveIntoTarget } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import { TreeFileDrop } from "./TreeFileDrop.js";
@@ -208,7 +209,7 @@ export function WorkArea({
 	// sees a terminal that has no pane yet and gives it a tab of its own.
 	async function createAndPlace(
 		place: (created: Terminal) => void,
-		init?: { agent?: CodingAgent },
+		init?: Parameters<Terminals["create"]>[0],
 	) {
 		let created: Terminal | null;
 		try {
@@ -235,9 +236,28 @@ export function WorkArea({
 		await createAndPlace(placeFocusedTab, { agent });
 	}
 
+	async function openChat() {
+		await createAndPlace(placeFocusedTab, { kind: "chat", agent: "claude" });
+	}
+
 	async function split(terminalId: string, direction: SplitDirection) {
 		await createAndPlace((created) =>
 			store.getState().splitLeaf(terminalId, direction, created.id),
+		);
+	}
+
+	/**
+	 * An ended chat goes on in a new chat in its place; the ended record is then
+	 * closed, as the new one carries its session (SPEC.md §10.8).
+	 */
+	async function resume(terminalId: string) {
+		await createAndPlace(
+			(created) => {
+				store.getState().replaceLeaf(terminalId, created.id);
+				store.getState().setFocused(created.id);
+				closeTerminal(terminalId);
+			},
+			{ kind: "chat", agent: "claude", resumeChatOf: terminalId },
 		);
 	}
 
@@ -386,6 +406,7 @@ export function WorkArea({
 		// shell (design system, Iconography). The terminal record is the source.
 		const agent =
 			first?.agent === "claude" || first?.agent === "codex" ? first.agent : null;
+		const named = first ? agentLabel(first) : null;
 		// A split tab shows its most urgent pane.
 		const mark = mostUrgent(
 			ids.flatMap((id) => {
@@ -398,12 +419,7 @@ export function WorkArea({
 			kind: agent ?? "terminal",
 			agentState: mark?.state,
 			unread: mark?.unread,
-			label:
-				agent === "claude"
-					? "Claude Code"
-					: agent === "codex"
-						? "Codex"
-						: (first?.name ?? "Terminal"),
+			label: named ?? first?.name ?? "Terminal",
 			testId: `tab-${tab.id}`,
 			ended: ids.length > 0 && ids.every((id) => byId.get(id)?.endedAt != null),
 			dirty,
@@ -487,7 +503,16 @@ export function WorkArea({
 													void openAgent("claude");
 												}}
 											>
-												<span data-testid="launcher-claude">Claude Code</span>
+												<span data-testid="launcher-claude">Claude Code (TUI)</span>
+											</MenuItem>
+											<MenuItem
+												icon="agent"
+												onSelect={() => {
+													launcherMenu.declineTriggerFocus();
+													void openChat();
+												}}
+											>
+												<span data-testid="launcher-claude-gui">Claude Code (GUI)</span>
 											</MenuItem>
 											<MenuItem
 												icon="agent"
@@ -567,6 +592,7 @@ export function WorkArea({
 							onClose={closePane}
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
+							onResume={(id) => void resume(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}

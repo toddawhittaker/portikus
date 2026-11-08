@@ -76,6 +76,7 @@ async function expectTraditional(page: Page) {
 	await expect(page.getByTestId("launcher-terminal")).toBeVisible();
 	await expect(page.getByTestId("launcher-preview")).toBeVisible();
 	await expect(page.getByTestId("launcher-claude")).toHaveCount(0);
+	await expect(page.getByTestId("launcher-claude-gui")).toHaveCount(0);
 	await expect(page.getByTestId("launcher-codex")).toHaveCount(0);
 	await expect(page.getByRole("menuitem", { name: /Claude Code|Codex/ })).toHaveCount(
 		0,
@@ -106,6 +107,7 @@ async function expectAgentic(page: Page) {
 
 	await page.getByTestId("launcher").click();
 	await expect(page.getByTestId("launcher-claude")).toBeVisible();
+	await expect(page.getByTestId("launcher-claude-gui")).toBeVisible();
 	await expect(page.getByTestId("launcher-codex")).toBeVisible();
 	await page.keyboard.press("Escape");
 

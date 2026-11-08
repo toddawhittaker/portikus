@@ -157,6 +157,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 		"student-layout",
 		"student-keep-running",
 		"student-terminals",
+		"student-claude-chat",
 		"student-agent-status",
 		"student-voice",
 		"student-files",

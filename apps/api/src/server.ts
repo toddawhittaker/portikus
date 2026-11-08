@@ -47,6 +47,7 @@ import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAgentMeterRoutes } from "./routes/agent-meter.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerChatSocket } from "./routes/chat.js";
 import { registerCheckRoutes } from "./routes/checks.js";
 import { registerCourseLiveHelpRoutes } from "./routes/course-live-help.js";
 import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-preview.js";
@@ -306,6 +307,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProcessRoutes(instance, deps);
 		registerProjectEventsSocket(instance, deps);
 		registerLanguageServerSocket(instance, deps);
+		registerChatSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);
 		registerPasswordResetRoutes(instance, deps);

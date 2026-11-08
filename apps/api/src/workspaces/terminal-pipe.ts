@@ -7,10 +7,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Kysely } from "kysely";
 import WebSocketClient, { type RawData } from "ws";
 import type { AgentClient } from "../agent-client.js";
-import { dropPresence, touchPresence } from "./presence.js";
-
-/** How often an attached terminal refreshes its presence row (SPEC.md §6.4). */
-const PRESENCE_INTERVAL_MS = 15_000;
+import { dropPresence, PRESENCE_INTERVAL_MS, touchPresence } from "./presence.js";
 
 /** How often an attached socket re-checks that its session still exists (SPEC.md §5.3). */
 export const SESSION_CHECK_INTERVAL_MS = 1000;

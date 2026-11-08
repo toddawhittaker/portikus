@@ -75,6 +75,13 @@ vi.mock("./TerminalPane", () => ({
 	},
 }));
 
+// The chat view has its own tests; here it stands in for the pane's content.
+vi.mock("../chat/ChatView", () => ({
+	ChatView: ({ terminalId, visible }: { terminalId: string; visible: boolean }) => (
+		<div data-testid={`chat-view-${terminalId}`} data-visible={String(visible)} />
+	),
+}));
+
 afterEach(() => {
 	cleanup();
 	typed.mockReset();
@@ -92,6 +99,7 @@ const terminal: Terminal = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	endedAt: null,
 	theme: "dark",
+	kind: "terminal",
 };
 
 function renderLeaf(
@@ -108,6 +116,7 @@ function renderLeaf(
 		onClose: vi.fn(),
 		onExited: vi.fn(),
 		onReplace: vi.fn(),
+		onResume: vi.fn(),
 		onLeave: vi.fn(),
 		onMoveToNewTab: vi.fn(),
 		onMoveInto: vi.fn(),
@@ -128,6 +137,7 @@ function renderLeaf(
 			onClose={props.onClose}
 			onExited={props.onExited}
 			onReplace={props.onReplace}
+			onResume={props.onResume}
 			onLeave={props.onLeave}
 			onMoveToNewTab={props.onMoveToNewTab}
 			moveTargets={moveTargets}
@@ -666,4 +676,49 @@ test("a failed upload shows a toast and types nothing", async () => {
 	});
 	expect(await screen.findByText(/home folder is full/)).not.toBeNull();
 	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a chat tab shows the chat in the same frame, without the terminal's voice or theme", async () => {
+	const props = renderLeaf({ kind: "chat", agent: "claude", name: "Claude Code" });
+	expect((await screen.findByTestId(`chat-view-${terminal.id}`)).dataset.visible).toBe(
+		"true",
+	);
+	expect(screen.queryByTestId(`terminal-pane-${terminal.id}`)).toBeNull();
+	expect(screen.queryByTestId(`terminal-voice-${terminal.id}`)).toBeNull();
+	// The pane is named as its tab is, never "Terminal N".
+	expect(screen.getByText("Claude Code (GUI) · ~/projects/todo-api")).toBeTruthy();
+	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+	expect(screen.queryByRole("menuitemcheckbox", { name: "Light terminal" })).toBeNull();
+	fireEvent.click(screen.getByTestId("terminal-close"));
+	await flushCloseFocus();
+	expect(props.onClose).toHaveBeenCalledWith(terminal.id);
+});
+
+test("an ended chat says it ended and offers Resume and a new terminal", () => {
+	const props = renderLeaf({
+		kind: "chat",
+		agent: "claude",
+		endedAt: "2026-01-02T00:00:00.000Z",
+	});
+	expect(screen.getByTestId(`terminal-ended-${terminal.id}`).textContent).toContain(
+		"This chat ended when the workspace stopped",
+	);
+	expect(screen.queryByTestId(`chat-view-${terminal.id}`)).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Resume chat" }));
+	expect(props.onResume).toHaveBeenCalledWith(terminal.id);
+	fireEvent.click(screen.getByTestId("new-terminal-here"));
+	expect(props.onReplace).toHaveBeenCalledWith(terminal.id);
+});
+
+test("an ended terminal offers no Resume", () => {
+	renderLeaf({ endedAt: "2026-01-02T00:00:00.000Z" });
+	expect(screen.queryByTestId("chat-resume")).toBeNull();
+});
+
+test("a Claude Code terminal's pane reads TUI", () => {
+	renderLeaf({ agent: "claude", name: "Terminal 3" });
+	expect(screen.getByText("Claude Code (TUI) · ~/projects/todo-api")).toBeTruthy();
 });

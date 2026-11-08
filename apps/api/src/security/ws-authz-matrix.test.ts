@@ -2,7 +2,11 @@ import { mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
+import {
+	csrfHeaders,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -123,8 +127,8 @@ const adminSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "admin",
 );
 
-test("the seven browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(7);
+test("the eight browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(8);
 	expect(courseSocketKeys).toEqual([
 		"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws",
 	]);
@@ -138,7 +142,23 @@ describe.skipIf(skip)("every browser socket refuses the wrong caller", () => {
 
 		test(`${key} (${access})`, () =>
 			withWorld(async (app, world) => {
-				const path = pathFor(pattern, world.a);
+				// The chat socket answers only for a chat tab, so it needs one.
+				const chat = key.endsWith("/chat")
+					? await app.inject({
+							method: "POST",
+							url: `/workspaces/${world.a.workspaceId}/terminals`,
+							headers: csrfHeaders(world.a.jar, PUBLIC_URL),
+							payload: {
+								kind: "chat",
+								agent: "claude",
+								projectId: world.a.projectId,
+							},
+						})
+					: null;
+				const path = pathFor(pattern, {
+					...world.a,
+					terminalId: chat ? (chat.json().id as string) : world.a.terminalId,
+				});
 				const cookieA = world.a.jar.cookieHeader();
 				const refusals: Array<[string, Record<string, string>, number]> = [
 					["anonymous", { origin: PUBLIC_ORIGIN }, 401],

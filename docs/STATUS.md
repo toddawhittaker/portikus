@@ -5671,3 +5671,29 @@ Gaps:
 - The tmux race has no permanent regression test: it is timing-based, and a test that hits it reliably takes about three minutes. Reproduced under load with a temporary test (2 of 300 failed on the base, 0 of 300 after).
 - `apps/web/src/editor/features.test.ts` failed twice on one first run under load in a task run and passed on re-run and alone; it was not shown failing on the base.
 - The fail-closed LTI rule is tested by the shell suite only, not on a real host before the rehearsal run above.
+
+## Epic 58 — Claude Code chat tab
+
+Built on `epic/58-agent-chat` (task PRs #1748, #1749, #1751, #1752, #1753, #1754, the fix round #1757, #1763, the start-race fix #1765, and the fold). The epic closes no issues. Migration 0052. SPEC.md sections 8.3, 9.7, 10.2, 10.8, 24.1, 25.8, 25.10, 26 and 29; ADR 0069; STACK.md sections 10 and 35.
+
+Delivered:
+
+- Contract and record (#1748): `packages/contracts/src/chat.ts` holds the chat contract with its caps (client frames 1 MiB, images 5 MiB, at most 4 questions of 2 to 4 options); migration 0052 adds `terminals.kind` (`terminal` or `chat`), and existing rows read back as terminals. The fix round raised the server frame cap to 8 MiB, gave `turn.started` and `turn.finished` an `at` time, removed `snapshot.messages`, and added `resumeChatOf`.
+- API relay (#1749): `apps/api/src/routes/chat.ts` relays chat frames without reading them. Only the owner may attach; a missing, other-workspace or wrong-kind terminal gets 404 before the upgrade. A fake chat host for tests is in `apps/api/src/testing/fake-agent/chat.ts`. The fix round also refused live-help helpers on chat tabs (they neither see nor attach to one) and added Resume on create.
+- Chat host (#1753, replacing #1750, whose fixture held real session ids): `apps/workspace-agent/src/chat/` runs as the command of the tab's tmux session, drives the Claude Agent SDK 0.3.319 (pinned) against the shared CLI, and listens on a private socket. Cards wait without a limit and the first answer wins. The hooks that feed Epic 56's state marks fire under the SDK, and plan limits come from `rate_limit_event`. The fix round replays history as events with real turn times, holds live events during attach and numbers them after the replay, offers bypass (`allowDangerouslySkipPermissions`, proven against the real CLI), shortens oversized card inputs, records the Resume chain in `~/.local/state/portikus/chat-sessions/<tabId>`, and fixed replay of image-only messages and replay status.
+- Conversation and composer (#1751, #1752, then #1757): streamed Markdown, a "Worked for" fold, permission and question cards, images both ways, pickers for model, effort and permission mode, voice input, and the "Claude Code (GUI)" and "Claude Code (TUI)" menu entries. The fix round did all fourteen accessibility findings, the eight design fixes (follow new content, tab names, quiet labelled pickers, a bypass warning, larger chips, compact cards with a diff for Edit, quieter tool blocks, clearer structure), Resume chat, downscaling of large images in the browser, and moved `sanitizeMarkdown` to `apps/web/src/markdown/sanitize.ts`.
+- Package and smoke (#1754, #1763): the .deb build fails without the SDK and the chat host, or with an SDK platform binary (the .deb grew by 5.5 MB); the smoke test creates a chat tab, receives the snapshot and a plan-mode `settings` event, and sends no prompt. The check waits up to 30 seconds for the host socket.
+- Start race (#1765): a new GUI tab could attach before the host listened and close with 4404. The chat route now waits up to 10 seconds for the socket while the tab's tmux session lives. The start effort is one `CHAT_START_EFFORT` constant in the contract.
+- Fold: SPEC.md, STACK.md sections 10 and 35, ADR 0069, the Help topic "Claude Code (GUI) and Claude Code (TUI)", and `docs/EPIC-58.md` is deleted.
+
+Verified: the fix round ran the full unit suite with coverage (631 files, 9736 tests) and Playwright for every touched page (219 tests, with axe in both themes). The security review found no high or medium issue; its one fix (helpers refused on chat tabs) and the correctness and accessibility findings were fixed in the fix round. On the rehearsal VM the full smoke test passed 413 with 0 failed and one skip (the packaged host has no `workspace.sh`), with a Dex sign-in file. Session file modes, Resume, and the .deb contents were checked there, and a send with no Claude login gives a clean error event.
+
+Gaps:
+
+- A real Claude turn has not been run on a VM, because there was no login. The real-CLI test ran in a task, but the full path (a signed-in student, an image, a question) is unproven end to end.
+- An Epic 56 alert toast can cover the composer's Send button at desktop widths (#1745).
+- `pnpm dev` does not start a chat host, because only the built `dist/chat/main.js` exists.
+- The model picker never marks a changed value in bold; only effort and permission mode do, because the default model is not known.
+- A GUI and a TUI can still run one session at once; Help says not to.
+- A plain terminal asked for on the chat route would wait 10 seconds before a 404; the API already refuses it, so it cannot happen.
+- Follow-up issues: copy buttons (#1758), Markdown while typing (#1759), an icon Send button (#1760), a design review against the best chat interfaces (#1761), a question card for terminal Claude Code (#1762), and registering the mock LMS in the install test (#1764).

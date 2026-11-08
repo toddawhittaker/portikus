@@ -12,6 +12,7 @@ import { recordBaseline } from "./git-baseline.js";
 import type { PanePipes } from "./pane-pipes.js";
 import { readTerminalsExit, sendText, type TerminalRegistry } from "./terminals.js";
 import {
+	chatHostCommand,
 	closeSession,
 	commandForAgent,
 	createSession,
@@ -96,7 +97,10 @@ export async function terminalsRoutes(
 				tmuxServer,
 				parsed.data.agent
 					? {
-							command: commandForAgent(parsed.data.agent),
+							command:
+								parsed.data.kind === "chat"
+									? chatHostCommand(parsed.data.id, parsed.data.resumeChatOf)
+									: commandForAgent(parsed.data.agent),
 							institutionalEnv: parsed.data.institutionalEnv,
 							recordBaseline,
 						}

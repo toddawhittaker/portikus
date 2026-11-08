@@ -204,3 +204,17 @@ test("Alt+Shift+M held on the microphone listens until it is released", () => {
 	fireEvent.keyDown(button, { key: "M", code: "KeyM", altKey: true, shiftKey: true });
 	expect(speech.start).toHaveBeenCalledTimes(1);
 });
+
+test("a terminal's frame and menu say terminal", () => {
+	renderFrame();
+	openMenu();
+	expect(screen.getByTestId("terminal-leave").textContent).toBe("Leave terminal");
+});
+
+test("a chat's frame and menu say chat", () => {
+	renderFrame({ chat: true });
+	expect(screen.getByLabelText("Chat: root · /")).toBeTruthy();
+	expect(screen.queryByLabelText("Terminal: root · /")).toBeNull();
+	openMenu();
+	expect(screen.getByTestId("terminal-leave").textContent).toBe("Leave chat");
+});

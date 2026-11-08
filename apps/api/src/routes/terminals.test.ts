@@ -341,6 +341,84 @@ test.skipIf(skip)("another student sees 404 on every terminal route", async () =
 	expect(agent.terminals.has(terminalId)).toBe(true);
 });
 
+async function endedTerminal(
+	jar: CookieJar,
+	id: string,
+	payload: Record<string, unknown>,
+) {
+	const made = await create(jar, id, payload);
+	expect(made.statusCode).toBe(201);
+	const terminalId = made.json().id as string;
+	// The platform ends a terminal by marking the row; closing one deletes it.
+	await testDb.db
+		.updateTable("terminals")
+		.set({ ended_at: new Date().toISOString() })
+		.where("id", "=", terminalId)
+		.execute();
+	return terminalId;
+}
+
+test.skipIf(skip)(
+	"a chat resumes an ended chat of the same workspace and the agent hears the old id",
+	async () => {
+		const old = await endedTerminal(alice, workspaceId, {
+			kind: "chat",
+			agent: "claude",
+		});
+		agent.creates.length = 0;
+		const resumed = await create(alice, workspaceId, {
+			kind: "chat",
+			agent: "claude",
+			resumeChatOf: old,
+		});
+		expect(resumed.statusCode).toBe(201);
+		expect(agent.creates).toHaveLength(1);
+		expect(agent.creates[0]).toMatchObject({
+			id: resumed.json().id,
+			kind: "chat",
+			resumeChatOf: old,
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"resuming anything but an ended chat of this workspace is 404 and creates nothing",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobsWorkspace = await makeRunningWorkspace(bob);
+		const bobsChat = await endedTerminal(bob, bobsWorkspace, {
+			kind: "chat",
+			agent: "claude",
+		});
+		const liveChat = (
+			await create(alice, workspaceId, { kind: "chat", agent: "claude" })
+		).json().id as string;
+		const endedShell = await endedTerminal(alice, workspaceId, {});
+		agent.creates.length = 0;
+
+		for (const resumeChatOf of [bobsChat, liveChat, endedShell, crypto.randomUUID()]) {
+			const refused = await create(alice, workspaceId, {
+				kind: "chat",
+				agent: "claude",
+				resumeChatOf,
+			});
+			expect(refused.statusCode).toBe(404);
+			expect(refused.json().code).toBe("TERMINAL_NOT_FOUND");
+		}
+		expect(agent.creates).toHaveLength(0);
+	},
+);
+
+test.skipIf(skip)("resumeChatOf is refused on a plain terminal", async () => {
+	const old = await endedTerminal(alice, workspaceId, {
+		kind: "chat",
+		agent: "claude",
+	});
+	const refused = await create(alice, workspaceId, { resumeChatOf: old });
+	expect(refused.statusCode).toBe(400);
+});
+
 test.skipIf(skip)("the terminal past the limit is refused", async () => {
 	for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE; i += 1) {
 		expect((await create(alice, workspaceId)).statusCode).toBe(201);

@@ -63,6 +63,8 @@ export interface PaneFrameProps {
 	onSetTheme?: (terminalId: string, theme: TerminalTheme) => void;
 	/** Offers the hold-to-talk microphone when given (SPEC.md §25.10). */
 	voice?: SpeechInput;
+	/** The pane holds a chat, not a terminal; only the names change. */
+	chat?: boolean;
 	children: ReactNode;
 }
 
@@ -89,6 +91,7 @@ export function PaneFrame({
 	onRename,
 	onSetTheme,
 	voice,
+	chat = false,
 	children,
 }: PaneFrameProps) {
 	const [renaming, setRenaming] = useState(false);
@@ -142,7 +145,7 @@ export function PaneFrame({
 		<section
 			ref={sectionRef}
 			className={`pk-term ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
-			aria-label={`Terminal: ${title}`}
+			aria-label={`${chat ? "Chat" : "Terminal"}: ${title}`}
 			data-testid={`terminal-leaf-${terminalId}`}
 			// The pane's own --terminal-* tokens, so the title bar and the
 			// scrollbar follow this terminal rather than the per-user default
@@ -267,7 +270,9 @@ export function PaneFrame({
 							shortcut={["Alt", "Shift", "Q"]}
 							onSelect={() => actionsMenu.thenFocus(onLeave)}
 						>
-							<span data-testid="terminal-leave">Leave terminal</span>
+							<span data-testid="terminal-leave">
+								{chat ? "Leave chat" : "Leave terminal"}
+							</span>
 						</MenuItem>
 						<MenuSeparator />
 						{/* After the menu closes, so the caller can move the keyboard

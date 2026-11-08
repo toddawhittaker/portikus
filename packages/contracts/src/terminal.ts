@@ -52,6 +52,10 @@ export type TerminalId = z.infer<typeof TerminalId>;
 export const CodingAgent = z.enum(["claude", "codex"]);
 export type CodingAgent = z.infer<typeof CodingAgent>;
 
+/** A terminal tab runs a shell; a chat tab runs a coding agent through its SDK (SPEC.md §10.8). */
+export const TerminalKind = z.enum(["terminal", "chat"]);
+export type TerminalKind = z.infer<typeof TerminalKind>;
+
 /**
  * Full object id from Git: `git stash create` for the review baseline, or
  * the HEAD that baseline was taken against (SPEC.md §10.9). SHA-1 or SHA-256.
@@ -74,6 +78,8 @@ export const Terminal = z.object({
 	endedAt: z.string().datetime().nullable(),
 	/** This terminal's own colour scheme. */
 	theme: TerminalTheme,
+	/** Rows and payloads from before chat tabs are terminals. */
+	kind: TerminalKind.default("terminal"),
 	/**
 	 * Set when a launcher started a coding agent here (SPEC.md §10.8).
 	 * Absent on rows written before terminals carried a theme.
@@ -105,8 +111,21 @@ export const CreateTerminalRequest = z
 		 * (SPEC.md §10.2). There is no command string: the server picks the CLI.
 		 */
 		agent: CodingAgent.optional(),
+		/** Defaults to `terminal`. */
+		kind: TerminalKind.optional(),
+		/** An ended chat whose Claude session this new chat continues (SPEC.md §10.8). */
+		resumeChatOf: TerminalId.optional(),
 	})
-	.strict();
+	.strict()
+	// Only Claude has a chat host so far (SPEC.md §10.8).
+	.refine((body) => body.kind !== "chat" || body.agent === "claude", {
+		message: "A chat needs agent claude",
+		path: ["agent"],
+	})
+	.refine((body) => body.resumeChatOf === undefined || body.kind === "chat", {
+		message: "Only a chat can resume a chat",
+		path: ["resumeChatOf"],
+	});
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;
 
 /**

@@ -18,6 +18,8 @@ import {
 import { agentUsageRoute } from "./agent-usage-route.js";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
+import { chatRoute } from "./chat/route.js";
+import { CHAT_SOCKET_DIR } from "./chat/wire.js";
 import { checksRoute } from "./checks-route.js";
 import { CodexLimits } from "./codex-limits.js";
 import { CodingAgentBoard } from "./coding-agent-status.js";
@@ -106,6 +108,8 @@ export interface ServerOptions {
 	codingAgents?: CodingAgentBoard;
 	/** Overrides the plan limits store, so a test can feed it. For tests. */
 	agentLimits?: AgentLimitsStore;
+	/** Overrides where the chat hosts listen (SPEC.md §10.8). For tests. */
+	chatSocketDir?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -310,6 +314,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			panePipes,
 			terminalsExitPath: options.terminalsExitPath,
 			build: options.build,
+		});
+		instance.register(chatRoute, {
+			socketDir: options.chatSocketDir ?? CHAT_SOCKET_DIR,
+			tmuxServer,
 		});
 		instance.register(projectsRoutes, { homeDir: options.homeDir });
 		instance.register(searchRoutes, { homeDir: options.homeDir });

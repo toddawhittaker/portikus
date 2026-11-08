@@ -120,6 +120,11 @@ export class AgentClient {
 		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/events`;
 	}
 
+	/** The websocket URL a chat tab's relay is piped to (SPEC.md §9.7). */
+	chatUrl(terminalId: string): string {
+		return `ws://${this.address}:${this.port}/terminals/${terminalId}/chat`;
+	}
+
 	/** The websocket URL a project's language server is reached on (SPEC.md §13.6). */
 	languageServerUrl(slug: string, server: LanguageServerId): string {
 		return `ws://${this.address}:${this.port}/projects/${encodeURIComponent(slug)}/language-servers/${server}`;

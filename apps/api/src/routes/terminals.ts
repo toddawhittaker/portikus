@@ -97,6 +97,7 @@ function toTerminal(row: {
 	project_id: string | null;
 	theme: string;
 	agent: string | null;
+	kind: string;
 	baseline_object_id: string | null;
 	baseline_head: string | null;
 	recovery_point_id: string | null;
@@ -115,6 +116,7 @@ function toTerminal(row: {
 		endedAt: row.ended_at ? row.ended_at.toISOString() : null,
 		// A row written before migration 0010, or by hand, reads as dark.
 		theme: TerminalTheme.catch("dark").parse(row.theme),
+		kind: row.kind === "chat" ? "chat" : "terminal",
 		agent,
 		baselineObjectId: gitObjectOrNull(row.baseline_object_id),
 		baselineHead: gitObjectOrNull(row.baseline_head),
@@ -216,6 +218,35 @@ function createFailed(reply: FastifyReply, error: unknown) {
 		"AGENT_UNAVAILABLE",
 		"The workspace agent could not create the terminal.",
 	);
+}
+
+/**
+ * The project a new terminal belongs to (SPEC.md §7.5), and, for a resumed
+ * chat, proof that the old id is an ended chat of this workspace (§9.7).
+ */
+async function createRefs(
+	db: Kysely<Database>,
+	workspaceId: string,
+	body: CreateTerminalRequest,
+	rows: Array<{ id: string; kind: string; ended_at: unknown }>,
+): Promise<
+	| { ok: true; project: TerminalProject | null }
+	| { ok: false; code: "PROJECT_NOT_FOUND" | "TERMINAL_NOT_FOUND"; message: string }
+> {
+	const project = body.projectId
+		? await terminalProject(db, workspaceId, body.projectId)
+		: null;
+	if (project === undefined) {
+		return { ok: false, code: "PROJECT_NOT_FOUND", message: "Project not found" };
+	}
+	const resumable = rows.some(
+		(row) =>
+			row.id === body.resumeChatOf && row.kind === "chat" && row.ended_at !== null,
+	);
+	if (body.resumeChatOf !== undefined && !resumable) {
+		return { ok: false, code: "TERMINAL_NOT_FOUND", message: "Terminal not found" };
+	}
+	return { ok: true, project };
 }
 
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
@@ -363,15 +394,10 @@ export function registerTerminalRoutes(
 			return terminalLimit(reply);
 		}
 
-		// A terminal may belong to one project of this workspace (SPEC.md §7.5).
-		let project: TerminalProject | null = null;
-		if (body.data.projectId) {
-			const row = await terminalProject(db, params.id, body.data.projectId);
-			if (!row) {
-				return sendError(reply, 404, "PROJECT_NOT_FOUND", "Project not found");
-			}
-			project = row;
-		}
+		const refs = await createRefs(db, params.id, body.data, rows);
+		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
+		const { project } = refs;
+		const resumeChatOf = body.data.resumeChatOf;
 
 		const id = crypto.randomUUID();
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
@@ -409,6 +435,7 @@ export function registerTerminalRoutes(
 					project_id: project ? project.id : null,
 					theme,
 					agent: body.data.agent ?? null,
+					kind: body.data.kind ?? "terminal",
 				})
 				.execute();
 			return true;
@@ -431,6 +458,8 @@ export function registerTerminalRoutes(
 				theme,
 				timezone: settings.timezone,
 				...launcherFields(body.data.agent),
+				...(body.data.kind === "chat" ? { kind: "chat" as const } : {}),
+				...(resumeChatOf && { resumeChatOf }),
 			});
 			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
 			baselineHead = gitObjectOrNull(created.baselineHead);
@@ -558,6 +587,8 @@ export function registerTerminalRoutes(
 						.where("id", "=", params.data.tid)
 						.where("workspace_id", "=", params.data.id)
 						.where("ended_at", "is", null)
+						// A chat tab has its own socket (SPEC.md §9.7).
+						.where("kind", "=", "terminal")
 						.executeTakeFirst();
 					if (!terminal) {
 						return reply

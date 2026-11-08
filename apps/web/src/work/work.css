@@ -172,6 +172,13 @@
 	font-size: 13px;
 }
 
+.pk-term-ended-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: var(--space-2);
+}
+
 /* Dragging a pane (SPEC.md §9.3). The pane itself never moves: the title
    follows the pointer and the target pane shades the half it would take. */
 .pk-term-bar-title--handle {

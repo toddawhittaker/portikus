@@ -11,6 +11,9 @@ import {
 	type WorkspaceRow,
 } from "./workspace-view.js";
 
+/** How often an attached terminal or chat refreshes its presence row (SPEC.md §6.4). */
+export const PRESENCE_INTERVAL_MS = 15_000;
+
 /**
  * Browser presence for a workspace (SPEC.md §6.4). Both the workspace socket
  * and a terminal attachment register here, so a terminal alone keeps the

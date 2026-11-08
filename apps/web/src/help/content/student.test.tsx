@@ -75,6 +75,14 @@ test("the topics that name Claude Code and Codex say a course may hide them", ()
 	);
 });
 
+test("the chat topic explains Resume and not running a GUI and a TUI on one session", () => {
+	const text = topicText("student-claude-chat");
+	expect(text).toContain("Resume chat");
+	expect(text).toContain(
+		"Do not run a GUI tab and a TUI terminal on the same Claude session",
+	);
+});
+
 test("the keyboard topic lists the problem keys beside F8, which still goes to notifications", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Alt+F8, Shift+Alt+F8");

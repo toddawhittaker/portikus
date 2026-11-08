@@ -52,6 +52,7 @@ import { down as down0048, up as up0048 } from "./0048_live_help.js";
 import { down as down0049, up as up0049 } from "./0049_account_email.js";
 import { down as down0050, up as up0050 } from "./0050_course_profile.js";
 import { down as down0051, up as up0051 } from "./0051_code_help_languages.js";
+import { down as down0052, up as up0052 } from "./0052_terminal_kind.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -108,4 +109,5 @@ export const migrations: Record<string, Migration> = {
 	"0049_account_email": { up: up0049, down: down0049 },
 	"0050_course_profile": { up: up0050, down: down0050 },
 	"0051_code_help_languages": { up: up0051, down: down0051 },
+	"0052_terminal_kind": { up: up0052, down: down0052 },
 };

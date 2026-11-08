@@ -3,8 +3,9 @@
  */
 import type * as Monaco from "monaco-editor";
 import { expect, test } from "vitest";
+import { sanitizeMarkdown } from "../markdown/sanitize.js";
 import { statusView, TOO_LARGE_MESSAGE } from "./CodeHelpStatus.js";
-import { sanitizeMarkdown, toMarkdown } from "./content.js";
+import { toMarkdown } from "./content.js";
 import {
 	definitionTargets,
 	fromRange,

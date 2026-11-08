@@ -8,16 +8,18 @@ import {
 	type Terminal,
 	type TerminalTheme,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { Button, Skeleton, useToast } from "@portikus/ui";
+import { type DragEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
+import "../chat/chat-frame.css";
 import { saveDroppedFile } from "../files/queries.js";
 import { draggedTreeNodes } from "../files/treeDrag.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { useProjects } from "../projects/queries.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { dropZone } from "../work/dropZone.js";
+import { agentLabel } from "./agentLabel.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
 import {
@@ -27,6 +29,11 @@ import {
 	dropPaths,
 	droppedPathsInput,
 } from "./terminalDrop.js";
+
+// Markdown rendering loads only when a chat tab opens (SPEC.md §25.1).
+const ChatView = lazy(() =>
+	import("../chat/ChatView.js").then((module) => ({ default: module.ChatView })),
+);
 
 export interface TerminalLeafProps {
 	workspaceId: string;
@@ -42,6 +49,8 @@ export interface TerminalLeafProps {
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
+	/** Continue an ended chat's Claude session in a new chat in its place (SPEC.md §10.8). */
+	onResume: (terminalId: string) => void;
 	onLeave: () => void;
 	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
@@ -77,6 +86,7 @@ export function TerminalLeaf({
 	onClose,
 	onExited,
 	onReplace,
+	onResume,
 	onLeave,
 	onMoveToNewTab,
 	moveTargets,
@@ -88,7 +98,10 @@ export function TerminalLeaf({
 	// The agent reports the directory as the student cds around (SPEC.md §9.3).
 	const [liveCwd, setLiveCwd] = useState(terminal.cwd);
 	const ended = terminal.endedAt !== null;
-	const title = `${terminal.name} · ${shortenPath(liveCwd)}`;
+	const chat = terminal.kind === "chat";
+	// An agent's pane is named as its tab is, so a chat never reads "Terminal 3".
+	const name = agentLabel(terminal) ?? terminal.name;
+	const title = `${name} · ${shortenPath(liveCwd)}`;
 	// Voice input types into this pane's terminal through the ref it fills.
 	const dictation = useRef<((text: string) => void) | null>(null);
 	const speech = useSpeechInput((text) => dictation.current?.(text));
@@ -207,7 +220,7 @@ export function TerminalLeaf({
 	return (
 		<PaneFrame
 			terminalId={terminal.id}
-			name={terminal.name}
+			name={name}
 			title={title}
 			theme={terminal.theme}
 			focused={focused}
@@ -223,23 +236,50 @@ export function TerminalLeaf({
 			onLeave={onLeave}
 			onClose={onClose}
 			onRename={onRename}
-			onSetTheme={onSetTheme}
-			voice={ended ? undefined : speech}
+			// A chat follows the page's theme, and its composer holds the microphone.
+			onSetTheme={chat ? undefined : onSetTheme}
+			voice={ended || chat ? undefined : speech}
+			chat={chat}
 		>
 			{ended ? (
 				<div className="pk-term-ended" data-testid={`terminal-ended-${terminal.id}`}>
 					<p className="pk-term-ended-text">
-						This terminal ended when the workspace stopped
+						{chat
+							? "This chat ended when the workspace stopped"
+							: "This terminal ended when the workspace stopped"}
 					</p>
-					<Button
-						variant="secondary"
-						size="sm"
-						data-testid="new-terminal-here"
-						onClick={() => onReplace(terminal.id)}
-					>
-						New terminal here
-					</Button>
+					<div className="pk-term-ended-actions">
+						{chat ? (
+							<Button
+								variant="primary"
+								size="sm"
+								data-testid="chat-resume"
+								onClick={() => onResume(terminal.id)}
+							>
+								Resume chat
+							</Button>
+						) : null}
+						<Button
+							variant="secondary"
+							size="sm"
+							data-testid="new-terminal-here"
+							onClick={() => onReplace(terminal.id)}
+						>
+							New terminal here
+						</Button>
+					</div>
 				</div>
+			) : chat ? (
+				<Suspense fallback={<ChatLoading />}>
+					<ChatView
+						workspaceId={workspaceId}
+						projectId={projectId}
+						terminalId={terminal.id}
+						visible={visible}
+						focused={focused}
+						onLeave={onLeave}
+					/>
+				</Suspense>
 			) : (
 				// `contents` keeps the wrapper out of the layout, so the pane
 				// sizes as before; its drag events still bubble through it.
@@ -279,5 +319,14 @@ export function TerminalLeaf({
 				</div>
 			)}
 		</PaneFrame>
+	);
+}
+
+/** Holds the chat's place while its code loads, so nothing jumps. */
+function ChatLoading() {
+	return (
+		<div className="pk-chat pk-term-screen" data-testid="chat-view-loading">
+			<Skeleton lines={3} width="60%" />
+		</div>
 	);
 }

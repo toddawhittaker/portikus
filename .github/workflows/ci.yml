@@ -177,6 +177,10 @@ jobs:
       - name: Dev tools survive the package build
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm --dir packages/mock-lms build && test -x node_modules/.bin/tsc
+      # Needs Node 22 or newer for its WebSocket client; this job already has the .nvmrc Node.
+      - name: Smoke test chat probe
+        if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        run: bash infra/tests/chat-probe-test.sh
 
   # The slowest check, so it runs in two shards alongside the build.
   unit-shard:
@@ -693,6 +697,8 @@ jobs:
         run: bash packaging/tests/settings-keys-test.sh
       - name: Agent links order
         run: bash packaging/tests/agents-links-order-test.sh
+      - name: Agent tree check
+        run: bash packaging/tests/agent-tree-check-test.sh
       - name: Enabled units
         run: bash packaging/tests/enable-units-test.sh
       - name: Units prerm stops

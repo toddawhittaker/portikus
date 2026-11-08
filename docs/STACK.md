@@ -701,6 +701,10 @@ If profiling later shows that the Node workspace agent uses excessive memory or 
 
 Do not introduce Go in P0 without a measured reason.
 
+### Chat host and the Claude Agent SDK
+
+The chat tab (SPEC.md section 9.7, ADR 0069) uses `@anthropic-ai/claude-agent-sdk`, pinned exactly in `apps/workspace-agent/package.json`. It is pointed at the shared CLI with `pathToClaudeCodeExecutable=/opt/portikus/coding-agents/bin/claude`, so the tested CLI runs. `ignoredOptionalDependencies` in `pnpm-workspace.yaml` keeps the SDK's per-platform CLI binaries out of the lockfile and the package, and the .deb build fails if one appears.
+
 ## 11. Coding agents
 
 P0 supports:
@@ -1864,6 +1868,10 @@ Portikus keeps one editor, Monaco, and does not build an extension ecosystem
 ### LTI grade passback (AGS)
 
 Not selected: sending scores to the LMS gradebook through the LTI Assignment and Grade Services (AGS) is not built, because grading never happens in Portikus (Todd, 2026-10-05).
+
+### Other ways to drive Claude Code for the chat tab
+
+Not selected (ADR 0069): Claude Code's raw stream-json mode, because we would re-implement its undocumented permission control protocol; ACP through `claude-agent-acp`, a third-party layer on the same SDK; and a hook-only question card, which cannot render a full chat. The hook-based card remains a possible addition for terminals.
 
 ## 36. Portability requirement
 
