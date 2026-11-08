@@ -5767,7 +5767,7 @@ Todd's rulings:
 - #1786 (Rewind) is closed as not wanted, and #1747 as a duplicate of #1782. The design-review proposals #1780 to #1785 wait for a later chat epic.
 - Plan ruling 6 was wrong. The `settings` table is one typed row, not a key and value store, so keeping the alert state there needed migration 0054 (three columns). The task builder found this and stopped; the migration followed.
 
-Verified: every task PR passed its own CI, and each epic push run was green. Each task ran both unit shards with a private test database, lint, the comment-history check and the Playwright specs for its pages, with axe in both themes where a screen changed. Three reviews ran, code, accessibility and security, each with a closing pass, and every finding is fixed or recorded in the gaps below. The accessibility reviewer checked at runtime that the chat announcer is heard behind an open drawer.
+Verified: every task PR passed its own CI, and each epic push run was green. Each task ran both unit shards with a private test database, lint, the comment-history check and the Playwright specs for its pages, with axe in both themes where a screen changed. Three reviews ran, code, accessibility and security, each with a closing pass, and every finding is fixed or recorded in the gaps below. The accessibility reviewer checked at runtime that the chat announcer is heard behind an open drawer. The rehearsal (`make install-test` on the rehearsal VM) first ran on c0925217 and stopped at the worker database role step, which found the missing alert grant (#1836). It then passed all 48 steps on 2b9dcb57 (package 0.1.1411+g2b9dcb57), upgrade, reinstall, backup, restore and rebuild included, with the smoke test at 413 passed, 0 failed and 1 skipped (the VM's own workspace.sh, which a packaged host lacks), the Dex sign-in, and no LTI check skipped.
 
 Gaps:
 
@@ -5789,4 +5789,5 @@ Gaps:
 - A task item's checkbox is a Tab stop in the composer.
 - There is no untimed way to put a long paste inline; #1831 proposes one and waits for Todd.
 - The install test's release fallback was tested on its own, not inside a run with an empty image cache.
+- Unit tests ran as the database owner, so a missing column grant for a restricted role shows only in the rehearsal or in `apps/worker/src/grants.test.ts`, which now runs an alert tick as the worker role.
 - #1801 is still open, for a recheck on SDK upgrades.
