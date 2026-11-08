@@ -1,0 +1,182 @@
+/* The question card (SPEC.md §10.8); chat.css holds the dock it sits in. */
+/* One question at a time: its header, a body that scrolls, and buttons that stay in view. */
+/* Only the body scrolls while there is room for the header and buttons; in a
+   very short pane the whole card does. */
+.pk-chat-card.pk-chat-qcard {
+	gap: 0;
+	padding: 0;
+}
+
+.pk-chat-qform {
+	flex: 0 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pk-chat-qhead {
+	flex: none;
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-2) var(--space-2) var(--space-3) var(--space-4);
+}
+
+.pk-chat-qbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--size-control-sm);
+}
+
+.pk-chat-chip {
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-pager {
+	display: flex;
+	align-items: center;
+	gap: var(--space-0\.5);
+	margin-inline-start: auto;
+}
+
+.pk-chat-qposition {
+	margin: 0 var(--space-1) 0 0;
+	color: var(--ink-muted);
+	font-size: 13px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.pk-chat-qtext {
+	margin: 0;
+	padding-inline-end: var(--space-2);
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-qhow {
+	font-size: 13px;
+}
+
+.pk-chat-qbody {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding-inline: var(--space-4);
+	border-block: 1px solid var(--line);
+}
+
+.pk-chat-question {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-1);
+	min-width: 0;
+	margin: 0;
+	padding: 0 0 var(--space-3);
+	border: none;
+}
+
+.pk-chat-options {
+	align-self: stretch;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Full-width rows split by hairlines; what belongs to an option lines up under its label. */
+.pk-chat-option {
+	--pk-chat-box: 18px;
+	display: grid;
+	gap: var(--space-2);
+	min-width: 0;
+	padding-block: var(--space-3);
+}
+
+.pk-chat-option + .pk-chat-option {
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-chat-option > :not(.pk-chat-option-row) {
+	margin-inline-start: calc(var(--pk-chat-box) + var(--space-3));
+}
+
+.pk-chat-option-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-3);
+	min-width: 0;
+	cursor: pointer;
+}
+
+.pk-chat-option-row input {
+	flex: none;
+	inline-size: var(--pk-chat-box);
+	block-size: var(--pk-chat-box);
+	margin: 1px 0 0;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+.pk-chat-option-copy {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-0\.5);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-option-label {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.pk-chat-option-preview.pk-chat-code {
+	inline-size: auto;
+	max-block-size: 12rem;
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
+.pk-chat-input.pk-chat-other-input {
+	min-block-size: var(--size-control-sm);
+	padding-block: var(--space-1);
+}
+
+.pk-chat-qform > .pk-chat-card-error {
+	padding: var(--space-2) var(--space-4) 0;
+}
+
+.pk-chat-qfoot {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+/* The shortcut reads in the button's own colour, which meets contrast on its fill. */
+.pk-chat-qfoot .pk-kbd {
+	color: inherit;
+}
+
+.pk-chat-qfoot-end {
+	display: flex;
+	gap: var(--space-2);
+	margin-inline-start: auto;
+}
+
+.pk-chat-qfoot .pk-chat-card-waiting {
+	margin: 0;
+}

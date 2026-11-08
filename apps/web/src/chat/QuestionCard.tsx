@@ -27,6 +27,7 @@ import {
 	type QuestionDraft,
 } from "./questionAnswer.js";
 import { waitingText } from "./waiting.js";
+import "./question-card.css";
 
 type QuestionCardData = Extract<ChatOpenCard, { type: "question" }>;
 
