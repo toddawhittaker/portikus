@@ -630,6 +630,7 @@ test.skipIf(skip)(
 			await archiveLikeALink(id);
 			releaseStart();
 			await untilState(id, "running");
+			await settleInFlight();
 			const later = new Date();
 			await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 			const ws = await getWorkspace(id);
