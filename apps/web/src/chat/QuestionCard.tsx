@@ -1,15 +1,19 @@
 /**
- * Claude's AskUserQuestion as a form (SPEC.md §10.8): per question a header
- * chip, the options with their descriptions, an "Other" answer and an
- * optional note. Options with a preview show the focused one beside the
- * list, or under it in a narrow pane. Enter on an option sends; in a note
- * Enter adds a line and Ctrl+Enter sends, as the hint under it says.
+ * Claude's AskUserQuestion, one question at a time (SPEC.md §10.8): the
+ * question with a pager, its options as full-width rows with any preview
+ * inside the row, "Other" last, and a quiet "Add a note". Skip declines a
+ * question, Skip all the whole card; a skipped question is sent without an
+ * answer. Only the body scrolls, so the buttons stay in view. Enter on an
+ * option or Ctrl+Enter anywhere goes on; Enter in a note adds a line.
+ * Focus moves only with the student's own action inside the card, and never
+ * scrolls anything but the card (SPEC.md §25.8).
  */
 import type { ChatOpenCard, ChatQuestion } from "@portikus/contracts";
-import { Button, Checkbox, Icon } from "@portikus/ui";
+import { Button, IconButton, ShortcutHint } from "@portikus/ui";
 import {
 	type FormEvent,
 	type KeyboardEvent,
+	type RefObject,
 	useEffect,
 	useId,
 	useRef,
@@ -17,10 +21,13 @@ import {
 } from "react";
 import {
 	buildQuestionAnswer,
+	draftAnswer,
 	emptyDraft,
+	isSettled,
 	type QuestionDraft,
 } from "./questionAnswer.js";
 import { waitingText } from "./waiting.js";
+import "./question-card.css";
 
 type QuestionCardData = Extract<ChatOpenCard, { type: "question" }>;
 
@@ -39,6 +46,17 @@ export interface QuestionCardProps {
 
 const NOT_SENT =
 	"Your answer was not sent because the chat is not connected. Wait for it to reconnect, then send again.";
+const PICK_FIRST =
+	"Pick an answer or write your own under Other, or skip this question.";
+
+/** Scroll only `box` so `node` is in view; focus() would scroll every ancestor too. */
+function revealIn(box: HTMLElement | null, node: HTMLElement | null) {
+	if (!box || !node) return;
+	const outer = box.getBoundingClientRect();
+	const inner = node.getBoundingClientRect();
+	if (inner.top < outer.top) box.scrollTop -= outer.top - inner.top;
+	else if (inner.bottom > outer.bottom) box.scrollTop += inner.bottom - outer.bottom;
+}
 
 export function QuestionCard({
 	card,
@@ -46,146 +64,282 @@ export function QuestionCard({
 	takeFocus,
 	waiting,
 }: QuestionCardProps) {
-	const titleId = useId();
+	const id = useId();
 	const form = useRef<HTMLFormElement | null>(null);
+	const body = useRef<HTMLDivElement | null>(null);
 	const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
 		card.questions.map(() => emptyDraft),
 	);
+	const [page, setPage] = useState(0);
+	/** The furthest question reached, so the forward arrow can return to it. */
+	const [reached, setReached] = useState(0);
 	const [error, setError] = useState("");
 	const [sent, setSent] = useState(false);
+	/** Set by the student's own move to another question, so focus follows it. */
+	const moved = useRef(false);
 	const count = card.questions.length;
+	const question = card.questions[page] as ChatQuestion;
+	const draft = drafts[page] ?? emptyDraft;
+	const last = page === count - 1;
+	const answered = draftAnswer(question, draft) !== "";
+
+	/** Focus the current question's chosen option, or its first. */
+	function focusOption() {
+		const options = body.current?.querySelectorAll<HTMLInputElement>(
+			"input[type=radio], input[type=checkbox]",
+		);
+		const target =
+			Array.from(options ?? []).find((input) => input.checked) ?? options?.[0];
+		target?.focus({ preventScroll: true });
+		revealIn(body.current, target?.closest("li") ?? null);
+	}
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the card first appears
 	useEffect(() => {
-		if (takeFocus()) form.current?.querySelector<HTMLElement>("input")?.focus();
+		if (takeFocus()) focusOption();
 	}, []);
 
-	function update(at: number, change: Partial<QuestionDraft>) {
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the question changes
+	useEffect(() => {
+		if (body.current) body.current.scrollTop = 0;
+		if (!moved.current) return;
+		moved.current = false;
+		focusOption();
+	}, [page]);
+
+	function update(change: Partial<QuestionDraft>) {
 		setDrafts((all) =>
-			all.map((draft, index) => (index === at ? { ...draft, ...change } : draft)),
+			all.map((one, at) => (at === page ? { ...one, ...change, skipped: false } : one)),
 		);
 		setError("");
 	}
 
-	function submit(event?: FormEvent) {
-		event?.preventDefault();
+	function goTo(next: number) {
+		moved.current = true;
+		setError("");
+		setPage(next);
+		setReached((was) => Math.max(was, next));
+	}
+
+	function send(answers: Record<string, string>, notes?: Record<string, string>) {
 		if (sent) return;
-		const answer = buildQuestionAnswer(card.questions, drafts);
-		if (!answer.ok) {
-			setError(
-				count === 1
-					? "Pick an answer, or write your own under Other."
-					: "Answer every question: pick an option, or write your own under Other.",
-			);
-			const first = answer.missing[0] ?? 0;
-			form.current
-				?.querySelectorAll<HTMLFieldSetElement>("fieldset")
-				[first]?.querySelector<HTMLElement>("input")
-				?.focus();
-			return;
-		}
-		if (!onAnswer(answer.answers, answer.notes)) {
+		if (!onAnswer(answers, notes)) {
 			setError(NOT_SENT);
 			return;
 		}
 		setSent(true);
 	}
 
-	function onKeyDown(event: KeyboardEvent<HTMLFormElement>) {
-		if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
-			return;
-		const target = event.target as HTMLElement;
-		// Ctrl+Enter sends from anywhere, a note included.
-		if (event.ctrlKey || event.metaKey) {
-			event.preventDefault();
-			submit();
+	function finish(all: QuestionDraft[]) {
+		const answer = buildQuestionAnswer(card.questions, all);
+		if (!answer.ok) {
+			// Only a question reopened and cleared can be left unsettled.
+			setError(PICK_FIRST);
+			goTo(answer.missing[0] ?? 0);
 			return;
 		}
-		// Buttons and text fields already submit on Enter; boxes do not. A note adds a line.
-		if (
+		send(answer.answers, answer.notes);
+	}
+
+	function advance(event?: FormEvent) {
+		event?.preventDefault();
+		if (sent) return;
+		if (!answered) {
+			setError(PICK_FIRST);
+			return;
+		}
+		if (last) finish(drafts);
+		else goTo(page + 1);
+	}
+
+	function skip() {
+		if (sent) return;
+		const all = drafts.map((one, at) =>
+			at === page ? { ...one, skipped: true } : one,
+		);
+		setDrafts(all);
+		if (last) finish(all);
+		else goTo(page + 1);
+	}
+
+	function onKeyDown(event: KeyboardEvent<HTMLFormElement>) {
+		const target = event.target as HTMLElement;
+		const box =
 			target instanceof HTMLInputElement &&
-			(target.type === "radio" || target.type === "checkbox")
+			(target.type === "radio" || target.type === "checkbox");
+		// Checkboxes have no arrow keys of their own; radios move and pick natively.
+		if (
+			box &&
+			(target as HTMLInputElement).type === "checkbox" &&
+			(event.key === "ArrowDown" || event.key === "ArrowUp")
 		) {
 			event.preventDefault();
-			submit();
+			const boxes = Array.from(
+				body.current?.querySelectorAll<HTMLInputElement>("input[type=checkbox]") ?? [],
+			);
+			const at = boxes.indexOf(target as HTMLInputElement);
+			const next = boxes[at + (event.key === "ArrowDown" ? 1 : -1)];
+			next?.focus({ preventScroll: true });
+			revealIn(body.current, next?.closest("li") ?? null);
+			return;
+		}
+		if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+			return;
+		// Ctrl+Enter goes on from anywhere, a note included; Enter does from an option.
+		if (event.ctrlKey || event.metaKey || box) {
+			event.preventDefault();
+			advance();
 		}
 	}
 
 	return (
 		<section
-			className="pk-chat-card"
-			aria-labelledby={titleId}
+			className="pk-chat-card pk-chat-qcard"
+			aria-label={count === 1 ? "Claude's question" : "Claude's questions"}
 			data-testid="chat-question-card"
 		>
-			<h2 id={titleId} className="pk-text-heading">
-				{count === 1 ? "Claude has a question" : `Claude has ${count} questions`}
-			</h2>
 			<form
 				ref={form}
-				className="pk-chat-card-form"
+				className="pk-chat-qform"
 				noValidate={true}
-				onSubmit={submit}
+				onSubmit={advance}
 				onKeyDown={onKeyDown}
 			>
-				{card.questions.map((question, at) => (
+				<header className="pk-chat-qhead">
+					<div className="pk-chat-qbar">
+						{question.header ? (
+							<span className="pk-chat-chip pk-text-caption">{question.header}</span>
+						) : null}
+						{count > 1 ? (
+							<div className="pk-chat-pager">
+								<p className="pk-chat-qposition" data-testid="chat-question-position">
+									{page + 1} of {count}
+								</p>
+								<IconButton
+									icon="arrow-left"
+									label="Previous question"
+									size="sm"
+									aria-disabled={page === 0 || undefined}
+									onClick={() => page > 0 && goTo(page - 1)}
+								/>
+								<IconButton
+									icon="arrow-right"
+									label="Next question"
+									size="sm"
+									aria-disabled={
+										page >= reached || !isSettled(question, draft) || undefined
+									}
+									onClick={() =>
+										page < reached && isSettled(question, draft) && goTo(page + 1)
+									}
+								/>
+							</div>
+						) : null}
+					</div>
+					<h2 id={`${id}-q`} className="pk-chat-qtext">
+						{question.question}
+					</h2>
+					{question.multiSelect ? (
+						<p id={`${id}-how`} className="pk-chat-muted pk-chat-qhow">
+							Pick any that apply
+						</p>
+					) : null}
+				</header>
+				<div ref={body} className="pk-chat-qbody">
 					<QuestionFields
-						// Questions never change while the card is open.
-						// biome-ignore lint/suspicious/noArrayIndexKey: see above
-						key={at}
+						// A fresh set of fields per question, so each starts with its note closed.
+						key={page}
+						id={id}
 						question={question}
-						draft={drafts[at] ?? emptyDraft}
-						onChange={(change) => update(at, change)}
+						draft={draft}
+						onChange={update}
+						last={last}
+						bodyRef={body}
 					/>
-				))}
+				</div>
 				<p className="pk-chat-card-error" role="alert">
 					{error}
 				</p>
-				<div className="pk-chat-card-actions">
-					<Button
-						type="submit"
-						variant="primary"
-						loading={sent}
-						data-testid="chat-question-send"
-					>
-						{count === 1 ? "Send answer" : "Send answers"}
-					</Button>
+				<p className="sr-only" aria-live="polite">
+					{count > 1 ? `Question ${page + 1} of ${count}: ${question.question}` : ""}
+				</p>
+				<footer className="pk-chat-qfoot">
+					{count > 1 ? (
+						<Button
+							variant="quiet"
+							size="sm"
+							data-testid="chat-question-skip-all"
+							onClick={() => send({})}
+						>
+							Skip all
+						</Button>
+					) : null}
 					{waiting > 0 ? (
 						<p className="pk-chat-card-waiting" data-testid="chat-cards-waiting">
 							{waitingText(waiting)}
 						</p>
 					) : null}
-				</div>
+					<span className="pk-chat-qfoot-end">
+						<Button size="sm" data-testid="chat-question-skip" onClick={skip}>
+							Skip
+						</Button>
+						<Button
+							type="submit"
+							variant="primary"
+							size="sm"
+							loading={sent}
+							aria-disabled={!answered || undefined}
+							aria-describedby={answered ? undefined : `${id}-why`}
+							aria-keyshortcuts="Control+Enter"
+							data-testid="chat-question-next"
+						>
+							{last ? "Submit" : "Next"}
+							<span aria-hidden={true}>
+								<ShortcutHint keys={["Ctrl", "Enter"]} plain={true} />
+							</span>
+						</Button>
+					</span>
+					<span id={`${id}-why`} hidden={true}>
+						{PICK_FIRST}
+					</span>
+				</footer>
 			</form>
 		</section>
 	);
 }
 
 function QuestionFields({
+	id,
 	question,
 	draft,
 	onChange,
+	last,
+	bodyRef,
 }: {
+	id: string;
 	question: ChatQuestion;
 	draft: QuestionDraft;
 	onChange: (change: Partial<QuestionDraft>) => void;
+	last: boolean;
+	bodyRef: RefObject<HTMLDivElement | null>;
 }) {
-	const id = useId();
-	const name = `${id}-pick`;
 	const otherField = useRef<HTMLInputElement | null>(null);
 	const notesField = useRef<HTMLTextAreaElement | null>(null);
-	const [focused, setFocused] = useState<string | null>(null);
-	const [noting, setNoting] = useState(false);
+	const [noting, setNoting] = useState(draft.notes !== "");
+	const single = !question.multiSelect;
+	const type = single ? "radio" : "checkbox";
+	const name = `${id}-pick`;
+
+	function reveal(node: HTMLElement | null) {
+		node?.focus({ preventScroll: true });
+		revealIn(bodyRef.current, node);
+	}
 
 	// "Add a note" goes away with its own click, so the new field takes the keyboard.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only when the note opens
 	useEffect(() => {
-		if (noting) notesField.current?.focus();
+		if (noting && draft.notes === "") reveal(notesField.current);
 	}, [noting]);
-	const single = !question.multiSelect;
-	const withPreview = question.options.filter((option) => option.preview !== undefined);
-	const shown =
-		withPreview.find((option) => option.label === focused) ??
-		withPreview.find((option) => draft.picked.includes(option.label)) ??
-		withPreview[0];
 
 	function toggle(label: string, on: boolean) {
 		if (single) onChange({ picked: [label], otherPicked: false });
@@ -203,124 +357,76 @@ function QuestionFields({
 		<fieldset
 			className="pk-chat-question"
 			data-testid="chat-question"
-			aria-describedby={`${id}-how`}
+			aria-labelledby={`${id}-q`}
+			aria-describedby={single ? undefined : `${id}-how`}
 		>
-			<legend className="pk-chat-question-legend">
-				{question.header ? (
-					<span className="pk-chat-chip pk-text-caption">
-						{question.header}
-						<span className="sr-only">: </span>
-					</span>
-				) : null}
-				<span className="pk-chat-question-text">{question.question}</span>
-			</legend>
-			<p id={`${id}-how`} className="sr-only">
-				{single ? "Pick one." : "Pick any that apply."}
-			</p>
-			<div className={`pk-chat-question-body${shown ? " has-preview" : ""}`}>
-				<ul className="pk-chat-options">
-					{question.options.map((option, at) => {
-						const previewId =
-							option.preview !== undefined ? `${id}-preview-${at}` : undefined;
-						return (
-							<li
-								key={option.label}
-								onFocus={() => setFocused(option.label)}
-								onMouseEnter={() =>
-									option.preview !== undefined && setFocused(option.label)
-								}
-							>
-								{single ? (
-									<Radio
-										name={name}
-										label={option.label}
-										description={option.description}
-										describedBy={previewId}
-										checked={!draft.otherPicked && draft.picked[0] === option.label}
-										onChange={() => toggle(option.label, true)}
-									/>
-								) : (
-									<Checkbox
-										label={option.label}
-										description={
-											option.preview !== undefined ? (
-												<>
-													{option.description}
-													<span className="sr-only">{` Preview: ${option.preview}`}</span>
-												</>
-											) : (
-												option.description || undefined
-											)
-										}
-										checked={draft.picked.includes(option.label)}
-										onChange={(event) => toggle(option.label, event.target.checked)}
-									/>
-								)}
-								{/* The preview read with its option, which the panel beside the list shows to the eye. */}
-								{single && previewId ? (
-									<span id={previewId} hidden={true}>
-										{`Preview: ${option.preview}`}
-									</span>
-								) : null}
-							</li>
-						);
-					})}
-					<li className="pk-chat-other">
-						{single ? (
-							<Radio
+			<ul className="pk-chat-options">
+				{question.options.map((option, at) => {
+					const previewId =
+						option.preview !== undefined ? `${id}-preview-${at}` : undefined;
+					return (
+						<li key={option.label} className="pk-chat-option">
+							<OptionRow
+								type={type}
 								name={name}
-								label="Other"
-								checked={draft.otherPicked}
-								onChange={() => {
-									onChange({ picked: [], otherPicked: true });
-									otherField.current?.focus();
-								}}
+								label={option.label}
+								description={option.description}
+								describedBy={previewId}
+								checked={
+									single
+										? !draft.otherPicked && draft.picked[0] === option.label
+										: draft.picked.includes(option.label)
+								}
+								onChange={(on) => toggle(option.label, on)}
 							/>
-						) : null}
-						<label
-							className={single ? "sr-only" : "pk-chat-field-label"}
-							htmlFor={`${id}-other`}
-						>
-							{single ? "Your own answer" : "Other"}
-						</label>
+							{previewId ? (
+								<pre
+									id={previewId}
+									className="pk-chat-code pk-chat-option-preview"
+									// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+									tabIndex={0}
+									data-testid="chat-question-preview"
+								>
+									{option.preview}
+								</pre>
+							) : null}
+						</li>
+					);
+				})}
+				<li className="pk-chat-option">
+					<OptionRow
+						type={type}
+						name={name}
+						label="Other"
+						checked={draft.otherPicked}
+						onChange={(on, byPointer) => {
+							onChange(
+								single ? { picked: [], otherPicked: true } : { otherPicked: on },
+							);
+							// A click means "let me type"; an arrow key is still moving through the list.
+							if (on && byPointer) {
+								requestAnimationFrame(() => reveal(otherField.current));
+							}
+						}}
+					/>
+					{draft.otherPicked ? (
 						<input
 							ref={otherField}
-							id={`${id}-other`}
-							className="pk-chat-input pk-focus-ring"
+							className="pk-chat-input pk-chat-other-input pk-focus-ring"
 							type="text"
+							aria-label="Your own answer"
 							value={draft.other}
 							placeholder="Write your own answer"
 							data-testid="chat-question-other"
-							onChange={(event) =>
-								onChange(
-									single && event.target.value !== ""
-										? { other: event.target.value, picked: [], otherPicked: true }
-										: { other: event.target.value },
-								)
-							}
+							onChange={(event) => onChange({ other: event.target.value })}
 						/>
-					</li>
-				</ul>
-				{shown ? (
-					<figure className="pk-chat-preview">
-						<figcaption className="pk-chat-preview-caption">
-							Preview: {shown.label}
-						</figcaption>
-						<pre
-							className="pk-chat-code"
-							// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
-							tabIndex={0}
-							data-testid="chat-question-preview"
-						>
-							{shown.preview}
-						</pre>
-					</figure>
-				) : null}
-			</div>
-			{noting || draft.notes !== "" ? (
+					) : null}
+				</li>
+			</ul>
+			{noting ? (
 				<div className="pk-chat-note">
 					<label className="pk-chat-field-label" htmlFor={`${id}-notes`}>
-						Notes <span className="pk-chat-muted">(optional)</span>
+						Note <span className="pk-chat-muted">(optional)</span>
 					</label>
 					<textarea
 						ref={notesField}
@@ -333,18 +439,20 @@ function QuestionFields({
 						onChange={(event) => onChange({ notes: event.target.value })}
 					/>
 					<p id={`${id}-notes-hint`} className="pk-chat-hint">
-						Enter adds a line. Ctrl+Enter or the Send button sends.
+						{last
+							? "Enter adds a line. Ctrl+Enter submits."
+							: "Enter adds a line. Ctrl+Enter goes to the next question."}
 					</p>
 				</div>
 			) : (
 				<Button
 					variant="quiet"
 					size="sm"
+					iconStart="plus"
 					className="pk-chat-add-note"
 					data-testid="chat-question-add-note"
 					onClick={() => setNoting(true)}
 				>
-					<Icon name="plus" size="sm" />
 					Add a note
 				</Button>
 			)}
@@ -352,8 +460,13 @@ function QuestionFields({
 	);
 }
 
-/** A native radio laid out like the Checkbox primitive, label beside description. */
-function Radio({
+/**
+ * A native radio or checkbox with its label and description, as one
+ * full-width row. Native boxes, not the Checkbox primitive, so the two
+ * kinds of question look and behave alike.
+ */
+function OptionRow({
+	type,
 	name,
 	label,
 	description,
@@ -361,28 +474,41 @@ function Radio({
 	checked,
 	onChange,
 }: {
+	type: "radio" | "checkbox";
 	name: string;
 	label: string;
 	description?: string;
-	describedBy?: string;
+	describedBy?: string | undefined;
 	checked: boolean;
-	onChange: () => void;
+	onChange: (on: boolean, byPointer: boolean) => void;
 }) {
 	const id = useId();
+	const pointer = useRef(false);
 	const described = [description ? `${id}-description` : null, describedBy ?? null]
 		.filter((part) => part !== null)
 		.join(" ");
 	return (
-		<label className="pk-chat-radio">
+		<label
+			className="pk-chat-option-row"
+			onPointerDown={() => {
+				pointer.current = true;
+			}}
+		>
 			<input
-				type="radio"
-				name={name}
+				type={type}
+				name={type === "radio" ? name : undefined}
 				className="pk-focus-ring"
 				checked={checked}
 				// The description describes the option; it is not part of its name.
 				aria-labelledby={`${id}-label`}
 				aria-describedby={described || undefined}
-				onChange={onChange}
+				onKeyDown={() => {
+					pointer.current = false;
+				}}
+				onChange={(event) => {
+					onChange(event.target.checked, pointer.current);
+					pointer.current = false;
+				}}
 			/>
 			<span className="pk-chat-option-copy">
 				<span id={`${id}-label`} className="pk-chat-option-label">

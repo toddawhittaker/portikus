@@ -185,6 +185,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			part: { type: "image", mediaType: "image/png", data: TINY_PNG },
 		});
 		record(id, all, { type: "tool.finished", id: "tool-1", isError: false });
+		// The question card's tool call, which the conversation shows as "Asked 2 questions".
+		record(id, all, {
+			type: "tool.started",
+			id: QUESTION_CARD.id,
+			name: "AskUserQuestion",
+			title: "AskUserQuestion",
+			input: { questions: QUESTION_CARD.questions },
+		});
 		chat.openCards.push(QUESTION_CARD, PERMISSION_CARD);
 		emit(id, all, { type: "question.requested", ...withoutType(QUESTION_CARD) });
 		emit(id, all, { type: "permission.requested", ...withoutType(PERMISSION_CARD) });
@@ -199,6 +207,18 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		chat.openCards = chat.openCards.filter((one) => one.id !== message.id);
 		chat.answers.push(message);
 		emit(id, chat.sockets, { type: "card.resolved", id: message.id });
+		if (message.type === "question.answer") {
+			record(id, chat.sockets, {
+				type: "tool.output",
+				id: message.id,
+				part: { type: "text", text: questionResultText(message.answers) },
+			});
+			record(id, chat.sockets, {
+				type: "tool.finished",
+				id: message.id,
+				isError: false,
+			});
+		}
 	}
 
 	function handle(id: string, message: ChatClientMessage): void {
@@ -317,6 +337,16 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const id = (request.params as { id: string }).id;
 		return { answers: chats.get(id)?.answers ?? [] };
 	});
+}
+
+/** The tool result Claude Code writes for AskUserQuestion: `"question"="answer"` pairs. */
+function questionResultText(answers: Record<string, string>): string {
+	const pairs = Object.entries(answers).map(
+		([question, answer]) => `"${question}"="${answer}"`,
+	);
+	return pairs.length > 0
+		? `Your questions have been answered: ${pairs.join(", ")}. You can now continue with these answers in mind.`
+		: "The user did not answer the questions.";
 }
 
 function withoutType<T extends { type: string }>(card: T): Omit<T, "type"> {

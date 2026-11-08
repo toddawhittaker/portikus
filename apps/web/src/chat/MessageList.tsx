@@ -9,9 +9,10 @@
 import { Icon } from "@portikus/ui";
 import { memo, useEffect, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
-import type { ChatItem, ChatMessageItem, ChatTurn } from "./chatStore.js";
+import type { ChatItem, ChatMessageItem, ChatToolItem, ChatTurn } from "./chatStore.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
 import { foldTurn } from "./fold.js";
+import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { ToolBlock } from "./ToolBlock.js";
 
 /** Items in order, with each turn's items gathered where the turn begins. */
@@ -85,12 +86,83 @@ const AssistantMessage = memo(function AssistantMessage({
 	);
 });
 
+/** An AskUserQuestion call, which the conversation shows as what was asked and answered. */
+function isAsked(item: ChatItem): item is ChatToolItem {
+	return (
+		item.kind === "tool" &&
+		item.name === "AskUserQuestion" &&
+		askedQuestions(item.input) !== null
+	);
+}
+
+/**
+ * The questions Claude asked, folded to "Asked 2 questions · Answered" and
+ * opening to each question with its answer (SPEC.md §10.8). The answers are
+ * read from the tool's result, so a reload or another browser shows the same.
+ */
+function AskedSummary({ tool }: { tool: ChatToolItem }) {
+	const questions = askedQuestions(tool.input) ?? [];
+	const result = tool.output
+		.flatMap((part) => (part.type === "text" ? [part.text] : []))
+		.join("\n");
+	// Claude Code writes the result once the student answers; until then the card is open.
+	const waiting =
+		tool.status === "running" || (tool.status === "done" && result === "");
+	const asked = readAnswers(questions, result);
+	const answered = asked.some((one) => one.answer !== null);
+	// A result in a form not read here is shown as it came, so nothing is lost.
+	const unread =
+		!waiting && !answered && tool.status === "done" && !/did not answer/i.test(result);
+	const outcome = waiting
+		? "Needs your input"
+		: answered || unread
+			? "Answered"
+			: tool.status === "done"
+				? "Skipped"
+				: "Not answered";
+	const title =
+		questions.length === 1 ? "Asked 1 question" : `Asked ${questions.length} questions`;
+	return (
+		<li className="pk-chat-step">
+			<details className="pk-chat-asked" data-testid="chat-asked">
+				<summary className="pk-chat-worked-summary pk-focus-inset">
+					<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+					<span>{title}</span>
+					<span className="pk-chat-worked-count" data-testid="chat-asked-outcome">
+						{outcome}
+					</span>
+				</summary>
+				<dl className="pk-chat-asked-list">
+					{asked.map((one, at) => (
+						// Questions never change once asked.
+						// biome-ignore lint/suspicious/noArrayIndexKey: see above
+						<div key={at} className="pk-chat-asked-item">
+							<dt>{one.question}</dt>
+							<dd className={one.answer === null ? "pk-chat-muted" : undefined}>
+								{one.answer ??
+									(waiting
+										? "Not answered yet"
+										: unread
+											? result
+											: tool.status === "done"
+												? "Skipped"
+												: "Not answered")}
+							</dd>
+						</div>
+					))}
+				</dl>
+			</details>
+		</li>
+	);
+}
+
 /** One item inside a turn, or one outside any turn. */
 function Step({ item }: { item: ChatItem }) {
 	switch (item.kind) {
 		case "message":
 			return <AssistantMessage message={item} />;
 		case "tool":
+			if (isAsked(item)) return <AskedSummary tool={item} />;
 			return (
 				<li className="pk-chat-step">
 					<ToolBlock tool={item} />
@@ -154,11 +226,18 @@ function TurnSteps({ turn, items }: { turn: ChatTurn | undefined; items: ChatIte
 			</>
 		);
 	}
-	const { before, folded, after, errors } = foldTurn(items);
+	// What the student was asked stays in view, after the work and before the reply.
+	const asked = items.filter(isAsked);
+	const { before, folded, after, errors } = foldTurn(
+		items.filter((item) => !isAsked(item)),
+	);
 	return (
 		<>
 			{before ? <Step item={before} /> : null}
 			{folded.length > 0 ? <FoldedWork turn={turn} items={folded} /> : null}
+			{asked.map((item) => (
+				<Step key={item.key} item={item} />
+			))}
 			{after ? <Step item={after} /> : null}
 			{errors.map((item) => (
 				<Step key={item.key} item={item} />
