@@ -96,3 +96,4 @@ has four sections:
 | [0066](0066-course-profiles-hide-stored-on-the-lti-course.md) | Course profiles hide and never block, are stored on the LTI course, and are set by the instructor or an administrator (accepted, Epic 52) |
 | [0067](0067-code-help-chosen-per-language.md) | Code help is chosen per language: the column stores the enabled set, only the API refuses, writes are strict and reads lenient, and the estimate is a worst case (accepted, Epic 53) |
 | [0068](0068-agent-status-limits-and-alerts.md) | Agent status comes from the agents' own hooks, plan limits from Claude Code's status line and `codex app-server`, students see today's counts, and agent alert toasts are not recorded (accepted, Epic 56) |
+| [0069](0069-chat-tab.md) | The Claude Code (GUI) chat tab: the Agent SDK in a tmux-hosted chat host, offered for every sign-in, owner-only at the API (accepted, Epic 58) |
