@@ -6,7 +6,7 @@ import {
 	type WebSocketRoute,
 } from "@playwright/test";
 import { makeChatTab } from "./chat-helpers";
-import { terminalIds, workTabs } from "./helpers";
+import { expectNoViolations, terminalIds, workTabs } from "./helpers";
 import { splitPane } from "./split-helpers";
 
 /**
@@ -271,3 +271,143 @@ test("a chat opened with a card waiting lands at the end of its log", async ({
 	await expectHeld(page, id);
 	await expectControlsInView(page, view, id);
 });
+
+/** A running turn's tool calls: two finished, one failed, one still running. */
+function sendTools(socket: Script) {
+	socket.send("turn.started", { at: Date.now() });
+	socket.send("tool.started", {
+		id: "read",
+		name: "Read",
+		title: "Read a file",
+		input: { file_path: "src/dashboard/useDashboardQuery.ts" },
+	});
+	socket.send("tool.output", { id: "read", part: { type: "text", text: "export {}" } });
+	socket.send("tool.finished", { id: "read", isError: false });
+	socket.send("tool.started", {
+		id: "edit",
+		name: "Edit",
+		title: "Edit a file",
+		input: {
+			file_path: "src/dashboard/useDashboardQuery.ts",
+			old_string: "const a = 1;\nconst b = 2;\nreturn a ?? b;",
+			new_string: "return 1;",
+		},
+	});
+	socket.send("tool.finished", { id: "edit", isError: false });
+	socket.send("tool.started", {
+		id: "lint",
+		name: "Bash",
+		title: "Lint",
+		input: { command: "pnpm lint" },
+	});
+	socket.send("tool.output", { id: "lint", part: { type: "text", text: "1 error" } });
+	socket.send("tool.finished", { id: "lint", isError: true });
+	socket.send("tool.started", {
+		id: "test",
+		name: "Bash",
+		title: "Test",
+		input: { command: "pnpm vitest run" },
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	for (const width of [1280, 420] as const) {
+		test(`tool calls are quiet lines that say what happened (${colorScheme}, ${width})`, async ({
+			page,
+			context,
+		}) => {
+			test.setTimeout(90_000);
+			await page.emulateMedia({ colorScheme });
+			await page.setViewportSize({ width, height: 900 });
+			const { id, view, socket } = await openChat(page, context);
+			sendTools(socket);
+			const summary = (id: string) =>
+				view.getByTestId(`chat-tool-${id}`).locator("> summary");
+			await expect(summary("read")).toHaveText("Read useDashboardQuery.ts");
+			await expect(summary("edit")).toHaveText(
+				"Edited useDashboardQuery.ts+1 −3, 1 line added, 3 lines removed",
+			);
+			await expect(summary("lint")).toHaveText("Run pnpm lintFailed");
+			await expect(summary("test")).toHaveText("Run pnpm vitest runRunning");
+			// Only the failed and the running call carry a state.
+			await expect(view.getByTestId("chat-tool-state")).toHaveText([
+				"Failed",
+				"Running",
+			]);
+			// No box around a row.
+			await expect(view.getByTestId("chat-tool-read")).toHaveCSS(
+				"border-top-width",
+				"0px",
+			);
+
+			// Opened, an edit shows its path and diff, and no "No output".
+			await summary("edit").click();
+			const edit = view.getByTestId("chat-tool-edit");
+			await expect(edit.locator(".pk-chat-tool-path")).toHaveText(
+				"src/dashboard/useDashboardQuery.ts",
+			);
+			await expect(edit.getByTestId("chat-diff")).toBeVisible();
+			await expect(edit).not.toContainText("No output");
+			// A one-line command is not repeated under the row.
+			await summary("lint").click();
+			const lint = view.getByTestId("chat-tool-lint");
+			await expect(lint.getByRole("region", { name: "Error" })).toContainText(
+				"1 error",
+			);
+			await expect(lint.locator(".pk-chat-command")).toHaveCount(0);
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			// The row is reached and opened from the keyboard.
+			await summary("read").focus();
+			await page.keyboard.press("Enter");
+			await expect(view.getByTestId("chat-tool-read")).toHaveAttribute("open", "");
+			socket.send("tool.finished", { id: "test", isError: false });
+			await expect(summary("test")).toHaveText("Ran pnpm vitest run");
+		});
+	}
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`Jump to latest is a round button at the bottom right, with a dot for news (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		test.setTimeout(90_000);
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 1280, height: 720 });
+		const { id, view, socket } = await openChat(page, context);
+		const log = view.getByTestId("chat-scroll");
+		await log.evaluate((box) => box.scrollTo(0, 0));
+		const jump = view.getByRole("button", { name: "Jump to latest" });
+		await expect(jump).toBeVisible();
+		await expect(jump).not.toHaveAttribute("data-fresh");
+		await expect(view.locator(".pk-chat-jump-dot")).toHaveCount(0);
+
+		// Round, and in the bottom right corner, clear of the text's middle.
+		const radius = await jump.evaluate((node) => getComputedStyle(node).borderRadius);
+		expect(Number.parseFloat(radius)).toBeGreaterThan(100);
+		const area = await log.boundingBox();
+		const button = await jump.boundingBox();
+		if (!area || !button) throw new Error("no log or button");
+		expect(button.x).toBeGreaterThan(area.x + area.width * 0.75);
+		expect(button.y).toBeGreaterThan(area.y + area.height * 0.75);
+
+		// Something new while reading back: a dot, and a description for a screen reader.
+		socket.send("message", { id: "late", role: "user", markdown: "Another question" });
+		await expect(jump).toHaveAttribute("data-fresh", "true");
+		await expect(view.locator(".pk-chat-jump-dot")).toBeVisible();
+		await expect(jump).toHaveAccessibleDescription("Something new arrived below");
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+		// The keyboard reaches it; Enter goes to the end and the dot goes with the button.
+		await jump.focus();
+		await page.keyboard.press("Enter");
+		await expectLogAtEnd(view);
+		await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+
+		// Scrolling back again starts with no dot.
+		await log.evaluate((box) => box.scrollTo(0, 0));
+		await expect(jump).toBeVisible();
+		await expect(jump).not.toHaveAttribute("data-fresh");
+	});
+}

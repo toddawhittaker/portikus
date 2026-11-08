@@ -128,6 +128,31 @@ test("it connects to the tab's chat socket and shows a skeleton until the snapsh
 	expect(screen.getByText("No messages yet")).toBeTruthy();
 });
 
+test("a starter prompt fills the message box to edit, and sends nothing", () => {
+	draw();
+	snapshot();
+	const empty = screen.getByTestId("chat-empty");
+	expect(empty.textContent).toContain("kept in your workspace, not by Portikus");
+	const starters = within(empty).getAllByRole("button");
+	expect(starters.map((button) => button.textContent)).toEqual([
+		"Explain how this project is organised",
+		"Find a bug and explain it before fixing it",
+		"Write tests for the main file",
+	]);
+	const box = screen.getByTestId("chat-composer-input");
+	setText(box, "my own words");
+	const sent = latest().sent.length;
+	fireEvent.click(
+		within(empty).getByRole("button", { name: "Write tests for the main file" }),
+	);
+	expect(boxText(box)).toBe("Write tests for the main file");
+	expect(document.activeElement).toBe(box);
+	expect(latest().sent).toHaveLength(sent);
+	// Once a conversation exists the starters go.
+	emit("message", { id: "u1", role: "user", markdown: "hi" });
+	expect(screen.queryByTestId("chat-empty")).toBeNull();
+});
+
 test("a streamed turn shows Working, then folds its work into Worked for", () => {
 	draw();
 	snapshot({ truncated: true });
@@ -487,8 +512,16 @@ test("scrolling up stops the view following new text", () => {
 	Object.defineProperty(box, "clientHeight", { value: 400, configurable: true });
 	box.scrollTop = 100;
 	fireEvent.scroll(box);
+	const jump = screen.getByRole("button", { name: "Jump to latest" });
+	// Nothing new yet: no dot.
+	expect(jump.getAttribute("data-fresh")).toBeNull();
 	emit("message", { id: "a1", role: "assistant", markdown: "new" });
 	expect(box.scrollTop).toBe(100);
+	expect(jump.getAttribute("data-fresh")).toBe("true");
+	expect(jump.getAttribute("aria-describedby")).toBeTruthy();
+	expect(
+		document.getElementById(jump.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Something new arrived below");
 	// The way back to the end, which hands the keyboard to the message box.
 	fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
 	expect(box.scrollTop).toBe(2000);

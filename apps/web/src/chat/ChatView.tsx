@@ -7,8 +7,9 @@
  * must not grant a permission.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
-import { AgentStateMark, Button, Skeleton } from "@portikus/ui";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { AgentStateMark, IconButton, Skeleton } from "@portikus/ui";
+import type { TiptapEditorHTMLElement } from "@tiptap/core";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { Composer } from "./Composer.js";
@@ -71,6 +72,13 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 
 const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
 
+/** Ways into a new chat; a click puts one in the message box to edit, never sends it. */
+const STARTERS = [
+	"Explain how this project is organised",
+	"Find a bug and explain it before fixing it",
+	"Write tests for the main file",
+] as const;
+
 /** The chat with its images' viewer around it, so a reply or a tool can open one. */
 export function ChatView(props: ChatViewProps) {
 	return (
@@ -94,6 +102,7 @@ function ChatViewBody({
 	const log = useRef<HTMLDivElement | null>(null);
 	const content = useRef<HTMLDivElement | null>(null);
 	const cardsHadFocus = useRef(false);
+	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
 	const card = state.cards[0];
 	const waiting = state.cards.length - 1;
@@ -105,12 +114,18 @@ function ChatViewBody({
 	}, []);
 
 	// Where ResizeObserver is missing, new content still keeps the end in view;
-	// so does a card docking below the log, which makes the log shorter.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation or the dock changes
+	// a student reading back is told it came instead.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
+	useLayoutEffect(() => {
+		follow.arrived();
+	}, [state.items]);
+
+	// So does a turn's working line, and a card docking below the log, which makes it shorter.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the turn or the dock changes
 	useLayoutEffect(() => {
 		const box = log.current;
 		if (box && !follow.away) box.scrollTop = box.scrollHeight;
-	}, [state.items, state.currentTurnId, card?.id]);
+	}, [state.currentTurnId, card?.id]);
 
 	// A card answered here or in another browser takes the focus with it; put it somewhere useful.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the front card changes
@@ -139,6 +154,23 @@ function ChatViewBody({
 		root.current
 			?.querySelector<HTMLElement>(COMPOSER_BOX)
 			?.focus({ preventScroll: true });
+	}
+
+	/** The composer's editor hangs on its element (TipTap's own handle), so no new prop is needed. */
+	function fillComposer(text: string) {
+		const editor =
+			root.current?.querySelector<TiptapEditorHTMLElement>(COMPOSER_BOX)?.editor;
+		if (!editor) return;
+		editor
+			.chain()
+			.setContent({
+				type: "doc",
+				content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+			})
+			.focus("end", { scrollIntoView: false })
+			.run();
+		// TipTap focuses on the next frame; the student's next key should land now.
+		editor.view.focus();
 	}
 
 	function jumpToLatest() {
@@ -181,9 +213,22 @@ function ChatViewBody({
 							<div className="pk-chat-empty" data-testid="chat-empty">
 								<p className="pk-chat-empty-title">No messages yet</p>
 								<p className="pk-chat-muted">
-									Ask Claude Code about this project below. The conversation is kept in
-									your workspace, not by Portikus.
+									Ask Claude Code about this project below, or start from one of these.
+									The conversation is kept in your workspace, not by Portikus.
 								</p>
+								<ul className="pk-chat-starters">
+									{STARTERS.map((starter) => (
+										<li key={starter}>
+											<button
+												type="button"
+												className="pk-chat-starter pk-focus-ring"
+												onClick={() => fillComposer(starter)}
+											>
+												{starter}
+											</button>
+										</li>
+									))}
+								</ul>
 							</div>
 						) : (
 							<MessageList
@@ -197,14 +242,24 @@ function ChatViewBody({
 				</div>
 				{follow.away ? (
 					<div className="pk-chat-jump">
-						<Button
-							size="sm"
-							iconStart="chevron-down"
+						<IconButton
+							icon="chevron-down"
+							label="Jump to latest"
+							variant="secondary"
+							className="pk-chat-jump-button"
 							data-testid="chat-jump"
+							data-fresh={follow.fresh || undefined}
+							aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
 							onClick={jumpToLatest}
-						>
-							Jump to latest
-						</Button>
+						/>
+						{follow.fresh ? (
+							<>
+								<span className="pk-chat-jump-dot" aria-hidden={true} />
+								<span id={`${ids}-fresh`} className="sr-only">
+									Something new arrived below
+								</span>
+							</>
+						) : null}
 					</div>
 				) : null}
 			</div>
