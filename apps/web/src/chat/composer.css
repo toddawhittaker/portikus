@@ -48,7 +48,8 @@
 }
 
 .pk-composer-text p.is-editor-empty:first-child::before {
-	content: attr(data-placeholder);
+	/* Empty alternative text, so a screen reader hears aria-placeholder, not this as typed text. */
+	content: attr(data-placeholder) / "";
 	float: inline-start;
 	block-size: 0;
 	color: var(--ink-faint);

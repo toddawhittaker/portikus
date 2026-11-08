@@ -240,6 +240,48 @@ test("while a turn runs the foot says Enter sends without stopping, and Esc stop
 	expect(hint()).toBe("Enter sends without stopping Claude. Esc stops it.");
 });
 
+test("when Stop ends the turn while it holds the keyboard, the message box takes it", () => {
+	draw();
+	emit("turn.started", { at: 0 });
+	const stop = screen.getByRole("button", { name: "Stop" });
+	stop.focus();
+	fireEvent.click(stop);
+	emit("turn.finished", { at: 1, status: "interrupted" });
+	expect(document.activeElement).toBe(input());
+});
+
+test("a turn that ends while the keyboard is elsewhere leaves the keyboard alone", () => {
+	draw();
+	emit("turn.started", { at: 0 });
+	const send = screen.getByTestId("chat-composer-send");
+	send.focus();
+	emit("turn.finished", { at: 1, status: "done" });
+	expect(document.activeElement).toBe(send);
+});
+
+test("while a sent message waits for the host, Send says why it waits", () => {
+	draw();
+	type("hi");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	const send = screen.getByTestId("chat-composer-send");
+	expect(send.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Wait for your last message to reach Claude.");
+	echo("hi");
+	expect(send.hasAttribute("aria-disabled")).toBe(false);
+	expect(send.hasAttribute("aria-describedby")).toBe(false);
+});
+
+test("entering a code block is announced once, with how to send and how to leave", () => {
+	draw();
+	typeInto(input(), "```");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(status()).toMatch(
+		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
+	);
+});
+
 test("Escape in the box stops a running turn, and does nothing when none runs", () => {
 	draw();
 	fireEvent.keyDown(input(), { key: "Escape" });

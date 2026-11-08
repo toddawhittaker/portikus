@@ -53,6 +53,9 @@ const KEY_HINT =
 const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
+const SENDING = "Wait for your last message to reach Claude.";
+// Said once on entering a block: the visible hint is only a description, read on focus.
+const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
 const PASTED_NAME = "pasted-text.txt";
 
 /** A message sent and not yet echoed back by the host. */
@@ -87,6 +90,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const picker = useRef<HTMLInputElement | null>(null);
 	/** The last message sent, for Up to bring back; never stored (SPEC.md §25.10). */
 	const lastSent = useRef<JSONContent | null>(null);
+	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
+	const stopFocused = useRef(false);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
 	const bypass = settings?.mode === "bypassPermissions";
@@ -114,6 +119,18 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	useEffect(() => {
 		if (bypass) setAnnounced(BYPASS_ON);
 	}, [bypass]);
+
+	useEffect(() => {
+		if (inCode) setAnnounced(CODE_ANNOUNCED);
+	}, [inCode]);
+
+	useLayoutEffect(() => {
+		if (running || !stopFocused.current) return;
+		stopFocused.current = false;
+		const lost =
+			document.activeElement === null || document.activeElement === document.body;
+		if (lost) editor.current?.view.dom.focus({ preventScroll: true });
+	}, [running]);
 
 	const announce = useCallback((text: string) => setAnnounced(text), []);
 
@@ -235,7 +252,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		return event.dataTransfer.types.includes("Files");
 	}
 
-	const waitReason = files.saving > 0 ? SAVING : "";
+	const waitReason = files.saving > 0 ? SAVING : sending !== null ? SENDING : "";
 
 	return (
 		<>
@@ -315,6 +332,13 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 								variant="secondary"
 								className="pk-composer-send"
 								data-testid="chat-composer-stop"
+								onFocus={() => {
+									stopFocused.current = true;
+								}}
+								onBlur={(event) => {
+									// A blur from being removed leaves the flag for the effect above.
+									if (event.currentTarget.isConnected) stopFocused.current = false;
+								}}
 								onClick={() => store.getState().interrupt()}
 							/>
 						) : null}
@@ -326,7 +350,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 							className="pk-composer-send is-send"
 							data-testid="chat-composer-send"
 							// Stays focusable while it waits, and says why (SPEC.md §25.8).
-							aria-disabled={waitReason !== "" || sending !== null || undefined}
+							aria-disabled={waitReason !== "" || undefined}
 							aria-describedby={waitReason !== "" ? `${ids}-wait` : undefined}
 						/>
 					</div>

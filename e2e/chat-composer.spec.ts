@@ -258,17 +258,27 @@ test("an SVG and a picture over 5 MB are refused with a reason", async ({
 });
 
 /**
- * Keep the fake's turn open, as a real one is while Claude works: the frame
- * that ends it is held back, and so is the fresh turn.started the fake sends
- * with each later message, which a real host does not send mid-turn.
+ * Keep the fake's turn open, as a real one is while Claude works: once the
+ * page has sent a message, the frame that ends the turn is held back, and so
+ * is the fresh turn.started the fake sends with each later message, which a
+ * real host does not send mid-turn. Replayed history, and the end after
+ * Stop, pass untouched.
  */
 async function holdTurnOpen(page: Page) {
 	await page.routeWebSocket(/\/chat$/, (ws) => {
 		const server = ws.connectToServer();
+		let holding = false;
 		let started = false;
-		ws.onMessage((message) => server.send(message));
-		server.onMessage((message) => {
+		ws.onMessage((message) => {
 			if (typeof message === "string") {
+				if (message.includes('"type":"send"')) holding = true;
+				// A Stop ends the turn for real.
+				if (message.includes('"type":"interrupt"')) holding = false;
+			}
+			server.send(message);
+		});
+		server.onMessage((message) => {
+			if (holding && typeof message === "string") {
 				if (message.includes('"type":"turn.finished"')) return;
 				if (message.includes('"type":"turn.started"')) {
 					if (started) return;
@@ -285,6 +295,8 @@ async function startHeldTurn(page: Page, student: { workspaceId: string }) {
 	await holdTurnOpen(page);
 	const opened = await openChat(page, student);
 	const box = opened.view.getByTestId("chat-composer-input");
+	// The replayed history shows once the socket is open, so the send is not refused.
+	await expect(opened.view.getByText("Earlier answer")).toBeVisible();
 	await box.fill("Run the tests");
 	await box.press("Enter");
 	await expect(opened.view.getByTestId("chat-working")).toBeVisible();
@@ -354,6 +366,33 @@ test("Escape in the message box stops a running turn, but first closes an open p
 	await expect
 		.poll(async () => frames(id, "interrupt"))
 		.toEqual([{ type: "interrupt" }]);
+});
+
+test("Stop pressed from the keyboard ends the turn and leaves the keyboard in the message box", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { view, box } = await startHeldTurn(page, student);
+	const stop = view.getByRole("button", { name: "Stop", exact: true });
+	await stop.focus();
+	await page.keyboard.press("Enter");
+	await expect(stop).toHaveCount(0);
+	await expect(box).toBeFocused();
+});
+
+test("entering a code block is announced with how to send and leave it", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { view } = await openChat(page, student);
+	const box = view.getByTestId("chat-composer-input");
+	await box.pressSequentially("```");
+	await box.press("Enter");
+	await expect(view.getByTestId("chat-composer-status")).toHaveText(
+		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
+	);
 });
 
 test("Up in an empty box brings back the last message sent", async ({
