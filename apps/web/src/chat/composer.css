@@ -97,6 +97,7 @@
 
 .pk-composer-bar {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
 }
@@ -206,6 +207,12 @@
 	overflow-wrap: anywhere;
 }
 
+/* Dictation's running guess, at the cursor until the final words replace it. */
+.pk-composer-interim {
+	color: var(--ink-muted);
+	font-style: italic;
+}
+
 /* The line under the box: a key hint, or the bypass warning in its place. */
 .pk-composer-foot {
 	display: flex;
@@ -235,10 +242,6 @@
    the widest short values (Extra high, Bypass permissions), so 35rem (560px) never
    moves the pickers when a value changes. */
 @container pk-composer (width < 35rem) {
-	.pk-composer-bar {
-		flex-wrap: wrap;
-	}
-
 	.pk-composer-picks {
 		order: 1;
 		flex-basis: 100%;

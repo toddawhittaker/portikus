@@ -24,6 +24,8 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { Fragment, type Schema, Slice } from "@tiptap/pm/model";
+import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { toMarkdown } from "./composerMarkdown.js";
 
 // Emphasis as CommonMark reads it: the markers hug the text, and the
@@ -67,14 +69,68 @@ export function inCodeBlock(editor: EditorType): boolean {
 	return editor.state.selection.$from.parent.type.spec.code === true;
 }
 
+/** A space to set dictated words apart from the text before the cursor. */
+function leadSpace(state: EditorState): string {
+	const { $from } = state.selection;
+	const before = $from.parent.textBetween(0, $from.parentOffset, "\n");
+	return before !== "" && !/\s$/.test(before) ? " " : "";
+}
+
 /** Dictated words go where the cursor is, set apart by a space. */
 export function insertAtCursor(editor: EditorType, words: string): void {
 	const { state } = editor;
-	const { from, to, $from } = state.selection;
-	const before = $from.parent.textBetween(0, $from.parentOffset, "\n");
-	const lead = before !== "" && !/\s$/.test(before) ? " " : "";
-	editor.view.dispatch(state.tr.insertText(lead + words, from, to).scrollIntoView());
+	const { from, to } = state.selection;
+	const text = leadSpace(state) + words;
+	editor.view.dispatch(state.tr.insertText(text, from, to).scrollIntoView());
 }
+
+const INTERIM = new PluginKey<string>("composerInterim");
+
+/**
+ * The recogniser's running guess, drawn greyed at the cursor. It is a
+ * decoration, never part of the document, so it cannot be sent; it is
+ * hidden from assistive technology, where the status region says
+ * "Listening…" instead (SPEC.md §25.10).
+ */
+export function showInterim(editor: EditorType, words: string): void {
+	if (editor.isDestroyed || INTERIM.getState(editor.state) === words) return;
+	editor.view.dispatch(editor.state.tr.setMeta(INTERIM, words));
+}
+
+const interim = Extension.create({
+	name: "composerInterim",
+	addProseMirrorPlugins() {
+		return [
+			new Plugin<string>({
+				key: INTERIM,
+				state: {
+					init: () => "",
+					apply: (tr, now) => (tr.getMeta(INTERIM) as string | undefined) ?? now,
+				},
+				props: {
+					decorations(state) {
+						const words = INTERIM.getState(state) ?? "";
+						if (words === "") return null;
+						const text = leadSpace(state) + words;
+						const widget = Decoration.widget(
+							state.selection.head,
+							() => {
+								const span = document.createElement("span");
+								span.className = "pk-composer-interim";
+								span.setAttribute("aria-hidden", "true");
+								span.dataset.testid = "chat-voice-interim";
+								span.textContent = text;
+								return span;
+							},
+							{ side: 1, key: text, ignoreSelection: true },
+						);
+						return DecorationSet.create(state.doc, [widget]);
+					},
+				},
+			}),
+		];
+	},
+});
 
 /** Lines of plain text as paragraphs, open at both ends to join the line pasted into. */
 function plainSlice(schema: Schema, text: string): Slice {
@@ -162,6 +218,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			UndoRedo,
 			Placeholder.configure({ placeholder: options.placeholder }),
 			keys,
+			interim,
 		],
 		editorProps: {
 			attributes: options.attributes,
