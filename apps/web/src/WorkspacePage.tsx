@@ -20,6 +20,7 @@ import { StarterLaunch } from "./projects/StarterLaunch.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
 import { AppHeader } from "./shell/AppHeader.js";
 import { DisconnectNotice, disconnectAnnouncement } from "./shell/DisconnectNotice.js";
+import { DRAWER_IDS, type DrawerName, openedTab } from "./shell/drawers.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
@@ -135,7 +136,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const layoutStore = useLayoutStore(projectId ?? "none");
 	// At phone widths the side panes are drawers, one open at a time (SPEC.md §8.1).
 	const phone = usePhoneLayout();
-	const [drawer, setDrawer] = useState<"projects" | "files" | null>(null);
+	const [drawer, setDrawer] = useState<DrawerName | null>(null);
 	const projectsButton = useRef<HTMLButtonElement>(null);
 	const filesButton = useRef<HTMLButtonElement>(null);
 	const closeDrawer = () => setDrawer(null);
@@ -145,13 +146,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	}, [phone]);
 	// Choosing a project or opening a file shows the work area.
 	useEffect(() => {
-		if (projectId !== undefined)
-			setDrawer((open) => (open === "projects" ? null : open));
+		if (projectId !== undefined) setDrawer(null);
 	}, [projectId]);
 	useEffect(
 		() =>
 			layoutStore.subscribe((state, previous) => {
-				if (state.activeTabId !== previous.activeTabId)
+				if (openedTab(previous, state))
 					setDrawer((open) => (open === "files" ? null : open));
 			}),
 		[layoutStore],
@@ -201,7 +201,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				workspace={workspace}
 				project={project}
 				drawers={{
-					open: phone ? drawer : null,
+					open: drawer,
 					onOpen: setDrawer,
 					projectsRef: projectsButton,
 					filesRef: filesButton,
@@ -219,7 +219,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			>
 				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
 					<ShellDrawer
-						id="projects-drawer"
+						id={DRAWER_IDS.projects}
 						side="left"
 						label="Projects"
 						phone={phone}
@@ -353,7 +353,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				<PaneHandle label="Resize file tree" />
 				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
 					<ShellDrawer
-						id="files-drawer"
+						id={DRAWER_IDS.files}
 						side="right"
 						label="Files"
 						phone={phone}

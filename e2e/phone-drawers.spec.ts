@@ -33,8 +33,16 @@ function focusIsIn(container: Locator): Promise<boolean> {
 
 function drawers(page: Page) {
 	return {
-		projectsButton: page.getByRole("button", { name: "Projects", exact: true }),
-		filesButton: page.getByRole("button", { name: "Files", exact: true }),
+		projectsButton: page.getByRole("button", {
+			name: "Projects",
+			exact: true,
+			includeHidden: true,
+		}),
+		filesButton: page.getByRole("button", {
+			name: "Files",
+			exact: true,
+			includeHidden: true,
+		}),
 		projects: page.getByRole("dialog", { name: "Projects" }),
 		files: page.getByRole("dialog", { name: "Files" }),
 	};
@@ -231,3 +239,129 @@ test.describe("at 1024 px", () => {
 		expect(work.x + work.width).toBeLessThanOrEqual(files.x + 1);
 	});
 });
+
+for (const width of [360, 800]) {
+	for (const colorScheme of ["light", "dark"] as const) {
+		test.describe(`behind an open drawer at ${width} px (${colorScheme})`, () => {
+			test.use({ viewport: { width, height: HEIGHT }, colorScheme });
+
+			test("the chat's announcer still speaks: the page is hidden with aria-hidden, not inert (ADR 0047)", async ({
+				page,
+				context,
+			}) => {
+				const made = await makeChatTab(page, context);
+				let send: ReturnType<typeof scriptedChat> | undefined;
+				await page.routeWebSocket(/\/chat$/, (ws) => {
+					send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
+					send("snapshot", { cards: [], turnRunning: true, truncated: false });
+					send("settings", {
+						agent: "claude",
+						model: "default",
+						effort: "high",
+						mode: "default",
+					});
+				});
+				await page.reload();
+				const view = page.getByTestId(`chat-view-${made.id}`);
+				await expect(view.getByTestId("chat-composer-input")).toBeVisible({
+					timeout: 15_000,
+				});
+				const announcer = view.getByTestId("chat-announcer");
+				await expect(announcer).toHaveText("Claude is working.");
+
+				const d = drawers(page);
+				await d.filesButton.click();
+				await expect(d.files).toBeVisible();
+				expect(await page.locator("[inert]").count()).toBe(0);
+				// The header behind is hidden from the screen reader; the live region below stays heard.
+				await expect(
+					page.getByRole("button", { name: "Projects", exact: true }),
+				).toHaveCount(0);
+				send?.("permission.requested", {
+					id: "p1",
+					toolName: "Bash",
+					title: "ls",
+					input: { command: "ls" },
+					options: [{ id: "allow", label: "Allow once" }],
+				});
+				await expect(announcer).toHaveText("Claude wants to use Bash.");
+				expect(
+					await announcer.evaluate((el) => el.closest('[aria-hidden="true"]') === null),
+				).toBe(true);
+				await expect(d.files).toBeVisible();
+				await expectNoViolations(page);
+
+				await page.keyboard.press("Escape");
+				await expect(d.files).toBeHidden();
+				await expect(page.getByRole("main", { name: "Work area" })).toBeVisible();
+			});
+
+			test("going to another project closes whichever drawer is open, and a tab closing on its own does not", async ({
+				page,
+				context,
+			}) => {
+				const student = await createStudent(context);
+				const first = await createProject(student.workspaceId, { name: "First" });
+				const second = await createProject(student.workspaceId, { name: "Second" });
+				await seedFile(student.workspaceId, second.slug, "a.md", "# a\n");
+				await seedFile(student.workspaceId, second.slug, "b.md", "# b\n");
+				await page.goto(workspacePath(student.workspaceId, first.id));
+				await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+				const d = drawers(page);
+				await d.projectsButton.click();
+				await d.projects.getByRole("link", { name: "Second" }).click();
+				await expect(page).toHaveURL(new RegExp(`/projects/${second.id}$`));
+
+				// Two files open, then the Files drawer stays open while one is deleted.
+				for (const name of ["a.md", "b.md"]) {
+					await d.filesButton.click();
+					await d.files.getByTestId(`file-row-${name}`).click();
+					await expect(d.files).toBeHidden();
+				}
+				await d.filesButton.click();
+				await d.files.getByTestId("file-row-b.md").click({ button: "right" });
+				await page.getByRole("menuitem", { name: /Delete/ }).click();
+				await page
+					.getByRole("alertdialog")
+					.getByRole("button", { name: "Delete" })
+					.click();
+				await expect(page.getByTestId("tab-file:b.md")).toHaveCount(0);
+				await expect(d.files).toBeVisible();
+				await expectNoViolations(page);
+
+				// Back to the first project with Files open: it closes, focus on its button.
+				await page.goBack();
+				await expect(page).toHaveURL(new RegExp(`/projects/${first.id}$`));
+				await expect(d.files).toBeHidden();
+				await expect(d.filesButton).toBeFocused();
+			});
+
+			test("widening the window with a drawer open puts focus in the pane it held", async ({
+				page,
+				context,
+			}) => {
+				const student = await createStudent(context);
+				const project = await createProject(student.workspaceId, { name: "Widen" });
+				await page.goto(workspacePath(student.workspaceId, project.id));
+				await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+				const d = drawers(page);
+
+				await d.projectsButton.click();
+				await expect(d.projects).toBeVisible();
+				await expectNoViolations(page);
+				await page.setViewportSize({ width: 1024, height: HEIGHT });
+				const projects = page.getByRole("navigation", { name: "Projects" });
+				await expect(projects).toBeVisible();
+				await expect.poll(() => focusIsIn(projects)).toBe(true);
+
+				await page.setViewportSize({ width, height: HEIGHT });
+				await d.filesButton.click();
+				await expect(d.files).toBeVisible();
+				await page.setViewportSize({ width: 1024, height: HEIGHT });
+				await expect(
+					page.getByRole("tab", { name: "Files", selected: true }),
+				).toBeFocused();
+			});
+		});
+	}
+}

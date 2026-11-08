@@ -218,12 +218,6 @@ button.pk-statusbar-item:focus-visible {
 .pk-wsbutton:hover {
 	background: var(--surface-hover);
 }
-/* The drawer buttons exist only where the side panes are drawers (SPEC.md section 8.1). */
-@media (width >= 56rem) {
-	.pk-appbar > .pk-appbar-drawer {
-		display: none;
-	}
-}
 .pk-appbar > .pk-appbar-drawer {
 	flex: none;
 }

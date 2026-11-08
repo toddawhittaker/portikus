@@ -23,6 +23,7 @@ import { initials } from "../settings/ProfilePane.js";
 import { useProfile } from "../settings/profileQueries.js";
 import { SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
+import { DRAWER_IDS, type DrawerName } from "./drawers.js";
 
 /** The badge text: the count, "9+" above nine, nothing at zero. */
 export function badgeText(unread: number): string | null {
@@ -85,8 +86,8 @@ function AccountPicture({
 
 /** The phone-width buttons that open the side panes as drawers (SPEC.md §8.1). */
 export interface DrawerButtons {
-	open: "projects" | "files" | null;
-	onOpen: (drawer: "projects" | "files") => void;
+	open: DrawerName | null;
+	onOpen: (drawer: DrawerName) => void;
 	projectsRef: RefObject<HTMLButtonElement | null>;
 	filesRef: RefObject<HTMLButtonElement | null>;
 }
@@ -152,7 +153,7 @@ export function AppHeader({
 					className="pk-appbar-drawer"
 					aria-haspopup="dialog"
 					aria-expanded={drawers.open === "projects"}
-					aria-controls="projects-drawer"
+					aria-controls={DRAWER_IDS.projects}
 					onClick={() => drawers.onOpen("projects")}
 				/>
 			) : null}
@@ -212,7 +213,7 @@ export function AppHeader({
 					className="pk-appbar-drawer"
 					aria-haspopup="dialog"
 					aria-expanded={drawers.open === "files"}
-					aria-controls="files-drawer"
+					aria-controls={DRAWER_IDS.files}
 					onClick={() => drawers.onOpen("files")}
 				/>
 			) : null}

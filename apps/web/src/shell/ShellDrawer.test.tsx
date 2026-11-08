@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { inertOutside, ShellDrawer, usePhoneLayout, wrapTab } from "./ShellDrawer.js";
+import { restoreFocus, ShellDrawer, usePhoneLayout, wrapTab } from "./ShellDrawer.js";
 
 afterEach(() => {
 	cleanup();
@@ -29,7 +29,16 @@ function Shell({ phone }: { phone: boolean }) {
 	return (
 		<div className="pk-root">
 			<header>
-				<button type="button" ref={opener} onClick={() => setOpen(true)}>
+				<p aria-live="polite">Status</p>
+				<button
+					type="button"
+					ref={(element) => {
+						opener.current = element;
+						// jsdom lays nothing out; the opener is on screen here.
+						if (element) element.getClientRects = () => [{}] as unknown as DOMRectList;
+					}}
+					onClick={() => setOpen(true)}
+				>
 					Projects
 				</button>
 			</header>
@@ -51,7 +60,10 @@ function Shell({ phone }: { phone: boolean }) {
 						<button type="button">New project</button>
 					</nav>
 				</ShellDrawer>
-				<main>Work</main>
+				<main>
+					Work
+					<button type="button">Run</button>
+				</main>
 			</div>
 		</div>
 	);
@@ -76,19 +88,47 @@ test("at desktop widths the drawer is neither a dialog nor has a close button", 
 	expect(screen.getByRole("navigation", { name: "Project list" })).toBeDefined();
 });
 
-test("an open phone drawer is a named modal dialog with focus inside and the rest inert", () => {
+test("an open phone drawer is a named modal dialog, hides the rest with aria-hidden, not inert", () => {
 	render(<Shell phone={true} />);
 	fireEvent.click(screen.getByRole("button", { name: "Projects" }));
 	const dialog = screen.getByRole("dialog", { name: "Projects" });
 	expect(dialog.getAttribute("aria-modal")).toBe("true");
 	expect(document.activeElement).toBe(dialog);
-	expect(screen.getByText("Work").hasAttribute("inert")).toBe(true);
-	expect(document.querySelector("header")?.hasAttribute("inert")).toBe(true);
+	const work = screen.getByText("Work");
+	// Inert would silence the live regions behind the drawer (ADR 0047).
+	expect(document.querySelector("[inert]")).toBeNull();
+	expect(work.closest('[aria-hidden="true"]')).not.toBeNull();
+	expect(screen.getByText("Status").closest('[aria-hidden="true"]')).toBeNull();
 
 	fireEvent.keyDown(dialog, { key: "Escape" });
-	expect(screen.getByText("Work").hasAttribute("inert")).toBe(false);
-	expect(document.querySelector("header")?.hasAttribute("inert")).toBe(false);
+	expect(work.closest('[aria-hidden="true"]')).toBeNull();
 	expect(document.activeElement).toBe(screen.getByRole("button", { name: "Projects" }));
+});
+
+test("a scripted focus move behind the drawer closes it and leaves focus where it was sent", () => {
+	render(<Shell phone={true} />);
+	fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+	const work = screen.getByRole("button", { name: "Run", hidden: true });
+	act(() => work.focus());
+	expect(document.getElementById("projects-drawer")?.closest("[data-open]")).toBeNull();
+	expect(document.activeElement).toBe(work);
+});
+
+test("restoreFocus falls back to the selected tab, then the first stop, when the opener is hidden", () => {
+	document.body.innerHTML = `
+		<button id="opener"></button>
+		<div id="sheet"><a href="/x" id="link">A</a><button role="tab" aria-selected="true" id="tab">T</button></div>
+		<div id="plain"><a href="/y" id="first">B</a></div>`;
+	const get = (id: string) => document.getElementById(id) as HTMLElement;
+	// jsdom lays nothing out, so a hidden opener reports no box.
+	restoreFocus(get("opener"), get("sheet"));
+	expect(document.activeElement).toBe(get("tab"));
+	restoreFocus(null, get("plain"));
+	expect(document.activeElement).toBe(get("first"));
+	get("opener").getClientRects = () => [{}] as unknown as DOMRectList;
+	restoreFocus(get("opener"), get("sheet"));
+	expect(document.activeElement).toBe(get("opener"));
+	document.body.innerHTML = "";
 });
 
 test("the close button, a scrim tap and a followed link close it; a new-tab link and Escape from a prevented key do not", () => {
@@ -120,22 +160,15 @@ test("the close button, a scrim tap and a followed link close it; a new-tab link
 	expect(isOpen()).toBe(false);
 });
 
-test("inertOutside stops at the shell root and leaves already inert elements as they were", () => {
-	document.body.innerHTML = `
-		<aside id="outside"></aside>
-		<div class="pk-root">
-			<header id="head"></header>
-			<section id="was" inert></section>
-			<div><div id="layer"></div><main id="work"></main></div>
-		</div>`;
-	const get = (id: string) => document.getElementById(id) as HTMLElement;
-	const undo = inertOutside(get("layer"));
-	expect(get("head").hasAttribute("inert")).toBe(true);
-	expect(get("work").hasAttribute("inert")).toBe(true);
-	expect(get("outside").hasAttribute("inert")).toBe(false);
-	undo();
-	expect(get("head").hasAttribute("inert")).toBe(false);
-	expect(get("was").hasAttribute("inert")).toBe(true);
+test("wrapTab counts a summary as a stop", () => {
+	document.body.innerHTML = `<div id="sheet"><button id="a">A</button><details><summary id="s">More</summary></details></div>`;
+	const sheet = document.getElementById("sheet") as HTMLElement;
+	const a = document.getElementById("a") as HTMLElement;
+	const s = document.getElementById("s") as HTMLElement;
+	for (const el of [a, s]) el.getClientRects = () => [{}] as unknown as DOMRectList;
+	s.focus();
+	wrapTab(sheet, { shiftKey: false, preventDefault: vi.fn() });
+	expect(document.activeElement).toBe(a);
 	document.body.innerHTML = "";
 });
 
