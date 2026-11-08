@@ -578,6 +578,8 @@ test("scrolling up stops the view following new text", () => {
 	if (!box) throw new Error("no scroll box");
 	Object.defineProperty(box, "scrollHeight", { value: 2000, configurable: true });
 	Object.defineProperty(box, "clientHeight", { value: 400, configurable: true });
+	box.scrollTop = 1600;
+	fireEvent.scroll(box);
 	box.scrollTop = 100;
 	fireEvent.scroll(box);
 	const jump = screen.getByRole("button", { name: "Jump to latest" });
