@@ -1,5 +1,62 @@
 import { expect, test } from "vitest";
-import { diffLines, previewText, toolView } from "./toolView";
+import { diffLines, previewText, toolLine, toolView } from "./toolView";
+
+test("a row names the kind of tool, its verb and what it acted on", () => {
+	expect(toolLine("Read", { file_path: "src/a.ts" }, "Read a file")).toEqual({
+		icon: "file",
+		verb: { done: "Read", pending: "Read" },
+		target: "a.ts",
+		literal: true,
+		path: "src/a.ts",
+		added: 0,
+		removed: 0,
+		detail: null,
+	});
+	expect(toolLine("Write", { file_path: "b.md", content: "x" }, "").path).toBeNull();
+	expect(toolLine("Grep", { pattern: "x", path: "src" }, "").target).toBe("x in src");
+	expect(toolLine("Glob", { pattern: "*.ts" }, "").icon).toBe("list");
+	expect(toolLine("WebSearch", { query: "zod" }, "").verb?.done).toBe(
+		"Searched the web for",
+	);
+	expect(toolLine("Bash", { command: "ls" }, "").icon).toBe("terminal");
+});
+
+test("a one-line command is left out of the opened row; a longer one stays", () => {
+	expect(toolLine("Bash", { command: "pnpm test" }, "").detail).toBeNull();
+	expect(toolLine("Bash", { command: "a\nb" }, "").detail).toEqual({
+		kind: "command",
+		command: "a\nb",
+	});
+});
+
+test("an edit counts the lines it added and removed across its changes", () => {
+	const line = toolLine(
+		"MultiEdit",
+		{
+			file_path: "a.ts",
+			edits: [
+				{ old_string: "x\ny", new_string: "x\nz" },
+				{ old_string: "1", new_string: "2\n3" },
+			],
+		},
+		"",
+	);
+	expect([line.added, line.removed]).toEqual([3, 2]);
+});
+
+test("an unknown tool, or input without what the verb needs, keeps the title", () => {
+	expect(toolLine("Screenshot", { url: "x" }, "the page")).toMatchObject({
+		icon: "box",
+		verb: null,
+		target: "the page",
+		literal: false,
+	});
+	expect(toolLine("Read", {}, "Read it")).toMatchObject({
+		verb: null,
+		target: "Read it",
+	});
+	expect(toolLine("Read", "nonsense", "t").verb).toBeNull();
+});
 
 test("common tools read as their command, path, pattern or address", () => {
 	expect(toolView("Bash", { command: "pnpm test\n--run" }, "Run tests")).toEqual({
