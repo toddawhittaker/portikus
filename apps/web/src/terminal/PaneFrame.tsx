@@ -48,7 +48,10 @@ export interface PaneFrameProps {
 	/** The other tabs this pane can join, named as the tab strip names them. */
 	moveTargets: { tabId: string; label: string }[];
 	onFocus: (terminalId: string) => void;
-	onSplit: (terminalId: string, direction: SplitDirection) => void;
+	/** Split with a new plain shell; used when `splitItems` is not given. */
+	onSplit?: (terminalId: string, direction: SplitDirection) => void;
+	/** Makes Split right and Split down submenus of what to open (SPEC.md §8.7). */
+	splitItems?: (terminalId: string, direction: SplitDirection) => ReactNode;
 	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
 	/** Put this pane into another tab's split, the click way to drag it there. */
@@ -83,6 +86,7 @@ export function PaneFrame({
 	moveTargets,
 	onFocus,
 	onSplit,
+	splitItems,
 	onMoveToNewTab,
 	onMoveInto,
 	onResetSizes,
@@ -216,12 +220,31 @@ export function PaneFrame({
 						label={`Actions for ${name}`}
 						onCloseAutoFocus={actionsMenu.onCloseAutoFocus}
 					>
-						<MenuItem disabled={ended} onSelect={() => onSplit(terminalId, "row")}>
-							<span data-testid="split-right">Split right</span>
-						</MenuItem>
-						<MenuItem disabled={ended} onSelect={() => onSplit(terminalId, "column")}>
-							<span data-testid="split-down">Split down</span>
-						</MenuItem>
+						{splitItems ? (
+							<>
+								<MenuSub label="Split right" disabled={ended} testId="split-right">
+									{splitItems(terminalId, "row")}
+								</MenuSub>
+								<MenuSub label="Split down" disabled={ended} testId="split-down">
+									{splitItems(terminalId, "column")}
+								</MenuSub>
+							</>
+						) : (
+							<>
+								<MenuItem
+									disabled={ended}
+									onSelect={() => onSplit?.(terminalId, "row")}
+								>
+									<span data-testid="split-right">Split right</span>
+								</MenuItem>
+								<MenuItem
+									disabled={ended}
+									onSelect={() => onSplit?.(terminalId, "column")}
+								>
+									<span data-testid="split-down">Split down</span>
+								</MenuItem>
+							</>
+						)}
 						<MenuItem disabled={alone} onSelect={() => onMoveToNewTab(terminalId)}>
 							<span data-testid="terminal-move-to-new-tab">Move to new tab</span>
 						</MenuItem>

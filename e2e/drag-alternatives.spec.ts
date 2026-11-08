@@ -17,6 +17,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 function tabs(page: Page): Locator {
 	return workTabs(page).getByRole("tab");
@@ -206,7 +207,8 @@ test("Reset pane sizes shares a split out evenly again", async ({ page, context 
 	await expect(
 		alone.getByRole("menuitem", { name: "Reset pane sizes" }),
 	).toHaveAttribute("aria-disabled", "true");
-	await alone.getByRole("menuitem", { name: "Split right" }).click();
+	await page.keyboard.press("Escape");
+	await splitPane(page, first, "right");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 		.toBe(2);
