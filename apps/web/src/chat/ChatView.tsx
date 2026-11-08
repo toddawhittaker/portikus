@@ -68,7 +68,7 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-const COMPOSER_BOX = ".pk-chat-composer textarea";
+const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
 
 /** The chat with its images' viewer around it, so a reply or a tool can open one. */
 export function ChatView(props: ChatViewProps) {

@@ -169,16 +169,16 @@ test("Enter sends, Shift+Enter makes a new line, and a sent message appears", as
 	const student = await createStudent(context);
 	const { id, view } = await openChat(page, student);
 	const box = view.getByTestId("chat-composer-input");
-	await expect(box).toHaveAttribute(
-		"placeholder",
-		"Message Claude Code, or paste or drop images",
-	);
+	await expect(
+		view.getByRole("textbox", { name: "Message Claude Code" }),
+	).toHaveAttribute("aria-placeholder", "Message Claude Code, or paste or drop images");
+	await expect(box).toHaveAttribute("aria-multiline", "true");
 	await box.fill("first line");
 	await box.press("Shift+Enter");
 	await box.pressSequentially("second line");
 	expect(await frames(id, "send")).toHaveLength(0);
 	await box.press("Enter");
-	await expect(box).toHaveValue("");
+	await expect(box).toHaveText("");
 	await expect
 		.poll(async () => frames(id, "send"))
 		.toEqual([{ type: "send", text: "first line\nsecond line", attachments: [] }]);
@@ -224,7 +224,7 @@ test("a pasted picture, a dropped picture and an attached file each become a chi
 	await view.getByTestId("chat-composer-send").click();
 	// Cleared once the host has echoed the message.
 	await expect(chips).toHaveCount(0);
-	await expect(view.getByTestId("chat-composer-input")).toHaveValue("");
+	await expect(view.getByTestId("chat-composer-input")).toHaveText("");
 	await expect.poll(async () => (await frames(id, "send")).length).toBe(1);
 	const [send] = await frames(id, "send");
 	const paths = ((send?.attachments ?? []) as { path: string }[]).map((a) => a.path);
@@ -318,9 +318,13 @@ test("while a turn runs, Stop sends interrupt", async ({ page, context }) => {
 	// The fake's turn starts on the first message.
 	await view.getByTestId("chat-composer-input").fill("Run the tests");
 	await view.getByTestId("chat-composer-input").press("Enter");
-	const stop = view.getByTestId("chat-composer-stop");
+	const stop = view.getByRole("button", { name: "Stop", exact: true });
 	await expect(stop).toBeVisible();
-	await expect(view.getByTestId("chat-composer-send")).toHaveCount(0);
+	await expect(stop).toHaveAttribute("data-testid", "chat-composer-stop");
+	// Send stays beside Stop, waiting, and says why.
+	const send = view.getByRole("button", { name: "Send", exact: true });
+	await expect(send).toHaveAttribute("aria-disabled", "true");
+	await expect(send).toHaveAccessibleDescription(/^Claude is working\./);
 	await stop.click();
 	await expect
 		.poll(async () => frames(id, "interrupt"))
@@ -336,7 +340,8 @@ test("the microphone dictates into the box and never sends", async ({
 	const { id, view } = await openChat(page, student);
 	const box = view.getByTestId("chat-composer-input");
 	await box.fill("fix the bug");
-	await box.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(3, 3));
+	await box.press("Home");
+	for (let i = 0; i < 3; i += 1) await box.press("ArrowRight");
 	const mic = view.getByTestId(`chat-voice-${id}`);
 	await mic.hover();
 	await page.mouse.down();
@@ -346,7 +351,7 @@ test("the microphone dictates into the box and never sends", async ({
 		(window as unknown as FakeSpeechWindow).__speech.say("now", true),
 	);
 	await page.mouse.up();
-	await expect(box).toHaveValue("fix now the bug");
+	await expect(box).toHaveText("fix now the bug");
 	await expect(mic).toHaveAttribute("aria-pressed", "false");
 	expect(await frames(id, "send")).toEqual([]);
 });
@@ -410,7 +415,7 @@ test("a chat opened from the New tab menu by keyboard puts the keyboard in its m
 	const box = page.getByTestId("chat-composer-input");
 	await expect(box).toBeFocused({ timeout: 15_000 });
 	await page.keyboard.type("hello");
-	await expect(box).toHaveValue("hello");
+	await expect(box).toHaveText("hello");
 });
 
 test("removing a chip by keyboard moves to the next chip, then the box", async ({
@@ -463,4 +468,108 @@ test("a picture over 2000 px is made smaller in the browser before it is saved",
 	expect(((send?.attachments ?? []) as { path: string }[])[0]?.path).toMatch(
 		/\/big\.webp$/,
 	);
+});
+
+test("Markdown typed in the box shows formatted and is sent as the same Markdown", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student);
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.keyboard.type("Fix **this** and `that` in *one* go");
+	await expect(box.locator("strong")).toHaveText("this");
+	await expect(box.locator("code")).toHaveText("that");
+	await expect(box.locator("em")).toHaveText("one");
+	await expect(box).toHaveText("Fix this and that in one go");
+	await page.keyboard.press("Shift+Enter");
+	await page.keyboard.type("- first");
+	await page.keyboard.press("Shift+Enter");
+	await page.keyboard.type("second");
+	await expect(box.locator("ul > li")).toHaveCount(2);
+	await page.keyboard.press("Shift+Enter");
+	await page.keyboard.press("Shift+Enter");
+	await page.keyboard.type("```ts");
+	await page.keyboard.press("Enter");
+	await expect(view.getByTestId("chat-composer-hint")).toContainText(
+		"In code, Enter adds a line.",
+	);
+	await page.keyboard.type("const a = 1;");
+	await page.keyboard.press("Enter");
+	await page.keyboard.type("  a * 2 * 3;");
+	await expect(box.locator("pre")).toBeVisible();
+	expect(await frames(id, "send")).toHaveLength(0);
+	await page.keyboard.press("ControlOrMeta+Enter");
+	await expect
+		.poll(async () => frames(id, "send"))
+		.toEqual([
+			{
+				type: "send",
+				text: "Fix **this** and `that` in *one* go\n\n- first\n- second\n\n```ts\nconst a = 1;\n  a * 2 * 3;\n```",
+				attachments: [],
+			},
+		]);
+	await expect(box).toHaveText("");
+	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
+		"Enter sends. Shift+Enter adds a line.",
+	);
+});
+
+test("pasted rich text arrives as plain text, keeping its lines", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student);
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.evaluate(() => {
+		const transfer = new DataTransfer();
+		transfer.setData(
+			"text/html",
+			"<h1>Title</h1><p><b>bold</b> <script>x()</script></p>",
+		);
+		transfer.setData("text/plain", "Title\n\nbold *star*");
+		document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+			new ClipboardEvent("paste", {
+				clipboardData: transfer,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+	await expect(box.locator("strong, h1, em")).toHaveCount(0);
+	await box.press("Enter");
+	await expect
+		.poll(async () => frames(id, "send"))
+		.toEqual([{ type: "send", text: "Title\n\nbold *star*", attachments: [] }]);
+});
+
+test("Send is an icon button at the end of the row, with the microphone beside it", async ({
+	page,
+	context,
+}) => {
+	await fakeSpeech(page);
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student);
+	const send = view.getByRole("button", { name: "Send", exact: true });
+	await expect(send).toHaveText("");
+	await expect(send.locator("svg")).toBeVisible();
+	const mic = view.getByTestId(`chat-voice-${id}`);
+	const attach = view.getByTestId("chat-composer-attach");
+	const permissions = view.getByRole("combobox", { name: "Permissions" });
+	const [sendBox, micBox, attachBox, pickBox] = await Promise.all(
+		[send, mic, attach, permissions].map(async (l) => l.boundingBox()),
+	);
+	if (!sendBox || !micBox || !attachBox || !pickBox) throw new Error("not laid out");
+	expect(micBox.x).toBeLessThan(sendBox.x);
+	expect(micBox.x).toBeGreaterThan(pickBox.x);
+	expect(attachBox.x).toBeLessThan(pickBox.x);
+	// The keyboard reaches Send after the microphone, and its ring shows.
+	await mic.focus();
+	await page.keyboard.press("Tab");
+	await expect(send).toBeFocused();
+	const ring = await send.evaluate((node) => getComputedStyle(node).outlineStyle);
+	expect(ring).toBe("solid");
 });
