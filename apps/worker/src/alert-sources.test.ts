@@ -238,6 +238,25 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a missing settings row sends nothing and logs the failure (SPEC.md section 24.13)",
+	async () => {
+		await tdb.db.deleteFrom("settings").execute();
+		await writeFile(flag, "");
+		const { logger, lines } = collectingLogger("warn");
+		const tick = createAlertSources({
+			db: tdb.db,
+			logger,
+			rebootFile: flag,
+			rootFsPercent: async () => ROOT_FS_ALERT_PERCENT + 2,
+		});
+		await tick();
+		await tick();
+		expect(await titles()).toEqual([]);
+		expect(lines.filter((l) => l.msg === "alert source check failed")).toHaveLength(2);
+	},
+);
+
 test("the root filesystem reading is a percentage", async () => {
 	const pct = await rootFsUsedPercent();
 	expect(pct).toBeGreaterThanOrEqual(0);
