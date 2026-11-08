@@ -37,6 +37,7 @@ import {
 	createComposerEditor,
 	inCodeBlock,
 	insertAtCursor,
+	showInterim,
 } from "./composerEditor.js";
 import "./composer.css";
 
@@ -147,6 +148,10 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		if (editor.current) insertAtCursor(editor.current, words);
 	});
 	const stopSpeech = speech.stop;
+
+	useEffect(() => {
+		if (editor.current) showInterim(editor.current, speech.interim);
+	}, [speech.interim]);
 
 	function submit(event?: FormEvent) {
 		event?.preventDefault();
@@ -366,16 +371,6 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 						</span>
 					) : null}
 				</div>
-				{speech.interim !== "" ? (
-					// Shown only: the status region says "Listening…" instead of reading every guess.
-					<p
-						className="pk-composer-note"
-						aria-hidden="true"
-						data-testid="chat-voice-interim"
-					>
-						{speech.interim}
-					</p>
-				) : null}
 				{speech.state !== "listening" && speech.message !== "" ? (
 					<p className="pk-composer-note" aria-hidden="true">
 						{speech.message}

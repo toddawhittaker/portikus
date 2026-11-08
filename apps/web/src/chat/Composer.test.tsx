@@ -705,14 +705,17 @@ test("dictation is inserted at the cursor and is never sent", async () => {
 	expect(sent).toEqual([]);
 });
 
-test("dictation shows interim words without typing them, and starts after nothing with no space", async () => {
+test("dictation shows interim words in the box without typing them, and starts after nothing with no space", async () => {
 	draw();
 	await hold();
 	say("hel", false);
-	expect(screen.getByTestId("chat-voice-interim").textContent).toBe("hel");
+	const shown = screen.getByTestId("chat-voice-interim");
+	expect(shown.textContent).toBe("hel");
+	expect(input().contains(shown)).toBe(true);
 	expect(value()).toBe("");
 	say("hello", true);
 	expect(value()).toBe("hello");
+	expect(screen.queryByTestId("chat-voice-interim")).toBeNull();
 	expect(sent).toEqual([]);
 });
 

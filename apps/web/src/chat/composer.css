@@ -206,6 +206,12 @@
 	overflow-wrap: anywhere;
 }
 
+/* Dictation's running guess, at the cursor until the final words replace it. */
+.pk-composer-interim {
+	color: var(--ink-muted);
+	font-style: italic;
+}
+
 /* The line under the box: a key hint, or the bypass warning in its place. */
 .pk-composer-foot {
 	display: flex;

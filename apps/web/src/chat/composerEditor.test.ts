@@ -8,6 +8,7 @@ import {
 	insertAtCursor,
 	LONG_PASTE_LINES,
 	lineCount,
+	showInterim,
 } from "./composerEditor.js";
 import { boxText, placeCursor, setText, typeInto } from "./composerTesting.js";
 
@@ -231,4 +232,23 @@ test("Backspace straight after a rule undoes it, leaving the markers as typed", 
 	fireEvent.keyDown(box, { key: "Backspace" });
 	expect(box.querySelector("strong")).toBeNull();
 	expect(boxText(box)).toBe("**x**");
+});
+
+test("interim dictation shows greyed at the cursor, hidden from assistive technology, never in the text", () => {
+	setText(box, "fix the bug");
+	placeCursor(box, 3);
+	showInterim(editor, "no");
+	const shown = box.querySelector(".pk-composer-interim");
+	expect(shown?.textContent).toBe(" no");
+	expect(shown?.getAttribute("aria-hidden")).toBe("true");
+	expect(composerText(editor)).toBe("fix the bug");
+	enter();
+	expect(onSend).toHaveBeenCalledTimes(1);
+	expect(composerText(editor)).toBe("fix the bug");
+	showInterim(editor, "now");
+	expect(box.querySelectorAll(".pk-composer-interim")).toHaveLength(1);
+	insertAtCursor(editor, "now");
+	showInterim(editor, "");
+	expect(box.querySelector(".pk-composer-interim")).toBeNull();
+	expect(composerText(editor)).toBe("fix now the bug");
 });

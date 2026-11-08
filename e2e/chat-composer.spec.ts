@@ -492,6 +492,55 @@ test("the microphone dictates into the box and never sends", async ({
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
+	test(`interim dictation sits greyed in the box, is not sent, and gives way to the final words (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await fakeSpeech(page);
+		const student = await createStudent(context);
+		const { id, view } = await openChat(page, student.workspaceId, "Composer");
+		const box = view.getByTestId("chat-composer-input");
+		await box.fill("fix the bug");
+		const mic = view.getByTestId(`chat-voice-${id}`);
+		await mic.hover();
+		await page.mouse.down();
+		await expect(view.getByTestId(`chat-voice-status-${id}`)).toHaveText("Listening…");
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("pl", false),
+		);
+		const interim = box.getByTestId("chat-voice-interim");
+		await expect(interim).toHaveText(" pl");
+		await expect(interim).toHaveAttribute("aria-hidden", "true");
+		const [shown, typed] = await Promise.all([
+			interim.evaluate((node) => getComputedStyle(node).color),
+			box.evaluate((node) => getComputedStyle(node).color),
+		]);
+		expect(shown).not.toBe(typed);
+		await expectNoViolations(page, '[data-testid="chat-composer"]');
+		await view
+			.getByTestId("chat-composer")
+			.screenshot({ path: `screenshots/chat-dictation-interim-${colorScheme}.png` });
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("please", true),
+		);
+		await expect(interim).toHaveCount(0);
+		await expect(box).toHaveText("fix the bug please");
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("and th", false),
+		);
+		await expect(interim).toHaveText(" and th");
+		// Enter mid-dictation sends only the typed and settled words.
+		await box.press("Enter");
+		await page.mouse.up();
+		await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+		const [frame] = await receivedFrames(id, "send");
+		expect(JSON.stringify(frame)).toContain("fix the bug please");
+		expect(JSON.stringify(frame)).not.toContain("and th");
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
 	test(`the composer has no accessibility violations (${colorScheme})`, async ({
 		page,
 		context,
