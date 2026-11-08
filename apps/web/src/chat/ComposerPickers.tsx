@@ -40,13 +40,20 @@ export const BYPASS_WARNING =
 interface Choice {
 	value: string;
 	label: string;
+	/** The start of `label` shown alone when the composer is narrow. */
+	short?: string;
 	description: ReactNode;
 	/** Shown but cannot be chosen yet. */
 	unavailable?: boolean;
 }
 
 const AGENTS: Choice[] = [
-	{ value: "claude", label: "Claude Code", description: "Anthropic's coding agent." },
+	{
+		value: "claude",
+		label: "Claude Code",
+		short: "Claude",
+		description: "Anthropic's coding agent.",
+	},
 	{
 		value: "codex",
 		label: "Codex",
@@ -167,6 +174,7 @@ function Pick({
 	warning = false,
 }: PickProps) {
 	const current = choices.find((choice) => choice.value === value);
+	const shown = current?.label ?? value;
 	return (
 		<MenuRoot>
 			<MenuTrigger asChild={true}>
@@ -174,12 +182,26 @@ function Pick({
 					type="button"
 					className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
 					aria-describedby={describedBy}
+					// A narrow composer hides the prefix word; the tooltip keeps the whole label.
+					title={`${label} ${shown}`}
 					data-testid={testId}
 				>
-					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
+					{/* The space keeps the name "Model Opus", not "ModelOpus". The narrow
+					    form hides words visually only, so the name keeps the prefix (SPEC.md §25.8). */}
 					<span className="pk-picker-label">{label}</span>{" "}
 					{warning ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-picker-value">{current?.label ?? value}</span>
+					<span className="pk-picker-value">
+						{current?.short ? (
+							<>
+								{current.short}
+								<span className="pk-picker-more">
+									{shown.slice(current.short.length)}
+								</span>
+							</>
+						) : (
+							shown
+						)}
+					</span>
 					<Icon name="chevron-down" size="sm" />
 				</button>
 			</MenuTrigger>
