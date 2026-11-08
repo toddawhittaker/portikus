@@ -9,6 +9,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { DRAIN_POLL_MS, HIGH_WATER_BYTES, LOW_WATER_BYTES } from "../terminals.js";
+import { hasSession, type TmuxServer } from "../tmux.js";
 import { chatSocketPath, FrameTooLarge, readLines, writeLine } from "./wire.js";
 
 /** Close code for a chat with no host behind it, as the API's relay uses. */
@@ -17,7 +18,18 @@ const CHAT_NOT_FOUND = 4404;
 export interface ChatRouteOptions {
 	/** Where the chat hosts listen; CHAT_SOCKET_DIR in a workspace. */
 	socketDir: string;
+	tmuxServer: TmuxServer;
+	/** Test seams; they default to tmux and a real timer. */
+	sessionAlive?: (id: string) => Promise<boolean>;
+	sleep?: (ms: number) => Promise<void>;
 }
+
+/** A new chat's host takes a moment to open its socket after tmux starts it. */
+const SOCKET_POLL_MS = 100;
+const SOCKET_POLL_ATTEMPTS = 100;
+
+const sleepReal = (ms: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * `GET /terminals/:terminalId/chat`: one browser attachment, relayed frame
@@ -29,20 +41,34 @@ export async function chatRoute(
 	instance: FastifyInstance,
 	options: ChatRouteOptions,
 ): Promise<void> {
+	const alive = options.sessionAlive ?? ((id) => hasSession(id, options.tmuxServer));
+	const sleep = options.sleep ?? sleepReal;
+	const isSocket = async (path: string) =>
+		(await lstat(path).catch(() => null))?.isSocket() === true;
+
+	// Wait for the socket only while the chat's tmux session is alive.
+	const waitForSocket = async (id: string): Promise<boolean> => {
+		const path = chatSocketPath(options.socketDir, id);
+		if (await isSocket(path)) return true;
+		for (let i = 0; i < SOCKET_POLL_ATTEMPTS; i++) {
+			if (!(await alive(id))) return false;
+			await sleep(SOCKET_POLL_MS);
+			if (await isSocket(path)) return true;
+		}
+		return false;
+	};
+
 	instance.get(
 		"/terminals/:terminalId/chat",
 		{
 			websocket: true,
-			// Only a running chat host has a socket, so an unknown terminal and
-			// an ordinary one are both refused before the upgrade.
+			// Only a running chat host has a socket, so an unknown terminal is
+			// refused before the upgrade.
 			preValidation: async (request, reply) => {
 				const id = TerminalId.safeParse(
 					(request.params as { terminalId?: unknown }).terminalId,
 				);
-				const info = id.success
-					? await lstat(chatSocketPath(options.socketDir, id.data)).catch(() => null)
-					: null;
-				if (!info?.isSocket()) {
+				if (!id.success || !(await waitForSocket(id.data))) {
 					return reply
 						.code(404)
 						.send({ error: { code: "TERMINAL_NOT_FOUND", message: "no such chat" } });

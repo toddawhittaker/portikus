@@ -7,8 +7,9 @@ import {
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { buildServer } from "../server.js";
+import { type ChatRouteOptions, chatRoute } from "./route.js";
 import { chatSocketPath, readLines } from "./wire.js";
 
 const TOKEN = "d".repeat(64);
@@ -198,4 +199,105 @@ test("a slow browser pauses the host until it drains", async () => {
 	await vi.waitFor(() => expect(sock.frames).toHaveLength(5), { timeout: 10_000 });
 	sock.ws.close();
 	await sock.closed;
+});
+
+describe("waiting for a new chat host's socket", () => {
+	const UPGRADE_HEADERS = {
+		connection: "Upgrade",
+		upgrade: "websocket",
+		"sec-websocket-version": "13",
+		"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+	};
+
+	async function bare(
+		extra: Pick<ChatRouteOptions, "sessionAlive" | "sleep">,
+	): Promise<{ app: FastifyInstance; port: number }> {
+		const { default: Fastify } = await import("fastify");
+		const { default: websocket } = await import("@fastify/websocket");
+		const bareApp = Fastify();
+		await bareApp.register(websocket);
+		await bareApp.register(async (instance) => {
+			await instance.register(chatRoute, {
+				socketDir: join(dir, "chat"),
+				tmuxServer: { socketName: "portikus-test", external: false },
+				...extra,
+			});
+		});
+		await bareApp.listen({ port: 0, host: "127.0.0.1" });
+		return { app: bareApp, port: (bareApp.server.address() as { port: number }).port };
+	}
+
+	async function status(p: number, id = ID): Promise<number> {
+		const { request } = await import("node:http");
+		return new Promise((resolve, reject) => {
+			const req = request({
+				host: "127.0.0.1",
+				port: p,
+				path: `/terminals/${id}/chat`,
+				headers: UPGRADE_HEADERS,
+			});
+			req.on("response", (response) => resolve(response.statusCode ?? 0));
+			req.on("upgrade", (_response, socket) => {
+				socket.destroy();
+				resolve(101);
+			});
+			req.on("error", reject);
+			req.end();
+		});
+	}
+
+	test("a socket that appears after 300 ms is attached", async () => {
+		let slept = 0;
+		const { app: a, port: p } = await bare({
+			sessionAlive: async () => true,
+			sleep: async (ms) => {
+				slept += ms;
+				if (slept === 300) await startFakeHost();
+			},
+		});
+		try {
+			expect(await status(p)).toBe(101);
+			expect(slept).toBe(300);
+		} finally {
+			await a.close();
+		}
+	});
+
+	test("no tmux session is refused at once", async () => {
+		const sleep = vi.fn(async () => {});
+		const { app: a, port: p } = await bare({ sessionAlive: async () => false, sleep });
+		try {
+			expect(await status(p)).toBe(404);
+			expect(sleep).not.toHaveBeenCalled();
+		} finally {
+			await a.close();
+		}
+	});
+
+	test("a socket that never appears is refused after 10 s of polling", async () => {
+		let slept = 0;
+		const { app: a, port: p } = await bare({
+			sessionAlive: async () => true,
+			sleep: async (ms) => {
+				slept += ms;
+			},
+		});
+		try {
+			expect(await status(p)).toBe(404);
+			expect(slept).toBe(10_000);
+		} finally {
+			await a.close();
+		}
+	});
+
+	test("an id that is not a terminal id is refused at once", async () => {
+		const alive = vi.fn(async () => true);
+		const { app: a, port: p } = await bare({ sessionAlive: alive });
+		try {
+			expect(await status(p, "nope")).toBe(404);
+			expect(alive).not.toHaveBeenCalled();
+		} finally {
+			await a.close();
+		}
+	});
 });

@@ -317,6 +317,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		});
 		instance.register(chatRoute, {
 			socketDir: options.chatSocketDir ?? CHAT_SOCKET_DIR,
+			tmuxServer,
 		});
 		instance.register(projectsRoutes, { homeDir: options.homeDir });
 		instance.register(searchRoutes, { homeDir: options.homeDir });

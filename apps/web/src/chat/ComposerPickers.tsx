@@ -6,7 +6,7 @@
  * is announced. A value other than the start value is set in bold, and
  * Bypass permissions carries the warning colour and icon.
  */
-import { ChatEffort, ChatPermissionMode } from "@portikus/contracts";
+import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/contracts";
 import { Icon, Skeleton } from "@portikus/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ChatState } from "./chatStore.js";
@@ -38,7 +38,7 @@ const MODES: { value: ChatPermissionMode; label: string }[] = [
  * The values a chat starts with, as the host sets them. The model is left
  * out: the host reports the model Claude chose, so any model may be the start.
  */
-const START = { effort: "high", mode: "default" } as const;
+const START = { effort: CHAT_START_EFFORT, mode: "default" } as const;
 
 export const BYPASS_WARNING =
 	"Bypass permissions lets Claude run every tool without asking you first.";
