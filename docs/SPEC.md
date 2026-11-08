@@ -7111,6 +7111,23 @@ Acceptance:
 - an ended chat resumes the same conversation, and no platform SDK binary is in the package;
 - the chat smoke check creates a chat tab, receives a snapshot and a plan-mode `settings` event.
 
+### Epic 58.1 — chat fix batch
+
+Built on `epic/58.1-chat-fixes`. Migration 0053. See sections 8.5, 10.8, 24.1 and 25.8.
+
+Includes:
+
+- a Markdown message box (TipTap), an icon Send button, styled pickers, and Send during a running turn;
+- session allow rules that are named, listed and revocable, and chat settings remembered per project;
+- local images in replies through an owner-only route, a viewer, sent-picture thumbnails and Copy buttons;
+- one-line tool rows, starter prompts, a paged question card, a chat that never scrolls its pane, and splits that ask what to open.
+
+Acceptance:
+
+- "Always allow" names what it grants, and a session rule can be revoked;
+- a reply image outside the student's home folder, or an SVG, is never served;
+- the workspace page never scrolls when focus moves in a chat.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.

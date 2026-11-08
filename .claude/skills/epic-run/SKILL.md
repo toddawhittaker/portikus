@@ -62,7 +62,8 @@ line per step, so the run survives a context reset.
 
    Keep one background watcher running for the whole epic (Monitor, a
    60-second poll, re-armed when it expires). It reports every failing
-   check on any open PR into the epic, every merge, every epic push run
+   check and every merge conflict on any open PR into the epic (a
+   conflicting PR runs no CI, so a red-check-only watcher misses it), every merge, every epic push run
    result, and failing checks on the epic PR. Chase a red result the
    moment it arrives: a red PR blocks every task that starts after it, and
    nothing else wakes the orchestrator. PRs are not tested together, so a
