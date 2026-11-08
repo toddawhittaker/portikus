@@ -90,16 +90,6 @@
 	gap: var(--space-2);
 }
 
-/* Jump to latest takes a strip of its own below the log instead of floating
-   over it, so it never covers the end of a message. */
-.pk-chat-main > .pk-chat-jump {
-	position: relative;
-	inset: auto;
-	align-self: flex-end;
-	margin-block: var(--space-2);
-	margin-inline-end: var(--pk-chat-gutter);
-}
-
 /* Shown last, so it wins over the placements above. */
 .pk-chat-copy-host:hover > .pk-chat-copy,
 .pk-chat-copy-host:focus-within > .pk-chat-copy,
