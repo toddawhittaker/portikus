@@ -16,6 +16,7 @@ import type { ChatState } from "./chatStore.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -229,6 +230,7 @@ export function ChatView({
 					)}
 				</div>
 			) : null}
+			<SessionRules store={store} />
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}
