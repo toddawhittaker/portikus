@@ -1,4 +1,4 @@
-import { IconButton } from "@portikus/ui";
+import { hideOutside, IconButton } from "@portikus/ui";
 import {
 	type ReactNode,
 	type RefObject,
@@ -8,7 +8,10 @@ import {
 } from "react";
 import "./drawer.css";
 
-/** Below this width the side panes become drawers over the work area (SPEC.md §8.1). */
+/**
+ * Below this width the side panes become drawers over the work area (SPEC.md §8.1).
+ * app.css and drawer.css repeat 56rem, since a media query cannot read a variable.
+ */
 const PHONE_QUERY = "(width < 56rem)";
 
 function subscribe(onChange: () => void): () => void {
@@ -22,40 +25,12 @@ export function usePhoneLayout(): boolean {
 	return useSyncExternalStore(subscribe, () => window.matchMedia(PHONE_QUERY).matches);
 }
 
-/**
- * Marks everything outside `layer`, up to the children of `.pk-root`, inert,
- * so focus and the screen reader stay in the drawer. Toasts and dialogs
- * portalled outside the shell stay reachable. Returns the undo.
- */
-export function inertOutside(layer: HTMLElement): () => void {
-	const marked: HTMLElement[] = [];
-	let node: HTMLElement = layer;
-	while (node.parentElement) {
-		const parent: HTMLElement = node.parentElement;
-		for (const sibling of Array.from(parent.children)) {
-			if (
-				sibling === node ||
-				!(sibling instanceof HTMLElement) ||
-				sibling.hasAttribute("inert")
-			)
-				continue;
-			sibling.setAttribute("inert", "");
-			marked.push(sibling);
-		}
-		if (parent.classList.contains("pk-root")) break;
-		node = parent;
-	}
-	return () => {
-		for (const element of marked) element.removeAttribute("inert");
-	};
-}
-
 const TABBABLE =
-	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"], summary, iframe, audio[controls], video[controls]';
 
 /**
  * Tab from the last stop goes to the first, and Shift+Tab from the first to
- * the last, so focus cannot leave an open drawer for the browser's own bar.
+ * the last, so focus cannot leave an open drawer for the page behind it.
  */
 export function wrapTab(
 	sheet: HTMLElement,
@@ -78,10 +53,28 @@ export function wrapTab(
 }
 
 /**
+ * Back to the opener, or, when a wider window has hidden it, into the pane
+ * the drawer held: its selected tab, else its first stop.
+ */
+export function restoreFocus(opener: HTMLElement | null, sheet: HTMLElement): void {
+	if (opener && opener.getClientRects().length > 0) {
+		opener.focus();
+		return;
+	}
+	const target =
+		sheet.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
+		sheet.querySelector<HTMLElement>(TABBABLE);
+	target?.focus();
+}
+
+/**
  * A side pane's content. At phone widths it is a modal drawer: named, focus
  * kept inside, closed by Escape, a tap outside, its close button or a link
  * chosen in it, and focus goes back to `opener` (SPEC.md §8.1, §25.8). At
- * wider widths it adds no box and no role.
+ * wider widths it adds no box and no role. Not a Radix Dialog, which portals
+ * and has a dialog role: the same pane must stay mounted, as a plain pane, at
+ * desktop width. The page behind is hidden with aria-hidden, not inert, so its
+ * live regions are still heard (ADR 0047).
  */
 export function ShellDrawer({
 	id,
@@ -104,16 +97,36 @@ export function ShellDrawer({
 }) {
 	const layer = useRef<HTMLDivElement>(null);
 	const sheet = useRef<HTMLDivElement>(null);
+	const close = useRef(onClose);
+	close.current = onClose;
 	const modal = phone && open;
 
 	useEffect(() => {
-		if (!modal || !layer.current) return;
-		const restore = inertOutside(layer.current);
+		const shown = layer.current;
+		const current = sheet.current;
+		if (!modal || !shown || !current) return;
+		const root = shown.closest(".pk-root");
+		const restore = hideOutside(current);
+		let returnFocus = true;
+		// Code that moves focus to the page behind means to show it, so the drawer gets out of the way.
+		const onFocusIn = (event: FocusEvent) => {
+			const target = event.target;
+			if (
+				!(target instanceof Node) ||
+				shown.contains(target) ||
+				!root?.contains(target)
+			)
+				return;
+			returnFocus = false;
+			close.current();
+		};
+		document.addEventListener("focusin", onFocusIn);
 		// The sheet, not its close button, so the button's tooltip does not take the first Escape.
-		sheet.current?.focus();
+		current.focus();
 		return () => {
+			document.removeEventListener("focusin", onFocusIn);
 			restore();
-			opener.current?.focus();
+			if (returnFocus) restoreFocus(opener.current, current);
 		};
 	}, [modal, opener]);
 
@@ -137,16 +150,19 @@ export function ShellDrawer({
 					? { role: "dialog", "aria-modal": true, "aria-label": label, tabIndex: -1 }
 					: {})}
 				onKeyDown={(event) => {
-					if (modal && event.key === "Tab" && sheet.current) {
-						wrapTab(sheet.current, event);
+					// A menu portalled out of the drawer handles its own keys.
+					if (
+						!modal ||
+						!sheet.current ||
+						!(event.target instanceof Node) ||
+						!sheet.current.contains(event.target)
+					)
 						return;
+					if (event.key === "Tab") wrapTab(sheet.current, event);
+					else if (event.key === "Escape" && !event.defaultPrevented) {
+						event.preventDefault();
+						onClose();
 					}
-					if (!modal || event.key !== "Escape" || event.defaultPrevented) return;
-					// A menu portalled out of the drawer handles its own Escape.
-					if (!(event.target instanceof Node) || !sheet.current?.contains(event.target))
-						return;
-					event.preventDefault();
-					onClose();
 				}}
 				onClick={(event) => {
 					if (!modal || !(event.target instanceof Element)) return;

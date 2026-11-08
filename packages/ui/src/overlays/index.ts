@@ -5,6 +5,7 @@ export {
 	ConfirmDialogTrigger,
 } from "./confirm-dialog";
 export { Dialog, type DialogProps, DialogRoot } from "./dialog";
+export { hideOutside } from "./hide-late-content";
 export {
 	ContextMenu,
 	type ContextMenuProps,

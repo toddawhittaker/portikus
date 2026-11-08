@@ -78,4 +78,8 @@
 	.pk-drawer {
 		display: contents;
 	}
+	/* The buttons that open the drawers exist only where there are drawers. */
+	.pk-appbar > .pk-appbar-drawer {
+		display: none;
+	}
 }

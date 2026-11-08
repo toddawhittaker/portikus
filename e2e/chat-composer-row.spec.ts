@@ -148,7 +148,27 @@ for (const colorScheme of ["light", "dark"] as const) {
 			for (const [label, testId, value] of PICKERS) {
 				const button = picker(view, testId);
 				await expect(button).toHaveAccessibleName(`${label} ${value}`);
-				await expect(button).toHaveAttribute("title", `${label} ${value}`);
+				// A native title shows on mouse hover only (SPEC.md §25.8).
+				await expect(button).not.toHaveAttribute("title");
+			}
+			// Keyboard focus shows the whole label in the short form, and nothing in
+			// the full form, where every word is already on screen.
+			const tip = page.locator(".pk-tooltip");
+			await view.getByTestId("chat-composer-attach").focus();
+			for (const [label, testId, value] of PICKERS) {
+				await page.keyboard.press("Tab");
+				const button = picker(view, testId);
+				await expect(button).toBeFocused();
+				if (row.fullLabels) {
+					await expect(tip).toHaveCount(0);
+				} else {
+					await expect(tip).toBeVisible();
+					await expect(tip).toHaveText(`${label} ${value}`);
+					await expectNoViolations(page, ".pk-tooltip");
+				}
+				// The name carries the words once; the tooltip adds no description.
+				await expect(button).toHaveAccessibleName(`${label} ${value}`);
+				await expect(button).toHaveAccessibleDescription("");
 			}
 			// The agent's second word is hidden by the same rule as the prefix.
 			const more = await picker(view, "composer-agent")

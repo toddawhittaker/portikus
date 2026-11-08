@@ -253,6 +253,33 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`in a narrow composer each menu has a visible heading and focus returns without a tooltip (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 420, height: 900 });
+		const student = await createStudent(context);
+		const { view } = await withPickers(openChat(page, student.workspaceId, "Pickers"));
+		for (const label of Object.keys(TEST_ID)) {
+			await picker(view, label).focus();
+			await page.keyboard.press("Enter");
+			const open = menu(page, label);
+			// The heading names what the menu sets, for a touch user who never saw the tooltip.
+			const heading = open.getByText(label, { exact: true });
+			await expect(heading).toBeVisible();
+			await expect(heading).toHaveCount(1);
+			await expectNoViolations(page, '[role="menu"]');
+			await page.keyboard.press("Escape");
+			await expect(open).toHaveCount(0);
+			await expect(picker(view, label)).toBeFocused();
+			// Focus a menu hands back does not pop the name up over its neighbour.
+			await expect(page.locator(".pk-tooltip")).toHaveCount(0);
+		}
+	});
+}
+
 const RULE = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 
 /**

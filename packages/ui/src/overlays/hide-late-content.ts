@@ -22,7 +22,9 @@ export function hideLateContent(content: HTMLElement): () => void {
 		if (node.parentElement?.closest("[aria-live]")) return false;
 		const top = topLevel(node);
 		return (
-			top !== null && page.has(top) && node.closest('[aria-hidden="true"]') === null
+			top !== null &&
+			(page.has(top) || top === portal) &&
+			node.closest('[aria-hidden="true"]') === null
 		);
 	}
 
@@ -31,7 +33,9 @@ export function hideLateContent(content: HTMLElement): () => void {
 		if (!content.isConnected) return;
 		undo?.();
 		// The modal and every layer opened since stay visible; the page does not.
-		const layers = [...document.body.children].filter((child) => !page.has(child));
+		const layers = [...document.body.children].filter(
+			(child) => child !== portal && !page.has(child),
+		);
 		undo = hideOthers([content, ...layers]);
 	}
 
@@ -57,4 +61,18 @@ function topLevel(node: Element): Element | null {
 		current = current.parentElement;
 	}
 	return current;
+}
+
+/**
+ * Hides everything but `content` from screen readers now and as the page
+ * changes, keeping live regions heard (ADR 0047). For a modal that is not a
+ * Radix dialog, such as a phone drawer inside the shell. Returns the undo.
+ */
+export function hideOutside(content: HTMLElement): () => void {
+	const first = hideOthers(content);
+	const late = hideLateContent(content);
+	return () => {
+		late();
+		first();
+	};
 }
