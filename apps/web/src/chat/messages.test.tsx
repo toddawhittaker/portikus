@@ -281,6 +281,56 @@ test("the Working line names the newest running step, and the time stays", () =>
 	).toBe("Writing a reply · 3m 43s");
 });
 
+test("a run of calls is one group naming the newest step and any failures", () => {
+	running(
+		[
+			tool("Read", { file_path: "src/a.ts" }, { key: "r", status: "done" }),
+			tool("Bash", { command: "pnpm lint" }, { key: "l", status: "error" }),
+			tool("Bash", { command: "pnpm test" }, { key: "t" }),
+		],
+		0,
+	);
+	const group = screen.getByTestId("chat-tool-group");
+	expect(group.tagName).toBe("DETAILS");
+	expect(group.dataset.status).toBe("running");
+	expect(group.querySelector("summary")?.textContent).toBe(
+		"3 tool callsRunning pnpm test1 failed",
+	);
+	expect(group.querySelectorAll("details.pk-chat-tool")).toHaveLength(3);
+});
+
+test("a finished run names its tools once each", () => {
+	running(
+		[
+			tool("Read", { file_path: "a" }, { key: "1", status: "done" }),
+			tool("Bash", { command: "ls" }, { key: "2", status: "done" }),
+			tool("Read", { file_path: "b" }, { key: "3", status: "stopped" }),
+		],
+		0,
+	);
+	const group = screen.getByTestId("chat-tool-group");
+	expect(group.dataset.status).toBe("stopped");
+	expect(screen.getByTestId("chat-tool-group-what").textContent).toBe("Read, Bash");
+	expect(group.querySelector("summary")?.textContent).toContain("1 stopped");
+});
+
+test("Claude's history outside a turn has one byline per run between the student's messages", () => {
+	const loose = (name: string) =>
+		tool(name, {}, { key: name, turnId: null, status: "done" });
+	list([
+		message("user", "Hi"),
+		message("assistant", "Looking"),
+		loose("Read"),
+		loose("Bash"),
+		message("assistant", "Done"),
+		message("user", "Thanks"),
+		message("assistant", "Welcome"),
+	]);
+	expect(screen.getAllByTestId("chat-turn")).toHaveLength(2);
+	expect(screen.getAllByText("Claude")).toHaveLength(2);
+	expect(screen.getAllByTestId("chat-tool-group")).toHaveLength(1);
+});
+
 test("a long step is cut on screen and kept whole in its title", () => {
 	const command = `echo ${"x".repeat(300)}`;
 	running([tool("Bash", { command })], 0);

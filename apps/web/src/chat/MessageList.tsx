@@ -15,7 +15,7 @@ import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
 import type { ChatItem, ChatMessageItem, ChatToolItem, ChatTurn } from "./chatStore.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
-import { foldTurn } from "./fold.js";
+import { foldTurn, groupTools, type ToolRun } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { ToolBlock } from "./ToolBlock.js";
@@ -23,10 +23,15 @@ import { toolLine } from "./toolView.js";
 import "./messages.css";
 import "./turn.css";
 
-/** Items in order, with each turn's items gathered where the turn begins. */
+/**
+ * Items in order, with each turn's items gathered where the turn begins, and
+ * Claude's items outside any turn, as a reloaded history has them, gathered
+ * in runs between the student's messages so each run has one byline.
+ */
 type Entry =
-	| { kind: "item"; item: ChatItem }
-	| { kind: "turn"; turnId: string; items: ChatItem[] };
+	| { kind: "user"; item: ChatMessageItem }
+	| { kind: "turn"; turnId: string; items: ChatItem[] }
+	| { kind: "loose"; key: string; items: ChatItem[] };
 
 function groupByTurn(
 	items: readonly ChatItem[],
@@ -35,8 +40,14 @@ function groupByTurn(
 	const entries: Entry[] = [];
 	const turns = new Map<string, ChatItem[]>();
 	for (const item of items) {
+		if (item.kind === "message" && item.role === "user") {
+			entries.push({ kind: "user", item });
+			continue;
+		}
 		if (item.turnId === null) {
-			entries.push({ kind: "item", item });
+			const last = entries.at(-1);
+			if (last?.kind === "loose") last.items.push(item);
+			else entries.push({ kind: "loose", key: item.key, items: [item] });
 			continue;
 		}
 		const open = turns.get(item.turnId);
@@ -246,6 +257,88 @@ function Step({ item }: { item: ChatItem }) {
 	}
 }
 
+/** What a running call is doing, in the words of its row. */
+function doingLine(tool: ChatToolItem): string {
+	const line = toolLine(tool.name, tool.input, tool.title);
+	return line.verb ? `${line.verb.doing} ${line.target}` : `Using ${tool.name}`;
+}
+
+/**
+ * A run of tool calls under one disclosure, "8 tool calls", with the tools
+ * used or, while one runs, what it is doing, and any failures. Each call
+ * inside keeps its own row (SPEC.md §10.8).
+ */
+function ToolGroup({ run }: { run: ToolRun }) {
+	const { tools } = run;
+	const running = tools.findLast((tool) => tool.status === "running");
+	const failed = tools.filter((tool) => tool.status === "error").length;
+	const stopped = tools.filter((tool) => tool.status === "stopped").length;
+	const what = running
+		? doingLine(running)
+		: [...new Set(tools.map((tool) => tool.name))].join(", ");
+	const status = running
+		? "running"
+		: failed > 0
+			? "error"
+			: stopped > 0
+				? "stopped"
+				: "done";
+	return (
+		<li className="pk-chat-step">
+			<details
+				className="pk-turn-group"
+				data-testid="chat-tool-group"
+				data-status={status}
+			>
+				<summary className="pk-chat-worked-summary pk-turn-group-summary pk-focus-inset">
+					<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+					<span className="pk-turn-group-count">{tools.length} tool calls</span>
+					<span
+						className="pk-chat-worked-count pk-turn-group-what"
+						data-testid="chat-tool-group-what"
+						title={what}
+					>
+						{what}
+					</span>
+					{running ? (
+						<span className="pk-spin pk-turn-group-mark" aria-hidden={true} />
+					) : null}
+					{failed > 0 ? (
+						<span className="pk-chat-tool-state is-error pk-turn-group-mark">
+							<Icon name="alert" size="sm" />
+							{failed} failed
+						</span>
+					) : null}
+					{stopped > 0 ? (
+						<span className="pk-chat-tool-state is-stopped pk-turn-group-mark">
+							<Icon name="stop" size="sm" />
+							{stopped} stopped
+						</span>
+					) : null}
+				</summary>
+				<ol className="pk-chat-steps pk-chat-worked-log">
+					{tools.map((tool) => (
+						<li key={tool.key} className="pk-chat-step">
+							<ToolBlock tool={tool} />
+						</li>
+					))}
+				</ol>
+			</details>
+		</li>
+	);
+}
+
+/** Items in order, each run of tool calls under one group. */
+function Steps({ items }: { items: readonly ChatItem[] }) {
+	return groupTools(items, isAsked).map((shown) =>
+		shown.kind === "tools" ? (
+			<ToolGroup key={shown.key} run={shown} />
+		) : (
+			<Step key={shown.key} item={shown} />
+		),
+	);
+}
+
 const SUMMARY: Record<Exclude<ChatTurn["status"], "running">, string> = {
 	done: "Worked for",
 	interrupted: "Stopped after",
@@ -272,9 +365,7 @@ function FoldedWork({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
 					) : null}
 				</summary>
 				<ol className="pk-chat-steps pk-chat-worked-log">
-					{items.map((item) => (
-						<Step key={item.key} item={item} />
-					))}
+					<Steps items={items} />
 				</ol>
 			</details>
 		</li>
@@ -292,9 +383,7 @@ function TurnSteps({ turn, items, asking }: TurnProps) {
 	if (turn === undefined || turn.status === "running") {
 		return (
 			<>
-				{items.map((item) => (
-					<Step key={item.key} item={item} />
-				))}
+				<Steps items={items} />
 				{turn ? (
 					<Working since={turn.startedAt} doing={doingNow(items, asking)} />
 				) : null}
@@ -349,8 +438,7 @@ function doingNow(
 		if (item.kind !== "tool" || item.status !== "running") continue;
 		if (item.name === "AskUserQuestion") return "Waiting for your answer";
 		if (asking.has(item.id)) return "Waiting for your permission";
-		const line = toolLine(item.name, item.input, item.title);
-		return line.verb ? `${line.verb.doing} ${line.target}` : `Using ${item.name}`;
+		return doingLine(item);
 	}
 	return null;
 }
@@ -419,12 +507,13 @@ export function MessageList({
 						/>
 					);
 				}
-				const { item } = entry;
-				if (item.kind === "message" && item.role === "user") {
-					return <UserMessage key={item.key} message={item} />;
+				if (entry.kind === "user") {
+					return <UserMessage key={entry.item.key} message={entry.item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
-				return <Turn key={item.key} turn={undefined} items={[item]} asking={asking} />;
+				return (
+					<Turn key={entry.key} turn={undefined} items={entry.items} asking={asking} />
+				);
 			})}
 		</ol>
 	);
