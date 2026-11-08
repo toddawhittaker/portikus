@@ -511,7 +511,7 @@ test("Send is an icon button at the end of the row, with the microphone beside i
 	await expect(send.locator("svg")).toBeVisible();
 	const mic = view.getByTestId(`chat-voice-${id}`);
 	const attach = view.getByTestId("chat-composer-attach");
-	const permissions = view.getByRole("combobox", { name: "Permissions" });
+	const permissions = view.getByTestId("composer-mode");
 	const [sendBox, micBox, attachBox, pickBox] = await Promise.all(
 		[send, mic, attach, permissions].map(async (l) => l.boundingBox()),
 	);
