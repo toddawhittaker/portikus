@@ -64,7 +64,7 @@ student can follow and check for themselves.
   took, save it as a PNG, JPEG, GIF or WebP file of at most 5 MiB in
   .portikus/images/ inside the project, and link it in your reply by its
   path relative to the project:
-  ![Home page screenshot](.portikus/images/home.png)
+  `![Home page screenshot](.portikus/images/home.png)`
   The chat shows local images only. Remote web addresses, data: URLs and
   SVG files are not shown. Git ignores .portikus/images/.
 
