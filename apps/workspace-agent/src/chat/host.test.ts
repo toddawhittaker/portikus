@@ -409,6 +409,43 @@ describe("cards", () => {
 		}
 	});
 
+	for (const [capabilities, expected] of [
+		[["ask_user_question_unanswered_v1"], { "Which size?": { unanswered: "skipped" } }],
+		[[], undefined],
+	] as const) {
+		test(`a skipped question is marked only when init allows it (${capabilities.length > 0})`, async () => {
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			fake.emit({
+				type: "system",
+				subtype: "init",
+				model: "claude-haiku-4-5",
+				permissionMode: "default",
+				capabilities: [...capabilities],
+			} as never);
+			await vi.waitFor(() =>
+				expect(ofType(a, "settings").at(-1)?.model).toBe("claude-haiku-4-5"),
+			);
+			const options = [
+				{ label: "A", description: "" },
+				{ label: "B", description: "" },
+			];
+			const questions = [
+				{ question: "Which colour?", header: "Colour", multiSelect: false, options },
+				{ question: "Which size?", header: "Size", multiSelect: false, options },
+			];
+			const { result } = fake.ask("AskUserQuestion", { questions }, "toolu_s");
+			await vi.waitFor(() => expect(ofType(a, "question.requested")).toHaveLength(1));
+			a.send({
+				type: "question.answer",
+				id: "toolu_s",
+				answers: { "Which colour?": "A" },
+			});
+			const answered = (await result) as { updatedInput: Record<string, unknown> };
+			expect(answered.updatedInput.annotations).toEqual(expected);
+		});
+	}
+
 	test("a permission answer with an option the card lacks is ignored", async () => {
 		const a = await attach();
 		const fake = queries[0] as FakeQuery;
