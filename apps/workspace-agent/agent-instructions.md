@@ -60,6 +60,13 @@ student can follow and check for themselves.
 - Images the student pastes into the terminal are saved in
   .portikus/pastes/ inside the project, and the terminal receives the
   file's path; read the image from that path.
+- To show the student an image in the chat, such as a screenshot you
+  took, save it as a PNG, JPEG, GIF or WebP file of at most 5 MiB in
+  .portikus/images/ inside the project, and link it in your reply by its
+  path relative to the project:
+  `![Home page screenshot](.portikus/images/home.png)`
+  The chat shows local images only. Remote web addresses, data: URLs and
+  SVG files are not shown. Git ignores .portikus/images/.
 
 ## These instructions
 Portikus puts these instructions in system files that both Claude Code

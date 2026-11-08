@@ -1,4 +1,5 @@
 import {
+	chatImageType,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -94,6 +95,23 @@ export function registerFileRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				.header("content-length", String(node.content.length))
 				.type(contentTypeOf(node.content))
 				.send(node.content);
+		} catch (error) {
+			return fileError(reply, error as FakeFileError);
+		}
+	});
+
+	// Chat images: project-relative only here; the real agent also reads the
+	// home folder and sniffs the bytes.
+	app.get("/projects/:slug/image", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		const path = (request.query as { path?: string }).path ?? "";
+		try {
+			const type = chatImageType(path);
+			if (type === null) throw new FakeFileError("BAD_REQUEST", "not an image");
+			const node = path.startsWith("/") ? undefined : nodeAt(request, slug, path);
+			if (node?.type !== "file")
+				throw new FakeFileError("FILE_NOT_FOUND", "no such file");
+			return reply.type(type).send(node.content);
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
 		}
