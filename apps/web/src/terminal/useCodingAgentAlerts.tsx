@@ -58,6 +58,11 @@ export function useCodingAgentAlerts(
 	return useCallback(
 		(terminals, initial) => {
 			for (const alert of store.update(terminals, initial)) raise(alert);
+			// A closed terminal can never be viewed, so its toast would stay for good.
+			const listed = new Set(terminals.map((terminal) => terminal.terminalId));
+			for (const id of [...shown.current.keys()]) {
+				if (!listed.has(id)) removeToast(id);
+			}
 
 			// Focus follows the student's choice into the work area, not back to the page.
 			async function openProject(projectId: string) {

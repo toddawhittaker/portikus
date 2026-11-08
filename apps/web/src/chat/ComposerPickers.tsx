@@ -23,6 +23,7 @@ import {
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
 import {
+	type ChatSettings,
 	type ChatState,
 	type ChatStore,
 	modelChoice,
@@ -133,7 +134,6 @@ const MODES: Choice[] = [
  */
 const START = { agent: "claude", effort: CHAT_START_EFFORT, mode: "default" } as const;
 
-type ChatSettings = NonNullable<ChatState["settings"]>;
 type Change = Partial<Pick<ChatSettings, "model" | "effort" | "mode">>;
 
 const LABEL: Record<keyof Change, string> = {
@@ -197,7 +197,17 @@ function Pick({
 						<MenuRadioItem
 							key={choice.value}
 							value={choice.value}
-							description={choice.description}
+							description={
+								// The marker is read as part of the description, not the name: "High", not "High Default".
+								choice.value === start ? (
+									<>
+										<span className="sr-only">Default. </span>
+										{choice.description}
+									</>
+								) : (
+									choice.description
+								)
+							}
 							unavailable={choice.unavailable}
 							testId={`${testId}-${choice.value}`}
 						>
@@ -205,7 +215,9 @@ function Pick({
 							{choice.value === start ? (
 								<>
 									{" "}
-									<span className="pk-picker-default">Default</span>
+									<span className="pk-picker-default" aria-hidden={true}>
+										Default
+									</span>
 								</>
 							) : null}
 						</MenuRadioItem>

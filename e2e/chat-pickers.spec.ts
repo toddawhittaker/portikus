@@ -122,9 +122,10 @@ test("each menu marks the current and the default value and says what every choi
 
 	await picker(view, "Permissions").click();
 	const modes = menu(page, "Permissions");
-	const ask = modes.getByRole("menuitemradio", { name: "Ask Default" });
+	// The start value is marked "Default" in its description, not its name.
+	const ask = modes.getByRole("menuitemradio", { name: "Ask", exact: true });
 	await expect(ask).toHaveAttribute("aria-checked", "true");
-	await expect(ask).toHaveAccessibleDescription(/Asks before/);
+	await expect(ask).toHaveAccessibleDescription(/^Default\. Asks before/);
 	// The warning is in the menu before Bypass is chosen.
 	const bypass = modes.getByRole("menuitemradio", { name: "Bypass permissions" });
 	await expect(bypass).toHaveAttribute("aria-checked", "false");
@@ -138,7 +139,7 @@ test("each menu marks the current and the default value and says what every choi
 	const efforts = menu(page, "Effort");
 	await expect(efforts.getByRole("menuitemradio")).toHaveCount(5);
 	await expect(
-		efforts.getByRole("menuitemradio", { name: "High Default" }),
+		efforts.getByRole("menuitemradio", { name: "High", exact: true }),
 	).toHaveAttribute("aria-checked", "false");
 	await expect(efforts.getByRole("menuitemradio", { name: "Medium" })).toHaveAttribute(
 		"aria-checked",

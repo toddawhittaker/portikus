@@ -111,7 +111,9 @@ describe("images in a reply", () => {
 			"/workspaces/w1/projects/p1/image?path=.portikus%2Fimages%2Fhome.png",
 		);
 		expect(view.textContent).not.toContain("!");
-		fireEvent.click(screen.getByRole("button", { name: "Portfolio screenshot" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "View image Portfolio screenshot" }),
+		);
 		const dialog = await screen.findByRole("dialog", { name: "home.png" });
 		expect(
 			within(dialog).getByRole("img", { name: "Portfolio screenshot" }),
@@ -140,4 +142,23 @@ describe("images in a reply", () => {
 		expect(view.textContent).toContain("Image not found: gone.png");
 		expect(view.querySelectorAll("img")).toHaveLength(0);
 	});
+
+	test("an image with no alt text is named by its file", () => {
+		drawInChat("![](.portikus/images/home.png)");
+		expect(screen.getByRole("button", { name: "View image home.png" })).toBeTruthy();
+	});
+});
+
+// Code is shown, and copied, exactly as written: image and link syntax in it is text.
+test("image and link syntax inside code is left as written", () => {
+	const fence = "![logo](logo.png)\n[run](javascript:alert(1))\n<img src=x>";
+	const view = draw(
+		`Use \`![logo](logo.png)\` in your README.\n\n\`\`\`md\n${fence}\n\`\`\``,
+	);
+	expect(view.querySelector("p code")?.textContent).toBe("![logo](logo.png)");
+	expect(view.querySelector("pre")?.textContent).toBe(`${fence}\n`);
+	expect(view.querySelectorAll("a, img")).toHaveLength(0);
+	expect(
+		screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")),
+	).toEqual(["Copy code"]);
 });

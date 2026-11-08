@@ -244,3 +244,100 @@ test("session rules are listed only when there are some, and Revoke sends the ru
 	);
 	expect(sent).toEqual([{ type: "rule.revoke", rule: "Bash(sed:*)" }]);
 });
+
+function rulesFrame(seq: number, rules: { rule: string; description: string }[]) {
+	return JSON.stringify({ type: "rules", sessionId: SESSION_ID, seq, rules });
+}
+
+const SED = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
+const GREP = { rule: "Bash(grep:*)", description: '"grep" commands in this session' };
+
+function renderRules(transport: () => boolean = () => true) {
+	const sent: unknown[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return transport();
+	});
+	render(
+		<div className="pk-chat">
+			<SessionRules store={store} />
+			<div className="pk-chat-composer">
+				{/* biome-ignore lint/a11y/useSemanticElements: stands in for the composer's editable box */}
+				<div role="textbox" tabIndex={0} aria-label="Message" />
+			</div>
+		</div>,
+	);
+	act(() => {
+		store.getState().receive(
+			JSON.stringify({
+				type: "snapshot",
+				sessionId: SESSION_ID,
+				seq: 1,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			}),
+		);
+		store.getState().receive(rulesFrame(2, [SED, GREP]));
+	});
+	return { store, sent };
+}
+
+const revokeButton = (rule: { description: string }) =>
+	screen.getByRole("button", { name: `Revoke: ${rule.description}` });
+const rulesStatus = () => screen.getByTestId("chat-session-rules-status").textContent;
+
+test("Revoke is busy while it waits, so a second press sends nothing", () => {
+	const { sent } = renderRules();
+	fireEvent.click(revokeButton(SED));
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBe("true");
+	expect(revokeButton(SED).getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(revokeButton(SED));
+	expect(sent).toEqual([{ type: "rule.revoke", rule: SED.rule }]);
+});
+
+test("after a revoke the next Revoke takes focus and the revoke is announced", () => {
+	const { store } = renderRules();
+	revokeButton(SED).focus();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(3, [GREP])));
+	expect(document.activeElement).toBe(revokeButton(GREP));
+	expect(rulesStatus()).toBe(`Revoked: ${SED.description}.`);
+});
+
+test("revoking the last row focuses the summary, and the last rule the message box", () => {
+	const { store } = renderRules();
+	revokeButton(GREP).focus();
+	fireEvent.click(revokeButton(GREP));
+	act(() => store.getState().receive(rulesFrame(3, [SED])));
+	expect(document.activeElement?.tagName).toBe("SUMMARY");
+	revokeButton(SED).focus();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(4, [])));
+	expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
+	expect(rulesStatus()).toBe(`Revoked: ${SED.description}.`);
+});
+
+test("a rule revoked from another browser leaves the focus alone and says nothing", () => {
+	const { store } = renderRules();
+	const box = screen.getByRole("textbox", { name: "Message" });
+	box.focus();
+	act(() => store.getState().receive(rulesFrame(3, [GREP])));
+	expect(document.activeElement).toBe(box);
+	expect(rulesStatus()).toBe("");
+});
+
+test("a list that still holds the rule ends the wait without saying it was revoked", () => {
+	const { store } = renderRules();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(3, [SED, GREP])));
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBeNull();
+	expect(rulesStatus()).toBe("");
+});
+
+test("a revoke that cannot be sent says so and leaves Revoke ready", () => {
+	renderRules(() => false);
+	fireEvent.click(revokeButton(SED));
+	expect(screen.getByRole("alert").textContent).toContain("not connected");
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBeNull();
+});
