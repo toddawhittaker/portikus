@@ -888,7 +888,7 @@ The primary desktop interface must have:
 2. **Center pane:** tabbed work area;
 3. **Right pane:** project file tree.
 
-Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target. As built (Epic 58.2), below 56rem the work area fills the screen, and the project list and the right pane become slide-over drawers, opened by a Projects button left of the wordmark and a Files button at the right of the header. A drawer is a modal dialog: it keeps focus inside, closes on Escape, a tap outside, its close button, or choosing a project or opening a file, and returns focus to the button that opened it. The page behind it is hidden with `aria-hidden`, not `inert`, so live regions stay heard (ADR 0047). At 56rem and wider the three panes sit side by side; see DESIGN.md section 9.
+Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target. As built (Epic 58.2), below 56rem the work area fills the screen, and the project list and the right pane become slide-over drawers, opened by a Projects button left of the wordmark and a Files button at the right of the header. A drawer is a modal dialog: it keeps focus inside, closes on Escape, a tap outside, its close button, or choosing a project or opening a file, and returns focus to the button that opened it. The shell behind it is hidden with `aria-hidden`, not `inert`, so live regions stay heard and toasts and dialogs stay reachable (ADR 0047). Closing returns focus to the opener, or to the pane's selected tab when the opener is hidden after widening; code that moves focus behind an open drawer closes it. At 56rem and wider the three panes sit side by side; see DESIGN.md section 9.
 
 ### 8.2 Left pane
 
@@ -1366,7 +1366,7 @@ Added by Epic 58.1: a new chat tab starts with the model, effort and permission 
 
 The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span, three backticks for a code block, and `- ` or `1. ` for a list show formatted as they are typed, with the markers hidden, and the message is sent as the Markdown text, never escaped. Pasted text arrives as plain text. Enter sends and Shift+Enter adds a line; in a code block Enter adds a line and Ctrl+Enter (Cmd+Enter on a Mac) sends. Send is an up-arrow icon button with the microphone beside it; while a turn runs, Stop sits beside Send. To a screen reader the editor is a labelled multi-line text box (section 25.8).
 
-Added by Epic 58.2: the composer also shows block quotes (`> `), strikethrough, separator lines, headings one to three, bold italics, task lists, nested lists (Tab and Shift+Tab inside a list only, so Tab still leaves the box) and links, and sends them as Markdown; only http and https links are made (section 24.3). Dictation's running guess shows greyed at the cursor, hidden from assistive technology and never sent. Pasting the same text of more than 40 lines twice within 0.8 seconds puts it in the box once, drops the first paste's chip and deletes its saved file; the text is held in memory only (ADR 0012).
+Added by Epic 58.2: the composer also shows block quotes (`> `), strikethrough, separator lines, headings one to three, bold italics, task lists, nested lists and links, and sends them as Markdown; Typing `[ ] ` makes a task only in a bullet list with one item; Tab indents a list item, and Shift+Tab outdents only a nested one, so the keyboard can still leave the box (section 25.8). Only http and https links are made (section 24.3). Dictation's running guess shows greyed at the cursor, hidden from assistive technology and never sent. Pasting the same text of more than 40 lines twice within 0.8 seconds puts it in the box once, drops the first paste's chip and deletes its saved file; the text is held in memory only and forgotten on send, so a sent message's file is never deleted (ADR 0012).
 
 Added by Epic 58.1: while a turn runs, Send stays available beside Stop and the box stays usable. A message sent then goes to the host as an ordinary `send`; Claude Code takes it in at its next step within the same turn, so the host sends no new `turn.started`. The browser shows it at once with a quiet "Sent while Claude was working" note. The step in hand stays on the Working line until Claude's next tool call or text, which opens a new turn below the message, as a reload replays it; a turn that ends first keeps its own end state (done, stopped or failed). The note itself is not kept across a reload. Escape in the message box stops a running turn unless a picker menu is open. Up in an empty box brings back the last message sent, held in the page's memory only. The line under the box lists these keys. Inside a permission card, 1, 2 and 3 choose its options, each button showing its number and carrying `aria-keyshortcuts`; the keys act only with the keyboard inside the card, never from the message box, so typing there cannot grant a permission (section 25.8). The Working line names the step in hand in the same words as the tool's row, "Running pnpm build · 3m 43s" from the newest running tool, "Waiting for your permission" while that tool's permission card is open, or "Writing a reply" while text streams; the polite announcement is unchanged. A paste of more than 40 lines is saved as `pasted-text.txt` (then `pasted-text-2.txt` and so on, so each has its own chip and Remove name) under `.portikus/pastes/<stamp>/` and attached, shown as a chip with its line count, instead of filling the box, and the composer says "Pasted 60 lines, attached as pasted-text.txt."
 
@@ -7141,20 +7141,21 @@ Acceptance:
 
 ### Epic 58.2 — chat and phone fix batch
 
-Built on `epic/58.2-fix-batch`. Migration 0054. See sections 8.1, 10.2, 24.4, 24.13, 25.6 and 25.8.
+Built on `epic/58.2-fix-batch`, with the fix-round pull requests #1822, #1823, #1824, #1827, #1832, #1833 and #1834 after the first task pull requests. Migration 0054. See sections 8.1, 10.2, 24.4, 24.13, 25.6 and 25.8.
 
 Includes:
 
 - phone drawers: below 56rem the project list and the right pane are slide-over modal drawers over a full-screen work area;
 - a composer whose microphone and Send stay on the first line, with short picker labels when narrow, Markdown shortcuts and links, greyed dictation guesses, and a double paste that goes inline;
 - tool calls grouped under one disclosure, one byline per run, and a Jump to latest button that never covers a message;
-- administrator alerts that survive a worker restart, an install test that registers the mock LMS, and the open Dependabot alerts cleared.
+- administrator alerts that survive a worker restart, an install test that registers the mock LMS, and the open Dependabot alerts cleared or dismissed.
 
 Acceptance:
 
-- at 360, 420 and 800 px the work area fills the width, and each drawer traps focus, closes on Escape and returns focus to its button;
+- at 360, 420 and 800 px the work area fills the width, and each drawer traps focus, closes on Escape and returns focus to its button, while a toast and the chat announcer stay reachable;
 - a reboot, sign-in spike or full-disk alert is sent once across a worker restart, and again after it clears and returns;
-- a link with any scheme but http or https stays plain text in the composer.
+- a link with any scheme but http or https stays plain text in the composer, and a fenced link target cannot start a second link;
+- a paste that was sent in a message is never deleted by a later double paste.
 
 ### Estimated total
 
