@@ -190,19 +190,15 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 	}, []);
 
 	/**
-	 * Take a file back that should not have been attached, and delete the
-	 * copy saved in the project. The chip goes even if the delete fails; the
-	 * copy then stays in `.portikus/pastes`, where nothing reads it.
+	 * Take back a long paste's text file, which has no thumbnail, and delete
+	 * the copy saved in the project. The chip goes even if the delete fails;
+	 * the copy then stays in `.portikus/pastes`, where nothing reads it.
 	 */
 	const discard = useCallback(
 		/** `said` is what the status region announces. */
 		(key: string, said: string) => {
 			const gone = current.current.find((item) => item.key === key);
 			if (!gone) return;
-			if (gone.previewUrl) {
-				URL.revokeObjectURL(gone.previewUrl);
-				urls.current.delete(gone.previewUrl);
-			}
 			reserved.current -= 1;
 			current.current = current.current.filter((item) => item.key !== key);
 			setItems((now) => now.filter((item) => item.key !== key));
