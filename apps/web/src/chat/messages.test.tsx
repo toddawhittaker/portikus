@@ -179,3 +179,95 @@ test("a message with only a picture has nothing to copy", () => {
 	list([message("user", "", { attachments: [{ path: "a.png" }] })], true);
 	expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
 });
+
+test("a message sent while Claude worked says so beneath it; others do not", () => {
+	list([
+		message("user", "Build it"),
+		message("user", "Skip the docs", { key: "u2", whileWorking: true }),
+	]);
+	const notes = screen.getAllByTestId("chat-sent-while-working");
+	expect(notes.map((note) => note.textContent)).toEqual([
+		"Sent while Claude was working",
+	]);
+	const [, second] = screen.getAllByTestId("chat-user-message");
+	expect(second?.contains(notes[0] as Node)).toBe(true);
+});
+
+function tool(
+	name: string,
+	input: unknown,
+	extra: Partial<ChatToolItem> = {},
+): ChatToolItem {
+	return {
+		kind: "tool",
+		key: `tool-${name}`,
+		id: name,
+		name,
+		title: name,
+		input,
+		output: [],
+		status: "running",
+		turnId: "t1",
+		...extra,
+	};
+}
+
+function running(items: ChatItem[], startedAt: number) {
+	return render(
+		<MessageList
+			items={items}
+			turns={{
+				t1: {
+					id: "t1",
+					startedAt,
+					finishedAt: null,
+					status: "running",
+					estimated: false,
+				},
+			}}
+			currentTurnId="t1"
+			truncated={false}
+		/>,
+	);
+}
+
+function working(items: ChatItem[]): string {
+	running(items, Date.now() - 223_000);
+	const text = screen.getByTestId("chat-working").textContent ?? "";
+	cleanup();
+	return text;
+}
+
+test("the Working line names the newest running step, and the time stays", () => {
+	expect(working([])).toBe("Working 3m 43s");
+	expect(working([tool("Bash", { command: "pnpm build\n--filter web" })])).toBe(
+		"Running pnpm build … · 3m 43s",
+	);
+	expect(working([tool("Read", { file_path: "src/a.ts" })])).toBe(
+		"Reading src/a.ts · 3m 43s",
+	);
+	expect(working([tool("Grep", { pattern: "TODO", path: "src" })])).toBe(
+		"Searching for TODO in src · 3m 43s",
+	);
+	expect(working([tool("AskUserQuestion", { questions: [] })])).toBe(
+		"Waiting for your answer · 3m 43s",
+	);
+	expect(working([tool("Task", { prompt: "look" })])).toBe("Using Task · 3m 43s");
+	expect(working([tool("Bash", {})])).toBe("Running Bash · 3m 43s");
+	// A finished tool is no longer the step in hand.
+	expect(working([tool("Bash", { command: "ls" }, { status: "done" })])).toBe(
+		"Working 3m 43s",
+	);
+	expect(
+		working([
+			tool("Bash", { command: "pnpm build" }),
+			message("assistant", "Now", { streaming: true, turnId: "t1" }),
+		]),
+	).toBe("Writing a reply · 3m 43s");
+});
+
+test("a long step is cut on screen and kept whole in its title", () => {
+	const command = `echo ${"x".repeat(300)}`;
+	running([tool("Bash", { command })], 0);
+	expect(screen.getByTitle(`Running ${command}`).className).toBe("pk-turn-doing");
+});

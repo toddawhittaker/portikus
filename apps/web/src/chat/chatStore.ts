@@ -31,6 +31,8 @@ export interface ChatMessageItem {
 	/** Deltas are still arriving for it. */
 	streaming: boolean;
 	turnId: string | null;
+	/** The student sent it while Claude was working; only live, a reload does not know. */
+	whileWorking?: boolean;
 }
 
 export interface ChatToolItem {
@@ -315,6 +317,9 @@ function applyChatEvent(
 			const lastUserMessageSeq =
 				event.role === "user" ? event.seq : state.lastUserMessageSeq;
 			if (items) return { ...state, items, lastUserMessageSeq };
+			if (event.role === "user" && isWorking(state)) {
+				return sentWhileWorking(state, { ...fields, id: event.id }, event.seq, now);
+			}
 			return {
 				...state,
 				lastUserMessageSeq,
@@ -402,6 +407,57 @@ function applyChatEvent(
 		case "rules":
 			return { ...state, sessionRules: event.rules };
 	}
+}
+
+/** A turn is running and has already shown some work. */
+function isWorking(state: ChatState): boolean {
+	const turnId = state.currentTurnId;
+	if (turnId === null || state.turns[turnId]?.status !== "running") return false;
+	return state.items.some((item) => item.turnId === turnId);
+}
+
+/**
+ * A message the student sent while Claude worked (SPEC.md §10.8). Claude
+ * takes it in at its next step, so the work after it reads as a new turn
+ * below it, as a reload replays it from the transcript.
+ */
+function sentWhileWorking(
+	state: ChatState,
+	message: Pick<ChatMessageItem, "id" | "markdown" | "attachments">,
+	seq: number,
+	now: number,
+): ChatState {
+	const before = state.currentTurnId as string;
+	const turn = state.turns[before] as ChatTurn;
+	const next = `turn-${seq}`;
+	return {
+		...state,
+		lastUserMessageSeq: seq,
+		currentTurnId: next,
+		turns: {
+			...state.turns,
+			[before]: { ...turn, finishedAt: now, status: "done" },
+			[next]: {
+				id: next,
+				startedAt: now,
+				finishedAt: null,
+				status: "running",
+				estimated: false,
+			},
+		},
+		items: [
+			...state.items,
+			{
+				kind: "message",
+				key: `message:${message.id}`,
+				role: "user",
+				streaming: false,
+				turnId: null,
+				whileWorking: true,
+				...message,
+			},
+		],
+	};
 }
 
 /** Session rules are letting some tools run without a card. */

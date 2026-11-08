@@ -5,7 +5,8 @@
  * code span, ``` a code block, and `- ` or `1. ` at the start of a line a
  * list. Enter sends, except inside a code block, where it adds a line and
  * Ctrl+Enter (Cmd+Enter on a Mac) sends. Shift+Enter always adds a line.
- * Pasted text arrives as plain text, never as formatted HTML.
+ * Pasted text arrives as plain text, never as formatted HTML; a paste of
+ * more than LONG_PASTE_LINES lines is handed back to be attached as a file.
  */
 import {
 	Editor,
@@ -32,6 +33,14 @@ const BOLD = /(?<=^|[\s([{"'])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/;
 const ITALIC = /(?<=^|[\s([{"'])\*([^*\s](?:[^*]*[^*\s])?)\*$/;
 const FENCE = /^```([\w+#.-]*)$/;
 
+/** A paste longer than this many lines, an error log say, is attached as a file instead. */
+export const LONG_PASTE_LINES = 40;
+
+/** Lines in pasted text; a final newline does not start another. */
+export function lineCount(text: string): number {
+	return text.replace(/\n$/, "").split("\n").length;
+}
+
 export interface ComposerEditorOptions {
 	element: HTMLElement;
 	/** Set on the editable element: its name, role, id and description. */
@@ -39,6 +48,8 @@ export interface ComposerEditorOptions {
 	placeholder: string;
 	onSend: () => void;
 	onFiles: (files: File[]) => void;
+	/** Text pasted of more than LONG_PASTE_LINES lines, with its line count. */
+	onLongPaste: (text: string, lines: number) => void;
 	/** Sees each key first; returning true stops the editor handling it. */
 	onKeyDown: (event: KeyboardEvent) => boolean;
 	onKeyUp: (event: KeyboardEvent) => void;
@@ -170,6 +181,11 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 				}
 				const text = (data?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n");
 				if (text === "") return true;
+				const lines = lineCount(text);
+				if (lines > LONG_PASTE_LINES) {
+					options.onLongPaste(text, lines);
+					return true;
+				}
 				const { state } = view;
 				const tr = state.selection.$from.parent.type.spec.code
 					? state.tr.insertText(text)

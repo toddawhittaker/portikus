@@ -341,3 +341,55 @@ test("a revoke that cannot be sent says so and leaves Revoke ready", () => {
 	expect(screen.getByRole("alert").textContent).toContain("not connected");
 	expect(revokeButton(SED).getAttribute("aria-busy")).toBeNull();
 });
+
+test("inside a permission card, 1, 2 and 3 choose its options, each showing its number", () => {
+	const onAnswer = vi.fn(() => true);
+	const three = {
+		...PERMISSION,
+		options: [
+			{ id: "allow", label: "Allow" },
+			{ id: "always", label: "Always allow pnpm test" },
+			{ id: "deny", label: "Deny" },
+		],
+	};
+	render(
+		<PermissionCard
+			card={three}
+			onAnswer={onAnswer}
+			takeFocus={() => true}
+			waiting={0}
+		/>,
+	);
+	const allow = screen.getByRole("button", { name: "Allow" });
+	expect(allow.getAttribute("aria-keyshortcuts")).toBe("1");
+	const deny = screen.getByRole("button", { name: "Deny" });
+	expect(deny.getAttribute("aria-keyshortcuts")).toBe("3");
+	expect(allow.textContent).toBe("1Allow");
+	// A modified key, or a number with no option, does nothing.
+	fireEvent.keyDown(allow, { key: "3", ctrlKey: true });
+	fireEvent.keyDown(allow, { key: "4" });
+	fireEvent.keyDown(allow, { key: "0" });
+	expect(onAnswer).not.toHaveBeenCalled();
+	fireEvent.keyDown(allow, { key: "3" });
+	expect(onAnswer).toHaveBeenCalledWith("deny");
+	// Once chosen, another key cannot change the answer.
+	fireEvent.keyDown(allow, { key: "1" });
+	expect(onAnswer).toHaveBeenCalledTimes(1);
+});
+
+test("a number key from outside the card answers nothing", () => {
+	const onAnswer = vi.fn(() => true);
+	render(
+		<>
+			<input aria-label="Elsewhere" />
+			<PermissionCard
+				card={PERMISSION}
+				onAnswer={onAnswer}
+				takeFocus={() => false}
+				waiting={0}
+			/>
+		</>,
+	);
+	fireEvent.keyDown(screen.getByRole("textbox", { name: "Elsewhere" }), { key: "1" });
+	expect(onAnswer).not.toHaveBeenCalled();
+});

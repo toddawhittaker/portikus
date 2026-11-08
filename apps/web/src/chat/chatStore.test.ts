@@ -229,6 +229,81 @@ test("a user message is never part of a turn", () => {
 	expect(state.items[0]?.turnId).toBeNull();
 });
 
+test("a message sent while Claude works is marked, and the work after it is a new turn", () => {
+	let state = feed(
+		[
+			snapshot(0),
+			frame("message", 1, { id: "u1", role: "user", markdown: "Build it" }),
+			frame("turn.started", 2, { at: 1_000 }),
+			frame("tool.started", 3, {
+				id: "t1",
+				name: "Bash",
+				title: "pnpm build",
+				input: { command: "pnpm build" },
+			}),
+		],
+		initialChatState,
+		1_000,
+	);
+	const first = state.currentTurnId as string;
+	state = feed(
+		[frame("message", 4, { id: "u2", role: "user", markdown: "Skip the docs" })],
+		state,
+		5_000,
+	);
+	const next = state.currentTurnId as string;
+	expect(next).not.toBe(first);
+	expect(state.turns[first]).toMatchObject({ finishedAt: 5_000, status: "done" });
+	expect(state.turns[next]).toMatchObject({
+		startedAt: 5_000,
+		finishedAt: null,
+		status: "running",
+	});
+	expect(state.items.at(-1)).toMatchObject({
+		kind: "message",
+		id: "u2",
+		role: "user",
+		markdown: "Skip the docs",
+		turnId: null,
+		whileWorking: true,
+	});
+	expect(state.lastUserMessageSeq).toBe(4);
+	state = feed(
+		[
+			frame("tool.finished", 5, { id: "t1", isError: false }),
+			frame("text.delta", 6, { messageId: "a1", text: "Skipping" }),
+			frame("turn.finished", 7, { at: 9_000, status: "done" }),
+		],
+		state,
+		9_000,
+	);
+	expect(state.items.find((item) => item.key === "tool:t1")).toMatchObject({
+		turnId: first,
+		status: "done",
+	});
+	expect(state.items.at(-1)).toMatchObject({ turnId: next, streaming: false });
+	expect(state.turns[next]).toMatchObject({ finishedAt: 9_000, status: "done" });
+	expect(state.currentTurnId).toBeNull();
+});
+
+test("a message sent before Claude shows any work, or replayed, is not marked", () => {
+	const state = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u1", role: "user", markdown: "one" }),
+		frame("turn.started", 2, { at: 1_000 }),
+		frame("message", 3, { id: "u2", role: "user", markdown: "two" }),
+		frame("message", 4, { id: "a1", role: "assistant", markdown: "ok" }),
+		frame("turn.finished", 5, { at: 2_000, status: "done" }),
+		// A replayed turn sends turn.started before its message.
+		frame("turn.started", 6, { at: 3_000 }),
+		frame("message", 7, { id: "u3", role: "user", markdown: "three" }),
+	]);
+	expect(Object.keys(state.turns)).toHaveLength(2);
+	for (const item of state.items) {
+		expect(item.kind === "message" && item.whileWorking).toBeFalsy();
+	}
+});
+
 test("cards are added once and cleared when resolved", () => {
 	const question = frame("question.requested", 1, {
 		id: "q1",
