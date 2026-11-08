@@ -320,6 +320,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			sendTools(socket);
 			const summary = (id: string) =>
 				view.getByTestId(`chat-tool-${id}`).locator("> summary");
+			// The four calls in a row share one group; its rows show once it opens.
+			await view.getByTestId("chat-tool-group").locator("> summary").click();
 			await expect(summary("read")).toHaveText("Read useDashboardQuery.ts");
 			await expect(summary("edit")).toHaveText(
 				"Edited useDashboardQuery.ts+1 −3, 1 line added, 3 lines removed",
@@ -362,6 +364,132 @@ for (const colorScheme of ["light", "dark"] as const) {
 }
 
 for (const colorScheme of ["light", "dark"] as const) {
+	for (const width of [1280, 420] as const) {
+		test(`a run of tool calls is one disclosure that shows progress and folds when the turn ends (${colorScheme}, ${width})`, async ({
+			page,
+			context,
+		}) => {
+			test.setTimeout(90_000);
+			await page.emulateMedia({ colorScheme });
+			await page.setViewportSize({ width, height: 900 });
+			const { id, view, socket } = await openChat(page, context);
+			socket.send("message", { id: "go", role: "user", markdown: "Fix the lint" });
+			sendTools(socket);
+			const turn = view.getByTestId("chat-turn").last();
+			const group = turn.getByTestId("chat-tool-group");
+			const head = group.locator("> summary");
+			await expect(group).toHaveCount(1);
+			await expect(head).toHaveText("4 tool callsRunning pnpm vitest run1 failed");
+			await expect(group).toHaveAttribute("data-status", "running");
+			// Closed, its rows are hidden; one byline heads the whole turn.
+			await expect(view.getByTestId("chat-tool-read")).toBeHidden();
+			await expect(turn.locator(".pk-chat-author")).toHaveCount(1);
+			// The polite announcement says Claude is working, not each call.
+			await expect(view.getByTestId("chat-announcer")).toHaveText("Claude is working.");
+			await expectLogAtEnd(view);
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			// From the keyboard the group opens, then a row inside it.
+			await head.focus();
+			await page.keyboard.press("Enter");
+			await expect(group).toHaveAttribute("open", "");
+			const row = view.getByTestId("chat-tool-read").locator("> summary");
+			await row.focus();
+			await page.keyboard.press("Enter");
+			await expect(view.getByTestId("chat-tool-read")).toHaveAttribute("open", "");
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			// A new call joins the group, and the log still follows it.
+			socket.send("tool.finished", { id: "test", isError: false });
+			socket.send("tool.started", {
+				id: "build",
+				name: "Bash",
+				title: "Build",
+				input: { command: "pnpm build" },
+			});
+			await expect(head).toHaveText("5 tool callsRunning pnpm build1 failed");
+			await expectLogAtEnd(view);
+			await expect(view.getByTestId("chat-announcer")).toHaveText("Claude is working.");
+
+			// Text breaks the run; the turn's end folds it all into "Worked for".
+			socket.send("tool.finished", { id: "build", isError: false });
+			socket.send("message", { id: "said", role: "assistant", markdown: "All fixed." });
+			socket.send("turn.finished", { at: Date.now(), status: "done" });
+			const worked = turn.getByTestId("chat-worked");
+			await expect(worked.locator("> summary")).toContainText("5 tool calls");
+			await worked.locator("> summary").click();
+			await expect(worked.getByTestId("chat-tool-group")).toHaveCount(1);
+			await expect(worked.getByTestId("chat-tool-group-what")).toHaveText(
+				"Read, Edit, Bash",
+			);
+			await expect(turn.locator(".pk-chat-author")).toHaveCount(1);
+		});
+	}
+}
+
+test("Claude's history outside a turn has one byline per run of its work", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const { view, socket } = await openChat(page, context);
+	const before = await view.getByTestId("chat-turn").count();
+	// As a reloaded history arrives: no turn around Claude's messages and calls.
+	socket.send("message", { id: "h-u", role: "user", markdown: "Old question" });
+	socket.send("message", { id: "h-a", role: "assistant", markdown: "Looking now." });
+	for (const one of ["h-1", "h-2", "h-3"]) {
+		socket.send("tool.started", {
+			id: one,
+			name: "Bash",
+			title: one,
+			input: { command: `echo ${one}` },
+		});
+		socket.send("tool.finished", { id: one, isError: false });
+	}
+	socket.send("message", { id: "h-b", role: "assistant", markdown: "Found it." });
+	await expect(view.getByText("Found it.")).toBeVisible();
+	await expect(view.getByTestId("chat-turn")).toHaveCount(before + 1);
+	const last = view.getByTestId("chat-turn").last();
+	await expect(last.locator(".pk-chat-author")).toHaveCount(1);
+	await expect(last.getByTestId("chat-tool-group").locator("> summary")).toHaveText(
+		"3 tool callsBash",
+	);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`Jump to latest never covers the last message (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		test.setTimeout(90_000);
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 800, height: 720 });
+		const { id, view, socket } = await openChat(page, context);
+		socket.send("message", { id: "end", role: "user", markdown: LONG.repeat(3) });
+		await expectLogAtEnd(view);
+		const log = view.getByTestId("chat-scroll");
+		// Scrolled back just past the end, as when reading the last reply again.
+		await log.evaluate((box) => box.scrollBy(0, -80));
+		const jump = view.getByRole("button", { name: "Jump to latest" });
+		await expect(jump).toBeVisible();
+		const area = await log.boundingBox();
+		const button = await jump.boundingBox();
+		const bubble = await view
+			.getByTestId("chat-user-message")
+			.last()
+			.locator(".pk-chat-bubble")
+			.boundingBox();
+		if (!area || !button || !bubble) throw new Error("no log, button or bubble");
+		// The button sits below the log, so nothing scrolled in the log is beneath it.
+		expect(button.y).toBeGreaterThanOrEqual(area.y + area.height - 1);
+		const visibleBottom = Math.min(bubble.y + bubble.height, area.y + area.height);
+		expect(button.y).toBeGreaterThanOrEqual(visibleBottom - 1);
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
 	test(`Jump to latest is a round button at the bottom right, with a dot for news (${colorScheme})`, async ({
 		page,
 		context,
@@ -377,14 +505,14 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(jump).not.toHaveAttribute("data-fresh");
 		await expect(view.locator(".pk-chat-jump-dot")).toHaveCount(0);
 
-		// Round, and in the bottom right corner, clear of the text's middle.
+		// Round, at the right, just below the log rather than over it.
 		const radius = await jump.evaluate((node) => getComputedStyle(node).borderRadius);
 		expect(Number.parseFloat(radius)).toBeGreaterThan(100);
 		const area = await log.boundingBox();
 		const button = await jump.boundingBox();
 		if (!area || !button) throw new Error("no log or button");
 		expect(button.x).toBeGreaterThan(area.x + area.width * 0.75);
-		expect(button.y).toBeGreaterThan(area.y + area.height * 0.75);
+		expect(button.y).toBeGreaterThanOrEqual(area.y + area.height - 1);
 
 		// Something new while reading back: a dot, and a description for a screen reader.
 		socket.send("message", { id: "late", role: "user", markdown: "Another question" });

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore";
 import { formatElapsed, isoDuration } from "./elapsed";
-import { foldTurn } from "./fold";
+import { foldTurn, groupTools } from "./fold";
 
 function said(id: string): ChatMessageItem {
 	return {
@@ -64,6 +64,50 @@ test("a turn with only tools folds all of them, and errors stay visible", () => 
 	expect(folded.after).toBeNull();
 	expect(keys(folded.folded)).toEqual(["tool:1", "tool:2"]);
 	expect(folded.errors).toEqual([error]);
+});
+
+const never = () => false;
+
+test("consecutive tool calls gather into one run, keyed by the first", () => {
+	const shown = groupTools(
+		[said("a"), tool("1"), tool("2"), tool("3"), said("b")],
+		never,
+	);
+	expect(shown.map((one) => one.key)).toEqual(["message:a", "run:tool:1", "message:b"]);
+	const run = shown[1];
+	expect(run?.kind === "tools" ? keys(run.tools) : null).toEqual([
+		"tool:1",
+		"tool:2",
+		"tool:3",
+	]);
+});
+
+test("text between calls splits them into separate runs, and a lone call stays a row", () => {
+	const shown = groupTools([tool("1"), tool("2"), said("m"), tool("3")], never);
+	expect(shown.map((one) => one.key)).toEqual(["run:tool:1", "message:m", "tool:3"]);
+	expect(shown[2]?.kind).toBe("tool");
+});
+
+test("a call that stands alone, and an error, break a run", () => {
+	const error: ChatItem = { kind: "error", key: "error:1", message: "x", turnId: "t" };
+	const shown = groupTools(
+		[tool("1"), tool("ask"), tool("2"), tool("3"), error, tool("4"), tool("5")],
+		(one) => one.id === "ask",
+	);
+	expect(shown.map((one) => one.key)).toEqual([
+		"tool:1",
+		"tool:ask",
+		"run:tool:2",
+		"error:1",
+		"run:tool:4",
+	]);
+});
+
+test("a growing run keeps its key, so it stays in place", () => {
+	const two = groupTools([tool("1"), tool("2")], never);
+	const three = groupTools([tool("1"), tool("2"), tool("3")], never);
+	expect(two[0]?.key).toBe(three[0]?.key);
+	expect(groupTools([], never)).toEqual([]);
 });
 
 test("a turn's length reads as minutes and seconds", () => {
