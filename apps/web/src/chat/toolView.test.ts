@@ -4,7 +4,7 @@ import { diffLines, previewText, toolLine, toolView } from "./toolView";
 test("a row names the kind of tool, its verb and what it acted on", () => {
 	expect(toolLine("Read", { file_path: "src/a.ts" }, "Read a file")).toEqual({
 		icon: "file",
-		verb: { done: "Read", pending: "Read" },
+		verb: { done: "Read", doing: "Reading", pending: "Read" },
 		target: "a.ts",
 		literal: true,
 		path: "src/a.ts",
@@ -19,6 +19,12 @@ test("a row names the kind of tool, its verb and what it acted on", () => {
 		"Searched the web for",
 	);
 	expect(toolLine("Bash", { command: "ls" }, "").icon).toBe("terminal");
+	const notebook = toolLine("NotebookEdit", { notebook_path: "nb/plot.ipynb" }, "");
+	expect([notebook.verb?.done, notebook.target, notebook.path]).toEqual([
+		"Edited",
+		"plot.ipynb",
+		"nb/plot.ipynb",
+	]);
 });
 
 test("a one-line command is left out of the opened row; a longer one stays", () => {

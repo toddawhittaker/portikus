@@ -1,38 +1,22 @@
 /**
  * Assistant Markdown is untrusted: a prompt-injected image link could leak
- * data to any host (SPEC.md §24.3). It goes through `sanitizeMarkdown`, raw
- * HTML is escaped (no `rehype-raw`), and only http and https links survive,
- * opening in a new tab. An image is drawn only from the student's own files,
- * through the owner-only image route (SPEC.md §24.1); a remote or data:
- * image is named, never loaded.
+ * data to any host (SPEC.md §24.3). Raw HTML is shown as text (no
+ * `rehype-raw`), and only http and https links survive, opening in a new
+ * tab. Every image goes through `ChatImage`: it is drawn only from the
+ * student's own files, through the owner-only image route (SPEC.md §24.1);
+ * a remote or data: image is named, never loaded. The rules work on the
+ * parsed document, so code keeps the text as written.
  */
 import { ChatImagePath, chatImageType } from "@portikus/contracts";
 import { type ComponentPropsWithoutRef, memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../editor/markdown.css";
-import { isSafeLink, sanitizeMarkdown } from "../markdown/sanitize.js";
+import { isSafeLink } from "../markdown/sanitize.js";
 import { CopyButton } from "./CopyButton.js";
 import { useChatImages } from "./ImageViewer.js";
 
 const PLUGINS = [remarkGfm];
-const NO_IMAGES = ["img"];
-
-/**
- * Inline images become links to this reserved, never-resolving address
- * before sanitizing, so the image rules below decide each one instead of
- * the sanitizer dropping it.
- */
-const IMAGE_MARK = "https://image.portikus.invalid/";
-
-/** Turn each inline image into a marked link carrying its target and alt text. */
-function markImages(markdown: string): string {
-	return markdown.replace(
-		/!\[([^\]]*)\]\(\s*<?([^)\s>]*)>?[^)]*\)/g,
-		(_image, alt: string, target: string) =>
-			`[${alt}](${IMAGE_MARK}?${new URLSearchParams({ src: target, alt })})`,
-	);
-}
 
 export type ImageTarget =
 	| { kind: "local"; path: string }
@@ -68,6 +52,11 @@ export function chatUrl(url: string): string {
 	return isSafeLink(url) ? url : "";
 }
 
+/** An image's target goes to `ChatImage` as written, which alone decides what loads. */
+function chatUrlFor(url: string, key: string): string {
+	return key === "src" ? url : chatUrl(url);
+}
+
 function ChatImage({ target, alt }: { target: string; alt: string }) {
 	const images = useChatImages();
 	const [failed, setFailed] = useState(false);
@@ -88,6 +77,7 @@ function ChatImage({ target, alt }: { target: string; alt: string }) {
 		<button
 			type="button"
 			className="pk-chat-image"
+			aria-label={`View image ${label}`}
 			onClick={() =>
 				images.open({
 					src,
@@ -108,10 +98,6 @@ function Link({
 	children,
 	...props
 }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
-	if (href?.startsWith(IMAGE_MARK)) {
-		const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
-		return <ChatImage target={query.get("src") ?? ""} alt={query.get("alt") ?? ""} />;
-	}
 	if (!href) return <span>{children}</span>;
 	return (
 		<a {...props} href={href} target="_blank" rel="noopener noreferrer">
@@ -140,18 +126,21 @@ function Pre({
 	);
 }
 
-const COMPONENTS = { a: Link, pre: Pre };
+function Image({ src, alt }: ComponentPropsWithoutRef<"img"> & { node?: unknown }) {
+	return <ChatImage target={typeof src === "string" ? src : ""} alt={alt ?? ""} />;
+}
+
+const COMPONENTS = { a: Link, img: Image, pre: Pre };
 
 export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
 	return (
 		<div className="pk-markdown pk-chat-md">
 			<Markdown
 				remarkPlugins={PLUGINS}
-				urlTransform={chatUrl}
-				disallowedElements={NO_IMAGES}
+				urlTransform={chatUrlFor}
 				components={COMPONENTS}
 			>
-				{sanitizeMarkdown(markImages(text))}
+				{text}
 			</Markdown>
 		</div>
 	);

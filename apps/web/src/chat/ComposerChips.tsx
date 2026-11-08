@@ -1,7 +1,7 @@
 import { Icon, IconButton } from "@portikus/ui";
 import { useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
-import type { ComposerAttachment } from "./composerAttachments.js";
+import { type ComposerAttachment, lineText } from "./composerAttachments.js";
 
 const SIZE = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
@@ -10,12 +10,6 @@ function fileSize(bytes: number): string {
 	if (bytes < 1024 * 1024)
 		return `${SIZE.format(Math.max(1, Math.round(bytes / 1024)))} KB`;
 	return `${SIZE.format(bytes / (1024 * 1024))} MB`;
-}
-
-const LINES = new Intl.NumberFormat();
-
-function lineText(lines: number): string {
-	return lines === 1 ? "1 line" : `${LINES.format(lines)} lines`;
 }
 
 /**

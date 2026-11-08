@@ -74,6 +74,7 @@ function knownView(name: string, input: unknown): ToolView | null {
 				: null;
 		}
 		case "Read":
+		case "NotebookEdit":
 			return path ? { summary: path, literal: true, detail: null } : null;
 		case "Edit":
 		case "MultiEdit": {
@@ -127,9 +128,13 @@ function knownView(name: string, input: unknown): ToolView | null {
 	}
 }
 
-/** A finished call is told in the past; one running, failed or stopped names its action. */
+/**
+ * A finished call is told in the past, a running one as it happens (the row
+ * and the Working line alike), and a failed or stopped one names its action.
+ */
 interface Verb {
 	done: string;
+	doing: string;
 	pending: string;
 }
 
@@ -150,24 +155,40 @@ export interface ToolLine {
 	detail: ToolDetail | null;
 }
 
-const FILE_TOOLS = new Set(["Read", "Edit", "MultiEdit", "Write"]);
+const FILE_TOOLS = new Set(["Read", "Edit", "MultiEdit", "NotebookEdit", "Write"]);
 
 function baseName(path: string): string {
 	return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
+const EDIT_VERB: Verb = { done: "Edited", doing: "Editing", pending: "Edit" };
+
 const VERBS: Record<string, { icon: ToolLine["icon"]; verb: Verb }> = {
-	Bash: { icon: "terminal", verb: { done: "Ran", pending: "Run" } },
-	Read: { icon: "file", verb: { done: "Read", pending: "Read" } },
-	Edit: { icon: "file-code", verb: { done: "Edited", pending: "Edit" } },
-	MultiEdit: { icon: "file-code", verb: { done: "Edited", pending: "Edit" } },
-	Write: { icon: "file-code", verb: { done: "Wrote", pending: "Write" } },
-	Grep: { icon: "search", verb: { done: "Searched for", pending: "Search for" } },
-	Glob: { icon: "list", verb: { done: "Listed", pending: "List" } },
-	WebFetch: { icon: "globe", verb: { done: "Fetched", pending: "Fetch" } },
+	Bash: { icon: "terminal", verb: { done: "Ran", doing: "Running", pending: "Run" } },
+	Read: { icon: "file", verb: { done: "Read", doing: "Reading", pending: "Read" } },
+	Edit: { icon: "file-code", verb: EDIT_VERB },
+	MultiEdit: { icon: "file-code", verb: EDIT_VERB },
+	NotebookEdit: { icon: "file-code", verb: EDIT_VERB },
+	Write: {
+		icon: "file-code",
+		verb: { done: "Wrote", doing: "Writing", pending: "Write" },
+	},
+	Grep: {
+		icon: "search",
+		verb: { done: "Searched for", doing: "Searching for", pending: "Search for" },
+	},
+	Glob: { icon: "list", verb: { done: "Listed", doing: "Listing", pending: "List" } },
+	WebFetch: {
+		icon: "globe",
+		verb: { done: "Fetched", doing: "Fetching", pending: "Fetch" },
+	},
 	WebSearch: {
 		icon: "globe",
-		verb: { done: "Searched the web for", pending: "Search the web for" },
+		verb: {
+			done: "Searched the web for",
+			doing: "Searching the web for",
+			pending: "Search the web for",
+		},
 	},
 };
 

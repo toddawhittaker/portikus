@@ -1,15 +1,6 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import {
-	createProject,
-	createStudent,
-	expectNoViolations,
-	newTerminal,
-	query,
-	seedFile,
-	terminalIds,
-	workspacePath,
-	workTabs,
-} from "./helpers";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { expectNoViolations, seedFile, workTabs } from "./helpers";
 import { png } from "./png";
 
 /**
@@ -30,8 +21,8 @@ const REPLY = [
 const SENT_IMAGE = ".portikus/pastes/2026-11-08T03-06-53/image.png";
 
 async function openChatWithImage(page: Page, context: BrowserContext) {
-	const student = await createStudent(context);
-	const project = await createProject(student.workspaceId, { name: "Portfolio" });
+	// The reload after routing the socket picks up the files seeded here.
+	const { student, project, id } = await makeChatTab(page, context);
 	await seedFile(
 		student.workspaceId,
 		project.slug,
@@ -44,29 +35,8 @@ async function openChatWithImage(page: Page, context: BrowserContext) {
 		SENT_IMAGE,
 		Buffer.from(png(200, 120), "base64"),
 	);
-	await page.goto(workspacePath(student.workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await newTerminal(page);
-	await expect
-		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-		.toBe(1);
-	const [id] = await terminalIds(student.workspaceId, project.id);
-	if (!id) throw new Error("the terminal row was not created");
-	await query(
-		"update terminals set kind = 'chat', agent = 'claude', name = 'Claude Code' where id = $1",
-		[id],
-	);
 	await page.routeWebSocket(/\/chat$/, (ws) => {
-		let seq = 0;
-		const send = (type: string, body: Record<string, unknown> = {}) =>
-			ws.send(
-				JSON.stringify({
-					type,
-					sessionId: "00000000-0000-4000-8000-000000000000",
-					seq: seq++,
-					...body,
-				}),
-			);
+		const send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
 		send("snapshot", { cards: [], turnRunning: false, truncated: false });
 		send("message", {
 			id: "u1",

@@ -19,7 +19,7 @@ import { foldTurn } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { ToolBlock } from "./ToolBlock.js";
-import { toolView } from "./toolView.js";
+import { toolLine } from "./toolView.js";
 import "./messages.css";
 import "./turn.css";
 
@@ -190,23 +190,32 @@ function AskedSummary({ tool }: { tool: ChatToolItem }) {
 					</span>
 				</summary>
 				<dl className="pk-chat-asked-list">
-					{asked.map((one, at) => (
-						// Questions never change once asked.
-						// biome-ignore lint/suspicious/noArrayIndexKey: see above
-						<div key={at} className="pk-chat-asked-item">
-							<dt>{one.question}</dt>
-							<dd className={one.answer === null ? "pk-chat-muted" : undefined}>
-								{one.answer ??
-									(waiting
-										? "Not answered yet"
-										: unread
-											? result
+					{unread ? (
+						// One result answers them all, so it is shown once, under every question.
+						<div className="pk-chat-asked-item">
+							{asked.map((one, at) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: questions never change once asked
+								<dt key={at}>{one.question}</dt>
+							))}
+							<dd>{result}</dd>
+						</div>
+					) : (
+						asked.map((one, at) => (
+							// Questions never change once asked.
+							// biome-ignore lint/suspicious/noArrayIndexKey: see above
+							<div key={at} className="pk-chat-asked-item">
+								<dt>{one.question}</dt>
+								<dd className={one.answer === null ? "pk-chat-muted" : undefined}>
+									{one.answer ??
+										(waiting
+											? "Not answered yet"
 											: tool.status === "done"
 												? "Skipped"
 												: "Not answered")}
-							</dd>
-						</div>
-					))}
+								</dd>
+							</div>
+						))
+					)}
 				</dl>
 			</details>
 		</li>
@@ -272,14 +281,23 @@ function FoldedWork({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
 	);
 }
 
-function TurnSteps({ turn, items }: { turn: ChatTurn | undefined; items: ChatItem[] }) {
+interface TurnProps {
+	turn: ChatTurn | undefined;
+	items: ChatItem[];
+	/** Tool calls waiting on a permission card, by id. */
+	asking: ReadonlySet<string>;
+}
+
+function TurnSteps({ turn, items, asking }: TurnProps) {
 	if (turn === undefined || turn.status === "running") {
 		return (
 			<>
 				{items.map((item) => (
 					<Step key={item.key} item={item} />
 				))}
-				{turn ? <Working since={turn.startedAt} doing={doingNow(items)} /> : null}
+				{turn ? (
+					<Working since={turn.startedAt} doing={doingNow(items, asking)} />
+				) : null}
 			</>
 		);
 	}
@@ -303,7 +321,7 @@ function TurnSteps({ turn, items }: { turn: ChatTurn | undefined; items: ChatIte
 	);
 }
 
-function Turn({ turn, items }: { turn: ChatTurn | undefined; items: ChatItem[] }) {
+function Turn({ turn, items, asking }: TurnProps) {
 	return (
 		<li className="pk-chat-entry pk-chat-turn" data-testid="chat-turn">
 			<p className="pk-chat-author">
@@ -311,40 +329,28 @@ function Turn({ turn, items }: { turn: ChatTurn | undefined; items: ChatItem[] }
 				Claude
 			</p>
 			<ol className="pk-chat-steps">
-				<TurnSteps turn={turn} items={items} />
+				<TurnSteps turn={turn} items={items} asking={asking} />
 			</ol>
 		</li>
 	);
 }
 
-/** What a running tool is doing, by the verb a student would use for it. */
-const DOING: Record<string, string> = {
-	Bash: "Running",
-	Read: "Reading",
-	Edit: "Editing",
-	MultiEdit: "Editing",
-	NotebookEdit: "Editing",
-	Write: "Writing",
-	Grep: "Searching for",
-	Glob: "Looking for",
-	WebFetch: "Fetching",
-	WebSearch: "Searching the web for",
-};
-
 /**
- * The step in hand: the newest running tool, or a reply being written; null
- * when neither, as between steps.
+ * The step in hand: the newest running tool, in the words of its row, or a
+ * reply being written; null when neither, as between steps.
  */
-function doingNow(items: readonly ChatItem[]): string | null {
+function doingNow(
+	items: readonly ChatItem[],
+	asking: ReadonlySet<string>,
+): string | null {
 	for (let at = items.length - 1; at >= 0; at--) {
 		const item = items[at] as ChatItem;
 		if (item.kind === "message" && item.streaming) return "Writing a reply";
 		if (item.kind !== "tool" || item.status !== "running") continue;
 		if (item.name === "AskUserQuestion") return "Waiting for your answer";
-		const verb = DOING[item.name];
-		const { summary } = toolView(item.name, item.input, item.title);
-		const what = summary.split("\n", 1)[0] ?? "";
-		return verb && what !== "" ? `${verb} ${what}` : `Using ${item.name}`;
+		if (asking.has(item.id)) return "Waiting for your permission";
+		const line = toolLine(item.name, item.input, item.title);
+		return line.verb ? `${line.verb.doing} ${line.target}` : `Using ${item.name}`;
 	}
 	return null;
 }
@@ -382,6 +388,8 @@ export interface MessageListProps {
 	turns: Record<string, ChatTurn>;
 	currentTurnId: string | null;
 	truncated: boolean;
+	/** Ids of the tool calls an open permission card is asking about. */
+	asking: ReadonlySet<string>;
 }
 
 export function MessageList({
@@ -389,6 +397,7 @@ export function MessageList({
 	turns,
 	currentTurnId,
 	truncated,
+	asking,
 }: MessageListProps) {
 	return (
 		<ol className="pk-chat-log" aria-label="Conversation">
@@ -402,7 +411,12 @@ export function MessageList({
 			{groupByTurn(items, currentTurnId).map((entry) => {
 				if (entry.kind === "turn") {
 					return (
-						<Turn key={entry.turnId} turn={turns[entry.turnId]} items={entry.items} />
+						<Turn
+							key={entry.turnId}
+							turn={turns[entry.turnId]}
+							items={entry.items}
+							asking={asking}
+						/>
 					);
 				}
 				const { item } = entry;
@@ -410,7 +424,7 @@ export function MessageList({
 					return <UserMessage key={item.key} message={item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
-				return <Turn key={item.key} turn={undefined} items={[item]} />;
+				return <Turn key={item.key} turn={undefined} items={[item]} asking={asking} />;
 			})}
 		</ol>
 	);

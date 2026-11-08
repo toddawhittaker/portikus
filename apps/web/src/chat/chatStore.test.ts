@@ -229,8 +229,9 @@ test("a user message is never part of a turn", () => {
 	expect(state.items[0]?.turnId).toBeNull();
 });
 
-test("a message sent while Claude works is marked, and the work after it is a new turn", () => {
-	let state = feed(
+/** A turn running `pnpm build`, as the host replays it, at 1 s. */
+function buildingTurn(): ChatState {
+	return feed(
 		[
 			snapshot(0),
 			frame("message", 1, { id: "u1", role: "user", markdown: "Build it" }),
@@ -245,20 +246,20 @@ test("a message sent while Claude works is marked, and the work after it is a ne
 		initialChatState,
 		1_000,
 	);
-	const first = state.currentTurnId as string;
-	state = feed(
+}
+
+function sendWhileBuilding(state: ChatState): ChatState {
+	return feed(
 		[frame("message", 4, { id: "u2", role: "user", markdown: "Skip the docs" })],
 		state,
 		5_000,
 	);
-	const next = state.currentTurnId as string;
-	expect(next).not.toBe(first);
-	expect(state.turns[first]).toMatchObject({ finishedAt: 5_000, status: "done" });
-	expect(state.turns[next]).toMatchObject({
-		startedAt: 5_000,
-		finishedAt: null,
-		status: "running",
-	});
+}
+
+test("a message sent while Claude works is marked, and the work after it is a new turn", () => {
+	let state = buildingTurn();
+	const first = state.currentTurnId as string;
+	state = sendWhileBuilding(state);
 	expect(state.items.at(-1)).toMatchObject({
 		kind: "message",
 		id: "u2",
@@ -272,8 +273,21 @@ test("a message sent while Claude works is marked, and the work after it is a ne
 		[
 			frame("tool.finished", 5, { id: "t1", isError: false }),
 			frame("text.delta", 6, { messageId: "a1", text: "Skipping" }),
-			frame("turn.finished", 7, { at: 9_000, status: "done" }),
 		],
+		state,
+		7_000,
+	);
+	const next = state.currentTurnId as string;
+	expect(next).not.toBe(first);
+	// Claude took the message in at its next step, so that is where the turns divide.
+	expect(state.turns[first]).toMatchObject({ finishedAt: 7_000, status: "done" });
+	expect(state.turns[next]).toMatchObject({
+		startedAt: 7_000,
+		finishedAt: null,
+		status: "running",
+	});
+	state = feed(
+		[frame("turn.finished", 7, { at: 9_000, status: "done" })],
 		state,
 		9_000,
 	);
@@ -284,6 +298,72 @@ test("a message sent while Claude works is marked, and the work after it is a ne
 	expect(state.items.at(-1)).toMatchObject({ turnId: next, streaming: false });
 	expect(state.turns[next]).toMatchObject({ finishedAt: 9_000, status: "done" });
 	expect(state.currentTurnId).toBeNull();
+});
+
+test("a tool still running when the student sends stays in the running turn", () => {
+	const before = buildingTurn();
+	const state = sendWhileBuilding(before);
+	const turnId = before.currentTurnId as string;
+	expect(state.currentTurnId).toBe(turnId);
+	expect(state.turns[turnId]).toMatchObject({ status: "running", finishedAt: null });
+	expect(Object.keys(state.turns)).toHaveLength(1);
+	expect(state.items.find((item) => item.key === "tool:t1")).toMatchObject({
+		turnId,
+		status: "running",
+	});
+});
+
+test.each([
+	["interrupted", "stopped"],
+	["error", "stopped"],
+] as const)(
+	"a turn that ends %s after a send keeps that status on the work it did",
+	(status, tool) => {
+		const before = buildingTurn();
+		const turnId = before.currentTurnId as string;
+		const state = feed(
+			[frame("turn.finished", 5, { at: 6_000, status })],
+			sendWhileBuilding(before),
+			6_000,
+		);
+		expect(state.currentTurnId).toBeNull();
+		expect(Object.keys(state.turns)).toEqual([turnId]);
+		expect(state.turns[turnId]).toMatchObject({ finishedAt: 6_000, status });
+		expect(state.items.find((item) => item.key === "tool:t1")).toMatchObject({
+			turnId,
+			status: tool,
+		});
+		// The next turn is an ordinary one, not a split left waiting.
+		const after = feed(
+			[
+				frame("turn.started", 6, { at: 7_000 }),
+				frame("text.delta", 7, { messageId: "a2", text: "Again" }),
+			],
+			state,
+			7_000,
+		);
+		expect(after.currentTurnId).toBe("turn-6");
+		expect(after.items.at(-1)).toMatchObject({ turnId: "turn-6" });
+	},
+);
+
+test("a second message sent before Claude takes in the first opens one new turn", () => {
+	let state = sendWhileBuilding(buildingTurn());
+	state = feed(
+		[
+			frame("message", 5, { id: "u3", role: "user", markdown: "And lint" }),
+			frame("tool.started", 6, {
+				id: "t2",
+				name: "Bash",
+				title: "pnpm lint",
+				input: { command: "pnpm lint" },
+			}),
+		],
+		state,
+		6_000,
+	);
+	expect(Object.keys(state.turns)).toHaveLength(2);
+	expect(state.items.at(-1)).toMatchObject({ key: "tool:t2", turnId: "turn-4" });
 });
 
 test("a message sent before Claude shows any work, or replayed, is not marked", () => {
