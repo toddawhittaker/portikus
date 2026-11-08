@@ -158,6 +158,7 @@ export class ChatHost {
 
 	/** Rules granted with Always allow for this Claude process only. */
 	private sessionRules: ChatSessionRule[] = [];
+	private rulesQueue: Promise<void> = Promise.resolve();
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
@@ -390,6 +391,11 @@ export class ChatHost {
 			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
 				await this.grantRules(splitSuggestions(open.ask.suggestions).sessionRules);
 			}
+		} catch {
+			// The student chose to allow, so the tool still runs this once.
+			throw new Error(
+				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
+			);
 		} finally {
 			open.settle(permissionResult(optionId, open.input, open.ask));
 			this.broadcast({ type: "card.resolved", id });
@@ -554,30 +560,44 @@ export class ChatHost {
 		this.broadcastSettings();
 	}
 
-	private async grantRules(rules: ChatSessionRule[]): Promise<void> {
-		const added = rules.filter(
-			(rule) => !this.sessionRules.some((held) => held.rule === rule.rule),
-		);
-		if (added.length === 0) return;
-		await this.applyRules([...this.sessionRules, ...added]);
+	private grantRules(rules: ChatSessionRule[]): Promise<void> {
+		return this.changeRules((held) => {
+			const added = rules.filter(
+				(rule) => !held.some((existing) => existing.rule === rule.rule),
+			);
+			return added.length === 0 ? null : [...held, ...added];
+		});
 	}
 
-	private async revokeRule(rule: string): Promise<void> {
-		if (!this.sessionRules.some((held) => held.rule === rule)) return;
-		await this.applyRules(this.sessionRules.filter((held) => held.rule !== rule));
+	private revokeRule(rule: string): Promise<void> {
+		return this.changeRules((held) =>
+			held.some((existing) => existing.rule === rule)
+				? held.filter((existing) => existing.rule !== rule)
+				: null,
+		);
 	}
 
 	/**
-	 * The flag settings layer holds the session rules: each call replaces the
-	 * whole `permissions` object and null clears it, so a revoke takes
-	 * effect at once.
+	 * Socket lines are handled concurrently, so rule changes queue here and
+	 * each computes its list from the one before it. The flag settings layer
+	 * holds the session rules: each call replaces the whole `permissions`
+	 * object and null clears it, so a revoke takes effect at once.
 	 */
-	private async applyRules(rules: ChatSessionRule[]): Promise<void> {
-		await this.session?.applyFlagSettings({
-			permissions: rules.length > 0 ? { allow: rules.map((held) => held.rule) } : null,
+	private changeRules(
+		next: (held: ChatSessionRule[]) => ChatSessionRule[] | null,
+	): Promise<void> {
+		const step = this.rulesQueue.then(async () => {
+			const rules = next(this.sessionRules);
+			if (rules === null) return;
+			await this.session?.applyFlagSettings({
+				permissions:
+					rules.length > 0 ? { allow: rules.map((held) => held.rule) } : null,
+			});
+			this.sessionRules = rules;
+			this.broadcast(this.rulesEvent());
 		});
-		this.sessionRules = rules;
-		this.broadcast(this.rulesEvent());
+		this.rulesQueue = step.catch(() => undefined);
+		return step;
 	}
 
 	private rulesEvent(): ChatEventBody {

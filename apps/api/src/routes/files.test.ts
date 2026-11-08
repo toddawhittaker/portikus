@@ -9,6 +9,7 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import {
+	MAX_CHAT_IMAGE_BYTES,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -920,6 +921,45 @@ test.skipIf(skip)("an agent's HTML content type is never relayed", async () => {
 		await new Promise<void>((resolve) => rude.close(() => resolve()));
 	}
 });
+
+// SPEC.md §24.1: the agent's reply is untrusted, so an endless image body
+// is cut off at the cap instead of being buffered whole.
+test.skipIf(skip)(
+	"an agent's endless image reply is refused without reading it all",
+	async () => {
+		const chunk = Buffer.alloc(64 * 1024, 0x61);
+		let sent = 0;
+		let closed = false;
+		const endless = await startStub((_request, response) => {
+			response.socket?.on("close", () => {
+				closed = true;
+			});
+			response.writeHead(200, { "content-type": "image/png" });
+			new Readable({
+				read() {
+					sent += chunk.length;
+					this.push(chunk);
+				},
+			}).pipe(response);
+		});
+		const port = (endless.address() as AddressInfo).port;
+		const other = await appAgainst(port);
+		try {
+			const response = await fetch(
+				`${other.origin}/workspaces/${workspaceId}/projects/${projectId}/image?path=a.png`,
+				{ headers: { cookie: alice.cookieHeader() } },
+			);
+			expect(response.status).toBe(413);
+			await vi.waitFor(() => expect(closed).toBe(true));
+			expect(sent).toBeLessThan(4 * MAX_CHAT_IMAGE_BYTES);
+		} finally {
+			await other.close();
+			endless.closeAllConnections();
+			await new Promise<void>((resolve) => endless.close(() => resolve()));
+		}
+	},
+	30000,
+);
 
 test.skipIf(skip)(
 	"two downloads of the same file can stream at once",

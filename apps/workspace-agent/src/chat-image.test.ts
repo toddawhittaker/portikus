@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +89,17 @@ test("a missing file and a directory are refused", async () => {
 	await mkdir(join(project, "dir.png"));
 	expect(await code("missing.png")).toBe("FILE_NOT_FOUND");
 	expect(await code("dir.png")).toBe("BAD_REQUEST");
+});
+
+test("a named pipe is refused at once instead of waiting for a writer", async () => {
+	execFileSync("mkfifo", [join(project, "pipe.png")]);
+	expect(await code("pipe.png")).toBe("BAD_REQUEST");
+}, 2000);
+
+test("a small image is read whole", async () => {
+	await writeFile(join(project, "small.png"), PNG);
+	const image = await readChatImage(home, "demo", "small.png");
+	expect(image.body.length).toBe(PNG.length);
 });
 
 test("the bytes are sniffed for each allowed type", () => {

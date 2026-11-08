@@ -69,10 +69,15 @@ export async function readChatImage(
 	if (!contains(await realpath(homeDir), real)) {
 		throw new AgentFailure("PATH_INVALID", "path leaves the home folder");
 	}
-	// The real path has no links left, so O_NOFOLLOW refuses one swapped in since.
+	// The real path has no links left, so O_NOFOLLOW refuses one swapped in
+	// since. O_NONBLOCK keeps a named pipe from holding a thread until a
+	// writer appears; a regular file ignores it.
 	let handle: Awaited<ReturnType<typeof open>>;
 	try {
-		handle = await open(real, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+		handle = await open(
+			real,
+			fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+		);
 	} catch {
 		throw new AgentFailure("PATH_INVALID", "invalid path");
 	}
@@ -82,16 +87,16 @@ export async function readChatImage(
 		if (info.size > MAX_CHAT_IMAGE_BYTES) {
 			throw new AgentFailure("FILE_TOO_LARGE", "that image is too large");
 		}
-		// Read one byte past the cap, so a file that grew since stat is caught.
-		const buffer = Buffer.alloc(MAX_CHAT_IMAGE_BYTES + 1);
+		// Read one byte past the stat size, so a file that grew since is caught.
+		const buffer = Buffer.alloc(info.size + 1);
 		let length = 0;
 		while (length < buffer.length) {
 			const { bytesRead } = await handle.read(buffer, length, buffer.length - length);
 			if (bytesRead === 0) break;
 			length += bytesRead;
 		}
-		if (length > MAX_CHAT_IMAGE_BYTES) {
-			throw new AgentFailure("FILE_TOO_LARGE", "that image is too large");
+		if (length > info.size) {
+			throw new AgentFailure("BAD_REQUEST", "that image changed while it was read");
 		}
 		const body = buffer.subarray(0, length);
 		if (sniffImageType(body) !== declared) {

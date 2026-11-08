@@ -19,6 +19,7 @@ import {
 	AGENT_EXTRACT_TIMEOUT_MS,
 	AGENT_TIMEOUT_MS,
 	readAgentError,
+	readCapped,
 	readJson,
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -192,10 +193,13 @@ export function registerFileRoutes(
 				return sendAgentError(reply, error);
 			}
 			if (!response.ok) return relayFailure(reply, response);
-			const body = Buffer.from(await response.arrayBuffer());
-			if (body.length > MAX_CHAT_IMAGE_BYTES) {
-				return tooLarge(reply);
+			let body: Buffer | null;
+			try {
+				body = await readCapped(response, MAX_CHAT_IMAGE_BYTES);
+			} catch (error) {
+				return sendAgentError(reply, error);
 			}
+			if (body === null) return tooLarge(reply);
 			reply.header("x-content-type-options", "nosniff");
 			reply.header("content-security-policy", INLINE_CSP);
 			reply.header("cache-control", "private, no-store");
