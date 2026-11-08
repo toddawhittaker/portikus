@@ -5,6 +5,9 @@ import {
 	createStudent,
 	expectNoViolations,
 	seedFile,
+	setAgents,
+	terminalIds,
+	toast,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -364,4 +367,69 @@ for (const width of [360, 800]) {
 			});
 		});
 	}
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test.describe(`a sticky toast over the Files drawer at 360 px (${colorScheme})`, () => {
+		test.use({ viewport: { width: 360, height: HEIGHT }, colorScheme });
+		test.describe.configure({ timeout: 90_000 });
+
+		test("its buttons stay exposed and F8 reaches them by keyboard (DESIGN.md section 9)", async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const here = await createProject(student.workspaceId, { name: "Here" });
+			const other = await createProject(student.workspaceId, { name: "Elsewhere" });
+			await page.goto(workspacePath(student.workspaceId, other.id));
+			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			await page.getByTestId("launcher").click();
+			await page.getByTestId("launcher-claude").click();
+			await expect
+				.poll(async () => (await terminalIds(student.workspaceId, other.id)).length)
+				.toBe(1);
+			const [terminalId] = await terminalIds(student.workspaceId, other.id);
+			if (!terminalId) throw new Error("the terminal row was not created");
+			await page.goto(workspacePath(student.workspaceId, here.id));
+			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			await setAgents(student.workspaceId, [
+				{ terminalId, agent: "claude", state: "working" },
+			]);
+			// Wait for the baseline to be taken before the news arrives.
+			await page.waitForTimeout(1000);
+
+			const d = drawers(page);
+			await d.filesButton.click();
+			await expect(d.files).toBeVisible();
+			await setAgents(student.workspaceId, [
+				{ terminalId, agent: "claude", state: "finished" },
+			]);
+			const shown = toast(page, "Claude Code finished");
+			await expect(shown).toBeVisible();
+			await expect(page.getByRole("region", { name: /Notifications/ })).toHaveCount(1);
+			// Found by role without includeHidden, so it is not aria-hidden.
+			const open = shown.getByRole("button", { name: "Open project" });
+			await expect(open).toBeVisible();
+			expect(
+				await open.evaluate((el) => el.closest('[aria-hidden="true"]') === null),
+			).toBe(true);
+			await expect(d.files).toBeVisible();
+			await expectNoViolations(page);
+
+			await page.keyboard.press("F8");
+			await page.keyboard.press("Tab");
+			await expect(shown).toBeFocused();
+			// Reaching the toast leaves the drawer open; it sits beside the shell.
+			await expect(d.files).toBeVisible();
+			let reached = false;
+			for (let step = 0; step < 4 && !reached; step += 1) {
+				await page.keyboard.press("Tab");
+				reached = await open.evaluate((el) => el === document.activeElement);
+			}
+			expect(reached).toBe(true);
+			await page.keyboard.press("Enter");
+			await expect(page).toHaveURL(new RegExp(`/projects/${other.id}$`));
+			await expect(d.files).toBeHidden();
+		});
+	});
 }

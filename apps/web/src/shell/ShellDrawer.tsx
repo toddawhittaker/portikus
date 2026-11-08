@@ -37,7 +37,7 @@ export function wrapTab(
 	event: { shiftKey: boolean; preventDefault: () => void },
 ): void {
 	const stops = Array.from(sheet.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-		(element) => element.getClientRects().length > 0 && !element.closest("[inert]"),
+		(element) => element.getClientRects().length > 0,
 	);
 	const first = stops[0];
 	const last = stops.at(-1);
@@ -105,8 +105,8 @@ export function ShellDrawer({
 		const shown = layer.current;
 		const current = sheet.current;
 		if (!modal || !shown || !current) return;
-		const root = shown.closest(".pk-root");
-		const restore = hideOutside(current);
+		const root = shown.closest<HTMLElement>(".pk-root");
+		const restore = hideOutside(current, root ?? undefined);
 		let returnFocus = true;
 		// Code that moves focus to the page behind means to show it, so the drawer gets out of the way.
 		const onFocusIn = (event: FocusEvent) => {
