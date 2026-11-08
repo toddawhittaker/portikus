@@ -5764,7 +5764,6 @@ Todd's rulings:
 - #1809: the agent picker's short form is "Claude", shown only when the composer is narrow.
 - #1808 was built directly from the issue (option C) without a mockup.
 - The dompurify override is removed, because Monaco bundles its own copy (#1834).
-- #1831: there is no untimed way to put a long paste inline; the 0.8-second repeat is the only one (Todd's call).
 - #1786 (Rewind) is closed as not wanted, and #1747 as a duplicate of #1782. The design-review proposals #1780 to #1785 wait for a later chat epic.
 - Plan ruling 6 was wrong. The `settings` table is one typed row, not a key and value store, so keeping the alert state there needed migration 0054 (three columns). The task builder found this and stopped; the migration followed.
 
@@ -5788,6 +5787,6 @@ Gaps:
 - The dompurify Dependabot alerts were dismissed, not fixed, because Monaco bundles its own DOMPurify 3.4.15 (#1829).
 - Removing the override returned the lockfile to dompurify 3.4.15 under Monaco.
 - A task item's checkbox is a Tab stop in the composer.
-- There is no untimed way to put a long paste inline (#1831, Todd's call).
+- There is no untimed way to put a long paste inline; #1831 proposes one and waits for Todd.
 - The install test's release fallback was tested on its own, not inside a run with an empty image cache.
 - #1801 is still open, for a recheck on SDK upgrades.
