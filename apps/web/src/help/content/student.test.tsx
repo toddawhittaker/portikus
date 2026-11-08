@@ -76,7 +76,7 @@ test("the chat topic lists the message box's typing shortcuts", () => {
 		'one to three "#" a heading',
 		"three dashes a separator line",
 		"[text](address)",
-		"Tab indents an item and Shift+Tab moves it back out",
+		"Tab indents an item and Shift+Tab moves a nested item back out",
 	]) {
 		expect(text).toContain(phrase);
 	}
@@ -84,7 +84,7 @@ test("the chat topic lists the message box's typing shortcuts", () => {
 
 test("the chat topic says a quick second paste puts long text in the box", () => {
 	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
-	expect(text).toContain("paste it again straight away, within a second");
+	expect(text).toContain("paste it again straight away.");
 });
 
 test("the keyboard topic lists the completion and hover keys", () => {

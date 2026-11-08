@@ -145,6 +145,29 @@ test("numbered items nest under their item, indented past its number", () => {
 	expect(boxText(box)).toBe("1. one\n   1. two");
 });
 
+test("[x] typed on a later bullet leaves the list's other bullets alone", () => {
+	typeInto(box, "- one\ntwo\n[x] three");
+	expect(box.querySelector('ul[data-type="taskList"]')).toBeNull();
+	expect(box.querySelectorAll("ul > li")).toHaveLength(3);
+	expect(boxText(box)).toBe("- one\n- two\n- [x] three");
+});
+
+test("a task's checkbox is named by its own line, not its sub-tasks", () => {
+	typeInto(box, "- [ ] buy milk\n[x] oat");
+	fireEvent.keyDown(box, { key: "Tab" });
+	const names = Array.from(box.querySelectorAll('input[type="checkbox"]')).map(
+		(input) => input.getAttribute("aria-label"),
+	);
+	expect(names).toEqual(["To do: buy milk", "Done: oat"]);
+});
+
+test("Shift+Tab on a top-level item is left to the browser, and the draft stays", () => {
+	typeInto(box, "- one\ntwo");
+	// fireEvent returns false when the default was prevented.
+	expect(fireEvent.keyDown(box, { key: "Tab", shiftKey: true })).toBe(true);
+	expect(boxText(box)).toBe("- one\n- two");
+});
+
 test("[ ] and [x] after - start tasks, which come back as GFM task items", () => {
 	typeInto(box, "- [ ] buy milk\n[x] pay rent");
 	expect(box.querySelectorAll('ul[data-type="taskList"] > li')).toHaveLength(2);

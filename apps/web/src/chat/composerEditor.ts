@@ -40,7 +40,12 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Strike from "@tiptap/extension-strike";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
-import { Fragment, type Schema, Slice } from "@tiptap/pm/model";
+import {
+	Fragment,
+	type Node as ProseMirrorNode,
+	type Schema,
+	Slice,
+} from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { isSafeLink } from "../markdown/sanitize.js";
@@ -239,7 +244,8 @@ const markdownRules = Extension.create({
 						chain().deleteRange(range).updateAttributes("taskItem", { checked }).run();
 						return;
 					}
-					if (item !== "listItem") return null;
+					// Only a one-item list: toggleList would turn every bullet into a task.
+					if (item !== "listItem" || $from.node(-2).childCount !== 1) return null;
 					chain()
 						.deleteRange(range)
 						.toggleList("taskList", "taskItem")
@@ -252,6 +258,22 @@ const markdownRules = Extension.create({
 });
 
 const ITEMS = ["listItem", "taskItem"] as const;
+
+/** True when the cursor's list item sits inside another list item. */
+function nestedItem(state: EditorState): boolean {
+	const { $from } = state.selection;
+	for (let depth = $from.depth; depth > 2; depth -= 1) {
+		if (!(ITEMS as readonly string[]).includes($from.node(depth).type.name)) continue;
+		return (ITEMS as readonly string[]).includes($from.node(depth - 2).type.name);
+	}
+	return false;
+}
+
+/** A task's checkbox is named by its own first line, not the sub-tasks under it. */
+function taskLabel(node: ProseMirrorNode, checked: boolean): string {
+	const text = node.firstChild?.textContent ?? "";
+	return `${checked ? "Done" : "To do"}: ${text || "empty task"}`;
+}
 
 /** Each editor's way to forget its held long paste. */
 const forgetters = new WeakMap<EditorType, () => void>();
@@ -293,7 +315,9 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 				this.editor.commands.first(({ commands }) =>
 					ITEMS.map((item) => () => commands.sinkListItem(item)),
 				);
+			// Only a nested item; at the top Shift+Tab moves focus back (SPEC.md §25.8).
 			const outdent = () =>
+				nestedItem(this.editor.state) &&
 				this.editor.commands.first(({ commands }) =>
 					ITEMS.map((item) => () => commands.liftListItem(item)),
 				);
@@ -358,7 +382,10 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			// Tab and Enter in a list are the composerKeys' to handle.
 			ListItem.extend({ addKeyboardShortcuts: () => ({}) }),
 			TaskList,
-			TaskItem.configure({ nested: true }).extend({ addKeyboardShortcuts: () => ({}) }),
+			TaskItem.configure({
+				nested: true,
+				a11y: { checkboxLabel: taskLabel },
+			}).extend({ addKeyboardShortcuts: () => ({}) }),
 			markdownRules,
 			UndoRedo,
 			Placeholder.configure({ placeholder: options.placeholder }),
