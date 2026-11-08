@@ -35,7 +35,7 @@ function ToolImage({ src, tool }: { src: string; tool: string }) {
 function OutputPart({ part, tool }: { part: ChatToolOutputPart; tool: string }) {
 	switch (part.type) {
 		case "text":
-			return <CodeBlock text={part.text} />;
+			return <CodeBlock text={part.text} copyLabel="Copy output" />;
 		case "image":
 			return (
 				<ToolImage src={`data:${part.mediaType};base64,${part.data}`} tool={tool} />

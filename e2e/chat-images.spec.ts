@@ -26,6 +26,9 @@ const REPLY = [
 	"![Old shot](.portikus/images/gone.png)",
 ].join("\n");
 
+/** A picture the student pasted and sent, as the composer saves it. */
+const SENT_IMAGE = ".portikus/pastes/2026-11-08T03-06-53/image.png";
+
 async function openChatWithImage(page: Page, context: BrowserContext) {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, { name: "Portfolio" });
@@ -34,6 +37,12 @@ async function openChatWithImage(page: Page, context: BrowserContext) {
 		project.slug,
 		".portikus/images/home.png",
 		Buffer.from(png(320, 180), "base64"),
+	);
+	await seedFile(
+		student.workspaceId,
+		project.slug,
+		SENT_IMAGE,
+		Buffer.from(png(200, 120), "base64"),
 	);
 	await page.goto(workspacePath(student.workspaceId, project.id));
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
@@ -59,7 +68,12 @@ async function openChatWithImage(page: Page, context: BrowserContext) {
 				}),
 			);
 		send("snapshot", { cards: [], turnRunning: false, truncated: false });
-		send("message", { id: "u1", role: "user", markdown: "Show me a screenshot." });
+		send("message", {
+			id: "u1",
+			role: "user",
+			markdown: "Show me a screenshot.",
+			attachments: [{ path: SENT_IMAGE }, { path: "notes/todo.txt" }],
+		});
 		send("turn.started", { at: Date.now() - 5_000 });
 		send("tool.started", { id: "t1", name: "Screenshot", title: "home", input: {} });
 		send("tool.output", {
@@ -145,4 +159,30 @@ test("a tool's image opens in the same viewer", async ({ page, context }) => {
 	const dialog = page.getByRole("dialog", { name: "Output of Screenshot" });
 	await expect(dialog.getByRole("img", { name: "Output of Screenshot" })).toBeVisible();
 	await expect(dialog.getByRole("button", { name: "Open in editor" })).toHaveCount(0);
+});
+
+test("a sent picture is a thumbnail that opens large and gives focus back", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { view } = await openChatWithImage(page, context);
+	const sent = view.getByTestId("chat-user-message");
+	// Another file keeps its path.
+	await expect(sent.getByText("notes/todo.txt")).toBeVisible();
+	const thumb = sent.getByRole("button", { name: "View image image.png" });
+	const image = thumb.getByRole("img", { name: "image.png" });
+	await expect
+		.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth))
+		.toBe(200);
+	await expect(image).toHaveJSProperty("clientWidth", 56);
+
+	await thumb.focus();
+	await page.keyboard.press("Enter");
+	const dialog = page.getByRole("dialog", { name: "image.png" });
+	await expect(dialog.getByRole("img", { name: "image.png" })).toBeVisible();
+	await expect(dialog.getByRole("button", { name: "Open in editor" })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(thumb).toBeFocused();
 });
