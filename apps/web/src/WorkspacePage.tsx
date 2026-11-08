@@ -28,8 +28,14 @@ import {
 	reinstallAnnouncement,
 	useReinstallPackages,
 } from "./shell/ReinstallNotice.js";
-import { RightPaneContext, showMonitor, useRightPaneStore } from "./shell/rightPane.js";
+import {
+	type RightPaneApi,
+	RightPaneContext,
+	showMonitor,
+	useRightPaneStore,
+} from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
+import { ShellDrawer, usePhoneLayout } from "./shell/ShellDrawer.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
 import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
@@ -127,7 +133,44 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	// The work area and the file tree share one layout store, so a file
 	// opened in the tree becomes a tab in the work area (SPEC.md §8.3, §8.4).
 	const layoutStore = useLayoutStore(projectId ?? "none");
-	const rightPaneApi = useRightPaneStore();
+	// At phone widths the side panes are drawers, one open at a time (SPEC.md §8.1).
+	const phone = usePhoneLayout();
+	const [drawer, setDrawer] = useState<"projects" | "files" | null>(null);
+	const projectsButton = useRef<HTMLButtonElement>(null);
+	const filesButton = useRef<HTMLButtonElement>(null);
+	const closeDrawer = () => setDrawer(null);
+	// A drawer left open does not reappear when the window narrows again.
+	useEffect(() => {
+		if (!phone) setDrawer(null);
+	}, [phone]);
+	// Choosing a project or opening a file shows the work area.
+	useEffect(() => {
+		if (projectId !== undefined)
+			setDrawer((open) => (open === "projects" ? null : open));
+	}, [projectId]);
+	useEffect(
+		() =>
+			layoutStore.subscribe((state, previous) => {
+				if (state.activeTabId !== previous.activeTabId)
+					setDrawer((open) => (open === "files" ? null : open));
+			}),
+		[layoutStore],
+	);
+	const paneStore = useRightPaneStore();
+	// A notice or tab asking for a right-pane surface opens its drawer, or nothing would show.
+	const rightPaneApi = useMemo<RightPaneApi>(
+		() =>
+			phone
+				? {
+						...paneStore,
+						show: (pane) => {
+							paneStore.show(pane);
+							setDrawer("files");
+						},
+					}
+				: paneStore,
+		[phone, paneStore],
+	);
 	const memoryFlag = workspace?.memoryFlag ?? null;
 	const showMemoryNotice = memoryFlag !== null && memoryFlag.at !== dismissedMemoryAt;
 	const reinstallPackages = useReinstallPackages(workspaceId, running);
@@ -157,6 +200,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				user={user}
 				workspace={workspace}
 				project={project}
+				drawers={{
+					open: phone ? drawer : null,
+					onOpen: setDrawer,
+					projectsRef: projectsButton,
+					filesRef: filesButton,
+				}}
 			/>
 			<LaunchNotice displayName={user.displayName} />
 			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
@@ -169,17 +218,27 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				onLayoutChanged={layout.onLayoutChanged}
 			>
 				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
-					{running ? (
-						<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
-					) : loading ? (
-						<PaneSkeleton label="Projects" side="left" rows={4} />
-					) : (
-						<PaneWaiting
-							label="Projects"
-							side="left"
-							text="Start your workspace to see your projects"
-						/>
-					)}
+					<ShellDrawer
+						id="projects-drawer"
+						side="left"
+						label="Projects"
+						phone={phone}
+						open={drawer === "projects"}
+						onClose={closeDrawer}
+						opener={projectsButton}
+					>
+						{running ? (
+							<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
+						) : loading ? (
+							<PaneSkeleton label="Projects" side="left" rows={4} />
+						) : (
+							<PaneWaiting
+								label="Projects"
+								side="left"
+								text="Start your workspace to see your projects"
+							/>
+						)}
+					</ShellDrawer>
 				</Panel>
 				<PaneHandle label="Resize project list" />
 				<Panel id="work" minSize={360}>
@@ -293,17 +352,27 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				</Panel>
 				<PaneHandle label="Resize file tree" />
 				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
-					{running ? (
-						<FilesPane workspaceId={workspaceId} project={project} />
-					) : loading ? (
-						<PaneSkeleton label="Files" side="right" rows={9} />
-					) : (
-						<PaneWaiting
-							label="Files"
-							side="right"
-							text="Start your workspace to see its files"
-						/>
-					)}
+					<ShellDrawer
+						id="files-drawer"
+						side="right"
+						label="Files"
+						phone={phone}
+						open={drawer === "files"}
+						onClose={closeDrawer}
+						opener={filesButton}
+					>
+						{running ? (
+							<FilesPane workspaceId={workspaceId} project={project} />
+						) : loading ? (
+							<PaneSkeleton label="Files" side="right" rows={9} />
+						) : (
+							<PaneWaiting
+								label="Files"
+								side="right"
+								text="Start your workspace to see its files"
+							/>
+						)}
+					</ShellDrawer>
 				</Panel>
 			</Group>
 			<StatusBar

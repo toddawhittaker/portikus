@@ -357,6 +357,10 @@ interface SettingsTable {
 	code_help_languages: Generated<string[]>;
 	/** Whether the site emails reset and invitation links (SPEC.md section 5.3). */
 	account_email_enabled: Generated<boolean>;
+	/** Whether each administrator alert is raised now (SPEC.md sections 24.4 and 24.13). */
+	alert_reboot_raised: Generated<boolean>;
+	alert_signin_raised: Generated<boolean>;
+	alert_root_fs_raised: Generated<boolean>;
 	/** When the worker last found the workspace controller answering. */
 	controller_checked_at: ColumnType<
 		Date | null,
