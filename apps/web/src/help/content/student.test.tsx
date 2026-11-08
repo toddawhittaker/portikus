@@ -66,6 +66,22 @@ test("the chat topic says a message sent mid-turn may be treated with caution an
 	expect(text).toContain("stop Claude, then send it again; that always works");
 });
 
+test("the chat topic lists the message box's typing shortcuts", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"three stars both",
+		"two tildes strike through",
+		'"[ ]" or "[x]" a task',
+		'">" a quote',
+		'one to three "#" a heading',
+		"three dashes a separator line",
+		"[text](address)",
+		"Tab indents an item and Shift+Tab moves it back out",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
 test("the keyboard topic lists the completion and hover keys", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Ctrl+Space");

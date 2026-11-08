@@ -115,12 +115,108 @@ test("an ordered list keeps the number it started at", () => {
 	expect(boxText(box)).toBe("3. third\n4. fourth");
 });
 
-test("Tab is not taken by a list item, so the keyboard can leave the box", () => {
-	typeInto(box, "- one\ntwo");
-	const tab = fireEvent.keyDown(box, { key: "Tab" });
+test("Tab outside a list, or on an item that cannot indent, is left so the keyboard can leave the box", () => {
+	typeInto(box, "plain");
 	// fireEvent returns false when the default was prevented.
-	expect(tab).toBe(true);
-	expect(boxText(box)).toBe("- one\n- two");
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	setText(box, "");
+	typeInto(box, "- one");
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	expect(boxText(box)).toBe("- one");
+});
+
+test("Tab and Shift+Tab indent and outdent list items, and nested lists come back as Markdown", () => {
+	typeInto(box, "- one\ntwo");
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(false);
+	typeInto(box, "\nthree");
+	expect(boxText(box)).toBe("- one\n  - two\n  - three");
+	expect(box.querySelectorAll("ul ul > li")).toHaveLength(2);
+	fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+	expect(boxText(box)).toBe("- one\n  - two\n- three");
+});
+
+test("numbered items nest under their item, indented past its number", () => {
+	typeInto(box, "1. one\ntwo");
+	fireEvent.keyDown(box, { key: "Tab" });
+	expect(boxText(box)).toBe("1. one\n   1. two");
+});
+
+test("[ ] and [x] after - start tasks, which come back as GFM task items", () => {
+	typeInto(box, "- [ ] buy milk\n[x] pay rent");
+	expect(box.querySelectorAll('ul[data-type="taskList"] > li')).toHaveLength(2);
+	expect(boxText(box)).toBe("- [ ] buy milk\n- [x] pay rent");
+	setText(box, "");
+	typeInto(box, "[ ] alone");
+	expect(boxText(box)).toBe("- [ ] alone");
+});
+
+test("> starts a quote, # to ### headings, and --- a separator line", () => {
+	typeInto(box, "> quoted\nmore");
+	expect(box.querySelector("blockquote")).toBeTruthy();
+	expect(boxText(box)).toBe("> quoted\n> more");
+	for (const [typed, tag] of [
+		["# Big", "h1"],
+		["## Mid", "h2"],
+		["### Small", "h3"],
+	] as const) {
+		setText(box, "");
+		typeInto(box, typed);
+		expect(box.querySelector(tag)?.textContent).toBe(typed.replace(/^#+ /, ""));
+		expect(boxText(box)).toBe(typed);
+	}
+	setText(box, "");
+	typeInto(box, "#### Four");
+	expect(box.querySelector("h4")).toBeNull();
+	setText(box, "");
+	typeInto(box, "above\n---");
+	expect(box.querySelector("hr")).toBeTruthy();
+	expect(boxText(box)).toBe("above\n\n---\n\n");
+});
+
+test("~~x~~ strikes through, and ***x*** is bold and italic", () => {
+	typeInto(box, "a ~~gone~~ and ***loud*** end");
+	expect(box.querySelector("s")?.textContent).toBe("gone");
+	expect(box.querySelector("strong em, em strong")?.textContent).toBe("loud");
+	expect(boxText(box)).toBe("a ~~gone~~ and ***loud*** end");
+});
+
+test("[text](url) and a typed address become links, http and https only", () => {
+	typeInto(box, "see [the docs](https://example.com/a) and https://example.org ok");
+	const links = Array.from(box.querySelectorAll("a"));
+	expect(links.map((a) => a.getAttribute("href"))).toEqual([
+		"https://example.com/a",
+		"https://example.org",
+	]);
+	expect(boxText(box)).toBe(
+		"see [the docs](https://example.com/a) and https://example.org ok",
+	);
+});
+
+test("links to anything but http or https stay as typed text", () => {
+	for (const target of [
+		"javascript:alert(1)",
+		"JavaScript:alert(1)",
+		"data:text/html,x",
+		"vbscript:x",
+		"file:///etc/passwd",
+		"mailto:a@b.c",
+		"//example.com",
+	]) {
+		setText(box, "");
+		typeInto(box, `[x](${target}) `);
+		expect(box.querySelector("a")).toBeNull();
+	}
+	setText(box, "");
+	paste({ "text/plain": "javascript:alert(1)" });
+	expect(box.querySelector("a")).toBeNull();
+});
+
+test("a pasted address becomes a link", () => {
+	paste({ "text/plain": "https://example.com/x?y=1" });
+	expect(box.querySelector("a")?.getAttribute("href")).toBe(
+		"https://example.com/x?y=1",
+	);
+	expect(boxText(box)).toBe("https://example.com/x?y=1");
 });
 
 test("``` and Enter open a code block; Enter adds lines there, and Ctrl+Enter sends", () => {
