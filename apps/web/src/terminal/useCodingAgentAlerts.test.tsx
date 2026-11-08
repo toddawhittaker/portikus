@@ -184,6 +184,15 @@ describe("staying on screen", () => {
 		look([T2]);
 		expect(shown[1]?.remove).toHaveBeenCalledTimes(1);
 	});
+
+	it("is removed when its terminal leaves the list, as a closed terminal can never be seen", () => {
+		const { feed } = setup();
+		feed([term(T1, "working"), term(T2, "working")], true);
+		feed([term(T1, "needs-input"), term(T2, "finished")]);
+		feed([term(T2, "finished")]);
+		expect(shown[0]?.remove).toHaveBeenCalledTimes(1);
+		expect(shown[1]?.remove).not.toHaveBeenCalled();
+	});
 });
 
 describe("the desktop notification offer", () => {

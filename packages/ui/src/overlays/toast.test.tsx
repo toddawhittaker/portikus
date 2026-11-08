@@ -333,3 +333,80 @@ describe("toast timing and recording", () => {
 		expect(nodeText(["a", 1, <b key="b">c</b>, null])).toBe("a1c");
 	});
 });
+
+// Design system, Focus and keyboard: a toast never covers a focused element (WCAG 2.2 SC 2.4.11).
+describe("toasts and focus", () => {
+	/** Lay out the page by hand, as jsdom has none. The stack sits at the bottom right. */
+	function layOut(rects: Record<string, Partial<DOMRect>>) {
+		return vi
+			.spyOn(Element.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: Element) {
+				const key = this.classList.contains("pk-toast-viewport")
+					? "stack"
+					: (this.getAttribute("data-box") ?? "");
+				const { top = 0, left = 0, width = 0, height = 0 } = rects[key] ?? {};
+				return {
+					top,
+					left,
+					width,
+					height,
+					bottom: top + height,
+					right: left + width,
+					x: left,
+					y: top,
+					toJSON: () => ({}),
+				} as DOMRect;
+			});
+	}
+
+	function drawPage() {
+		render(
+			<ToastProvider>
+				<Shower toast={{ title: "Claude Code needs your input", persistent: true }} />
+				<button type="button" data-box="under">
+					Send
+				</button>
+				<button type="button" data-box="clear">
+					Elsewhere
+				</button>
+			</ToastProvider>,
+		);
+		return document.querySelector<HTMLElement>(".pk-toast-viewport");
+	}
+
+	it("steps above a focused control it would cover, and back when focus moves on", () => {
+		const rects = layOut({
+			stack: { top: 680, left: 628, width: 380, height: 72 },
+			under: { top: 700, left: 960, width: 36, height: 36 },
+			clear: { top: 100, left: 960, width: 36, height: 36 },
+		});
+		try {
+			const stack = drawPage();
+			fireEvent.click(screen.getByText("Show"));
+			act(() => screen.getByRole("button", { name: "Send" }).focus());
+			// Its bottom edge sits a small gap above the control: 768 - 700 + 8.
+			expect(stack?.style.bottom).toBe("76px");
+			act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
+			expect(stack?.style.bottom).toBe("");
+		} finally {
+			rects.mockRestore();
+		}
+	});
+
+	it("stays put while focus is on a toast or on a control it does not cover", () => {
+		const rects = layOut({
+			stack: { top: 680, left: 628, width: 380, height: 72 },
+			under: { top: 700, left: 100, width: 36, height: 36 },
+		});
+		try {
+			const stack = drawPage();
+			fireEvent.click(screen.getByText("Show"));
+			act(() => screen.getByRole("button", { name: "Send" }).focus());
+			expect(stack?.style.bottom).toBe("");
+			act(() => screen.getByRole("button", { name: "Dismiss" }).focus());
+			expect(stack?.style.bottom).toBe("");
+		} finally {
+			rects.mockRestore();
+		}
+	});
+});

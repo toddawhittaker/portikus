@@ -82,6 +82,14 @@ export function QuestionCard({
 	const draft = drafts[page] ?? emptyDraft;
 	const last = page === count - 1;
 	const answered = draftAnswer(question, draft) !== "";
+	/** Why the forward arrow is unavailable, as the id of its reason, or null when it works. */
+	const forwardWhy = !isSettled(question, draft)
+		? `${id}-why`
+		: last
+			? `${id}-last`
+			: page >= reached
+				? `${id}-ahead`
+				: null;
 
 	/** Focus the current question's chosen option, or its first. */
 	function focusOption() {
@@ -220,19 +228,26 @@ export function QuestionCard({
 									label="Previous question"
 									size="sm"
 									aria-disabled={page === 0 || undefined}
+									aria-describedby={page === 0 ? `${id}-first` : undefined}
 									onClick={() => page > 0 && goTo(page - 1)}
 								/>
 								<IconButton
 									icon="arrow-right"
 									label="Next question"
 									size="sm"
-									aria-disabled={
-										page >= reached || !isSettled(question, draft) || undefined
-									}
-									onClick={() =>
-										page < reached && isSettled(question, draft) && goTo(page + 1)
-									}
+									aria-disabled={forwardWhy !== null || undefined}
+									aria-describedby={forwardWhy ?? undefined}
+									onClick={() => forwardWhy === null && goTo(page + 1)}
 								/>
+								<span id={`${id}-first`} hidden={true}>
+									This is the first question.
+								</span>
+								<span id={`${id}-last`} hidden={true}>
+									This is the last question.
+								</span>
+								<span id={`${id}-ahead`} hidden={true}>
+									Use Next to go on.
+								</span>
 							</div>
 						) : null}
 					</div>

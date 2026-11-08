@@ -88,9 +88,13 @@ test("the menu marks the current value as checked and the start value as Default
 		"false",
 		"false",
 	]);
-	const start = within(menu).getByRole("menuitemradio", { name: /^High/ });
+	// The marker is a description, so the choice is still named just "High".
+	const start = within(menu).getByRole("menuitemradio", { name: "High" });
 	expect(start.querySelector(".pk-picker-default")?.textContent).toBe("Default");
 	expect(menu.querySelectorAll(".pk-picker-default")).toHaveLength(1);
+	expect(
+		document.getElementById(start.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Default. Thinks it through. Slower, uses more.");
 });
 
 test("every choice says what it is for in a line of its own", () => {
@@ -124,8 +128,8 @@ test("each change asks for exactly that and shows it while the host has not answ
 
 test("choosing the value already shown asks for nothing", () => {
 	draw();
-	choose("Effort", "High Default");
-	choose("Permissions", "Ask Default");
+	choose("Effort", "High");
+	choose("Permissions", "Ask");
 	expect(asked).toEqual([]);
 });
 
@@ -205,9 +209,7 @@ test("Codex is shown, reachable and not choosable, and the agent picker sends no
 	).toBe("Coming soon.");
 	fireEvent.click(codex);
 	expect(screen.getByRole("menu", { name: /^Agent / })).toBeTruthy();
-	fireEvent.click(
-		within(menu).getByRole("menuitemradio", { name: "Claude Code Default" }),
-	);
+	fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Claude Code" }));
 	expect(asked).toEqual([]);
 	expect(picker("Agent").textContent).toBe("Agent Claude Code");
 });

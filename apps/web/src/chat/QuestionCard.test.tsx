@@ -100,6 +100,28 @@ test("the pager goes back with the answers kept, and forward only as far as reac
 	expect(position()).toBe("2 of 2");
 });
 
+/** The text a control's aria-describedby points at, as a screen reader reads it. */
+function why(control: HTMLElement): string {
+	const ids = control.getAttribute("aria-describedby")?.split(" ") ?? [];
+	return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+}
+
+test("an unavailable pager arrow says why", () => {
+	draw();
+	const back = () => screen.getByRole("button", { name: "Previous question" });
+	const forward = () => screen.getByRole("button", { name: "Next question" });
+	expect(why(back())).toBe("This is the first question.");
+	expect(why(forward())).toContain("skip this question");
+	fireEvent.click(screen.getByRole("radio", { name: "Stack" }));
+	expect(forward().getAttribute("aria-disabled")).toBe("true");
+	expect(why(forward())).toBe("Use Next to go on.");
+	fireEvent.click(next());
+	expect(back().getAttribute("aria-disabled")).toBeNull();
+	expect(back().getAttribute("aria-describedby")).toBeNull();
+	fireEvent.click(screen.getByRole("checkbox", { name: "Lint" }));
+	expect(why(forward())).toBe("This is the last question.");
+});
+
 test("picks, Other beside them and a note send the right answer", () => {
 	const onAnswer = draw();
 	fireEvent.click(screen.getByRole("radio", { name: "Grid" }));
