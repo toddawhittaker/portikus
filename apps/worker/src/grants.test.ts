@@ -2,7 +2,8 @@
  * The worker's database role gets only what its queries need, and nothing
  * that could make it an administrator (SPEC.md §24.9, ADR 0044).
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb, type Database, notifyAdministrators } from "@portikus/db";
 import {
@@ -187,6 +188,16 @@ describe("worker-grants.sql", () => {
 		expect(outside).toEqual([]);
 	});
 
+	test("lets the worker update the alert flags it keeps in settings", () => {
+		const updatable = grantedColumns().get("settings")?.get("UPDATE");
+		for (const flag of [
+			"alert_reboot_raised",
+			"alert_signin_raised",
+			"alert_root_fs_raised",
+		])
+			expect(updatable?.has(flag), flag).toBe(true);
+	});
+
 	test("drops the membership in portikus before, not inside, its transaction", () => {
 		const [before, after] = grantsSql.split(/^BEGIN;$/m);
 		expect(before).toMatch(/REVOKE portikus FROM "portikus-worker"/);
@@ -349,6 +360,25 @@ describe.skipIf(skip)("the worker's role", () => {
 			.where("label", "=", "grants-ws")
 			.executeTakeFirstOrThrow();
 		expect(stopped.state).not.toBe("running");
+	});
+
+	test("an alert tick saves its raised flag as the restricted role", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "grants-alert-"));
+		const rebootFile = join(dir, "reboot-required");
+		writeFileSync(rebootFile, "");
+		const { logger, lines } = collectingLogger("debug");
+		try {
+			await createAlertSources({ db: worker, logger, rebootFile })();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+		expect(JSON.stringify(lines)).not.toMatch(/alert source check failed/);
+		const row = await tdb.db
+			.selectFrom("settings")
+			.select("alert_reboot_raised")
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(row.alert_reboot_raised).toBe(true);
 	});
 
 	test("cannot sign anyone in or change who is an administrator", async () => {
