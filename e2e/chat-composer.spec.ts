@@ -257,35 +257,139 @@ test("an SVG and a picture over 5 MB are refused with a reason", async ({
 	await expect(view.getByTestId("composer-chip")).toHaveCount(0);
 });
 
-test("while a turn runs, Stop sends interrupt", async ({ page, context }) => {
-	const student = await createStudent(context);
-	// Keep the fake's turn open by holding back the frame that ends it.
+/**
+ * Keep the fake's turn open, as a real one is while Claude works: the frame
+ * that ends it is held back, and so is the fresh turn.started the fake sends
+ * with each later message, which a real host does not send mid-turn.
+ */
+async function holdTurnOpen(page: Page) {
 	await page.routeWebSocket(/\/chat$/, (ws) => {
 		const server = ws.connectToServer();
+		let started = false;
 		ws.onMessage((message) => server.send(message));
 		server.onMessage((message) => {
-			if (typeof message === "string" && message.includes('"type":"turn.finished"')) {
-				return;
+			if (typeof message === "string") {
+				if (message.includes('"type":"turn.finished"')) return;
+				if (message.includes('"type":"turn.started"')) {
+					if (started) return;
+					started = true;
+				}
 			}
 			ws.send(message);
 		});
 	});
-	const { id, view } = await openChat(page, student);
-	// The fake's turn starts on the first message.
-	await view.getByTestId("chat-composer-input").fill("Run the tests");
-	await view.getByTestId("chat-composer-input").press("Enter");
+}
+
+/** Start the fake's turn, which stays open, and wait for its Working line. */
+async function startHeldTurn(page: Page, student: { workspaceId: string }) {
+	await holdTurnOpen(page);
+	const opened = await openChat(page, student);
+	const box = opened.view.getByTestId("chat-composer-input");
+	await box.fill("Run the tests");
+	await box.press("Enter");
+	await expect(opened.view.getByTestId("chat-working")).toBeVisible();
+	return { ...opened, box };
+}
+
+test("while a turn runs, Send stays beside Stop, sends, and marks the message", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view, box } = await startHeldTurn(page, student);
 	const stop = view.getByRole("button", { name: "Stop", exact: true });
 	await expect(stop).toBeVisible();
 	await expect(stop).toHaveAttribute("data-testid", "chat-composer-stop");
-	// Send stays beside Stop, waiting, and says why.
 	const send = view.getByRole("button", { name: "Send", exact: true });
-	await expect(send).toHaveAttribute("aria-disabled", "true");
-	await expect(send).toHaveAccessibleDescription(/^Claude is working\./);
+	await expect(send).not.toHaveAttribute("aria-disabled");
+	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
+		"Enter sends without stopping Claude. Esc stops it.",
+	);
+	// The fake's turn is waiting on its question, so the Working line says so.
+	await expect(view.getByTestId("chat-working")).toHaveText(
+		/^Waiting for your answer · \d+m \d+s$/,
+	);
+	await box.fill("Skip the docs");
+	await send.click();
+	await expect(box).toHaveText("");
+	await expect
+		.poll(async () => (await frames(id, "send")).map((frame) => frame.text))
+		.toEqual(["Run the tests", "Skip the docs"]);
+	const sent = view
+		.getByTestId("chat-user-message")
+		.filter({ hasText: "Skip the docs" });
+	await expect(sent.getByTestId("chat-sent-while-working")).toHaveText(
+		"Sent while Claude was working",
+	);
+	await expect(view.getByTestId("chat-sent-while-working")).toHaveCount(1);
+	// The work after it is a new turn below it, still working.
+	await expect(view.getByTestId("chat-working")).toHaveCount(1);
+	const after = await sent.evaluate(
+		(li, working) =>
+			Boolean(
+				li.compareDocumentPosition(working as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+			),
+		await view.getByTestId("chat-working").elementHandle(),
+	);
+	expect(after).toBe(true);
 	await stop.click();
 	await expect
 		.poll(async () => frames(id, "interrupt"))
 		.toEqual([{ type: "interrupt" }]);
 });
+
+test("Escape in the message box stops a running turn, but first closes an open picker", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view, box } = await startHeldTurn(page, student);
+	await view.getByRole("button", { name: /^Model/ }).click();
+	await expect(page.getByRole("menu")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("menu")).toHaveCount(0);
+	expect(await frames(id, "interrupt")).toEqual([]);
+	await box.focus();
+	await box.press("Escape");
+	await expect
+		.poll(async () => frames(id, "interrupt"))
+		.toEqual([{ type: "interrupt" }]);
+});
+
+test("Up in an empty box brings back the last message sent", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { view } = await openChat(page, student);
+	const box = view.getByTestId("chat-composer-input");
+	await box.press("ArrowUp");
+	await expect(box).toHaveText("");
+	await box.pressSequentially("check **all** files");
+	await box.press("Enter");
+	await expect(box).toHaveText("");
+	await box.press("ArrowUp");
+	await expect(box).toHaveText("check all files");
+	await expect(box.locator("strong")).toHaveText("all");
+	// With text in the box, Up is left to move the cursor.
+	await box.press("ArrowUp");
+	await expect(box).toHaveText("check all files");
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Working line and a message sent mid-turn have no accessibility violations (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const { id, view, box } = await startHeldTurn(page, student);
+		await box.fill("Skip the docs");
+		await box.press("Enter");
+		await expect(view.getByTestId("chat-sent-while-working")).toBeVisible();
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+	});
+}
 
 test("the microphone dictates into the box and never sends", async ({
 	page,
@@ -465,7 +569,7 @@ test("Markdown typed in the box shows formatted and is sent as the same Markdown
 		]);
 	await expect(box).toHaveText("");
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
-		"Enter sends. Shift+Enter adds a line.",
+		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
 	);
 });
 
@@ -497,6 +601,51 @@ test("pasted rich text arrives as plain text, keeping its lines", async ({
 	await expect
 		.poll(async () => frames(id, "send"))
 		.toEqual([{ type: "send", text: "Title\n\nbold *star*", attachments: [] }]);
+});
+
+test("a paste of more than 40 lines is attached as a text file, not put in the box", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student);
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.evaluate(() => {
+		const transfer = new DataTransfer();
+		const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
+		transfer.setData("text/plain", log.join("\n"));
+		document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+			new ClipboardEvent("paste", {
+				clipboardData: transfer,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+	const chip = view.getByTestId("composer-chip");
+	await expect(chip).toHaveCount(1);
+	await expect(chip).toContainText("pasted-text.txt");
+	await expect(chip.getByTestId("composer-chip-size")).toHaveText("60 lines");
+	await expect(box).toHaveText("");
+	await expectNoViolations(page, '[data-testid="chat-composer"]');
+	await box.pressSequentially("Why does this fail?");
+	await box.press("Enter");
+	await expect
+		.poll(async () => frames(id, "send"))
+		.toEqual([
+			{
+				type: "send",
+				text: "Why does this fail?",
+				attachments: [
+					{
+						path: expect.stringMatching(
+							/^\.portikus\/pastes\/[^/]+\/pasted-text\.txt$/,
+						),
+					},
+				],
+			},
+		]);
 });
 
 test("Send is an icon button at the end of the row, with the microphone beside it", async ({

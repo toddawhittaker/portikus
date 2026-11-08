@@ -12,6 +12,12 @@ function fileSize(bytes: number): string {
 	return `${SIZE.format(bytes / (1024 * 1024))} MB`;
 }
 
+const LINES = new Intl.NumberFormat();
+
+function lineText(lines: number): string {
+	return lines === 1 ? "1 line" : `${LINES.format(lines)} lines`;
+}
+
 /**
  * The files waiting to go with the next message, each removable. A picture
  * shows a thumbnail large enough to check it is the right one. After a
@@ -83,7 +89,7 @@ export function ComposerChips({
 							{displayName(item.name)}
 						</span>
 						<span className="pk-composer-chip-size" data-testid="composer-chip-size">
-							{fileSize(item.size)}
+							{item.lines === null ? fileSize(item.size) : lineText(item.lines)}
 						</span>
 					</span>
 					<IconButton

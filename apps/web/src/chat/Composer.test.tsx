@@ -212,23 +212,110 @@ test("Send and Stop are icon buttons named for what they do", () => {
 	expect(send.querySelector("svg")).toBeTruthy();
 });
 
-test("while a turn runs, Stop sits beside a waiting Send, and Stop interrupts", () => {
+test("while a turn runs, Stop sits beside a Send that still sends, and Stop interrupts", () => {
 	draw();
 	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
 	emit("turn.started", { at: 0 });
 	const send = screen.getByTestId("chat-composer-send");
-	expect(send.getAttribute("aria-disabled")).toBe("true");
-	expect(
-		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toMatch(/^Claude is working\./);
-	type("later");
+	expect(send.hasAttribute("aria-disabled")).toBe(false);
+	expect(send.hasAttribute("aria-describedby")).toBe(false);
+	type("also check the tests");
 	fireEvent.click(send);
-	expect(sent).toEqual([]);
+	expect(sent).toEqual([
+		{ type: "send", text: "also check the tests", attachments: [] },
+	]);
 	fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-	expect(sent).toEqual([{ type: "interrupt" }]);
+	expect(sent.at(-1)).toEqual({ type: "interrupt" });
 	emit("turn.finished", { at: 1, status: "interrupted" });
 	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
-	expect(send.hasAttribute("aria-disabled")).toBe(false);
+});
+
+test("while a turn runs the foot says Enter sends without stopping, and Esc stops", () => {
+	draw();
+	const hint = () => screen.getByTestId("chat-composer-hint").textContent;
+	expect(hint()).toBe(
+		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+	);
+	emit("turn.started", { at: 0 });
+	expect(hint()).toBe("Enter sends without stopping Claude. Esc stops it.");
+});
+
+test("Escape in the box stops a running turn, and does nothing when none runs", () => {
+	draw();
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([]);
+	emit("turn.started", { at: 0 });
+	fireEvent.keyDown(input(), { key: "Escape", shiftKey: true });
+	expect(sent).toEqual([]);
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([{ type: "interrupt" }]);
+});
+
+test("Escape leaves an open picker menu to close itself and does not stop the turn", () => {
+	draw();
+	settings();
+	emit("turn.started", { at: 0 });
+	const trigger = screen.getAllByRole("button", { expanded: false })[0] as HTMLElement;
+	trigger.setAttribute("aria-expanded", "true");
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([]);
+});
+
+test("Up in an empty box brings back the last message sent, formatting and all", () => {
+	draw();
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("");
+	typeInto(input(), "make it **bold**");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	echo("make it **bold**");
+	expect(value()).toBe("");
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("make it **bold**");
+	expect(input().querySelector("strong")?.textContent).toBe("bold");
+});
+
+test("Up in a box with text moves the cursor as usual", () => {
+	draw();
+	type("first");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	echo("first");
+	type("draft");
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("draft");
+});
+
+test("a paste of more than 40 lines is attached as a text file with its line count", async () => {
+	draw();
+	const log = Array.from({ length: 120 }, (_, at) => `error at line ${at}`).join("\n");
+	fireEvent.paste(input(), {
+		clipboardData: {
+			files: [],
+			items: [],
+			types: ["text/plain"],
+			getData: (kind: string) => (kind === "text/plain" ? log : ""),
+		},
+	});
+	const chip = await screen.findByTestId("composer-chip");
+	expect(value()).toBe("");
+	expect(chip.textContent).toContain("pasted-text.txt");
+	expect(screen.getByTestId("composer-chip-size").textContent).toBe("120 lines");
+	const saved = saveDroppedFile.mock.calls[0]?.[3] as File;
+	expect(saved.name).toBe("pasted-text.txt");
+	expect(saved.type).toBe("text/plain");
+	expect(await saved.text()).toBe(log);
+	expect(saveDroppedFile.mock.calls[0]?.[2]).toEqual(
+		expect.arrayContaining([
+			expect.stringMatching(/^\.portikus\/pastes\/.+\/pasted-text\.txt$/),
+		]),
+	);
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{
+			type: "send",
+			text: "",
+			attachments: [{ path: await saveDroppedFile.mock.results[0]?.value }],
+		},
+	]);
 });
 
 test("the microphone sits after the settings, next to Send", async () => {
@@ -242,7 +329,7 @@ test("the microphone sits after the settings, next to Send", async () => {
 	).toBeTruthy();
 });
 
-test("Enter still queues a message while a turn runs", () => {
+test("Enter sends a message while a turn runs", () => {
 	draw();
 	emit("turn.started", { at: 0 });
 	type("next");
@@ -471,7 +558,9 @@ test("the box is a labelled multi-line text box described by the key hint", () =
 		.split(" ")
 		.map((id) => document.getElementById(id)?.textContent)
 		.filter(Boolean);
-	expect(hint).toEqual(["Enter sends. Shift+Enter adds a line."]);
+	expect(hint).toEqual([
+		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+	]);
 });
 
 test("Markdown typed in the box is sent as the same Markdown text", () => {
@@ -574,13 +663,21 @@ test("without speech recognition there is no microphone", async () => {
 
 test("the bypass warning shows only while Bypass is the host's mode", () => {
 	draw();
-	expect(screen.getByText("Enter sends. Shift+Enter adds a line.")).toBeTruthy();
+	expect(
+		screen.getByText(
+			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		),
+	).toBeTruthy();
 	settings({ mode: "bypassPermissions" });
 	expect(screen.getByTestId("chat-bypass-warning").textContent).toMatch(
 		/without asking/,
 	);
 	// The warning takes the hint's line, so the box above does not move.
-	expect(screen.queryByText("Enter sends. Shift+Enter adds a line.")).toBeNull();
+	expect(
+		screen.queryByText(
+			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		),
+	).toBeNull();
 	settings({ mode: "default" });
 	expect(screen.queryByTestId("chat-bypass-warning")).toBeNull();
 });

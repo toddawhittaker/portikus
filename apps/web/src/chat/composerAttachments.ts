@@ -27,6 +27,8 @@ export interface ComposerAttachment {
 	previewUrl: string | null;
 	/** The saved size in bytes, which is smaller than the original for a shrunk picture. */
 	size: number;
+	/** For a long paste saved as a file, its line count, which the chip shows instead of the size. */
+	lines: number | null;
 }
 
 /** Pictures Claude can read; SVG is left out because it can carry script. */
@@ -95,7 +97,8 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 	}, []);
 
 	const add = useCallback(
-		async (files: File[]) => {
+		/** `lines` is given for a long paste saved as one text file. */
+		async (files: File[], lines: number | null = null) => {
 			const { accepted, refused } = sortOut(files, reserved.current);
 			reserved.current += accepted.length;
 			setRefusal(refused);
@@ -132,6 +135,7 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 							name: file.name,
 							previewUrl,
 							size: file.size,
+							lines,
 						},
 					]);
 					setSaving((n) => n - 1);

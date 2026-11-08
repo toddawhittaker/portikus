@@ -232,6 +232,20 @@ export const STUDENT_HELP: HelpPart = {
 							block Enter adds a line, and Ctrl+Enter (Cmd+Enter on a Mac) sends.
 						</li>
 						<li>
+							While Claude works you can still send a message. Claude reads it at its
+							next step without stopping, and the message is marked "Sent while Claude
+							was working". Esc in the message box stops Claude. Up in an empty box
+							brings back your last message.
+						</li>
+						<li>
+							On a permission card, press 1, 2 or 3 to choose an option. The keys work
+							only on the card, never while you type in the message box.
+						</li>
+						<li>
+							Pasting more than 40 lines, such as an error log, attaches it as a text
+							file instead of filling the message box.
+						</li>
+						<li>
 							Sign in to Claude in the workspace, as you would in a terminal. Portikus
 							never sees your Claude sign-in. If you are not signed in, the chat says
 							so.

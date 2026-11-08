@@ -3,6 +3,10 @@
  * form a student checks fastest (a command as the command, an edit as a
  * diff), and one button per option the agent offers. `ExitPlanMode` carries
  * a plan, which is shown as Markdown.
+ *
+ * With the keyboard inside the card, 1, 2 and 3 choose its options, each
+ * button showing its number. The keys act only inside the card, never from
+ * the message box, so typing there cannot grant a permission (SPEC.md §25.8).
  */
 import type { ChatOpenCard } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
@@ -12,6 +16,10 @@ import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import { toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
 import "./permissions.css";
+import "./turn.css";
+
+/** Options that get a number key; the agent offers at most three today. */
+const NUMBERED = 9;
 
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
@@ -147,6 +155,14 @@ export function PermissionCard({
 			className="pk-chat-card"
 			aria-labelledby={titleId}
 			data-testid="chat-permission-card"
+			onKeyDown={(event) => {
+				if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+				const at = Number(event.key) - 1;
+				const option = at < NUMBERED ? card.options[at] : undefined;
+				if (!option) return;
+				event.preventDefault();
+				choose(option.id);
+			}}
 		>
 			<h2 id={titleId} className="pk-text-heading">
 				{title}
@@ -165,8 +181,15 @@ export function PermissionCard({
 						aria-disabled={chosen !== null && chosen !== option.id ? true : undefined}
 						className={option.id === "always" ? "pk-chat-always" : undefined}
 						data-testid={`chat-permission-${option.id}`}
+						aria-keyshortcuts={at < NUMBERED ? String(at + 1) : undefined}
 						onClick={() => choose(option.id)}
 					>
+						{at < NUMBERED ? (
+							// The button's aria-keyshortcuts names the key; the cap is for sight only.
+							<span className="pk-turn-key" aria-hidden={true}>
+								{at + 1}
+							</span>
+						) : null}
 						{option.label}
 					</Button>
 				))}

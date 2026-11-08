@@ -1,7 +1,8 @@
 /**
  * The conversation, oldest first. What the student wrote sits on the right;
  * each of Claude's turns is one entry under a "Claude" byline. A running
- * turn shows its work as it happens and a "Working" line; a finished one
+ * turn shows its work as it happens and a line naming the step in hand,
+ * "Running pnpm build · 3m 43s"; a finished one
  * folds its tool work and middle narration into "Worked for 3m 43s"
  * (SPEC.md §10.8). The list is not a live region: streaming text would be
  * read out word by word, so ChatView announces the turn's state instead.
@@ -18,7 +19,9 @@ import { foldTurn } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { ToolBlock } from "./ToolBlock.js";
+import { toolView } from "./toolView.js";
 import "./messages.css";
+import "./turn.css";
 
 /** Items in order, with each turn's items gathered where the turn begins. */
 type Entry =
@@ -114,6 +117,11 @@ function UserMessage({ message }: { message: ChatMessageItem }) {
 					</ul>
 				) : null}
 			</div>
+			{message.whileWorking ? (
+				<p className="pk-turn-sent-note" data-testid="chat-sent-while-working">
+					Sent while Claude was working
+				</p>
+			) : null}
 		</li>
 	);
 }
@@ -271,7 +279,7 @@ function TurnSteps({ turn, items }: { turn: ChatTurn | undefined; items: ChatIte
 				{items.map((item) => (
 					<Step key={item.key} item={item} />
 				))}
-				{turn ? <Working since={turn.startedAt} /> : null}
+				{turn ? <Working since={turn.startedAt} doing={doingNow(items)} /> : null}
 			</>
 		);
 	}
@@ -309,8 +317,40 @@ function Turn({ turn, items }: { turn: ChatTurn | undefined; items: ChatItem[] }
 	);
 }
 
+/** What a running tool is doing, by the verb a student would use for it. */
+const DOING: Record<string, string> = {
+	Bash: "Running",
+	Read: "Reading",
+	Edit: "Editing",
+	MultiEdit: "Editing",
+	NotebookEdit: "Editing",
+	Write: "Writing",
+	Grep: "Searching for",
+	Glob: "Looking for",
+	WebFetch: "Fetching",
+	WebSearch: "Searching the web for",
+};
+
+/**
+ * The step in hand: the newest running tool, or a reply being written; null
+ * when neither, as between steps.
+ */
+function doingNow(items: readonly ChatItem[]): string | null {
+	for (let at = items.length - 1; at >= 0; at--) {
+		const item = items[at] as ChatItem;
+		if (item.kind === "message" && item.streaming) return "Writing a reply";
+		if (item.kind !== "tool" || item.status !== "running") continue;
+		if (item.name === "AskUserQuestion") return "Waiting for your answer";
+		const verb = DOING[item.name];
+		const { summary } = toolView(item.name, item.input, item.title);
+		const what = summary.split("\n", 1)[0] ?? "";
+		return verb && what !== "" ? `${verb} ${what}` : `Using ${item.name}`;
+	}
+	return null;
+}
+
 /** Ticks once a second; only this line renders as it does. */
-function Working({ since }: { since: number }) {
+function Working({ since, doing }: { since: number; doing: string | null }) {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -319,9 +359,19 @@ function Working({ since }: { since: number }) {
 	const length = now - since;
 	return (
 		<li className="pk-chat-step">
-			<p className="pk-chat-working" data-testid="chat-working">
+			<p className="pk-chat-working pk-turn-working" data-testid="chat-working">
 				<span className="pk-spin" aria-hidden={true} />
-				Working <time dateTime={isoDuration(length)}>{formatElapsed(length)}</time>
+				{doing === null ? (
+					"Working "
+				) : (
+					<>
+						<span className="pk-turn-doing" title={doing}>
+							{doing}
+						</span>
+						{" · "}
+					</>
+				)}
+				<time dateTime={isoDuration(length)}>{formatElapsed(length)}</time>
 			</p>
 		</li>
 	);
