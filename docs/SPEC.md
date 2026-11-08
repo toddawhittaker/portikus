@@ -1354,6 +1354,8 @@ A launched agent starts in a new terminal whose tmux session runs the CLI direct
 
 Added by Epic 58 (ADR 0069): "Claude Code (GUI)" creates a chat tab (section 9.7) that drives the shared, unmodified Claude Code CLI through the Claude Agent SDK, for every sign-in, subscription included. Portikus never handles Claude credentials; the student signs in inside the workspace. "Claude Code (TUI)" is the terminal launcher above. A GUI and a TUI must not run one session at once; Help says so. The composer offers Claude Code and a disabled "Codex (coming soon)", and Ask, Accept edits, Plan, Auto and Bypass permissions; bypass is offered with a visible warning.
 
+The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span, three backticks for a code block, and `- ` or `1. ` for a list show formatted as they are typed, with the markers hidden, and the message is sent as the Markdown text, never escaped. Pasted text arrives as plain text. Enter sends and Shift+Enter adds a line; in a code block Enter adds a line and Ctrl+Enter (Cmd+Enter on a Mac) sends. Send is an up-arrow icon button with the microphone beside it; while a turn runs, Stop sits beside Send. To a screen reader the editor is a labelled multi-line text box (section 25.8).
+
 ### 10.3 Direct CLI use
 
 Students must also be able to launch coding agents manually from an ordinary shell.

@@ -226,6 +226,12 @@ export const STUDENT_HELP: HelpPart = {
 					</p>
 					<ul>
 						<li>
+							The message box understands Markdown as you type: two stars make bold,
+							backticks make code, three backticks start a code block, and a dash or
+							"1." starts a list. Enter sends and Shift+Enter adds a line. In a code
+							block Enter adds a line, and Ctrl+Enter (Cmd+Enter on a Mac) sends.
+						</li>
+						<li>
 							Sign in to Claude in the workspace, as you would in a terminal. Portikus
 							never sees your Claude sign-in. If you are not signed in, the chat says
 							so.

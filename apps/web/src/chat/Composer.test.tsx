@@ -17,6 +17,13 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetSpeechSupport } from "../voice/useSpeechInput.js";
 import { Composer } from "./Composer.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
+import {
+	boxText,
+	editorOf,
+	placeCursor,
+	setText,
+	typeInto,
+} from "./composerTesting.js";
 
 const saveDroppedFile = vi.hoisted(() => vi.fn());
 vi.mock("../files/queries.js", () => ({ saveDroppedFile }));
@@ -105,12 +112,16 @@ function draw() {
 	);
 }
 
-function input(): HTMLTextAreaElement {
-	return screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
+function input(): HTMLElement {
+	return screen.getByTestId("chat-composer-input");
 }
 
 function type(text: string) {
-	fireEvent.change(input(), { target: { value: text } });
+	setText(input(), text);
+}
+
+function value(): string {
+	return boxText(input());
 }
 
 function file(name: string, type: string, size = 10): File {
@@ -120,7 +131,9 @@ function file(name: string, type: string, size = 10): File {
 }
 
 function paste(files: File[]) {
-	fireEvent.paste(input(), { clipboardData: { files, items: [], types: ["Files"] } });
+	fireEvent.paste(input(), {
+		clipboardData: { files, items: [], types: ["Files"], getData: () => "" },
+	});
 }
 
 /** The host's echo of the student's message, which ends the send. */
@@ -136,15 +149,17 @@ function alert(): string {
 	return screen.getByTestId("chat-composer-error").textContent ?? "";
 }
 
-test("Enter sends the text and clears the box; Shift+Enter does not send", () => {
+test("Enter sends the text and clears the box; Shift+Enter adds a line", () => {
 	draw();
-	type("Add a test");
+	type("Add");
+	placeCursor(input(), 3);
 	fireEvent.keyDown(input(), { key: "Enter", shiftKey: true });
+	typeInto(input(), "a test");
 	expect(sent).toEqual([]);
 	fireEvent.keyDown(input(), { key: "Enter" });
-	expect(sent).toEqual([{ type: "send", text: "Add a test", attachments: [] }]);
-	echo("Add a test");
-	expect(input().value).toBe("");
+	expect(sent).toEqual([{ type: "send", text: "Add\na test", attachments: [] }]);
+	echo("Add\na test");
+	expect(value()).toBe("");
 });
 
 test("text typed after sending is kept when the echo arrives", () => {
@@ -153,7 +168,7 @@ test("text typed after sending is kept when the echo arrives", () => {
 	fireEvent.keyDown(input(), { key: "Enter" });
 	type("second");
 	echo("first");
-	expect(input().value).toBe("second");
+	expect(value()).toBe("second");
 });
 
 test("an empty message is not sent, and Enter during composition is left alone", () => {
@@ -162,7 +177,8 @@ test("an empty message is not sent, and Enter during composition is left alone",
 	type("   ");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	type("日本");
-	fireEvent.keyDown(input(), { key: "Enter", isComposing: true });
+	fireEvent.compositionStart(input());
+	fireEvent.keyDown(input(), { key: "Enter", isComposing: true, keyCode: 229 });
 	expect(sent).toEqual([]);
 });
 
@@ -179,23 +195,51 @@ test("text that could not be sent stays in the box with the not-sent message", (
 	type("hello");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	expect(alert()).toMatch(/was not sent/);
-	expect(input().value).toBe("hello");
+	expect(value()).toBe("hello");
 	accept = true;
 	fireEvent.keyDown(input(), { key: "Enter" });
 	expect(alert()).toBe("");
 	echo("hello");
-	expect(input().value).toBe("");
+	expect(value()).toBe("");
 });
 
-test("while a turn runs, Send becomes Stop and Stop interrupts", () => {
+test("Send and Stop are icon buttons named for what they do", () => {
+	draw();
+	const send = screen.getByRole("button", { name: "Send" });
+	expect(send).toBe(screen.getByTestId("chat-composer-send"));
+	expect(send.getAttribute("type")).toBe("submit");
+	expect(send.textContent).toBe("");
+	expect(send.querySelector("svg")).toBeTruthy();
+});
+
+test("while a turn runs, Stop sits beside a waiting Send, and Stop interrupts", () => {
 	draw();
 	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
 	emit("turn.started", { at: 0 });
-	expect(screen.queryByTestId("chat-composer-send")).toBeNull();
-	fireEvent.click(screen.getByTestId("chat-composer-stop"));
+	const send = screen.getByTestId("chat-composer-send");
+	expect(send.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toMatch(/^Claude is working\./);
+	type("later");
+	fireEvent.click(send);
+	expect(sent).toEqual([]);
+	fireEvent.click(screen.getByRole("button", { name: "Stop" }));
 	expect(sent).toEqual([{ type: "interrupt" }]);
 	emit("turn.finished", { at: 1, status: "interrupted" });
-	expect(screen.getByTestId("chat-composer-send")).toBeTruthy();
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
+	expect(send.hasAttribute("aria-disabled")).toBe(false);
+});
+
+test("the microphone sits after the settings, next to Send", async () => {
+	draw();
+	const mic = await screen.findByTestId(`chat-voice-${TERMINAL}`);
+	const send = screen.getByTestId("chat-composer-send");
+	expect(mic.parentElement).toBe(send.parentElement);
+	const model = screen.getByText("Model");
+	expect(
+		model.compareDocumentPosition(mic) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 });
 
 test("Enter still queues a message while a turn runs", () => {
@@ -496,9 +540,61 @@ test("Send waits while files are still being saved", async () => {
 	]);
 });
 
-test("the box stops at the longest prompt the contract allows", () => {
+test("a message over the contract's limit is not sent, and says how to fix it", () => {
 	draw();
-	expect(input().maxLength).toBe(100_000);
+	type("x".repeat(100_001));
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([]);
+	expect(alert()).toBe(
+		"Your message was not sent because it is 100,001 characters long, over the limit of 100,000. Shorten it and send again.",
+	);
+	type("x".repeat(100_000));
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+});
+
+test("the box is a labelled multi-line text box described by the key hint", () => {
+	draw();
+	const box = screen.getByRole("textbox", { name: "Message Claude Code" });
+	expect(box).toBe(input());
+	expect(box.getAttribute("aria-multiline")).toBe("true");
+	expect(box.getAttribute("aria-placeholder")).toBe(
+		"Message Claude Code, or paste or drop images",
+	);
+	const hint = (box.getAttribute("aria-describedby") ?? "")
+		.split(" ")
+		.map((id) => document.getElementById(id)?.textContent)
+		.filter(Boolean);
+	expect(hint).toEqual(["Enter sends. Shift+Enter adds a line."]);
+});
+
+test("Markdown typed in the box is sent as the same Markdown text", () => {
+	draw();
+	typeInto(input(), "Use **bold**, `code` and\n- a list\nof two");
+	expect(input().querySelector("strong")).toBeTruthy();
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{
+			type: "send",
+			text: "Use **bold**, `code` and\n\n- a list\n- of two",
+			attachments: [],
+		},
+	]);
+	echo("Use **bold**, `code` and\n\n- a list\n- of two");
+	expect(value()).toBe("");
+});
+
+test("in a code block the hint says Enter adds a line, and Ctrl+Enter sends", () => {
+	draw();
+	typeInto(input(), "``` ");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(
+		/^In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\.$/,
+	);
+	typeInto(input(), "ls");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([]);
+	fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+	expect(sent).toEqual([{ type: "send", text: "```\nls\n\n```", attachments: [] }]);
 });
 
 async function hold() {
@@ -517,13 +613,14 @@ function say(text: string, isFinal: boolean) {
 test("dictation is inserted at the cursor and is never sent", async () => {
 	draw();
 	type("fix the bug");
-	input().setSelectionRange(3, 3);
+	placeCursor(input(), 3);
 	await hold();
 	say("now", true);
-	expect(input().value).toBe("fix now the bug");
-	expect(input().selectionStart).toBe("fix now".length);
+	expect(value()).toBe("fix now the bug");
+	// The cursor ends after the words, inside the first line.
+	expect(editorOf(input()).state.selection.from).toBe(1 + "fix now".length);
 	say("please", true);
-	expect(input().value).toBe("fix now please the bug");
+	expect(value()).toBe("fix now please the bug");
 	expect(sent).toEqual([]);
 });
 
@@ -532,9 +629,9 @@ test("dictation shows interim words without typing them, and starts after nothin
 	await hold();
 	say("hel", false);
 	expect(screen.getByTestId("chat-voice-interim").textContent).toBe("hel");
-	expect(input().value).toBe("");
+	expect(value()).toBe("");
 	say("hello", true);
-	expect(input().value).toBe("hello");
+	expect(value()).toBe("hello");
 	expect(sent).toEqual([]);
 });
 
@@ -551,7 +648,7 @@ test("Alt+Shift+M held in the box listens, and releasing stops", async () => {
 		repeat: true,
 	});
 	say("spoken", true);
-	expect(input().value).toBe("spoken");
+	expect(value()).toBe("spoken");
 	fireEvent.keyUp(input(), { key: "M", code: "KeyM" });
 	await waitFor(() =>
 		expect(
