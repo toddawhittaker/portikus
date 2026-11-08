@@ -22,52 +22,65 @@ export function useFollowEnd(
 	active: boolean,
 ) {
 	const atEnd = useRef(true);
+	const lastTop = useRef(0);
+	/** Go to the end, noting where that is so the scroll event it causes is not read as scrolling up. */
+	const pin = useCallback((node: HTMLElement) => {
+		node.scrollTop = node.scrollHeight;
+		lastTop.current = node.scrollTop;
+	}, []);
 	const [away, setAway] = useState(false);
 	const [fresh, setFresh] = useState(false);
 
 	const toEnd = useCallback(() => {
 		const node = box.current;
 		if (!node) return;
-		node.scrollTop = node.scrollHeight;
+		pin(node);
 		atEnd.current = true;
 		setAway(false);
 		setFresh(false);
-	}, [box]);
+	}, [box, pin]);
 
 	const onScroll = useCallback(() => {
 		const node = box.current;
 		if (!node) return;
+		const up = node.scrollTop < lastTop.current;
+		lastTop.current = node.scrollTop;
 		const end = node.scrollHeight - node.scrollTop - node.clientHeight <= AT_END_PX;
+		// A scroll event can land after the content grew; only scrolling up leaves the end.
+		if (!end && !up && atEnd.current) {
+			pin(node);
+			return;
+		}
 		atEnd.current = end;
 		setAway(!end);
 		if (end) setFresh(false);
-	}, [box]);
+	}, [box, pin]);
 
 	/** New conversation arrived: followed at the end, or noted for a student reading back. */
 	const arrived = useCallback(() => {
 		const node = box.current;
 		if (!node) return;
-		if (atEnd.current) node.scrollTop = node.scrollHeight;
+		if (atEnd.current) pin(node);
 		else setFresh(true);
-	}, [box]);
+	}, [box, pin]);
 
 	// Any change of size, the box's own or its content's, keeps the end in view.
 	useEffect(() => {
 		const node = box.current;
 		if (!node || typeof ResizeObserver === "undefined") return;
 		const observer = new ResizeObserver(() => {
-			if (atEnd.current) node.scrollTop = node.scrollHeight;
+			if (atEnd.current) pin(node);
 		});
 		observer.observe(node);
 		if (content.current) observer.observe(content.current);
 		return () => observer.disconnect();
-	}, [box, content]);
+	}, [box, content, pin]);
 
 	// A tab shown again keeps its place, or its end.
 	useLayoutEffect(() => {
 		const node = box.current;
-		if (active && node && atEnd.current) node.scrollTop = node.scrollHeight;
-	}, [active, box]);
+		if (active && node && atEnd.current) pin(node);
+	}, [active, box, pin]);
 
 	return { away, fresh, onScroll, toEnd, arrived };
 }
