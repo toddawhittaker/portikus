@@ -11,6 +11,7 @@ import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import { toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
+import "./permissions.css";
 
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
@@ -162,6 +163,7 @@ export function PermissionCard({
 						variant={at === 0 ? "primary" : "secondary"}
 						loading={chosen === option.id}
 						aria-disabled={chosen !== null && chosen !== option.id ? true : undefined}
+						className={option.id === "always" ? "pk-chat-always" : undefined}
 						data-testid={`chat-permission-${option.id}`}
 						onClick={() => choose(option.id)}
 					>

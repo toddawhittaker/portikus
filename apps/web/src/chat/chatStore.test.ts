@@ -6,6 +6,7 @@ import {
 	initialChatState,
 	receiveChatEvent,
 	receiveChatFrame,
+	selectSessionRulesActive,
 } from "./chatStore";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -327,4 +328,22 @@ test("a new socket waits for its own snapshot", () => {
 	actions.receive(frame("text.delta", 7, { messageId: "a2", text: "two" }));
 	expect(texts(store.getState())).toEqual(["one", "two"]);
 	expect(store.getState().connection).toBe("open");
+});
+
+test("the session rules the host reports are kept, and revoking one sends it", () => {
+	const rule = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
+	let state = feed([snapshot(1), frame("rules", 2, { rules: [rule] })]);
+	expect(state.sessionRules).toEqual([rule]);
+	expect(selectSessionRulesActive(state)).toBe(true);
+	state = feed([frame("rules", 3, { rules: [] })], state);
+	expect(selectSessionRulesActive(state)).toBe(false);
+
+	const sent: ChatClientMessage[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	expect(store.getState().revokeRule("Bash(sed:*)")).toBe(true);
+	expect(store.getState().revokeRule("")).toBe(false);
+	expect(sent).toEqual([{ type: "rule.revoke", rule: "Bash(sed:*)" }]);
 });

@@ -105,6 +105,20 @@ export type ChatQuestion = z.infer<typeof ChatQuestion>;
 
 const Questions = z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS);
 
+/** Longest permission rule the host reports or the browser may revoke. */
+export const MAX_CHAT_RULE_CHARS = 4096;
+
+/**
+ * A rule the student granted with "Always allow" that lasts only for this
+ * chat session, in Claude Code's rule syntax such as `Bash(sed:*)`, with a
+ * plain-English description (SPEC.md §10.8).
+ */
+export const ChatSessionRule = z.object({
+	rule: z.string().min(1).max(MAX_CHAT_RULE_CHARS),
+	description: z.string(),
+});
+export type ChatSessionRule = z.infer<typeof ChatSessionRule>;
+
 const PermissionCardFields = {
 	id: z.string().min(1),
 	toolName: z.string().min(1),
@@ -226,6 +240,12 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		effort: ChatEffort,
 		mode: ChatPermissionMode,
 	}),
+	/** Every session rule now in force; sent on attach and on each change. */
+	z.object({
+		type: z.literal("rules"),
+		...Envelope,
+		rules: z.array(ChatSessionRule),
+	}),
 ]);
 export type ChatServerEvent = z.infer<typeof ChatServerEvent>;
 
@@ -256,6 +276,12 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		})
 		.strict(),
 	z.object({ type: z.literal("interrupt") }).strict(),
+	z
+		.object({
+			type: z.literal("rule.revoke"),
+			rule: z.string().min(1).max(MAX_CHAT_RULE_CHARS),
+		})
+		.strict(),
 	z
 		.object({
 			type: z.literal("set"),
