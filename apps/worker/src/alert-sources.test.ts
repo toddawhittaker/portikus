@@ -40,6 +40,11 @@ beforeEach(async () => {
 	await tdb.truncate();
 	await rm(flag, { force: true });
 	admin = await insertTestUser(tdb.db, { role: "administrator" });
+	// The worker seeds this row before it starts the alert loop.
+	await tdb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 30 })
+		.execute();
 });
 
 async function titles(): Promise<string[]> {
@@ -151,6 +156,84 @@ test.skipIf(skip)(
 		await tick();
 		fill = ROOT_FS_ALERT_PERCENT;
 		await tick();
+		expect(await titles()).toHaveLength(2);
+	},
+);
+
+// The raised state lives in the database, so a new worker process (a restart
+// or a deploy) is a second instance over the same rows (SPEC.md sections 24.4
+// and 24.13).
+test.skipIf(skip)(
+	"a reboot flag still present after a restart is not announced again, and one that clears and returns is",
+	async () => {
+		const { logger } = collectingLogger();
+		const build = () =>
+			createAlertSources({
+				db: tdb.db,
+				logger,
+				rebootFile: flag,
+				rootFsPercent: async () => 10,
+			});
+		await writeFile(flag, "");
+		await build()();
+		await build()();
+		expect(await titles()).toHaveLength(1);
+		await rm(flag);
+		await build()();
+		await writeFile(flag, "");
+		await build()();
+		expect(await titles()).toHaveLength(2);
+	},
+);
+
+test.skipIf(skip)(
+	"a sign-in spike still going after a restart is not announced again, and one that clears and returns is",
+	async () => {
+		const { logger } = collectingLogger();
+		let clock = new Date();
+		const build = () =>
+			createAlertSources({
+				db: tdb.db,
+				logger,
+				now: () => clock,
+				rebootFile: flag,
+				rootFsPercent: async () => 10,
+			});
+		await failures(SIGNIN_FAILURE_THRESHOLD, "auth.password_failed", "failed");
+		await build()();
+		await build()();
+		expect(await titles()).toHaveLength(1);
+		// The first failures age out of the window, then a new burst arrives.
+		const later = () => new Date(Date.now() + (SIGNIN_WINDOW_MINUTES + 1) * 60_000);
+		clock = later();
+		await build()();
+		await tdb.db.deleteFrom("audit_events").execute();
+		await failures(SIGNIN_FAILURE_THRESHOLD, "auth.password_failed", "failed");
+		clock = new Date();
+		await build()();
+		expect(await titles()).toHaveLength(2);
+	},
+);
+
+test.skipIf(skip)(
+	"a full root filesystem still full after a restart is not announced again, and one that clears and returns is",
+	async () => {
+		const { logger } = collectingLogger();
+		let fill = ROOT_FS_ALERT_PERCENT + 2;
+		const build = () =>
+			createAlertSources({
+				db: tdb.db,
+				logger,
+				rebootFile: flag,
+				rootFsPercent: async () => fill,
+			});
+		await build()();
+		await build()();
+		expect(await titles()).toHaveLength(1);
+		fill = 50;
+		await build()();
+		fill = ROOT_FS_ALERT_PERCENT + 2;
+		await build()();
 		expect(await titles()).toHaveLength(2);
 	},
 );
