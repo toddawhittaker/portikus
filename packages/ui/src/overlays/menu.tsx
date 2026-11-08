@@ -1,8 +1,8 @@
 import * as RadixContextMenu from "@radix-ui/react-context-menu";
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
-import { skipTooltipOnReturnedFocus } from "../primitives/IconButton.js";
 import { Icon, type IconName, type Key, ShortcutHint } from "../primitives/index.js";
+import { skipTooltipOnReturnedFocus } from "../primitives/Tooltip.js";
 
 /** Which Radix family the items below render into. */
 const MenuKindContext = React.createContext<"dropdown" | "context">("dropdown");

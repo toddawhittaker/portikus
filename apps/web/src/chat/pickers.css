@@ -18,7 +18,7 @@
 }
 
 .pk-picker:hover,
-.pk-picker[data-state="open"] {
+.pk-picker[aria-expanded="true"] {
 	background: var(--surface-hover);
 }
 

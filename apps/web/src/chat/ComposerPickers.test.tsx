@@ -47,6 +47,15 @@ function picker(name: string): HTMLElement {
 	return screen.getByRole("button", { name: new RegExp(`^${name} `) });
 }
 
+/** What a screen reader would read as the description of `el`. */
+function describedText(el: HTMLElement): string {
+	return (el.getAttribute("aria-describedby") ?? "")
+		.split(" ")
+		.map((id) => document.getElementById(id)?.textContent ?? "")
+		.join(" ")
+		.trim();
+}
+
 function open(name: string): HTMLElement {
 	fireEvent.keyDown(picker(name), { key: "Enter" });
 	return screen.getByRole("menu", { name: new RegExp(`^${name} `) });
@@ -199,13 +208,12 @@ test("an unknown model shows as Default, and the pickers wait with their labels 
 	expect(picker("Model").textContent).toBe("Model Default");
 });
 
-test("the narrow form hides words by CSS only: every button keeps its prefix and a full tooltip", () => {
+test("the narrow form hides words by CSS only: every button keeps its prefix in its name", () => {
 	draw({ ...START, effort: "xhigh", mode: "bypassPermissions" });
-	expect(picker("Agent").getAttribute("title")).toBe("Agent Claude Code");
-	expect(picker("Effort").getAttribute("title")).toBe("Effort Extra high");
-	expect(picker("Permissions").getAttribute("title")).toBe(
-		"Permissions Bypass permissions",
-	);
+	// No native title: it shows on mouse hover only (SPEC.md §25.8).
+	expect(picker("Agent").hasAttribute("title")).toBe(false);
+	expect(picker("Effort").textContent).toBe("Effort Extra high");
+	expect(picker("Permissions").textContent).toBe("Permissions Bypass permissions");
 	// The agent's short form is the visible part; the rest is its own hideable span.
 	const value = picker("Agent").querySelector(".pk-picker-value");
 	expect(value?.firstChild?.textContent).toBe("Claude");
@@ -277,4 +285,29 @@ test("Ask with no session rules shows no hint", () => {
 	holdRules([]);
 	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
 	expect(picker("Permissions").getAttribute("aria-describedby")).toBeNull();
+});
+
+test("a picker's tooltip gives the full label on keyboard focus and describes nothing", async () => {
+	draw({ ...START, effort: "xhigh", mode: "bypassPermissions" });
+	const effort = picker("Effort");
+	act(() => effort.focus());
+	await screen.findByText("Effort Extra high", { selector: ".pk-tooltip" });
+	// The name already says it; a description would be read twice.
+	expect(describedText(effort)).toBe("");
+	// A picker with a description of its own keeps only that one.
+	const mode = picker("Permissions");
+	act(() => mode.focus());
+	await screen.findByText("Permissions Bypass permissions", {
+		selector: ".pk-tooltip",
+	});
+	expect(describedText(mode)).toBe(BYPASS_WARNING);
+});
+
+test("each menu opens with a visible heading naming what it sets", () => {
+	draw();
+	for (const name of ["Agent", "Model", "Effort", "Permissions"]) {
+		const menu = open(name);
+		expect(menu.firstElementChild?.textContent).toBe(name);
+		fireEvent.keyDown(menu, { key: "Escape" });
+	}
 });

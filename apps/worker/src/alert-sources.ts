@@ -95,18 +95,12 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 	const rootFsPercent = options.rootFsPercent ?? rootFsUsedPercent;
 
 	async function raisedFlags(): Promise<Record<AlertFlag, boolean>> {
-		const row = await db
+		// A missing row throws, so the tick logs it instead of re-announcing every time.
+		return db
 			.selectFrom("settings")
 			.select(["alert_reboot_raised", "alert_signin_raised", "alert_root_fs_raised"])
 			.where("id", "=", 1)
-			.executeTakeFirst();
-		return (
-			row ?? {
-				alert_reboot_raised: false,
-				alert_signin_raised: false,
-				alert_root_fs_raised: false,
-			}
-		);
+			.executeTakeFirstOrThrow();
 	}
 
 	async function saveFlag(flag: AlertFlag, value: boolean): Promise<void> {
