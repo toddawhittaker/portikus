@@ -13,7 +13,7 @@
 	min-height: 0;
 	min-width: 0;
 	display: grid;
-	/* Log, connection notice, card dock, anything shown above the message box, message box. */
+	/* Log, connection notice, card dock, session rules, message box. */
 	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto auto;
 	grid-template-columns: minmax(0, 1fr);
 	overflow: clip;
@@ -695,6 +695,14 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-add-note {
 	gap: var(--space-1);
 	color: var(--ink-muted);
+}
+
+/* The session's permission rules sit just above the message box, in its column. */
+.pk-chat > .pk-chat-rules {
+	grid-row: 4;
+	max-block-size: 30cqb;
+	overflow-y: auto;
+	margin: var(--space-2) var(--pk-chat-gutter) 0;
 }
 
 .pk-chat-composer {

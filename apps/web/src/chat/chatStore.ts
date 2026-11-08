@@ -12,6 +12,7 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	type ChatSessionRule,
 	type ChatToolOutputPart,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -96,6 +97,8 @@ export interface ChatState {
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
+	/** Rules granted with Always allow that last for this session, as the host reports them. */
+	sessionRules: ChatSessionRule[];
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -119,6 +122,7 @@ export const initialChatState: ChatState = {
 	cards: [],
 	truncated: false,
 	settings: null,
+	sessionRules: [],
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -392,7 +396,14 @@ function applyChatEvent(
 					mode: event.mode,
 				},
 			};
+		case "rules":
+			return { ...state, sessionRules: event.rules };
 	}
+}
+
+/** Session rules are letting some tools run without a card. */
+export function selectSessionRulesActive(state: ChatState): boolean {
+	return state.sessionRules.length > 0;
 }
 
 /** What a tool still running becomes when its turn ends. */
@@ -438,6 +449,8 @@ interface ChatActions {
 		notes?: Record<string, string>,
 	) => boolean;
 	answerPermission: (id: string, optionId: string) => boolean;
+	/** Take back a session rule; the list updates when the host confirms. */
+	revokeRule: (rule: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -462,6 +475,7 @@ export function createChatStore(
 			deliver({ type: "question.answer", id, answers, ...(notes ? { notes } : {}) }),
 		answerPermission: (id, optionId) =>
 			deliver({ type: "permission.answer", id, optionId }),
+		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

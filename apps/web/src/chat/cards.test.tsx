@@ -1,10 +1,21 @@
 import type { ChatOpenCard } from "@portikus/contracts";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createChatStore } from "./chatStore";
 import { PermissionCard } from "./PermissionCard";
+import { SessionRules } from "./SessionRules";
 import { ToolBlock } from "./ToolBlock";
 
 afterEach(cleanup);
+
+const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
 const PERMISSION: Extract<ChatOpenCard, { type: "permission" }> = {
 	type: "permission",
@@ -172,4 +183,64 @@ test("long output is cut short until Show more", () => {
 	fireEvent.click(more);
 	expect(output.querySelector("pre")?.textContent).toBe(text);
 	expect(within(output).getByRole("button", { name: "Show less" })).toBeTruthy();
+});
+
+test("the Always allow button says what it allows and for how long", () => {
+	const onAnswer = vi.fn(() => true);
+	const label = 'Always allow "sed" commands in this session';
+	render(
+		<PermissionCard
+			card={{
+				...PERMISSION,
+				options: [
+					{ id: "allow", label: "Allow once" },
+					{ id: "always", label },
+					{ id: "deny", label: "Deny" },
+				],
+			}}
+			onAnswer={onAnswer}
+			takeFocus={() => false}
+			waiting={0}
+		/>,
+	);
+	fireEvent.click(screen.getByRole("button", { name: label }));
+	expect(onAnswer).toHaveBeenCalledWith("always");
+});
+
+test("session rules are listed only when there are some, and Revoke sends the rule", () => {
+	const sent: unknown[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	const { container } = render(<SessionRules store={store} />);
+	expect(container.textContent).toBe("");
+	act(() => {
+		store.getState().receive(
+			JSON.stringify({
+				type: "snapshot",
+				sessionId: SESSION_ID,
+				seq: 1,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			}),
+		);
+		store.getState().receive(
+			JSON.stringify({
+				type: "rules",
+				sessionId: SESSION_ID,
+				seq: 2,
+				rules: [{ rule: "Bash(sed:*)", description: '"sed" commands in this session' }],
+			}),
+		);
+	});
+	expect(
+		screen.getByText("Allowed without asking in this session: 1 rule"),
+	).toBeTruthy();
+	expect(screen.getByText("Bash(sed:*)")).toBeTruthy();
+	fireEvent.click(
+		screen.getByRole("button", { name: 'Revoke: "sed" commands in this session' }),
+	);
+	expect(sent).toEqual([{ type: "rule.revoke", rule: "Bash(sed:*)" }]);
 });

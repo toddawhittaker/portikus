@@ -17,6 +17,7 @@ import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -68,7 +69,7 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-const COMPOSER_BOX = ".pk-chat-composer textarea";
+const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
 
 /** The chat with its images' viewer around it, so a reply or a tool can open one. */
 export function ChatView(props: ChatViewProps) {
@@ -251,6 +252,7 @@ function ChatViewBody({
 					</p>
 				</div>
 			) : null}
+			<SessionRules store={store} />
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}

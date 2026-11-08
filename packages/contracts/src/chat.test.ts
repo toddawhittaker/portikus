@@ -8,6 +8,7 @@ import {
 	MAX_CHAT_ATTACHMENTS,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_QUESTION_HEADER_CHARS,
+	MAX_CHAT_RULE_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	MAX_CHAT_TEXT_CHARS,
 } from "./chat.js";
@@ -328,6 +329,29 @@ describe("terminal kind", () => {
 		).toBe(true);
 		expect(
 			AgentCreateTerminalRequest.safeParse({ ...agentBody, resumeChatOf }).success,
+		).toBe(false);
+	});
+});
+
+describe("session rules", () => {
+	test("the host reports rules and the browser may revoke one", () => {
+		const rules = [
+			{ rule: "Bash(sed:*)", description: '"sed" commands in this session' },
+		];
+		expect(ChatServerEvent.safeParse({ type: "rules", ...env, rules }).success).toBe(
+			true,
+		);
+		expect(
+			ChatClientMessage.safeParse({ type: "rule.revoke", rule: "Bash(sed:*)" }).success,
+		).toBe(true);
+		expect(ChatClientMessage.safeParse({ type: "rule.revoke", rule: "" }).success).toBe(
+			false,
+		);
+		expect(
+			ChatClientMessage.safeParse({
+				type: "rule.revoke",
+				rule: "x".repeat(MAX_CHAT_RULE_CHARS + 1),
+			}).success,
 		).toBe(false);
 	});
 });

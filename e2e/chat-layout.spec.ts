@@ -215,6 +215,20 @@ for (const size of [
 		socket.send("turn.finished", { at: Date.now(), status: "interrupted" });
 		await expect(view.getByTestId("chat-announcer")).toHaveText("Claude stopped.");
 		await expectHeld(page, id);
+
+		// The session's rules, open, sit above the message box without moving it.
+		socket.send("rules", {
+			rules: [{ rule: "Bash(sed:*)", description: '"sed" commands in this session' }],
+		});
+		const rules = view.getByTestId("chat-session-rules");
+		await rules.locator("> summary").click();
+		await expect(rules.getByTestId("chat-session-rule")).toBeVisible();
+		await expectHeld(page, id);
+		const listed = await rules.boundingBox();
+		const composer = await view.locator(".pk-chat-composer").boundingBox();
+		expect((listed?.y ?? 0) + (listed?.height ?? 0)).toBeLessThanOrEqual(
+			composer?.y ?? 0,
+		);
 	});
 }
 
