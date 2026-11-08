@@ -180,6 +180,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/tree": owner,
 	"GET /workspaces/:id/projects/:pid/file": owner,
 	"HEAD /workspaces/:id/projects/:pid/file": owner,
+	"GET /workspaces/:id/projects/:pid/image": owner,
+	"HEAD /workspaces/:id/projects/:pid/image": owner,
 	"PUT /workspaces/:id/projects/:pid/file": owner,
 	"DELETE /workspaces/:id/projects/:pid/file": owner,
 	"POST /workspaces/:id/projects/:pid/mkdir": owner,
