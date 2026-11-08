@@ -150,8 +150,14 @@ for (const colorScheme of ["light", "dark"] as const) {
 			}, back);
 			await expect(jump).toBeVisible();
 			const button = await box(jump);
-			const shown = await box(note);
+			const area = await box(scroll);
+			const whole = await box(note);
+			// Only the part of the note the log shows can be covered.
+			const top = Math.max(whole.y, area.y);
+			const bottom = Math.min(whole.y + whole.height, area.y + area.height);
+			const shown = { ...whole, y: top, height: Math.max(0, bottom - top) };
 			const covered =
+				shown.height > 0 &&
 				shown.y < button.y + button.height &&
 				button.y < shown.y + shown.height &&
 				shown.x < button.x + button.width &&
