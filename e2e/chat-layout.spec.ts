@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import { makeChatTab } from "./chat-helpers";
 import { terminalIds, workTabs } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 /**
  * The chat holds to its pane (SPEC.md §8.1, §10.8): the app shell never
@@ -224,8 +225,7 @@ test("in a split pane the chat keeps one scrollbar and its composer at the botto
 	test.setTimeout(90_000);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	const { id, view, socket, student, project } = await openChat(page, context);
-	await page.getByTestId(`terminal-actions-${id}`).click();
-	await page.getByTestId("split-right").click();
+	await splitPane(page, id, "right");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 		.toBe(2);

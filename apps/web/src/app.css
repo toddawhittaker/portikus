@@ -259,9 +259,10 @@ body {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		flex: 0 0 max(10rem, 22%) !important;
 	}
+	/* Tall enough for a chat to show a question card above its message box. */
 	.pk-shell > #work {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 1 0 16rem !important;
+		flex: 1 0 32rem !important;
 	}
 	/* Room under the tabs and the tree's own head for four or five rows. */
 	.pk-shell > #files {
