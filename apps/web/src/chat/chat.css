@@ -13,7 +13,8 @@
 	min-height: 0;
 	min-width: 0;
 	display: grid;
-	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto;
+	/* Log, connection notice, card dock, anything shown above the message box, message box. */
+	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto auto;
 	grid-template-columns: minmax(0, 1fr);
 	overflow: clip;
 	/* Sized by the pane, not its content, so the dock can be capped at a share of it. */
@@ -880,7 +881,7 @@ details[open] > summary > .pk-chat-chevron {
 
 .pk-chat-composer {
 	/* Scrolls rather than clips when the pane is very short. */
-	grid-row: 4;
+	grid-row: 5;
 	box-sizing: border-box;
 	min-height: 0;
 	overflow-y: auto;
