@@ -6,14 +6,19 @@
  * (SPEC.md §10.8). The list is not a live region: streaming text would be
  * read out word by word, so ChatView announces the turn's state instead.
  */
+import { chatImageType } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
 import { memo, useEffect, useState } from "react";
+import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
+import { CopyButton } from "./CopyButton.js";
 import type { ChatItem, ChatMessageItem, ChatToolItem, ChatTurn } from "./chatStore.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
 import { foldTurn } from "./fold.js";
+import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { ToolBlock } from "./ToolBlock.js";
+import "./messages.css";
 
 /** Items in order, with each turn's items gathered where the turn begins. */
 type Entry =
@@ -47,21 +52,64 @@ function groupByTurn(
 	return entries;
 }
 
+/**
+ * A file the student sent. A picture shows as a thumbnail that opens large in
+ * the viewer; anything else, or a picture that will not load, is its path.
+ */
+function SentFile({ path }: { path: string }) {
+	const images = useChatImages();
+	const [failed, setFailed] = useState(false);
+	const name = displayName(path.slice(path.lastIndexOf("/") + 1));
+	if (images === null || failed || chatImageType(path) === null) {
+		return (
+			<li className="pk-chat-attachment">
+				<Icon name="file" size="sm" />
+				<span className="pk-chat-attachment-name">{displayName(path)}</span>
+			</li>
+		);
+	}
+	const src = images.imageUrl(path);
+	return (
+		<li className="pk-chat-attachment pk-chat-sent-image">
+			<button
+				type="button"
+				className="pk-chat-image pk-chat-thumb"
+				aria-label={`View image ${name}`}
+				onClick={() => images.open({ src, name, alt: name, projectPath: path })}
+			>
+				<img
+					src={src}
+					alt={name}
+					width={56}
+					height={56}
+					loading="lazy"
+					onError={() => setFailed(true)}
+				/>
+			</button>
+			<span className="pk-chat-attachment-name" title={displayName(path)}>
+				{name}
+			</span>
+		</li>
+	);
+}
+
+/** What the student wrote, drawn as the Markdown the composer sent (SPEC.md §10.8). */
 function UserMessage({ message }: { message: ChatMessageItem }) {
 	return (
-		<li className="pk-chat-entry pk-chat-entry--user" data-testid="chat-user-message">
+		<li
+			className="pk-chat-entry pk-chat-entry--user pk-chat-copy-host"
+			data-testid="chat-user-message"
+		>
 			<p className="sr-only">You said:</p>
+			{message.markdown !== "" ? (
+				<CopyButton label="Copy message" text={message.markdown} />
+			) : null}
 			<div className="pk-chat-bubble">
-				{message.markdown !== "" ? (
-					<p className="pk-chat-user-text">{message.markdown}</p>
-				) : null}
+				{message.markdown !== "" ? <ChatMarkdown text={message.markdown} /> : null}
 				{message.attachments.length > 0 ? (
 					<ul className="pk-chat-attachments" aria-label="Attached files">
 						{message.attachments.map((file) => (
-							<li key={file.path} className="pk-chat-attachment">
-								<Icon name="file" size="sm" />
-								<span className="pk-chat-attachment-name">{file.path}</span>
-							</li>
+							<SentFile key={file.path} path={file.path} />
 						))}
 					</ul>
 				) : null}
@@ -77,11 +125,12 @@ const AssistantMessage = memo(function AssistantMessage({
 }) {
 	return (
 		<li
-			className="pk-chat-step"
+			className="pk-chat-step pk-chat-message pk-chat-copy-host"
 			data-testid="chat-assistant-message"
 			aria-busy={message.streaming || undefined}
 		>
 			<ChatMarkdown text={message.markdown} />
+			<CopyButton label="Copy message" text={message.markdown} />
 		</li>
 	);
 });

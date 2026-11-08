@@ -7,11 +7,12 @@
  * image is named, never loaded.
  */
 import { ChatImagePath, chatImageType } from "@portikus/contracts";
-import { type ComponentPropsWithoutRef, memo, useState } from "react";
+import { type ComponentPropsWithoutRef, memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../editor/markdown.css";
 import { isSafeLink, sanitizeMarkdown } from "../markdown/sanitize.js";
+import { CopyButton } from "./CopyButton.js";
 import { useChatImages } from "./ImageViewer.js";
 
 const PLUGINS = [remarkGfm];
@@ -119,13 +120,24 @@ function Link({
 	);
 }
 
+/** The code a block holds, as written: Markdown ends each block with a newline. */
+function codeText(pre: HTMLPreElement | null): string {
+	return (pre?.textContent ?? "").replace(/\n$/, "");
+}
+
 /** A wide code block scrolls, so it must be reachable by keyboard. */
 function Pre({
 	node: _node,
 	...props
 }: ComponentPropsWithoutRef<"pre"> & { node?: unknown }) {
-	// biome-ignore lint/a11y/noNoninteractiveTabindex: see above
-	return <pre {...props} tabIndex={0} />;
+	const pre = useRef<HTMLPreElement | null>(null);
+	return (
+		<div className="pk-chat-pre pk-chat-copy-host">
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: see above */}
+			<pre {...props} ref={pre} tabIndex={0} />
+			<CopyButton label="Copy code" text={() => codeText(pre.current)} />
+		</div>
+	);
 }
 
 const COMPONENTS = { a: Link, pre: Pre };

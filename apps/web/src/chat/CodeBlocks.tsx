@@ -5,6 +5,7 @@
  */
 import { Button } from "@portikus/ui";
 import { useState } from "react";
+import { CopyButton } from "./CopyButton.js";
 import { type DiffLine, diffLines, type EditChange, previewText } from "./toolView.js";
 
 function MoreButton({
@@ -29,26 +30,30 @@ function MoreButton({
 	);
 }
 
-/** A plain block of text, cut to `limit` lines until opened. */
+/** A plain block of text, cut to `limit` lines until opened; a copy copies all of it. */
 export function CodeBlock({
 	text,
 	limit,
 	className = "",
 	testId,
+	copyLabel,
 }: {
 	text: string;
 	limit?: number;
 	className?: string;
 	testId?: string;
+	/** Names a copy button for the whole text; without it there is none. */
+	copyLabel?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const preview = previewText(text, limit);
 	return (
-		<div className="pk-chat-codeblock">
+		<div className={`pk-chat-codeblock${copyLabel ? " pk-chat-copy-host" : ""}`}>
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
 			<pre className={`pk-chat-code ${className}`} tabIndex={0} data-testid={testId}>
 				{open ? text : preview.shown}
 			</pre>
+			{copyLabel ? <CopyButton label={copyLabel} text={text} /> : null}
 			{preview.hidden > 0 ? (
 				<MoreButton
 					hidden={preview.hidden}
