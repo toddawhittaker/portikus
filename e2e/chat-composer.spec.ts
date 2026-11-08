@@ -785,6 +785,58 @@ test("a paste of more than 40 lines is attached as a text file, not put in the b
 		]);
 });
 
+test("a long paste sent and pasted again at once is a new file, and the sent file is kept", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	const deletes: string[] = [];
+	page.on("request", (request) => {
+		if (request.method() === "DELETE") deletes.push(request.url());
+	});
+	const chip = view.getByTestId("composer-chip");
+	// Paste, send and paste again inside one evaluate, well within 0.8 seconds.
+	await page.evaluate(async () => {
+		const target = document.querySelector<HTMLElement>(
+			'[data-testid="chat-composer-input"]',
+		);
+		const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
+		const pasteLog = () => {
+			const transfer = new DataTransfer();
+			transfer.setData("text/plain", log.join("\n"));
+			target?.dispatchEvent(
+				new ClipboardEvent("paste", {
+					clipboardData: transfer,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		};
+		pasteLog();
+		// Send once the chip is saved, as a student pressing Enter would.
+		while (!document.querySelector('[data-testid="composer-chip"]')) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		target?.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		);
+		pasteLog();
+	});
+	await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+	const [frame] = await receivedFrames(id, "send");
+	expect(frame?.attachments).toHaveLength(1);
+	await expect(view.getByTestId("chat-composer-status")).toHaveText(
+		/^Pasted 60 lines, attached as pasted-text-2\.txt\.$/,
+	);
+	await expect(chip).toHaveCount(1);
+	await expect(chip).toContainText("pasted-text-2.txt");
+	await expect(box).toHaveText("");
+	expect(deletes).toEqual([]);
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the same long text pasted twice at once goes in the box, and its file is deleted (${colorScheme})`, async ({
 		page,

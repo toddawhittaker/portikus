@@ -128,3 +128,25 @@ it("hideOutside hides an in-page modal's surroundings, keeps live regions, and r
 	expect(hidden(late)).toBe(false);
 	document.body.innerHTML = "";
 });
+
+it("hideOutside with a root leaves what sits beside the root alone, now and after late changes", async () => {
+	document.body.innerHTML = `
+		<div id="app">
+			<div id="shell"><div id="row"><div id="sheet"></div><main id="work"></main></div></div>
+			<ol id="toasts"><li><button>Keep running</button></li></ol>
+		</div>`;
+	const get = (id: string) => document.getElementById(id) as HTMLElement;
+	const undo = hideOutside(get("sheet"), get("shell"));
+	expect(hidden(get("work"))).toBe(true);
+	expect(hidden(get("toasts"))).toBe(false);
+	const late = document.createElement("button");
+	get("row").append(late);
+	const toast = document.createElement("li");
+	get("toasts").append(toast);
+	await waitFor(() => expect(hidden(late)).toBe(true));
+	expect(hidden(toast)).toBe(false);
+	expect(hidden(get("toasts"))).toBe(false);
+	undo();
+	expect(hidden(get("work"))).toBe(false);
+	document.body.innerHTML = "";
+});

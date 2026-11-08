@@ -92,6 +92,52 @@ test("Tab outside a list still leaves the box", async ({ page, context }) => {
 	await expect(box).not.toBeFocused();
 });
 
+test("Shift+Tab on a top-level item leaves the box with the draft unchanged", async ({
+	page,
+	context,
+}) => {
+	const { box } = await open(page, context);
+	await page.keyboard.type("- one");
+	await newLine(page);
+	await page.keyboard.type("two");
+	await page.keyboard.press("Shift+Tab");
+	await expect(box).not.toBeFocused();
+	await expect(box.locator("ul > li")).toHaveText(["one", "two"]);
+});
+
+test("[x] on a later bullet stays text, and the other bullets stay bullets", async ({
+	page,
+	context,
+}) => {
+	const { id, box } = await open(page, context);
+	await page.keyboard.type("- one");
+	await newLine(page);
+	await page.keyboard.type("two");
+	await newLine(page);
+	await page.keyboard.type("[x] three");
+	await expect(box.locator('ul[data-type="taskList"]')).toHaveCount(0);
+	await expect(box.locator("ul > li")).toHaveCount(3);
+	await page.keyboard.press("Enter");
+	expect(await sentText(id)).toBe("- one\n- two\n- [x] three");
+});
+
+test("a task's checkbox is named by its own line, not its sub-tasks", async ({
+	page,
+	context,
+}) => {
+	const { box } = await open(page, context);
+	await page.keyboard.type("- [ ] buy milk");
+	await newLine(page);
+	await page.keyboard.type("[x] oat");
+	await page.keyboard.press("Tab");
+	await expect(
+		box.getByRole("checkbox", { name: "To do: buy milk", exact: true }),
+	).toBeVisible();
+	await expect(
+		box.getByRole("checkbox", { name: "Done: oat", exact: true }),
+	).toBeChecked();
+});
+
 test("[text](url), a typed address and a pasted address become links; other schemes stay text", async ({
 	page,
 	context,

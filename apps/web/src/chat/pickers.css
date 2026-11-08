@@ -48,8 +48,7 @@
 }
 
 .pk-picker.is-warning,
-.pk-picker.is-warning:hover,
-.pk-picker.is-warning[data-state="open"] {
+.pk-picker.is-warning:hover {
 	border-color: var(--status-warning);
 	background: var(--status-warning-soft);
 }

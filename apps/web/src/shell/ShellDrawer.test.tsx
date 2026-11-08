@@ -27,45 +27,53 @@ function Shell({ phone }: { phone: boolean }) {
 	const [open, setOpen] = useState(false);
 	const opener = useRef<HTMLButtonElement>(null);
 	return (
-		<div className="pk-root">
-			<header>
-				<p aria-live="polite">Status</p>
-				<button
-					type="button"
-					ref={(element) => {
-						opener.current = element;
-						// jsdom lays nothing out; the opener is on screen here.
-						if (element) element.getClientRects = () => [{}] as unknown as DOMRectList;
-					}}
-					onClick={() => setOpen(true)}
-				>
-					Projects
-				</button>
-			</header>
-			<div>
-				<ShellDrawer
-					id="projects-drawer"
-					side="left"
-					label="Projects"
-					phone={phone}
-					open={open}
-					onClose={() => setOpen(false)}
-					opener={opener}
-				>
-					<nav aria-label="Project list">
-						<a href="/elsewhere">A project</a>
-						<a href="/help" target="_blank" rel="noopener">
-							Help
-						</a>
-						<button type="button">New project</button>
-					</nav>
-				</ShellDrawer>
-				<main>
-					Work
-					<button type="button">Run</button>
-				</main>
+		<>
+			<div className="pk-root">
+				<header>
+					<p aria-live="polite">Status</p>
+					<button
+						type="button"
+						ref={(element) => {
+							opener.current = element;
+							// jsdom lays nothing out; the opener is on screen here.
+							if (element)
+								element.getClientRects = () => [{}] as unknown as DOMRectList;
+						}}
+						onClick={() => setOpen(true)}
+					>
+						Projects
+					</button>
+				</header>
+				<div>
+					<ShellDrawer
+						id="projects-drawer"
+						side="left"
+						label="Projects"
+						phone={phone}
+						open={open}
+						onClose={() => setOpen(false)}
+						opener={opener}
+					>
+						<nav aria-label="Project list">
+							<a href="/elsewhere">A project</a>
+							<a href="/help" target="_blank" rel="noopener">
+								Help
+							</a>
+							<button type="button">New project</button>
+						</nav>
+					</ShellDrawer>
+					<main>
+						Work
+						<button type="button">Run</button>
+					</main>
+				</div>
 			</div>
-		</div>
+			<ol aria-label="Notifications">
+				<li>
+					<button type="button">Keep running</button>
+				</li>
+			</ol>
+		</>
 	);
 }
 
@@ -93,6 +101,8 @@ test("an open phone drawer is a named modal dialog, hides the rest with aria-hid
 	fireEvent.click(screen.getByRole("button", { name: "Projects" }));
 	const dialog = screen.getByRole("dialog", { name: "Projects" });
 	expect(dialog.getAttribute("aria-modal")).toBe("true");
+	// Toasts beside the shell stay reachable (DESIGN.md section 9).
+	expect(screen.getByRole("button", { name: "Keep running" })).toBeDefined();
 	expect(document.activeElement).toBe(dialog);
 	const work = screen.getByText("Work");
 	// Inert would silence the live regions behind the drawer (ADR 0047).

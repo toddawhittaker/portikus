@@ -1,3 +1,4 @@
+import { cleanup, render } from "@testing-library/react";
 import { getSchema } from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
 import Bold from "@tiptap/extension-bold";
@@ -19,7 +20,9 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Strike from "@tiptap/extension-strike";
 import Text from "@tiptap/extension-text";
 import type { Node } from "@tiptap/pm/model";
+import { createElement } from "react";
 import { expect, test } from "vitest";
+import { ChatMarkdown } from "./ChatMarkdown.js";
 import { toMarkdown } from "./composerMarkdown.js";
 
 const schema = getSchema([
@@ -129,6 +132,30 @@ test("a link is [text](url), bare when its text is its address, and fenced when 
 	expect(toMarkdown(node.content)).toBe(
 		"a [docs](https://x.org/a) https://x.org [wiki](<https://x.org/a_(b)>)",
 	);
+});
+
+const SPLICED = "https://a.example/x>)[y](https://b.example";
+
+test("<, > and \\ in a fenced address are escaped, so it cannot close the fence early", () => {
+	const node = doc([
+		p(text("go", link(SPLICED)), text(" then more")),
+		p(text("back", link("https://a.example/a\\b"))),
+	]);
+	expect(toMarkdown(node.content)).toBe(
+		"[go](<https://a.example/x\\>)[y](https://b.example>) then more\n[back](<https://a.example/a\\\\b>)",
+	);
+});
+
+test("a spliced address reads back in a reply as the one link it was", () => {
+	const node = doc([p(text("go", link(SPLICED)), text(" then more"))]);
+	const { container } = render(
+		createElement(ChatMarkdown, { text: toMarkdown(node.content) }),
+	);
+	const links = Array.from(container.querySelectorAll("a"));
+	expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+		["go", "https://a.example/x%3E)%5By%5D(https://b.example"],
+	]);
+	cleanup();
 });
 
 test("bold inside a link keeps the brackets outside", () => {

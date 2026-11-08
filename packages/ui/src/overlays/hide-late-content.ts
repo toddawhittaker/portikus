@@ -8,11 +8,15 @@ import { hideOthers } from "aria-hidden";
  * (SPEC.md §25.8). On such a change this hides the page again, keeping the
  * live regions. Layers opened after the modal, such as a popover or an alert
  * dialog over it, portal to new children of the body and are left alone.
+ * Only what is inside `root` is hidden; the default is the whole body.
  * Returns the cleanup, for use from a React ref callback.
  */
-export function hideLateContent(content: HTMLElement): () => void {
-	const portal = topLevel(content);
-	const page = new Set([...document.body.children].filter((child) => child !== portal));
+export function hideLateContent(
+	content: HTMLElement,
+	root: HTMLElement = document.body,
+): () => void {
+	const portal = topLevel(content, root);
+	const page = new Set([...root.children].filter((child) => child !== portal));
 	let undo: (() => void) | null = null;
 	let frame = 0;
 
@@ -20,7 +24,7 @@ export function hideLateContent(content: HTMLElement): () => void {
 		if (!(node instanceof Element) || content.contains(node)) return false;
 		// Inside a live region the page keeps exposed, it is meant to be heard.
 		if (node.parentElement?.closest("[aria-live]")) return false;
-		const top = topLevel(node);
+		const top = topLevel(node, root);
 		return (
 			top !== null &&
 			(page.has(top) || top === portal) &&
@@ -33,10 +37,10 @@ export function hideLateContent(content: HTMLElement): () => void {
 		if (!content.isConnected) return;
 		undo?.();
 		// The modal and every layer opened since stay visible; the page does not.
-		const layers = [...document.body.children].filter(
+		const layers = [...root.children].filter(
 			(child) => child !== portal && !page.has(child),
 		);
-		undo = hideOthers([content, ...layers]);
+		undo = hideOthers([content, ...layers], root);
 	}
 
 	const observer = new MutationObserver((records) => {
@@ -45,7 +49,7 @@ export function hideLateContent(content: HTMLElement): () => void {
 			frame = requestAnimationFrame(rehide);
 		}
 	});
-	observer.observe(document.body, { childList: true, subtree: true });
+	observer.observe(root, { childList: true, subtree: true });
 
 	return () => {
 		observer.disconnect();
@@ -54,23 +58,27 @@ export function hideLateContent(content: HTMLElement): () => void {
 	};
 }
 
-/** The child of the body that holds the node, or null outside the body. */
-function topLevel(node: Element): Element | null {
+/** The child of `root` that holds the node, or null outside `root`. */
+function topLevel(node: Element, root: HTMLElement): Element | null {
 	let current: Element | null = node;
-	while (current && current.parentElement !== document.body) {
+	while (current && current.parentElement !== root) {
 		current = current.parentElement;
 	}
 	return current;
 }
 
 /**
- * Hides everything but `content` from screen readers now and as the page
- * changes, keeping live regions heard (ADR 0047). For a modal that is not a
- * Radix dialog, such as a phone drawer inside the shell. Returns the undo.
+ * Hides everything inside `root` but `content` from screen readers now and as
+ * the page changes, keeping live regions heard (ADR 0047). For a modal that
+ * is not a Radix dialog, such as a phone drawer inside the shell, whose
+ * toasts and dialogs outside `root` stay reachable. Returns the undo.
  */
-export function hideOutside(content: HTMLElement): () => void {
-	const first = hideOthers(content);
-	const late = hideLateContent(content);
+export function hideOutside(
+	content: HTMLElement,
+	root: HTMLElement = document.body,
+): () => void {
+	const first = hideOthers(content, root);
+	const late = hideLateContent(content, root);
 	return () => {
 		late();
 		first();
