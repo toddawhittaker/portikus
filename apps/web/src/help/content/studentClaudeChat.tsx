@@ -24,8 +24,10 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					While Claude works you can still send a message. Claude reads it at its next
 					step without stopping, and the message is marked "Sent while Claude was
-					working". Esc in the message box stops Claude. Up in an empty box brings back
-					your last message.
+					working". Some models treat a message sent this way with caution, because they
+					can read it as part of a tool's output. If Claude does not act on it, stop
+					Claude, then send it again; that always works. Esc in the message box stops
+					Claude. Up in an empty box brings back your last message.
 				</li>
 				<li>
 					On a permission card, press 1, 2 or 3 to choose an option. The keys work only
