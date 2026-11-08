@@ -232,54 +232,104 @@ body {
 }
 /*
  * Too narrow for both side panes at their default widths (240 and 280 px)
- * beside the work area's 360 px minimum (SPEC.md section 8.1): they stack,
- * projects over the work area over the files, in one column that fits the
- * window. Each pane keeps a usable height, and in a short window the
- * column scrolls between the header and the status bar rather than
- * squeezing the lists to slivers (SPEC.md section 25.8). The panel library
- * sets its sizes and overflow inline, hence !important; its width handles
- * have nothing to resize here, so they go.
+ * beside the work area's 360 px minimum (SPEC.md section 8.1): the work
+ * area fills the shell, and projects and the right pane become drawers that
+ * slide over it from their own side, opened from the header. The panel
+ * library sets sizes and overflow inline, hence !important; its width
+ * handles have nothing to resize here, so they go.
  */
 @media (width < 56rem) {
-	.pk-shell {
-		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex-direction: column !important;
-		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		overflow: hidden auto !important;
-	}
 	.pk-shell > .pk-handle {
 		display: none;
 	}
-	/* The panel ids from WorkspacePage; the work area takes what the lists leave. */
-	.pk-shell > :is(#projects, #work, #files) {
-		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		max-height: none !important;
-	}
-	.pk-shell > #projects {
-		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 0 0 max(10rem, 22%) !important;
-	}
-	/*
-	 * Tall enough for a chat to show a question card above its message box,
-	 * and no taller than what the projects list leaves, so a chat's composer
-	 * shows whole without scrolling in a short window.
-	 */
 	.pk-shell > #work {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 1 0 clamp(28rem, 100% - max(10rem, 22%), 32rem) !important;
+		flex: 1 1 100% !important;
 	}
-	/* Room under the tabs and the tree's own head for four or five rows. */
-	.pk-shell > #files {
+	.pk-shell > :is(#projects, #files) {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 0 0 max(17rem, 30%) !important;
+		position: fixed !important;
+		inset: 0;
+		z-index: var(--z-dialog);
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		max-height: none !important;
+		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
+		overflow: hidden !important;
+		pointer-events: none;
 	}
-	.pk-pane--left {
-		border-inline-end: 0;
+	.pk-drawer-layer {
+		display: block;
+		position: absolute;
+		inset: 0;
+		visibility: hidden;
+		/* Hidden only once the slide out has finished. */
+		transition: visibility 0s linear var(--duration-base);
+	}
+	.pk-drawer-layer[data-open] {
+		visibility: visible;
+		pointer-events: auto;
+		transition: none;
+	}
+	.pk-drawer-scrim {
+		display: block;
+		position: absolute;
+		inset: 0;
+		background: var(--scrim);
+		opacity: 0;
+		transition: opacity var(--duration-base) ease-out;
+	}
+	.pk-drawer-layer[data-open] > .pk-drawer-scrim {
+		opacity: 1;
+	}
+	.pk-drawer {
+		position: absolute;
+		inset-block: 0;
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+		/* Content wider than the sheet must not let focus scroll it off screen. */
+		overflow: clip;
+		background: var(--surface-sunken);
+		transition: transform var(--duration-base) ease-out;
+	}
+	/* Focus lands on the sheet as it opens; the sheet is not a control. */
+	.pk-drawer:focus {
+		outline: none;
+	}
+	/* Leaves a strip of the work area showing, to tap and close. */
+	.pk-drawer-layer--left > .pk-drawer {
+		inset-inline-start: 0;
+		inline-size: min(20rem, 100% - var(--space-12));
+		border-inline-end: 1px solid var(--line);
+		transform: translateX(-100%);
+	}
+	.pk-drawer-layer--right > .pk-drawer {
+		inset-inline-end: 0;
+		inline-size: min(26rem, 100% - var(--space-12));
+		border-inline-start: 1px solid var(--line);
+		transform: translateX(100%);
+	}
+	.pk-drawer-layer[data-open] > .pk-drawer {
+		transform: none;
+	}
+	.pk-drawer-bar {
+		flex: none;
+		display: flex;
+		justify-content: flex-end;
+		padding: var(--space-1);
 		border-block-end: 1px solid var(--line);
 	}
-	.pk-pane--right {
-		border-inline-start: 0;
-		border-block-start: 1px solid var(--line);
+	.pk-drawer > .pk-pane {
+		flex: 1;
+		height: auto;
+		border-inline: 0;
+	}
+}
+/* At desktop widths the drawer wrappers add no box (SPEC.md section 8.1). */
+@media (width >= 56rem) {
+	.pk-drawer-layer,
+	.pk-drawer {
+		display: contents;
 	}
 }
 .pk-pane {

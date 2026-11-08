@@ -140,6 +140,14 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>Your workspace</strong>, where you can restart or stop it, see its
 						storage, and reset Docker.
 					</li>
+					<li>
+						<strong>On a phone or a narrow window</strong> the work area fills the
+						screen. The <strong>Projects</strong> button, left of the Portikus name,
+						slides your project list in from the left, and the <strong>Files</strong>{" "}
+						button, at the right of the top bar, slides the right pane in from the
+						right. Choosing a project or opening a file closes it again, and so do
+						Escape, its close button and a tap outside it.
+					</li>
 				</ul>
 			),
 		},

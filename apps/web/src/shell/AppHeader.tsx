@@ -1,6 +1,7 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import {
 	Icon,
+	IconButton,
 	Menu,
 	MenuItem,
 	MenuLabel,
@@ -11,7 +12,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import { errorText } from "../api/request.js";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
@@ -82,6 +83,14 @@ function AccountPicture({
 	return <span className="pk-initials">{initials(displayName)}</span>;
 }
 
+/** The phone-width buttons that open the side panes as drawers (SPEC.md §8.1). */
+export interface DrawerButtons {
+	open: "projects" | "files" | null;
+	onOpen: (drawer: "projects" | "files") => void;
+	projectsRef: RefObject<HTMLButtonElement | null>;
+	filesRef: RefObject<HTMLButtonElement | null>;
+}
+
 /**
  * The top bar: the mark, the project in view, and the account menu.
  * The workspace dialog lives on the status bar (SPEC.md §6).
@@ -91,6 +100,7 @@ export function AppHeader({
 	user,
 	project,
 	context = "Administration",
+	drawers,
 }: {
 	/** Absent on the administration page, which belongs to no workspace. */
 	workspaceId?: string;
@@ -100,6 +110,8 @@ export function AppHeader({
 	project: Project | undefined;
 	/** What the bar names when there is no workspace, such as "Course". */
 	context?: string;
+	/** Given by the workspace screen only. */
+	drawers?: DrawerButtons;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -132,6 +144,18 @@ export function AppHeader({
 
 	return (
 		<header className="pk-appbar @container" data-testid="app-header">
+			{drawers ? (
+				<IconButton
+					ref={drawers.projectsRef}
+					icon="list"
+					label="Projects"
+					className="pk-appbar-drawer"
+					aria-haspopup="dialog"
+					aria-expanded={drawers.open === "projects"}
+					aria-controls="projects-drawer"
+					onClick={() => drawers.onOpen("projects")}
+				/>
+			) : null}
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
 			{/* On a narrow bar the context gives way first. */}
 			<span className="contents @max-[40rem]:hidden">
@@ -178,6 +202,19 @@ export function AppHeader({
 				>
 					{open.isPending ? "Opening your workspace" : ""}
 				</span>
+			) : null}
+
+			{drawers ? (
+				<IconButton
+					ref={drawers.filesRef}
+					icon="folder"
+					label="Files"
+					className="pk-appbar-drawer"
+					aria-haspopup="dialog"
+					aria-expanded={drawers.open === "files"}
+					aria-controls="files-drawer"
+					onClick={() => drawers.onOpen("files")}
+				/>
 			) : null}
 
 			<span className="pk-account-wrap">
