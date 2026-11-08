@@ -5700,7 +5700,7 @@ Gaps:
 
 ## Epic 58.1 — chat fix batch
 
-Built on `epic/58.1-chat-fixes` (task PRs #1779, #1787, #1788, #1789, #1790, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, F3 PR to be added, and the fold). It closes #1745, #1758, #1759, #1760, #1761, #1768, #1771, #1772, #1773, #1774, #1775, #1776 and #1777. Migration 0053. SPEC.md sections 8.5, 10, 10.8, 24.1, 25.8 and 29.
+Built on `epic/58.1-chat-fixes` (task PRs #1779, #1787, #1788, #1789, #1790, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, the last fixes #1800, the real-CLI test fix #1802, and the fold). It closes #1745, #1758, #1759, #1760, #1761, #1768, #1771, #1772, #1773, #1774, #1775, #1776 and #1777. Migration 0053. SPEC.md sections 8.5, 10, 10.8, 24.1, 25.8 and 29.
 
 Delivered:
 
@@ -5716,7 +5716,8 @@ Delivered:
 - Turn and keyboard (#1798): Send during a turn, Escape to stop, Up for the last message, number keys in permission cards, a Working line naming the step, and a long paste saved as a file chip.
 - Review fixes (#1797, #1799): capped image reads, a named pipe no longer hangs the agent, Revoke busy state and focus, toasts step above a focused control, image syntax in code stays as written, and clearer pager reasons.
 - Epic run process (#1795): CI cancels a stale pull request run when a newer commit arrives; the epic-run skill gains a "starts after" column, one watcher, and an earlier review.
-- F3: (to be added)
+- Last fixes (#1800): a message sent mid-turn keeps the running step on the Working line until Claude takes it in; one verb table feeds the tool row and the Working line ("Running pnpm test", "Waiting for your permission"); starter prompts keep a draft; long pastes are named apart and announced; code blocks are announced every time; unread question results show once; shared chat e2e helpers.
+- Real-CLI test (#1802): the real-CLI chat test now proves a mid-turn message reaches Claude, not that Haiku obeys it.
 - Fold: STATUS, SPEC.md section 29, the epic-run skill's watcher step, and `docs/EPIC-58.1.md` is deleted.
 
 Todd's rulings:
@@ -5726,7 +5727,7 @@ Todd's rulings:
 - #1777: images may come from the project or anywhere under `/home/student`. Symlinks are allowed when the real path stays under `/home/student`; containment is the only rule (ruled 2026-11-08).
 - Task pull requests keep full CI. Lighter CI on task pull requests is the next step if CI time shows on the serial path.
 
-Verified: each task ran both unit shards with a private database, lint, the comment-history check and the Playwright specs for its pages. (F3 and the epic-level run to be added.)
+Verified: each task ran both unit shards with a private database, lint, the comment-history check and the Playwright specs for its pages. Every task PR passed full CI, and the epic push run after each merge passed.
 
 Gaps:
 
@@ -5735,4 +5736,6 @@ Gaps:
 - The "Sent while Claude was working" note is shown live only and is lost on reload, because the transcript does not record it (#1798).
 - The SDK's `unanswered` skip annotation is read by the Claude Code program, not by the model (#1793).
 - The larger design-review proposals are filed as issues #1780 to #1786; Rewind (#1786) needs Todd's ruling. Proposal 9 lives in #1769.
+- The round Jump to latest button can sit over the last message's corner while the student is scrolled back a little (#1800).
+- Haiku sometimes ignores a message sent while Claude works, treating it as an instruction injected into tool output (#1801); the host delivers it correctly.
 - No axe scan of the split submenu, and no Preview in a split (#1788).
