@@ -5697,3 +5697,45 @@ Gaps:
 - A GUI and a TUI can still run one session at once; Help says not to.
 - A plain terminal asked for on the chat route would wait 10 seconds before a 404; the API already refuses it, so it cannot happen.
 - Follow-up issues: copy buttons (#1758), Markdown while typing (#1759), an icon Send button (#1760), a design review against the best chat interfaces (#1761), a question card for terminal Claude Code (#1762), and registering the mock LMS in the install test (#1764).
+
+## Epic 58.1 — chat fix batch
+
+Built on `epic/58.1-chat-fixes` (task PRs #1779, #1787, #1788, #1789, #1790, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, the last fixes #1800, the real-CLI test fix #1802, and the fold). It closes #1745, #1758, #1759, #1760, #1761, #1768, #1771, #1772, #1773, #1774, #1775, #1776 and #1777. Migration 0053. SPEC.md sections 8.5, 10, 10.8, 24.1, 25.8 and 29.
+
+Delivered:
+
+- Alert toasts (#1779): every agent alert toast stays until it is viewed, dismissed or replaced, and the toast is capped at the screen width (it overflowed at 360 px).
+- Images in replies (#1787): an owner-only route shows a local image from the project, or any path under `/home/student`, in a viewer dialog with "Open in editor" for project files. A remote, `data:`, missing or non-image target shows a plain note. The general file read is not widened. Claude is told to save images under `.portikus/images/`.
+- Splits (#1788): Split right and Split down offer the New tab choices through one shared list; a split tab is named for its focused pane (a shell split from a chat used to read "Claude Code (GUI)"); Escape in a submenu steps back one level.
+- Permissions (#1789, #1797): "Always allow" names every grant and how long it lasts. The chat host holds session allow rules and lists them, each with Revoke; rule changes go through one queue, and a failed grant says so.
+- Composer (#1790, #1791): a TipTap Markdown editor, an icon Send button with a separate Stop, and the four pickers as styled radio menus with a description per choice.
+- Layout and questions (#1792): the chat no longer makes the pane scroll (a hidden label was positioned against the pane), and a question card shows one question at a time with keyboard paging.
+- Sticky settings and hint (#1793): the last model, effort and permission mode are stored per project; a quiet line under the pickers notes when session rules allow actions without asking.
+- Messages (#1794): Copy buttons on replies, sent messages, code blocks and tool output; sent pictures as thumbnails that open the viewer; sent messages drawn as Markdown.
+- Conversation polish (#1796): tool calls as one light line, three starter prompts in a new chat, and a round "Jump to latest" button with a dot.
+- Turn and keyboard (#1798): Send during a turn, Escape to stop, Up for the last message, number keys in permission cards, a Working line naming the step, and a long paste saved as a file chip.
+- Review fixes (#1797, #1799): capped image reads, a named pipe no longer hangs the agent, Revoke busy state and focus, toasts step above a focused control, image syntax in code stays as written, and clearer pager reasons.
+- Epic run process (#1795): CI cancels a stale pull request run when a newer commit arrives; the epic-run skill gains a "starts after" column, one watcher, and an earlier review.
+- Last fixes (#1800): a message sent mid-turn keeps the running step on the Working line until Claude takes it in; one verb table feeds the tool row and the Working line ("Running pnpm test", "Waiting for your permission"); starter prompts keep a draft; long pastes are named apart and announced; code blocks are announced every time; unread question results show once; shared chat e2e helpers.
+- Real-CLI test (#1802): the real-CLI chat test now proves a mid-turn message reaches Claude, not that Haiku obeys it.
+- Fold: STATUS, SPEC.md section 29, the epic-run skill's watcher step, and `docs/EPIC-58.1.md` is deleted.
+
+Todd's rulings:
+
+- #1759: the composer is a WYSIWYG editor (TipTap).
+- #1775: settings are stored server-side, per user and per project; a last-used Bypass returns as Auto.
+- #1777: images may come from the project or anywhere under `/home/student`. Symlinks are allowed when the real path stays under `/home/student`; containment is the only rule (ruled 2026-11-08).
+- Task pull requests keep full CI. Lighter CI on task pull requests is the next step if CI time shows on the serial path.
+
+Verified: each task ran both unit shards with a private database, lint, the comment-history check and the Playwright specs for its pages. Every task PR passed full CI, and the epic push run after each merge passed.
+
+Gaps:
+
+- The design system README keeps `radius-full` for dots, the spinner and the pane grip; it does not name the round Jump to latest button (#1796).
+- The sent-thumbnail e2e uses a replayed message, not a real paste and reload (#1794).
+- The "Sent while Claude was working" note is shown live only and is lost on reload, because the transcript does not record it (#1798).
+- The SDK's `unanswered` skip annotation is read by the Claude Code program, not by the model (#1793).
+- The larger design-review proposals are filed as issues #1780 to #1786; Rewind (#1786) needs Todd's ruling. Proposal 9 lives in #1769.
+- The round Jump to latest button can sit over the last message's corner while the student is scrolled back a little (#1800).
+- Haiku sometimes ignores a message sent while Claude works, treating it as an instruction injected into tool output (#1801); the host delivers it correctly.
+- No axe scan of the split submenu, and no Preview in a split (#1788).
