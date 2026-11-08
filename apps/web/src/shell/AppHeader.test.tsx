@@ -334,3 +334,37 @@ test("every role gets Help after Settings, opening in a new tab", () => {
 		cleanup();
 	}
 });
+
+test("the workspace header has Projects and Files drawer buttons that say whether they are open", () => {
+	const onOpen = vi.fn();
+	renderWithQuery(
+		<AppHeader
+			workspaceId={WORKSPACE.id}
+			user={USER}
+			workspace={WORKSPACE}
+			project={project()}
+			drawers={{
+				open: "files",
+				onOpen,
+				projectsRef: { current: null },
+				filesRef: { current: null },
+			}}
+		/>,
+	);
+	const projects = screen.getByRole("button", { name: "Projects" });
+	const files = screen.getByRole("button", { name: "Files" });
+	expect(projects.getAttribute("aria-expanded")).toBe("false");
+	expect(files.getAttribute("aria-expanded")).toBe("true");
+	expect(files.getAttribute("aria-controls")).toBe("files-drawer");
+	// The Projects button comes before the wordmark.
+	expect(screen.getByTestId("app-header").firstElementChild).toBe(projects);
+	fireEvent.click(projects);
+	fireEvent.click(files);
+	expect(onOpen.mock.calls).toEqual([["projects"], ["files"]]);
+});
+
+test("pages outside a workspace have no drawer buttons", () => {
+	renderHeader();
+	expect(screen.queryByRole("button", { name: "Projects" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
+});
