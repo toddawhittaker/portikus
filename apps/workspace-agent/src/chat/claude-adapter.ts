@@ -16,6 +16,7 @@ import {
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { z } from "zod";
+import { alwaysAllowLabel, splitSuggestions } from "./permission-rules.js";
 
 /**
  * Claude's side of the chat contract (SPEC.md §10.8): SDK messages in,
@@ -315,8 +316,11 @@ export function cardForTool(
 	const options: { id: string; label: string }[] = [
 		{ id: PERMISSION_OPTION.allowOnce, label: "Allow once" },
 	];
-	if ((ask.suggestions?.length ?? 0) > 0 && !ask.suppressAlwaysAllowRule) {
-		options.push({ id: PERMISSION_OPTION.allowAlways, label: "Always allow" });
+	if (ask.suggestions && ask.suggestions.length > 0 && !ask.suppressAlwaysAllowRule) {
+		options.push({
+			id: PERMISSION_OPTION.allowAlways,
+			label: alwaysAllowLabel(ask.suggestions),
+		});
 	}
 	options.push({ id: PERMISSION_OPTION.deny, label: "Deny" });
 	return {
@@ -329,7 +333,11 @@ export function cardForTool(
 	};
 }
 
-/** The SDK's answer for a permission card's chosen option. */
+/**
+ * The SDK's answer for a permission card's chosen option. Session allow
+ * rules are left out of `updatedPermissions`: the host grants those itself
+ * so they can be revoked.
+ */
 export function permissionResult(
 	optionId: string,
 	input: Record<string, unknown>,
@@ -339,10 +347,11 @@ export function permissionResult(
 		return { behavior: "allow", updatedInput: input };
 	}
 	if (optionId === PERMISSION_OPTION.allowAlways && ask.suggestions?.length) {
+		const { forSdk } = splitSuggestions(ask.suggestions);
 		return {
 			behavior: "allow",
 			updatedInput: input,
-			updatedPermissions: ask.suggestions,
+			...(forSdk.length > 0 ? { updatedPermissions: forSdk } : {}),
 		};
 	}
 	return { behavior: "deny", message: "The user declined this tool call." };

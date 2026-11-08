@@ -4,6 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import {
 	getSessionInfo,
 	getSessionMessages,
+	type PermissionMode,
 	type PermissionResult,
 	type Query,
 	query,
@@ -20,6 +21,7 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	type ChatQuestion,
+	type ChatSessionRule,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -32,10 +34,12 @@ import {
 	ClaudeMessageMapper,
 	cardForTool,
 	mergeRateLimits,
+	PERMISSION_OPTION,
 	permissionResult,
 	questionResult,
 	type ToolAsk,
 } from "./claude-adapter.js";
+import { splitSuggestions } from "./permission-rules.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
@@ -149,6 +153,9 @@ export class ChatHost {
 		mode: "default",
 	};
 
+	/** Rules granted with Always allow for this Claude process only. */
+	private sessionRules: ChatSessionRule[] = [];
+
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
 	}
@@ -228,6 +235,11 @@ export class ChatHost {
 		this.session = session;
 		this.input = input;
 		this.mapper = new ClaudeMessageMapper();
+		// A new Claude process starts with none of the old one's session rules.
+		if (this.sessionRules.length > 0) {
+			this.sessionRules = [];
+			this.broadcast(this.rulesEvent());
+		}
 		void this.pump(session);
 	}
 
@@ -265,6 +277,11 @@ export class ChatHost {
 			this.broadcastSettings();
 			return;
 		}
+		// Always allow can switch the mode mid-turn; the picker shows the mode in force.
+		if (message.type === "system" && message.subtype === "status") {
+			if (message.permissionMode) this.modeChanged(message.permissionMode);
+			return;
+		}
 		if (message.type === "rate_limit_event") {
 			this.limits = mergeRateLimits(this.limits, message.rate_limit_info);
 			void this.options.postLimits(this.limits).catch(() => undefined);
@@ -289,6 +306,13 @@ export class ChatHost {
 			}
 			this.broadcast(event);
 		}
+	}
+
+	private modeChanged(mode: PermissionMode): void {
+		const shown = mode === "dontAsk" ? "default" : mode;
+		if (shown === this.settings.mode) return;
+		this.settings.mode = shown;
+		this.broadcastSettings();
 	}
 
 	private beginTurn(): void {
@@ -348,6 +372,25 @@ export class ChatHost {
 		this.broadcast({ type: "card.resolved", id });
 	}
 
+	/**
+	 * Like `answer`, but Always allow first grants the session rules, so the
+	 * card is claimed before the wait and a second answer cannot also win.
+	 */
+	private async answerPermission(id: string, optionId: string): Promise<void> {
+		const open = this.cards.get(id);
+		if (open?.card.type !== "permission") return;
+		if (!open.card.options.some((option) => option.id === optionId)) return;
+		this.cards.delete(id);
+		try {
+			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
+				await this.grantRules(splitSuggestions(open.ask.suggestions).sessionRules);
+			}
+		} finally {
+			open.settle(permissionResult(optionId, open.input, open.ask));
+			this.broadcast({ type: "card.resolved", id });
+		}
+	}
+
 	private async attach(socket: Socket): Promise<void> {
 		if (this.clients.size >= MAX_ATTACHMENTS_PER_TERMINAL) {
 			writeLine(
@@ -403,6 +446,7 @@ export class ChatHost {
 			if (line !== null) writeLine(socket, line);
 		}
 		writeLine(socket, this.frame(this.settingsEvent()));
+		writeLine(socket, this.frame(this.rulesEvent()));
 	}
 
 	private async onLine(client: Client, line: string): Promise<void> {
@@ -428,12 +472,9 @@ export class ChatHost {
 			case "send":
 				return this.send(message.text, message.attachments);
 			case "permission.answer":
-				return this.answer(message.id, (open) => {
-					if (open.card.type !== "permission") return null;
-					if (!open.card.options.some((option) => option.id === message.optionId))
-						return null;
-					return permissionResult(message.optionId, open.input, open.ask);
-				});
+				return this.answerPermission(message.id, message.optionId);
+			case "rule.revoke":
+				return this.revokeRule(message.rule);
 			case "question.answer":
 				return this.answer(message.id, (open) =>
 					open.card.type === "question"
@@ -505,6 +546,36 @@ export class ChatHost {
 			this.settings.mode = change.mode;
 		}
 		this.broadcastSettings();
+	}
+
+	private async grantRules(rules: ChatSessionRule[]): Promise<void> {
+		const added = rules.filter(
+			(rule) => !this.sessionRules.some((held) => held.rule === rule.rule),
+		);
+		if (added.length === 0) return;
+		await this.applyRules([...this.sessionRules, ...added]);
+	}
+
+	private async revokeRule(rule: string): Promise<void> {
+		if (!this.sessionRules.some((held) => held.rule === rule)) return;
+		await this.applyRules(this.sessionRules.filter((held) => held.rule !== rule));
+	}
+
+	/**
+	 * The flag settings layer holds the session rules: each call replaces the
+	 * whole `permissions` object and null clears it, so a revoke takes
+	 * effect at once.
+	 */
+	private async applyRules(rules: ChatSessionRule[]): Promise<void> {
+		await this.session?.applyFlagSettings({
+			permissions: rules.length > 0 ? { allow: rules.map((held) => held.rule) } : null,
+		});
+		this.sessionRules = rules;
+		this.broadcast(this.rulesEvent());
+	}
+
+	private rulesEvent(): ChatEventBody {
+		return { type: "rules", rules: this.sessionRules };
 	}
 
 	private settingsEvent(): ChatEventBody {

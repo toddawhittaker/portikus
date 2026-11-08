@@ -280,9 +280,9 @@ describe("cards", () => {
 				},
 			),
 		).toEqual({
+			// The host holds session rules itself so they can be revoked.
 			behavior: "allow",
 			updatedInput: { command: "ls" },
-			updatedPermissions: [suggestion],
 		});
 		expect(permissionResult("deny", {}, { toolUseID: "a" }).behavior).toBe("deny");
 	});

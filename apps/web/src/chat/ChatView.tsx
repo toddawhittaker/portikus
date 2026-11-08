@@ -17,6 +17,7 @@ import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -239,6 +240,7 @@ function ChatViewBody({
 					)}
 				</div>
 			) : null}
+			<SessionRules store={store} />
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}

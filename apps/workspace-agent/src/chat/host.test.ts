@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type {
 	Options,
 	PermissionResult,
+	PermissionUpdate,
 	Query,
 	SDKMessage,
 	SDKUserMessage,
@@ -46,12 +47,18 @@ class FakeQuery {
 		this.wake?.();
 	}
 
-	ask(toolName: string, input: Record<string, unknown>, toolUseID: string) {
+	ask(
+		toolName: string,
+		input: Record<string, unknown>,
+		toolUseID: string,
+		suggestions?: PermissionUpdate[],
+	) {
 		const controller = new AbortController();
 		const result = this.options.canUseTool?.(toolName, input, {
 			signal: controller.signal,
 			toolUseID,
 			requestId: toolUseID,
+			...(suggestions ? { suggestions } : {}),
 		}) as Promise<PermissionResult>;
 		return { result, controller };
 	}
@@ -67,6 +74,10 @@ class FakeQuery {
 		this.calls.push(`mode:${mode}`);
 	}
 	async applyFlagSettings(settings: Record<string, unknown>) {
+		if ("permissions" in settings) {
+			this.calls.push(`permissions:${JSON.stringify(settings.permissions)}`);
+			return;
+		}
 		this.calls.push(`effort:${settings.effortLevel}`);
 	}
 	close() {
@@ -137,6 +148,8 @@ async function attach(): Promise<Client> {
 	const socket = connect(host.socketPath);
 	const events: ChatServerEvent[] = [];
 	readLines(socket, 16 * 1024 * 1024, (line) => events.push(JSON.parse(line)));
+	// The host destroys every attachment on stop; a reset then is expected.
+	socket.on("error", () => undefined);
 	await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
 	const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
 	return {
@@ -278,6 +291,7 @@ describe("attaching", () => {
 			agent: "claude",
 			effort: "high",
 		});
+		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
 	});
 
 	test("events during the transcript read come after the replay, numbered in order, without doubling the partial reply", async () => {
@@ -413,6 +427,108 @@ describe("cards", () => {
 		controller.abort();
 		expect((await result).behavior).toBe("deny");
 		await vi.waitFor(() => expect(ofType(a, "card.resolved")).toHaveLength(1));
+	});
+});
+
+describe("session rules", () => {
+	/** What Claude Code suggests for a `sed -i` call, as the real CLI sent it, plus a session rule. */
+	const SED_SUGGESTIONS: PermissionUpdate[] = [
+		{
+			type: "addRules",
+			rules: [{ toolName: "Bash", ruleContent: "sed -i 's/a/b/' a.txt" }],
+			behavior: "allow",
+			destination: "localSettings",
+		},
+		{
+			type: "addRules",
+			rules: [{ toolName: "Bash", ruleContent: "sed:*" }],
+			behavior: "allow",
+			destination: "session",
+		},
+		{ type: "setMode", mode: "acceptEdits", destination: "session" },
+	];
+
+	test("Always allow holds session rules in the host and hands the rest to the SDK", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result } = fake.ask(
+			"Bash",
+			{ command: "sed -i x" },
+			"toolu_s",
+			SED_SUGGESTIONS,
+		);
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		const card = ofType(a, "permission.requested")[0];
+		expect(card?.options.find((option) => option.id === "always")?.label).toBe(
+			`Always allow the command "sed -i 's/a/b/' a.txt" in this project, saved to your local project settings; "sed" commands in this session; file edits without asking in this session`,
+		);
+		a.send({ type: "permission.answer", id: "toolu_s", optionId: "always" });
+		expect(await result).toEqual({
+			behavior: "allow",
+			updatedInput: { command: "sed -i x" },
+			updatedPermissions: [SED_SUGGESTIONS[0], SED_SUGGESTIONS[2]],
+		});
+		expect(fake.calls).toEqual(['permissions:{"allow":["Bash(sed:*)"]}']);
+		await vi.waitFor(() =>
+			expect(ofType(a, "rules").at(-1)?.rules).toEqual([
+				{ rule: "Bash(sed:*)", description: '"sed" commands in this session' },
+			]),
+		);
+
+		// A browser attaching later is told the rules in force.
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "rules").at(-1)?.rules).toHaveLength(1));
+
+		a.send({ type: "rule.revoke", rule: "Bash(sed:*)" });
+		await vi.waitFor(() => expect(fake.calls.at(-1)).toBe("permissions:null"));
+		await vi.waitFor(() => expect(ofType(b, "rules").at(-1)?.rules).toEqual([]));
+	});
+
+	test("revoking one of two rules keeps the other in force", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		for (const [id, content] of [
+			["toolu_1", "sed:*"],
+			["toolu_2", "ls:*"],
+		] as const) {
+			const { result } = fake.ask("Bash", { command: content }, id, [
+				{
+					type: "addRules",
+					rules: [{ toolName: "Bash", ruleContent: content }],
+					behavior: "allow",
+					destination: "session",
+				},
+			]);
+			await vi.waitFor(() =>
+				expect(ofType(a, "permission.requested").some((c) => c.id === id)).toBe(true),
+			);
+			a.send({ type: "permission.answer", id, optionId: "always" });
+			expect(await result).toEqual({
+				behavior: "allow",
+				updatedInput: { command: content },
+			});
+		}
+		a.send({ type: "rule.revoke", rule: "Bash(sed:*)" });
+		await vi.waitFor(() =>
+			expect(fake.calls.at(-1)).toBe('permissions:{"allow":["Bash(ls:*)"]}'),
+		);
+		a.send({ type: "rule.revoke", rule: "Bash(unknown)" });
+		await vi.waitFor(() => expect(ofType(a, "rules").at(-1)?.rules).toHaveLength(1));
+		expect(fake.calls.filter((call) => call.startsWith("permissions"))).toHaveLength(3);
+	});
+
+	test("a mode change Claude makes mid-turn reaches the picker", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "status",
+			status: null,
+			permissionMode: "acceptEdits",
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({ mode: "acceptEdits" }),
+		);
 	});
 });
 
