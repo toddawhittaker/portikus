@@ -37,3 +37,4 @@ export {
 	UnitInput,
 	type UnitInputProps,
 } from "./TextField.js";
+export { Tooltip, type TooltipProps } from "./Tooltip.js";
