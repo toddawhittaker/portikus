@@ -16,6 +16,7 @@ import {
 	workTabs,
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
+import { splitPane } from "./split-helpers";
 
 /**
  * The workspace terminal screen (SPEC.md §6.7, §6.8, §9, §14.9). The fake
@@ -360,8 +361,7 @@ test("a light terminal beside a dark one has a light title bar", async ({
 	const student = await createStudent(context);
 	const firstId = await openWithTerminal(page, student.workspaceId);
 
-	await page.getByTestId(`terminal-actions-${firstId}`).click();
-	await page.getByTestId("split-right").click();
+	await splitPane(page, firstId, "right");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId)).length, {
 			timeout: 15_000,

@@ -324,6 +324,28 @@ describe("Menu", () => {
 		expect(onSelect).toHaveBeenCalledTimes(1);
 	});
 
+	it("Escape in a submenu returns to its parent menu", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Split right">
+						<MenuItem>Terminal</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Split right" });
+		fireEvent.keyDown(item, { key: "Enter" });
+		const sub = screen.getByRole("menu", { name: "Split right" });
+
+		fireEvent.keyDown(sub, { key: "Escape" });
+		expect(screen.queryByRole("menu", { name: "Split right" })).toBeNull();
+		expect(screen.getAllByRole("menu")).toHaveLength(1);
+		expect(document.activeElement).toBe(item);
+	});
+
 	it("a disabled submenu item does not open", () => {
 		render(
 			<MenuRoot>
