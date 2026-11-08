@@ -36,6 +36,9 @@ export type ChatPermissionMode = z.infer<typeof ChatPermissionMode>;
 export const ChatEffort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type ChatEffort = z.infer<typeof ChatEffort>;
 
+/** The effort a new chat starts at, for the host and the pickers alike. */
+export const CHAT_START_EFFORT: ChatEffort = "high";
+
 /** SVG is refused because it can carry script. */
 export const ChatImageMediaType = z.enum([
 	"image/png",

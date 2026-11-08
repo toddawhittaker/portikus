@@ -12,6 +12,7 @@ import {
 	type SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+	CHAT_START_EFFORT,
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
 	type ChatEffort,
@@ -45,7 +46,6 @@ const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
  * Named explicitly so the composer always shows the effort in force; the
  * SDK reports no effort of its own.
  */
-const START_EFFORT: ChatEffort = "high";
 
 export interface ChatHostOptions {
 	terminalId: string;
@@ -145,7 +145,7 @@ export class ChatHost {
 	private limits: ClaudeLimitWindows = {};
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
 		model: "default",
-		effort: START_EFFORT,
+		effort: CHAT_START_EFFORT,
 		mode: "default",
 	};
 
