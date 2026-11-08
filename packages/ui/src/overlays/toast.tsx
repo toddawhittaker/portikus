@@ -80,7 +80,7 @@ export function Toast({
 			onOpenChange={(open) => {
 				if (!open) onDismiss?.();
 			}}
-			className={`pk-toast pk-toast--${tone} w-95 rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
+			className={`pk-toast pk-toast--${tone} w-full rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
 		>
 			{/* The role sits inside the list item, so the viewport's list holds only list items. */}
 			<div role={urgent ? "alert" : "status"} className="flex items-start gap-3">
@@ -178,7 +178,7 @@ export function ToastProvider({
 				<RadixToast.Viewport
 					ref={viewportRef}
 					label="Notifications (press {hotkey} to reach them)"
-					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 list-none flex-col gap-2 p-0 outline-none"
+					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 max-w-[calc(100vw-2rem)] list-none flex-col gap-2 p-0 outline-none"
 				/>
 			</RadixToast.Provider>
 		</ToastContext.Provider>

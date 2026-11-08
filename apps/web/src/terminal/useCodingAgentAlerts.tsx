@@ -18,7 +18,8 @@ import {
 /**
  * Returns the handler for each `coding-agents` list: it feeds the list to the
  * store, and for every alert it raises shows a toast and asks for a desktop
- * notification. Agent toasts stay out of the notification history (SPEC.md §8.5).
+ * notification. Agent toasts stay out of the notification history and stay on screen until
+ * the terminal is viewed or the toast is dismissed (SPEC.md §8.5).
  */
 export function useCodingAgentAlerts(
 	store: AgentStatusStore,
@@ -79,7 +80,6 @@ export function useCodingAgentAlerts(
 				// A newer alert for the same terminal replaces the older toast.
 				removeToast(alert.terminalId);
 				const elsewhere = alert.projectId !== currentProjectId;
-				// Only a toast whose offer will show waits for an answer; the rest time out.
 				const offer =
 					!offered.current &&
 					offerOn.current === null &&
@@ -92,7 +92,7 @@ export function useCodingAgentAlerts(
 					title: alertTitle(alert.agent, alert.state),
 					children: elsewhere && name ? `In ${name}` : undefined,
 					unrecorded: true,
-					persistent: offer,
+					persistent: true,
 					onDismiss: offer
 						? () => {
 								offered.current = true;

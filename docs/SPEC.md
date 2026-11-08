@@ -982,9 +982,11 @@ the failure is neither retried nor reported.
 Added by Epic 56 (ADR 0068): the toasts that say a coding agent finished or
 needs input are not recorded, because they are frequent and say nothing the
 tab marks do not. The warning that a plan limit is at 85 percent is rare and
-is recorded. Those toasts, and the offer to turn on desktop notifications,
-carry actions, so they stay until answered or until the student views that
-terminal. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
+is recorded. Every agent alert toast, finished or needs input, stays until
+the student views that terminal, dismisses it, or a newer alert for the same
+terminal replaces it; it never times out. Several waiting agents give several
+toasts, which fit a 360 px screen. The offer to turn on desktop notifications
+also stays until answered. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
 default `ask`) decides whether an agent alert also becomes an operating-system
 notification. Choosing On saves the choice and never asks the browser; an
 "Allow in this browser" button in Settings > Preferences, or "Turn on desktop
