@@ -103,6 +103,7 @@ afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
 	saveDroppedFile.mockReset();
+	deleteFile.mockReset();
 });
 
 function draw() {
@@ -376,6 +377,29 @@ test("a paste of more than 40 lines is attached as a text file with its line cou
 			attachments: [{ path: await saveDroppedFile.mock.results[0]?.value }],
 		},
 	]);
+});
+
+test("a long paste sent and pasted again at once is a new file, and the sent one is not deleted", async () => {
+	draw();
+	const log = Array.from({ length: 60 }, (_, at) => `l${at}`).join("\n");
+	const pasteLog = () =>
+		fireEvent.paste(input(), {
+			clipboardData: {
+				files: [],
+				items: [],
+				types: ["text/plain"],
+				getData: (kind: string) => (kind === "text/plain" ? log : ""),
+			},
+		});
+	pasteLog();
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+	pasteLog();
+	await waitFor(() => expect(saveDroppedFile).toHaveBeenCalledTimes(2));
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	expect(deleteFile).not.toHaveBeenCalled();
+	expect(value()).toBe("");
 });
 
 test("the same long text pasted twice at once goes in the box once, and the first paste's chip and file go", async () => {

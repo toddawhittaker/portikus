@@ -18,7 +18,3 @@ minimumReleaseAgeExclude:
 # §10.1), so the Agent SDK's bundled platform CLIs are never installed.
 ignoredOptionalDependencies:
   - '@anthropic-ai/claude-agent-sdk-*'
-# monaco-editor 0.57.0 pins dompurify 3.4.15 exactly, which has open
-# Dependabot alerts. Remove this once monaco-editor depends on 3.4.17 or later.
-overrides:
-  dompurify: 3.4.17

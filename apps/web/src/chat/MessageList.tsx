@@ -263,11 +263,7 @@ function doingLine(tool: ChatToolItem): string {
 	return line.verb ? `${line.verb.doing} ${line.target}` : `Using ${tool.name}`;
 }
 
-/**
- * A run of tool calls under one disclosure, "8 tool calls", with the tools
- * used or, while one runs, what it is doing, and any failures. Each call
- * inside keeps its own row (SPEC.md §10.8).
- */
+/** A group's status: running, else failed, else stopped, else done. */
 function groupStatus(tools: readonly ChatToolItem[]): ChatToolItem["status"] {
 	if (tools.some((tool) => tool.status === "running")) return "running";
 	if (tools.some((tool) => tool.status === "error")) return "error";
@@ -292,6 +288,11 @@ function loneRow(id: string | undefined): { open: boolean; focused: boolean } {
 	return { open: row.open, focused: row.contains(document.activeElement) };
 }
 
+/**
+ * A run of tool calls under one disclosure, "8 tool calls", with the tools
+ * used or, while one runs, what it is doing, and any failures. Each call
+ * inside keeps its own row (SPEC.md §10.8).
+ */
 function ToolGroup({ run }: { run: ToolRun }) {
 	const { tools } = run;
 	const running = tools.filter((tool) => tool.status === "running").at(-1);
@@ -311,7 +312,7 @@ function ToolGroup({ run }: { run: ToolRun }) {
 			const row = node.querySelector<HTMLDetailsElement>("details.pk-chat-tool");
 			if (row) row.open = true;
 		}
-		if (was.focused) node.querySelector("summary")?.focus();
+		if (was.focused) node.querySelector("summary")?.focus({ preventScroll: true });
 	}, [was]);
 	return (
 		<li className="pk-chat-step">

@@ -22,8 +22,9 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					"1." a list, "[ ]" or "[x]" a task, "&gt;" a quote, one to three "#" a
 					heading, and three dashes a separator line. Type or paste an http or https
 					address, or write [text](address), to make a link. In a list, Tab indents an
-					item and Shift+Tab moves it back out. Enter sends and Shift+Enter adds a line.
-					In a code block Enter adds a line, and Ctrl+Enter (Cmd+Enter on a Mac) sends.
+					item and Shift+Tab moves a nested item back out. Enter sends and Shift+Enter
+					adds a line. In a code block Enter adds a line, and Ctrl+Enter (Cmd+Enter on a
+					Mac) sends.
 				</li>
 				<li>
 					While Claude works you can still send a message. Claude reads it at its next
@@ -40,7 +41,7 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					Pasting more than 40 lines, such as an error log, attaches it as a text file
 					instead of filling the message box. To put it in the box instead, paste it
-					again straight away, within a second.
+					again straight away.
 				</li>
 				<li>
 					Sign in to Claude in the workspace, as you would in a terminal. Portikus never
