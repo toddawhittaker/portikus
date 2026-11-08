@@ -259,10 +259,14 @@ body {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		flex: 0 0 max(10rem, 22%) !important;
 	}
-	/* Tall enough for a chat to show a question card above its message box. */
+	/*
+	 * Tall enough for a chat to show a question card above its message box,
+	 * and no taller than what the projects list leaves, so a chat's composer
+	 * shows whole without scrolling in a short window.
+	 */
 	.pk-shell > #work {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
-		flex: 1 0 32rem !important;
+		flex: 1 0 clamp(28rem, 100% - max(10rem, 22%), 32rem) !important;
 	}
 	/* Room under the tabs and the tree's own head for four or five rows. */
 	.pk-shell > #files {

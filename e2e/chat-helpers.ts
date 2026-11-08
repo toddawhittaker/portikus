@@ -86,3 +86,47 @@ export async function receivedFrames(
 	);
 	return type === undefined ? frames : frames.filter((frame) => frame.type === type);
 }
+
+/** A frame the scripted host sends: its type and body. */
+export type Frame = [string, object];
+
+/**
+ * The chat socket answered by a script standing in for the host: a snapshot
+ * with `snapshot` merged in, the settings, then `first`, and whatever
+ * `reply` sends for each message from the browser.
+ */
+export async function scriptChat(
+	page: Page,
+	id: string,
+	{
+		snapshot = {},
+		first = [],
+		reply,
+	}: {
+		snapshot?: object;
+		first?: Frame[];
+		reply?: (
+			message: { type: string; rule?: string },
+			send: (frame: Frame) => void,
+		) => void;
+	},
+) {
+	await page.routeWebSocket(/\/chat$/, (ws) => {
+		const post = scriptedChat(ws, id);
+		const send = ([type, body]: Frame) => post(type, { ...body });
+		send([
+			"snapshot",
+			{ cards: [], turnRunning: false, truncated: false, ...snapshot },
+		]);
+		send([
+			"settings",
+			{ agent: "claude", model: "default", effort: "high", mode: "default" },
+		]);
+		for (const frame of first) send(frame);
+		ws.onMessage((raw) => reply?.(JSON.parse(String(raw)), send));
+	});
+	await page.reload();
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	return view;
+}

@@ -325,12 +325,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 				"Edited useDashboardQuery.ts+1 −3, 1 line added, 3 lines removed",
 			);
 			await expect(summary("lint")).toHaveText("Run pnpm lintFailed");
-			await expect(summary("test")).toHaveText("Run pnpm vitest runRunning");
-			// Only the failed and the running call carry a state.
-			await expect(view.getByTestId("chat-tool-state")).toHaveText([
-				"Failed",
-				"Running",
-			]);
+			await expect(summary("test")).toHaveText("Running pnpm vitest run");
+			// Only the failed and the running call carry a state; "Running" is said once.
+			await expect(view.getByTestId("chat-tool-state")).toHaveText(["Failed", ""]);
 			// No box around a row.
 			await expect(view.getByTestId("chat-tool-read")).toHaveCSS(
 				"border-top-width",

@@ -71,11 +71,14 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(box).toHaveText(
 				"Find a bug and explain it before fixing it in the login form",
 			);
-			// Another starter replaces the text; nothing has gone to Claude.
+			// Another starter never replaces a draft; nothing has gone to Claude.
 			await empty
 				.getByRole("button", { name: "Write tests for the main file" })
 				.click();
-			await expect(box).toHaveText("Write tests for the main file");
+			await expect(box).toBeFocused();
+			await expect(box).toHaveText(
+				"Find a bug and explain it before fixing it in the login form",
+			);
 			expect(sent.filter((message) => message.type === "send")).toEqual([]);
 		});
 	}
