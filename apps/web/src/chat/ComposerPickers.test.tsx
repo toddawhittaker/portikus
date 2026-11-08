@@ -199,6 +199,21 @@ test("an unknown model shows as Default, and the pickers wait with their labels 
 	expect(picker("Model").textContent).toBe("Model Default");
 });
 
+test("the narrow form hides words by CSS only: every button keeps its prefix and a full tooltip", () => {
+	draw({ ...START, effort: "xhigh", mode: "bypassPermissions" });
+	expect(picker("Agent").getAttribute("title")).toBe("Agent Claude Code");
+	expect(picker("Effort").getAttribute("title")).toBe("Effort Extra high");
+	expect(picker("Permissions").getAttribute("title")).toBe(
+		"Permissions Bypass permissions",
+	);
+	// The agent's short form is the visible part; the rest is its own hideable span.
+	const value = picker("Agent").querySelector(".pk-picker-value");
+	expect(value?.firstChild?.textContent).toBe("Claude");
+	expect(value?.querySelector(".pk-picker-more")?.textContent).toBe(" Code");
+	// Values with no short form are not split.
+	expect(picker("Model").querySelector(".pk-picker-more")).toBeNull();
+});
+
 test("Codex is shown, reachable and not choosable, and the agent picker sends nothing", () => {
 	draw();
 	const menu = open("Agent");
