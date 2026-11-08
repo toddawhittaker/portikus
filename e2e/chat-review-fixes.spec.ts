@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { makeChatTab } from "./chat-helpers";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
 import {
 	createProject,
 	createStudent,
@@ -50,9 +50,8 @@ async function scriptChat(
 	},
 ) {
 	await page.routeWebSocket(/\/chat$/, (ws) => {
-		let seq = 0;
-		const send = ([type, body]: Frame) =>
-			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+		const post = scriptedChat(ws, id);
+		const send = ([type, body]: Frame) => post(type, { ...body });
 		send([
 			"snapshot",
 			{ cards: [], turnRunning: false, truncated: false, ...snapshot },

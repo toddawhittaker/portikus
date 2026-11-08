@@ -6,7 +6,7 @@ import {
 	test,
 	type WebSocketRoute,
 } from "@playwright/test";
-import { makeChatTab } from "./chat-helpers";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
 import {
 	addSession,
 	endTerminal,
@@ -72,10 +72,7 @@ const PERMISSION = {
 
 /** Plays a short turn, then the cards, answering as the fake chat will. */
 function script(ws: WebSocketRoute, answers: unknown[]) {
-	let seq = 0;
-	const session = "00000000-0000-4000-8000-000000000000";
-	const send = (type: string, body: Record<string, unknown> = {}) =>
-		ws.send(JSON.stringify({ type, sessionId: session, seq: seq++, ...body }));
+	const send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
 	const at = Date.now() - 223_000;
 	send("snapshot", { cards: [], turnRunning: false, truncated: true });
 	send("message", {
@@ -539,9 +536,7 @@ test("a card whose answer was lost with the connection can be answered after the
 	let dropped = false;
 	await page.routeWebSocket(/\/chat$/, (ws) => {
 		connections += 1;
-		let seq = 100 * connections;
-		const send = (type: string, body: Record<string, unknown> = {}) =>
-			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+		const send = scriptedChat(ws, id, 100 * connections);
 		send("snapshot", {
 			cards: [{ type: "permission", ...PERMISSION }],
 			turnRunning: false,

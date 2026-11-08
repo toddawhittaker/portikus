@@ -96,6 +96,11 @@ export interface ChatState {
 	items: ChatItem[];
 	turns: Record<string, ChatTurn>;
 	currentTurnId: string | null;
+	/**
+	 * The `seq` of a message the student sent while Claude worked. Claude takes
+	 * it in at its next step, so the turn divides there, not at the echo.
+	 */
+	pendingSplit: number | null;
 	/** Cards waiting for an answer, oldest first. */
 	cards: ChatOpenCard[];
 	/** The snapshot left out earlier history. */
@@ -124,6 +129,7 @@ export const initialChatState: ChatState = {
 	items: [],
 	turns: {},
 	currentTurnId: null,
+	pendingSplit: null,
 	cards: [],
 	truncated: false,
 	settings: null,
@@ -209,6 +215,7 @@ function applySnapshot(
 				}
 			: {},
 		currentTurnId: turnId,
+		pendingSplit: null,
 	};
 }
 
@@ -245,6 +252,7 @@ function applyChatEvent(
 			return {
 				...state,
 				currentTurnId: id,
+				pendingSplit: null,
 				turns: {
 					...state.turns,
 					[id]: {
@@ -264,6 +272,7 @@ function applyChatEvent(
 			return {
 				...state,
 				currentTurnId: null,
+				pendingSplit: null,
 				turns: turn
 					? {
 							...state.turns,
@@ -287,10 +296,11 @@ function applyChatEvent(
 					: item,
 			);
 			if (items) return { ...state, items };
+			const split = takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "message",
 						key,
@@ -299,7 +309,7 @@ function applyChatEvent(
 						markdown: event.text,
 						attachments: [],
 						streaming: true,
-						turnId,
+						turnId: split.currentTurnId,
 					},
 				],
 			};
@@ -318,13 +328,14 @@ function applyChatEvent(
 				event.role === "user" ? event.seq : state.lastUserMessageSeq;
 			if (items) return { ...state, items, lastUserMessageSeq };
 			if (event.role === "user" && isWorking(state)) {
-				return sentWhileWorking(state, { ...fields, id: event.id }, event.seq, now);
+				return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
 			}
+			const split = event.role === "user" ? state : takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				lastUserMessageSeq,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "message",
 						key,
@@ -332,7 +343,7 @@ function applyChatEvent(
 						role: event.role,
 						...fields,
 						// What the student wrote is never folded into a turn's work.
-						turnId: event.role === "user" ? null : turnId,
+						turnId: event.role === "user" ? null : split.currentTurnId,
 					},
 				],
 			};
@@ -345,10 +356,11 @@ function applyChatEvent(
 				item.kind === "tool" ? { ...item, ...fields } : item,
 			);
 			if (items) return { ...state, items };
+			const split = takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "tool",
 						key,
@@ -356,7 +368,7 @@ function applyChatEvent(
 						...fields,
 						output: [],
 						status: "running",
-						turnId,
+						turnId: split.currentTurnId,
 					},
 				],
 			};
@@ -417,34 +429,19 @@ function isWorking(state: ChatState): boolean {
 }
 
 /**
- * A message the student sent while Claude worked (SPEC.md §10.8). Claude
- * takes it in at its next step, so the work after it reads as a new turn
- * below it, as a reload replays it from the transcript.
+ * A message the student sent while Claude worked (SPEC.md §10.8). It shows at
+ * once, but the turn goes on until Claude takes it in at its next step, so a
+ * tool still running stays on the Working line.
  */
 function sentWhileWorking(
 	state: ChatState,
 	message: Pick<ChatMessageItem, "id" | "markdown" | "attachments">,
 	seq: number,
-	now: number,
 ): ChatState {
-	const before = state.currentTurnId as string;
-	const turn = state.turns[before] as ChatTurn;
-	const next = `turn-${seq}`;
 	return {
 		...state,
 		lastUserMessageSeq: seq,
-		currentTurnId: next,
-		turns: {
-			...state.turns,
-			[before]: { ...turn, finishedAt: now, status: "done" },
-			[next]: {
-				id: next,
-				startedAt: now,
-				finishedAt: null,
-				status: "running",
-				estimated: false,
-			},
-		},
+		pendingSplit: state.pendingSplit ?? seq,
 		items: [
 			...state.items,
 			{
@@ -457,6 +454,35 @@ function sentWhileWorking(
 				...message,
 			},
 		],
+	};
+}
+
+/**
+ * Claude's next step after a sent-while-working message: the work so far is
+ * done, and what follows is a new turn below the message, as a reload replays
+ * it from the transcript. If the turn ends first, `turn.finished` drops the
+ * split, so its end state lands on the work it describes.
+ */
+function takeInSentMessage(state: ChatState, now: number): ChatState {
+	const before = state.currentTurnId;
+	if (state.pendingSplit === null || before === null) return state;
+	const turn = state.turns[before] as ChatTurn;
+	const next = `turn-${state.pendingSplit}`;
+	return {
+		...state,
+		pendingSplit: null,
+		currentTurnId: next,
+		turns: {
+			...state.turns,
+			[before]: { ...turn, finishedAt: now, status: "done" },
+			[next]: {
+				id: next,
+				startedAt: now,
+				finishedAt: null,
+				status: "running",
+				estimated: false,
+			},
+		},
 	};
 }
 

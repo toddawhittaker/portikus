@@ -1,14 +1,6 @@
-import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import {
-	createProject,
-	createStudent,
-	expectNoViolations,
-	newTerminal,
-	query,
-	terminalIds,
-	workspacePath,
-	workTabs,
-} from "./helpers";
+import { expect, test } from "@playwright/test";
+import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { expectNoViolations } from "./helpers";
 
 /**
  * "Always allow" names what it allows and for how long, and the rules a
@@ -20,24 +12,6 @@ import {
 const LABEL = 'Always allow "sed" commands in this session';
 const RULE = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 
-async function makeChatTab(page: Page, context: BrowserContext) {
-	const student = await createStudent(context);
-	const project = await createProject(student.workspaceId, { name: "Rules" });
-	await page.goto(workspacePath(student.workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await newTerminal(page);
-	await expect
-		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-		.toBe(1);
-	const [id] = await terminalIds(student.workspaceId, project.id);
-	if (!id) throw new Error("the terminal row was not created");
-	await query(
-		"update terminals set kind = 'chat', agent = 'claude', name = 'Claude Code' where id = $1",
-		[id],
-	);
-	return id;
-}
-
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`Always allow names its rule, and a session rule can be revoked (${colorScheme})`, async ({
 		page,
@@ -45,12 +19,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		test.setTimeout(60_000);
 		await page.emulateMedia({ colorScheme });
-		const id = await makeChatTab(page, context);
+		const { id } = await makeChatTab(page, context);
 		const received: unknown[] = [];
 		await page.routeWebSocket(/\/chat$/, (ws) => {
-			let seq = 0;
-			const send = (type: string, body: Record<string, unknown> = {}) =>
-				ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+			const send = scriptedChat(ws, id);
 			send("snapshot", {
 				cards: [
 					{
@@ -116,12 +88,10 @@ test("inside a permission card, number keys choose its options; typed in the mes
 	context,
 }) => {
 	test.setTimeout(60_000);
-	const id = await makeChatTab(page, context);
+	const { id } = await makeChatTab(page, context);
 	const received: unknown[] = [];
 	await page.routeWebSocket(/\/chat$/, (ws) => {
-		let seq = 0;
-		const send = (type: string, body: Record<string, unknown> = {}) =>
-			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+		const send = scriptedChat(ws, id);
 		send("snapshot", {
 			cards: [
 				{
