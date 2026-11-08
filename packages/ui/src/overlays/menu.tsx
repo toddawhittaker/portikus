@@ -253,9 +253,12 @@ export function MenuSub({
 	children,
 }: MenuSubProps): React.ReactElement {
 	const P = parts(React.useContext(MenuKindContext));
+	const [open, setOpen] = React.useState(false);
+	const trigger = React.useRef<HTMLDivElement | null>(null);
 	return (
-		<P.Sub>
+		<P.Sub open={open} onOpenChange={setOpen}>
 			<P.SubTrigger
+				ref={trigger}
 				className={`${itemClass(false)} pk-menu-subtrigger`}
 				disabled={disabled}
 				data-testid={testId}
@@ -272,6 +275,12 @@ export function MenuSub({
 					className="pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md"
 					sideOffset={4}
 					collisionPadding={8}
+					// Escape steps back to the parent menu rather than closing both.
+					onEscapeKeyDown={(event) => {
+						event.preventDefault();
+						setOpen(false);
+						trigger.current?.focus();
+					}}
 				>
 					{children}
 				</P.SubContent>

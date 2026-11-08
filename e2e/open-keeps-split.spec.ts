@@ -17,6 +17,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -45,8 +46,7 @@ async function splitProject(page: Page, student: TestStudent, name: string) {
 	const [first] = await terminalIds(student.workspaceId, project.id);
 	if (!first) throw new Error("the terminal row was not created");
 	await expectConnected(page, first);
-	await page.getByTestId(`terminal-actions-${first}`).click();
-	await page.getByTestId("split-right").click();
+	await splitPane(page, first, "right");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 		.toBe(2);
@@ -152,8 +152,7 @@ test("a browser that lists a terminal before its split is placed does not save i
 			await new Promise((resolve) => setTimeout(resolve, 20_000));
 			await route.fulfill({ response });
 		});
-		await page.getByTestId(`terminal-actions-${first}`).click();
-		await page.getByTestId("split-right").click();
+		await splitPane(page, first, "right");
 		await expect
 			.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 			.toBe(2);
@@ -196,8 +195,7 @@ test("a file opened in the browser that received the split keeps it", async ({
 		if (!first) throw new Error("the terminal row was not created");
 		await expectConnected(page, first);
 		await expect(pane(b, first)).toBeVisible({ timeout: 5_000 });
-		await page.getByTestId(`terminal-actions-${first}`).click();
-		await page.getByTestId("split-right").click();
+		await splitPane(page, first, "right");
 		await expect
 			.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
 			.toBe(2);

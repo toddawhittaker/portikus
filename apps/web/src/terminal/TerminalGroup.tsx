@@ -17,7 +17,7 @@ import { TerminalLeaf, type TerminalLeafProps } from "./TerminalLeaf.js";
 type PaneCallbacks = Pick<
 	TerminalLeafProps,
 	| "onFocus"
-	| "onSplit"
+	| "splitItems"
 	| "onRename"
 	| "onSetTheme"
 	| "onClose"
@@ -78,7 +78,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					visible={visible}
 					focused={props.focusedPaneId === terminal.id}
 					onFocus={props.onFocus}
-					onSplit={props.onSplit}
+					splitItems={props.splitItems}
 					onRename={props.onRename}
 					onSetTheme={props.onSetTheme}
 					onClose={props.onClose}
