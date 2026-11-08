@@ -7141,7 +7141,7 @@ Acceptance:
 
 ### Epic 58.2 — chat and phone fix batch
 
-Built on `epic/58.2-fix-batch`, with the fix-round pull requests #1822, #1823, #1824, #1827, #1832, #1833 and #1834 after the first task pull requests. Migration 0054. See sections 8.1, 10.2, 24.4, 24.13, 25.6 and 25.8.
+Built on `epic/58.2-fix-batch`, with the fix-round pull requests #1822, #1823, #1824, #1827, #1832, #1833, #1834 and #1836 after the first task pull requests. Migration 0054. See sections 8.1, 10.2, 24.4, 24.13, 25.6 and 25.8.
 
 Includes:
 
