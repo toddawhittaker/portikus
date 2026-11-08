@@ -116,7 +116,9 @@ test("a tool's output copies whole", async ({ page, context }) => {
 	test.setTimeout(90_000);
 	const view = await openChat(page, context);
 	await view.getByTestId("chat-worked").locator("> summary").click();
-	await view.getByTestId("chat-tool-t1").locator("> summary").click();
+	const row = view.getByTestId("chat-tool-t1").locator("> summary");
+	await expect(row).toHaveText("Ran npm test");
+	await row.click();
 	const output = view.getByRole("region", { name: "Output" });
 	await output.locator("pre").focus();
 	await page.keyboard.press("Tab");

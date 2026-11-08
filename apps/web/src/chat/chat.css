@@ -84,12 +84,6 @@
 	background: var(--surface-raised);
 }
 
-.pk-chat-user-text {
-	margin: 0;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
 .pk-chat-attachments {
 	display: flex;
 	flex-direction: column;
@@ -344,51 +338,67 @@ details[open] > summary > .pk-chat-chevron {
 	border-inline-start: 1px solid var(--line);
 }
 
-.pk-chat-tool {
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
-}
-
-.pk-chat-tool.is-error {
-	border-color: var(--status-error);
-}
-
+/* A tool call is one light line, no box: the kind's icon, what happened, and
+   a state only while it runs or when it failed or stopped. */
 .pk-chat-tool-summary {
-	min-block-size: var(--size-control-md);
-	padding-inline: var(--space-2) var(--space-3);
-	border-radius: var(--radius-md);
+	min-block-size: var(--size-control-sm);
+	padding-inline: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
 	font-size: 13px;
 }
 
 .pk-chat-tool-summary:hover {
 	background: var(--surface-hover);
-}
-
-.pk-chat-tool[open] > .pk-chat-tool-summary {
-	border-end-start-radius: 0;
-	border-end-end-radius: 0;
-}
-
-.pk-chat-tool-name {
-	flex: none;
-	max-inline-size: 40%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	color: var(--ink);
-	font-weight: 600;
 }
 
-.pk-chat-tool-title {
-	flex: 1;
+.pk-chat-tool-icon {
+	flex: none;
+}
+
+.pk-chat-tool-text {
+	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
+/* Open, the row wraps, so a long one-line command is read whole here. */
+.pk-chat-tool[open] > summary > .pk-chat-tool-text {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-tool[open] > summary {
+	align-items: flex-start;
+	padding-block: var(--space-1);
+}
+
+.pk-chat-tool[open] > summary > svg {
+	/* Level with the first line of wrapped text. */
+	margin-block-start: 3px;
+}
+
+.pk-chat-tool-verb {
+	color: var(--ink);
+}
+
 .pk-chat-tool-title.pk-mono-body {
 	font-size: 12.5px;
+}
+
+.pk-chat-tool-stat {
+	flex: none;
+	font-size: 12px;
+}
+
+.pk-chat-tool-stat .is-added {
+	color: var(--git-added);
+}
+
+.pk-chat-tool-stat .is-removed {
+	color: var(--git-deleted);
 }
 
 .pk-chat-tool-state {
@@ -404,12 +414,20 @@ details[open] > summary > .pk-chat-chevron {
 	color: var(--status-error);
 }
 
+/* The opened call sits under its words, past the kind's icon. */
 .pk-chat-tool-body {
 	display: grid;
 	gap: var(--space-2);
 	min-width: 0;
-	padding: var(--space-3);
-	border-block-start: 1px solid var(--line);
+	padding-block: var(--space-2) var(--space-1);
+	padding-inline-start: calc(var(--space-1) + var(--size-icon-sm) + var(--space-2));
+}
+
+.pk-chat-tool-path {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
+	overflow-wrap: anywhere;
 }
 
 .pk-chat-tool-output {
@@ -508,19 +526,30 @@ details[open] > summary > .pk-chat-chevron {
 	border-radius: var(--radius-sm);
 }
 
-/* Back to the end of the conversation, over its bottom edge. */
+/* Back to the end: a round button at the conversation's bottom right corner,
+   clear of the text column's middle, with a dot when something new came. */
 .pk-chat-jump {
 	position: absolute;
-	inset-inline: 0;
+	inset-inline-end: var(--pk-chat-gutter);
 	inset-block-end: var(--space-3);
-	display: flex;
-	justify-content: center;
-	pointer-events: none;
+	display: grid;
 }
 
-.pk-chat-jump > * {
-	pointer-events: auto;
+.pk-chat-jump-button {
+	border-radius: var(--radius-full);
 	box-shadow: var(--shadow-md);
+}
+
+.pk-chat-jump-dot {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-end: 0;
+	inline-size: 10px;
+	block-size: 10px;
+	border: 2px solid var(--surface);
+	border-radius: var(--radius-full);
+	background: var(--accent);
+	pointer-events: none;
 }
 
 .pk-chat-notice {
@@ -550,6 +579,36 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-empty-title {
 	margin: 0;
 	font-weight: 600;
+}
+
+/* Starter prompts: plain bordered buttons, one to a line, as wide as their words. */
+.pk-chat-starters {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-chat-starter {
+	max-inline-size: 100%;
+	min-block-size: var(--size-control-sm);
+	padding: var(--space-1) var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	text-align: start;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-chat-starter:hover {
+	background: var(--surface-hover);
 }
 
 /* Cards wait here, docked above the composer, so they never scroll away.

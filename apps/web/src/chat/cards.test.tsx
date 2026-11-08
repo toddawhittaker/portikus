@@ -104,7 +104,7 @@ test("a tool block opens to its input and output, images included", () => {
 	);
 	const block = screen.getByTestId("chat-tool-t1");
 	expect(block.querySelector("summary")?.textContent).toBe(
-		"Screenshotthe home pageFailed",
+		"Screenshot the home pageFailed",
 	);
 	expect(screen.getByRole("region", { name: "Error" })).toBeTruthy();
 	expect(
@@ -160,10 +160,10 @@ function tool(overrides: Partial<Parameters<typeof ToolBlock>[0]["tool"]> = {}) 
 	};
 }
 
-test("a Bash block shows the bare command and Done, with the raw input one click in", () => {
+test("a Bash block says what it ran, with the raw input one click in", () => {
 	render(<ToolBlock tool={tool()} />);
 	const block = screen.getByTestId("chat-tool-t2");
-	expect(block.querySelector("summary")?.textContent).toBe("Bashpnpm vitest runDone");
+	expect(block.querySelector("summary")?.textContent).toBe("Ran pnpm vitest run");
 	expect(screen.getByText("Raw input")).toBeTruthy();
 	expect(block.textContent).toContain('"command": "pnpm vitest run"');
 });
