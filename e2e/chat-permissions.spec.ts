@@ -110,3 +110,73 @@ for (const colorScheme of ["light", "dark"] as const) {
 		]);
 	});
 }
+
+test("inside a permission card, number keys choose its options; typed in the message box they do not", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(60_000);
+	const id = await makeChatTab(page, context);
+	const received: unknown[] = [];
+	await page.routeWebSocket(/\/chat$/, (ws) => {
+		let seq = 0;
+		const send = (type: string, body: Record<string, unknown> = {}) =>
+			ws.send(JSON.stringify({ type, sessionId: id, seq: seq++, ...body }));
+		send("snapshot", {
+			cards: [
+				{
+					type: "permission",
+					id: "p1",
+					toolName: "Bash",
+					title: "sed -i 's/a/b/' notes.txt",
+					input: { command: "sed -i 's/a/b/' notes.txt" },
+					options: [
+						{ id: "allow", label: "Allow once" },
+						{ id: "always", label: LABEL },
+						{ id: "deny", label: "Deny" },
+					],
+				},
+			],
+			turnRunning: true,
+			truncated: false,
+		});
+		send("settings", {
+			agent: "claude",
+			model: "claude-haiku-4-5",
+			effort: "high",
+			mode: "default",
+		});
+		send("rules", { rules: [] });
+		ws.onMessage((raw) => {
+			const message = JSON.parse(String(raw));
+			received.push(message);
+			if (message.type === "permission.answer") send("card.resolved", { id: "p1" });
+		});
+	});
+	await page.reload();
+	const view = page.getByTestId(`chat-view-${id}`);
+	const card = view.getByTestId("chat-permission-card");
+	await expect(card).toBeVisible({ timeout: 15_000 });
+	const deny = card.getByRole("button", { name: "Deny", exact: true });
+	await expect(deny).toHaveAttribute("aria-keyshortcuts", "3");
+	await expect(deny).toHaveText("3Deny");
+
+	// Keys typed in the message box are text, never an answer (SPEC.md §25.8).
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await box.pressSequentially("123");
+	await box.press("Enter");
+	await expect(card).toBeVisible();
+	expect(
+		received.filter((m) => (m as { type: string }).type === "permission.answer"),
+	).toEqual([]);
+
+	await card.getByRole("button", { name: "Allow once", exact: true }).focus();
+	await page.keyboard.press("3");
+	await expect(card).toHaveCount(0);
+	await expect
+		.poll(() =>
+			received.filter((m) => (m as { type: string }).type === "permission.answer"),
+		)
+		.toEqual([{ type: "permission.answer", id: "p1", optionId: "deny" }]);
+});

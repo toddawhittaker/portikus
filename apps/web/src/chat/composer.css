@@ -48,7 +48,8 @@
 }
 
 .pk-composer-text p.is-editor-empty:first-child::before {
-	content: attr(data-placeholder);
+	/* Empty alternative text, so a screen reader hears aria-placeholder, not this as typed text. */
+	content: attr(data-placeholder) / "";
 	float: inline-start;
 	block-size: 0;
 	color: var(--ink-faint);
@@ -140,98 +141,6 @@
 	margin: 0;
 	padding: 0;
 	border: 0;
-}
-
-/* A picker is its label and value in one quiet control; the select fills it. */
-.pk-pick {
-	position: relative;
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	min-inline-size: 0;
-	max-inline-size: 100%;
-	block-size: var(--size-control-sm);
-	padding-inline: var(--space-2) var(--space-1);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	color: var(--ink-muted);
-	font-size: 13px;
-	cursor: pointer;
-	transition: background-color var(--duration-fast) var(--ease-standard);
-}
-
-.pk-pick:hover {
-	background: var(--surface-hover);
-}
-
-.pk-pick:has(.pk-pick-select:focus-visible) {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
-}
-
-.pk-pick-label {
-	flex: none;
-	color: var(--ink-muted);
-}
-
-/* The native select draws only its text; the label owns the box and chevron. */
-.pk-pick-select {
-	min-inline-size: 0;
-	max-inline-size: 12rem;
-	block-size: 100%;
-	padding: 0 var(--space-4) 0 0;
-	margin-inline-end: calc(-1 * var(--space-4));
-	border: 0;
-	background: transparent;
-	color: var(--ink-muted);
-	font: inherit;
-	text-overflow: ellipsis;
-	/* As wide as the value shown, not the longest option. */
-	field-sizing: content;
-	appearance: none;
-	cursor: pointer;
-}
-
-.pk-pick-select:focus {
-	outline: none;
-}
-
-.pk-pick-select option {
-	background: var(--surface-raised);
-	color: var(--ink);
-}
-
-.pk-pick-chevron {
-	flex: none;
-	pointer-events: none;
-	color: var(--ink-muted);
-}
-
-/* A value the student changed reads as set. */
-.pk-pick.is-changed .pk-pick-select {
-	color: var(--ink);
-	font-weight: 600;
-}
-
-.pk-pick.is-warning {
-	border-color: var(--status-warning);
-	background: var(--status-warning-soft);
-}
-
-.pk-pick.is-warning,
-.pk-pick.is-warning .pk-pick-select,
-.pk-pick.is-warning .pk-pick-label,
-.pk-pick.is-warning .pk-pick-chevron {
-	color: var(--status-warning);
-}
-
-.pk-pick-icon {
-	flex: none;
-}
-
-.pk-pick.is-waiting {
-	cursor: default;
-	padding-inline-end: var(--space-2);
 }
 
 .pk-composer-chips {

@@ -6,6 +6,8 @@ import {
 	createComposerEditor,
 	inCodeBlock,
 	insertAtCursor,
+	LONG_PASTE_LINES,
+	lineCount,
 } from "./composerEditor.js";
 import { boxText, placeCursor, setText, typeInto } from "./composerTesting.js";
 
@@ -13,10 +15,12 @@ let editor: Editor;
 let box: HTMLElement;
 let onSend: ReturnType<typeof vi.fn<() => void>>;
 let onFiles: ReturnType<typeof vi.fn<(files: File[]) => void>>;
+let onLongPaste: ReturnType<typeof vi.fn<(text: string, lines: number) => void>>;
 
 beforeEach(() => {
 	onSend = vi.fn<() => void>();
 	onFiles = vi.fn<(files: File[]) => void>();
+	onLongPaste = vi.fn<(text: string, lines: number) => void>();
 	const element = document.createElement("div");
 	document.body.append(element);
 	editor = createComposerEditor({
@@ -30,6 +34,7 @@ beforeEach(() => {
 		placeholder: "Message Claude Code",
 		onSend,
 		onFiles,
+		onLongPaste,
 		onKeyDown: () => false,
 		onKeyUp: () => {},
 		onChange: () => {},
@@ -175,6 +180,28 @@ test("pasted files go to the attachments, not into the text", () => {
 	paste({ Files: "" }, [file]);
 	expect(onFiles).toHaveBeenCalledWith([file]);
 	expect(boxText(box)).toBe("");
+});
+
+test("a paste of more than 40 lines is handed back to attach, and the box stays empty", () => {
+	const log = Array.from({ length: LONG_PASTE_LINES + 1 }, (_, at) => `line ${at}`);
+	paste({ "text/plain": `${log.join("\r\n")}\r\n` });
+	expect(onLongPaste).toHaveBeenCalledWith(`${log.join("\n")}\n`, 41);
+	expect(boxText(box)).toBe("");
+});
+
+test("a paste of exactly 40 lines goes into the box as text", () => {
+	const lines = Array.from({ length: LONG_PASTE_LINES }, (_, at) => `l${at}`).join(
+		"\n",
+	);
+	paste({ "text/plain": `${lines}\n` });
+	expect(onLongPaste).not.toHaveBeenCalled();
+	expect(boxText(box)).toBe(`${lines}\n`);
+});
+
+test("a final newline does not count as a line", () => {
+	expect(lineCount("a")).toBe(1);
+	expect(lineCount("a\nb\n")).toBe(2);
+	expect(lineCount("a\n\nb")).toBe(3);
 });
 
 test("copying from the box gives the Markdown it would send", () => {

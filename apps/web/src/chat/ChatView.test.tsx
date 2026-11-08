@@ -162,9 +162,13 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	emit("text.delta", { messageId: "a1", text: "Looking at " });
 	emit("text.delta", { messageId: "a1", text: "**the code**" });
 	expect(screen.getByText("the code").tagName).toBe("STRONG");
-	expect(screen.getByTestId("chat-working").textContent).toBe("Working 0m 0s");
+	expect(screen.getByTestId("chat-working").textContent).toBe(
+		"Writing a reply · 0m 0s",
+	);
 	act(() => vi.advanceTimersByTime(12_000));
-	expect(screen.getByTestId("chat-working").textContent).toBe("Working 0m 12s");
+	expect(screen.getByTestId("chat-working").textContent).toBe(
+		"Writing a reply · 0m 12s",
+	);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe("Claude is working.");
 
 	emit("message", { id: "a1", role: "assistant", markdown: "Looking at **the code**" });

@@ -2,14 +2,17 @@
  * The chat's message box (SPEC.md §8.3, §10.8): a growing Markdown editor
  * (composerEditor.ts), attached files, the settings pickers, the microphone
  * and Send. Enter sends, Shift+Enter starts a line; while a turn runs, Stop
- * sits beside Send. Dictation is typed into the box and never sent on its
- * own (SPEC.md §25.10). The draft is cleared only when the host echoes the
- * message back, so a send it refuses leaves the text and files in place to
- * try again.
+ * sits beside Send, a message sent then reaches Claude at its next step, and
+ * Escape stops the turn. Up in an empty box brings back the last message
+ * sent, held in memory only. A paste of more than LONG_PASTE_LINES lines is
+ * attached as a text file instead of filling the box. Dictation is typed
+ * into the box and never sent on its own (SPEC.md §25.10). The draft is
+ * cleared only when the host echoes the message back, so a send it refuses
+ * leaves the text and files in place to try again.
  */
 import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import {
 	type DragEvent,
 	type FormEvent,
@@ -45,10 +48,15 @@ const VOICE_HINT =
 	"Hold Space on this button, or Alt+Shift+M in the message box, to talk.";
 const BYPASS_ON = `Bypass permissions is on. ${BYPASS_WARNING}`;
 const PLACEHOLDER = "Message Claude Code, or paste or drop images";
-const KEY_HINT = "Enter sends. Shift+Enter adds a line.";
+const KEY_HINT =
+	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
+const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
-const WORKING = "Claude is working. Press Enter in the message box to send this next.";
+const SENDING = "Wait for your last message to reach Claude.";
+// Said once on entering a block: the visible hint is only a description, read on focus.
+const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
+const PASTED_NAME = "pasted-text.txt";
 
 /** A message sent and not yet echoed back by the host. */
 interface Sending {
@@ -80,6 +88,10 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const host = useRef<HTMLDivElement | null>(null);
 	const editor = useRef<Editor | null>(null);
 	const picker = useRef<HTMLInputElement | null>(null);
+	/** The last message sent, for Up to bring back; never stored (SPEC.md §25.10). */
+	const lastSent = useRef<JSONContent | null>(null);
+	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
+	const stopFocused = useRef(false);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
 	const bypass = settings?.mode === "bypassPermissions";
@@ -107,6 +119,18 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	useEffect(() => {
 		if (bypass) setAnnounced(BYPASS_ON);
 	}, [bypass]);
+
+	useEffect(() => {
+		if (inCode) setAnnounced(CODE_ANNOUNCED);
+	}, [inCode]);
+
+	useLayoutEffect(() => {
+		if (running || !stopFocused.current) return;
+		stopFocused.current = false;
+		const lost =
+			document.activeElement === null || document.activeElement === document.body;
+		if (lost) editor.current?.view.dom.focus({ preventScroll: true });
+	}, [running]);
 
 	const announce = useCallback((text: string) => setAnnounced(text), []);
 
@@ -136,7 +160,13 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		}
 		stopSpeech();
 		setError("");
+		if (text.trim() !== "" && editor.current)
+			lastSent.current = editor.current.getJSON();
 		setSending({ seq, text, keys: files.items.map((item) => item.key) });
+	}
+
+	function addLongPaste(text: string, lines: number) {
+		void files.add([new File([text], PASTED_NAME, { type: "text/plain" })], lines);
 	}
 
 	function addPasted(pasted: File[]) {
@@ -152,10 +182,29 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}
 
 	function onKeyDown(event: KeyboardEvent): boolean {
+		const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+		if (plain && event.key === "Escape" && running && !menuOpen()) {
+			event.preventDefault();
+			store.getState().interrupt();
+			return true;
+		}
+		const box = editor.current;
+		if (plain && event.key === "ArrowUp" && box?.isEmpty && lastSent.current) {
+			event.preventDefault();
+			box.chain().setContent(lastSent.current).focus("end").run();
+			return true;
+		}
 		if (!isVoiceShortcut(event)) return false;
 		event.preventDefault();
 		if (!event.repeat) speech.start();
 		return true;
+	}
+
+	/** A picker's menu is open, and Escape is its to close. */
+	function menuOpen(): boolean {
+		return (
+			host.current?.closest("form")?.querySelector('[aria-expanded="true"]') != null
+		);
 	}
 
 	function onKeyUp(event: KeyboardEvent) {
@@ -163,8 +212,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}
 
 	// The editor lives outside React; it reaches this render's handlers through here.
-	const handlers = useRef({ submit, addPasted, onKeyDown, onKeyUp });
-	handlers.current = { submit, addPasted, onKeyDown, onKeyUp };
+	const handlers = useRef({ submit, addPasted, addLongPaste, onKeyDown, onKeyUp });
+	handlers.current = { submit, addPasted, addLongPaste, onKeyDown, onKeyUp };
 
 	useLayoutEffect(() => {
 		const element = host.current;
@@ -185,6 +234,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			placeholder: PLACEHOLDER,
 			onSend: () => handlers.current.submit(),
 			onFiles: (pasted) => handlers.current.addPasted(pasted),
+			onLongPaste: (text, lines) => handlers.current.addLongPaste(text, lines),
 			onKeyDown: (event) => handlers.current.onKeyDown(event),
 			onKeyUp: (event) => handlers.current.onKeyUp(event),
 			onChange: (changed) => setInCode(inCodeBlock(changed)),
@@ -202,7 +252,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		return event.dataTransfer.types.includes("Files");
 	}
 
-	const waitReason = files.saving > 0 ? SAVING : running ? WORKING : "";
+	const waitReason = files.saving > 0 ? SAVING : sending !== null ? SENDING : "";
 
 	return (
 		<>
@@ -282,6 +332,13 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 								variant="secondary"
 								className="pk-composer-send"
 								data-testid="chat-composer-stop"
+								onFocus={() => {
+									stopFocused.current = true;
+								}}
+								onBlur={(event) => {
+									// A blur from being removed leaves the flag for the effect above.
+									if (event.currentTarget.isConnected) stopFocused.current = false;
+								}}
 								onClick={() => store.getState().interrupt()}
 							/>
 						) : null}
@@ -293,12 +350,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 							className="pk-composer-send is-send"
 							data-testid="chat-composer-send"
 							// Stays focusable while it waits, and says why (SPEC.md §25.8).
-							aria-disabled={waitReason !== "" || sending !== null || undefined}
+							aria-disabled={waitReason !== "" || undefined}
 							aria-describedby={waitReason !== "" ? `${ids}-wait` : undefined}
-							onClick={(event) => {
-								// A turn is running: Enter in the box still queues the message.
-								if (running) event.preventDefault();
-							}}
 						/>
 					</div>
 					{waitReason !== "" ? (
@@ -346,7 +399,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					className="pk-composer-foot"
 					data-testid="chat-composer-hint"
 				>
-					{inCode ? CODE_HINT : KEY_HINT}
+					{inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
 				</p>
 			)}
 			<p
