@@ -80,7 +80,7 @@ export function Toast({
 			onOpenChange={(open) => {
 				if (!open) onDismiss?.();
 			}}
-			className={`pk-toast pk-toast--${tone} w-95 rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
+			className={`pk-toast pk-toast--${tone} w-full rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
 		>
 			{/* The role sits inside the list item, so the viewport's list holds only list items. */}
 			<div role={urgent ? "alert" : "status"} className="flex items-start gap-3">
@@ -115,6 +115,60 @@ interface ToastApi {
 
 const ToastContext = React.createContext<ToastApi | null>(null);
 
+/** The space left between a lifted stack and the control it steps above, in pixels. */
+const LIFT_GAP_PX = 8;
+
+/**
+ * The stack's `bottom` while it steps above a focused control it would cover
+ * in its corner, or null at home: a toast never covers a focused element
+ * (WCAG 2.2 SC 2.4.11). It goes home when focus moves somewhere clear.
+ */
+function useClearOfFocus(
+	viewport: React.RefObject<HTMLOListElement | null>,
+	count: number,
+): number | null {
+	const [lift, setLift] = React.useState<number | null>(null);
+	const lifted = React.useRef(false);
+	// Where the stack's bottom edge is at home, measured while it is there.
+	const homeBottom = React.useRef(0);
+
+	const place = React.useCallback(() => {
+		const stack = viewport.current;
+		if (!stack) return;
+		const box = stack.getBoundingClientRect();
+		if (!lifted.current) homeBottom.current = box.bottom;
+		const active = document.activeElement;
+		if (active && stack.contains(active)) return;
+		let next: number | null = null;
+		if (active instanceof HTMLElement && active !== document.body && box.height > 0) {
+			const target = active.getBoundingClientRect();
+			const covered =
+				target.left < box.right &&
+				box.left < target.right &&
+				target.top < homeBottom.current &&
+				homeBottom.current - box.height < target.bottom;
+			if (covered) next = window.innerHeight - target.top + LIFT_GAP_PX;
+		}
+		lifted.current = next !== null;
+		setLift(next);
+	}, [viewport]);
+
+	React.useEffect(() => {
+		document.addEventListener("focusin", place);
+		window.addEventListener("resize", place);
+		return () => {
+			document.removeEventListener("focusin", place);
+			window.removeEventListener("resize", place);
+		};
+	}, [place]);
+
+	// A toast that arrives, or goes, changes the stack's height.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the number of toasts changes
+	React.useLayoutEffect(place, [place, count]);
+
+	return lift;
+}
+
 export interface ToastProviderProps {
 	children?: React.ReactNode;
 	/** Called once for every toast shown, with its text; used to record notifications. */
@@ -132,6 +186,7 @@ export function ToastProvider({
 	onShowRef.current = onShow;
 	const viewportRef = React.useRef<HTMLOListElement>(null);
 	const nodes = React.useRef(new Map<number, HTMLLIElement>());
+	const lift = useClearOfFocus(viewportRef, toasts.length);
 	const api = React.useMemo<ToastApi>(
 		() => ({
 			show(toast) {
@@ -177,8 +232,9 @@ export function ToastProvider({
 				{/* Radix fills {hotkey} with F8, the only keyboard route to a toast. */}
 				<RadixToast.Viewport
 					ref={viewportRef}
+					style={lift === null ? undefined : { bottom: lift }}
 					label="Notifications (press {hotkey} to reach them)"
-					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 list-none flex-col gap-2 p-0 outline-none"
+					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 max-w-[calc(100vw-2rem)] list-none flex-col gap-2 p-0 outline-none"
 				/>
 			</RadixToast.Provider>
 		</ToastContext.Provider>

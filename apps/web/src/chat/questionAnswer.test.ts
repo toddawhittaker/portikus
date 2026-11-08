@@ -1,6 +1,13 @@
 import type { ChatQuestion } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { buildQuestionAnswer, emptyDraft } from "./questionAnswer";
+import {
+	askedQuestions,
+	buildQuestionAnswer,
+	draftAnswer,
+	emptyDraft,
+	isSettled,
+	readAnswers,
+} from "./questionAnswer";
 
 function question(text: string, multiSelect: boolean): ChatQuestion {
 	return {
@@ -33,45 +40,71 @@ test("multi-select picks are joined with commas in option order", () => {
 	).toEqual({ ok: true, answers: { "Which colours?": "Red, Blue" } });
 });
 
-test("Other is the answer when nothing is picked", () => {
-	expect(buildQuestionAnswer([single], [{ ...emptyDraft, other: "  Teal  " }])).toEqual(
-		{
-			ok: true,
-			answers: { "Which colour?": "Teal" },
-		},
-	);
+test("a single-select Other answer is its text, and only once Other is chosen", () => {
+	const other = { ...emptyDraft, otherPicked: true, other: "  Teal  " };
+	expect(draftAnswer(single, other)).toBe("Teal");
+	expect(draftAnswer(single, { ...other, otherPicked: false })).toBe("");
+	expect(draftAnswer(single, { ...other, other: " " })).toBe("");
 });
 
-test("Other becomes a note when something is picked, ahead of the student's note", () => {
+test("multi-select Other text is sent with the picks", () => {
+	expect(
+		draftAnswer(multi, {
+			...emptyDraft,
+			picked: ["Red", "Blue"],
+			otherPicked: true,
+			other: "and teal",
+		}),
+	).toBe("Red, Blue, and teal");
+	expect(draftAnswer(multi, { ...emptyDraft, otherPicked: true, other: "Teal" })).toBe(
+		"Teal",
+	);
+	// Other ticked but empty adds nothing to the picks.
+	expect(
+		draftAnswer(multi, { ...emptyDraft, picked: ["Red"], otherPicked: true }),
+	).toBe("Red");
+});
+
+test("a note goes with its question's answer", () => {
 	expect(
 		buildQuestionAnswer(
-			[multi, single],
+			[single, multi],
 			[
-				{ ...emptyDraft, picked: ["Red"], other: "and teal", notes: "for the header" },
+				{ ...emptyDraft, otherPicked: true, other: "Teal", notes: " darker " },
 				{ ...emptyDraft, picked: ["Blue"], notes: "  " },
 			],
 		),
 	).toEqual({
 		ok: true,
-		answers: { "Which colours?": "Red", "Which colour?": "Blue" },
-		notes: { "Which colours?": "and teal\nfor the header" },
-	});
-});
-
-test("a note goes with an Other answer too", () => {
-	expect(
-		buildQuestionAnswer(
-			[single],
-			[{ ...emptyDraft, otherPicked: true, other: "Teal", notes: "darker" }],
-		),
-	).toEqual({
-		ok: true,
-		answers: { "Which colour?": "Teal" },
+		answers: { "Which colour?": "Teal", "Which colours?": "Blue" },
 		notes: { "Which colour?": "darker" },
 	});
 });
 
-test("unanswered questions are named, and nothing is sent", () => {
+test("a skipped question is left out, with its note", () => {
+	expect(
+		buildQuestionAnswer(
+			[single, multi],
+			[
+				{ ...emptyDraft, picked: ["Red"], skipped: true, notes: "ignored" },
+				{ ...emptyDraft, picked: ["Blue"] },
+			],
+		),
+	).toEqual({ ok: true, answers: { "Which colours?": "Blue" } });
+	expect(buildQuestionAnswer([single], [{ ...emptyDraft, skipped: true }])).toEqual({
+		ok: true,
+		answers: {},
+	});
+});
+
+test("a question is settled once answered or skipped", () => {
+	expect(isSettled(single, emptyDraft)).toBe(false);
+	expect(isSettled(single, { ...emptyDraft, otherPicked: true })).toBe(false);
+	expect(isSettled(single, { ...emptyDraft, picked: ["Red"] })).toBe(true);
+	expect(isSettled(multi, { ...emptyDraft, skipped: true })).toBe(true);
+});
+
+test("questions neither answered nor skipped are named, and nothing is sent", () => {
 	expect(
 		buildQuestionAnswer(
 			[single, multi, single],
@@ -81,4 +114,29 @@ test("unanswered questions are named, and nothing is sent", () => {
 			],
 		),
 	).toEqual({ ok: false, missing: [1, 2] });
+});
+
+test("the questions are read from an AskUserQuestion input", () => {
+	expect(
+		askedQuestions({ questions: [{ question: "A?" }, { question: "B?" }] }),
+	).toEqual(["A?", "B?"]);
+	expect(askedQuestions({ questions: [] })).toBeNull();
+	expect(askedQuestions({ questions: [{ header: "x" }] })).toBeNull();
+	expect(askedQuestions("A?")).toBeNull();
+	expect(askedQuestions(null)).toBeNull();
+});
+
+test("answers are read from Claude Code's result, and a missing one is skipped", () => {
+	const result =
+		'Your questions have been answered: "Which colour?"="Teal, "dark"", "Which size?"="Large". You can now continue with these answers in mind.';
+	expect(readAnswers(["Which size?", "Which colour?", "Which shape?"], result)).toEqual(
+		[
+			{ question: "Which size?", answer: "Large" },
+			{ question: "Which colour?", answer: 'Teal, "dark"' },
+			{ question: "Which shape?", answer: null },
+		],
+	);
+	expect(
+		readAnswers(["Which size?"], "The user did not answer the questions."),
+	).toEqual([{ question: "Which size?", answer: null }]);
 });

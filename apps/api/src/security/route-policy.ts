@@ -168,6 +168,9 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /workspaces/:id/projects/:pid/layout": owner,
 	"HEAD /workspaces/:id/projects/:pid/layout": owner,
 	"PUT /workspaces/:id/projects/:pid/layout": owner,
+	"GET /workspaces/:id/projects/:pid/chat-settings": owner,
+	"HEAD /workspaces/:id/projects/:pid/chat-settings": owner,
+	"PUT /workspaces/:id/projects/:pid/chat-settings": owner,
 	"GET /workspaces/:id/projects/:pid/events": ownerSocket,
 	// Owner only, with no administrator, instructor, share or live-help way in (SPEC.md §13.6).
 	"GET /workspaces/:id/projects/:pid/language-servers/:server": ownerSocket,
@@ -180,6 +183,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/tree": owner,
 	"GET /workspaces/:id/projects/:pid/file": owner,
 	"HEAD /workspaces/:id/projects/:pid/file": owner,
+	"GET /workspaces/:id/projects/:pid/image": owner,
+	"HEAD /workspaces/:id/projects/:pid/image": owner,
 	"PUT /workspaces/:id/projects/:pid/file": owner,
 	"DELETE /workspaces/:id/projects/:pid/file": owner,
 	"POST /workspaces/:id/projects/:pid/mkdir": owner,

@@ -20,26 +20,77 @@
 	outline-offset: 2px;
 }
 
+/* The editable box: it grows with the text up to a limit, then scrolls. */
+.pk-composer-field {
+	min-inline-size: 0;
+}
+
 .pk-composer-text {
 	box-sizing: border-box;
-	inline-size: 100%;
 	min-block-size: calc(var(--pk-control) + var(--space-2));
 	max-block-size: 40vh;
 	padding: var(--space-1);
-	border: 0;
-	background: transparent;
-	color: var(--ink);
-	font: inherit;
-	resize: none;
 	overflow-y: auto;
+	color: var(--ink);
+	line-height: 1.5;
+	/* The editor needs pre-wrap to keep spaces; long words break, never scroll sideways. */
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-variant-ligatures: none;
 }
 
 .pk-composer-text:focus {
 	outline: none;
 }
 
-.pk-composer-text::placeholder {
+.pk-composer-text :is(p, ul, ol, pre) {
+	margin: 0;
+}
+
+.pk-composer-text p.is-editor-empty:first-child::before {
+	/* Empty alternative text, so a screen reader hears aria-placeholder, not this as typed text. */
+	content: attr(data-placeholder) / "";
+	float: inline-start;
+	block-size: 0;
 	color: var(--ink-faint);
+	pointer-events: none;
+}
+
+/* Tailwind's preflight strips list markers; the box puts its own back. */
+.pk-composer-text :is(ul, ol) {
+	padding-inline-start: var(--space-5);
+}
+
+.pk-composer-text ul {
+	list-style: disc;
+}
+
+.pk-composer-text ol {
+	list-style: decimal;
+}
+
+.pk-composer-text strong {
+	font-weight: 600;
+}
+
+.pk-composer-text code {
+	padding: 1px 4px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+}
+
+.pk-composer-text pre {
+	margin-block: var(--space-1);
+	padding: var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+}
+
+.pk-composer-text pre code {
+	padding: 0;
+	background: none;
 }
 
 .pk-composer-bar {
@@ -47,6 +98,31 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
+}
+
+/* The microphone and Send keep to the end of the row. */
+.pk-composer-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	margin-inline-start: auto;
+}
+
+/* Send is the box's main action, so it takes the primary fill. */
+.pk-composer-send.is-send {
+	border-color: transparent;
+	background: var(--surface-inverse);
+	color: var(--ink-inverse);
+}
+
+.pk-composer-send.is-send:hover {
+	background: var(--surface-inverse-hover);
+	color: var(--ink-inverse);
+}
+
+.pk-composer-send.is-send[aria-disabled="true"] {
+	opacity: 0.55;
+	cursor: not-allowed;
 }
 
 .pk-composer-tools {
@@ -65,98 +141,6 @@
 	margin: 0;
 	padding: 0;
 	border: 0;
-}
-
-/* A picker is its label and value in one quiet control; the select fills it. */
-.pk-pick {
-	position: relative;
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	min-inline-size: 0;
-	max-inline-size: 100%;
-	block-size: var(--size-control-sm);
-	padding-inline: var(--space-2) var(--space-1);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	color: var(--ink-muted);
-	font-size: 13px;
-	cursor: pointer;
-	transition: background-color var(--duration-fast) var(--ease-standard);
-}
-
-.pk-pick:hover {
-	background: var(--surface-hover);
-}
-
-.pk-pick:has(.pk-pick-select:focus-visible) {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
-}
-
-.pk-pick-label {
-	flex: none;
-	color: var(--ink-muted);
-}
-
-/* The native select draws only its text; the label owns the box and chevron. */
-.pk-pick-select {
-	min-inline-size: 0;
-	max-inline-size: 12rem;
-	block-size: 100%;
-	padding: 0 var(--space-4) 0 0;
-	margin-inline-end: calc(-1 * var(--space-4));
-	border: 0;
-	background: transparent;
-	color: var(--ink-muted);
-	font: inherit;
-	text-overflow: ellipsis;
-	/* As wide as the value shown, not the longest option. */
-	field-sizing: content;
-	appearance: none;
-	cursor: pointer;
-}
-
-.pk-pick-select:focus {
-	outline: none;
-}
-
-.pk-pick-select option {
-	background: var(--surface-raised);
-	color: var(--ink);
-}
-
-.pk-pick-chevron {
-	flex: none;
-	pointer-events: none;
-	color: var(--ink-muted);
-}
-
-/* A value the student changed reads as set. */
-.pk-pick.is-changed .pk-pick-select {
-	color: var(--ink);
-	font-weight: 600;
-}
-
-.pk-pick.is-warning {
-	border-color: var(--status-warning);
-	background: var(--status-warning-soft);
-}
-
-.pk-pick.is-warning,
-.pk-pick.is-warning .pk-pick-select,
-.pk-pick.is-warning .pk-pick-label,
-.pk-pick.is-warning .pk-pick-chevron {
-	color: var(--status-warning);
-}
-
-.pk-pick-icon {
-	flex: none;
-}
-
-.pk-pick.is-waiting {
-	cursor: default;
-	padding-inline-end: var(--space-2);
 }
 
 .pk-composer-chips {

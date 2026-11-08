@@ -8,6 +8,7 @@ import {
 	terminalIds,
 	workspacePath,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 /**
  * Caddy's gzip rewrites the entity tag of a compressed response, so `"5"`
@@ -55,8 +56,7 @@ test("a layout saved behind a gzip entity tag is still restored", async ({
 		.poll(async () => (await savedLayout()).includes(first), { timeout: 15_000 })
 		.toBe(true);
 
-	await page.getByTestId(`terminal-actions-${first}`).click();
-	await page.getByRole("menu").getByTestId("split-right").click();
+	await splitPane(page, first, "right");
 	await expect
 		.poll(async () => (await terminalIds(student.workspaceId, alpha.id)).length)
 		.toBe(2);

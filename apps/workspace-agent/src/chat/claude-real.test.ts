@@ -19,6 +19,14 @@ const CLAUDE =
 	process.env.PORTIKUS_TEST_CLAUDE ?? join(homedir(), ".local", "bin", "claude");
 const ID = "3e9f6c1a-2b4d-4c8e-9f1a-5b6c7d8e9f01";
 
+// Claude Code keeps a session folder per project path, named by the path with
+// every non-alphanumeric character turned into a dash.
+const removeSessionFolder = (project: string) =>
+	rm(join(homedir(), ".claude", "projects", project.replace(/[^a-zA-Z0-9]/g, "-")), {
+		recursive: true,
+		force: true,
+	});
+
 test.skipIf(!existsSync(CLAUDE))(
 	"a question with a note reaches the model, the state hooks fire, and bypass runs without a card",
 	async () => {
@@ -130,7 +138,94 @@ test.skipIf(!existsSync(CLAUDE))(
 			socket.destroy();
 			await host.stop();
 			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
 		}
 	},
 	300_000,
+);
+
+/**
+ * A message sent while a turn runs (SPEC.md §10.8): Claude Code takes it in,
+ * and the host's turn.started and turn.finished events still come in pairs,
+ * ending finished, so the composer's Working state ends with the work.
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"a message sent while a turn runs reaches Claude, and turns open and close in pairs",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			events.push(JSON.parse(line) as ChatServerEvent);
+		});
+		const turns = () =>
+			events
+				.filter((e) => e.type === "turn.started" || e.type === "turn.finished")
+				.map((e) => e.type);
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku", mode: "bypassPermissions" });
+			send({
+				type: "send",
+				text: "Run `sleep 8 && touch first.txt` with the Bash tool, then say done.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => expect(events.some((e) => e.type === "tool.started")).toBe(true),
+				{ timeout: 60_000, interval: 200 },
+			);
+			send({
+				type: "send",
+				text: "Also run `touch second.txt` with the Bash tool, then say done.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => {
+					// Haiku may decline the mid-turn message as an injection, so the file is not required.
+					expect(turns().at(-1)).toBe("turn.finished");
+					expect(
+						events.some(
+							(e) =>
+								e.type === "message" &&
+								e.role === "assistant" &&
+								e.markdown.includes("second.txt"),
+						),
+					).toBe(true);
+				},
+				{ timeout: 150_000, interval: 500 },
+			);
+			// A queued second turn may start just after the first result; let it settle.
+			await new Promise((resolve) => setTimeout(resolve, 8_000));
+			const kinds = turns();
+			expect(kinds).toEqual(
+				kinds.map((_, i) => (i % 2 === 0 ? "turn.started" : "turn.finished")),
+			);
+			expect(kinds.at(-1)).toBe("turn.finished");
+			expect(existsSync(join(project, "first.txt"))).toBe(true);
+			for (const event of events.filter((e) => e.type === "turn.finished")) {
+				expect(event).toMatchObject({ status: "done" });
+			}
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	240_000,
 );

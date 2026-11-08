@@ -4,6 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import {
 	getSessionInfo,
 	getSessionMessages,
+	type PermissionMode,
 	type PermissionResult,
 	type Query,
 	query,
@@ -20,6 +21,7 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	type ChatQuestion,
+	type ChatSessionRule,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -32,10 +34,13 @@ import {
 	ClaudeMessageMapper,
 	cardForTool,
 	mergeRateLimits,
+	PERMISSION_OPTION,
 	permissionResult,
 	questionResult,
 	type ToolAsk,
+	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
+import { splitSuggestions } from "./permission-rules.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
@@ -143,11 +148,17 @@ export class ChatHost {
 	/** The assistant text streamed so far in this turn, for a snapshot. */
 	private partial: { id: string; text: string } | null = null;
 	private limits: ClaudeLimitWindows = {};
+	/** The session's init said a skipped question may be marked so. */
+	private reportSkipped = false;
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
 		model: "default",
 		effort: CHAT_START_EFFORT,
 		mode: "default",
 	};
+
+	/** Rules granted with Always allow for this Claude process only. */
+	private sessionRules: ChatSessionRule[] = [];
+	private rulesQueue: Promise<void> = Promise.resolve();
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
@@ -228,6 +239,11 @@ export class ChatHost {
 		this.session = session;
 		this.input = input;
 		this.mapper = new ClaudeMessageMapper();
+		// A new Claude process starts with none of the old one's session rules.
+		if (this.sessionRules.length > 0) {
+			this.sessionRules = [];
+			this.broadcast(this.rulesEvent());
+		}
 		void this.pump(session);
 	}
 
@@ -259,10 +275,17 @@ export class ChatHost {
 				{ claudeCode: message.claude_code_version },
 				"claude session started",
 			);
+			this.reportSkipped =
+				message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 			this.settings.model = message.model || this.settings.model;
 			this.settings.mode =
 				message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
 			this.broadcastSettings();
+			return;
+		}
+		// Always allow can switch the mode mid-turn; the picker shows the mode in force.
+		if (message.type === "system" && message.subtype === "status") {
+			if (message.permissionMode) this.modeChanged(message.permissionMode);
 			return;
 		}
 		if (message.type === "rate_limit_event") {
@@ -289,6 +312,13 @@ export class ChatHost {
 			}
 			this.broadcast(event);
 		}
+	}
+
+	private modeChanged(mode: PermissionMode): void {
+		const shown = mode === "dontAsk" ? "default" : mode;
+		if (shown === this.settings.mode) return;
+		this.settings.mode = shown;
+		this.broadcastSettings();
 	}
 
 	private beginTurn(): void {
@@ -348,6 +378,30 @@ export class ChatHost {
 		this.broadcast({ type: "card.resolved", id });
 	}
 
+	/**
+	 * Like `answer`, but Always allow first grants the session rules, so the
+	 * card is claimed before the wait and a second answer cannot also win.
+	 */
+	private async answerPermission(id: string, optionId: string): Promise<void> {
+		const open = this.cards.get(id);
+		if (open?.card.type !== "permission") return;
+		if (!open.card.options.some((option) => option.id === optionId)) return;
+		this.cards.delete(id);
+		try {
+			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
+				await this.grantRules(splitSuggestions(open.ask.suggestions).sessionRules);
+			}
+		} catch {
+			// The student chose to allow, so the tool still runs this once.
+			throw new Error(
+				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
+			);
+		} finally {
+			open.settle(permissionResult(optionId, open.input, open.ask));
+			this.broadcast({ type: "card.resolved", id });
+		}
+	}
+
 	private async attach(socket: Socket): Promise<void> {
 		if (this.clients.size >= MAX_ATTACHMENTS_PER_TERMINAL) {
 			writeLine(
@@ -403,6 +457,7 @@ export class ChatHost {
 			if (line !== null) writeLine(socket, line);
 		}
 		writeLine(socket, this.frame(this.settingsEvent()));
+		writeLine(socket, this.frame(this.rulesEvent()));
 	}
 
 	private async onLine(client: Client, line: string): Promise<void> {
@@ -428,12 +483,9 @@ export class ChatHost {
 			case "send":
 				return this.send(message.text, message.attachments);
 			case "permission.answer":
-				return this.answer(message.id, (open) => {
-					if (open.card.type !== "permission") return null;
-					if (!open.card.options.some((option) => option.id === message.optionId))
-						return null;
-					return permissionResult(message.optionId, open.input, open.ask);
-				});
+				return this.answerPermission(message.id, message.optionId);
+			case "rule.revoke":
+				return this.revokeRule(message.rule);
 			case "question.answer":
 				return this.answer(message.id, (open) =>
 					open.card.type === "question"
@@ -442,6 +494,7 @@ export class ChatHost {
 								open.card.questions as ChatQuestion[],
 								message.answers,
 								message.notes,
+								this.reportSkipped,
 							)
 						: null,
 				);
@@ -505,6 +558,50 @@ export class ChatHost {
 			this.settings.mode = change.mode;
 		}
 		this.broadcastSettings();
+	}
+
+	private grantRules(rules: ChatSessionRule[]): Promise<void> {
+		return this.changeRules((held) => {
+			const added = rules.filter(
+				(rule) => !held.some((existing) => existing.rule === rule.rule),
+			);
+			return added.length === 0 ? null : [...held, ...added];
+		});
+	}
+
+	private revokeRule(rule: string): Promise<void> {
+		return this.changeRules((held) =>
+			held.some((existing) => existing.rule === rule)
+				? held.filter((existing) => existing.rule !== rule)
+				: null,
+		);
+	}
+
+	/**
+	 * Socket lines are handled concurrently, so rule changes queue here and
+	 * each computes its list from the one before it. The flag settings layer
+	 * holds the session rules: each call replaces the whole `permissions`
+	 * object and null clears it, so a revoke takes effect at once.
+	 */
+	private changeRules(
+		next: (held: ChatSessionRule[]) => ChatSessionRule[] | null,
+	): Promise<void> {
+		const step = this.rulesQueue.then(async () => {
+			const rules = next(this.sessionRules);
+			if (rules === null) return;
+			await this.session?.applyFlagSettings({
+				permissions:
+					rules.length > 0 ? { allow: rules.map((held) => held.rule) } : null,
+			});
+			this.sessionRules = rules;
+			this.broadcast(this.rulesEvent());
+		});
+		this.rulesQueue = step.catch(() => undefined);
+		return step;
+	}
+
+	private rulesEvent(): ChatEventBody {
+		return { type: "rules", rules: this.sessionRules };
 	}
 
 	private settingsEvent(): ChatEventBody {

@@ -5,12 +5,20 @@
 	--pk-chat-column: 60rem;
 	--pk-chat-measure: 46rem;
 	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
+	/* Held to the pane: the log takes what the card dock and the composer
+	   leave, keeping at least a little conversation in view, and only the log
+	   and the card body scroll. Clipped, so nothing can scroll it by script. */
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	container: pk-chat / inline-size;
+	display: grid;
+	/* Log, connection notice, card dock, session rules, message box. */
+	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto auto;
+	grid-template-columns: minmax(0, 1fr);
+	overflow: clip;
+	/* Sized by the pane, not its content, so the dock can be capped at a share of it. */
+	container: pk-chat / size;
 	background: var(--surface);
 	color: var(--ink);
 	font-size: var(--pk-font);
@@ -18,15 +26,16 @@
 }
 
 .pk-chat-main {
+	grid-row: 1;
 	position: relative;
-	flex: 1;
-	/* A short pane keeps some conversation in view; the cards and composer scroll instead. */
-	min-height: min(8rem, 40%);
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 }
 
 .pk-chat-scroll {
+	/* The containing block of the hidden "You said" labels inside, so they scroll with the log. */
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
@@ -73,12 +82,6 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
-}
-
-.pk-chat-user-text {
-	margin: 0;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
 }
 
 .pk-chat-attachments {
@@ -303,57 +306,99 @@ details[open] > summary > .pk-chat-chevron {
 	margin-inline-end: var(--space-2);
 }
 
+/* What Claude asked and what it was told, under "Asked 2 questions". */
+.pk-chat-asked-list {
+	display: grid;
+	gap: var(--space-3);
+	max-inline-size: var(--pk-chat-measure);
+	margin: var(--space-3) 0 0;
+	padding-inline-start: var(--space-4);
+	border-inline-start: 1px solid var(--line);
+}
+
+.pk-chat-asked-item {
+	display: grid;
+	gap: var(--space-0\.5);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-asked-item dt {
+	color: var(--ink-muted);
+}
+
+.pk-chat-asked-item dd {
+	margin: 0;
+	white-space: pre-wrap;
+}
+
 .pk-chat-worked-log {
 	margin-block-start: var(--space-3);
 	padding-inline-start: var(--space-4);
 	border-inline-start: 1px solid var(--line);
 }
 
-.pk-chat-tool {
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
-}
-
-.pk-chat-tool.is-error {
-	border-color: var(--status-error);
-}
-
+/* A tool call is one light line, no box: the kind's icon, what happened, and
+   a state only while it runs or when it failed or stopped. */
 .pk-chat-tool-summary {
-	min-block-size: var(--size-control-md);
-	padding-inline: var(--space-2) var(--space-3);
-	border-radius: var(--radius-md);
+	min-block-size: var(--size-control-sm);
+	padding-inline: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
 	font-size: 13px;
 }
 
 .pk-chat-tool-summary:hover {
 	background: var(--surface-hover);
-}
-
-.pk-chat-tool[open] > .pk-chat-tool-summary {
-	border-end-start-radius: 0;
-	border-end-end-radius: 0;
-}
-
-.pk-chat-tool-name {
-	flex: none;
-	max-inline-size: 40%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	color: var(--ink);
-	font-weight: 600;
 }
 
-.pk-chat-tool-title {
-	flex: 1;
+.pk-chat-tool-icon {
+	flex: none;
+}
+
+.pk-chat-tool-text {
+	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
+/* Open, the row wraps, so a long one-line command is read whole here. */
+.pk-chat-tool[open] > summary > .pk-chat-tool-text {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-tool[open] > summary {
+	align-items: flex-start;
+	padding-block: var(--space-1);
+}
+
+.pk-chat-tool[open] > summary > svg {
+	/* Level with the first line of wrapped text. */
+	margin-block-start: 3px;
+}
+
+.pk-chat-tool-verb {
+	color: var(--ink);
+}
+
 .pk-chat-tool-title.pk-mono-body {
 	font-size: 12.5px;
+}
+
+.pk-chat-tool-stat {
+	flex: none;
+	font-size: 12px;
+}
+
+.pk-chat-tool-stat .is-added {
+	color: var(--git-added);
+}
+
+.pk-chat-tool-stat .is-removed {
+	color: var(--git-deleted);
 }
 
 .pk-chat-tool-state {
@@ -369,12 +414,20 @@ details[open] > summary > .pk-chat-chevron {
 	color: var(--status-error);
 }
 
+/* The opened call sits under its words, past the kind's icon. */
 .pk-chat-tool-body {
 	display: grid;
 	gap: var(--space-2);
 	min-width: 0;
-	padding: var(--space-3);
-	border-block-start: 1px solid var(--line);
+	padding-block: var(--space-2) var(--space-1);
+	padding-inline-start: calc(var(--space-1) + var(--size-icon-sm) + var(--space-2));
+}
+
+.pk-chat-tool-path {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
+	overflow-wrap: anywhere;
 }
 
 .pk-chat-tool-output {
@@ -473,23 +526,34 @@ details[open] > summary > .pk-chat-chevron {
 	border-radius: var(--radius-sm);
 }
 
-/* Back to the end of the conversation, over its bottom edge. */
+/* Back to the end: a round button at the conversation's bottom right corner,
+   clear of the text column's middle, with a dot when something new came. */
 .pk-chat-jump {
 	position: absolute;
-	inset-inline: 0;
+	inset-inline-end: var(--pk-chat-gutter);
 	inset-block-end: var(--space-3);
-	display: flex;
-	justify-content: center;
-	pointer-events: none;
+	display: grid;
 }
 
-.pk-chat-jump > * {
-	pointer-events: auto;
+.pk-chat-jump-button {
+	border-radius: var(--radius-full);
 	box-shadow: var(--shadow-md);
 }
 
+.pk-chat-jump-dot {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-end: 0;
+	inline-size: 10px;
+	block-size: 10px;
+	border: 2px solid var(--surface);
+	border-radius: var(--radius-full);
+	background: var(--accent);
+	pointer-events: none;
+}
+
 .pk-chat-notice {
-	flex: none;
+	grid-row: 2;
 	margin: 0;
 	padding-inline: var(--pk-chat-gutter);
 	color: var(--ink-muted);
@@ -517,12 +581,56 @@ details[open] > summary > .pk-chat-chevron {
 	font-weight: 600;
 }
 
-/* Cards wait here, docked above the composer, so they never scroll away. */
+/* Starter prompts: plain bordered buttons, one to a line, as wide as their words. */
+.pk-chat-starters {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-chat-starter {
+	max-inline-size: 100%;
+	min-block-size: var(--size-control-sm);
+	padding: var(--space-1) var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	text-align: start;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-chat-starter:hover {
+	background: var(--surface-hover);
+}
+
+/* Cards wait here, docked above the composer, so they never scroll away.
+   It takes at most half the chat and, in a short pane, shares the room
+   with the message box; the card scrolls inside it, never the pane. */
 .pk-chat-cards {
-	flex: 0 1 auto;
-	max-block-size: 60%;
-	overflow-y: auto;
+	grid-row: 3;
+	box-sizing: border-box;
+	max-block-size: 50cqb;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, auto) auto;
+	align-content: start;
+	gap: var(--space-1\.5);
 	padding: var(--space-2) var(--pk-chat-gutter) 0;
+}
+
+/* A question card is narrower than the conversation, and centred in it. */
+.pk-chat-cards:has(> .pk-chat-qcard) {
+	grid-template-columns: minmax(0, var(--pk-chat-measure));
+	justify-content: center;
 }
 
 .pk-chat-card {
@@ -530,11 +638,22 @@ details[open] > summary > .pk-chat-chevron {
 	flex-direction: column;
 	gap: var(--space-2);
 	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) 0;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
 	container: pk-chat-card / inline-size;
+}
+
+.pk-chat-needs {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
 }
 
 .pk-chat-card-subtitle {
@@ -550,12 +669,6 @@ details[open] > summary > .pk-chat-chevron {
 	overflow-wrap: anywhere;
 }
 
-.pk-chat-card-form {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
-}
-
 .pk-chat-card-error {
 	margin: 0;
 	color: var(--status-error);
@@ -565,7 +678,7 @@ details[open] > summary > .pk-chat-chevron {
 	display: none;
 }
 
-/* The answer buttons stay in view while a long card scrolls in its dock. */
+/* The answer buttons stay in view while a long card scrolls. */
 .pk-chat-card-actions {
 	position: sticky;
 	inset-block-end: 0;
@@ -618,122 +731,6 @@ details[open] > summary > .pk-chat-chevron {
 	min-width: 0;
 }
 
-.pk-chat-question {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: var(--space-2);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: none;
-}
-
-.pk-chat-question + .pk-chat-question {
-	margin-block-start: var(--space-2);
-}
-
-.pk-chat-question-legend {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	gap: var(--space-2);
-	padding: 0;
-	margin-block-end: var(--space-2);
-	font-weight: 600;
-	overflow-wrap: anywhere;
-}
-
-.pk-chat-chip {
-	padding: 0 var(--space-1\.5);
-	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
-	color: var(--ink-muted);
-	overflow-wrap: anywhere;
-}
-
-/* Options and the focused option's preview side by side, stacked when narrow. */
-.pk-chat-question-body {
-	align-self: stretch;
-	display: grid;
-	gap: var(--space-3);
-	min-width: 0;
-}
-
-@container pk-chat-card (width >= 36rem) {
-	.pk-chat-question-body.has-preview {
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		align-items: start;
-	}
-}
-
-.pk-chat-options {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1\.5);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
-.pk-chat-radio {
-	display: flex;
-	align-items: flex-start;
-	gap: var(--space-2);
-	cursor: pointer;
-}
-
-.pk-chat-radio input {
-	flex: none;
-	margin-block-start: 3px;
-	accent-color: var(--accent);
-}
-
-/* Label and description on one line when there is room. */
-.pk-chat-option-copy {
-	display: flex;
-	flex-wrap: wrap;
-	column-gap: var(--space-2);
-	min-width: 0;
-}
-
-.pk-chat-option-label {
-	color: var(--ink);
-}
-
-.pk-chat-other {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-}
-
-.pk-chat-other .pk-chat-input {
-	flex: 1 1 12rem;
-	min-block-size: var(--size-control-sm);
-	padding-block: var(--space-1);
-}
-
-.pk-chat-preview {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	min-width: 0;
-	margin: 0;
-}
-
-.pk-chat-preview .pk-chat-code {
-	white-space: pre;
-	overflow-wrap: normal;
-}
-
-.pk-chat-preview-caption {
-	color: var(--ink-muted);
-	font-size: 12px;
-	overflow-wrap: anywhere;
-}
-
 .pk-chat-field-label {
 	color: var(--ink-muted);
 }
@@ -759,9 +756,19 @@ details[open] > summary > .pk-chat-chevron {
 	color: var(--ink-muted);
 }
 
+/* The session's permission rules sit just above the message box, in its column. */
+.pk-chat > .pk-chat-rules {
+	grid-row: 4;
+	max-block-size: 30cqb;
+	overflow-y: auto;
+	margin: var(--space-2) var(--pk-chat-gutter) 0;
+}
+
 .pk-chat-composer {
 	/* Scrolls rather than clips when the pane is very short. */
-	flex: 0 1 auto;
+	grid-row: 5;
+	box-sizing: border-box;
+	min-height: 0;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;

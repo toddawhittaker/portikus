@@ -16,6 +16,7 @@ import {
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { z } from "zod";
+import { alwaysAllowLabel, splitSuggestions } from "./permission-rules.js";
 
 /**
  * Claude's side of the chat contract (SPEC.md §10.8): SDK messages in,
@@ -315,8 +316,11 @@ export function cardForTool(
 	const options: { id: string; label: string }[] = [
 		{ id: PERMISSION_OPTION.allowOnce, label: "Allow once" },
 	];
-	if ((ask.suggestions?.length ?? 0) > 0 && !ask.suppressAlwaysAllowRule) {
-		options.push({ id: PERMISSION_OPTION.allowAlways, label: "Always allow" });
+	if (ask.suggestions && ask.suggestions.length > 0 && !ask.suppressAlwaysAllowRule) {
+		options.push({
+			id: PERMISSION_OPTION.allowAlways,
+			label: alwaysAllowLabel(ask.suggestions),
+		});
 	}
 	options.push({ id: PERMISSION_OPTION.deny, label: "Deny" });
 	return {
@@ -329,7 +333,11 @@ export function cardForTool(
 	};
 }
 
-/** The SDK's answer for a permission card's chosen option. */
+/**
+ * The SDK's answer for a permission card's chosen option. Session allow
+ * rules are left out of `updatedPermissions`: the host grants those itself
+ * so they can be revoked.
+ */
 export function permissionResult(
 	optionId: string,
 	input: Record<string, unknown>,
@@ -339,14 +347,18 @@ export function permissionResult(
 		return { behavior: "allow", updatedInput: input };
 	}
 	if (optionId === PERMISSION_OPTION.allowAlways && ask.suggestions?.length) {
+		const { forSdk } = splitSuggestions(ask.suggestions);
 		return {
 			behavior: "allow",
 			updatedInput: input,
-			updatedPermissions: ask.suggestions,
+			...(forSdk.length > 0 ? { updatedPermissions: forSdk } : {}),
 		};
 	}
 	return { behavior: "deny", message: "The user declined this tool call." };
 }
+
+/** The init capability that lets an answer mark a question skipped; older CLIs refuse the mark. */
+export const UNANSWERED_CAPABILITY = "ask_user_question_unanswered_v1";
 
 /**
  * The SDK's answer for a question card, following the rules of
@@ -354,21 +366,25 @@ export function permissionResult(
  * browser sends one answer string per question, multi-select picks already
  * joined with ", ", and any "Other" text as that question's note. A note
  * with nothing picked is the answer; a note beside a pick rides along in
- * `annotations[question].notes`.
+ * `annotations[question].notes`. A question with neither was skipped; when
+ * `reportSkipped` is set it is marked `unanswered: "skipped"`, which only a
+ * session advertising {@link UNANSWERED_CAPABILITY} accepts.
  */
 export function questionResult(
 	input: Record<string, unknown>,
 	questions: readonly ChatQuestion[],
 	answers: Record<string, string>,
 	notes: Record<string, string> = {},
+	reportSkipped = false,
 ): PermissionResult {
 	const picked: Record<string, string> = {};
-	const annotations: Record<string, { notes: string }> = {};
+	const annotations: Record<string, { notes?: string; unanswered?: "skipped" }> = {};
 	for (const { question } of questions) {
 		const answer = (answers[question] ?? "").trim();
 		const note = (notes[question] ?? "").trim();
 		if (answer === "") {
 			if (note !== "") picked[question] = note;
+			else if (reportSkipped) annotations[question] = { unanswered: "skipped" };
 			continue;
 		}
 		picked[question] = answer;

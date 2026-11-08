@@ -44,6 +44,8 @@ export interface MenuProps {
 	style?: React.CSSProperties;
 	/** Before focus returns to the trigger. preventDefault to leave it. */
 	onCloseAutoFocus?: (event: Event) => void;
+	/** Which edge of the trigger a dropdown lines up with. */
+	align?: "start" | "center" | "end";
 }
 
 /** The styled menu surface: Radix Content inside its Portal. */
@@ -53,6 +55,7 @@ export function Menu({
 	className,
 	style,
 	onCloseAutoFocus,
+	align,
 }: MenuProps): React.ReactElement {
 	const kind = React.useContext(MenuKindContext);
 	const P = parts(kind);
@@ -62,6 +65,7 @@ export function Menu({
 			className={`pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md ${className ?? ""}`}
 			style={style}
 			sideOffset={kind === "dropdown" ? 4 : undefined}
+			align={kind === "dropdown" ? align : undefined}
 			// Keep the menu off the window edge.
 			collisionPadding={8}
 			onCloseAutoFocus={(event) => {
@@ -214,6 +218,13 @@ export function MenuRadioGroup({
 
 export interface MenuRadioItemProps {
 	value: string;
+	/** A second, quieter line under the label, such as what the choice costs. */
+	description?: React.ReactNode;
+	/**
+	 * Shown and reachable but cannot be chosen, such as a choice that comes
+	 * later: aria-disabled, so the keyboard does not skip it (SPEC.md section 25.8).
+	 */
+	unavailable?: boolean;
 	testId?: string;
 	children?: React.ReactNode;
 }
@@ -221,18 +232,58 @@ export interface MenuRadioItemProps {
 /** One choice in a `MenuRadioGroup`, marked with the checkbox item's tick. */
 export function MenuRadioItem({
 	value,
+	description,
+	unavailable,
 	testId,
 	children,
 }: MenuRadioItemProps): React.ReactElement {
 	const P = parts(React.useContext(MenuKindContext));
-	return (
-		<P.RadioItem className={itemClass(false)} value={value} data-testid={testId}>
+	const id = React.useId();
+	const described = description !== undefined;
+	const content = (
+		<>
 			<span className="pk-menu-check grid size-[var(--size-icon-sm)] place-items-center">
 				<P.ItemIndicator>
 					<Icon name="check" size="sm" />
 				</P.ItemIndicator>
 			</span>
-			<span className="pk-menu-item-label flex-1">{children}</span>
+			{described ? (
+				<span className="pk-menu-item-text">
+					<span id={`${id}-label`} className="pk-menu-item-label">
+						{children}
+					</span>
+					<span id={`${id}-description`} className="pk-menu-item-description">
+						{description}
+					</span>
+				</span>
+			) : (
+				<span className="pk-menu-item-label flex-1">{children}</span>
+			)}
+		</>
+	);
+	const shared = {
+		className: `${itemClass(false)}${described ? " pk-menu-item--described" : ""}`,
+		"aria-labelledby": described ? `${id}-label` : undefined,
+		"aria-describedby": described ? `${id}-description` : undefined,
+		"data-testid": testId,
+	};
+	if (unavailable) {
+		// A plain item: a Radix radio item sets the group's value even when its select is cancelled.
+		return (
+			<P.Item
+				{...shared}
+				role="menuitemradio"
+				aria-checked={false}
+				aria-disabled={true}
+				onSelect={(event) => event.preventDefault()}
+			>
+				{content}
+			</P.Item>
+		);
+	}
+	return (
+		<P.RadioItem {...shared} value={value}>
+			{content}
 		</P.RadioItem>
 	);
 }
@@ -253,9 +304,12 @@ export function MenuSub({
 	children,
 }: MenuSubProps): React.ReactElement {
 	const P = parts(React.useContext(MenuKindContext));
+	const [open, setOpen] = React.useState(false);
+	const trigger = React.useRef<HTMLDivElement | null>(null);
 	return (
-		<P.Sub>
+		<P.Sub open={open} onOpenChange={setOpen}>
 			<P.SubTrigger
+				ref={trigger}
 				className={`${itemClass(false)} pk-menu-subtrigger`}
 				disabled={disabled}
 				data-testid={testId}
@@ -272,6 +326,12 @@ export function MenuSub({
 					className="pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md"
 					sideOffset={4}
 					collisionPadding={8}
+					// Escape steps back to the parent menu rather than closing both.
+					onEscapeKeyDown={(event) => {
+						event.preventDefault();
+						setOpen(false);
+						trigger.current?.focus();
+					}}
 				>
 					{children}
 				</P.SubContent>

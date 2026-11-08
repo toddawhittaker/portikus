@@ -945,6 +945,8 @@ tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
 
 Added by Epic 58 (ADR 0069): "New tab" offers "Claude Code (GUI)", a chat tab, beside "Claude Code (TUI)", the existing terminal launcher under its new name. The Traditional course profile hides both (section 8.7). Tabs and pane headers read "Claude Code (GUI)" or "Claude Code (TUI)", never "Terminal N", for an agent. The chat view follows new content while the student is at the end and shows "Jump to latest" after they scroll up; a changed effort or permission mode is shown in bold, and the bypass warning has a reserved line so the composer does not jump. An ended chat tab offers "Resume chat".
 
+Added by Epic 58.1: each tool call in a chat is one light line with no box: an icon for the kind of tool and a plain sentence, such as "Read useDashboardQuery.ts", "Ran pnpm vitest run", "Edited useDashboardQuery.ts +1 −3" or "Searched for useDashboardQuery". A finished call shows no state word; a running one says what it is doing ("Running pnpm test") beside a spinner, and a failed or stopped one names its action ("Run pnpm test") and shows its state. An opened row gives a file's full path, leaves out a one-line command the row already shows, and says nothing about output under an edit or a write. A new chat lists three starter prompts under its privacy sentence; a click puts one in an empty message box to edit and never sends it, and never replaces a draft already typed. "Jump to latest" is a round down-chevron button at the conversation's bottom right, with a dot when something new arrived while the student was reading back.
+
 ### 8.4 Right pane
 
 The right pane contains the selected project's file tree and Git decorations.
@@ -982,9 +984,11 @@ the failure is neither retried nor reported.
 Added by Epic 56 (ADR 0068): the toasts that say a coding agent finished or
 needs input are not recorded, because they are frequent and say nothing the
 tab marks do not. The warning that a plan limit is at 85 percent is rare and
-is recorded. Those toasts, and the offer to turn on desktop notifications,
-carry actions, so they stay until answered or until the student views that
-terminal. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
+is recorded. Every agent alert toast, finished or needs input, stays until
+the student views that terminal, dismisses it, or a newer alert for the same
+terminal replaces it; it never times out. Several waiting agents give several
+toasts, which fit a 360 px screen. An agent toast goes when its terminal leaves the agent list, because a closed terminal can never be viewed. The toast stack sits in the bottom-right corner and steps up above a focused control it would cover, such as a chat composer's buttons, so a toast never hides the focus (WCAG 2.2 SC 2.4.11). The offer to turn on desktop notifications
+also stays until answered. The per-user `agentNotifications` setting (`ask`, `on` or `off`,
 default `ask`) decides whether an agent alert also becomes an operating-system
 notification. Choosing On saves the choice and never asks the browser; an
 "Allow in this browser" button in Settings > Preferences, or "Turn on desktop
@@ -1353,6 +1357,14 @@ The resulting session must remain a normal visible terminal.
 A launched agent starts in a new terminal whose tmux session runs the CLI directly, with no shell and no earlier output, so its scrollback starts empty (issue #886).
 
 Added by Epic 58 (ADR 0069): "Claude Code (GUI)" creates a chat tab (section 9.7) that drives the shared, unmodified Claude Code CLI through the Claude Agent SDK, for every sign-in, subscription included. Portikus never handles Claude credentials; the student signs in inside the workspace. "Claude Code (TUI)" is the terminal launcher above. A GUI and a TUI must not run one session at once; Help says so. The composer offers Claude Code and a disabled "Codex (coming soon)", and Ask, Accept edits, Plan, Auto and Bypass permissions; bypass is offered with a visible warning.
+
+Added by Epic 58.1: a permission card's "Always allow" button names every grant Claude suggests and how long it lasts, for example "Always allow "sed" commands in this session", or a rule saved to the project's local settings, or a switch to accepting edits for the session. Allow rules that last for the session are held by the chat host, not handed to the SDK, and applied through the SDK's flag settings, so they can be taken back; the host reports them in a `rules` event and the browser lists them with a Revoke button each (`rule.revoke`). A new Claude process starts with none. Rules saved to a settings file and mode switches go to the SDK unchanged; a mode change Claude makes mid-turn reaches the permission picker at once.
+
+Added by Epic 58.1: a new chat tab starts with the model, effort and permission mode its student last used in that project. The values the host confirms after a picker change are stored server-side on the project row (`GET` and `PUT /workspaces/:id/projects/:pid/chat-settings`, owner only), only the three values and never any conversation content (ADR 0012). A chat counts as new while no turn has run and the host still reports its start values; the browser then sends one `set` before the student's first message. A last-used Bypass permissions is stored and returned as Auto, so Bypass is always chosen afresh, and a stored model no longer offered becomes Default. When the host's mode is Ask and the session holds allow rules, a quiet line under the pickers says some actions are allowed without asking and points to the rules list. When the session's init advertises `ask_user_question_unanswered_v1`, a question the student skips is answered with `annotations[question].unanswered = "skipped"`; otherwise it is only left out of `answers`.
+
+The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span, three backticks for a code block, and `- ` or `1. ` for a list show formatted as they are typed, with the markers hidden, and the message is sent as the Markdown text, never escaped. Pasted text arrives as plain text. Enter sends and Shift+Enter adds a line; in a code block Enter adds a line and Ctrl+Enter (Cmd+Enter on a Mac) sends. Send is an up-arrow icon button with the microphone beside it; while a turn runs, Stop sits beside Send. To a screen reader the editor is a labelled multi-line text box (section 25.8).
+
+Added by Epic 58.1: while a turn runs, Send stays available beside Stop and the box stays usable. A message sent then goes to the host as an ordinary `send`; Claude Code takes it in at its next step within the same turn, so the host sends no new `turn.started`. The browser shows it at once with a quiet "Sent while Claude was working" note. The step in hand stays on the Working line until Claude's next tool call or text, which opens a new turn below the message, as a reload replays it; a turn that ends first keeps its own end state (done, stopped or failed). The note itself is not kept across a reload. Escape in the message box stops a running turn unless a picker menu is open. Up in an empty box brings back the last message sent, held in the page's memory only. The line under the box lists these keys. Inside a permission card, 1, 2 and 3 choose its options, each button showing its number and carrying `aria-keyshortcuts`; the keys act only with the keyboard inside the card, never from the message box, so typing there cannot grant a permission (section 25.8). The Working line names the step in hand in the same words as the tool's row, "Running pnpm build · 3m 43s" from the newest running tool, "Waiting for your permission" while that tool's permission card is open, or "Writing a reply" while text streams; the polite announcement is unchanged. A paste of more than 40 lines is saved as `pasted-text.txt` (then `pasted-text-2.txt` and so on, so each has its own chip and Remove name) under `.portikus/pastes/<stamp>/` and attached, shown as a chip with its line count, instead of filling the box, and the composer says "Pasted 60 lines, attached as pasted-text.txt."
 
 ### 10.3 Direct CLI use
 
@@ -4322,7 +4334,9 @@ Accepted risk (ADR 0065): opening a Python file starts pyright with the project'
 
 Backpressure: in the terminal pipe and in the language-server pipe the API stops reading the browser socket while more than 1 MiB waits to be sent to the agent, and reads again below 256 KiB, so a stalled agent cannot make the API buffer browser frames without limit.
 
-Added by Epic 58 (ADR 0069): the chat socket is owner-only, copying the language-server socket: administrators, instructors, share viewers and live-help helpers are refused, a helper sees no chat tab, and the API answers 404 before the upgrade for a missing, other-workspace or non-chat terminal. This holds at the API; it is not a guarantee against other processes of the same user inside the workspace, which can reach the host's socket. The platform logs and stores no prompt, answer, file content or image of a chat (STACK.md section 15, ADR 0012); history lives only in Claude's own transcripts in the workspace. Assistant Markdown is untrusted: it is cleaned by `sanitizeMarkdown` (no HTML, no remote images, only http and https links), so a prompt-injected image link cannot send data out.
+Added by Epic 58 (ADR 0069): the chat socket is owner-only, copying the language-server socket: administrators, instructors, share viewers and live-help helpers are refused, a helper sees no chat tab, and the API answers 404 before the upgrade for a missing, other-workspace or non-chat terminal. This holds at the API; it is not a guarantee against other processes of the same user inside the workspace, which can reach the host's socket. The platform logs and stores no prompt, answer, file content or image of a chat (STACK.md section 15, ADR 0012); history lives only in Claude's own transcripts in the workspace. Assistant Markdown is untrusted: raw HTML is shown as text, only http and https links are kept, and an image is drawn only from the student's own files through the owner-only image route (a remote or `data:` image is named, never loaded), so a prompt-injected image link cannot send data out. These rules apply to the parsed document, so code keeps image and link syntax as written.
+
+Added by Epic 58.1: assistant Markdown may show the student's own local images, so Claude can show a screenshot it saved. An image target that is a path relative to the project, or an absolute path under the home folder, loads through `GET /workspaces/:id/projects/:pid/image?path=`, which is owner-only exactly like the file routes (404 for anyone else). The API refuses a path with a `.` or `..` segment or an extension other than png, jpg, jpeg, gif or webp before calling the workspace agent. The agent resolves the path with realpath, refuses anything whose real path leaves the home folder (so a symlink cannot escape), opens it without following a link, refuses a non-regular file or one over 5 MiB, and checks the first bytes match the extension, so SVG, HTML or a renamed file is never served. The API sends the bytes with the extension's image type, `nosniff`, `private, no-store` and the inline sandbox policy. This widens what a reply can load from nothing to the student's own image files; it cannot reach another user's files or anything outside the home folder, and nothing is copied into or kept by the platform. A remote http(s) or data: image is still never loaded and shows "Remote image not shown: <host>"; a refused or missing one shows "Image not found: <path>". The agent instructions tell Claude to save images it wants to show under `.portikus/images/` in the project and link them by relative path.
 
 ### 24.2 Student code is untrusted
 
@@ -5409,7 +5423,9 @@ Added by Epic 56 (ADR 0068): an agent's state is shown by a shape as well as a c
 
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
-Added by Epic 58: the chat tab follows the same rules. A card never takes the keyboard from the composer, so Enter cannot grant a permission by accident; opening a chat as the focused pane focuses its message box. Focus rings are inset and not clipped. "Other" checks its radio, each option is described by its own preview, Enter in Notes adds a line and Ctrl+Enter or the button sends, and focus moves after an attachment is removed. A polite status region announces attachments, the bypass warning and a refused change; Send uses `aria-disabled` with a reason; the connection notice has an explicit `aria-live`, and "1 more request is waiting" is announced. Pickers have visible labels and `line-strong` borders, and show the requested value while the host confirms. Alt+Shift+Q leaves a chat. A tool's state is a glyph as well as a word.
+Added by Epic 58: the chat tab follows the same rules. A card never takes the keyboard from the composer, so Enter cannot grant a permission by accident; opening a chat as the focused pane focuses its message box. Focus rings are inset and not clipped. "Other" checks its radio, each option is described by its own preview, Enter in a note adds a line and Ctrl+Enter or the button goes on, and focus moves after an attachment is removed. A polite status region announces attachments, the bypass warning and a refused change; Send uses `aria-disabled` with a reason; the connection notice has an explicit `aria-live`, and "1 more request is waiting" is announced. Pickers have visible labels and `line-strong` borders, and show the requested value while the host confirms. Alt+Shift+Q leaves a chat. A running, failed or stopped tool's state is a glyph as well as a word; a finished tool shows no state, since its past-tense verb says it. "Jump to latest" is an icon button with that name, and while it shows a dot it is also described as "Something new arrived below".
+
+Added by Epic 58.1: a question card shows one question at a time. Focus starts on the chosen option, or the first, and moves only with the student's own Next, Skip or pager action; arrow keys move between options, checkboxes included; Next and Submit stay focusable with `aria-disabled` and a reason until the question is answered or skipped; a polite region reads "Question 2 of 3" and the question. No focus move in the chat scrolls anything but the chat's own log or card body, and the chat and its pane clip their overflow, so the workspace page never scrolls.
 
 ### 25.9 Browser support
 
@@ -7094,6 +7110,23 @@ Acceptance:
 - a card answered in one browser tab clears in the others, and a reattach shows the history with real times;
 - an ended chat resumes the same conversation, and no platform SDK binary is in the package;
 - the chat smoke check creates a chat tab, receives a snapshot and a plan-mode `settings` event.
+
+### Epic 58.1 — chat fix batch
+
+Built on `epic/58.1-chat-fixes`. Migration 0053. See sections 8.5, 10.8, 24.1 and 25.8.
+
+Includes:
+
+- a Markdown message box (TipTap), an icon Send button, styled pickers, and Send during a running turn;
+- session allow rules that are named, listed and revocable, and chat settings remembered per project;
+- local images in replies through an owner-only route, a viewer, sent-picture thumbnails and Copy buttons;
+- one-line tool rows, starter prompts, a paged question card, a chat that never scrolls its pane, and splits that ask what to open.
+
+Acceptance:
+
+- "Always allow" names what it grants, and a session rule can be revoked;
+- a reply image outside the student's home folder, or an SVG, is never served;
+- the workspace page never scrolls when focus moves in a chat.
 
 ### Estimated total
 

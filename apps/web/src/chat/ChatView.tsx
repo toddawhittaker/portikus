@@ -7,15 +7,18 @@
  * must not grant a permission.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
-import { Button, Skeleton } from "@portikus/ui";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { AgentStateMark, IconButton, Skeleton } from "@portikus/ui";
+import type { TiptapEditorHTMLElement } from "@tiptap/core";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { Composer } from "./Composer.js";
 import type { ChatState } from "./chatStore.js";
+import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -67,9 +70,25 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-const COMPOSER_BOX = ".pk-chat-composer textarea";
+const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
 
-export function ChatView({
+/** Ways into a new chat; a click puts one in the message box to edit, never sends it. */
+const STARTERS = [
+	"Explain how this project is organised",
+	"Find a bug and explain it before fixing it",
+	"Write tests for the main file",
+] as const;
+
+/** The chat with its images' viewer around it, so a reply or a tool can open one. */
+export function ChatView(props: ChatViewProps) {
+	return (
+		<ImageViewerProvider workspaceId={props.workspaceId} projectId={props.projectId}>
+			<ChatViewBody {...props} />
+		</ImageViewerProvider>
+	);
+}
+
+function ChatViewBody({
 	workspaceId,
 	projectId,
 	terminalId,
@@ -77,28 +96,44 @@ export function ChatView({
 	focused,
 	onLeave,
 }: ChatViewProps) {
-	const store = useChatSession(workspaceId, terminalId);
+	const store = useChatSession(workspaceId, projectId, terminalId);
 	const state = useStore(store);
 	const root = useRef<HTMLDivElement | null>(null);
 	const log = useRef<HTMLDivElement | null>(null);
 	const content = useRef<HTMLDivElement | null>(null);
 	const cardsHadFocus = useRef(false);
+	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
 	const card = state.cards[0];
 	const waiting = state.cards.length - 1;
+	// A permission card's id is the id of the tool call it asks about.
+	const asking = useMemo(
+		() =>
+			new Set(
+				state.cards.flatMap((one) => (one.type === "permission" ? [one.id] : [])),
+			),
+		[state.cards],
+	);
 
 	// Opening a chat from the launcher puts the keyboard in its message box.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the chat first appears
 	useEffect(() => {
-		if (focused) root.current?.querySelector<HTMLElement>(COMPOSER_BOX)?.focus();
+		if (focused) focusComposer();
 	}, []);
 
-	// Where ResizeObserver is missing, new content still keeps the end in view.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation grows
+	// Where ResizeObserver is missing, new content still keeps the end in view;
+	// a student reading back is told it came instead.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
+	useLayoutEffect(() => {
+		follow.arrived();
+	}, [state.items]);
+
+	// So does a turn's working line, and a card docking below the log, which makes it shorter.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the turn or the dock changes
 	useLayoutEffect(() => {
 		const box = log.current;
 		if (box && !follow.away) box.scrollTop = box.scrollHeight;
-	}, [state.items, state.currentTurnId]);
+	}, [state.currentTurnId, card?.id]);
 
 	// A card answered here or in another browser takes the focus with it; put it somewhere useful.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the front card changes
@@ -112,7 +147,7 @@ export function ChatView({
 			?.querySelector<HTMLElement>(
 				`.pk-chat-cards input, .pk-chat-cards button, ${COMPOSER_BOX}`,
 			)
-			?.focus();
+			?.focus({ preventScroll: true });
 	}, [card?.id]);
 
 	/** A new card takes the keyboard only when nothing holds it; the announcement covers the rest. */
@@ -122,10 +157,41 @@ export function ChatView({
 		return active === null || active === document.body;
 	}
 
+	/** Focus never scrolls: only the log scrolls, and only by its own rules. */
+	function focusComposer() {
+		root.current
+			?.querySelector<HTMLElement>(COMPOSER_BOX)
+			?.focus({ preventScroll: true });
+	}
+
+	/**
+	 * The composer's editor hangs on its element (TipTap's own handle), so no
+	 * new prop is needed. A draft already typed is kept, never replaced.
+	 */
+	function fillComposer(text: string) {
+		const editor =
+			root.current?.querySelector<TiptapEditorHTMLElement>(COMPOSER_BOX)?.editor;
+		if (!editor) return;
+		if (!editor.isEmpty) {
+			editor.view.focus();
+			return;
+		}
+		editor
+			.chain()
+			.setContent({
+				type: "doc",
+				content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+			})
+			.focus("end", { scrollIntoView: false })
+			.run();
+		// TipTap focuses on the next frame; the student's next key should land now.
+		editor.view.focus();
+	}
+
 	function jumpToLatest() {
 		follow.toEnd();
 		// The button goes away with its own click, so the keyboard needs a new home.
-		root.current?.querySelector<HTMLElement>(COMPOSER_BOX)?.focus();
+		focusComposer();
 	}
 
 	const notice = CONNECTION_TEXT[state.connection];
@@ -162,9 +228,22 @@ export function ChatView({
 							<div className="pk-chat-empty" data-testid="chat-empty">
 								<p className="pk-chat-empty-title">No messages yet</p>
 								<p className="pk-chat-muted">
-									Ask Claude Code about this project below. The conversation is kept in
-									your workspace, not by Portikus.
+									Ask Claude Code about this project below, or start from one of these.
+									The conversation is kept in your workspace, not by Portikus.
 								</p>
+								<ul className="pk-chat-starters">
+									{STARTERS.map((starter) => (
+										<li key={starter}>
+											<button
+												type="button"
+												className="pk-chat-starter pk-focus-ring"
+												onClick={() => fillComposer(starter)}
+											>
+												{starter}
+											</button>
+										</li>
+									))}
+								</ul>
 							</div>
 						) : (
 							<MessageList
@@ -172,20 +251,31 @@ export function ChatView({
 								turns={state.turns}
 								currentTurnId={state.currentTurnId}
 								truncated={state.truncated}
+								asking={asking}
 							/>
 						)}
 					</div>
 				</div>
 				{follow.away ? (
 					<div className="pk-chat-jump">
-						<Button
-							size="sm"
-							iconStart="chevron-down"
+						<IconButton
+							icon="chevron-down"
+							label="Jump to latest"
+							variant="secondary"
+							className="pk-chat-jump-button"
 							data-testid="chat-jump"
+							data-fresh={follow.fresh || undefined}
+							aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
 							onClick={jumpToLatest}
-						>
-							Jump to latest
-						</Button>
+						/>
+						{follow.fresh ? (
+							<>
+								<span className="pk-chat-jump-dot" aria-hidden={true} />
+								<span id={`${ids}-fresh`} className="sr-only">
+									Something new arrived below
+								</span>
+							</>
+						) : null}
 					</div>
 				) : null}
 			</div>
@@ -227,8 +317,13 @@ export function ChatView({
 							}
 						/>
 					)}
+					<p className="pk-chat-needs" data-testid="chat-needs-input">
+						<AgentStateMark state="needs-input" />
+						Needs your input
+					</p>
 				</div>
 			) : null}
+			<SessionRules store={store} />
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}

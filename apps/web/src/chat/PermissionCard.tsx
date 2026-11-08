@@ -3,6 +3,10 @@
  * form a student checks fastest (a command as the command, an edit as a
  * diff), and one button per option the agent offers. `ExitPlanMode` carries
  * a plan, which is shown as Markdown.
+ *
+ * With the keyboard inside the card, 1, 2 and 3 choose its options, each
+ * button showing its number. The keys act only inside the card, never from
+ * the message box, so typing there cannot grant a permission (SPEC.md §25.8).
  */
 import type { ChatOpenCard } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
@@ -11,6 +15,8 @@ import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import { toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
+import "./permissions.css";
+import "./turn.css";
 
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
@@ -146,6 +152,14 @@ export function PermissionCard({
 			className="pk-chat-card"
 			aria-labelledby={titleId}
 			data-testid="chat-permission-card"
+			onKeyDown={(event) => {
+				if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+				const at = Number(event.key) - 1;
+				const option = card.options[at];
+				if (!option) return;
+				event.preventDefault();
+				choose(option.id);
+			}}
 		>
 			<h2 id={titleId} className="pk-text-heading">
 				{title}
@@ -162,9 +176,15 @@ export function PermissionCard({
 						variant={at === 0 ? "primary" : "secondary"}
 						loading={chosen === option.id}
 						aria-disabled={chosen !== null && chosen !== option.id ? true : undefined}
+						className={option.id === "always" ? "pk-chat-always" : undefined}
 						data-testid={`chat-permission-${option.id}`}
+						aria-keyshortcuts={String(at + 1)}
 						onClick={() => choose(option.id)}
 					>
+						{/* The button's aria-keyshortcuts names the key; the cap is for sight only. */}
+						<span className="pk-turn-key" aria-hidden={true}>
+							{at + 1}
+						</span>
 						{option.label}
 					</Button>
 				))}

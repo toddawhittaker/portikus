@@ -87,6 +87,11 @@ function setup(withTab = true) {
 	return { main, feed, look };
 }
 
+/** Whether the toast at `index` carries the desktop notification offer. */
+function hasOffer(index: number) {
+	return shown[index]?.props.onDismiss !== undefined;
+}
+
 /** Render the actions of the toast at `index`. */
 function actionsOf(index: number) {
 	render(<div>{shown[index]?.props.actions}</div>);
@@ -118,7 +123,7 @@ describe("raising alerts", () => {
 		expect(shown).toHaveLength(1);
 		expect(shown[0]?.props.title).toBe("Claude Code needs your input");
 		expect(shown[0]?.props.unrecorded).toBe(true);
-		expect(shown[0]?.props.persistent).toBe(false);
+		expect(shown[0]?.props.persistent).toBe(true);
 		expect(notify).toHaveBeenCalledTimes(1);
 		expect(notify.mock.calls[0]?.[0]).toMatchObject({
 			terminalId: T1,
@@ -157,8 +162,41 @@ describe("raising alerts", () => {
 	});
 });
 
+describe("staying on screen", () => {
+	it("keeps every agent toast until seen or dismissed, with or without the offer", () => {
+		const { feed } = setup();
+		feed([term(T1, "working"), term(T2, "working")], true);
+		feed([term(T1, "finished"), term(T2, "needs-input")]);
+		expect(shown).toHaveLength(2);
+		for (const t of shown) expect(t.props.persistent).toBe(true);
+		setting = "off";
+		feed([term(T1, "needs-input"), term(T2, "finished")]);
+		expect(shown[2]?.props.persistent).toBe(true);
+		expect(shown[3]?.props.persistent).toBe(true);
+	});
+
+	it("is removed on seen, and a replaced toast is removed", () => {
+		const { feed, look } = setup();
+		feed([term(T1, "working"), term(T2, "working")], true);
+		feed([term(T1, "finished"), term(T2, "finished")]);
+		feed([term(T1, "needs-input"), term(T2, "finished")]);
+		expect(shown[0]?.remove).toHaveBeenCalledTimes(1);
+		look([T2]);
+		expect(shown[1]?.remove).toHaveBeenCalledTimes(1);
+	});
+
+	it("is removed when its terminal leaves the list, as a closed terminal can never be seen", () => {
+		const { feed } = setup();
+		feed([term(T1, "working"), term(T2, "working")], true);
+		feed([term(T1, "needs-input"), term(T2, "finished")]);
+		feed([term(T2, "finished")]);
+		expect(shown[0]?.remove).toHaveBeenCalledTimes(1);
+		expect(shown[1]?.remove).not.toHaveBeenCalled();
+	});
+});
+
 describe("the desktop notification offer", () => {
-	it("is persistent only when it will show", () => {
+	it("is offered only when it will show", () => {
 		const cases = [
 			["the setting is on", () => (setting = "on"), false],
 			["the browser has no Notification", () => (supported = false), false],
@@ -174,7 +212,7 @@ describe("the desktop notification offer", () => {
 			const { feed } = setup();
 			feed([term(T1, "working")], true);
 			feed([term(T1, "finished")]);
-			expect(shown[0]?.props.persistent, name).toBe(expected);
+			expect(hasOffer(0), name).toBe(expected);
 		}
 	});
 
@@ -182,8 +220,8 @@ describe("the desktop notification offer", () => {
 		const { feed } = setup();
 		feed([term(T1, "working"), term(T2, "working")], true);
 		feed([term(T1, "finished"), term(T2, "finished")]);
-		expect(shown[0]?.props.persistent).toBe(true);
-		expect(shown[1]?.props.persistent).toBe(false);
+		expect(hasOffer(0)).toBe(true);
+		expect(hasOffer(1)).toBe(false);
 	});
 
 	it("answering removes the toast and focuses the selected tab", () => {
@@ -196,7 +234,7 @@ describe("the desktop notification offer", () => {
 		expect(document.activeElement).toBe(main.querySelector('[role="tab"]'));
 		// Answered: no later toast carries it.
 		feed([term(T1, "needs-input")]);
-		expect(shown[1]?.props.persistent).toBe(false);
+		expect(hasOffer(1)).toBe(false);
 	});
 
 	it("answering focuses the work area when no tab is selected", () => {
@@ -213,8 +251,8 @@ describe("the desktop notification offer", () => {
 		feed([term(T1, "working")], true);
 		feed([term(T1, "needs-input")]);
 		feed([term(T1, "finished")]);
-		expect(shown[0]?.props.persistent).toBe(true);
-		expect(shown[1]?.props.persistent).toBe(true);
+		expect(hasOffer(0)).toBe(true);
+		expect(hasOffer(1)).toBe(true);
 	});
 
 	it("is carried on after the toast holding it is removed unanswered", () => {
@@ -224,7 +262,7 @@ describe("the desktop notification offer", () => {
 		look([T1]);
 		look([]);
 		feed([term(T1, "needs-input")]);
-		expect(shown[1]?.props.persistent).toBe(true);
+		expect(hasOffer(1)).toBe(true);
 	});
 
 	it("is not made again once the student dismissed it", () => {
@@ -233,7 +271,7 @@ describe("the desktop notification offer", () => {
 		feed([term(T1, "finished")]);
 		act(() => shown[0]?.props.onDismiss?.());
 		feed([term(T1, "needs-input")]);
-		expect(shown[1]?.props.persistent).toBe(false);
+		expect(hasOffer(1)).toBe(false);
 		expect(shown[1]?.props.onDismiss).toBeUndefined();
 	});
 });

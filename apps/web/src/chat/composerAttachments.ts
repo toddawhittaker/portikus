@@ -27,6 +27,8 @@ export interface ComposerAttachment {
 	previewUrl: string | null;
 	/** The saved size in bytes, which is smaller than the original for a shrunk picture. */
 	size: number;
+	/** For a long paste saved as a file, its line count, which the chip shows instead of the size. */
+	lines: number | null;
 }
 
 /** Pictures Claude can read; SVG is left out because it can carry script. */
@@ -74,6 +76,12 @@ function fileCount(count: number): string {
 	return count === 1 ? "1 file" : `${count} files`;
 }
 
+const LINES = new Intl.NumberFormat();
+
+export function lineText(lines: number): string {
+	return lines === 1 ? "1 line" : `${LINES.format(lines)} lines`;
+}
+
 export function useComposerAttachments(workspaceId: string, projectId: string) {
 	const toast = useToast();
 	const [items, setItems] = useState<ComposerAttachment[]>([]);
@@ -95,7 +103,8 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 	}, []);
 
 	const add = useCallback(
-		async (files: File[]) => {
+		/** `lines` is given for a long paste saved as one text file. */
+		async (files: File[], lines: number | null = null) => {
 			const { accepted, refused } = sortOut(files, reserved.current);
 			reserved.current += accepted.length;
 			setRefusal(refused);
@@ -132,6 +141,7 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 							name: file.name,
 							previewUrl,
 							size: file.size,
+							lines,
 						},
 					]);
 					setSaving((n) => n - 1);
@@ -145,7 +155,15 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 					return;
 				}
 			}
-			setStatus(saved > 0 ? `Attached ${fileCount(saved)}.` : "");
+			// A long paste says where it went, so nobody pastes it again thinking it was lost.
+			const pasted = lines !== null && saved === 1 ? accepted[0] : undefined;
+			setStatus(
+				pasted
+					? `Pasted ${lineText(lines as number)}, attached as ${displayName(pasted.name)}.`
+					: saved > 0
+						? `Attached ${fileCount(saved)}.`
+						: "",
+			);
 		},
 		[workspaceId, projectId, toast],
 	);

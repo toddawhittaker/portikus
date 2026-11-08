@@ -190,6 +190,61 @@ describe("Menu", () => {
 		expect(onValueChange).toHaveBeenCalledWith("768");
 	});
 
+	it("a radio item's line under its label describes it without joining its name", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Model</MenuTrigger>
+				<Menu label="Model" align="start">
+					<MenuRadioGroup label="Model" value="opus" onValueChange={vi.fn()}>
+						<MenuRadioItem value="opus" description="For hard problems.">
+							Opus
+						</MenuRadioItem>
+						<MenuRadioItem value="haiku">Haiku</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Model"), { key: "Enter" });
+
+		const opus = screen.getByRole("menuitemradio", { name: "Opus" });
+		expect(opus.className).toContain("pk-menu-item--described");
+		const described = document.getElementById(
+			opus.getAttribute("aria-describedby") ?? "",
+		);
+		expect(described?.textContent).toBe("For hard problems.");
+		const haiku = screen.getByRole("menuitemradio", { name: "Haiku" });
+		expect(haiku.hasAttribute("aria-describedby")).toBe(false);
+		expect(haiku.className).not.toContain("pk-menu-item--described");
+	});
+
+	it("an unavailable radio item stays reachable, unchecked, and changes nothing", () => {
+		const onValueChange = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Agent</MenuTrigger>
+				<Menu label="Agent">
+					<MenuRadioGroup label="Agent" value="claude" onValueChange={onValueChange}>
+						<MenuRadioItem value="claude">Claude Code</MenuRadioItem>
+						<MenuRadioItem value="codex" unavailable description="Coming soon.">
+							Codex
+						</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Agent"), { key: "Enter" });
+
+		const codex = screen.getByRole("menuitemradio", { name: "Codex" });
+		expect(codex.getAttribute("aria-disabled")).toBe("true");
+		expect(codex.getAttribute("aria-checked")).toBe("false");
+		// Not Radix's disabled, which the arrow keys skip.
+		expect(codex.hasAttribute("data-disabled")).toBe(false);
+		fireEvent.keyDown(codex, { key: "Enter" });
+		fireEvent.click(codex);
+		expect(onValueChange).not.toHaveBeenCalled();
+		expect(screen.getByRole("menu")).toBeTruthy();
+	});
+
 	it("radio items work in the context menu family", () => {
 		render(
 			<ContextMenu>
@@ -267,6 +322,28 @@ describe("Menu", () => {
 		expect(screen.getByRole("menu", { name: "Move into" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("menuitem", { name: "bash" }));
 		expect(onSelect).toHaveBeenCalledTimes(1);
+	});
+
+	it("Escape in a submenu returns to its parent menu", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Split right">
+						<MenuItem>Terminal</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Split right" });
+		fireEvent.keyDown(item, { key: "Enter" });
+		const sub = screen.getByRole("menu", { name: "Split right" });
+
+		fireEvent.keyDown(sub, { key: "Escape" });
+		expect(screen.queryByRole("menu", { name: "Split right" })).toBeNull();
+		expect(screen.getAllByRole("menu")).toHaveLength(1);
+		expect(document.activeElement).toBe(item);
 	});
 
 	it("a disabled submenu item does not open", () => {

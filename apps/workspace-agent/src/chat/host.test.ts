@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type {
 	Options,
 	PermissionResult,
+	PermissionUpdate,
 	Query,
 	SDKMessage,
 	SDKUserMessage,
@@ -46,12 +47,18 @@ class FakeQuery {
 		this.wake?.();
 	}
 
-	ask(toolName: string, input: Record<string, unknown>, toolUseID: string) {
+	ask(
+		toolName: string,
+		input: Record<string, unknown>,
+		toolUseID: string,
+		suggestions?: PermissionUpdate[],
+	) {
 		const controller = new AbortController();
 		const result = this.options.canUseTool?.(toolName, input, {
 			signal: controller.signal,
 			toolUseID,
 			requestId: toolUseID,
+			...(suggestions ? { suggestions } : {}),
 		}) as Promise<PermissionResult>;
 		return { result, controller };
 	}
@@ -66,8 +73,20 @@ class FakeQuery {
 	async setPermissionMode(mode: string) {
 		this.calls.push(`mode:${mode}`);
 	}
+	/** The flag layer as the SDK documents it: top-level keys shallow-merge. */
+	readonly flags: Record<string, unknown> = {};
+	/** When set, each flag change waits on it, so a test can overlap two. */
+	flagGate: Promise<void> | null = null;
+	flagFailure: Error | null = null;
 	async applyFlagSettings(settings: Record<string, unknown>) {
-		this.calls.push(`effort:${settings.effortLevel}`);
+		if ("permissions" in settings) {
+			this.calls.push(`permissions:${JSON.stringify(settings.permissions)}`);
+		} else {
+			this.calls.push(`effort:${settings.effortLevel}`);
+		}
+		await this.flagGate;
+		if (this.flagFailure) throw this.flagFailure;
+		Object.assign(this.flags, settings);
 	}
 	close() {
 		this.ended = true;
@@ -137,6 +156,8 @@ async function attach(): Promise<Client> {
 	const socket = connect(host.socketPath);
 	const events: ChatServerEvent[] = [];
 	readLines(socket, 16 * 1024 * 1024, (line) => events.push(JSON.parse(line)));
+	// The host destroys every attachment on stop; a reset then is expected.
+	socket.on("error", () => undefined);
 	await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
 	const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
 	return {
@@ -278,6 +299,7 @@ describe("attaching", () => {
 			agent: "claude",
 			effort: "high",
 		});
+		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
 	});
 
 	test("events during the transcript read come after the replay, numbered in order, without doubling the partial reply", async () => {
@@ -395,6 +417,43 @@ describe("cards", () => {
 		}
 	});
 
+	for (const [capabilities, expected] of [
+		[["ask_user_question_unanswered_v1"], { "Which size?": { unanswered: "skipped" } }],
+		[[], undefined],
+	] as const) {
+		test(`a skipped question is marked only when init allows it (${capabilities.length > 0})`, async () => {
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			fake.emit({
+				type: "system",
+				subtype: "init",
+				model: "claude-haiku-4-5",
+				permissionMode: "default",
+				capabilities: [...capabilities],
+			} as never);
+			await vi.waitFor(() =>
+				expect(ofType(a, "settings").at(-1)?.model).toBe("claude-haiku-4-5"),
+			);
+			const options = [
+				{ label: "A", description: "" },
+				{ label: "B", description: "" },
+			];
+			const questions = [
+				{ question: "Which colour?", header: "Colour", multiSelect: false, options },
+				{ question: "Which size?", header: "Size", multiSelect: false, options },
+			];
+			const { result } = fake.ask("AskUserQuestion", { questions }, "toolu_s");
+			await vi.waitFor(() => expect(ofType(a, "question.requested")).toHaveLength(1));
+			a.send({
+				type: "question.answer",
+				id: "toolu_s",
+				answers: { "Which colour?": "A" },
+			});
+			const answered = (await result) as { updatedInput: Record<string, unknown> };
+			expect(answered.updatedInput.annotations).toEqual(expected);
+		});
+	}
+
 	test("a permission answer with an option the card lacks is ignored", async () => {
 		const a = await attach();
 		const fake = queries[0] as FakeQuery;
@@ -413,6 +472,219 @@ describe("cards", () => {
 		controller.abort();
 		expect((await result).behavior).toBe("deny");
 		await vi.waitFor(() => expect(ofType(a, "card.resolved")).toHaveLength(1));
+	});
+});
+
+describe("session rules", () => {
+	/** What Claude Code suggests for a `sed -i` call, as the real CLI sent it, plus a session rule. */
+	const SED_SUGGESTIONS: PermissionUpdate[] = [
+		{
+			type: "addRules",
+			rules: [{ toolName: "Bash", ruleContent: "sed -i 's/a/b/' a.txt" }],
+			behavior: "allow",
+			destination: "localSettings",
+		},
+		{
+			type: "addRules",
+			rules: [{ toolName: "Bash", ruleContent: "sed:*" }],
+			behavior: "allow",
+			destination: "session",
+		},
+		{ type: "setMode", mode: "acceptEdits", destination: "session" },
+	];
+
+	test("Always allow holds session rules in the host and hands the rest to the SDK", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result } = fake.ask(
+			"Bash",
+			{ command: "sed -i x" },
+			"toolu_s",
+			SED_SUGGESTIONS,
+		);
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		const card = ofType(a, "permission.requested")[0];
+		expect(card?.options.find((option) => option.id === "always")?.label).toBe(
+			`Always allow the command "sed -i 's/a/b/' a.txt" in this project, saved to your local project settings; "sed" commands in this session; file edits without asking in this session`,
+		);
+		a.send({ type: "permission.answer", id: "toolu_s", optionId: "always" });
+		expect(await result).toEqual({
+			behavior: "allow",
+			updatedInput: { command: "sed -i x" },
+			updatedPermissions: [SED_SUGGESTIONS[0], SED_SUGGESTIONS[2]],
+		});
+		expect(fake.calls).toEqual(['permissions:{"allow":["Bash(sed:*)"]}']);
+		await vi.waitFor(() =>
+			expect(ofType(a, "rules").at(-1)?.rules).toEqual([
+				{ rule: "Bash(sed:*)", description: '"sed" commands in this session' },
+			]),
+		);
+
+		// A browser attaching later is told the rules in force.
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "rules").at(-1)?.rules).toHaveLength(1));
+
+		a.send({ type: "rule.revoke", rule: "Bash(sed:*)" });
+		await vi.waitFor(() => expect(fake.calls.at(-1)).toBe("permissions:null"));
+		await vi.waitFor(() => expect(ofType(b, "rules").at(-1)?.rules).toEqual([]));
+	});
+
+	test("revoking one of two rules keeps the other in force", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		for (const [id, content] of [
+			["toolu_1", "sed:*"],
+			["toolu_2", "ls:*"],
+		] as const) {
+			const { result } = fake.ask("Bash", { command: content }, id, [
+				{
+					type: "addRules",
+					rules: [{ toolName: "Bash", ruleContent: content }],
+					behavior: "allow",
+					destination: "session",
+				},
+			]);
+			await vi.waitFor(() =>
+				expect(ofType(a, "permission.requested").some((c) => c.id === id)).toBe(true),
+			);
+			a.send({ type: "permission.answer", id, optionId: "always" });
+			expect(await result).toEqual({
+				behavior: "allow",
+				updatedInput: { command: content },
+			});
+		}
+		a.send({ type: "rule.revoke", rule: "Bash(sed:*)" });
+		await vi.waitFor(() =>
+			expect(fake.calls.at(-1)).toBe('permissions:{"allow":["Bash(ls:*)"]}'),
+		);
+		a.send({ type: "rule.revoke", rule: "Bash(unknown)" });
+		await vi.waitFor(() => expect(ofType(a, "rules").at(-1)?.rules).toHaveLength(1));
+		expect(fake.calls.filter((call) => call.startsWith("permissions"))).toHaveLength(3);
+	});
+
+	/** Ask for a Bash command whose Always allow grants `content` for the session. */
+	async function askSessionRule(
+		a: Client,
+		fake: FakeQuery,
+		id: string,
+		content: string,
+	) {
+		const asked = fake.ask("Bash", { command: content }, id, [
+			{
+				type: "addRules",
+				rules: [{ toolName: "Bash", ruleContent: content }],
+				behavior: "allow",
+				destination: "session",
+			},
+		]);
+		await vi.waitFor(() =>
+			expect(ofType(a, "permission.requested").some((c) => c.id === id)).toBe(true),
+		);
+		return { result: asked.result };
+	}
+
+	test("two Always allow answers sent together keep both rules", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result: first } = await askSessionRule(a, fake, "toolu_1", "sed:*");
+		const { result: second } = await askSessionRule(a, fake, "toolu_2", "grep:*");
+		let release = () => {};
+		fake.flagGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		a.send({ type: "permission.answer", id: "toolu_1", optionId: "always" });
+		a.send({ type: "permission.answer", id: "toolu_2", optionId: "always" });
+		await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
+		release();
+		await Promise.all([first, second]);
+		await vi.waitFor(() =>
+			expect(fake.flags.permissions).toEqual({
+				allow: ["Bash(sed:*)", "Bash(grep:*)"],
+			}),
+		);
+		await vi.waitFor(() =>
+			expect(
+				ofType(a, "rules")
+					.at(-1)
+					?.rules.map((held) => held.rule),
+			).toEqual(["Bash(sed:*)", "Bash(grep:*)"]),
+		);
+	});
+
+	test("a revoke sent while a grant is waiting stays revoked", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result: first } = await askSessionRule(a, fake, "toolu_1", "rm:*");
+		a.send({ type: "permission.answer", id: "toolu_1", optionId: "always" });
+		await first;
+		await vi.waitFor(() =>
+			expect(fake.flags.permissions).toEqual({ allow: ["Bash(rm:*)"] }),
+		);
+
+		const { result: second } = await askSessionRule(a, fake, "toolu_2", "ls:*");
+		let release = () => {};
+		fake.flagGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		a.send({ type: "permission.answer", id: "toolu_2", optionId: "always" });
+		a.send({ type: "rule.revoke", rule: "Bash(rm:*)" });
+		await vi.waitFor(() => expect(fake.calls).toHaveLength(2));
+		release();
+		await second;
+		await vi.waitFor(() => expect(fake.calls).toHaveLength(3));
+		await vi.waitFor(() =>
+			expect(fake.flags.permissions).toEqual({ allow: ["Bash(ls:*)"] }),
+		);
+		await vi.waitFor(() =>
+			expect(
+				ofType(a, "rules")
+					.at(-1)
+					?.rules.map((held) => held.rule),
+			).toEqual(["Bash(ls:*)"]),
+		);
+	});
+
+	test("a grant that fails still runs the tool once and says the rule was not saved", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result } = await askSessionRule(a, fake, "toolu_1", "sed:*");
+		fake.flagFailure = new Error("settings_not_applied");
+		a.send({ type: "permission.answer", id: "toolu_1", optionId: "always" });
+		expect((await result).behavior).toBe("allow");
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toBe(
+			"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
+		);
+		expect(ofType(a, "rules").at(-1)?.rules).toEqual([]);
+	});
+
+	// The SDK shallow-merges flag settings by top-level key, so an effort
+	// change leaves the session rules in force.
+	test("changing effort keeps the session rules", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const { result } = await askSessionRule(a, fake, "toolu_1", "sed:*");
+		a.send({ type: "permission.answer", id: "toolu_1", optionId: "always" });
+		await result;
+		a.send({ type: "set", effort: "low" });
+		await vi.waitFor(() => expect(fake.calls.at(-1)).toBe("effort:low"));
+		await vi.waitFor(() => expect(fake.flags.effortLevel).toBe("low"));
+		expect(fake.flags.permissions).toEqual({ allow: ["Bash(sed:*)"] });
+		expect(ofType(a, "rules").at(-1)?.rules).toHaveLength(1);
+	});
+
+	test("a mode change Claude makes mid-turn reaches the picker", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "status",
+			status: null,
+			permissionMode: "acceptEdits",
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({ mode: "acceptEdits" }),
+		);
 	});
 });
 

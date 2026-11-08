@@ -13,6 +13,7 @@ import {
 	waitForSavedLeaf,
 	workspacePath,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 /**
  * The tabbed work area, splits and the saved per-project layout (SPEC.md
@@ -24,6 +25,10 @@ test.describe("work area layout", () => {
 		terminalId: string,
 		testId: string,
 	): Promise<void> {
+		if (testId === "split-right" || testId === "split-down") {
+			await splitPane(page, terminalId, testId === "split-right" ? "right" : "down");
+			return;
+		}
 		await page.getByTestId(`terminal-actions-${terminalId}`).click();
 		await page.getByTestId(testId).click();
 	}

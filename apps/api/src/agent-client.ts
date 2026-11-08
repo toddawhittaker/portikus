@@ -39,6 +39,7 @@ import type { Database } from "@portikus/db";
 import type { Selectable } from "kysely";
 import { z } from "zod";
 
+export { readCapped } from "@portikus/agent-client";
 export { AgentCallError };
 
 /**

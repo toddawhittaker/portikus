@@ -1,29 +1,46 @@
 /**
- * One tool call in the conversation: a collapsed row with the tool, a short
- * summary and its state, that opens to what it did and what came back
- * (SPEC.md §10.8). The raw input stays one click further in. Images from a
- * tool are drawn from `data:` URLs, which the page's img-src allows
- * (apps/web/src/csp.ts).
+ * One tool call in the conversation: a light row that says what happened
+ * ("Read a.ts", "Ran pnpm test", "Edited a.ts +1 −3"), with its state only
+ * while it runs or when it failed or stopped. It opens to what it did and
+ * what came back, leaving out what the row already says (SPEC.md §10.8). The
+ * raw input stays one click further in. Images from a tool are drawn from
+ * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
 import { Icon, type IconName } from "@portikus/ui";
 import { memo } from "react";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
-import { type ToolDetail, toolView } from "./toolView.js";
+import { useChatImages } from "./ImageViewer.js";
+import { type ToolDetail, type ToolLine, toolLine } from "./toolView.js";
+
+/** A tool's image opens large in the viewer, like an image in a reply. */
+function ToolImage({ src, tool }: { src: string; tool: string }) {
+	const images = useChatImages();
+	const alt = `Output of ${tool}`;
+	const image = (
+		<img className="pk-chat-tool-image" src={src} alt={alt} decoding="async" />
+	);
+	if (images === null) return image;
+	return (
+		<button
+			type="button"
+			className="pk-chat-image"
+			aria-label={`View image ${alt}`}
+			onClick={() => images.open({ src, name: alt, alt })}
+		>
+			{image}
+		</button>
+	);
+}
 
 function OutputPart({ part, tool }: { part: ChatToolOutputPart; tool: string }) {
 	switch (part.type) {
 		case "text":
-			return <CodeBlock text={part.text} />;
+			return <CodeBlock text={part.text} copyLabel="Copy output" />;
 		case "image":
 			return (
-				<img
-					className="pk-chat-tool-image"
-					src={`data:${part.mediaType};base64,${part.data}`}
-					alt={`Output of ${tool}`}
-					decoding="async"
-				/>
+				<ToolImage src={`data:${part.mediaType};base64,${part.data}`} tool={tool} />
 			);
 		case "imageOmitted":
 			return <p className="pk-chat-muted">Image not kept</p>;
@@ -41,29 +58,59 @@ function Detail({ detail }: { detail: ToolDetail }) {
 	}
 }
 
-/** Each state has a word and its own glyph, so colour is never the only sign. */
-const STATE: Record<ChatToolItem["status"], { label: string; icon: IconName | null }> =
-	{
-		running: { label: "Running", icon: null },
-		done: { label: "Done", icon: "check" },
-		error: { label: "Failed", icon: "alert" },
-		stopped: { label: "Stopped", icon: "stop" },
-	};
+/** Each state shown has a word and its own glyph, so colour is never the only sign. */
+const STATE: Record<
+	Exclude<ChatToolItem["status"], "done">,
+	{ label: string; icon: IconName | null }
+> = {
+	running: { label: "Running", icon: null },
+	error: { label: "Failed", icon: "alert" },
+	stopped: { label: "Stopped", icon: "stop" },
+};
 
-function ToolState({ status }: { status: ChatToolItem["status"] }) {
+function ToolState({
+	status,
+	verbSaysIt,
+}: {
+	status: ChatToolItem["status"];
+	/** The row's verb already tells the state: "Ran", or "Running pnpm test". */
+	verbSaysIt: boolean;
+}) {
+	if (status === "done") return null;
 	const state = STATE[status];
 	return (
 		<span className={`pk-chat-tool-state is-${status}`} data-testid="chat-tool-state">
 			{status === "running" ? <span className="pk-spin" aria-hidden={true} /> : null}
 			{state.icon ? <Icon name={state.icon} size="sm" /> : null}
-			{state.label}
+			{status === "running" && verbSaysIt ? null : state.label}
+		</span>
+	);
+}
+
+const lines = (count: number) => `${count} ${count === 1 ? "line" : "lines"}`;
+
+/** "+1 −3" to the eye; spelled out for a screen reader. */
+function EditStat({ line }: { line: ToolLine }) {
+	if (line.added === 0 && line.removed === 0) return null;
+	return (
+		<span className="pk-chat-tool-stat pk-mono-body">
+			<span aria-hidden={true}>
+				<span className="is-added">+{line.added}</span>{" "}
+				<span className="is-removed">−{line.removed}</span>
+			</span>
+			<span className="sr-only">
+				{`, ${lines(line.added)} added, ${lines(line.removed)} removed`}
+			</span>
 		</span>
 	);
 }
 
 export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem }) {
 	const failed = tool.status === "error";
-	const view = toolView(tool.name, tool.input, tool.title);
+	const line = toolLine(tool.name, tool.input, tool.title);
+	const detail = line.detail;
+	// An edit or a write says nothing back; its diff or content is the result.
+	const quiet = detail?.kind === "edit" || detail?.kind === "write";
 	return (
 		<details
 			className={`pk-chat-tool${failed ? " is-error" : ""}`}
@@ -71,25 +118,39 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 			data-status={tool.status}
 		>
 			<summary className="pk-chat-tool-summary pk-focus-inset">
-				<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
-				<span className="pk-chat-tool-name">{tool.name}</span>
-				{view.summary ? (
-					<span
-						className={`pk-chat-tool-title${view.literal ? " pk-mono-body" : ""}`}
-						title={view.summary}
-					>
-						{view.summary}
+				<Icon name={line.icon} size="sm" className="pk-chat-tool-icon" />
+				<span className="pk-chat-tool-text">
+					<span className="pk-chat-tool-verb">
+						{line.verb
+							? tool.status === "done"
+								? line.verb.done
+								: tool.status === "running"
+									? line.verb.doing
+									: line.verb.pending
+							: tool.name}
 					</span>
-				) : null}
-				<ToolState status={tool.status} />
+					{line.target ? (
+						<>
+							{" "}
+							<span
+								className={`pk-chat-tool-title${line.literal ? " pk-mono-body" : ""}`}
+								title={line.path ?? line.target}
+							>
+								{line.target}
+							</span>
+						</>
+					) : null}
+				</span>
+				<EditStat line={line} />
+				<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+				<ToolState status={tool.status} verbSaysIt={line.verb !== null} />
 			</summary>
 			<div className="pk-chat-tool-body">
-				{view.detail ? <Detail detail={view.detail} /> : null}
-				{tool.output.length === 0 ? (
-					<p className="pk-chat-muted">
-						{tool.status === "running" ? "No output yet" : "No output"}
-					</p>
-				) : (
+				{line.path ? (
+					<p className="pk-chat-tool-path pk-mono-body">{line.path}</p>
+				) : null}
+				{detail ? <Detail detail={detail} /> : null}
+				{tool.output.length > 0 ? (
 					<section
 						className="pk-chat-tool-output"
 						aria-label={failed ? "Error" : "Output"}
@@ -100,6 +161,10 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 							<OutputPart key={at} part={part} tool={tool.name} />
 						))}
 					</section>
+				) : quiet ? null : (
+					<p className="pk-chat-muted">
+						{tool.status === "running" ? "No output yet" : "No output"}
+					</p>
 				)}
 				<details className="pk-chat-raw">
 					<summary className="pk-chat-raw-summary pk-focus-inset">

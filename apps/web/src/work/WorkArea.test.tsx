@@ -838,3 +838,108 @@ test("a chat tab reads GUI, and Resume continues an ended chat in its place", as
 		expect(screen.getByTestId(`terminal-leaf-${created.id}`)).toBeTruthy(),
 	);
 });
+
+const chatLayout = { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] };
+const liveChat: Terminal = {
+	...terminal(ONE, "Terminal 1"),
+	agent: "claude",
+	kind: "chat",
+};
+
+/** Open a pane's Split right or Split down submenu from the keyboard. */
+async function openSplit(paneId: string, which: "split-right" | "split-down") {
+	fireEvent.pointerDown(await screen.findByTestId(`terminal-actions-${paneId}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+	fireEvent.keyDown(await screen.findByTestId(which), { key: "ArrowRight" });
+}
+
+test("a terminal split from a chat pane names the tab, header and content alike", async () => {
+	const { created, fetchMock } = stubFetch({
+		layout: chatLayout,
+		terminals: [liveChat],
+	});
+	const { store } = renderArea();
+	await waitFor(() =>
+		expect(screen.getByTestId("tab-tab1").textContent).toContain("Claude Code (GUI)"),
+	);
+	await waitFor(() =>
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+			"/me/settings",
+		),
+	);
+
+	await openSplit(ONE, "split-right");
+	fireEvent.click(await screen.findByTestId("split-right-terminal"));
+
+	await waitFor(() =>
+		expect(screen.getByTestId(`terminal-leaf-${created.id}`)).toBeTruthy(),
+	);
+	// The keyboard is in the new shell, so the tab names it, as its header does.
+	expect(store.getState().focusedPaneId).toBe(created.id);
+	expect(screen.getByTestId("tab-tab1").textContent).toContain("zsh");
+	expect(screen.getByTestId("tab-tab1").textContent).not.toContain("Claude Code");
+	expect(
+		screen.getByTestId(`terminal-leaf-${created.id}`).getAttribute("aria-label"),
+	).toContain("zsh");
+});
+
+test("Split down offers every launcher and Claude Code (GUI) splits in a chat", async () => {
+	const { fetchMock } = stubFetch({ layout: chatLayout, terminals: [liveChat] });
+	const { store } = renderArea();
+	await waitFor(() =>
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+			"/me/settings",
+		),
+	);
+	await flushCloseFocus();
+
+	await openSplit(ONE, "split-down");
+	expect(await screen.findByTestId("split-down-terminal")).toBeTruthy();
+	expect(screen.getByTestId("split-down-claude")).toBeTruthy();
+	expect(screen.getByTestId("split-down-codex")).toBeTruthy();
+	// A preview is always a whole tab, so a split does not offer one.
+	expect(screen.queryByTestId("split-down-preview")).toBeNull();
+	fireEvent.click(screen.getByTestId("split-down-claude-gui"));
+
+	const post = () =>
+		fetchMock.mock.calls.find(
+			(call) =>
+				String(call[0]).includes("/terminals") &&
+				(call[1] as RequestInit | undefined)?.method === "POST",
+		);
+	await waitFor(() => expect(post()).toBeDefined());
+	expect(JSON.parse(String((post()?.[1] as RequestInit | undefined)?.body))).toEqual({
+		projectId: PROJECT,
+		kind: "chat",
+		agent: "claude",
+	});
+	await waitFor(() =>
+		expect(store.getState().layout.tabs[0]?.root).toMatchObject({
+			type: "split",
+			direction: "column",
+		}),
+	);
+});
+
+test("Traditional splits offer only a terminal", async () => {
+	const { fetchMock } = stubFetch({
+		layout: chatLayout,
+		terminals: [terminal(ONE, "zsh")],
+		profile: "traditional",
+	});
+	renderArea();
+	await waitFor(() =>
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+			"/me/settings",
+		),
+	);
+	await flushCloseFocus();
+
+	await openSplit(ONE, "split-right");
+	expect(await screen.findByTestId("split-right-terminal")).toBeTruthy();
+	expect(screen.queryByTestId("split-right-claude")).toBeNull();
+	expect(screen.queryByTestId("split-right-claude-gui")).toBeNull();
+	expect(screen.queryByTestId("split-right-codex")).toBeNull();
+});

@@ -1,6 +1,7 @@
 import { tabFocusKey } from "../../platform.js";
 import type { HelpPart } from "./part.js";
 import { AGENT_STATUS_TOPIC } from "./studentAgentStatus.js";
+import { CLAUDE_CHAT_TOPIC } from "./studentClaudeChat.js";
 
 /** The keys that are hard to discover (moved here from Settings). */
 const KEYS: readonly { keys: string; what: string }[] = [
@@ -210,46 +211,7 @@ export const STUDENT_HELP: HelpPart = {
 				</>
 			),
 		},
-		{
-			id: "student-claude-chat",
-			title: "Claude Code (GUI) and Claude Code (TUI)",
-			body: (
-				<>
-					<p>
-						Claude Code opens two ways from <strong>New tab</strong>.{" "}
-						<strong>Claude Code (TUI)</strong> is Claude Code in a terminal.{" "}
-						<strong>Claude Code (GUI)</strong> is a chat tab: replies appear as
-						formatted text, its work is folded into a "Worked for" row, and when it
-						needs a permission or asks a question you answer on a card. You can paste,
-						drop or attach images, and choose the model, effort and permission mode
-						beside the message box.
-					</p>
-					<ul>
-						<li>
-							Sign in to Claude in the workspace, as you would in a terminal. Portikus
-							never sees your Claude sign-in. If you are not signed in, the chat says
-							so.
-						</li>
-						<li>
-							A chat tab keeps running when you close the browser. When the workspace
-							has stopped and started again, choose <strong>Resume chat</strong> on the
-							ended tab to carry on the same conversation. A reply that was still being
-							written when the workspace stopped is lost.
-						</li>
-						<li>
-							<strong>Bypass permissions</strong> lets Claude run commands and change
-							files without asking. A warning shows while it is on.
-						</li>
-						<li>
-							Do not run a GUI tab and a TUI terminal on the same Claude session at
-							once. After a chat tab is closed, running{" "}
-							<code className="pk-mono-body">claude --resume</code> in a terminal
-							continues it.
-						</li>
-					</ul>
-				</>
-			),
-		},
+		CLAUDE_CHAT_TOPIC,
 		AGENT_STATUS_TOPIC,
 		{
 			id: "student-voice",

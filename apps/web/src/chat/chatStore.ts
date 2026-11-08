@@ -6,12 +6,16 @@
  * the conversation lives in the workspace only (SPEC.md §25.10).
  */
 import {
+	CHAT_START_EFFORT,
 	type ChatAttachment,
 	ChatClientMessage,
 	type ChatEffort,
+	type ChatLastSettings,
+	ChatModelChoice,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	type ChatSessionRule,
 	type ChatToolOutputPart,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -27,6 +31,8 @@ export interface ChatMessageItem {
 	/** Deltas are still arriving for it. */
 	streaming: boolean;
 	turnId: string | null;
+	/** The student sent it while Claude was working; only live, a reload does not know. */
+	whileWorking?: boolean;
 }
 
 export interface ChatToolItem {
@@ -64,7 +70,7 @@ export interface ChatTurn {
 	estimated: boolean;
 }
 
-interface ChatSettings {
+export interface ChatSettings {
 	agent: "claude" | "codex";
 	model: string;
 	effort: ChatEffort;
@@ -90,12 +96,19 @@ export interface ChatState {
 	items: ChatItem[];
 	turns: Record<string, ChatTurn>;
 	currentTurnId: string | null;
+	/**
+	 * The `seq` of a message the student sent while Claude worked. Claude takes
+	 * it in at its next step, so the turn divides there, not at the echo.
+	 */
+	pendingSplit: number | null;
 	/** Cards waiting for an answer, oldest first. */
 	cards: ChatOpenCard[];
 	/** The snapshot left out earlier history. */
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
+	/** Rules granted with Always allow that last for this session, as the host reports them. */
+	sessionRules: ChatSessionRule[];
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -116,9 +129,11 @@ export const initialChatState: ChatState = {
 	items: [],
 	turns: {},
 	currentTurnId: null,
+	pendingSplit: null,
 	cards: [],
 	truncated: false,
 	settings: null,
+	sessionRules: [],
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -200,6 +215,7 @@ function applySnapshot(
 				}
 			: {},
 		currentTurnId: turnId,
+		pendingSplit: null,
 	};
 }
 
@@ -236,6 +252,7 @@ function applyChatEvent(
 			return {
 				...state,
 				currentTurnId: id,
+				pendingSplit: null,
 				turns: {
 					...state.turns,
 					[id]: {
@@ -255,6 +272,7 @@ function applyChatEvent(
 			return {
 				...state,
 				currentTurnId: null,
+				pendingSplit: null,
 				turns: turn
 					? {
 							...state.turns,
@@ -278,10 +296,11 @@ function applyChatEvent(
 					: item,
 			);
 			if (items) return { ...state, items };
+			const split = takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "message",
 						key,
@@ -290,7 +309,7 @@ function applyChatEvent(
 						markdown: event.text,
 						attachments: [],
 						streaming: true,
-						turnId,
+						turnId: split.currentTurnId,
 					},
 				],
 			};
@@ -308,11 +327,15 @@ function applyChatEvent(
 			const lastUserMessageSeq =
 				event.role === "user" ? event.seq : state.lastUserMessageSeq;
 			if (items) return { ...state, items, lastUserMessageSeq };
+			if (event.role === "user" && isWorking(state)) {
+				return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
+			}
+			const split = event.role === "user" ? state : takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				lastUserMessageSeq,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "message",
 						key,
@@ -320,7 +343,7 @@ function applyChatEvent(
 						role: event.role,
 						...fields,
 						// What the student wrote is never folded into a turn's work.
-						turnId: event.role === "user" ? null : turnId,
+						turnId: event.role === "user" ? null : split.currentTurnId,
 					},
 				],
 			};
@@ -333,10 +356,11 @@ function applyChatEvent(
 				item.kind === "tool" ? { ...item, ...fields } : item,
 			);
 			if (items) return { ...state, items };
+			const split = takeInSentMessage(state, now);
 			return {
-				...state,
+				...split,
 				items: [
-					...state.items,
+					...split.items,
 					{
 						kind: "tool",
 						key,
@@ -344,7 +368,7 @@ function applyChatEvent(
 						...fields,
 						output: [],
 						status: "running",
-						turnId,
+						turnId: split.currentTurnId,
 					},
 				],
 			};
@@ -392,7 +416,127 @@ function applyChatEvent(
 					mode: event.mode,
 				},
 			};
+		case "rules":
+			return { ...state, sessionRules: event.rules };
 	}
+}
+
+/** A turn is running and has already shown some work. */
+function isWorking(state: ChatState): boolean {
+	const turnId = state.currentTurnId;
+	if (turnId === null || state.turns[turnId]?.status !== "running") return false;
+	return state.items.some((item) => item.turnId === turnId);
+}
+
+/**
+ * A message the student sent while Claude worked (SPEC.md §10.8). It shows at
+ * once, but the turn goes on until Claude takes it in at its next step, so a
+ * tool still running stays on the Working line.
+ */
+function sentWhileWorking(
+	state: ChatState,
+	message: Pick<ChatMessageItem, "id" | "markdown" | "attachments">,
+	seq: number,
+): ChatState {
+	return {
+		...state,
+		lastUserMessageSeq: seq,
+		pendingSplit: state.pendingSplit ?? seq,
+		items: [
+			...state.items,
+			{
+				kind: "message",
+				key: `message:${message.id}`,
+				role: "user",
+				streaming: false,
+				turnId: null,
+				whileWorking: true,
+				...message,
+			},
+		],
+	};
+}
+
+/**
+ * Claude's next step after a sent-while-working message: the work so far is
+ * done, and what follows is a new turn below the message, as a reload replays
+ * it from the transcript. If the turn ends first, `turn.finished` drops the
+ * split, so its end state lands on the work it describes.
+ */
+function takeInSentMessage(state: ChatState, now: number): ChatState {
+	const before = state.currentTurnId;
+	if (state.pendingSplit === null || before === null) return state;
+	const turn = state.turns[before] as ChatTurn;
+	const next = `turn-${state.pendingSplit}`;
+	return {
+		...state,
+		pendingSplit: null,
+		currentTurnId: next,
+		turns: {
+			...state.turns,
+			[before]: { ...turn, finishedAt: now, status: "done" },
+			[next]: {
+				id: next,
+				startedAt: now,
+				finishedAt: null,
+				status: "running",
+				estimated: false,
+			},
+		},
+	};
+}
+
+/** Session rules are letting some tools run without a card. */
+export function selectSessionRulesActive(state: ChatState): boolean {
+	return state.sessionRules.length > 0;
+}
+
+/** The picker entry for the model id the host reports, which may be a full name. */
+export function modelChoice(model: string): ChatModelChoice {
+	const known = ChatModelChoice.options.find((choice) => choice === model);
+	if (known) return known;
+	const family = ChatModelChoice.options.find(
+		(choice) => choice !== "default" && model.includes(choice),
+	);
+	return family ?? "default";
+}
+
+/**
+ * A chat nobody has used yet: no turn has run and the host still reports
+ * its start values, so the last-used settings may be applied (SPEC.md §10.8).
+ */
+export function isNewChat(state: ChatState): boolean {
+	const { settings } = state;
+	return (
+		state.loaded &&
+		settings !== null &&
+		state.items.length === 0 &&
+		Object.keys(state.turns).length === 0 &&
+		settings.model === "default" &&
+		settings.effort === CHAT_START_EFFORT &&
+		settings.mode === "default"
+	);
+}
+
+/** The values worth keeping from what the host confirmed. */
+export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
+	return {
+		model: modelChoice(settings.model),
+		effort: settings.effort,
+		mode: settings.mode,
+	};
+}
+
+/** The change that brings a new chat to the last-used values; null when there is none. */
+export function changeToward(
+	settings: ChatSettings,
+	last: ChatLastSettings,
+): Partial<ChatLastSettings> | null {
+	const change: Partial<ChatLastSettings> = {};
+	if (modelChoice(settings.model) !== last.model) change.model = last.model;
+	if (settings.effort !== last.effort) change.effort = last.effort;
+	if (settings.mode !== last.mode) change.mode = last.mode;
+	return Object.keys(change).length > 0 ? change : null;
 }
 
 /** What a tool still running becomes when its turn ends. */
@@ -438,6 +582,8 @@ interface ChatActions {
 		notes?: Record<string, string>,
 	) => boolean;
 	answerPermission: (id: string, optionId: string) => boolean;
+	/** Take back a session rule; the list updates when the host confirms. */
+	revokeRule: (rule: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -462,6 +608,7 @@ export function createChatStore(
 			deliver({ type: "question.answer", id, answers, ...(notes ? { notes } : {}) }),
 		answerPermission: (id, optionId) =>
 			deliver({ type: "permission.answer", id, optionId }),
+		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

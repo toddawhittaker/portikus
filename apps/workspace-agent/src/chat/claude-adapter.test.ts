@@ -280,9 +280,9 @@ describe("cards", () => {
 				},
 			),
 		).toEqual({
+			// The host holds session rules itself so they can be revoked.
 			behavior: "allow",
 			updatedInput: { command: "ls" },
-			updatedPermissions: [suggestion],
 		});
 		expect(permissionResult("deny", {}, { toolUseID: "a" }).behavior).toBe("deny");
 	});
@@ -315,6 +315,28 @@ describe("question answers", () => {
 		).toEqual({
 			behavior: "allow",
 			updatedInput: { ...input, answers: { "Which colour?": "Green" } },
+		});
+	});
+
+	test("a skipped question is marked skipped when the session allows it", () => {
+		expect(
+			questionResult(input, [question, multi], { "Which colour?": "Blue" }, {}, true),
+		).toEqual({
+			behavior: "allow",
+			updatedInput: {
+				...input,
+				answers: { "Which colour?": "Blue" },
+				annotations: { "Which toppings?": { unanswered: "skipped" } },
+			},
+		});
+	});
+
+	test("without the capability a skipped question is only left out", () => {
+		expect(
+			questionResult(input, [question, multi], { "Which colour?": "Blue" }, {}, false),
+		).toEqual({
+			behavior: "allow",
+			updatedInput: { ...input, answers: { "Which colour?": "Blue" } },
 		});
 	});
 });

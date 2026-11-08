@@ -19,7 +19,8 @@ line per step, so the run survives a context reset.
    Fix batches skip this.
 3. **Plan.** Write `docs/EPIC-<n>.md` (tasks, owner agent, files each task
    may touch, issues it closes) and land it on the epic branch through a
-   plan PR. Ask Todd plan questions one at a time, each with a
+   plan PR. Give each task a "starts after" column naming the task PRs
+   whose files or code it needs (often none). Ask Todd plan questions one at a time, each with a
    recommendation.
    **Then stop for Todd's approval.** Show Todd the plan itself, not just
    a link: each task with its owner agent, model, files and the issues it
@@ -29,8 +30,10 @@ line per step, so the run survives a context reset.
    through without stopping (an AFK run). Record the approval in the
    epic's memory file so a continued run does not ask again.
 4. **Split tasks** so no two agents edit the same files. When files must
-   overlap, put the later task in a second wave cut from the epic head
-   after the first wave lands.
+   overlap, the later task waits for the earlier one. Start each task as
+   soon as the PRs in its "starts after" column have merged, cut from the
+   epic head at that moment; never hold a task for a whole wave to land.
+   Waves are only a way to read the plan.
 5. **Pick models** per CLAUDE.md "Delegation" and "Orchestration rules":
    Haiku for mechanical work, Sonnet at high effort when the prompt settles
    every choice, Opus for design or diagnosis.
@@ -57,11 +60,18 @@ line per step, so the run survives a context reset.
    branch that has fallen behind with conflicts. Do not use a shell loop
    in the main session.
 
-   PRs are not tested together, so after merges land, watch the epic
-   branch's push run (`gh run list --branch epic/<n>-<name>`) and chase
-   any red result before the next wave or the reviews.
-9. **Reviews** after every task PR has landed, on a read-only worktree at
-   the epic head, run in parallel:
+   Keep one background watcher running for the whole epic (Monitor, a
+   60-second poll, re-armed when it expires). It reports every failing
+   check and every merge conflict on any open PR into the epic (a
+   conflicting PR runs no CI, so a red-check-only watcher misses it), every merge, every epic push run
+   result, and failing checks on the epic PR. Chase a red result the
+   moment it arrives: a red PR blocks every task that starts after it, and
+   nothing else wakes the orchestrator. PRs are not tested together, so a
+   red epic push run comes first, before any new task starts.
+9. **Reviews** start as soon as the first large share of the epic has
+   landed (for example waves one and two), on a read-only worktree at that
+   epic head, while the last tasks still run. When those land, the same
+   reviewers do a short pass over the remaining diff. Run in parallel:
    - code-reviewer always, over the epic head and the whole repo's dead
      code;
    - security-reviewer when the epic touches auth, the preview gateway,
@@ -76,7 +86,9 @@ line per step, so the run survives a context reset.
     way `infra/tests/install-test.sh` `first_signin()` does; a smoke that
     skips the Dex sign-in is incomplete. The rehearsal VM is ours to
     change freely; this never applies to the pilot.
-12. **Fold task** (last task PR): write the epic's STATUS section from the
+12. **Fold task** (last task PR): draft it while the fix round runs,
+    since the task PR bodies already hold the STATUS lines, and finish it
+    when the last fix lands. Write the epic's STATUS section from the
     task PR bodies, move lasting rules into SPEC.md, delete the plan,
     record gaps, and carry a `Fixes #N` line for each issue. Check
     `git diff main...epic -- docs/STATUS.md` shows the section.
@@ -123,10 +135,14 @@ docs/EPIC-<n>.md on the epic branch; read your task's row.
 - Scratchpad <path> is shared; use a subfolder named after your task.
 - Tests first: a bug fix starts with a failing test. Design tests from the
   SPEC.md invariant. Anything a user can see ships with Playwright tests.
-- Verify the way CI does. Run the unit suite as CI shards it (both shards,
-  with `TEST_DATABASE_URL` set), not just the changed files. Run every
-  Playwright spec for each page your change touches, including help pages
-  and text-only edits.
+- Verify the way CI does, so the PR goes green on its first run (each
+  extra CI round costs about 20 minutes). Before opening the PR, merge the
+  current epic head into your branch. Then run the unit suite as CI shards
+  it (both shards, with `TEST_DATABASE_URL` set), not just the changed
+  files, and `node scripts/check-changed-coverage.mjs` against the epic
+  branch (CI's bar is 80% of changed lines). Run every Playwright spec for
+  each page your change touches, including help pages and text-only edits,
+  and including specs other tasks wrote for that page.
 - A failure near your code is yours until it is shown to fail the same way
   on the base without your change. "Passes when run alone" does not prove
   a flake.
@@ -137,7 +153,8 @@ docs/EPIC-<n>.md on the epic branch; read your task's row.
 - Never `git add -A`. No attribution lines. Never force-push; merge the
   epic branch in to catch up.
 - PR into `epic/<n>-<name>`, not main. Body: `Refs #N`, the SPEC.md
-  section served, how it was verified, the STATUS line. Do not merge.
+  section served, how it was verified, the STATUS line. Do not merge,
+  and do not wait for the PR to land; report as soon as it is open.
 - Stay inside your listed files; name any exception in the report.
 - Never touch the pilot VM. Only the agent whose prompt says so may use
   the rehearsal VM.

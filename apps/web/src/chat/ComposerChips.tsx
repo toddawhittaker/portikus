@@ -1,7 +1,7 @@
 import { Icon, IconButton } from "@portikus/ui";
 import { useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
-import type { ComposerAttachment } from "./composerAttachments.js";
+import { type ComposerAttachment, lineText } from "./composerAttachments.js";
 
 const SIZE = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
@@ -83,7 +83,7 @@ export function ComposerChips({
 							{displayName(item.name)}
 						</span>
 						<span className="pk-composer-chip-size" data-testid="composer-chip-size">
-							{fileSize(item.size)}
+							{item.lines === null ? fileSize(item.size) : lineText(item.lines)}
 						</span>
 					</span>
 					<IconButton

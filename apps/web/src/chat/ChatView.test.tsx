@@ -13,6 +13,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_MS } from "../terminal/terminalSocket.js";
 import { ChatView } from "./ChatView";
+import { boxText, setText } from "./composerTesting.js";
 
 vi.mock("../api/sessionEnded.js", () => ({ sessionEnded: vi.fn() }));
 
@@ -127,6 +128,37 @@ test("it connects to the tab's chat socket and shows a skeleton until the snapsh
 	expect(screen.getByText("No messages yet")).toBeTruthy();
 });
 
+test("a starter prompt fills an empty message box to edit, keeps a draft, and sends nothing", () => {
+	draw();
+	snapshot();
+	const empty = screen.getByTestId("chat-empty");
+	expect(empty.textContent).toContain("kept in your workspace, not by Portikus");
+	const starters = within(empty).getAllByRole("button");
+	expect(starters.map((button) => button.textContent)).toEqual([
+		"Explain how this project is organised",
+		"Find a bug and explain it before fixing it",
+		"Write tests for the main file",
+	]);
+	const box = screen.getByTestId("chat-composer-input");
+	const sent = latest().sent.length;
+	const writeTests = within(empty).getByRole("button", {
+		name: "Write tests for the main file",
+	});
+	fireEvent.click(writeTests);
+	expect(boxText(box)).toBe("Write tests for the main file");
+	expect(document.activeElement).toBe(box);
+	// A draft the student typed is never thrown away.
+	setText(box, "my own words");
+	writeTests.focus();
+	fireEvent.click(within(empty).getByRole("button", { name: /^Explain how/ }));
+	expect(boxText(box)).toBe("my own words");
+	expect(document.activeElement).toBe(box);
+	expect(latest().sent).toHaveLength(sent);
+	// Once a conversation exists the starters go.
+	emit("message", { id: "u1", role: "user", markdown: "hi" });
+	expect(screen.queryByTestId("chat-empty")).toBeNull();
+});
+
 test("a streamed turn shows Working, then folds its work into Worked for", () => {
 	draw();
 	snapshot({ truncated: true });
@@ -136,9 +168,13 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	emit("text.delta", { messageId: "a1", text: "Looking at " });
 	emit("text.delta", { messageId: "a1", text: "**the code**" });
 	expect(screen.getByText("the code").tagName).toBe("STRONG");
-	expect(screen.getByTestId("chat-working").textContent).toBe("Working 0m 0s");
+	expect(screen.getByTestId("chat-working").textContent).toBe(
+		"Writing a reply · 0m 0s",
+	);
 	act(() => vi.advanceTimersByTime(12_000));
-	expect(screen.getByTestId("chat-working").textContent).toBe("Working 0m 12s");
+	expect(screen.getByTestId("chat-working").textContent).toBe(
+		"Writing a reply · 0m 12s",
+	);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe("Claude is working.");
 
 	emit("message", { id: "a1", role: "assistant", markdown: "Looking at **the code**" });
@@ -174,6 +210,102 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	expect(screen.getByTestId("chat-announcer").textContent).toBe("Claude finished.");
 });
 
+test("what Claude asked stays in view after the turn, with each answer or Skipped", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("message", { id: "a1", role: "assistant", markdown: "Let me ask." });
+	emit("tool.started", {
+		id: "q1",
+		name: "AskUserQuestion",
+		title: "AskUserQuestion",
+		input: { questions: [{ question: "Which?" }, { question: "Why?" }] },
+	});
+	expect(screen.getByTestId("chat-asked-outcome").textContent).toBe("Needs your input");
+	emit("tool.output", {
+		id: "q1",
+		part: {
+			type: "text",
+			text: 'Your questions have been answered: "Which?"="B". You can now continue with these answers in mind.',
+		},
+	});
+	emit("tool.finished", { id: "q1", isError: false });
+	emit("tool.started", { id: "t1", name: "Read", title: "a.ts", input: {} });
+	emit("tool.finished", { id: "t1", isError: false });
+	emit("message", { id: "a2", role: "assistant", markdown: "Done." });
+	emit("turn.finished", { at: Date.now() + 1000, status: "done" });
+
+	const asked = screen.getByTestId("chat-asked");
+	expect(screen.getByTestId("chat-worked").contains(asked)).toBe(false);
+	expect(asked.querySelector("summary")?.textContent).toBe("Asked 2 questionsAnswered");
+	expect(
+		within(asked)
+			.getAllByRole("definition")
+			.map((dd) => dd.textContent),
+	).toEqual(["B", "Skipped"]);
+	expect(screen.getByTestId("chat-worked").querySelector("summary")?.textContent).toBe(
+		"Worked for 0m 1s1 tool call",
+	);
+});
+
+test("a result in a form not read is shown once, under all the questions", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "q1",
+		name: "AskUserQuestion",
+		title: "AskUserQuestion",
+		input: { questions: [{ question: "Which?" }, { question: "Why?" }] },
+	});
+	emit("tool.output", {
+		id: "q1",
+		part: { type: "text", text: "Picked B, for speed." },
+	});
+	emit("tool.finished", { id: "q1", isError: false });
+	emit("turn.finished", { at: Date.now() + 1000, status: "done" });
+
+	const asked = screen.getByTestId("chat-asked");
+	expect(
+		within(asked)
+			.getAllByRole("term")
+			.map((dt) => dt.textContent),
+	).toEqual(["Which?", "Why?"]);
+	expect(
+		within(asked)
+			.getAllByRole("definition")
+			.map((dd) => dd.textContent),
+	).toEqual(["Picked B, for speed."]);
+	expect(screen.getByTestId("chat-asked-outcome").textContent).toBe("Answered");
+});
+
+test("the Working line says a step waits for permission while its card is open", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "p1",
+		name: "Bash",
+		title: "pnpm test",
+		input: { command: "pnpm test" },
+	});
+	emit("permission.requested", {
+		id: "p1",
+		toolName: "Bash",
+		title: "pnpm test",
+		input: { command: "pnpm test" },
+		options: [{ id: "allow", label: "Allow once" }],
+	});
+	const working = () => screen.getByTestId("chat-working").textContent ?? "";
+	expect(working()).toMatch(/^Waiting for your permission · /);
+	emit("card.resolved", { id: "p1" });
+	expect(working()).toMatch(/^Running pnpm test · /);
+	// Its row says it the same way.
+	expect(screen.getByTestId("chat-tool-p1").querySelector("summary")?.textContent).toBe(
+		"Running pnpm test",
+	);
+});
+
 test("a question card is pinned, announced, answered, and cleared on card.resolved", () => {
 	draw();
 	snapshot();
@@ -197,7 +329,7 @@ test("a question card is pinned, announced, answered, and cleared on card.resolv
 	expect(document.activeElement).toBe(screen.getByRole("radio", { name: "A" }));
 	const radio = screen.getByRole("radio", { name: "B" });
 	fireEvent.click(radio);
-	fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+	fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 	expect(latest().sent).toEqual([
 		{ type: "question.answer", id: "q1", answers: { "Which?": "B" } },
 	]);
@@ -236,29 +368,29 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 test("the composer sends what was typed, and clears it when the host echoes it", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
-	fireEvent.change(box, { target: { value: "Add a test" } });
+	const box = screen.getByTestId("chat-composer-input");
+	setText(box, "Add a test");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([
 		{ type: "send", text: "Add a test", attachments: [] },
 	]);
 	// Not yet echoed: the draft stays, and a second Enter does not send it again.
-	expect(box.value).toBe("Add a test");
+	expect(boxText(box)).toBe("Add a test");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toHaveLength(1);
 	emit("message", { id: "u1", role: "user", markdown: "Add a test" });
-	expect(box.value).toBe("");
+	expect(boxText(box)).toBe("");
 });
 
 test("a send the host refuses keeps the draft to try again", () => {
 	draw();
 	snapshot();
-	const box = screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
-	fireEvent.change(box, { target: { value: "Look at this" } });
+	const box = screen.getByTestId("chat-composer-input");
+	setText(box, "Look at this");
 	fireEvent.keyDown(box, { key: "Enter" });
 	emit("error", { message: "That picture is not a PNG." });
 	expect(screen.getByTestId("chat-error").textContent).toContain("not a PNG");
-	expect(box.value).toBe("Look at this");
+	expect(boxText(box)).toBe("Look at this");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toHaveLength(2);
 });
@@ -268,7 +400,7 @@ test("typing in the composer keeps the keyboard when a card arrives", () => {
 	snapshot();
 	const box = screen.getByTestId("chat-composer-input");
 	box.focus();
-	fireEvent.change(box, { target: { value: "and also" } });
+	setText(box, "and also");
 	emit("permission.requested", {
 		id: "p1",
 		toolName: "Bash",
@@ -433,10 +565,10 @@ test("an answer or message on a closed socket says it was not sent", () => {
 		"Your answer was not sent",
 	);
 	const box = screen.getByTestId("chat-composer-input");
-	fireEvent.change(box, { target: { value: "hello" } });
+	setText(box, "hello");
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(screen.getByText(/Your message was not sent/)).toBeTruthy();
-	expect((box as HTMLTextAreaElement).value).toBe("hello");
+	expect(boxText(box)).toBe("hello");
 });
 
 test("scrolling up stops the view following new text", () => {
@@ -448,8 +580,16 @@ test("scrolling up stops the view following new text", () => {
 	Object.defineProperty(box, "clientHeight", { value: 400, configurable: true });
 	box.scrollTop = 100;
 	fireEvent.scroll(box);
+	const jump = screen.getByRole("button", { name: "Jump to latest" });
+	// Nothing new yet: no dot.
+	expect(jump.getAttribute("data-fresh")).toBeNull();
 	emit("message", { id: "a1", role: "assistant", markdown: "new" });
 	expect(box.scrollTop).toBe(100);
+	expect(jump.getAttribute("data-fresh")).toBe("true");
+	expect(jump.getAttribute("aria-describedby")).toBeTruthy();
+	expect(
+		document.getElementById(jump.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Something new arrived below");
 	// The way back to the end, which hands the keyboard to the message box.
 	fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
 	expect(box.scrollTop).toBe(2000);

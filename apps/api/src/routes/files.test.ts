@@ -9,6 +9,7 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import {
+	MAX_CHAT_IMAGE_BYTES,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
@@ -232,6 +233,7 @@ test.skipIf(skip)(
 		for (const jar of [bob, carol]) {
 			expect((await get(jar, "tree")).statusCode).toBe(404);
 			expect((await get(jar, "file", "?path=README.md")).statusCode).toBe(404);
+			expect((await get(jar, "image", "?path=shot.png")).statusCode).toBe(404);
 			const written = await app.inject({
 				method: "PUT",
 				url: url("file", "?path=README.md"),
@@ -581,6 +583,41 @@ test.skipIf(skip)(
 	},
 );
 
+// SPEC.md §24.1: an assistant reply may show the owner's own images, and
+// the control plane refuses anything that is not an image path first.
+test.skipIf(skip)(
+	"a chat image is served to the owner with a pinned type",
+	async () => {
+		agent.files.set("lab/shot.png", {
+			type: "file",
+			content: Buffer.from("png-bytes"),
+		});
+		const shown = await get(alice, "image", "?path=shot.png");
+		expect(shown.statusCode).toBe(200);
+		expect(shown.headers["content-type"]).toBe("image/png");
+		expect(shown.headers["x-content-type-options"]).toBe("nosniff");
+		expect(shown.headers["content-security-policy"]).toBe(INLINE_CSP);
+		expect(shown.body).toBe("png-bytes");
+		expect((await get(alice, "image", "?path=missing.png")).statusCode).toBe(404);
+	},
+);
+
+test.skipIf(skip)(
+	"a chat image path that is not an image or traverses is refused",
+	async () => {
+		for (const path of [
+			"logo.svg",
+			"page.html",
+			"../other/shot.png",
+			"/home/student/../x.png",
+			"",
+		]) {
+			const refused = await get(alice, "image", `?path=${encodeURIComponent(path)}`);
+			expect(refused.statusCode, path).toBe(400);
+		}
+	},
+);
+
 test.skipIf(skip)(
 	"an inline PDF past the editor limit still streams (#816)",
 	async () => {
@@ -884,6 +921,45 @@ test.skipIf(skip)("an agent's HTML content type is never relayed", async () => {
 		await new Promise<void>((resolve) => rude.close(() => resolve()));
 	}
 });
+
+// SPEC.md §24.1: the agent's reply is untrusted, so an endless image body
+// is cut off at the cap instead of being buffered whole.
+test.skipIf(skip)(
+	"an agent's endless image reply is refused without reading it all",
+	async () => {
+		const chunk = Buffer.alloc(64 * 1024, 0x61);
+		let sent = 0;
+		let closed = false;
+		const endless = await startStub((_request, response) => {
+			response.socket?.on("close", () => {
+				closed = true;
+			});
+			response.writeHead(200, { "content-type": "image/png" });
+			new Readable({
+				read() {
+					sent += chunk.length;
+					this.push(chunk);
+				},
+			}).pipe(response);
+		});
+		const port = (endless.address() as AddressInfo).port;
+		const other = await appAgainst(port);
+		try {
+			const response = await fetch(
+				`${other.origin}/workspaces/${workspaceId}/projects/${projectId}/image?path=a.png`,
+				{ headers: { cookie: alice.cookieHeader() } },
+			);
+			expect(response.status).toBe(413);
+			await vi.waitFor(() => expect(closed).toBe(true));
+			expect(sent).toBeLessThan(4 * MAX_CHAT_IMAGE_BYTES);
+		} finally {
+			await other.close();
+			endless.closeAllConnections();
+			await new Promise<void>((resolve) => endless.close(() => resolve()));
+		}
+	},
+	30000,
+);
 
 test.skipIf(skip)(
 	"two downloads of the same file can stream at once",

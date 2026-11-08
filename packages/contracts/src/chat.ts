@@ -39,6 +39,35 @@ export type ChatEffort = z.infer<typeof ChatEffort>;
 /** The effort a new chat starts at, for the host and the pickers alike. */
 export const CHAT_START_EFFORT: ChatEffort = "high";
 
+/** The model choices the picker offers; the host may report a fuller name. */
+export const ChatModelChoice = z.enum(["default", "opus", "sonnet", "haiku"]);
+export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
+
+/**
+ * The picker values a student last used in one project, which a new chat
+ * there starts with (SPEC.md §10.8). Only these values, never content.
+ */
+export const ChatLastSettings = z
+	.object({ model: ChatModelChoice, effort: ChatEffort, mode: ChatPermissionMode })
+	.strict();
+export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
+
+/**
+ * A stored value read back: a model no longer offered becomes the default,
+ * and Bypass permissions is never carried into a new chat, so it comes back
+ * as Auto (SPEC.md §10.8).
+ */
+export const StoredChatSettings = z
+	.object({
+		model: ChatModelChoice.catch("default"),
+		effort: ChatEffort.catch(CHAT_START_EFFORT),
+		mode: ChatPermissionMode.catch("default"),
+	})
+	.transform((value) => ({
+		...value,
+		mode: value.mode === "bypassPermissions" ? ("auto" as const) : value.mode,
+	}));
+
 /** SVG is refused because it can carry script. */
 export const ChatImageMediaType = z.enum([
 	"image/png",
@@ -104,6 +133,20 @@ export const ChatQuestion = z.object({
 export type ChatQuestion = z.infer<typeof ChatQuestion>;
 
 const Questions = z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS);
+
+/** Longest permission rule the host reports or the browser may revoke. */
+export const MAX_CHAT_RULE_CHARS = 4096;
+
+/**
+ * A rule the student granted with "Always allow" that lasts only for this
+ * chat session, in Claude Code's rule syntax such as `Bash(sed:*)`, with a
+ * plain-English description (SPEC.md §10.8).
+ */
+export const ChatSessionRule = z.object({
+	rule: z.string().min(1).max(MAX_CHAT_RULE_CHARS),
+	description: z.string(),
+});
+export type ChatSessionRule = z.infer<typeof ChatSessionRule>;
 
 const PermissionCardFields = {
 	id: z.string().min(1),
@@ -226,6 +269,12 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		effort: ChatEffort,
 		mode: ChatPermissionMode,
 	}),
+	/** Every session rule now in force; sent on attach and on each change. */
+	z.object({
+		type: z.literal("rules"),
+		...Envelope,
+		rules: z.array(ChatSessionRule),
+	}),
 ]);
 export type ChatServerEvent = z.infer<typeof ChatServerEvent>;
 
@@ -256,6 +305,12 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		})
 		.strict(),
 	z.object({ type: z.literal("interrupt") }).strict(),
+	z
+		.object({
+			type: z.literal("rule.revoke"),
+			rule: z.string().min(1).max(MAX_CHAT_RULE_CHARS),
+		})
+		.strict(),
 	z
 		.object({
 			type: z.literal("set"),

@@ -6,6 +6,7 @@ import {
 	AgentCallError,
 	AgentStreamError,
 	callAgent,
+	readCapped,
 	readJson,
 	throwOnRedirect,
 } from "./index.js";
@@ -204,4 +205,24 @@ test("an unreachable or hanging agent is unavailable", async () => {
 	expect(down.message).toBe("The workspace agent could not be reached");
 	server = http.createServer();
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+});
+
+test("readCapped stops at the cap and cancels the rest unread", async () => {
+	let pulls = 0;
+	let cancelled = false;
+	const endless = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			pulls += 1;
+			controller.enqueue(new Uint8Array(1024));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	await expect(readCapped(new Response(endless), 4096)).resolves.toBeNull();
+	expect(cancelled).toBe(true);
+	expect(pulls).toBeLessThan(10);
+	const whole = await readCapped(new Response("abc"), 3);
+	expect(whole?.toString()).toBe("abc");
+	expect((await readCapped(new Response(null), 3))?.length).toBe(0);
 });

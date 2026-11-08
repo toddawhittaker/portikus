@@ -11,6 +11,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { readChatImage } from "./chat-image.js";
 import { AgentFailure, abortOnDisconnect, sendError } from "./errors.js";
 import { extractProgress, extractZip } from "./extract.js";
 import {
@@ -145,6 +146,20 @@ export async function filesRoutes(
 				reply.header("content-disposition", contentDisposition(basename(path)));
 			}
 			return reply.type(file.contentType).send(file.stream ?? file.body);
+		} catch (error) {
+			return sendError(request, reply, error, "INTERNAL");
+		}
+	});
+
+	// A local image for an assistant reply, read-only and confined to the
+	// home folder (SPEC.md §24.1).
+	instance.get("/projects/:slug/image", async (request, reply) => {
+		const { slug } = request.params as { slug: string };
+		try {
+			const { path } = queryPath(request);
+			const image = await readChatImage(homeDir, slug, path);
+			reply.header("content-length", String(image.body.length));
+			return reply.type(image.contentType).send(image.body);
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}

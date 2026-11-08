@@ -346,6 +346,7 @@ interface Sample {
 
 const QUERIES: Record<string, string> = {
 	"/workspaces/:id/projects/:pid/file": "?path=notes.txt",
+	"/workspaces/:id/projects/:pid/image": "?path=shot.png",
 	"/workspaces/:id/projects/:pid/git/diff": "?path=notes.txt",
 	"/courses/:courseId/shares/:projectId/file": "?path=notes.txt",
 	"/courses/:courseId/shares/:projectId/git/diff": "?path=notes.txt",
@@ -396,6 +397,11 @@ const PAYLOADS: Record<string, object> = {
 	"POST /workspaces/:id/projects/:pid/duplicate": { name: "copy" },
 	"PUT /workspaces/:id/projects/:pid/layout": {
 		tabs: [{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } }],
+	},
+	"PUT /workspaces/:id/projects/:pid/chat-settings": {
+		model: "opus",
+		effort: "low",
+		mode: "auto",
 	},
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },

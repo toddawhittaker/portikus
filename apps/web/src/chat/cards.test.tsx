@@ -1,204 +1,21 @@
 import type { ChatOpenCard } from "@portikus/contracts";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createChatStore } from "./chatStore";
 import { PermissionCard } from "./PermissionCard";
-import { QuestionCard } from "./QuestionCard";
+import { SessionRules } from "./SessionRules";
 import { ToolBlock } from "./ToolBlock";
 
 afterEach(cleanup);
 
-const QUESTION: Extract<ChatOpenCard, { type: "question" }> = {
-	type: "question",
-	id: "q1",
-	questions: [
-		{
-			question: "Which layout?",
-			header: "Layout",
-			multiSelect: false,
-			options: [
-				{ label: "Grid", description: "Rows and columns", preview: "+--+--+" },
-				{ label: "Stack", description: "One column", preview: "+-----+" },
-			],
-		},
-		{
-			question: "Which checks?",
-			header: "Checks",
-			multiSelect: true,
-			options: [
-				{ label: "Lint", description: "" },
-				{ label: "Types", description: "" },
-				{ label: "Tests", description: "" },
-			],
-		},
-	],
-};
-
-function drawQuestion(onAnswer = vi.fn(() => true), takeFocus = () => true) {
-	render(
-		<QuestionCard
-			card={QUESTION}
-			onAnswer={onAnswer}
-			takeFocus={takeFocus}
-			waiting={0}
-		/>,
-	);
-	const [first, second] = screen.getAllByRole("group");
-	if (!first || !second) throw new Error("two questions expected");
-	return { onAnswer, first: within(first), second: within(second) };
-}
-
-test("the card takes focus on its first option and names each question", () => {
-	const { first } = drawQuestion();
-	expect(screen.getByRole("heading", { name: "Claude has 2 questions" })).toBeTruthy();
-	expect(document.activeElement).toBe(first.getByRole("radio", { name: "Grid" }));
-	expect(
-		screen.getByRole("group", { name: /^Layout:\s*Which layout\?$/ }),
-	).toBeTruthy();
-	expect(
-		first.getByRole("radio", { name: "Grid" }).getAttribute("aria-describedby"),
-	).toBeTruthy();
-});
-
-test("it leaves focus alone when told not to take it", () => {
-	drawQuestion(
-		vi.fn(() => true),
-		() => false,
-	);
-	expect(document.activeElement).toBe(document.body);
-});
-
-test("the focused option's preview is shown", () => {
-	const { first } = drawQuestion();
-	expect(screen.getByTestId("chat-question-preview").textContent).toBe("+--+--+");
-	fireEvent.focus(first.getByRole("radio", { name: "Stack" }));
-	expect(screen.getByTestId("chat-question-preview").textContent).toBe("+-----+");
-	expect(screen.getByText("Preview: Stack")).toBeTruthy();
-});
-
-function openNotes(question: ReturnType<typeof within>): HTMLElement {
-	fireEvent.click(question.getByRole("button", { name: "Add a note" }));
-	return question.getByRole("textbox", { name: "Notes (optional)" });
-}
-
-test("a single pick, multiple picks, Other and notes send the right answer", () => {
-	const { onAnswer, first, second } = drawQuestion();
-	fireEvent.click(first.getByRole("radio", { name: "Stack" }));
-	fireEvent.change(openNotes(first), {
-		target: { value: "keep it simple" },
-	});
-	fireEvent.click(second.getByRole("checkbox", { name: "Tests" }));
-	fireEvent.click(second.getByRole("checkbox", { name: "Lint" }));
-	fireEvent.change(second.getByRole("textbox", { name: "Other" }), {
-		target: { value: "and a build" },
-	});
-	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
-	expect(onAnswer).toHaveBeenCalledWith(
-		{ "Which layout?": "Stack", "Which checks?": "Lint, Tests" },
-		{ "Which layout?": "keep it simple", "Which checks?": "and a build" },
-	);
-});
-
-test("writing an Other answer to a single-select question picks Other", () => {
-	const { onAnswer, first, second } = drawQuestion();
-	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
-	fireEvent.change(first.getByRole("textbox", { name: "Your own answer" }), {
-		target: { value: "Masonry" },
-	});
-	expect(
-		(first.getByRole("radio", { name: "Other" }) as HTMLInputElement).checked,
-	).toBe(true);
-	fireEvent.click(second.getByRole("checkbox", { name: "Types" }));
-	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
-	expect(onAnswer).toHaveBeenCalledWith(
-		{ "Which layout?": "Masonry", "Which checks?": "Types" },
-		undefined,
-	);
-});
-
-test("Enter on an option sends, and an unanswered question is named and focused", () => {
-	const { onAnswer, first, second } = drawQuestion();
-	const grid = first.getByRole("radio", { name: "Grid" });
-	fireEvent.click(grid);
-	fireEvent.keyDown(grid, { key: "Enter" });
-	expect(onAnswer).not.toHaveBeenCalled();
-	expect(screen.getByRole("alert").textContent).toContain("Answer every question");
-	expect(document.activeElement).toBe(second.getByRole("checkbox", { name: "Lint" }));
-	fireEvent.click(second.getByRole("checkbox", { name: "Lint" }));
-	fireEvent.keyDown(second.getByRole("checkbox", { name: "Lint" }), { key: "Enter" });
-	expect(onAnswer).toHaveBeenCalledTimes(1);
-});
-
-test("Enter in a note adds a line, and Ctrl+Enter sends, as its hint says", () => {
-	const { onAnswer, first, second } = drawQuestion();
-	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
-	fireEvent.click(second.getByRole("checkbox", { name: "Lint" }));
-	const notes = openNotes(second);
-	// "Add a note" goes away with its click, so the field takes the keyboard.
-	expect(document.activeElement).toBe(notes);
-	expect(notes.getAttribute("aria-describedby")).toBeTruthy();
-	const hint = document.getElementById(notes.getAttribute("aria-describedby") ?? "");
-	expect(hint?.textContent).toContain("Ctrl+Enter");
-	fireEvent.keyDown(notes, { key: "Enter" });
-	fireEvent.keyDown(notes, { key: "Enter", shiftKey: true });
-	expect(onAnswer).not.toHaveBeenCalled();
-	fireEvent.keyDown(notes, { key: "Enter", ctrlKey: true });
-	expect(onAnswer).toHaveBeenCalledTimes(1);
-});
-
-test("choosing Other checks its radio before anything is written, and moves to its field", () => {
-	const { first } = drawQuestion();
-	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
-	const other = first.getByRole("radio", { name: "Other" }) as HTMLInputElement;
-	fireEvent.click(other);
-	expect(other.checked).toBe(true);
-	expect((first.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(
-		false,
-	);
-	expect(document.activeElement).toBe(
-		first.getByRole("textbox", { name: "Your own answer" }),
-	);
-	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
-	// Other with no text is not an answer yet.
-	expect(screen.getByRole("alert").textContent).toContain("Answer every question");
-});
-
-test("each option with a preview is described by its own preview", () => {
-	const { first } = drawQuestion();
-	const stack = first.getByRole("radio", { name: "Stack" });
-	const described = (stack.getAttribute("aria-describedby") ?? "")
-		.split(" ")
-		.map((id) => document.getElementById(id)?.textContent);
-	expect(described).toEqual(["One column", "Preview: +-----+"]);
-});
-
-test("a card says how many more wait behind it", () => {
-	render(
-		<QuestionCard
-			card={QUESTION}
-			onAnswer={() => true}
-			takeFocus={() => false}
-			waiting={2}
-		/>,
-	);
-	expect(screen.getByTestId("chat-cards-waiting").textContent).toBe(
-		"2 more requests are waiting.",
-	);
-});
-
-test("an answer that could not be sent says so and can be sent again", () => {
-	const onAnswer = vi.fn(() => false);
-	const { first, second } = drawQuestion(onAnswer);
-	fireEvent.click(first.getByRole("radio", { name: "Grid" }));
-	fireEvent.click(second.getByRole("checkbox", { name: "Lint" }));
-	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
-	expect(screen.getByRole("alert").textContent).toContain("not connected");
-	onAnswer.mockReturnValue(true);
-	fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
-	expect(onAnswer).toHaveBeenCalledTimes(2);
-	expect(
-		screen.getByRole("button", { name: "Send answers" }).getAttribute("aria-busy"),
-	).toBe("true");
-});
+const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
 const PERMISSION: Extract<ChatOpenCard, { type: "permission" }> = {
 	type: "permission",
@@ -287,7 +104,7 @@ test("a tool block opens to its input and output, images included", () => {
 	);
 	const block = screen.getByTestId("chat-tool-t1");
 	expect(block.querySelector("summary")?.textContent).toBe(
-		"Screenshotthe home pageFailed",
+		"Screenshot the home pageFailed",
 	);
 	expect(screen.getByRole("region", { name: "Error" })).toBeTruthy();
 	expect(
@@ -343,10 +160,10 @@ function tool(overrides: Partial<Parameters<typeof ToolBlock>[0]["tool"]> = {}) 
 	};
 }
 
-test("a Bash block shows the bare command and Done, with the raw input one click in", () => {
+test("a Bash block says what it ran, with the raw input one click in", () => {
 	render(<ToolBlock tool={tool()} />);
 	const block = screen.getByTestId("chat-tool-t2");
-	expect(block.querySelector("summary")?.textContent).toBe("Bashpnpm vitest runDone");
+	expect(block.querySelector("summary")?.textContent).toBe("Ran pnpm vitest run");
 	expect(screen.getByText("Raw input")).toBeTruthy();
 	expect(block.textContent).toContain('"command": "pnpm vitest run"');
 });
@@ -366,4 +183,213 @@ test("long output is cut short until Show more", () => {
 	fireEvent.click(more);
 	expect(output.querySelector("pre")?.textContent).toBe(text);
 	expect(within(output).getByRole("button", { name: "Show less" })).toBeTruthy();
+});
+
+test("the Always allow button says what it allows and for how long", () => {
+	const onAnswer = vi.fn(() => true);
+	const label = 'Always allow "sed" commands in this session';
+	render(
+		<PermissionCard
+			card={{
+				...PERMISSION,
+				options: [
+					{ id: "allow", label: "Allow once" },
+					{ id: "always", label },
+					{ id: "deny", label: "Deny" },
+				],
+			}}
+			onAnswer={onAnswer}
+			takeFocus={() => false}
+			waiting={0}
+		/>,
+	);
+	fireEvent.click(screen.getByRole("button", { name: label }));
+	expect(onAnswer).toHaveBeenCalledWith("always");
+});
+
+test("session rules are listed only when there are some, and Revoke sends the rule", () => {
+	const sent: unknown[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	const { container } = render(<SessionRules store={store} />);
+	expect(container.textContent).toBe("");
+	act(() => {
+		store.getState().receive(
+			JSON.stringify({
+				type: "snapshot",
+				sessionId: SESSION_ID,
+				seq: 1,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			}),
+		);
+		store.getState().receive(
+			JSON.stringify({
+				type: "rules",
+				sessionId: SESSION_ID,
+				seq: 2,
+				rules: [{ rule: "Bash(sed:*)", description: '"sed" commands in this session' }],
+			}),
+		);
+	});
+	expect(
+		screen.getByText("Allowed without asking in this session: 1 rule"),
+	).toBeTruthy();
+	expect(screen.getByText("Bash(sed:*)")).toBeTruthy();
+	fireEvent.click(
+		screen.getByRole("button", { name: 'Revoke: "sed" commands in this session' }),
+	);
+	expect(sent).toEqual([{ type: "rule.revoke", rule: "Bash(sed:*)" }]);
+});
+
+function rulesFrame(seq: number, rules: { rule: string; description: string }[]) {
+	return JSON.stringify({ type: "rules", sessionId: SESSION_ID, seq, rules });
+}
+
+const SED = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
+const GREP = { rule: "Bash(grep:*)", description: '"grep" commands in this session' };
+
+function renderRules(transport: () => boolean = () => true) {
+	const sent: unknown[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return transport();
+	});
+	render(
+		<div className="pk-chat">
+			<SessionRules store={store} />
+			<div className="pk-chat-composer">
+				{/* biome-ignore lint/a11y/useSemanticElements: stands in for the composer's editable box */}
+				<div role="textbox" tabIndex={0} aria-label="Message" />
+			</div>
+		</div>,
+	);
+	act(() => {
+		store.getState().receive(
+			JSON.stringify({
+				type: "snapshot",
+				sessionId: SESSION_ID,
+				seq: 1,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			}),
+		);
+		store.getState().receive(rulesFrame(2, [SED, GREP]));
+	});
+	return { store, sent };
+}
+
+const revokeButton = (rule: { description: string }) =>
+	screen.getByRole("button", { name: `Revoke: ${rule.description}` });
+const rulesStatus = () => screen.getByTestId("chat-session-rules-status").textContent;
+
+test("Revoke is busy while it waits, so a second press sends nothing", () => {
+	const { sent } = renderRules();
+	fireEvent.click(revokeButton(SED));
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBe("true");
+	expect(revokeButton(SED).getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(revokeButton(SED));
+	expect(sent).toEqual([{ type: "rule.revoke", rule: SED.rule }]);
+});
+
+test("after a revoke the next Revoke takes focus and the revoke is announced", () => {
+	const { store } = renderRules();
+	revokeButton(SED).focus();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(3, [GREP])));
+	expect(document.activeElement).toBe(revokeButton(GREP));
+	expect(rulesStatus()).toBe(`Revoked: ${SED.description}.`);
+});
+
+test("revoking the last row focuses the summary, and the last rule the message box", () => {
+	const { store } = renderRules();
+	revokeButton(GREP).focus();
+	fireEvent.click(revokeButton(GREP));
+	act(() => store.getState().receive(rulesFrame(3, [SED])));
+	expect(document.activeElement?.tagName).toBe("SUMMARY");
+	revokeButton(SED).focus();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(4, [])));
+	expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
+	expect(rulesStatus()).toBe(`Revoked: ${SED.description}.`);
+});
+
+test("a rule revoked from another browser leaves the focus alone and says nothing", () => {
+	const { store } = renderRules();
+	const box = screen.getByRole("textbox", { name: "Message" });
+	box.focus();
+	act(() => store.getState().receive(rulesFrame(3, [GREP])));
+	expect(document.activeElement).toBe(box);
+	expect(rulesStatus()).toBe("");
+});
+
+test("a list that still holds the rule ends the wait without saying it was revoked", () => {
+	const { store } = renderRules();
+	fireEvent.click(revokeButton(SED));
+	act(() => store.getState().receive(rulesFrame(3, [SED, GREP])));
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBeNull();
+	expect(rulesStatus()).toBe("");
+});
+
+test("a revoke that cannot be sent says so and leaves Revoke ready", () => {
+	renderRules(() => false);
+	fireEvent.click(revokeButton(SED));
+	expect(screen.getByRole("alert").textContent).toContain("not connected");
+	expect(revokeButton(SED).getAttribute("aria-busy")).toBeNull();
+});
+
+test("inside a permission card, 1, 2 and 3 choose its options, each showing its number", () => {
+	const onAnswer = vi.fn(() => true);
+	const three = {
+		...PERMISSION,
+		options: [
+			{ id: "allow", label: "Allow" },
+			{ id: "always", label: "Always allow pnpm test" },
+			{ id: "deny", label: "Deny" },
+		],
+	};
+	render(
+		<PermissionCard
+			card={three}
+			onAnswer={onAnswer}
+			takeFocus={() => true}
+			waiting={0}
+		/>,
+	);
+	const allow = screen.getByRole("button", { name: "Allow" });
+	expect(allow.getAttribute("aria-keyshortcuts")).toBe("1");
+	const deny = screen.getByRole("button", { name: "Deny" });
+	expect(deny.getAttribute("aria-keyshortcuts")).toBe("3");
+	expect(allow.textContent).toBe("1Allow");
+	// A modified key, or a number with no option, does nothing.
+	fireEvent.keyDown(allow, { key: "3", ctrlKey: true });
+	fireEvent.keyDown(allow, { key: "4" });
+	fireEvent.keyDown(allow, { key: "0" });
+	expect(onAnswer).not.toHaveBeenCalled();
+	fireEvent.keyDown(allow, { key: "3" });
+	expect(onAnswer).toHaveBeenCalledWith("deny");
+	// Once chosen, another key cannot change the answer.
+	fireEvent.keyDown(allow, { key: "1" });
+	expect(onAnswer).toHaveBeenCalledTimes(1);
+});
+
+test("a number key from outside the card answers nothing", () => {
+	const onAnswer = vi.fn(() => true);
+	render(
+		<>
+			<input aria-label="Elsewhere" />
+			<PermissionCard
+				card={PERMISSION}
+				onAnswer={onAnswer}
+				takeFocus={() => false}
+				waiting={0}
+			/>
+		</>,
+	);
+	fireEvent.keyDown(screen.getByRole("textbox", { name: "Elsewhere" }), { key: "1" });
+	expect(onAnswer).not.toHaveBeenCalled();
 });

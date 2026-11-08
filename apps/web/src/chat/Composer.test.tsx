@@ -13,10 +13,18 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetSpeechSupport } from "../voice/useSpeechInput.js";
 import { Composer } from "./Composer.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
+import {
+	boxText,
+	editorOf,
+	placeCursor,
+	setText,
+	typeInto,
+} from "./composerTesting.js";
 
 const saveDroppedFile = vi.hoisted(() => vi.fn());
 vi.mock("../files/queries.js", () => ({ saveDroppedFile }));
@@ -105,12 +113,16 @@ function draw() {
 	);
 }
 
-function input(): HTMLTextAreaElement {
-	return screen.getByTestId("chat-composer-input") as HTMLTextAreaElement;
+function input(): HTMLElement {
+	return screen.getByTestId("chat-composer-input");
 }
 
 function type(text: string) {
-	fireEvent.change(input(), { target: { value: text } });
+	setText(input(), text);
+}
+
+function value(): string {
+	return boxText(input());
 }
 
 function file(name: string, type: string, size = 10): File {
@@ -120,7 +132,9 @@ function file(name: string, type: string, size = 10): File {
 }
 
 function paste(files: File[]) {
-	fireEvent.paste(input(), { clipboardData: { files, items: [], types: ["Files"] } });
+	fireEvent.paste(input(), {
+		clipboardData: { files, items: [], types: ["Files"], getData: () => "" },
+	});
 }
 
 /** The host's echo of the student's message, which ends the send. */
@@ -136,15 +150,17 @@ function alert(): string {
 	return screen.getByTestId("chat-composer-error").textContent ?? "";
 }
 
-test("Enter sends the text and clears the box; Shift+Enter does not send", () => {
+test("Enter sends the text and clears the box; Shift+Enter adds a line", () => {
 	draw();
-	type("Add a test");
+	type("Add");
+	placeCursor(input(), 3);
 	fireEvent.keyDown(input(), { key: "Enter", shiftKey: true });
+	typeInto(input(), "a test");
 	expect(sent).toEqual([]);
 	fireEvent.keyDown(input(), { key: "Enter" });
-	expect(sent).toEqual([{ type: "send", text: "Add a test", attachments: [] }]);
-	echo("Add a test");
-	expect(input().value).toBe("");
+	expect(sent).toEqual([{ type: "send", text: "Add\na test", attachments: [] }]);
+	echo("Add\na test");
+	expect(value()).toBe("");
 });
 
 test("text typed after sending is kept when the echo arrives", () => {
@@ -153,7 +169,7 @@ test("text typed after sending is kept when the echo arrives", () => {
 	fireEvent.keyDown(input(), { key: "Enter" });
 	type("second");
 	echo("first");
-	expect(input().value).toBe("second");
+	expect(value()).toBe("second");
 });
 
 test("an empty message is not sent, and Enter during composition is left alone", () => {
@@ -162,7 +178,8 @@ test("an empty message is not sent, and Enter during composition is left alone",
 	type("   ");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	type("日本");
-	fireEvent.keyDown(input(), { key: "Enter", isComposing: true });
+	fireEvent.compositionStart(input());
+	fireEvent.keyDown(input(), { key: "Enter", isComposing: true, keyCode: 229 });
 	expect(sent).toEqual([]);
 });
 
@@ -179,125 +196,231 @@ test("text that could not be sent stays in the box with the not-sent message", (
 	type("hello");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	expect(alert()).toMatch(/was not sent/);
-	expect(input().value).toBe("hello");
+	expect(value()).toBe("hello");
 	accept = true;
 	fireEvent.keyDown(input(), { key: "Enter" });
 	expect(alert()).toBe("");
 	echo("hello");
-	expect(input().value).toBe("");
+	expect(value()).toBe("");
 });
 
-test("while a turn runs, Send becomes Stop and Stop interrupts", () => {
+test("Send and Stop are icon buttons named for what they do", () => {
+	draw();
+	const send = screen.getByRole("button", { name: "Send" });
+	expect(send).toBe(screen.getByTestId("chat-composer-send"));
+	expect(send.getAttribute("type")).toBe("submit");
+	expect(send.textContent).toBe("");
+	expect(send.querySelector("svg")).toBeTruthy();
+});
+
+test("while a turn runs, Stop sits beside a Send that still sends, and Stop interrupts", () => {
 	draw();
 	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
 	emit("turn.started", { at: 0 });
-	expect(screen.queryByTestId("chat-composer-send")).toBeNull();
-	fireEvent.click(screen.getByTestId("chat-composer-stop"));
-	expect(sent).toEqual([{ type: "interrupt" }]);
+	const send = screen.getByTestId("chat-composer-send");
+	expect(send.hasAttribute("aria-disabled")).toBe(false);
+	expect(send.hasAttribute("aria-describedby")).toBe(false);
+	type("also check the tests");
+	fireEvent.click(send);
+	expect(sent).toEqual([
+		{ type: "send", text: "also check the tests", attachments: [] },
+	]);
+	fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+	expect(sent.at(-1)).toEqual({ type: "interrupt" });
 	emit("turn.finished", { at: 1, status: "interrupted" });
-	expect(screen.getByTestId("chat-composer-send")).toBeTruthy();
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
 });
 
-test("Enter still queues a message while a turn runs", () => {
+test("while a turn runs the foot says Enter sends without stopping, and Esc stops", () => {
+	draw();
+	const hint = () => screen.getByTestId("chat-composer-hint").textContent;
+	expect(hint()).toBe(
+		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+	);
+	emit("turn.started", { at: 0 });
+	expect(hint()).toBe("Enter sends without stopping Claude. Esc stops it.");
+});
+
+test("when Stop ends the turn while it holds the keyboard, the message box takes it", () => {
+	draw();
+	emit("turn.started", { at: 0 });
+	const stop = screen.getByRole("button", { name: "Stop" });
+	stop.focus();
+	fireEvent.click(stop);
+	emit("turn.finished", { at: 1, status: "interrupted" });
+	expect(document.activeElement).toBe(input());
+});
+
+test("a turn that ends while the keyboard is elsewhere leaves the keyboard alone", () => {
+	draw();
+	emit("turn.started", { at: 0 });
+	const send = screen.getByTestId("chat-composer-send");
+	send.focus();
+	emit("turn.finished", { at: 1, status: "done" });
+	expect(document.activeElement).toBe(send);
+});
+
+test("while a sent message waits for the host, Send says why it waits", () => {
+	draw();
+	type("hi");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	const send = screen.getByTestId("chat-composer-send");
+	expect(send.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Wait for your last message to reach Claude.");
+	echo("hi");
+	expect(send.hasAttribute("aria-disabled")).toBe(false);
+	expect(send.hasAttribute("aria-describedby")).toBe(false);
+});
+
+test("entering a code block is announced once, with how to send and how to leave", () => {
+	draw();
+	typeInto(input(), "```");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	const announced = status();
+	expect(announced).toMatch(
+		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
+	);
+	// Leaving empties the region, so the next code block is read out again.
+	act(() => {
+		(input() as TiptapEditorHTMLElement).editor?.commands.clearContent(true);
+	});
+	expect(status()).toBe("");
+	typeInto(input(), "```");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(status()).toBe(announced);
+});
+
+test("Escape in the box stops a running turn, and does nothing when none runs", () => {
+	draw();
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([]);
+	emit("turn.started", { at: 0 });
+	fireEvent.keyDown(input(), { key: "Escape", shiftKey: true });
+	expect(sent).toEqual([]);
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([{ type: "interrupt" }]);
+});
+
+test("Escape leaves an open picker menu to close itself and does not stop the turn", () => {
+	draw();
+	settings();
+	emit("turn.started", { at: 0 });
+	const trigger = screen.getAllByRole("button", { expanded: false })[0] as HTMLElement;
+	trigger.setAttribute("aria-expanded", "true");
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([]);
+});
+
+test("Up in an empty box brings back the last message sent, formatting and all", () => {
+	draw();
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("");
+	typeInto(input(), "make it **bold**");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	echo("make it **bold**");
+	expect(value()).toBe("");
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("make it **bold**");
+	expect(input().querySelector("strong")?.textContent).toBe("bold");
+});
+
+test("Up in a box with text moves the cursor as usual", () => {
+	draw();
+	type("first");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	echo("first");
+	type("draft");
+	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("draft");
+});
+
+test("a paste of more than 40 lines is attached as a text file with its line count", async () => {
+	draw();
+	const log = Array.from({ length: 120 }, (_, at) => `error at line ${at}`).join("\n");
+	fireEvent.paste(input(), {
+		clipboardData: {
+			files: [],
+			items: [],
+			types: ["text/plain"],
+			getData: (kind: string) => (kind === "text/plain" ? log : ""),
+		},
+	});
+	const chip = await screen.findByTestId("composer-chip");
+	expect(value()).toBe("");
+	expect(chip.textContent).toContain("pasted-text.txt");
+	// Said where it went, so nobody pastes it again thinking it was lost.
+	await waitFor(() =>
+		expect(status()).toBe("Pasted 120 lines, attached as pasted-text.txt."),
+	);
+	expect(screen.getByTestId("composer-chip-size").textContent).toBe("120 lines");
+	const saved = saveDroppedFile.mock.calls[0]?.[3] as File;
+	expect(saved.name).toBe("pasted-text.txt");
+	expect(saved.type).toBe("text/plain");
+	expect(await saved.text()).toBe(log);
+	expect(saveDroppedFile.mock.calls[0]?.[2]).toEqual(
+		expect.arrayContaining([
+			expect.stringMatching(/^\.portikus\/pastes\/.+\/pasted-text\.txt$/),
+		]),
+	);
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{
+			type: "send",
+			text: "",
+			attachments: [{ path: await saveDroppedFile.mock.results[0]?.value }],
+		},
+	]);
+});
+
+test("each long paste gets its own file, chip and Remove name", async () => {
+	draw();
+	const pasteLines = (count: number) =>
+		fireEvent.paste(input(), {
+			clipboardData: {
+				files: [],
+				items: [],
+				types: ["text/plain"],
+				getData: (kind: string) =>
+					kind === "text/plain"
+						? Array.from({ length: count }, (_, at) => `l${at}`).join("\n")
+						: "",
+			},
+		});
+	pasteLines(50);
+	await screen.findByTestId("composer-chip");
+	pasteLines(60);
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	await waitFor(() =>
+		expect(status()).toBe("Pasted 60 lines, attached as pasted-text-2.txt."),
+	);
+	expect(saveDroppedFile.mock.calls.map((call) => (call[3] as File).name)).toEqual([
+		"pasted-text.txt",
+		"pasted-text-2.txt",
+	]);
+	expect(
+		screen.getAllByRole("button", { name: /^Remove / }).map((b) => b.ariaLabel),
+	).toEqual(["Remove pasted-text.txt", "Remove pasted-text-2.txt"]);
+});
+
+test("the microphone sits after the settings, next to Send", async () => {
+	draw();
+	const mic = await screen.findByTestId(`chat-voice-${TERMINAL}`);
+	const send = screen.getByTestId("chat-composer-send");
+	expect(mic.parentElement).toBe(send.parentElement);
+	const model = screen.getByText("Model");
+	expect(
+		model.compareDocumentPosition(mic) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+});
+
+test("Enter sends a message while a turn runs", () => {
 	draw();
 	emit("turn.started", { at: 0 });
 	type("next");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	expect(sent).toEqual([{ type: "send", text: "next", attachments: [] }]);
-});
-
-test("the pickers show the host's settings and each change asks for exactly that", () => {
-	draw();
-	settings({ model: "claude-opus-4-1", effort: "xhigh", mode: "plan" });
-	const model = screen.getByRole("combobox", { name: "Model" }) as HTMLSelectElement;
-	const effort = screen.getByRole("combobox", { name: "Effort" }) as HTMLSelectElement;
-	const mode = screen.getByRole("combobox", {
-		name: "Permissions",
-	}) as HTMLSelectElement;
-	expect(model.value).toBe("opus");
-	expect(effort.value).toBe("xhigh");
-	expect(mode.value).toBe("plan");
-
-	fireEvent.change(model, { target: { value: "haiku" } });
-	fireEvent.change(effort, { target: { value: "max" } });
-	fireEvent.change(mode, { target: { value: "bypassPermissions" } });
-	expect(sent).toEqual([
-		{ type: "set", model: "haiku" },
-		{ type: "set", effort: "max" },
-		{ type: "set", mode: "bypassPermissions" },
-	]);
-	// The picker shows what was asked for while the host has not answered.
-	expect(model.value).toBe("haiku");
-	expect(mode.value).toBe("bypassPermissions");
-	settings({ model: "haiku", effort: "max", mode: "bypassPermissions" });
-	expect(model.value).toBe("haiku");
-	expect(mode.value).toBe("bypassPermissions");
-});
-
-test("a change the host refuses goes back and is announced", () => {
-	draw();
-	settings({ effort: "high" });
-	const effort = screen.getByRole("combobox", { name: "Effort" }) as HTMLSelectElement;
-	fireEvent.change(effort, { target: { value: "max" } });
-	expect(effort.value).toBe("max");
-	emit("error", { message: "This model has no Max effort." });
-	expect(effort.value).toBe("high");
-	expect(status()).toBe("Your effort did not change. This model has no Max effort.");
-});
-
-test("a value other than the start value is set apart, and Bypass carries the warning look", () => {
-	draw();
-	settings({ effort: "high", mode: "default" });
-	const effort = screen.getByRole("combobox", { name: "Effort" });
-	expect(effort.closest("label")?.className).not.toContain("is-changed");
-	settings({ effort: "low", mode: "bypassPermissions" });
-	expect(effort.closest("label")?.className).toContain("is-changed");
-	const mode = screen.getByRole("combobox", { name: "Permissions" });
-	expect(mode.closest("label")?.className).toContain("is-warning");
-	expect(status()).toMatch(/^Bypass permissions is on\./);
-});
-
-test("the permission picker offers all five modes, and Bypass carries a warning", () => {
-	draw();
-	settings();
-	const mode = screen.getByRole("combobox", { name: "Permissions" });
-	expect(Array.from(mode.querySelectorAll("option")).map((o) => o.value)).toEqual([
-		"default",
-		"acceptEdits",
-		"plan",
-		"auto",
-		"bypassPermissions",
-	]);
-	expect(mode.hasAttribute("aria-describedby")).toBe(false);
-	settings({ mode: "bypassPermissions" });
-	const warning = document.getElementById(mode.getAttribute("aria-describedby") ?? "");
-	expect(warning?.textContent).toMatch(/without asking/);
-});
-
-test("an unknown model shows as Default, and the pickers wait with their labels until settings arrive", () => {
-	draw();
-	expect(screen.queryByRole("combobox", { name: "Model" })).toBeNull();
-	const waiting = screen.getAllByTestId("composer-pick-waiting");
-	expect(waiting.map((pick) => pick.textContent)).toEqual([
-		"Model",
-		"Effort",
-		"Permissions",
-	]);
-	settings({ model: "some-new-model" });
-	const model = screen.getByRole("combobox", { name: "Model" }) as HTMLSelectElement;
-	expect(model.value).toBe("default");
-	settings({ model: "default" });
-	expect(model.value).toBe("default");
-});
-
-test("the Codex entry is disabled and the agent picker sends nothing", () => {
-	draw();
-	const agent = screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement;
-	expect(agent.value).toBe("claude");
-	const codex = screen.getByRole("option", { name: "Codex (coming soon)" });
-	expect((codex as HTMLOptionElement).disabled).toBe(true);
-	fireEvent.change(agent, { target: { value: "claude" } });
-	expect(sent).toEqual([]);
 });
 
 test("a pasted picture is saved, shown as a removable chip, and sent as a path", async () => {
@@ -496,9 +619,63 @@ test("Send waits while files are still being saved", async () => {
 	]);
 });
 
-test("the box stops at the longest prompt the contract allows", () => {
+test("a message over the contract's limit is not sent, and says how to fix it", () => {
 	draw();
-	expect(input().maxLength).toBe(100_000);
+	type("x".repeat(100_001));
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([]);
+	expect(alert()).toBe(
+		"Your message was not sent because it is 100,001 characters long, over the limit of 100,000. Shorten it and send again.",
+	);
+	type("x".repeat(100_000));
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+});
+
+test("the box is a labelled multi-line text box described by the key hint", () => {
+	draw();
+	const box = screen.getByRole("textbox", { name: "Message Claude Code" });
+	expect(box).toBe(input());
+	expect(box.getAttribute("aria-multiline")).toBe("true");
+	expect(box.getAttribute("aria-placeholder")).toBe(
+		"Message Claude Code, or paste or drop images",
+	);
+	const hint = (box.getAttribute("aria-describedby") ?? "")
+		.split(" ")
+		.map((id) => document.getElementById(id)?.textContent)
+		.filter(Boolean);
+	expect(hint).toEqual([
+		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+	]);
+});
+
+test("Markdown typed in the box is sent as the same Markdown text", () => {
+	draw();
+	typeInto(input(), "Use **bold**, `code` and\n- a list\nof two");
+	expect(input().querySelector("strong")).toBeTruthy();
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{
+			type: "send",
+			text: "Use **bold**, `code` and\n\n- a list\n- of two",
+			attachments: [],
+		},
+	]);
+	echo("Use **bold**, `code` and\n\n- a list\n- of two");
+	expect(value()).toBe("");
+});
+
+test("in a code block the hint says Enter adds a line, and Ctrl+Enter sends", () => {
+	draw();
+	typeInto(input(), "``` ");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(
+		/^In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\.$/,
+	);
+	typeInto(input(), "ls");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([]);
+	fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+	expect(sent).toEqual([{ type: "send", text: "```\nls\n\n```", attachments: [] }]);
 });
 
 async function hold() {
@@ -517,13 +694,14 @@ function say(text: string, isFinal: boolean) {
 test("dictation is inserted at the cursor and is never sent", async () => {
 	draw();
 	type("fix the bug");
-	input().setSelectionRange(3, 3);
+	placeCursor(input(), 3);
 	await hold();
 	say("now", true);
-	expect(input().value).toBe("fix now the bug");
-	expect(input().selectionStart).toBe("fix now".length);
+	expect(value()).toBe("fix now the bug");
+	// The cursor ends after the words, inside the first line.
+	expect(editorOf(input()).state.selection.from).toBe(1 + "fix now".length);
 	say("please", true);
-	expect(input().value).toBe("fix now please the bug");
+	expect(value()).toBe("fix now please the bug");
 	expect(sent).toEqual([]);
 });
 
@@ -532,9 +710,9 @@ test("dictation shows interim words without typing them, and starts after nothin
 	await hold();
 	say("hel", false);
 	expect(screen.getByTestId("chat-voice-interim").textContent).toBe("hel");
-	expect(input().value).toBe("");
+	expect(value()).toBe("");
 	say("hello", true);
-	expect(input().value).toBe("hello");
+	expect(value()).toBe("hello");
 	expect(sent).toEqual([]);
 });
 
@@ -551,7 +729,7 @@ test("Alt+Shift+M held in the box listens, and releasing stops", async () => {
 		repeat: true,
 	});
 	say("spoken", true);
-	expect(input().value).toBe("spoken");
+	expect(value()).toBe("spoken");
 	fireEvent.keyUp(input(), { key: "M", code: "KeyM" });
 	await waitFor(() =>
 		expect(
@@ -571,13 +749,21 @@ test("without speech recognition there is no microphone", async () => {
 
 test("the bypass warning shows only while Bypass is the host's mode", () => {
 	draw();
-	expect(screen.getByText("Enter sends. Shift+Enter adds a line.")).toBeTruthy();
+	expect(
+		screen.getByText(
+			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		),
+	).toBeTruthy();
 	settings({ mode: "bypassPermissions" });
 	expect(screen.getByTestId("chat-bypass-warning").textContent).toMatch(
 		/without asking/,
 	);
 	// The warning takes the hint's line, so the box above does not move.
-	expect(screen.queryByText("Enter sends. Shift+Enter adds a line.")).toBeNull();
+	expect(
+		screen.queryByText(
+			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		),
+	).toBeNull();
 	settings({ mode: "default" });
 	expect(screen.queryByTestId("chat-bypass-warning")).toBeNull();
 });
