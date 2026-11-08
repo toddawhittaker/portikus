@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
 	composerText,
 	createComposerEditor,
+	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
 	LONG_PASTE_LINES,
@@ -306,6 +307,21 @@ test("the same long text pasted again within 0.8 s goes in the box once, and its
 		expect(onLongPaste).toHaveBeenCalledTimes(2);
 		expect(onRepaste).toHaveBeenCalledTimes(1);
 		expect(boxText(box)).toBe(LOG);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("after the held paste is forgotten, as on send, the same text at once is a new long paste", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(100);
+		forgetLongPaste(editor);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+		expect(boxText(box)).toBe("");
 	} finally {
 		vi.useRealTimers();
 	}

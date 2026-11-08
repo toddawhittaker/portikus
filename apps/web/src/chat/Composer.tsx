@@ -35,6 +35,7 @@ import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
 	composerText,
 	createComposerEditor,
+	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
 	showInterim,
@@ -171,6 +172,9 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			return;
 		}
 		stopSpeech();
+		// The file just sent must not be deleted by a quick repeat of its paste.
+		if (editor.current) forgetLongPaste(editor.current);
+		lastLongPaste.current = null;
 		setError("");
 		if (text.trim() !== "" && editor.current)
 			lastSent.current = editor.current.getJSON();

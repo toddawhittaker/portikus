@@ -253,6 +253,18 @@ const markdownRules = Extension.create({
 
 const ITEMS = ["listItem", "taskItem"] as const;
 
+/** Each editor's way to forget its held long paste. */
+const forgetters = new WeakMap<EditorType, () => void>();
+
+/**
+ * Forget the last long paste, so pasting it again is a new paste. Called on
+ * send: the sent message points Claude at that paste's file, which a repeat
+ * paste would otherwise delete.
+ */
+export function forgetLongPaste(editor: EditorType): void {
+	forgetters.get(editor)?.();
+}
+
 export function createComposerEditor(options: ComposerEditorOptions): EditorType {
 	/** The last long paste, held in memory only and only for REPASTE_MS (ADR 0012). */
 	let longPaste: string | null = null;
@@ -306,7 +318,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 		},
 	});
 
-	return new Editor({
+	const editor = new Editor({
 		element: options.element,
 		// The page's style policy and theme own every style; see composer.css.
 		injectCSS: false,
@@ -404,4 +416,6 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 		onDestroy: () => remember(null),
 		onSelectionUpdate: ({ editor }) => options.onChange(editor),
 	});
+	forgetters.set(editor, () => remember(null));
+	return editor;
 }

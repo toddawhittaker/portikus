@@ -16,9 +16,13 @@ const MARKS: Record<string, { open: string; close: (mark: Mark) => string }> = {
 	strike: { open: "~~", close: () => "~~" },
 };
 
-/** A target with brackets or spaces is fenced in angle brackets, as CommonMark allows. */
+/**
+ * A target with brackets, spaces or a backslash is fenced in angle brackets,
+ * as CommonMark allows, with `<`, `>` and `\` backslash-escaped inside, so a
+ * pasted address cannot close the fence early and start another link.
+ */
 function linkTarget(href: string): string {
-	return /[\s()<>]/.test(href) ? `<${href}>` : href;
+	return /[\s()<>\\]/.test(href) ? `<${href.replace(/[\\<>]/g, "\\$&")}>` : href;
 }
 
 export function toMarkdown(content: Fragment): string {
