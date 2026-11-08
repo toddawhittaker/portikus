@@ -6,18 +6,14 @@ import {
 	test,
 	type WebSocketRoute,
 } from "@playwright/test";
+import { makeChatTab } from "./chat-helpers";
 import {
 	addSession,
-	createProject,
-	createStudent,
 	endTerminal,
 	expectNoViolations,
-	newTerminal,
-	query,
 	terminalIds,
 	waitForSavedLeaf,
 	workspacePath,
-	workTabs,
 } from "./helpers";
 import { png } from "./png";
 import { FAKE_AGENT_URL } from "./ports";
@@ -163,29 +159,6 @@ function script(ws: WebSocketRoute, answers: unknown[]) {
 	});
 }
 
-/**
- * A chat tab in a new student's workspace. The launcher entry is the
- * composer's, so a terminal is opened and its row made a chat; the fake
- * agent already knows the terminal, and the API reads the kind from the row.
- */
-async function makeChatTab(page: Page, context: BrowserContext) {
-	const student = await createStudent(context);
-	const project = await createProject(student.workspaceId, { name: "Dashboard" });
-	await page.goto(workspacePath(student.workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await newTerminal(page);
-	await expect
-		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-		.toBe(1);
-	const [id] = await terminalIds(student.workspaceId, project.id);
-	await query(
-		"update terminals set kind = 'chat', agent = 'claude', name = 'Claude Code' where id = $1",
-		[id],
-	);
-	if (!id) throw new Error("the terminal row was not created");
-	return { student, project, id };
-}
-
 /** The chat tab with its socket answered by `script`, not the fake agent. */
 async function openScriptedChat(page: Page, context: BrowserContext) {
 	const { id } = await makeChatTab(page, context);
@@ -226,28 +199,36 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await view.locator(".pk-chat-scroll").evaluate((box) => box.scrollTo(0, 0));
 			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 
-			// Keyboard only from here, starting where the card put the focus.
-			await view.getByRole("radio", { name: "Grid" }).focus();
+			// Keyboard only from here, starting on the first option.
+			const card = view.getByTestId("chat-question-card");
+			await expect(card.getByTestId("chat-question-position")).toHaveText("1 of 2");
+			await expect(card.getByTestId("chat-question-preview")).toHaveCount(2);
+			await card.getByRole("radio", { name: "Grid" }).focus();
 			await page.keyboard.press("ArrowDown");
-			await expect(view.getByTestId("chat-question-preview").first()).toContainText(
-				"Tests           |",
-			);
-			await page.keyboard.press("Tab"); // Other text
-			await page.keyboard.press("Tab"); // preview
+			await expect(card.getByRole("radio", { name: "Stack" })).toBeChecked();
+			await page.keyboard.press("Tab"); // Stack's preview
 			await page.keyboard.press("Tab"); // Add a note
 			await page.keyboard.press("Enter");
 			await expect(
-				view.getByRole("textbox", { name: "Notes (optional)" }),
+				card.getByRole("textbox", { name: "Note (optional)" }),
 			).toBeFocused();
 			await page.keyboard.type("Keep it simple");
-			await page.keyboard.press("Tab"); // first checkbox
+			await page.keyboard.press("Enter"); // a new line in the note
+			await page.keyboard.press("Control+Enter"); // Next
+			await expect(card.getByTestId("chat-question-position")).toHaveText("2 of 2");
+			await expect(card.getByText("Pick any that apply")).toBeVisible();
+			await expect(card.getByRole("checkbox", { name: "Lint" })).toBeFocused();
 			await page.keyboard.press("Space");
-			await page.keyboard.press("Tab");
-			await page.keyboard.press("Tab");
+			await page.keyboard.press("ArrowDown"); // Types
+			await page.keyboard.press("ArrowDown"); // Tests
 			await page.keyboard.press("Space");
-			await page.keyboard.press("Tab"); // Other
+			await page.keyboard.press("ArrowDown"); // Other
+			await page.keyboard.press("Space");
+			await expect(card.getByRole("checkbox", { name: "Other" })).toBeFocused();
+			await page.keyboard.press("Tab"); // its text
 			await page.keyboard.type("and a build");
-			await page.keyboard.press("Enter");
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+			await page.keyboard.press("Enter"); // Submit
 			await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
 			await expect(view.getByTestId("chat-permission-card")).toBeVisible();
 			// The answered card handed the keyboard to the message box, and the next
@@ -265,12 +246,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 					id: "q1",
 					answers: {
 						"Which layout should the dashboard use?": "Stack",
-						"Which checks should run on save?": "Lint, Tests",
+						"Which checks should run on save?": "Lint, Tests, and a build",
 					},
-					notes: {
-						"Which layout should the dashboard use?": "Keep it simple",
-						"Which checks should run on save?": "and a build",
-					},
+					notes: { "Which layout should the dashboard use?": "Keep it simple" },
 				},
 				{ type: "permission.answer", id: "p1", optionId: "allow" },
 			]);
@@ -343,22 +321,36 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(view.getByTestId("chat-composer-input")).toBeFocused();
 		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 
-		await view.getByRole("checkbox", { name: "Lint" }).focus();
+		const card = view.getByTestId("chat-question-card");
+		await expect(view.getByTestId("chat-needs-input")).toHaveText("Needs your input");
+		await expect(view.getByTestId("chat-asked-outcome")).toHaveText("Needs your input");
+		await card.getByRole("checkbox", { name: "Lint" }).focus();
 		await page.keyboard.press("Space");
-		await page.keyboard.press("Tab"); // Tests
-		await page.keyboard.press("Tab"); // Types
+		await page.keyboard.press("ArrowDown"); // Tests
+		await page.keyboard.press("ArrowDown"); // Types
 		await page.keyboard.press("Space");
 		await page.keyboard.press("Tab"); // Other
-		await page.keyboard.type("and docs");
 		await page.keyboard.press("Tab"); // Add a note
 		await page.keyboard.press("Enter");
 		await page.keyboard.type("quick ones");
-		await page.keyboard.press("Tab"); // the layout radios
+		await page.keyboard.press("Control+Enter"); // Next
+		await expect(card.getByTestId("chat-question-position")).toHaveText("2 of 2");
+		await expect(card.getByRole("radio", { name: "Tabs" })).toBeFocused();
+		await expect(card.getByText("Question 2 of 2: Which layout?")).toBeAttached();
+		// Back to the first question, where the picks and the note were kept.
+		await card.getByRole("button", { name: "Previous question" }).click();
+		await expect(card.getByTestId("chat-question-position")).toHaveText("1 of 2");
+		await expect(card.getByRole("checkbox", { name: "Lint" })).toBeFocused();
+		await expect(card.getByRole("checkbox", { name: "Types" })).toBeChecked();
+		await expect(card.getByTestId("chat-question-notes")).toHaveValue("quick ones");
+		await card.getByRole("button", { name: "Next question" }).click();
+		await expect(card.getByRole("radio", { name: "Tabs" })).toBeFocused();
 		await page.keyboard.press("ArrowDown");
-		await expect(view.getByRole("radio", { name: "Tree" })).toBeChecked();
-		await expect(view.getByTestId("chat-question-preview")).toHaveText(
+		await expect(card.getByRole("radio", { name: "Tree" })).toBeChecked();
+		await expect(card.getByTestId("chat-question-preview").nth(1)).toHaveText(
 			"|- src\n|- test",
 		);
+		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 		await page.keyboard.press("Enter");
 
 		await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
@@ -377,10 +369,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 						"Which checks should run?": "Lint, Types",
 						"Which layout?": "Tree",
 					},
-					notes: { "Which checks should run?": "and docs\nquick ones" },
+					notes: { "Which checks should run?": "quick ones" },
 				},
 				{ type: "permission.answer", id: "card-permission", optionId: "allow" },
 			]);
+
+		// The card is replaced in the conversation by what was asked and answered.
+		const asked = view.getByTestId("chat-asked");
+		await expect(asked.locator("> summary")).toHaveText("Asked 2 questionsAnswered");
+		await asked.locator("> summary").click();
+		await expect(asked.getByRole("definition")).toHaveText(["Lint, Types", "Tree"]);
 
 		// The tool's image is drawn from the frame; the reply's remote image never loads.
 		await view.getByTestId("chat-worked").locator("> summary").click();
@@ -408,8 +406,9 @@ test("a card answered in one browser clears in the other", async ({
 		await expect(second.getByTestId("chat-question-card")).toBeVisible();
 
 		await first.getByRole("checkbox", { name: "Tests" }).check();
+		await first.getByRole("button", { name: "Next", exact: true }).click();
 		await first.getByRole("radio", { name: "Tabs" }).check();
-		await first.getByRole("button", { name: "Send answers" }).click();
+		await first.getByRole("button", { name: "Submit" }).click();
 		await expect(second.getByTestId("chat-question-card")).toHaveCount(0);
 		await expect(second.getByTestId("chat-permission-card")).toBeVisible();
 
@@ -429,6 +428,76 @@ test("a card answered in one browser clears in the other", async ({
 	} finally {
 		await otherContext.close();
 	}
+});
+
+test("Skip leaves a question unanswered, and the summary says so", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	const view = await openFakeChat(
+		page,
+		workspacePath(student.workspaceId, project.id),
+		id,
+	);
+	await startTurn(view);
+	const card = view.getByTestId("chat-question-card");
+	// Next waits for an answer, and says why; Skip does not.
+	const next = card.getByRole("button", { name: "Next", exact: true });
+	await expect(next).toHaveAttribute("aria-disabled", "true");
+	await next.focus();
+	await page.keyboard.press("Enter");
+	await expect(card.getByRole("alert")).toHaveText(
+		"Pick an answer or write your own under Other, or skip this question.",
+	);
+	await card.getByRole("button", { name: "Skip", exact: true }).click();
+	await expect(card.getByTestId("chat-question-position")).toHaveText("2 of 2");
+	// Other with nothing written is not an answer yet.
+	await card.getByRole("radio", { name: "Other" }).click();
+	await expect(card.getByRole("textbox", { name: "Your own answer" })).toBeFocused();
+	await expect(card.getByRole("button", { name: "Submit" })).toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await page.keyboard.type("A sidebar");
+	await page.keyboard.press("Control+Enter");
+	await expect(card).toHaveCount(0);
+	await view.getByRole("button", { name: "Deny" }).click();
+	await expect
+		.poll(() => fakeAnswers(id))
+		.toEqual([
+			{
+				type: "question.answer",
+				id: "card-question",
+				answers: { "Which layout?": "A sidebar" },
+			},
+			{ type: "permission.answer", id: "card-permission", optionId: "deny" },
+		]);
+	const asked = view.getByTestId("chat-asked");
+	await asked.locator("> summary").click();
+	await expect(asked.getByRole("definition")).toHaveText(["Skipped", "A sidebar"]);
+});
+
+test("Skip all sends the card back with nothing answered", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	const view = await openFakeChat(
+		page,
+		workspacePath(student.workspaceId, project.id),
+		id,
+	);
+	await startTurn(view);
+	await view.getByRole("checkbox", { name: "Lint" }).check();
+	await view.getByRole("button", { name: "Skip all" }).click();
+	await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
+	await expect
+		.poll(() => fakeAnswers(id))
+		.toEqual([{ type: "question.answer", id: "card-question", answers: {} }]);
+	await expect(view.getByTestId("chat-asked-outcome")).toHaveText("Skipped");
 });
 
 test("typing in the message box while a card arrives keeps the keyboard there and never answers it", async ({

@@ -175,6 +175,44 @@ test("a streamed turn shows Working, then folds its work into Worked for", () =>
 	expect(screen.getByTestId("chat-announcer").textContent).toBe("Claude finished.");
 });
 
+test("what Claude asked stays in view after the turn, with each answer or Skipped", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("message", { id: "a1", role: "assistant", markdown: "Let me ask." });
+	emit("tool.started", {
+		id: "q1",
+		name: "AskUserQuestion",
+		title: "AskUserQuestion",
+		input: { questions: [{ question: "Which?" }, { question: "Why?" }] },
+	});
+	expect(screen.getByTestId("chat-asked-outcome").textContent).toBe("Needs your input");
+	emit("tool.output", {
+		id: "q1",
+		part: {
+			type: "text",
+			text: 'Your questions have been answered: "Which?"="B". You can now continue with these answers in mind.',
+		},
+	});
+	emit("tool.finished", { id: "q1", isError: false });
+	emit("tool.started", { id: "t1", name: "Read", title: "a.ts", input: {} });
+	emit("tool.finished", { id: "t1", isError: false });
+	emit("message", { id: "a2", role: "assistant", markdown: "Done." });
+	emit("turn.finished", { at: Date.now() + 1000, status: "done" });
+
+	const asked = screen.getByTestId("chat-asked");
+	expect(screen.getByTestId("chat-worked").contains(asked)).toBe(false);
+	expect(asked.querySelector("summary")?.textContent).toBe("Asked 2 questionsAnswered");
+	expect(
+		within(asked)
+			.getAllByRole("definition")
+			.map((dd) => dd.textContent),
+	).toEqual(["B", "Skipped"]);
+	expect(screen.getByTestId("chat-worked").querySelector("summary")?.textContent).toBe(
+		"Worked for 0m 1s1 tool call",
+	);
+});
+
 test("a question card is pinned, announced, answered, and cleared on card.resolved", () => {
 	draw();
 	snapshot();
@@ -198,7 +236,7 @@ test("a question card is pinned, announced, answered, and cleared on card.resolv
 	expect(document.activeElement).toBe(screen.getByRole("radio", { name: "A" }));
 	const radio = screen.getByRole("radio", { name: "B" });
 	fireEvent.click(radio);
-	fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+	fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 	expect(latest().sent).toEqual([
 		{ type: "question.answer", id: "q1", answers: { "Which?": "B" } },
 	]);

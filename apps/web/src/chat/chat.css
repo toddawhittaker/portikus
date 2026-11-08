@@ -5,12 +5,20 @@
 	--pk-chat-column: 60rem;
 	--pk-chat-measure: 46rem;
 	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
+	/* Held to the pane: the log takes what the card dock and the composer
+	   leave, keeping at least a little conversation in view, and only the log
+	   and the card body scroll. Clipped, so nothing can scroll it by script. */
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	container: pk-chat / inline-size;
+	display: grid;
+	/* Log, connection notice, card dock, session rules, message box. */
+	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto auto;
+	grid-template-columns: minmax(0, 1fr);
+	overflow: clip;
+	/* Sized by the pane, not its content, so the dock can be capped at a share of it. */
+	container: pk-chat / size;
 	background: var(--surface);
 	color: var(--ink);
 	font-size: var(--pk-font);
@@ -18,15 +26,16 @@
 }
 
 .pk-chat-main {
+	grid-row: 1;
 	position: relative;
-	flex: 1;
-	/* A short pane keeps some conversation in view; the cards and composer scroll instead. */
-	min-height: min(8rem, 40%);
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 }
 
 .pk-chat-scroll {
+	/* The containing block of the hidden "You said" labels inside, so they scroll with the log. */
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
@@ -303,6 +312,32 @@ details[open] > summary > .pk-chat-chevron {
 	margin-inline-end: var(--space-2);
 }
 
+/* What Claude asked and what it was told, under "Asked 2 questions". */
+.pk-chat-asked-list {
+	display: grid;
+	gap: var(--space-3);
+	max-inline-size: var(--pk-chat-measure);
+	margin: var(--space-3) 0 0;
+	padding-inline-start: var(--space-4);
+	border-inline-start: 1px solid var(--line);
+}
+
+.pk-chat-asked-item {
+	display: grid;
+	gap: var(--space-0\.5);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-asked-item dt {
+	color: var(--ink-muted);
+}
+
+.pk-chat-asked-item dd {
+	margin: 0;
+	white-space: pre-wrap;
+}
+
 .pk-chat-worked-log {
 	margin-block-start: var(--space-3);
 	padding-inline-start: var(--space-4);
@@ -489,7 +524,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-notice {
-	flex: none;
+	grid-row: 2;
 	margin: 0;
 	padding-inline: var(--pk-chat-gutter);
 	color: var(--ink-muted);
@@ -517,12 +552,26 @@ details[open] > summary > .pk-chat-chevron {
 	font-weight: 600;
 }
 
-/* Cards wait here, docked above the composer, so they never scroll away. */
+/* Cards wait here, docked above the composer, so they never scroll away.
+   It takes at most half the chat and, in a short pane, shares the room
+   with the message box; the card scrolls inside it, never the pane. */
 .pk-chat-cards {
-	flex: 0 1 auto;
-	max-block-size: 60%;
-	overflow-y: auto;
+	grid-row: 3;
+	box-sizing: border-box;
+	max-block-size: 50cqb;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, auto) auto;
+	align-content: start;
+	gap: var(--space-1\.5);
 	padding: var(--space-2) var(--pk-chat-gutter) 0;
+}
+
+/* A question card is narrower than the conversation, and centred in it. */
+.pk-chat-cards:has(> .pk-chat-qcard) {
+	grid-template-columns: minmax(0, var(--pk-chat-measure));
+	justify-content: center;
 }
 
 .pk-chat-card {
@@ -530,11 +579,22 @@ details[open] > summary > .pk-chat-chevron {
 	flex-direction: column;
 	gap: var(--space-2);
 	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) 0;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
 	container: pk-chat-card / inline-size;
+}
+
+.pk-chat-needs {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: 12px;
 }
 
 .pk-chat-card-subtitle {
@@ -550,12 +610,6 @@ details[open] > summary > .pk-chat-chevron {
 	overflow-wrap: anywhere;
 }
 
-.pk-chat-card-form {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
-}
-
 .pk-chat-card-error {
 	margin: 0;
 	color: var(--status-error);
@@ -565,7 +619,7 @@ details[open] > summary > .pk-chat-chevron {
 	display: none;
 }
 
-/* The answer buttons stay in view while a long card scrolls in its dock. */
+/* The answer buttons stay in view while a long card scrolls. */
 .pk-chat-card-actions {
 	position: sticky;
 	inset-block-end: 0;
@@ -618,122 +672,6 @@ details[open] > summary > .pk-chat-chevron {
 	min-width: 0;
 }
 
-.pk-chat-question {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: var(--space-2);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: none;
-}
-
-.pk-chat-question + .pk-chat-question {
-	margin-block-start: var(--space-2);
-}
-
-.pk-chat-question-legend {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	gap: var(--space-2);
-	padding: 0;
-	margin-block-end: var(--space-2);
-	font-weight: 600;
-	overflow-wrap: anywhere;
-}
-
-.pk-chat-chip {
-	padding: 0 var(--space-1\.5);
-	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
-	color: var(--ink-muted);
-	overflow-wrap: anywhere;
-}
-
-/* Options and the focused option's preview side by side, stacked when narrow. */
-.pk-chat-question-body {
-	align-self: stretch;
-	display: grid;
-	gap: var(--space-3);
-	min-width: 0;
-}
-
-@container pk-chat-card (width >= 36rem) {
-	.pk-chat-question-body.has-preview {
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		align-items: start;
-	}
-}
-
-.pk-chat-options {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1\.5);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
-.pk-chat-radio {
-	display: flex;
-	align-items: flex-start;
-	gap: var(--space-2);
-	cursor: pointer;
-}
-
-.pk-chat-radio input {
-	flex: none;
-	margin-block-start: 3px;
-	accent-color: var(--accent);
-}
-
-/* Label and description on one line when there is room. */
-.pk-chat-option-copy {
-	display: flex;
-	flex-wrap: wrap;
-	column-gap: var(--space-2);
-	min-width: 0;
-}
-
-.pk-chat-option-label {
-	color: var(--ink);
-}
-
-.pk-chat-other {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2);
-}
-
-.pk-chat-other .pk-chat-input {
-	flex: 1 1 12rem;
-	min-block-size: var(--size-control-sm);
-	padding-block: var(--space-1);
-}
-
-.pk-chat-preview {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	min-width: 0;
-	margin: 0;
-}
-
-.pk-chat-preview .pk-chat-code {
-	white-space: pre;
-	overflow-wrap: normal;
-}
-
-.pk-chat-preview-caption {
-	color: var(--ink-muted);
-	font-size: 12px;
-	overflow-wrap: anywhere;
-}
-
 .pk-chat-field-label {
 	color: var(--ink-muted);
 }
@@ -759,9 +697,19 @@ details[open] > summary > .pk-chat-chevron {
 	color: var(--ink-muted);
 }
 
+/* The session's permission rules sit just above the message box, in its column. */
+.pk-chat > .pk-chat-rules {
+	grid-row: 4;
+	max-block-size: 30cqb;
+	overflow-y: auto;
+	margin: var(--space-2) var(--pk-chat-gutter) 0;
+}
+
 .pk-chat-composer {
 	/* Scrolls rather than clips when the pane is very short. */
-	flex: 0 1 auto;
+	grid-row: 5;
+	box-sizing: border-box;
+	min-height: 0;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;

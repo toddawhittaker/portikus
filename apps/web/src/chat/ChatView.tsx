@@ -7,7 +7,7 @@
  * must not grant a permission.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
-import { Button, Skeleton } from "@portikus/ui";
+import { AgentStateMark, Button, Skeleton } from "@portikus/ui";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
@@ -101,15 +101,16 @@ function ChatViewBody({
 	// Opening a chat from the launcher puts the keyboard in its message box.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the chat first appears
 	useEffect(() => {
-		if (focused) root.current?.querySelector<HTMLElement>(COMPOSER_BOX)?.focus();
+		if (focused) focusComposer();
 	}, []);
 
-	// Where ResizeObserver is missing, new content still keeps the end in view.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation grows
+	// Where ResizeObserver is missing, new content still keeps the end in view;
+	// so does a card docking below the log, which makes the log shorter.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation or the dock changes
 	useLayoutEffect(() => {
 		const box = log.current;
 		if (box && !follow.away) box.scrollTop = box.scrollHeight;
-	}, [state.items, state.currentTurnId]);
+	}, [state.items, state.currentTurnId, card?.id]);
 
 	// A card answered here or in another browser takes the focus with it; put it somewhere useful.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the front card changes
@@ -123,7 +124,7 @@ function ChatViewBody({
 			?.querySelector<HTMLElement>(
 				`.pk-chat-cards input, .pk-chat-cards button, ${COMPOSER_BOX}`,
 			)
-			?.focus();
+			?.focus({ preventScroll: true });
 	}, [card?.id]);
 
 	/** A new card takes the keyboard only when nothing holds it; the announcement covers the rest. */
@@ -133,10 +134,17 @@ function ChatViewBody({
 		return active === null || active === document.body;
 	}
 
+	/** Focus never scrolls: only the log scrolls, and only by its own rules. */
+	function focusComposer() {
+		root.current
+			?.querySelector<HTMLElement>(COMPOSER_BOX)
+			?.focus({ preventScroll: true });
+	}
+
 	function jumpToLatest() {
 		follow.toEnd();
 		// The button goes away with its own click, so the keyboard needs a new home.
-		root.current?.querySelector<HTMLElement>(COMPOSER_BOX)?.focus();
+		focusComposer();
 	}
 
 	const notice = CONNECTION_TEXT[state.connection];
@@ -238,6 +246,10 @@ function ChatViewBody({
 							}
 						/>
 					)}
+					<p className="pk-chat-needs" data-testid="chat-needs-input">
+						<AgentStateMark state="needs-input" />
+						Needs your input
+					</p>
 				</div>
 			) : null}
 			<SessionRules store={store} />
