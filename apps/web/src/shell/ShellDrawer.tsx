@@ -9,7 +9,7 @@ import {
 import "./drawer.css";
 
 /** Below this width the side panes become drawers over the work area (SPEC.md §8.1). */
-export const PHONE_QUERY = "(width < 56rem)";
+const PHONE_QUERY = "(width < 56rem)";
 
 function subscribe(onChange: () => void): () => void {
 	const query = window.matchMedia(PHONE_QUERY);
