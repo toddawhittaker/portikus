@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that pull request's run on the
+# older commit, so the run that matters never queues behind a stale one.
+# Push runs on main and epic branches are never cancelled.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Every job names ubuntu-26.04, not ubuntu-latest, so a new runner image
   # cannot change the build, shellcheck or the browser tests unannounced.
