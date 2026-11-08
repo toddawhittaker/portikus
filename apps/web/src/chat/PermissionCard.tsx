@@ -18,9 +18,6 @@ import { waitingText } from "./waiting.js";
 import "./permissions.css";
 import "./turn.css";
 
-/** Options that get a number key; the agent offers at most three today. */
-const NUMBERED = 9;
-
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
 export interface PermissionCardProps {
@@ -158,7 +155,7 @@ export function PermissionCard({
 			onKeyDown={(event) => {
 				if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
 				const at = Number(event.key) - 1;
-				const option = at < NUMBERED ? card.options[at] : undefined;
+				const option = card.options[at];
 				if (!option) return;
 				event.preventDefault();
 				choose(option.id);
@@ -181,15 +178,13 @@ export function PermissionCard({
 						aria-disabled={chosen !== null && chosen !== option.id ? true : undefined}
 						className={option.id === "always" ? "pk-chat-always" : undefined}
 						data-testid={`chat-permission-${option.id}`}
-						aria-keyshortcuts={at < NUMBERED ? String(at + 1) : undefined}
+						aria-keyshortcuts={String(at + 1)}
 						onClick={() => choose(option.id)}
 					>
-						{at < NUMBERED ? (
-							// The button's aria-keyshortcuts names the key; the cap is for sight only.
-							<span className="pk-turn-key" aria-hidden={true}>
-								{at + 1}
-							</span>
-						) : null}
+						{/* The button's aria-keyshortcuts names the key; the cap is for sight only. */}
+						<span className="pk-turn-key" aria-hidden={true}>
+							{at + 1}
+						</span>
 						{option.label}
 					</Button>
 				))}

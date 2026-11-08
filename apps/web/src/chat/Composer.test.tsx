@@ -13,6 +13,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetSpeechSupport } from "../voice/useSpeechInput.js";
 import { Composer } from "./Composer.js";
@@ -277,9 +278,18 @@ test("entering a code block is announced once, with how to send and how to leave
 	draw();
 	typeInto(input(), "```");
 	fireEvent.keyDown(input(), { key: "Enter" });
-	expect(status()).toMatch(
+	const announced = status();
+	expect(announced).toMatch(
 		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
 	);
+	// Leaving empties the region, so the next code block is read out again.
+	act(() => {
+		(input() as TiptapEditorHTMLElement).editor?.commands.clearContent(true);
+	});
+	expect(status()).toBe("");
+	typeInto(input(), "```");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(status()).toBe(announced);
 });
 
 test("Escape in the box stops a running turn, and does nothing when none runs", () => {
@@ -340,6 +350,10 @@ test("a paste of more than 40 lines is attached as a text file with its line cou
 	const chip = await screen.findByTestId("composer-chip");
 	expect(value()).toBe("");
 	expect(chip.textContent).toContain("pasted-text.txt");
+	// Said where it went, so nobody pastes it again thinking it was lost.
+	await waitFor(() =>
+		expect(status()).toBe("Pasted 120 lines, attached as pasted-text.txt."),
+	);
 	expect(screen.getByTestId("composer-chip-size").textContent).toBe("120 lines");
 	const saved = saveDroppedFile.mock.calls[0]?.[3] as File;
 	expect(saved.name).toBe("pasted-text.txt");
@@ -358,6 +372,36 @@ test("a paste of more than 40 lines is attached as a text file with its line cou
 			attachments: [{ path: await saveDroppedFile.mock.results[0]?.value }],
 		},
 	]);
+});
+
+test("each long paste gets its own file, chip and Remove name", async () => {
+	draw();
+	const pasteLines = (count: number) =>
+		fireEvent.paste(input(), {
+			clipboardData: {
+				files: [],
+				items: [],
+				types: ["text/plain"],
+				getData: (kind: string) =>
+					kind === "text/plain"
+						? Array.from({ length: count }, (_, at) => `l${at}`).join("\n")
+						: "",
+			},
+		});
+	pasteLines(50);
+	await screen.findByTestId("composer-chip");
+	pasteLines(60);
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	await waitFor(() =>
+		expect(status()).toBe("Pasted 60 lines, attached as pasted-text-2.txt."),
+	);
+	expect(saveDroppedFile.mock.calls.map((call) => (call[3] as File).name)).toEqual([
+		"pasted-text.txt",
+		"pasted-text-2.txt",
+	]);
+	expect(
+		screen.getAllByRole("button", { name: /^Remove / }).map((b) => b.ariaLabel),
+	).toEqual(["Remove pasted-text.txt", "Remove pasted-text-2.txt"]);
 });
 
 test("the microphone sits after the settings, next to Send", async () => {

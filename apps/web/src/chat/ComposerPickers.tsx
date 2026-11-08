@@ -24,7 +24,6 @@ import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
 import {
 	type ChatSettings,
-	type ChatState,
 	type ChatStore,
 	modelChoice,
 	selectSessionRulesActive,
@@ -240,8 +239,6 @@ function Waiting({ label }: { label: string }) {
 
 interface PickersProps {
 	store: ChatStore;
-	settings: ChatState["settings"];
-	lastError: ChatState["lastError"];
 	warningId: string;
 	/** False when the change could not be sent. */
 	onSet: (change: Change) => boolean;
@@ -249,14 +246,9 @@ interface PickersProps {
 	onAnnounce: (text: string) => void;
 }
 
-export function ComposerPickers({
-	store,
-	settings,
-	lastError,
-	warningId,
-	onSet,
-	onAnnounce,
-}: PickersProps) {
+export function ComposerPickers({ store, warningId, onSet, onAnnounce }: PickersProps) {
+	const settings = useStore(store, (state) => state.settings);
+	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
 	const pendingNow = useRef(pending);
 	pendingNow.current = pending;

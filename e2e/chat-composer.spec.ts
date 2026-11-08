@@ -415,11 +415,20 @@ test("entering a code block is announced with how to send and leave it", async (
 	const student = await createStudent(context);
 	const { view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
+	const status = view.getByTestId("chat-composer-status");
+	const announced =
+		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/;
 	await box.pressSequentially("```");
 	await box.press("Enter");
-	await expect(view.getByTestId("chat-composer-status")).toHaveText(
-		/^In a code block\. In code, Enter adds a line\. (Ctrl|Cmd)\+Enter sends\. Press Enter three times at the end to leave it\.$/,
-	);
+	await expect(status).toHaveText(announced);
+	// Leaving the block empties the region, so the next block is read out again.
+	await box.press("Enter");
+	await box.press("Enter");
+	await box.press("Enter");
+	await expect(status).toHaveText("");
+	await box.pressSequentially("```");
+	await box.press("Enter");
+	await expect(status).toHaveText(announced);
 });
 
 test("Up in an empty box brings back the last message sent", async ({
@@ -677,24 +686,34 @@ test("a paste of more than 40 lines is attached as a text file, not put in the b
 	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await box.click();
-	await page.evaluate(() => {
-		const transfer = new DataTransfer();
-		const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
-		transfer.setData("text/plain", log.join("\n"));
-		document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
-			new ClipboardEvent("paste", {
-				clipboardData: transfer,
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
-	});
+	const pasteLog = (lines: number) =>
+		page.evaluate((count) => {
+			const transfer = new DataTransfer();
+			const log = Array.from({ length: count }, (_, at) => `Error: step ${at} failed`);
+			transfer.setData("text/plain", log.join("\n"));
+			document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+				new ClipboardEvent("paste", {
+					clipboardData: transfer,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}, lines);
+	const status = view.getByTestId("chat-composer-status");
+	await pasteLog(60);
 	const chip = view.getByTestId("composer-chip");
 	await expect(chip).toHaveCount(1);
 	await expect(chip).toContainText("pasted-text.txt");
 	await expect(chip.getByTestId("composer-chip-size")).toHaveText("60 lines");
 	await expect(box).toHaveText("");
+	await expect(status).toHaveText("Pasted 60 lines, attached as pasted-text.txt.");
 	await expectNoViolations(page, '[data-testid="chat-composer"]');
+	// A second paste is a second file, named apart, and said so.
+	await pasteLog(45);
+	await expect(chip).toHaveCount(2);
+	await expect(status).toHaveText("Pasted 45 lines, attached as pasted-text-2.txt.");
+	await view.getByRole("button", { name: "Remove pasted-text-2.txt" }).click();
+	await expect(chip).toHaveCount(1);
 	await box.pressSequentially("Why does this fail?");
 	await box.press("Enter");
 	await expect
