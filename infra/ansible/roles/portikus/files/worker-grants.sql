@@ -33,11 +33,13 @@ GRANT INSERT ON audit_events TO "portikus-worker";
 -- Enough to count failed sign-ins for an alert; never who, what or details.
 GRANT SELECT (action, result, at) ON audit_events TO "portikus-worker";
 
--- Seeds the first row; changes only the egress apply outcome after that.
+-- Seeds the first row; after that it changes only the egress apply outcome,
+-- the controller check time and the alert flags (SPEC.md sections 24.4, 24.13).
 GRANT SELECT ON settings TO "portikus-worker";
 GRANT INSERT (id, shutdown_grace_seconds) ON settings TO "portikus-worker";
 GRANT UPDATE (egress_applied_version, egress_applied_at, egress_apply_error,
-	controller_checked_at)
+	controller_checked_at, alert_reboot_raised, alert_signin_raised,
+	alert_root_fs_raised)
 	ON settings TO "portikus-worker";
 
 GRANT SELECT, UPDATE ON workspaces, terminals, projects, backup_status
