@@ -37,6 +37,15 @@ else
   expect_eq "the new tab is a chat" "chat" "$(echo "$chat_response" | json_field kind)"
   check "tmux session pk-<id> runs the chat host" tmux_has_session "$chat_id"
 
+  # tmux starts the host asynchronously; it makes the directory and listens a moment later.
+  chat_socket_ready() {
+    ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- test -S /run/portikus-terminals/chat/pk-${chat_id}.sock"
+  }
+  for _ in $(seq 1 30); do
+    chat_socket_ready && break
+    sleep 1
+  done
+
   # The host's socket lives under the terminals unit's kept directory, so it
   # survives an agent restart; only the student may enter it.
   check_output "the chat socket directory is the student's, mode 700" "700 student" \
