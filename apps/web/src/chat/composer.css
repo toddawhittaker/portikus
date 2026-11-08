@@ -75,6 +75,74 @@
 	font-weight: 600;
 }
 
+/* Sized as in a reply, so what is typed looks like what will be read. */
+.pk-composer-text :is(h1, h2, h3) {
+	margin: 0;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.pk-composer-text h1 {
+	font-size: 18px;
+}
+
+.pk-composer-text h2 {
+	font-size: 16px;
+}
+
+.pk-composer-text h3 {
+	font-size: 15px;
+}
+
+.pk-composer-text blockquote {
+	margin: 0;
+	padding-inline-start: var(--space-3);
+	border-inline-start: 2px solid var(--line-strong);
+	color: var(--ink-muted);
+}
+
+.pk-composer-text hr {
+	margin-block: var(--space-2);
+	border: 0;
+	border-block-start: 1px solid var(--line-strong);
+}
+
+.pk-composer-text a {
+	color: var(--accent-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.pk-composer-text ul[data-type="taskList"] {
+	padding-inline-start: var(--space-1);
+	list-style: none;
+}
+
+.pk-composer-text li[data-checked] {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+.pk-composer-text li[data-checked] > label {
+	display: inline-flex;
+	flex: none;
+	align-self: flex-start;
+}
+
+/* The box sits inside the text box, so its own size is the touch target (SPEC.md §25.8). */
+.pk-composer-text li[data-checked] > label input {
+	inline-size: var(--space-6);
+	block-size: var(--space-6);
+	margin: 0;
+	accent-color: var(--accent);
+}
+
+.pk-composer-text li[data-checked] > div {
+	flex: 1;
+	min-inline-size: 0;
+}
+
 .pk-composer-text code {
 	padding: 1px 4px;
 	border-radius: var(--radius-sm);

@@ -1,9 +1,12 @@
 /**
  * The chat composer's editor (SPEC.md §10.8): Markdown typed into it is
  * shown formatted, with the markers hidden, and what it sends is the
- * Markdown text again. `**x**` is bold, `*x*` italic, a backtick pair a
- * code span, ``` a code block, and `- ` or `1. ` at the start of a line a
- * list. Enter sends, except inside a code block, where it adds a line and
+ * Markdown text again. `**x**` is bold, `*x*` italic, `***x***` both,
+ * `~~x~~` struck through, a backtick pair a code span, and `[text](url)` or
+ * a typed http(s) address a link. At the start of a line, ``` opens a code
+ * block, `- ` or `1. ` a list, `[ ] ` or `[x] ` a task, `> ` a quote, `#` to
+ * `###` a heading and `---` a separator line. In a list, Tab and Shift+Tab
+ * indent and outdent an item; elsewhere Tab leaves the box. Enter sends, except inside a code block, where it adds a line and
  * Ctrl+Enter (Cmd+Enter on a Mac) sends. Shift+Enter always adds a line.
  * Pasted text arrives as plain text, never as formatted HTML; a paste of
  * more than LONG_PASTE_LINES lines is handed back to be attached as a file.
@@ -12,20 +15,33 @@ import {
 	Editor,
 	type Editor as EditorType,
 	Extension,
+	InputRule,
 	markInputRule,
 } from "@tiptap/core";
+import Blockquote from "@tiptap/extension-blockquote";
 import Bold from "@tiptap/extension-bold";
 import Code from "@tiptap/extension-code";
 import CodeBlock from "@tiptap/extension-code-block";
 import Document from "@tiptap/extension-document";
+import Heading from "@tiptap/extension-heading";
+import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import Italic from "@tiptap/extension-italic";
-import { BulletList, ListItem, OrderedList } from "@tiptap/extension-list";
+import Link from "@tiptap/extension-link";
+import {
+	BulletList,
+	ListItem,
+	OrderedList,
+	TaskItem,
+	TaskList,
+} from "@tiptap/extension-list";
 import Paragraph from "@tiptap/extension-paragraph";
+import Strike from "@tiptap/extension-strike";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { Fragment, type Schema, Slice } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { isSafeLink } from "../markdown/sanitize.js";
 import { toMarkdown } from "./composerMarkdown.js";
 
 // Emphasis as CommonMark reads it: the markers hug the text, and the
@@ -33,7 +49,10 @@ import { toMarkdown } from "./composerMarkdown.js";
 // `snake_case` stay as typed.
 const BOLD = /(?<=^|[\s([{"'])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/;
 const ITALIC = /(?<=^|[\s([{"'])\*([^*\s](?:[^*]*[^*\s])?)\*$/;
+const BOLD_ITALIC = /(?<=^|[\s([{"'])\*\*\*([^*\s](?:[^*]*[^*\s])?)\*\*\*$/;
 const FENCE = /^```([\w+#.-]*)$/;
+const LINK = /(?<=^|[\s([{"'])\[([^\]\n]+)\]\(([^()\s]+)\)$/;
+const TASK = /^\s*\[( |x|X)?\]\s$/;
 
 /** A paste longer than this many lines, an error log say, is attached as a file instead. */
 export const LONG_PASTE_LINES = 40;
@@ -66,7 +85,11 @@ export function composerText(editor: EditorType): string {
 
 /** True while the cursor is in a code block, where Enter adds a line. */
 export function inCodeBlock(editor: EditorType): boolean {
-	return editor.state.selection.$from.parent.type.spec.code === true;
+	return inCodeAt(editor.state);
+}
+
+function inCodeAt(state: EditorState): boolean {
+	return state.selection.$from.parent.type.spec.code === true;
 }
 
 /** A space to set dictated words apart from the text before the cursor. */
@@ -156,6 +179,73 @@ function openFence(editor: EditorType): boolean {
 		.run();
 }
 
+/**
+ * Rules the stock extensions lack: `***x***`, `[text](url)` with an http(s)
+ * target only (the reply renderer's rule, SPEC.md §24.3), and `[ ] ` typed
+ * at the start of a bullet item, which turns the item into a task.
+ */
+const markdownRules = Extension.create({
+	name: "composerRules",
+	priority: 1000,
+	addInputRules() {
+		const { schema } = this.editor;
+		return [
+			new InputRule({
+				find: BOLD_ITALIC,
+				handler: ({ state, range, match }) => {
+					const { bold, italic } = schema.marks;
+					if (!bold || !italic || !match[1]) return null;
+					state.tr
+						.replaceWith(
+							range.from,
+							range.to,
+							schema.text(match[1], [bold.create(), italic.create()]),
+						)
+						.removeStoredMark(bold)
+						.removeStoredMark(italic);
+				},
+			}),
+			new InputRule({
+				find: LINK,
+				handler: ({ state, range, match }) => {
+					const [, label, href] = match;
+					const link = schema.marks.link;
+					if (!link || !label || !href || !isSafeLink(href)) return null;
+					state.tr
+						.replaceWith(
+							range.from,
+							range.to,
+							schema.text(label, [link.create({ href })]),
+						)
+						.removeStoredMark(link);
+				},
+			}),
+			new InputRule({
+				find: TASK,
+				handler: ({ state, range, match, chain }) => {
+					const { $from } = state.selection;
+					const item = $from.node(-1).type.name;
+					if ($from.index(-1) !== 0) return null;
+					const checked = match[1] === "x" || match[1] === "X";
+					// In a new task, the box typed again sets whether it is done.
+					if (item === "taskItem") {
+						chain().deleteRange(range).updateAttributes("taskItem", { checked }).run();
+						return;
+					}
+					if (item !== "listItem") return null;
+					chain()
+						.deleteRange(range)
+						.toggleList("taskList", "taskItem")
+						.updateAttributes("taskItem", { checked })
+						.run();
+				},
+			}),
+		];
+	},
+});
+
+const ITEMS = ["listItem", "taskItem"] as const;
+
 export function createComposerEditor(options: ComposerEditorOptions): EditorType {
 	const keys = Extension.create({
 		name: "composerKeys",
@@ -165,12 +255,20 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			const newLine = () =>
 				this.editor.commands.first(({ commands }) => [
 					() => commands.newlineInCode(),
-					() => commands.splitListItem("listItem"),
-					() => commands.liftListItem("listItem"),
+					...ITEMS.map((item) => () => commands.splitListItem(item)),
+					...ITEMS.map((item) => () => commands.liftListItem(item)),
 					() => commands.createParagraphNear(),
 					() => commands.liftEmptyBlock(),
 					() => commands.splitBlock(),
 				]);
+			const indent = () =>
+				this.editor.commands.first(({ commands }) =>
+					ITEMS.map((item) => () => commands.sinkListItem(item)),
+				);
+			const outdent = () =>
+				this.editor.commands.first(({ commands }) =>
+					ITEMS.map((item) => () => commands.liftListItem(item)),
+				);
 			const send = () => {
 				options.onSend();
 				return true;
@@ -185,6 +283,9 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 				Enter: enter,
 				"Shift-Enter": ({ editor }) => openFence(editor) || newLine(),
 				"Mod-Enter": send,
+				// Only in a list; anywhere else Tab leaves the box (SPEC.md §25.8).
+				Tab: indent,
+				"Shift-Tab": outdent,
 			};
 		},
 	});
@@ -199,6 +300,15 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			Document,
 			Paragraph,
 			Text,
+			// First, so a link's brackets sit outside any emphasis inside it.
+			Link.configure({
+				autolink: true,
+				linkOnPaste: false,
+				openOnClick: false,
+				defaultProtocol: "https",
+				isAllowedUri: (url) => isSafeLink(url),
+				shouldAutoLink: (url) => isSafeLink(url),
+			}),
 			Bold.extend({
 				addInputRules() {
 					return [markInputRule({ find: BOLD, type: this.type })];
@@ -209,12 +319,19 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					return [markInputRule({ find: ITALIC, type: this.type })];
 				},
 			}),
+			Strike,
 			Code,
 			CodeBlock,
+			Blockquote,
+			Heading.configure({ levels: [1, 2, 3] }),
+			HorizontalRule,
 			BulletList,
 			OrderedList,
-			// Tab leaves the box, as it does from any field (SPEC.md §25.8).
+			// Tab and Enter in a list are the composerKeys' to handle.
 			ListItem.extend({ addKeyboardShortcuts: () => ({}) }),
+			TaskList,
+			TaskItem.configure({ nested: true }).extend({ addKeyboardShortcuts: () => ({}) }),
+			markdownRules,
 			UndoRedo,
 			Placeholder.configure({ placeholder: options.placeholder }),
 			keys,
@@ -244,6 +361,13 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					return true;
 				}
 				const { state } = view;
+				const link = state.schema.marks.link;
+				const url = text.trim();
+				if (link && isSafeLink(url) && !/\s/.test(url) && !inCodeAt(state)) {
+					const linked = state.schema.text(url, [link.create({ href: url })]);
+					view.dispatch(state.tr.replaceSelectionWith(linked, false).scrollIntoView());
+					return true;
+				}
 				const tr = state.selection.$from.parent.type.spec.code
 					? state.tr.insertText(text)
 					: state.tr.replaceSelection(plainSlice(state.schema, text));

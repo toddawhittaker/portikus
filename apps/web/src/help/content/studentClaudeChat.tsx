@@ -16,10 +16,14 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 			</p>
 			<ul>
 				<li>
-					The message box understands Markdown as you type: two stars make bold,
-					backticks make code, three backticks start a code block, and a dash or "1."
-					starts a list. Enter sends and Shift+Enter adds a line. In a code block Enter
-					adds a line, and Ctrl+Enter (Cmd+Enter on a Mac) sends.
+					The message box understands Markdown as you type: two stars make bold, one
+					star italic, three stars both, two tildes strike through, and backticks make
+					code. At the start of a line, three backticks start a code block, a dash or
+					"1." a list, "[ ]" or "[x]" a task, "&gt;" a quote, one to three "#" a
+					heading, and three dashes a separator line. Type or paste an http or https
+					address, or write [text](address), to make a link. In a list, Tab indents an
+					item and Shift+Tab moves it back out. Enter sends and Shift+Enter adds a line.
+					In a code block Enter adds a line, and Ctrl+Enter (Cmd+Enter on a Mac) sends.
 				</li>
 				<li>
 					While Claude works you can still send a message. Claude reads it at its next
