@@ -48,6 +48,10 @@ export interface ShellRun {
 	exitCode: number | null;
 	truncated: boolean;
 	timedOut: boolean;
+	/** The student stopped it. */
+	stopped?: boolean;
+	/** The signal that ended the shell when nothing here killed it, such as SIGSEGV. */
+	signal?: string | null;
 }
 
 export interface ShellRunOptions {
@@ -56,6 +60,8 @@ export interface ShellRunOptions {
 	shell?: string;
 	timeoutMs?: number;
 	maxChars?: number;
+	/** Aborting kills the command's process group. */
+	signal?: AbortSignal;
 }
 
 /**
@@ -93,10 +99,21 @@ export function runShellCommand(
 		child.stderr.setEncoding("utf8").on("data", take);
 		let settled = false;
 		let exitCode: number | null = null;
+		let stopped = false;
+		let signal: string | null = null;
+		const result = (): ShellRun => ({
+			output,
+			exitCode: timedOut || stopped ? null : exitCode,
+			truncated,
+			timedOut,
+			stopped,
+			signal: timedOut || stopped ? null : signal,
+		});
 		const settle = (run: ShellRun) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			options.signal?.removeEventListener("abort", stop);
 			resolve(run);
 		};
 		// A process that left the group (setsid) may still hold the pipe, so
@@ -105,13 +122,19 @@ export function runShellCommand(
 			setTimeout(() => {
 				child.stdout.destroy();
 				child.stderr.destroy();
-				settle({ output, exitCode: timedOut ? null : exitCode, truncated, timedOut });
+				settle(result());
 			}, EXIT_GRACE_MS);
 		};
 		const timer = setTimeout(() => {
 			timedOut = true;
 			killGroup(child.pid);
 		}, options.timeoutMs ?? SHELL_TIME_LIMIT_MS);
+		const stop = () => {
+			stopped = true;
+			killGroup(child.pid);
+		};
+		if (options.signal?.aborted) stop();
+		else options.signal?.addEventListener("abort", stop, { once: true });
 		child.once("error", (error: NodeJS.ErrnoException) => {
 			settle({
 				output: `The shell could not start (${error.code ?? "error"}).`,
@@ -120,15 +143,14 @@ export function runShellCommand(
 				timedOut: false,
 			});
 		});
-		child.once("exit", (code) => {
+		child.once("exit", (code, exitSignal) => {
 			exitCode = code;
+			signal = code === null ? exitSignal : null;
 			// A background job the command left behind dies with it.
 			killGroup(child.pid);
 			finish();
 		});
-		child.once("close", () =>
-			settle({ output, exitCode: timedOut ? null : exitCode, truncated, timedOut }),
-		);
+		child.once("close", () => settle(result()));
 	});
 }
 
@@ -151,6 +173,8 @@ const OUTPUT =
 	/^<bash-stdout>([\s\S]*)<\/bash-stdout><bash-stderr>([\s\S]*)<\/bash-stderr>$/;
 const EXIT_NOTE = /^Exit code (\d+)$/m;
 const STOPPED_NOTE = "Stopped: the command ran past the time limit.";
+/** Every note for a command that did not exit on its own starts so. */
+const STOP_NOTE = /^Stopped\b/m;
 const CUT_NOTE = "The output was cut at the size limit.";
 
 export function bashInputText(command: string): string {
@@ -160,6 +184,9 @@ export function bashInputText(command: string): string {
 export function bashOutputText(run: ShellRun): string {
 	const notes: string[] = [];
 	if (run.timedOut) notes.push(STOPPED_NOTE);
+	else if (run.stopped) notes.push("Stopped");
+	else if (run.exitCode === null && run.signal)
+		notes.push(`Stopped by signal ${run.signal}`);
 	else if (run.exitCode !== 0 && run.exitCode !== null)
 		notes.push(`Exit code ${run.exitCode}`);
 	if (run.truncated) notes.push(CUT_NOTE);
@@ -203,11 +230,12 @@ export function parseBashOutput(
 	const stdout = match[1] ?? "";
 	const stderr = match[2] ?? "";
 	const exit = EXIT_NOTE.exec(stderr);
-	const own = exit || stderr.includes(STOPPED_NOTE) || stderr.includes(CUT_NOTE);
+	const stopped = STOP_NOTE.test(stderr);
+	const own = exit || stopped || stderr.includes(CUT_NOTE);
 	return {
 		// Claude Code's own bash mode keeps real stderr here; show it with the output.
 		output: own || stderr === "" ? stdout : `${stdout}${stderr}`,
-		exitCode: stderr.includes(STOPPED_NOTE) ? null : exit ? Number(exit[1]) : 0,
+		exitCode: stopped ? null : exit ? Number(exit[1]) : 0,
 		truncated: stderr.includes(CUT_NOTE),
 	};
 }

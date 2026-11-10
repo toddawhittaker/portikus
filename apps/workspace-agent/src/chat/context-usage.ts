@@ -115,3 +115,46 @@ export function windowFromModelUsage(
 	const window = count(entry?.contextWindow);
 	return window > 0 ? window : null;
 }
+
+/**
+ * One chat's context figures as requests come in. The SDK sends one
+ * assistant message per content block of a response, each with the same
+ * usage, so a response is counted once, by its message id.
+ */
+export class ContextTracker {
+	/** How full the context is and when the cache goes cold; null until known. */
+	figures: ContextFigures | null = null;
+	/** The model's context window, once the SDK has reported it. */
+	windowTokens: number | null = null;
+	/** The model of the last main-thread request, to read its window. */
+	lastModel: string | null = null;
+	private counted: string | undefined;
+
+	/** The new figures after this message, or null when nothing changed. */
+	request(
+		message: Parameters<typeof mainThreadUsage>[0] & {
+			message?: { id?: string; model?: string };
+		},
+		at: number,
+	): ContextFigures | null {
+		const usage = mainThreadUsage(message);
+		if (!usage) return null;
+		const id = message.message?.id;
+		if (id && id === this.counted) return null;
+		this.counted = id;
+		this.lastModel = message.message?.model || this.lastModel;
+		return this.set(afterRequest(this.figures, usage, at, this.windowTokens));
+	}
+
+	/** The new figures with this window, or null when nothing changed. */
+	window(window: number): ContextFigures | null {
+		this.windowTokens = window;
+		return this.figures ? this.set({ ...this.figures, windowTokens: window }) : null;
+	}
+
+	private set(next: ContextFigures): ContextFigures | null {
+		if (JSON.stringify(next) === JSON.stringify(this.figures)) return null;
+		this.figures = next;
+		return next;
+	}
+}

@@ -1054,6 +1054,25 @@ describe("permission answers", () => {
 		expect((await first.result).behavior).toBe("allow");
 		expect((await second.result).behavior).toBe("allow");
 	});
+
+	test("a plan's mode comes from the option, never from a mode an older browser sends", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const asked = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan3");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan3",
+			optionId: "allow-ask-edits",
+			mode: "acceptEdits",
+		});
+		expect(await asked.result).toMatchObject({
+			behavior: "allow",
+			updatedPermissions: [
+				{ type: "setMode", mode: "default", destination: "session" },
+			],
+		});
+	});
 });
 
 describe("plan usage", () => {
@@ -1133,6 +1152,7 @@ describe("context usage", () => {
 		);
 		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
 		const first = ofType(a, "context")[0];
+		expect(first?.now).toBeGreaterThanOrEqual(before);
 		expect(first?.usedTokens).toBe(1015);
 		expect(first?.windowTokens).toBeNull();
 		expect(first?.cache?.ttlSeconds).toBe(3600);
@@ -1151,6 +1171,29 @@ describe("context usage", () => {
 			usedTokens: 1015,
 			windowTokens: 200000,
 		});
+	});
+
+	test("the repeats the SDK sends for each content block of one response count once", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const block = assistant({
+			input_tokens: 10,
+			output_tokens: 5,
+			cache_read_input_tokens: 50,
+		});
+		fake.emit(block);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const again = block as unknown as { message: object; uuid: string };
+		fake.emit({ ...again, uuid: randomUUID(), message: { ...again.message } } as never);
+		fake.emit(
+			assistant({ input_tokens: 10, output_tokens: 9, cache_read_input_tokens: 50 }),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "context")).toHaveLength(2);
+		expect(ofType(a, "context")[1]?.usedTokens).toBe(69);
 	});
 
 	test("without getContextUsage the window comes from the result's modelUsage", async () => {
@@ -1265,6 +1308,36 @@ describe("shell commands", () => {
 		fake.emit(result(1));
 		await vi.waitFor(() => expect(ofType(a, "turn.finished")).toHaveLength(2));
 		expect(ofType(a, "turn.started")).toHaveLength(2);
+	});
+
+	test("Stop ends a running command at once and settles it as stopped", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		const started = Date.now();
+		a.send({ type: "send", text: "!sleep 600", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		a.send({ type: "interrupt" });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		expect(Date.now() - started).toBeLessThan(5000);
+		expect(ofType(a, "shell")[1]).toMatchObject({ state: "done", exitCode: null });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(String(fake.sent[1]?.message.content)).toContain(
+			"<bash-stderr>Stopped</bash-stderr>",
+		);
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(3));
+		expect(ofType(a, "error")).toHaveLength(0);
+	});
+
+	test("a `!` sent while a message is still being read in is refused", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		a.send({ type: "send", text: "!ls", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toMatch(/while Claude is working/);
+		expect(ofType(a, "shell")).toHaveLength(0);
 	});
 
 	test("a `!` command is refused while Claude is working", async () => {

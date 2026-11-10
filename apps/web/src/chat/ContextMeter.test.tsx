@@ -31,6 +31,7 @@ function report(
 		cache: cache
 			? { at: START - cache.agoSeconds * 1000, ttlSeconds: cache.ttlSeconds }
 			: null,
+		clockOffsetMs: 0,
 	};
 }
 
@@ -187,6 +188,7 @@ test("a new cache write restarts the clock and the next cold is announced again"
 				usedTokens: 20,
 				windowTokens: 1000,
 				cache: { at: Date.now(), ttlSeconds: 300 },
+				clockOffsetMs: 0,
 			},
 		}),
 	);
@@ -205,4 +207,43 @@ test("the cache shows without a window, and goes when the host reports none", ()
 	show(report(10, null, null));
 	expect(screen.queryByTestId("composer-cache")).toBeNull();
 	expect(vi.getTimerCount()).toBe(0);
+});
+
+test("a host clock ahead of the browser's is corrected by the skew the event carries", () => {
+	// The host runs ten minutes ahead; its cache write was 60 seconds ago by its own clock.
+	const hostNow = START + 10 * 60 * 1000;
+	act(() => {
+		store.setState({ awaitingSnapshot: false });
+		store.getState().receive(
+			JSON.stringify({
+				type: "context",
+				sessionId: "00000000-0000-4000-8000-000000000001",
+				seq: 0,
+				usedTokens: 10,
+				windowTokens: 1000,
+				cache: { at: hostNow - 60_000, ttlSeconds: 300 },
+				now: hostNow,
+			}),
+		);
+	});
+	const cache = screen.getByTestId("composer-cache");
+	expect(cache.getAttribute("data-state")).toBe("warm");
+	expect(cache.textContent).toContain("Cache 4:00");
+});
+
+test("an older host that sends no time gets no correction", () => {
+	act(() => {
+		store.setState({ awaitingSnapshot: false });
+		store.getState().receive(
+			JSON.stringify({
+				type: "context",
+				sessionId: "00000000-0000-4000-8000-000000000001",
+				seq: 0,
+				usedTokens: 10,
+				windowTokens: 1000,
+				cache: { at: START - 60_000, ttlSeconds: 300 },
+			}),
+		);
+	});
+	expect(screen.getByTestId("composer-cache").textContent).toContain("Cache 4:00");
 });

@@ -423,12 +423,10 @@ export function cardForTool(
 	};
 }
 
-/** What the student added to a permission answer; both are optional. */
+/** What the student added to a permission answer. */
 export interface PermissionAnswerExtras {
 	/** Why the student denied, or what to plan instead. */
 	message?: string | undefined;
-	/** The mode to continue in after approving a plan. */
-	mode?: "acceptEdits" | "default" | undefined;
 }
 
 /**
@@ -448,9 +446,7 @@ export function permissionResult(
 		return {
 			behavior: "allow",
 			updatedInput: input,
-			updatedPermissions: [
-				{ type: "setMode", mode: extras.mode ?? planMode, destination: "session" },
-			],
+			updatedPermissions: [{ type: "setMode", mode: planMode, destination: "session" }],
 		};
 	}
 	if (optionId === PERMISSION_OPTION.allowOnce) {

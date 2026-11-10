@@ -142,7 +142,10 @@ export interface ChatState {
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
 	"usedTokens" | "windowTokens" | "cache"
->;
+> & {
+	/** Browser clock minus host clock when the event arrived; 0 when the host sent no time. */
+	clockOffsetMs: number;
+};
 
 export const initialChatState: ChatState = {
 	connection: "connecting",
@@ -454,15 +457,21 @@ function applyChatEvent(
 		case "commands":
 			return { ...state, commands: event.commands };
 		case "context":
-			return {
-				...state,
-				context: {
-					usedTokens: event.usedTokens,
-					windowTokens: event.windowTokens,
-					cache: event.cache,
-				},
-			};
+			return { ...state, context: contextUsage(event, now) };
 	}
+}
+
+/** The figures as the meter reads them, with the host's clock skew measured on arrival. */
+function contextUsage(
+	event: Extract<ChatServerEvent, { type: "context" }>,
+	now: number,
+): ChatContextUsage {
+	return {
+		usedTokens: event.usedTokens,
+		windowTokens: event.windowTokens,
+		cache: event.cache,
+		clockOffsetMs: event.now === undefined ? 0 : now - event.now,
+	};
 }
 
 /** A turn is running and has already shown some work. */
@@ -628,7 +637,7 @@ interface ChatActions {
 	answerPermission: (
 		id: string,
 		optionId: string,
-		extras?: { message?: string; mode?: "acceptEdits" | "default" },
+		extras?: { message?: string },
 	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;

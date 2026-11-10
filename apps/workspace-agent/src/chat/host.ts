@@ -40,10 +40,9 @@ import {
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
 import {
-	afterRequest,
 	type ContextFigures,
+	ContextTracker,
 	fromTranscript,
-	mainThreadUsage,
 	windowFromModelUsage,
 } from "./context-usage.js";
 import { InputQueue } from "./input-queue.js";
@@ -129,6 +128,9 @@ export class ChatHost {
 	private partial: { id: string; text: string } | null = null;
 	/** The `!` command running now, for an attachment that arrives mid-run. */
 	private shell: ChatShellItem | null = null;
+	private shellStop: AbortController | null = null;
+	/** A message is being read in, so a `!` waits as for a turn. */
+	private sending = false;
 	/** Each transcript append still owes an empty result, which ends no turn. */
 	private quietResults = 0;
 	/** Appends kept back while a turn runs, so they never land mid-turn (ADR 0073). */
@@ -137,12 +139,7 @@ export class ChatHost {
 	private readonly commands = new SlashCommandList((commands) =>
 		this.broadcast(this.commandsEvent(commands)),
 	);
-	/** How full the context is and when the cache goes cold; null until known. */
-	private context: ContextFigures | null = null;
-	/** The model's context window, once the SDK has reported it. */
-	private windowTokens: number | null = null;
-	/** The model of the last main-thread request, to read its window. */
-	private lastModel: string | null = null;
+	private context = new ContextTracker();
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
@@ -253,11 +250,8 @@ export class ChatHost {
 	/** A main-thread request finished: tell every attachment how full the context is. */
 	private requestMade(message: SDKMessage): void {
 		if (message.type !== "assistant") return;
-		const usage = mainThreadUsage(message);
-		if (!usage) return;
-		this.lastModel = message.message.model || this.lastModel;
-		const next = afterRequest(this.context, usage, Date.now(), this.windowTokens);
-		this.setContext(next);
+		const next = this.context.request(message, Date.now());
+		if (next) this.broadcast(this.contextEvent(next));
 	}
 
 	/**
@@ -275,21 +269,14 @@ export class ChatHost {
 		} catch {
 			// Older SDKs and some sessions cannot answer.
 		}
-		window ??= windowFromModelUsage(modelUsage, this.lastModel);
-		if (this.session !== session || window === null || window === this.windowTokens)
-			return;
-		this.windowTokens = window;
-		if (this.context) this.setContext({ ...this.context, windowTokens: window });
-	}
-
-	private setContext(next: ContextFigures): void {
-		if (JSON.stringify(next) === JSON.stringify(this.context)) return;
-		this.context = next;
-		this.broadcast(this.contextEvent(next));
+		window ??= windowFromModelUsage(modelUsage, this.context.lastModel);
+		if (this.session !== session || window === null) return;
+		const next = this.context.window(window);
+		if (next) this.broadcast(this.contextEvent(next));
 	}
 
 	private contextEvent(context: ContextFigures): ChatEventBody {
-		return { type: "context", ...context };
+		return { type: "context", ...context, now: Date.now() };
 	}
 
 	private refreshPlanUsage(session: Query): Promise<void> {
@@ -417,7 +404,7 @@ export class ChatHost {
 		).catch(() => this.options.log.warn("could not record the new chat session"));
 		this.mapper = new ClaudeMessageMapper();
 		this.partial = null;
-		this.context = null;
+		this.context.figures = null;
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
 			if (client.held) {
@@ -561,14 +548,14 @@ export class ChatHost {
 		const cards = [...this.cards.values()].map((open) => open.card);
 		const turnRunning = this.turnRunning;
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
-		let context = this.context;
+		let context = this.context.figures;
 		try {
 			const messages = await this.sdk.sessionMessages(
 				this.sessionId,
 				this.options.projectDir,
 			);
 			replay = replayHistory(messages, turnRunning);
-			context ??= fromTranscript(messages, this.windowTokens);
+			context ??= fromTranscript(messages, this.context.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
@@ -637,7 +624,6 @@ export class ChatHost {
 			case "permission.answer":
 				return this.answerPermission(message.id, message.optionId, {
 					message: message.message,
-					mode: message.mode,
 				});
 			case "rule.revoke":
 				return this.rules.revoke(message.rule);
@@ -654,6 +640,7 @@ export class ChatHost {
 						: null,
 				);
 			case "interrupt":
+				this.shellStop?.abort();
 				if (this.session && this.turnRunning) {
 					this.interrupting = true;
 					await this.session.interrupt();
@@ -671,6 +658,18 @@ export class ChatHost {
 	): Promise<void> {
 		if (this.shell) throw new Error("Wait for the shell command to finish.");
 		if (isShellCommand(text)) return this.runShell(shellCommandText(text), attachments);
+		this.sending = true;
+		try {
+			await this.sendMessage(text, attachments);
+		} finally {
+			this.sending = false;
+		}
+	}
+
+	private async sendMessage(
+		text: string,
+		attachments: ChatMessage["attachments"] = [],
+	) {
 		const content = await userContent(
 			this.options.homeDir,
 			this.options.projectDir,
@@ -705,17 +704,20 @@ export class ChatHost {
 		command: string,
 		attachments: NonNullable<ChatMessage["attachments"]>,
 	): Promise<void> {
-		const refused = shellRefusal(command, attachments.length, this.turnRunning);
+		const busy = this.turnRunning || this.sending;
+		const refused = shellRefusal(command, attachments.length, busy);
 		if (refused) throw new Error(refused);
 		const id = randomUUID();
 		this.shell = runningShell(id, command);
 		this.broadcast({ type: "shell", ...withoutKind(this.shell) });
 		let done: ChatShellItem = { ...this.shell, state: "done" };
+		this.shellStop = new AbortController();
 		try {
 			await this.ensureSession();
 			const run = await runShellCommand(command, {
 				cwd: this.options.projectDir,
 				timeoutMs: this.options.shellTimeoutMs,
+				signal: this.shellStop.signal,
 			});
 			this.heldAppends.push(...shellTranscript(id, command, run));
 			if (!this.turnRunning) this.flushAppends();
@@ -723,6 +725,7 @@ export class ChatHost {
 			done = { ...done, output, exitCode, truncated };
 		} finally {
 			this.shell = null;
+			this.shellStop = null;
 			this.broadcast({ type: "shell", ...withoutKind(done) });
 		}
 	}
