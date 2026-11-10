@@ -345,6 +345,40 @@ describe("cards", () => {
 			toolName: "ExitPlanMode",
 			input: { plan: "1. do it" },
 		});
+		expect(card.type === "permission" && card.options.map((o) => o.label)).toEqual([
+			"Yes, and accept edits",
+			"Yes, and ask before edits",
+			"No, keep planning",
+		]);
+	});
+
+	test("approving a plan sets the session's mode to the one chosen", () => {
+		const ask = { toolUseID: "t2" };
+		const setMode = (mode: string) => [
+			{ type: "setMode", mode, destination: "session" },
+		];
+		expect(permissionResult(PERMISSION_OPTION.planAcceptEdits, {}, ask)).toEqual({
+			behavior: "allow",
+			updatedInput: {},
+			updatedPermissions: setMode("acceptEdits"),
+		});
+		expect(permissionResult(PERMISSION_OPTION.planAskEdits, {}, ask)).toEqual({
+			behavior: "allow",
+			updatedInput: {},
+			updatedPermissions: setMode("default"),
+		});
+	});
+
+	test("a denial carries the student's reason, or the plain text when none was typed", () => {
+		const ask = { toolUseID: "t" };
+		expect(permissionResult("deny", {}, ask, { message: " use pnpm " })).toEqual({
+			behavior: "deny",
+			message: "use pnpm",
+		});
+		expect(permissionResult("deny", {}, ask, { message: "  " })).toEqual({
+			behavior: "deny",
+			message: "The user declined this tool call.",
+		});
 	});
 
 	test("Always allow is offered only when the SDK suggests a rule", () => {

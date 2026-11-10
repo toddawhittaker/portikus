@@ -49,10 +49,93 @@ test("a permission card shows the tool, its input and the options, and focuses t
 		"1 more request is waiting.",
 	);
 	expect(document.activeElement).toBe(screen.getByRole("button", { name: "Allow" }));
-	fireEvent.click(screen.getByRole("button", { name: "Deny" }));
-	expect(onAnswer).toHaveBeenCalledWith("deny");
 	fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+	expect(onAnswer).toHaveBeenCalledWith("allow", {});
+	fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 	expect(onAnswer).toHaveBeenCalledTimes(1);
+});
+
+function renderCard(card = PERMISSION) {
+	const onAnswer = vi.fn((_id: string, _extras?: object) => true);
+	render(
+		<PermissionCard
+			card={card}
+			onAnswer={onAnswer}
+			takeFocus={() => true}
+			waiting={0}
+		/>,
+	);
+	return onAnswer;
+}
+
+test("Deny opens the reason field, and Enter sends the typed text as the message", () => {
+	const onAnswer = renderCard();
+	fireEvent.click(screen.getByRole("button", { name: /Deny/ }));
+	expect(onAnswer).not.toHaveBeenCalled();
+	const field = screen.getByLabelText("Tell Claude what to do instead");
+	expect(document.activeElement).toBe(field);
+	// Digits are text here, not option keys.
+	fireEvent.keyDown(field, { key: "1" });
+	fireEvent.change(field, { target: { value: "  use pnpm 1 instead  " } });
+	fireEvent.submit(field.closest("form") as HTMLFormElement);
+	expect(onAnswer).toHaveBeenCalledExactlyOnceWith("deny", {
+		message: "use pnpm 1 instead",
+	});
+});
+
+test("an empty reason sends a plain denial", () => {
+	const onAnswer = renderCard();
+	fireEvent.keyDown(screen.getByRole("button", { name: /Allow/ }), { key: "2" });
+	fireEvent.click(screen.getByTestId("chat-deny-send"));
+	expect(onAnswer).toHaveBeenCalledExactlyOnceWith("deny", {});
+});
+
+test("Escape in the reason field goes back to the buttons without answering", () => {
+	const onAnswer = renderCard();
+	fireEvent.click(screen.getByRole("button", { name: /Deny/ }));
+	fireEvent.keyDown(screen.getByLabelText("Tell Claude what to do instead"), {
+		key: "Escape",
+	});
+	expect(screen.queryByLabelText("Tell Claude what to do instead")).toBeNull();
+	expect(screen.getByRole("button", { name: /Deny/ })).toBeTruthy();
+	expect(onAnswer).not.toHaveBeenCalled();
+});
+
+test("plan approval names the mode to go on in, and keep planning takes a reason", () => {
+	const plan: typeof PERMISSION = {
+		...PERMISSION,
+		toolName: "ExitPlanMode",
+		input: { plan: "1. do it" },
+		options: [
+			{ id: "allow-accept-edits", label: "Yes, and accept edits" },
+			{ id: "allow-ask-edits", label: "Yes, and ask before edits" },
+			{ id: "deny", label: "No, keep planning" },
+		],
+	};
+	const first = renderCard(plan);
+	fireEvent.click(screen.getByRole("button", { name: /accept edits/ }));
+	expect(first).toHaveBeenCalledWith("allow-accept-edits", { mode: "acceptEdits" });
+	cleanup();
+	const second = renderCard(plan);
+	fireEvent.click(screen.getByRole("button", { name: /ask before edits/ }));
+	expect(second).toHaveBeenCalledWith("allow-ask-edits", { mode: "default" });
+	cleanup();
+	const third = renderCard(plan);
+	fireEvent.click(screen.getByRole("button", { name: /keep planning/ }));
+	fireEvent.change(screen.getByLabelText("Tell Claude what to do instead"), {
+		target: { value: "add tests" },
+	});
+	fireEvent.click(screen.getByTestId("chat-deny-send"));
+	expect(third).toHaveBeenCalledWith("deny", { message: "add tests" });
+});
+
+test("an edit permission names the file's language above its diff", () => {
+	renderCard({
+		...PERMISSION,
+		toolName: "Edit",
+		input: { file_path: "src/app.ts", old_string: "a", new_string: "b" },
+	});
+	expect(document.querySelector(".pk-chat-lang")?.textContent).toBe("TypeScript");
 });
 
 test("ExitPlanMode shows its plan as Markdown", () => {
@@ -204,7 +287,7 @@ test("the Always allow button says what it allows and for how long", () => {
 		/>,
 	);
 	fireEvent.click(screen.getByRole("button", { name: label }));
-	expect(onAnswer).toHaveBeenCalledWith("always");
+	expect(onAnswer).toHaveBeenCalledWith("always", {});
 });
 
 test("session rules are listed only when there are some, and Revoke sends the rule", () => {
@@ -371,8 +454,8 @@ test("inside a permission card, 1, 2 and 3 choose its options, each showing its 
 	fireEvent.keyDown(allow, { key: "4" });
 	fireEvent.keyDown(allow, { key: "0" });
 	expect(onAnswer).not.toHaveBeenCalled();
-	fireEvent.keyDown(allow, { key: "3" });
-	expect(onAnswer).toHaveBeenCalledWith("deny");
+	fireEvent.keyDown(allow, { key: "2" });
+	expect(onAnswer).toHaveBeenCalledWith("always", {});
 	// Once chosen, another key cannot change the answer.
 	fireEvent.keyDown(allow, { key: "1" });
 	expect(onAnswer).toHaveBeenCalledTimes(1);

@@ -7,9 +7,13 @@
  * With the keyboard inside the card, 1, 2 and 3 choose its options, each
  * button showing its number. The keys act only inside the card, never from
  * the message box, so typing there cannot grant a permission (SPEC.md §25.8).
+ *
+ * Deny, and "No, keep planning", first open a one-line field for telling
+ * Claude what to do instead. Enter sends it (empty keeps the plain denial);
+ * Escape goes back to the buttons. Approving a plan names the mode to go on in.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, TextField } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
@@ -20,10 +24,24 @@ import "./turn.css";
 
 type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
+export interface PermissionAnswerExtras {
+	message?: string;
+	mode?: "acceptEdits" | "default";
+}
+
+/** The option that opens the "what to do instead" field. */
+const DENY = "deny";
+
+/** The mode each plan approval option goes on in; the ids are the workspace agent's. */
+const PLAN_MODE: Record<string, "acceptEdits" | "default"> = {
+	"allow-accept-edits": "acceptEdits",
+	"allow-ask-edits": "default",
+};
+
 export interface PermissionCardProps {
 	card: PermissionCardData;
 	/** False when the answer could not be sent. */
-	onAnswer: (optionId: string) => boolean;
+	onAnswer: (optionId: string, extras?: PermissionAnswerExtras) => boolean;
 	takeFocus: () => boolean;
 	/** Cards waiting behind this one. */
 	waiting: number;
@@ -85,7 +103,7 @@ function Body({ card }: { card: PermissionCardData }) {
 			return (
 				<>
 					<p className="pk-chat-card-path pk-mono-body">{view.detail.path}</p>
-					<DiffBlock changes={view.detail.changes} />
+					<DiffBlock changes={view.detail.changes} path={view.detail.path} />
 				</>
 			);
 		case "write":
@@ -125,6 +143,9 @@ export function PermissionCard({
 	const actions = useRef<HTMLDivElement | null>(null);
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [error, setError] = useState("");
+	const [reasonOpen, setReasonOpen] = useState(false);
+	const [reason, setReason] = useState("");
+	const reasonId = useId();
 	const title = heading(card);
 	// The host's title adds something only when the heading does not already say it.
 	const subtitle =
@@ -137,7 +158,16 @@ export function PermissionCard({
 
 	function choose(optionId: string) {
 		if (chosen !== null) return;
-		if (!onAnswer(optionId)) {
+		if (optionId === DENY) {
+			setReasonOpen(true);
+			return;
+		}
+		const mode = PLAN_MODE[optionId];
+		send(optionId, mode ? { mode } : {});
+	}
+
+	function send(optionId: string, extras: PermissionAnswerExtras) {
+		if (!onAnswer(optionId, extras)) {
 			setError(
 				"Your answer was not sent because the chat is not connected. Wait for it to reconnect, then try again.",
 			);
@@ -153,6 +183,8 @@ export function PermissionCard({
 			aria-labelledby={titleId}
 			data-testid="chat-permission-card"
 			onKeyDown={(event) => {
+				// Digits typed into the reason field are text, not choices.
+				if (reasonOpen) return;
 				if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
 				const at = Number(event.key) - 1;
 				const option = card.options[at];
@@ -169,7 +201,54 @@ export function PermissionCard({
 			<p className="pk-chat-card-error" role="alert">
 				{error}
 			</p>
-			<div ref={actions} className="pk-chat-card-actions">
+			{reasonOpen ? (
+				<form
+					className="pk-chat-reason"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (chosen !== null) return;
+						const text = reason.trim();
+						send(DENY, text ? { message: text } : {});
+					}}
+				>
+					<TextField
+						id={reasonId}
+						label="Tell Claude what to do instead"
+						hint="Optional. Press Enter to send, Escape to go back."
+						value={reason}
+						maxLength={2000}
+						readOnly={chosen !== null}
+						autoFocus
+						data-testid="chat-deny-reason"
+						onChange={(event) => setReason(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key !== "Escape") return;
+							event.preventDefault();
+							event.stopPropagation();
+							setReasonOpen(false);
+							setReason("");
+							requestAnimationFrame(() =>
+								actions.current
+									?.querySelector<HTMLElement>(
+										`[data-testid="chat-permission-${DENY}"]`,
+									)
+									?.focus(),
+							);
+						}}
+					/>
+					<div className="pk-chat-card-actions">
+						<Button
+							type="submit"
+							variant="primary"
+							loading={chosen === DENY}
+							data-testid="chat-deny-send"
+						>
+							{reason.trim() ? "Send" : "Deny"}
+						</Button>
+					</div>
+				</form>
+			) : null}
+			<div ref={actions} className="pk-chat-card-actions" hidden={reasonOpen}>
 				{card.options.map((option, at) => (
 					<Button
 						key={option.id}
