@@ -1,13 +1,23 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"ignoreBinaries": ["openssl", "prlimit", "rg", "mkfifo", "unshare", "codex"],
+	"ignoreBinaries": [
+		"openssl",
+		"prlimit",
+		"rg",
+		"mkfifo",
+		"unshare",
+		"codex",
+		"convert"
+	],
 	"workspaces": {
 		".": {
 			"entry": [
 				"scripts/*.mjs",
 				"e2e/*.mjs",
 				"playwright.config.ts",
-				"e2e/**/*.{spec,setup}.ts"
+				"e2e/**/*.{spec,setup}.ts",
+				"e2e/doc-images/playwright.config.ts",
+				"e2e/doc-images/*.capture.ts"
 			],
 			"project": ["scripts/**/*.{ts,mjs}", "e2e/**/*.{ts,mjs}", "*.ts"],
 			"playwright": false
