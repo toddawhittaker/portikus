@@ -37,7 +37,8 @@ Rules:
 - Never write code that commits, branches, tags, or stashes in a user's Git
   repository on the platform's behalf.
 - In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
-  line (what you delivered, gaps left) in the PR body; the fold task writes
+  line (one sentence on what you delivered, plus any new open items) in
+  the PR body; the fold task writes
   STATUS once (docs/WORKFLOW.md, "Epic plans").
 - Run the tests and lint that cover your change before reporting. If there is
   no test for the behavior you added, say so plainly.

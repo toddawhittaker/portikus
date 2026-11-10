@@ -8,8 +8,8 @@ server, follow `docs/INSTALL.md`.
 
 ## Current state
 
-`docs/STATUS.md` records what each epic and task has delivered and the
-gaps each one left. Epics 0 through 13.1, with their fix batches, have
+`docs/STATUS.md` holds a one- or two-sentence summary of each epic and
+the open items. Epics 0 through 13.1, with their fix batches, have
 landed on `main` and run on the pilot VM, including backups and restore,
 the operations runbook (`docs/OPERATIONS.md`), signing in by an LTI 1.3
 launch from a learning management system with an `instructor` role and a

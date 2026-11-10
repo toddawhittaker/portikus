@@ -89,7 +89,7 @@ Rerun on 2026-09-23 on a freshly rebuilt rehearsal VM (12 vCPUs, 24 GiB), packag
 | VM CPU busy at steady | 8.8% | 7.7% |
 | Highest 1-minute load | 6.8 | 3.8 |
 
-The whole run took 19 minutes 20 seconds, including the preflight and the cleanup. Every other criterion passed with the same wide margin as before. The start p95 is now within about 2.6 seconds of its target. With starts running side by side, a single start took 8.9 seconds at the median, against about 4.5 seconds for one start alone in the first run, so the starts slow each other down even though none waits in a queue. Closing the last gap would need more starts at once or faster single starts. That is code outside `infra/`, and it is recorded as a gap in `docs/STATUS.md`.
+The whole run took 19 minutes 20 seconds, including the preflight and the cleanup. Every other criterion passed with the same wide margin as before. The start p95 is now within about 2.6 seconds of its target. With starts running side by side, a single start took 8.9 seconds at the median, against about 4.5 seconds for one start alone in the first run, so the starts slow each other down even though none waits in a queue. Closing the last gap would need more starts at once or faster single starts. That is code outside `infra/`, and it is recorded as an open item in `docs/STATUS.md`.
 
 ### Code help on a 16 GiB VM
 
