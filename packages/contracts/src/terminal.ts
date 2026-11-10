@@ -52,6 +52,12 @@ export type TerminalId = z.infer<typeof TerminalId>;
 export const CodingAgent = z.enum(["claude", "codex"]);
 export type CodingAgent = z.infer<typeof CodingAgent>;
 
+/** What the status bar calls each coding agent. */
+export const CODING_AGENT_LABEL: Record<CodingAgent, string> = {
+	claude: "Claude",
+	codex: "Codex",
+};
+
 /** A terminal tab runs a shell; a chat tab runs a coding agent through its SDK (SPEC.md §10.8). */
 export const TerminalKind = z.enum(["terminal", "chat"]);
 export type TerminalKind = z.infer<typeof TerminalKind>;

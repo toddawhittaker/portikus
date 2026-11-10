@@ -19,10 +19,12 @@ export const MAX_CODING_AGENT_TERMINALS = 20;
 /** Most subagent rows one terminal reports; finished rows are dropped first. */
 export const MAX_SUBAGENTS_PER_TERMINAL = 16;
 
+/** An Agent tool call id, which is also the chat's tool row id. */
+const ToolCallId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+
 /** One subagent an agent started: working until it returns, then finished. */
 export const CodingAgentSubagent = z.object({
-	/** The Agent tool call id, which is also the chat's tool row id. */
-	id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+	id: ToolCallId,
 	type: z.string().min(1).max(64),
 	description: z.string().max(120),
 	state: z.enum(["working", "finished"]),
@@ -62,24 +64,30 @@ export const CodingAgentTerminal = z.object({
 export type CodingAgentTerminal = z.infer<typeof CodingAgentTerminal>;
 
 /** The hook events the subagent route takes. */
-export const CODING_AGENT_SUBAGENT_EVENTS = [
+const CodingAgentSubagentEvent = z.enum([
 	"pre_tool_use",
 	"post_tool_use",
 	"post_tool_use_failure",
 	"subagent_stop",
 	"user_prompt_submit",
 	"stop",
-] as const;
-export const CodingAgentSubagentEvent = z.enum(CODING_AGENT_SUBAGENT_EVENTS);
-export type CodingAgentSubagentEvent = z.infer<typeof CodingAgentSubagentEvent>;
+]);
 
 /** Longest subagent description kept. */
 export const MAX_SUBAGENT_DESCRIPTION_CHARS = 120;
 
+/** Longest subagent type kept; a plugin's agent type may be longer. */
+const MAX_SUBAGENT_TYPE_CHARS = 64;
+
+/** Trim, then cut to `max` characters without splitting one made of two code units. */
+function cutText(text: string, max: number): string {
+	return Array.from(text.trim()).slice(0, max).join("").trim();
+}
+
 /**
  * A hook's report to `POST /coding-agent-subagent`. Only the allow-listed
- * fields travel, never the prompt. A long description is cut to fit rather
- * than refused, so the row still appears.
+ * fields travel, never the prompt. A long description or type is cut to fit
+ * rather than refused, so the row still appears.
  */
 export const CodingAgentSubagentPost = z
 	.object({
@@ -87,20 +95,17 @@ export const CodingAgentSubagentPost = z
 		event: CodingAgentSubagentEvent,
 		/** When the hook fired, in microseconds since the epoch; orders late posts per row. */
 		at: z.number().int().positive(),
-		tool_use_id: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]{1,64}$/)
-			.optional(),
+		tool_use_id: ToolCallId.optional(),
 		description: z
 			.string()
-			.transform((text) =>
-				Array.from(text.trim())
-					.slice(0, MAX_SUBAGENT_DESCRIPTION_CHARS)
-					.join("")
-					.trim(),
-			)
+			.transform((text) => cutText(text, MAX_SUBAGENT_DESCRIPTION_CHARS))
 			.optional(),
-		subagent_type: z.string().min(1).max(64).optional(),
+		// Blanks alone leave no type, so the board falls back to its default.
+		subagent_type: z
+			.string()
+			.min(1)
+			.transform((text) => cutText(text, MAX_SUBAGENT_TYPE_CHARS) || undefined)
+			.optional(),
 		agent_id: z.string().min(1).max(128).optional(),
 		run_in_background: z.boolean().optional(),
 	})
@@ -117,27 +122,8 @@ const ResetsAt = z
 		message: `must be within ${MAX_LIMIT_RESET_DAYS} days`,
 	});
 
-/** One plan limit window, such as the five-hour or the seven-day one. */
-export const AgentLimitWindow = z.object({
-	/** A short label for the window, such as "5h" or "7d". */
-	name: z.string().min(1).max(16),
-	usedPercent: z.number().min(0).max(100),
-	resetsAt: ResetsAt,
-});
-export type AgentLimitWindow = z.infer<typeof AgentLimitWindow>;
-
-/** Most limit windows one agent reports. */
-export const MAX_AGENT_LIMIT_WINDOWS = 4;
-
-/** An agent's plan limits at the moment the workspace agent last saw them. */
-export const AgentLimits = z.object({
-	windows: z.array(AgentLimitWindow).max(MAX_AGENT_LIMIT_WINDOWS),
-	observedAt: z.string().datetime(),
-});
-export type AgentLimits = z.infer<typeof AgentLimits>;
-
 /** Most providers one limits report or meter lists. */
-export const MAX_PLAN_PROVIDERS = 8;
+const MAX_PLAN_PROVIDERS = 8;
 
 const ProviderId = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
 const ProviderLabel = z.string().min(1).max(32);

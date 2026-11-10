@@ -1,7 +1,13 @@
 /** The limits store keeps each provider's 7-day window only (SPEC.md §10.8). */
-import { type AgentLimits, AgentLimitsReport } from "@portikus/contracts";
+import { AgentLimitsReport } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { AgentLimitsStore, planUsage } from "./agent-limits-route.js";
+import {
+	AgentLimits,
+	AgentLimitsStore,
+	AgentLimitWindow,
+	MAX_AGENT_LIMIT_WINDOWS,
+	planUsage,
+} from "./agent-limits-route.js";
 
 // The contract bounds a reset by the real clock.
 const inHours = (hours: number) =>
@@ -43,4 +49,46 @@ test("the report lists the providers that have a 7-day window, in the contract's
 
 test("a store with nothing reports an empty list", async () => {
 	expect(await new AgentLimitsStore().report()).toEqual({ providers: [] });
+});
+
+test("a limit window keeps its percent in 0..100", () => {
+	const window = (usedPercent: number) => ({
+		name: "5h",
+		usedPercent,
+		resetsAt: inHours(24),
+	});
+	expect(AgentLimitWindow.safeParse(window(0)).success).toBe(true);
+	expect(AgentLimitWindow.safeParse(window(100)).success).toBe(true);
+	expect(AgentLimitWindow.safeParse(window(-1)).success).toBe(false);
+	expect(AgentLimitWindow.safeParse(window(100.5)).success).toBe(false);
+});
+
+test("a limit window resets within 31 days", () => {
+	const window = (resetsAt: string) => ({ name: "7d", usedPercent: 10, resetsAt });
+	expect(AgentLimitWindow.safeParse(window(inHours(30 * 24))).success).toBe(true);
+	expect(AgentLimitWindow.safeParse(window(inHours(32 * 24))).success).toBe(false);
+	expect(AgentLimitWindow.safeParse(window("soon")).success).toBe(false);
+});
+
+test("a limit window name is short", () => {
+	const base = { usedPercent: 10, resetsAt: inHours(24) };
+	expect(AgentLimitWindow.safeParse({ ...base, name: "" }).success).toBe(false);
+	expect(AgentLimitWindow.safeParse({ ...base, name: "x".repeat(17) }).success).toBe(
+		false,
+	);
+	expect(AgentLimitWindow.safeParse({ ...base, name: "5h" }).success).toBe(true);
+});
+
+test("an agent reports at most four limit windows", () => {
+	const limits = (count: number) => ({
+		windows: Array.from({ length: count }, () => ({
+			name: "5h",
+			usedPercent: 1,
+			resetsAt: inHours(24),
+		})),
+		observedAt,
+	});
+	expect(MAX_AGENT_LIMIT_WINDOWS).toBe(4);
+	expect(AgentLimits.safeParse(limits(4)).success).toBe(true);
+	expect(AgentLimits.safeParse(limits(5)).success).toBe(false);
 });
