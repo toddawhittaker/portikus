@@ -29,9 +29,9 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					Type <code className="pk-mono-body">/</code> at the start of a message to see
 					Claude's commands, or <code className="pk-mono-body">@</code> anywhere to pick
-					a project file. Use the arrow keys to move, Enter or Tab to insert, and Escape
-					to close the list. Commands that only work in the terminal are greyed out;{" "}
-					<code className="pk-mono-body">/model</code> and{" "}
+					a project file. Use the arrow keys to move, Enter to insert (Tab does too,
+					after an arrow key), and Escape to close the list. Commands that only work in
+					the terminal are greyed out; <code className="pk-mono-body">/model</code> and{" "}
 					<code className="pk-mono-body">/effort</code> open the pickers below the box
 					instead. The <code className="pk-mono-body">@</code> list shows files only,
 					not folders, and skips files your project's{" "}
@@ -46,7 +46,7 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					the conversation, and Claude sees them with your next message. A command stops
 					after two minutes, and only the first 64 KiB of its output is kept. It cannot
 					ask you questions, so use a terminal tab for those. You cannot run one while
-					Claude is working.
+					Claude is working. Stop, or Esc, ends a command that is still running.
 				</li>
 				<li>
 					While Claude works you can still send a message. Claude reads it at its next
@@ -88,14 +88,17 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					to be spoken.
 				</li>
 				<li>
-					Beside the pickers, a meter shows how full this chat's context is, and a timer
-					counts down to when Claude's prompt cache goes cold. After that time the next
-					message costs more and starts slower, because Claude reads the whole chat
-					again.
+					Under the pickers, Portikus shows how full Claude's memory of this chat is
+					once it passes half, and how long until the prompt cache goes cold. While the
+					cache is warm, your next message is faster and uses less of your limit. In the
+					last minute it says "soon", and when it says "Cache cold" the next message
+					re-reads the whole chat. When the memory is high, type{" "}
+					<code className="pk-mono-body">/compact</code>. Your screen reader hears only
+					when the cache goes cold and when the memory reaches 80 percent.
 				</li>
 				<li>
-					After a turn that changed files, a line under the reply lists them. Choose a
-					file name to open it.
+					When Claude edits files, a line under its reply says how many changed. Open it
+					to see each file; choose one to open it, or its changes in a Git project.
 				</li>
 				<li>
 					Pasting more than 40 lines, such as an error log, attaches it as a text file

@@ -100,6 +100,8 @@ test("the chat topic covers the menus, shell commands, deny reasons, read aloud 
 		"Read replies aloud",
 		"the text of the reply is sent to the browser's maker",
 		"Portikus never receives or keeps the text",
+		"Cache cold",
+		"choose one to open it, or its changes in a Git project",
 	]) {
 		expect(text).toContain(phrase);
 	}
