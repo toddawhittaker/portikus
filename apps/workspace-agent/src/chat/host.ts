@@ -45,6 +45,13 @@ import {
 	type ToolAsk,
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
+import {
+	afterRequest,
+	type ContextFigures,
+	fromTranscript,
+	mainThreadUsage,
+	windowFromModelUsage,
+} from "./context-usage.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { writeChatSession } from "./session-record.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
@@ -158,6 +165,12 @@ export class ChatHost {
 	private commands: ChatCommand[] | null = null;
 	/** The commands the SDK's init message named, for when their descriptions cannot be read. */
 	private initCommands: { names: string[]; terminalOnly: Set<string> } | null = null;
+	/** How full the context is and when the cache goes cold; null until known. */
+	private context: ContextFigures | null = null;
+	/** The model's context window, once the SDK has reported it. */
+	private windowTokens: number | null = null;
+	/** The model of the last main-thread request, to read its window. */
+	private lastModel: string | null = null;
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
@@ -258,6 +271,49 @@ export class ChatHost {
 		void this.pump(session);
 		void this.refreshCommands(session);
 		void this.refreshPlanUsage(session);
+		void this.refreshWindow(session, undefined);
+	}
+
+	/** A main-thread request finished: tell every attachment how full the context is. */
+	private requestMade(message: SDKMessage): void {
+		if (message.type !== "assistant") return;
+		const usage = mainThreadUsage(message);
+		if (!usage) return;
+		this.lastModel = message.message.model || this.lastModel;
+		const next = afterRequest(this.context, usage, Date.now(), this.windowTokens);
+		this.setContext(next);
+	}
+
+	/**
+	 * Read the context window from the SDK, or from the result's
+	 * `modelUsage` when the SDK cannot say. A failure keeps the last figure.
+	 */
+	private async refreshWindow(
+		session: Query,
+		modelUsage: Record<string, { contextWindow?: number }> | undefined,
+	): Promise<void> {
+		let window: number | null = null;
+		try {
+			const usage = await session.getContextUsage({ detail: "summary" });
+			window = usage.maxTokens > 0 ? usage.maxTokens : null;
+		} catch {
+			// Older SDKs and some sessions cannot answer.
+		}
+		window ??= windowFromModelUsage(modelUsage, this.lastModel);
+		if (this.session !== session || window === null || window === this.windowTokens)
+			return;
+		this.windowTokens = window;
+		if (this.context) this.setContext({ ...this.context, windowTokens: window });
+	}
+
+	private setContext(next: ContextFigures): void {
+		if (JSON.stringify(next) === JSON.stringify(this.context)) return;
+		this.context = next;
+		this.broadcast(this.contextEvent(next));
+	}
+
+	private contextEvent(context: ContextFigures): ChatEventBody {
+		return { type: "context", ...context };
 	}
 
 	/**
@@ -380,10 +436,14 @@ export class ChatHost {
 					? "error"
 					: "done";
 			this.finishTurn(status);
-			if (this.session) void this.refreshPlanUsage(this.session);
+			if (this.session) {
+				void this.refreshPlanUsage(this.session);
+				void this.refreshWindow(this.session, message.modelUsage);
+			}
 			return;
 		}
 		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
+		this.requestMade(message);
 		for (const event of this.mapper.map(message)) {
 			if (event.type === "text.delta") {
 				const text = this.partial?.id === event.messageId ? this.partial.text : "";
@@ -427,6 +487,7 @@ export class ChatHost {
 		).catch(() => this.options.log.warn("could not record the new chat session"));
 		this.mapper = new ClaudeMessageMapper();
 		this.partial = null;
+		this.context = null;
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
 			if (client.held) {
@@ -562,11 +623,14 @@ export class ChatHost {
 		const cards = [...this.cards.values()].map((open) => open.card);
 		const turnRunning = this.turnRunning;
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
+		let context = this.context;
 		try {
-			replay = replayHistory(
-				await this.sdk.sessionMessages(this.sessionId, this.options.projectDir),
-				turnRunning,
+			const messages = await this.sdk.sessionMessages(
+				this.sessionId,
+				this.options.projectDir,
 			);
+			replay = replayHistory(messages, turnRunning);
+			context ??= fromTranscript(messages, this.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
@@ -595,6 +659,10 @@ export class ChatHost {
 		writeLine(socket, this.frame(this.settingsEvent()));
 		writeLine(socket, this.frame(this.rulesEvent()));
 		if (this.commands) writeLine(socket, this.frame(this.commandsEvent(this.commands)));
+		// A figure that arrived during the read was already sent, held.
+		if (context && !held.some((event) => event.type === "context")) {
+			writeLine(socket, this.frame(this.contextEvent(context)));
+		}
 	}
 
 	private async onLine(client: Client, line: string): Promise<void> {
