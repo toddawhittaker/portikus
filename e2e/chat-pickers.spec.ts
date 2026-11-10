@@ -352,7 +352,7 @@ test("a new chat starts with the settings last used in its project, Bypass as Au
 			);
 			return row?.chat_settings;
 		})
-		.toEqual({ model: "opus", effort: "high", mode: "auto" });
+		.toEqual({ model: "opus", effort: "high", mode: "auto", readAloud: false });
 
 	const next = await withPickers(launchChat(page, student.workspaceId, first.id));
 	await expectShown(next.view, "Opus", "High", "Auto");
@@ -385,7 +385,7 @@ test("a changed effort carries over to the next new chat too", async ({
 			);
 			return row?.chat_settings;
 		})
-		.toEqual({ model: "default", effort: "low", mode: "plan" });
+		.toEqual({ model: "default", effort: "low", mode: "plan", readAloud: false });
 	const next = await withPickers(launchChat(page, student.workspaceId, project.id));
 	await expectShown(next.view, "Default", "Low", "Plan");
 });

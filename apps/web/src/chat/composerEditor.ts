@@ -47,7 +47,7 @@ import {
 	Slice,
 } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { isSafeLink } from "../markdown/sanitize.js";
 import { toMarkdown } from "./composerMarkdown.js";
 
@@ -175,6 +175,15 @@ function plainSlice(schema: Schema, text: string): Slice {
 		.split("\n")
 		.map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
 	return new Slice(Fragment.from(lines), 1, 1);
+}
+
+/** Text put in at the selection as a paste puts it: lines as paragraphs, or as written inside code. */
+export function insertPlainText(view: EditorView, text: string): void {
+	const { state } = view;
+	const tr = state.selection.$from.parent.type.spec.code
+		? state.tr.insertText(text)
+		: state.tr.replaceSelection(plainSlice(state.schema, text));
+	view.dispatch(tr.scrollIntoView().setMeta("paste", true));
 }
 
 /** ```lang on a line of its own, with Enter at its end, opens a code block. */
@@ -427,10 +436,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					view.dispatch(state.tr.replaceSelectionWith(linked, false).scrollIntoView());
 					return true;
 				}
-				const tr = state.selection.$from.parent.type.spec.code
-					? state.tr.insertText(text)
-					: state.tr.replaceSelection(plainSlice(state.schema, text));
-				view.dispatch(tr.scrollIntoView().setMeta("paste", true));
+				insertPlainText(view, text);
 				return true;
 			},
 			// Files dropped on the box are the form's to attach.

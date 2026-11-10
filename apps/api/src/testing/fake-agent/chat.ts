@@ -225,6 +225,22 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		switch (message.type) {
 			case "send": {
+				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
+				if (message.text.trim() === "/clear") {
+					chat.history = [];
+					emit(id, chat.sockets, {
+						type: "snapshot",
+						cards: chat.openCards,
+						turnRunning: false,
+						truncated: false,
+					});
+					emit(id, chat.sockets, {
+						type: "settings",
+						agent: "claude",
+						...chat.settings,
+					});
+					return;
+				}
 				const user: ChatMessage = {
 					id: `m-user-${chat.seq}`,
 					role: "user",

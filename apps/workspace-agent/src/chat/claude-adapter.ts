@@ -114,6 +114,10 @@ export class ClaudeMessageMapper {
 	private streaming: string | null = null;
 
 	map(message: SDKMessage): ChatEventBody[] {
+		// A subagent's own messages stay inside its Task card, as on replay.
+		if ("parent_tool_use_id" in message && message.parent_tool_use_id !== null) {
+			return [];
+		}
 		switch (message.type) {
 			case "stream_event":
 				return this.streamEvent(message.event as unknown as Block);
