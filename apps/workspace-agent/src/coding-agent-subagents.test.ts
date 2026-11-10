@@ -59,6 +59,18 @@ function states(b: CodingAgentBoard): string[] {
 }
 
 describe("subagent rows", () => {
+	test("a post that fired at or before SessionEnd's clear makes no stale row", () => {
+		const b = board();
+		b.clear(ID, 20);
+		b.subagent(start("toolu_early", 15));
+		b.subagent(start("toolu_same", 20));
+		b.set(ID, "claude", "working", 30);
+		expect(rows(b)).toEqual([]);
+		// A call that started after the clear belongs to the next session.
+		b.subagent(start("toolu_next", 40));
+		expect(states(b)).toEqual(["toolu_next:working"]);
+	});
+
 	test("a foreground call shows working, then finished at its PostToolUse", () => {
 		const b = board();
 		const seen = vi.fn();

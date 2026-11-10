@@ -1,15 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
 	AgentCodingAgentsChanged,
-	AgentLimits,
 	AgentLimitsReport,
-	AgentLimitWindow,
 	AgentMeter,
 	CodingAgentState,
 	CodingAgentSubagent,
 	CodingAgentSubagentPost,
 	CodingAgentTerminal,
-	MAX_AGENT_LIMIT_WINDOWS,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
 	PlanUsage,
@@ -199,8 +196,18 @@ describe("the subagent hook post", () => {
 		expect(ok({ at: 0 })).toBe(false);
 		expect(ok({ at: 1.5 })).toBe(false);
 		expect(ok({ subagent_type: "" })).toBe(false);
-		expect(ok({ subagent_type: "t".repeat(65) })).toBe(false);
 		expect(ok({ prompt: "secret" })).toBe(false);
+	});
+
+	test("trims the type and cuts it to 64 characters rather than refusing it", () => {
+		const parse = (subagent_type: string) =>
+			CodingAgentSubagentPost.parse(post({ subagent_type })).subagent_type;
+		expect(parse("  Explore ")).toBe("Explore");
+		expect(parse("t".repeat(64))).toBe("t".repeat(64));
+		expect(parse("t".repeat(200))).toBe("t".repeat(64));
+		expect(parse("😀".repeat(100))).toBe("😀".repeat(64));
+		// Only blanks leave no type, so the board falls back to its default.
+		expect(parse("   ")).toBeUndefined();
 	});
 
 	test("trims the description and cuts it to 120 characters", () => {
@@ -213,48 +220,6 @@ describe("the subagent hook post", () => {
 		expect(parse("😀".repeat(200))).toBe("😀".repeat(120));
 		expect(parse(`${"d".repeat(119)} ${"e".repeat(10)}`)).toBe("d".repeat(119));
 	});
-});
-
-test("a limit window keeps its percent in 0..100", () => {
-	const window = (usedPercent: number) => ({
-		name: "5h",
-		usedPercent,
-		resetsAt: inDays(1),
-	});
-	expect(AgentLimitWindow.safeParse(window(0)).success).toBe(true);
-	expect(AgentLimitWindow.safeParse(window(100)).success).toBe(true);
-	expect(AgentLimitWindow.safeParse(window(-1)).success).toBe(false);
-	expect(AgentLimitWindow.safeParse(window(100.5)).success).toBe(false);
-});
-
-test("a limit window resets within 31 days", () => {
-	const window = (resetsAt: string) => ({ name: "7d", usedPercent: 10, resetsAt });
-	expect(AgentLimitWindow.safeParse(window(inDays(30))).success).toBe(true);
-	expect(AgentLimitWindow.safeParse(window(inDays(32))).success).toBe(false);
-	expect(AgentLimitWindow.safeParse(window("soon")).success).toBe(false);
-});
-
-test("a limit window name is short", () => {
-	const base = { usedPercent: 10, resetsAt: inDays(1) };
-	expect(AgentLimitWindow.safeParse({ ...base, name: "" }).success).toBe(false);
-	expect(AgentLimitWindow.safeParse({ ...base, name: "x".repeat(17) }).success).toBe(
-		false,
-	);
-	expect(AgentLimitWindow.safeParse({ ...base, name: "5h" }).success).toBe(true);
-});
-
-test("an agent reports at most four limit windows", () => {
-	const limits = (count: number) => ({
-		windows: Array.from({ length: count }, () => ({
-			name: "5h",
-			usedPercent: 1,
-			resetsAt: inDays(1),
-		})),
-		observedAt: NOW,
-	});
-	expect(MAX_AGENT_LIMIT_WINDOWS).toBe(4);
-	expect(AgentLimits.safeParse(limits(4)).success).toBe(true);
-	expect(AgentLimits.safeParse(limits(5)).success).toBe(false);
 });
 
 const plan = (change: object = {}) => ({

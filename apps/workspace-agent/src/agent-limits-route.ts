@@ -1,10 +1,31 @@
-import type {
-	AgentLimits,
-	AgentLimitsReport,
-	CodingAgent,
+import {
+	type AgentLimitsReport,
+	CODING_AGENT_LABEL,
+	type CodingAgent,
 	PlanUsage,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+
+/** One plan limit window, such as the five-hour or the seven-day one. */
+export const AgentLimitWindow = z.object({
+	/** A short label for the window, such as "5h" or "7d". */
+	name: z.string().min(1).max(16),
+	usedPercent: z.number().min(0).max(100),
+	// Bounded the same as a provider's reset time in the contract.
+	resetsAt: PlanUsage.shape.resetsAt,
+});
+export type AgentLimitWindow = z.infer<typeof AgentLimitWindow>;
+
+/** Most limit windows one agent reports. */
+export const MAX_AGENT_LIMIT_WINDOWS = 4;
+
+/** An agent's plan limits at the moment the workspace agent last saw them. */
+export const AgentLimits = z.object({
+	windows: z.array(AgentLimitWindow).max(MAX_AGENT_LIMIT_WINDOWS),
+	observedAt: z.string().datetime(),
+});
+export type AgentLimits = z.infer<typeof AgentLimits>;
 
 export interface AgentLimitsStoreOptions {
 	/** Reads Codex's plan limits, or null when it reports none. */
@@ -13,12 +34,6 @@ export interface AgentLimitsStoreOptions {
 
 /** The only window the status bar shows; the label both sources give a 7-day window. */
 const PLAN_WINDOW_NAME = "7d";
-
-/** What the status bar calls each provider. The id is the agent id. */
-const PROVIDER_LABEL: Record<CodingAgent, string> = {
-	claude: "Claude",
-	codex: "Codex",
-};
 
 /** The 7-day window as one provider's plan usage, or null when there is none. */
 export function planUsage(
@@ -29,7 +44,7 @@ export function planUsage(
 	if (!limits || !window) return null;
 	return {
 		id,
-		label: PROVIDER_LABEL[id],
+		label: CODING_AGENT_LABEL[id],
 		usedPercent: window.usedPercent,
 		resetsAt: window.resetsAt,
 		observedAt: limits.observedAt,
