@@ -173,17 +173,15 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 					<code>{shell.command}</code>
 				</pre>
 				{shell.output !== "" ? (
-					<pre
+					<section
 						className="pk-shell-output"
-						// biome-ignore lint/a11y/useSemanticElements: the scrolling box itself is the named region, so it has a name when focused
-						role="region"
 						aria-label="Command output"
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
 						tabIndex={0}
 						data-testid="chat-shell-output"
 					>
 						{shell.output}
-					</pre>
+					</section>
 				) : null}
 				{shell.truncated ? (
 					<p className="pk-shell-note" data-testid="chat-shell-truncated">
