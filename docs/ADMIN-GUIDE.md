@@ -301,7 +301,7 @@ file, which `sudo dpkg-reconfigure portikus` can size down.
 ## The workspace image and coding agents
 
 Every new workspace starts from the default **workspace image**. On the
-**Image** tab, **Update to latest published** downloads the newest image
+**Workspace image** tab, **Update to latest published** downloads the newest image
 the project has published and checks its signature. **Rebuild with latest
 packages** builds a new image on this server with today's Debian packages,
 and lets you pick Node 24 or 26 and whether to add Python 3.14. A rebuild
@@ -317,7 +317,7 @@ each one; the list shows how many workspaces run each image.
 
 The coding agents, Claude Code and Codex, are not part of the image. They
 run from a shared folder on the server that every workspace reads, so
-**Coding agents** on the **Image** tab updates them without a new image.
+**Coding agents** on the **Workspace image** tab updates them without a new image.
 **Update coding agents** downloads the newest version of each, checks its
 signature or checksum, and tries it in a throwaway workspace. Each tool
 that passes switches on its own, so one can update while the other stays
@@ -331,7 +331,7 @@ moves forward again.
 
 ### Deleting images
 
-The **Image** tab lists the workspace images on this server. **Delete**
+The **Workspace image** tab lists the workspace images on this server. **Delete**
 removes an image you no longer need and frees its disk space. The default
 image is never deleted, and the previous image is kept so you can roll
 back. Delete asks first, saying how many workspaces were made from the
@@ -787,11 +787,11 @@ reports, so they are not proof of anything.
 
 ## Sign-in
 
-![The Sign-in tab: single sign-on with Google Workspace groups, and Microsoft Entra ID](images/admin-sign-in.png)
+![The Sign-in tab: single sign-on set to Google Workspace, with the field for reading groups](images/admin-sign-in.png)
 
 The **Sign-in** tab has three groups. The first is **Single sign-on**, which
 chooses who vouches for your users. You can pick Microsoft Entra ID, Google
-Workspace, another OpenID Connect provider, or "Dex passwords only", which
+Workspace, another OpenID Connect provider, or **Local accounts only**, which
 means accounts that have a Portikus password and no outside provider. The
 fields for each provider are the same questions `dpkg-reconfigure portikus`
 asks. A client secret is never shown again once saved: leave the box empty to
@@ -829,7 +829,7 @@ A change is a **trial**:
 2. Wait while setup applies it, then choose **Test sign-in**. The same tab
    takes you through the provider and brings you back. A test never creates a user or a session.
    It reports whether the sign-in worked and which role the person would get.
-3. When the test passes, choose **Keep**. For "Dex passwords only" there is
+3. When the test passes, choose **Keep**. For **Local accounts only** there is
    nothing to test, so Keep is offered at once.
 4. If you roll back, do nothing for 30 minutes, or setup fails, Portikus puts
    the old settings back.
