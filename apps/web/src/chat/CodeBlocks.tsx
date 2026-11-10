@@ -4,8 +4,15 @@
  * "Show all" button so one tool call never buries the reply it led to.
  */
 import { Button } from "@portikus/ui";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CopyButton } from "./CopyButton.js";
+import {
+	type Language,
+	languageForPath,
+	type Token,
+	tokensFor,
+	useHighlighter,
+} from "./highlight.js";
 import { type DiffLine, diffLines, type EditChange, previewText } from "./toolView.js";
 
 function MoreButton({
@@ -28,6 +35,36 @@ function MoreButton({
 			{open ? "Show less" : `Show ${hidden} more ${hidden === 1 ? "line" : "lines"}`}
 		</Button>
 	);
+}
+
+function drawTokens(tokens: Token[]): ReactNode[] {
+	return tokens.map((token, at) =>
+		token.scope ? (
+			// Tokens are fixed for the text's life, so position is their identity.
+			// biome-ignore lint/suspicious/noArrayIndexKey: see above
+			<span key={at} className={token.scope}>
+				{token.text}
+			</span>
+		) : (
+			token.text
+		),
+	);
+}
+
+/**
+ * Code in a known language, coloured once the highlighter has loaded and
+ * plain until then: the text is the same either way, so nothing moves.
+ */
+export function HighlightedCode({
+	code,
+	language,
+}: {
+	code: string;
+	language: Language | null;
+}) {
+	const highlight = useHighlighter(language !== null);
+	const tokens = highlight && language ? tokensFor(highlight, code, language) : null;
+	return <>{tokens ? drawTokens(tokens) : code}</>;
 }
 
 /** A plain block of text, cut to `limit` lines until opened; a copy copies all of it. */
@@ -73,9 +110,15 @@ const DIFF_MARK: Record<DiffLine["kind"], string> = {
 /** A diff shows more lines than plain output before it is cut. */
 const DIFF_LIMIT = 30;
 
-/** An edit as removed and added lines; the marks are text, so a screen reader reads them. */
-export function DiffBlock({ changes }: { changes: EditChange[] }) {
+/**
+ * An edit as removed and added lines; the marks are text, so a screen
+ * reader reads them. With the file's path, each line is coloured in the
+ * file's language, and the language is named above the lines.
+ */
+export function DiffBlock({ changes, path }: { changes: EditChange[]; path?: string }) {
 	const [open, setOpen] = useState(false);
+	const language = path ? languageForPath(path) : null;
+	const highlight = useHighlighter(language !== null);
 	const lines = changes.flatMap((change, at) => {
 		const diff = diffLines(change.before, change.after);
 		return at === 0 ? diff : [{ kind: "same" as const, text: "…" }, ...diff];
@@ -83,16 +126,23 @@ export function DiffBlock({ changes }: { changes: EditChange[] }) {
 	const hidden = Math.max(0, lines.length - DIFF_LIMIT);
 	const shown = open ? lines : lines.slice(0, DIFF_LIMIT);
 	return (
-		<div className="pk-chat-codeblock">
+		<div className="pk-chat-codeblock pk-chat-hl">
+			{language ? <span className="pk-chat-lang">{language.label}</span> : null}
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
 			<pre className="pk-chat-code pk-chat-diff" tabIndex={0} data-testid="chat-diff">
-				{shown.map((line, at) => (
-					// Lines are fixed for the card's life, so position is their identity.
-					// biome-ignore lint/suspicious/noArrayIndexKey: see above
-					<span key={at} className={`pk-chat-diff-line is-${line.kind}`}>
-						{`${DIFF_MARK[line.kind]} ${line.text}\n`}
-					</span>
-				))}
+				{shown.map((line, at) => {
+					const tokens =
+						highlight && language ? tokensFor(highlight, line.text, language) : null;
+					return (
+						// Lines are fixed for the card's life, so position is their identity.
+						// biome-ignore lint/suspicious/noArrayIndexKey: see above
+						<span key={at} className={`pk-chat-diff-line is-${line.kind}`}>
+							{`${DIFF_MARK[line.kind]} `}
+							{tokens ? drawTokens(tokens) : line.text}
+							{"\n"}
+						</span>
+					);
+				})}
 			</pre>
 			{hidden > 0 ? (
 				<MoreButton

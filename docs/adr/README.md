@@ -97,3 +97,4 @@ has four sections:
 | [0067](0067-code-help-chosen-per-language.md) | Code help is chosen per language: the column stores the enabled set, only the API refuses, writes are strict and reads lenient, and the estimate is a worst case (accepted, Epic 53) |
 | [0068](0068-agent-status-limits-and-alerts.md) | Agent status comes from the agents' own hooks, plan limits from Claude Code's status line and `codex app-server`, students see today's counts, and agent alert toasts are not recorded (accepted, Epic 56) |
 | [0069](0069-chat-tab.md) | The Claude Code (GUI) chat tab: the Agent SDK in a tmux-hosted chat host, offered for every sign-in, owner-only at the API (accepted, Epic 58) |
+| [0072](0072-chat-syntax-highlighting.md) | Syntax colours in the chat come from highlight.js core with twelve languages, loaded only when a code block renders, coloured through CSS variables (accepted, Epic 59) |
