@@ -9,6 +9,7 @@ import {
 	isPoolTimeout,
 	poolOptions,
 } from "./index.js";
+import { migrateDownTo } from "./migrate-testing.js";
 import {
 	basePrefix,
 	createTestDb,
@@ -606,137 +607,7 @@ describe("database migrations and schema", () => {
 					db: trx,
 					provider: { getMigrations: async () => migrations },
 				});
-				// Past 0031 first.
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0054_alert_state",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0053_chat_settings",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0052_terminal_kind",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0051_code_help_languages",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0050_course_profile",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0049_account_email",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0048_live_help",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0047_voice_input_switch",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0046_docker_seed_image_bytes",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0044_dex_account_issuer",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0043_agent_usage_days",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0042_project_shares",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0041_lti_roster_and_deep_linking",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0040_signin_counters",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0039_notification_flags",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0038_account_invitations",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0037_second_factor",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0036_start_retries_and_controller_check",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0035_docker_seed_images_set",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0034_keep_running",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0033_ghcr_default_on",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0032_docker_pull_days",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0031_docker_cache",
-				);
-				// Past 0030 and 0029 first.
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0030_egress_blocked_sites",
-				);
-				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-					"0029_package_survey",
-				);
-				const down = await migrator.migrateDown();
-				expect(down.error).toBeUndefined();
-				const down2 = await migrator.migrateDown();
-				expect(down2.error).toBeUndefined();
-				const down3 = await migrator.migrateDown();
-				expect(down3.error).toBeUndefined();
-				const down4 = await migrator.migrateDown();
-				expect(down4.error).toBeUndefined();
-				const down5 = await migrator.migrateDown();
-				expect(down5.error).toBeUndefined();
-				const down6 = await migrator.migrateDown();
-				expect(down6.error).toBeUndefined();
-				const down7 = await migrator.migrateDown();
-				expect(down7.error).toBeUndefined();
-				const down8 = await migrator.migrateDown();
-				expect(down8.error).toBeUndefined();
-				const down9 = await migrator.migrateDown();
-				expect(down9.error).toBeUndefined();
-				const down10 = await migrator.migrateDown();
-				expect(down10.error).toBeUndefined();
-				const down11 = await migrator.migrateDown();
-				expect(down11.error).toBeUndefined();
-				const down12 = await migrator.migrateDown();
-				expect(down12.error).toBeUndefined();
-				const down13 = await migrator.migrateDown();
-				expect(down13.error).toBeUndefined();
-				const down14 = await migrator.migrateDown();
-				expect(down14.error).toBeUndefined();
-				const down15 = await migrator.migrateDown();
-				expect(down15.error).toBeUndefined();
-				const down16 = await migrator.migrateDown();
-				expect(down16.error).toBeUndefined();
-				const down17 = await migrator.migrateDown();
-				expect(down17.error).toBeUndefined();
-				const down18 = await migrator.migrateDown();
-				expect(down18.error).toBeUndefined();
-				const down19 = await migrator.migrateDown();
-				expect(down19.error).toBeUndefined();
-				const down20 = await migrator.migrateDown();
-				expect(down20.error).toBeUndefined();
-				const down21 = await migrator.migrateDown();
-				expect(down21.error).toBeUndefined();
-				const down22 = await migrator.migrateDown();
-				expect(down22.error).toBeUndefined();
-				const down23 = await migrator.migrateDown();
-				expect(down23.error).toBeUndefined();
-				const down24 = await migrator.migrateDown();
-				expect(down24.error).toBeUndefined();
-				const down26 = await migrator.migrateDown();
-				expect(down26.error).toBeUndefined();
-				const down28 = await migrator.migrateDown();
-				expect(down28.error).toBeUndefined();
-				const down27 = await migrator.migrateDown();
-				expect(down27.error).toBeUndefined();
+				await migrateDownTo(migrator, "0001_workspaces");
 				const down25 = await migrator.migrateDown();
 				expect(down25.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
@@ -801,6 +672,40 @@ describe("database migrations and schema", () => {
 		).rejects.toBe(rollback);
 	});
 
+	test.skipIf(!hasTestDb())(
+		"migrateDownTo stops at the named migration and rejects a bad name",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const latest = async () =>
+						(await migrator.getMigrations()).filter((m) => m.executedAt).at(-1)?.name;
+					const newest = (await latest()) as string;
+					// Already there: nothing rolls back.
+					await migrateDownTo(migrator, newest);
+					expect(await latest()).toBe(newest);
+					await migrateDownTo(migrator, "0030_egress_blocked_sites");
+					expect(await latest()).toBe("0030_egress_blocked_sites");
+					await expect(migrateDownTo(migrator, "0000_nonesuch")).rejects.toThrow(
+						'unknown migration "0000_nonesuch"',
+					);
+					// Known, but already rolled back.
+					await expect(migrateDownTo(migrator, newest)).rejects.toThrow(
+						"is not applied",
+					);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
 	// --- migration 0016: account links and the role grant ---
 
 	test.skipIf(!hasTestDb())(
@@ -816,119 +721,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0028_throttle_hold",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0027_workspace_limits",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0026_backups",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0025_egress",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0024_process_snapshots",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0023_guard_idle_lift",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0022_api_request_samples",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0021_notifications",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0020_resource_guard",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0019_local_admin",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0018_setup_codes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0017_session_method",
-					);
+					await migrateDownTo(migrator, "0016_account_links");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0016_account_links");
@@ -1001,93 +794,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					// Past 0028, 0027, 0026, 0025, 0024, 0023, 0022, 0021 and 0020 first.
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0019_local_admin");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0019_local_admin");
@@ -1146,116 +853,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0028_throttle_hold",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0027_workspace_limits",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0026_backups",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0025_egress",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0024_process_snapshots",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0023_guard_idle_lift",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0022_api_request_samples",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0021_notifications",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0020_resource_guard",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0019_local_admin",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0018_setup_codes",
-					);
+					await migrateDownTo(migrator, "0017_session_method");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0017_session_method");
@@ -1594,122 +1192,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0028_throttle_hold",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0027_workspace_limits",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0026_backups",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0025_egress",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0024_process_snapshots",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0023_guard_idle_lift",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0022_api_request_samples",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0021_notifications",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0020_resource_guard",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0019_local_admin",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0018_setup_codes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0017_session_method",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0016_account_links",
-					);
+					await migrateDownTo(migrator, "0015_lti");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0015_lti");
@@ -1752,98 +1235,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					await migrator.migrateDown();
-					const down15 = await migrator.migrateDown();
-					expect(down15.results?.[0]?.migrationName).toBe("0015_lti");
+					await migrateDownTo(migrator, "0014_admin");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0014_admin");
 					const gone = await sql<{ n: number }>`
@@ -2268,101 +1660,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					// Down past 0028, 0027, 0026, 0025, 0024 and 0023, 0022,
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					// 0021 and 0020, 0019, 0018, 0017 and 0016, 0015 and 0014, then 0013.
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0012_profile");
 					await trx
 						.insertInto("workspaces")
 						.values({
@@ -2488,88 +1786,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0023_guard_idle_lift");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0023_guard_idle_lift");
@@ -2596,107 +1813,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0028_throttle_hold",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0027_workspace_limits",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0026_backups",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0025_egress",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0024_process_snapshots",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0023_guard_idle_lift",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0022_api_request_samples",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0021_notifications",
-					);
+					await migrateDownTo(migrator, "0020_resource_guard");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0020_resource_guard");
@@ -2927,94 +2044,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					// Build a database that took 0020 to 0028 before 0019 existed.
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0018_setup_codes");
 					expect(await migrateToLatest(trx, without0019)).toEqual([
 						"0020_resource_guard",
 						"0021_notifications",
@@ -3162,80 +2192,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030, 0029 and 0028 first.
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0027_workspace_limits");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0027_workspace_limits");
 					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
@@ -3282,87 +2239,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0024_process_snapshots");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0024_process_snapshots");
 					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
@@ -3393,78 +2270,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
+					await migrateDownTo(migrator, "0029_package_survey");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0029_package_survey");
 					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(0);
@@ -3491,75 +2297,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
+					await migrateDownTo(migrator, "0030_egress_blocked_sites");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0030_egress_blocked_sites");
 					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
@@ -3637,72 +2375,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
+					await migrateDownTo(migrator, "0031_docker_cache");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0031_docker_cache");
 					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
@@ -3734,71 +2407,17 @@ describe("resource guard migration", () => {
 						trx,
 					);
 					expect(await flag()).toBe(false);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0034_keep_running");
 					await sql`update settings set docker_seed_images = '["redis:7"]'`.execute(
 						trx,
 					);
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					expect(await flag()).toBe(true);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0034_keep_running");
 					await sql`update settings set docker_seed_images = '[]'`.execute(trx);
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					expect(await flag()).toBe(false);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0034_keep_running");
 					await sql`insert into audit_events (actor, target, action, result, metadata)
 						values ('user:x', 'docker', 'docker.seed_images_changed', 'ok', '{}')`.execute(
 						trx,
@@ -3837,72 +2456,7 @@ describe("resource guard migration", () => {
 						.values({ owner_user_id: user.id, label: "pulls", state: "stopped" })
 						.returning("id")
 						.executeTakeFirstOrThrow();
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
+					await migrateDownTo(migrator, "0031_docker_cache");
 					await sql`insert into docker_image_pulls
 						(image, workspace_id, pulls, first_seen, last_seen)
 						values ('docker.io/library/redis:7', ${ws.id}, 3,
@@ -3923,28 +2477,7 @@ describe("resource guard migration", () => {
 							pulls: 2,
 						})
 						.execute();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0031_docker_cache");
 					const folded = await sql<{ pulls: number }>`
 						select pulls from docker_image_pulls`.execute(trx);
 					expect(folded.rows).toEqual([{ pulls: 5 }]);
@@ -3965,69 +2498,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
+					await migrateDownTo(migrator, "0032_docker_pull_days");
 					await sql`insert into settings (id, shutdown_grace_seconds, docker_ghcr_enabled)
 						values (1, 600, false)
 						on conflict (id) do update set docker_ghcr_enabled = false`.execute(trx);
@@ -4124,85 +2595,7 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0026_backups");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0026_backups");
 					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
@@ -4286,92 +2679,7 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0028_throttle_hold",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0027_workspace_limits",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0026_backups",
-					);
+					await migrateDownTo(migrator, "0025_egress");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0025_egress");
 					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
@@ -4423,90 +2731,7 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
-					// Past 0028, 0027, 0026, 0025, 0024 and 0023 first.
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
-					expect((await migrator.migrateDown()).error).toBeUndefined();
+					await migrateDownTo(migrator, "0022_api_request_samples");
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0022_api_request_samples");
@@ -4674,83 +2899,7 @@ describe("throttle hold migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0054_alert_state",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0053_chat_settings",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0052_terminal_kind",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0051_code_help_languages",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0050_course_profile",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0049_account_email",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0048_live_help",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0047_voice_input_switch",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0046_docker_seed_image_bytes",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0044_dex_account_issuer",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0043_agent_usage_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0042_project_shares",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0041_lti_roster_and_deep_linking",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0040_signin_counters",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0039_notification_flags",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0038_account_invitations",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0037_second_factor",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0036_start_retries_and_controller_check",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0035_docker_seed_images_set",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0034_keep_running",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0033_ghcr_default_on",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0032_docker_pull_days",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0031_docker_cache",
-					);
-					// Past 0030 and 0029 first.
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0030_egress_blocked_sites",
-					);
-					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
-						"0029_package_survey",
-					);
+					await migrateDownTo(migrator, "0028_throttle_hold");
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0028_throttle_hold");
 					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
