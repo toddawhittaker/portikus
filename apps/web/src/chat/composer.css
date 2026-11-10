@@ -306,10 +306,10 @@
 }
 
 /* Too narrow for one line: the pickers take a line of their own, below the tools,
-   the microphone and Send, which stay on the first line. One line needs 541px with
-   the widest short values (Extra high, Bypass permissions), so 35rem (560px) never
-   moves the pickers when a value changes. */
-@container pk-composer (width < 35rem) {
+   the microphone and Send, which stay on the first line. One line needs 607px with
+   the widest short values (Extra high, Bypass permissions) and the read-aloud
+   switch, so 40rem (640px) never moves the pickers when a value changes. */
+@container pk-composer (width < 40rem) {
 	.pk-composer-picks {
 		order: 1;
 		flex-basis: 100%;

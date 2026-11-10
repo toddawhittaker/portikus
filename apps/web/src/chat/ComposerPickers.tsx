@@ -24,12 +24,14 @@ import {
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { isSpeechSupported } from "../voice/speak.js";
 import {
 	type ChatSettings,
 	type ChatStore,
 	modelChoice,
 	selectSessionRulesActive,
 } from "./chatStore.js";
+import type { ReadAloud } from "./readAloud.js";
 import "./pickers.css";
 
 /** Ask with session rules lets some tools run without a card, so the picker says so (SPEC.md §10.8). */
@@ -266,6 +268,33 @@ function Pick({
 	);
 }
 
+/**
+ * The "Read replies aloud" switch (ADR 0071). It shows the icon and On or
+ * Off, so the row keeps its width; the name holds all its words, and the
+ * tooltip says them on hover and keyboard focus (SPEC.md §25.8).
+ */
+function ReadAloudSwitch({ readAloud }: { readAloud: ReadAloud }) {
+	return (
+		<Tooltip decorative={true} content="Read replies aloud">
+			<button
+				type="button"
+				role="switch"
+				aria-checked={readAloud.on}
+				className={`pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
+				data-testid="composer-read-aloud"
+				onClick={() => readAloud.set(!readAloud.on)}
+			>
+				<Icon name="speaker" size="sm" />
+				<span className="sr-only">Read replies aloud</span>
+				{/* The state is the switch's own; the words are for the eye. */}
+				<span className="pk-picker-value" aria-hidden={true}>
+					{readAloud.on ? "On" : "Off"}
+				</span>
+			</button>
+		</Tooltip>
+	);
+}
+
 /** Holds a picker's place, with its label, until the host reports its settings. */
 function Waiting({ label }: { label: string }) {
 	return (
@@ -283,9 +312,16 @@ interface PickersProps {
 	onSet: (change: Change) => boolean;
 	/** A sentence for the composer's status region. */
 	onAnnounce: (text: string) => void;
+	readAloud: ReadAloud;
 }
 
-export function ComposerPickers({ store, warningId, onSet, onAnnounce }: PickersProps) {
+export function ComposerPickers({
+	store,
+	warningId,
+	onSet,
+	onAnnounce,
+	readAloud,
+}: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
 	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
@@ -368,6 +404,7 @@ export function ComposerPickers({ store, warningId, onSet, onAnnounce }: Pickers
 					<Waiting label="Permissions" />
 				</>
 			)}
+			{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
 			{askWithRules ? (
 				<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
 					{ASK_RULES_HINT}

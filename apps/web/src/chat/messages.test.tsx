@@ -19,6 +19,7 @@ import type {
 } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
+import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 let writeText: ReturnType<typeof vi.fn>;
 
@@ -420,4 +421,34 @@ test("a shell command in the middle of Claude's run splits its byline and keeps 
 		document.querySelectorAll('[data-testid="chat-turn"], [data-testid="chat-shell"]'),
 	).map((node) => node.getAttribute("data-testid"));
 	expect(order).toEqual(["chat-turn", "chat-shell", "chat-turn"]);
+});
+
+test("only Claude's finished written replies carry a read-aloud button", () => {
+	installFakeSpeech();
+	try {
+		const tool: ChatToolItem = {
+			kind: "tool",
+			key: "tool:1",
+			id: "1",
+			name: "Bash",
+			title: "ls",
+			input: { command: "ls" },
+			output: [{ type: "text", text: "file.txt" }],
+			status: "done",
+			turnId: null,
+		};
+		list([
+			message("user", "What is here?"),
+			message("assistant", "Here is the answer."),
+			message("assistant", "Still being written", { streaming: true }),
+			tool,
+		]);
+		const buttons = screen.getAllByRole("button", { name: "Read aloud" });
+		expect(buttons).toHaveLength(1);
+		expect(buttons[0]?.closest("li")?.textContent).toContain("Here is the answer.");
+		// The student's message keeps its Copy button alone.
+		expect(screen.getAllByRole("button", { name: "Copy message" })).toHaveLength(3);
+	} finally {
+		removeFakeSpeech();
+	}
 });

@@ -12,8 +12,10 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_MS } from "../terminal/terminalSocket.js";
+import { speakingId } from "../voice/speak.js";
 import { ChatView } from "./ChatView";
 import { boxText, setText } from "./composerTesting.js";
+import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 vi.mock("../api/sessionEnded.js", () => ({ sessionEnded: vi.fn() }));
 
@@ -597,4 +599,93 @@ test("scrolling up stops the view following new text", () => {
 	expect(box.scrollTop).toBe(2000);
 	expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
 	expect(document.activeElement).toBe(screen.getByTestId("chat-composer-input"));
+});
+
+test("Escape, sending and closing the chat each stop a reply being read", () => {
+	installFakeSpeech();
+	try {
+		const view = draw();
+		snapshot();
+		emit("message", { id: "a1", role: "assistant", markdown: "Hello there." });
+		const root = screen.getByTestId(`chat-view-${TERMINAL}`);
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		expect(speakingId()).toBe("a1");
+		fireEvent.keyDown(root, { key: "Escape" });
+		expect(speakingId()).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		const box = screen.getByTestId("chat-composer-input");
+		setText(box, "Thanks");
+		fireEvent.keyDown(box, { key: "Enter" });
+		expect(speakingId()).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		expect(speakingId()).toBe("a1");
+		view.unmount();
+		expect(speakingId()).toBeNull();
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("Escape in an open menu closes the menu and leaves the speech going", () => {
+	installFakeSpeech();
+	try {
+		draw();
+		snapshot();
+		emit("message", { id: "a1", role: "assistant", markdown: "Hello there." });
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		const trigger = document.createElement("button");
+		trigger.setAttribute("aria-haspopup", "menu");
+		trigger.setAttribute("aria-expanded", "true");
+		document.body.append(trigger);
+		fireEvent.keyDown(screen.getByTestId(`chat-view-${TERMINAL}`), { key: "Escape" });
+		expect(speakingId()).toBe("a1");
+		trigger.remove();
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("a finished turn is read aloud when the project's switch is on, and its tools are not", async () => {
+	installFakeSpeech();
+	try {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					model: "default",
+					effort: "high",
+					mode: "default",
+					readAloud: true,
+				}),
+			),
+		);
+		const synth = globalThis.speechSynthesis as unknown as {
+			spoken: { text: string }[];
+		};
+		draw();
+		snapshot();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(
+			screen
+				.getByRole("switch", { name: "Read replies aloud" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
+		emit("turn.started", { at: 1 });
+		emit("message", { id: "a1", role: "assistant", markdown: "On it." });
+		emit("tool.started", { id: "t1", name: "Bash", title: "ls", input: {} });
+		emit("tool.output", { id: "t1", part: { type: "text", text: "SECRET OUTPUT" } });
+		emit("tool.finished", { id: "t1", isError: false });
+		emit("message", { id: "a2", role: "assistant", markdown: "All finished." });
+		expect(synth.spoken).toHaveLength(0);
+		emit("turn.finished", { at: 2, status: "done" });
+		expect(speakingId()).toBe("a2");
+		expect(synth.spoken.map((one) => one.text)).toEqual(["All finished."]);
+	} finally {
+		removeFakeSpeech();
+	}
 });

@@ -24,6 +24,7 @@ import { formatElapsed, isoDuration } from "./elapsed.js";
 import { foldTurn, groupTools, type ToolRun } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
+import { SpeakButton } from "./SpeakButton.js";
 import { ToolBlock } from "./ToolBlock.js";
 import { toolLine } from "./toolView.js";
 import "./messages.css";
@@ -228,6 +229,10 @@ const AssistantMessage = memo(function AssistantMessage({
 			aria-busy={message.streaming || undefined}
 		>
 			<ChatMarkdown text={message.markdown} />
+			{/* Read aloud comes first: the Copy status grows rightward and must not move it. */}
+			{message.streaming || message.markdown.trim() === "" ? null : (
+				<SpeakButton id={message.id} markdown={message.markdown} />
+			)}
 			<CopyButton label="Copy message" text={message.markdown} />
 		</li>
 	);

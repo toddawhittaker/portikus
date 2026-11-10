@@ -12,12 +12,19 @@ import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "zustand";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
+import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import type { ChatState } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import {
+	overlayOpen,
+	useReadAloud,
+	useReadNewReplies,
+	useStopWhenLeaving,
+} from "./readAloud.js";
 import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
@@ -98,6 +105,9 @@ function ChatViewBody({
 }: ChatViewProps) {
 	const store = useChatSession(workspaceId, projectId, terminalId);
 	const state = useStore(store);
+	const readAloud = useReadAloud(workspaceId, projectId);
+	useReadNewReplies(store, readAloud.on, visible);
+	useStopWhenLeaving(store, visible);
 	const root = useRef<HTMLDivElement | null>(null);
 	const log = useRef<HTMLDivElement | null>(null);
 	const content = useRef<HTMLDivElement | null>(null);
@@ -206,6 +216,10 @@ function ChatViewBody({
 			className="pk-chat"
 			data-testid={`chat-view-${terminalId}`}
 			onKeyDown={(event) => {
+				// Escape stops the speech, unless a menu or dialog is open and it is theirs.
+				if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
+					stopReading();
+				}
 				if (!isLeaveShortcut(event.nativeEvent)) return;
 				event.preventDefault();
 				onLeave();
@@ -327,6 +341,7 @@ function ChatViewBody({
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}
+					readAloud={readAloud}
 					workspaceId={workspaceId}
 					projectId={projectId}
 					terminalId={terminalId}

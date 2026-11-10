@@ -12,8 +12,8 @@ import { splitPane } from "./split-helpers";
  */
 
 /** Where the composer's container queries switch, measured against the widest values. */
-const LABELS_FULL_FROM_REM = 49;
-const ONE_LINE_FROM_REM = 35;
+const LABELS_FULL_FROM_REM = 55;
+const ONE_LINE_FROM_REM = 40;
 
 const PICKERS = [
 	["Agent", "composer-agent", "Claude Code"],
@@ -191,7 +191,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const holder = view.locator(".pk-chat-composer");
 		const seen = new Set<string>();
 		// Every 12 px across the range, a little either side of both breakpoints.
-		for (let width = 340; width <= 900; width += 12) {
+		for (let width = 340; width <= 960; width += 12) {
 			await holder.evaluate((el, px) => {
 				(el as HTMLElement).style.inlineSize = `${px}px`;
 				(el as HTMLElement).style.paddingInline = "0";
@@ -248,6 +248,9 @@ test("the row stays reachable from the keyboard in the short form", async ({
 		await page.keyboard.press("Tab");
 		await expect(picker(view, testId)).toBeFocused();
 	}
+	// The read-aloud switch ends the row of settings.
+	await page.keyboard.press("Tab");
+	await expect(view.getByRole("switch", { name: "Read replies aloud" })).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(
 		view.locator("[data-testid^=chat-voice-]:not([data-testid*=status])"),
