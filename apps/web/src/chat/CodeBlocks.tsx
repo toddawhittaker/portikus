@@ -6,6 +6,7 @@
 import { Button } from "@portikus/ui";
 import { type ReactNode, useState } from "react";
 import { CopyButton } from "./CopyButton.js";
+import "./highlight.css";
 import {
 	type Language,
 	languageForPath,

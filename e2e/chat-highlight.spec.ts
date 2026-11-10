@@ -9,7 +9,7 @@ import { makeChatTab, scriptedChat } from "./chat-helpers";
 import { expectNoViolations } from "./helpers";
 
 /**
- * Syntax colours in a reply (#1784, ADR 0072): a fenced block in a known
+ * Syntax colours in a reply (ADR 0072): a fenced block in a known
  * language is named and coloured once the highlighter loads, plain text
  * until then with nothing moving; an unknown language is named and stays
  * plain. The highlighter loads only when such a block is drawn (SPEC.md
