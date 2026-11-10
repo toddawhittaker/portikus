@@ -5791,3 +5791,61 @@ Gaps:
 - The install test's release fallback was tested on its own, not inside a run with an empty image cache.
 - Unit tests ran as the database owner, so a missing column grant for a restricted role shows only in the rehearsal or in `apps/worker/src/grants.test.ts`, which now runs an alert tick as the worker role.
 - #1801 is still open, for a recheck on SDK upgrades.
+
+## Epic 59 — agent rows in the left pane, and a chat batch
+
+Built on `epic/59-agents-and-chat` (task PRs #1843, #1844, #1845, #1846, #1847, #1848, #1849, #1850, #1851, #1852, #1853, #1854, #1855, #1856, #1857, #1858, #1862, #1863 and #1864, the fix rounds #1859, #1860 and #1861, and the fold). It closes #1770, #1838, #1831, #1839, #1780, #1782, #1781, #1840, #1830, #1820, #1784, #1783 and #1841, and leaves #1785 open. No migration. SPEC.md sections 8.2, 9.7, 10.2, 10.8, 11.1, 25.8, 25.10 and 29; ADRs 0070, 0071, 0072 and 0073.
+
+DRAFT NOTE (remove at the final pass): the fold waits for C2 (files changed, #1781), H4b (context meter and cache timer, #1783) and fix round E; add their lines under "Delivered" and drop the matching "waits" words below. #1862, #1863 and #1864 were open when this was drafted.
+
+Delivered:
+
+- Contracts (#1845): every shape the epic needs in `packages/contracts`: `CodingAgentSubagent` and `CodingAgentSubagentPost` (up to 16 per terminal), the terminal `name` and `kind`, `PlanUsage` with the `AgentLimitsReport` and `AgentMeter` provider lists, the `commands`, `context` and `shell` chat events, the optional `message` and `mode` on `permission.answer`, `readAloud` in the saved chat settings, and the file-name search request and response.
+- Subagent hook (#1848, ADR 0070): `portikus-agent-subagent` reports Agent tool calls using only the call id, description, subagent type, background flag and agent id; the prompt and reply are never sent. The workspace agent keeps up to 16 rows per terminal, keyed by tool call id, with a foreground row finishing at `PostToolUse`, a background one at `SubagentStop`, and a failed call removing its row. The API's four-a-second throttle already sends the newest list, and a new test pins it. The fix round (#1859) cuts a long subagent type instead of refusing the post, and refuses a post older than the terminal's clear.
+- Left-pane rows (#1854, #1861): under every project, a row per agent tab that has reported (name as the tab shows it, state mark, state with elapsed time) and under it each subagent. Rows are links; a subagent's link selects the tab and opens and focuses its tool row. Each project has one disclosure, open by default. The reveal gives up after 10 seconds, and the ticking time is hidden from assistive technology.
+- Plan usage (#1853, #1855): the status bar shows each provider's seven-day usage and reset time from a provider-keyed list, for Claude and Codex, with tokens and cost only when there is no plan figure. The chat host asks the SDK for plan usage, one request at a time with a 10-second limit (#1864). `five_hour` is accepted and dropped.
+- `/clear` (#1846): the chat host follows Claude Code's new session id into the tab's record, clears every open browser with a fresh snapshot, and Resume or a restart continues the new session. Subagent messages are dropped live as they were on replay.
+- `!` shell commands (#1850, #1862, #1864, ADR 0073): the composer marks a `!` message with a Shell label; the chat host runs it as the student in the project folder with a two-minute limit and a 64 KiB output cap, sends `shell` events, and appends `<bash-input>` and `<bash-stdout>` with `shouldQuery: false`, so no turn starts. The conversation draws each as a "Shell command" group, and a reload replays it. The host was split into smaller files (`shell-command.ts`, `plan-usage.ts`, `slash-commands.ts`, `session-rules.ts`, `input-queue.ts`) to stay under 800 lines.
+- Deny with a reason and plan modes (#1855, #1856): Deny and "No, keep planning" take a one-line reason that goes to Claude as the denial message. Plan approval offers "Yes, and accept edits" and "Yes, and ask before edits", and the mode picker follows. Edit diffs are coloured by file type.
+- `/` and `@` menus (#1852, #1858, #1860): the `/` menu lists the host's commands, with terminal-only ones dimmed and `/model` and `/effort` opening their pickers; the `@` menu searches file names through `POST /workspaces/:id/projects/:pid/file-search`, which runs ripgrep so `.gitignore` applies, with limits on time, files, concurrency and results. One TipTap suggestion combobox (`@tiptap/suggestion` 3.33.0) serves both. The fix round made a hang-up cancel the ripgrep run and kept the best matches under the candidate cap.
+- Syntax colours (#1851, #1861, ADR 0072): highlight.js core 11.12.0 with twelve languages, fetched on demand, so the first page is unchanged (1,029,024 bytes before and after) and the chat chunk grew by 3.5 KB. A block shows as plain text in the same box until the colours arrive.
+- Read aloud (#1844, #1863, ADR 0071): a speech module reads replies in sentence chunks through `speechSynthesis`, preferring a voice on the device. A speaker button sits on each reply, and a per-project "Read replies aloud" switch reads the last reply of each turn. The picker row holds a fifth control, so its breakpoints moved to 40rem and 55rem.
+- Insert as text (#1849): a long paste's chip has a button that puts the text in the box at the cursor and deletes the saved file. A file named by a sent message is never deleted.
+- Context use and cache clock, host side (#1857): the host sends a `context` event with tokens used, the window, and when the prompt cache goes cold. The meter that shows it waits for H4b.
+- Tests and tooling (#1843, #1847): `migrateDownTo` in `packages/db/src/migrate-testing.ts` replaces the per-migration `migrateDown()` lists; the Pebble certificate test waits for Caddy's HTTP-01 listener as well as its HTTPS port, and bounded waits name what they wait for.
+- Fold: STATUS, SPEC.md sections 8.2, 9.7, 10.2, 10.8, 11.1, 25.8, 25.10 and 29, the student Help pages for the chat and agent status, and `docs/EPIC-59.md` is deleted.
+
+Todd's rulings (2026-11-09):
+
+- The epic and the chat batch ran together, because #1770 needs no chat-host change; Claude Code's hooks already run in chat tabs.
+- Syntax colours use a small, lazily loaded highlighter, not Monaco (ADR 0072).
+- #1785 was cut for time and stays open. The cache timer was the last piece to cut from #1783.
+- The status bar shows the seven-day plan usage only, as a list keyed by provider, and subscription usage replaces tokens and cost when a plan limit exists. Terminal tabs get no new work; they may be removed once the chat is solid.
+- `!` works as in the terminal Claude Code: the host runs it, with no model, and Claude sees it with the next message (ADR 0073).
+- `@` searches every file name in the project through a ripgrep route that respects `.gitignore`.
+- An agent tab gets its left-pane row after its first hook, not before.
+- Option 1 for row names: `CodingAgentTerminal` gains `kind`, so a row reads as the tab does ("Claude Code (TUI)"), not "Terminal N".
+
+Verified: every task PR passed its own CI, and each epic push run was green. Each task ran both unit shards with a private test database, lint, the comment-history check and the Playwright specs for its pages, with axe in both themes where a screen changed. The real Claude Code was exercised by `claude-real.test.ts` for `/clear` (#1846) and for `!` (#1864, Haiku, four tests passing). Reviews: DRAFT, pending.
+
+REHEARSAL: pending
+
+EPIC CI: pending
+
+Gaps:
+
+- A message the student types that happens to contain `<bash-input>` text also replays as a shell item on reload. This is display only; the command is not run.
+- The plan-usage report and meter changed shape (`AgentLimitsReport`), so the workspace agent and the API must be updated together; with only one updated, plan usage shows nothing until both are.
+- `SubagentStop` and the Agent hooks under the SDK have not been seen firing on a real signed-in workspace. Rows show nothing until they do, so the pilot needs a check.
+- `/clear` is detected by any change of session id, so a new id for another reason would also clear the chat. The pilot needs a check that `/clear` gives a new id and nothing else does.
+- #1785 was cut for time and stays open.
+- The `@` menu lists files only, not folders, matches by name with no recency boost, and cannot be used in shell mode.
+- Codex has no subagent hooks, so Codex sessions show no subagent rows.
+- A `!` command cannot be sent while Claude is working, standard input is closed (interactive commands belong in a terminal tab), and a lone `!` is not treated as a command.
+- After a chat host restart the cache time is unknown until the next request, so the cache timer shows nothing until then.
+- `/resume` has no Resume control to map to in the chat, so it stays terminal-only.
+- A diff is coloured line by line, so a multi-line comment or string is coloured only where one line shows it. The fenced code box in replies (`ChatMarkdown.tsx`) is focusable but unnamed, unlike the diff box.
+- The "requests waiting" note is hidden while Deny's reason field is open.
+- At 1440 px the status bar no longer fits on one 28-pixel line with both plan meters, and wraps to a second line as designed; the narrower widths are tested.
+- The Pebble flake (#1830) could not be reproduced here, so that fix rests on the cause found in the code.
+- The rehearsal VM has no Claude sign-in, so the full path (a signed-in student, a subagent, a `!` command, read aloud, the context meter) is unproven end to end.
