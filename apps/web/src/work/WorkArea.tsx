@@ -25,6 +25,7 @@ import {
 	Tabs,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { requestToolReveal } from "../chat/revealTool.js";
 import { useCourseProfile } from "../editor/settingsQueries.js";
 import { baseName, displayName } from "../files/paths.js";
 import { useLayoutPersistence } from "../layout/persist.js";
@@ -34,6 +35,7 @@ import {
 	filePaths,
 	fileTabId,
 	type SplitDirection,
+	tabOfPane,
 	terminalIds,
 } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
@@ -115,6 +117,12 @@ export interface WorkAreaProps {
 	openLine?: number;
 	/** A port the URL asked to preview (SPEC.md §14.6, §14.9). */
 	openPreviewPort?: number;
+	/** A terminal whose tab the URL asked to select, from the project list (SPEC.md §8.2). */
+	selectTerminalId?: string;
+	/** In that terminal's chat, the tool row to show. */
+	revealToolId?: string;
+	/** The selection above is done; the route clears it from the URL. */
+	onSelectedFromUrl?: () => void;
 }
 
 export function WorkArea({
@@ -124,6 +132,9 @@ export function WorkArea({
 	openPath,
 	openLine,
 	openPreviewPort,
+	selectTerminalId,
+	revealToolId,
+	onSelectedFromUrl,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
 	const layout = useLayout(store, (state) => state.layout);
@@ -205,6 +216,26 @@ export function WorkArea({
 		if (!loaded || openPreviewPort === undefined) return;
 		store.getState().openPreview(openPreviewPort);
 	}, [loaded, openPreviewPort, store]);
+
+	const onSelectedFromUrlRef = useRef(onSelectedFromUrl);
+	onSelectedFromUrlRef.current = onSelectedFromUrl;
+	// A tab the URL named is selected once both lists are in, after the
+	// reconcile above has given every terminal its pane. The parameters are
+	// then cleared, so following the same link again selects the tab again.
+	const terminalKinds = new Map(terminals.terminals.map((one) => [one.id, one.kind]));
+	const selectKind = selectTerminalId ? terminalKinds.get(selectTerminalId) : undefined;
+	useEffect(() => {
+		if (!selectTerminalId || !loaded || !terminals.loaded) return;
+		const tabId = tabOfPane(store.getState().layout, selectTerminalId);
+		if (tabId) {
+			store.getState().setActive(tabId);
+			store.getState().setFocused(selectTerminalId);
+			if (revealToolId && selectKind === "chat") {
+				requestToolReveal(selectTerminalId, revealToolId);
+			}
+		}
+		onSelectedFromUrlRef.current?.();
+	}, [selectTerminalId, revealToolId, selectKind, loaded, terminals.loaded, store]);
 
 	// Place the new terminal before the list is refetched, so no reconcile ever
 	// sees a terminal that has no pane yet and gives it a tab of its own.

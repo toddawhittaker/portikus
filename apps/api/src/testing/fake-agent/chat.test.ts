@@ -53,6 +53,7 @@ test("an attach replays the earlier turn and ends with settings, and starts noth
 		"message",
 		"message",
 		"turn.finished",
+		"commands",
 		"settings",
 	]);
 	const snapshot = JSON.parse(first.frames[0] ?? "");
@@ -60,6 +61,46 @@ test("an attach replays the earlier turn and ends with settings, and starts noth
 	const turn = first.frames.map((one) => JSON.parse(one));
 	expect(turn[1].at).toBeLessThan(turn[4].at);
 	expect(turn[4].status).toBe("done");
+});
+
+test("the command list is sent on attach and a test can replace it for every attachment", async () => {
+	const first = await connect();
+	await expect.poll(() => types(first.frames).includes("commands")).toBe(true);
+	const listed = first.frames
+		.map((one) => JSON.parse(one))
+		.find((e) => e.type === "commands");
+	expect(listed.commands.some((c: { terminalOnly: boolean }) => c.terminalOnly)).toBe(
+		true,
+	);
+
+	const replaced = [{ name: "deploy", description: "Ship it", terminalOnly: false }];
+	const response = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${ID}/commands`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ commands: replaced }),
+		},
+	);
+	expect(response.status).toBe(204);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "commands").length)
+		.toBe(2);
+	expect(JSON.parse(first.frames.at(-1) ?? "").commands).toEqual(replaced);
+	const late = await connect();
+	await expect.poll(() => types(late.frames).includes("commands")).toBe(true);
+	expect(
+		JSON.parse(late.frames.find((f) => JSON.parse(f).type === "commands") ?? "")
+			.commands,
+	).toEqual(replaced);
+	late.ws.close();
+	first.ws.close();
+	// Put the default back for the tests after this one.
+	await fetch(`http://127.0.0.1:${agent.port}/__test/chats/${ID}/commands`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ commands: listed.commands }),
+	});
 });
 
 test("the first send runs the scripted turn; later attachments replay it", async () => {
