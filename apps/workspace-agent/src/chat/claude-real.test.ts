@@ -7,6 +7,7 @@ import type { ChatServerEvent } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
 import { expect, test, vi } from "vitest";
 import { ChatHost } from "./host.js";
+import { chatSessionsDir, recordChatSession } from "./session-record.js";
 import { readLines } from "./wire.js";
 
 /**
@@ -223,6 +224,79 @@ test.skipIf(!existsSync(CLAUDE))(
 		} finally {
 			socket.destroy();
 			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	240_000,
+);
+
+/**
+ * /clear starts a new Claude session (SPEC.md §10.8): the host records it,
+ * sends a fresh snapshot, and a restarted host resumes the new session, so
+ * nothing from before the clear comes back.
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"/clear moves the tab to a new session that a restarted host resumes",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const open = async () => {
+			const host = new ChatHost({
+				terminalId: ID,
+				sessionId: await recordChatSession(home, ID),
+				projectDir: project,
+				homeDir: home,
+				socketDir: join(home, "chat"),
+				log: silentLogger(),
+				postLimits: async () => undefined,
+				claudePath: CLAUDE,
+			});
+			await host.start();
+			const socket = connect(host.socketPath);
+			const events: ChatServerEvent[] = [];
+			readLines(socket, 16 * 1024 * 1024, (line) => {
+				events.push(JSON.parse(line) as ChatServerEvent);
+			});
+			const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+			return { host, socket, events, send };
+		};
+		let chat = await open();
+		try {
+			await vi.waitFor(() =>
+				expect(chat.events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			chat.send({ type: "set", model: "haiku" });
+			chat.send({
+				type: "send",
+				text: "Reply with the word pelican.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => expect(chat.events.some((e) => e.type === "turn.finished")).toBe(true),
+				{ timeout: 90_000, interval: 500 },
+			);
+			chat.send({ type: "send", text: "/clear", attachments: [] });
+			await vi.waitFor(
+				async () => {
+					const recorded = await readFile(join(chatSessionsDir(home), ID), "utf8");
+					expect(recorded).not.toBe(ID);
+					expect(chat.events.filter((e) => e.type === "snapshot")).toHaveLength(2);
+				},
+				{ timeout: 90_000, interval: 500 },
+			);
+
+			chat.socket.destroy();
+			await chat.host.stop();
+			chat = await open();
+			await vi.waitFor(() =>
+				expect(chat.events.some((e) => e.type === "rules")).toBe(true),
+			);
+			expect(JSON.stringify(chat.events)).not.toContain("pelican");
+		} finally {
+			chat.socket.destroy();
+			await chat.host.stop();
 			await rm(home, { recursive: true, force: true });
 			await removeSessionFolder(project);
 		}
