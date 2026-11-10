@@ -158,7 +158,9 @@ export function ProjectAgents({
 							<span className="pk-agent-name">{agentRowName(terminal)}</span>{" "}
 							<span className="pk-agent-state">
 								{capitalised(agentStateWords(terminal.state))}{" "}
-								<time dateTime={isoDuration(length)}>{shortElapsed(length)}</time>
+								<time dateTime={isoDuration(length)} aria-hidden="true">
+									{shortElapsed(length)}
+								</time>
 								{isUnread && terminal.state !== "working" ? (
 									<span className="pk-visually-hidden">, unread</span>
 								) : null}

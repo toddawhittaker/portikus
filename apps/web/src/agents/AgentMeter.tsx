@@ -152,7 +152,7 @@ function ProviderStatus({
 				data-testid={`agent-meter-${entry.id}`}
 				data-kind="plan"
 				data-level={level}
-				aria-label={`${name} ${shortText} of the 7-day limit${level === "warning" ? ", nearly full" : ""}, resets ${resets}. Show usage details`}
+				aria-label={`${name} ${shortText} resets ${resets}, of the 7-day limit${level === "warning" ? ", nearly full" : ""}. Show usage details`}
 			>
 				<span className="pk-meter-label">{name}</span>
 				<Meter

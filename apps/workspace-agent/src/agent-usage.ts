@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
 	AGENT_USAGE_METRICS_PATH,
 	AGENT_USAGE_REPORT_DAYS,
-	AgentLimits,
 	type AgentUsageCounts,
 	AgentUsageModel,
 	type AgentUsageReport,
@@ -15,7 +14,7 @@ import {
 } from "@portikus/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { AgentLimitsStore } from "./agent-limits-route.js";
+import { AgentLimits, type AgentLimitsStore } from "./agent-limits-route.js";
 import type { CodingAgentBoard } from "./coding-agent-status.js";
 
 /**

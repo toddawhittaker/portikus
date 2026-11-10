@@ -18,7 +18,7 @@ export const MAX_CHAT_ATTACHMENTS = 10;
 /** Longest prompt text one `send` may carry. */
 export const MAX_CHAT_TEXT_CHARS = 100_000;
 /** Longest deny reason or "keep planning" text a permission answer may carry. */
-export const MAX_CHAT_ANSWER_MESSAGE_CHARS = 2000;
+const MAX_CHAT_ANSWER_MESSAGE_CHARS = 2000;
 export const MAX_CHAT_QUESTIONS = 4;
 export const MIN_CHAT_QUESTION_OPTIONS = 2;
 export const MAX_CHAT_QUESTION_OPTIONS = 4;

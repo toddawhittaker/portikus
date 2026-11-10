@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { AgentLimits, type AgentLimitWindow } from "@portikus/contracts";
+import { AgentLimits, type AgentLimitWindow } from "./agent-limits-route.js";
 import type { CodingAgentBoard } from "./coding-agent-status.js";
 
 /** Longest a single `codex app-server` read may run before it is killed. */
