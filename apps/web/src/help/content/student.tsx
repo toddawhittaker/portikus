@@ -95,11 +95,14 @@ export const STUDENT_HELP: HelpPart = {
 							In the middle of the screen, choose <strong>Open a terminal</strong> or{" "}
 							<strong>Start Claude Code</strong>, which opens Claude Code in a terminal.
 							The <strong>+</strong> at the end of the tab bar, named New tab, offers
-							four choices: <strong>Terminal</strong>;{" "}
+							five choices: <strong>Terminal</strong>;{" "}
 							<strong>Claude Code (TUI)</strong>, a text interface in a terminal;{" "}
-							<strong>Claude Code (GUI)</strong>, a chat tab; and <strong>Codex</strong>
-							. If your course uses the Traditional profile, it hides the Claude Code
-							and Codex choices, and only <strong>Terminal</strong> is there.
+							<strong>Claude Code (GUI)</strong>, a chat tab; <strong>Codex</strong>
+							{"; and "}
+							<strong>Preview</strong>, which opens a running web app in a tab. If your
+							course uses the Traditional profile, it hides the Claude Code and Codex
+							choices, and only <strong>Terminal</strong> and <strong>Preview</strong>{" "}
+							are there.
 						</li>
 						<li>
 							Your files are listed on the right. Choose a file to open it in the

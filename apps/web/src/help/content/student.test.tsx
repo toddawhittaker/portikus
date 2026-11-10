@@ -128,13 +128,14 @@ test("the topics that name Claude Code and Codex say a course may hide them", ()
 	);
 });
 
-test("getting started names the four New tab choices", () => {
+test("getting started names the five New tab choices", () => {
 	const text = topicText("student-getting-started");
 	for (const choice of [
 		"Terminal",
 		"Claude Code (TUI)",
 		"Claude Code (GUI)",
 		"Codex",
+		"Preview",
 	]) {
 		expect(text).toContain(choice);
 	}
