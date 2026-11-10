@@ -37,10 +37,10 @@ To start working:
 
 ![The New project dialog, with the project name Budget Tracker and the folder it will get](images/student-new-project.png)
 
-### The four New tab choices
+### The five New tab choices
 
-The **+** at the end of the tab bar, named New tab, offers four choices,
-each opened in the project's folder (it also opens previews):
+The **+** at the end of the tab bar, named New tab, offers five choices.
+The first four open in the project's folder:
 
 - **Terminal**: a Linux shell.
 - **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
@@ -48,11 +48,13 @@ each opened in the project's folder (it also opens previews):
 - **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
   buttons and pickers. GUI means graphical user interface.
 - **Codex**: OpenAI's coding agent, in a terminal.
+- **Preview**: opens a web app that is running in your project in a tab
+  inside Portikus.
 
 If your course uses the Traditional profile, it hides the Claude Code and
-Codex choices, and only **Terminal** is there.
+Codex choices, and only **Terminal** and **Preview** are there.
 
-![The New tab menu: Terminal, Claude Code (TUI), Claude Code (GUI) and Codex](images/student-new-tab-menu.png)
+![The New tab menu: Terminal, Claude Code (TUI), Claude Code (GUI), Codex and Preview](images/student-new-tab-menu.png)
 
 ## The workspace layout
 
