@@ -139,6 +139,19 @@ Environment variables are validated by `loadConfig` in `packages/config`. A
 missing or invalid variable fails at startup with a message naming it, so
 add new variables to that schema and to `.env.example` together.
 
+### Documentation images
+
+`make screenshots` rewrites the PNG files in `docs/images`. It builds the
+code, starts the end-to-end stack with invented demo data on a throwaway
+database, and takes each picture with Playwright. It needs Docker for the
+throwaway PostgreSQL container (or `TEST_DATABASE_URL` pointing at a database
+you do not mind losing) and ImageMagick, which shrinks each picture.
+
+It never runs in CI. Every picture is scripted: the chat and terminal scenes
+play fixed messages through a fake agent, so no real agent session is used and
+no real student data appears. After a run, look at each changed image before
+you commit it, and commit only the images you meant to change.
+
 ### Infrastructure smoke test
 
 `make smoke-test` runs `infra/tests/smoke-test.sh` against the platform VM

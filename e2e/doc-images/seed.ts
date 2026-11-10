@@ -53,7 +53,12 @@ export async function shoot(
 		clip: options.clip,
 		style: options.keepToasts ? undefined : ".pk-toast { visibility: hidden; }",
 	});
-	execFileSync("convert", [raw, "-colors", "256", `PNG8:${join(IMAGES, name)}`]);
+	execFileSync(process.env.IMAGEMAGICK ?? "convert", [
+		raw,
+		"-colors",
+		"256",
+		`PNG8:${join(IMAGES, name)}`,
+	]);
 }
 
 async function post(path: string, body: unknown): Promise<void> {
