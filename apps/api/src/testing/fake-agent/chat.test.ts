@@ -176,3 +176,32 @@ test("an answer, a send, set and interrupt all validate", async () => {
 	first.ws.close();
 	second.ws.close();
 });
+
+test("a test can set the context figures; every attachment and later ones get them", async () => {
+	const first = await connect();
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	expect(types(first.frames)).not.toContain("context");
+	const figures = {
+		usedTokens: 144000,
+		windowTokens: 200000,
+		cache: { at: Date.now(), ttlSeconds: 300 },
+	};
+	const response = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${ID}/context`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(figures),
+		},
+	);
+	expect(response.status).toBe(204);
+	await expect.poll(() => types(first.frames).includes("context")).toBe(true);
+	expect(JSON.parse(first.frames.at(-1) ?? "")).toMatchObject(figures);
+	const late = await connect();
+	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+	expect(
+		JSON.parse(late.frames.find((f) => JSON.parse(f).type === "context") ?? ""),
+	).toMatchObject(figures);
+	late.ws.close();
+	first.ws.close();
+});

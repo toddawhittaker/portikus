@@ -656,3 +656,20 @@ test("a shell item keeps its place among the messages around it", () => {
 	]);
 	expect(state.items.map((item) => item.kind)).toEqual(["message", "shell", "message"]);
 });
+
+test("the latest context event is kept per tab, and a new snapshot clears it", () => {
+	const first = {
+		usedTokens: 1200,
+		windowTokens: 200000,
+		cache: { at: 1000, ttlSeconds: 300 as const },
+	};
+	let state = feed([snapshot(1)]);
+	expect(state.context).toBeNull();
+	state = feed([frame("context", 2, first)], state);
+	expect(state.context).toEqual(first);
+	const next = { usedTokens: 5000, windowTokens: null, cache: null };
+	state = feed([frame("context", 3, next)], state);
+	expect(state.context).toEqual(next);
+	state = feed([snapshot(4)], state);
+	expect(state.context).toBeNull();
+});

@@ -123,6 +123,8 @@ export interface ChatState {
 	sessionRules: ChatSessionRule[];
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
 	commands: ChatCommand[];
+	/** How full the context is and when the prompt cache goes cold; null until the host says. */
+	context: ChatContextUsage | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -137,6 +139,11 @@ export interface ChatState {
 	lastError: { seq: number; message: string } | null;
 }
 
+export type ChatContextUsage = Pick<
+	Extract<ChatServerEvent, { type: "context" }>,
+	"usedTokens" | "windowTokens" | "cache"
+>;
+
 export const initialChatState: ChatState = {
 	connection: "connecting",
 	loaded: false,
@@ -149,6 +156,7 @@ export const initialChatState: ChatState = {
 	settings: null,
 	sessionRules: [],
 	commands: [],
+	context: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -218,6 +226,8 @@ function applySnapshot(
 		truncated: event.truncated,
 		cards: event.cards,
 		items: [],
+		// A new snapshot may be a new session; the host sends its context after.
+		context: null,
 		turns: turnId
 			? {
 					[turnId]: {
@@ -444,8 +454,14 @@ function applyChatEvent(
 		case "commands":
 			return { ...state, commands: event.commands };
 		case "context":
-			// Not read yet; the tasks that show them handle these events.
-			return state;
+			return {
+				...state,
+				context: {
+					usedTokens: event.usedTokens,
+					windowTokens: event.windowTokens,
+					cache: event.cache,
+				},
+			};
 	}
 }
 
