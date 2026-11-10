@@ -597,7 +597,7 @@ function TurnSteps({ turn, items, asking, opener }: TurnProps) {
 	const { before, folded, after, errors } = foldTurn(
 		items.filter((item) => !isAsked(item)),
 	);
-	const files = changedFiles(items);
+	const files = changedFiles(items, opener?.slug);
 	return (
 		<>
 			{before ? <Step item={before} /> : null}

@@ -521,6 +521,45 @@ test("a finished turn that edited files says how many and their counts, in signs
 	).toBeNull();
 });
 
+test("one file named by a relative and an absolute path is one row, and a path that climbs out is no button", () => {
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: "src/a.ts", old_string: "x", new_string: "y" },
+				{ key: "e1", id: "e1", status: "done" },
+			),
+			tool(
+				"Edit",
+				{ file_path: `${ROOT}/src/a.ts`, old_string: "x", new_string: "y" },
+				{ key: "e2", id: "e2", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: `${ROOT}/../x.ts`, content: "n" },
+				{ key: "w1", id: "w1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: "../y.ts", content: "n" },
+				{ key: "w2", id: "w2", status: "done" },
+			),
+		],
+		{ slug: "demo", open: vi.fn() },
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	expect(
+		within(changed)
+			.getAllByTestId("chat-changed-file")
+			.map((row) => row.textContent?.split("+")[0]),
+	).toEqual(["src/a.ts", `${ROOT}/../x.ts`, "../y.ts"]);
+	expect(
+		within(changed)
+			.getAllByRole("button")
+			.map((b) => b.textContent),
+	).toEqual(["src/a.ts"]);
+});
+
 test("a turn that changed no file, or is still running, has no files line", () => {
 	finished(
 		[

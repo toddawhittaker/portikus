@@ -1,5 +1,5 @@
 import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore.js";
-import { toolLine } from "./toolView.js";
+import { projectPath, toolLine } from "./toolView.js";
 
 /**
  * A finished turn as the conversation shows it: its first and final
@@ -94,14 +94,16 @@ const CHANGING_TOOLS = new Set(["Edit", "MultiEdit", "Write"]);
  * deletes a file. The host drops subagents' calls, so these are the main
  * thread's alone.
  */
-export function changedFiles(items: readonly ChatItem[]): ChangedFile[] {
+export function changedFiles(items: readonly ChatItem[], slug?: string): ChangedFile[] {
 	const files = new Map<string, ChangedFile>();
 	for (const item of items) {
 		if (item.kind !== "tool" || item.status !== "done") continue;
 		if (!CHANGING_TOOLS.has(item.name)) continue;
 		const line = toolLine(item.name, item.input, item.title);
-		const path = line.path ?? (line.verb ? line.target : null);
-		if (path === null) continue;
+		const named = line.path ?? (line.verb ? line.target : null);
+		if (named === null) continue;
+		// A project file has one path however Claude named it; others stay as named.
+		const path = projectPath(slug, named) ?? named;
 		const counts =
 			line.detail?.kind === "write"
 				? { added: writtenLines(line.detail.content), removed: 0 }

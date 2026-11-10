@@ -91,6 +91,8 @@ test("the mention is what is sent, and a path with a space is quoted", async ({
 	const { id, view, box } = await openMentions(page, context);
 	await page.keyboard.type("@notes");
 	await expect(view.getByRole("option")).toHaveCount(1);
+	// Tab chooses once an arrow has picked the option.
+	await page.keyboard.press("ArrowDown");
 	await page.keyboard.press("Tab");
 	await expect(box).toHaveText('@"docs/my notes.md"');
 	await page.keyboard.type("and @READ");
@@ -196,4 +198,35 @@ test("through the API, @ finds the project's own files", async ({ page, context 
 	await expect(list.getByRole("option").first()).toHaveAccessibleName("src/app.ts");
 	await page.keyboard.press("Enter");
 	await expect(box).toHaveText("@src/app.ts");
+});
+
+test("Tab with no arrow pressed inserts no file: the menu closes and focus moves on", async ({
+	page,
+	context,
+}) => {
+	await answerSearches(page);
+	const { view, box } = await openMentions(page, context);
+	await page.keyboard.type("email me @READ");
+	await expect(view.getByRole("option")).toHaveCount(1);
+	await page.keyboard.press("Tab");
+	await expect(box).toHaveText("email me @READ");
+	await expect(view.getByRole("listbox")).toHaveCount(0);
+	await expect(box).not.toBeFocused();
+});
+
+test("a longer query's pause offers nothing from the shorter query's answer", async ({
+	page,
+	context,
+}) => {
+	await answerSearches(page);
+	const { id, view, box } = await openMentions(page, context);
+	await page.keyboard.type("@ap");
+	await expect(view.getByRole("option").first()).toHaveAccessibleName("src/app.ts");
+	// Type on and press Enter at once, before the longer query's search goes out.
+	await page.keyboard.type("p.t");
+	await page.keyboard.press("Enter");
+	await expect(box).not.toContainText("src/app.ts");
+	await expect
+		.poll(async () => (await receivedFrames(id, "send")).map((frame) => frame.text))
+		.toEqual(["@app.t"]);
 });
