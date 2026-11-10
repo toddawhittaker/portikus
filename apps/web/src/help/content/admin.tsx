@@ -165,7 +165,7 @@ export const ADMIN_HELP: HelpPart = {
 				<>
 					<p>
 						<strong>Single sign-on</strong> chooses Microsoft Entra ID, Google
-						Workspace, another OpenID Connect provider, or Dex passwords only. A change
+						Workspace, another OpenID Connect provider, or Local accounts only. A change
 						is a trial. Choose <strong>Apply as a trial</strong>, then{" "}
 						<strong>Test sign-in</strong>, then <strong>Keep</strong> once the test
 						passes. A trial that is not kept is put back after 30 minutes. While a bad
@@ -332,7 +332,8 @@ export const ADMIN_HELP: HelpPart = {
 					and then the event, such as{" "}
 					<code className="pk-mono-body">workspace.start_requested</code>. Type{" "}
 					<code className="pk-mono-body">workspace.</code> in{" "}
-					<strong>Action starts with</strong> to see every workspace action.
+					<strong>Action starts with</strong> to see every workspace action. Audit
+					records are kept for 365 days, then deleted.
 				</p>
 			),
 		},
