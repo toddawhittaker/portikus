@@ -5831,7 +5831,7 @@ Verified: every task PR passed its own CI, and each epic push run was green. Eac
 
 REHEARSAL: The rehearsal VM install test passed on d875b2db (the epic through #1850): every step exited 0, the smoke test ran 413 passed, 0 failed and 1 built-in skip with the Dex sign-in and every LTI check, the restore from the off-site backup worked, and two seeded workspaces had the new subagent hook script (mode 755) and all six new hooks in their managed settings.
 
-EPIC CI: pending
+The epic push run on f49d1f1c, with every task and fix PR, passed every check.
 
 Gaps:
 
