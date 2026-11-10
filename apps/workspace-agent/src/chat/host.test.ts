@@ -1042,11 +1042,15 @@ describe("permission answers", () => {
 		a.send({
 			type: "permission.answer",
 			id: "toolu_plan1",
-			optionId: "allow",
+			optionId: "allow-accept-edits",
 			mode: "acceptEdits",
 			message: "go on",
 		});
-		a.send({ type: "permission.answer", id: "toolu_plan2", optionId: "allow" });
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan2",
+			optionId: "allow-ask-edits",
+		});
 		expect((await first.result).behavior).toBe("allow");
 		expect((await second.result).behavior).toBe("allow");
 	});

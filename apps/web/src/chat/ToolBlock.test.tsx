@@ -171,3 +171,13 @@ test("output keeps its Copy button", () => {
 		screen.getByRole("button", { name: "Copy output", hidden: true }),
 	).toBeTruthy();
 });
+
+test("an edit's diff names the file's language, so its lines are coloured", () => {
+	const { body } = row(
+		tool({
+			name: "Edit",
+			input: { file_path: "src/app.ts", old_string: "a", new_string: "b" },
+		}),
+	);
+	expect(body?.querySelector(".pk-chat-lang")?.textContent).toBe("TypeScript");
+});
