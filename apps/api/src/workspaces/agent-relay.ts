@@ -23,7 +23,8 @@ export const GIT_DIFF_BUDGET_MS = GIT_TIMEOUT_MS * 2 + AGENT_TIMEOUT_MS;
 /**
  * Call the agent and relay its JSON, checked against the contract. Anything
  * the contract does not accept is the agent's fault, not the student's.
- * Returns undefined after answering.
+ * Returns undefined after answering. With `body` the call is a POST of that
+ * JSON, for a read whose input should stay out of URLs.
  */
 export async function relayJson<T extends z.ZodTypeAny>(
 	reply: FastifyReply,
@@ -32,10 +33,18 @@ export async function relayJson<T extends z.ZodTypeAny>(
 	path: string,
 	schema: T,
 	signal: AbortSignal,
+	body?: unknown,
 ): Promise<z.infer<T> | undefined> {
 	let response: Response;
 	try {
-		response = await agent.fetchRaw("GET", path, { signal });
+		response =
+			body === undefined
+				? await agent.fetchRaw("GET", path, { signal })
+				: await agent.fetchRaw("POST", path, {
+						headers: { "content-type": "application/json" },
+						body: Buffer.from(JSON.stringify(body)),
+						signal,
+					});
 	} catch (error) {
 		sendAgentError(reply, error);
 		return undefined;

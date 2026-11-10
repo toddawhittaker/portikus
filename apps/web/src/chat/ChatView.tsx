@@ -25,6 +25,7 @@ import {
 	useReadNewReplies,
 	useStopWhenLeaving,
 } from "./readAloud.js";
+import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
@@ -114,6 +115,8 @@ function ChatViewBody({
 	const cardsHadFocus = useRef(false);
 	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
+	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2).
+	useToolReveal(terminalId, log, visible, state.items);
 	const card = state.cards[0];
 	const waiting = state.cards.length - 1;
 	// A permission card's id is the id of the tool call it asks about.

@@ -1,9 +1,10 @@
-import { SearchQuery } from "@portikus/contracts";
+import { FileNameSearchRequest, SearchQuery } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { abortOnDisconnect, sendError } from "./errors.js";
+import { searchFileNames } from "./file-names.js";
 import { searchProject } from "./search.js";
 
-/** `GET /projects/:slug/search` (SPEC.md §11.5). */
+/** `GET /projects/:slug/search` (SPEC.md §11.5) and `POST /projects/:slug/file-search`. */
 export async function searchRoutes(
 	instance: FastifyInstance,
 	options: { homeDir: string },
@@ -29,6 +30,30 @@ export async function searchRoutes(
 			});
 		} catch (error) {
 			// The query and the matches never reach the log (STACK.md §15).
+			return sendError(request, reply, error);
+		}
+	});
+
+	// File names for the composer's `@` menu. A POST so the typed text stays
+	// out of URLs and access logs, though it is a read (STACK.md §15).
+	instance.post("/projects/:slug/file-search", async (request, reply) => {
+		const { slug } = request.params as { slug: string };
+		const parsed = FileNameSearchRequest.safeParse(request.body ?? {});
+		if (!parsed.success) {
+			return reply
+				.code(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid file search" } });
+		}
+		const signal = abortOnDisconnect(reply);
+		try {
+			return await searchFileNames(
+				options.homeDir,
+				slug,
+				parsed.data.query,
+				parsed.data.limit,
+				{ signal },
+			);
+		} catch (error) {
 			return sendError(request, reply, error);
 		}
 	});

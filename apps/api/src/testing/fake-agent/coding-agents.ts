@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import type { AgentCodingAgentStatus, AgentLimits } from "@portikus/contracts";
+import type { AgentCodingAgentStatus, PlanUsage } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { FakeAgentState } from "./state.js";
 
@@ -41,24 +41,38 @@ export function registerCodingAgentRoutes(
 		return reply.status(204).send();
 	});
 
-	app.get("/agent-limits", async (request) => ({
-		claude: agentLimits.get(keyOf(request))?.claude ?? null,
-		codex: agentLimits.get(keyOf(request))?.codex ?? null,
-	}));
+	app.get(
+		"/agent-limits",
+		async (request) => agentLimits.get(keyOf(request)) ?? { providers: [] },
+	);
 
 	/**
 	 * Set the whole list of agent states for a workspace key and push it to
-	 * the listening sockets. `since` defaults to now.
+	 * the listening sockets. Each `since` defaults to now, and `subagents` to none.
 	 */
 	app.post("/__test/coding-agents", async (request, reply) => {
 		const body = (request.body ?? {}) as {
 			key?: string;
-			terminals?: Array<Omit<AgentCodingAgentStatus, "since"> & { since?: string }>;
+			terminals?: Array<
+				Omit<AgentCodingAgentStatus, "since" | "subagents"> & {
+					since?: string;
+					subagents?: Array<
+						Omit<AgentCodingAgentStatus["subagents"][number], "since"> & {
+							since?: string;
+						}
+					>;
+				}
+			>;
 		};
 		const key = body.key ?? "";
+		const now = new Date().toISOString();
 		const terminals = (body.terminals ?? []).map((one) => ({
 			...one,
-			since: one.since ?? new Date().toISOString(),
+			since: one.since ?? now,
+			subagents: (one.subagents ?? []).map((sub) => ({
+				...sub,
+				since: sub.since ?? now,
+			})),
 		}));
 		codingAgents.set(key, terminals);
 		if (codingAgentsHeld.has(key)) return reply.status(204).send();
@@ -69,22 +83,19 @@ export function registerCodingAgentRoutes(
 	});
 
 	/**
-	 * Set what `GET /agent-limits` answers for a workspace key. An omitted
-	 * agent is null; `observedAt` defaults to now.
+	 * Set what `GET /agent-limits` answers for a workspace key: the providers
+	 * with a 7-day figure. `observedAt` defaults to now.
 	 */
 	app.post("/__test/agent-limits", async (request, reply) => {
 		const body = (request.body ?? {}) as {
 			key?: string;
-			claude?: (Omit<AgentLimits, "observedAt"> & { observedAt?: string }) | null;
-			codex?: (Omit<AgentLimits, "observedAt"> & { observedAt?: string }) | null;
+			providers?: Array<Omit<PlanUsage, "observedAt"> & { observedAt?: string }>;
 		};
-		const fill = (limits: typeof body.claude): AgentLimits | null =>
-			limits
-				? { ...limits, observedAt: limits.observedAt ?? new Date().toISOString() }
-				: null;
 		agentLimits.set(body.key ?? "", {
-			claude: fill(body.claude),
-			codex: fill(body.codex),
+			providers: (body.providers ?? []).map((one) => ({
+				...one,
+				observedAt: one.observedAt ?? new Date().toISOString(),
+			})),
 		});
 		return reply.status(204).send();
 	});
