@@ -13,7 +13,13 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
-import type { ChatItem, ChatMessageItem, ChatToolItem, ChatTurn } from "./chatStore.js";
+import type {
+	ChatItem,
+	ChatMessageItem,
+	ChatShellItem,
+	ChatToolItem,
+	ChatTurn,
+} from "./chatStore.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
 import { foldTurn, groupTools, type ToolRun } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
@@ -30,6 +36,7 @@ import "./turn.css";
  */
 type Entry =
 	| { kind: "user"; item: ChatMessageItem }
+	| { kind: "shell"; item: ChatShellItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] }
 	| { kind: "loose"; key: string; items: ChatItem[] };
 
@@ -42,6 +49,11 @@ function groupByTurn(
 	for (const item of items) {
 		if (item.kind === "message" && item.role === "user") {
 			entries.push({ kind: "user", item });
+			continue;
+		}
+		// The student ran it, so it sits where it happened, under no byline.
+		if (item.kind === "shell") {
+			entries.push({ kind: "shell", item });
 			continue;
 		}
 		if (item.turnId === null) {
@@ -136,6 +148,73 @@ function UserMessage({ message }: { message: ChatMessageItem }) {
 		</li>
 	);
 }
+
+/**
+ * A `!` command the host ran and what it printed (SPEC.md §10.8). It is the
+ * student's command and the machine's output, so it has no Claude byline; the
+ * `$` and the monospace set it apart, and the state is always said in words.
+ */
+const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellItem }) {
+	const running = shell.state === "running";
+	const failed = !running && shell.exitCode !== null && shell.exitCode !== 0;
+	return (
+		<li
+			className="pk-chat-entry pk-shell"
+			data-testid="chat-shell"
+			data-state={shell.state}
+		>
+			<fieldset aria-label="Shell command" className="pk-shell-box">
+				<pre className="pk-shell-command" data-testid="chat-shell-command">
+					<span className="pk-shell-prompt" aria-hidden={true}>
+						$
+					</span>
+					<code>{shell.command}</code>
+				</pre>
+				{shell.output !== "" ? (
+					<section aria-label="Command output">
+						<pre
+							className="pk-shell-output"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+							tabIndex={0}
+							data-testid="chat-shell-output"
+						>
+							{shell.output}
+						</pre>
+					</section>
+				) : null}
+				{shell.truncated ? (
+					<p className="pk-shell-note" data-testid="chat-shell-truncated">
+						Output truncated
+					</p>
+				) : null}
+				{running || failed || shell.exitCode === null ? (
+					<p
+						className={`pk-shell-status${failed ? " is-error" : ""}`}
+						data-testid="chat-shell-status"
+					>
+						{running ? (
+							<>
+								<span className="pk-spin" aria-hidden={true} />
+								Running
+							</>
+						) : failed ? (
+							<>
+								<Icon name="alert" size="sm" />
+								Failed with exit code {shell.exitCode}
+							</>
+						) : (
+							"Stopped"
+						)}
+					</p>
+				) : (
+					<p className="sr-only" data-testid="chat-shell-status">
+						Finished with exit code 0
+					</p>
+				)}
+			</fieldset>
+		</li>
+	);
+});
 
 const AssistantMessage = memo(function AssistantMessage({
 	message,
@@ -245,6 +324,8 @@ function Step({ item }: { item: ChatItem }) {
 					<ToolBlock tool={item} />
 				</li>
 			);
+		case "shell":
+			return <ShellCommand shell={item} />;
 		case "error":
 			return (
 				<li className="pk-chat-step">
@@ -538,6 +619,9 @@ export function MessageList({
 				}
 				if (entry.kind === "user") {
 					return <UserMessage key={entry.item.key} message={entry.item} />;
+				}
+				if (entry.kind === "shell") {
+					return <ShellCommand key={entry.item.key} shell={entry.item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
 				return (

@@ -19,6 +19,7 @@ import {
 	type ChatSessionRule,
 	type ChatToolOutputPart,
 	MAX_CHAT_SERVER_FRAME_BYTES,
+	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
@@ -56,7 +57,17 @@ interface ChatErrorItem {
 	turnId: string | null;
 }
 
-export type ChatItem = ChatMessageItem | ChatToolItem | ChatErrorItem;
+/**
+ * A `!` command the host ran and its output. The student's own action, so it
+ * belongs to no turn and starts none.
+ */
+export interface ChatShellItem extends Omit<ShellFields, "kind"> {
+	kind: "shell";
+	key: string;
+	turnId: null;
+}
+
+export type ChatItem = ChatMessageItem | ChatToolItem | ChatShellItem | ChatErrorItem;
 
 export interface ChatTurn {
 	id: string;
@@ -422,10 +433,17 @@ function applyChatEvent(
 			};
 		case "rules":
 			return { ...state, sessionRules: event.rules };
+		case "shell": {
+			const { type: _type, sessionId: _session, seq: _seq, ...fields } = event;
+			const key = `shell:${event.id}`;
+			// Its end, or a replay of a command already shown, updates it in place.
+			const item: ChatShellItem = { kind: "shell", key, turnId: null, ...fields };
+			const items = replaceItem(state.items, key, () => item);
+			return { ...state, items: items ?? [...state.items, item] };
+		}
 		case "commands":
 			return { ...state, commands: event.commands };
 		case "context":
-		case "shell":
 			// Not read yet; the tasks that show them handle these events.
 			return state;
 	}

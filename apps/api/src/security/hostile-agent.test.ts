@@ -50,6 +50,7 @@ interface Behaviour {
 	createTerminal: "ok" | "slow" | "huge";
 	checks: unknown;
 	search: unknown;
+	fileSearch: unknown;
 	/** Sent once to every terminal attachment. */
 	attachFrame: string | null;
 	/** Sent once to every project events socket. */
@@ -70,6 +71,7 @@ function calm(): Behaviour {
 		createTerminal: "ok",
 		checks: { checks: [], error: null, runs: [] },
 		search: { matches: [], truncated: false },
+		fileSearch: { paths: [], truncated: false },
 		attachFrame: null,
 		eventsFrame: null,
 		listeningFrame: null,
@@ -135,6 +137,7 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 		});
 	}
 	app.get("/projects/:slug/search", async () => agent.behaviour.search);
+	app.post("/projects/:slug/file-search", async () => agent.behaviour.fileSearch);
 	app.get("/recovery-asides", async () => agent.behaviour.asides);
 	app.delete("/recovery-asides/:projectId/:pointId", async (_request, reply) =>
 		reply.status(204).send(),
@@ -400,6 +403,32 @@ test.skipIf(skip)(
 		expect(response.statusCode).toBe(200);
 		expect(response.json().matches).toHaveLength(MAX_SEARCH_MATCHES);
 		expect(response.json().truncated).toBe(true);
+	},
+);
+
+test.skipIf(skip)(
+	"the API refuses file-search paths that leave the project or pile up (SPEC.md §24.1)",
+	async () => {
+		const ask = () =>
+			app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/projects/${projectId}/file-search`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { query: "passwd" },
+			});
+		for (const paths of [
+			["../../etc/passwd"],
+			["/etc/passwd"],
+			["a/../../b"],
+			Array.from({ length: 2000 }, (_, n) => `f${n}.txt`),
+		]) {
+			hostile.behaviour.fileSearch = { paths, truncated: false };
+			const response = await ask();
+			expect(response.statusCode).toBe(503);
+			expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+		}
+		hostile.behaviour.fileSearch = { paths: ["src/a.ts"], truncated: false };
+		expect((await ask()).json()).toEqual({ paths: ["src/a.ts"], truncated: false });
 	},
 );
 

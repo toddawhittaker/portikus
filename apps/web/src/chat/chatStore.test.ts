@@ -591,3 +591,68 @@ test("what is kept is the picker's model choice and the host's effort and mode",
 	expect(modelChoice("something-new")).toBe("default");
 	expect(modelChoice("sonnet")).toBe("sonnet");
 });
+
+const SHELL = {
+	id: "sh-1",
+	command: "ls -la",
+	output: "",
+	exitCode: null,
+	truncated: false,
+	state: "running",
+} as const;
+
+test("a shell event adds a shell item that the same id then finishes", () => {
+	const state = feed([
+		snapshot(0),
+		frame("shell", 1, SHELL),
+		frame("shell", 2, {
+			...SHELL,
+			output: "total 0\n",
+			exitCode: 0,
+			state: "done",
+		}),
+	]);
+	expect(state.items).toEqual([
+		{
+			kind: "shell",
+			key: "shell:sh-1",
+			id: "sh-1",
+			command: "ls -la",
+			output: "total 0\n",
+			exitCode: 0,
+			truncated: false,
+			state: "done",
+			turnId: null,
+		},
+	]);
+});
+
+test("a shell command is never part of a turn, even one running", () => {
+	const state = feed([
+		snapshot(0),
+		frame("turn.started", 1, { at: 5 }),
+		frame("shell", 2, SHELL),
+	]);
+	expect(state.items).toMatchObject([{ kind: "shell", turnId: null }]);
+	expect(state.currentTurnId).not.toBeNull();
+});
+
+test("shell items replayed after a snapshot are kept, and a new snapshot starts them over", () => {
+	const done = { ...SHELL, output: "a\n", exitCode: 1, state: "done" } as const;
+	const first = feed([snapshot(0), frame("shell", 1, done)]);
+	expect(first.items).toHaveLength(1);
+	const again = feed([snapshot(5), frame("shell", 6, done)], first);
+	expect(again.items).toMatchObject([{ id: "sh-1", exitCode: 1, state: "done" }]);
+	expect(again.items).toHaveLength(1);
+});
+
+test("a shell item keeps its place among the messages around it", () => {
+	const state = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u1", role: "user", markdown: "hi" }),
+		frame("shell", 2, SHELL),
+		frame("message", 3, { id: "u2", role: "user", markdown: "next" }),
+		frame("shell", 4, { ...SHELL, state: "done", exitCode: 0, output: "x" }),
+	]);
+	expect(state.items.map((item) => item.kind)).toEqual(["message", "shell", "message"]);
+});

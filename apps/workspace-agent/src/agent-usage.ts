@@ -9,6 +9,7 @@ import {
 	type AgentUsageReportRow,
 	CodingAgent,
 	CodingAgentState,
+	CodingAgentSubagentPost,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
 	TerminalId,
 } from "@portikus/contracts";
@@ -309,6 +310,9 @@ function modelOf(attributes: Attribute[] | undefined): string | null {
 /** Where the state hook script posts (scripts/portikus-agent-state). */
 export const CODING_AGENT_STATE_PATH = "/coding-agent-state";
 
+/** Where the subagent hook script posts (scripts/portikus-agent-subagent). */
+export const CODING_AGENT_SUBAGENT_PATH = "/coding-agent-subagent";
+
 /** Where Claude Code's status line script posts (scripts/portikus-claude-status). */
 export const CLAUDE_LIMITS_PATH = "/claude-limits";
 
@@ -407,6 +411,19 @@ export function buildAgentUsageReceiver(
 			}
 			if (state === "clear") signals.board.clear(terminal, at);
 			else signals.board.set(terminal, agent, state, at);
+			return reply.code(204).send();
+		},
+	);
+	app.post(
+		CODING_AGENT_SUBAGENT_PATH,
+		{ bodyLimit: MAX_SIGNAL_BODY_BYTES },
+		async (request, reply) => {
+			const parsed = CodingAgentSubagentPost.safeParse(request.body);
+			if (!parsed.success) return reply.code(400).send({});
+			if (parsed.data.at > (now().getTime() + MAX_HOOK_CLOCK_AHEAD_MS) * 1000) {
+				return reply.code(400).send({});
+			}
+			signals.board.subagent(parsed.data);
 			return reply.code(204).send();
 		},
 	);
