@@ -1,6 +1,7 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
 	type ChatClientMessage,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
 	type ChatOpenCard,
@@ -68,6 +69,22 @@ const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 /** When the fake's earlier turn began, in epoch milliseconds. */
 const EARLIER_TURN_AT = Date.UTC(2026, 0, 1, 12, 0, 0);
 
+/** The command list a fake chat starts with; a test can replace it. */
+const DEFAULT_COMMANDS: ChatCommand[] = [
+	{
+		name: "compact",
+		description: "Free up context by summarizing the chat",
+		terminalOnly: false,
+	},
+	{
+		name: "review",
+		description: "Review a pull request",
+		argumentHint: "<pull request>",
+		terminalOnly: false,
+	},
+	{ name: "config", description: "Open the settings menu", terminalOnly: true },
+];
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -83,6 +100,7 @@ interface FakeChat {
 	answers: FakeChatAnswer[];
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
+	commands: ChatCommand[];
 	sockets: Set<WebSocket>;
 }
 
@@ -122,6 +140,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				answers: [],
 				received: [],
 				settings: { model: "claude-sonnet-4-5", effort: "medium", mode: "default" },
+				commands: DEFAULT_COMMANDS,
 				sockets: new Set(),
 			};
 			chats.set(id, chat);
@@ -321,9 +340,20 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				truncated: false,
 			});
 			for (const event of chat.history) emit(id, [socket], event);
+			// Before the settings, which tests wait for as the end of an attach.
+			emit(id, [socket], { type: "commands", commands: chat.commands });
 			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
 	);
+
+	// Replace the slash command list and send it to every attachment, as the host does.
+	app.post("/__test/chats/:id/commands", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
+		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
 
 	// Every raw frame the fake received, so a test can compare bytes.
 	app.get("/__test/chats/:id/received", async (request) => {

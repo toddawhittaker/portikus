@@ -89,6 +89,22 @@ class FakeQuery {
 		if (this.flagFailure) throw this.flagFailure;
 		Object.assign(this.flags, settings);
 	}
+	/** What `supportedCommands()` answers; a test may set a failure instead. */
+	commandList: { name: string; description: string; argumentHint: string }[] = [];
+	commandFailure: Error | null = null;
+	async supportedCommands() {
+		if (this.commandFailure) throw this.commandFailure;
+		return this.commandList;
+	}
+	/** What the plan-usage request answers; a test may set a failure instead. */
+	usage: Record<string, unknown> = { rate_limits_available: false, rate_limits: null };
+	usageFailure: Error | null = null;
+	usageCalls: unknown[] = [];
+	async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(opts: unknown) {
+		this.usageCalls.push(opts);
+		if (this.usageFailure) throw this.usageFailure;
+		return this.usage;
+	}
 	close() {
 		this.ended = true;
 		this.wake?.();
@@ -850,14 +866,14 @@ describe("messages and controls", () => {
 			type: "rate_limit_event",
 			rate_limit_info: {
 				status: "allowed",
-				rateLimitType: "five_hour",
+				rateLimitType: "seven_day",
 				utilization: 0.25,
 				resetsAt: 1794200000,
 			},
 		} as never);
 		await vi.waitFor(() =>
 			expect(posted).toEqual([
-				{ five_hour: { used_percentage: 25, resets_at: 1794200000 } },
+				{ seven_day: { used_percentage: 25, resets_at: 1794200000 } },
 			]),
 		);
 	});
@@ -905,5 +921,167 @@ describe("messages and controls", () => {
 		// Both sends share the one restarted session.
 		expect(queries).toHaveLength(2);
 		await vi.waitFor(() => expect(queries[1]?.sent).toHaveLength(2));
+	});
+});
+
+const INIT = {
+	type: "system",
+	subtype: "init",
+	session_id: ID,
+	model: "m",
+	permissionMode: "default",
+	slash_commands: ["compact", "config", "deploy", "login"],
+	terminal_slash_commands: ["deploy"],
+} as never;
+
+const COMMANDS = [
+	{ name: "compact", description: "Shrink the conversation", argumentHint: "[focus]" },
+	{ name: "config", description: "Open settings", argumentHint: "" },
+	{ name: "deploy", description: "Ship it", argumentHint: "" },
+];
+
+describe("slash commands", () => {
+	test("init lists the commands with descriptions and marks the terminal-only ones", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		expect(ofType(a, "commands")[0]?.commands).toEqual([
+			{
+				name: "compact",
+				description: "Shrink the conversation",
+				argumentHint: "[focus]",
+				terminalOnly: false,
+			},
+			{ name: "config", description: "Open settings", terminalOnly: true },
+			{ name: "deploy", description: "Ship it", terminalOnly: true },
+		]);
+	});
+
+	test("a browser that attaches later gets the last known list, after the rules", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		fake.emit(INIT);
+		await vi.waitFor(async () => {
+			const probe = await attach();
+			await vi.waitFor(() => expect(ofType(probe, "rules")).toHaveLength(1));
+			expect(ofType(probe, "commands")).toHaveLength(1);
+		});
+		const late = await attach();
+		await vi.waitFor(() => expect(ofType(late, "commands")).toHaveLength(1));
+		const types = late.events.map((event) => event.type);
+		expect(types.indexOf("commands")).toBeGreaterThan(types.indexOf("rules"));
+	});
+
+	test("a commands_changed message replaces the list for every browser; an equal list is not resent", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		const a = await attach();
+		const b = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(b, "commands")).toHaveLength(1));
+		fake.emit({
+			type: "system",
+			subtype: "commands_changed",
+			commands: [{ name: "review", description: "Review a PR", argumentHint: "<pr>" }],
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(b, "commands")).toHaveLength(2));
+		expect(ofType(a, "commands")[1]?.commands).toEqual([
+			{
+				name: "review",
+				description: "Review a PR",
+				argumentHint: "<pr>",
+				terminalOnly: false,
+			},
+		]);
+		fake.emit({
+			type: "system",
+			subtype: "commands_changed",
+			commands: [{ name: "review", description: "Review a PR", argumentHint: "<pr>" }],
+		} as never);
+		fake.emit(INIT);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(ofType(a, "commands")).toHaveLength(3);
+	});
+
+	test("when the descriptions cannot be read, init's names are listed without them", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandFailure = new Error("no answer");
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		expect(
+			ofType(a, "commands")[0]?.commands.map((c) => [c.name, c.terminalOnly]),
+		).toEqual([
+			["compact", false],
+			["config", true],
+			["deploy", true],
+			["login", true],
+		]);
+		expect(ofType(a, "commands")[0]?.commands[0]?.description).toBe("");
+	});
+});
+
+describe("permission answers", () => {
+	test("an answer carrying a message and a mode, and one carrying neither, both settle the card", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const first = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan1");
+		const second = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan2");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(2));
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan1",
+			optionId: "allow",
+			mode: "acceptEdits",
+			message: "go on",
+		});
+		a.send({ type: "permission.answer", id: "toolu_plan2", optionId: "allow" });
+		expect((await first.result).behavior).toBe("allow");
+		expect((await second.result).behavior).toBe("allow");
+	});
+});
+
+describe("plan usage", () => {
+	const usage = (utilization: number, resets: string) => ({
+		rate_limits_available: true,
+		rate_limits: { seven_day: { utilization, resets_at: resets } },
+	});
+
+	test("the seven-day figure is read when the session starts and after each result, without the transcript scan", async () => {
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(1));
+		expect(fake.usageCalls[0]).toEqual({ skipBehaviors: true });
+		expect(posted).toEqual([]);
+
+		fake.usage = usage(41.26, "2026-12-01T09:00:00Z");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() =>
+			expect(posted).toEqual([
+				{ seven_day: { used_percentage: 41.3, resets_at: 1796115600 } },
+			]),
+		);
+		expect(fake.usageCalls).toHaveLength(2);
+	});
+
+	test("a failed request keeps the last figure and posts nothing", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.usage = usage(10, "2026-12-01T09:00:00Z");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		fake.usageFailure = new Error("offline");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(posted).toHaveLength(1);
+	});
+
+	test("a session on an API key posts nothing", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(2));
+		expect(posted).toEqual([]);
 	});
 });

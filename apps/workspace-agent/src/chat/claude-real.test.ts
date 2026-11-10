@@ -100,6 +100,13 @@ test.skipIf(!existsSync(CLAUDE))(
 			);
 			expect(events.some((e) => e.type === "permission.requested")).toBe(true);
 			expect(events.some((e) => e.type === "question.requested")).toBe(true);
+			// The command list arrives with descriptions, and menu commands are marked.
+			await vi.waitFor(() => {
+				const listed = events.find((e) => e.type === "commands");
+				const commands = listed?.type === "commands" ? listed.commands : [];
+				expect(commands.find((c) => c.name === "compact")?.terminalOnly).toBe(false);
+				expect(commands.find((c) => c.name === "config")?.terminalOnly).toBe(true);
+			});
 			const replies = events
 				.filter((e) => e.type === "message" && e.role === "assistant")
 				.map((e) => (e as { markdown: string }).markdown)

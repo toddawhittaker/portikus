@@ -489,6 +489,22 @@ test("a new socket waits for its own snapshot", () => {
 	expect(store.getState().connection).toBe("open");
 });
 
+test("the command list the host reports is kept, replaced by the next, and survives a new snapshot", () => {
+	const first = [
+		{ name: "compact", description: "Shrink", terminalOnly: false },
+		{ name: "config", description: "Settings", terminalOnly: true },
+	];
+	let state = feed([snapshot(1)]);
+	expect(state.commands).toEqual([]);
+	state = feed([frame("commands", 2, { commands: first })], state);
+	expect(state.commands).toEqual(first);
+	state = feed([snapshot(3)], state);
+	expect(state.commands).toEqual(first);
+	const next = [{ name: "review", description: "Review", terminalOnly: false }];
+	state = feed([frame("commands", 4, { commands: next })], state);
+	expect(state.commands).toEqual(next);
+});
+
 test("the session rules the host reports are kept, and revoking one sends it", () => {
 	const rule = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 	let state = feed([snapshot(1), frame("rules", 2, { rules: [rule] })]);

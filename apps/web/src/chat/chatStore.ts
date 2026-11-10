@@ -9,6 +9,7 @@ import {
 	CHAT_START_EFFORT,
 	type ChatAttachment,
 	ChatClientMessage,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
 	ChatModelChoice,
@@ -120,6 +121,8 @@ export interface ChatState {
 	settings: ChatSettings | null;
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
+	/** The slash commands on offer, as the host last listed them; empty until it does. */
+	commands: ChatCommand[];
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -145,6 +148,7 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	sessionRules: [],
+	commands: [],
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -438,6 +442,7 @@ function applyChatEvent(
 			return { ...state, items: items ?? [...state.items, item] };
 		}
 		case "commands":
+			return { ...state, commands: event.commands };
 		case "context":
 			// Not read yet; the tasks that show them handle these events.
 			return state;
