@@ -27,6 +27,15 @@ export const AGENT_STATUS_TOPIC: HelpPart["topics"][number] = {
 					see an agent in another project that is waiting for you.
 				</li>
 				<li>
+					Under each project, the project list also shows each agent tab that has
+					reported, with what it is doing and for how long, such as "Working 4m". Under
+					an agent, its subagents are listed with their description, type and state.
+					Select a row to go to its tab. In a chat, selecting a subagent opens that step
+					of the conversation. Use the arrow button beside a project to hide or show its
+					agents. Rows appear after the agent's first report, and Codex shows no
+					subagents.
+				</li>
+				<li>
 					If you stop Claude Code with Esc, its tab keeps showing "working" until you
 					type your next prompt.
 				</li>
@@ -61,13 +70,13 @@ export const AGENT_STATUS_TOPIC: HelpPart["topics"][number] = {
 			</ul>
 			<h4>Usage</h4>
 			<p>
-				The status bar shows how much of each agent's plan limit you have used and when
-				it resets, for example the five-hour or the weekly window. Choose it for every
-				window and its reset time. A message warns you once when a limit passes 85
-				percent. If you sign in to an agent with an API key, which has no plan limit,
-				the bar shows your tokens and cost for today instead. Today is counted by the
-				clock in UTC, and the numbers update about every five minutes. A course that
-				hides Claude Code and Codex hides this too.
+				The status bar shows how much of each agent's seven-day plan limit you have used
+				and when it resets, for example "Claude 91% resets Thu 7:21 PM". Choose it for
+				the details. A message warns you once when a limit passes 85 percent. If you
+				sign in to an agent with an API key, which has no plan limit, the bar shows your
+				tokens and cost for today instead. Today is counted by the clock in UTC, and the
+				numbers update about every five minutes. A course that hides Claude Code and
+				Codex hides this too.
 			</p>
 		</>
 	),

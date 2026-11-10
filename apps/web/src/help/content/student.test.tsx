@@ -87,6 +87,32 @@ test("the chat topic says a quick second paste puts long text in the box", () =>
 	expect(text).toContain("paste it again straight away.");
 });
 
+test("the chat topic covers the menus, shell commands, deny reasons, read aloud and colours", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"to see Claude's commands",
+		"to pick a project file",
+		"Start a message with ! to run it as a shell command",
+		"Tell Claude what to do instead",
+		"Yes, and accept edits",
+		"Yes, and ask before edits",
+		"language label and syntax colours",
+		"Read replies aloud",
+		"the text of the reply is sent to the browser's maker",
+		"Portikus never receives or keeps the text",
+		"Cache cold",
+		"choose one to open it, or its changes in a Git project",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the agent status topic describes the left-pane agent rows and the seven-day usage", () => {
+	const text = topicText("student-agent-status").replace(/\s+/g, " ");
+	expect(text).toContain("its subagents are listed");
+	expect(text).toContain("seven-day plan limit");
+});
+
 test("the keyboard topic lists the completion and hover keys", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Ctrl+Space");

@@ -27,6 +27,28 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					Mac) sends.
 				</li>
 				<li>
+					Type <code className="pk-mono-body">/</code> at the start of a message to see
+					Claude's commands, or <code className="pk-mono-body">@</code> anywhere to pick
+					a project file. Use the arrow keys to move, Enter to insert (Tab does too,
+					after an arrow key), and Escape to close the list. Commands that only work in
+					the terminal are greyed out; <code className="pk-mono-body">/model</code> and{" "}
+					<code className="pk-mono-body">/effort</code> open the pickers below the box
+					instead. The <code className="pk-mono-body">@</code> list shows files only,
+					not folders, and skips files your project's{" "}
+					<code className="pk-mono-body">.gitignore</code> leaves out.{" "}
+					<code className="pk-mono-body">/clear</code> starts a fresh conversation in
+					the same tab.
+				</li>
+				<li>
+					Start a message with <code className="pk-mono-body">!</code> to run it as a
+					shell command in the project folder, as in the terminal. The box shows a Shell
+					label while you type it. Enter runs it, the command and its output appear in
+					the conversation, and Claude sees them with your next message. A command stops
+					after two minutes, and only the first 64 KiB of its output is kept. It cannot
+					ask you questions, so use a terminal tab for those. You cannot run one while
+					Claude is working. Stop, or Esc, ends a command that is still running.
+				</li>
+				<li>
 					While Claude works you can still send a message. Claude reads it at its next
 					step without stopping, and the message is marked "Sent while Claude was
 					working". Some models treat a message sent this way with caution, because they
@@ -39,9 +61,50 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					on the card, never while you type in the message box.
 				</li>
 				<li>
+					<strong>Deny</strong> and <strong>No, keep planning</strong> open a line,
+					"Tell Claude what to do instead". Type a reason and press Enter to send it to
+					Claude, or press Enter with nothing typed to deny without one. Escape goes
+					back to the buttons.
+				</li>
+				<li>
+					When Claude offers a plan, choose <strong>Yes, and accept edits</strong> to
+					let it change files without asking, <strong>Yes, and ask before edits</strong>{" "}
+					to approve each change, or <strong>No, keep planning</strong>. Your choice
+					sets the Permissions picker.
+				</li>
+				<li>
+					Code in replies has a language label and syntax colours. A very long block, or
+					one in a language Portikus does not colour, shows as plain text.
+				</li>
+				<li>
+					A speaker button under each of Claude's replies reads it aloud; press it again
+					to stop. Turn on <strong>Read replies aloud</strong> beside the pickers to
+					hear the last reply of each turn when Claude finishes. Escape, sending a
+					message or leaving the tab stops the speech. Code blocks are not read; you
+					hear "code block" instead. Your browser makes the voice, and Portikus never
+					receives or keeps the text. Portikus picks a voice on your device when there
+					is one. If your browser has only an online voice for your language, such as
+					Chrome's Google voices, the text of the reply is sent to the browser's maker
+					to be spoken.
+				</li>
+				<li>
+					Under the pickers, Portikus shows how full Claude's memory of this chat is
+					once it passes half, and how long until the prompt cache goes cold. While the
+					cache is warm, your next message is faster and uses less of your limit. In the
+					last minute it says "soon", and when it says "Cache cold" the next message
+					re-reads the whole chat. When the memory is high, type{" "}
+					<code className="pk-mono-body">/compact</code>. Your screen reader hears only
+					when the cache goes cold and when the memory reaches 80 percent.
+				</li>
+				<li>
+					When Claude edits files, a line under its reply says how many changed. Open it
+					to see each file; choose one to open it, or its changes in a Git project.
+				</li>
+				<li>
 					Pasting more than 40 lines, such as an error log, attaches it as a text file
 					instead of filling the message box. To put it in the box instead, paste it
-					again straight away.
+					again straight away. You can also choose{" "}
+					<strong>Insert pasted text inline</strong> on the file's chip.
 				</li>
 				<li>
 					Sign in to Claude in the workspace, as you would in a terminal. Portikus never
