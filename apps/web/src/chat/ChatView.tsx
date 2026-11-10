@@ -51,6 +51,14 @@ function announcement(state: ChatState): string {
 			? `${cardAnnouncement(card)} ${waitingText(waiting)}`
 			: cardAnnouncement(card);
 	}
+	// A command is not a turn: its end is said when it is the newest thing in the chat.
+	const newest = state.items.at(-1);
+	if (newest?.kind === "shell" && newest.state === "done") {
+		if (newest.exitCode === null) return "Command stopped.";
+		return newest.exitCode === 0
+			? "Command finished."
+			: `Command failed with exit code ${newest.exitCode}.`;
+	}
 	if (state.currentTurnId !== null) return "Claude is working.";
 	const last = Object.values(state.turns).at(-1);
 	if (last?.status === "done") return "Claude finished.";

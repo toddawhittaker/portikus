@@ -367,7 +367,8 @@ test("a shell command is a labelled group: the command, then its output, not a r
 		screen.getByTestId("chat-shell-command").querySelector("[aria-hidden]"),
 	).not.toBeNull();
 	const output = within(group).getByRole("region", { name: "Command output" });
-	const text = within(output).getByTestId("chat-shell-output");
+	const text = within(group).getByTestId("chat-shell-output");
+	expect(text).toBe(output);
 	expect(text.textContent).toBe("total 0\nfile.txt\n");
 	expect(text.tabIndex).toBe(0);
 	// It is not inside a Claude turn, and Claude's reply after it has its own byline.

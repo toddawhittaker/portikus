@@ -164,7 +164,8 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 			data-testid="chat-shell"
 			data-state={shell.state}
 		>
-			<fieldset aria-label="Shell command" className="pk-shell-box">
+			{/* biome-ignore lint/a11y/useSemanticElements: a fieldset brings its own sizing and overflow rules to a box that is not a form */}
+			<div role="group" aria-label="Shell command" className="pk-shell-box">
 				<pre className="pk-shell-command" data-testid="chat-shell-command">
 					<span className="pk-shell-prompt" aria-hidden={true}>
 						$
@@ -172,16 +173,17 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 					<code>{shell.command}</code>
 				</pre>
 				{shell.output !== "" ? (
-					<section aria-label="Command output">
-						<pre
-							className="pk-shell-output"
-							// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
-							tabIndex={0}
-							data-testid="chat-shell-output"
-						>
-							{shell.output}
-						</pre>
-					</section>
+					<pre
+						className="pk-shell-output"
+						// biome-ignore lint/a11y/useSemanticElements: the scrolling box itself is the named region, so it has a name when focused
+						role="region"
+						aria-label="Command output"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+						tabIndex={0}
+						data-testid="chat-shell-output"
+					>
+						{shell.output}
+					</pre>
 				) : null}
 				{shell.truncated ? (
 					<p className="pk-shell-note" data-testid="chat-shell-truncated">
@@ -212,7 +214,7 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 						Finished with exit code 0
 					</p>
 				)}
-			</fieldset>
+			</div>
 		</li>
 	);
 });

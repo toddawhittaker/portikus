@@ -689,3 +689,33 @@ test("a finished turn is read aloud when the project's switch is on, and its too
 		removeFakeSpeech();
 	}
 });
+
+test("a shell command's end is announced when it leaves running, in words", () => {
+	draw();
+	snapshot();
+	const announcer = () => screen.getByTestId("chat-announcer").textContent;
+	const command = (body: Record<string, unknown>) =>
+		emit("shell", {
+			id: "s1",
+			command: "ls",
+			output: "",
+			truncated: false,
+			exitCode: null,
+			state: "running",
+			...body,
+		});
+	command({});
+	expect(announcer()).toBe("");
+	command({ state: "done", exitCode: 0 });
+	expect(announcer()).toBe("Command finished.");
+	command({ id: "s2", state: "running" });
+	expect(announcer()).toBe("");
+	command({ id: "s2", state: "done", exitCode: 127 });
+	expect(announcer()).toBe("Command failed with exit code 127.");
+	command({ id: "s3", state: "running" });
+	command({ id: "s3", state: "done", exitCode: null });
+	expect(announcer()).toBe("Command stopped.");
+	// Anything newer in the chat takes the announcement back.
+	emit("message", { id: "u1", role: "user", markdown: "thanks" });
+	expect(announcer()).toBe("");
+});
