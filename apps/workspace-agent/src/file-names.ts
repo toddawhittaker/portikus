@@ -84,7 +84,11 @@ function byRelevance(a: Candidate, b: Candidate): number {
  * Keep `kept` sorted best first and no longer than `wanted`, so a better match
  * that arrives late is never lost to the cap.
  */
-export function keepBest(kept: Candidate[], candidate: Candidate, wanted: number): void {
+export function keepBest(
+	kept: Candidate[],
+	candidate: Candidate,
+	wanted: number,
+): void {
 	const last = kept.at(-1);
 	if (kept.length >= wanted && last && byRelevance(candidate, last) >= 0) return;
 	let low = 0;
