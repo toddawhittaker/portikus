@@ -1,0 +1,77 @@
+/* Agent and subagent rows under a project in the project list (SPEC.md §8.2). */
+.pk-agents {
+	list-style: none;
+	margin: 0;
+	/* The marks line up under the project's name, past its folder icon. */
+	padding: 0 0 0 calc(var(--space-2) + 16px + var(--space-2) - var(--space-1\.5));
+	display: grid;
+	gap: 1px;
+	container-type: inline-size;
+}
+.pk-agents[hidden] {
+	display: none;
+}
+.pk-agents--sub {
+	padding-left: var(--space-4);
+}
+.pk-agent-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-width: 0;
+	min-height: var(--pk-tree-row);
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	color: var(--ink);
+	text-decoration: none;
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-agent-row:hover {
+	background: var(--surface-hover);
+}
+.pk-agent-row:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-agent-row .pk-agent-mark {
+	flex: none;
+}
+.pk-agent-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* An unread finish or question is bold, as its tab is. */
+.pk-agent-row.is-unread .pk-agent-name {
+	font-weight: 600;
+}
+.pk-agent-state,
+.pk-agent-type {
+	flex: none;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.pk-agent-type {
+	flex: 0 1 auto;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+/* In a narrow pane the state goes under the name rather than squeezing it. */
+@container (max-width: 12rem) {
+	.pk-agent-row:not(.pk-agent-row--sub) {
+		flex-wrap: wrap;
+		row-gap: 0;
+		padding-block: 2px;
+	}
+	.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-state {
+		flex-basis: 100%;
+		padding-left: calc(var(--space-1\.5) + 14px);
+	}
+}

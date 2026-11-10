@@ -42,6 +42,9 @@ const COPY = project({
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** The workspace socket; the files pane opens more sockets after it. */
+let workspaceSocket: FakeWebSocket | null = null;
+
 /** Share status reads made while the pane was mounted. */
 let shareReads: string[] = [];
 
@@ -72,6 +75,7 @@ async function mount(
 	const app = renderApp(path);
 	// The shell only draws the panes once the socket says the workspace runs.
 	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+	workspaceSocket = FakeWebSocket.last;
 	await act(async () => {
 		FakeWebSocket.last?.onmessage?.({
 			data: JSON.stringify({ type: "workspace", workspace: WORKSPACE }),
@@ -309,4 +313,136 @@ test("duplicating shows a success toast naming the new project", async () => {
 	fireEvent.click(within(surface).getByTestId("dialog-confirm"));
 
 	expect(await screen.findByText(`${COPY.name} created`)).toBeDefined();
+});
+
+const AGENT_TAB = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CHAT_TAB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+async function sendAgents(terminals: unknown[]) {
+	await act(async () => {
+		workspaceSocket?.onmessage?.({
+			data: JSON.stringify({ type: "coding-agents", terminals }),
+		});
+	});
+}
+
+function agentTab(overrides: Record<string, unknown> = {}) {
+	return {
+		terminalId: AGENT_TAB,
+		projectId: TODO.id,
+		name: "Terminal 2",
+		kind: "terminal",
+		agent: "claude",
+		state: "working",
+		since: new Date(Date.now() - 4 * 60_000 - 5_000).toISOString(),
+		subagents: [],
+		...overrides,
+	};
+}
+
+test("each agent tab of every project has a row that links to its tab (SPEC.md §8.2)", async () => {
+	await mount();
+	await sendAgents([
+		agentTab(),
+		agentTab({
+			terminalId: CHAT_TAB,
+			projectId: NOTES.id,
+			kind: "chat",
+			state: "needs-input",
+		}),
+	]);
+
+	const here = screen.getByTestId(`project-agents-${TODO.id}`);
+	const tui = within(here).getByRole("link", { name: /Claude Code \(TUI\)/ });
+	// The state and how long it has held are part of the link's name.
+	expect(tui.textContent).toContain("Working 4m");
+	expect(tui.getAttribute("href")).toBe(
+		`/workspaces/${WORKSPACE.id}/projects/${TODO.id}?tab=${AGENT_TAB}`,
+	);
+	// A project that is not open shows its agents too, named as their tab is.
+	const there = screen.getByTestId(`project-agents-${NOTES.id}`);
+	expect(within(there).getByRole("link").textContent).toContain("Claude Code (GUI)");
+	expect(within(there).getByRole("link").textContent).toContain("Needs input");
+	// The project's own state mark stays.
+	expect(screen.getByTestId(`project-agent-${NOTES.id}`)).toBeDefined();
+	// A project with no agent tab has no list and no disclosure.
+	expect(screen.queryByTestId(`project-agents-${GONE.id}`)).toBeNull();
+	expect(screen.queryByTestId(`project-agents-toggle-${GONE.id}`)).toBeNull();
+});
+
+test("a subagent row names its work, its type and its state, and links to its tool row", async () => {
+	await mount();
+	await sendAgents([
+		agentTab({
+			kind: "chat",
+			subagents: [
+				{
+					id: "toolu_01",
+					type: "Explore",
+					description: "Find the login code",
+					state: "working",
+					since: new Date().toISOString(),
+				},
+				{
+					id: "toolu_02",
+					type: "general-purpose",
+					description: "",
+					state: "finished",
+					since: new Date().toISOString(),
+				},
+			],
+		}),
+	]);
+
+	const working = screen.getByTestId("subagent-row-toolu_01");
+	expect(working.textContent).toBe("Find the login codeExplore(working)");
+	expect(working.getAttribute("href")).toBe(
+		`/workspaces/${WORKSPACE.id}/projects/${TODO.id}?tab=${AGENT_TAB}&subagent=toolu_01`,
+	);
+	// With no description the type stands in, so the row is never blank.
+	expect(screen.getByTestId("subagent-row-toolu_02").textContent).toContain(
+		"general-purpose",
+	);
+});
+
+test("a project's agents are one disclosure, open at first and remembered while the page lives", async () => {
+	const app = await mount();
+	await sendAgents([agentTab()]);
+
+	const toggle = screen.getByTestId(`project-agents-toggle-${TODO.id}`);
+	const list = screen.getByTestId(`project-agents-${TODO.id}`);
+	expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	expect(toggle.getAttribute("aria-controls")).toBe(list.id);
+	expect(toggle.getAttribute("aria-label")).toBe(`Agents in ${TODO.name}`);
+
+	fireEvent.click(toggle);
+	expect(toggle.getAttribute("aria-expanded")).toBe("false");
+	expect(list.hidden).toBe(true);
+
+	// Moving to another project keeps the choice; the pane is the same.
+	await act(async () => {
+		await app.router.navigate({
+			to: "/workspaces/$id/projects/$projectId",
+			params: { id: WORKSPACE.id, projectId: NOTES.id },
+		});
+	});
+	expect(
+		screen
+			.getByTestId(`project-agents-toggle-${TODO.id}`)
+			.getAttribute("aria-expanded"),
+	).toBe("false");
+});
+
+test("an unread finish says so in the row's name and is bold", async () => {
+	await mount();
+	// The first list is the baseline; the change after it is news.
+	await sendAgents([agentTab({ terminalId: CHAT_TAB, projectId: NOTES.id })]);
+	await sendAgents([
+		agentTab({ terminalId: CHAT_TAB, projectId: NOTES.id, state: "finished" }),
+	]);
+
+	const row = screen.getByTestId(`agent-row-${CHAT_TAB}`);
+	expect(row.textContent).toContain("Finished");
+	expect(row.textContent).toContain(", unread");
+	expect(row.className).toContain("is-unread");
 });
