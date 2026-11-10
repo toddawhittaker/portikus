@@ -9,6 +9,7 @@
  * class names and text, and anything but its own spans drops to plain text,
  * because reply text is untrusted (SPEC.md §24.3).
  */
+import type { LanguageFn } from "highlight.js";
 import { useEffect, useState } from "react";
 
 /** A language highlight.js knows, with the label a student reads. */
@@ -121,6 +122,22 @@ export interface Token {
 
 type Highlight = (code: string, id: LanguageId) => string;
 
+/** Each language with the import that loads it, so a pair cannot drift from its id. */
+const LANGUAGE_MODULES: [LanguageId, () => Promise<{ default: LanguageFn }>][] = [
+	["python", () => import("highlight.js/lib/languages/python")],
+	["javascript", () => import("highlight.js/lib/languages/javascript")],
+	["typescript", () => import("highlight.js/lib/languages/typescript")],
+	["java", () => import("highlight.js/lib/languages/java")],
+	["c", () => import("highlight.js/lib/languages/c")],
+	["cpp", () => import("highlight.js/lib/languages/cpp")],
+	["xml", () => import("highlight.js/lib/languages/xml")],
+	["css", () => import("highlight.js/lib/languages/css")],
+	["json", () => import("highlight.js/lib/languages/json")],
+	["sql", () => import("highlight.js/lib/languages/sql")],
+	["bash", () => import("highlight.js/lib/languages/bash")],
+	["diff", () => import("highlight.js/lib/languages/diff")],
+];
+
 let loaded: Highlight | null = null;
 let loading: Promise<Highlight> | null = null;
 
@@ -129,22 +146,10 @@ export function loadHighlighter(): Promise<Highlight> {
 	loading ??= (async () => {
 		const [core, ...languages] = await Promise.all([
 			import("highlight.js/lib/core"),
-			import("highlight.js/lib/languages/python"),
-			import("highlight.js/lib/languages/javascript"),
-			import("highlight.js/lib/languages/typescript"),
-			import("highlight.js/lib/languages/java"),
-			import("highlight.js/lib/languages/c"),
-			import("highlight.js/lib/languages/cpp"),
-			import("highlight.js/lib/languages/xml"),
-			import("highlight.js/lib/languages/css"),
-			import("highlight.js/lib/languages/json"),
-			import("highlight.js/lib/languages/sql"),
-			import("highlight.js/lib/languages/bash"),
-			import("highlight.js/lib/languages/diff"),
+			...LANGUAGE_MODULES.map(([, load]) => load()),
 		]);
 		const hljs = core.default.newInstance();
-		const ids = Object.keys(LABELS) as LanguageId[];
-		ids.forEach((id, at) => {
+		LANGUAGE_MODULES.forEach(([id], at) => {
 			const language = languages[at];
 			if (language) hljs.registerLanguage(id, language.default);
 		});

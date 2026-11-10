@@ -5,8 +5,8 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentLimits } from "@portikus/contracts";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import type { AgentLimits } from "./agent-limits-route.js";
 import {
 	CODEX_READ_INTERVAL_MS,
 	CodexLimits,

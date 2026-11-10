@@ -54,7 +54,10 @@ export class CodingAgentBoard {
 	 * removed terminals. Hooks run in the background, so their posts can arrive
 	 * out of order.
 	 */
-	private readonly firedAt = new Map<string, { at: number; removed: boolean }>();
+	private readonly firedAt = new Map<
+		string,
+		{ at: number; removed: boolean; clearedAt?: number }
+	>();
 	/**
 	 * Subagent rows per terminal, apart from the state entry: their posts are
 	 * ordered per row, not per terminal, so a state post cannot hide them.
@@ -107,6 +110,7 @@ export class CodingAgentBoard {
 	/** The agent ended; ignored when older than the last accepted post. */
 	clear(terminalId: string, at: number): void {
 		if (!this.accept(terminalId, at)) return;
+		this.remember(terminalId, at, false, at);
 		this.subagents.delete(terminalId);
 		if (this.entries.delete(terminalId)) this.changed();
 	}
@@ -120,7 +124,10 @@ export class CodingAgentBoard {
 	 */
 	subagent(post: CodingAgentSubagentPost): void {
 		const terminalId = post.terminal;
-		if (this.firedAt.get(terminalId)?.removed) return;
+		const fired = this.firedAt.get(terminalId);
+		if (fired?.removed) return;
+		// A call that fired before the session ended can arrive after its clear.
+		if (fired?.clearedAt !== undefined && post.at <= fired.clearedAt) return;
 		const rows = this.subagentRows(terminalId);
 		let changed = false;
 		switch (post.event) {
@@ -260,9 +267,14 @@ export class CodingAgentBoard {
 		return true;
 	}
 
-	private remember(terminalId: string, at: number, removed: boolean): void {
+	private remember(
+		terminalId: string,
+		at: number,
+		removed: boolean,
+		clearedAt = this.firedAt.get(terminalId)?.clearedAt,
+	): void {
 		this.firedAt.delete(terminalId);
-		this.firedAt.set(terminalId, { at, removed });
+		this.firedAt.set(terminalId, { at, removed, clearedAt });
 		// Cleared and removed terminals leave a time behind; keep that bounded too.
 		while (this.firedAt.size > 2 * MAX_CODING_AGENT_TERMINALS) {
 			const oldest = this.firedAt.keys().next().value;

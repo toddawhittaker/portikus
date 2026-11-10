@@ -1,5 +1,10 @@
 import { requireUser } from "@portikus/auth";
-import { AgentLimitsReport, type AgentMeter, CodingAgent } from "@portikus/contracts";
+import {
+	AgentLimitsReport,
+	type AgentMeter,
+	CODING_AGENT_LABEL,
+	CodingAgent,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AGENT_TIMEOUT_MS, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -7,9 +12,6 @@ import { ownedScope } from "../workspaces/project-scope.js";
 import { todayUsageFor } from "./agent-usage.js";
 
 const AGENTS = CodingAgent.options;
-
-/** What the status bar calls an agent that has counts but no plan figure. */
-const AGENT_LABEL: Record<CodingAgent, string> = { claude: "Claude", codex: "Codex" };
 
 /**
  * Each provider's 7-day plan usage and today's counts for the status
@@ -52,7 +54,7 @@ export function registerAgentMeterRoutes(app: FastifyInstance, deps: ServerDeps)
 		const plans = new Map((report?.providers ?? []).map((plan) => [plan.id, plan]));
 		const known = AGENTS.map((agent) => ({
 			id: agent,
-			label: plans.get(agent)?.label ?? AGENT_LABEL[agent],
+			label: plans.get(agent)?.label ?? CODING_AGENT_LABEL[agent],
 			plan: plans.get(agent) ?? null,
 			today: today[agent],
 		}));
