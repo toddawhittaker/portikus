@@ -55,3 +55,45 @@
 	font-weight: 500;
 	line-height: 1;
 }
+
+/* Files a finished turn changed: a long path is cut, its counts always show. */
+.pk-turn-files-summary > :is(.pk-chat-chevron, .pk-chat-tool-stat) {
+	flex: none;
+}
+
+.pk-turn-files-list {
+	display: grid;
+	margin: 0;
+	padding-inline-start: 24px;
+	list-style: none;
+}
+
+/* Each path is a 24px target (SPEC.md §25.8). */
+.pk-turn-file {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-inline-size: 0;
+	font-size: 12px;
+}
+
+.pk-turn-file-open {
+	min-block-size: 24px;
+	min-inline-size: 0;
+	overflow: hidden;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+button.pk-turn-file-open {
+	cursor: pointer;
+	color: var(--accent-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}

@@ -18,7 +18,7 @@ import type {
 	ChatToolItem,
 } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
-import { MessageList } from "./MessageList.js";
+import { type FileOpener, MessageList } from "./MessageList.js";
 import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 let writeText: ReturnType<typeof vi.fn>;
@@ -452,4 +452,112 @@ test("only Claude's finished written replies carry a read-aloud button", () => {
 	} finally {
 		removeFakeSpeech();
 	}
+});
+
+function finished(items: ChatItem[], opener: FileOpener | null) {
+	return render(
+		<MessageList
+			items={items}
+			turns={{
+				t1: {
+					id: "t1",
+					startedAt: 0,
+					finishedAt: 5_000,
+					status: "done",
+					estimated: false,
+				},
+			}}
+			currentTurnId={null}
+			asking={new Set()}
+			truncated={false}
+			opener={opener}
+		/>,
+	);
+}
+
+const ROOT = "/home/student/projects/demo";
+
+test("a finished turn that edited files says how many and their counts, in signs and words", () => {
+	const open = vi.fn();
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: `${ROOT}/src/a.ts`, old_string: "x", new_string: "y\nz" },
+				{ key: "e1", id: "e1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: `${ROOT}/b.ts`, content: "1\n2\n" },
+				{ key: "w1", id: "w1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: "/home/student/.notes", content: "n" },
+				{ key: "w2", id: "w2", status: "done" },
+			),
+			message("assistant", "Done", { turnId: "t1" }),
+		],
+		{ slug: "demo", open },
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	const summary = changed.querySelector("summary");
+	expect(summary?.textContent).toBe(
+		"3 files changed+5 −1, 5 lines added, 1 line removed",
+	);
+	// Closed until the student opens it, as a native disclosure.
+	expect((changed as HTMLDetailsElement).open).toBe(false);
+	const rows = within(changed).getAllByTestId("chat-changed-file");
+	expect(rows.map((row) => row.textContent)).toEqual([
+		"src/a.ts+2 −1, 2 lines added, 1 line removed",
+		"b.ts+2 −0, 2 lines added, 0 lines removed",
+		"/home/student/.notes+1 −0, 1 line added, 0 lines removed",
+	]);
+	fireEvent.click(within(changed).getByRole("button", { name: "src/a.ts" }));
+	expect(open).toHaveBeenCalledWith("src/a.ts");
+	// A file outside the project cannot be opened in its editor.
+	expect(
+		within(changed).queryByRole("button", { name: "/home/student/.notes" }),
+	).toBeNull();
+});
+
+test("a turn that changed no file, or is still running, has no files line", () => {
+	finished(
+		[
+			tool("Read", { file_path: "a.ts" }, { key: "r", id: "r", status: "done" }),
+			message("assistant", "Read it", { turnId: "t1" }),
+		],
+		{ slug: "demo", open: vi.fn() },
+	);
+	expect(screen.queryByTestId("chat-files-changed")).toBeNull();
+	cleanup();
+	running(
+		[
+			tool(
+				"Edit",
+				{ file_path: "a.ts", old_string: "x", new_string: "y" },
+				{ status: "done" },
+			),
+		],
+		Date.now(),
+	);
+	expect(screen.queryByTestId("chat-files-changed")).toBeNull();
+});
+
+test("without a work area the paths are listed but not buttons", () => {
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: "a.ts", old_string: "x", new_string: "y" },
+				{ status: "done" },
+			),
+		],
+		null,
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	expect(within(changed).getByTestId("chat-changed-file").textContent).toContain(
+		"a.ts",
+	);
+	expect(within(changed).queryByRole("button")).toBeNull();
 });

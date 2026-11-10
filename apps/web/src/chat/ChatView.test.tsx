@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { sessionEnded } from "../api/sessionEnded.js";
+import { type LayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_MS } from "../terminal/terminalSocket.js";
 import { speakingId } from "../voice/speak.js";
 import { ChatView } from "./ChatView";
@@ -718,4 +719,60 @@ test("a shell command's end is announced when it leaves running, in words", () =
 	// Anything newer in the chat takes the announcement back.
 	emit("message", { id: "u1", role: "user", markdown: "thanks" });
 	expect(announcer()).toBe("");
+});
+
+/** The chat inside a work area whose project is or is not a Git repository. */
+function drawInWorkArea(repo: boolean) {
+	const openFile = vi.fn();
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+	});
+	client.setQueryData(["git-status", WORKSPACE, PROJECT, true], { repo });
+	client.setQueryData(
+		["projects", WORKSPACE, "active"],
+		[{ id: PROJECT, slug: "demo" }],
+	);
+	const layout = { getState: () => ({ openFile }) } as unknown as LayoutStore;
+	render(
+		<QueryClientProvider client={client}>
+			<LayoutStoreContext.Provider value={layout}>
+				<ToastProvider>
+					<ChatView
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminalId={TERMINAL}
+						visible={true}
+						focused={false}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</LayoutStoreContext.Provider>
+		</QueryClientProvider>,
+	);
+	open();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "e1",
+		name: "Edit",
+		title: "Edit",
+		input: {
+			file_path: "/home/student/projects/demo/src/a.ts",
+			old_string: "x",
+			new_string: "y",
+		},
+	});
+	emit("tool.finished", { id: "e1", isError: false });
+	emit("message", { id: "a1", role: "assistant", markdown: "Changed it." });
+	emit("turn.finished", { at: Date.now() + 1_000, status: "done" });
+	fireEvent.click(screen.getByRole("button", { name: "src/a.ts" }));
+	return openFile;
+}
+
+test("a changed file opens in its diff when the project is a Git repository", () => {
+	expect(drawInWorkArea(true)).toHaveBeenCalledWith("src/a.ts", { diff: true });
+});
+
+test("a changed file opens in the editor when the project is not a Git repository", () => {
+	expect(drawInWorkArea(false)).toHaveBeenCalledWith("src/a.ts", undefined);
 });
