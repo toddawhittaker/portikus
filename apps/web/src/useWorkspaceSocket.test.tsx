@@ -93,7 +93,16 @@ const T = "22222222-2222-4222-8222-222222222222";
 function agents(state: "working" | "finished") {
 	return JSON.stringify({
 		type: "coding-agents",
-		terminals: [{ terminalId: T, projectId: P, agent: "claude", state, since: SINCE }],
+		terminals: [
+			{
+				terminalId: T,
+				projectId: P,
+				name: "Claude",
+				agent: "claude",
+				state,
+				since: SINCE,
+			},
+		],
 	});
 }
 

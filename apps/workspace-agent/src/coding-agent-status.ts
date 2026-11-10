@@ -63,6 +63,7 @@ export class CodingAgentBoard {
 			agent,
 			state,
 			since: this.now().toISOString(),
+			subagents: [],
 		});
 		this.changed();
 	}

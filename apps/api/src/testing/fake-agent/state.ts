@@ -3,11 +3,11 @@ import type { Server as HttpsServer } from "node:https";
 import type { WebSocket } from "@fastify/websocket";
 import type {
 	AgentCodingAgentStatus,
-	AgentLimitsReport,
 	AgentListeningService,
 	AgentRecoveryAside,
 	GitDiff,
 	GitStatus,
+	LegacyAgentLimitsReport,
 	SearchMatch,
 	SearchQuery,
 } from "@portikus/contracts";
@@ -171,7 +171,7 @@ export function createFakeAgentState(token: string) {
 	const codingAgents = new Map<string, AgentCodingAgentStatus[]>();
 	/** Workspace keys whose agent-state frames are held back, so a test can open a socket first. */
 	const codingAgentsHeld = new Set<string>();
-	const agentLimits = new Map<string, AgentLimitsReport>();
+	const agentLimits = new Map<string, LegacyAgentLimitsReport>();
 	const forwards = new Map<string, Set<number>>();
 	const probes = new Map<string, number[]>();
 	/** Test apps that serve HTTPS, which only a probe reveals. */

@@ -1,4 +1,4 @@
-import type { AgentLimits, AgentLimitsReport } from "@portikus/contracts";
+import type { AgentLimits, LegacyAgentLimitsReport } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 
 export interface AgentLimitsStoreOptions {
@@ -24,7 +24,7 @@ export class AgentLimitsStore {
 		this.claude = limits;
 	}
 
-	async report(): Promise<AgentLimitsReport> {
+	async report(): Promise<LegacyAgentLimitsReport> {
 		return { claude: this.claude, codex: await this.readCodex() };
 	}
 }

@@ -39,6 +39,7 @@ describe("CodingAgentBoard", () => {
 				agent: "claude",
 				state: "needs-input",
 				since: now.toISOString(),
+				subagents: [],
 			},
 		]);
 		expect(seen).toHaveBeenCalledTimes(2);
@@ -180,7 +181,13 @@ describe("the state route", () => {
 		});
 		expect(set.statusCode).toBe(204);
 		expect(board.current()).toEqual([
-			{ terminalId: ID, agent: "codex", state: "working", since: NOW.toISOString() },
+			{
+				terminalId: ID,
+				agent: "codex",
+				state: "working",
+				since: NOW.toISOString(),
+				subagents: [],
+			},
 		]);
 		const clear = await post(CODING_AGENT_STATE_PATH, {
 			terminal: ID,

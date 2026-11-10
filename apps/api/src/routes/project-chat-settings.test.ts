@@ -116,7 +116,12 @@ test.skipIf(skip)("settings are kept per project and read back", async () => {
 	const back = await read(alice, one);
 	expect(back.statusCode).toBe(200);
 	expect(back.headers["cache-control"]).toBe("no-store");
-	expect(back.json()).toEqual({ model: "opus", effort: "low", mode: "acceptEdits" });
+	expect(back.json()).toEqual({
+		model: "opus",
+		effort: "low",
+		mode: "acceptEdits",
+		readAloud: false,
+	});
 	expect((await read(alice, two)).statusCode).toBe(204);
 });
 
@@ -127,13 +132,19 @@ test.skipIf(skip)("a last-used Bypass comes back as Auto", async () => {
 		model: "opus",
 		effort: "high",
 		mode: "auto",
+		readAloud: false,
 	});
 	const row = await testDb.db
 		.selectFrom("projects")
 		.select("chat_settings")
 		.where("id", "=", one)
 		.executeTakeFirstOrThrow();
-	expect(row.chat_settings).toEqual({ model: "opus", effort: "high", mode: "auto" });
+	expect(row.chat_settings).toEqual({
+		model: "opus",
+		effort: "high",
+		mode: "auto",
+		readAloud: false,
+	});
 });
 
 test.skipIf(skip)(
@@ -155,6 +166,7 @@ test.skipIf(skip)(
 			model: "default",
 			effort: "high",
 			mode: "default",
+			readAloud: false,
 		});
 	},
 );

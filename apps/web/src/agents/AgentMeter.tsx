@@ -1,7 +1,7 @@
 import type {
 	AgentLimitWindow,
-	AgentMeter,
 	AgentUsageCounts,
+	LegacyAgentMeter,
 } from "@portikus/contracts";
 import { Meter, useToast } from "@portikus/ui";
 import { useEffect, useId, useRef } from "react";
@@ -23,7 +23,7 @@ import { CODING_AGENT_NAME } from "./codingAgentName.js";
 import { useAgentMeter } from "./useAgentMeter.js";
 import "./agent-meter.css";
 
-type Entry = AgentMeter["agents"][number];
+type Entry = LegacyAgentMeter["agents"][number];
 
 const WARNED_STORAGE_KEY = "portikus.usage-warned";
 

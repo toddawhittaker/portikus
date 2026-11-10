@@ -418,6 +418,11 @@ function applyChatEvent(
 			};
 		case "rules":
 			return { ...state, sessionRules: event.rules };
+		case "commands":
+		case "context":
+		case "shell":
+			// Not read yet; the tasks that show them handle these events.
+			return state;
 	}
 }
 

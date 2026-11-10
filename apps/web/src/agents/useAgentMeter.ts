@@ -1,4 +1,4 @@
-import { AgentMeter } from "@portikus/contracts";
+import { LegacyAgentMeter } from "@portikus/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { request } from "../api/request.js";
 
@@ -12,6 +12,6 @@ export function useAgentMeter(workspaceId: string, enabled: boolean) {
 		enabled,
 		staleTime: 0,
 		refetchInterval: enabled ? AGENT_METER_POLL_MS : false,
-		queryFn: () => request(AgentMeter, `/workspaces/${workspaceId}/agent-meter`),
+		queryFn: () => request(LegacyAgentMeter, `/workspaces/${workspaceId}/agent-meter`),
 	});
 }
