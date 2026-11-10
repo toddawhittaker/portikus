@@ -315,3 +315,91 @@
 		flex-basis: 100%;
 	}
 }
+
+/* The `/` and `@` menus: a list at the top of the box itself, above the text. It is
+   in the box's flow, not floating, so the pane's scrolling wrapper can never clip it;
+   the box grows upward and the text line stays put. The editor keeps focus throughout.
+   Capped by the chat pane's height (its size container), so a short pane keeps its log. */
+.pk-composer-menu {
+	display: flex;
+	flex-direction: column;
+	max-block-size: min(18rem, 35cqb);
+	padding-block-end: var(--space-1);
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-composer-menu-list {
+	display: grid;
+	min-block-size: 0;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+}
+
+.pk-composer-option {
+	display: grid;
+	gap: 2px;
+	min-inline-size: 0;
+	padding: var(--space-1\.5) var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--ink);
+	font-size: 13px;
+	cursor: default;
+}
+
+/* The current option: the editor's aria-activedescendant points here. */
+.pk-composer-option[aria-selected="true"] {
+	background: var(--surface-hover);
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-composer-option-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0 var(--space-2);
+	min-inline-size: 0;
+}
+
+.pk-composer-option-label {
+	min-inline-size: 0;
+	font-family: var(--font-mono);
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.pk-composer-option-hint {
+	color: var(--ink-muted);
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+
+/* Pushed to the row's end while there is room; on a narrow box it wraps below. */
+.pk-composer-option-note {
+	margin-inline-start: auto;
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-composer-option-detail {
+	min-inline-size: 0;
+	overflow: hidden;
+	color: var(--ink-muted);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A command the chat cannot send: dimmed, its note still legible. */
+.pk-composer-option.is-blocked .pk-composer-option-label {
+	color: var(--ink-faint);
+}
+
+.pk-composer-menu-note {
+	margin: 0;
+	padding: var(--space-1\.5) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
+}

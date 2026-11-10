@@ -8,7 +8,8 @@
  * attached as a text file instead of filling the box. Dictation is typed
  * into the box and never sent on its own (SPEC.md §25.10). The draft is
  * cleared only when the host echoes the message back, so a send it refuses
- * leaves the text and files in place to try again.
+ * leaves the text and files in place to try again. `/` at the start lists
+ * slash commands and `@` lists project files (ComposerCommandMenu.tsx).
  */
 import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
@@ -29,16 +30,27 @@ import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
 import { ComposerChips } from "./ComposerChips.js";
+import {
+	ComposerCommandMenu,
+	optionId,
+	selectCommands,
+	useComposerMenu,
+} from "./ComposerCommandMenu.js";
 import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
 import type { ChatStore } from "./chatStore.js";
 import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
+	type ComposerMenu,
+	type ComposerMenuKind,
+	chooseFromMenu,
+	clearMenuText,
 	composerText,
 	createComposerEditor,
 	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
 	insertPlainText,
+	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
 import "./composer.css";
@@ -51,6 +63,8 @@ const VOICE_HINT =
 	"Hold Space on this button, or Alt+Shift+M in the message box, to talk.";
 const BYPASS_ON = `Bypass permissions is on. ${BYPASS_WARNING}`;
 const PLACEHOLDER = "Message Claude Code, or paste or drop images";
+/** The placeholder's advice, said on focus: a combobox may not carry aria-placeholder. */
+const TIPS = "Type / for commands or @ for files. Paste or drop images to attach them.";
 const KEY_HINT =
 	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
 const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
@@ -83,11 +97,19 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const echoed = useStore(store, (state) => state.lastUserMessageSeq);
 	const lastError = useStore(store, (state) => state.lastError);
 	const connection = useStore(store, (state) => state.connection);
+	const commands = useStore(store, selectCommands);
 	const [sending, setSending] = useState<Sending | null>(null);
 	const [announced, setAnnounced] = useState("");
 	const [error, setError] = useState("");
 	const [dragging, setDragging] = useState(false);
 	const [inCode, setInCode] = useState(false);
+	const [menu, setMenu] = useState<ComposerMenu | null>(null);
+	/** The menu's list shows only while the box holds focus. */
+	const [focused, setFocused] = useState(false);
+	const menuModel = useComposerMenu(menu, commands, workspaceId, projectId);
+	const listId = `${ids}-menu`;
+	const listShown = menu !== null && focused && menuModel.options.length > 0;
+	const activeOption = optionId(listId, menuModel.active);
 	const host = useRef<HTMLDivElement | null>(null);
 	const editor = useRef<Editor | null>(null);
 	const picker = useRef<HTMLInputElement | null>(null);
@@ -143,6 +165,15 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}, [running]);
 
 	const announce = useCallback((text: string) => setAnnounced(text), []);
+
+	// The box is the menu's combobox: it says whether the list is shown and which option is current.
+	useEffect(() => {
+		if (editor.current)
+			setMenuAria(editor.current, {
+				controls: listShown ? listId : null,
+				active: activeOption,
+			});
+	}, [listShown, listId, activeOption]);
 
 	useEffect(() => {
 		if (files.status !== "") setAnnounced(files.status);
@@ -226,9 +257,57 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		);
 	}
 
+	/** A menu opened or changed, or the menu of kind `closed` shut. */
+	function onMenu(next: ComposerMenu | null, closed?: ComposerMenuKind) {
+		setMenu((now) => next ?? (now?.kind === closed ? null : now));
+	}
+
+	/** Put the menu's option in the box, or for a terminal-only command, point the way. */
+	function choose(index: number) {
+		const option = menuModel.options[index];
+		const box = editor.current;
+		if (!option || !box || !menu) return;
+		if (option.insert !== null) {
+			chooseFromMenu(box, menu, option.insert);
+			return;
+		}
+		const picker = option.control
+			? host.current
+					?.closest("form")
+					?.querySelector<HTMLElement>(`[data-testid="${option.control}"]`)
+			: null;
+		if (!picker) {
+			setAnnounced(`${option.label} works only in the terminal, so it is not sent.`);
+			return;
+		}
+		// The picker does the command's job here: the typed command goes and the picker opens.
+		clearMenuText(box, menu);
+		picker.focus();
+		picker.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+		);
+	}
+
+	/** Keys while a menu is open: arrows move, Enter or Tab chooses; Escape the editor handles. */
+	function onMenuKey(event: KeyboardEvent): boolean {
+		if (!listShown) return false;
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			menuModel.move(event.key === "ArrowDown" ? 1 : -1);
+			return true;
+		}
+		if (event.key === "Enter" || event.key === "Tab") {
+			event.preventDefault();
+			choose(menuModel.active);
+			return true;
+		}
+		return false;
+	}
+
 	function onKeyDown(event: KeyboardEvent): boolean {
 		const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-		if (plain && event.key === "Escape" && running && !menuOpen()) {
+		if (plain && event.key === "Escape" && running && !menuOpen() && menu === null) {
 			event.preventDefault();
 			store.getState().interrupt();
 			return true;
@@ -264,8 +343,19 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		repaste,
 		onKeyDown,
 		onKeyUp,
+		onMenu,
+		onMenuKey,
 	});
-	handlers.current = { submit, addPasted, addLongPaste, repaste, onKeyDown, onKeyUp };
+	handlers.current = {
+		submit,
+		addPasted,
+		addLongPaste,
+		repaste,
+		onKeyDown,
+		onKeyUp,
+		onMenu,
+		onMenuKey,
+	};
 
 	useLayoutEffect(() => {
 		const element = host.current;
@@ -274,12 +364,12 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			element,
 			attributes: {
 				id: `${ids}-text`,
-				role: "textbox",
-				"aria-multiline": "true",
+				// A combobox, for the `/` and `@` menus (SPEC.md §25.8).
+				role: "combobox",
+				"aria-autocomplete": "list",
 				"aria-label": "Message Claude Code",
-				"aria-placeholder": PLACEHOLDER,
-				// The key hint, or the bypass warning in its place.
-				"aria-describedby": `${ids}-hint ${ids}-bypass`,
+				// The tips, then the key hint or the bypass warning in its place.
+				"aria-describedby": `${ids}-tips ${ids}-hint ${ids}-bypass`,
 				class: "pk-composer-text",
 				"data-testid": "chat-composer-input",
 			},
@@ -291,8 +381,12 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			onKeyDown: (event) => handlers.current.onKeyDown(event),
 			onKeyUp: (event) => handlers.current.onKeyUp(event),
 			onChange: (changed) => setInCode(inCodeBlock(changed)),
+			onMenu: (next, closed) => handlers.current.onMenu(next, closed),
+			onMenuKey: (event) => handlers.current.onMenuKey(event),
 		});
 		editor.current = made;
+		made.on("focus", () => setFocused(true));
+		made.on("blur", () => setFocused(false));
 		return () => {
 			editor.current = null;
 			made.destroy();
@@ -338,6 +432,13 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					onRemove={files.remove}
 					onInsert={sending ? undefined : insertInline}
 					onEmptied={focusText}
+				/>
+				<ComposerCommandMenu
+					listId={listId}
+					menu={menu}
+					model={menuModel}
+					shown={focused}
+					onChoose={choose}
 				/>
 				<div ref={host} className="pk-composer-field" />
 				<div className="pk-composer-bar">
@@ -444,6 +545,9 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					{inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
 				</p>
 			)}
+			<span id={`${ids}-tips`} hidden={true}>
+				{TIPS}
+			</span>
 			<p
 				className="sr-only"
 				role="status"
