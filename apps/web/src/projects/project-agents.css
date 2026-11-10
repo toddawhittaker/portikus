@@ -1,4 +1,9 @@
 /* Agent and subagent rows under a project in the project list (SPEC.md §8.2). */
+/* Grid items take their content's width unless told otherwise; long names must ellipsize. */
+.pk-project,
+.pk-agents > li {
+	min-width: 0;
+}
 .pk-agents {
 	list-style: none;
 	margin: 0;
@@ -6,7 +11,6 @@
 	padding: 0 0 0 calc(var(--space-2) + 16px + var(--space-2) - var(--space-1\.5));
 	display: grid;
 	gap: 1px;
-	container-type: inline-size;
 }
 .pk-agents[hidden] {
 	display: none;
@@ -20,7 +24,7 @@
 	gap: var(--space-1\.5);
 	min-width: 0;
 	min-height: var(--pk-tree-row);
-	padding: 0 var(--space-1\.5);
+	padding: 2px var(--space-1\.5);
 	border-radius: var(--radius-sm);
 	color: var(--ink);
 	text-decoration: none;
@@ -63,15 +67,19 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-/* In a narrow pane the state goes under the name rather than squeezing it. */
-@container (max-width: 12rem) {
-	.pk-agent-row:not(.pk-agent-row--sub) {
-		flex-wrap: wrap;
-		row-gap: 0;
-		padding-block: 2px;
-	}
-	.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-state {
-		flex-basis: 100%;
-		padding-left: calc(var(--space-1\.5) + 14px);
-	}
+/*
+ * An agent's name keeps its whole width; when the state does not fit beside
+ * it, the state goes to the next line rather than cutting the name short.
+ */
+.pk-agent-row:not(.pk-agent-row--sub) {
+	flex-wrap: wrap;
+	column-gap: var(--space-1\.5);
+	row-gap: 0;
+}
+.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-name {
+	flex: 1 0 auto;
+	max-width: calc(100% - 14px - var(--space-1\.5));
+}
+.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-state {
+	margin-left: auto;
 }

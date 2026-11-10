@@ -395,7 +395,7 @@ test("a subagent row names its work, its type and its state, and links to its to
 	]);
 
 	const working = screen.getByTestId("subagent-row-toolu_01");
-	expect(working.textContent).toBe("Find the login codeExplore(working)");
+	expect(working.textContent).toBe("Find the login code Explore (working)");
 	expect(working.getAttribute("href")).toBe(
 		`/workspaces/${WORKSPACE.id}/projects/${TODO.id}?tab=${AGENT_TAB}&subagent=toolu_01`,
 	);

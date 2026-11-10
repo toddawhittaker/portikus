@@ -106,8 +106,9 @@ function SubagentRow({
 				data-testid={`subagent-row-${subagent.id}`}
 			>
 				<AgentStateMark state={subagent.state} />
-				<span className="pk-agent-name">{description}</span>
-				<span className="pk-agent-type">{subagent.type}</span>
+				{/* The spaces keep the link's name apart; a flex row does not draw them. */}
+				<span className="pk-agent-name">{description}</span>{" "}
+				<span className="pk-agent-type">{subagent.type}</span>{" "}
 				<span className="pk-visually-hidden">({subagent.state})</span>
 			</Link>
 		</li>
@@ -154,7 +155,7 @@ export function ProjectAgents({
 							data-testid={`agent-row-${terminal.terminalId}`}
 						>
 							<AgentStateMark state={terminal.state} unread={isUnread} />
-							<span className="pk-agent-name">{agentRowName(terminal)}</span>
+							<span className="pk-agent-name">{agentRowName(terminal)}</span>{" "}
 							<span className="pk-agent-state">
 								{capitalised(agentStateWords(terminal.state))}{" "}
 								<time dateTime={isoDuration(length)}>{shortElapsed(length)}</time>
