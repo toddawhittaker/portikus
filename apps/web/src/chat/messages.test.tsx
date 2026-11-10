@@ -5,12 +5,18 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock } from "./CodeBlocks.js";
 import { COPIED, COPIED_FOR_MS, NOT_COPIED } from "./CopyButton.js";
-import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore.js";
+import type {
+	ChatItem,
+	ChatMessageItem,
+	ChatShellItem,
+	ChatToolItem,
+} from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { MessageList } from "./MessageList.js";
 
@@ -335,4 +341,83 @@ test("a long step is cut on screen and kept whole in its title", () => {
 	const command = `echo ${"x".repeat(300)}`;
 	running([tool("Bash", { command })], 0);
 	expect(screen.getByTitle(`Running ${command}`).className).toBe("pk-turn-doing");
+});
+
+function shell(extra: Partial<ChatShellItem> = {}): ChatShellItem {
+	return {
+		kind: "shell",
+		key: "shell:s1",
+		id: "s1",
+		command: "ls -la",
+		output: "total 0\nfile.txt\n",
+		exitCode: 0,
+		truncated: false,
+		state: "done",
+		turnId: null,
+		...extra,
+	};
+}
+
+test("a shell command is a labelled group: the command, then its output, not a reply from Claude", () => {
+	list([message("user", "Hi"), shell(), message("assistant", "Welcome")]);
+	const group = screen.getByRole("group", { name: "Shell command" });
+	expect(screen.getByTestId("chat-shell-command").textContent).toBe("$ls -la");
+	expect(
+		screen.getByTestId("chat-shell-command").querySelector("[aria-hidden]"),
+	).not.toBeNull();
+	const output = within(group).getByRole("region", { name: "Command output" });
+	const text = within(output).getByTestId("chat-shell-output");
+	expect(text.textContent).toBe("total 0\nfile.txt\n");
+	expect(text.tabIndex).toBe(0);
+	// It is not inside a Claude turn, and Claude's reply after it has its own byline.
+	expect(group.closest('[data-testid="chat-turn"]')).toBeNull();
+	expect(screen.getAllByText("Claude")).toHaveLength(1);
+});
+
+test("a command that succeeded says so only to a screen reader", () => {
+	list([shell()]);
+	const status = screen.getByTestId("chat-shell-status");
+	expect(status.className).toBe("sr-only");
+	expect(status.textContent).toBe("Finished with exit code 0");
+	expect(screen.queryByTestId("chat-shell-truncated")).toBeNull();
+});
+
+test("a failed command shows its exit code in words", () => {
+	list([shell({ exitCode: 127, output: "sh: nope: not found\n" })]);
+	const status = screen.getByTestId("chat-shell-status");
+	expect(status.textContent).toBe("Failed with exit code 127");
+	expect(status.className).toContain("is-error");
+});
+
+test("a running command shows Running, and no output box before it prints", () => {
+	list([shell({ state: "running", exitCode: null, output: "" })]);
+	expect(screen.getByTestId("chat-shell-status").textContent).toBe("Running");
+	expect(screen.queryByRole("region", { name: "Command output" })).toBeNull();
+});
+
+test("a command stopped without an exit code says Stopped", () => {
+	list([shell({ exitCode: null })]);
+	expect(screen.getByTestId("chat-shell-status").textContent).toBe("Stopped");
+});
+
+test("cut-short output says it was truncated", () => {
+	list([shell({ truncated: true })]);
+	expect(screen.getByTestId("chat-shell-truncated").textContent).toBe(
+		"Output truncated",
+	);
+});
+
+test("a command with no output has no empty output box", () => {
+	list([shell({ output: "" })]);
+	expect(screen.queryByRole("region", { name: "Command output" })).toBeNull();
+});
+
+test("a shell command in the middle of Claude's run splits its byline and keeps the order", () => {
+	const loose = (key: string) => message("assistant", key, { key, turnId: null });
+	list([loose("before"), shell(), loose("after")]);
+	expect(screen.getAllByTestId("chat-turn")).toHaveLength(2);
+	const order = Array.from(
+		document.querySelectorAll('[data-testid="chat-turn"], [data-testid="chat-shell"]'),
+	).map((node) => node.getAttribute("data-testid"));
+	expect(order).toEqual(["chat-turn", "chat-shell", "chat-turn"]);
 });
