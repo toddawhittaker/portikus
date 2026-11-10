@@ -12,7 +12,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { downloadErrorToast } from "../files/errors.js";
 import { downloadCheckUrl, startDownload } from "../files/queries.js";
 import { StartLiveHelpDialog } from "../livehelp/StartLiveHelpDialog.js";
@@ -26,6 +26,7 @@ import { ArchiveConfirm } from "./ArchiveConfirm.js";
 import { type CreateMode, CreateProjectDialog } from "./CreateProjectDialog.js";
 import { DeleteConfirm } from "./DeleteConfirm.js";
 import { DuplicateDialog } from "./DuplicateDialog.js";
+import { AgentsToggle, agentsByProject, ProjectAgents } from "./ProjectAgents.js";
 import {
 	projectDownloadUrl,
 	useGitInitProject,
@@ -91,9 +92,22 @@ export function ProjectPane({
 	const [open, setOpen] = useState<Open>({ kind: "none" });
 	const toast = useToast();
 	const [showArchived, setShowArchived] = useState(false);
+	// Agent lists start open; a closed one stays closed for this page only.
+	const [closedAgents, setClosedAgents] = useState<ReadonlySet<string>>(new Set());
+	const listIds = useId();
 
 	const projects = active.data ?? [];
-	const marks = marksByProject(useAgentStatus());
+	const agentStatus = useAgentStatus();
+	const marks = marksByProject(agentStatus);
+	const agents = agentsByProject(agentStatus.terminals);
+
+	function toggleAgents(projectId: string) {
+		setClosedAgents((closed) => {
+			const next = new Set(closed);
+			if (!next.delete(projectId)) next.add(projectId);
+			return next;
+		});
+	}
 
 	function goTo(project: Project) {
 		void navigate({
@@ -165,96 +179,124 @@ export function ProjectPane({
 					{projects.map((project) => {
 						const current = project.id === currentProjectId;
 						const mark = marks.get(project.id);
+						const projectAgents = agents.get(project.id) ?? [];
+						const agentsOpen = !closedAgents.has(project.id);
+						const agentsId = `${listIds}-agents-${project.id}`;
 						return (
-							<li
-								key={project.id}
-								className={`pk-list-item${current ? " is-current" : ""}`}
-								data-testid={`project-item-${project.id}`}
-							>
-								<Link
-									className="pk-list-row"
-									to="/workspaces/$id/projects/$projectId"
-									params={{ id: workspaceId, projectId: project.id }}
-									aria-current={current ? "page" : undefined}
+							<li key={project.id} className="pk-project">
+								<div
+									className={`pk-list-item${current ? " is-current" : ""}`}
+									data-testid={`project-item-${project.id}`}
 								>
-									<Icon name={current ? "folder-open" : "folder"} size="md" />
-									<span className="pk-list-label">{project.name}</span>
-									{mark ? (
-										<ProjectAgentMark projectId={project.id} mark={mark} />
-									) : null}
-									{project.missing ? (
-										<span className="pk-tag pk-tag--warning">missing</span>
-									) : null}
-									{project.isGitRepo === false && !project.missing ? (
-										<span className="pk-tag">not a repo</span>
-									) : null}
-									{project.missing ? null : <ShareBadge project={project} />}
-								</Link>
-								<MenuRoot>
-									<MenuTrigger asChild>
-										<IconButton
-											icon="more"
-											label={`Actions for ${project.name}`}
-											size="sm"
-											data-testid={`project-menu-${project.id}`}
+									<Link
+										className="pk-list-row"
+										to="/workspaces/$id/projects/$projectId"
+										params={{ id: workspaceId, projectId: project.id }}
+										aria-current={current ? "page" : undefined}
+									>
+										<Icon name={current ? "folder-open" : "folder"} size="md" />
+										<span className="pk-list-label">{project.name}</span>
+										{mark ? (
+											<ProjectAgentMark projectId={project.id} mark={mark} />
+										) : null}
+										{project.missing ? (
+											<span className="pk-tag pk-tag--warning">missing</span>
+										) : null}
+										{project.isGitRepo === false && !project.missing ? (
+											<span className="pk-tag">not a repo</span>
+										) : null}
+										{project.missing ? null : <ShareBadge project={project} />}
+									</Link>
+									{projectAgents.length > 0 ? (
+										<AgentsToggle
+											projectId={project.id}
+											projectName={project.name}
+											listId={agentsId}
+											expanded={agentsOpen}
+											onToggle={() => toggleAgents(project.id)}
 										/>
-									</MenuTrigger>
-									<Menu label={`Actions for ${project.name}`}>
-										{project.missing ? null : (
-											<>
-												<MenuItem onSelect={() => setOpen({ kind: "rename", project })}>
-													<span data-testid="project-rename">Rename…</span>
-												</MenuItem>
-												<MenuItem
-													onSelect={() => setOpen({ kind: "duplicate", project })}
-												>
-													<span data-testid="project-duplicate">Duplicate…</span>
-												</MenuItem>
-												{/* Selecting the item, by click or Enter, starts the download
-												    after the size check. */}
-												<MenuItem
-													onSelect={() => download(project)}
-													testId="project-download"
-												>
-													Download as zip
-												</MenuItem>
-												<MenuItem
-													onSelect={() => setOpen({ kind: "recovery", project })}
-												>
-													<span data-testid="project-recovery">Recovery points…</span>
-												</MenuItem>
-												<MenuItem onSelect={() => setOpen({ kind: "share", project })}>
-													<span data-testid="project-share">
-														Share with my instructors…
-													</span>
-												</MenuItem>
-												<MenuItem
-													onSelect={() => setOpen({ kind: "live-help", project })}
-												>
-													<span data-testid="project-live-help">Get live help…</span>
-												</MenuItem>
-												{project.isGitRepo === false && (
-													<MenuItem onSelect={() => gitInit.mutate(project.id)}>
-														<span data-testid="project-git-init">Initialize Git</span>
+									) : null}
+									<MenuRoot>
+										<MenuTrigger asChild>
+											<IconButton
+												icon="more"
+												label={`Actions for ${project.name}`}
+												size="sm"
+												data-testid={`project-menu-${project.id}`}
+											/>
+										</MenuTrigger>
+										<Menu label={`Actions for ${project.name}`}>
+											{project.missing ? null : (
+												<>
+													<MenuItem
+														onSelect={() => setOpen({ kind: "rename", project })}
+													>
+														<span data-testid="project-rename">Rename…</span>
 													</MenuItem>
-												)}
-												<MenuSeparator />
-											</>
-										)}
-										<MenuItem onSelect={() => setOpen({ kind: "archive", project })}>
-											<span data-testid="project-archive">Archive…</span>
-										</MenuItem>
-										<MenuSeparator />
-										<MenuItem
-											danger
-											onSelect={() => setOpen({ kind: "delete", project })}
-										>
-											<span data-testid={`project-delete-${project.id}`}>
-												Delete project…
-											</span>
-										</MenuItem>
-									</Menu>
-								</MenuRoot>
+													<MenuItem
+														onSelect={() => setOpen({ kind: "duplicate", project })}
+													>
+														<span data-testid="project-duplicate">Duplicate…</span>
+													</MenuItem>
+													{/* Selecting the item, by click or Enter, starts the download
+												    after the size check. */}
+													<MenuItem
+														onSelect={() => download(project)}
+														testId="project-download"
+													>
+														Download as zip
+													</MenuItem>
+													<MenuItem
+														onSelect={() => setOpen({ kind: "recovery", project })}
+													>
+														<span data-testid="project-recovery">Recovery points…</span>
+													</MenuItem>
+													<MenuItem
+														onSelect={() => setOpen({ kind: "share", project })}
+													>
+														<span data-testid="project-share">
+															Share with my instructors…
+														</span>
+													</MenuItem>
+													<MenuItem
+														onSelect={() => setOpen({ kind: "live-help", project })}
+													>
+														<span data-testid="project-live-help">Get live help…</span>
+													</MenuItem>
+													{project.isGitRepo === false && (
+														<MenuItem onSelect={() => gitInit.mutate(project.id)}>
+															<span data-testid="project-git-init">Initialize Git</span>
+														</MenuItem>
+													)}
+													<MenuSeparator />
+												</>
+											)}
+											<MenuItem onSelect={() => setOpen({ kind: "archive", project })}>
+												<span data-testid="project-archive">Archive…</span>
+											</MenuItem>
+											<MenuSeparator />
+											<MenuItem
+												danger
+												onSelect={() => setOpen({ kind: "delete", project })}
+											>
+												<span data-testid={`project-delete-${project.id}`}>
+													Delete project…
+												</span>
+											</MenuItem>
+										</Menu>
+									</MenuRoot>
+								</div>
+								{projectAgents.length > 0 ? (
+									<ProjectAgents
+										workspaceId={workspaceId}
+										projectId={project.id}
+										projectName={project.name}
+										listId={agentsId}
+										expanded={agentsOpen}
+										terminals={projectAgents}
+										unread={agentStatus.unread}
+									/>
+								) : null}
 							</li>
 						);
 					})}

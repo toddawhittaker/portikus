@@ -48,17 +48,31 @@ export function registerCodingAgentRoutes(
 
 	/**
 	 * Set the whole list of agent states for a workspace key and push it to
-	 * the listening sockets. `since` defaults to now.
+	 * the listening sockets. Each `since` defaults to now, and `subagents` to none.
 	 */
 	app.post("/__test/coding-agents", async (request, reply) => {
 		const body = (request.body ?? {}) as {
 			key?: string;
-			terminals?: Array<Omit<AgentCodingAgentStatus, "since"> & { since?: string }>;
+			terminals?: Array<
+				Omit<AgentCodingAgentStatus, "since" | "subagents"> & {
+					since?: string;
+					subagents?: Array<
+						Omit<AgentCodingAgentStatus["subagents"][number], "since"> & {
+							since?: string;
+						}
+					>;
+				}
+			>;
 		};
 		const key = body.key ?? "";
+		const now = new Date().toISOString();
 		const terminals = (body.terminals ?? []).map((one) => ({
 			...one,
-			since: one.since ?? new Date().toISOString(),
+			since: one.since ?? now,
+			subagents: (one.subagents ?? []).map((sub) => ({
+				...sub,
+				since: sub.since ?? now,
+			})),
 		}));
 		codingAgents.set(key, terminals);
 		if (codingAgentsHeld.has(key)) return reply.status(204).send();

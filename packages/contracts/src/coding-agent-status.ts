@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AgentUsageCounts } from "./agent-usage.js";
-import { CodingAgent, TerminalId } from "./terminal.js";
+import { CodingAgent, TerminalId, TerminalKind } from "./terminal.js";
 
 /**
  * What a Claude Code or Codex terminal is doing, and the plan limits of each
@@ -56,6 +56,8 @@ export const CodingAgentTerminal = z.object({
 	projectId: z.string().uuid(),
 	/** The terminal's tab name, joined by the API. */
 	name: z.string().min(1).max(64),
+	/** A chat or a terminal tab, joined by the API so the row is labelled as its tab is. */
+	kind: TerminalKind.default("terminal"),
 });
 export type CodingAgentTerminal = z.infer<typeof CodingAgentTerminal>;
 
