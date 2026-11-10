@@ -24,6 +24,7 @@ import { formatElapsed, isoDuration } from "./elapsed.js";
 import { foldTurn, groupTools, type ToolRun } from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
+import { SpeakButton } from "./SpeakButton.js";
 import { ToolBlock } from "./ToolBlock.js";
 import { toolLine } from "./toolView.js";
 import "./messages.css";
@@ -163,7 +164,8 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 			data-testid="chat-shell"
 			data-state={shell.state}
 		>
-			<fieldset aria-label="Shell command" className="pk-shell-box">
+			{/* biome-ignore lint/a11y/useSemanticElements: a fieldset brings its own sizing and overflow rules to a box that is not a form */}
+			<div role="group" aria-label="Shell command" className="pk-shell-box">
 				<pre className="pk-shell-command" data-testid="chat-shell-command">
 					<span className="pk-shell-prompt" aria-hidden={true}>
 						$
@@ -171,15 +173,14 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 					<code>{shell.command}</code>
 				</pre>
 				{shell.output !== "" ? (
-					<section aria-label="Command output">
-						<pre
-							className="pk-shell-output"
-							// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
-							tabIndex={0}
-							data-testid="chat-shell-output"
-						>
-							{shell.output}
-						</pre>
+					<section
+						className="pk-shell-output"
+						aria-label="Command output"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+						tabIndex={0}
+						data-testid="chat-shell-output"
+					>
+						{shell.output}
 					</section>
 				) : null}
 				{shell.truncated ? (
@@ -211,7 +212,7 @@ const ShellCommand = memo(function ShellCommand({ shell }: { shell: ChatShellIte
 						Finished with exit code 0
 					</p>
 				)}
-			</fieldset>
+			</div>
 		</li>
 	);
 });
@@ -228,6 +229,10 @@ const AssistantMessage = memo(function AssistantMessage({
 			aria-busy={message.streaming || undefined}
 		>
 			<ChatMarkdown text={message.markdown} />
+			{/* Read aloud comes first: the Copy status grows rightward and must not move it. */}
+			{message.streaming || message.markdown.trim() === "" ? null : (
+				<SpeakButton id={message.id} markdown={message.markdown} />
+			)}
 			<CopyButton label="Copy message" text={message.markdown} />
 		</li>
 	);

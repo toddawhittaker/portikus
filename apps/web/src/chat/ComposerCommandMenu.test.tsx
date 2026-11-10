@@ -116,7 +116,13 @@ function draw() {
 	render(
 		<QueryClientProvider client={new QueryClient()}>
 			<ToastProvider>
-				<Composer store={store} workspaceId="w" projectId="p" terminalId={TERMINAL} />
+				<Composer
+					store={store}
+					readAloud={{ on: false, set: () => {} }}
+					workspaceId="w"
+					projectId="p"
+					terminalId={TERMINAL}
+				/>
 			</ToastProvider>
 		</QueryClientProvider>,
 	);

@@ -1,8 +1,16 @@
 import { CHAT_START_EFFORT } from "@portikus/contracts";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { ASK_RULES_HINT, BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
+import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 type Settings = NonNullable<ChatState["settings"]>;
 
@@ -16,6 +24,8 @@ const START: Settings = {
 let asked: unknown[];
 let accept: boolean;
 let announced: string[];
+let switched: boolean[];
+let readingAloud: boolean;
 let store: ChatStore;
 let rerender: (
 	settings: ChatState["settings"],
@@ -34,6 +44,7 @@ function draw(settings: ChatState["settings"] = START) {
 					return accept;
 				}}
 				onAnnounce={(text) => announced.push(text)}
+				readAloud={{ on: readingAloud, set: (next) => switched.push(next) }}
 			/>
 			<p id="bypass-warning">{BYPASS_WARNING}</p>
 		</>
@@ -71,6 +82,8 @@ beforeEach(() => {
 	asked = [];
 	accept = true;
 	announced = [];
+	switched = [];
+	readingAloud = false;
 });
 
 test("each picker is a menu button named by its label and the value shown", () => {
@@ -310,4 +323,49 @@ test("each menu opens with a visible heading naming what it sets", () => {
 		expect(menu.firstElementChild?.textContent).toBe(name);
 		fireEvent.keyDown(menu, { key: "Escape" });
 	}
+});
+
+function readAloudSwitch(): HTMLElement {
+	return screen.getByRole("switch", { name: "Read replies aloud" });
+}
+
+test("the Read replies aloud switch shows its state and flips on a click or Space", () => {
+	installFakeSpeech();
+	try {
+		draw();
+		const toggle = readAloudSwitch();
+		expect(toggle.getAttribute("aria-checked")).toBe("false");
+		expect(toggle.textContent).toContain("Off");
+		fireEvent.click(toggle);
+		expect(switched).toEqual([true]);
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("the switch reads On when the project reads aloud", () => {
+	installFakeSpeech();
+	try {
+		readingAloud = true;
+		draw();
+		expect(readAloudSwitch().getAttribute("aria-checked")).toBe("true");
+		expect(readAloudSwitch().textContent).toContain("On");
+		fireEvent.click(readAloudSwitch());
+		expect(switched).toEqual([false]);
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("the switch is there before the host reports settings, and is hidden without speech", () => {
+	installFakeSpeech();
+	try {
+		draw(null);
+		expect(readAloudSwitch()).toBeTruthy();
+	} finally {
+		removeFakeSpeech();
+	}
+	cleanup();
+	draw();
+	expect(screen.queryByRole("switch")).toBeNull();
 });

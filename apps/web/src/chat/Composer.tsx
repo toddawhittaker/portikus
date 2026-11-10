@@ -29,6 +29,7 @@ import {
 import { useStore } from "zustand";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
+import { stop as stopReading } from "../voice/speak.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
 import { ComposerChips } from "./ComposerChips.js";
@@ -56,6 +57,7 @@ import {
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
+import type { ReadAloud } from "./readAloud.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
@@ -91,12 +93,19 @@ interface Sending {
 
 export interface ComposerProps {
 	store: ChatStore;
+	readAloud: ReadAloud;
 	workspaceId: string;
 	projectId: string;
 	terminalId: string;
 }
 
-export function Composer({ store, workspaceId, projectId, terminalId }: ComposerProps) {
+export function Composer({
+	store,
+	readAloud,
+	workspaceId,
+	projectId,
+	terminalId,
+}: ComposerProps) {
 	const ids = useId();
 	const settings = useStore(store, (state) => state.settings);
 	const running = useStore(store, (state) => state.currentTurnId !== null);
@@ -218,6 +227,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			return;
 		}
 		stopSpeech();
+		stopReading();
 		// The file just sent must not be deleted by a quick repeat of its paste.
 		if (editor.current) forgetLongPaste(editor.current);
 		lastLongPaste.current = null;
@@ -497,6 +507,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 						warningId={`${ids}-bypass`}
 						onSet={(next) => store.getState().set(next)}
 						onAnnounce={announce}
+						readAloud={readAloud}
 					/>
 					<div className="pk-composer-actions">
 						<VoiceButton
