@@ -268,6 +268,15 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 			const agent = await startClaude(page, student.workspaceId, project.id);
 			await newTerminal(page);
+			await expect
+				.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+				.toBe(2);
+			const shell = (await terminalIds(student.workspaceId, project.id)).find(
+				(one) => one !== agent,
+			);
+			if (!shell) throw new Error("no shell");
+			// A shell that connects late takes the keyboard, which closes an open drawer.
+			await expectConnected(page, shell);
 			await setAgentTabs(student.workspaceId, [
 				{
 					terminalId: agent,
