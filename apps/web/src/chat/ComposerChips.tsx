@@ -16,17 +16,21 @@ function fileSize(bytes: number): string {
  * The files waiting to go with the next message, each removable. A picture
  * shows a thumbnail large enough to check it is the right one. After a
  * removal the keyboard moves to the next file's Remove button, else the one
- * before, else the message box (SPEC.md §25.8).
+ * before, else the message box (SPEC.md §25.8). A long paste can also be
+ * put in the message box as text, which needs no timing (SPEC.md §25.8).
  */
 export function ComposerChips({
 	items,
 	saving,
 	onRemove,
+	onInsert,
 	onEmptied,
 }: {
 	items: ComposerAttachment[];
 	saving: number;
 	onRemove: (key: string) => void;
+	/** Put a long paste's text in the box. Absent while a message that names the file is on its way. */
+	onInsert?: ((key: string) => void) | undefined;
 	/** The last file was removed from the keyboard; put it somewhere useful. */
 	onEmptied: () => void;
 }) {
@@ -37,7 +41,7 @@ export function ComposerChips({
 		if (focusNext === null) return;
 		setFocusNext(null);
 		const button = list.current?.querySelector<HTMLElement>(
-			`[data-chip="${focusNext}"] button`,
+			`[data-chip="${focusNext}"] [data-chip-remove]`,
 		);
 		if (button) button.focus();
 		else onEmptied();
@@ -86,10 +90,20 @@ export function ComposerChips({
 							{item.lines === null ? fileSize(item.size) : lineText(item.lines)}
 						</span>
 					</span>
+					{item.text !== null && onInsert ? (
+						<IconButton
+							icon="list"
+							size="sm"
+							label={`Insert pasted text inline (${displayName(item.name)})`}
+							data-testid="composer-chip-insert"
+							onClick={() => onInsert(item.key)}
+						/>
+					) : null}
 					<IconButton
 						icon="x"
 						size="sm"
 						label={`Remove ${displayName(item.name)}`}
+						data-chip-remove={true}
 						onClick={() => remove(at)}
 					/>
 				</li>

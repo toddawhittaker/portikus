@@ -29,6 +29,8 @@ export interface ComposerAttachment {
 	size: number;
 	/** For a long paste saved as a file, its line count, which the chip shows instead of the size. */
 	lines: number | null;
+	/** For a long paste, the pasted text, held in memory so it can be inserted inline; null otherwise. */
+	text: string | null;
 }
 
 /** Pictures Claude can read; SVG is left out because it can carry script. */
@@ -105,10 +107,13 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 
 	const add = useCallback(
 		/**
-		 * `lines` is given for a long paste saved as one text file. Resolves
+		 * `paste` is given for a long paste saved as one text file. Resolves
 		 * to the keys of the files attached.
 		 */
-		async (files: File[], lines: number | null = null): Promise<string[]> => {
+		async (
+			files: File[],
+			paste: { lines: number; text: string } | null = null,
+		): Promise<string[]> => {
 			const { accepted, refused } = sortOut(files, reserved.current);
 			reserved.current += accepted.length;
 			setRefusal(refused);
@@ -144,7 +149,8 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 						name: file.name,
 						previewUrl,
 						size: file.size,
-						lines,
+						lines: paste?.lines ?? null,
+						text: paste?.text ?? null,
 					};
 					keys.push(item.key);
 					// Known at once, so a discard straight after the save finds it before the next render.
@@ -162,10 +168,10 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 				}
 			}
 			// A long paste says where it went, so nobody pastes it again thinking it was lost.
-			const pasted = lines !== null && saved === 1 ? accepted[0] : undefined;
+			const pasted = paste !== null && saved === 1 ? accepted[0] : undefined;
 			setStatus(
-				pasted
-					? `Pasted ${lineText(lines as number)}, attached as ${displayName(pasted.name)}.`
+				pasted && paste
+					? `Pasted ${lineText(paste.lines)}, attached as ${displayName(pasted.name)}.`
 					: saved > 0
 						? `Attached ${fileCount(saved)}.`
 						: "",
