@@ -11,8 +11,7 @@ import { FAKE_AGENT_URL } from "./ports";
 import { splitPane } from "./split-helpers";
 
 /**
- * Each chat tab's context and prompt-cache readouts (SPEC.md §10.8, §25.8,
- * #1783). They sit in that tab's picker row and come from the host's
+ * Each chat tab's context and prompt-cache readouts (SPEC.md §10.8, §25.8). They sit in that tab's picker row and come from the host's
  * `context` event. The context shows once over half full and warns near
  * full; the cache clock shows whenever the host reports one. The ticking
  * digits are not read, and the status region announces only the moment the
