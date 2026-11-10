@@ -63,6 +63,56 @@
 	padding-inline-end: var(--space-2);
 }
 
+/* The readouts take the last line of the composer's bar, whatever its width, so a
+   figure appearing or a wider value never moves the pickers, the microphone or Send.
+   Empty until the host reports, and then it takes no line. */
+.pk-ctx-row {
+	display: flex;
+	flex: 1 0 100%;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	order: 2;
+	min-inline-size: 0;
+}
+
+.pk-ctx-row:empty {
+	display: none;
+}
+
+/* The context and cache readouts: plain text, not a control, so no border. */
+.pk-ctx {
+	display: inline-flex;
+	align-items: center;
+	min-inline-size: 0;
+	block-size: var(--size-control-sm);
+	padding-inline: var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--ink-muted);
+	font-size: 13px;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.pk-ctx-sight {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+/* The last minute and a context near full: colour plus the icon, and "soon" for the cache. */
+.pk-ctx.is-warning {
+	gap: var(--space-1);
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
+	font-weight: 600;
+}
+
+/* A cold cache is plain fact, so it is set bolder than a warm one but not alarmed. */
+.pk-ctx.is-cold {
+	color: var(--ink);
+	font-weight: 600;
+}
+
 /* Wide enough for a choice and its line on one row, never wider than the window allows. */
 .pk-picker-menu {
 	inline-size: max-content;
