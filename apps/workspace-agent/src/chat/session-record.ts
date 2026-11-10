@@ -19,9 +19,9 @@ async function readRecord(dir: string, tabId: string): Promise<string | null> {
 }
 
 /**
- * The session a chat tab runs, recorded under its own id: its own id for a
- * new chat, or the session of the ended tab it resumes, falling back to
- * that tab's id when it has no record.
+ * The session a chat tab runs, recorded under its own id: the session of
+ * the ended tab it resumes, or else the session already recorded for this
+ * tab, each falling back to that tab's own id when it has no record.
  */
 export async function recordChatSession(
 	homeDir: string,
@@ -31,11 +31,25 @@ export async function recordChatSession(
 	const tab = TerminalId.parse(tabId);
 	const old = resumeOf === undefined ? undefined : TerminalId.parse(resumeOf);
 	const dir = chatSessionsDir(homeDir);
+	// A restarted tab keeps the session it had moved to, such as after /clear.
+	const from = old ?? tab;
+	const sessionId = (await readRecord(dir, from)) ?? from;
+	await writeChatSession(homeDir, tab, sessionId);
+	return sessionId;
+}
+
+/** Record that a chat tab now runs this session, replacing what it ran before. */
+export async function writeChatSession(
+	homeDir: string,
+	tabId: string,
+	sessionId: string,
+): Promise<void> {
+	const tab = TerminalId.parse(tabId);
+	const session = TerminalId.parse(sessionId);
+	const dir = chatSessionsDir(homeDir);
 	await mkdir(dir, { recursive: true, mode: 0o700 });
 	await chmod(dir, 0o700);
-	const sessionId = old === undefined ? tab : ((await readRecord(dir, old)) ?? old);
 	const temp = join(dir, `.${tab}.${randomUUID()}.tmp`);
-	await writeFile(temp, sessionId, { mode: 0o600 });
+	await writeFile(temp, session, { mode: 0o600 });
 	await rename(temp, join(dir, tab));
-	return sessionId;
 }

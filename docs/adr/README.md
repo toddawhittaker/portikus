@@ -98,3 +98,4 @@ has four sections:
 | [0068](0068-agent-status-limits-and-alerts.md) | Agent status comes from the agents' own hooks, plan limits from Claude Code's status line and `codex app-server`, students see today's counts, and agent alert toasts are not recorded (accepted, Epic 56) |
 | [0069](0069-chat-tab.md) | The Claude Code (GUI) chat tab: the Agent SDK in a tmux-hosted chat host, offered for every sign-in, owner-only at the API (accepted, Epic 58) |
 | [0070](0070-subagent-hook.md) | A subagent hook reads only the tool call id, description, subagent type, background flag and agent id, never the prompt; this changes ADR 0068 item 1 for that script (accepted, Epic 59) |
+| [0071](0071-chat-read-aloud.md) | Chat replies are read aloud through the browser's `speechSynthesis`, preferring on-device voices, with Markdown removed and code blocks skipped (accepted, Epic 59) |

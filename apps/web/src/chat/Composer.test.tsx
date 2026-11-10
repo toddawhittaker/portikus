@@ -425,6 +425,108 @@ test("the same long text pasted twice at once goes in the box once, and the firs
 	expect(sent).toEqual([{ type: "send", text: log, attachments: [] }]);
 });
 
+function pasteLines(count: number, prefix = "l") {
+	const log = Array.from({ length: count }, (_, at) => `${prefix}${at}`).join("\n");
+	fireEvent.paste(input(), {
+		clipboardData: {
+			files: [],
+			items: [],
+			types: ["text/plain"],
+			getData: (kind: string) => (kind === "text/plain" ? log : ""),
+		},
+	});
+	return log;
+}
+
+function insertButton(name = "pasted-text.txt") {
+	return screen.getByRole("button", {
+		name: `Insert pasted text inline (${name})`,
+	});
+}
+
+test("Insert as text puts the long paste in the box at the cursor, deletes its file, says so and focuses the box", async () => {
+	draw();
+	type("before after");
+	placeCursor(input(), 7);
+	const log = pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	expect(value()).toBe("before after");
+	fireEvent.click(insertButton());
+	expect(screen.queryByTestId("composer-chip")).toBeNull();
+	expect(value()).toBe(`before ${log}after`);
+	expect(deleteFile).toHaveBeenCalledTimes(1);
+	expect(deleteFile).toHaveBeenCalledWith(await saveDroppedFile.mock.results[0]?.value);
+	await waitFor(() => expect(status()).toBe("Inserted 60 lines as text."));
+	// The cursor is at the end of the inserted text: typing continues from there.
+	expect(editorOf(input()).view.hasFocus()).toBe(true);
+	typeInto(input(), "!");
+	expect(value()).toBe(`before ${log}!after`);
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{ type: "send", text: `before ${log}!after`, attachments: [] },
+	]);
+});
+
+test("Insert as text fills an empty box, and only that chip's paste moves", async () => {
+	draw();
+	pasteLines(50, "a");
+	await screen.findByTestId("composer-chip");
+	pasteLines(60, "b");
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	fireEvent.click(insertButton("pasted-text-2.txt"));
+	expect(value()).toBe(Array.from({ length: 60 }, (_, at) => `b${at}`).join("\n"));
+	const left = screen.getAllByTestId("composer-chip");
+	expect(left).toHaveLength(1);
+	expect(left[0]?.textContent).toContain("pasted-text.txt");
+	expect(deleteFile).toHaveBeenCalledTimes(1);
+});
+
+test("a picture's chip has no Insert as text button", async () => {
+	draw();
+	paste([file("image.png", "image/png")]);
+	await screen.findByTestId("composer-chip");
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+});
+
+test("once a message names the paste's file there is no Insert as text, and the file is kept", async () => {
+	draw();
+	pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+	// Sent, not yet echoed: the chip stays but cannot be turned into text.
+	expect(screen.getByTestId("composer-chip")).toBeTruthy();
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+	echo("");
+	await waitFor(() => expect(screen.queryByTestId("composer-chip")).toBeNull());
+	expect(deleteFile).not.toHaveBeenCalled();
+	expect(value()).toBe("");
+});
+
+test("after a send the host refused, the paste can be inserted again", async () => {
+	draw();
+	pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+	emit("error", { message: "no" });
+	await waitFor(() => expect(screen.getByTestId("composer-chip-insert")).toBeTruthy());
+});
+
+test("Remove moves the keyboard to the next chip's Remove button, not its Insert button", async () => {
+	draw();
+	pasteLines(50, "a");
+	await screen.findByTestId("composer-chip");
+	pasteLines(60, "b");
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	fireEvent.click(screen.getByRole("button", { name: "Remove pasted-text.txt" }));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Remove pasted-text-2.txt" }),
+		),
+	);
+});
+
 test("each long paste gets its own file, chip and Remove name", async () => {
 	draw();
 	const pasteLines = (count: number) =>
