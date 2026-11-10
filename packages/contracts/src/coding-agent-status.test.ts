@@ -75,6 +75,16 @@ test("the browser terminal adds a project id", () => {
 	);
 });
 
+test("the browser terminal carries the terminal's kind, a plain terminal when missing", () => {
+	const projectId = "11111111-1111-4111-8111-111111111111";
+	const base = { ...status(), projectId, name: "Terminal 2" };
+	expect(CodingAgentTerminal.parse({ ...base, kind: "chat" }).kind).toBe("chat");
+	expect(CodingAgentTerminal.parse(base).kind).toBe("terminal");
+	expect(CodingAgentTerminal.safeParse({ ...base, kind: "notebook" }).success).toBe(
+		false,
+	);
+});
+
 test("the browser terminal needs a name of 1 to 64 characters", () => {
 	const projectId = "11111111-1111-4111-8111-111111111111";
 	const withName = (name: string) =>
