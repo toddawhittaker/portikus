@@ -14,6 +14,7 @@
  * the box instead. `/` at the very start of the message, and `@` at a word's
  * start outside code, open the composer's menus (ComposerCommandMenu.tsx):
  * the editor reports what follows the character and hands the menu its keys.
+ * Neither opens while the message is a shell command (inShellMode).
  */
 import {
 	Editor,
@@ -53,6 +54,7 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import Suggestion from "@tiptap/suggestion";
 import { isSafeLink } from "../markdown/sanitize.js";
 import { toMarkdown } from "./composerMarkdown.js";
+import { isShellCommand } from "./shellCommand.js";
 
 // Emphasis as CommonMark reads it: the markers hug the text, and the
 // opening one follows a space or the line's start, so `2 * 3 * 4` and
@@ -156,6 +158,20 @@ export function inCodeBlock(editor: EditorType): boolean {
 
 function inCodeAt(state: EditorState): boolean {
 	return state.selection.$from.parent.type.spec.code === true;
+}
+
+/**
+ * True while the message would be sent as a shell command (SPEC.md §10.8):
+ * the composer then marks itself, and the `/` and `@` menus stay shut.
+ */
+export function inShellMode(editor: EditorType): boolean {
+	return shellAt(editor.state);
+}
+
+function shellAt(state: EditorState): boolean {
+	// Most messages are cut short here, without serializing the whole document.
+	if (!state.doc.textContent.trimStart().startsWith("!")) return false;
+	return isShellCommand(toMarkdown(state.doc.content));
 }
 
 /** A space to set dictated words apart from the text before the cursor. */
@@ -417,9 +433,11 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					startOfLine,
 					pluginKey: new PluginKey(`composerMenu-${kind}`),
 					decorationClass: "pk-composer-trigger",
-					// A command only opens the message; a file anywhere outside code.
+					// A command only opens the message; a file anywhere outside code. A shell command has neither.
 					allow: ({ state, range }) =>
-						!inCodeAt(state) && (kind === "file" || range.from === 1),
+						!inCodeAt(state) &&
+						(kind === "file" || range.from === 1) &&
+						!shellAt(state),
 					render: () => {
 						const report = (props: {
 							query: string;
