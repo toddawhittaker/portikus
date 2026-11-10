@@ -2,19 +2,19 @@ import { randomUUID } from "node:crypto";
 import {
 	AGENT_USAGE_METRICS_PATH,
 	AGENT_USAGE_REPORT_DAYS,
-	AgentLimits,
 	type AgentUsageCounts,
 	AgentUsageModel,
 	type AgentUsageReport,
 	type AgentUsageReportRow,
 	CodingAgent,
 	CodingAgentState,
+	CodingAgentSubagentPost,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
 	TerminalId,
 } from "@portikus/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { AgentLimitsStore } from "./agent-limits-route.js";
+import { AgentLimits, type AgentLimitsStore } from "./agent-limits-route.js";
 import type { CodingAgentBoard } from "./coding-agent-status.js";
 
 /**
@@ -309,6 +309,9 @@ function modelOf(attributes: Attribute[] | undefined): string | null {
 /** Where the state hook script posts (scripts/portikus-agent-state). */
 export const CODING_AGENT_STATE_PATH = "/coding-agent-state";
 
+/** Where the subagent hook script posts (scripts/portikus-agent-subagent). */
+export const CODING_AGENT_SUBAGENT_PATH = "/coding-agent-subagent";
+
 /** Where Claude Code's status line script posts (scripts/portikus-claude-status). */
 export const CLAUDE_LIMITS_PATH = "/claude-limits";
 
@@ -345,10 +348,8 @@ const ClaudeLimitsPost = z
 	})
 	.strict();
 
-const CLAUDE_WINDOWS = [
-	["five_hour", "5h"],
-	["seven_day", "7d"],
-] as const;
+/** Claude Code has no 5-hour limit now; a `five_hour` field is accepted and dropped. */
+const CLAUDE_WINDOWS = [["seven_day", "7d"]] as const;
 
 /** Claude Code's windows in the contract's shape, or null when one is out of range. */
 function claudeLimits(
@@ -407,6 +408,19 @@ export function buildAgentUsageReceiver(
 			}
 			if (state === "clear") signals.board.clear(terminal, at);
 			else signals.board.set(terminal, agent, state, at);
+			return reply.code(204).send();
+		},
+	);
+	app.post(
+		CODING_AGENT_SUBAGENT_PATH,
+		{ bodyLimit: MAX_SIGNAL_BODY_BYTES },
+		async (request, reply) => {
+			const parsed = CodingAgentSubagentPost.safeParse(request.body);
+			if (!parsed.success) return reply.code(400).send({});
+			if (parsed.data.at > (now().getTime() + MAX_HOOK_CLOCK_AHEAD_MS) * 1000) {
+				return reply.code(400).send({});
+			}
+			signals.board.subagent(parsed.data);
 			return reply.code(204).send();
 		},
 	);

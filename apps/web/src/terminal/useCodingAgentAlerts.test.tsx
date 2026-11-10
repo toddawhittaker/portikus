@@ -53,7 +53,16 @@ function term(
 	state: CodingAgentTerminal["state"],
 	projectId = HERE,
 ): CodingAgentTerminal {
-	return { terminalId, projectId, agent: "claude", state, since: SINCE };
+	return {
+		terminalId,
+		projectId,
+		agent: "claude",
+		state,
+		since: SINCE,
+		subagents: [],
+		name: "Claude",
+		kind: "terminal",
+	};
 }
 
 /** A work area with one selected tab, or none. */

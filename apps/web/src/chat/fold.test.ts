@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore";
 import { formatElapsed, isoDuration } from "./elapsed";
-import { foldTurn, groupTools } from "./fold";
+import { changedFiles, foldTurn, groupTools } from "./fold";
 
 function said(id: string): ChatMessageItem {
 	return {
@@ -116,4 +116,87 @@ test("a turn's length reads as minutes and seconds", () => {
 	expect(formatElapsed(3_900_000)).toBe("1h 5m");
 	expect(formatElapsed(-5)).toBe("0m 0s");
 	expect(isoDuration(223_000)).toBe("PT223S");
+});
+
+function call(
+	name: string,
+	input: unknown,
+	status: ChatToolItem["status"] = "done",
+	id = `${name}-${JSON.stringify(input)}`,
+): ChatToolItem {
+	return {
+		kind: "tool",
+		key: id,
+		id,
+		name,
+		title: name,
+		input,
+		output: [],
+		status,
+		turnId: "t1",
+	};
+}
+
+test("a file edited twice is one entry with its counts summed, in first-touched order", () => {
+	const files = changedFiles([
+		call(
+			"Edit",
+			{ file_path: "/p/a.ts", old_string: "x", new_string: "y\nz" },
+			"done",
+			"1",
+		),
+		call("Write", { file_path: "/p/b.ts", content: "one\ntwo\nthree\n" }),
+		call("MultiEdit", {
+			file_path: "/p/a.ts",
+			edits: [{ old_string: "q\nr", new_string: "s" }],
+		}),
+	]);
+	expect(files).toEqual([
+		{ path: "/p/a.ts", added: 3, removed: 3 },
+		// A created file is all additions.
+		{ path: "/p/b.ts", added: 3, removed: 0 },
+	]);
+});
+
+test("the same file reached by a relative and an absolute path is one entry", () => {
+	const edit = (file_path: string, id: string) =>
+		call("Edit", { file_path, old_string: "x", new_string: "y" }, "done", id);
+	expect(
+		changedFiles(
+			[
+				edit("src/a.ts", "1"),
+				edit("/home/student/projects/demo/src/a.ts", "2"),
+				edit("./src/a.ts", "3"),
+				edit("/home/student/projects/demo/../x.ts", "4"),
+			],
+			"demo",
+		),
+	).toEqual([
+		{ path: "src/a.ts", added: 3, removed: 3 },
+		// Outside the project it stays as Claude named it.
+		{ path: "/home/student/projects/demo/../x.ts", added: 1, removed: 1 },
+	]);
+});
+
+test("only finished edits count: failed, stopped and running ones changed nothing", () => {
+	const edit = { file_path: "a.ts", old_string: "x", new_string: "y" };
+	expect(
+		changedFiles([
+			call("Edit", edit, "error", "1"),
+			call("Edit", edit, "stopped", "2"),
+			call("Edit", edit, "running", "3"),
+		]),
+	).toEqual([]);
+});
+
+test("reads, commands and other items are not changes", () => {
+	expect(
+		changedFiles([
+			said("hi"),
+			call("Read", { file_path: "a.ts" }),
+			call("Bash", { command: "rm a.ts" }),
+			call("Edit", { old_string: "x", new_string: "y" }),
+			call("Write", { file_path: "empty.ts", content: "" }),
+		]),
+	).toEqual([{ path: "empty.ts", added: 0, removed: 0 }]);
 });

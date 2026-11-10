@@ -5,7 +5,7 @@ import { request } from "../api/request.js";
 /** How often the open workspace page asks; the counts behind it change every few minutes. */
 const AGENT_METER_POLL_MS = 60_000;
 
-/** Each coding agent's plan limits and today's counts (SPEC.md §25.10). */
+/** Each provider's 7-day plan usage and today's counts (SPEC.md §25.10). */
 export function useAgentMeter(workspaceId: string, enabled: boolean) {
 	return useQuery({
 		queryKey: ["agent-meter", workspaceId],

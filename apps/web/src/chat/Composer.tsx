@@ -8,7 +8,10 @@
  * attached as a text file instead of filling the box. Dictation is typed
  * into the box and never sent on its own (SPEC.md §25.10). The draft is
  * cleared only when the host echoes the message back, so a send it refuses
- * leaves the text and files in place to try again.
+ * leaves the text and files in place to try again. `/` at the start lists
+ * slash commands and `@` lists project files (ComposerCommandMenu.tsx).
+ * While the text starts with `!` it is a shell command: the box wears a
+ * "Shell" label and monospace text, says so once, and opens neither menu.
  */
 import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
@@ -26,20 +29,36 @@ import {
 import { useStore } from "zustand";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
+import { stop as stopReading } from "../voice/speak.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
 import { ComposerChips } from "./ComposerChips.js";
+import {
+	ComposerCommandMenu,
+	optionId,
+	selectCommands,
+	useComposerMenu,
+} from "./ComposerCommandMenu.js";
 import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
-import type { ChatStore } from "./chatStore.js";
+import type { ChatState, ChatStore } from "./chatStore.js";
 import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
+	type ComposerMenu,
+	type ComposerMenuKind,
+	chooseFromMenu,
+	clearMenuText,
 	composerText,
 	createComposerEditor,
 	forgetLongPaste,
 	inCodeBlock,
+	inShellMode,
 	insertAtCursor,
+	insertPlainText,
+	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
+import type { ReadAloud } from "./readAloud.js";
+import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
@@ -50,14 +69,20 @@ const VOICE_HINT =
 	"Hold Space on this button, or Alt+Shift+M in the message box, to talk.";
 const BYPASS_ON = `Bypass permissions is on. ${BYPASS_WARNING}`;
 const PLACEHOLDER = "Message Claude Code, or paste or drop images";
+/** The placeholder's advice, said on focus: a combobox may not carry aria-placeholder. */
+const TIPS = "Type / for commands or @ for files. Paste or drop images to attach them.";
 const KEY_HINT =
 	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
 const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
+const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
 const SENDING = "Wait for your last message to reach Claude.";
 // Said once on entering a block: the visible hint is only a description, read on focus.
 const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
+const SHELL_ANNOUNCED = "Shell command mode";
+const SHELL_HINT =
+	"Shell command. Enter runs it in the project folder, and Claude sees the output with your next message.";
 const PASTED_NAME = "pasted-text.txt";
 
 /** A message sent and not yet echoed back by the host. */
@@ -66,27 +91,78 @@ interface Sending {
 	seq: number;
 	text: string;
 	keys: string[];
+	/** The newest `!` command in the conversation when it was sent. */
+	shell: string;
+}
+
+/** The line under the box that fits what the box is doing now. */
+function footHint(now: {
+	shell: boolean;
+	inCode: boolean;
+	shellRunning: boolean;
+	turnRunning: boolean;
+}): string {
+	if (now.shell) return SHELL_HINT;
+	if (now.inCode) return CODE_HINT;
+	if (now.shellRunning) return SHELL_RUNNING_HINT;
+	return now.turnRunning ? RUNNING_HINT : KEY_HINT;
+}
+
+/** The key of the newest `!` command in the conversation, or "". */
+function newestShell(state: ChatState): string {
+	for (let at = state.items.length - 1; at >= 0; at--) {
+		const item = state.items[at];
+		if (item?.kind === "shell") return item.key;
+	}
+	return "";
 }
 
 export interface ComposerProps {
 	store: ChatStore;
+	readAloud: ReadAloud;
 	workspaceId: string;
 	projectId: string;
 	terminalId: string;
 }
 
-export function Composer({ store, workspaceId, projectId, terminalId }: ComposerProps) {
+export function Composer({
+	store,
+	readAloud,
+	workspaceId,
+	projectId,
+	terminalId,
+}: ComposerProps) {
 	const ids = useId();
 	const settings = useStore(store, (state) => state.settings);
-	const running = useStore(store, (state) => state.currentTurnId !== null);
+	const turnRunning = useStore(store, (state) => state.currentTurnId !== null);
+	const shellRunning = useStore(store, (state) =>
+		state.items.some((item) => item.kind === "shell" && item.state === "running"),
+	);
+	/** Something Stop can end: a turn, or a `!` command the host is running. */
+	const running = turnRunning || shellRunning;
 	const echoed = useStore(store, (state) => state.lastUserMessageSeq);
+	const lastShell = useStore(store, newestShell);
 	const lastError = useStore(store, (state) => state.lastError);
 	const connection = useStore(store, (state) => state.connection);
+	const commands = useStore(store, selectCommands);
 	const [sending, setSending] = useState<Sending | null>(null);
 	const [announced, setAnnounced] = useState("");
 	const [error, setError] = useState("");
 	const [dragging, setDragging] = useState(false);
 	const [inCode, setInCode] = useState(false);
+	const [shell, setShell] = useState(false);
+	const [menu, setMenu] = useState<ComposerMenu | null>(null);
+	/** The menu's list shows only while the box holds focus. */
+	const [focused, setFocused] = useState(false);
+	const menuModel = useComposerMenu(menu, commands, workspaceId, projectId);
+	const listId = `${ids}-menu`;
+	// A list that changes under the student starts unchosen again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when the menu changes
+	useEffect(() => {
+		arrowed.current = false;
+	}, [menu]);
+	const listShown = menu !== null && focused && menuModel.options.length > 0;
+	const activeOption = optionId(listId, menuModel.active);
 	const host = useRef<HTMLDivElement | null>(null);
 	const editor = useRef<Editor | null>(null);
 	const picker = useRef<HTMLInputElement | null>(null);
@@ -94,6 +170,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const lastSent = useRef<JSONContent | null>(null);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
+	/** The student has moved through the open menu's list with the arrow keys. */
+	const arrowed = useRef(false);
 	/** Long pastes so far, so each gets its own file and chip name. */
 	const pastes = useRef(0);
 	/** The last long paste's chip, to take back if the same text is pasted again at once. */
@@ -105,7 +183,9 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	// The echo of the student's own message ends the send; text typed since stays.
 	useEffect(() => {
 		if (!sending) return;
-		if (echoed > sending.seq) {
+		// A `!` command is never echoed as a message: the host accepts it by adding it.
+		const ran = isShellCommand(sending.text) && lastShell !== sending.shell;
+		if (echoed > sending.seq || ran) {
 			const box = editor.current;
 			if (box && composerText(box) === sending.text) box.commands.clearContent(true);
 			clearFiles(sending.keys);
@@ -114,7 +194,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			// The error shows in the conversation; the draft stays to send again.
 			setSending(null);
 		}
-	}, [echoed, lastError, sending, clearFiles]);
+	}, [echoed, lastShell, lastError, sending, clearFiles]);
 
 	// A new socket may never echo a send the old one carried.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only when the connection changes
@@ -133,6 +213,13 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		);
 	}, [inCode]);
 
+	// Said once as the mode turns on, and emptied as it turns off so the next entry is said again.
+	useEffect(() => {
+		setAnnounced((now) =>
+			shell ? SHELL_ANNOUNCED : now === SHELL_ANNOUNCED ? "" : now,
+		);
+	}, [shell]);
+
 	useLayoutEffect(() => {
 		if (running || !stopFocused.current) return;
 		stopFocused.current = false;
@@ -142,6 +229,15 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}, [running]);
 
 	const announce = useCallback((text: string) => setAnnounced(text), []);
+
+	// The box is the menu's combobox: it says whether the list is shown and which option is current.
+	useEffect(() => {
+		if (editor.current)
+			setMenuAria(editor.current, {
+				controls: listShown ? listId : null,
+				active: activeOption,
+			});
+	}, [listShown, listId, activeOption]);
 
 	useEffect(() => {
 		if (files.status !== "") setAnnounced(files.status);
@@ -172,13 +268,19 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			return;
 		}
 		stopSpeech();
+		stopReading();
 		// The file just sent must not be deleted by a quick repeat of its paste.
 		if (editor.current) forgetLongPaste(editor.current);
 		lastLongPaste.current = null;
 		setError("");
 		if (text.trim() !== "" && editor.current)
 			lastSent.current = editor.current.getJSON();
-		setSending({ seq, text, keys: files.items.map((item) => item.key) });
+		setSending({
+			seq,
+			text,
+			keys: files.items.map((item) => item.key),
+			shell: newestShell(store.getState()),
+		});
 	}
 
 	function addLongPaste(text: string, lines: number) {
@@ -187,8 +289,21 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			pastes.current === 1 ? PASTED_NAME : `pasted-text-${pastes.current}.txt`;
 		lastLongPaste.current = files.add(
 			[new File([text], name, { type: "text/plain" })],
-			lines,
+			{ lines, text },
 		);
+	}
+
+	/**
+	 * Put a long paste's text in the box at the cursor and delete its file.
+	 * Refused once a message that names the file is on its way: the file stays.
+	 */
+	function insertInline(key: string) {
+		const item = files.items.find((entry) => entry.key === key);
+		const box = editor.current;
+		if (!item || item.text === null || item.lines === null || !box || sending) return;
+		insertPlainText(box.view, item.text);
+		files.discard(key, `Inserted ${lineText(item.lines)} as text.`);
+		box.view.focus();
 	}
 
 	/** The same long text pasted again at once: the editor has put it inline, so its chip goes. */
@@ -212,9 +327,66 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		);
 	}
 
+	/** A menu opened or changed, or the menu of kind `closed` shut. */
+	function onMenu(next: ComposerMenu | null, closed?: ComposerMenuKind) {
+		setMenu((now) => next ?? (now?.kind === closed ? null : now));
+	}
+
+	/** Put the menu's option in the box, or for a terminal-only command, point the way. */
+	function choose(index: number) {
+		const option = menuModel.options[index];
+		const box = editor.current;
+		if (!option || !box || !menu) return;
+		if (option.insert !== null) {
+			chooseFromMenu(box, menu, option.insert);
+			return;
+		}
+		const picker = option.control
+			? host.current
+					?.closest("form")
+					?.querySelector<HTMLElement>(`[data-testid="${option.control}"]`)
+			: null;
+		if (!picker) {
+			setAnnounced(`${option.label} works only in the terminal, so it is not sent.`);
+			return;
+		}
+		// The picker does the command's job here: the typed command goes and the picker opens.
+		clearMenuText(box, menu);
+		picker.focus();
+		picker.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+		);
+	}
+
+	/**
+	 * Keys while a menu is open: arrows move and Enter chooses. Tab chooses only
+	 * once the arrows have picked an option; otherwise the menu closes and Tab
+	 * moves on, so "email me@" and Tab never inserts a file. Escape the editor handles.
+	 */
+	function onMenuKey(event: KeyboardEvent): boolean {
+		if (!listShown) return false;
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			arrowed.current = true;
+			menuModel.move(event.key === "ArrowDown" ? 1 : -1);
+			return true;
+		}
+		if (event.key === "Tab" && !arrowed.current) {
+			setMenu(null);
+			return false;
+		}
+		if (event.key === "Enter" || event.key === "Tab") {
+			event.preventDefault();
+			choose(menuModel.active);
+			return true;
+		}
+		return false;
+	}
+
 	function onKeyDown(event: KeyboardEvent): boolean {
 		const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-		if (plain && event.key === "Escape" && running && !menuOpen()) {
+		if (plain && event.key === "Escape" && running && !menuOpen() && menu === null) {
 			event.preventDefault();
 			store.getState().interrupt();
 			return true;
@@ -250,8 +422,19 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		repaste,
 		onKeyDown,
 		onKeyUp,
+		onMenu,
+		onMenuKey,
 	});
-	handlers.current = { submit, addPasted, addLongPaste, repaste, onKeyDown, onKeyUp };
+	handlers.current = {
+		submit,
+		addPasted,
+		addLongPaste,
+		repaste,
+		onKeyDown,
+		onKeyUp,
+		onMenu,
+		onMenuKey,
+	};
 
 	useLayoutEffect(() => {
 		const element = host.current;
@@ -260,12 +443,12 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			element,
 			attributes: {
 				id: `${ids}-text`,
-				role: "textbox",
-				"aria-multiline": "true",
+				// A combobox, for the `/` and `@` menus (SPEC.md §25.8).
+				role: "combobox",
+				"aria-autocomplete": "list",
 				"aria-label": "Message Claude Code",
-				"aria-placeholder": PLACEHOLDER,
-				// The key hint, or the bypass warning in its place.
-				"aria-describedby": `${ids}-hint ${ids}-bypass`,
+				// The tips, then the key hint or the bypass warning in its place.
+				"aria-describedby": `${ids}-tips ${ids}-hint ${ids}-bypass`,
 				class: "pk-composer-text",
 				"data-testid": "chat-composer-input",
 			},
@@ -276,9 +459,16 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			onRepaste: (lines) => handlers.current.repaste(lines),
 			onKeyDown: (event) => handlers.current.onKeyDown(event),
 			onKeyUp: (event) => handlers.current.onKeyUp(event),
-			onChange: (changed) => setInCode(inCodeBlock(changed)),
+			onChange: (changed) => {
+				setInCode(inCodeBlock(changed));
+				setShell(inShellMode(changed));
+			},
+			onMenu: (next, closed) => handlers.current.onMenu(next, closed),
+			onMenuKey: (event) => handlers.current.onMenuKey(event),
 		});
 		editor.current = made;
+		made.on("focus", () => setFocused(true));
+		made.on("blur", () => setFocused(false));
 		return () => {
 			editor.current = null;
 			made.destroy();
@@ -296,7 +486,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	return (
 		<>
 			<form
-				className={`pk-composer ${dragging ? "is-dragging" : ""}`}
+				className={`pk-composer ${dragging ? "is-dragging" : ""} ${shell ? "is-shell" : ""}`}
 				data-testid="chat-composer"
 				onSubmit={submit}
 				onDragOver={(event) => {
@@ -322,9 +512,29 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					items={files.items}
 					saving={files.saving}
 					onRemove={files.remove}
+					onInsert={sending ? undefined : insertInline}
 					onEmptied={focusText}
 				/>
-				<div ref={host} className="pk-composer-field" />
+				<ComposerCommandMenu
+					listId={listId}
+					menu={menu}
+					model={menuModel}
+					shown={focused}
+					onChoose={choose}
+				/>
+				<div className="pk-composer-line">
+					{/* Spoken by the status line and the hint; the label is for the eye. */}
+					{shell ? (
+						<span
+							className="pk-composer-shell"
+							aria-hidden="true"
+							data-testid="chat-composer-shell"
+						>
+							Shell
+						</span>
+					) : null}
+					<div ref={host} className="pk-composer-field" />
+				</div>
 				<div className="pk-composer-bar">
 					<div className="pk-composer-tools">
 						<input
@@ -352,6 +562,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 						warningId={`${ids}-bypass`}
 						onSet={(next) => store.getState().set(next)}
 						onAnnounce={announce}
+						readAloud={readAloud}
 					/>
 					<div className="pk-composer-actions">
 						<VoiceButton
@@ -426,9 +637,12 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					className="pk-composer-foot"
 					data-testid="chat-composer-hint"
 				>
-					{inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
+					{footHint({ shell, inCode, shellRunning, turnRunning })}
 				</p>
 			)}
+			<span id={`${ids}-tips`} hidden={true}>
+				{TIPS}
+			</span>
 			<p
 				className="sr-only"
 				role="status"

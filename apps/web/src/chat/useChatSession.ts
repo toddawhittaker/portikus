@@ -12,7 +12,7 @@ import {
 	lastSettingsOf,
 } from "./chatStore.js";
 
-function chatSettingsUrl(workspaceId: string, projectId: string): string {
+export function chatSettingsUrl(workspaceId: string, projectId: string): string {
 	return `/workspaces/${workspaceId}/projects/${projectId}/chat-settings`;
 }
 

@@ -1,0 +1,50 @@
+#!/bin/bash
+# A Claude Code hook: tells the workspace agent which subagents the agent in
+# this terminal has started and finished (SPEC.md §10.8, ADR 0070).
+# Usage: portikus-agent-subagent <event>
+# The hook's input holds the subagent's prompt; jq keeps only the allow-listed
+# fields below, and the prompt never leaves this script (ADR 0012). It never
+# blocks or fails the agent: one second at most, and the exit status is always 0.
+
+# Taken first: hooks run in the background, so posts can arrive out of order.
+at=$(date +%s%6N)
+
+# PORTIKUS_TERMINAL is pk-<terminal id>, set in every Portikus terminal.
+id=${PORTIKUS_TERMINAL#pk-}
+event=${1:-}
+if ! [[ $PORTIKUS_TERMINAL == pk-* && $id =~ ^[0-9a-f-]+$ && $event =~ ^[a-z_]+$ && $at =~ ^[0-9]+$ ]] \
+	|| ! command -v jq >/dev/null; then
+	cat >/dev/null
+	exit 0
+fi
+
+case $event in
+pre_tool_use | post_tool_use | post_tool_use_failure)
+	keep='{tool_use_id: (.tool_use_id | strings)},
+		{description: (.tool_input.description | strings)},
+		{subagent_type: (.tool_input.subagent_type | strings)},
+		{run_in_background: (.tool_input.run_in_background | booleans)},
+		{agent_id: (.tool_response | objects | .agentId // .agent_id | strings)}' ;;
+subagent_stop) keep='{agent_id: (.agent_id | strings)}' ;;
+# The prompt and the reply are all these events carry, so nothing is read.
+*)
+	cat >/dev/null
+	keep='' ;;
+esac
+
+if [[ -z $keep ]]; then
+	body="{\"terminal\":\"$id\",\"event\":\"$event\",\"at\":$at}"
+else
+	# Each field is its own object, so a missing or wrong-typed one is left out
+	# alone; input that is not JSON sends nothing.
+	body=$(timeout 1 jq --compact-output --arg terminal "$id" --arg event "$event" \
+		--argjson at "$at" \
+		"{terminal: \$terminal, event: \$event, at: \$at} + ([$keep] | add // {})" \
+		2>/dev/null) || { cat >/dev/null; exit 0; }
+fi
+
+curl --silent --output /dev/null --max-time 1 \
+	--header 'content-type: application/json' \
+	--data "$body" \
+	"${PORTIKUS_AGENT_RECEIVER:-http://127.0.0.1:7401}/coding-agent-subagent" || true
+exit 0

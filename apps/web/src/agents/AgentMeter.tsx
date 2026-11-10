@@ -1,8 +1,4 @@
-import type {
-	AgentLimitWindow,
-	AgentMeter,
-	AgentUsageCounts,
-} from "@portikus/contracts";
+import type { AgentUsageCounts, PlanUsage } from "@portikus/contracts";
 import { Meter, useToast } from "@portikus/ui";
 import { useEffect, useId, useRef } from "react";
 import { useCourseProfile } from "../editor/settingsQueries.js";
@@ -13,17 +9,15 @@ import {
 	formatCost,
 	formatCount,
 	limitWarning,
-	liveWindows,
+	livePlan,
+	type ProviderMeter,
 	percentText,
+	shouldWarn,
 	todayText,
 	warnKey,
-	windowsToWarn,
 } from "./agentDisplay.js";
-import { CODING_AGENT_NAME } from "./codingAgentName.js";
 import { useAgentMeter } from "./useAgentMeter.js";
 import "./agent-meter.css";
-
-type Entry = AgentMeter["agents"][number];
 
 const WARNED_STORAGE_KEY = "portikus.usage-warned";
 
@@ -50,9 +44,9 @@ function writeWarned(keys: ReadonlySet<string>) {
 }
 
 /**
- * Each agent's plan usage in the status bar (SPEC.md §25.10): a meter of the
- * fullest limit window, or today's counts for a student with no plan limit.
- * Renders nothing for an agent with neither.
+ * Each provider's 7-day plan usage in the status bar (SPEC.md §10.8, §25.10):
+ * percent used and when it resets, or today's counts for a student whose
+ * provider reports no plan. Renders nothing for a provider with neither.
  */
 export function AgentMeters({
 	workspaceId,
@@ -74,17 +68,16 @@ export function AgentMeters({
 		const seen = readWarned();
 		const now = Date.now();
 		let changed = false;
-		for (const entry of data.agents) {
-			const windows = entry.limits ? liveWindows(entry.limits.windows, now) : [];
-			for (const window of windowsToWarn(entry.agent, windows, seen)) {
-				seen.add(warnKey(entry.agent, window));
-				changed = true;
-				toast.show({
-					tone: "warning",
-					title: `${CODING_AGENT_NAME[entry.agent]} usage is at ${percentText(window.usedPercent)}`,
-					children: `The ${window.name} limit resets ${formatHoldEnd(window.resetsAt, timeZone)}.`,
-				});
-			}
+		for (const entry of data.providers) {
+			const plan = livePlan(entry.plan, now);
+			if (!plan || !shouldWarn(plan, seen)) continue;
+			seen.add(warnKey(plan));
+			changed = true;
+			toast.show({
+				tone: "warning",
+				title: `${plan.label} usage is at ${percentText(plan.usedPercent)}`,
+				children: `The 7-day limit resets ${formatHoldEnd(plan.resetsAt, timeZone)}.`,
+			});
 		}
 		if (changed) writeWarned(seen);
 	}, [data, toast, timeZone]);
@@ -93,30 +86,38 @@ export function AgentMeters({
 	const now = Date.now();
 	return (
 		<>
-			{data.agents.map((entry) => (
-				<AgentStatus key={entry.agent} entry={entry} now={now} timeZone={timeZone} />
+			{data.providers.map((entry) => (
+				<ProviderStatus key={entry.id} entry={entry} now={now} timeZone={timeZone} />
 			))}
 		</>
 	);
 }
 
-function AgentStatus({
+function ProviderStatus({
 	entry,
 	now,
 	timeZone,
 }: {
-	entry: Entry;
+	entry: ProviderMeter;
 	now: number;
 	timeZone: string | undefined;
 }) {
 	const popoverId = useId();
 	const warned = useRef(false);
 	const display = chooseDisplay(entry, now);
-	const name = CODING_AGENT_NAME[entry.agent];
-	if (display?.kind !== "limits") warned.current = false;
+	const name = entry.label;
+	if (display?.kind !== "plan") warned.current = false;
 	if (!display) return null;
 
-	const detail = <Details entry={entry} now={now} timeZone={timeZone} id={popoverId} />;
+	const detail = (
+		<Details
+			entry={entry}
+			display={display}
+			now={now}
+			timeZone={timeZone}
+			id={popoverId}
+		/>
+	);
 	if (display.kind === "today") {
 		const text = todayText(display.counts);
 		return (
@@ -125,7 +126,7 @@ function AgentStatus({
 					type="button"
 					className="pk-statusbar-item"
 					popoverTarget={popoverId}
-					data-testid={`agent-meter-${entry.agent}`}
+					data-testid={`agent-meter-${entry.id}`}
 					data-kind="today"
 					aria-label={`${name} today: ${text}. Show usage details`}
 				>
@@ -136,106 +137,104 @@ function AgentStatus({
 		);
 	}
 
-	const { top } = display;
-	const level = limitWarning(top.usedPercent, warned.current) ? "warning" : "ok";
+	const { plan } = display;
+	const level = limitWarning(plan.usedPercent, warned.current) ? "warning" : "ok";
 	warned.current = level === "warning";
-	const shortText = percentText(top.usedPercent);
+	const shortText = percentText(plan.usedPercent);
 	const warnAt = warned.current ? METER_CLEAR_BELOW : METER_WARN_AT;
+	const resets = formatHoldEnd(plan.resetsAt, timeZone, now);
 	return (
 		<>
 			<button
 				type="button"
 				className={`pk-statusbar-item pk-statusbar-meter pk-meter ${level === "warning" ? "pk-meter--warning" : ""}`}
 				popoverTarget={popoverId}
-				data-testid={`agent-meter-${entry.agent}`}
-				data-kind="limits"
+				data-testid={`agent-meter-${entry.id}`}
+				data-kind="plan"
 				data-level={level}
-				aria-label={`${name} ${shortText} of the ${top.name} limit${level === "warning" ? ", nearly full" : ""}, resets ${formatHoldEnd(top.resetsAt, timeZone, now)}. Show usage details`}
+				aria-label={`${name} ${shortText} resets ${resets}, of the 7-day limit${level === "warning" ? ", nearly full" : ""}. Show usage details`}
 			>
 				<span className="pk-meter-label">{name}</span>
 				<Meter
 					label={name}
-					value={Math.floor(top.usedPercent)}
+					value={Math.floor(plan.usedPercent)}
 					max={100}
 					high={100 * warnAt - 1}
-					valueText={`${shortText} of the ${top.name} limit`}
+					valueText={`${shortText} of the 7-day limit`}
 					shortText={shortText}
 				/>
+				<span className="pk-agent-resets">resets {resets}</span>
 			</button>
 			{detail}
 		</>
 	);
 }
 
-/** The native popover opened by the button before it: Escape and an outside click close it. */
 function Details({
 	entry,
+	display,
 	now,
 	timeZone,
 	id,
 }: {
-	entry: Entry;
+	entry: ProviderMeter;
+	display: NonNullable<ReturnType<typeof chooseDisplay>>;
 	now: number;
 	timeZone: string | undefined;
 	id: string;
 }) {
-	const name = CODING_AGENT_NAME[entry.agent];
-	const windows = entry.limits ? liveWindows(entry.limits.windows, now) : [];
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls
 		<div
 			id={id}
 			popover="auto"
 			role="group"
-			aria-label={`${name} usage`}
+			aria-label={`${entry.label} usage`}
 			className="pk-agent-popover"
-			data-testid={`agent-meter-${entry.agent}-details`}
+			data-testid={`agent-meter-${entry.id}-details`}
 		>
-			{windows.length > 0 ? (
-				<Windows windows={windows} now={now} timeZone={timeZone} />
-			) : null}
-			{entry.today ? <Today counts={entry.today} /> : null}
-			{entry.today ? (
-				<p className="pk-agent-popover-note">
-					Counts update every 5 minutes. Days start at midnight UTC.
-				</p>
-			) : null}
+			{display.kind === "plan" ? (
+				<PlanDetails plan={display.plan} now={now} timeZone={timeZone} />
+			) : (
+				<>
+					<Today counts={display.counts} />
+					<p className="pk-agent-popover-note">
+						Counts update every 5 minutes. Days start at midnight UTC.
+					</p>
+				</>
+			)}
 		</div>
 	);
 }
 
-function Windows({
-	windows,
+function PlanDetails({
+	plan,
 	now,
 	timeZone,
 }: {
-	windows: AgentLimitWindow[];
+	plan: PlanUsage;
 	now: number;
 	timeZone: string | undefined;
 }) {
 	return (
-		<table className="pk-agent-popover-table">
-			<thead>
-				<tr>
-					<th scope="col">Limit</th>
-					<th scope="col">Used</th>
-					<th scope="col">Resets</th>
-				</tr>
-			</thead>
-			<tbody>
-				{windows.map((window) => (
-					<tr key={window.name}>
-						<th scope="row">{window.name}</th>
-						<td>{percentText(window.usedPercent)}</td>
-						<td>
-							<time dateTime={window.resetsAt}>
-								{formatHoldEnd(window.resetsAt, timeZone, now)}
-							</time>
-						</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
+		<dl className="pk-agent-popover-list">
+			<div>
+				<dt>Limit</dt>
+				<dd>7 days</dd>
+			</div>
+			<div>
+				<dt>Used</dt>
+				<dd>{percentText(plan.usedPercent)}</dd>
+			</div>
+			<div>
+				<dt>Resets</dt>
+				<dd>
+					<time dateTime={plan.resetsAt}>
+						{formatHoldEnd(plan.resetsAt, timeZone, now)}
+					</time>
+				</dd>
+			</div>
+		</dl>
 	);
 }
 

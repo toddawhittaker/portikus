@@ -5,14 +5,21 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock } from "./CodeBlocks.js";
 import { COPIED, COPIED_FOR_MS, NOT_COPIED } from "./CopyButton.js";
-import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore.js";
+import type {
+	ChatItem,
+	ChatMessageItem,
+	ChatShellItem,
+	ChatToolItem,
+} from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
-import { MessageList } from "./MessageList.js";
+import { type FileOpener, MessageList } from "./MessageList.js";
+import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 let writeText: ReturnType<typeof vi.fn>;
 
@@ -335,4 +342,261 @@ test("a long step is cut on screen and kept whole in its title", () => {
 	const command = `echo ${"x".repeat(300)}`;
 	running([tool("Bash", { command })], 0);
 	expect(screen.getByTitle(`Running ${command}`).className).toBe("pk-turn-doing");
+});
+
+function shell(extra: Partial<ChatShellItem> = {}): ChatShellItem {
+	return {
+		kind: "shell",
+		key: "shell:s1",
+		id: "s1",
+		command: "ls -la",
+		output: "total 0\nfile.txt\n",
+		exitCode: 0,
+		truncated: false,
+		state: "done",
+		turnId: null,
+		...extra,
+	};
+}
+
+test("a shell command is a labelled group: the command, then its output, not a reply from Claude", () => {
+	list([message("user", "Hi"), shell(), message("assistant", "Welcome")]);
+	const group = screen.getByRole("group", { name: "Shell command" });
+	expect(screen.getByTestId("chat-shell-command").textContent).toBe("$ls -la");
+	expect(
+		screen.getByTestId("chat-shell-command").querySelector("[aria-hidden]"),
+	).not.toBeNull();
+	const output = within(group).getByRole("region", { name: "Command output" });
+	const text = within(group).getByTestId("chat-shell-output");
+	expect(text).toBe(output);
+	expect(text.textContent).toBe("total 0\nfile.txt\n");
+	expect(text.tabIndex).toBe(0);
+	// It is not inside a Claude turn, and Claude's reply after it has its own byline.
+	expect(group.closest('[data-testid="chat-turn"]')).toBeNull();
+	expect(screen.getAllByText("Claude")).toHaveLength(1);
+});
+
+test("a command that succeeded says so only to a screen reader", () => {
+	list([shell()]);
+	const status = screen.getByTestId("chat-shell-status");
+	expect(status.className).toBe("sr-only");
+	expect(status.textContent).toBe("Finished with exit code 0");
+	expect(screen.queryByTestId("chat-shell-truncated")).toBeNull();
+});
+
+test("a failed command shows its exit code in words", () => {
+	list([shell({ exitCode: 127, output: "sh: nope: not found\n" })]);
+	const status = screen.getByTestId("chat-shell-status");
+	expect(status.textContent).toBe("Failed with exit code 127");
+	expect(status.className).toContain("is-error");
+});
+
+test("a running command shows Running, and no output box before it prints", () => {
+	list([shell({ state: "running", exitCode: null, output: "" })]);
+	expect(screen.getByTestId("chat-shell-status").textContent).toBe("Running");
+	expect(screen.queryByRole("region", { name: "Command output" })).toBeNull();
+});
+
+test("a command stopped without an exit code says Stopped", () => {
+	list([shell({ exitCode: null })]);
+	expect(screen.getByTestId("chat-shell-status").textContent).toBe("Stopped");
+});
+
+test("cut-short output says it was truncated", () => {
+	list([shell({ truncated: true })]);
+	expect(screen.getByTestId("chat-shell-truncated").textContent).toBe(
+		"Output truncated",
+	);
+});
+
+test("a command with no output has no empty output box", () => {
+	list([shell({ output: "" })]);
+	expect(screen.queryByRole("region", { name: "Command output" })).toBeNull();
+});
+
+test("a shell command in the middle of Claude's run splits its byline and keeps the order", () => {
+	const loose = (key: string) => message("assistant", key, { key, turnId: null });
+	list([loose("before"), shell(), loose("after")]);
+	expect(screen.getAllByTestId("chat-turn")).toHaveLength(2);
+	const order = Array.from(
+		document.querySelectorAll('[data-testid="chat-turn"], [data-testid="chat-shell"]'),
+	).map((node) => node.getAttribute("data-testid"));
+	expect(order).toEqual(["chat-turn", "chat-shell", "chat-turn"]);
+});
+
+test("only Claude's finished written replies carry a read-aloud button", () => {
+	installFakeSpeech();
+	try {
+		const tool: ChatToolItem = {
+			kind: "tool",
+			key: "tool:1",
+			id: "1",
+			name: "Bash",
+			title: "ls",
+			input: { command: "ls" },
+			output: [{ type: "text", text: "file.txt" }],
+			status: "done",
+			turnId: null,
+		};
+		list([
+			message("user", "What is here?"),
+			message("assistant", "Here is the answer."),
+			message("assistant", "Still being written", { streaming: true }),
+			tool,
+		]);
+		const buttons = screen.getAllByRole("button", { name: "Read aloud" });
+		expect(buttons).toHaveLength(1);
+		expect(buttons[0]?.closest("li")?.textContent).toContain("Here is the answer.");
+		// The student's message keeps its Copy button alone.
+		expect(screen.getAllByRole("button", { name: "Copy message" })).toHaveLength(3);
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+function finished(items: ChatItem[], opener: FileOpener | null) {
+	return render(
+		<MessageList
+			items={items}
+			turns={{
+				t1: {
+					id: "t1",
+					startedAt: 0,
+					finishedAt: 5_000,
+					status: "done",
+					estimated: false,
+				},
+			}}
+			currentTurnId={null}
+			asking={new Set()}
+			truncated={false}
+			opener={opener}
+		/>,
+	);
+}
+
+const ROOT = "/home/student/projects/demo";
+
+test("a finished turn that edited files says how many and their counts, in signs and words", () => {
+	const open = vi.fn();
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: `${ROOT}/src/a.ts`, old_string: "x", new_string: "y\nz" },
+				{ key: "e1", id: "e1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: `${ROOT}/b.ts`, content: "1\n2\n" },
+				{ key: "w1", id: "w1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: "/home/student/.notes", content: "n" },
+				{ key: "w2", id: "w2", status: "done" },
+			),
+			message("assistant", "Done", { turnId: "t1" }),
+		],
+		{ slug: "demo", open },
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	const summary = changed.querySelector("summary");
+	expect(summary?.textContent).toBe(
+		"3 files changed+5 −1, 5 lines added, 1 line removed",
+	);
+	// Closed until the student opens it, as a native disclosure.
+	expect((changed as HTMLDetailsElement).open).toBe(false);
+	const rows = within(changed).getAllByTestId("chat-changed-file");
+	expect(rows.map((row) => row.textContent)).toEqual([
+		"src/a.ts+2 −1, 2 lines added, 1 line removed",
+		"b.ts+2 −0, 2 lines added, 0 lines removed",
+		"/home/student/.notes+1 −0, 1 line added, 0 lines removed",
+	]);
+	fireEvent.click(within(changed).getByRole("button", { name: "src/a.ts" }));
+	expect(open).toHaveBeenCalledWith("src/a.ts");
+	// A file outside the project cannot be opened in its editor.
+	expect(
+		within(changed).queryByRole("button", { name: "/home/student/.notes" }),
+	).toBeNull();
+});
+
+test("one file named by a relative and an absolute path is one row, and a path that climbs out is no button", () => {
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: "src/a.ts", old_string: "x", new_string: "y" },
+				{ key: "e1", id: "e1", status: "done" },
+			),
+			tool(
+				"Edit",
+				{ file_path: `${ROOT}/src/a.ts`, old_string: "x", new_string: "y" },
+				{ key: "e2", id: "e2", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: `${ROOT}/../x.ts`, content: "n" },
+				{ key: "w1", id: "w1", status: "done" },
+			),
+			tool(
+				"Write",
+				{ file_path: "../y.ts", content: "n" },
+				{ key: "w2", id: "w2", status: "done" },
+			),
+		],
+		{ slug: "demo", open: vi.fn() },
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	expect(
+		within(changed)
+			.getAllByTestId("chat-changed-file")
+			.map((row) => row.textContent?.split("+")[0]),
+	).toEqual(["src/a.ts", `${ROOT}/../x.ts`, "../y.ts"]);
+	expect(
+		within(changed)
+			.getAllByRole("button")
+			.map((b) => b.textContent),
+	).toEqual(["src/a.ts"]);
+});
+
+test("a turn that changed no file, or is still running, has no files line", () => {
+	finished(
+		[
+			tool("Read", { file_path: "a.ts" }, { key: "r", id: "r", status: "done" }),
+			message("assistant", "Read it", { turnId: "t1" }),
+		],
+		{ slug: "demo", open: vi.fn() },
+	);
+	expect(screen.queryByTestId("chat-files-changed")).toBeNull();
+	cleanup();
+	running(
+		[
+			tool(
+				"Edit",
+				{ file_path: "a.ts", old_string: "x", new_string: "y" },
+				{ status: "done" },
+			),
+		],
+		Date.now(),
+	);
+	expect(screen.queryByTestId("chat-files-changed")).toBeNull();
+});
+
+test("without a work area the paths are listed but not buttons", () => {
+	finished(
+		[
+			tool(
+				"Edit",
+				{ file_path: "a.ts", old_string: "x", new_string: "y" },
+				{ status: "done" },
+			),
+		],
+		null,
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	expect(within(changed).getByTestId("chat-changed-file").textContent).toContain(
+		"a.ts",
+	);
+	expect(within(changed).queryByRole("button")).toBeNull();
 });

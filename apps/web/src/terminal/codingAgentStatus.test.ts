@@ -17,7 +17,16 @@ function term(
 	projectId = P1,
 	agent: "claude" | "codex" = "claude",
 ): CodingAgentTerminal {
-	return { terminalId, projectId, agent, state, since: "2026-11-01T10:00:00.000Z" };
+	return {
+		terminalId,
+		projectId,
+		agent,
+		state,
+		since: "2026-11-01T10:00:00.000Z",
+		subagents: [],
+		name: "Claude",
+		kind: "terminal",
+	};
 }
 
 /** A store whose window focus the test controls. */

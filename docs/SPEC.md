@@ -900,6 +900,8 @@ The left pane must provide:
 - clear selected-project state;
 - project context actions.
 
+Added by Epic 59: under each project's row, the pane lists the project's agent tabs that have reported a state, each with its tab's name, a state mark, and the state with how long it has held ("Working 4m"). A tab gets its row after its first hook, not before. Under each agent are its subagents, with description, type and state; finished ones drop off when the next turn starts. Every row is a link to its tab; a subagent's link in a chat tab opens and focuses that subagent's tool call. One disclosure per project shows or hides the rows; it starts open and is remembered for the page's life only. The rows are a list of links, not a tree, and are not announced as they change (section 25.8).
+
 ### 8.3 Center pane
 
 Supported P0 tab types:
@@ -1327,6 +1329,8 @@ unit's stop is explained; an agent restart no longer loses terminals.
 
 Added by Epic 58 (ADR 0069): a chat tab is a `terminals` row with `kind = 'chat'` (migration 0052). Its tmux session `pk-<id>` runs the chat host, `dist/chat/main.js` of the workspace agent, instead of `claude`, so the tab survives an agent restart and ends with the tab. The host listens on a socket in `/run/portikus-terminals/chat/` (directory mode 0700, socket 0600), and the API relays one JSON document per line between it and the browser without reading it. Client frames are at most 1 MiB, server frames at most 8 MiB, and an image at most 5 MiB (png, jpeg, gif or webp, ten per message). On attach the host sends a snapshot, then replays the last 20 turns as ordinary events that carry their real start and finish times (older or oversized tool images become `imageOmitted`), then `settings`. A card waits with no time limit and the first answer wins. A new tab may attach before the host listens, so the agent waits up to 10 seconds for the socket while the tmux session is alive. `resumeChatOf` on create starts a new chat from an ended chat of the same workspace. The chain of Claude session ids is the file `~/.local/state/portikus/chat-sessions/<tabId>` (directory 0700, written atomically), so `claude --resume <id>` also continues a closed chat. A turn running at a workspace stop is lost.
 
+Added by Epic 59: when Claude Code reports a new session id (it does after `/clear`), the chat host writes it to the tab's session record and continues that session. The host sends every attachment a fresh, empty snapshot, then settings and rules, so every browser clears at once, and Resume or a restart continues the cleared session. Any change of session id is treated as a clear. The host drops subagent messages (a non-null `parent_tool_use_id`) when it maps live events, as the replay does, so a subagent's calls stay inside its card.
+
 ## 10. Coding-agent integration
 
 ### 10.1 Supported agents
@@ -1369,6 +1373,20 @@ The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span,
 Added by Epic 58.2: the composer also shows block quotes (`> `), strikethrough, separator lines, headings one to three, bold italics, task lists, nested lists and links, and sends them as Markdown; Typing `[ ] ` makes a task only in a bullet list with one item; Tab indents a list item, and Shift+Tab outdents only a nested one, so the keyboard can still leave the box (section 25.8). Only http and https links are made (section 24.3). Dictation's running guess shows greyed at the cursor, hidden from assistive technology and never sent. Pasting the same text of more than 40 lines twice within 0.8 seconds puts it in the box once, drops the first paste's chip and deletes its saved file; the text is held in memory only and forgotten on send, so a sent message's file is never deleted (ADR 0012).
 
 Added by Epic 58.1: while a turn runs, Send stays available beside Stop and the box stays usable. A message sent then goes to the host as an ordinary `send`; Claude Code takes it in at its next step within the same turn, so the host sends no new `turn.started`. The browser shows it at once with a quiet "Sent while Claude was working" note. The step in hand stays on the Working line until Claude's next tool call or text, which opens a new turn below the message, as a reload replays it; a turn that ends first keeps its own end state (done, stopped or failed). The note itself is not kept across a reload. Escape in the message box stops a running turn unless a picker menu is open. Up in an empty box brings back the last message sent, held in the page's memory only. The line under the box lists these keys. Inside a permission card, 1, 2 and 3 choose its options, each button showing its number and carrying `aria-keyshortcuts`; the keys act only with the keyboard inside the card, never from the message box, so typing there cannot grant a permission (section 25.8). The Working line names the step in hand in the same words as the tool's row, "Running pnpm build · 3m 43s" from the newest running tool, "Waiting for your permission" while that tool's permission card is open, or "Writing a reply" while text streams; the polite announcement is unchanged. A paste of more than 40 lines is saved as `pasted-text.txt` (then `pasted-text-2.txt` and so on, so each has its own chip and Remove name) under `.portikus/pastes/<stamp>/` and attached, shown as a chip with its line count, instead of filling the box, and the composer says "Pasted 60 lines, attached as pasted-text.txt."
+
+Added by Epic 59: a message that starts with `!` and has more after it is a shell command (ADR 0073). The chat host runs it itself, with no model, with the student's login shell, as the student, in the tab's project folder. It stops after two minutes by killing its process group, keeps at most 64 KiB of output (marked when cut), and closes standard input. The host sends `shell` events, first running and then done with the output and the exit code, and appends `<bash-input>` and `<bash-stdout>` messages to the transcript with the SDK's `shouldQuery: false`, so no turn starts and Claude reads them with the next message. A reload replays the pair as one shell item outside any turn. A `!` command is refused while Claude is working, a message is refused while a command runs (or is still being read in), and a `!` message with attachments or over 4,000 characters is refused. Stop (and Esc) in the composer stops a running command: the host kills its process group and the item ends with no exit code and the note "Stopped"; a command killed by a signal is noted "Stopped by signal <name>" and also has no exit code. Neither the command nor its output is logged. In the composer, a `!` message shows a Shell label and monospace text, and opens neither menu.
+
+Added by Epic 59: Deny, and a plan card's "No, keep planning", open a one-line field, "Tell Claude what to do instead". Its text, when given, is the denial message Claude receives; an empty field keeps the fixed text. Plan approval offers "Yes, and accept edits" and "Yes, and ask before edits", which set the session's permission mode from the option's id alone (`permission.answer` carries an optional `message`; an older browser's `mode` still parses and is ignored), and the mode picker follows. A visible Back button beside Send in the reason form restores the options, with focus on Deny. Fields new to a message from the browser are optional, so a host from before an upgrade keeps working.
+
+Added by Epic 59: typing `/` at the start of a message opens a list of the commands the chat host reports (the SDK's supported commands, refreshed whenever Claude Code changes them), narrowed as the student types. Enter accepts a choice, and Tab accepts only after an arrow key has moved through the list; otherwise Tab closes the menu and moves focus on. A command that works only in the terminal is shown dimmed and is never sent; `/model` and `/effort` open their pickers instead. Typing `@` at the start of a word, outside code, opens a list of the project's files from the file-name search of section 11.1, after a 150 ms pause, with a newer search cancelling the older one, and an answer for an older query is treated as loading, so it can never be inserted. The list shows files only, not folders. A choice inserts `@path ` (quoted when the path has a space). Both menus are one combobox (section 25.8).
+
+Added by Epic 59: fenced code in replies has a language label and syntax colours from highlight.js core with twelve languages, fetched only when a block in a known language is shown, so the first page does not load it (section 25.1, ADR 0072). The highlighter's output is parsed back into token spans and text, never set as markup; the language comes from the fence tag alone; a block over 20,000 characters stays plain. Edit diffs are coloured by the file's extension.
+
+Added by Epic 59: a speaker button on each finished reply reads it aloud through the browser's own speech (section 25.10, ADR 0071), and a "Read replies aloud" switch, saved per project beside the pickers and off by default, reads each turn's last reply when the turn finishes well. Tool calls, cards, shell items and the student's messages have no speaker. Speech stops on Stop, Escape in the chat, sending a message, another reply starting, and the chat being hidden or closed. Both controls are hidden where speech is not available.
+
+Added by Epic 59: after a finished turn that changed files, one quiet disclosure under the reply, "2 files changed +4 −1", opens to each path with its added and removed line counts, spelled out for screen readers. It counts the turn's finished Edit, MultiEdit and Write calls on the main thread; a file edited twice is one entry. Choosing a path opens the file's diff when the project is a Git repository, and the file in the editor otherwise. A path outside the project is plain text. Deleted files and changes made by shell commands are not counted.
+
+Added by Epic 59: each chat tab shows how full its context is and a countdown to when the prompt cache goes cold, on their own last line of the composer so the pickers, microphone and Send do not move. The chat host sends a `context` event after each main-thread assistant message (once per API response, however many content blocks it has) and on attach: tokens used, the model's window when known, the cache's start and lifetime (300 or 3,600 seconds, by the cache-write tokens of the last request; any read or write restarts the clock), and the host's clock, so the browser can correct for clock skew. The context figure shows once more than half the window is used, with the hint to run `/compact`, and as a warning from 80 percent; it is hidden when the window is unknown. The cache countdown ("Cache 3:42") shows while the cache is warm, warns with "soon" in the last 60 seconds, and reads "Cache cold" at zero. The ticking digits are hidden from assistive technology; a stable sentence names the state, and the polite status says once when the cache goes cold and once when context reaches 80 percent (section 25.8). After a host restart the cache time is unknown until the next request.
 
 ### 10.3 Direct CLI use
 
@@ -1449,6 +1467,10 @@ terminal that started it and later sessions would report that terminal's id.
 
 Added by Epic 58: the Claude Agent SDK's hooks fire in a chat tab, so the state marks of this section work unchanged. The five-hour and seven-day figures come from the SDK's `rate_limit_event`, posted to the same `/claude-limits` store, because the status line does not run under the SDK.
 
+Added by Epic 59 (ADR 0070): a second hook script, `portikus-agent-subagent`, reports Claude Code's Agent tool calls for chat and terminal tabs. It reads only the tool call id, description, subagent type, background flag and agent id, never the prompt or the reply, and has the same one-second limit and exit code as `portikus-agent-state`. The workspace agent keeps at most 16 subagent rows per terminal, keyed by tool call id (the chat's tool row id). A foreground subagent finishes at its `PostToolUse` and a background one at its `SubagentStop`; a failed call removes its row; `Stop` finishes working foreground rows and `UserPromptSubmit` drops finished ones. Rows are ordered per row, and a post older than the terminal's clear is refused. The API passes the rows on with the terminal's name and kind.
+
+Added by Epic 59 (ADR 0070): plan usage is the seven-day window only; Claude no longer has a five-hour limit in the bar. The workspace agent reports a list keyed by provider id (the agent id), so a later provider adds only a source: Claude's figure from the chat host (the SDK's usage request, run one at a time with a ten-second limit, and `rate_limit_event`) or the status line, and Codex's from `account/rateLimits/read`. The status bar shows each provider's percent and reset day and time ("Claude 91% resets Thu 7:21 PM"), hides a figure past its reset time, and warns once at 85 percent. Today's tokens and cost show only when a provider reports no plan figure. The workspace agent and the API are upgraded together, because the report and meter shapes changed.
+
 ### 10.9 Agent-session baseline and review unit
 
 Starting a coding-agent session from Portikus is a P0 review boundary. Before the agent begins modifying the selected project, Portikus must create or record a lightweight project baseline that can later answer:
@@ -1475,6 +1497,8 @@ The implementation may reuse recovery-point infrastructure rather than introduci
 All file-browser operations must be confined to the selected project directory unless a future explicit feature permits browsing elsewhere.
 
 Path traversal through `..`, symlinks, archive entries, encoded separators, or similar techniques must be prevented.
+
+Added by Epic 59: file-name search. `POST /workspaces/:id/projects/:pid/file-search` with `{ query, limit }` (owner only) returns `{ paths, truncated }`: project-relative paths whose name or path matches the query, best matches first. The list comes from ripgrep in the project root, so `.gitignore` applies, hidden files and symlinks are left out, and the query is a filter, never joined to a path. The search is bounded by three seconds, 200,000 files scanned, four searches at once and 50 results, is cancelled when the browser hangs up, and neither the query nor the paths are logged. The query travels in the body, never the URL.
 
 ### 11.2 Tree operations
 
@@ -5437,6 +5461,8 @@ Added by Epic 58: the chat tab follows the same rules. A card never takes the ke
 
 Added by Epic 58.1: a question card shows one question at a time. Focus starts on the chosen option, or the first, and moves only with the student's own Next, Skip or pager action; arrow keys move between options, checkboxes included; Next and Submit stay focusable with `aria-disabled` and a reason until the question is answered or skipped; a polite region reads "Question 2 of 3" and the question. No focus move in the chat scrolls anything but the chat's own log or card body, and the chat and its pane clip their overflow, so the workspace page never scrolls.
 
+Added by Epic 59: the left pane's agent rows are a list of links named "Agents in <project>", with one `aria-expanded` disclosure per project. The state is part of each link's name, and the ticking time is hidden from assistive technology. The composer is a `combobox` while its `/` or `@` list can show, with `aria-expanded`, `aria-controls` and `aria-activedescendant`; the list is a `listbox`, the editor keeps focus and the keys, and a polite status gives the result count. Deny's reason field is labelled, Enter sends it and Escape returns focus to Deny; digits are ordinary text while it is open. A `!` command is a named group with its output in a focusable, named region, and its end is announced ("Command finished", "Command failed with exit code N"). Shell mode is shown by a label and the type, not colour alone, and is said once. Syntax colours meet 4.5:1 on their backgrounds in both themes, and the language is named in text. The read-aloud switch and speaker button are native controls in the Tab order, and stopping speech never needs a timed action. The context and cache readouts hide their ticking digits from assistive technology and announce only the cache going cold and context reaching 80 percent, once each; the "files changed" line is a native disclosure whose counts are spelled out. A status-bar plan figure's name starts with its visible text.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -5475,6 +5501,8 @@ days.
 Added by Epic 54: rows in `audit_events` older than 365 days are deleted by a daily worker sweep, one window for every action type, with no setting and no export. The sweep deletes in batches through the database function of section 24.9 and logs only the count (STACK.md section 15). Nightly database backups still hold older rows until they age out.
 
 Added by Epic 58: images pasted, dropped or attached to a chat are saved under `.portikus/pastes/<stamp>/` and sent as project-relative paths. The browser first redraws a picture over 2000 pixels on its long side or over 5 MiB (WebP, JPEG where WebP cannot be written, PNG when smaller; never enlarged; other files untouched). No prompt, reply, file or image is logged or stored by the platform.
+
+Added by Epic 59 (ADR 0071): reading a reply aloud uses the browser's `speechSynthesis`; Portikus never receives or keeps the text and logs none of it. Portikus prefers a voice on the student's device. A browser that has only an online voice for the language (Chrome's Google voices, for example) sends the reply text to the browser's maker; Help says so. Code blocks are read as "code block". The pasted text an Insert as text button puts in the box is held in memory only (ADR 0012). A `!` command and its output are never logged (ADR 0073). The subagent hook sends no prompt or reply (ADR 0070).
 
 ## 26. Control-plane data model
 
@@ -7156,6 +7184,25 @@ Acceptance:
 - a reboot, sign-in spike or full-disk alert is sent once across a worker restart, and again after it clears and returns;
 - a link with any scheme but http or https stays plain text in the composer, and a fenced link target cannot start a second link;
 - a paste that was sent in a message is never deleted by a later double paste.
+
+### Epic 59 — Agent rows in the left pane, and a chat batch
+
+Built on `epic/59-agents-and-chat`. No migration. See sections 8.2, 9.7, 10.2, 10.8, 11.1, 25.8 and 25.10, and ADRs 0070 to 0073.
+
+Includes:
+
+- a row per agent tab and per subagent under each project in the left pane, fed by a new subagent hook;
+- the status bar showing each provider's seven-day plan usage, from a provider-keyed list;
+- chat: `/clear` that sticks, `!` shell commands run by the host, deny with a reason, plan approval that names the next mode, `/` and `@` menus with file-name search, syntax colours, read aloud, a files-changed line, and a context meter with a cache timer;
+- Insert as text on a long paste's chip, a Pebble test fix, and a `migrateDownTo` test helper.
+
+Acceptance:
+
+- a subagent started by a Claude Code tab appears under its project, and its link opens its tool call in the chat;
+- after `/clear`, a reload and a workspace restart both show an empty conversation;
+- a `!` command shows its output without starting a turn, and Claude can say what it printed in the next message;
+- the first page does not load the highlighter, and a reply's code block does not change size when the colours arrive;
+- a hook post never carries a prompt, and read-aloud text never leaves the browser except through the browser's own online voice.
 
 ### Estimated total
 

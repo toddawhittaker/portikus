@@ -2,7 +2,7 @@
 
 /* A copy button shows when its host is hovered or holds focus, and while it
    reports a result. It is always in the tab order, so the keyboard finds it. */
-.pk-chat-copy {
+:is(.pk-chat-copy, .pk-chat-speak) {
 	display: inline-flex;
 	align-items: center;
 	opacity: 0;
@@ -20,15 +20,21 @@
 	padding-inline: var(--space-1);
 }
 
-/* Claude's message, with its copy button on a line of its own beneath. */
+/* Claude's message, with its read-aloud and copy buttons side by side on a
+   line of their own beneath. */
 .pk-chat-message {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: auto auto 1fr;
 	gap: var(--space-1);
 }
 
-.pk-chat-message > .pk-chat-copy {
-	align-self: flex-start;
+.pk-chat-message > .pk-chat-md {
+	grid-column: 1 / -1;
+	min-inline-size: 0;
+}
+
+.pk-chat-message > :is(.pk-chat-copy, .pk-chat-speak) {
+	justify-self: start;
 }
 
 /* The student's message: the copy button sits just before the box. */
@@ -44,6 +50,86 @@
 /* The composer sends each line on its own line, so a line break is kept as typed. */
 .pk-chat-bubble .pk-markdown.pk-chat-md p {
 	white-space: pre-line;
+}
+
+/* A `!` shell command: the student's command above the machine's output, in
+   one bordered box that is neither the student's bubble nor Claude's prose.
+   Every part is monospace; the state is said in words, never by colour alone. */
+/* Positioned, so the hidden "Finished" text stays inside it. */
+.pk-shell-box {
+	position: relative;
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0;
+	max-inline-size: var(--pk-chat-column);
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-sunken);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	line-height: 1.5;
+	font-variant-ligatures: none;
+}
+
+.pk-shell-box pre {
+	margin: 0;
+	font: inherit;
+}
+
+.pk-shell-command {
+	display: flex;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	background: var(--surface-raised);
+	color: var(--ink);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.pk-shell-prompt {
+	flex: none;
+	color: var(--accent-text);
+	font-weight: 600;
+	user-select: none;
+}
+
+.pk-shell-command code {
+	min-width: 0;
+	font: inherit;
+}
+
+/* Output keeps its columns; a long line scrolls the box, and a long run
+   scrolls it down, so a noisy command cannot push the conversation away. */
+.pk-shell-output {
+	max-block-size: 18rem;
+	padding: var(--space-2) var(--space-3);
+	overflow: auto;
+	border-block-start: 1px solid var(--line);
+	color: var(--ink);
+	white-space: pre;
+}
+
+.pk-shell-output:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-shell-note,
+.pk-shell-status {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	margin: 0;
+	padding: var(--space-1) var(--space-3);
+	border-block-start: 1px solid var(--line);
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-shell-status.is-error {
+	color: var(--status-error);
+	font-weight: 600;
 }
 
 /* A code block's copy button rides its top corner, clear of the scroll bar. */
@@ -91,15 +177,16 @@
 }
 
 /* Shown last, so it wins over the placements above. */
-.pk-chat-copy-host:hover > .pk-chat-copy,
-.pk-chat-copy-host:focus-within > .pk-chat-copy,
-.pk-chat-copy[data-said] {
+.pk-chat-copy-host:hover > :is(.pk-chat-copy, .pk-chat-speak),
+.pk-chat-copy-host:focus-within > :is(.pk-chat-copy, .pk-chat-speak),
+.pk-chat-copy[data-said],
+.pk-chat-speak[data-active] {
 	opacity: 1;
 }
 
 /* Touch has no hover, so the button is always there. */
 @media (hover: none) {
-	.pk-chat-copy {
+	:is(.pk-chat-copy, .pk-chat-speak) {
 		opacity: 1;
 	}
 }

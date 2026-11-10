@@ -1,12 +1,15 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
 	type ChatClientMessage,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
+	shellCommandText,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { FakeAgentState } from "./state.js";
@@ -68,6 +71,22 @@ const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 /** When the fake's earlier turn began, in epoch milliseconds. */
 const EARLIER_TURN_AT = Date.UTC(2026, 0, 1, 12, 0, 0);
 
+/** The command list a fake chat starts with; a test can replace it. */
+const DEFAULT_COMMANDS: ChatCommand[] = [
+	{
+		name: "compact",
+		description: "Free up context by summarizing the chat",
+		terminalOnly: false,
+	},
+	{
+		name: "review",
+		description: "Review a pull request",
+		argumentHint: "<pull request>",
+		terminalOnly: false,
+	},
+	{ name: "config", description: "Open the settings menu", terminalOnly: true },
+];
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -83,6 +102,9 @@ interface FakeChat {
 	answers: FakeChatAnswer[];
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
+	commands: ChatCommand[];
+	/** The last `context` event body a test set; sent on attach. */
+	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
 }
 
@@ -122,6 +144,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				answers: [],
 				received: [],
 				settings: { model: "claude-sonnet-4-5", effort: "medium", mode: "default" },
+				commands: DEFAULT_COMMANDS,
+				context: null,
 				sockets: new Set(),
 			};
 			chats.set(id, chat);
@@ -225,6 +249,40 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		switch (message.type) {
 			case "send": {
+				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
+				if (message.text.trim() === "/clear") {
+					chat.history = [];
+					emit(id, chat.sockets, {
+						type: "snapshot",
+						cards: chat.openCards,
+						turnRunning: false,
+						truncated: false,
+					});
+					emit(id, chat.sockets, {
+						type: "settings",
+						agent: "claude",
+						...chat.settings,
+					});
+					return;
+				}
+				// A `!` command runs on the host with no turn; this one "prints" its own text.
+				if (isShellCommand(message.text)) {
+					const shell = {
+						type: "shell",
+						id: `sh-${chat.seq}`,
+						command: shellCommandText(message.text),
+						exitCode: null,
+						truncated: false,
+					};
+					emit(id, chat.sockets, { ...shell, output: "", state: "running" });
+					record(id, chat.sockets, {
+						...shell,
+						output: `ran ${shell.command}\n`,
+						exitCode: 0,
+						state: "done",
+					});
+					return;
+				}
 				const user: ChatMessage = {
 					id: `m-user-${chat.seq}`,
 					role: "user",
@@ -305,9 +363,32 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				truncated: false,
 			});
 			for (const event of chat.history) emit(id, [socket], event);
+			// Before the settings, which tests wait for as the end of an attach.
+			emit(id, [socket], { type: "commands", commands: chat.commands });
+			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
 	);
+
+	// Replace the slash command list and send it to every attachment, as the host does.
+	app.post("/__test/chats/:id/commands", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
+		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
+
+	// Set the context figures (body: usedTokens, windowTokens, cache) and send
+	// them to every attachment, as the host does after a request; later
+	// attachments get them too.
+	app.post("/__test/chats/:id/context", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.context = request.body as Record<string, unknown>;
+		emit(id, chat.sockets, { ...chat.context, type: "context" });
+		return reply.status(204).send();
+	});
 
 	// Every raw frame the fake received, so a test can compare bytes.
 	app.get("/__test/chats/:id/received", async (request) => {

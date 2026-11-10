@@ -489,6 +489,22 @@ test("a new socket waits for its own snapshot", () => {
 	expect(store.getState().connection).toBe("open");
 });
 
+test("the command list the host reports is kept, replaced by the next, and survives a new snapshot", () => {
+	const first = [
+		{ name: "compact", description: "Shrink", terminalOnly: false },
+		{ name: "config", description: "Settings", terminalOnly: true },
+	];
+	let state = feed([snapshot(1)]);
+	expect(state.commands).toEqual([]);
+	state = feed([frame("commands", 2, { commands: first })], state);
+	expect(state.commands).toEqual(first);
+	state = feed([snapshot(3)], state);
+	expect(state.commands).toEqual(first);
+	const next = [{ name: "review", description: "Review", terminalOnly: false }];
+	state = feed([frame("commands", 4, { commands: next })], state);
+	expect(state.commands).toEqual(next);
+});
+
 test("the session rules the host reports are kept, and revoking one sends it", () => {
 	const rule = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 	let state = feed([snapshot(1), frame("rules", 2, { rules: [rule] })]);
@@ -574,4 +590,86 @@ test("what is kept is the picker's model choice and the host's effort and mode",
 	).toEqual({ model: "haiku", effort: "max", mode: "bypassPermissions" });
 	expect(modelChoice("something-new")).toBe("default");
 	expect(modelChoice("sonnet")).toBe("sonnet");
+});
+
+const SHELL = {
+	id: "sh-1",
+	command: "ls -la",
+	output: "",
+	exitCode: null,
+	truncated: false,
+	state: "running",
+} as const;
+
+test("a shell event adds a shell item that the same id then finishes", () => {
+	const state = feed([
+		snapshot(0),
+		frame("shell", 1, SHELL),
+		frame("shell", 2, {
+			...SHELL,
+			output: "total 0\n",
+			exitCode: 0,
+			state: "done",
+		}),
+	]);
+	expect(state.items).toEqual([
+		{
+			kind: "shell",
+			key: "shell:sh-1",
+			id: "sh-1",
+			command: "ls -la",
+			output: "total 0\n",
+			exitCode: 0,
+			truncated: false,
+			state: "done",
+			turnId: null,
+		},
+	]);
+});
+
+test("a shell command is never part of a turn, even one running", () => {
+	const state = feed([
+		snapshot(0),
+		frame("turn.started", 1, { at: 5 }),
+		frame("shell", 2, SHELL),
+	]);
+	expect(state.items).toMatchObject([{ kind: "shell", turnId: null }]);
+	expect(state.currentTurnId).not.toBeNull();
+});
+
+test("shell items replayed after a snapshot are kept, and a new snapshot starts them over", () => {
+	const done = { ...SHELL, output: "a\n", exitCode: 1, state: "done" } as const;
+	const first = feed([snapshot(0), frame("shell", 1, done)]);
+	expect(first.items).toHaveLength(1);
+	const again = feed([snapshot(5), frame("shell", 6, done)], first);
+	expect(again.items).toMatchObject([{ id: "sh-1", exitCode: 1, state: "done" }]);
+	expect(again.items).toHaveLength(1);
+});
+
+test("a shell item keeps its place among the messages around it", () => {
+	const state = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u1", role: "user", markdown: "hi" }),
+		frame("shell", 2, SHELL),
+		frame("message", 3, { id: "u2", role: "user", markdown: "next" }),
+		frame("shell", 4, { ...SHELL, state: "done", exitCode: 0, output: "x" }),
+	]);
+	expect(state.items.map((item) => item.kind)).toEqual(["message", "shell", "message"]);
+});
+
+test("the latest context event is kept per tab, and a new snapshot clears it", () => {
+	const first = {
+		usedTokens: 1200,
+		windowTokens: 200000,
+		cache: { at: 1000, ttlSeconds: 300 as const },
+	};
+	let state = feed([snapshot(1)]);
+	expect(state.context).toBeNull();
+	state = feed([frame("context", 2, first)], state);
+	expect(state.context).toEqual({ ...first, clockOffsetMs: 0 });
+	const next = { usedTokens: 5000, windowTokens: null, cache: null };
+	state = feed([frame("context", 3, next)], state);
+	expect(state.context).toEqual({ ...next, clockOffsetMs: 0 });
+	state = feed([snapshot(4)], state);
+	expect(state.context).toBeNull();
 });

@@ -1,4 +1,5 @@
 import {
+	FileNameSearchRequest,
 	PATTERN_INVALID_MESSAGE,
 	type SearchMatch,
 	SearchQuery,
@@ -19,6 +20,7 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 		keyOf,
 		dirs,
 		fileError,
+		fsOf,
 	} = s;
 	app.get("/projects/:slug/search", async (request, reply) => {
 		const slug = (request.params as { slug: string }).slug;
@@ -65,6 +67,50 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 		}
 		const matches = searchAnswers.get(key) ?? [];
 		return { matches, truncated: searchTruncated.get(key) ?? false };
+	});
+
+	// File names for the `@` menu, like the agent's file-names.ts: a case-
+	// insensitive substring of the path, cut to the limit.
+	app.post("/projects/:slug/file-search", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		const body = FileNameSearchRequest.safeParse(request.body ?? {});
+		if (!body.success) {
+			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid file search"));
+		}
+		// A query the test marks as slow stands in for a search still running
+		// when the browser gives up. The wait ends when the caller hangs up
+		// before the answer is sent, or after a short pause.
+		if (body.data.query.includes("slow")) {
+			await new Promise<void>((resolve) => {
+				const onClose = () => {
+					if (reply.raw.writableFinished) return;
+					flags.searchAborted += 1;
+					clearTimeout(timer);
+					resolve();
+				};
+				const timer = setTimeout(() => {
+					reply.raw.off("close", onClose);
+					resolve();
+				}, 1000);
+				reply.raw.once("close", onClose);
+			});
+			if (reply.raw.destroyed) {
+				reply.hijack();
+				return;
+			}
+		}
+		const query = body.data.query.toLowerCase();
+		const prefix = `${slug}/`;
+		const paths = [...fsOf(request)]
+			.filter(([key, node]) => key.startsWith(prefix) && node.type === "file")
+			.map(([key]) => key.slice(prefix.length))
+			.filter((path) => path.toLowerCase().includes(query))
+			.sort();
+		return {
+			paths: paths.slice(0, body.data.limit),
+			truncated: paths.length > body.data.limit,
+		};
 	});
 
 	app.post("/__test/search", async (request, reply) => {

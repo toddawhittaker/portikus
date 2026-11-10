@@ -8,12 +8,14 @@
  * parsed document, so code keeps the text as written.
  */
 import { ChatImagePath, chatImageType } from "@portikus/contracts";
-import { type ComponentPropsWithoutRef, memo, useRef, useState } from "react";
+import { type ComponentPropsWithoutRef, memo, useId, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../editor/markdown.css";
 import { isSafeLink } from "../markdown/sanitize.js";
+import { HighlightedCode } from "./CodeBlocks.js";
 import { CopyButton } from "./CopyButton.js";
+import { fenceTag, languageFor } from "./highlight.js";
 import { useChatImages } from "./ImageViewer.js";
 
 const PLUGINS = [remarkGfm];
@@ -111,16 +113,81 @@ function codeText(pre: HTMLPreElement | null): string {
 	return (pre?.textContent ?? "").replace(/\n$/, "");
 }
 
-/** A wide code block scrolls, so it must be reachable by keyboard. */
+interface HastNode {
+	type?: string;
+	tagName?: string;
+	value?: string;
+	properties?: { className?: unknown };
+	children?: HastNode[];
+}
+
+function hastText(node: HastNode): string {
+	return node.value ?? (node.children ?? []).map(hastText).join("");
+}
+
+/**
+ * A fenced block's tag and code, read from the parsed document. A tag is
+ * named above the block as written; it is coloured only when it is a
+ * language we know (`highlight.ts`).
+ */
+function fence(node: HastNode | undefined): { tag?: string; code: string } | null {
+	const code = node?.children?.find((child) => child.tagName === "code");
+	if (
+		!code ||
+		node?.children?.some((child) => child.type === "element" && child !== code)
+	) {
+		return null;
+	}
+	return {
+		tag: fenceTag(code.properties?.className),
+		code: hastText(code).replace(/\n$/, ""),
+	};
+}
+
+/**
+ * A wide code block scrolls, so it must be reachable by keyboard. The box is
+ * named by the visible language label and its own word ("Python code"), or
+ * just "code" when the fence names no language.
+ */
 function Pre({
-	node: _node,
+	node,
+	children,
 	...props
 }: ComponentPropsWithoutRef<"pre"> & { node?: unknown }) {
 	const pre = useRef<HTMLPreElement | null>(null);
+	const block = fence(node as HastNode | undefined);
+	const language = languageFor(block?.tag);
+	const labelId = useId();
+	const preId = useId();
 	return (
 		<div className="pk-chat-pre pk-chat-copy-host">
-			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: see above */}
-			<pre {...props} ref={pre} tabIndex={0} />
+			{block?.tag ? (
+				<span className="pk-chat-lang" id={labelId}>
+					{language?.label ?? block.tag}
+				</span>
+			) : null}
+			{/* biome-ignore-start lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
+			{/* biome-ignore-start lint/a11y/useSemanticElements: a pre of code cannot be a fieldset; the role is what lets it carry a name */}
+			<pre
+				{...props}
+				ref={pre}
+				tabIndex={0}
+				id={preId}
+				role="group"
+				aria-label="code"
+				aria-labelledby={block?.tag ? `${labelId} ${preId}` : undefined}
+				className="pk-chat-hl"
+			>
+				{block && language ? (
+					<code className={`language-${block.tag}`}>
+						<HighlightedCode code={`${block.code}\n`} language={language} />
+					</code>
+				) : (
+					children
+				)}
+			</pre>
+			{/* biome-ignore-end lint/a11y/useSemanticElements: see above */}
+			{/* biome-ignore-end lint/a11y/noNoninteractiveTabindex: see above */}
 			<CopyButton label="Copy code" text={() => codeText(pre.current)} />
 		</div>
 	);

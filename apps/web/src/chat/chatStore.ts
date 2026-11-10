@@ -9,6 +9,7 @@ import {
 	CHAT_START_EFFORT,
 	type ChatAttachment,
 	ChatClientMessage,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
 	ChatModelChoice,
@@ -18,6 +19,7 @@ import {
 	type ChatSessionRule,
 	type ChatToolOutputPart,
 	MAX_CHAT_SERVER_FRAME_BYTES,
+	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
@@ -55,7 +57,17 @@ interface ChatErrorItem {
 	turnId: string | null;
 }
 
-export type ChatItem = ChatMessageItem | ChatToolItem | ChatErrorItem;
+/**
+ * A `!` command the host ran and its output. The student's own action, so it
+ * belongs to no turn and starts none.
+ */
+export interface ChatShellItem extends Omit<ShellFields, "kind"> {
+	kind: "shell";
+	key: string;
+	turnId: null;
+}
+
+export type ChatItem = ChatMessageItem | ChatToolItem | ChatShellItem | ChatErrorItem;
 
 export interface ChatTurn {
 	id: string;
@@ -109,6 +121,10 @@ export interface ChatState {
 	settings: ChatSettings | null;
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
+	/** The slash commands on offer, as the host last listed them; empty until it does. */
+	commands: ChatCommand[];
+	/** How full the context is and when the prompt cache goes cold; null until the host says. */
+	context: ChatContextUsage | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -123,6 +139,14 @@ export interface ChatState {
 	lastError: { seq: number; message: string } | null;
 }
 
+type ChatContextUsage = Pick<
+	Extract<ChatServerEvent, { type: "context" }>,
+	"usedTokens" | "windowTokens" | "cache"
+> & {
+	/** Browser clock minus host clock when the event arrived; 0 when the host sent no time. */
+	clockOffsetMs: number;
+};
+
 export const initialChatState: ChatState = {
 	connection: "connecting",
 	loaded: false,
@@ -134,6 +158,8 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	sessionRules: [],
+	commands: [],
+	context: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -203,6 +229,8 @@ function applySnapshot(
 		truncated: event.truncated,
 		cards: event.cards,
 		items: [],
+		// A new snapshot may be a new session; the host sends its context after.
+		context: null,
 		turns: turnId
 			? {
 					[turnId]: {
@@ -418,7 +446,32 @@ function applyChatEvent(
 			};
 		case "rules":
 			return { ...state, sessionRules: event.rules };
+		case "shell": {
+			const { type: _type, sessionId: _session, seq: _seq, ...fields } = event;
+			const key = `shell:${event.id}`;
+			// Its end, or a replay of a command already shown, updates it in place.
+			const item: ChatShellItem = { kind: "shell", key, turnId: null, ...fields };
+			const items = replaceItem(state.items, key, () => item);
+			return { ...state, items: items ?? [...state.items, item] };
+		}
+		case "commands":
+			return { ...state, commands: event.commands };
+		case "context":
+			return { ...state, context: contextUsage(event, now) };
 	}
+}
+
+/** The figures as the meter reads them, with the host's clock skew measured on arrival. */
+function contextUsage(
+	event: Extract<ChatServerEvent, { type: "context" }>,
+	now: number,
+): ChatContextUsage {
+	return {
+		usedTokens: event.usedTokens,
+		windowTokens: event.windowTokens,
+		cache: event.cache,
+		clockOffsetMs: event.now === undefined ? 0 : now - event.now,
+	};
 }
 
 /** A turn is running and has already shown some work. */
@@ -581,7 +634,11 @@ interface ChatActions {
 		answers: Record<string, string>,
 		notes?: Record<string, string>,
 	) => boolean;
-	answerPermission: (id: string, optionId: string) => boolean;
+	answerPermission: (
+		id: string,
+		optionId: string,
+		extras?: { message?: string },
+	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
@@ -606,8 +663,8 @@ export function createChatStore(
 		interrupt: () => deliver({ type: "interrupt" }),
 		answerQuestion: (id, answers, notes) =>
 			deliver({ type: "question.answer", id, answers, ...(notes ? { notes } : {}) }),
-		answerPermission: (id, optionId) =>
-			deliver({ type: "permission.answer", id, optionId }),
+		answerPermission: (id, optionId, extras = {}) =>
+			deliver({ type: "permission.answer", id, optionId, ...extras }),
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>

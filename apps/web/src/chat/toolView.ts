@@ -5,6 +5,8 @@
  * checks (the command, the edit as a diff, the file written) instead of raw
  * JSON.
  */
+import { ProjectPath } from "@portikus/contracts";
+import { projectRoot } from "../projectRoot.js";
 
 export interface EditChange {
 	before: string;
@@ -269,4 +271,30 @@ export function previewText(
 	while (all.length > 1 && all.at(-1) === "") all.pop();
 	if (all.length <= lines) return { shown: all.join("\n"), hidden: 0 };
 	return { shown: all.slice(0, lines).join("\n"), hidden: all.length - lines };
+}
+
+/**
+ * A tool's path as the project names it: Claude Code runs in
+ * `/home/student/projects/<slug>`, so a path under it loses that prefix, a
+ * relative one is already the project's, and anything else is not in the
+ * project (null). `.` and empty segments go and `..` is resolved, so one file
+ * has one path; a path that climbs out of the project, or that the file API
+ * would refuse (ProjectPath), is null too.
+ */
+export function projectPath(slug: string | undefined, path: string): string | null {
+	let relative = path;
+	if (path.startsWith("/")) {
+		if (slug === undefined) return null;
+		const root = `${projectRoot(slug)}/`;
+		if (!path.startsWith(root)) return null;
+		relative = path.slice(root.length);
+	}
+	const kept: string[] = [];
+	for (const part of relative.split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part !== "..") kept.push(part);
+		else if (kept.pop() === undefined) return null;
+	}
+	const clean = kept.join("/");
+	return ProjectPath.safeParse(clean).success ? clean : null;
 }

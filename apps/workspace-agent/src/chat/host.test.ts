@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,11 @@ import {
 	MAX_CHAT_IMAGE_BYTES,
 } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { ChatHost, type ChatSdk } from "./host.js";
+import { chatSessionsDir, recordChatSession } from "./session-record.js";
 import { readLines } from "./wire.js";
 
 const ID = "5d0f4a7e-0a51-4b8e-9d0e-6c3f1b2a9e10";
@@ -87,6 +90,28 @@ class FakeQuery {
 		await this.flagGate;
 		if (this.flagFailure) throw this.flagFailure;
 		Object.assign(this.flags, settings);
+	}
+	/** What `supportedCommands()` answers; a test may set a failure instead. */
+	commandList: { name: string; description: string; argumentHint: string }[] = [];
+	commandFailure: Error | null = null;
+	async supportedCommands() {
+		if (this.commandFailure) throw this.commandFailure;
+		return this.commandList;
+	}
+	/** What the plan-usage request answers; a test may set a failure instead. */
+	usage: Record<string, unknown> = { rate_limits_available: false, rate_limits: null };
+	usageFailure: Error | null = null;
+	usageCalls: unknown[] = [];
+	async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(opts: unknown) {
+		this.usageCalls.push(opts);
+		if (this.usageFailure) throw this.usageFailure;
+		return this.usage;
+	}
+	/** What `getContextUsage()` answers; null makes it fail, as an older SDK would. */
+	contextWindow: number | null = null;
+	async getContextUsage() {
+		if (this.contextWindow === null) throw new Error("unsupported");
+		return { maxTokens: this.contextWindow };
 	}
 	close() {
 		this.ended = true;
@@ -266,6 +291,56 @@ describe("starting", () => {
 		expect(ofType(client, "message")[0]).toMatchObject({
 			markdown: "earlier question",
 		});
+	});
+
+	test("after /clear the tab follows the new session, and the next start resumes it", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "rules")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: ID,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(ofType(client, "snapshot")).toHaveLength(2));
+		const after = client.events.slice(
+			client.events.lastIndexOf(ofType(client, "snapshot")[1] as ChatServerEvent),
+		);
+		expect(after.filter((e) => e.type === "message")).toEqual([]);
+		await vi.waitFor(async () =>
+			expect(await readFile(join(chatSessionsDir(dir), ID), "utf8")).toBe(NEW),
+		);
+
+		// A restarted host reads the record and resumes the new session.
+		await host.stop();
+		exists = true;
+		queries = [];
+		reads = [];
+		host = new ChatHost({
+			terminalId: ID,
+			sessionId: await recordChatSession(dir, ID),
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			sdk: sdk(),
+		});
+		await host.start();
+		expect(queries[0]?.options.resume).toBe(NEW);
+		const again = await attach();
+		await vi.waitFor(() => expect(ofType(again, "settings")).toHaveLength(1));
+		expect(reads).toEqual([NEW]);
 	});
 
 	test("the socket and its directory are the workspace user's alone", async () => {
@@ -799,14 +874,14 @@ describe("messages and controls", () => {
 			type: "rate_limit_event",
 			rate_limit_info: {
 				status: "allowed",
-				rateLimitType: "five_hour",
+				rateLimitType: "seven_day",
 				utilization: 0.25,
 				resetsAt: 1794200000,
 			},
 		} as never);
 		await vi.waitFor(() =>
 			expect(posted).toEqual([
-				{ five_hour: { used_percentage: 25, resets_at: 1794200000 } },
+				{ seven_day: { used_percentage: 25, resets_at: 1794200000 } },
 			]),
 		);
 	});
@@ -854,5 +929,521 @@ describe("messages and controls", () => {
 		// Both sends share the one restarted session.
 		expect(queries).toHaveLength(2);
 		await vi.waitFor(() => expect(queries[1]?.sent).toHaveLength(2));
+	});
+});
+
+const INIT = {
+	type: "system",
+	subtype: "init",
+	session_id: ID,
+	model: "m",
+	permissionMode: "default",
+	slash_commands: ["compact", "config", "deploy", "login"],
+	terminal_slash_commands: ["deploy"],
+} as never;
+
+const COMMANDS = [
+	{ name: "compact", description: "Shrink the conversation", argumentHint: "[focus]" },
+	{ name: "config", description: "Open settings", argumentHint: "" },
+	{ name: "deploy", description: "Ship it", argumentHint: "" },
+];
+
+describe("slash commands", () => {
+	test("init lists the commands with descriptions and marks the terminal-only ones", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		expect(ofType(a, "commands")[0]?.commands).toEqual([
+			{
+				name: "compact",
+				description: "Shrink the conversation",
+				argumentHint: "[focus]",
+				terminalOnly: false,
+			},
+			{ name: "config", description: "Open settings", terminalOnly: true },
+			{ name: "deploy", description: "Ship it", terminalOnly: true },
+		]);
+	});
+
+	test("a browser that attaches later gets the last known list, after the rules", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		fake.emit(INIT);
+		await vi.waitFor(async () => {
+			const probe = await attach();
+			await vi.waitFor(() => expect(ofType(probe, "rules")).toHaveLength(1));
+			expect(ofType(probe, "commands")).toHaveLength(1);
+		});
+		const late = await attach();
+		await vi.waitFor(() => expect(ofType(late, "commands")).toHaveLength(1));
+		const types = late.events.map((event) => event.type);
+		expect(types.indexOf("commands")).toBeGreaterThan(types.indexOf("rules"));
+	});
+
+	test("a commands_changed message replaces the list for every browser; an equal list is not resent", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		const a = await attach();
+		const b = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(b, "commands")).toHaveLength(1));
+		fake.emit({
+			type: "system",
+			subtype: "commands_changed",
+			commands: [{ name: "review", description: "Review a PR", argumentHint: "<pr>" }],
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(b, "commands")).toHaveLength(2));
+		expect(ofType(a, "commands")[1]?.commands).toEqual([
+			{
+				name: "review",
+				description: "Review a PR",
+				argumentHint: "<pr>",
+				terminalOnly: false,
+			},
+		]);
+		fake.emit({
+			type: "system",
+			subtype: "commands_changed",
+			commands: [{ name: "review", description: "Review a PR", argumentHint: "<pr>" }],
+		} as never);
+		fake.emit(INIT);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(ofType(a, "commands")).toHaveLength(3);
+	});
+
+	test("when the descriptions cannot be read, init's names are listed without them", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandFailure = new Error("no answer");
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		expect(
+			ofType(a, "commands")[0]?.commands.map((c) => [c.name, c.terminalOnly]),
+		).toEqual([
+			["compact", false],
+			["config", true],
+			["deploy", true],
+			["login", true],
+		]);
+		expect(ofType(a, "commands")[0]?.commands[0]?.description).toBe("");
+	});
+});
+
+describe("permission answers", () => {
+	test("an answer carrying a message and a mode, and one carrying neither, both settle the card", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const first = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan1");
+		const second = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan2");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(2));
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan1",
+			optionId: "allow-accept-edits",
+			mode: "acceptEdits",
+			message: "go on",
+		});
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan2",
+			optionId: "allow-ask-edits",
+		});
+		expect((await first.result).behavior).toBe("allow");
+		expect((await second.result).behavior).toBe("allow");
+	});
+
+	test("a plan's mode comes from the option, never from a mode an older browser sends", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const asked = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan3");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan3",
+			optionId: "allow-ask-edits",
+			mode: "acceptEdits",
+		});
+		expect(await asked.result).toMatchObject({
+			behavior: "allow",
+			updatedPermissions: [
+				{ type: "setMode", mode: "default", destination: "session" },
+			],
+		});
+	});
+});
+
+describe("plan usage", () => {
+	const usage = (utilization: number, resets: string) => ({
+		rate_limits_available: true,
+		rate_limits: { seven_day: { utilization, resets_at: resets } },
+	});
+
+	test("the seven-day figure is read when the session starts and after each result, without the transcript scan", async () => {
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(1));
+		expect(fake.usageCalls[0]).toEqual({ skipBehaviors: true });
+		expect(posted).toEqual([]);
+
+		fake.usage = usage(41.26, "2026-12-01T09:00:00Z");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() =>
+			expect(posted).toEqual([
+				{ seven_day: { used_percentage: 41.3, resets_at: 1796115600 } },
+			]),
+		);
+		expect(fake.usageCalls).toHaveLength(2);
+	});
+
+	test("a failed request keeps the last figure and posts nothing", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.usage = usage(10, "2026-12-01T09:00:00Z");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(posted).toHaveLength(1));
+		fake.usageFailure = new Error("offline");
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(posted).toHaveLength(1);
+	});
+
+	test("a session on an API key posts nothing", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(2));
+		expect(posted).toEqual([]);
+	});
+});
+
+describe("context usage", () => {
+	const assistant = (usage: Record<string, unknown>, parent: string | null = null) =>
+		({
+			type: "assistant",
+			parent_tool_use_id: parent,
+			session_id: ID,
+			uuid: randomUUID(),
+			message: {
+				id: `msg-${randomUUID()}`,
+				role: "assistant",
+				model: "claude-opus-5-5",
+				content: [],
+				usage,
+			},
+		}) as never;
+
+	test("each main-thread request sends the context in use and the cache clock; a subagent's does not", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const before = Date.now();
+		fake.emit(
+			assistant({
+				input_tokens: 10,
+				output_tokens: 5,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 1000,
+				cache_creation: {
+					ephemeral_1h_input_tokens: 1000,
+					ephemeral_5m_input_tokens: 0,
+				},
+			}),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		const first = ofType(a, "context")[0];
+		expect(first?.now).toBeGreaterThanOrEqual(before);
+		expect(first?.usedTokens).toBe(1015);
+		expect(first?.windowTokens).toBeNull();
+		expect(first?.cache?.ttlSeconds).toBe(3600);
+		expect(first?.cache?.at).toBeGreaterThanOrEqual(before);
+
+		fake.emit(assistant({ input_tokens: 99999, output_tokens: 1 }, "toolu_sub"));
+		fake.contextWindow = 200000;
+		fake.emit({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			modelUsage: {},
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		expect(ofType(a, "context")[1]).toMatchObject({
+			usedTokens: 1015,
+			windowTokens: 200000,
+		});
+	});
+
+	test("the repeats the SDK sends for each content block of one response count once", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const block = assistant({
+			input_tokens: 10,
+			output_tokens: 5,
+			cache_read_input_tokens: 50,
+		});
+		fake.emit(block);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const again = block as unknown as { message: object; uuid: string };
+		fake.emit({ ...again, uuid: randomUUID(), message: { ...again.message } } as never);
+		fake.emit(
+			assistant({ input_tokens: 10, output_tokens: 9, cache_read_input_tokens: 50 }),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "context")).toHaveLength(2);
+		expect(ofType(a, "context")[1]?.usedTokens).toBe(69);
+	});
+
+	test("without getContextUsage the window comes from the result's modelUsage", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		fake.emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		fake.emit({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			modelUsage: { "claude-opus-5-5": { contextWindow: 1000000 } },
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "context").at(-1)).toEqual(
+				expect.objectContaining({ usedTokens: 15, windowTokens: 1000000, cache: null }),
+			),
+		);
+	});
+
+	test("a later attach gets the live figure at once", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		fake.emit(
+			assistant({ input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 90 }),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "context")).toHaveLength(1));
+		expect(ofType(b, "context")[0]).toMatchObject({
+			usedTokens: 100,
+			cache: { ttlSeconds: 300 },
+		});
+		const types = b.events.map((event) => event.type);
+		expect(types.indexOf("context")).toBeGreaterThan(types.indexOf("snapshot"));
+	});
+
+	test("before any request, an attach works the figure out from the transcript, with the cache unknown", async () => {
+		transcript = async () => [
+			...EARLIER,
+			{
+				type: "assistant",
+				uuid: "a1",
+				session_id: ID,
+				parent_tool_use_id: null,
+				parent_agent_id: null,
+				message: {
+					usage: { input_tokens: 20, output_tokens: 2, cache_read_input_tokens: 500 },
+				},
+			} as SessionMessage,
+		];
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		expect(ofType(a, "context")[0]).toMatchObject({
+			usedTokens: 522,
+			windowTokens: null,
+			cache: null,
+		});
+	});
+
+	test("an attach to a chat with no requests yet gets no context event", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "context")).toEqual([]);
+	});
+});
+
+describe("shell commands", () => {
+	const result = (turns: number) =>
+		({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			num_turns: turns,
+		}) as never;
+
+	test("a `!` command runs with no model, shows its output, and is appended without a turn", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "  ! pwd; echo hi >&2; exit 4", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		const [running, done] = ofType(a, "shell");
+		expect(running).toMatchObject({
+			state: "running",
+			command: "pwd; echo hi >&2; exit 4",
+			output: "",
+		});
+		expect(done).toMatchObject({
+			id: running?.id,
+			state: "done",
+			output: `${join(dir, "projects", "demo")}\nhi\n`,
+			exitCode: 4,
+			truncated: false,
+		});
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(fake.sent[0]).toMatchObject({
+			uuid: running?.id,
+			shouldQuery: false,
+			message: { content: "<bash-input>pwd; echo hi >&2; exit 4</bash-input>" },
+		});
+		expect(fake.sent[1]?.shouldQuery).toBe(false);
+		expect(String(fake.sent[1]?.message.content)).toContain("Exit code 4");
+
+		// Each append's empty result ends no turn, and the next real turn ends normally.
+		fake.emit(result(0));
+		fake.emit(result(0));
+		a.send({ type: "send", text: "what did it print?", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "turn.finished")).toHaveLength(1);
+		fake.emit(result(1));
+		await vi.waitFor(() => expect(ofType(a, "turn.finished")).toHaveLength(2));
+		expect(ofType(a, "turn.started")).toHaveLength(2);
+	});
+
+	test("Stop ends a running command at once and settles it as stopped", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		const started = Date.now();
+		a.send({ type: "send", text: "!sleep 600", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		a.send({ type: "interrupt" });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		expect(Date.now() - started).toBeLessThan(5000);
+		expect(ofType(a, "shell")[1]).toMatchObject({ state: "done", exitCode: null });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(String(fake.sent[1]?.message.content)).toContain(
+			"<bash-stderr>Stopped</bash-stderr>",
+		);
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(3));
+		expect(ofType(a, "error")).toHaveLength(0);
+	});
+
+	test("a `!` sent while a message is still being read in is refused", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		a.send({ type: "send", text: "!ls", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toMatch(/while Claude is working/);
+		expect(ofType(a, "shell")).toHaveLength(0);
+	});
+
+	test("a `!` command is refused while Claude is working", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		a.send({ type: "send", text: "!ls", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toMatch(/while Claude is working/);
+		expect(ofType(a, "shell")).toHaveLength(0);
+		expect((queries[0] as FakeQuery).sent).toHaveLength(1);
+	});
+
+	test("a message is refused while a command runs, and a late attachment sees it running", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!sleep 0.5; echo late", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		const b = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(b, "shell")[0]).toMatchObject({ state: "running" }),
+		);
+		await vi.waitFor(() =>
+			expect(ofType(b, "shell").at(-1)).toMatchObject({
+				state: "done",
+				output: "late\n",
+			}),
+		);
+		expect(ofType(a, "turn.started")).toHaveLength(1);
+	});
+
+	test("a turn that starts while a command runs gets its appends only after it ends", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "!sleep 0.3; echo x", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		// A background subagent finishing starts a turn of its own.
+		fake.emit(delta("subagent done"));
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(fake.sent).toHaveLength(0);
+		fake.emit(result(1));
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(fake.sent.every((message) => message.shouldQuery === false)).toBe(true);
+		expect(ofType(a, "turn.finished")).toHaveLength(2);
+	});
+
+	test("a command with attachments, or one that is too long, is refused", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: `!echo ${"x".repeat(5000)}`, attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "shell")).toHaveLength(0);
+	});
+
+	test("a command past the time limit is killed and reported with no exit code", async () => {
+		await host.stop();
+		queries = [];
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			sdk: sdk(),
+			shellTimeoutMs: 2000,
+		});
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!echo begun; sleep 30", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2), {
+			timeout: 10_000,
+		});
+		expect(ofType(a, "shell")[1]).toMatchObject({ output: "begun\n", exitCode: null });
+		await vi.waitFor(() => expect((queries[0] as FakeQuery).sent).toHaveLength(2));
+		expect(String((queries[0] as FakeQuery).sent[1]?.message.content)).toContain(
+			"time limit",
+		);
+	});
+
+	test("neither the command nor its output is logged", async () => {
+		await host.stop();
+		queries = [];
+		const { logger, lines } = collectingLogger("debug");
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: logger,
+			postLimits: async () => undefined,
+			sdk: sdk(),
+		});
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!echo SECRET-$((40+2))-MARK", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		expect(ofType(a, "shell")[1]?.output).toBe("SECRET-42-MARK\n");
+		expect(JSON.stringify(lines)).not.toMatch(/SECRET/);
 	});
 });

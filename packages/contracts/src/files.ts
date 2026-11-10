@@ -242,3 +242,20 @@ export function contentDisposition(name: string): string {
 	);
 	return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
+
+/** Most paths one file-name search returns. */
+export const MAX_FILE_NAME_MATCHES = 50;
+
+/** Request body for the file-name search behind the `@` menu. */
+export const FileNameSearchRequest = z.object({
+	query: z.string().max(200),
+	limit: z.number().int().min(1).max(MAX_FILE_NAME_MATCHES).default(20),
+});
+export type FileNameSearchRequest = z.infer<typeof FileNameSearchRequest>;
+
+/** Matching file paths, relative to the project root; `truncated` says more exist. */
+export const FileNameSearchResponse = z.object({
+	paths: z.array(z.string()).max(MAX_FILE_NAME_MATCHES),
+	truncated: z.boolean(),
+});
+export type FileNameSearchResponse = z.infer<typeof FileNameSearchResponse>;

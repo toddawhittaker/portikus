@@ -1,0 +1,65 @@
+/*
+ * Syntax colours (ADR 0072). Each colour meets 4.5:1 on the sunken code
+ * background and on both diff backgrounds, in both themes. Colour only
+ * decorates: the language is named in text, and a diff line's mark is text.
+ * A token is used where its value is the colour in both themes (comment,
+ * type); the others differ a little in the light theme, so they stay literal.
+ */
+.pk-chat-hl {
+	--hl-keyword: light-dark(#7a3e9d, #d6a6f0);
+	--hl-string: light-dark(#2a6630, #86c98b);
+	--hl-number: light-dark(#7d5500, #e3b85c);
+	--hl-comment: var(--ink-muted);
+	--hl-title: light-dark(#3a5585, #9fb4e0);
+	--hl-type: var(--accent-text);
+	--hl-attr: light-dark(#9c3127, #f0998f);
+}
+
+.pk-chat-hl :is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag) {
+	color: var(--hl-keyword);
+}
+
+.pk-chat-hl :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag) {
+	color: var(--hl-string);
+}
+
+.pk-chat-hl :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable.constant_) {
+	color: var(--hl-number);
+}
+
+.pk-chat-hl :is(.hljs-comment, .hljs-quote) {
+	color: var(--hl-comment);
+	font-style: italic;
+}
+
+.pk-chat-hl
+	:is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
+	color: var(--hl-title);
+}
+
+.pk-chat-hl :is(.hljs-type, .hljs-built_in, .hljs-class) {
+	color: var(--hl-type);
+}
+
+.pk-chat-hl
+	:is(
+		.hljs-attr,
+		.hljs-attribute,
+		.hljs-meta,
+		.hljs-deletion,
+		.hljs-tag,
+		.hljs-variable,
+		.hljs-template-variable
+	) {
+	color: var(--hl-attr);
+}
+
+/* The language a block is written in, named in text above it. */
+.pk-chat-lang {
+	display: block;
+	padding-block-end: var(--space-1);
+	color: var(--ink-muted);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	line-height: 1.5;
+}

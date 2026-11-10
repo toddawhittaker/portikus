@@ -116,7 +116,12 @@ test.skipIf(skip)("settings are kept per project and read back", async () => {
 	const back = await read(alice, one);
 	expect(back.statusCode).toBe(200);
 	expect(back.headers["cache-control"]).toBe("no-store");
-	expect(back.json()).toEqual({ model: "opus", effort: "low", mode: "acceptEdits" });
+	expect(back.json()).toEqual({
+		model: "opus",
+		effort: "low",
+		mode: "acceptEdits",
+		readAloud: false,
+	});
 	expect((await read(alice, two)).statusCode).toBe(204);
 });
 
@@ -127,13 +132,19 @@ test.skipIf(skip)("a last-used Bypass comes back as Auto", async () => {
 		model: "opus",
 		effort: "high",
 		mode: "auto",
+		readAloud: false,
 	});
 	const row = await testDb.db
 		.selectFrom("projects")
 		.select("chat_settings")
 		.where("id", "=", one)
 		.executeTakeFirstOrThrow();
-	expect(row.chat_settings).toEqual({ model: "opus", effort: "high", mode: "auto" });
+	expect(row.chat_settings).toEqual({
+		model: "opus",
+		effort: "high",
+		mode: "auto",
+		readAloud: false,
+	});
 });
 
 test.skipIf(skip)(
@@ -155,6 +166,7 @@ test.skipIf(skip)(
 			model: "default",
 			effort: "high",
 			mode: "default",
+			readAloud: false,
 		});
 	},
 );
@@ -181,3 +193,73 @@ test.skipIf(skip)("another student gets 404 and changes nothing", async () => {
 	).toBe(404);
 	expect((await read(alice, one)).statusCode).toBe(204);
 });
+
+test.skipIf(skip)(
+	"read aloud is kept beside the pickers, and each leaves the other",
+	async () => {
+		const one = await newProject("one");
+		// Saved before any picker value: the pickers read as the defaults.
+		expect((await save(alice, one, { readAloud: true })).statusCode).toBe(204);
+		expect((await read(alice, one)).json()).toEqual({
+			model: "default",
+			effort: "high",
+			mode: "default",
+			readAloud: true,
+		});
+
+		// A picker change that says nothing of read aloud keeps it.
+		await save(alice, one, { model: "opus", effort: "low", mode: "plan" });
+		expect((await read(alice, one)).json()).toEqual({
+			model: "opus",
+			effort: "low",
+			mode: "plan",
+			readAloud: true,
+		});
+
+		// Turning it off keeps the picker values.
+		await save(alice, one, { readAloud: false });
+		expect((await read(alice, one)).json()).toEqual({
+			model: "opus",
+			effort: "low",
+			mode: "plan",
+			readAloud: false,
+		});
+
+		// The full form may carry it too.
+		await save(alice, one, {
+			model: "haiku",
+			effort: "max",
+			mode: "auto",
+			readAloud: true,
+		});
+		expect((await read(alice, one)).json()).toEqual({
+			model: "haiku",
+			effort: "max",
+			mode: "auto",
+			readAloud: true,
+		});
+	},
+);
+
+test.skipIf(skip)("read aloud is kept per project", async () => {
+	const one = await newProject("one");
+	const two = await newProject("two");
+	await save(alice, one, { readAloud: true });
+	expect((await read(alice, two)).statusCode).toBe(204);
+});
+
+test.skipIf(skip)(
+	"read aloud must be true or false, alone or with nothing else",
+	async () => {
+		const one = await newProject("one");
+		for (const payload of [
+			{ readAloud: "yes" },
+			{ readAloud: true, model: "opus" },
+			{ readAloud: true, prompt: "hello" },
+			{},
+		]) {
+			expect((await save(alice, one, payload)).statusCode).toBe(400);
+		}
+		expect((await read(alice, one)).statusCode).toBe(204);
+	},
+);

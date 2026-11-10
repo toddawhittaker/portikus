@@ -3,9 +3,12 @@
  * they throw away what they must not read, never block or fail the agent,
  * and send only state words and limit numbers (ADR 0012).
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtempSync, symlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
@@ -261,4 +264,188 @@ test("when every window is bad the status line prints and sends nothing", async 
 	expect(code).toBe(0);
 	expect(stdout).toBe("");
 	expect(received).toEqual([]);
+});
+
+const SUBAGENT_SCRIPT = fileURLToPath(
+	new URL("../scripts/portikus-agent-subagent", import.meta.url),
+);
+
+/** What Claude Code hands an Agent hook: the prompt and the reply must never travel. */
+const AGENT_HOOK_INPUT = JSON.stringify({
+	session_id: "s1",
+	transcript_path: "/home/student/.claude/projects/x.jsonl",
+	cwd: "/home/student/secret-project",
+	hook_event_name: "PostToolUse",
+	tool_name: "Agent",
+	tool_use_id: "toolu_01ABC",
+	tool_input: {
+		description: "Find the parser",
+		prompt: "secret prompt",
+		subagent_type: "Explore",
+		run_in_background: true,
+		model: "opus",
+	},
+	tool_response: {
+		agentId: "agent-7",
+		status: "async_launched",
+		content: "secret reply",
+	},
+});
+
+function subagentEnv(extra: Record<string, string> = {}) {
+	return {
+		PORTIKUS_TERMINAL: `pk-${TERMINAL_ID}`,
+		PORTIKUS_AGENT_RECEIVER: receiverUrl,
+		...extra,
+	};
+}
+
+function parsedBody(): Record<string, unknown> {
+	return JSON.parse(received[0]?.body ?? "{}") as Record<string, unknown>;
+}
+
+test("the subagent hook posts only the allow-listed fields of a tool call", async () => {
+	const { code, stdout } = await run(
+		SUBAGENT_SCRIPT,
+		["post_tool_use"],
+		AGENT_HOOK_INPUT,
+		subagentEnv(),
+	);
+	expect(code).toBe(0);
+	expect(stdout).toBe("");
+	expect(received).toHaveLength(1);
+	expect(received[0]?.path).toBe("/coding-agent-subagent");
+	const { at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "post_tool_use",
+		tool_use_id: "toolu_01ABC",
+		description: "Find the parser",
+		subagent_type: "Explore",
+		run_in_background: true,
+		agent_id: "agent-7",
+	});
+	expect(Math.abs(Number(at) / 1000 - Date.now())).toBeLessThan(10_000);
+	expect(received[0]?.body).not.toContain("secret");
+});
+
+test("the subagent hook leaves out a missing or wrong-typed field and keeps the rest", async () => {
+	const input = JSON.stringify({
+		tool_use_id: "toolu_01ABC",
+		tool_input: { description: { nested: "secret" }, prompt: "secret prompt" },
+		tool_response: "secret reply",
+	});
+	await run(SUBAGENT_SCRIPT, ["pre_tool_use"], input, subagentEnv());
+	const { at: _at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "pre_tool_use",
+		tool_use_id: "toolu_01ABC",
+	});
+});
+
+test("SubagentStop sends only the agent id", async () => {
+	const input = JSON.stringify({
+		agent_id: "agent-7",
+		agent_type: "Explore",
+		last_assistant_message: "secret reply",
+		tool_use_id: "toolu_01ABC",
+	});
+	await run(SUBAGENT_SCRIPT, ["subagent_stop"], input, subagentEnv());
+	const { at: _at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "subagent_stop",
+		agent_id: "agent-7",
+	});
+});
+
+test.each(["user_prompt_submit", "stop"])(
+	"%s sends the event alone, never its prompt or reply",
+	async (event) => {
+		const input = JSON.stringify({
+			prompt: "secret prompt",
+			last_assistant_message: "secret",
+		});
+		const { code } = await run(SUBAGENT_SCRIPT, [event], input, subagentEnv());
+		expect(code).toBe(0);
+		const { at: _at, ...rest } = parsedBody();
+		expect(rest).toEqual({ terminal: TERMINAL_ID, event });
+	},
+);
+
+test("the subagent hook sends nothing for input that is not JSON, and exits 0", async () => {
+	const { code } = await run(
+		SUBAGENT_SCRIPT,
+		["pre_tool_use"],
+		"not json",
+		subagentEnv(),
+	);
+	expect(code).toBe(0);
+	expect(received).toHaveLength(0);
+});
+
+test("the subagent hook reads its whole input, so the agent's write never fails", async () => {
+	const big = JSON.stringify({
+		tool_use_id: "toolu_1",
+		tool_input: { prompt: "x".repeat(1024 * 1024) },
+	});
+	const { code } = await run(SUBAGENT_SCRIPT, ["pre_tool_use"], big, subagentEnv());
+	expect(code).toBe(0);
+	expect(received).toHaveLength(1);
+});
+
+test("outside a Portikus terminal, or with an odd event, the subagent hook does nothing", async () => {
+	for (const [args, env] of [
+		[["pre_tool_use"], { PORTIKUS_AGENT_RECEIVER: receiverUrl }],
+		[["pre-tool-use; rm"], subagentEnv()],
+		[[], subagentEnv()],
+	] as const) {
+		const { code } = await run(SUBAGENT_SCRIPT, [...args], AGENT_HOOK_INPUT, env);
+		expect(code).toBe(0);
+	}
+	expect(received).toHaveLength(0);
+});
+
+test("without jq the subagent hook exits 0 silently", async () => {
+	const bin = mkdtempSync(join(tmpdir(), "no-jq-"));
+	for (const tool of ["date", "cat", "curl", "timeout"]) {
+		const found = execFileSync("bash", ["-c", `command -v ${tool}`])
+			.toString()
+			.trim();
+		symlinkSync(found, join(bin, tool));
+	}
+	const { code, stdout } = await run(
+		SUBAGENT_SCRIPT,
+		["pre_tool_use"],
+		AGENT_HOOK_INPUT,
+		{
+			...subagentEnv(),
+			PATH: bin,
+		},
+	);
+	expect(code).toBe(0);
+	expect(stdout).toBe("");
+	expect(received).toHaveLength(0);
+});
+
+test("the subagent hook exits 0 within its second when the receiver never answers", async () => {
+	const silent = createServer(() => {});
+	await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+	try {
+		const { code, ms } = await run(
+			SUBAGENT_SCRIPT,
+			["pre_tool_use"],
+			AGENT_HOOK_INPUT,
+			{
+				...subagentEnv(),
+				PORTIKUS_AGENT_RECEIVER: `http://127.0.0.1:${(silent.address() as AddressInfo).port}`,
+			},
+		);
+		expect(code).toBe(0);
+		expect(ms).toBeLessThan(2500);
+	} finally {
+		silent.closeAllConnections();
+		await new Promise<void>((resolve) => silent.close(() => resolve()));
+	}
 });

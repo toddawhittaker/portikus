@@ -16,7 +16,7 @@ export async function withProjects(
 	if (states.length === 0) return [];
 	const rows = await db
 		.selectFrom("terminals")
-		.select(["id", "project_id"])
+		.select(["id", "project_id", "name", "kind"])
 		.where("workspace_id", "=", workspaceId)
 		.where(
 			"id",
@@ -24,11 +24,17 @@ export async function withProjects(
 			states.map((state) => state.terminalId),
 		)
 		.execute();
-	const projects = new Map(rows.map((row) => [row.id, row.project_id]));
+	const found = new Map(rows.map((row) => [row.id, row]));
 	const joined: CodingAgentTerminal[] = [];
 	for (const state of states) {
-		const projectId = projects.get(state.terminalId);
-		if (projectId) joined.push({ ...state, projectId });
+		const row = found.get(state.terminalId);
+		if (row?.project_id)
+			joined.push({
+				...state,
+				projectId: row.project_id,
+				name: row.name,
+				kind: row.kind === "chat" ? "chat" : "terminal",
+			});
 	}
 	return joined;
 }

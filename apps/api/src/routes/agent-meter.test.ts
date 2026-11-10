@@ -87,6 +87,13 @@ beforeEach(async () => {
 const inDays = (days: number): string =>
 	new Date(Date.now() + days * 86_400_000).toISOString();
 
+const plan = (id: string, label: string, usedPercent: number, resetsAt: string) => ({
+	id,
+	label,
+	usedPercent,
+	resetsAt,
+});
+
 async function setLimits(body: Record<string, unknown>): Promise<void> {
 	const response = await fetch(`http://127.0.0.1:${agent.port}/__test/agent-limits`, {
 		method: "POST",
@@ -136,11 +143,7 @@ test.skipIf(skip)(
 	"the owner gets limits from the agent and today's counts",
 	async () => {
 		await start();
-		await setLimits({
-			claude: {
-				windows: [{ name: "5h", usedPercent: 42, resetsAt: inDays(0.1) }],
-			},
-		});
+		await setLimits({ providers: [plan("claude", "Claude", 42, inDays(3))] });
 		await addUsage(aliceId, 0, { input: 10, cost: 0.5 });
 		await addUsage(aliceId, 0, { model: "sonnet", input: 20, cost: 0.25 });
 		await addUsage(aliceId, 1, { input: 999 });
@@ -148,9 +151,10 @@ test.skipIf(skip)(
 		const response = await meter(alice);
 		expect(response.statusCode).toBe(200);
 		const body = AgentMeter.parse(response.json());
-		const claude = body.agents.find((one) => one.agent === "claude");
-		const codex = body.agents.find((one) => one.agent === "codex");
-		expect(claude?.limits?.windows[0]).toMatchObject({ name: "5h", usedPercent: 42 });
+		const claude = body.providers.find((one) => one.id === "claude");
+		const codex = body.providers.find((one) => one.id === "codex");
+		expect(claude?.label).toBe("Claude");
+		expect(claude?.plan).toMatchObject({ id: "claude", usedPercent: 42 });
 		expect(claude?.today).toMatchObject({
 			sessions: 2,
 			inputTokens: 30,
@@ -158,7 +162,18 @@ test.skipIf(skip)(
 			costUsd: 0.75,
 			linesAdded: 6,
 		});
-		expect(codex).toEqual({ agent: "codex", limits: null, today: null });
+		expect(codex).toEqual({ id: "codex", label: "Codex", plan: null, today: null });
+	},
+);
+
+test.skipIf(skip)(
+	"a provider the agent reports beyond the known agents is listed with its plan",
+	async () => {
+		await start();
+		await setLimits({ providers: [plan("kimi", "Kimi", 7, inDays(2))] });
+		const body = AgentMeter.parse((await meter(alice)).json());
+		expect(body.providers.map((one) => one.id)).toEqual(["claude", "codex", "kimi"]);
+		expect(body.providers[2]).toMatchObject({ label: "Kimi", today: null });
 	},
 );
 
@@ -183,34 +198,32 @@ test.skipIf(skip)("another user's counts never appear", async () => {
 	).id;
 	await addUsage(bobId, 0, { input: 12345 });
 	const body = AgentMeter.parse((await meter(alice)).json());
-	expect(body.agents.every((one) => one.today === null)).toBe(true);
+	expect(body.providers.every((one) => one.today === null)).toBe(true);
 });
 
-test.skipIf(skip)("an agent that cannot be reached leaves limits null", async () => {
+test.skipIf(skip)("an agent that cannot be reached leaves the plan null", async () => {
 	await start({ AGENT_PORT: 1 });
 	await addUsage(aliceId, 0, { input: 7 });
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
 	const body = AgentMeter.parse(response.json());
-	expect(body.agents.every((one) => one.limits === null)).toBe(true);
-	expect(body.agents.find((one) => one.agent === "claude")?.today?.inputTokens).toBe(7);
+	expect(body.providers.every((one) => one.plan === null)).toBe(true);
+	expect(body.providers.find((one) => one.id === "claude")?.today?.inputTokens).toBe(7);
 });
 
 test.skipIf(skip)("limits the contract rejects are left out", async () => {
 	await start();
 	// 200% used and a reset far in the future are both out of range.
 	await setLimits({
-		claude: {
-			windows: [{ name: "5h", usedPercent: 200, resetsAt: inDays(1) }],
-		},
-		codex: {
-			windows: [{ name: "7d", usedPercent: 10, resetsAt: inDays(90) }],
-		},
+		providers: [
+			plan("claude", "Claude", 200, inDays(1)),
+			plan("codex", "Codex", 10, inDays(90)),
+		],
 	});
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
 	const body = AgentMeter.parse(response.json());
-	expect(body.agents.every((one) => one.limits === null)).toBe(true);
+	expect(body.providers.every((one) => one.plan === null)).toBe(true);
 });
 
 test.skipIf(skip)("a stopped workspace still answers, with no limits", async () => {
@@ -222,7 +235,7 @@ test.skipIf(skip)("a stopped workspace still answers, with no limits", async () 
 		.execute();
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
-	expect(AgentMeter.parse(response.json()).agents.map((one) => one.limits)).toEqual([
+	expect(AgentMeter.parse(response.json()).providers.map((one) => one.plan)).toEqual([
 		null,
 		null,
 	]);

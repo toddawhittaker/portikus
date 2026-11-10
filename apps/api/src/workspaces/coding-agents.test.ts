@@ -60,6 +60,7 @@ async function project(workspaceId: string, slug: string): Promise<string> {
 async function terminal(
 	workspaceId: string,
 	projectId: string | null,
+	kind: "terminal" | "chat" = "terminal",
 ): Promise<string> {
 	const row = await tdb.db
 		.insertInto("terminals")
@@ -68,6 +69,7 @@ async function terminal(
 			name: "Terminal",
 			cwd: "/home/student",
 			project_id: projectId,
+			kind,
 		})
 		.returning("id")
 		.executeTakeFirstOrThrow();
@@ -80,6 +82,7 @@ function state(terminalId: string): AgentCodingAgentStatus {
 		agent: "claude",
 		state: "needs-input",
 		since: "2026-11-01T12:00:00.000Z",
+		subagents: [],
 	};
 }
 
@@ -90,12 +93,12 @@ test.skipIf(skip)(
 		const a = await project(ws, "alpha");
 		const b = await project(ws, "beta");
 		const ta = await terminal(ws, a);
-		const tb = await terminal(ws, b);
+		const tb = await terminal(ws, b, "chat");
 
 		const joined = await withProjects(tdb.db, ws, [state(ta), state(tb)]);
 		expect(joined).toEqual([
-			{ ...state(ta), projectId: a },
-			{ ...state(tb), projectId: b },
+			{ ...state(ta), projectId: a, name: "Terminal", kind: "terminal" },
+			{ ...state(tb), projectId: b, name: "Terminal", kind: "chat" },
 		]);
 	},
 );
@@ -129,3 +132,23 @@ test.skipIf(skip)("a terminal outside any project is dropped", async () => {
 test.skipIf(skip)("an empty list needs no query", async () => {
 	expect(await withProjects(tdb.db, crypto.randomUUID(), [])).toEqual([]);
 });
+
+test.skipIf(skip)(
+	"a terminal's subagent rows reach the browser unchanged",
+	async () => {
+		const ws = await workspace("subagents");
+		const p = await project(ws, "alpha");
+		const t = await terminal(ws, p);
+		const subagents: AgentCodingAgentStatus["subagents"] = [
+			{
+				id: "toolu_01ABC",
+				type: "Explore",
+				description: "Find the parser",
+				state: "finished",
+				since: "2026-11-01T12:00:01.000Z",
+			},
+		];
+		const joined = await withProjects(tdb.db, ws, [{ ...state(t), subagents }]);
+		expect(joined[0]?.subagents).toEqual(subagents);
+	},
+);

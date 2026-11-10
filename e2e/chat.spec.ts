@@ -414,6 +414,7 @@ test("a card answered in one browser clears in the other", async ({
 		await expect(second.getByTestId("chat-permission-card")).toBeVisible();
 
 		await second.getByRole("button", { name: "Deny" }).click();
+		await second.getByLabel("Tell Claude what to do instead").press("Enter");
 		await expect(first.getByTestId("chat-permission-card")).toHaveCount(0);
 		await expect(second.getByTestId("chat-permission-card")).toHaveCount(0);
 		await expect
@@ -465,6 +466,7 @@ test("Skip leaves a question unanswered, and the summary says so", async ({
 	await page.keyboard.press("Control+Enter");
 	await expect(card).toHaveCount(0);
 	await view.getByRole("button", { name: "Deny" }).click();
+	await view.getByLabel("Tell Claude what to do instead").press("Enter");
 	await expect
 		.poll(() => fakeAnswers(id))
 		.toEqual([

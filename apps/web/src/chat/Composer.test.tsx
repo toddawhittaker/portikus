@@ -112,7 +112,13 @@ function draw() {
 			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
 		>
 			<ToastProvider>
-				<Composer store={store} workspaceId="w" projectId="p" terminalId={TERMINAL} />
+				<Composer
+					store={store}
+					readAloud={{ on: false, set: () => {} }}
+					workspaceId="w"
+					projectId="p"
+					terminalId={TERMINAL}
+				/>
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
@@ -425,6 +431,108 @@ test("the same long text pasted twice at once goes in the box once, and the firs
 	expect(sent).toEqual([{ type: "send", text: log, attachments: [] }]);
 });
 
+function pasteLines(count: number, prefix = "l") {
+	const log = Array.from({ length: count }, (_, at) => `${prefix}${at}`).join("\n");
+	fireEvent.paste(input(), {
+		clipboardData: {
+			files: [],
+			items: [],
+			types: ["text/plain"],
+			getData: (kind: string) => (kind === "text/plain" ? log : ""),
+		},
+	});
+	return log;
+}
+
+function insertButton(name = "pasted-text.txt") {
+	return screen.getByRole("button", {
+		name: `Insert pasted text inline (${name})`,
+	});
+}
+
+test("Insert as text puts the long paste in the box at the cursor, deletes its file, says so and focuses the box", async () => {
+	draw();
+	type("before after");
+	placeCursor(input(), 7);
+	const log = pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	expect(value()).toBe("before after");
+	fireEvent.click(insertButton());
+	expect(screen.queryByTestId("composer-chip")).toBeNull();
+	expect(value()).toBe(`before ${log}after`);
+	expect(deleteFile).toHaveBeenCalledTimes(1);
+	expect(deleteFile).toHaveBeenCalledWith(await saveDroppedFile.mock.results[0]?.value);
+	await waitFor(() => expect(status()).toBe("Inserted 60 lines as text."));
+	// The cursor is at the end of the inserted text: typing continues from there.
+	expect(editorOf(input()).view.hasFocus()).toBe(true);
+	typeInto(input(), "!");
+	expect(value()).toBe(`before ${log}!after`);
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([
+		{ type: "send", text: `before ${log}!after`, attachments: [] },
+	]);
+});
+
+test("Insert as text fills an empty box, and only that chip's paste moves", async () => {
+	draw();
+	pasteLines(50, "a");
+	await screen.findByTestId("composer-chip");
+	pasteLines(60, "b");
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	fireEvent.click(insertButton("pasted-text-2.txt"));
+	expect(value()).toBe(Array.from({ length: 60 }, (_, at) => `b${at}`).join("\n"));
+	const left = screen.getAllByTestId("composer-chip");
+	expect(left).toHaveLength(1);
+	expect(left[0]?.textContent).toContain("pasted-text.txt");
+	expect(deleteFile).toHaveBeenCalledTimes(1);
+});
+
+test("a picture's chip has no Insert as text button", async () => {
+	draw();
+	paste([file("image.png", "image/png")]);
+	await screen.findByTestId("composer-chip");
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+});
+
+test("once a message names the paste's file there is no Insert as text, and the file is kept", async () => {
+	draw();
+	pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+	// Sent, not yet echoed: the chip stays but cannot be turned into text.
+	expect(screen.getByTestId("composer-chip")).toBeTruthy();
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+	echo("");
+	await waitFor(() => expect(screen.queryByTestId("composer-chip")).toBeNull());
+	expect(deleteFile).not.toHaveBeenCalled();
+	expect(value()).toBe("");
+});
+
+test("after a send the host refused, the paste can be inserted again", async () => {
+	draw();
+	pasteLines(60);
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(screen.queryByTestId("composer-chip-insert")).toBeNull();
+	emit("error", { message: "no" });
+	await waitFor(() => expect(screen.getByTestId("composer-chip-insert")).toBeTruthy());
+});
+
+test("Remove moves the keyboard to the next chip's Remove button, not its Insert button", async () => {
+	draw();
+	pasteLines(50, "a");
+	await screen.findByTestId("composer-chip");
+	pasteLines(60, "b");
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	fireEvent.click(screen.getByRole("button", { name: "Remove pasted-text.txt" }));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Remove pasted-text-2.txt" }),
+		),
+	);
+});
+
 test("each long paste gets its own file, chip and Remove name", async () => {
 	draw();
 	const pasteLines = (count: number) =>
@@ -683,19 +791,20 @@ test("a message over the contract's limit is not sent, and says how to fix it", 
 	expect(sent).toHaveLength(1);
 });
 
-test("the box is a labelled multi-line text box described by the key hint", () => {
+test("the box is a labelled combobox, for its menus, described by the key hint", () => {
 	draw();
-	const box = screen.getByRole("textbox", { name: "Message Claude Code" });
+	const box = screen.getByRole("combobox", { name: "Message Claude Code" });
 	expect(box).toBe(input());
-	expect(box.getAttribute("aria-multiline")).toBe("true");
-	expect(box.getAttribute("aria-placeholder")).toBe(
-		"Message Claude Code, or paste or drop images",
-	);
+	expect(box.getAttribute("aria-expanded")).toBe("false");
+	expect(box.getAttribute("aria-autocomplete")).toBe("list");
+	// A combobox may not carry aria-placeholder; its advice is in the description.
+	expect(box.hasAttribute("aria-placeholder")).toBe(false);
 	const hint = (box.getAttribute("aria-describedby") ?? "")
 		.split(" ")
 		.map((id) => document.getElementById(id)?.textContent)
 		.filter(Boolean);
 	expect(hint).toEqual([
+		"Type / for commands or @ for files. Paste or drop images to attach them.",
 		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
 	]);
 });
@@ -714,6 +823,105 @@ test("Markdown typed in the box is sent as the same Markdown text", () => {
 	]);
 	echo("Use **bold**, `code` and\n\n- a list\n- of two");
 	expect(value()).toBe("");
+});
+
+test("a message starting with ! marks the box as a shell command and says so once", () => {
+	draw();
+	const shell = () => screen.queryByTestId("chat-composer-shell");
+	const form = screen.getByTestId("chat-composer");
+	type("! ");
+	// Nothing to run yet: a lone ! is no command (shellCommand.ts).
+	expect(shell()).toBeNull();
+	expect(status()).toBe("");
+	type("!ls");
+	expect(shell()?.textContent).toBe("Shell");
+	expect(shell()?.getAttribute("aria-hidden")).toBe("true");
+	expect(form.classList.contains("is-shell")).toBe(true);
+	expect(status()).toBe("Shell command mode");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(
+		/^Shell command\. Enter runs it/,
+	);
+	// The text stays as typed, and Enter sends it as the host's message.
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: "!ls", attachments: [] }]);
+	// Leaving the mode clears the announcement, so entering it again is said again.
+	type("ls");
+	expect(shell()).toBeNull();
+	expect(form.classList.contains("is-shell")).toBe(false);
+	expect(status()).toBe("");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(/^Enter sends/);
+	type("  !pwd");
+	expect(shell()).not.toBeNull();
+	expect(status()).toBe("Shell command mode");
+});
+
+const SHELL = {
+	id: "sh-1",
+	command: "pwd",
+	output: "",
+	exitCode: null,
+	truncated: false,
+	state: "running",
+};
+
+test("a ! command is accepted when the host adds it, and the box empties", async () => {
+	draw();
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: "!pwd", attachments: [] }]);
+	// No message echo comes for a command; the host's shell item is the answer.
+	emit("shell", SHELL);
+	await waitFor(() => expect(value()).toBe(""));
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+});
+
+test("a ! command the host refused leaves the text to try again", async () => {
+	draw();
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	emit("error", { message: "Wait for the shell command to finish." });
+	await waitFor(() => expect(screen.getByTestId("chat-composer-send")).toBeTruthy());
+	expect(value()).toBe("!pwd");
+});
+
+test("an older command is not the answer to a ! command sent after it", async () => {
+	draw();
+	emit("shell", { ...SHELL, id: "old", state: "done", exitCode: 0 });
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	// A replay of the old command, same id, changes nothing.
+	emit("shell", { ...SHELL, id: "old", state: "done", exitCode: 0 });
+	expect(value()).toBe("!pwd");
+	emit("shell", SHELL);
+	await waitFor(() => expect(value()).toBe(""));
+});
+
+test("while a ! command runs, Stop interrupts it and goes with the command", () => {
+	draw();
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
+	emit("shell", SHELL);
+	expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+		"The command is running. Esc stops it.",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+	expect(sent.at(-1)).toEqual({ type: "interrupt" });
+	emit("shell", { ...SHELL, state: "done", exitCode: 130 });
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
+});
+
+test("Escape stops a running ! command too", () => {
+	draw();
+	emit("shell", SHELL);
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([{ type: "interrupt" }]);
+});
+
+test("a ! that is not the first character is not shell mode", () => {
+	draw();
+	type("hello !ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+	type("```\n!ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
 });
 
 test("in a code block the hint says Enter adds a line, and Ctrl+Enter sends", () => {

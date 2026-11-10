@@ -23,8 +23,36 @@
 }
 
 /* The editable box: it grows with the text up to a limit, then scrolls. */
-.pk-composer-field {
+.pk-composer-line {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
 	min-inline-size: 0;
+}
+
+.pk-composer-field {
+	flex: 1;
+	min-inline-size: 0;
+}
+
+/* A shell command (SPEC.md §10.8): the word "Shell" and monospace text, so the
+   mode never rests on the border's colour alone (SPEC.md §25.8). */
+.pk-composer.is-shell {
+	border-color: var(--accent-text);
+}
+
+.pk-composer-shell {
+	flex: none;
+	margin-block-start: var(--space-1);
+	padding: 1px var(--space-1\.5);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 20px;
 }
 
 .pk-composer-text {
@@ -39,6 +67,11 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	font-variant-ligatures: none;
+}
+
+.pk-composer.is-shell .pk-composer-text {
+	font-family: var(--font-mono);
+	font-size: 0.95em;
 }
 
 .pk-composer-text:focus {
@@ -306,12 +339,100 @@
 }
 
 /* Too narrow for one line: the pickers take a line of their own, below the tools,
-   the microphone and Send, which stay on the first line. One line needs 541px with
-   the widest short values (Extra high, Bypass permissions), so 35rem (560px) never
-   moves the pickers when a value changes. */
-@container pk-composer (width < 35rem) {
+   the microphone and Send, which stay on the first line. One line needs 607px with
+   the widest short values (Extra high, Bypass permissions) and the read-aloud
+   switch, so 40rem (640px) never moves the pickers when a value changes. */
+@container pk-composer (width < 40rem) {
 	.pk-composer-picks {
 		order: 1;
 		flex-basis: 100%;
 	}
+}
+
+/* The `/` and `@` menus: a list at the top of the box itself, above the text. It is
+   in the box's flow, not floating, so the pane's scrolling wrapper can never clip it;
+   the box grows upward and the text line stays put. The editor keeps focus throughout.
+   Capped by the chat pane's height (its size container), so a short pane keeps its log. */
+.pk-composer-menu {
+	display: flex;
+	flex-direction: column;
+	max-block-size: min(18rem, 35cqb);
+	padding-block-end: var(--space-1);
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-composer-menu-list {
+	display: grid;
+	min-block-size: 0;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+}
+
+.pk-composer-option {
+	display: grid;
+	gap: 2px;
+	min-inline-size: 0;
+	padding: var(--space-1\.5) var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--ink);
+	font-size: 13px;
+	cursor: default;
+}
+
+/* The current option: the editor's aria-activedescendant points here. */
+.pk-composer-option[aria-selected="true"] {
+	background: var(--surface-hover);
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-composer-option-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0 var(--space-2);
+	min-inline-size: 0;
+}
+
+.pk-composer-option-label {
+	min-inline-size: 0;
+	font-family: var(--font-mono);
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.pk-composer-option-hint {
+	color: var(--ink-muted);
+	font-family: var(--font-mono);
+	font-size: 12px;
+}
+
+/* Pushed to the row's end while there is room; on a narrow box it wraps below. */
+.pk-composer-option-note {
+	margin-inline-start: auto;
+	color: var(--ink-muted);
+	font-size: 12px;
+}
+
+.pk-composer-option-detail {
+	min-inline-size: 0;
+	overflow: hidden;
+	color: var(--ink-muted);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A command the chat cannot send: dimmed, its note still legible. */
+.pk-composer-option.is-blocked .pk-composer-option-label {
+	color: var(--ink-muted);
+}
+
+.pk-composer-menu-note {
+	margin: 0;
+	padding: var(--space-1\.5) var(--space-2);
+	color: var(--ink-muted);
+	font-size: 12px;
 }

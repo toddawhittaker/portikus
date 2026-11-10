@@ -17,6 +17,8 @@ export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_CHAT_ATTACHMENTS = 10;
 /** Longest prompt text one `send` may carry. */
 export const MAX_CHAT_TEXT_CHARS = 100_000;
+/** Longest deny reason or "keep planning" text a permission answer may carry. */
+const MAX_CHAT_ANSWER_MESSAGE_CHARS = 2000;
 export const MAX_CHAT_QUESTIONS = 4;
 export const MIN_CHAT_QUESTION_OPTIONS = 2;
 export const MAX_CHAT_QUESTION_OPTIONS = 4;
@@ -48,7 +50,13 @@ export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
  * there starts with (SPEC.md §10.8). Only these values, never content.
  */
 export const ChatLastSettings = z
-	.object({ model: ChatModelChoice, effort: ChatEffort, mode: ChatPermissionMode })
+	.object({
+		model: ChatModelChoice,
+		effort: ChatEffort,
+		mode: ChatPermissionMode,
+		/** Read each reply aloud; optional so a client from before it still saves. */
+		readAloud: z.boolean().optional(),
+	})
 	.strict();
 export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
 
@@ -62,6 +70,7 @@ export const StoredChatSettings = z
 		model: ChatModelChoice.catch("default"),
 		effort: ChatEffort.catch(CHAT_START_EFFORT),
 		mode: ChatPermissionMode.catch("default"),
+		readAloud: z.boolean().catch(false),
 	})
 	.transform((value) => ({
 		...value,
@@ -182,6 +191,46 @@ export const ChatToolOutputPart = z.discriminatedUnion("type", [
 ]);
 export type ChatToolOutputPart = z.infer<typeof ChatToolOutputPart>;
 
+/** One slash command the chat offers, as the host lists it. */
+export const ChatCommand = z.object({
+	/** The name without its leading slash. */
+	name: z
+		.string()
+		.min(1)
+		.max(64)
+		.refine((name) => !name.startsWith("/"), { message: "No leading slash" }),
+	description: z.string().max(200),
+	argumentHint: z.string().max(100).optional(),
+	/** Only the terminal Claude Code can run it; the chat shows it as unavailable. */
+	terminalOnly: z.boolean(),
+});
+export type ChatCommand = z.infer<typeof ChatCommand>;
+
+/** Most slash commands one `commands` event lists. */
+export const MAX_CHAT_COMMANDS = 200;
+
+/** Longest command, and most output, a `!` shell command item keeps. */
+export const MAX_CHAT_SHELL_COMMAND_CHARS = 4000;
+export const MAX_CHAT_SHELL_OUTPUT_CHARS = 65_536;
+
+const ShellCommandFields = {
+	id: z.string().min(1),
+	command: z.string().max(MAX_CHAT_SHELL_COMMAND_CHARS),
+	output: z.string().max(MAX_CHAT_SHELL_OUTPUT_CHARS),
+	/** Null while it runs, or when it was stopped without an exit code. */
+	exitCode: z.number().int().nullable(),
+	/** The output hit the cap and the rest was dropped. */
+	truncated: z.boolean(),
+	state: z.enum(["running", "done"]),
+};
+
+/** A `!` shell command and its output as a chat item. */
+export const ChatShellItem = z.object({
+	kind: z.literal("shell"),
+	...ShellCommandFields,
+});
+export type ChatShellItem = z.infer<typeof ChatShellItem>;
+
 /** The session is the terminal id, which is also the SDK session id. */
 const Envelope = {
 	sessionId: TerminalId,
@@ -269,6 +318,34 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		effort: ChatEffort,
 		mode: ChatPermissionMode,
 	}),
+	/** The slash commands on offer; sent on attach and when the list changes. */
+	z.object({
+		type: z.literal("commands"),
+		...Envelope,
+		commands: z.array(ChatCommand).max(MAX_CHAT_COMMANDS),
+	}),
+	/**
+	 * How full the context is and when the prompt cache goes cold; sent after
+	 * each main-thread assistant message and on attach. `windowTokens` is null
+	 * when the model's window is unknown.
+	 */
+	z.object({
+		type: z.literal("context"),
+		...Envelope,
+		usedTokens: z.number().int().nonnegative(),
+		windowTokens: z.number().int().positive().nullable(),
+		cache: z
+			.object({
+				/** Epoch milliseconds the cache was last written or read. */
+				at: z.number().int().nonnegative(),
+				ttlSeconds: z.union([z.literal(300), z.literal(3600)]),
+			})
+			.nullable(),
+		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
+		now: z.number().int().nonnegative().optional(),
+	}),
+	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
+	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),
 	/** Every session rule now in force; sent on attach and on each change. */
 	z.object({
 		type: z.literal("rules"),
@@ -294,6 +371,10 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			type: z.literal("permission.answer"),
 			id: z.string().min(1),
 			optionId: z.string().min(1),
+			/** Why the student denied, or what to plan instead; sent only when typed. */
+			message: z.string().min(1).max(MAX_CHAT_ANSWER_MESSAGE_CHARS).optional(),
+			/** Ignored: the host derives a plan's mode from optionId. Kept so older browsers still parse. */
+			mode: z.enum(["acceptEdits", "default"]).optional(),
 		})
 		.strict(),
 	z
@@ -321,3 +402,17 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		.strict(),
 ]);
 export type ChatClientMessage = z.infer<typeof ChatClientMessage>;
+
+/**
+ * A message that starts with `!` is a shell command, not a prompt (SPEC.md
+ * §10.8). A lone `!` is not one: there is nothing to run. The composer and
+ * the chat host share this rule.
+ */
+export function shellCommandText(text: string): string {
+	const trimmed = text.trimStart();
+	return (trimmed.startsWith("!") ? trimmed.slice(1) : trimmed).trim();
+}
+
+export function isShellCommand(text: string): boolean {
+	return text.trimStart().startsWith("!") && shellCommandText(text) !== "";
+}

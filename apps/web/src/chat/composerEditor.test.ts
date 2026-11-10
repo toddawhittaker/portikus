@@ -2,13 +2,18 @@ import { fireEvent } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+	type ComposerMenu,
+	chooseFromMenu,
+	clearMenuText,
 	composerText,
 	createComposerEditor,
 	forgetLongPaste,
 	inCodeBlock,
+	inShellMode,
 	insertAtCursor,
 	LONG_PASTE_LINES,
 	lineCount,
+	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
 import { boxText, placeCursor, setText, typeInto } from "./composerTesting.js";
@@ -19,19 +24,24 @@ let onSend: ReturnType<typeof vi.fn<() => void>>;
 let onFiles: ReturnType<typeof vi.fn<(files: File[]) => void>>;
 let onLongPaste: ReturnType<typeof vi.fn<(text: string, lines: number) => void>>;
 let onRepaste: ReturnType<typeof vi.fn<(lines: number) => void>>;
+let onMenu: ReturnType<
+	typeof vi.fn<(menu: ComposerMenu | null, closed?: string) => void>
+>;
+let onMenuKey: ReturnType<typeof vi.fn<(event: KeyboardEvent) => boolean>>;
 
 beforeEach(() => {
 	onSend = vi.fn<() => void>();
 	onFiles = vi.fn<(files: File[]) => void>();
 	onLongPaste = vi.fn<(text: string, lines: number) => void>();
 	onRepaste = vi.fn<(lines: number) => void>();
+	onMenu = vi.fn<(menu: ComposerMenu | null, closed?: string) => void>();
+	onMenuKey = vi.fn<(event: KeyboardEvent) => boolean>(() => false);
 	const element = document.createElement("div");
 	document.body.append(element);
 	editor = createComposerEditor({
 		element,
 		attributes: {
-			role: "textbox",
-			"aria-multiline": "true",
+			role: "combobox",
 			"aria-label": "Message Claude Code",
 			"data-testid": "box",
 		},
@@ -43,6 +53,8 @@ beforeEach(() => {
 		onKeyDown: () => false,
 		onKeyUp: () => {},
 		onChange: () => {},
+		onMenu,
+		onMenuKey,
 	});
 	box = editor.view.dom;
 });
@@ -66,9 +78,10 @@ function paste(data: Record<string, string>, files: File[] = []) {
 	});
 }
 
-test("the box is a labelled multi-line text box", () => {
-	expect(box.getAttribute("role")).toBe("textbox");
-	expect(box.getAttribute("aria-multiline")).toBe("true");
+test("the box is a labelled combobox, its menu closed", () => {
+	expect(box.getAttribute("role")).toBe("combobox");
+	expect(box.getAttribute("aria-expanded")).toBe("false");
+	expect(box.hasAttribute("aria-controls")).toBe(false);
 	expect(box.getAttribute("aria-label")).toBe("Message Claude Code");
 	expect(box.getAttribute("contenteditable")).toBe("true");
 });
@@ -451,4 +464,117 @@ test("interim dictation shows greyed at the cursor, hidden from assistive techno
 	showInterim(editor, "");
 	expect(box.querySelector(".pk-composer-interim")).toBeNull();
 	expect(composerText(editor)).toBe("fix now the bug");
+});
+
+/** The last menu the editor reported open, or null once it closed. */
+function lastMenu(): ComposerMenu | null {
+	return onMenu.mock.calls.at(-1)?.[0] ?? null;
+}
+
+test("/ at the very start of the message opens the command menu, and its query narrows", async () => {
+	typeInto(box, "/");
+	await vi.waitFor(() =>
+		expect(lastMenu()).toEqual({ kind: "command", query: "", from: 1, to: 2 }),
+	);
+	typeInto(box, "com");
+	await vi.waitFor(() =>
+		expect(lastMenu()).toMatchObject({ kind: "command", query: "com" }),
+	);
+	// A space ends the command name, and the menu with it.
+	typeInto(box, " ");
+	await vi.waitFor(() => expect(onMenu).toHaveBeenLastCalledWith(null, "command"));
+});
+
+test("/ anywhere but the start of the message is only a slash", async () => {
+	typeInto(box, "and/or /x");
+	typeInto(box, "\n/y");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+	expect(boxText(box)).toBe("and/or /x\n/y");
+});
+
+test("@ at a word's start opens the file menu anywhere, but not inside code or a word", async () => {
+	typeInto(box, "see me@x ");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+	typeInto(box, "@src/ap");
+	await vi.waitFor(() =>
+		expect(lastMenu()).toEqual({ kind: "file", query: "src/ap", from: 10, to: 17 }),
+	);
+	setText(box, "");
+	onMenu.mockClear();
+	editor.commands.setCodeBlock();
+	typeInto(box, "@x");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+});
+
+test("a shell command is one that starts with !, outside code, with something after it", () => {
+	const shell = (text: string) => {
+		setText(box, text);
+		return inShellMode(editor);
+	};
+	expect(shell("!ls")).toBe(true);
+	expect(shell("  ! git status")).toBe(true);
+	expect(shell("!")).toBe(false);
+	expect(shell("! ")).toBe(false);
+	expect(shell("hello !ls")).toBe(false);
+	expect(shell("```\n!ls")).toBe(false);
+	expect(shell("**!**ls")).toBe(false);
+	expect(shell("")).toBe(false);
+});
+
+test("neither menu opens in a shell command", async () => {
+	typeInto(box, "!cat @src/ap");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+	// Without the leading !, the same @ opens the file menu.
+	setText(box, "");
+	typeInto(box, "cat @src/ap");
+	await vi.waitFor(() => expect(lastMenu()).toMatchObject({ kind: "file" }));
+	// A menu already open closes when ! is typed in front of it.
+	setText(box, "/com");
+	await vi.waitFor(() => expect(lastMenu()).toMatchObject({ kind: "command" }));
+	placeCursor(box, 0);
+	typeInto(box, "!");
+	await vi.waitFor(() => expect(onMenu).toHaveBeenLastCalledWith(null, "command"));
+});
+
+test("while a menu is open its keys go to the menu first, and Escape closes it", async () => {
+	typeInto(box, "/");
+	await vi.waitFor(() => expect(lastMenu()).not.toBeNull());
+	onMenuKey.mockImplementation((event) => event.key === "Enter");
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(onMenuKey).toHaveBeenCalled();
+	expect(onSend).not.toHaveBeenCalled();
+	fireEvent.keyDown(box, { key: "Escape" });
+	await vi.waitFor(() => expect(onMenu).toHaveBeenLastCalledWith(null, "command"));
+	// Closed, Enter sends again.
+	onMenuKey.mockClear();
+	fireEvent.keyDown(box, { key: "Enter" });
+	expect(onMenuKey).not.toHaveBeenCalled();
+	expect(onSend).toHaveBeenCalledTimes(1);
+});
+
+test("a choice replaces the trigger and query with the text and a space; clearing takes them out", async () => {
+	typeInto(box, "look at @ap");
+	await vi.waitFor(() => expect(lastMenu()).not.toBeNull());
+	const menu = lastMenu();
+	if (!menu) throw new Error("no menu");
+	chooseFromMenu(editor, menu, "@src/app.ts");
+	expect(boxText(box)).toBe("look at @src/app.ts ");
+	setText(box, "/mod");
+	clearMenuText(editor, { kind: "command", query: "mod", from: 1, to: 5 });
+	expect(boxText(box)).toBe("");
+});
+
+test("the menu's ARIA state is set on the editor: expanded, its list, and the current option", () => {
+	setMenuAria(editor, { controls: "list", active: "list-2" });
+	expect(box.getAttribute("aria-expanded")).toBe("true");
+	expect(box.getAttribute("aria-controls")).toBe("list");
+	expect(box.getAttribute("aria-activedescendant")).toBe("list-2");
+	setMenuAria(editor, { controls: null, active: "list-2" });
+	expect(box.getAttribute("aria-expanded")).toBe("false");
+	expect(box.hasAttribute("aria-controls")).toBe(false);
+	expect(box.hasAttribute("aria-activedescendant")).toBe(false);
 });

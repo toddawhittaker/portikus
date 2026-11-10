@@ -6,6 +6,9 @@
  * is announced. A value other than the start value is set in bold, and
  * Bypass permissions carries the warning colour and icon.
  *
+ * The tab's context use and prompt-cache clock take a line under the pickers
+ * (ContextMeter.tsx), so they never move the pickers, the microphone or Send.
+ *
  * Each picker is a menu button with a radio menu, like the New tab menu,
  * so every choice can say what it is for and Bypass can warn before it is
  * chosen (SPEC.md §25.8).
@@ -24,12 +27,15 @@ import {
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { isSpeechSupported } from "../voice/speak.js";
+import { ContextMeter } from "./ContextMeter.js";
 import {
 	type ChatSettings,
 	type ChatStore,
 	modelChoice,
 	selectSessionRulesActive,
 } from "./chatStore.js";
+import type { ReadAloud } from "./readAloud.js";
 import "./pickers.css";
 
 /** Ask with session rules lets some tools run without a card, so the picker says so (SPEC.md §10.8). */
@@ -266,6 +272,33 @@ function Pick({
 	);
 }
 
+/**
+ * The "Read replies aloud" switch (ADR 0071). It shows the icon and On or
+ * Off, so the row keeps its width; the name holds all its words, and the
+ * tooltip says them on hover and keyboard focus (SPEC.md §25.8).
+ */
+function ReadAloudSwitch({ readAloud }: { readAloud: ReadAloud }) {
+	return (
+		<Tooltip decorative={true} content="Read replies aloud">
+			<button
+				type="button"
+				role="switch"
+				aria-checked={readAloud.on}
+				className={`pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
+				data-testid="composer-read-aloud"
+				onClick={() => readAloud.set(!readAloud.on)}
+			>
+				<Icon name="speaker" size="sm" />
+				<span className="sr-only">Read replies aloud</span>
+				{/* The state is the switch's own; the words are for the eye. */}
+				<span className="pk-picker-value" aria-hidden={true}>
+					{readAloud.on ? "On" : "Off"}
+				</span>
+			</button>
+		</Tooltip>
+	);
+}
+
 /** Holds a picker's place, with its label, until the host reports its settings. */
 function Waiting({ label }: { label: string }) {
 	return (
@@ -283,9 +316,16 @@ interface PickersProps {
 	onSet: (change: Change) => boolean;
 	/** A sentence for the composer's status region. */
 	onAnnounce: (text: string) => void;
+	readAloud: ReadAloud;
 }
 
-export function ComposerPickers({ store, warningId, onSet, onAnnounce }: PickersProps) {
+export function ComposerPickers({
+	store,
+	warningId,
+	onSet,
+	onAnnounce,
+	readAloud,
+}: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
 	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
@@ -321,58 +361,62 @@ export function ComposerPickers({ store, warningId, onSet, onAnnounce }: Pickers
 	const askWithRules = settings?.mode === "default" && rulesActive;
 
 	return (
-		<fieldset className="pk-composer-picks" data-testid="composer-picks">
-			<legend className="sr-only">Chat settings</legend>
-			<Pick
-				label="Agent"
-				testId="composer-agent"
-				value="claude"
-				choices={AGENTS}
-				start={START.agent}
-				onChoose={() => {}}
-			/>
-			{shown ? (
-				<>
-					<Pick
-						label="Model"
-						testId="composer-model"
-						value={modelChoice(shown.model)}
-						choices={MODELS}
-						onChoose={(model) => ask({ model })}
-					/>
-					<Pick
-						label="Effort"
-						testId="composer-effort"
-						value={shown.effort}
-						choices={EFFORTS}
-						start={START.effort}
-						changed={shown.effort !== START.effort}
-						onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
-					/>
-					<Pick
-						label="Permissions"
-						testId="composer-mode"
-						value={shown.mode}
-						choices={MODES}
-						start={START.mode}
-						changed={shown.mode !== START.mode}
-						warning={bypass}
-						describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
-						onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
-					/>
-				</>
-			) : (
-				<>
-					<Waiting label="Model" />
-					<Waiting label="Effort" />
-					<Waiting label="Permissions" />
-				</>
-			)}
-			{askWithRules ? (
-				<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
-					{ASK_RULES_HINT}
-				</p>
-			) : null}
-		</fieldset>
+		<>
+			<fieldset className="pk-composer-picks" data-testid="composer-picks">
+				<legend className="sr-only">Chat settings</legend>
+				<Pick
+					label="Agent"
+					testId="composer-agent"
+					value="claude"
+					choices={AGENTS}
+					start={START.agent}
+					onChoose={() => {}}
+				/>
+				{shown ? (
+					<>
+						<Pick
+							label="Model"
+							testId="composer-model"
+							value={modelChoice(shown.model)}
+							choices={MODELS}
+							onChoose={(model) => ask({ model })}
+						/>
+						<Pick
+							label="Effort"
+							testId="composer-effort"
+							value={shown.effort}
+							choices={EFFORTS}
+							start={START.effort}
+							changed={shown.effort !== START.effort}
+							onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
+						/>
+						<Pick
+							label="Permissions"
+							testId="composer-mode"
+							value={shown.mode}
+							choices={MODES}
+							start={START.mode}
+							changed={shown.mode !== START.mode}
+							warning={bypass}
+							describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
+							onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
+						/>
+					</>
+				) : (
+					<>
+						<Waiting label="Model" />
+						<Waiting label="Effort" />
+						<Waiting label="Permissions" />
+					</>
+				)}
+				{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
+				{askWithRules ? (
+					<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
+						{ASK_RULES_HINT}
+					</p>
+				) : null}
+			</fieldset>
+			<ContextMeter store={store} onAnnounce={onAnnounce} />
+		</>
 	);
 }

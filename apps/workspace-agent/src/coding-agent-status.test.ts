@@ -39,6 +39,7 @@ describe("CodingAgentBoard", () => {
 				agent: "claude",
 				state: "needs-input",
 				since: now.toISOString(),
+				subagents: [],
 			},
 		]);
 		expect(seen).toHaveBeenCalledTimes(2);
@@ -180,7 +181,13 @@ describe("the state route", () => {
 		});
 		expect(set.statusCode).toBe(204);
 		expect(board.current()).toEqual([
-			{ terminalId: ID, agent: "codex", state: "working", since: NOW.toISOString() },
+			{
+				terminalId: ID,
+				agent: "codex",
+				state: "working",
+				since: NOW.toISOString(),
+				subagents: [],
+			},
 		]);
 		const clear = await post(CODING_AGENT_STATE_PATH, {
 			terminal: ID,
@@ -245,7 +252,7 @@ describe("the Claude limits route", () => {
 	const FIVE_HOUR_RESET = Math.floor(NOW.getTime() / 1000) + 3600;
 	const WEEK_RESET = Math.floor(NOW.getTime() / 1000) + 3 * 86_400;
 
-	test("a valid post becomes Claude's limits, in the contract's shape", async () => {
+	test("a valid post becomes Claude's 7-day usage; the 5-hour window is ignored", async () => {
 		const { limits, post } = receiver();
 		const response = await post(CLAUDE_LIMITS_PATH, {
 			five_hour: { used_percentage: 42.5, resets_at: FIVE_HOUR_RESET },
@@ -253,53 +260,55 @@ describe("the Claude limits route", () => {
 		});
 		expect(response.statusCode).toBe(204);
 		expect(await limits.report()).toEqual({
-			claude: {
-				windows: [
-					{
-						name: "5h",
-						usedPercent: 42.5,
-						resetsAt: "2027-01-15T08:00:00.000Z",
-					},
-					{
-						name: "7d",
-						usedPercent: 18,
-						resetsAt: "2027-01-18T07:00:00.000Z",
-					},
-				],
-				observedAt: NOW.toISOString(),
-			},
-			codex: null,
+			providers: [
+				{
+					id: "claude",
+					label: "Claude",
+					usedPercent: 18,
+					resetsAt: "2027-01-18T07:00:00.000Z",
+					observedAt: NOW.toISOString(),
+				},
+			],
 		});
 	});
 
-	test("one window alone is taken", async () => {
+	test("a post with only the 5-hour window is accepted and shows no usage", async () => {
+		const { limits, post } = receiver();
+		const response = await post(CLAUDE_LIMITS_PATH, {
+			five_hour: { used_percentage: 42.5, resets_at: FIVE_HOUR_RESET },
+		});
+		expect(response.statusCode).toBe(204);
+		expect((await limits.report()).providers).toEqual([]);
+	});
+
+	test("the 7-day window alone is taken", async () => {
 		const { limits, post } = receiver();
 		await post(CLAUDE_LIMITS_PATH, {
 			seven_day: { used_percentage: 5, resets_at: WEEK_RESET },
 		});
-		expect((await limits.report()).claude?.windows.map((w) => w.name)).toEqual(["7d"]);
+		expect((await limits.report()).providers.map((one) => one.id)).toEqual(["claude"]);
 	});
 
 	test.each([
 		[
 			"a percentage over 100",
-			{ five_hour: { used_percentage: 101, resets_at: FIVE_HOUR_RESET } },
+			{ seven_day: { used_percentage: 101, resets_at: WEEK_RESET } },
 		],
-		["a reset as a string", { five_hour: { used_percentage: 1, resets_at: "soon" } }],
+		["a reset as a string", { seven_day: { used_percentage: 1, resets_at: "soon" } }],
 		[
 			"a reset far in the future",
-			{ five_hour: { used_percentage: 1, resets_at: 9_999_999_999 } },
+			{ seven_day: { used_percentage: 1, resets_at: 9_999_999_999 } },
 		],
 		["an unknown window", { opus_week: { used_percentage: 1, resets_at: WEEK_RESET } }],
 		[
 			"an extra field",
-			{ five_hour: { used_percentage: 1, resets_at: FIVE_HOUR_RESET, cwd: "/x" } },
+			{ seven_day: { used_percentage: 1, resets_at: WEEK_RESET, cwd: "/x" } },
 		],
 	])("%s is refused", async (_name, body) => {
 		const { limits, post } = receiver();
 		const response = await post(CLAUDE_LIMITS_PATH, body);
 		expect(response.statusCode).toBe(400);
-		expect((await limits.report()).claude).toBeNull();
+		expect((await limits.report()).providers).toEqual([]);
 	});
 
 	test("an oversized body is refused", async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { diffLines, previewText, toolLine, toolView } from "./toolView";
+import { diffLines, previewText, projectPath, toolLine, toolView } from "./toolView";
 
 test("a row names the kind of tool, its verb and what it acted on", () => {
 	expect(toolLine("Read", { file_path: "src/a.ts" }, "Read a file")).toEqual({
@@ -157,4 +157,40 @@ test("long text is cut to its first lines, and trailing blank lines do not count
 	expect(previewText("a\nb\n\n", 2)).toEqual({ shown: "a\nb", hidden: 0 });
 	expect(previewText("1\n2\n3\n4", 2)).toEqual({ shown: "1\n2", hidden: 2 });
 	expect(previewText("one")).toEqual({ shown: "one", hidden: 0 });
+});
+
+test("a path under the project's directory becomes the project's own path", () => {
+	expect(projectPath("demo", "/home/student/projects/demo/src/a.ts")).toBe("src/a.ts");
+	expect(projectPath("demo", "src/a.ts")).toBe("src/a.ts");
+	expect(projectPath(undefined, "src/a.ts")).toBe("src/a.ts");
+});
+
+test("a path outside the project, or before the slug is known, is not the project's", () => {
+	expect(projectPath("demo", "/home/student/projects/demo-2/a.ts")).toBeNull();
+	expect(projectPath("demo", "/home/student/projects/demo/")).toBeNull();
+	expect(projectPath("demo", "/home/student/.bashrc")).toBeNull();
+	expect(projectPath(undefined, "/home/student/projects/demo/a.ts")).toBeNull();
+});
+
+test("a path is normalised: . and empty segments go, and .. is resolved inside the project", () => {
+	expect(projectPath("demo", "./src//a.ts")).toBe("src/a.ts");
+	expect(projectPath("demo", "src/../a.ts")).toBe("a.ts");
+	expect(projectPath("demo", "/home/student/projects/demo/src/./a.ts")).toBe(
+		"src/a.ts",
+	);
+	// The same file by a relative and an absolute path is one path.
+	expect(projectPath("demo", "/home/student/projects/demo/src/a.ts")).toBe(
+		projectPath("demo", "./src/a.ts"),
+	);
+});
+
+test("a path that leaves the project, or cannot be a ProjectPath, is not the project's", () => {
+	expect(projectPath("demo", "../x")).toBeNull();
+	expect(projectPath("demo", "src/../../x")).toBeNull();
+	expect(projectPath("demo", "/home/student/projects/demo/../x")).toBeNull();
+	expect(projectPath("demo", "/home/student/projects/demo/../demo-2/x")).toBeNull();
+	expect(projectPath("demo", "src\\a.ts")).toBeNull();
+	expect(projectPath("demo", "a\0b")).toBeNull();
+	expect(projectPath("demo", "")).toBeNull();
+	expect(projectPath("demo", ".")).toBeNull();
 });

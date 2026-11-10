@@ -1,5 +1,10 @@
 import { requireUser } from "@portikus/auth";
-import { AgentLimitsReport, type AgentMeter, CodingAgent } from "@portikus/contracts";
+import {
+	AgentLimitsReport,
+	type AgentMeter,
+	CODING_AGENT_LABEL,
+	CodingAgent,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AGENT_TIMEOUT_MS, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -9,9 +14,9 @@ import { todayUsageFor } from "./agent-usage.js";
 const AGENTS = CodingAgent.options;
 
 /**
- * Each coding agent's plan limits and today's counts for the status bar
- * (SPEC.md §25.10). Owner only: an administrator gets the same 404 as for
- * any other workspace route. Limits come from the workspace agent and are
+ * Each provider's 7-day plan usage and today's counts for the status
+ * bar (SPEC.md §25.10). Owner only: an administrator gets the same 404 as for
+ * any other workspace route. Plan usage comes from the workspace agent and is
  * null when it cannot be reached or answers badly, because the counts are
  * still worth showing. Nothing the agent sends is logged beyond field names
  * (STACK.md §15).
@@ -46,13 +51,18 @@ export function registerAgentMeterRoutes(app: FastifyInstance, deps: ServerDeps)
 		}
 
 		const today = await todayUsageFor(db, user.id, new Date());
-		const meter: AgentMeter = {
-			agents: AGENTS.map((agent) => ({
-				agent,
-				limits: report?.[agent] ?? null,
-				today: today[agent],
-			})),
-		};
+		const plans = new Map((report?.providers ?? []).map((plan) => [plan.id, plan]));
+		const known = AGENTS.map((agent) => ({
+			id: agent,
+			label: plans.get(agent)?.label ?? CODING_AGENT_LABEL[agent],
+			plan: plans.get(agent) ?? null,
+			today: today[agent],
+		}));
+		// A later provider the agent reports has a plan figure but no counts yet.
+		const others = (report?.providers ?? [])
+			.filter((plan) => !AGENTS.includes(plan.id as CodingAgent))
+			.map((plan) => ({ id: plan.id, label: plan.label, plan, today: null }));
+		const meter: AgentMeter = { providers: [...known, ...others] };
 		return meter;
 	});
 }

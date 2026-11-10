@@ -11,7 +11,10 @@
  * Pasted text arrives as plain text, never as formatted HTML; a paste of
  * more than LONG_PASTE_LINES lines is handed back to be attached as a file,
  * unless the same text is pasted again within REPASTE_MS, which puts it in
- * the box instead.
+ * the box instead. `/` at the very start of the message, and `@` at a word's
+ * start outside code, open the composer's menus (ComposerCommandMenu.tsx):
+ * the editor reports what follows the character and hands the menu its keys.
+ * Neither opens while the message is a shell command (inShellMode).
  */
 import {
 	Editor,
@@ -47,9 +50,11 @@ import {
 	Slice,
 } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import Suggestion from "@tiptap/suggestion";
 import { isSafeLink } from "../markdown/sanitize.js";
 import { toMarkdown } from "./composerMarkdown.js";
+import { isShellCommand } from "./shellCommand.js";
 
 // Emphasis as CommonMark reads it: the markers hug the text, and the
 // opening one follows a space or the line's start, so `2 * 3 * 4` and
@@ -88,6 +93,57 @@ export interface ComposerEditorOptions {
 	onKeyUp: (event: KeyboardEvent) => void;
 	/** Called after each change of document or selection. */
 	onChange: (editor: EditorType) => void;
+	/** A menu opened or its query changed (a menu), or it closed (null, with the kind that closed). */
+	onMenu: (menu: ComposerMenu | null, closed?: ComposerMenuKind) => void;
+	/** Sees each key while a menu is open, before the editor; true when the menu took it. */
+	onMenuKey: (event: KeyboardEvent) => boolean;
+}
+
+/** `/` lists slash commands; `@` lists the project's files. */
+export type ComposerMenuKind = "command" | "file";
+
+/** An open menu: what was typed after its character, and where the trigger and query sit. */
+export interface ComposerMenu {
+	kind: ComposerMenuKind;
+	query: string;
+	from: number;
+	to: number;
+}
+
+/** The menu's state the editor's own element carries for assistive technology. */
+interface MenuAria {
+	/** The shown list's id, or null while none is shown. */
+	controls: string | null;
+	/** The current option's id. */
+	active: string | null;
+}
+
+const MENU_ARIA = new PluginKey<MenuAria>("composerMenuAria");
+
+/** Say on the editor whether its menu is open and which option is current (SPEC.md §25.8). */
+export function setMenuAria(editor: EditorType, aria: MenuAria): void {
+	if (editor.isDestroyed) return;
+	const now = MENU_ARIA.getState(editor.state);
+	if (now?.controls === aria.controls && now.active === aria.active) return;
+	editor.view.dispatch(editor.state.tr.setMeta(MENU_ARIA, aria));
+}
+
+/** Put a menu's choice in place of its trigger and query, with a space after it. */
+export function chooseFromMenu(
+	editor: EditorType,
+	menu: ComposerMenu,
+	text: string,
+): void {
+	if (editor.isDestroyed) return;
+	const { state, view } = editor;
+	view.dispatch(state.tr.insertText(`${text} `, menu.from, menu.to).scrollIntoView());
+	view.focus();
+}
+
+/** Take out what a menu's trigger and query typed, leaving the rest. */
+export function clearMenuText(editor: EditorType, menu: ComposerMenu): void {
+	if (editor.isDestroyed) return;
+	editor.view.dispatch(editor.state.tr.delete(menu.from, menu.to));
 }
 
 /** The Markdown text the composer holds. */
@@ -102,6 +158,20 @@ export function inCodeBlock(editor: EditorType): boolean {
 
 function inCodeAt(state: EditorState): boolean {
 	return state.selection.$from.parent.type.spec.code === true;
+}
+
+/**
+ * True while the message would be sent as a shell command (SPEC.md §10.8):
+ * the composer then marks itself, and the `/` and `@` menus stay shut.
+ */
+export function inShellMode(editor: EditorType): boolean {
+	return shellAt(editor.state);
+}
+
+function shellAt(state: EditorState): boolean {
+	// Most messages are cut short here, without serializing the whole document.
+	if (!state.doc.textContent.trimStart().startsWith("!")) return false;
+	return isShellCommand(toMarkdown(state.doc.content));
 }
 
 /** A space to set dictated words apart from the text before the cursor. */
@@ -175,6 +245,15 @@ function plainSlice(schema: Schema, text: string): Slice {
 		.split("\n")
 		.map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
 	return new Slice(Fragment.from(lines), 1, 1);
+}
+
+/** Text put in at the selection as a paste puts it: lines as paragraphs, or as written inside code. */
+export function insertPlainText(view: EditorView, text: string): void {
+	const { state } = view;
+	const tr = state.selection.$from.parent.type.spec.code
+		? state.tr.insertText(text)
+		: state.tr.replaceSelection(plainSlice(state.schema, text));
+	view.dispatch(tr.scrollIntoView().setMeta("paste", true));
 }
 
 /** ```lang on a line of its own, with Enter at its end, opens a code block. */
@@ -342,6 +421,62 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 		},
 	});
 
+	const menus = Extension.create({
+		name: "composerMenus",
+		// Ahead of composerKeys, so Enter and Tab choose while a menu is open.
+		priority: 1100,
+		addProseMirrorPlugins() {
+			const trigger = (kind: ComposerMenuKind, char: string, startOfLine: boolean) =>
+				Suggestion({
+					editor: this.editor,
+					char,
+					startOfLine,
+					pluginKey: new PluginKey(`composerMenu-${kind}`),
+					decorationClass: "pk-composer-trigger",
+					// A command only opens the message; a file anywhere outside code. A shell command has neither.
+					allow: ({ state, range }) =>
+						!inCodeAt(state) &&
+						(kind === "file" || range.from === 1) &&
+						!shellAt(state),
+					render: () => {
+						const report = (props: {
+							query: string;
+							range: { from: number; to: number };
+						}) => options.onMenu({ kind, query: props.query, ...props.range });
+						return {
+							onStart: report,
+							onUpdate: report,
+							onExit: () => options.onMenu(null, kind),
+							onKeyDown: ({ event }) => options.onMenuKey(event),
+						};
+					},
+				});
+			return [
+				trigger("command", "/", true),
+				trigger("file", "@", false),
+				new Plugin<MenuAria>({
+					key: MENU_ARIA,
+					state: {
+						init: () => ({ controls: null, active: null }),
+						apply: (tr, now) => (tr.getMeta(MENU_ARIA) as MenuAria | undefined) ?? now,
+					},
+					props: {
+						attributes: (state) => {
+							const aria = MENU_ARIA.getState(state);
+							return {
+								"aria-expanded": aria?.controls ? "true" : "false",
+								...(aria?.controls ? { "aria-controls": aria.controls } : {}),
+								...(aria?.controls && aria.active
+									? { "aria-activedescendant": aria.active }
+									: {}),
+							};
+						},
+					},
+				}),
+			];
+		},
+	});
+
 	const editor = new Editor({
 		element: options.element,
 		// The page's style policy and theme own every style; see composer.css.
@@ -390,6 +525,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			UndoRedo,
 			Placeholder.configure({ placeholder: options.placeholder }),
 			keys,
+			menus,
 			interim,
 		],
 		editorProps: {
@@ -427,10 +563,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					view.dispatch(state.tr.replaceSelectionWith(linked, false).scrollIntoView());
 					return true;
 				}
-				const tr = state.selection.$from.parent.type.spec.code
-					? state.tr.insertText(text)
-					: state.tr.replaceSelection(plainSlice(state.schema, text));
-				view.dispatch(tr.scrollIntoView().setMeta("paste", true));
+				insertPlainText(view, text);
 				return true;
 			},
 			// Files dropped on the box are the form's to attach.

@@ -147,9 +147,8 @@ test("Enter sends, Shift+Enter makes a new line, and a sent message appears", as
 	const { id, view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
 	await expect(
-		view.getByRole("textbox", { name: "Message Claude Code" }),
-	).toHaveAttribute("aria-placeholder", "Message Claude Code, or paste or drop images");
-	await expect(box).toHaveAttribute("aria-multiline", "true");
+		view.getByRole("combobox", { name: "Message Claude Code" }),
+	).toHaveAccessibleDescription(/^Type \/ for commands or @ for files\./);
 	await box.fill("first line");
 	await box.press("Shift+Enter");
 	await box.pressSequentially("second line");
