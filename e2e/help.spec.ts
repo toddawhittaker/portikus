@@ -335,6 +335,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Your workspace",
 		"Getting started",
 		"The workspace layout",
+		"On a phone or a narrow window",
 		"Keep your workspace running while you are away",
 		"Terminals",
 		"Claude Code (GUI) and Claude Code (TUI)",
