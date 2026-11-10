@@ -177,15 +177,18 @@ export class CodingAgentBoard {
 	}
 
 	private subagentRows(terminalId: string): SubagentRows {
-		let rows = this.subagents.get(terminalId);
-		if (!rows) {
-			rows = { rows: new Map(), seen: new Map(), earlyStops: new Map() };
-			this.subagents.set(terminalId, rows);
-			while (this.subagents.size > 2 * MAX_CODING_AGENT_TERMINALS) {
-				const oldest = this.subagents.keys().next().value;
-				if (oldest === undefined) break;
-				this.subagents.delete(oldest);
-			}
+		const rows = this.subagents.get(terminalId) ?? {
+			rows: new Map(),
+			seen: new Map(),
+			earlyStops: new Map(),
+		};
+		// Each use moves the terminal to the newest slot, so eviction takes the idle.
+		this.subagents.delete(terminalId);
+		this.subagents.set(terminalId, rows);
+		while (this.subagents.size > 2 * MAX_CODING_AGENT_TERMINALS) {
+			const oldest = this.subagents.keys().next().value;
+			if (oldest === undefined) break;
+			this.subagents.delete(oldest);
 		}
 		return rows;
 	}

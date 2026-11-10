@@ -5,6 +5,7 @@
  */
 import {
 	type CodingAgentSubagentPost,
+	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENT_DESCRIPTION_CHARS,
 	MAX_SUBAGENTS_PER_TERMINAL,
 } from "@portikus/contracts";
@@ -180,6 +181,17 @@ describe("subagent rows", () => {
 		b.subagent({ ...start("toolu_b", 10), terminal: OTHER });
 		expect(rows(b).map((r) => r.id)).toEqual(["toolu_a"]);
 		expect(rows(b, OTHER).map((r) => r.id)).toEqual(["toolu_b"]);
+	});
+
+	test("made-up terminal ids do not evict a terminal that keeps posting", () => {
+		const b = board();
+		b.subagent(start("toolu_real", 10));
+		for (let n = 0; n <= 2 * MAX_CODING_AGENT_TERMINALS; n++) {
+			const fake = `00000000-0000-4000-8000-${String(n + 100).padStart(12, "0")}`;
+			b.subagent({ ...start("toolu_fake", 10), terminal: fake });
+			b.subagent(post("post_tool_use", 20 + n, { tool_use_id: "toolu_poke" }));
+		}
+		expect(states(b)).toEqual(["toolu_real:working"]);
 	});
 
 	test("at most sixteen rows per terminal, finished ones dropped first", () => {

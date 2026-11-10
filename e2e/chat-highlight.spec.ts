@@ -74,6 +74,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 			.getByTestId("chat-assistant-message");
 		const [python, rust] = [reply.locator("pre").nth(0), reply.locator("pre").nth(1)];
 
+		// The scrolling box carries the same name for a screen reader.
+		await expect(reply.getByRole("group", { name: "Python code" })).toHaveCount(1);
+		await expect(reply.getByRole("group", { name: "rust code" })).toHaveCount(1);
+
 		// Named at once, plain until the highlighter arrives.
 		await expect(reply.locator(".pk-chat-lang")).toHaveText(["Python", "rust"]);
 		await expect(python).toHaveText(PYTHON);
@@ -116,6 +120,7 @@ test("a reply with no code in a known language never loads the highlighter", asy
 		.getByTestId("chat-assistant-message");
 	await expect(reply.locator("pre")).toHaveText("untagged");
 	await expect(reply.locator(".pk-chat-lang")).toHaveCount(0);
+	await expect(reply.getByRole("group", { name: "code", exact: true })).toHaveCount(1);
 	await page.waitForLoadState("networkidle");
 	expect(loads).toEqual([]);
 });

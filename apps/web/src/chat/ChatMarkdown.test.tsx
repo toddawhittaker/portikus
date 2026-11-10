@@ -57,6 +57,13 @@ test("Markdown renders: lists, code and tables", () => {
 	expect(view.querySelector("table")).not.toBeNull();
 });
 
+test("a code block's scrolling box is named by its language label, or just code", () => {
+	draw("```python\nx = 1\n```\n\n```rust\nfn main() {}\n```\n\n```\nplain\n```");
+	expect(screen.getByRole("group", { name: "Python code" }).tagName).toBe("PRE");
+	expect(screen.getByRole("group", { name: "rust code" }).tabIndex).toBe(0);
+	expect(screen.getByRole("group", { name: "code" }).textContent).toBe("plain\n");
+});
+
 // SPEC.md §24.1: a reply shows the student's own png, jpeg, gif or webp
 // files and names every other image instead of loading it.
 describe("images in a reply", () => {
