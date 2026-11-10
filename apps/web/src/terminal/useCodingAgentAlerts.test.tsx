@@ -61,6 +61,7 @@ function term(
 		since: SINCE,
 		subagents: [],
 		name: "Claude",
+		kind: "terminal",
 	};
 }
 

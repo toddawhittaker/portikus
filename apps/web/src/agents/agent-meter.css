@@ -22,19 +22,6 @@
 	display: grid;
 	gap: var(--space-3);
 }
-.pk-agent-popover-table {
-	border-collapse: collapse;
-}
-.pk-agent-popover-table th,
-.pk-agent-popover-table td {
-	padding: var(--space-0\.5) var(--space-3) var(--space-0\.5) 0;
-	text-align: start;
-	font-weight: 400;
-	vertical-align: baseline;
-}
-.pk-agent-popover-table thead th {
-	color: var(--ink-muted);
-}
 .pk-agent-popover-list {
 	display: grid;
 	gap: var(--space-0\.5);
@@ -54,5 +41,9 @@
 }
 .pk-agent-popover-note {
 	margin: 0;
+	color: var(--ink-muted);
+}
+/* The reset day and time beside the bar; it wraps with the button's text when the bar is narrow. */
+.pk-agent-resets {
 	color: var(--ink-muted);
 }

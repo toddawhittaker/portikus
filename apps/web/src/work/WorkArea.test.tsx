@@ -41,12 +41,28 @@ vi.mock("../terminal/TerminalPane", () => ({
 	),
 }));
 
+const revealed = vi.hoisted(() => [] as Array<[string, string]>);
+vi.mock("../chat/revealTool", () => ({
+	requestToolReveal: (terminalId: string, toolId: string) =>
+		revealed.push([terminalId, toolId]),
+}));
+vi.mock("../chat/ChatView", () => ({
+	ChatView: ({ terminalId }: { terminalId: string }) => (
+		<div data-testid={`chat-view-${terminalId}`} />
+	),
+}));
+
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 const PROJECT = "33333333-3333-4333-8333-333333333333";
 const ONE = "44444444-4444-4444-8444-444444444444";
 const TWO = "55555555-5555-4555-8555-555555555555";
 
-function terminal(id: string, name: string, endedAt: string | null = null): Terminal {
+function terminal(
+	id: string,
+	name: string,
+	endedAt: string | null = null,
+	kind: Terminal["kind"] = "terminal",
+): Terminal {
 	return {
 		id,
 		workspaceId: WORKSPACE,
@@ -56,7 +72,7 @@ function terminal(id: string, name: string, endedAt: string | null = null): Term
 		projectId: PROJECT,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		theme: "dark",
-		kind: "terminal",
+		kind,
 		endedAt,
 	};
 }
@@ -140,7 +156,18 @@ function stubFetch(options: {
 	return { fetchMock, created };
 }
 
-function renderArea(props: { openPath?: string; openLine?: number } = {}) {
+function renderArea(
+	props: Partial<
+		Pick<
+			Parameters<typeof WorkArea>[0],
+			| "openPath"
+			| "openLine"
+			| "selectTerminalId"
+			| "revealToolId"
+			| "onSelectedFromUrl"
+		>
+	> = {},
+) {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -942,4 +969,59 @@ test("Traditional splits offer only a terminal", async () => {
 	expect(screen.queryByTestId("split-right-claude")).toBeNull();
 	expect(screen.queryByTestId("split-right-claude-gui")).toBeNull();
 	expect(screen.queryByTestId("split-right-codex")).toBeNull();
+});
+
+const twoTabs = {
+	tabs: [
+		{ id: "tab1", root: { type: "leaf", terminalId: ONE } },
+		{ id: "tab2", root: { type: "leaf", terminalId: TWO } },
+	],
+};
+
+test("a tab the URL names is selected, then the route is told to clear it (SPEC.md §8.2)", async () => {
+	revealed.length = 0;
+	stubFetch({
+		layout: twoTabs,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "chat", null, "chat")],
+	});
+	const done = vi.fn();
+	const { store } = renderArea({
+		selectTerminalId: TWO,
+		revealToolId: "toolu_1",
+		onSelectedFromUrl: done,
+	});
+
+	await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+	expect(store.getState().activeTabId).toBe("tab2");
+	expect(store.getState().focusedPaneId).toBe(TWO);
+	// A chat is asked to show the subagent's tool row.
+	expect(revealed).toEqual([[TWO, "toolu_1"]]);
+});
+
+test("a terminal tab has no tool rows to show, and an unknown tab changes nothing", async () => {
+	revealed.length = 0;
+	stubFetch({
+		layout: twoTabs,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "npm")],
+	});
+	const done = vi.fn();
+	const first = renderArea({
+		selectTerminalId: TWO,
+		revealToolId: "toolu_1",
+		onSelectedFromUrl: done,
+	});
+	await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+	expect(first.store.getState().activeTabId).toBe("tab2");
+	expect(revealed).toEqual([]);
+	cleanup();
+	// The tab on screen is remembered in the browser; start from none.
+	localStorage.clear();
+
+	const again = vi.fn();
+	const second = renderArea({
+		selectTerminalId: "99999999-9999-4999-8999-999999999999",
+		onSelectedFromUrl: again,
+	});
+	await waitFor(() => expect(again).toHaveBeenCalledTimes(1));
+	expect(second.store.getState().activeTabId).toBe("tab1");
 });

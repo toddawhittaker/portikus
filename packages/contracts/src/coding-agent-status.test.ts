@@ -9,8 +9,6 @@ import {
 	CodingAgentSubagent,
 	CodingAgentSubagentPost,
 	CodingAgentTerminal,
-	LegacyAgentLimitsReport,
-	LegacyAgentMeter,
 	MAX_AGENT_LIMIT_WINDOWS,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
@@ -71,6 +69,16 @@ test("the browser terminal adds a project id", () => {
 	const named = { ...status(), projectId, name: "Claude" };
 	expect(CodingAgentTerminal.safeParse(named).success).toBe(true);
 	expect(CodingAgentTerminal.safeParse({ ...status(), name: "Claude" }).success).toBe(
+		false,
+	);
+});
+
+test("the browser terminal carries the terminal's kind, a plain terminal when missing", () => {
+	const projectId = "11111111-1111-4111-8111-111111111111";
+	const base = { ...status(), projectId, name: "Terminal 2" };
+	expect(CodingAgentTerminal.parse({ ...base, kind: "chat" }).kind).toBe("chat");
+	expect(CodingAgentTerminal.parse(base).kind).toBe("terminal");
+	expect(CodingAgentTerminal.safeParse({ ...base, kind: "notebook" }).success).toBe(
 		false,
 	);
 });
@@ -336,35 +344,4 @@ describe("the meter", () => {
 			AgentMeter.safeParse({ providers: [{ ...entry("x"), plan: undefined }] }).success,
 		).toBe(false);
 	});
-});
-
-test("the legacy report allows null for an agent that reports none", () => {
-	expect(LegacyAgentLimitsReport.safeParse({ claude: null, codex: null }).success).toBe(
-		true,
-	);
-	expect(LegacyAgentLimitsReport.safeParse({ claude: null }).success).toBe(false);
-});
-
-test("the legacy meter carries limits and counts, each of which may be null", () => {
-	expect(
-		LegacyAgentMeter.safeParse({
-			agents: [
-				{ agent: "claude", limits: null, today: null },
-				{
-					agent: "codex",
-					limits: null,
-					today: {
-						sessions: 1,
-						inputTokens: 2,
-						outputTokens: 3,
-						cacheReadTokens: 0,
-						cacheWriteTokens: 0,
-						costUsd: null,
-						linesAdded: 0,
-						linesRemoved: 0,
-					},
-				},
-			],
-		}).success,
-	).toBe(true);
 });
