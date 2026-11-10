@@ -819,6 +819,44 @@ test("Markdown typed in the box is sent as the same Markdown text", () => {
 	expect(value()).toBe("");
 });
 
+test("a message starting with ! marks the box as a shell command and says so once", () => {
+	draw();
+	const shell = () => screen.queryByTestId("chat-composer-shell");
+	const form = screen.getByTestId("chat-composer");
+	type("! ");
+	// Nothing to run yet: a lone ! is no command (shellCommand.ts).
+	expect(shell()).toBeNull();
+	expect(status()).toBe("");
+	type("!ls");
+	expect(shell()?.textContent).toBe("Shell");
+	expect(shell()?.getAttribute("aria-hidden")).toBe("true");
+	expect(form.classList.contains("is-shell")).toBe(true);
+	expect(status()).toBe("Shell command mode");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(
+		/^Shell command\. Enter runs it/,
+	);
+	// The text stays as typed, and Enter sends it as the host's message.
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: "!ls", attachments: [] }]);
+	// Leaving the mode clears the announcement, so entering it again is said again.
+	type("ls");
+	expect(shell()).toBeNull();
+	expect(form.classList.contains("is-shell")).toBe(false);
+	expect(status()).toBe("");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(/^Enter sends/);
+	type("  !pwd");
+	expect(shell()).not.toBeNull();
+	expect(status()).toBe("Shell command mode");
+});
+
+test("a ! that is not the first character is not shell mode", () => {
+	draw();
+	type("hello !ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+	type("```\n!ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+});
+
 test("in a code block the hint says Enter adds a line, and Ctrl+Enter sends", () => {
 	draw();
 	typeInto(input(), "``` ");
