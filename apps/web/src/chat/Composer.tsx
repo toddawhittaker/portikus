@@ -38,6 +38,7 @@ import {
 	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
+	insertPlainText,
 	showInterim,
 } from "./composerEditor.js";
 import "./composer.css";
@@ -187,8 +188,21 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			pastes.current === 1 ? PASTED_NAME : `pasted-text-${pastes.current}.txt`;
 		lastLongPaste.current = files.add(
 			[new File([text], name, { type: "text/plain" })],
-			lines,
+			{ lines, text },
 		);
+	}
+
+	/**
+	 * Put a long paste's text in the box at the cursor and delete its file.
+	 * Refused once a message that names the file is on its way: the file stays.
+	 */
+	function insertInline(key: string) {
+		const item = files.items.find((entry) => entry.key === key);
+		const box = editor.current;
+		if (!item || item.text === null || item.lines === null || !box || sending) return;
+		insertPlainText(box.view, item.text);
+		files.discard(key, `Inserted ${lineText(item.lines)} as text.`);
+		box.view.focus();
 	}
 
 	/** The same long text pasted again at once: the editor has put it inline, so its chip goes. */
@@ -322,6 +336,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 					items={files.items}
 					saving={files.saving}
 					onRemove={files.remove}
+					onInsert={sending ? undefined : insertInline}
 					onEmptied={focusText}
 				/>
 				<div ref={host} className="pk-composer-field" />

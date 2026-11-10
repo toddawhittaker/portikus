@@ -41,6 +41,7 @@ import {
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
 import { splitSuggestions } from "./permission-rules.js";
+import { writeChatSession } from "./session-record.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
@@ -160,12 +161,12 @@ export class ChatHost {
 	private sessionRules: ChatSessionRule[] = [];
 	private rulesQueue: Promise<void> = Promise.resolve();
 
+	/** The Claude session in force; /clear moves the tab to a new one. */
+	private sessionId: string;
+
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
-	}
-
-	private get sessionId(): string {
-		return this.options.sessionId ?? this.options.terminalId;
+		this.sessionId = options.sessionId ?? options.terminalId;
 	}
 
 	get socketPath(): string {
@@ -221,7 +222,8 @@ export class ChatHost {
 			prompt: input,
 			options: {
 				cwd: projectDir,
-				// `claude --resume <session id>` in a terminal continues this chat.
+				// `claude --resume <session id>` in a terminal continues this chat;
+				// after /clear the id is the new session's.
 				...(exists ? { resume: sessionId } : { sessionId }),
 				pathToClaudeCodeExecutable: this.options.claudePath ?? CLAUDE_PATH,
 				includePartialMessages: true,
@@ -270,6 +272,7 @@ export class ChatHost {
 	}
 
 	private handle(message: SDKMessage): void {
+		this.followSession(message);
 		if (message.type === "system" && message.subtype === "init") {
 			this.options.log.info(
 				{ claudeCode: message.claude_code_version },
@@ -311,6 +314,44 @@ export class ChatHost {
 				this.partial = null;
 			}
 			this.broadcast(event);
+		}
+	}
+
+	private followSession(message: SDKMessage): void {
+		const reported = "session_id" in message ? message.session_id : undefined;
+		if (reported && reported !== this.sessionId) this.sessionChanged(reported);
+	}
+
+	/**
+	 * Claude Code moved to a new session, as /clear does. The tab's record
+	 * follows it so Resume and a restarted host continue it, and every
+	 * attachment gets a fresh, empty snapshot (SPEC.md §10.8).
+	 */
+	private sessionChanged(sessionId: string): void {
+		this.sessionId = sessionId;
+		void writeChatSession(
+			this.options.homeDir,
+			this.options.terminalId,
+			sessionId,
+		).catch(() => this.options.log.warn("could not record the new chat session"));
+		this.mapper = new ClaudeMessageMapper();
+		this.partial = null;
+		for (const client of this.clients) {
+			// Mid-attach, its replay is of the old session; it reattaches.
+			if (client.held) {
+				client.socket.destroy();
+				continue;
+			}
+			const snapshot = buildSnapshot({
+				sessionId: this.options.terminalId,
+				seq: this.seq,
+				cards: [...this.cards.values()].map((open) => open.card),
+				turnRunning: this.turnRunning,
+				truncated: false,
+			});
+			writeLine(client.socket, JSON.stringify(snapshot));
+			writeLine(client.socket, this.frame(this.settingsEvent()));
+			writeLine(client.socket, this.frame(this.rulesEvent()));
 		}
 	}
 
