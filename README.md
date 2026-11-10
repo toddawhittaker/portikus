@@ -23,21 +23,24 @@ control of every workspace.
 </picture>
 
 A student's workspace. Projects and their running agents are on the left,
-tabs in the middle, and the project's files and Git changes on the right.
-The status bar shows the Git branch, memory and disk use, and how much of
-the agent plan is left.
+a terminal, a Claude Code TUI tab and a Claude Code chat tab in the middle,
+and the project's files and Git changes on the right. The status bar shows
+the Git branch, memory and disk use, and each agent provider's seven-day
+plan usage as a percent with its reset time, such as "Claude 38% resets
+Fri 10:09 AM".
 
-<img alt="A chat with Claude Code, showing a group of tool calls and a card asking permission to run a command" src="docs/images/student-chat.png" width="900">
+<img alt="A Claude Code chat tab: a group of four tool calls, the agent's summary, and a card asking to run pytest with Allow once, Always allow and Deny" src="docs/images/student-chat.png" width="900">
 
-Claude Code in the chat tab. The agent's tool calls are grouped, and it
-asks before it runs a command or changes a file.
+Claude Code in the chat tab. The agent's tool calls are grouped, and a
+card asks the student before it runs a command. Pickers below the message
+box set the model and the permission mode.
 
-<img alt="The left pane with an agent row, its subagent rows and their status marks" src="docs/images/student-agent-rows.png" width="900">
+<img alt="The left pane: under the Weather Now project, a Claude Code (TUI) row marked Working with two subagent rows, and a Claude Code (GUI) row marked Needs input" src="docs/images/student-agent-rows.png" width="720">
 
-Each agent, and each subagent it starts, has a row that shows whether it
-is working, waiting for the student, or done.
+Each agent, and each subagent it starts, has a row under its project that
+shows whether it is working, needs the student's input, or is done.
 
-<img alt="The editor showing a completion list, with the Problems tab open on the right" src="docs/images/student-code-help.png" width="900">
+<img alt="The editor showing hover help for a Python function, with the Problems tab listing one warning" src="docs/images/student-code-help.png" width="900">
 
 The editor has code help for Python, TypeScript and JavaScript:
 completion, hover, go to definition, rename, formatting and error marks,
@@ -48,15 +51,15 @@ collected in a Problems tab.
 A web app the student is running, previewed in a tab. Only the student can
 open it, after signing in.
 
-<img alt="The Checks tab listing a project's checks and their results" src="docs/images/student-checks.png" width="900">
+<img alt="The Checks tab with a passed Tests check, a Lint check not run yet, and the test output below" src="docs/images/student-checks.png" width="900">
 
-Checks run the commands a project lists, such as its tests, with one
-click.
+Checks run the commands a project lists, such as its tests and lint, with
+one click, and show the output.
 
-<img alt="The instructor's course page with the course profile control and the Live help link" src="docs/images/instructor-course.png" width="900">
+<img alt="An instructor's Course page with the Live help link, the roster, the Agentic or Traditional interface choice, and the member list" src="docs/images/instructor-course.png" width="900">
 
-An instructor's course page: the roster, the course profile, agent usage
-and live-help sessions.
+An instructor's Course page: open live-help sessions, roster sync, the
+student interface (Agentic or Traditional), and each member's workspace.
 
 <img alt="The administration Users tab with one student's workspace panel open" src="docs/images/admin-users.png" width="900">
 
@@ -127,7 +130,7 @@ branching, pull requests and CI.
 | Document | What it is |
 |---|---|
 | [docs/STUDENT-GUIDE.md](docs/STUDENT-GUIDE.md) | Using a workspace, for students |
-| [docs/INSTRUCTOR-GUIDE.md](docs/INSTRUCTOR-GUIDE.md) | Courses, profiles, live help and agent usage, for instructors |
+| [docs/INSTRUCTOR-GUIDE.md](docs/INSTRUCTOR-GUIDE.md) | The Course page, roster sync, the student interface, starter projects, agent use, shared projects and live help, for instructors |
 | [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) | Running Portikus, for administrators |
 | [docs/INSTALL.md](docs/INSTALL.md) | Installing on a Debian 13 server |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator's runbook: upgrades, backups, restore, routine checks |
