@@ -340,3 +340,40 @@ describe("question answers", () => {
 		});
 	});
 });
+
+describe("subagent messages", () => {
+	test("a subagent's tool calls and results stay out of the top level, as on replay", () => {
+		const mapper = new ClaudeMessageMapper();
+		const parent = "toolu_task";
+		expect(
+			mapper.map({
+				type: "assistant",
+				parent_tool_use_id: parent,
+				message: {
+					id: "msg_sub",
+					content: [{ type: "tool_use", id: "toolu_sub", name: "Read", input: {} }],
+				},
+			} as never),
+		).toEqual([]);
+		expect(
+			mapper.map({
+				type: "user",
+				parent_tool_use_id: parent,
+				message: {
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: "toolu_sub", content: "x" }],
+				},
+			} as never),
+		).toEqual([]);
+		expect(
+			mapper.map({
+				type: "assistant",
+				parent_tool_use_id: null,
+				message: {
+					id: "msg_top",
+					content: [{ type: "tool_use", id: "toolu_top", name: "Read", input: {} }],
+				},
+			} as never),
+		).toHaveLength(1);
+	});
+});

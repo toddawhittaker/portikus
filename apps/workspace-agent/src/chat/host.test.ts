@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,7 @@ import { silentLogger } from "@portikus/observability";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { ChatHost, type ChatSdk } from "./host.js";
+import { chatSessionsDir, recordChatSession } from "./session-record.js";
 import { readLines } from "./wire.js";
 
 const ID = "5d0f4a7e-0a51-4b8e-9d0e-6c3f1b2a9e10";
@@ -266,6 +267,56 @@ describe("starting", () => {
 		expect(ofType(client, "message")[0]).toMatchObject({
 			markdown: "earlier question",
 		});
+	});
+
+	test("after /clear the tab follows the new session, and the next start resumes it", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "rules")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: ID,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(ofType(client, "snapshot")).toHaveLength(2));
+		const after = client.events.slice(
+			client.events.lastIndexOf(ofType(client, "snapshot")[1] as ChatServerEvent),
+		);
+		expect(after.filter((e) => e.type === "message")).toEqual([]);
+		await vi.waitFor(async () =>
+			expect(await readFile(join(chatSessionsDir(dir), ID), "utf8")).toBe(NEW),
+		);
+
+		// A restarted host reads the record and resumes the new session.
+		await host.stop();
+		exists = true;
+		queries = [];
+		reads = [];
+		host = new ChatHost({
+			terminalId: ID,
+			sessionId: await recordChatSession(dir, ID),
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			sdk: sdk(),
+		});
+		await host.start();
+		expect(queries[0]?.options.resume).toBe(NEW);
+		const again = await attach();
+		await vi.waitFor(() => expect(ofType(again, "settings")).toHaveLength(1));
+		expect(reads).toEqual([NEW]);
 	});
 
 	test("the socket and its directory are the workspace user's alone", async () => {
