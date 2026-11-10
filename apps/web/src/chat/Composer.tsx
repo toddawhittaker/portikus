@@ -10,6 +10,8 @@
  * cleared only when the host echoes the message back, so a send it refuses
  * leaves the text and files in place to try again. `/` at the start lists
  * slash commands and `@` lists project files (ComposerCommandMenu.tsx).
+ * While the text starts with `!` it is a shell command: the box wears a
+ * "Shell" label and monospace text, says so once, and opens neither menu.
  */
 import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
@@ -49,6 +51,7 @@ import {
 	createComposerEditor,
 	forgetLongPaste,
 	inCodeBlock,
+	inShellMode,
 	insertAtCursor,
 	insertPlainText,
 	setMenuAria,
@@ -75,6 +78,9 @@ const SAVING = "Wait for the files to finish saving.";
 const SENDING = "Wait for your last message to reach Claude.";
 // Said once on entering a block: the visible hint is only a description, read on focus.
 const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
+const SHELL_ANNOUNCED = "Shell command mode";
+const SHELL_HINT =
+	"Shell command. Enter runs it in the project folder, and Claude sees the output with your next message.";
 const PASTED_NAME = "pasted-text.txt";
 
 /** A message sent and not yet echoed back by the host. */
@@ -112,6 +118,7 @@ export function Composer({
 	const [error, setError] = useState("");
 	const [dragging, setDragging] = useState(false);
 	const [inCode, setInCode] = useState(false);
+	const [shell, setShell] = useState(false);
 	const [menu, setMenu] = useState<ComposerMenu | null>(null);
 	/** The menu's list shows only while the box holds focus. */
 	const [focused, setFocused] = useState(false);
@@ -164,6 +171,13 @@ export function Composer({
 			inCode ? CODE_ANNOUNCED : now === CODE_ANNOUNCED ? "" : now,
 		);
 	}, [inCode]);
+
+	// Said once as the mode turns on, and emptied as it turns off so the next entry is said again.
+	useEffect(() => {
+		setAnnounced((now) =>
+			shell ? SHELL_ANNOUNCED : now === SHELL_ANNOUNCED ? "" : now,
+		);
+	}, [shell]);
 
 	useLayoutEffect(() => {
 		if (running || !stopFocused.current) return;
@@ -390,7 +404,10 @@ export function Composer({
 			onRepaste: (lines) => handlers.current.repaste(lines),
 			onKeyDown: (event) => handlers.current.onKeyDown(event),
 			onKeyUp: (event) => handlers.current.onKeyUp(event),
-			onChange: (changed) => setInCode(inCodeBlock(changed)),
+			onChange: (changed) => {
+				setInCode(inCodeBlock(changed));
+				setShell(inShellMode(changed));
+			},
 			onMenu: (next, closed) => handlers.current.onMenu(next, closed),
 			onMenuKey: (event) => handlers.current.onMenuKey(event),
 		});
@@ -414,7 +431,7 @@ export function Composer({
 	return (
 		<>
 			<form
-				className={`pk-composer ${dragging ? "is-dragging" : ""}`}
+				className={`pk-composer ${dragging ? "is-dragging" : ""} ${shell ? "is-shell" : ""}`}
 				data-testid="chat-composer"
 				onSubmit={submit}
 				onDragOver={(event) => {
@@ -450,7 +467,19 @@ export function Composer({
 					shown={focused}
 					onChoose={choose}
 				/>
-				<div ref={host} className="pk-composer-field" />
+				<div className="pk-composer-line">
+					{/* Spoken by the status line and the hint; the label is for the eye. */}
+					{shell ? (
+						<span
+							className="pk-composer-shell"
+							aria-hidden="true"
+							data-testid="chat-composer-shell"
+						>
+							Shell
+						</span>
+					) : null}
+					<div ref={host} className="pk-composer-field" />
+				</div>
 				<div className="pk-composer-bar">
 					<div className="pk-composer-tools">
 						<input
@@ -553,7 +582,7 @@ export function Composer({
 					className="pk-composer-foot"
 					data-testid="chat-composer-hint"
 				>
-					{inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
+					{shell ? SHELL_HINT : inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
 				</p>
 			)}
 			<span id={`${ids}-tips`} hidden={true}>

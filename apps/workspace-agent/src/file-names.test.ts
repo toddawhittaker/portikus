@@ -7,7 +7,12 @@ import { MAX_FILE_NAME_MATCHES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { AgentFailure } from "./errors.js";
-import { MAX_RUNNING_FILE_NAME_SEARCHES, searchFileNames } from "./file-names.js";
+import {
+	type Candidate,
+	keepBest,
+	MAX_RUNNING_FILE_NAME_SEARCHES,
+	searchFileNames,
+} from "./file-names.js";
 import { buildServer } from "./server.js";
 
 const run = promisify(execFile);
@@ -295,3 +300,48 @@ test.skipIf(!haveRg)("the route needs the agent token and a real project", async
 		400,
 	);
 });
+
+test("the best matches are kept in order and a late better one displaces a worse one", () => {
+	const at = (path: string, rank: number): Candidate => ({
+		path,
+		rank,
+		depth: path.split("/").length,
+	});
+	const kept: Candidate[] = [];
+	for (const candidate of [at("b/loose-2", 4), at("b/loose-1", 4), at("a/loose", 4)]) {
+		keepBest(kept, candidate, 2);
+	}
+	expect(kept.map((one) => one.path)).toEqual(["a/loose", "b/loose-1"]);
+
+	// An exact name that arrives after the list is full still gets in, first.
+	keepBest(kept, at("src/app.ts", 0), 2);
+	expect(kept.map((one) => one.path)).toEqual(["src/app.ts", "a/loose"]);
+
+	// One no better than the worst kept is dropped.
+	keepBest(kept, at("z/loose", 4), 2);
+	expect(kept.map((one) => one.path)).toEqual(["src/app.ts", "a/loose"]);
+});
+
+test.skipIf(!haveRg)(
+	"a better match is not lost to a crowd of worse ones",
+	async () => {
+		const big = join(homeDir, "projects", "big");
+		// Many loose (letters-in-order) matches for "app", spread over folders so
+		// ripgrep's order puts the exact name anywhere among them.
+		await Promise.all(
+			Array.from({ length: 400 }, async (_, folder) => {
+				await mkdir(join(big, `d${folder}`), { recursive: true });
+				for (let i = 0; i < 100; i += 1) {
+					await writeFile(join(big, `d${folder}`, `a-p-p-${i}.txt`), "x");
+				}
+			}),
+		);
+		await writeFile(join(big, "d399", "app.ts"), "x");
+
+		const result = await searchFileNames(homeDir, "big", "app", 5);
+		expect(result.paths[0]).toBe("d399/app.ts");
+		expect(result.paths).toHaveLength(5);
+		expect(result.truncated).toBe(true);
+	},
+	60_000,
+);

@@ -9,6 +9,7 @@ import {
 	createComposerEditor,
 	forgetLongPaste,
 	inCodeBlock,
+	inShellMode,
 	insertAtCursor,
 	LONG_PASTE_LINES,
 	lineCount,
@@ -506,6 +507,37 @@ test("@ at a word's start opens the file menu anywhere, but not inside code or a
 	typeInto(box, "@x");
 	await new Promise((done) => setTimeout(done, 10));
 	expect(onMenu).not.toHaveBeenCalled();
+});
+
+test("a shell command is one that starts with !, outside code, with something after it", () => {
+	const shell = (text: string) => {
+		setText(box, text);
+		return inShellMode(editor);
+	};
+	expect(shell("!ls")).toBe(true);
+	expect(shell("  ! git status")).toBe(true);
+	expect(shell("!")).toBe(false);
+	expect(shell("! ")).toBe(false);
+	expect(shell("hello !ls")).toBe(false);
+	expect(shell("```\n!ls")).toBe(false);
+	expect(shell("**!**ls")).toBe(false);
+	expect(shell("")).toBe(false);
+});
+
+test("neither menu opens in a shell command", async () => {
+	typeInto(box, "!cat @src/ap");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+	// Without the leading !, the same @ opens the file menu.
+	setText(box, "");
+	typeInto(box, "cat @src/ap");
+	await vi.waitFor(() => expect(lastMenu()).toMatchObject({ kind: "file" }));
+	// A menu already open closes when ! is typed in front of it.
+	setText(box, "/com");
+	await vi.waitFor(() => expect(lastMenu()).toMatchObject({ kind: "command" }));
+	placeCursor(box, 0);
+	typeInto(box, "!");
+	await vi.waitFor(() => expect(onMenu).toHaveBeenLastCalledWith(null, "command"));
 });
 
 test("while a menu is open its keys go to the menu first, and Escape closes it", async () => {
