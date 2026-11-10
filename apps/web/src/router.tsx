@@ -1,4 +1,10 @@
-import { LinkError, NOT_INVITED_PATH, ProjectPath } from "@portikus/contracts";
+import {
+	CodingAgentSubagent,
+	LinkError,
+	NOT_INVITED_PATH,
+	ProjectPath,
+	TerminalId,
+} from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
@@ -366,6 +372,18 @@ function safePort(value: unknown): number | undefined {
 	return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
 }
 
+/** A terminal id from a link names the tab to select; anything else selects nothing. */
+function safeTerminalId(value: unknown): string | undefined {
+	const parsed = TerminalId.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
+}
+
+/** A subagent's tool call id from a link, in the contract's own shape. */
+function safeToolId(value: unknown): string | undefined {
+	const parsed = CodingAgentSubagent.shape.id.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
+}
+
 /** A line number from a link is a whole line, counted from one. */
 function safeLine(value: unknown): number | undefined {
 	const line = Number(value);
@@ -383,13 +401,18 @@ const projectRoute = createRoute({
 		open: safePath(search.open),
 		line: safeLine(search.line),
 		preview: safePort(search.preview),
+		// An agent row in the project list selects its tab and, in a chat, shows
+		// the subagent's tool row (SPEC.md §8.2).
+		tab: safeTerminalId(search.tab),
+		subagent: safeToolId(search.subagent),
 	}),
 	component: ProjectScreen,
 });
 
 function ProjectScreen() {
 	const { id, projectId } = useParams({ from: "/workspaces/$id/projects/$projectId" });
-	const { open, line, preview } = projectRoute.useSearch();
+	const { open, line, preview, tab, subagent } = projectRoute.useSearch();
+	const navigate = useNavigate();
 	const projects = useProjects(id, "active");
 	const project = projects.data?.find((item) => item.id === projectId);
 	if (!project) return <div className="flex-1" aria-busy="true" />;
@@ -401,6 +424,16 @@ function ProjectScreen() {
 			openPath={open}
 			openLine={line}
 			openPreviewPort={preview}
+			selectTerminalId={tab}
+			revealToolId={subagent}
+			onSelectedFromUrl={() =>
+				void navigate({
+					to: "/workspaces/$id/projects/$projectId",
+					params: { id, projectId },
+					search: (previous) => ({ ...previous, tab: undefined, subagent: undefined }),
+					replace: true,
+				})
+			}
 		/>
 	);
 }

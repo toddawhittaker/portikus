@@ -1,23 +1,18 @@
-import type {
-	AgentLimitWindow,
-	AgentUsageCounts,
-	CodingAgent,
-	LegacyAgentMeter,
-} from "@portikus/contracts";
+import type { AgentMeter, AgentUsageCounts, PlanUsage } from "@portikus/contracts";
 import { METER_CLEAR_BELOW, METER_WARN_AT } from "../shell/meterLevel.js";
 
-/** What the status bar shows for one agent. */
+/** One provider's row of the meter: its plan usage and today's counts. */
+export type ProviderMeter = AgentMeter["providers"][number];
+
+/** What the status bar shows for one provider. */
 export type AgentDisplay =
-	| { kind: "limits"; windows: AgentLimitWindow[]; top: AgentLimitWindow }
+	| { kind: "plan"; plan: PlanUsage }
 	| { kind: "today"; counts: AgentUsageCounts }
 	| null;
 
-/** Windows that have not yet reset; a past reset means the figure is stale. */
-export function liveWindows(
-	windows: readonly AgentLimitWindow[],
-	now: number,
-): AgentLimitWindow[] {
-	return windows.filter((window) => Date.parse(window.resetsAt) > now);
+/** The plan unless its reset has passed, which means the figure is stale. */
+export function livePlan(plan: PlanUsage | null, now: number): PlanUsage | null {
+	return plan && Date.parse(plan.resetsAt) > now ? plan : null;
 }
 
 /** Input and output tokens; cache tokens are listed apart in the details. */
@@ -25,17 +20,10 @@ function tokenTotal(counts: AgentUsageCounts): number {
 	return counts.inputTokens + counts.outputTokens;
 }
 
-/** Limits first; else today's counts when there are any; else nothing. */
-export function chooseDisplay(
-	entry: LegacyAgentMeter["agents"][number],
-	now: number,
-): AgentDisplay {
-	const windows = entry.limits ? liveWindows(entry.limits.windows, now) : [];
-	const [first, ...rest] = windows;
-	if (first) {
-		const top = rest.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a), first);
-		return { kind: "limits", windows, top };
-	}
+/** The plan figure first; counts only when there is no plan; else nothing. */
+export function chooseDisplay(entry: ProviderMeter, now: number): AgentDisplay {
+	const plan = livePlan(entry.plan, now);
+	if (plan) return { kind: "plan", plan };
 	const counts = entry.today;
 	if (counts && (counts.sessions > 0 || tokenTotal(counts) > 0)) {
 		return { kind: "today", counts };
@@ -70,17 +58,9 @@ export function limitWarning(usedPercent: number, warned: boolean): boolean {
 	return usedPercent / 100 >= (warned ? METER_CLEAR_BELOW : METER_WARN_AT);
 }
 
-export const warnKey = (agent: CodingAgent, window: AgentLimitWindow) =>
-	`${agent}|${window.name}|${window.resetsAt}`;
+export const warnKey = (plan: PlanUsage) => `${plan.id}|${plan.resetsAt}`;
 
-/** The windows at the warning threshold that have not been warned about yet. */
-export function windowsToWarn(
-	agent: CodingAgent,
-	windows: readonly AgentLimitWindow[],
-	seen: ReadonlySet<string>,
-): AgentLimitWindow[] {
-	return windows.filter(
-		(window) =>
-			limitWarning(window.usedPercent, false) && !seen.has(warnKey(agent, window)),
-	);
+/** Whether a plan is at the warning share and has not been warned about yet. */
+export function shouldWarn(plan: PlanUsage, seen: ReadonlySet<string>): boolean {
+	return limitWarning(plan.usedPercent, false) && !seen.has(warnKey(plan));
 }

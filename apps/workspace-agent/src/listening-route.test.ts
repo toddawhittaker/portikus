@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentCodingAgentsChanged, LegacyAgentLimitsReport } from "@portikus/contracts";
+import { AgentCodingAgentsChanged, AgentLimitsReport } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { AgentLimitsStore } from "./agent-limits-route.js";
@@ -178,14 +178,11 @@ test("GET /agent-limits answers the report, and only with the token", async () =
 		headers: auth(),
 	});
 	expect(empty.statusCode).toBe(200);
-	expect(LegacyAgentLimitsReport.parse(empty.json())).toEqual({
-		claude: null,
-		codex: null,
-	});
+	expect(AgentLimitsReport.parse(empty.json())).toEqual({ providers: [] });
 	const claude = {
 		windows: [
 			{
-				name: "5h",
+				name: "7d",
 				usedPercent: 42,
 				resetsAt: new Date(Date.now() + 3_600_000).toISOString(),
 			},
@@ -198,7 +195,17 @@ test("GET /agent-limits answers the report, and only with the token", async () =
 		url: "/agent-limits",
 		headers: auth(),
 	});
-	expect(LegacyAgentLimitsReport.parse(filled.json())).toEqual({ claude, codex: null });
+	expect(AgentLimitsReport.parse(filled.json())).toEqual({
+		providers: [
+			{
+				id: "claude",
+				label: "Claude",
+				usedPercent: 42,
+				resetsAt: claude.windows[0]?.resetsAt,
+				observedAt: claude.observedAt,
+			},
+		],
+	});
 });
 
 test("a forward opens, lists, and closes", async () => {

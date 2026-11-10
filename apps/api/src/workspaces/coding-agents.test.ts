@@ -60,6 +60,7 @@ async function project(workspaceId: string, slug: string): Promise<string> {
 async function terminal(
 	workspaceId: string,
 	projectId: string | null,
+	kind: "terminal" | "chat" = "terminal",
 ): Promise<string> {
 	const row = await tdb.db
 		.insertInto("terminals")
@@ -68,6 +69,7 @@ async function terminal(
 			name: "Terminal",
 			cwd: "/home/student",
 			project_id: projectId,
+			kind,
 		})
 		.returning("id")
 		.executeTakeFirstOrThrow();
@@ -91,12 +93,12 @@ test.skipIf(skip)(
 		const a = await project(ws, "alpha");
 		const b = await project(ws, "beta");
 		const ta = await terminal(ws, a);
-		const tb = await terminal(ws, b);
+		const tb = await terminal(ws, b, "chat");
 
 		const joined = await withProjects(tdb.db, ws, [state(ta), state(tb)]);
 		expect(joined).toEqual([
-			{ ...state(ta), projectId: a, name: "Terminal" },
-			{ ...state(tb), projectId: b, name: "Terminal" },
+			{ ...state(ta), projectId: a, name: "Terminal", kind: "terminal" },
+			{ ...state(tb), projectId: b, name: "Terminal", kind: "chat" },
 		]);
 	},
 );

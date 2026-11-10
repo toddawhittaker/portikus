@@ -1,9 +1,39 @@
-import type { AgentLimits, LegacyAgentLimitsReport } from "@portikus/contracts";
+import type {
+	AgentLimits,
+	AgentLimitsReport,
+	CodingAgent,
+	PlanUsage,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 
 export interface AgentLimitsStoreOptions {
 	/** Reads Codex's plan limits, or null when it reports none. */
 	codex?: () => Promise<AgentLimits | null>;
+}
+
+/** The only window the status bar shows; the label both sources give a 7-day window. */
+const PLAN_WINDOW_NAME = "7d";
+
+/** What the status bar calls each provider. The id is the agent id. */
+const PROVIDER_LABEL: Record<CodingAgent, string> = {
+	claude: "Claude",
+	codex: "Codex",
+};
+
+/** The 7-day window as one provider's plan usage, or null when there is none. */
+export function planUsage(
+	id: CodingAgent,
+	limits: AgentLimits | null,
+): PlanUsage | null {
+	const window = limits?.windows.find((one) => one.name === PLAN_WINDOW_NAME);
+	if (!limits || !window) return null;
+	return {
+		id,
+		label: PROVIDER_LABEL[id],
+		usedPercent: window.usedPercent,
+		resetsAt: window.resetsAt,
+		observedAt: limits.observedAt,
+	};
 }
 
 /**
@@ -24,8 +54,13 @@ export class AgentLimitsStore {
 		this.claude = limits;
 	}
 
-	async report(): Promise<LegacyAgentLimitsReport> {
-		return { claude: this.claude, codex: await this.readCodex() };
+	/** Each provider's 7-day usage; a provider with none is left out. */
+	async report(): Promise<AgentLimitsReport> {
+		const providers = [
+			planUsage("claude", this.claude),
+			planUsage("codex", await this.readCodex()),
+		].filter((usage): usage is PlanUsage => usage !== null);
+		return { providers };
 	}
 }
 
@@ -34,7 +69,7 @@ export interface AgentLimitsRouteOptions {
 }
 
 /**
- * `GET /agent-limits`: each coding agent's plan limits, read by the API for
+ * `GET /agent-limits`: each provider's 7-day plan usage, read by the API for
  * the status bar. Token auth comes from the server's own hook (SPEC.md §23.5).
  */
 export async function agentLimitsRoute(

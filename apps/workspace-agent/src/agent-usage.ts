@@ -349,10 +349,8 @@ const ClaudeLimitsPost = z
 	})
 	.strict();
 
-const CLAUDE_WINDOWS = [
-	["five_hour", "5h"],
-	["seven_day", "7d"],
-] as const;
+/** Claude Code has no 5-hour limit now; a `five_hour` field is accepted and dropped. */
+const CLAUDE_WINDOWS = [["seven_day", "7d"]] as const;
 
 /** Claude Code's windows in the contract's shape, or null when one is out of range. */
 function claudeLimits(

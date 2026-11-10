@@ -4,19 +4,17 @@ import {
 	chooseDisplay,
 	limitWarning,
 	percentText,
+	shouldWarn,
 	todayText,
 	warnKey,
-	windowsToWarn,
 } from "./agentDisplay.js";
 
 const NOW = Date.parse("2026-11-01T12:00:00Z");
-const window = (name: string, usedPercent: number, hours: number) => ({
-	name,
+const plan = (usedPercent: number, hours: number, id = "claude") => ({
+	id,
+	label: id === "claude" ? "Claude" : "Codex",
 	usedPercent,
 	resetsAt: new Date(NOW + hours * 3_600_000).toISOString(),
-});
-const limits = (...windows: ReturnType<typeof window>[]) => ({
-	windows,
 	observedAt: new Date(NOW).toISOString(),
 });
 const counts = (over: Partial<AgentUsageCounts> = {}): AgentUsageCounts => ({
@@ -30,50 +28,40 @@ const counts = (over: Partial<AgentUsageCounts> = {}): AgentUsageCounts => ({
 	linesRemoved: 0,
 	...over,
 });
-
-test("limits show the fullest live window", () => {
-	const shown = chooseDisplay(
-		{
-			agent: "claude",
-			limits: limits(window("5h", 42, 2), window("7d", 60, 90)),
-			today: counts(),
-		},
-		NOW,
-	);
-	expect(shown).toMatchObject({ kind: "limits", top: { name: "7d" } });
+const entry = (over: {
+	plan?: ReturnType<typeof plan> | null;
+	today?: AgentUsageCounts | null;
+}) => ({
+	id: "claude",
+	label: "Claude",
+	plan: null,
+	today: null,
+	...over,
 });
 
-test("a window past its reset is hidden, and the next fullest shows", () => {
-	const shown = chooseDisplay(
-		{
-			agent: "claude",
-			limits: limits(window("5h", 99, -1), window("7d", 10, 90)),
-			today: null,
-		},
-		NOW,
-	);
-	expect(shown).toMatchObject({ kind: "limits", top: { name: "7d" } });
+test("a plan figure shows, and tokens and cost stay out of the choice", () => {
+	expect(chooseDisplay(entry({ plan: plan(42, 90), today: counts() }), NOW)).toEqual({
+		kind: "plan",
+		plan: plan(42, 90),
+	});
 });
 
-test("with every window expired, limits count as unknown and today's counts show", () => {
-	const entry = {
-		agent: "claude" as const,
-		limits: limits(window("5h", 99, -1)),
-		today: counts(),
-	};
-	expect(chooseDisplay(entry, NOW)?.kind).toBe("today");
-	expect(chooseDisplay({ ...entry, today: null }, NOW)).toBeNull();
+test("a plan past its reset is hidden, and today's counts show instead", () => {
+	const stale = entry({ plan: plan(99, -1), today: counts() });
+	expect(chooseDisplay(stale, NOW)?.kind).toBe("today");
+	expect(chooseDisplay({ ...stale, today: null }, NOW)).toBeNull();
 });
 
-test("no limits and no counts is hidden, as are counts of zero", () => {
-	expect(chooseDisplay({ agent: "codex", limits: null, today: null }, NOW)).toBeNull();
+test("a plan resetting at this very moment is hidden", () => {
+	expect(chooseDisplay(entry({ plan: plan(50, 0) }), NOW)).toBeNull();
+});
+
+test("with no plan, today's counts show; with neither, or counts of zero, nothing does", () => {
+	expect(chooseDisplay(entry({ today: counts() }), NOW)?.kind).toBe("today");
+	expect(chooseDisplay(entry({}), NOW)).toBeNull();
 	expect(
 		chooseDisplay(
-			{
-				agent: "codex",
-				limits: null,
-				today: counts({ sessions: 0, inputTokens: 0, outputTokens: 0 }),
-			},
+			entry({ today: counts({ sessions: 0, inputTokens: 0, outputTokens: 0 }) }),
 			NOW,
 		),
 	).toBeNull();
@@ -98,14 +86,14 @@ test("a warning holds until usage falls below 80%", () => {
 	expect(limitWarning(82, false)).toBe(false);
 });
 
-test("a window is warned about once per agent, window and reset time", () => {
-	const hot = window("5h", 90, 2);
+test("a plan is warned about once per provider and reset time", () => {
+	const hot = plan(90, 2);
 	const seen = new Set<string>();
-	expect(windowsToWarn("claude", [hot, window("7d", 10, 90)], seen)).toEqual([hot]);
-	seen.add(warnKey("claude", hot));
-	expect(windowsToWarn("claude", [hot], seen)).toEqual([]);
-	// Another agent, or the same window after it resets, warns again.
-	expect(windowsToWarn("codex", [hot], seen)).toEqual([hot]);
-	const nextReset = { ...hot, resetsAt: new Date(NOW + 9 * 3_600_000).toISOString() };
-	expect(windowsToWarn("claude", [nextReset], seen)).toEqual([nextReset]);
+	expect(shouldWarn(hot, seen)).toBe(true);
+	expect(shouldWarn(plan(10, 90), seen)).toBe(false);
+	seen.add(warnKey(hot));
+	expect(shouldWarn(hot, seen)).toBe(false);
+	// Another provider, or the same plan after it resets, warns again.
+	expect(shouldWarn(plan(90, 2, "codex"), seen)).toBe(true);
+	expect(shouldWarn(plan(90, 9), seen)).toBe(true);
 });
