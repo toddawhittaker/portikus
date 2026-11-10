@@ -68,7 +68,7 @@ test("a plan shows its percent and reset, and the details open by keyboard", asy
 	await expect(meter).toHaveText(/^Claude42%resets .+/);
 	await expect(meter).toHaveAttribute("data-level", "ok");
 	await expect(meter).toHaveAccessibleName(
-		/^Claude 42% of the 7-day limit, resets .+\. Show usage details$/,
+		/^Claude 42% resets .+, of the 7-day limit\. Show usage details$/,
 	);
 	await expect(page.getByTestId("agent-meter-codex")).toHaveCount(0);
 

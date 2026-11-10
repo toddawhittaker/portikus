@@ -54,7 +54,7 @@ test("a plan shows its percent and reset, and the details list the 7-day limit",
 	expect(button.getAttribute("data-kind")).toBe("plan");
 	expect(button.getAttribute("data-level")).toBe("ok");
 	expect(button.getAttribute("aria-label")).toMatch(
-		/^Claude 42% of the 7-day limit, resets .+\. Show usage details$/,
+		/^Claude 42% resets .+, of the 7-day limit\. Show usage details$/,
 	);
 	expect(screen.queryByTestId("agent-meter-codex")).toBeNull();
 	const details = screen.getByTestId("agent-meter-claude-details");

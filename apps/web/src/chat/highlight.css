@@ -2,14 +2,16 @@
  * Syntax colours (ADR 0072). Each colour meets 4.5:1 on the sunken code
  * background and on both diff backgrounds, in both themes. Colour only
  * decorates: the language is named in text, and a diff line's mark is text.
+ * A token is used where its value is the colour in both themes (comment,
+ * type); the others differ a little in the light theme, so they stay literal.
  */
 .pk-chat-hl {
 	--hl-keyword: light-dark(#7a3e9d, #d6a6f0);
 	--hl-string: light-dark(#2a6630, #86c98b);
 	--hl-number: light-dark(#7d5500, #e3b85c);
-	--hl-comment: light-dark(#5a554c, #aba498);
+	--hl-comment: var(--ink-muted);
 	--hl-title: light-dark(#3a5585, #9fb4e0);
-	--hl-type: light-dark(#24605c, #8fcdc4);
+	--hl-type: var(--accent-text);
 	--hl-attr: light-dark(#9c3127, #f0998f);
 }
 

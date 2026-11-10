@@ -1,7 +1,12 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { requestToolReveal, revealTool, useToolReveal } from "./revealTool";
+import {
+	REVEAL_TIMEOUT_MS,
+	requestToolReveal,
+	revealTool,
+	useToolReveal,
+} from "./revealTool";
 
 beforeEach(() => {
 	Element.prototype.scrollIntoView = vi.fn();
@@ -79,4 +84,49 @@ test("a request is for its own chat only", () => {
 	);
 	act(() => requestToolReveal("t3", "toolu_c"));
 	expect((getByTestId("chat-tool-toolu_c") as HTMLDetailsElement).open).toBe(false);
+});
+
+test("a request for a row that never arrives is dropped after the time limit", () => {
+	vi.useFakeTimers();
+	try {
+		const { getByTestId, rerender } = render(
+			<Chat terminalId="t4" visible={true} rows={["toolu_x"]} />,
+		);
+		const find = vi.spyOn(Element.prototype, "querySelector");
+		act(() => requestToolReveal("t4", "toolu_gone"));
+		act(() => {
+			vi.advanceTimersByTime(REVEAL_TIMEOUT_MS + 1);
+		});
+		find.mockClear();
+		// Later snapshots no longer look for the row, and a row of that id is left alone.
+		rerender(<Chat terminalId="t4" visible={true} rows={["toolu_x", "toolu_gone"]} />);
+		expect(find).not.toHaveBeenCalled();
+		expect((getByTestId("chat-tool-toolu_gone") as HTMLDetailsElement).open).toBe(
+			false,
+		);
+		find.mockRestore();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a newer request restarts the time limit", () => {
+	vi.useFakeTimers();
+	try {
+		const { getByTestId, rerender } = render(
+			<Chat terminalId="t5" visible={true} rows={[]} />,
+		);
+		act(() => requestToolReveal("t5", "toolu_old"));
+		act(() => {
+			vi.advanceTimersByTime(REVEAL_TIMEOUT_MS - 1000);
+		});
+		act(() => requestToolReveal("t5", "toolu_new"));
+		act(() => {
+			vi.advanceTimersByTime(REVEAL_TIMEOUT_MS - 1000);
+		});
+		rerender(<Chat terminalId="t5" visible={true} rows={["toolu_new"]} />);
+		expect((getByTestId("chat-tool-toolu_new") as HTMLDetailsElement).open).toBe(true);
+	} finally {
+		vi.useRealTimers();
+	}
 });
