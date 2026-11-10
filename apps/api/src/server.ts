@@ -54,6 +54,7 @@ import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-p
 import { registerCourseRosterRoutes } from "./routes/course-roster.js";
 import { registerCourseShareRoutes } from "./routes/course-shares.js";
 import { registerCourseRoutes } from "./routes/courses.js";
+import { registerFileSearchRoutes } from "./routes/file-search.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
 import { registerLanguageServerSocket } from "./routes/language-servers.js";
@@ -301,6 +302,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerRecoveryRoutes(instance, deps);
 		registerFileRoutes(instance, deps, limitFileWrites);
 		registerGitSearchRoutes(instance, deps);
+		registerFileSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
 		registerUsageRoutes(instance, deps);
 		registerAgentMeterRoutes(instance, deps);

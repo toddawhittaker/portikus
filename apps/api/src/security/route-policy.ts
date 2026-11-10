@@ -203,6 +203,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/:pid/baseline-diff": owner,
 	"GET /workspaces/:id/projects/:pid/search": owner,
 	"HEAD /workspaces/:id/projects/:pid/search": owner,
+	"POST /workspaces/:id/projects/:pid/file-search": owner,
 
 	"GET /workspaces/:id/projects/:pid/checks": owner,
 	"HEAD /workspaces/:id/projects/:pid/checks": owner,
