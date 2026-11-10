@@ -7,6 +7,7 @@
  */
 import { nameError } from "../files/paths.js";
 import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop.js";
+import { projectRoot } from "../projectRoot.js";
 
 /** Characters a shell reads as plain text, so a path of only these needs no quotes. */
 const SAFE_PATH = /^[A-Za-z0-9._/@%+=:,-]+$/;
@@ -70,7 +71,7 @@ export function droppedPathsInput(
 ): string | null {
 	const words: string[] = [];
 	for (const path of paths) {
-		const word = shellQuotePath(`/home/student/projects/${slug}/${path}`);
+		const word = shellQuotePath(`${projectRoot(slug)}/${path}`);
 		if (word === null) return null;
 		words.push(word);
 	}

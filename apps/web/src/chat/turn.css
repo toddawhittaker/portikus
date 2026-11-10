@@ -80,15 +80,14 @@
 .pk-turn-file-open {
 	min-block-size: 24px;
 	min-inline-size: 0;
-	overflow: hidden;
 	padding: 0;
 	border: 0;
 	background: none;
 	color: inherit;
 	font: inherit;
 	text-align: start;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	/* A long path wraps whole; the end of it is the part that tells files apart. */
+	overflow-wrap: anywhere;
 }
 
 button.pk-turn-file-open {

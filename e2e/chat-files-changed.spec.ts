@@ -24,7 +24,13 @@ const SLUG = "files-changed";
 const ROOT = `/home/student/projects/${SLUG}`;
 
 /** A chat tab in a new student's project, which is or is not a Git repository. */
-async function openChat(page: Page, context: BrowserContext, gitInit: boolean) {
+async function openChat(
+	page: Page,
+	context: BrowserContext,
+	gitInit: boolean,
+	/** One more written file, outside the two the other tests count. */
+	extra?: string,
+) {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, {
 		name: "Files Changed",
@@ -92,6 +98,15 @@ async function openChat(page: Page, context: BrowserContext, gitInit: boolean) {
 			input: { file_path: `${ROOT}/notes.md`, content: "one\ntwo\n" },
 		});
 		send("tool.finished", { id: "w1", isError: false });
+		if (extra !== undefined) {
+			send("tool.started", {
+				id: "w2",
+				name: "Write",
+				title: "Write",
+				input: { file_path: `${ROOT}/${extra}`, content: "x\n" },
+			});
+			send("tool.finished", { id: "w2", isError: false });
+		}
 		send("tool.started", {
 			id: "e2",
 			name: "Edit",
@@ -161,4 +176,33 @@ test("outside a Git repository a changed file opens in the editor", async ({
 	await changed.getByRole("button", { name: "notes.md" }).click();
 	await expect(page.getByTestId("editor-notes.md")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("diff-pane-notes.md")).toHaveCount(0);
+});
+
+test("a long path wraps whole in the narrow row instead of being cut off", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	await page.setViewportSize({ width: 420, height: 900 });
+	const long = `${"a-very-long-directory-name/".repeat(5)}component-with-a-long-name.tsx`;
+	const view = await openChat(page, context, false, long);
+	const changed = view.getByTestId("chat-files-changed");
+	await changed.locator("> summary").click();
+	const path = changed.getByRole("button", { name: long });
+	await expect(path).toBeVisible();
+	const fit = await path.evaluate((node) => ({
+		cut: node.scrollWidth - node.clientWidth,
+		lines:
+			node.getBoundingClientRect().height /
+			Number.parseFloat(getComputedStyle(node).lineHeight),
+	}));
+	// Nothing hidden to the side, and the path took more than one line.
+	expect(fit.cut).toBeLessThanOrEqual(0);
+	expect(fit.lines).toBeGreaterThan(1.5);
+	const overflow = await page.evaluate(() => {
+		const log = document.querySelector<HTMLElement>(".pk-chat-scroll");
+		return log ? log.scrollWidth - log.clientWidth : -1;
+	});
+	expect(overflow).toBeLessThanOrEqual(0);
+	await expectNoViolations(page, `[data-testid^="chat-view-"]`);
 });

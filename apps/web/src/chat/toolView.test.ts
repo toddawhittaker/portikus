@@ -171,3 +171,26 @@ test("a path outside the project, or before the slug is known, is not the projec
 	expect(projectPath("demo", "/home/student/.bashrc")).toBeNull();
 	expect(projectPath(undefined, "/home/student/projects/demo/a.ts")).toBeNull();
 });
+
+test("a path is normalised: . and empty segments go, and .. is resolved inside the project", () => {
+	expect(projectPath("demo", "./src//a.ts")).toBe("src/a.ts");
+	expect(projectPath("demo", "src/../a.ts")).toBe("a.ts");
+	expect(projectPath("demo", "/home/student/projects/demo/src/./a.ts")).toBe(
+		"src/a.ts",
+	);
+	// The same file by a relative and an absolute path is one path.
+	expect(projectPath("demo", "/home/student/projects/demo/src/a.ts")).toBe(
+		projectPath("demo", "./src/a.ts"),
+	);
+});
+
+test("a path that leaves the project, or cannot be a ProjectPath, is not the project's", () => {
+	expect(projectPath("demo", "../x")).toBeNull();
+	expect(projectPath("demo", "src/../../x")).toBeNull();
+	expect(projectPath("demo", "/home/student/projects/demo/../x")).toBeNull();
+	expect(projectPath("demo", "/home/student/projects/demo/../demo-2/x")).toBeNull();
+	expect(projectPath("demo", "src\\a.ts")).toBeNull();
+	expect(projectPath("demo", "a\0b")).toBeNull();
+	expect(projectPath("demo", "")).toBeNull();
+	expect(projectPath("demo", ".")).toBeNull();
+});

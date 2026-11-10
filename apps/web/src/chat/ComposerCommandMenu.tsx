@@ -150,11 +150,14 @@ export function useComposerMenu(
 		};
 	}, [fileQuery, workspaceId, projectId]);
 
+	// An answer for an older query is not this query's: nothing is selectable until its own arrives.
+	const current = search !== null && search.query === fileQuery ? search : null;
+
 	const options = useMemo(() => {
 		if (!menu) return [];
 		if (menu.kind === "command") return matchCommands(commands, menu.query);
-		return search && !search.failed ? search.paths.map(fileOption) : [];
-	}, [menu, commands, search]);
+		return current && !current.failed ? current.paths.map(fileOption) : [];
+	}, [menu, commands, current]);
 
 	// A new list starts at its first option.
 	const first = options[0]?.key;
@@ -164,9 +167,9 @@ export function useComposerMenu(
 	const count = options.length;
 	return {
 		options,
-		loading: menu?.kind === "file" && search === null,
-		failed: menu?.kind === "file" && search?.failed === true,
-		truncated: menu?.kind === "file" && search?.failed === false && search.truncated,
+		loading: menu?.kind === "file" && current === null,
+		failed: menu?.kind === "file" && current?.failed === true,
+		truncated: menu?.kind === "file" && current?.failed === false && current.truncated,
 		active: Math.min(active, Math.max(count - 1, 0)),
 		setActive,
 		move: (step) =>

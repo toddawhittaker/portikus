@@ -427,7 +427,7 @@
 
 /* A command the chat cannot send: dimmed, its note still legible. */
 .pk-composer-option.is-blocked .pk-composer-option-label {
-	color: var(--ink-faint);
+	color: var(--ink-muted);
 }
 
 .pk-composer-menu-note {

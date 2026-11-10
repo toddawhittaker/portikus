@@ -189,13 +189,49 @@ test("arrows move through the list, wrapping, and Enter puts the command in the 
 	expect(sent).toEqual([{ type: "send", text: "/compact ", attachments: [] }]);
 });
 
-test("Tab chooses too, and the box keeps the keyboard", async () => {
+test("Tab chooses once the arrows have picked an option, and the box keeps the keyboard", async () => {
 	const box = draw();
-	typeInto(box, "/rev");
+	typeInto(box, "/re");
 	await screen.findByRole("listbox");
+	key(box, "ArrowDown");
+	key(box, "ArrowUp");
 	key(box, "Tab");
 	expect(boxText(box)).toBe("/review ");
 	expect(document.activeElement).toBe(box);
+});
+
+test("Tab with no arrow pressed inserts nothing: the menu closes and Tab moves on", async () => {
+	const box = draw();
+	typeInto(box, "email me @");
+	await waitFor(() => expect(searches).toHaveLength(1));
+	await act(async () =>
+		searches[0]?.answer(Response.json({ paths: ["me.ts"], truncated: false })),
+	);
+	await screen.findByRole("listbox");
+	// Tab is not handled by the menu, so the browser's focus move goes ahead.
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	expect(boxText(box)).toBe("email me @");
+	await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+	// Enter still chooses without an arrow.
+	typeInto(box, "x");
+	await waitFor(() => expect(searches).toHaveLength(2));
+	await act(async () =>
+		searches[1]?.answer(Response.json({ paths: ["mex.ts"], truncated: false })),
+	);
+	await screen.findByRole("listbox");
+	key(box, "Enter");
+	expect(boxText(box)).toBe("email me @mex.ts ");
+});
+
+test("a list that changes after the arrows moved needs them again before Tab chooses", async () => {
+	const box = draw();
+	typeInto(box, "/");
+	await screen.findByRole("listbox");
+	key(box, "ArrowDown");
+	typeInto(box, "re");
+	await waitFor(() => expect(options()).toHaveLength(1));
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	expect(boxText(box)).toBe("/re");
 });
 
 test("a click on an option chooses it, and the box keeps the keyboard", async () => {
@@ -312,6 +348,31 @@ test("a newer query cancels the search in flight, whose late answer is never sho
 	);
 	await screen.findByRole("listbox");
 	expect(options().map((one) => one.getAttribute("aria-label"))).toEqual(["ab.ts"]);
+});
+
+test("while a newer query waits, the last answer is not selectable, so Enter cannot insert from it", async () => {
+	const box = draw();
+	typeInto(box, "@ap");
+	await waitFor(() => expect(searches).toHaveLength(1));
+	await act(async () =>
+		searches[0]?.answer(Response.json({ paths: ["apple.ts"], truncated: false })),
+	);
+	await screen.findByRole("listbox");
+	// A longer query is typed; its search has not gone out yet.
+	typeInto(box, "p.t");
+	expect(searches).toHaveLength(1);
+	expect(screen.queryByRole("listbox")).toBeNull();
+	expect(box.getAttribute("aria-expanded")).toBe("false");
+	expect(screen.getByTestId("composer-menu-note").textContent).toBe("Searching…");
+	key(box, "Enter");
+	expect(boxText(box)).not.toContain("apple.ts");
+	// Its own answer is selectable once it arrives.
+	await waitFor(() => expect(searches).toHaveLength(2));
+	await act(async () =>
+		searches[1]?.answer(Response.json({ paths: ["app.tsx"], truncated: false })),
+	);
+	await screen.findByRole("listbox");
+	expect(options().map((one) => one.getAttribute("aria-label"))).toEqual(["app.tsx"]);
 });
 
 test("no match says so, more than the limit says so, and a failure is quiet", async () => {
