@@ -195,8 +195,10 @@ test("a `!` sent from the composer runs as a command, starts no turn, and surviv
 	test.setTimeout(90_000);
 	const student = await createStudent(context);
 	const { view } = await openChat(page, student.workspaceId, "Shell send");
+	// The fake host's earlier turn is the only turn before the command.
+	await expect(view.getByText("Earlier answer")).toBeVisible();
 	const turns = view.getByTestId("chat-turn");
-	const turnsBefore = await turns.count();
+	await expect(turns).toHaveCount(1);
 	const box = view.getByTestId("chat-composer-input");
 	await box.fill("!ls -la");
 	await box.press("Enter");
@@ -209,7 +211,7 @@ test("a `!` sent from the composer runs as a command, starts no turn, and surviv
 		"Finished with exit code 0",
 	);
 	await expect(shells.first()).toContainText("ls -la");
-	await expect(turns).toHaveCount(turnsBefore);
+	await expect(turns).toHaveCount(1);
 	await expect(
 		view.getByTestId("chat-user-message").filter({ hasText: "ls -la" }),
 	).toHaveCount(0);

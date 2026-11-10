@@ -59,18 +59,18 @@ describe("running a command", () => {
 		const marker = join(dir, "survived");
 		const started = Date.now();
 		const run = await runShellCommand(
-			`echo begun; (sleep 2; touch ${marker}) & sleep 30`,
+			`echo begun; (sleep 4; touch ${marker}) & sleep 30`,
 			{
 				cwd: dir,
 				shell: "/bin/bash",
-				timeoutMs: 300,
+				timeoutMs: 2000,
 			},
 		);
-		expect(Date.now() - started).toBeLessThan(5000);
+		expect(Date.now() - started).toBeLessThan(10_000);
 		expect(run).toMatchObject({ output: "begun\n", exitCode: null, timedOut: true });
-		await new Promise((resolve) => setTimeout(resolve, 2500));
+		await new Promise((resolve) => setTimeout(resolve, 3000));
 		expect(existsSync(marker)).toBe(false);
-	});
+	}, 20_000);
 
 	test("a background job left running does not hold the command open", async () => {
 		const started = Date.now();

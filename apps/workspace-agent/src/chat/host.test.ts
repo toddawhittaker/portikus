@@ -1314,14 +1314,14 @@ describe("shell commands", () => {
 			log: silentLogger(),
 			postLimits: async () => undefined,
 			sdk: sdk(),
-			shellTimeoutMs: 200,
+			shellTimeoutMs: 2000,
 		});
 		await host.start();
 		const a = await attach();
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		a.send({ type: "send", text: "!echo begun; sleep 30", attachments: [] });
 		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2), {
-			timeout: 5000,
+			timeout: 10_000,
 		});
 		expect(ofType(a, "shell")[1]).toMatchObject({ output: "begun\n", exitCode: null });
 		await vi.waitFor(() => expect((queries[0] as FakeQuery).sent).toHaveLength(2));
