@@ -177,18 +177,18 @@ test("audit", async ({ page }) => {
 		Person,
 	];
 	const rows: [string, string, string, string, object, number][] = [
-		[maya.userId, maya.workspaceId, "auth.login", "success", {}, 3],
+		[maya.userId, maya.workspaceId, "auth.login", "ok", {}, 3],
 		[
 			"worker",
 			diego.workspaceId,
 			"workspace.cpu_throttled",
-			"success",
+			"ok",
 			{ averagePercent: 96 },
 			12,
 		],
-		[amara.userId, amara.workspaceId, "workspace.start_requested", "success", {}, 25],
-		["worker", lukas.workspaceId, "workspace.idle_stopped", "success", {}, 47],
-		[priya.userId, priya.workspaceId, "auth.login", "success", {}, 63],
+		[amara.userId, amara.workspaceId, "workspace.start_requested", "ok", {}, 25],
+		["worker", lukas.workspaceId, "workspace.idle_stopped", "ok", {}, 47],
+		[priya.userId, priya.workspaceId, "auth.login", "ok", {}, 63],
 		[
 			"worker",
 			lukas.workspaceId,
@@ -197,9 +197,24 @@ test("audit", async ({ page }) => {
 			{ errorCode: "TIMEOUT" },
 			95,
 		],
-		[diego.userId, diego.workspaceId, "auth.login", "success", {}, 130],
-		[maya.userId, maya.workspaceId, "workspace.stop_requested", "success", {}, 180],
+		[diego.userId, diego.workspaceId, "auth.login", "ok", {}, 130],
+		[maya.userId, maya.workspaceId, "workspace.stop_requested", "ok", {}, 180],
 	];
+	// The list is newest first by row number, so start from an empty table:
+	// the seeded rows are then in time order, and the sign-in that opens the
+	// page is the newest row at the top.
+	await query("delete from audit_events");
+	const [carol] = await query<{ id: string }>(
+		"select id from users where email = 'carol@example.edu'",
+	);
+	rows.push([
+		carol?.id ?? "",
+		diego.workspaceId,
+		"workspace.quota_updated",
+		"ok",
+		{ from: { homeGiB: 5, dockerGiB: 5 }, to: { homeGiB: 10, dockerGiB: 10 } },
+		8,
+	]);
 	rows.sort((a, b) => b[5] - a[5]);
 	for (const [who, target, action, result, metadata, minutes] of rows) {
 		const actor = who === "worker" ? who : `user:${who}`;

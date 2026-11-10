@@ -542,7 +542,7 @@ build-deb: ## Build the control-plane Debian package into dist/deb
 install-screens: ## Capture the install screens in docs/INSTALL.md as PNGs under docs/images/install (needs Docker, Pillow, optipng)
 	packaging/tests/capture-install-screens.sh
 
-screenshots: ## Take the documentation images in docs/images from the end-to-end stack with demo data (needs Docker unless TEST_DATABASE_URL is set; never run in CI)
+screenshots: ## Take the documentation images in docs/images from the end-to-end stack with demo data (needs Docker unless TEST_DATABASE_URL is set, and ImageMagick; never run in CI)
 	e2e/doc-images/run.sh
 
 # Installing the package restarts the services and runs the migrations from the
