@@ -8,13 +8,17 @@ test("emphasis, strong and strikethrough read as plain words", () => {
 });
 
 test("a link reads as its text, never its address", () => {
-	const text = toSpeechText("See [the guide](https://example.com/a/b) and <https://x.org>.");
+	const text = toSpeechText(
+		"See [the guide](https://example.com/a/b) and <https://x.org>.",
+	);
 	expect(text).toBe("See the guide and https://x.org.");
 	expect(toSpeechText("[docs][d]\n\n[d]: https://example.com")).toBe("docs.");
 });
 
 test("a fenced code block becomes the words code block and is not read", () => {
-	const text = toSpeechText("Run this:\n\n```ts\nconst secretListing = 1;\n```\n\nThen go.");
+	const text = toSpeechText(
+		"Run this:\n\n```ts\nconst secretListing = 1;\n```\n\nThen go.",
+	);
 	expect(text).toBe("Run this:\n\nCode block.\n\nThen go.");
 	expect(text).not.toContain("secretListing");
 	expect(toSpeechText("    indented();\n")).toBe("Code block.");
@@ -48,8 +52,14 @@ test("an empty reply has nothing to say", () => {
 });
 
 test("a reply splits into sentence chunks, short ones grouped", () => {
-	expect(toSpeechChunks("One. Two.\n\nThree is here.")).toEqual(["One. Two.", "Three is here."]);
-	const long = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} is here.`).join(" ");
+	expect(toSpeechChunks("One. Two.\n\nThree is here.")).toEqual([
+		"One. Two.",
+		"Three is here.",
+	]);
+	const long = Array.from(
+		{ length: 30 },
+		(_, i) => `Sentence number ${i} is here.`,
+	).join(" ");
 	const chunks = toSpeechChunks(long);
 	expect(chunks.length).toBeGreaterThan(1);
 	for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(MAX_CHUNK);

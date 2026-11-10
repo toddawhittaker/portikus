@@ -61,7 +61,9 @@ function blocks(node: MdNode): string[] {
 		case "heading":
 			return [sentence(inline(node))];
 		case "tableRow":
-			return [sentence((node.children ?? []).map((cell) => inline(cell).trim()).join(", "))];
+			return [
+				sentence((node.children ?? []).map((cell) => inline(cell).trim()).join(", ")),
+			];
 		case "html":
 		case "thematicBreak":
 		case "definition":
@@ -81,7 +83,9 @@ export function toSpeechText(markdown: string): string {
 
 function sentences(paragraph: string): string[] {
 	const segmenter = new Intl.Segmenter(undefined, { granularity: "sentence" });
-	return Array.from(segmenter.segment(paragraph), (s) => s.segment.trim()).filter(Boolean);
+	return Array.from(segmenter.segment(paragraph), (s) => s.segment.trim()).filter(
+		Boolean,
+	);
 }
 
 /** Splits text longer than a chunk at spaces, or hard when there are none. */

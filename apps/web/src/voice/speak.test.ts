@@ -40,8 +40,18 @@ class FakeSynth extends EventTarget {
 	}
 }
 
-function voice(name: string, lang: string, localService: boolean): SpeechSynthesisVoice {
-	return { name, lang, localService, default: false, voiceURI: name } as SpeechSynthesisVoice;
+function voice(
+	name: string,
+	lang: string,
+	localService: boolean,
+): SpeechSynthesisVoice {
+	return {
+		name,
+		lang,
+		localService,
+		default: false,
+		voiceURI: name,
+	} as SpeechSynthesisVoice;
 }
 
 let synth: FakeSynth;
@@ -60,7 +70,10 @@ afterEach(() => {
 	document.documentElement.lang = "";
 });
 
-const LONG = Array.from({ length: 20 }, (_, i) => `Sentence ${i} has a few words in it.`).join(" ");
+const LONG = Array.from(
+	{ length: 20 },
+	(_, i) => `Sentence ${i} has a few words in it.`,
+).join(" ");
 
 test("support needs both speechSynthesis and the utterance class", () => {
 	expect(isSpeechSupported()).toBe(true);
