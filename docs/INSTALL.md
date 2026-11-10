@@ -269,8 +269,7 @@ screen adds your institution's accounts on top:
 With groups, use only groups that people cannot join or change by
 themselves, because whoever is in a group gets its role. With Google,
 members of groups nested inside the three count too, so those groups
-must follow the same rule. A person in a group still needs a Portikus
-invitation to sign in.
+must follow the same rule.
 - **LDAP or Active Directory**: asks the directory server, the kind of
   directory, the directory servers' addresses, the service account and
   its password, where people are, a filter naming who may sign in, and
@@ -285,6 +284,12 @@ invitation to sign in.
   claim, and the students', instructors' and administrators' group names,
   as the provider sends them in the groups claim. Only members of one of
   the three groups may sign in.
+
+Whichever provider you choose, nobody signs themselves up: a person
+signs in through it the first time only if an administrator has already
+invited them (**Users**, then **Invite…**, or **Import from CSV…**,
+docs/ADMIN-GUIDE.md), or added them as a local account. Being in a group
+does not replace the invitation; it only sets the role.
 
 For Entra, Google and other OpenID Connect providers, register Portikus
 with the provider first. The client ID screen shows the redirect address
@@ -464,7 +469,7 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   person, and a control-plane service dying, to email, Pushover, ntfy,
   Microsoft Teams or a webhook such as a Slack incoming webhook. Set them
   on the admin page: open **Admin**, then **Settings**, then
-  **Notifications**. Email needs an SMTP server on port 587 or 465 with
+  **Email and alerts**. Email needs an SMTP server on port 587 or 465 with
   TLS. Every other address must be an `https://` address on port 443;
   webhooks on other ports are refused. Saving lets the server reach
   those hosts through its egress proxy, with no restart. Check each
@@ -552,7 +557,15 @@ one workspace) within 30 seconds. Both run on the server as root. A set
 holds the database, the sign-in accounts, and every workspace's home and
 recovery points, each file encrypted with age, a small file-encryption
 tool (docs/adr/0044-backups-on-the-server.md). The newest 14 complete sets
-are kept.
+are kept, and the nightly clean-up never removes a set less than 14 days
+old.
+
+The Backups tab will not delete the newest three nightly sets (or, when
+no nightly set is complete, the newest complete set of any kind), so a
+mistaken click cannot empty the server. It allows at most 3 backups
+requested with **Back up now** in 14 days, an hour apart; those can be
+deleted. Tick several sets or dumps and choose **Delete N selected…** to
+remove them together.
 
 **The key.** Setup makes one key pair, in `/etc/portikus-backup/`
 (readable only by root). The server encrypts to the public half and
@@ -809,10 +822,10 @@ Run upgrades inside `tmux`, above all from the admin page's root shell:
 an upgrade restarts the API, which ends every root shell, and dpkg would
 be cut off midway without it.
 
-**Upgrading from a release before Epic 35.** Alert webhooks must now be
-https URLs on port 443. Releases up to Epic 34 accepted other ports. An
-upgrade moves your alert settings into `/etc/portikus/notify.json`
-before the services restart. An upgrade that finds a webhook on another
+**Upgrading from an older release.** Alert webhooks must be https URLs
+on port 443. Older releases accepted other ports. An upgrade moves your
+alert settings into `/etc/portikus/notify.json` before the services
+restart. An upgrade that finds a webhook on another
 port completes, but warns that alerts are off. Setup then stops until
 you correct or remove `portikus_alert_webhook_url` in
 `/etc/portikus/secrets.yaml` and run `sudo portikus setup`. The upgrade
