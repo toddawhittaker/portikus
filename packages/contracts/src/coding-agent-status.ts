@@ -174,24 +174,3 @@ export const AgentMeter = z.object({
 		.max(MAX_PLAN_PROVIDERS),
 });
 export type AgentMeter = z.infer<typeof AgentMeter>;
-
-/**
- * The report and meter as they were before provider lists, with two named
- * windows per agent. Kept only until their readers move to the types above.
- */
-export const LegacyAgentLimitsReport = z.object({
-	claude: AgentLimits.nullable(),
-	codex: AgentLimits.nullable(),
-});
-export type LegacyAgentLimitsReport = z.infer<typeof LegacyAgentLimitsReport>;
-
-export const LegacyAgentMeter = z.object({
-	agents: z.array(
-		z.object({
-			agent: CodingAgent,
-			limits: AgentLimits.nullable(),
-			today: AgentUsageCounts.nullable(),
-		}),
-	),
-});
-export type LegacyAgentMeter = z.infer<typeof LegacyAgentMeter>;

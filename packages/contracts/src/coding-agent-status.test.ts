@@ -9,8 +9,6 @@ import {
 	CodingAgentSubagent,
 	CodingAgentSubagentPost,
 	CodingAgentTerminal,
-	LegacyAgentLimitsReport,
-	LegacyAgentMeter,
 	MAX_AGENT_LIMIT_WINDOWS,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
@@ -336,35 +334,4 @@ describe("the meter", () => {
 			AgentMeter.safeParse({ providers: [{ ...entry("x"), plan: undefined }] }).success,
 		).toBe(false);
 	});
-});
-
-test("the legacy report allows null for an agent that reports none", () => {
-	expect(LegacyAgentLimitsReport.safeParse({ claude: null, codex: null }).success).toBe(
-		true,
-	);
-	expect(LegacyAgentLimitsReport.safeParse({ claude: null }).success).toBe(false);
-});
-
-test("the legacy meter carries limits and counts, each of which may be null", () => {
-	expect(
-		LegacyAgentMeter.safeParse({
-			agents: [
-				{ agent: "claude", limits: null, today: null },
-				{
-					agent: "codex",
-					limits: null,
-					today: {
-						sessions: 1,
-						inputTokens: 2,
-						outputTokens: 3,
-						cacheReadTokens: 0,
-						cacheWriteTokens: 0,
-						costUsd: null,
-						linesAdded: 0,
-						linesRemoved: 0,
-					},
-				},
-			],
-		}).success,
-	).toBe(true);
 });

@@ -1,7 +1,8 @@
 /**
  * The status bar with everything it can show at once: the path and a long
  * Git line, the stop countdown, a Keep running hold, both meters past their
- * warning, a storage warning, and the workspace state. Nothing overflows the
+ * warning, a plan meter for each provider, a storage warning, and the workspace
+ * state. Nothing overflows the
  * bar at any width; the workspace group wraps under the path, and a button
  * too wide for the bar wraps its own text (SPEC.md §19.2, §25.8).
  */
@@ -21,7 +22,11 @@ import { FAKE_AGENT_URL } from "./ports";
 const GIB = 1024 ** 3;
 const percent = (value: number) => ({ usedBytes: value * GIB, totalBytes: 100 * GIB });
 
-async function busyBar(page: Page, context: Parameters<typeof createStudent>[0]) {
+async function busyBar(
+	page: Page,
+	context: Parameters<typeof createStudent>[0],
+	{ plans = true }: { plans?: boolean } = {},
+) {
 	const student = await createStudent(context);
 	await seedStorage(student.workspaceId, { home: percent(96), docker: percent(97) });
 	const memory = await fetch(`${FAKE_AGENT_URL}/__test/memory`, {
@@ -30,6 +35,21 @@ async function busyBar(page: Page, context: Parameters<typeof createStudent>[0])
 		body: JSON.stringify({ key: student.workspaceId, ...percent(90) }),
 	});
 	expect(memory.ok).toBe(true);
+	const resetsAt = new Date(Date.now() + 70 * 3_600_000).toISOString();
+	const answered = await fetch(`${FAKE_AGENT_URL}/__test/agent-limits`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			key: student.workspaceId,
+			providers: plans
+				? [
+						{ id: "claude", label: "Claude", usedPercent: 91, resetsAt },
+						{ id: "codex", label: "Codex", usedPercent: 41, resetsAt },
+					]
+				: [],
+		}),
+	});
+	expect(answered.ok).toBe(true);
 	const project = await createProject(student.workspaceId, {
 		name: "A project with a rather long folder name",
 	});
@@ -63,6 +83,13 @@ async function busyBar(page: Page, context: Parameters<typeof createStudent>[0])
 		"warning",
 	);
 	await expect(page.getByTestId("keep-running-indicator")).toBeVisible();
+	if (plans) {
+		await expect(page.getByTestId("agent-meter-claude")).toHaveAttribute(
+			"data-level",
+			"warning",
+		);
+		await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
+	}
 	await expect(page.getByTestId("storage-warning")).toBeVisible();
 	await expect(page.getByTestId("git-status")).toContainText("feature/a-branch-name");
 }
@@ -114,7 +141,8 @@ for (const scheme of ["light", "dark"] as const) {
 	}) => {
 		await page.emulateMedia({ colorScheme: scheme });
 		await page.setViewportSize({ width: 1440, height: 720 });
-		await busyBar(page, context);
+		// The plan meters, with their reset times, are the other tests' to fit.
+		await busyBar(page, context, { plans: false });
 		// The meters show a percentage; the full figure and "nearly full" are in the name.
 		await expect(page.getByTestId("memory-meter")).toHaveText("Memory90%");
 		await expect(page.getByTestId("memory-meter")).toHaveAccessibleName(
