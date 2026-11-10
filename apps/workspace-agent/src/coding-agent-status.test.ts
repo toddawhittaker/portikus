@@ -292,17 +292,17 @@ describe("the Claude limits route", () => {
 	test.each([
 		[
 			"a percentage over 100",
-			{ five_hour: { used_percentage: 101, resets_at: FIVE_HOUR_RESET } },
+			{ seven_day: { used_percentage: 101, resets_at: WEEK_RESET } },
 		],
-		["a reset as a string", { five_hour: { used_percentage: 1, resets_at: "soon" } }],
+		["a reset as a string", { seven_day: { used_percentage: 1, resets_at: "soon" } }],
 		[
 			"a reset far in the future",
-			{ five_hour: { used_percentage: 1, resets_at: 9_999_999_999 } },
+			{ seven_day: { used_percentage: 1, resets_at: 9_999_999_999 } },
 		],
 		["an unknown window", { opus_week: { used_percentage: 1, resets_at: WEEK_RESET } }],
 		[
 			"an extra field",
-			{ five_hour: { used_percentage: 1, resets_at: FIVE_HOUR_RESET, cwd: "/x" } },
+			{ seven_day: { used_percentage: 1, resets_at: WEEK_RESET, cwd: "/x" } },
 		],
 	])("%s is refused", async (_name, body) => {
 		const { limits, post } = receiver();

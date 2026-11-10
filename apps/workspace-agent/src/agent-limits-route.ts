@@ -12,7 +12,7 @@ export interface AgentLimitsStoreOptions {
 }
 
 /** The only window the status bar shows; the label both sources give a 7-day window. */
-export const PLAN_WINDOW_NAME = "7d";
+const PLAN_WINDOW_NAME = "7d";
 
 /** What the status bar calls each provider. The id is the agent id. */
 const PROVIDER_LABEL: Record<CodingAgent, string> = {
