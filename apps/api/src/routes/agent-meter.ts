@@ -1,5 +1,9 @@
 import { requireUser } from "@portikus/auth";
-import { AgentLimitsReport, type AgentMeter, CodingAgent } from "@portikus/contracts";
+import {
+	CodingAgent,
+	LegacyAgentLimitsReport,
+	type LegacyAgentMeter,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AGENT_TIMEOUT_MS, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -24,14 +28,14 @@ export function registerAgentMeterRoutes(app: FastifyInstance, deps: ServerDeps)
 		if (!scope) return;
 		const user = requireUser(request);
 
-		let report: AgentLimitsReport | null = null;
+		let report: LegacyAgentLimitsReport | null = null;
 		if (scope.agent) {
 			try {
 				const response = await scope.agent.fetchRaw("GET", "/agent-limits", {
 					signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				});
 				if (response.ok) {
-					const parsed = AgentLimitsReport.safeParse(await readJson(response));
+					const parsed = LegacyAgentLimitsReport.safeParse(await readJson(response));
 					if (parsed.success) report = parsed.data;
 					else {
 						request.log.warn(
@@ -46,7 +50,7 @@ export function registerAgentMeterRoutes(app: FastifyInstance, deps: ServerDeps)
 		}
 
 		const today = await todayUsageFor(db, user.id, new Date());
-		const meter: AgentMeter = {
+		const meter: LegacyAgentMeter = {
 			agents: AGENTS.map((agent) => ({
 				agent,
 				limits: report?.[agent] ?? null,

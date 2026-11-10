@@ -2,8 +2,10 @@ import { describe, expect, test } from "vitest";
 import { AgentCreateTerminalRequest } from "./agent.js";
 import {
 	ChatClientMessage,
+	ChatLastSettings,
 	type ChatQuestion,
 	ChatServerEvent,
+	ChatShellItem,
 	decodedBase64Bytes,
 	MAX_CHAT_ATTACHMENTS,
 	MAX_CHAT_IMAGE_BYTES,
@@ -11,6 +13,7 @@ import {
 	MAX_CHAT_RULE_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	MAX_CHAT_TEXT_CHARS,
+	StoredChatSettings,
 } from "./chat.js";
 import { CreateTerminalRequest, Terminal } from "./terminal.js";
 
@@ -353,5 +356,167 @@ describe("session rules", () => {
 				rule: "x".repeat(MAX_CHAT_RULE_CHARS + 1),
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("permission answers with a message or a next mode", () => {
+	const answer = (extra: object = {}) =>
+		ChatClientMessage.safeParse({
+			type: "permission.answer",
+			id: "p1",
+			optionId: "allow",
+			...extra,
+		}).success;
+
+	test("an old answer without them still parses", () => {
+		expect(answer()).toBe(true);
+	});
+
+	test("a message is 1 to 2,000 characters", () => {
+		expect(answer({ message: "x" })).toBe(true);
+		expect(answer({ message: "x".repeat(2000) })).toBe(true);
+		expect(answer({ message: "" })).toBe(false);
+		expect(answer({ message: "x".repeat(2001) })).toBe(false);
+	});
+
+	test("a plan approval may name acceptEdits or default and nothing else", () => {
+		expect(answer({ mode: "acceptEdits" })).toBe(true);
+		expect(answer({ mode: "default" })).toBe(true);
+		expect(answer({ mode: "plan" })).toBe(false);
+		expect(answer({ mode: "bypassPermissions" })).toBe(false);
+		expect(answer({ other: 1 })).toBe(false);
+	});
+});
+
+describe("the commands event", () => {
+	const event = (commands: unknown) => ({ type: "commands", ...env, commands });
+	const command = (change: object = {}) => ({
+		name: "compact",
+		description: "Shrink the conversation",
+		terminalOnly: false,
+		...change,
+	});
+	const ok = (commands: unknown) => ChatServerEvent.safeParse(event(commands)).success;
+
+	test("lists commands, with an optional argument hint", () => {
+		expect(ok([command(), command({ name: "model", argumentHint: "[name]" })])).toBe(
+			true,
+		);
+		expect(ok([])).toBe(true);
+	});
+
+	test("keeps names, descriptions and hints within bounds", () => {
+		expect(ok([command({ name: "" })])).toBe(false);
+		expect(ok([command({ name: "a".repeat(64) })])).toBe(true);
+		expect(ok([command({ name: "a".repeat(65) })])).toBe(false);
+		expect(ok([command({ name: "/compact" })])).toBe(false);
+		expect(ok([command({ description: "d".repeat(200) })])).toBe(true);
+		expect(ok([command({ description: "d".repeat(201) })])).toBe(false);
+		expect(ok([command({ argumentHint: "h".repeat(100) })])).toBe(true);
+		expect(ok([command({ argumentHint: "h".repeat(101) })])).toBe(false);
+		expect(ok([command({ terminalOnly: undefined })])).toBe(false);
+	});
+
+	test("lists at most 200 commands", () => {
+		expect(ok(Array.from({ length: 200 }, () => command()))).toBe(true);
+		expect(ok(Array.from({ length: 201 }, () => command()))).toBe(false);
+	});
+});
+
+describe("the context event", () => {
+	const ok = (change: object = {}) =>
+		ChatServerEvent.safeParse({
+			type: "context",
+			...env,
+			usedTokens: 1200,
+			windowTokens: 200_000,
+			cache: { at: 1_700_000_000_000, ttlSeconds: 300 },
+			...change,
+		}).success;
+
+	test("takes a window and a cache, or nulls for either", () => {
+		expect(ok()).toBe(true);
+		expect(ok({ windowTokens: null })).toBe(true);
+		expect(ok({ cache: null })).toBe(true);
+		expect(ok({ cache: { at: 1, ttlSeconds: 3600 } })).toBe(true);
+	});
+
+	test("keeps the counts and the cache lifetime in range", () => {
+		expect(ok({ usedTokens: 0 })).toBe(true);
+		expect(ok({ usedTokens: -1 })).toBe(false);
+		expect(ok({ usedTokens: 1.5 })).toBe(false);
+		expect(ok({ windowTokens: 0 })).toBe(false);
+		expect(ok({ windowTokens: -5 })).toBe(false);
+		expect(ok({ cache: { at: 1, ttlSeconds: 60 } })).toBe(false);
+		expect(ok({ cache: { at: 1.5, ttlSeconds: 300 } })).toBe(false);
+		expect(ok({ cache: { at: -1, ttlSeconds: 300 } })).toBe(false);
+	});
+});
+
+describe("a shell command item", () => {
+	const item = (change: object = {}) => ({
+		kind: "shell",
+		id: "s1",
+		command: "ls",
+		output: "a\nb\n",
+		exitCode: 0,
+		truncated: false,
+		state: "done",
+		...change,
+	});
+	const ok = (change?: object) => ChatShellItem.safeParse(item(change)).success;
+
+	test("takes a running command with no exit code yet", () => {
+		expect(ok()).toBe(true);
+		expect(ok({ state: "running", exitCode: null, output: "" })).toBe(true);
+		expect(ok({ exitCode: 127 })).toBe(true);
+	});
+
+	test("keeps the command, output and state in bounds", () => {
+		expect(ok({ command: "c".repeat(4000) })).toBe(true);
+		expect(ok({ command: "c".repeat(4001) })).toBe(false);
+		expect(ok({ output: "o".repeat(65_536) })).toBe(true);
+		expect(ok({ output: "o".repeat(65_537) })).toBe(false);
+		expect(ok({ exitCode: 1.5 })).toBe(false);
+		expect(ok({ state: "failed" })).toBe(false);
+		expect(ok({ id: "" })).toBe(false);
+		expect(ok({ kind: "tool" })).toBe(false);
+	});
+
+	test("the host sends it as a shell event", () => {
+		const { kind: _kind, ...fields } = item();
+		expect(
+			ChatServerEvent.safeParse({ type: "shell", ...env, ...fields }).success,
+		).toBe(true);
+		expect(
+			ChatServerEvent.safeParse({ type: "shell", ...env, ...fields, state: "x" })
+				.success,
+		).toBe(false);
+	});
+});
+
+describe("read aloud in the saved settings", () => {
+	const base = { model: "sonnet", effort: "high", mode: "default" };
+
+	test("an old saved value without it still parses, and reads as off", () => {
+		expect(ChatLastSettings.safeParse(base).success).toBe(true);
+		expect(StoredChatSettings.parse(base).readAloud).toBe(false);
+	});
+
+	test("takes a boolean and refuses anything else from the browser", () => {
+		expect(ChatLastSettings.safeParse({ ...base, readAloud: true }).success).toBe(true);
+		expect(ChatLastSettings.safeParse({ ...base, readAloud: "yes" }).success).toBe(
+			false,
+		);
+		expect(StoredChatSettings.parse({ ...base, readAloud: true }).readAloud).toBe(true);
+	});
+
+	test("a bad stored value reads as off", () => {
+		expect(StoredChatSettings.parse({ ...base, readAloud: "yes" }).readAloud).toBe(
+			false,
+		);
+		expect(StoredChatSettings.parse({ ...base, readAloud: null }).readAloud).toBe(
+			false,
+		);
 	});
 });

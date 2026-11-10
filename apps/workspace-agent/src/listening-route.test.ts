@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentCodingAgentsChanged, AgentLimitsReport } from "@portikus/contracts";
+import { AgentCodingAgentsChanged, LegacyAgentLimitsReport } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { AgentLimitsStore } from "./agent-limits-route.js";
@@ -178,7 +178,10 @@ test("GET /agent-limits answers the report, and only with the token", async () =
 		headers: auth(),
 	});
 	expect(empty.statusCode).toBe(200);
-	expect(AgentLimitsReport.parse(empty.json())).toEqual({ claude: null, codex: null });
+	expect(LegacyAgentLimitsReport.parse(empty.json())).toEqual({
+		claude: null,
+		codex: null,
+	});
 	const claude = {
 		windows: [
 			{
@@ -195,7 +198,7 @@ test("GET /agent-limits answers the report, and only with the token", async () =
 		url: "/agent-limits",
 		headers: auth(),
 	});
-	expect(AgentLimitsReport.parse(filled.json())).toEqual({ claude, codex: null });
+	expect(LegacyAgentLimitsReport.parse(filled.json())).toEqual({ claude, codex: null });
 });
 
 test("a forward opens, lists, and closes", async () => {

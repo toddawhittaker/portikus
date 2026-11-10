@@ -1,8 +1,8 @@
 import type {
 	AgentLimitWindow,
-	AgentMeter,
 	AgentUsageCounts,
 	CodingAgent,
+	LegacyAgentMeter,
 } from "@portikus/contracts";
 import { METER_CLEAR_BELOW, METER_WARN_AT } from "../shell/meterLevel.js";
 
@@ -27,7 +27,7 @@ function tokenTotal(counts: AgentUsageCounts): number {
 
 /** Limits first; else today's counts when there are any; else nothing. */
 export function chooseDisplay(
-	entry: AgentMeter["agents"][number],
+	entry: LegacyAgentMeter["agents"][number],
 	now: number,
 ): AgentDisplay {
 	const windows = entry.limits ? liveWindows(entry.limits.windows, now) : [];

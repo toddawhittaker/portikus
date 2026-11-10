@@ -6,7 +6,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { AgentMeter } from "@portikus/contracts";
+import { LegacyAgentMeter } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
@@ -147,7 +147,7 @@ test.skipIf(skip)(
 
 		const response = await meter(alice);
 		expect(response.statusCode).toBe(200);
-		const body = AgentMeter.parse(response.json());
+		const body = LegacyAgentMeter.parse(response.json());
 		const claude = body.agents.find((one) => one.agent === "claude");
 		const codex = body.agents.find((one) => one.agent === "codex");
 		expect(claude?.limits?.windows[0]).toMatchObject({ name: "5h", usedPercent: 42 });
@@ -182,7 +182,7 @@ test.skipIf(skip)("another user's counts never appear", async () => {
 			.executeTakeFirstOrThrow()
 	).id;
 	await addUsage(bobId, 0, { input: 12345 });
-	const body = AgentMeter.parse((await meter(alice)).json());
+	const body = LegacyAgentMeter.parse((await meter(alice)).json());
 	expect(body.agents.every((one) => one.today === null)).toBe(true);
 });
 
@@ -191,7 +191,7 @@ test.skipIf(skip)("an agent that cannot be reached leaves limits null", async ()
 	await addUsage(aliceId, 0, { input: 7 });
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
-	const body = AgentMeter.parse(response.json());
+	const body = LegacyAgentMeter.parse(response.json());
 	expect(body.agents.every((one) => one.limits === null)).toBe(true);
 	expect(body.agents.find((one) => one.agent === "claude")?.today?.inputTokens).toBe(7);
 });
@@ -209,7 +209,7 @@ test.skipIf(skip)("limits the contract rejects are left out", async () => {
 	});
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
-	const body = AgentMeter.parse(response.json());
+	const body = LegacyAgentMeter.parse(response.json());
 	expect(body.agents.every((one) => one.limits === null)).toBe(true);
 });
 
@@ -222,8 +222,7 @@ test.skipIf(skip)("a stopped workspace still answers, with no limits", async () 
 		.execute();
 	const response = await meter(alice);
 	expect(response.statusCode).toBe(200);
-	expect(AgentMeter.parse(response.json()).agents.map((one) => one.limits)).toEqual([
-		null,
-		null,
-	]);
+	expect(
+		LegacyAgentMeter.parse(response.json()).agents.map((one) => one.limits),
+	).toEqual([null, null]);
 });

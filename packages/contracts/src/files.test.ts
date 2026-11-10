@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
 	contentDisposition,
+	FileNameSearchRequest,
+	FileNameSearchResponse,
 	MAX_EDITOR_FILE_BYTES,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
@@ -59,5 +61,41 @@ describe("contentDisposition", () => {
 
 	test("falls back to download when nothing ASCII is left", () => {
 		expect(contentDisposition("\u2603\u2603")).toContain('filename="download"');
+	});
+});
+
+describe("file-name search", () => {
+	test("the request defaults its limit to 20", () => {
+		expect(FileNameSearchRequest.parse({ query: "app" })).toEqual({
+			query: "app",
+			limit: 20,
+		});
+	});
+
+	test("the request keeps the query and limit in range", () => {
+		const ok = (body: object) => FileNameSearchRequest.safeParse(body).success;
+		expect(ok({ query: "" })).toBe(true);
+		expect(ok({ query: "q".repeat(200) })).toBe(true);
+		expect(ok({ query: "q".repeat(201) })).toBe(false);
+		expect(ok({ limit: 5 })).toBe(false);
+		expect(ok({ query: "a", limit: 1 })).toBe(true);
+		expect(ok({ query: "a", limit: 50 })).toBe(true);
+		expect(ok({ query: "a", limit: 0 })).toBe(false);
+		expect(ok({ query: "a", limit: 51 })).toBe(false);
+		expect(ok({ query: "a", limit: 2.5 })).toBe(false);
+	});
+
+	test("the response holds at most 50 paths and says if it was cut", () => {
+		const ok = (paths: string[], truncated = false) =>
+			FileNameSearchResponse.safeParse({ paths, truncated }).success;
+		expect(ok([])).toBe(true);
+		expect(
+			ok(
+				Array.from({ length: 50 }, (_, i) => `src/f${i}.ts`),
+				true,
+			),
+		).toBe(true);
+		expect(ok(Array.from({ length: 51 }, (_, i) => `src/f${i}.ts`))).toBe(false);
+		expect(FileNameSearchResponse.safeParse({ paths: [] }).success).toBe(false);
 	});
 });

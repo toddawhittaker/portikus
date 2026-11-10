@@ -80,6 +80,7 @@ function state(terminalId: string): AgentCodingAgentStatus {
 		agent: "claude",
 		state: "needs-input",
 		since: "2026-11-01T12:00:00.000Z",
+		subagents: [],
 	};
 }
 
