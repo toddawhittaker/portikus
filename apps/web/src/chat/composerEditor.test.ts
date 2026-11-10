@@ -4,10 +4,12 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
 	composerText,
 	createComposerEditor,
+	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
 	LONG_PASTE_LINES,
 	lineCount,
+	showInterim,
 } from "./composerEditor.js";
 import { boxText, placeCursor, setText, typeInto } from "./composerTesting.js";
 
@@ -16,11 +18,13 @@ let box: HTMLElement;
 let onSend: ReturnType<typeof vi.fn<() => void>>;
 let onFiles: ReturnType<typeof vi.fn<(files: File[]) => void>>;
 let onLongPaste: ReturnType<typeof vi.fn<(text: string, lines: number) => void>>;
+let onRepaste: ReturnType<typeof vi.fn<(lines: number) => void>>;
 
 beforeEach(() => {
 	onSend = vi.fn<() => void>();
 	onFiles = vi.fn<(files: File[]) => void>();
 	onLongPaste = vi.fn<(text: string, lines: number) => void>();
+	onRepaste = vi.fn<(lines: number) => void>();
 	const element = document.createElement("div");
 	document.body.append(element);
 	editor = createComposerEditor({
@@ -35,6 +39,7 @@ beforeEach(() => {
 		onSend,
 		onFiles,
 		onLongPaste,
+		onRepaste,
 		onKeyDown: () => false,
 		onKeyUp: () => {},
 		onChange: () => {},
@@ -114,12 +119,131 @@ test("an ordered list keeps the number it started at", () => {
 	expect(boxText(box)).toBe("3. third\n4. fourth");
 });
 
-test("Tab is not taken by a list item, so the keyboard can leave the box", () => {
-	typeInto(box, "- one\ntwo");
-	const tab = fireEvent.keyDown(box, { key: "Tab" });
+test("Tab outside a list, or on an item that cannot indent, is left so the keyboard can leave the box", () => {
+	typeInto(box, "plain");
 	// fireEvent returns false when the default was prevented.
-	expect(tab).toBe(true);
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	setText(box, "");
+	typeInto(box, "- one");
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(true);
+	expect(boxText(box)).toBe("- one");
+});
+
+test("Tab and Shift+Tab indent and outdent list items, and nested lists come back as Markdown", () => {
+	typeInto(box, "- one\ntwo");
+	expect(fireEvent.keyDown(box, { key: "Tab" })).toBe(false);
+	typeInto(box, "\nthree");
+	expect(boxText(box)).toBe("- one\n  - two\n  - three");
+	expect(box.querySelectorAll("ul ul > li")).toHaveLength(2);
+	fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+	expect(boxText(box)).toBe("- one\n  - two\n- three");
+});
+
+test("numbered items nest under their item, indented past its number", () => {
+	typeInto(box, "1. one\ntwo");
+	fireEvent.keyDown(box, { key: "Tab" });
+	expect(boxText(box)).toBe("1. one\n   1. two");
+});
+
+test("[x] typed on a later bullet leaves the list's other bullets alone", () => {
+	typeInto(box, "- one\ntwo\n[x] three");
+	expect(box.querySelector('ul[data-type="taskList"]')).toBeNull();
+	expect(box.querySelectorAll("ul > li")).toHaveLength(3);
+	expect(boxText(box)).toBe("- one\n- two\n- [x] three");
+});
+
+test("a task's checkbox is named by its own line, not its sub-tasks", () => {
+	typeInto(box, "- [ ] buy milk\n[x] oat");
+	fireEvent.keyDown(box, { key: "Tab" });
+	const names = Array.from(box.querySelectorAll('input[type="checkbox"]')).map(
+		(input) => input.getAttribute("aria-label"),
+	);
+	expect(names).toEqual(["To do: buy milk", "Done: oat"]);
+});
+
+test("Shift+Tab on a top-level item is left to the browser, and the draft stays", () => {
+	typeInto(box, "- one\ntwo");
+	// fireEvent returns false when the default was prevented.
+	expect(fireEvent.keyDown(box, { key: "Tab", shiftKey: true })).toBe(true);
 	expect(boxText(box)).toBe("- one\n- two");
+});
+
+test("[ ] and [x] after - start tasks, which come back as GFM task items", () => {
+	typeInto(box, "- [ ] buy milk\n[x] pay rent");
+	expect(box.querySelectorAll('ul[data-type="taskList"] > li')).toHaveLength(2);
+	expect(boxText(box)).toBe("- [ ] buy milk\n- [x] pay rent");
+	setText(box, "");
+	typeInto(box, "[ ] alone");
+	expect(boxText(box)).toBe("- [ ] alone");
+});
+
+test("> starts a quote, # to ### headings, and --- a separator line", () => {
+	typeInto(box, "> quoted\nmore");
+	expect(box.querySelector("blockquote")).toBeTruthy();
+	expect(boxText(box)).toBe("> quoted\n> more");
+	for (const [typed, tag] of [
+		["# Big", "h1"],
+		["## Mid", "h2"],
+		["### Small", "h3"],
+	] as const) {
+		setText(box, "");
+		typeInto(box, typed);
+		expect(box.querySelector(tag)?.textContent).toBe(typed.replace(/^#+ /, ""));
+		expect(boxText(box)).toBe(typed);
+	}
+	setText(box, "");
+	typeInto(box, "#### Four");
+	expect(box.querySelector("h4")).toBeNull();
+	setText(box, "");
+	typeInto(box, "above\n---");
+	expect(box.querySelector("hr")).toBeTruthy();
+	expect(boxText(box)).toBe("above\n\n---\n\n");
+});
+
+test("~~x~~ strikes through, and ***x*** is bold and italic", () => {
+	typeInto(box, "a ~~gone~~ and ***loud*** end");
+	expect(box.querySelector("s")?.textContent).toBe("gone");
+	expect(box.querySelector("strong em, em strong")?.textContent).toBe("loud");
+	expect(boxText(box)).toBe("a ~~gone~~ and ***loud*** end");
+});
+
+test("[text](url) and a typed address become links, http and https only", () => {
+	typeInto(box, "see [the docs](https://example.com/a) and https://example.org ok");
+	const links = Array.from(box.querySelectorAll("a"));
+	expect(links.map((a) => a.getAttribute("href"))).toEqual([
+		"https://example.com/a",
+		"https://example.org",
+	]);
+	expect(boxText(box)).toBe(
+		"see [the docs](https://example.com/a) and https://example.org ok",
+	);
+});
+
+test("links to anything but http or https stay as typed text", () => {
+	for (const target of [
+		"javascript:alert(1)",
+		"JavaScript:alert(1)",
+		"data:text/html,x",
+		"vbscript:x",
+		"file:///etc/passwd",
+		"mailto:a@b.c",
+		"//example.com",
+	]) {
+		setText(box, "");
+		typeInto(box, `[x](${target}) `);
+		expect(box.querySelector("a")).toBeNull();
+	}
+	setText(box, "");
+	paste({ "text/plain": "javascript:alert(1)" });
+	expect(box.querySelector("a")).toBeNull();
+});
+
+test("a pasted address becomes a link", () => {
+	paste({ "text/plain": "https://example.com/x?y=1" });
+	expect(box.querySelector("a")?.getAttribute("href")).toBe(
+		"https://example.com/x?y=1",
+	);
+	expect(boxText(box)).toBe("https://example.com/x?y=1");
 });
 
 test("``` and Enter open a code block; Enter adds lines there, and Ctrl+Enter sends", () => {
@@ -189,6 +313,83 @@ test("a paste of more than 40 lines is handed back to attach, and the box stays 
 	expect(boxText(box)).toBe("");
 });
 
+const LOG = Array.from({ length: 60 }, (_, at) => `line ${at}`).join("\n");
+
+test("the same long text pasted again within 0.8 s goes in the box once, and its chip is taken back", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(700);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(1);
+		expect(onRepaste).toHaveBeenCalledWith(60);
+		expect(boxText(box)).toBe(LOG);
+		// A third paste is a new long paste, not another repeat.
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).toHaveBeenCalledTimes(1);
+		expect(boxText(box)).toBe(LOG);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("after the held paste is forgotten, as on send, the same text at once is a new long paste", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(100);
+		forgetLongPaste(editor);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+		expect(boxText(box)).toBe("");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("the same long text pasted again after 0.9 s is a second file", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(900);
+		paste({ "text/plain": LOG });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+		expect(boxText(box)).toBe("");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("different long text pasted at once never counts as a repeat", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": LOG });
+		vi.advanceTimersByTime(100);
+		paste({ "text/plain": `${LOG}!` });
+		expect(onLongPaste).toHaveBeenCalledTimes(2);
+		expect(onRepaste).not.toHaveBeenCalled();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("short text pasted twice at once is simply pasted twice", () => {
+	vi.useFakeTimers();
+	try {
+		paste({ "text/plain": "hi " });
+		vi.advanceTimersByTime(100);
+		paste({ "text/plain": "hi " });
+		expect(boxText(box)).toBe("hi hi ");
+		expect(onRepaste).not.toHaveBeenCalled();
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 test("a paste of exactly 40 lines goes into the box as text", () => {
 	const lines = Array.from({ length: LONG_PASTE_LINES }, (_, at) => `l${at}`).join(
 		"\n",
@@ -231,4 +432,23 @@ test("Backspace straight after a rule undoes it, leaving the markers as typed", 
 	fireEvent.keyDown(box, { key: "Backspace" });
 	expect(box.querySelector("strong")).toBeNull();
 	expect(boxText(box)).toBe("**x**");
+});
+
+test("interim dictation shows greyed at the cursor, hidden from assistive technology, never in the text", () => {
+	setText(box, "fix the bug");
+	placeCursor(box, 3);
+	showInterim(editor, "no");
+	const shown = box.querySelector(".pk-composer-interim");
+	expect(shown?.textContent).toBe(" no");
+	expect(shown?.getAttribute("aria-hidden")).toBe("true");
+	expect(composerText(editor)).toBe("fix the bug");
+	enter();
+	expect(onSend).toHaveBeenCalledTimes(1);
+	expect(composerText(editor)).toBe("fix the bug");
+	showInterim(editor, "now");
+	expect(box.querySelectorAll(".pk-composer-interim")).toHaveLength(1);
+	insertAtCursor(editor, "now");
+	showInterim(editor, "");
+	expect(box.querySelector(".pk-composer-interim")).toBeNull();
+	expect(composerText(editor)).toBe("fix now the bug");
 });

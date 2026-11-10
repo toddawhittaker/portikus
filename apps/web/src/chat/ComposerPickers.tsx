@@ -14,11 +14,13 @@ import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/con
 import {
 	Icon,
 	Menu,
+	MenuLabel,
 	MenuRadioGroup,
 	MenuRadioItem,
 	MenuRoot,
 	MenuTrigger,
 	Skeleton,
+	Tooltip,
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -40,13 +42,20 @@ export const BYPASS_WARNING =
 interface Choice {
 	value: string;
 	label: string;
+	/** The start of `label` shown alone when the composer is narrow. */
+	short?: string;
 	description: ReactNode;
 	/** Shown but cannot be chosen yet. */
 	unavailable?: boolean;
 }
 
 const AGENTS: Choice[] = [
-	{ value: "claude", label: "Claude Code", description: "Anthropic's coding agent." },
+	{
+		value: "claude",
+		label: "Claude Code",
+		short: "Claude",
+		description: "Anthropic's coding agent.",
+	},
 	{
 		value: "codex",
 		label: "Codex",
@@ -167,23 +176,53 @@ function Pick({
 	warning = false,
 }: PickProps) {
 	const current = choices.find((choice) => choice.value === value);
+	const shown = current?.label ?? value;
+	const labelRef = useRef<HTMLSpanElement>(null);
+	const [tipOpen, setTipOpen] = useState(false);
 	return (
 		<MenuRoot>
-			<MenuTrigger asChild={true}>
-				<button
-					type="button"
-					className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
-					aria-describedby={describedBy}
-					data-testid={testId}
-				>
-					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
-					<span className="pk-picker-label">{label}</span>{" "}
-					{warning ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-picker-value">{current?.label ?? value}</span>
-					<Icon name="chevron-down" size="sm" />
-				</button>
-			</MenuTrigger>
+			{/* A narrow composer hides the prefix word, so the tooltip gives the whole
+			    label on hover and keyboard focus. It opens only then: the wide form shows
+			    every word already. The name says it too, so the tooltip is decorative (SPEC.md §25.8). */}
+			<Tooltip
+				decorative={true}
+				content={`${label} ${shown}`}
+				open={tipOpen}
+				onOpenChange={(next) =>
+					setTipOpen(next && (labelRef.current?.offsetWidth ?? 0) <= 1)
+				}
+			>
+				<MenuTrigger asChild={true}>
+					<button
+						type="button"
+						className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
+						aria-describedby={describedBy}
+						data-testid={testId}
+					>
+						{/* The space keeps the name "Model Opus", not "ModelOpus". The narrow
+					    form hides words visually only, so the name keeps the prefix (SPEC.md §25.8). */}
+						<span ref={labelRef} className="pk-picker-label">
+							{label}
+						</span>{" "}
+						{warning ? <Icon name="alert" size="sm" /> : null}
+						<span className="pk-picker-value">
+							{current?.short ? (
+								<>
+									{current.short}
+									<span className="pk-picker-more">
+										{shown.slice(current.short.length)}
+									</span>
+								</>
+							) : (
+								shown
+							)}
+						</span>
+						<Icon name="chevron-down" size="sm" />
+					</button>
+				</MenuTrigger>
+			</Tooltip>
 			<Menu label={label} align="start" className="pk-picker-menu">
+				<MenuLabel>{label}</MenuLabel>
 				<MenuRadioGroup
 					label={label}
 					value={value}

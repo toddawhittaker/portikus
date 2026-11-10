@@ -79,20 +79,44 @@ export async function countSignInFailures(
 	return Number(row.n);
 }
 
-/** Build the tick; the raised state is in memory, so a restart may repeat one alert. */
+type AlertFlag = "alert_reboot_raised" | "alert_signin_raised" | "alert_root_fs_raised";
+
+/**
+ * Build the tick. Whether each alert is raised is kept in the settings row, so
+ * a worker restart does not announce a condition again; it is announced again
+ * only after it has cleared (SPEC.md sections 24.4 and 24.13). The flag is
+ * written after the notice, so a crash between the two repeats one alert
+ * rather than losing it.
+ */
 export function createAlertSources(options: AlertSourceOptions): () => Promise<void> {
 	const { db, logger } = options;
 	const now = options.now ?? (() => new Date());
 	const rebootFile = options.rebootFile ?? REBOOT_REQUIRED_FILE;
-	let rebootRaised = false;
-	let signInRaised = false;
 	const rootFsPercent = options.rootFsPercent ?? rootFsUsedPercent;
-	let rootFsRaised = false;
+
+	async function raisedFlags(): Promise<Record<AlertFlag, boolean>> {
+		// A missing row throws, so the tick logs it instead of re-announcing every time.
+		return db
+			.selectFrom("settings")
+			.select(["alert_reboot_raised", "alert_signin_raised", "alert_root_fs_raised"])
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+	}
+
+	async function saveFlag(flag: AlertFlag, value: boolean): Promise<void> {
+		await db
+			.updateTable("settings")
+			.set({ [flag]: value })
+			.where("id", "=", 1)
+			.execute();
+	}
 
 	return async function tick(): Promise<void> {
 		try {
+			const raised = await raisedFlags();
+
 			const reboot = await fileExists(rebootFile);
-			if (reboot && !rebootRaised) {
+			if (reboot && !raised.alert_reboot_raised) {
 				await notifyAdministrators(db, {
 					tone: "warning",
 					title: "The server needs a reboot to finish a security update",
@@ -100,11 +124,13 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 				});
 				logger.info("reboot-required alert raised");
 			}
-			rebootRaised = reboot;
+			if (reboot !== raised.alert_reboot_raised) {
+				await saveFlag("alert_reboot_raised", reboot);
+			}
 
 			const failures = await countSignInFailures(db, now());
 			const spike = failures >= SIGNIN_FAILURE_THRESHOLD;
-			if (spike && !signInRaised) {
+			if (spike && !raised.alert_signin_raised) {
 				await notifyAdministrators(db, {
 					tone: "warning",
 					title: `${failures} failed sign-ins in the last ${SIGNIN_WINDOW_MINUTES} minutes`,
@@ -112,11 +138,13 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 				});
 				logger.info({ failures }, "sign-in failure alert raised");
 			}
-			signInRaised = spike;
+			if (spike !== raised.alert_signin_raised) {
+				await saveFlag("alert_signin_raised", spike);
+			}
 
 			const rootFill = await rootFsPercent();
 			const rootFull = rootFill >= ROOT_FS_ALERT_PERCENT;
-			if (rootFull && !rootFsRaised) {
+			if (rootFull && !raised.alert_root_fs_raised) {
 				await notifyAdministrators(db, {
 					tone: "danger",
 					title: `The server's system disk is ${Math.floor(rootFill)}% full`,
@@ -127,7 +155,9 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 					"root filesystem alert raised",
 				);
 			}
-			rootFsRaised = rootFull;
+			if (rootFull !== raised.alert_root_fs_raised) {
+				await saveFlag("alert_root_fs_raised", rootFull);
+			}
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "alert source check failed");
 		}

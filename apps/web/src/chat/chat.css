@@ -526,13 +526,14 @@ details[open] > summary > .pk-chat-chevron {
 	border-radius: var(--radius-sm);
 }
 
-/* Back to the end: a round button at the conversation's bottom right corner,
-   clear of the text column's middle, with a dot when something new came. */
+/* Back to the end: a round button in a strip of its own below the log, at the
+   right, so it never covers the end of a message; a dot shows when something
+   new came. */
 .pk-chat-jump {
-	position: absolute;
-	inset-inline-end: var(--pk-chat-gutter);
-	inset-block-end: var(--space-3);
 	display: grid;
+	align-self: flex-end;
+	margin-block: var(--space-2);
+	margin-inline-end: var(--pk-chat-gutter);
 }
 
 .pk-chat-jump-button {

@@ -1,0 +1,85 @@
+/*
+ * The side panes' drawers below 56rem (SPEC.md section 8.1): each slides
+ * over the work area from its own side, above a scrim. Values are design
+ * tokens only.
+ */
+@media (width < 56rem) {
+	.pk-drawer-layer {
+		display: block;
+		position: absolute;
+		inset: 0;
+		visibility: hidden;
+		/* Hidden only once the slide out has finished. */
+		transition: visibility 0s linear var(--duration-base);
+	}
+	.pk-drawer-layer[data-open] {
+		visibility: visible;
+		pointer-events: auto;
+		transition: none;
+	}
+	.pk-drawer-scrim {
+		display: block;
+		position: absolute;
+		inset: 0;
+		background: var(--scrim);
+		opacity: 0;
+		transition: opacity var(--duration-base) ease-out;
+	}
+	.pk-drawer-layer[data-open] > .pk-drawer-scrim {
+		opacity: 1;
+	}
+	.pk-drawer {
+		position: absolute;
+		inset-block: 0;
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+		/* Content wider than the sheet must not let focus scroll it off screen. */
+		overflow: clip;
+		background: var(--surface-sunken);
+		transition: transform var(--duration-base) ease-out;
+	}
+	/* Focus lands on the sheet as it opens; the sheet is not a control. */
+	.pk-drawer:focus {
+		outline: none;
+	}
+	/* Leaves a strip of the work area showing, to tap and close. */
+	.pk-drawer-layer--left > .pk-drawer {
+		inset-inline-start: 0;
+		inline-size: min(20rem, 100% - var(--space-12));
+		border-inline-end: 1px solid var(--line);
+		transform: translateX(-100%);
+	}
+	.pk-drawer-layer--right > .pk-drawer {
+		inset-inline-end: 0;
+		inline-size: min(26rem, 100% - var(--space-12));
+		border-inline-start: 1px solid var(--line);
+		transform: translateX(100%);
+	}
+	.pk-drawer-layer[data-open] > .pk-drawer {
+		transform: none;
+	}
+	.pk-drawer-bar {
+		flex: none;
+		display: flex;
+		justify-content: flex-end;
+		padding: var(--space-1);
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-drawer > .pk-pane {
+		flex: 1;
+		height: auto;
+		border-inline: 0;
+	}
+}
+/* At desktop widths the drawer wrappers add no box (SPEC.md section 8.1). */
+@media (width >= 56rem) {
+	.pk-drawer-layer,
+	.pk-drawer {
+		display: contents;
+	}
+	/* The buttons that open the drawers exist only where there are drawers. */
+	.pk-appbar > .pk-appbar-drawer {
+		display: none;
+	}
+}

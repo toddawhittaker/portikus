@@ -15,7 +15,8 @@
 #      apt install portikus, and follow setup to its end;
 #   6. sign in as the local administrator with /etc/portikus/admin-password,
 #      choose a new password and accept the acceptable-use statement;
-#   7. run the smoke test, with a full Dex sign-in as that administrator,
+#   7. trust the mock LMS on the VM, then run the smoke test, with a full
+#      Dex sign-in as that administrator and none of its LTI checks skipped,
 #      then rerun setup on a host an older release left with Caddy's
 #      retired Cloudsmith repository and no Caddy, and an ACME answer whose
 #      certificates never come (fails twice, recovers by reset-certificate);
@@ -52,7 +53,9 @@
 #   INSTALL_TEST_PORT    the port this host serves on (default 8780)
 #   REHEARSAL_IMAGE_DIR  incus.tar.xz, rootfs.squashfs and manifest.json of
 #                        the recipe's VERSION.  Default: a cache filled once
-#                        from the newest CI build of the image (gh run download).
+#                        from the newest CI build of the image (gh run download),
+#                        or from the image-<VERSION> release once CI's copy
+#                        has expired, checked against that release's SHA256SUMS.
 #
 # The real signing key is never read: every signature here is the throwaway
 # key's, and the package built here must never be published.
@@ -224,25 +227,33 @@ publish() { # DEB...
     bash "${ROOT}/scripts/publish-apt-repo.sh" "${SERVE}/apt" "$@"
 }
 
-# The CI image of the recipe's VERSION, cached once: CI keeps it a day.
+# The image of the recipe's VERSION, cached once. CI keeps its artifact a
+# day; after that the published image-<VERSION> release has the same files.
 fetch_image() {
   if [ -s "${IMAGE_DIR}/rootfs.squashfs" ] && [ -s "${IMAGE_DIR}/incus.tar.xz" ] && [ -s "${IMAGE_DIR}/manifest.json" ]; then
     echo "using the image in ${IMAGE_DIR}"
   else
     [ -z "${REHEARSAL_IMAGE_DIR:-}" ] || { echo "${IMAGE_DIR} lacks the image files"; return 1; }
-    local run
+    local run part="${IMAGE_DIR}.partial"
     run=$(gh run list -R toddawhittaker/portikus --workflow workspace-image.yml --status success \
       --limit 20 --json databaseId -q '.[].databaseId' | while read -r id; do
         gh api "repos/toddawhittaker/portikus/actions/runs/${id}/artifacts" \
           -q '.artifacts[] | select(.name == "workspace-image" and (.expired | not)) | .name' | grep -q . && { echo "$id"; break; }
       done)
-    [ -n "$run" ] || { echo "no unexpired CI image artifact; give REHEARSAL_IMAGE_DIR=<dir>"; return 1; }
-    rm -rf "${IMAGE_DIR}.partial"
-    mkdir -p "${IMAGE_DIR}.partial"
-    gh run download "$run" -R toddawhittaker/portikus -n workspace-image -D "${IMAGE_DIR}.partial"
-    (cd "${IMAGE_DIR}.partial" && sha256sum -c SHA256SUMS)
+    rm -rf "$part"
+    mkdir -p "$part"
+    if [ -n "$run" ]; then
+      gh run download "$run" -R toddawhittaker/portikus -n workspace-image -D "$part"
+    else
+      echo "no unexpired CI image artifact; fetching the image-${RECIPE_VERSION} release"
+      gh release download "image-${RECIPE_VERSION}" -R toddawhittaker/portikus -D "$part" \
+        -p incus.tar.xz -p rootfs.squashfs -p manifest.json -p SHA256SUMS \
+        || { rm -rf "$part"; echo "the image-${RECIPE_VERSION} release could not be downloaded; give REHEARSAL_IMAGE_DIR=<dir>"; return 1; }
+    fi
+    (cd "$part" && sha256sum -c SHA256SUMS) \
+      || { rm -rf "$part"; echo "the downloaded image does not match its SHA256SUMS; nothing was cached"; return 1; }
     rm -rf "$IMAGE_DIR"
-    mv "${IMAGE_DIR}.partial" "$IMAGE_DIR"
+    mv "$part" "$IMAGE_DIR"
   fi
   python3 - "${IMAGE_DIR}/manifest.json" "$RECIPE_VERSION" <<'PY'
 import json, sys
@@ -457,10 +468,23 @@ EOF
 # totp.py on the VM, where the sign-ins work out their codes.
 send_totp_helper() { scp -q -o BatchMode=yes "${ROOT}/infra/tests/totp.py" "deploy@${IP}:/tmp/totp.py"; }
 
+# Trust the mock LMS on the VM so the smoke test's LTI checks run, not skip
+# (docs/OPERATIONS.md, "Trying it with the mock LMS"). The make target needs
+# the platforms-file line in portikus.yaml; both steps are safe to repeat.
+register_mock_lms() {
+  vm "sudo grep -q '^portikus_lti_platforms_file:' /etc/portikus/portikus.yaml \
+    || { sudo sed -i -e '\$a\\' /etc/portikus/portikus.yaml \
+      && echo 'portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json' | sudo tee -a /etc/portikus/portikus.yaml >/dev/null; }"
+  "${M[@]}" lti-mock-register 2>&1 | tee "${LOGS}/lti-mock-register.txt"
+  [ "${PIPESTATUS[0]}" -eq 0 ]
+}
+
 smoke() {
   "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
     PORTIKUS_SMOKE_SIGNIN_FILE="${LOGS}/admin-signin" 2>&1 | tee "${LOGS}/smoke.txt"
-  grep -qE '^--- Results: [0-9]+ passed, 0 failed ---$' "${LOGS}/smoke.txt"
+  grep -qE '^--- Results: [0-9]+ passed, 0 failed ---$' "${LOGS}/smoke.txt" || return 1
+  # A skipped LTI check means the mock LMS was not in effect.
+  ! grep -E 'SKIP.*(mock LMS|roster sync)' "${LOGS}/smoke.txt" || { echo "the smoke test skipped LTI checks"; return 1; }
 }
 
 # A host set up by an older release: Caddy's Cloudsmith repository, whose
@@ -930,6 +954,7 @@ step "preseed and apt install portikus" install_package
 step "follow setup to its end (portikus setup --follow)" follow_setup install
 step "sign in with the one-time password and change it" first_signin
 if [ -z "${UPGRADE_FROM_PUBLISHED:-}" ]; then
+  step "trust the mock LMS on the VM (lti-mock-register)" register_mock_lms
   step "smoke test, with the administrator's Dex sign-in" smoke
   step "setup moves an old host off Caddy's retired repository" caddy_rerun
   step "a failed ACME wait fails again on rerun; reset-certificate recovers" acme_wait_rerun
@@ -946,6 +971,7 @@ step "apt install again after the remove" reinstall_package
 step "follow the reinstall's setup" follow_setup reinstall
 step "units, alert drop-ins and /health back after the reinstall" after_reinstall
 if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
+  step "trust the mock LMS on the VM (lti-mock-register)" register_mock_lms
   step "smoke test after the upgrade" smoke
 fi
 if [ -n "${IMAGE_JOBS:-}" ]; then

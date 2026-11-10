@@ -888,7 +888,7 @@ The primary desktop interface must have:
 2. **Center pane:** tabbed work area;
 3. **Right pane:** project file tree.
 
-Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target. As built, the panes stack in one column below 56rem; see DESIGN.md section 9 (Epic 49).
+Responsive behavior may collapse panes on narrow displays, but desktop browser use is the P0 optimization target. As built (Epic 58.2), below 56rem the work area fills the screen, and the project list and the right pane become slide-over drawers, opened by a Projects button left of the wordmark and a Files button at the right of the header. A drawer is a modal dialog: it keeps focus inside, closes on Escape, a tap outside, its close button, or choosing a project or opening a file, and returns focus to the button that opened it. The shell behind it is hidden with `aria-hidden`, not `inert`, so live regions stay heard and toasts and dialogs stay reachable (ADR 0047). Closing returns focus to the opener, or to the pane's selected tab when the opener is hidden after widening; code that moves focus behind an open drawer closes it. At 56rem and wider the three panes sit side by side; see DESIGN.md section 9.
 
 ### 8.2 Left pane
 
@@ -945,7 +945,9 @@ tab strip's "+" button, labelled "New tab", holds the rest (Codex, previews).
 
 Added by Epic 58 (ADR 0069): "New tab" offers "Claude Code (GUI)", a chat tab, beside "Claude Code (TUI)", the existing terminal launcher under its new name. The Traditional course profile hides both (section 8.7). Tabs and pane headers read "Claude Code (GUI)" or "Claude Code (TUI)", never "Terminal N", for an agent. The chat view follows new content while the student is at the end and shows "Jump to latest" after they scroll up; a changed effort or permission mode is shown in bold, and the bypass warning has a reserved line so the composer does not jump. An ended chat tab offers "Resume chat".
 
-Added by Epic 58.1: each tool call in a chat is one light line with no box: an icon for the kind of tool and a plain sentence, such as "Read useDashboardQuery.ts", "Ran pnpm vitest run", "Edited useDashboardQuery.ts +1 −3" or "Searched for useDashboardQuery". A finished call shows no state word; a running one says what it is doing ("Running pnpm test") beside a spinner, and a failed or stopped one names its action ("Run pnpm test") and shows its state. An opened row gives a file's full path, leaves out a one-line command the row already shows, and says nothing about output under an edit or a write. A new chat lists three starter prompts under its privacy sentence; a click puts one in an empty message box to edit and never sends it, and never replaces a draft already typed. "Jump to latest" is a round down-chevron button at the conversation's bottom right, with a dot when something new arrived while the student was reading back.
+Added by Epic 58.1: each tool call in a chat is one light line with no box: an icon for the kind of tool and a plain sentence, such as "Read useDashboardQuery.ts", "Ran pnpm vitest run", "Edited useDashboardQuery.ts +1 −3" or "Searched for useDashboardQuery". A finished call shows no state word; a running one says what it is doing ("Running pnpm test") beside a spinner, and a failed or stopped one names its action ("Run pnpm test") and shows its state. An opened row gives a file's full path, leaves out a one-line command the row already shows, and says nothing about output under an edit or a write. A new chat lists three starter prompts under its privacy sentence; a click puts one in an empty message box to edit and never sends it, and never replaces a draft already typed. "Jump to latest" is a round down-chevron button at the right of a strip of its own below the conversation, so it never covers a message, with a dot when something new arrived while the student was reading back.
+
+Added by Epic 58.2: two or more tool calls in a row, with no text between them, sit under one native disclosure that names the count and the tools used (or the running step, and any failures); each call keeps its own row inside. The "Claude" byline shows once per run of Claude's work, reloaded history included. The polite announcement still says only "Claude is working".
 
 ### 8.4 Right pane
 
@@ -1363,6 +1365,8 @@ Added by Epic 58.1: a permission card's "Always allow" button names every grant 
 Added by Epic 58.1: a new chat tab starts with the model, effort and permission mode its student last used in that project. The values the host confirms after a picker change are stored server-side on the project row (`GET` and `PUT /workspaces/:id/projects/:pid/chat-settings`, owner only), only the three values and never any conversation content (ADR 0012). A chat counts as new while no turn has run and the host still reports its start values; the browser then sends one `set` before the student's first message. A last-used Bypass permissions is stored and returned as Auto, so Bypass is always chosen afresh, and a stored model no longer offered becomes Default. When the host's mode is Ask and the session holds allow rules, a quiet line under the pickers says some actions are allowed without asking and points to the rules list. When the session's init advertises `ask_user_question_unanswered_v1`, a question the student skips is answered with `annotations[question].unanswered = "skipped"`; otherwise it is only left out of `answers`.
 
 The composer is a Markdown editor: `**bold**`, `*italic*`, a backtick code span, three backticks for a code block, and `- ` or `1. ` for a list show formatted as they are typed, with the markers hidden, and the message is sent as the Markdown text, never escaped. Pasted text arrives as plain text. Enter sends and Shift+Enter adds a line; in a code block Enter adds a line and Ctrl+Enter (Cmd+Enter on a Mac) sends. Send is an up-arrow icon button with the microphone beside it; while a turn runs, Stop sits beside Send. To a screen reader the editor is a labelled multi-line text box (section 25.8).
+
+Added by Epic 58.2: the composer also shows block quotes (`> `), strikethrough, separator lines, headings one to three, bold italics, task lists, nested lists and links, and sends them as Markdown; Typing `[ ] ` makes a task only in a bullet list with one item; Tab indents a list item, and Shift+Tab outdents only a nested one, so the keyboard can still leave the box (section 25.8). Only http and https links are made (section 24.3). Dictation's running guess shows greyed at the cursor, hidden from assistive technology and never sent. Pasting the same text of more than 40 lines twice within 0.8 seconds puts it in the box once, drops the first paste's chip and deletes its saved file; the text is held in memory only and forgotten on send, so a sent message's file is never deleted (ADR 0012).
 
 Added by Epic 58.1: while a turn runs, Send stays available beside Stop and the box stays usable. A message sent then goes to the host as an ordinary `send`; Claude Code takes it in at its next step within the same turn, so the host sends no new `turn.started`. The browser shows it at once with a quiet "Sent while Claude was working" note. The step in hand stays on the Working line until Claude's next tool call or text, which opens a new turn below the message, as a reload replays it; a turn that ends first keeps its own end state (done, stopped or failed). The note itself is not kept across a reload. Escape in the message box stops a running turn unless a picker menu is open. Up in an empty box brings back the last message sent, held in the page's memory only. The line under the box lists these keys. Inside a permission card, 1, 2 and 3 choose its options, each button showing its number and carrying `aria-keyshortcuts`; the keys act only with the keyboard inside the card, never from the message box, so typing there cannot grant a permission (section 25.8). The Working line names the step in hand in the same words as the tool's row, "Running pnpm build · 3m 43s" from the newest running tool, "Waiting for your permission" while that tool's permission card is open, or "Writing a reply" while text streams; the polite announcement is unchanged. A paste of more than 40 lines is saved as `pasted-text.txt` (then `pasted-text-2.txt` and so on, so each has its own chip and Remove name) under `.portikus/pastes/<stamp>/` and attached, shown as a chip with its line count, instead of filling the box, and the composer says "Pasted 60 lines, attached as pasted-text.txt."
 
@@ -2957,7 +2961,7 @@ Users, Logs and Audit tables scroll sideways in their own box, a labelled
 focusable region that arrow keys scroll, and their header stops sticking.
 A control focused by keyboard inside one of these tables is scrolled fully
 into view. In a window under 30rem tall the whole admin page scrolls. The
-workspace stacks its panes below 56rem (section 8.1). No page keeps a
+workspace turns its side panes into drawers below 56rem (section 8.1). No page keeps a
 1024 px floor: every page reflows at 320 px, and pinch-zoom works inside the
 workspace.
 
@@ -4397,7 +4401,7 @@ Do not grant arbitrary host devices.
 
 The host applies kernel hardening settings where workspace workloads
 allow, and the administrator is told when a security update needs a
-reboot (#1137).
+reboot (#1137). Added by Epic 58.2: the worker keeps whether that notice is raised in the `settings` row, so a restart of the worker does not repeat it, and a notice raised again after the need clears is sent once more.
 
 ### 24.5 Nested Docker
 
@@ -5133,6 +5137,10 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   neither; when one is owed and none is sent the answer is 403. A page
   framed by the LMS gets the browser's passkey refusal and shows its
   error text.
+- **The sign-in spike alert (Epic 58.2).** Twenty failed sign-ins in
+  15 minutes raise one administrator alert. Whether it is raised is kept
+  in the `settings` row, so a worker restart does not repeat it, and it
+  is sent again only after the spike clears and returns.
 
 ## 25. Non-functional requirements
 
@@ -5254,6 +5262,8 @@ codes, never a server's text. When `rootShellOpenedAlert` is on, each
 root shell opened sends a warning site alert naming the administrator.
 Certificate expiry and renewal failures are site alerts, so they reach
 email too.
+
+Added by Epic 58.2: the full system disk alert is raised once per condition, the same way as the reboot and sign-in ones (sections 24.4 and 24.13); a missing settings row fails the check with a logged warning and sends nothing.
 
 Added by Epic 14.3 (section 19.4): the worker records each running
 workspace's CPU time, memory working set and limits from Incus once a
@@ -5423,7 +5433,7 @@ Added by Epic 56 (ADR 0068): an agent's state is shown by a shape as well as a c
 
 Added by Epic 48 (ADR 0063): live help changes are announced in polite status regions: the student's bar announces start, typing on and off and the end with its reason, and the instructor's mode line announces a mode change. In the instructor's terminal Tab leaves a view-only terminal and Alt+Shift+Q leaves in either mode, with a visible hint; its scroll box is a named, focusable region. When a layout loaded from another browser removes the focused pane, focus moves to the work area and "The layout changed in another browser." is announced, again on each repeat.
 
-Added by Epic 58: the chat tab follows the same rules. A card never takes the keyboard from the composer, so Enter cannot grant a permission by accident; opening a chat as the focused pane focuses its message box. Focus rings are inset and not clipped. "Other" checks its radio, each option is described by its own preview, Enter in a note adds a line and Ctrl+Enter or the button goes on, and focus moves after an attachment is removed. A polite status region announces attachments, the bypass warning and a refused change; Send uses `aria-disabled` with a reason; the connection notice has an explicit `aria-live`, and "1 more request is waiting" is announced. Pickers have visible labels and `line-strong` borders, and show the requested value while the host confirms. Alt+Shift+Q leaves a chat. A running, failed or stopped tool's state is a glyph as well as a word; a finished tool shows no state, since its past-tense verb says it. "Jump to latest" is an icon button with that name, and while it shows a dot it is also described as "Something new arrived below".
+Added by Epic 58: the chat tab follows the same rules. A card never takes the keyboard from the composer, so Enter cannot grant a permission by accident; opening a chat as the focused pane focuses its message box. Focus rings are inset and not clipped. "Other" checks its radio, each option is described by its own preview, Enter in a note adds a line and Ctrl+Enter or the button goes on, and focus moves after an attachment is removed. A polite status region announces attachments, the bypass warning and a refused change; Send uses `aria-disabled` with a reason; the connection notice has an explicit `aria-live`, and "1 more request is waiting" is announced. Pickers have visible labels and `line-strong` borders, and show the requested value while the host confirms. Below 49rem of composer width a picker shows a short label ("Claude", "Opus", "Medium", "Ask") and its accessible name keeps the full words ("Effort Medium"); the full label appears in a tooltip on keyboard focus and on hover, and each picker menu opens with a visible heading. Alt+Shift+Q leaves a chat. A running, failed or stopped tool's state is a glyph as well as a word; a finished tool shows no state, since its past-tense verb says it. "Jump to latest" is an icon button with that name, and while it shows a dot it is also described as "Something new arrived below".
 
 Added by Epic 58.1: a question card shows one question at a time. Focus starts on the chosen option, or the first, and moves only with the student's own Next, Skip or pager action; arrow keys move between options, checkboxes included; Next and Submit stay focusable with `aria-disabled` and a reason until the question is answered or skipped; a polite region reads "Question 2 of 3" and the question. No focus move in the chat scrolls anything but the chat's own log or card body, and the chat and its pane clip their overflow, so the workspace page never scrolls.
 
@@ -5588,6 +5598,7 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0051_code_help_languages` (sections 13.6 and 20.1, ADR 0067): `settings.code_help_languages`, `text[]`, not null, default `{python,typescript}`, with no check constraint, so a language added later needs no migration. It replaces `code_help_enabled`: a site with code help off becomes `{}` and one with it on becomes both languages. The down migration restores the boolean as true when any language is on.
 
 - `0052_terminal_kind` (Epic 58, ADR 0069): `terminals.kind`, text with a check constraint (`terminal` or `chat`, default `terminal`), so existing rows read as terminals. Nothing about a chat's content is stored.
+- `0054_alert_state` (Epic 58.2, sections 24.4 and 24.13): `settings.alert_reboot_raised`, `alert_signin_raised` and `alert_root_fs_raised`, boolean, not null, default false, so a raised administrator alert is not announced again after a worker restart.
 
 ## 27. API principles
 
@@ -7127,6 +7138,24 @@ Acceptance:
 - "Always allow" names what it grants, and a session rule can be revoked;
 - a reply image outside the student's home folder, or an SVG, is never served;
 - the workspace page never scrolls when focus moves in a chat.
+
+### Epic 58.2 — chat and phone fix batch
+
+Built on `epic/58.2-fix-batch`, with the fix-round pull requests #1822, #1823, #1824, #1827, #1832, #1833, #1834 and #1836 after the first task pull requests. Migration 0054. See sections 8.1, 10.2, 24.4, 24.13, 25.6 and 25.8.
+
+Includes:
+
+- phone drawers: below 56rem the project list and the right pane are slide-over modal drawers over a full-screen work area;
+- a composer whose microphone and Send stay on the first line, with short picker labels when narrow, Markdown shortcuts and links, greyed dictation guesses, and a double paste that goes inline;
+- tool calls grouped under one disclosure, one byline per run, and a Jump to latest button that never covers a message;
+- administrator alerts that survive a worker restart, an install test that registers the mock LMS, and the open Dependabot alerts cleared or dismissed.
+
+Acceptance:
+
+- at 360, 420 and 800 px the work area fills the width, and each drawer traps focus, closes on Escape and returns focus to its button, while a toast and the chat announcer stay reachable;
+- a reboot, sign-in spike or full-disk alert is sent once across a worker restart, and again after it clears and returns;
+- a link with any scheme but http or https stays plain text in the composer, and a fenced link target cannot start a second link;
+- a paste that was sent in a message is never deleted by a later double paste.
 
 ### Estimated total
 

@@ -218,3 +218,6 @@ button.pk-statusbar-item:focus-visible {
 .pk-wsbutton:hover {
 	background: var(--surface-hover);
 }
+.pk-appbar > .pk-appbar-drawer {
+	flex: none;
+}

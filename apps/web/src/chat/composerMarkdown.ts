@@ -1,14 +1,29 @@
 /**
  * The composer's document as the Markdown text it sends (SPEC.md §10.8).
- * Only what the composer's schema holds is written: paragraphs, bold,
- * italic, code spans, code blocks and lists. Text is never escaped, so a
+ * Only what the composer's schema holds is written: paragraphs, headings,
+ * quotes, separator lines, bold, italic, strikethrough, links, code spans,
+ * code blocks, and bullet, numbered and task lists, nested. Text is never escaped, so a
  * literal `*` or `_` the student typed goes out exactly as typed; lines of
  * text are joined by one newline, as a textarea would send them.
  */
 import type { Fragment, Mark, Node } from "@tiptap/pm/model";
 
-/** Opening and closing order: emphasis outside, code innermost. */
-const MARKS: Record<string, string> = { bold: "**", italic: "*" };
+/** Markers for each mark; the schema's mark order puts links outside emphasis and code innermost. */
+const MARKS: Record<string, { open: string; close: (mark: Mark) => string }> = {
+	link: { open: "[", close: (mark) => `](${linkTarget(mark.attrs.href as string)})` },
+	bold: { open: "**", close: () => "**" },
+	italic: { open: "*", close: () => "*" },
+	strike: { open: "~~", close: () => "~~" },
+};
+
+/**
+ * A target with brackets, spaces or a backslash is fenced in angle brackets,
+ * as CommonMark allows, with `<`, `>` and `\` backslash-escaped inside, so a
+ * pasted address cannot close the fence early and start another link.
+ */
+function linkTarget(href: string): string {
+	return /[\s()<>\\]/.test(href) ? `<${href.replace(/[\\<>]/g, "\\$&")}>` : href;
+}
 
 export function toMarkdown(content: Fragment): string {
 	return blockLines(content, false).join("\n");
@@ -44,13 +59,28 @@ function nodeLines(node: Node): string[] {
 			const language = (node.attrs.language as string | null) ?? "";
 			return [fence + language, ...node.textContent.split("\n"), fence];
 		}
+		case "heading":
+			return [`${"#".repeat(node.attrs.level as number)} ${inline(node)}`];
+		case "horizontalRule":
+			return ["---"];
+		case "blockquote":
+			return blockLines(node.content, false).map((line) =>
+				line === "" ? ">" : `> ${line}`,
+			);
 		case "bulletList":
-		case "orderedList": {
+		case "orderedList":
+		case "taskList": {
 			const start = (node.attrs.start as number | undefined) ?? 1;
 			const lines: string[] = [];
 			node.forEach((item, _offset, index) => {
-				const marker = node.type.name === "bulletList" ? "- " : `${start + index}. `;
-				const pad = " ".repeat(marker.length);
+				const marker =
+					node.type.name === "bulletList"
+						? "- "
+						: node.type.name === "taskList"
+							? `- [${item.attrs.checked ? "x" : " "}] `
+							: `${start + index}. `;
+				// A task's text, like a bullet's, starts after "- ".
+				const pad = " ".repeat(node.type.name === "taskList" ? 2 : marker.length);
 				blockLines(item.content, true).forEach((line, at) => {
 					lines.push(at === 0 ? marker + line : line === "" ? "" : pad + line);
 				});
@@ -68,15 +98,27 @@ function nodeLines(node: Node): string[] {
 function inline(block: Node): string {
 	let out = "";
 	let open: Mark[] = [];
+	/** Where each open mark's text starts in `out`, after its marker. */
+	let starts: number[] = [];
 
 	const close = (keep: number) => {
 		if (open.length <= keep) return;
 		// A closing marker hugs the text, so trailing spaces move outside it.
 		const trail = /\s*$/.exec(out)?.[0] ?? "";
 		out = out.slice(0, out.length - trail.length);
-		for (const mark of open.slice(keep).reverse()) out += MARKS[mark.type.name] ?? "";
+		for (let at = open.length - 1; at >= keep; at -= 1) {
+			const mark = open[at] as Mark;
+			const start = starts[at] as number;
+			// A link whose text is its address goes out bare, as GFM links it anyway.
+			if (mark.type.name === "link" && out.slice(start) === mark.attrs.href) {
+				out = out.slice(0, start - 1) + out.slice(start);
+				continue;
+			}
+			out += MARKS[mark.type.name]?.close(mark) ?? "";
+		}
 		out += trail;
 		open = open.slice(0, keep);
+		starts = starts.slice(0, keep);
 	};
 
 	block.forEach((child) => {
@@ -99,7 +141,10 @@ function inline(block: Node): string {
 			const lead = /^\s*/.exec(body)?.[0] ?? "";
 			out += lead;
 			body = body.slice(lead.length);
-			for (const mark of opening) out += MARKS[mark.type.name] ?? "";
+			for (const mark of opening) {
+				out += MARKS[mark.type.name]?.open ?? "";
+				starts.push(out.length);
+			}
 			open = [...open, ...opening];
 		}
 		out += body;

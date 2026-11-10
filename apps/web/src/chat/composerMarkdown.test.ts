@@ -1,38 +1,63 @@
+import { cleanup, render } from "@testing-library/react";
 import { getSchema } from "@tiptap/core";
+import Blockquote from "@tiptap/extension-blockquote";
 import Bold from "@tiptap/extension-bold";
 import Code from "@tiptap/extension-code";
 import CodeBlock from "@tiptap/extension-code-block";
 import Document from "@tiptap/extension-document";
+import Heading from "@tiptap/extension-heading";
+import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import Italic from "@tiptap/extension-italic";
-import { BulletList, ListItem, OrderedList } from "@tiptap/extension-list";
+import Link from "@tiptap/extension-link";
+import {
+	BulletList,
+	ListItem,
+	OrderedList,
+	TaskItem,
+	TaskList,
+} from "@tiptap/extension-list";
 import Paragraph from "@tiptap/extension-paragraph";
+import Strike from "@tiptap/extension-strike";
 import Text from "@tiptap/extension-text";
 import type { Node } from "@tiptap/pm/model";
+import { createElement } from "react";
 import { expect, test } from "vitest";
+import { ChatMarkdown } from "./ChatMarkdown.js";
 import { toMarkdown } from "./composerMarkdown.js";
 
 const schema = getSchema([
 	Document,
 	Paragraph,
 	Text,
+	Link,
 	Bold,
 	Italic,
+	Strike,
 	Code,
 	CodeBlock,
+	Blockquote,
+	Heading,
+	HorizontalRule,
 	BulletList,
 	OrderedList,
 	ListItem,
+	TaskList,
+	TaskItem.configure({ nested: true }),
 ]);
 
 function doc(json: unknown[]): Node {
 	return schema.nodeFromJSON({ type: "doc", content: json });
 }
 
-const text = (value: string, ...marks: string[]) => ({
+const text = (
+	value: string,
+	...marks: (string | { type: string; attrs: object })[]
+) => ({
 	type: "text",
 	text: value,
-	marks: marks.map((type) => ({ type })),
+	marks: marks.map((mark) => (typeof mark === "string" ? { type: mark } : mark)),
 });
+const link = (href: string) => ({ type: "link", attrs: { href } });
 const p = (...content: unknown[]) => ({ type: "paragraph", content });
 const item = (...content: unknown[]) => ({ type: "listItem", content });
 
@@ -91,4 +116,94 @@ test("a code block keeps its language and its lines", () => {
 
 test("an empty document is empty text", () => {
 	expect(toMarkdown(doc([p()]).content)).toBe("");
+});
+
+test("a link is [text](url), bare when its text is its address, and fenced when its address has brackets", () => {
+	const node = doc([
+		p(
+			text("a "),
+			text("docs", link("https://x.org/a")),
+			text(" "),
+			text("https://x.org", link("https://x.org")),
+			text(" "),
+			text("wiki", link("https://x.org/a_(b)")),
+		),
+	]);
+	expect(toMarkdown(node.content)).toBe(
+		"a [docs](https://x.org/a) https://x.org [wiki](<https://x.org/a_(b)>)",
+	);
+});
+
+const SPLICED = "https://a.example/x>)[y](https://b.example";
+
+test("<, > and \\ in a fenced address are escaped, so it cannot close the fence early", () => {
+	const node = doc([
+		p(text("go", link(SPLICED)), text(" then more")),
+		p(text("back", link("https://a.example/a\\b"))),
+	]);
+	expect(toMarkdown(node.content)).toBe(
+		"[go](<https://a.example/x\\>)[y](https://b.example>) then more\n[back](<https://a.example/a\\\\b>)",
+	);
+});
+
+test("a spliced address reads back in a reply as the one link it was", () => {
+	const node = doc([p(text("go", link(SPLICED)), text(" then more"))]);
+	const { container } = render(
+		createElement(ChatMarkdown, { text: toMarkdown(node.content) }),
+	);
+	const links = Array.from(container.querySelectorAll("a"));
+	expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+		["go", "https://a.example/x%3E)%5By%5D(https://b.example"],
+	]);
+	cleanup();
+});
+
+test("bold inside a link keeps the brackets outside", () => {
+	const node = doc([
+		p(text("big", link("https://x.org"), "bold"), text(" end", link("https://x.org"))),
+	]);
+	expect(toMarkdown(node.content)).toBe("[**big** end](https://x.org)");
+});
+
+test("strikethrough, and bold italic together", () => {
+	const node = doc([
+		p(text("gone", "strike"), text(" "), text("loud", "bold", "italic")),
+	]);
+	expect(toMarkdown(node.content)).toBe("~~gone~~ ***loud***");
+});
+
+test("headings, a separator line and a quote with a list inside", () => {
+	const node = doc([
+		{ type: "heading", attrs: { level: 2 }, content: [text("Plan")] },
+		{ type: "horizontalRule" },
+		{
+			type: "blockquote",
+			content: [
+				p(text("said")),
+				{ type: "bulletList", content: [item(p(text("a"))), item(p(text("b")))] },
+			],
+		},
+	]);
+	expect(toMarkdown(node.content)).toBe("## Plan\n\n---\n\n> said\n>\n> - a\n> - b");
+});
+
+test("task items carry their box, and nest like any list", () => {
+	const task = (checked: boolean, ...content: unknown[]) => ({
+		type: "taskItem",
+		attrs: { checked },
+		content,
+	});
+	const node = doc([
+		{
+			type: "taskList",
+			content: [
+				task(false, p(text("milk")), {
+					type: "taskList",
+					content: [task(true, p(text("oat")))],
+				}),
+				task(true, p(text("rent"))),
+			],
+		},
+	]);
+	expect(toMarkdown(node.content)).toBe("- [ ] milk\n  - [x] oat\n- [x] rent");
 });

@@ -492,6 +492,58 @@ test("the microphone dictates into the box and never sends", async ({
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
+	test(`interim dictation sits greyed in the box, is not sent, and gives way to the final words (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await fakeSpeech(page);
+		const student = await createStudent(context);
+		const { id, view } = await openChat(page, student.workspaceId, "Composer");
+		const box = view.getByTestId("chat-composer-input");
+		await box.fill("fix the bug");
+		await box.press("End");
+		await expect(box).toHaveText("fix the bug");
+		const mic = view.getByTestId(`chat-voice-${id}`);
+		await mic.hover();
+		await page.mouse.down();
+		await expect(mic).toHaveAttribute("aria-pressed", "true");
+		await expect(view.getByTestId(`chat-voice-status-${id}`)).toHaveText("Listening…");
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("pl", false),
+		);
+		const interim = box.getByTestId("chat-voice-interim");
+		await expect(interim).toHaveText(" pl");
+		await expect(interim).toHaveAttribute("aria-hidden", "true");
+		const [shown, typed] = await Promise.all([
+			interim.evaluate((node) => getComputedStyle(node).color),
+			box.evaluate((node) => getComputedStyle(node).color),
+		]);
+		expect(shown).not.toBe(typed);
+		await expectNoViolations(page, '[data-testid="chat-composer"]');
+		await view
+			.getByTestId("chat-composer")
+			.screenshot({ path: `screenshots/chat-dictation-interim-${colorScheme}.png` });
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("please", true),
+		);
+		await expect(interim).toHaveCount(0);
+		await expect(box).toHaveText("fix the bug please");
+		await page.evaluate(() =>
+			(window as unknown as FakeSpeechWindow).__speech.say("and th", false),
+		);
+		await expect(interim).toHaveText(" and th");
+		// Enter mid-dictation sends only the typed and settled words.
+		await box.press("Enter");
+		await page.mouse.up();
+		await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+		const [frame] = await receivedFrames(id, "send");
+		expect(JSON.stringify(frame)).toContain("fix the bug please");
+		expect(JSON.stringify(frame)).not.toContain("and th");
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
 	test(`the composer has no accessibility violations (${colorScheme})`, async ({
 		page,
 		context,
@@ -732,6 +784,104 @@ test("a paste of more than 40 lines is attached as a text file, not put in the b
 			},
 		]);
 });
+
+test("a long paste sent and pasted again at once is a new file, and the sent file is kept", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student.workspaceId, "Composer");
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	const deletes: string[] = [];
+	page.on("request", (request) => {
+		if (request.method() === "DELETE") deletes.push(request.url());
+	});
+	const chip = view.getByTestId("composer-chip");
+	// Paste, send and paste again inside one evaluate, well within 0.8 seconds.
+	await page.evaluate(async () => {
+		const target = document.querySelector<HTMLElement>(
+			'[data-testid="chat-composer-input"]',
+		);
+		const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
+		const pasteLog = () => {
+			const transfer = new DataTransfer();
+			transfer.setData("text/plain", log.join("\n"));
+			target?.dispatchEvent(
+				new ClipboardEvent("paste", {
+					clipboardData: transfer,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		};
+		pasteLog();
+		// Send once the chip is saved, as a student pressing Enter would.
+		while (!document.querySelector('[data-testid="composer-chip"]')) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		target?.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		);
+		pasteLog();
+	});
+	await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+	const [frame] = await receivedFrames(id, "send");
+	expect(frame?.attachments).toHaveLength(1);
+	await expect(view.getByTestId("chat-composer-status")).toHaveText(
+		/^Pasted 60 lines, attached as pasted-text-2\.txt\.$/,
+	);
+	await expect(chip).toHaveCount(1);
+	await expect(chip).toContainText("pasted-text-2.txt");
+	await expect(box).toHaveText("");
+	expect(deletes).toEqual([]);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the same long text pasted twice at once goes in the box, and its file is deleted (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const { id, view } = await openChat(page, student.workspaceId, "Composer");
+		const box = view.getByTestId("chat-composer-input");
+		await box.click();
+		const deleted = page.waitForResponse(
+			(response) =>
+				response.request().method() === "DELETE" &&
+				response.url().includes("pasted-text.txt"),
+		);
+		// Both pastes inside one evaluate, well within 0.8 seconds of each other.
+		await page.evaluate(() => {
+			const log = Array.from({ length: 60 }, (_, at) => `Error: step ${at} failed`);
+			for (let i = 0; i < 2; i += 1) {
+				const transfer = new DataTransfer();
+				transfer.setData("text/plain", log.join("\n"));
+				document.querySelector('[data-testid="chat-composer-input"]')?.dispatchEvent(
+					new ClipboardEvent("paste", {
+						clipboardData: transfer,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			}
+		});
+		await expect(view.getByTestId("chat-composer-status")).toHaveText(
+			"Pasted 60 lines inline.",
+		);
+		await expect(view.getByTestId("composer-chip")).toHaveCount(0);
+		await expect(box.locator("p")).toHaveCount(60);
+		expect((await deleted).ok()).toBe(true);
+		await expectNoViolations(page, '[data-testid="chat-composer"]');
+		await box.press("ControlOrMeta+End");
+		await box.press("Enter");
+		await expect.poll(async () => (await receivedFrames(id, "send")).length).toBe(1);
+		const [frame] = await receivedFrames(id, "send");
+		expect(frame?.attachments).toEqual([]);
+		expect(String(frame?.text).split("\n")).toHaveLength(60);
+	});
+}
 
 test("Send is an icon button at the end of the row, with the microphone beside it", async ({
 	page,

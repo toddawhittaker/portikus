@@ -60,6 +60,33 @@ test("the code-help topic gives the keyboard routes to completion and hover, and
 	expect(text).not.toContain("above the file");
 });
 
+test("the chat topic says a message sent mid-turn may be treated with caution and that Stop then send works", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	expect(text).toContain("Some models treat a message sent this way with caution");
+	expect(text).toContain("stop Claude, then send it again; that always works");
+});
+
+test("the chat topic lists the message box's typing shortcuts", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"three stars both",
+		"two tildes strike through",
+		'"[ ]" or "[x]" a task',
+		'">" a quote',
+		'one to three "#" a heading',
+		"three dashes a separator line",
+		"[text](address)",
+		"Tab indents an item and Shift+Tab moves a nested item back out",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the chat topic says a quick second paste puts long text in the box", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	expect(text).toContain("paste it again straight away.");
+});
+
 test("the keyboard topic lists the completion and hover keys", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Ctrl+Space");

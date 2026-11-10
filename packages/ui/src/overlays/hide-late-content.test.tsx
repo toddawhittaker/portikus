@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { expect, it, vi } from "vitest";
 import { ConfirmDialog, ConfirmDialogRoot } from "./confirm-dialog";
 import { Dialog, DialogRoot } from "./dialog";
+import { hideOutside } from "./hide-late-content";
 
 vi.mock("aria-hidden", async (importOriginal) => {
 	const real = await importOriginal<typeof import("aria-hidden")>();
@@ -105,4 +106,47 @@ it("leaves the page alone when an element is added inside a kept live region", a
 	await new Promise((resolve) => requestAnimationFrame(resolve));
 	expect(hidden(screen.getByTestId("news"))).toBe(false);
 	expect(vi.mocked(hideOthers).mock.calls.length).toBe(calls);
+});
+
+it("hideOutside hides an in-page modal's surroundings, keeps live regions, and re-hides late content", async () => {
+	document.body.innerHTML = `
+		<div id="app">
+			<header id="head"><p aria-live="polite" id="live">Status</p></header>
+			<div id="row"><div id="sheet"><button>In</button></div><main id="work"></main></div>
+		</div>`;
+	const get = (id: string) => document.getElementById(id) as HTMLElement;
+	const undo = hideOutside(get("sheet"));
+	expect(hidden(get("work"))).toBe(true);
+	expect(hidden(get("sheet"))).toBe(false);
+	expect(hidden(get("live"))).toBe(false);
+	const late = document.createElement("button");
+	get("row").append(late);
+	await waitFor(() => expect(hidden(late)).toBe(true));
+	expect(hidden(get("live"))).toBe(false);
+	undo();
+	expect(hidden(get("work"))).toBe(false);
+	expect(hidden(late)).toBe(false);
+	document.body.innerHTML = "";
+});
+
+it("hideOutside with a root leaves what sits beside the root alone, now and after late changes", async () => {
+	document.body.innerHTML = `
+		<div id="app">
+			<div id="shell"><div id="row"><div id="sheet"></div><main id="work"></main></div></div>
+			<ol id="toasts"><li><button>Keep running</button></li></ol>
+		</div>`;
+	const get = (id: string) => document.getElementById(id) as HTMLElement;
+	const undo = hideOutside(get("sheet"), get("shell"));
+	expect(hidden(get("work"))).toBe(true);
+	expect(hidden(get("toasts"))).toBe(false);
+	const late = document.createElement("button");
+	get("row").append(late);
+	const toast = document.createElement("li");
+	get("toasts").append(toast);
+	await waitFor(() => expect(hidden(late)).toBe(true));
+	expect(hidden(toast)).toBe(false);
+	expect(hidden(get("toasts"))).toBe(false);
+	undo();
+	expect(hidden(get("work"))).toBe(false);
+	document.body.innerHTML = "";
 });

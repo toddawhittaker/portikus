@@ -8,6 +8,8 @@
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+	/* The pickers lay themselves out from the box's width, not the window's. */
+	container: pk-composer / inline-size;
 }
 
 .pk-composer:has(.pk-composer-text:focus-visible) {
@@ -71,6 +73,74 @@
 
 .pk-composer-text strong {
 	font-weight: 600;
+}
+
+/* Sized as in a reply, so what is typed looks like what will be read. */
+.pk-composer-text :is(h1, h2, h3) {
+	margin: 0;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.pk-composer-text h1 {
+	font-size: 18px;
+}
+
+.pk-composer-text h2 {
+	font-size: 16px;
+}
+
+.pk-composer-text h3 {
+	font-size: 15px;
+}
+
+.pk-composer-text blockquote {
+	margin: 0;
+	padding-inline-start: var(--space-3);
+	border-inline-start: 2px solid var(--line-strong);
+	color: var(--ink-muted);
+}
+
+.pk-composer-text hr {
+	margin-block: var(--space-2);
+	border: 0;
+	border-block-start: 1px solid var(--line-strong);
+}
+
+.pk-composer-text a {
+	color: var(--accent-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.pk-composer-text ul[data-type="taskList"] {
+	padding-inline-start: var(--space-1);
+	list-style: none;
+}
+
+.pk-composer-text li[data-checked] {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+.pk-composer-text li[data-checked] > label {
+	display: inline-flex;
+	flex: none;
+	align-self: flex-start;
+}
+
+/* The box sits inside the text box, so its own size is the touch target (SPEC.md §25.8). */
+.pk-composer-text li[data-checked] > label input {
+	inline-size: var(--space-6);
+	block-size: var(--space-6);
+	margin: 0;
+	accent-color: var(--accent);
+}
+
+.pk-composer-text li[data-checked] > div {
+	flex: 1;
+	min-inline-size: 0;
 }
 
 .pk-composer-text code {
@@ -205,6 +275,12 @@
 	overflow-wrap: anywhere;
 }
 
+/* Dictation's running guess, at the cursor until the final words replace it. */
+.pk-composer-interim {
+	color: var(--ink-muted);
+	font-style: italic;
+}
+
 /* The line under the box: a key hint, or the bypass warning in its place. */
 .pk-composer-foot {
 	display: flex;
@@ -229,12 +305,11 @@
 	font-weight: 500;
 }
 
-/* In a narrow pane the pickers take a row of their own, so Send stays beside the tools. */
-@container pk-chat (max-width: 34rem) {
-	.pk-composer-bar {
-		justify-content: space-between;
-	}
-
+/* Too narrow for one line: the pickers take a line of their own, below the tools,
+   the microphone and Send, which stay on the first line. One line needs 541px with
+   the widest short values (Extra high, Bypass permissions), so 35rem (560px) never
+   moves the pickers when a value changes. */
+@container pk-composer (width < 35rem) {
 	.pk-composer-picks {
 		order: 1;
 		flex-basis: 100%;

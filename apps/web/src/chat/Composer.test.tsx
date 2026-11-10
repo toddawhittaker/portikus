@@ -27,7 +27,11 @@ import {
 } from "./composerTesting.js";
 
 const saveDroppedFile = vi.hoisted(() => vi.fn());
-vi.mock("../files/queries.js", () => ({ saveDroppedFile }));
+const deleteFile = vi.hoisted(() => vi.fn());
+vi.mock("../files/queries.js", () => ({
+	saveDroppedFile,
+	useFileMutations: () => ({ remove: { mutate: deleteFile } }),
+}));
 
 const TERMINAL = "11111111-1111-4111-8111-111111111111";
 
@@ -99,6 +103,7 @@ afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
 	saveDroppedFile.mockReset();
+	deleteFile.mockReset();
 });
 
 function draw() {
@@ -372,6 +377,52 @@ test("a paste of more than 40 lines is attached as a text file with its line cou
 			attachments: [{ path: await saveDroppedFile.mock.results[0]?.value }],
 		},
 	]);
+});
+
+test("a long paste sent and pasted again at once is a new file, and the sent one is not deleted", async () => {
+	draw();
+	const log = Array.from({ length: 60 }, (_, at) => `l${at}`).join("\n");
+	const pasteLog = () =>
+		fireEvent.paste(input(), {
+			clipboardData: {
+				files: [],
+				items: [],
+				types: ["text/plain"],
+				getData: (kind: string) => (kind === "text/plain" ? log : ""),
+			},
+		});
+	pasteLog();
+	await screen.findByTestId("composer-chip");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toHaveLength(1);
+	pasteLog();
+	await waitFor(() => expect(saveDroppedFile).toHaveBeenCalledTimes(2));
+	await waitFor(() => expect(screen.getAllByTestId("composer-chip")).toHaveLength(2));
+	expect(deleteFile).not.toHaveBeenCalled();
+	expect(value()).toBe("");
+});
+
+test("the same long text pasted twice at once goes in the box once, and the first paste's chip and file go", async () => {
+	draw();
+	const log = Array.from({ length: 60 }, (_, at) => `l${at}`).join("\n");
+	const pasteLog = () =>
+		fireEvent.paste(input(), {
+			clipboardData: {
+				files: [],
+				items: [],
+				types: ["text/plain"],
+				getData: (kind: string) => (kind === "text/plain" ? log : ""),
+			},
+		});
+	pasteLog();
+	pasteLog();
+	await waitFor(() => expect(status()).toBe("Pasted 60 lines inline."));
+	expect(screen.queryByTestId("composer-chip")).toBeNull();
+	expect(value()).toBe(log);
+	expect(saveDroppedFile).toHaveBeenCalledTimes(1);
+	expect(deleteFile).toHaveBeenCalledWith(await saveDroppedFile.mock.results[0]?.value);
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: log, attachments: [] }]);
 });
 
 test("each long paste gets its own file, chip and Remove name", async () => {
@@ -705,14 +756,17 @@ test("dictation is inserted at the cursor and is never sent", async () => {
 	expect(sent).toEqual([]);
 });
 
-test("dictation shows interim words without typing them, and starts after nothing with no space", async () => {
+test("dictation shows interim words in the box without typing them, and starts after nothing with no space", async () => {
 	draw();
 	await hold();
 	say("hel", false);
-	expect(screen.getByTestId("chat-voice-interim").textContent).toBe("hel");
+	const shown = screen.getByTestId("chat-voice-interim");
+	expect(shown.textContent).toBe("hel");
+	expect(input().contains(shown)).toBe(true);
 	expect(value()).toBe("");
 	say("hello", true);
 	expect(value()).toBe("hello");
+	expect(screen.queryByTestId("chat-voice-interim")).toBeNull();
 	expect(sent).toEqual([]);
 });
 

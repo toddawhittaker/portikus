@@ -1,10 +1,10 @@
 /**
  * The workspace and the admin area in a 560 px window (SPEC.md sections 8.1,
- * 20.1 and 25.8): the page never scrolls sideways, the workspace panes stack,
- * every key control is reachable by keyboard and on screen, and axe finds no
- * violations in either theme. Wide windows keep the three panes side by side.
- * Short windows (320 by 256, 640 by 360) scroll the stacked column rather than
- * squeezing it, and each admin table's box takes focus to scroll by keyboard.
+ * 20.1 and 25.8): the page never scrolls sideways, the workspace's side panes
+ * are drawers, every key control is reachable by keyboard and on screen, and
+ * axe finds no violations in either theme. Wide windows keep the three panes
+ * side by side. Short windows (320 by 256, 640 by 360) keep each drawer's
+ * controls uncovered, and each admin table's box takes focus to scroll by keyboard.
  */
 import { appendFileSync } from "node:fs";
 import {
@@ -75,10 +75,40 @@ async function tabTo(page: Page, target: Locator, limit = 80): Promise<void> {
 	throw new Error(`Tab never reached ${target}`);
 }
 
+/** The header buttons that open the side panes as drawers below 56rem (SPEC.md section 8.1). */
+function projectsButton(page: Page): Locator {
+	return page.getByRole("button", { name: "Projects", exact: true });
+}
+function filesButton(page: Page): Locator {
+	return page.getByRole("button", { name: "Files", exact: true });
+}
+
+async function openDrawer(page: Page, name: "Projects" | "Files"): Promise<void> {
+	await (name === "Projects" ? projectsButton(page) : filesButton(page)).click();
+	const dialog = page.getByRole("dialog", { name });
+	await expect(dialog).toBeVisible();
+	// Until the slide in ends, its controls sit partly off screen.
+	const width = page.viewportSize()?.width ?? NARROW.width;
+	await expect
+		.poll(async () => {
+			const box = await boxOf(dialog);
+			return Math.round(name === "Projects" ? box.x : box.x + box.width - width);
+		})
+		.toBe(0);
+}
+
+/** Escape closes the open drawer; a first press may only close a focused icon button's tooltip. */
+async function closeDrawer(page: Page): Promise<void> {
+	const open = page.getByRole("dialog");
+	await page.keyboard.press("Escape");
+	if (await open.isVisible()) await page.keyboard.press("Escape");
+	await expect(open).toBeHidden();
+}
+
 test.describe("the workspace at 560 px", () => {
 	test.use({ viewport: NARROW });
 
-	test("the panes stack in one column with no sideways scroll, and Tab reaches each pane's controls", async ({
+	test("the work area fills the width with no sideways scroll, and Tab reaches each pane's controls", async ({
 		page,
 		context,
 	}) => {
@@ -88,19 +118,12 @@ test.describe("the workspace at 560 px", () => {
 		await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 		await expectNoPageScrollSideways(page);
 
-		const projects = await boxOf(page.getByRole("navigation", { name: "Projects" }));
 		const work = await boxOf(page.getByRole("main", { name: "Work area" }));
-		const files = await boxOf(page.locator(".pk-right-pane"));
-		for (const pane of [projects, work, files]) {
-			expect(pane.x).toBe(0);
-			expect(pane.width).toBe(NARROW.width);
-		}
-		expect(projects.y + projects.height).toBeLessThanOrEqual(work.y + 1);
-		expect(work.y + work.height).toBeLessThanOrEqual(files.y + 1);
-		// The work area gets the most room; the lists still show rows.
-		expect(work.height).toBeGreaterThan(files.height);
-		expect(projects.height).toBeGreaterThan(100);
-		// Width handles have nothing to resize in a column.
+		expect(work.x).toBe(0);
+		expect(work.width).toBe(NARROW.width);
+		// The side panes are drawers, closed until asked for.
+		await expect(page.getByRole("navigation", { name: "Projects" })).toBeHidden();
+		await expect(page.locator(".pk-right-pane")).toBeHidden();
 		await expect(
 			page.getByRole("separator", { name: "Resize project list" }),
 		).toBeHidden();
@@ -108,15 +131,22 @@ test.describe("the workspace at 560 px", () => {
 			page.getByRole("separator", { name: "Resize file tree" }),
 		).toBeHidden();
 
-		// From the top of the page, by keyboard only: the project list, the work
-		// area, the right pane's tabs and the status bar.
+		// From the top of the page, by keyboard only: the Projects drawer, the
+		// work area, the Files drawer's tabs and the status bar.
 		await fromTop(page);
+		await tabTo(page, projectsButton(page));
+		await page.keyboard.press("Enter");
 		await tabTo(page, page.getByRole("button", { name: "New project" }));
-		await tabTo(page, page.getByTestId("empty-open-terminal"));
+		await closeDrawer(page);
+		await expect(projectsButton(page)).toBeFocused();
+		await tabTo(page, filesButton(page));
+		await page.keyboard.press("Enter");
 		await tabTo(page, page.getByRole("tab", { name: "Files" }));
 		await page.keyboard.press("ArrowRight");
 		await expect(page.getByRole("tab", { name: "Checks" })).toBeFocused();
 		await page.keyboard.press("ArrowLeft");
+		await closeDrawer(page);
+		await expect(filesButton(page)).toBeFocused();
 
 		await page.getByTestId("empty-open-terminal").focus();
 		await page.keyboard.press("Enter");
@@ -130,7 +160,7 @@ test.describe("the workspace at 560 px", () => {
 	});
 
 	for (const colorScheme of ["light", "dark"] as const) {
-		test(`the stacked workspace has no automatic accessibility violations (${colorScheme})`, async ({
+		test(`the narrow workspace has no automatic accessibility violations (${colorScheme})`, async ({
 			page,
 			context,
 		}) => {
@@ -139,6 +169,8 @@ test.describe("the workspace at 560 px", () => {
 			const project = await createProject(student.workspaceId, { name: LONG_NAME });
 			await page.goto(workspacePath(student.workspaceId, project.id));
 			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			await expectNoViolations(page);
+			await openDrawer(page, "Files");
 			await expect(page.getByRole("tab", { name: "Files" })).toBeVisible();
 			await expectNoViolations(page);
 			await page.screenshot({
@@ -186,7 +218,7 @@ test.describe("the workspace at 560 px", () => {
 		expect(Math.round(right.width)).toBe(280);
 		await page.screenshot({ path: "screenshots/narrow-workspace-900.png" });
 
-		// Just under that, the panes stack.
+		// Just under that, the side panes become drawers.
 		await page.setViewportSize({ width: 880, height: 900 });
 		await expect(
 			page.getByRole("separator", { name: "Resize file tree" }),
@@ -217,39 +249,39 @@ async function expectHitTestable(target: Locator): Promise<void> {
 	expect(hit, String(target)).toBe(true);
 }
 
-async function openStackedWorkspace(page: Page, context: BrowserContext) {
+/** A project with five files, open in a window where the file tree may be a drawer. */
+async function openSeededWorkspace(page: Page, context: BrowserContext) {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, { name: LONG_NAME });
 	for (const name of ["a.md", "b.md", "c.md", "d.md", "e.md"])
 		await seedFile(student.workspaceId, project.slug, name, `# ${name}\n`);
 	await page.goto(workspacePath(student.workspaceId, project.id));
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await expect(page.getByTestId("file-row-e.md")).toBeVisible();
 }
 
 for (const viewport of SHORT) {
 	test.describe(`the workspace at ${viewport.width} by ${viewport.height}`, () => {
 		test.use({ viewport });
 
-		test("the stacked column scrolls instead of squeezing, and focused controls are not covered", async ({
+		test("each drawer fits the short window, and focused controls in it are not covered", async ({
 			page,
 			context,
 		}) => {
-			await openStackedWorkspace(page, context);
+			await openSeededWorkspace(page, context);
 			await expectNoPageScrollSideways(page);
-			// Each list keeps a usable height; the column scrolls to show the rest.
-			const projects = await boxOf(page.getByRole("navigation", { name: "Projects" }));
-			const files = await boxOf(page.locator(".pk-right-pane"));
-			expect(projects.height).toBeGreaterThanOrEqual(159);
-			expect(files.height).toBeGreaterThanOrEqual(271);
+			// The work area takes the height between the header and the status bar.
+			const work = await boxOf(page.getByRole("main", { name: "Work area" }));
+			expect(work.height).toBeGreaterThan(viewport.height / 3);
 
-			await fromTop(page);
+			await openDrawer(page, "Projects");
 			const newProject = page.getByRole("button", { name: "New project" });
 			await tabTo(page, newProject);
 			await expectHitTestable(newProject);
+			await closeDrawer(page);
 
+			await openDrawer(page, "Files");
 			const row = page.getByTestId("file-row-c.md");
-			await tabTo(page, page.getByTestId("file-row-a.md"), 120);
+			await tabTo(page, page.getByTestId("file-row-a.md"), 40);
 			await page.keyboard.press("ArrowDown");
 			await page.keyboard.press("ArrowDown");
 			await expect(row).toBeFocused();
@@ -257,11 +289,11 @@ for (const viewport of SHORT) {
 			await expectNoPageScrollSideways(page);
 		});
 
-		test("the stacked workspace has no automatic accessibility violations in either theme", async ({
+		test("the short workspace has no automatic accessibility violations in either theme", async ({
 			page,
 			context,
 		}) => {
-			await openStackedWorkspace(page, context);
+			await openSeededWorkspace(page, context);
 			for (const colorScheme of ["light", "dark"] as const) {
 				await page.emulateMedia({ colorScheme });
 				await expectNoViolations(page);
@@ -277,7 +309,8 @@ test.describe("the workspace at 320 by 640", () => {
 	test.use({ viewport: { width: 320, height: 640 } });
 
 	test("the file tree shows several rows", async ({ page, context }) => {
-		await openStackedWorkspace(page, context);
+		await openSeededWorkspace(page, context);
+		await openDrawer(page, "Files");
 		const body = await boxOf(page.getByTestId("file-tree-body"));
 		const row = await boxOf(page.getByTestId("file-row-a.md"));
 		expect(body.height).toBeGreaterThanOrEqual(4 * row.height);
@@ -542,13 +575,20 @@ test.describe("the workspace on a touch screen", () => {
 			context,
 		}) => {
 			await page.setViewportSize(viewport);
-			await openStackedWorkspace(page, context);
-			for (const target of [
-				page.getByRole("button", { name: "New project" }),
-				page.getByTestId("empty-open-terminal"),
-				page.getByTestId("file-row-a.md"),
-			])
-				expect(await pinchBlockers(target), String(target)).toEqual([]);
+			await openSeededWorkspace(page, context);
+			// Measured where each is seen: in its drawer at 560 px.
+			const narrow = viewport.width < 896;
+			if (narrow) await openDrawer(page, "Projects");
+			const newProject = page.getByRole("button", { name: "New project" });
+			expect(await pinchBlockers(newProject)).toEqual([]);
+			if (narrow) await closeDrawer(page);
+			const empty = page.getByTestId("empty-open-terminal");
+			expect(await pinchBlockers(empty)).toEqual([]);
+			if (narrow) await openDrawer(page, "Files");
+			const row = page.getByTestId("file-row-a.md");
+			await expect(row).toBeVisible();
+			expect(await pinchBlockers(row)).toEqual([]);
+			if (narrow) await closeDrawer(page);
 			// A mounted terminal, where xterm.js sets its own touch handling.
 			await page.getByTestId("empty-open-terminal").click();
 			const screen = page.locator(".xterm-screen");
@@ -562,7 +602,7 @@ test.describe("the workspace on a touch screen", () => {
 		context,
 	}) => {
 		await page.setViewportSize({ width: 1280, height: 800 });
-		await openStackedWorkspace(page, context);
+		await openSeededWorkspace(page, context);
 		const files = page.locator(".pk-right-pane");
 		const before = (await boxOf(files)).width;
 		const grip = await boxOf(page.getByRole("separator", { name: "Resize file tree" }));

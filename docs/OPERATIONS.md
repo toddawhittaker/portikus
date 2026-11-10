@@ -1294,6 +1294,13 @@ as anyone, so it is trusted only while it is registered.
    make lti-mock-unregister
    ```
 
+On a server installed with apt, `make lti-mock-register` needs the
+`portikus_lti_platforms_file` line in `/etc/portikus/portikus.yaml`
+(see "On a server installed with apt" above) and stops with a message
+naming it when it is missing. `make install-test` adds the line and
+registers the mock itself before its smoke test, so a rehearsal run needs
+no manual step for the LTI checks.
+
 While the mock is registered, `make security-test` prints a warning
 naming it, and the smoke test reports it. Users created by mock launches
 stay in the database, under the issuer `lti:http://<MOCK_LMS_HOST>:8765`.

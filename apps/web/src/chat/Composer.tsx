@@ -31,12 +31,14 @@ import { VoiceButton } from "../voice/VoiceButton.js";
 import { ComposerChips } from "./ComposerChips.js";
 import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
 import type { ChatStore } from "./chatStore.js";
-import { useComposerAttachments } from "./composerAttachments.js";
+import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
 	composerText,
 	createComposerEditor,
+	forgetLongPaste,
 	inCodeBlock,
 	insertAtCursor,
+	showInterim,
 } from "./composerEditor.js";
 import "./composer.css";
 
@@ -94,6 +96,8 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	const stopFocused = useRef(false);
 	/** Long pastes so far, so each gets its own file and chip name. */
 	const pastes = useRef(0);
+	/** The last long paste's chip, to take back if the same text is pasted again at once. */
+	const lastLongPaste = useRef<Promise<string[]> | null>(null);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
 	const bypass = settings?.mode === "bypassPermissions";
@@ -148,6 +152,10 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	});
 	const stopSpeech = speech.stop;
 
+	useEffect(() => {
+		if (editor.current) showInterim(editor.current, speech.interim);
+	}, [speech.interim]);
+
 	function submit(event?: FormEvent) {
 		event?.preventDefault();
 		if (files.saving > 0 || sending) return;
@@ -164,6 +172,9 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			return;
 		}
 		stopSpeech();
+		// The file just sent must not be deleted by a quick repeat of its paste.
+		if (editor.current) forgetLongPaste(editor.current);
+		lastLongPaste.current = null;
 		setError("");
 		if (text.trim() !== "" && editor.current)
 			lastSent.current = editor.current.getJSON();
@@ -174,7 +185,19 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 		pastes.current += 1;
 		const name =
 			pastes.current === 1 ? PASTED_NAME : `pasted-text-${pastes.current}.txt`;
-		void files.add([new File([text], name, { type: "text/plain" })], lines);
+		lastLongPaste.current = files.add(
+			[new File([text], name, { type: "text/plain" })],
+			lines,
+		);
+	}
+
+	/** The same long text pasted again at once: the editor has put it inline, so its chip goes. */
+	function repaste(lines: number) {
+		const chip = lastLongPaste.current;
+		lastLongPaste.current = null;
+		void chip?.then((keys) => {
+			for (const key of keys) files.discard(key, `Pasted ${lineText(lines)} inline.`);
+		});
 	}
 
 	function addPasted(pasted: File[]) {
@@ -220,8 +243,15 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 	}
 
 	// The editor lives outside React; it reaches this render's handlers through here.
-	const handlers = useRef({ submit, addPasted, addLongPaste, onKeyDown, onKeyUp });
-	handlers.current = { submit, addPasted, addLongPaste, onKeyDown, onKeyUp };
+	const handlers = useRef({
+		submit,
+		addPasted,
+		addLongPaste,
+		repaste,
+		onKeyDown,
+		onKeyUp,
+	});
+	handlers.current = { submit, addPasted, addLongPaste, repaste, onKeyDown, onKeyUp };
 
 	useLayoutEffect(() => {
 		const element = host.current;
@@ -243,6 +273,7 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 			onSend: () => handlers.current.submit(),
 			onFiles: (pasted) => handlers.current.addPasted(pasted),
 			onLongPaste: (text, lines) => handlers.current.addLongPaste(text, lines),
+			onRepaste: (lines) => handlers.current.repaste(lines),
 			onKeyDown: (event) => handlers.current.onKeyDown(event),
 			onKeyUp: (event) => handlers.current.onKeyUp(event),
 			onChange: (changed) => setInCode(inCodeBlock(changed)),
@@ -366,16 +397,6 @@ export function Composer({ store, workspaceId, projectId, terminalId }: Composer
 						</span>
 					) : null}
 				</div>
-				{speech.interim !== "" ? (
-					// Shown only: the status region says "Listening…" instead of reading every guess.
-					<p
-						className="pk-composer-note"
-						aria-hidden="true"
-						data-testid="chat-voice-interim"
-					>
-						{speech.interim}
-					</p>
-				) : null}
 				{speech.state !== "listening" && speech.message !== "" ? (
 					<p className="pk-composer-note" aria-hidden="true">
 						{speech.message}
