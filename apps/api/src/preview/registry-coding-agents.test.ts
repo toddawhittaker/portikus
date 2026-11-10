@@ -206,3 +206,36 @@ test("only listeners of the workspace that changed are called", async () => {
 		expect(otherCalls).toBe(0);
 	});
 });
+
+test("a subagent that finishes inside a throttle window is not lost", async () => {
+	await withRegistry(async ({ registry, setAgents }) => {
+		await waitFor(() => registry.codingAgents(WORKSPACE) !== null);
+		const seen: string[] = [];
+		registry.subscribeCodingAgents(WORKSPACE, () => {
+			seen.push(registry.codingAgents(WORKSPACE)?.[0]?.subagents[0]?.state ?? "");
+		});
+		const status = (state: "working" | "finished") => [
+			{
+				terminalId: TERMINAL,
+				agent: "claude",
+				state: "working",
+				since: "2027-01-15T07:00:00.000Z",
+				subagents: [
+					{
+						id: "toolu_01ABC",
+						type: "Explore",
+						description: "Find the parser",
+						state,
+						since: "2027-01-15T07:00:00.000Z",
+					},
+				],
+			},
+		];
+		// Back to back, so both land in one window.
+		await setAgents(status("working"));
+		await setAgents(status("finished"));
+		await waitFor(() => seen.length > 0);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		expect(seen.at(-1)).toBe("finished");
+	});
+});
