@@ -404,6 +404,7 @@ const PAYLOADS: Record<string, object> = {
 		mode: "auto",
 	},
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
+	"POST /workspaces/:id/projects/:pid/file-search": { query: "notes" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
 	"POST /workspaces/:id/projects/:pid/extract": { path: "starter.zip" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
