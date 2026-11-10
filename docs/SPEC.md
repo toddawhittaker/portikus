@@ -7204,6 +7204,23 @@ Acceptance:
 - the first page does not load the highlighter, and a reply's code block does not change size when the colours arrive;
 - a hook post never carries a prompt, and read-aloud text never leaves the browser except through the browser's own online voice.
 
+### Epic 60 — Documentation refresh
+
+Built on `epic/60-docs`. Documentation and the in-app Help only. See docs/WORKFLOW.md, "Documentation images".
+
+Includes:
+
+- the in-app Help brought up to date and kept as the source of truth for the guides;
+- the README rewritten for evaluators, the student and administrator guides rewritten, and a new instructor guide;
+- an accuracy pass over INSTALL.md and OPERATIONS.md;
+- `make screenshots`, a committed capture of every documentation image from the end-to-end stack with invented data.
+
+Acceptance:
+
+- every claim in the guides and README matches the code and the Help;
+- `make screenshots` runs from a clean checkout, never in CI, and never touches a real database or the pilot;
+- no guide, README or Help text names an epic or issue number.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.

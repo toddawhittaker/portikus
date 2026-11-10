@@ -2983,7 +2983,7 @@ Delivered:
   `provisioning` with a message until there is room.
 - Each workspace's network is capped at 200 Mbit/s each way.
 - The first deploy restarts Caddy and PostgreSQL once (OPERATIONS.md,
-  "First deploy of Epic 17").
+  "First deploy with the resilience limits").
 
 Gaps:
 
@@ -5853,3 +5853,33 @@ Gaps:
 - At 1440 px the status bar no longer fits on one 28-pixel line with both plan meters, and wraps to a second line as designed; the narrower widths are tested.
 - The Pebble flake (#1830) could not be reproduced here, so that fix rests on the cause found in the code.
 - The rehearsal ran through #1850 only. The rehearsal VM has no Claude sign-in, so the full path (a signed-in student, a subagent, a `!` command, read aloud, the context meter) is unproven end to end.
+
+## Epic 60 — documentation refresh
+
+Built on `epic/60-docs` (task PRs #1873 to #1879, the fix round #1882 and #1881, and the fold). Documentation and the in-app Help only; no migration and no product behaviour change. SPEC.md section 29; docs/WORKFLOW.md, "Documentation images".
+
+Delivered:
+
+- Help (#1874, #1876, #1881): the in-app Help names the five New tab items (Terminal, Claude Code (TUI), Claude Code (GUI), Codex and Preview) and what a Traditional course hides, has its own topic and anchor for the phone layout and its drawers, lists the five chat permission modes, says audit records are kept 365 days, names the four sign-in choices as the Sign-in tab shows them, starting with Local accounts only, and says an LDAP or Active Directory server shows read-only, and states the backup floor's exception for Back up now sets.
+- Screenshots (#1875, #1882): `make screenshots` builds the app, starts the end-to-end stack with invented demo data on a throwaway database (or a private one under `TEST_DATABASE_URL`), and rewrites the 30 images in `docs/images/` at 1440 by 900 in 256 colours, with a dark shell image, a phone image at 390 by 844 and three close-up crops. The capture lives in `e2e/doc-images/`, matches no Playwright spec pattern, and never runs in CI. Every image is scripted: the chat comes from the fake agent, not a real Claude session. The fix round seeds audit rows as the product writes them (`ok`, newest first, with a quota change), finds ImageMagick as `magick` or `convert` and says so when it is missing, and pins the PostgreSQL image by digest.
+- Student guide (#1877, #1881): `docs/STUDENT-GUIDE.md` rewritten from the student Help: the New tab items, the chat tab (composer, pickers, permission modes, `/` and `@` menus, `!` commands, permission cards and deny with a reason, plan mode, `/clear`, read aloud, Resume), agent and subagent rows, alerts and the seven-day plan meter, code help and the Problems tab, live help, voice input and the phone layout, with 19 images.
+- Administrator and instructor guides (#1878, #1881): `docs/ADMIN-GUIDE.md` refreshed (invitations and CSV import, deleting several backups and the floor, 365-day audit retention, the Sign-in tab's groups and choices, coding-agent updates, site settings) and checked against the admin pages; the instructor material moved to a new `docs/INSTRUCTOR-GUIDE.md` (the Course page, roster sync, the Agentic or Traditional student interface, Deep Linking starter projects, agent use, shared projects and live help).
+- README (#1879, #1881): rewritten for someone deciding whether to adopt Portikus: what it is and who it is for, a screenshot tour, the supported agents and interfaces, how it works, short Install and Develop sections that link to the full guides, and the list of documents. Status now points here instead of naming an epic.
+- Install and operations (#1873): `docs/INSTALL.md` and `docs/OPERATIONS.md` checked against the code and corrected (every single sign-on provider needs an invitation; group modes for Entra and Google; invitations, CSV import and email edits; the Email and alerts settings name; the backup floor, request cap and multi-delete; 365-day audit retention; LTI token hosts; the measured code-help memory), with epic and issue numbers removed.
+- Fold: this section, SPEC.md section 29, and `docs/EPIC-60.md` deleted.
+
+Todd's rulings (2026-11-10):
+
+- The in-app Help stays the source of truth; it was updated first and both guides were rewritten to match it. Nothing checks that they agree.
+- The README is written for evaluators first.
+- Instructors get their own guide; INSTALL.md and OPERATIONS.md had an accuracy pass, not a rewrite.
+- Every image comes from the committed capture script. The planned real-agent captures from the pilot were cancelled because no test account there has a Claude sign-in, so the chat, agent-row and plan-meter images are scripted too.
+
+Verified: every task PR passed its own CI, and each epic push run was green. The Help changes ran the Help unit tests and `e2e/help.spec.ts` (including axe in both themes); `make screenshots` ran from clean twice with all captures passing, and every image was looked at. Code review checked about 65 concrete claims in the guides and README against the code and found no wrong fact in the prose; it found a misleading audit image, a fifth New tab item (Preview) the docs left out, an undocumented ImageMagick need, an undocumented capture target and a gap in the backup rule, all fixed in the fix round. Accessibility review found the image alt text and the new Help topic sound; it found the admin Help did not mention LDAP or Active Directory (fixed) and drawer buttons that share names with their panes (#1880).
+
+Gaps:
+
+- Nothing checks that the guides and the in-app Help agree, so they can drift again.
+- The images show scripted data, so a chat or plan meter in them is not from a real session, and the chat image is not taken at the same moment as the workspace images.
+- On a phone, the Projects and Files buttons share their names with the panes they open (#1880).
+- GitHub had an incident affecting pull requests and Actions during the run; several PRs needed a close and reopen before CI started, which left stale "Secret scan" failures on already-merged PRs.
