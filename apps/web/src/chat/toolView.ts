@@ -270,3 +270,18 @@ export function previewText(
 	if (all.length <= lines) return { shown: all.join("\n"), hidden: 0 };
 	return { shown: all.slice(0, lines).join("\n"), hidden: all.length - lines };
 }
+
+/**
+ * A tool's path as the project names it: Claude Code runs in
+ * `/home/student/projects/<slug>`, so a path under it loses that prefix, a
+ * relative one is already the project's, and anything else is not in the
+ * project (null).
+ */
+export function projectPath(slug: string | undefined, path: string): string | null {
+	if (!path.startsWith("/")) return path;
+	if (slug === undefined) return null;
+	const root = `/home/student/projects/${slug}/`;
+	return path.startsWith(root) && path.length > root.length
+		? path.slice(root.length)
+		: null;
+}

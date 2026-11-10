@@ -21,12 +21,18 @@ import type {
 	ChatTurn,
 } from "./chatStore.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
-import { foldTurn, groupTools, type ToolRun } from "./fold.js";
+import {
+	type ChangedFile,
+	changedFiles,
+	foldTurn,
+	groupTools,
+	type ToolRun,
+} from "./fold.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers } from "./questionAnswer.js";
 import { SpeakButton } from "./SpeakButton.js";
 import { ToolBlock } from "./ToolBlock.js";
-import { toolLine } from "./toolView.js";
+import { projectPath, toolLine } from "./toolView.js";
 import "./messages.css";
 import "./turn.css";
 
@@ -487,14 +493,95 @@ function FoldedWork({ turn, items }: { turn: ChatTurn; items: ChatItem[] }) {
 	);
 }
 
+/** Opens a file the project names, or null when nothing can be opened from the chat. */
+export interface FileOpener {
+	/** The project's slug, which turns Claude's absolute paths into the project's. */
+	slug: string | undefined;
+	open: (path: string) => void;
+}
+
+const lineCount = (count: number) => `${count} ${count === 1 ? "line" : "lines"}`;
+
+/** "+12 −3" to the eye, the same row stat a tool shows; spelled out for a screen reader. */
+function Counts({ added, removed }: { added: number; removed: number }) {
+	return (
+		<span className="pk-chat-tool-stat pk-mono-body">
+			<span aria-hidden={true}>
+				<span className="is-added">+{added}</span>{" "}
+				<span className="is-removed">−{removed}</span>
+			</span>
+			<span className="sr-only">{`, ${lineCount(added)} added, ${lineCount(removed)} removed`}</span>
+		</span>
+	);
+}
+
+/**
+ * Under a finished turn, "2 files changed +12 −3", opening to each file with
+ * its counts; a file in the project opens in the editor, or its diff in a Git
+ * repository (SPEC.md §10.8).
+ */
+function FilesChanged({
+	files,
+	opener,
+}: {
+	files: ChangedFile[];
+	opener: FileOpener | null;
+}) {
+	const added = files.reduce((sum, file) => sum + file.added, 0);
+	const removed = files.reduce((sum, file) => sum + file.removed, 0);
+	return (
+		<li className="pk-chat-step">
+			<details className="pk-turn-files" data-testid="chat-files-changed">
+				<summary className="pk-chat-worked-summary pk-turn-files-summary pk-focus-inset">
+					<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+					<span>
+						{files.length === 1 ? "1 file changed" : `${files.length} files changed`}
+					</span>
+					<Counts added={added} removed={removed} />
+				</summary>
+				<ul className="pk-turn-files-list">
+					{files.map((file) => {
+						const inProject = opener ? projectPath(opener.slug, file.path) : null;
+						const name = inProject ?? file.path;
+						return (
+							<li
+								key={file.path}
+								className="pk-turn-file"
+								data-testid="chat-changed-file"
+							>
+								{opener && inProject !== null ? (
+									<button
+										type="button"
+										className="pk-turn-file-open pk-mono-body pk-focus-ring"
+										title={name}
+										onClick={() => opener.open(inProject)}
+									>
+										{name}
+									</button>
+								) : (
+									<span className="pk-turn-file-open pk-mono-body" title={name}>
+										{name}
+									</span>
+								)}
+								<Counts added={file.added} removed={file.removed} />
+							</li>
+						);
+					})}
+				</ul>
+			</details>
+		</li>
+	);
+}
+
 interface TurnProps {
 	turn: ChatTurn | undefined;
 	items: ChatItem[];
 	/** Tool calls waiting on a permission card, by id. */
 	asking: ReadonlySet<string>;
+	opener: FileOpener | null;
 }
 
-function TurnSteps({ turn, items, asking }: TurnProps) {
+function TurnSteps({ turn, items, asking, opener }: TurnProps) {
 	if (turn === undefined || turn.status === "running") {
 		return (
 			<>
@@ -510,6 +597,7 @@ function TurnSteps({ turn, items, asking }: TurnProps) {
 	const { before, folded, after, errors } = foldTurn(
 		items.filter((item) => !isAsked(item)),
 	);
+	const files = changedFiles(items);
 	return (
 		<>
 			{before ? <Step item={before} /> : null}
@@ -518,6 +606,7 @@ function TurnSteps({ turn, items, asking }: TurnProps) {
 				<Step key={item.key} item={item} />
 			))}
 			{after ? <Step item={after} /> : null}
+			{files.length > 0 ? <FilesChanged files={files} opener={opener} /> : null}
 			{errors.map((item) => (
 				<Step key={item.key} item={item} />
 			))}
@@ -525,7 +614,7 @@ function TurnSteps({ turn, items, asking }: TurnProps) {
 	);
 }
 
-function Turn({ turn, items, asking }: TurnProps) {
+function Turn({ turn, items, asking, opener }: TurnProps) {
 	return (
 		<li className="pk-chat-entry pk-chat-turn" data-testid="chat-turn">
 			<p className="pk-chat-author">
@@ -533,7 +622,7 @@ function Turn({ turn, items, asking }: TurnProps) {
 				Claude
 			</p>
 			<ol className="pk-chat-steps">
-				<TurnSteps turn={turn} items={items} asking={asking} />
+				<TurnSteps turn={turn} items={items} asking={asking} opener={opener} />
 			</ol>
 		</li>
 	);
@@ -593,6 +682,8 @@ export interface MessageListProps {
 	truncated: boolean;
 	/** Ids of the tool calls an open permission card is asking about. */
 	asking: ReadonlySet<string>;
+	/** Opens a changed file; null where the chat has no work area to open it in. */
+	opener?: FileOpener | null;
 }
 
 export function MessageList({
@@ -601,6 +692,7 @@ export function MessageList({
 	currentTurnId,
 	truncated,
 	asking,
+	opener = null,
 }: MessageListProps) {
 	return (
 		<ol className="pk-chat-log" aria-label="Conversation">
@@ -619,6 +711,7 @@ export function MessageList({
 							turn={turns[entry.turnId]}
 							items={entry.items}
 							asking={asking}
+							opener={opener}
 						/>
 					);
 				}
@@ -630,7 +723,13 @@ export function MessageList({
 				}
 				// Claude's words outside a turn still carry its byline.
 				return (
-					<Turn key={entry.key} turn={undefined} items={entry.items} asking={asking} />
+					<Turn
+						key={entry.key}
+						turn={undefined}
+						items={entry.items}
+						asking={asking}
+						opener={opener}
+					/>
 				);
 			})}
 		</ol>

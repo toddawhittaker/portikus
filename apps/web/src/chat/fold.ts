@@ -1,4 +1,5 @@
 import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore.js";
+import { toolLine } from "./toolView.js";
 
 /**
  * A finished turn as the conversation shows it: its first and final
@@ -75,4 +76,46 @@ export function groupTools(
 	}
 	close();
 	return shown;
+}
+
+/** One file a turn's Edit, MultiEdit or Write calls changed, with its summed counts. */
+export interface ChangedFile {
+	path: string;
+	added: number;
+	removed: number;
+}
+
+const CHANGING_TOOLS = new Set(["Edit", "MultiEdit", "Write"]);
+
+/**
+ * The files a turn changed, in the order first touched (SPEC.md §10.8). Only
+ * calls that finished count, since a failed edit changed nothing; a Write
+ * counts every line it wrote as added. Deletions are not seen: no tool here
+ * deletes a file. The host drops subagents' calls, so these are the main
+ * thread's alone.
+ */
+export function changedFiles(items: readonly ChatItem[]): ChangedFile[] {
+	const files = new Map<string, ChangedFile>();
+	for (const item of items) {
+		if (item.kind !== "tool" || item.status !== "done") continue;
+		if (!CHANGING_TOOLS.has(item.name)) continue;
+		const line = toolLine(item.name, item.input, item.title);
+		const path = line.path ?? (line.verb ? line.target : null);
+		if (path === null) continue;
+		const counts =
+			line.detail?.kind === "write"
+				? { added: writtenLines(line.detail.content), removed: 0 }
+				: { added: line.added, removed: line.removed };
+		const file = files.get(path) ?? { path, added: 0, removed: 0 };
+		file.added += counts.added;
+		file.removed += counts.removed;
+		files.set(path, file);
+	}
+	return [...files.values()];
+}
+
+function writtenLines(content: string): number {
+	if (content === "") return 0;
+	const lines = content.split("\n");
+	return lines.at(-1) === "" ? lines.length - 1 : lines.length;
 }
