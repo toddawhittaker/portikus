@@ -287,7 +287,7 @@ describe("the shipped managed settings", () => {
 		expect(JSON.parse(shipped)).toEqual(JSON.parse(imageContent ?? ""));
 	});
 
-	test("hook every agent state to the state script, in the background", () => {
+	test("hook every agent state and subagent event to its script, in the background", () => {
 		const { hooks } = JSON.parse(
 			readFileSync(
 				join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
@@ -311,6 +311,7 @@ describe("the shipped managed settings", () => {
 			),
 		);
 		const script = `${AGENT_SCRIPTS_DIR}/portikus-agent-state claude`;
+		const subagent = `${AGENT_SCRIPTS_DIR}/portikus-agent-subagent`;
 		expect(wired.sort()).toEqual(
 			[
 				`UserPromptSubmit * ${script} working`,
@@ -322,6 +323,12 @@ describe("the shipped managed settings", () => {
 				`Stop * ${script} finished`,
 				`StopFailure * ${script} finished`,
 				`SessionEnd * ${script} clear`,
+				`PreToolUse Agent|Task ${subagent} pre_tool_use`,
+				`PostToolUse Agent|Task ${subagent} post_tool_use`,
+				`PostToolUseFailure Agent|Task ${subagent} post_tool_use_failure`,
+				`SubagentStop * ${subagent} subagent_stop`,
+				`UserPromptSubmit * ${subagent} user_prompt_submit`,
+				`Stop * ${subagent} stop`,
 			].sort(),
 		);
 	});
@@ -351,6 +358,7 @@ describe("the shipped managed settings", () => {
 		);
 		expect([...scripts].sort()).toEqual([
 			"portikus-agent-state",
+			"portikus-agent-subagent",
 			"portikus-claude-status",
 		]);
 		for (const name of scripts) {
