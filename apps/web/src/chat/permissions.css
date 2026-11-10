@@ -60,3 +60,14 @@
 	padding: 0 var(--space-3) var(--space-2);
 	color: var(--status-error);
 }
+
+/* The "what to do instead" field replaces the buttons in the same place. */
+.pk-chat-reason {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.pk-chat-card-actions[hidden] {
+	display: none;
+}

@@ -609,7 +609,11 @@ interface ChatActions {
 		answers: Record<string, string>,
 		notes?: Record<string, string>,
 	) => boolean;
-	answerPermission: (id: string, optionId: string) => boolean;
+	answerPermission: (
+		id: string,
+		optionId: string,
+		extras?: { message?: string; mode?: "acceptEdits" | "default" },
+	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
@@ -634,8 +638,8 @@ export function createChatStore(
 		interrupt: () => deliver({ type: "interrupt" }),
 		answerQuestion: (id, answers, notes) =>
 			deliver({ type: "question.answer", id, answers, ...(notes ? { notes } : {}) }),
-		answerPermission: (id, optionId) =>
-			deliver({ type: "permission.answer", id, optionId }),
+		answerPermission: (id, optionId, extras = {}) =>
+			deliver({ type: "permission.answer", id, optionId, ...extras }),
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
