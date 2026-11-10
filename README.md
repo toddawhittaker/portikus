@@ -151,8 +151,8 @@ Portikus on its Help page.
 
 ## Status
 
-[docs/STATUS.md](docs/STATUS.md) records what has been delivered and the
-gaps that remain.
+[docs/STATUS.md](docs/STATUS.md) summarizes each epic and lists the open
+items.
 
 ## Contributing and security
 

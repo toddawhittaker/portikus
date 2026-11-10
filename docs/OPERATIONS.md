@@ -599,7 +599,8 @@ documentation warns that it is not maintained, so it is not built.
 The tests prove the connectors against imitation tokens from the in-repo
 mock provider, not how a real provider behaves. The first time a site
 uses Entra, Google, another OIDC provider or Active Directory, check
-these, and record the results in docs/STATUS.md:
+these, and record each result as one line in the open items of
+docs/STATUS.md (or remove the open item it settles):
 
 - Entra's ID token carries `roles`, `name` and `email` for this
   registration, and a guest (B2B) account's token comes from the tenant's
@@ -784,7 +785,7 @@ sign-in sets a new password and then a new factor.
 ## The Dex cutover and the storage move
 
 The pilot moved from the mock provider to Dex on 2026-09-23. Its
-accounts moved into Dex's storage on 2026-09-24. Both kept every account, `sub` and workspace. docs/STATUS.md
+accounts moved into Dex's storage on 2026-09-24. Both kept every account, `sub` and workspace. docs/archive/STATUS-HISTORY.md
 records each run and its snapshots and dump.
 
 A move like these follows the same steps:

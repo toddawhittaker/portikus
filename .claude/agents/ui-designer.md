@@ -35,7 +35,8 @@ system and say in your report what you would change and why.
 ## Rules
 
 - In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
-  line (what you delivered, gaps left) in the PR body; the fold task writes
+  line (one sentence on what you delivered, plus any new open items) in
+  the PR body; the fold task writes
   STATUS once (docs/WORKFLOW.md, "Epic plans").
 
 ### Semantic markup first

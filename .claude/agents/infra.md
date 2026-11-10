@@ -55,7 +55,8 @@ and anything that still depends on a manual step.
 ## Task pull requests
 
 - In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
-  line (what you delivered, gaps left) in the PR body; the fold task writes
+  line (one sentence on what you delivered, plus any new open items) in
+  the PR body; the fold task writes
   STATUS once (docs/WORKFLOW.md, "Epic plans").
 
 ## Code quality

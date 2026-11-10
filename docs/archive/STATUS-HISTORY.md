@@ -1,0 +1,5885 @@
+# Status: what has landed
+
+The running history of what each epic and task delivered, and the known
+gaps each one left. Newest work is at the bottom. Epic order and
+acceptance criteria are in `docs/SPEC.md` section 29; the decision
+records are under `docs/adr/`. Update this file in the same pull request
+that lands the work it describes.
+
+Epics 0 through 3.5 (SPEC.md section 29) have landed. Epic 0 is the pnpm
+workspace monorepo with the apps and packages from STACK.md section 2,
+Biome, Vitest, Playwright, a Makefile, and the decision records in
+`docs/adr/`. Epic 1 is the reproducible platform VM under `infra/`:
+host bootstrap, OpenTofu on libvirt, cloud-init, Ansible roles for the
+firewall, LVM thin storage, Incus, and the workspace network, plus the
+smoke test. Epic 2 is the Debian 13 workspace image built with
+distrobuilder, the hardened workspace profile with nested Docker and
+isolated ID mapping, persistent home and Docker volumes, and the interim
+`workspace.sh` provisioning script. Epic 3 is the control-plane
+workspace lifecycle: a workspace controller that talks to Incus over the
+REST API on its unix socket and serves loopback HTTP behind a bearer
+token, an API with workspace and presence routes (also loopback only), and
+a worker that reconciles every second, is the only writer of workspace
+state, and keeps the disconnect grace timer in a durable
+`shutdown_deadline` column. The `contracts`, `config`, and `db` packages
+now have real content, including Kysely and the database migrations.
+Ansible gained `postgresql`, `node`, and `portikus` roles with three
+systemd units, and the smoke test covers all four Epic 3 acceptance
+criteria. Epic 3.5 packages the control plane as one versioned `portikus`
+Debian package built by `nfpm` in CI (ADR 0007), which owns the service
+users, `/etc/portikus`, `/var/lib/portikus`, and the three systemd units.
+Ansible installs the newest published release, or the version or local
+package named on the command line, and renders only the environment files
+and the controller token, so the VM has no build toolchain and rolling back
+means installing the previous package. Epic 4 is authentication and
+authorization: login is the OIDC Authorization Code flow with PKCE (proof
+key for code exchange) through `openid-client`, and a session is a row in
+PostgreSQL behind an opaque HttpOnly cookie, named with the `__Host-`
+prefix when the public URL is https. Roles are `student` and
+`administrator`, mapped from the identity provider's group claims and
+denied by default. Every API route and the WebSocket upgrade need a
+session, the workspace owner comes from that session rather than the
+request body, and one student asking for another student's workspace gets
+a 404. The WebSocket at `/workspaces/:id/ws` is now the presence
+mechanism, so the old HTTP connection and heartbeat routes are gone, and
+administrators get one listing route. `packages/auth` also holds an
+in-repo mock identity provider, shipped as a fourth systemd unit that stays
+disabled unless Ansible's `portikus_mock_idp` is true (ADR 0008). A new
+`caddy` Ansible role fronts the VM with an internally issued certificate at
+`portikus.<vm-ip>.nip.io` and serves the web bundle, which the Debian
+package now ships, and the smoke test logs in through the real redirect
+flow.
+
+Epic 5 is the workspace agent and terminal transport (ADR 0009).
+`apps/workspace-agent` is a Fastify service using `node-pty` and tmux that
+runs as the unprivileged `student` user inside each container and listens
+on TCP 7400 on the workspace bridge. Each terminal is one tmux session,
+`pk-<terminalId>`, and every attachment is its own PTY running `tmux
+attach-session`, so tmux and not the browser socket owns the shell. The
+agent authenticates a per-workspace bearer token that the worker mints on
+every start and the controller pushes to `/etc/portikus/agent.token`
+through the Incus files API; `start` then polls the agent's `/health` and
+fails if it is not up within 15 seconds. The Debian package ships the agent
+at `/usr/lib/portikus/workspace-agent`, the workspace profile bind-mounts
+it read-only at `/opt/portikus/workspace-agent`, and the workspace image
+runs its unit as `student`. The API adds terminal routes and a
+byte-pipe WebSocket at `/workspaces/:id/terminals/:tid/ws` that forwards
+frames without parsing them, applies backpressure in both directions,
+serves the workspace owner only (an administrator gets a 404), and
+re-checks the session about once a second. Terminal metadata lives in a
+`terminals` table, and the worker sets `ended_at` when a workspace stops.
+The web app gains a terminal page built on xterm.js with tabs, reconnect,
+and link routing to the placeholder files and preview routes, which answer
+501 until Epics 7 and 8; Caddy now sends browser document requests under
+`/workspaces` to the single-page app while JSON and WebSocket routes still
+go to the API. On the infrastructure side the `incus_network` role loads
+`br_netfilter`, which is what makes the peer-isolation ACL rule take
+effect, and the workspace nic filters IP and MAC addresses while the ACL
+allows tcp/7400 from the gateway only. Tests are 17 Playwright cases
+against a fake agent, a vitest file against the real agent (it needs tmux,
+now installed in CI), and an Epic 5 block in the smoke test.
+
+Epic 6 is the three-pane shell and project management (ADR 0010). The
+design system is now built: `packages/ui` holds the tokens as a Tailwind
+theme plus the primitives and overlays, and `apps/web` is the real shell,
+with a project pane on the left, a tabbed work area in the middle, a
+placeholder file pane on the right, and a status bar. Projects are
+database rows mirroring `~/projects/<slug>`; all filesystem and Git work
+runs in the workspace agent behind the existing token, and a listing
+discovers repositories already on disk and flags a row whose directory is
+gone. Create, clone, template, Initialize Git, rename (which moves the
+directory and rewrites terminal working directories), duplicate, zip
+download, and archive (a flag, the directory stays) are all there.
+Terminals gained splits, tab reordering, a per-project saved layout in one
+JSON column, closing the pane when the shell exits, and full clipboard
+handling in the terminal. Templates are configuration
+(`PROJECT_TEMPLATES`), and the platform still never makes a commit.
+Workspace image `2026.09.3` adds `zip` for downloads.
+
+After Epic 6 came the live disconnect grace period (ADR 0011). The grace
+period of SPEC.md section 6.4 is now a row in a `settings` table rather
+than a startup constant: `SHUTDOWN_GRACE_SECONDS` seeds it on the worker's
+first start and nothing else ever writes it from the environment.
+Administrators change the platform value through `PUT /admin/settings` and
+one student's override through `PUT /admin/users/<id>/settings`, both from
+a new administration page at `/admin`. Zero means the workspace is never
+stopped for being disconnected. The worker keeps a `disconnected_at`
+timestamp and recomputes each running workspace's `shutdown_deadline` every
+second, so a change applies at once, including to a workspace already
+counting down.
+
+Structured logging came next (ADR 0012). One shared pino logger in
+`packages/observability` serves the API, worker, controller, workspace agent,
+and the mock identity provider. Every request produces one JSON line, and
+every 4xx or 5xx response is logged with its code and message, so a failed
+request is visible without reproducing it. `LOG_LEVEL` sets each service's
+default, and a `settings.log_level` row set from `/admin` overrides it at
+runtime: the API relays the level to each running workspace's agent and the
+worker relays it to the controller. CI now runs the tests with coverage and
+fails below the floors set in `vitest.config.ts`.
+
+On the pilot feedback branch, the workspace agent no longer drops the frames a
+browser sends while an attachment is still starting. It listens from the first
+moment of the attach, holds input in the existing early-input queue, and uses
+the last size asked for during that window as the size of the new PTY, so a
+pane that corrects its size straight after opening is no longer left blank
+(SPEC.md 9.7). A socket that closes in that window aborts the attach without
+starting a shell.
+The terminal title bar now follows `cd` (SPEC.md section 9.3). The
+workspace agent's single pane poll, described below, sends a `cwd` frame on
+the terminal WebSocket when a pane's path changes, which the web app uses
+to update the title. The path is not written to the database, so a new
+attachment learns it from the next poll.
+
+Terminal panes can now be rearranged by dragging their title bars (SPEC.md
+sections 8.3 and 9.3). Dropping a pane on another pane's left, right, top,
+or bottom half makes it that pane's sibling in a row or column split, and
+dropping on the middle swaps the two, so a stacked pair becomes a
+side-by-side pair and back. While a drag is live the hovered pane shades
+the half it would take. Dropping on the tab strip pulls the pane out into a
+tab of its own at the marked position, and a tab left empty disappears.
+`moveLeaf` and `moveLeafToNewTab` in `apps/web/src/layout/tree.ts` do the
+work; both refuse a move that would break the split-depth or tab limits and
+leave the layout alone. The drag uses the dnd-kit already in the repo, with
+the same 4-pixel activation distance as tab reordering, so a click on a
+title bar still just focuses the pane.
+
+Reviving an ended terminal now stays in its own pane (SPEC.md sections 9.5
+and 9.7): `reconcile` no longer gives a tab back to an ended terminal that
+has no pane, since those rows are listing history rather than panes, and the
+store drops any pane a terminal already has before placing it, so a list
+refetch that arrives mid-revive cannot leave the same terminal in two places.
+Creating a terminal no longer refetches the terminal list by itself either:
+the caller places the new terminal and then asks for the refetch, so no
+reconcile ever sees a terminal that has no pane yet and no half-placed layout
+can be saved. One consequence: a terminal that ends within about a second of being opened,
+before its pane reaches the saved layout, is not restored as a tab on reload
+and stays only in the ended list.
+
+Workspace image `2026.09.4` keeps the apt package lists instead of deleting
+them at the end of the build and adds Debian's `command-not-found`, so a
+fresh workspace can run `sudo apt install <package>` without `apt update`
+first, and a mistyped or missing command names the package that provides
+it. The lists are as of the build date and Debian's daily timer refreshes
+them in a running workspace.
+
+Known gaps: from Epic 4, a real identity provider is not reachable from the
+API yet, the real client secret travels through the environment until SOPS
+is wired up, the only admin UI is the grace period page, nothing
+rate-limits login, and disabling a user means setting `users.disabled_at`
+by hand in SQL. From Epic 5, the file and preview link targets are
+placeholders until Epics 7 and 8; traffic between the API and the agent is
+plaintext on the workspace bridge until Epic 12; the token file sits in a
+directory the student owns, so containment relies on the Incus files API
+resolving paths inside the instance; the eight-terminal cap has a benign
+check-then-act race; and terminal rows (open plus the 20 most recent ended
+per listing) are never pruned. From Epic 6, the 1024-wide rail collapse is
+deferred, a clone shows no progress while it runs, a download has no size
+cap, discovery ignores directories that are not repositories, unarchiving
+is only reachable through the API, right-click paste in Firefox depends on
+the browser's own paste prompt, a failed archive stream can reach the browser
+as a truncated zip, a failed download shows the API's JSON error page, and
+rename is not atomic across the agent and the database, so a crash between
+them leaves the old row missing and the new directory discovered as a
+separate project (issue #1222). Terminal names count per workspace rather than per
+project, so a second project's first terminal may be "Terminal 3", and a
+workspace created on an older image lacks zip until it is recreated, which
+the agent reports as a download failure, and the same workspace has empty
+apt lists and no `command-not-found` until it is recreated. The projects pane now refetches every
+ten seconds while the tab is visible and again when it regains focus, so a
+repository made in a terminal turns up without any UI action, and every row that
+is not missing shows its folder name next to the project name. A project can
+also be deleted for good from its menu: the student types the project's slug
+back, the API ends any terminal sitting in the folder, the agent removes
+`~/projects/<slug>`, and the row and an audit event record it. The delete now
+takes the same one-at-a-time slot the other slow project operations take, so it
+cannot run beside a clone or a copy, but it only ends terminals that were
+created in the project: a terminal that had moved into the folder with `cd`
+keeps running with its shell in a directory that no longer exists, until the
+student opens a new one. Whenever the
+agent runs `git init` for a project, whether on create, on a template, or
+through Initialize Git, it also writes a default `.gitignore` if the project
+has none, so a template that ships its own keeps it. From the grace period task, the
+administration page is a settings form, not the Epic 11 mockup, and the
+infrastructure smoke test now signs in as the mock identity provider's
+administrator to shorten the grace period. From structured logging, an agent
+that restarts inside a still-running workspace loses the log level override
+until an administrator changes it again; a burst of failing requests writes
+one warn line each, with no rate limit and no journald size cap set by
+Ansible, so a flood can push older journal entries out (the fix belongs with
+the login rate-limit gap above: a Caddy rate limit plus a journald
+`SystemMaxUse`); at debug the worker writes one line per workspace per
+second, so debug is meant for short investigations rather than everyday
+running; and a workspace owner who holds the agent token can set their own
+agent's level, which stays until the setting next changes or the workspace
+restarts. From pane dragging, there is no keyboard equivalent: a pane is
+rearranged with a pointer only, and a drop is refused silently when it
+would pass the split-depth or tab limits. The mouse wheel now scrolls a
+terminal's own scrollback and the viewport has a thin scrollbar, which
+needed tmux to stop using the alternate screen. tmux and the browser both
+keep 5,000 lines, and an attachment is sent the pane's earlier lines, at
+most 256 KiB of them, so a reload no longer starts with a bare prompt; the
+cost is one blank screenful between that history and the repainted screen,
+and a capture cut at the byte limit can lose the colour of its first few
+lines. A full-screen program such as nano still moves a line at a time: one
+poll for the whole agent asks tmux which panes have such a program on them
+and tells the browser, which turns wheel notches into arrow keys while it
+does. The poll runs twice a second normally and four times a second while
+any pane is in that state, so for up to about half a second after a program
+takes the screen, and a quarter of a second after it lets go, a wheel notch
+may do the other thing. The workspace dialog can now start,
+stop and restart the workspace (a confirmation first for stop and restart),
+and dialog rows wrap rather than scrolling sideways, so a 64-character image
+fingerprint no longer pushes the title and close button off screen; the
+fingerprint is shown shortened with the full value in its tooltip. A review of
+the epic branch also fixed a few things: a pane torn off to the tab strip now
+gets a tab id of its own rather than reusing the terminal id, which could give
+two tabs the same id, and the layout schema rejects a saved layout with
+duplicate tab ids; a newly created terminal is written into the cached list, so
+a list request already in flight cannot answer without it and take its pane
+away; and a split keys its children by terminal, so dropping a pane on another
+pane's centre swaps them without tearing down and reconnecting both terminals. The infrastructure smoke test now records every workspace, Incus instance and user row it creates and deletes only those, and lists any workspace that already exists, leaves it alone, and skips the lifecycle checks entirely rather than adopting or shortening the grace period around somebody else's workspace; `infra/tests/cleanup-scope-test.sh` proves that with a stubbed SSH command and runs in `make infra-check`.
+## Epic 7 — Files, Monaco, search, Git status, and change review
+
+Epic 7 (ADRs 0013, 0014 and 0015) is on the `epic/7-files` branch and has
+not been merged to `main`. The pilot VM was not deployed from it.
+
+The workspace agent gained file primitives (SPEC.md sections 11.1, 11.2,
+13.5 and 24.6). Every path is resolved with `realpath` and refused unless
+the result is inside `~/projects/<slug>`, so a symbolic link, a `..`
+segment or an encoded separator cannot reach the rest of the filesystem. A
+read streams the file out and carries an ETag, which is the SHA-256 hash of
+the content rather than a timestamp, so two writes in the same millisecond
+still differ. A write is conditional and must carry exactly one of
+`If-Match: <etag>` to overwrite or `If-None-Match: *` to create; a stale
+ETag is a 412 with the current one attached. The body streams into a
+temporary file in the same directory, opened with `O_EXCL` and `O_NOFOLLOW`
+so the kernel itself refuses a planted link, and only a whole, hashed body
+reaches the target. An overwrite finishes with `rename`, so a failed save
+never leaves a truncated file; a create finishes with `link`, which fails
+rather than replacing a file that appeared while the upload was in flight.
+The fixed caps are 2,000 entries per directory listing, 2 MiB for a file
+the editor opens or saves, and 50 MiB for an upload.
+
+Git status and diff are next, and both are read-only (SPEC.md sections
+12.1, 12.6 and 12.8). The agent runs the real `git` command line and never
+keeps a model of its own. Each command gets a ten-second budget and a byte
+cap on its output, and runs in its own process group, so a timeout kills
+any credential or filter helper git started as well as git itself. Status
+returns the branch or detached state, the upstream, how far ahead and
+behind, the number of unresolved conflicts, and one entry per changed path
+with its staged and working-tree letters, the earlier path when git
+detected a rename, and ignored paths only when the browser asks for hidden
+files. Diff compares the `HEAD` version with the working tree and covers
+the cases section 12.6 names: modified, added, deleted, renamed, binary and
+too large, with each side capped at 1 MiB.
+
+Project search runs ripgrep with a fixed argument list and no shell (SPEC.md
+section 11.5). It returns at most 500 matches, skips any file over 1 MiB,
+carries one line of context on each side, and reports a 1-based character
+column rather than ripgrep's byte offset, so clicking a result on a line
+with accented text lands in the right place. A search that runs past ten
+seconds is stopped.
+
+Filesystem events go over a per-project WebSocket at
+`/projects/:slug/events` (SPEC.md section 11.4). One chokidar watcher per
+project root is shared by every subscriber. It does not follow symbolic
+links and skips the generated and dependency directories of section 11.3.
+Changes are batched for 150 milliseconds and sent as one frame of at most
+200 paths; past that the frame says `truncated` and the browser refetches
+the tree instead. Anything under `.git/` is folded into a single `git`
+flag rather than listed, which is what tells the browser to refetch Git
+status. A `ready` frame is sent once the first scan has finished, so the
+browser knows when its listing is live. One agent serves at most 32 event
+sockets.
+
+The control plane relays all of it under the authorization rules of SPEC.md
+section 5.2 and for the workspace owner only; an administrator asking for a
+student's file gets a 404, as with terminals. The file routes stream in both
+directions rather than buffering, pin the content type of anything they
+return so an HTML file cannot execute on the control-plane origin, and
+apply their own byte cap, so a workspace agent cannot make the control
+plane hold an unbounded body. The Git, search and events routes are a thin
+relay on top: one browser socket is one agent socket, closes carry fixed
+reasons the browser can act on rather than a passed-through message, and a
+single workspace may hold at most 8 event sockets at once, below the
+agent's 32.
+
+In the browser, the tabbed work area now holds file and diff tabs beside
+terminal tabs (SPEC.md section 8.3). A document tab is a single leaf and is
+not split. The reconcile that keeps the saved layout honest evicts the
+oldest document tab when the 16-tab cap is reached, so opening a file
+always works and never closes a terminal.
+
+The file tree does the CRUD of section 11.2: create, rename, move, delete,
+upload and download. Uploads run four at a time; when a name already
+exists the student is offered Replace, which repeats the write with
+`If-Match: *`. Files and directories move by dragging, including onto the
+project root. One toggle shows hidden and generated files, and every
+failure is a plain-English toast rather than a status code.
+
+The editor is Monaco 0.56.0 bundled with the app (no CDN), loading only
+`editor.api`, the Monarch highlighters and the JSON language service; the
+TypeScript and CSS services are left out, because their diagnostics do not
+know the project's configuration and would mislead a student. Text is
+autosaved 750 milliseconds after the last keystroke, with one save in
+flight at a time and a keepalive flush when a tab unmounts, so closing a
+tab does not lose the last edit. A conflicting write brings up a bar with
+Keep mine and Take theirs, and a file deleted on disk while open shows a
+banner rather than silently saving it back.
+
+Markdown tabs open in Preview by default and offer Edit, Preview and Split
+(SPEC.md section 13.4). Front matter is split off and shown as a collapsed
+block rather than as body text. Rendering is react-markdown with GitHub
+flavoured Markdown, with raw HTML deliberately not enabled.
+
+Git state is visible in three places (SPEC.md sections 12.1 and 12.8): a
+decoration on each tree row, a compact status bar reading
+`main • 3 changes • 2 commits ahead`, and a project Changes list whose
+entries open the matching diff. All three are driven by the events socket,
+so a change made by a coding agent or the Git command line shows up without
+polling and without a reload. A diff tab shows the Monaco diff editor, with
+its own presentation per status: added, deleted, renamed, binary and
+oversized each say what they are instead of rendering an empty pane.
+
+The search panel cancels a superseded search, and its results open a file
+through a `?open=&line=` route, which also closes the Epic 5 gap where a
+file link from a terminal answered 501.
+
+Known gaps. Session change review is deferred to Epic 9: the baseline is
+created when an agent session is launched, so the acceptance line about
+reviewing changes since the session began moves to Epic 9 (SPEC.md section
+29). The watcher does not push events for changes inside hidden or
+generated directories, so turning hidden files on shows a listing that then
+goes stale until the next refetch. Hard links inside a project to a file
+outside it defeat confinement, because a path check cannot see them;
+confinement bounds the coding agent, not a student who already has a shell
+in the container. The destination race on `mkdir` and `move` is left open,
+because Node has no `RENAME_NOREPLACE`. The events socket does not register
+presence, so watching a project does not by itself keep a workspace alive.
+A detached `HEAD` shows no short object id, because the contract does not
+carry one. Untracked and unmerged paths share the letter `U` and are told
+apart by colour, icon and the `data-git` attribute. A project that is not a
+Git repository diffs every file as "added". The agent capped concurrent
+searches at four per workspace in Epic 37. The fake agent, now under
+`apps/api/src/testing/fake-agent/`, is stripped from the Debian package
+since Epic 30. Relative image paths in Markdown are not resolved, so an image
+in a repository does not render. Code blocks inside Markdown have no syntax
+highlighting. The test database name and the Playwright ports are shared,
+so two local test runs at once collide (`docs/WORKFLOW.md`). Two CI flakes
+were seen during the epic and are still being isolated.
+
+## Epic 7.1
+
+Epic 7.1 is a batch of fixes and small features from the first hands-on
+use of the pilot after Epic 7, gathered on 2026-09-18 and landed as
+individual pull requests into the epic branch.
+
+**Editor.** A Markdown tab is a split while it is being edited: Monaco
+holds the raw Markdown on the left and a read-only rendered preview on the
+right. Its one Diff button replaces the whole split with this file's
+side-by-side diff, as on every other file tab, and turning the button off
+brings the split back. There are no
+Code, Rich, and Split buttons and no rich-text toolbar any more. The rich
+MDXEditor view that landed earlier in this epic (#155) was taken out
+again after use: a second editing surface over one buffer brought its own
+Markdown dialect and its own parse failures, and the raw text beside a
+preview is what students wanted. `@mdxeditor/editor` and `lexical` are
+gone from the web app, and react-markdown with remark-gfm and
+remark-frontmatter is back. The two sides are kept at the same relative
+position, and each side now ignores exactly the position it last asked
+the other one for, instead of muting itself for a frame: the old flag
+dropped a student's own wheel scrolls, which is why synchronized
+scrolling looked broken on the pilot (§13.4) (#155, #218). Editor settings — auto-save, its delay, and word wrap — now persist per
+user: a `users.editor_settings` JSONB column holds whatever the student
+has changed, `GET`/`PUT /me/settings` read and write only the signed-in
+user's own row, and an account-menu dialog reaches all three, with the
+file tab obeying them without a reload (SPEC.md §13.1, §13.5) (#159). The
+editor's external-change detection now ignores writes the editor itself
+made: the save that used to race the project events socket's own refetch
+of the same change no longer raises a false "this file changed on disk"
+prompt (§13.3, §13.5) (#157). The same prompt had a second cause, found
+on the pilot: Caddy compresses the file read and appends "-gzip" to its
+ETag, so the editor saved against an ETag the workspace agent could not
+match and every first save after a read was refused as a conflict. The
+file read and write now say `Cache-Control: no-transform`, which Caddy
+honours, and a save refused while the file on disk is still the tab's own
+version saves again instead of prompting (§13.3, §13.5) (#157). The stock Monaco experience is on: find and
+replace, code folding, bracket matching and colouring, multi-cursor, the
+minimap, and the command palette, loaded as named contributions so the
+excluded language services stay out of the bundle; the editor also gained
+its own zoom, per open file and per session, and language detection from a
+file's first line when its name says nothing (§13.1, §13.2; DESIGN.md §10)
+(#156, #162, #163). A file now has one tab: opening a change from the
+Changes list shows the diff inside that file's own tab rather than a
+separate diff tab, with a toggle back to the editor, and a real on-disk
+change during editing opens as a Monaco conflict diff offering keep-mine,
+take-disk, and keep-editing (#160, #158). The selected tab, the editor
+cursor, selection, and scroll position now survive leaving the workspace
+route and returning; they live in this browser's `localStorage` and are
+never sent to the server (§7.5) (#161). Zoom is kept in memory for the
+session only and resets on reload (#162). Closing a tab now selects the
+tab that was selected most recently before it, the way a web browser
+does, falling back to the neighbour on the left, or on the right when the
+closed tab was the leftmost one; closing a tab that is not selected
+leaves the selection alone. The selection history lives in the layout
+store for this session only and is never saved (§8.3) (#223).
+
+**Workspace lifecycle.** A workspace the student stopped by hand no
+longer shows an endless "Starting your workspace" progress card. The
+starting screen has a stopped state: it says the workspace is stopped and
+offers a Start workspace button that sends the same request as the Start
+button in the workspace dialog. Before this, closing the dialog after a
+stop revealed the progress card, which looked like a resume that hung for
+ever, and the only way out was to reopen the dialog and press Start
+(SPEC.md §6.2, §6.3) (#230).
+
+**Markdown.** The three Markdown viewer defects from pilot feedback are
+fixed (§13.4): rendered lists show their markers again, split view keeps
+the two sides scrolled together, and the code side's scrollbar is now
+drawn in a visible colour on both editor themes (#154).
+
+The two sides now follow each other by source line rather than by how far
+down each one is: the first line showing on the left is the first line
+showing on the right, and scrolling either side moves the other (§13.4)
+(#229). The preview marks every block it renders with the line it came
+from, counting the front matter it hides.
+
+The rich view's own failures — a file that stopped at the first raw HTML
+node, and the keystrokes that were dropped after it — went away with the
+rich view itself (#218). The preview renders raw HTML as text, so nothing
+in a file is lost or run, and images render with react-markdown's own
+address check.
+
+**Projects pane.** A long project name no longer pushes the row's
+three-dots menu out of sight when the pane is dragged narrow. The name
+truncates with an ellipsis and the menu button keeps its width, in the
+pane header row as well as in each project row (#222).
+
+**Files pane.** The header's three-dots menu and an empty project's own
+empty state now offer New file and New folder on the project root, the
+same items a row's menu shows (#153). The pane now supports selecting
+several rows — a plain click, Ctrl-click to toggle, Shift-click for a run
+— with the row menu and the Delete key acting on the selection behind one
+confirmation, a download that sends one file or zip per selected row, a
+highlighted project-root drop target while an upload is dragged over it, a
+tighter 24-pixel row height, file-type icons, and an autofocused name field
+when the New file, New folder, or Rename dialog opens (#182–#186).
+
+Two more pilot findings are fixed. The project-root drop target no longer
+flickers when the upload drag crosses a top-level file row: the pane counts
+how many of its elements the drag is inside, so the leave event fired for the
+element behind a row no longer looks like the drag leaving the pane (#220).
+Hidden and generated files are now shown by default, with the Show hidden and
+generated files control still there to turn them off, and an untracked file's
+name is drawn in italic and slightly dimmed (SPEC.md §11.3, §12.1) (#221).
+Directories are not styled as untracked: Git status lists untracked files one
+by one and says nothing about the tracked files a directory may also hold, so
+the tree cannot tell a wholly untracked folder from a partly tracked one
+without a second listing.
+
+**Projects.** The clone dialog now asks for the repository URL first and
+derives the project name, slug, and `.git` suffix from it, while any name
+the student typed by hand is never overwritten (#130). Create project now
+warns about a name clash while the student types, comparing the previewed
+slug against the workspace's existing project slugs client-side and
+disabling Create until the name changes, with the server's 409 kept as the
+final guard (#175).
+
+**Terminal and image.** Terminal names are now chosen from the terminals
+of the same project rather than a row position that counted every
+terminal the workspace ever had, so terminals renumber from 1 after a
+restart and a second project starts at Terminal 1; a terminal created in
+an ended terminal's place takes its chosen name back (§9.6, §9.7) (#123).
+The workspace agent starts tmux with `set-clipboard` and `focus-events`
+on, the browser decodes a program's OSC 52 copy request itself (and
+ignores any request to read the clipboard back, since terminal programs
+are untrusted, §24.2), and a URL too wide for the pane is joined into one
+link across every row it covers (§9, §9.7, §14.9) (#125, #126, #128). A
+shell shim at `/usr/local/bin/xclip`, with `xsel` and `pbcopy` as links to
+it, lets command-line tools that copy through those names reach the
+browser by writing an OSC 52 escape instead (workspace image 2026.09.6)
+(#125 follow-up). The image also ships
+`/etc/profile.d/portikus-agents.sh`, which exports `DISABLE_AUTOUPDATER=1`
+so Claude Code stops trying to update itself into a root-owned npm prefix
+it cannot write; Codex has no equivalent environment variable, so its
+update check is left for Epic 9 (§10) (#127). Epic 40 later moved both
+tools out of the image into a shared folder that an admin updates from
+the admin page; the image no longer installs them with npm (§10, §22.6).
+
+A security review of the batch found four issues in the web app, all now
+closed: an OSC 52 clipboard write can only change the system clipboard
+from the pane the student is looking at and typing in, is capped at
+100 KB per copy, and shows a toast naming the terminal that did it; a URL
+printed by a terminal no longer opens in a new tab when it carries a
+username or password; the loopback and private-address refusal is now a
+range check covering 127/8, IPv4-mapped IPv6 forms, and the private,
+link-local, and unique-local ranges; and signing out clears every
+project's browser-local layout from local storage (§24.2).
+
+**Administration and settings.** The Administration entry moved out of
+the workspace header and into the account dropdown menu, where only
+administrators see it, and opens `/admin` in a new browser tab with
+`rel="noopener"`, so the workspace tab's terminal sockets and disconnect
+grace countdown never start while an administrator works on settings
+(§6.4) (#164, closing #124).
+
+**Editor icons.** The find widget's next, previous and close buttons
+drew as empty rectangles. Monaco paints them with its "codicon" icon
+font, whose `@font-face` rule lives in a stylesheet only
+`editor.main.js` imports, and the workspace deliberately loads the
+editor API plus named features instead of `editor.main.js`. The
+codicon feature module is now loaded with the other features, so the
+built bundle carries the font's stylesheet as well as the font file
+(#219).
+
+**Tests and CI.** Two intermittently failing unit tests were made
+deterministic without changing what they assert: the workspace-agent git
+timeout test no longer races a real git process, and the API terminal
+input-limit test now waits for the server to clear its presence row
+instead of reading the count the instant the close frame arrives. Unit
+test output lost 44 jsdom "Not implemented" warnings by stubbing canvas
+and window scrolling in the shared test setup, and the CI cache action
+moved from v4 to v5 to clear a Node 20 deprecation warning (#151, #152).
+Every database test file now gets a database of its own, created and
+dropped by the test helper, so the suite runs fully in parallel again
+instead of serializing the files that share one database; the whole suite
+with coverage went from about 99 seconds to about 26 on a 32-core host
+(STACK.md §13). Continuous integration now computes which files changed inside
+each job and skips every heavy step — installs, typecheck, lint, tests, builds,
+Playwright, OpenTofu, Ansible, shellcheck — on a documentation-only change,
+while the job itself still reports its check, so branch protection is never
+blocked by a workflow that never ran; a docs-only pull request now finishes CI
+in under 40 seconds per job. The Application checks job went from 4m03s at the
+start of the batch to about 2m30s now. The browser test suite is now stable on
+a machine where several agents run Playwright at once: a new setup check
+compares the database the API under test is reading with the one the test
+helpers write to, and stops the run with a clear message when they differ,
+which is what made a different administration test fail on each full-suite run
+while each passed alone because Playwright had reused another checkout's
+servers on the fixed ports; a genuine race in the file-tree "full tab strip"
+test was also fixed, and the administration test file is recorded as needing a
+single worker because those tests share one settings row (§6.4, §7.5).
+
+**Process.** A merger agent now lands a list of task pull requests into
+an epic branch on its own: it waits for CI, updates a branch that has
+fallen behind, squash-merges, and reruns or escalates failures, so a task
+lands as soon as it is green instead of waiting on a person between every
+task; the human review moves to once per epic (ADR 0016). Each role in
+the Ansible platform playbook now carries its own name as a tag, so one
+role can be converged on its own, verified on the pilot host by applying
+only the Caddy role. `docs/HOW-WE-WORK.md` is a new, generic guide to how
+Portikus is built with AI agents, written in plain English for
+non-technical readers.
+
+**Review.** A code review over the epic head produced eleven findings,
+all fixed in the batch: text typed on the student's side of a conflict
+diff now survives Keep editing; opening a file that is showing its diff
+takes the tab back to the editor; Monaco models are named per project;
+deleting a folder together with a selected file inside it sends one
+request instead of two; a user's stored editor settings survive an
+unknown key in the row; per-file test databases are swept after a
+crashed run; CI now classifies infra documentation and shell scripts
+correctly from one shared change-detection job; and the clipboard shim
+treats a selection name given as an argument the same as one piped in.
+Duplication the parallel builders had introduced in the batch was also
+removed: one scroll listener, one tree
+query, one way to make a menu item a link, and zoom handled in one place
+in the layout store. A security review of the batch is described above
+under Terminal and image, which found and closed four issues in the web
+app.
+
+Known gaps. Multi-row selection downloads one file or zip per row rather
+than one merged zip, because the download route takes a single path; a
+multi-path agent endpoint would let the files pane send one request for a
+merged zip (issue #1234). A new terminal in a project
+with an ended, custom-named terminal inherits that name rather than
+matching it exactly; a `replacesTerminalId` hint from the browser would
+make the revive exact. The xclip/xsel/pbcopy shim covers the common
+command-line case, but `@xterm/addon-clipboard` was not adopted because
+its xterm 6 support is still in beta. `DiffViewer` still picks its
+language from the file extension only; there is no Makefile grammar in
+Monaco. Source-line to preview-line scroll mapping in the Markdown split
+view is deferred; the current sync is by relative scroll position, not by
+the corresponding source line (not planned). Codex's
+update-check setting belongs with the rest of agent configuration in Epic
+9, so issue #129 stays open. A handful of end-to-end tests were seen to
+flake once during the batch (an admin grace-period toast, a full tab
+strip, reviving both ended panes, and the two conflict-diff tests before
+auto-save was turned off in their setup) and are worth watching rather
+than fixing blind. Relative image paths in the Markdown
+preview resolve against the app origin and show as broken images. Parallel local
+end-to-end runs collided on fixed ports and one shared database; each
+`pnpm test:e2e` run now has its own database and ports
+(`docs/WORKFLOW.md`, "Local PostgreSQL for database tests").
+
+## Epic 8 — Verification, running services, and authenticated preview
+
+Epic 8 is on the `epic/8-preview` branch and has not been merged to
+`main`. It delivers phases A and B of `docs/BROWSER-HANDLING.md`: a
+student can see which services are listening inside their workspace, run
+the project's own checks, and open a running web application inside
+Portikus on a host that only they can reach. ADR 0018 settled the three
+decisions the design had left open before any code was written (#243).
+
+**Workspace label and container hostname.** Every workspace now has a
+label, derived once when the workspace is created from the identity
+provider's `preferred_username` claim: lowercased, cut down to letters,
+digits and hyphens, capped at 40 characters, prefixed with `u` if it
+would otherwise start with a digit, and made unique with `-2`, `-3` and
+so on. A missing claim gives `ws-<8 hex>`. The label names the preview
+hosts and is pushed into the container as its hostname at every start,
+through `/etc/hostname` and a `hostname` call, so the shell prompt reads
+`student@<label>` (SPEC.md section 29 Epic 8, section 7.1; migration
+`0008_preview`) (#245).
+
+**The preview data model and configuration.** The same migration adds the
+`preview_grants` and `preview_sessions` tables of BROWSER-HANDLING.md
+section 17, holding only SHA-256 hashes of tickets and tokens, with
+foreign keys that cascade, and carries the main session id on a grant so
+a preview session can be tied to the Portikus session that created it. Five configuration keys drive the policy: `PREVIEW_SUFFIX`,
+`PREVIEW_PORT_MIN`, `PREVIEW_PORT_MAX`, `PREVIEW_DENIED_PORTS` and
+`PREVIEW_TICKET_TTL_SECONDS`. The workspace agent's own port is always
+denied whatever the list says, and the API refuses to start in production
+when the suffix is missing, is not a valid lowercase DNS name, or covers
+the application host (#245).
+
+**Grants, bootstrap and authorization.** The browser asks
+`POST /workspaces/:id/preview-grants` for a grant and gets back a preview
+origin and a one-use bootstrap URL. Opening that URL on the preview host
+sets a host-only `__Host-portikus-preview` cookie with `SameSite=Strict`
+and redirects to `/`. From then on every request through the preview edge
+is decided by `GET /preview/authorize`, which Caddy calls as a
+`forward_auth` subrequest. That endpoint answers only when the calling
+socket's own peer address is loopback — the socket, not a forwarded
+header — and it builds the internal upstream solely from the workspace
+row and the port on the preview session, never from request text. The
+upstream travels back in the `X-Portikus-Upstream` response header, which
+Caddy copies onto the request; a client copy of that header is always
+deleted first, so only the API can choose where a request goes (SPEC.md
+sections 14 and 24.7; ADR 0018 decision 2) (#249).
+
+**Revocation and reset.** A preview session dies with the main Portikus
+session: signing out, the main session expiring, stopping the workspace,
+or an explicit `POST /workspaces/:id/preview/reset` all revoke it and
+close any forwards it opened. Reset preview data is driven from the
+Portikus page rather than from inside the preview frame, because an
+application may register a service worker at the root of its own preview
+origin and that worker answers in-frame navigations before they reach the
+network. The Portikus page instead revokes the sessions, fetches
+`/__portikus/reset` on the preview origin in `no-cors` mode so the edge
+answers with `Clear-Site-Data`, and then takes a fresh grant (#249,
+#252).
+
+**Listening discovery and loopback forwards.** The workspace agent reads
+`/proc/net/tcp` and `/proc/net/tcp6` once a second, keeps the listening
+sockets, and matches each one back to the process holding it through
+`/proc`. Ports published by inner Docker containers are matched with
+`docker ps`, cached for five seconds and given 500 milliseconds to
+answer, so a workspace without Docker still gets a list. The agent never
+probes a student's service: the protocol hint is a guess from well-known
+port numbers. A service bound only to loopback is reached through a
+forward — a listener on the container's own interface, on the same port
+number, that copies bytes to that same port on loopback in the same
+container and nowhere else, dialling `127.0.0.1` or `::1` for each connection,
+whichever address the agent saw the service listening on, so an
+IPv6-only service is reached too. Only the agent's `/forwards` routes can open one, a forward
+closes itself when its loopback listener disappears, and a workspace may
+hold at most eight forwards open at once, counting the preview and bridge
+ones together (SPEC.md sections 14.7 and 18.2) (#244, #255).
+
+**The listening registry.** The control plane keeps one WebSocket per
+running workspace to the agent's listening events, decided by a
+two-second poll of the running workspaces that never runs two passes at
+once. It stamps the workspace id the agent does not know onto each entry
+and marks as `denied` any port the policy refuses, which is the control
+plane's word and never the agent's. The same list goes out to the browser
+on the existing workspace socket as a `listening-services` frame: the
+current list on connect, then every change (#249, #255).
+
+**The Caddy preview edge.** A second virtual host,
+`https://*.<preview suffix>`, serves every preview origin on the same
+public port with a wildcard certificate from Caddy's internal authority.
+On the pilot the suffix defaults to `preview.<public host>`, which nip.io
+resolves without any DNS record. Inside that block,
+`/__portikus/bootstrap` and `/__portikus/reset` go to the API, every
+other reserved `/__portikus/` path is a 404 from Caddy without an API
+call, and everything else strips the client's upstream and forwarding
+headers, runs the authorization subrequest, and proxies the answer. The
+preview session cookie is cut out of the Cookie header after
+authorization, so the student's application never sees it, and the header
+is deleted rather than sent empty. Two narrow compatibility rewrites are
+applied: a redirect whose `Location` names `localhost`, `127.0.0.1` or
+the workspace address on exactly the port this preview serves is
+rewritten to the preview origin, and a `Set-Cookie` with
+`Domain=localhost` or a bare IP address loses that attribute. Nothing
+else is rewritten — no bodies, no external redirects, no security headers
+removed. Preview access logs use Caddy's filter encoder to drop the query
+string and the `Cookie`, `Referer` and `Authorization` headers, which
+matters because a bootstrap ticket travels in a query string
+(BROWSER-HANDLING.md sections 10, 12, 13 and 16.5) (#246, #253).
+
+**The Preview tab and the Running pane.** A new centre-pane tab kind,
+`preview:<port>`, is saved in the project layout like a file tab and is
+never split. It points a sandboxed iframe at the bootstrap URL with
+exactly the sandbox, referrer policy and permissions policy of ADR 0018:
+scripts, same-origin, forms, modals, popups, downloads and pointer lock
+allowed; no top navigation; camera, microphone and geolocation denied.
+The toolbar offers reload, open in a new tab, copy URL, viewport widths,
+reset preview data, and a link to the Running surface. The Running
+surface is a third tab of the right pane beside Files and Checks, with
+one row per listening port, its command, whether it is Docker, and an
+Open preview action. A `+ Preview` launcher lists the listening ports and
+accepts a typed one. A URL printed in a terminal whose host is exactly
+`localhost`, `127.0.0.1` or `[::1]` opens a Preview tab for that port;
+`localhost.evil.example`, user-info tricks, other loopback addresses and
+non-HTTP schemes are all refused (SPEC.md sections 14.6 to 14.9 and 18.2)
+(#250, #254).
+
+**Checks.** A project's checks live in `.portikus/checks.json` inside the
+project, and a check runs in a dedicated read-only output panel rather
+than in a terminal tab. The agent reads and validates the file — a
+missing file is an empty list and a broken one is reported rather than
+thrown — and runs a check with `bash -lc` in the project directory
+through node-pty, one run of a check at a time. Output is kept in memory,
+capped at one mebibyte with the oldest bytes dropped, and fifty runs are
+remembered whatever state they are in, with finished ones dropped before
+running ones when room is needed. The control plane brokers the three
+routes behind the same ownership gate as the file routes, and the output
+socket is one-way, so nothing a page sends can reach the agent through
+it. In the browser, the Checks pane shows each check's name, its real
+command and its state, with Run and Stop, an output panel below, and an
+Edit checks dialog that writes the file through the ordinary conditional
+file API (SPEC.md section 18.1) (#247, #255).
+
+**The multi-port bridge.** A request to `/__portikus/ports/<port>/…` on a
+preview host is authorized for that other port and proxied to it in the
+same workspace, so an application that calls its own API on a second port
+works without a second preview host. Caddy keeps the original path in
+`X-Forwarded-Uri` for the authorization call and strips the prefix before
+the application sees the request. The bridge port goes through exactly
+the same policy as any preview target and is always looked up in the
+preview session's own workspace, so it cannot reach another student's
+service. A bridge forward counts every session using it, so one session
+ending does not close a forward another still needs (#251, #253, #255).
+
+**Tests.** Beyond the unit and end-to-end tests each task carried, the
+epic added a threat-model suite that walks the refusal matrix of
+BROWSER-HANDLING.md section 26, a hostname fuzz test that throws four
+thousand generated hostile names at the preview host parser, a real
+browser matrix in `e2e/preview-browser.spec.ts` covering cookie
+isolation, storage, form posts, popups and the Portikus-owned explanation
+pages, and an infrastructure template test,
+`infra/tests/caddy-preview-test.sh`, which now makes 53 assertions about
+the rendered Caddyfile and is run by `make infra-check`. The browser
+tests found two real product bugs, both fixed in the epic rather than
+worked around (#252).
+
+**Rate limiting.** A student may make thirty preview requests a minute,
+counting bootstrap tickets and framing probes against one budget; past
+that the answer is 429 with a `PREVIEW_RATE_LIMITED` code the browser
+shows. A workspace also runs at most one framing probe at a time. A
+student holds at most fifty live preview sessions, the oldest giving way
+to a new one, and each new grant sweeps preview sessions that were
+revoked more than a day ago or whose main session has gone (#255).
+
+**Pilot verification.** On 2026-09-21 the epic head (build 0.1.234) was
+deployed to the pilot VM and walked through BROWSER-HANDLING.md section 25.1
+as a signed-in student in Chromium. Passed: a Vite application on port 5173
+rendered in the embedded Preview tab with hot module reload working across
+an edit; a Python `http.server` bound to all interfaces on port 8000; a
+WebSocket application that stayed connected through the gateway; the
+same-origin bridge reaching a second and third port while refusing the
+agent port, a dead port, and malformed paths; Reset preview data clearing
+the application's cookie, local storage, and service worker; the preview
+session cookie stripped before the application saw the request; a second
+student's workspace unable to reach the first student's ports while the VM
+could; replayed, wrong-host, and cookie-less requests refused with
+Portikus-owned pages and no existence detail; logout ending the preview;
+the smoke test at 71 of 71. Two bugs found on the pilot are fixed on the epic
+branch, by #258 and by the confirmation-review pull request that follows
+it: an application that refuses framing showed a blank pane instead of
+the Open in new tab offer, and the reset response's
+`Clear-Site-Data: "cookies"` directive cleared the whole registrable
+domain and signed the student out. Fixing the first added the framing
+probe route `GET /workspaces/:id/preview/embeddable`, its contract, and
+the rate limit and one-at-a-time rule that keep it from being used to
+make the control plane hold outbound sockets open. Fixing the second
+changed what reset clears: the answer now expires each cookie name the
+request carried rather than asking the browser to clear the domain's
+cookies. One gap was fixed the same way: the loopback forward dialed only
+IPv4, while Vite's default bind is IPv6 loopback. One gap is deferred: Vite
+refuses unknown hosts until its `server.allowedHosts` names the preview
+suffix, and nothing yet carries the suffix into the workspace for a
+template to use. The Incus workspace network access list needed one new
+ingress rule for the preview range, applied by hand on the pilot from the
+Ansible play and now part of the play. The pilot's API environment file
+still carries `PREVIEW_SUFFIX` added by hand until the next full
+deployment.
+
+**Decisions.**
+
+- ADR 0018, taken on 2026-09-21, settled three things: the preview is
+  built and tested for a same-site deployment only, with preview hosts
+  under `*.preview.<application host>` and a `__Host-` cookie; Caddy
+  learns a request's upstream from a trusted response header on the
+  authorization subrequest rather than from anything the client sends;
+  and the iframe ships with the design's baseline sandbox and permissions
+  policy.
+- Checks are defined in a file inside the project,
+  `.portikus/checks.json`, so they travel with the repository, and a
+  check runs in its own read-only output panel rather than in a terminal
+  tab, so the student cannot type into a running check.
+- Reset preview data is performed by the parent Portikus document rather
+  than by the preview frame, because a service worker registered at the
+  root of the preview origin can answer the frame's own navigations
+  before they reach the edge.
+- A check run lives only in the agent's memory. Nothing about it is
+  written to the database.
+- A project's identity is the inode of its directory, so a folder renamed
+  with `mv` keeps its row, its tabs and its layout.
+
+**Known gaps and residuals.**
+
+- The separate registrable preview domain with partitioned cookies is
+  unsupported. Only the same-site shape is built and tested (ADR 0018).
+- Whether a grant was made for an embedded or a top-level preview is
+  enforced only by the `Sec-Fetch-Dest` request header. A browser that
+  sends no such header is still accepted, so this narrows the door rather
+  than closing it.
+- Any website can make a student's browser clear that student's own
+  preview-origin data, by causing a request to `/__portikus/reset`. The
+  reset route answers the same way with or without a preview cookie. This
+  is accepted: the worst outcome is that one origin's storage in one
+  browser is cleared.
+- The saved layout is bounded per request, by Fastify's 1 MiB body limit
+  and the shape checks on each tab. Since Epic 37 one user's layouts
+  together are also capped at 8 MiB (#1239).
+- An application that refuses to be embedded gives the browser no event,
+  so the Preview tab guesses after eight seconds without a load. The
+  guess is now an overlay over a frame that stays mounted, and a late
+  load clears it, so a slow first compile recovers on its own.
+- The framing probe honours only exact origins in a `frame-ancestors`
+  source list. An application that names a wildcard host or a bare scheme,
+  such as `https:` or `https://*.example.edu`, is reported as not
+  embeddable even where it would in fact allow the Portikus page, so the
+  student is offered the new tab instead of the frame.
+- The Running pane shows `unknown` for a process the agent could not
+  name, which happens when the `/proc` entries for it cannot be read.
+- The client-side minimum port was removed in Epic 37; the API's policy
+  alone decides (#1238).
+- The workspace agent runs as the student, inside the student's own
+  container, and its bearer token sits in a file that user can read, so a
+  student can call the agent's own API directly, including its loopback
+  forward routes. This grants nothing the student does not already have:
+  the agent has no authority outside the container, never calls the
+  control plane, and the control plane trusts none of its claims for
+  authorization (the registry stamps the workspace id, computes the deny
+  state, and takes the upstream from the workspace row). A forward the
+  student opens this way is reachable only from the platform VM. The
+  design's sentence that a student process cannot ask for a forward is
+  therefore true of the control plane's registry, not of the agent's
+  socket; BROWSER-HANDLING.md section 11.2 now says so. Accepted.
+- The pilot's `api.env` had `PREVIEW_SUFFIX` added by hand so the edge
+  could be walked; the Ansible template carries the key, so the next full
+  deployment sets it properly.
+- Renaming a folder from `a` to `b` and then creating a new project at
+  `a` now keeps the two apart: the reconciliation compares the identity
+  of the directory sitting at the old name instead of only noticing that
+  something is there.
+
+## Epic 8 pilot fixes (issues #237 to #241)
+
+A batch of small fixes from hands-on use of the pilot after Epic 7.1,
+gathered on 2026-09-19 and landed into the Epic 8 branch.
+
+**Files pane.** Dragging a row now puts a small copy of it, with its icon
+and name, under the pointer, so it is clear what is being moved. The
+empty area below the last row is a second drop target for the project
+root, next to the path line under the header, so a file in a subfolder can
+be dragged back to the top level (issue #237, SPEC.md section 11.2).
+
+**Renamed projects.** A project whose folder a student renames with `mv`
+in a shell keeps its row, its id, its open tabs, and its layout. The
+marker is the directory's inode, which the agent reports with each listing
+and the control plane stores on the project row (migration
+`0009_project_directory_id`). Before discovery, each listing records the
+identity of every directory a row names, then moves a row whose directory
+is gone to the directory carrying its identity. A copy or a restore from a
+recovery archive has a different inode and is honestly a new project
+(issue #238, SPEC.md section 7.1).
+
+**Terminal colours.** Terminals can be light as well as dark. The choice
+is a per-user setting alongside the editor settings, saved through the
+existing `/me/settings` route with no migration, and it applies to open
+terminals without a reload. It is deliberately separate from the page
+appearance, because a bright room may call for a light terminal on a dark
+page (issue #239, SPEC.md section 13.5).
+
+**Tab strip.** Centre-pane tabs follow the Chrome model: equal width up to
+220 pixels, labels that fade out at the right edge, shrinking together to
+a floor where only the kind icon and the close control are left, and
+sideways scrolling past that floor, with the selected tab scrolled into
+view. The close control is on every tab at every width, and an unsaved
+file shows a dot in its place that turns back into the close control on
+hover. `MAX_LAYOUT_TABS` and the "Too many tabs are open" toast are gone;
+the saved layout is still bounded by the request body limit and by the
+length and shape checks on each tab (issue #240, SPEC.md section 8.3).
+
+**Header.** The disabled search icon that promised search "in Epic 7" is
+gone. Search lives in the files pane and Ctrl+Shift+F still opens it from
+anywhere in the workspace (issue #241, SPEC.md section 11.5).
+
+Known gaps. The design mirror under `design/system/components/bundle.css`
+still shows the old label-sized tab rule; it is generated from the Claude
+Design artifact and was left for a design pull rather than hand-edited.
+
+## Epic 8.1 — pilot fix batch after the Epic 8 drive
+
+Seventeen issues raised while driving the pilot on 2026-09-21, gathered on
+the `epic/8-1-pilot-fixes` branch. They are small, separate fixes rather
+than a new subsystem, so this section is grouped by the surface each one
+touches.
+
+**The Preview tab.** A development server that refuses the preview host
+is now explained rather than shown as its own error page. The framing
+probe asks the application as the preview host, using `node:http` because
+`fetch` ignores a `host` header, and on a 403 it matches the first four
+kilobytes of the body against the refusal sentences Vite and
+webpack-dev-server use. The verdict becomes a `host-refused` reason
+carrying the refused host and the name of the server that refused it, and
+the tab shows a Portikus-owned state with the exact `allowedHosts` line
+for the real preview suffix, a Copy button and a Retry. Next.js is not in
+the table, because it has no equivalent 403 to match and nothing was
+invented for it (issue #262, PR #281). The toolbar gained Back and
+Forward. The frame is cross-origin, so its history cannot be read; the
+tab pushes one anchor entry of its own when it opens and then tracks
+where it is relative to that anchor, counting the steps it has taken.
+Back is allowed only while the frame has an entry ahead of that count,
+because the list of history entries does not get shorter when the browser
+steps back through it. The anchor keeps the router's own state and is
+pushed again whenever the Portikus route changes, so switching project
+with a Preview tab open does not make Back rewind the workspace. The
+anchor and the `popstate` listener belong to the document rather than to
+a tab: closing every Preview tab lets go of neither, so Back presses made
+with no preview open are still seen and the counts stay honest (issue
+#271, PRs #281, #292 and #295). The inactive, unauthorized, error and
+connecting states, and the blocked-from-embedding overlay, are now one
+compact stack centred in the pane, with the button at its natural size (issue #275, PR
+#281).
+
+**The Running pane.** The workspace agent now decides, for each listening
+port, whether it belongs to the student or to the system, and reports it
+as `system` on the listening contract. A listener is the system's when
+its owning process id is the agent's own, or when the socket's uid is
+below 1000, which covers systemd-resolved, sshd and dnsmasq; a port
+published by an inner Docker container is the student's even though
+`docker-proxy` holds the socket as root. The pane hides system rows
+behind a "Show system services" checkbox, off by default and remembered
+in `localStorage`. Nothing about preview authorization or the port deny
+list changed (issue #265, PR #282). Each previewable row has Open
+preview, an Open in new tab icon and Stop. Open in new tab uses the
+single-tab pattern from issue #261, which now lives once in
+`apps/web/src/preview/grants.ts`. The "Preview" chip is gone; only the
+Docker chip remains, and a row that cannot be previewed says why
+("reserved port" or "system service") in place of the preview actions
+(issue #272, PR #282). Stop is
+`POST /workspaces/:id/listening/:port/stop`, which passes a stop request
+to the agent behind the owner gate. The agent sends SIGTERM, then SIGKILL
+after three seconds, and runs `docker stop` for a container row instead
+of signalling the process. It refuses a system listener with 403, an
+unlisted port with 404, and a process that survives SIGKILL with 409. The
+route comes out of the same per-user, per-minute preview budget, and a
+second stop for a workspace while one is still running gets a 409 with
+the code `STOP_IN_PROGRESS`. The browser confirms first, naming the
+command and the port; the row disappears on the next scan, and a Preview
+tab on that port shows its inactive state on its own (issue #273, PRs
+#282 and #292).
+
+**Right-pane selection and the Checks pane.** Every list in the right
+pane — the files tree, Checks, Changes and Running — now marks its
+selected row with one token, `--surface-row-selected`: a small tonal
+shift of the pane, darker in light mode and lighter in dark mode, and a
+warm neutral rather than green, which stays reserved for the passed badge
+and for Git added. The background sits on the row container, so the
+action column is inside the highlight, and keyboard focus keeps its own
+ring. The Changes list has a selection at all for the first time: the row
+whose file is the tab on show. In the Checks pane, Run and Stop are icon
+buttons with a play triangle and a square, and a long command truncates
+on one line with the full text in a tooltip instead of pushing the button
+out of the pane. The token is mirrored into `design/system/tokens.json`,
+`design/system/README.md` and `design/mockups/portikus-tokens.css`
+(issue #274, PRs #280 and #292).
+
+**Terminals.** Clicking "New terminal here" in a pane whose session ended
+now makes the replacement terminal the focused one, so the student's
+first keystrokes land in the new shell (issue #264, PR #285). Every one
+of the sixteen ANSI colours in the light palette clears a 4.5:1 contrast
+ratio against the light background; bright green and bright yellow were
+darkened to get there, in both `packages/ui/src/theme.css` and the xterm
+palette in `TerminalPane.tsx`, and a unit test checks all sixteen.
+Programs that pick their own theme, Claude Code among them, are told
+which ground they are on two ways: the agent sets `COLORFGBG` in each new
+terminal's environment through `tmux new-session -e`, and xterm.js 6
+already answers the OSC 11 background query by itself, which a test now
+pins (issue #267, PR #285). The colour scheme belongs to one terminal,
+not to the browser or the whole workspace: each pane's three-dots menu
+offers the other scheme, and the choice is stored on the terminals row
+(migration `0010_terminal_theme`) and carried in the terminal contract,
+so it survives a reload and looks the same in every browser. The per-user
+setting from issue #239 is the scheme a new terminal starts in (issue
+#268, PR #285). The pane's own chrome, its title bar and scrollbar,
+follows that terminal's scheme too: each pane carries
+`data-terminal-theme`, the two terminal colour blocks in `theme.css`
+match any element rather than only `:root`, and the page theme no longer
+nudges `--terminal-bg` (issue #286, PR #290).
+
+**Projects and defaults.** When the listing follows a project row to a
+directory the student renamed with `mv`, the row's display name is now
+read from the new folder name: the words between hyphens and underscores,
+each capitalised, so `project-name` reads `Project Name`. Discovery names
+a newly found directory the same way, and a row whose directory did not
+move keeps its name (issue #269, PR #278). Editor word wrap now defaults
+to on. Per-user settings store only what the student changed and merge
+over the defaults, so a student who never touched it gets wrapping at
+once and one who turned it off keeps it off (issue #270, PR #278).
+
+**Timezone and Settings.** Containers ran in UTC, so a student's shell,
+logs and Git commits disagreed with the clock on the wall. A workspace
+now runs in America/New_York unless the student picks another zone in
+their settings. The zone is checked against the zone names this Node
+build knows, in the contract, in the API, and again in the controller
+before it reaches a command. At every start the controller writes
+`/etc/timezone`, links `/etc/localtime`, and exports `TZ` from the same
+`/etc/profile.d/portikus.sh` the preview suffix uses, and the worker
+reads the owner's setting into the start request. A new terminal carries
+the zone to `tmux new-session -e`, so a change applies without a restart;
+a shell already running keeps the zone it started with, and programs in
+inner Docker containers keep their own. A smoke-test check reads the zone
+in a fresh terminal on the VM (issue #287, PR #289). The account menu
+entry and its dialog are now called "Settings" rather than "Editor
+settings", and the fields sit under three headings in one scrolling
+column: Editor (auto-save, its delay, word wrap), Terminal (the scheme a
+new terminal starts in) and Workspace (the timezone). There are no tabs
+at this size; the section list is where later settings go, and
+administration settings stay on the admin screen. Every test id is
+unchanged (issue #288, PR #289).
+
+**The workspace environment.** The workspace controller writes
+`/etc/profile.d/portikus.sh` into the container on every start, owned by
+root with mode 0644, exporting `PORTIKUS_PREVIEW=true` and
+`PORTIKUS_PREVIEW_HOST_SUFFIX=<suffix>`. tmux starts each pane's shell as
+a login shell, so every terminal reads the file and no agent change was
+needed, and the values hold no credential. The suffix reaches the
+controller as a required field on the start request, filled by the worker
+from its own `PREVIEW_SUFFIX` setting, which Ansible now writes into
+`worker.env` next to the API's copy. Both the contract and the provider
+check the value is a lowercase DNS name, so nothing shell-special can
+land in the profile (issue #263, PR #279).
+
+**Publishing the pilot VM from its host.** `infra/host/publish-vm.sh`
+installs a third nat chain, `PORTIKUS_PUBLISH_LOCAL`, on the output hook,
+so connections the host itself makes to its own LAN address on port 8443
+reach the VM. The existing prerouting rule only matches traffic arriving
+on the LAN interface, so every preview hostname needed its own
+`/etc/hosts` line, one per port; now none are needed. The script also
+prints the `certutil` commands that import the VM Caddy's internal root
+into a browser trust store, because an embedded preview is an iframe and
+cannot show a certificate warning. It reads the host's LAN address from
+the `src` field of the default route and falls back to the first global
+IPv4 address on that route's interface, which some VPN and bonded setups
+need. `docs/WORKFLOW.md` gained a section, "Using the pilot from the host
+that runs it" (issue #276, PRs #277 and #291).
+
+Pilot verification: (to be filled)
+
+**Decisions.**
+
+- A terminal's colour scheme belongs to that one terminal and is stored
+  with it, while the per-user setting is only the scheme a new terminal
+  starts in. A shell already running keeps the `COLORFGBG` and the `TZ`
+  it was started with, and the settings dialog and the pane menu say so.
+- The Preview tab's Back is allowed only while the frame has an entry
+  ahead of where the tab knows it is: an anchor entry pushed when the tab
+  opens, plus a count of the steps taken back from it. Counting entries
+  alone was tried first and is not enough, because stepping back does not
+  shorten the list. Testing `history.state` for a sentinel was tried too
+  and does not work either:
+  Chromium leaves the top document's state untouched when a subframe
+  navigates, so the state still reads as the anchor after the frame has
+  moved on and every Back would be refused.
+- The server is the one list of timezones. The zone is validated against
+  the names this Node build knows, in the contract, the API and the
+  controller, rather than against a list kept in the browser.
+- Stop acts only on a listener the student owns. A system listener is
+  refused with 403, and the pane offers no other signal, no restart and
+  no resource controls.
+- A listener is the system's when its owning process id is the agent's
+  own or the socket's uid is below 1000, with one exception: a port
+  published by an inner Docker container is the student's, even though
+  `docker-proxy` holds the socket as root.
+
+**Known gaps and residuals.**
+
+- Discovery and the kill are separate steps, so a process id learned in
+  one scan could in principle be recycled before the signal is sent.
+  Accepted: the signal is sent by the agent, which runs as the student
+  inside that student's own container and process namespace, so the worst
+  case is that the student signals another of their own processes.
+- A child a stopped process forked can outlive its parent and keep the
+  port. The agent signals the process it saw holding the socket, and then
+  rescans: when something is still listening on that port after the parent
+  has gone, the answer is 409 rather than a success the student would find
+  untrue.
+- The timezone is applied by linking `/etc/localtime` to a zone file in
+  the image. A zone the image's tzdata does not carry fails the start
+  rather than falling back.
+- The refused-host detection knows only Vite's exact refusal sentence and
+  webpack-dev-server's. Another server that refuses an unknown host in
+  its own words is reported as an ordinary error, and the student sees no
+  `allowedHosts` line to paste.
+- The Claude Design artifacts outside the repository do not yet carry the
+  `--surface-row-selected` token. The mirrors under `design/` do; the
+  artifacts need the same edit the next time they are pulled.
+- The `certutil` hint `publish-vm.sh` prints trusts the pilot's Caddy
+  root for every site in that browser profile, and that root's private
+  key lives on the VM that runs student workspaces. The hint and
+  `infra/README.md` say to use a throwaway browser profile for the pilot
+  rather than an everyday one.
+
+## Epic 9 — Coding-agent launchers and credentials
+
+Epic 9 is on the `epic/9-agent-launchers` branch and has not been merged
+to `main`. A student can start Claude Code or Codex in the selected
+project, confirm a link a program in the workspace asks to open, and
+review the working tree against the snapshot taken when that session
+began. SPEC.md section 29 Epic 9, sections 10.4–10.9 and 12.7, and
+`docs/BROWSER-HANDLING.md` Part II. A server-side browser was never part
+of this epic and is not planned.
+
+**Contracts.** The shared contracts name the two launchers, `claude` and
+`codex`, and the frames the URL broker uses. A request on the workspace
+socket carries the raw URL. Classification accepts only `http` and
+`https`, rejects userinfo and control characters, and splits loopback
+(`127.0.0.1`, `localhost`, `::1`) from every other host. Preview versus
+login is not decided from the URL text. Logs keep the origin only;
+anything that does not parse is written as `[redacted-url]` (PR #304).
+
+**The workspace image.** The image ships `portikus-open` and an
+`xdg-open` wrapper that sends `http` and `https` opens to it. A login
+shell sets `BROWSER` to `/usr/local/bin/portikus-open`. Codex is pinned
+with `check_for_update_on_startup = false` in `/etc/codex/config.toml`,
+the same idea as Claude's updater already being off. The image was not
+rebuilt on this host (PR #305).
+
+**The workspace agent.** A launcher runs only the argument lists for
+`claude` and `codex`. Before that process starts, the agent runs
+`git stash create` and keeps the object id. Git writes a dangling commit
+and moves no ref, so the index, branches, tags and the stash list stay
+as they were. If the directory is not a repository, or the command
+fails, the CLI still starts and the baseline is null (ADR 0019). Browser
+opens arrive on the Unix socket `/run/portikus/browser.sock`. One request
+becomes one `browser.open.request` frame on the project events socket.
+A loopback URL whose process is Codex is classified as a login callback
+(PR #307).
+
+**The API.** Creating a terminal can name `claude` or `codex` and sends
+no command string. The terminals row stores that agent kind and the
+baseline object ids the agent returns. An institutional key is forwarded
+into the new session only when this API process already has that key. It
+is not written to the row and it is not returned to the browser. The
+baseline routes relay `GitStatus` and `GitDiff` for that object, with
+the same ownership checks as the ordinary Git routes (PR #306).
+
+**The web.** The New menu in the project tab strip has Claude Code and
+Codex next to Terminal. Choosing one posts the agent name. A
+`browser.open.request` frame opens a confirmation dialog that shows the
+origin and asks before anything is opened. A loopback login is explained
+and not opened: the dialog names `codex login --device-auth` and tells
+the student to finish from the code in the terminal. An external link
+opens in the student's own browser, and a loopback preview uses the
+preview the app already has. Session review is labeled "Changes since
+Claude session started" or "Changes since Codex session started", and it
+subscribes to the project's existing file watcher (PR #308).
+
+Issue #129 is addressed on this branch. The login callback is explained
+and names `codex login --device-auth`, and the Codex update check is
+pinned in the image. The issue closes when this epic merges to `main`,
+not in the status pull request.
+
+**Left out, because the spec and the plan left it out.**
+
+- No server-side browser. Loopback OAuth that has no device or paste-back
+  path stays unsupported; a remote browser is not planned.
+- No restore of the tree as it was before the session. That is Epic 10.
+  The baseline is a review snapshot only. A later `git prune` can drop
+  the dangling object, and the review then has nothing to compare.
+- No admin screen for pasting institutional keys. The API forwards a key
+  only when the process already has one.
+- No busy or idle indicator, and no cost display, for a running agent. Epic 56 added both.
+- No general screen for configuring agents. The Codex update check is
+  one line in the image, the same way Claude's updater is one environment
+  variable.
+- The terminal's own poll of its working directory was left in place.
+  Session review uses the existing project watcher. The two were not
+  folded into one watcher.
+
+## Epic 9.1 — pilot fix batch after Epic 9
+
+Small fixes raised while driving the pilot on 2026-09-22, gathered on the
+`epic/9-1-pilot-fixes` branch. Each is a separate change, so this section
+is grouped by the surface it touches. The issues below close when the
+epic merges to `main`.
+
+**Terminals.** A terminal, Claude Code, or Codex tab opened from New takes
+the keyboard focus at once. The New button and a terminal's menu button
+no longer keep the focus ring after a pointer dismiss, and the disabled
+File item is gone from the New menu (issues #320, #321 and #322, PR #334).
+Running `clear` now erases the saved lines as well as the screen. The
+interactive terminal handles the CSI 3 J sequence (the "erase saved
+lines" control code that `clear` sends on xterm-256color) (issue #335,
+PR #344). The E3 tmux override added then never worked, because tmux 3.5a
+does not pass CSI 3 J on; issue #882 replaced it with the pane watcher's
+clear frame.
+
+**Projects and the workspace chrome.** The projects pane shows the project
+name without the directory slug beside it. The status-bar path, the
+create preview, and downloads still use the slug as the folder name
+(issue #323, PR #330). The status-bar state opens the workspace dialog,
+and the header no longer has a Workspace button. The leave-terminal hint
+is gone, but the shortcut stays. The account button no longer shows the
+role, and its text is the initials, a space, and the display name. Light,
+dark, and system appearance are chosen in Settings and kept in this
+browser (issues #327, #328 and #329, PR #333).
+
+**Checks.** The play and stop icons use the running and danger colour
+tokens in both themes, and the colour does not blend during a flip or
+change on hover. The accessible names stay "Run …" and "Stop …"
+(issue #324, PR #331).
+
+**Running and preview.** Stop and Open preview are icon buttons, and a
+port that has stopped listening leaves the list. Selecting a row opens a
+details panel that includes the command line from `/proc` (issues #325
+and #326, PR #332). A selected row also shows CPU and memory (issue #338,
+PR #346). After a stop, the agent keeps checking for the port to close
+for the same grace period it gives the process, instead of looking once
+and reporting "Port N did not stop" (issue #348, PR #349). The preview
+picker hides system ports unless the Running pane's "Show system
+services" preference is on. Typing a port still opens it, and the API's
+preview policy is unchanged (issue #336, PR #341).
+
+**Right-pane panels and the Monitor tab.** The divider under Checks and
+under Running can be dragged, and the height lasts for the browser
+session (issue #337). A Monitor tab shows the workspace's CPU, memory,
+disk, network, and processes, from one sample the agent reads; clicking a
+column header sorts it, and PID, CPU, and memory sort as numbers
+(issue #339, PRs #346 and #347).
+
+**Settings.** The dialog is a searchable list of sections on the left and
+the chosen section on the right. Preferences keeps the existing editor,
+terminal, workspace, and appearance controls. Account shows the
+institution sign-in, including the sign-in name from `GET /auth/me`
+(issue #340, PR #345). Only the pane inside the dialog scrolls
+now, not the frame. A setting's description sits on the line below its
+label, terminal colours are a light or dark switch, and the page colour
+scheme is a row of three choices (PR #347).
+
+**Maintenance.** Patch-level dependency bumps (Biome, Fastify,
+@fastify/websocket, Kysely, TanStack Router), chokidar 5, and newer
+GitHub Actions pins for upload-artifact, download-artifact, and cache.
+`@types/node` stays on 24 to match `.nvmrc` (PR #343). Each Playwright
+run now creates its own empty database, migrates it from the checkout,
+and drops it afterwards, because the shared test database carried a
+migration from another branch that stopped Kysely from starting (PR #342).
+
+**Gaps.**
+
+- Issue #300 is only partly done, so it stays open. Appearance moved into
+  Settings, but it is still kept only in this browser, not in the
+  per-user settings row the issue asks for. The Profile section (picture,
+  GitHub and personal links) did not land; the Account section shows only
+  the institution sign-in.
+
+## Epic 9.2 — image paste into the terminal, and the rest of issue #300
+
+The requirement is `docs/archive/epics/EPIC-9.2.md` until SPEC.md section 29 lists the
+epic.
+
+**Image paste (issue #355).** Pasting a lone png or jpeg into a terminal,
+by Ctrl+V, Ctrl+Shift+V or a right-click, saves it through the existing
+project upload as `.portikus/pastes/<UTC time>.png` (or `.jpeg`) in the
+project the terminal was opened in, creating the folders first. The
+terminal then receives the absolute path under `/home/student`, a
+trailing space, and no newline; the picture bytes never reach it. A paste
+that carries any text stays a text paste. Keyboard paste now always goes
+through the browser paste event, so it works where `readText` is refused,
+as in Firefox, and text still lands once. A right-click reads the
+clipboard items and falls back to `readText`. A picture over the 50 MiB
+upload cap is refused with the usual message. A second paste in the
+same second is saved as `-2`, then `-3`, up to five names, and never
+overwrites; a right-click text paste goes through xterm's own paste, so it
+is bracketed like a keyboard paste. Gap: in Firefox a
+right-click paste still depends on the browser allowing `clipboard.read`.
+
+**Settings (issue #300).** Appearance now follows the student. The
+light, dark, or system choice is a per-user setting saved through `PUT /me/settings` the moment it is
+chosen. The browser's `pk-theme` copy is still read before the first
+paint, and the workspace screen waits for the settings before it draws,
+so a browser that has never seen the choice shows it without a flash.
+The saved value wins and refreshes that copy. A student with no saved
+appearance whose browser copy says light or dark has that choice saved
+once, so an upgrade does not reset it. Settings saves merge in one SQL
+statement, so two saves at once both survive.
+
+The Account section is folded into a new Profile section at the top of
+Settings. It shows the display name, email, sign-in name, and workspace
+label from the institution sign-in, read-only. The student can add a
+GitHub username or link, one personal https link, and a PNG or JPEG
+picture of up to 1 MiB, which replaces the initials in the account menu
+button. The API checks the picture type from its bytes, keeps it on the
+users row (migration 0012), and serves it only to its owner at
+`/me/picture`. Nothing in Profile is used for authorization.
+
+Gaps: the picture cap is 1 MiB, not the 50 MiB file-upload cap, because
+the picture lives on the users row. The picture upload uses its own
+`PUT /me/picture` route rather than the project file upload, which writes
+into a workspace. The administration page does not wait for the saved
+appearance, so it uses the browser's copy until the workspace screen has
+loaded once.
+
+**Accessibility (issues #357 to #374).** An accessibility review of main
+at 9d6da94 raised eighteen issues against WCAG 2.2 AA (SPEC.md section
+25.8, DESIGN.md section 6). All of them landed on the epic in PRs #376 to
+#381 and #383.
+
+- Shared overlays (PR #376): a dialog or confirmation puts focus back
+  where it opened, falling back to the menu button (#358). Toasts sit
+  above dialogs and name F8 (#364). Tabs announce Delete and
+  Alt+Shift+Arrow and have a 24px close target (#372, part of #370).
+- Profile and per-user appearance (PR #377, issue #300).
+- File tree and project list (PR #378): keyboard Download as zip and Show
+  hidden (#361), spoken Git status and ignored state (#362), one Tab stop
+  per tree with Shift+F10 for the row menu (#366), readable ignored rows
+  and Git letters (#367), a 2px ink bar on the selected row (#369), and
+  Move to… for files (#370).
+- Right pane, search, preview, admin, and titles (PR #379): arrow keys in
+  the Files, Checks, Running and Monitor switcher (#365), distinct names
+  in the admin table and check editor (#371), status regions and alerts
+  (#363), aria-current and the ink bar on current rows (#369), a title for
+  every page (#374), and focus kept after Find in files and a removed
+  check (#358).
+- Work area (PR #380): the terminal focus ring follows the terminal's own
+  scheme (#368), Move to new tab and Leave terminal in each terminal's
+  menu (#370, #359), named tab panels (#374), and a bold pressed Edit or
+  Diff button with focus kept across the swap (#369, #358).
+- Terminal (PR #381): the dark palette passes 4.5:1, with xterm lifting
+  any cell below it (#360), the helper textarea describes Alt+Shift+Q
+  (#359), and connection flags are announced (#363).
+- Screen-reader task (PR #383): a per-user screen-reader mode, off by default,
+  turns on xterm's screen-reader mode in every terminal and the check
+  output and Monaco's `accessibilitySupport` in every editor, live (#357).
+  The first Tab stop on the workspace page toggles it and announces the
+  change. Settings gains a "Keyboard and screen readers" section (#359),
+  the Settings save error is an alert (#363), and the terminal colours
+  switch is named "Light terminal" (#373). A dialog opened from a file
+  row's menu, by Shift+F10 or a right-click, now returns focus to the row
+  (#358). The light `--ansi-bright-green` and `--ansi-bright-yellow`
+  tokens now match the terminal's #35793b and #946800, which pass 4.5:1 on
+  the light background; the old tokens measured 4.32:1 and 4.18:1.
+  Security review follow-up: `GET /me/picture` is cached for a year only
+  under its versioned `?v=` URL; the bare URL answers `private, no-cache`.
+
+Gaps: screen-reader mode ships off by default. Measured with it on, bulk
+output is about twice as slow (20 MB: 0.45 s to 0.96 s) and typing and
+redraw do not change, but xterm.js then drops text that arrives without a
+key press, such as from an emoji picker or dictation, so it was not
+turned on for everyone. The Settings help section says so. F2 to rename a file row (optional in
+#366) was not added. The administration page has no terminals or editors,
+so it has no screen-reader toggle. Terminal and editor limits are
+documented in Settings rather than fixed: full-screen programs redraw the
+screen, and colours and inline editor hints are not announced.
+
+**Confirmation-review fixes.** The browser-only theme is carried over to
+an account at most once per browser: the first settings load marks the
+browser (`pk-theme-synced`), so on a shared lab machine one student's
+theme is never saved to the next student's account (N1). If that one-time
+save fails, the settings still load (N2). Stored settings are checked one
+field at a time, so a single bad stored value falls back to its own
+default and no longer resets every other setting (N3). Every text paste
+into a terminal, by keyboard or right-click, now has control characters
+removed except tab, line feed and carriage return, so text planted on the
+clipboard by a web page cannot end the paste bracket early and run a
+command (pastejacking, SPEC.md section 24).
+
+**Preview races (PRs #387 and #388).** Stress runs of the preview
+browser tests found four intermittent failures in Epic 8 code, now fixed.
+The preview frame could ask for two grants when the list of listening
+ports emptied and refilled during a grant, which reloaded the app; this
+happens after an API restart. A late frame load from an earlier Back
+cleared the "Nothing to go back to" hint. A stopped workspace could
+answer "Preview session ended" once its preview sessions were revoked;
+the more specific "This workspace is not running" now wins, but only for
+a revoked cookie on its own host whose owner is still signed in
+(BROWSER-HANDLING.md section 25.1). The end-to-end test's fake gateway
+now answers 502 when the app it proxies to has closed, as Caddy does.
+Accepted residual: a stolen, already-revoked preview cookie can tell
+whether its owner's workspace is running until the sweep deletes revoked
+rows a day later.
+
+## Epic 10 — Recovery, quotas, and reset workflows
+
+Landed on `epic/10-recovery-quotas` (not yet merged to `main`; see Gaps).
+Working brief: `docs/archive/epics/EPIC-10.md`.
+
+**Recovery points.** Portikus now keeps compressed, `tar.zst` copies of
+each active project outside the project folder, on a fourth storage
+class. A point is made every 15 minutes while a project has changed,
+before the project is archived, before a restore, before an
+administrator rebuilds the workspace, before a Claude Code or Codex
+session starts, and on demand from a **Create recovery point now**
+button. No point ever touches Git: no commit, branch, tag, stash entry,
+index change, or ref move (SPEC.md section 12.5), and this is checked
+against real Git in both the unit tests and the smoke test. A student
+can add a `.workspaceignore` file at the project root, in `.gitignore`
+syntax, to leave extra paths out of points beyond the six default
+exclusions (`node_modules/`, `.venv/`, `dist/`, `build/`, `target/`,
+`__pycache__/`); `!pattern` can bring a default back. The Recovery points
+dialog, opened from the project's menu, lists each point's time, reason
+and size, and how much of the recovery allowance is in use.
+
+**Restore, with a safety point first.** Restoring a point replaces the
+project's files with an application-styled confirmation first: it names
+the project and the timestamp and says a point of the current state is
+made before anything changes. If that safety point fails only because
+recovery storage is full, a second confirmation offers to restore
+without it. Restore never replaces the project folder itself, so its
+inode, and anything a shell or watcher has open, survive. Excluded paths
+such as `node_modules` are left alone by both making and restoring a
+point.
+
+**Restore to before this session.** When a Claude Code or Codex session
+is under review, its header gains **Restore to before this session**,
+which restores the point made just before that session started, as long
+as it still exists.
+
+**Storage accounting and warnings.** The workspace dialog shows three
+storage classes with used and total: Projects & home, Docker, and
+Recovery. The status bar warns at 80% usage in any class, naming it, and
+at 95% calls it critical and names a next step: Reset Docker or `docker
+system prune` for Docker, "older points are removed automatically" for
+Recovery, and "delete files" for Projects & home.
+
+**Reset Docker and Rebuild.** A student or an administrator can reset
+Docker from the workspace dialog: it stops the workspace, replaces the
+Docker volume, and restarts it, keeping projects, home, and recovery
+points intact. Rebuild replaces the workspace's root filesystem with the
+current image, keeping home, projects, and recovery, and keeping Docker
+data unless the request asks to reset it too; only an administrator can
+rebuild. Both routes (`POST /workspaces/:id/reset-docker` and `POST
+/admin/workspaces/:id/rebuild`) live in Epic 10's own
+`apps/api/src/routes/maintenance.ts`, by an orchestrator ruling that
+settled the overlap with Epic 11. The buttons that call them are Epic
+11's admin page, which asks Fastify whether the routes exist so they turn
+on automatically once both epics are on the same branch.
+
+**Retention.** Every point expires after `RECOVERY_RETENTION_DAYS`
+(default 14). After expiry, and whenever a workspace's stored total is
+above 75% of its recovery allowance, the worker deletes points oldest
+first until usage is at or below that line; a project's newest point is
+never deleted by age or by size. The 75% target (revised down from an
+initial 90%, per review) leaves more headroom for filesystem overhead and
+in-flight archives.
+
+**Smoke block 15b.** `infra/tests/smoke-test.sh` gained an Epic 10 block
+in its lifecycle section, which only runs when no other workspace is on
+the VM and only against the student instance that same run created. It
+sets the grace period to 0 so a maintenance operation cannot race the
+stop timer, checks the recovery volume's ownership and mode, makes a
+point, mutates and restores a project, resets Docker, and rebuilds,
+checking along the way that Git state is untouched, markers survive or
+disappear as expected, and every action is audited.
+
+**Scratch-instance verification.** Because the pilot carries three
+student workspaces whose data must not be touched, the whole flow
+was instead run by hand against a throwaway Incus instance
+(`e10-scratch-a`) built and destroyed on the pilot VM, using the real
+provider, agent, and worker code from this branch. Measured timings: a
+point of a fresh Vite project with an 87 MB `node_modules` took 0.056
+seconds (0.75 seconds worst case, with `node_modules` forced in through
+`.workspaceignore`); an unchanged project's periodic check wrote nothing
+in 0.038 seconds; restores after `rm -rf .git`, a hard reset, and
+deleting every tracked file each completed in well under 0.15 seconds;
+Reset Docker took about 7 seconds end to end (stop 1.9s, reset 1.7s,
+start 3.4s) and Rebuild about 7.2 seconds, both well under the 10-second
+line that would have pulled "Parallel worker sweep" into Epic 11. `.env`
+and `.git` were archived and restored correctly; `node_modules` and
+`dist` were excluded; a wrong SHA-256 was refused. The scratch instance
+and its volumes were deleted afterward, and nothing from the exercise
+remains on the VM.
+
+**Shared per-run e2e ports and sharded CI.** Every epic branch first
+received a shared change: each `pnpm test:e2e` run now claims four free
+ports (web, API, mock identity provider, fake workspace agent) alongside
+its own per-run database, so parallel test runs on one machine, or in
+CI, no longer collide. CI now splits the browser tests into three
+parallel shards, each with its own database, with a final job that
+gates on all three; the Playwright browser download is cached. This took
+the browser test job from about 10 minutes to about 3.5.
+
+**Review rulings and fixes.** Several rounds of review and confirmation
+fixes landed on the branch:
+
+- API calls to a workspace agent, and worker calls to an agent, no longer
+  follow redirects; a redirect is treated as an unavailable agent, so a
+  replaced agent cannot steer a caller to loopback or the workspace
+  network. Worker replies are also capped at 1 MiB.
+- A project is limited to one manual recovery point every 30 seconds and
+  200 points in total, both enforced with plain error responses; a
+  coding-agent session point is skipped past the cap rather than blocking
+  the session.
+- Create and restore answer 409 while a maintenance operation is pending
+  or a long-operation slot is held, rather than racing it.
+- A restore that cannot finish (for example, a failed rollback) is
+  reported to the student in plain language, naming the kept
+  `.portikus-aside-<pointId>` folder that holds their prior files, rather
+  than a generic failure.
+- A restore keeps any entry excluded by either the point's own
+  `.workspaceignore` or today's, so a build tool cannot resurrect and
+  then remove an excluded directory during a restore.
+- A directory the student cannot read is left out of points and left
+  alone by restores, rather than failing the whole operation.
+- The worker's recovery sweep isolates one workspace's failure so it does
+  not stop the rest, and processes workspaces in small batches rather
+  than one at a time without limit.
+- The controller re-attaches a `-docker` volume and device that a
+  previous Reset Docker left detached after a partial failure.
+- Escape now closes only the top confirmation dialog, not the workspace
+  dialog underneath it, fixing a pre-existing bug in Stop and Restart
+  along the way.
+- Unexpected agent errors log only their code, syscall, and error class
+  name, never a message or a path (SPEC.md section 25.10, ADR 0012).
+
+### Gaps
+
+- **Epic 10 is not deployed to the pilot.** Main is now merged into this
+  branch, so out-of-order migrations (Epic 11's
+  `allowUnorderedMigrations`) and the firewall hotfix in pull request
+  #424 are both here. Deploying still needs `pre-epic10` snapshots of the
+  three student home volumes plus a `pg_dump` of the platform database.
+- Reset Docker, Rebuild and start now send the workspace's own
+  `quota_config.dockerGiB`, so a Docker size an administrator grew is
+  kept; they fall back to `WORKSPACE_DOCKER_SIZE_GIB` when it is missing.
+- The smoke block needs a VM with no student workspaces on it to run at
+  all; it has only been checked by `shellcheck` and by the scratch-instance
+  exercise above, never by the block's own script on a live VM.
+- The tar exit-code-1 guard, which accepts a file changing while it is
+  read, is only tested against a fake `tar` built to exit 1; it has not
+  been exercised against a real `tar` doing that.
+- Rollback copies, the `.portikus-aside-<pointId>` folders a restore
+  leaves behind when it cannot finish cleanly, are never deleted
+  automatically. A student or administrator has to remove one by hand.
+- Nothing reconciles an orphan archive, a file on the recovery volume
+  with no matching `recovery_points` row, against the database. This can
+  happen if the API crashes between the agent writing the archive and
+  the row being inserted.
+- The migration 0013 backfill that adds `recoveryGiB` to existing
+  workspaces' `quota_config` hard-codes 3 GiB rather than reading
+  `WORKSPACE_RECOVERY_SIZE_GIB`.
+## Epic 11 — Administration and observability
+
+**Four tabs.** `/admin` is now a page with four tabs: Workspaces, Audit,
+Health and Settings (SPEC.md section 20.1, DESIGN.md section 4). The
+chosen tab, and the Audit tab's filters, live in the page's search
+parameters, so a link such as `/admin?tab=audit&workspace=<id>` opens
+straight to it.
+
+**Account list and the #302 markers.** The Workspaces tab lists one row
+per user, with that user's workspace next to them. Each row can carry
+four markers: Disabled, Archived, Duplicate email (issue #302, for
+accounts that share an email, sorted next to each other), and Stale (no
+sign-in in 30 days, or a same-email account that signed in more
+recently). The list refreshes every 5 seconds rather than pushing
+updates.
+
+**Disable and enable.** Disable deletes the user's sessions, revokes
+their preview sessions, requests a stop of their workspace, and writes
+one `user.disabled` audit row, all in one transaction. Enable clears the
+flag and writes `user.enabled`. An administrator cannot disable their
+own account, and disabling the last enabled administrator is refused
+with 400, checked with the users rows locked so two disables racing each
+other cannot both succeed.
+
+**Archive and unarchive.** Archive sets `workspaces.archived_at` and
+requests a stop; the worker never starts an archived workspace again,
+including through presence, and Start or Restart answer 409
+`WORKSPACE_ARCHIVED` for the owner and an administrator alike. Presence
+cannot undo an archive, because the workspace socket no longer sets
+`desired_state` at all when it belongs to an administrator looking at
+someone else's workspace (see "socket" below), and the worker's own
+start queries now exclude archived rows outright. Unarchive clears
+everything and the row reappears.
+
+**Grow-only storage.** An administrator can only raise the home and
+Docker sizes, capped at 1024 GiB each; a smaller value is refused with
+400 ("Storage can only be increased."). The API records the wanted size
+in `quota_config`; a worker loop, on its own 10-second timer, grows the
+Incus volumes through the controller and records `quota_applied`, or
+`workspace.quota_apply_failed` with the error code on a retry backoff of
+5 minutes. A live grow on LVM thin storage was confirmed on a scratch
+volume and instance on the pilot host before this was built into the
+worker (task 2's real-host spike).
+
+**Image version.** The version shown against each workspace comes from
+`image.serial` on the Incus image, read by the controller and carried
+into `health_samples` by the worker every 60 seconds. An instance with no
+serial falls back to the first 12 characters of its fingerprint.
+
+**Live usage and port facts only.** The detail panel shows CPU, memory
+and home-disk usage while the agent answers, and four safe port facts
+per listener: the port, a short process name, preview reachability, and
+whether it is a system listener. It never carries `commandLine`,
+`processes`, `agent_token` or `agentToken`; a test collects every new
+admin route and asserts those keys are absent from its responses. A
+security-review fix also closed a leak in the other direction: an
+administrator's socket on a student's workspace now gets no
+`listening-services` frames at all, so even a second unsafe view was
+removed, not just the summary one. The same socket no longer registers
+presence or holds the workspace's `desired_state` up by being open, and a
+failure partway through the socket's setup releases the administrator's
+slot instead of leaking it.
+
+**Audit tab and new sources.** Newest first, 50 rows per page with
+keyset paging (`before=<id>`), filterable by workspace, user and action
+prefix, administrators only. Beyond the actions already recorded, this
+epic adds `preview.denied` (a 403 from `/preview/authorize`, throttled to
+one row per workspace, reason and user per minute, with a `count`;
+401 and 503 are not audited because there is no workspace to attribute
+an anonymous refusal to), `user.role_changed` (actor `identity-provider`,
+because the change comes from identity-provider groups rather than a
+person), `user.disabled`, `user.enabled`, `workspace.archived`,
+`workspace.unarchived`, `workspace.quota_updated` and
+`workspace.quota_applied`.
+
+**Health tab and health samples.** The worker writes one `health_samples`
+row every 60 seconds, even when the controller cannot be reached (then
+with `controller.reachable = false` and the error code), and deletes rows
+older than 7 days. The Health tab shows load, memory, the storage pool
+with an 80 percent warning, the profile's limits, the current image,
+whether the controller answered, a "Worker not reporting" banner once the
+newest sample is older than 2 minutes, how many agents answer, workspaces
+by state, and a 24-hour count of failures and refusals, with a small
+inline SVG sparkline (no new charting dependency) for the pool, memory
+and load trend.
+
+**Out-of-order migrations.** Migration 0014 (this epic) can apply before
+Epic 10's 0013, because `packages/db/src/migrate.ts` now allows
+unordered migrations. A database test applies 0014, then a stand-in
+0013, then rolls 0014 back and reapplies it, to prove the order does not
+matter.
+
+**ADR 0022.** Operational metrics live in the `health_samples` table and
+counts over `audit_events`, in PostgreSQL, not in an OpenTelemetry SDK or
+a scraped metrics endpoint. STACK.md section 15 and ADR 0012 point to it.
+There is one pilot VM and nowhere to scrape from; the admin page is
+already where an operator looks.
+
+**Review rulings and fixes.** Two review rounds (security and code, then
+a confirmation pass) found and fixed: the worker comparing quota keys
+that included Epic 10's future `recoveryGiB` and re-growing storage every
+tick; a new workspace never getting its first `quota_applied` filled in;
+an archived workspace surviving a stop request made through presence; a
+health-tab query that could not use its index; the administrator socket
+leaking service names and having no per-workspace cap; a lost-update race
+on a quota change; a host-snapshot call with no timeout; the
+preview-denied throttle key missing the user id, so one student's refusal
+could suppress another's audit row; and health samples keeping a stale
+per-instance list on every row instead of only the newest one.
+
+Gaps:
+
+- Resolved on `epic/10-recovery-quotas` by the main-into-Epic-10 merge:
+  Rebuild and Reset Docker are on in the admin detail, off while an
+  operation is pending, and the detail's `storage` comes from Epic 10's
+  per-class figures (null unless the agent measured all three classes).
+- Issue #284, the egress allow-list, is deferred; PR #424 already added a
+  deny list for private network ranges and the host itself, which is a
+  different, narrower control.
+- Epic 11 has not been deployed to the pilot.
+- The admin page does not wait for the saved appearance to load before
+  rendering, so it uses the browser's local copy on first paint.
+- Administrator-socket accounting (the per-workspace cap on open
+  administrator sockets) is kept in memory and assumes a single API
+  process; a second API process would not share the count.
+
+## Workspace egress to private ranges
+
+The platform VM's firewall and the workspace network ACL (access control
+list) now drop workspace traffic to private and special address ranges:
+10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16,
+127.0.0.0/8, 0.0.0.0/8, 224.0.0.0/4 and 240.0.0.0/4, and for IPv6
+fc00::/7, fe80::/10 and ::1 (SPEC.md sections 23.2 and 24). The list is
+the `workspace_egress_denied_ranges` variable in
+`infra/ansible/site.yml`. DNS and DHCP from the bridge gateway, the VM's
+path to the workspace agent and preview ports, and Internet egress are
+unchanged. The ACL is now written whole from a template, so a range taken
+off the list also leaves the ACL.
+
+## Epic 12a — Security test suites
+
+The requirement is `docs/archive/epics/EPIC-12A.md`. This is the first half of SPEC.md
+section 29 Epic 12: tests of code that already exists, plus section 30
+Gate C. The second half, Epic 12b (load, backup and restore, the
+destructive rebuild exercise, deployment documentation, and the
+threat-model review), is separate and still ahead.
+
+**The authorization matrix.** Every route the API registers is classified
+into one of seven access rules (public, self, owner, owner-or-admin,
+admin, preview-edge, inert), 97 entries including the automatic HEAD
+twins, and the test checks the rule against every kind of caller:
+anonymous, the workspace's own student, another student, an
+administrator, a disabled user, a bearer token with no cookie, and a
+preview-origin request. The class table lives on the test side
+(`apps/api/src/security/route-policy.ts`), and the check runs both ways:
+a route Fastify registers with no class fails the test, and a class entry
+naming a route that no longer exists also fails it. The comparison now
+walks Fastify's own printed route tree, so a route registered outside the
+one routes plugin (where `onRoute` would miss it) is still caught. The
+same idea covers the four browser sockets and every workspace-agent route
+and socket: a wrong or missing token is refused before the request body
+is even parsed (PR #396, #409, #440).
+
+**Filesystem escape.** 72 cases (35 through the API to two real agents,
+37 directly at the agent) send hostile path spellings, percent- and
+double-encoding, overlong UTF-8, full-width characters, NUL bytes,
+symlink loops, and symlinked project directories, across every file
+operation the API and agent expose: read, write, delete, mkdir, move,
+tree, download, search, and both kinds of diff. None of them reached
+outside the caller's own project (PR #407).
+
+**Limits and the hostile agent.** New tests drive the API against a small
+misbehaving stand-in workspace agent: oversized and malformed answers,
+answers that claim another workspace's identity, listening lists that
+name a denied port, and frames over the sockets' 1 MiB cap. They also
+check every route's JSON body limit, including routes added after this
+task shipped, since the test finds routes itself (PR #409).
+
+**Browser checks.** Two Playwright specs cover what one student's browser
+can see of another's workspace, and what a preview page loaded in a
+student's own browser can do with their session: no tabs, terminals,
+files, or project name leak across students or to an administrator, and
+preview code cannot read `/auth/me`, act on the workspace, or read the
+session cookie (PR #410).
+
+**`make security-test` on the live VM.** The suite makes its own users by
+SQL insert (never the mock sign-in's fixed accounts), creates two
+workspaces of its own, and probes only those two, through the real Caddy
+edge, the real Incus containers, and the real firewall. It snapshots
+every other workspace and every setting before and after and fails on
+any difference; it checks free memory and thin-pool space before
+creating anything; and it takes a run lock so two runs, including from
+different machines, cannot collide (PR #418, #430, #436, #440). The final
+run against the live pilot passed 172 checks with one known failure
+(#408, below) in about three minutes, twice in a row, and left nothing
+behind. **Gate C (SPEC.md section 30) is proven on the pilot, except that
+the pilot still signs in through the mock identity provider**, so that
+one condition is recorded as not yet met.
+
+**Product fixes that came out of the suites.**
+
+- **#400.** Downloading a project or folder containing a symbolic link
+  gave a broken zip, because `zip` cannot store an uncompressed link
+  entry on a pipe. Downloads now zip to a temporary file under
+  `/var/tmp`, streamed to the browser and deleted once the stream closes
+  or the browser leaves; a failure now returns a proper error instead of
+  a truncated file.
+- **#397 and #401.** The API now re-applies its own count limits (32
+  checks, 500 search matches) to whatever the agent sends back, instead
+  of relaying an untrusted agent's answer as-is. Fastify's own 4xx errors
+  (an oversized or malformed body) now keep their real status, so an
+  oversized request gets 413 instead of a misleading 500.
+- **The agent's token check** now runs before its body is parsed, so a
+  caller with no token cannot make the agent do the work of parsing up to
+  1 MiB first.
+- **Test doubles and test helpers are removed from the packaged build.**
+  `make build-deb` now fails if any test file reaches the `.deb`. The
+  mock identity provider stays in the package, because the pilot's
+  separate mock-IdP service runs it on purpose (ADR 0008).
+
+**Two high-severity findings were fixed directly on `main`, ahead of and
+separate from this epic's task PRs**, because the repository is public
+and each was exploitable on the live pilot: a workspace agent could send
+an oversized terminal frame and make the API buffer it without bound
+(PR #406), and a workspace could reach the host and other private
+network ranges that should have been closed to it (PR #424). PR #424 is
+already applied on the pilot; the network-isolation checks in this epic's
+VM suite depend on it and were verified against the pilot with it in
+place.
+
+**Gaps.**
+
+- **#402** (HEAD on a browser socket route answers 500 for an otherwise
+  allowed caller) is still open. Its fix would remove the HEAD twin from
+  four routes in the test-side policy table, and the automatic permission
+  check that protects security tests from being weakened refused that
+  edit; it needs the user's approval, or a task that is scoped to touch
+  only that file.
+- **#398** (no rate limit on sign-in) and **#399** (no size cap on
+  downloads) are documented gaps, pinned as known and expected, not
+  fixed in this epic.
+- **#408:** the pilot signs in through the mock identity provider, so
+  anyone who reaches the site can sign in as an administrator. This is
+  the one condition Gate C has not met.
+- **Zip-slip has no tests yet.** Nothing in the platform extracts an
+  archive a student provides today, so there is nothing to test; Epic
+  10's restore work will need its own traversal tests when it lands.
+- **The heavy limit tests** stay opt-in behind
+  `PORTIKUS_SECURITY_HEAVY=1`, because they need a VM with no other
+  workspace. The memory test first ran on the rehearsal VM on 2026-09-23
+  in Epic 12b and passed (docs/CAPACITY.md, "When memory runs out"). An
+  untimed fork bomb is not among them.
+- **Epic 12b** (load and concurrency, backup and restore, the destructive
+  infrastructure rebuild exercise, deployment documentation, and the
+  threat-model review) followed as its own epic, below.
+
+## Epic 12b — Dex sign-in and pilot readiness
+
+The requirement is `docs/archive/epics/EPIC-12B.md`. This is the second half of SPEC.md
+section 29 Epic 12, and the last epic before the pilot. The operator's
+runbook is `docs/OPERATIONS.md`.
+
+**Sign-in through Dex, from a users file.** Dex, an open-source sign-in
+server, now runs on the VM as the default provider, built from a pinned
+upstream commit (PR #459, ADR 0023). `PORTIKUS_IDP` picks `dex`, `mock` or
+`external`, and only the chosen one runs. Accounts live in a users file on
+the operator's machine, `~/.config/portikus/users.json` (mode 0600), which
+holds bcrypt hashes and never passwords. `make users-add`, `users-remove`,
+`users-list`, `users-check` and `users-deploy` manage it (PR #453), and
+`users-deploy` ends the sessions of removed users, reset passwords and
+demoted administrators (PR #465). A CI job signs in through a real Dex at
+the pinned commit (PR #460).
+
+**Carrying accounts over.** Portikus computes the subject Dex will give
+each user, so a carry-over command can move each existing mock account to
+its Dex identity by email before the switch, keeping the same workspace
+(PR #452). It is a dry run unless applied, audits each change, and leaves
+the #302 duplicates alone. The cutover always ends every session made
+while the mock was on, even when no account is carried (PR #461).
+`make identity-carry-over-dry-run` shows the pairings first.
+
+**Sign-in throttle (#398 fixed).** The API limits sign-in starts to 150 a
+minute per address, and Dex password posts to 30 per 10 minutes per
+address and 300 in total, answering 429 with the new `RATE_LIMITED` code
+(PR #454). Caddy asks the API before each password post. A later fix
+(PR #468) stopped one address from using up the shared total, counted
+encoded spellings of the password path, let only the Dex paths a sign-in
+uses through Caddy, and raised the start limit from 60 so a lab of 30
+students behind one address can sign in within a minute. The same task
+capped the journal at 2 GB.
+
+**Download cap (#399 fixed).** Downloads are capped at 1 GiB. The agent
+refuses larger files and folders before zipping, the API cuts any relayed
+body at the cap plus 64 MiB, and the browser explains the limit (PR #456).
+
+**Gate E accessibility fixes.** The twelve findings on the recovery,
+admin and download screens are fixed: busy buttons stay focusable, focus
+is kept or moved sensibly, errors are tied to their fields, and live
+regions hold only fixed text (PR #458, with follow-up test fixes in
+PR #465).
+
+**#402 closed.** HEAD on a browser socket route no longer answers 500.
+The fix landed on the epic branch before its task PRs.
+
+**Backups and restore.** A nightly host timer at 02:30 pulls a backup of
+the pilot to the host and encrypts it with age: a `pg_dump` and an export
+of every workspace's home and recovery volume. Sets go to
+`/var/backups/portikus/<hostname>/<timestamp>`, and 14 are kept per VM
+(PR #463, PR #466, ADR 0024). A restore onto the rehearsal VM was tested,
+including starting a restored workspace and checking its files and
+commits. A restore refuses any target that already holds users or
+workspace volumes. `make configure-vm` also keeps the VM's Incus scripts
+in step now (PR #455), and a rehearsal VM beside the pilot runs every
+exercise that must not touch it (PR #457).
+
+**Load test and capacity.** `make load-test` ran 25 and 40 workspaces on
+the rehearsal VM (PR #462, `docs/CAPACITY.md`). Once running, every
+latency was far inside its limit, with no failed operation. For 100
+provisioned and 25 active workspaces, the pilot needs 8 vCPUs, 16 GiB of
+memory and a 200 GiB data disk; Todd resizes it in a window he chooses.
+The test found that the worker started workspaces one at a time, so the
+worker now starts and creates up to six at once, and retries a create
+when the controller is briefly unreachable (PR #464).
+
+**Memory protection and pool growth.** The platform services are ranked
+below every workspace process for the kernel's out-of-memory killer, and
+each has its own memory cap. Growing the data disk now also grows the
+storage pool (PR #467, `docs/CAPACITY.md`, "When memory runs out" and
+"Resizing the pilot").
+
+**Terminals survive an out-of-memory kill (2026-09-26).** Terminals and
+student programs run in the workspace agent's systemd unit. systemd used
+to stop that whole unit when the kernel killed one program for memory,
+which closed every terminal. The unit now sets `OOMPolicy=continue`, so
+only the program dies. Workspaces get this from the next workspace image
+and a rebuild; moving terminals into their own cgroup is left for later.
+
+**Rebuild from code (B5).** On 2026-09-23 the rehearsal VM was rebuilt
+twice from the repository with Make targets only, and nothing was done by
+hand on the VM. From an empty host to a green smoke test (209 checks,
+including a full Dex sign-in and the lifecycle block) took 14 min 41 s.
+The pilot's newest backup was restored into the second rebuild in 55 s.
+Every user, workspace, instance and volume came back, the session tables
+were empty, all three workspaces started, and sampled files and Git
+commits matched the backup. After the carry-over, alice signed in through
+Dex and landed in her original workspace. From an empty host to that
+sign-in took about 10 min 30 s. Removing an account with
+`make users-deploy` ended its live session (401) and was audited. The
+load test rerun measured a start p95 of 12.6 s, down from 77 s. Timings
+are in `docs/OPERATIONS.md`, "Rebuild from code (B5)", and the load
+numbers in `docs/CAPACITY.md`. `make rebuild-exercise` (PR #471) now
+runs every STACK.md section 33 step in one command, including the
+rollback to the previous package, and passed end to end in 17 min 48 s.
+The smoke test gained checks for restored data, and it now compares the
+VM's Incus script with the checkout's on every run. Ruling: STACK.md
+section 33 step 6 says to install the newest release. The exercise
+installs a package built from the checkout instead, so it tests what is
+about to ship, and this was accepted.
+
+### Gaps
+
+- **The Dex cutover has not been run on the pilot.** The pilot still
+  signs in through the mock provider, so #408 stays open until it does.
+  The steps are in `docs/OPERATIONS.md`, "The Dex cutover".
+- **The VM replacement for a memory and CPU resize was not rehearsed**,
+  because the rehearsal VM was shared at the time. The disk growth was.
+- **The threat model is kept private** for Todd to decide whether and
+  how to publish it.
+- **The confirming load test at 8 vCPUs and 16 GiB** has not run; the
+  size is worked out from the 12 vCPU run.
+- **Workspace starts are still over target under load.** With 25 students
+  opening their workspaces within 48 seconds, start p95 was 12.6 s against
+  the 10 s target (SPEC.md section 25.1). Every other load criterion
+  passed.
+- **The rollback step needs a package with Dex.** No published release
+  has Dex yet, so the exercise rolled back to a local build of the
+  previous epic head. Once this epic's release is out, the exercise rolls
+  back to a published release (`PREVIOUS_VERSION`).
+- **A backup from before the Dex cutover needs the carry-over after a
+  restore.** The runbook says how (`docs/OPERATIONS.md`, "Rebuild from
+  code (B5)").
+- **Backups sit on the same physical disk as the VM.** A weekly copy to
+  external storage is a manual step.
+
+## Epic 13 — LTI 1.3 launch and an instructor role
+
+The requirement is `docs/archive/epics/EPIC-13.md`, with its rulings as amended by the
+epic reviews, and the design is ADR 0025. It serves SPEC.md sections 5.1
+and 5.2 and the new section 29 entry. The operator's steps are in
+`docs/OPERATIONS.md`, "Signing in from a learning management system (LTI
+1.3)".
+
+**Launch from an LMS.** A learning management system (LMS) such as Canvas
+or Moodle can now open Portikus from a course with LTI 1.3 (Learning Tools
+Interoperability). `/lti/login` starts the sign-in, `/lti/launch` checks
+the LMS's signed token, and `/lti/jwks` publishes the tool's public key
+(PR #484, PR #486). Every failed check refuses the launch with its own
+reason code. The launch creates the normal session. State is a database
+row plus a `__Host-` cookie named per login, so the nonce is single use and
+a launch is tied to the browser that began it. The two launch routes may
+be framed, but when framed they only show a page with an "Open Portikus in
+a new tab" button or a refusal. Launches are audited with the platform,
+role or reason, address and user agent. Tokens and roster data are never
+logged.
+
+**Instructor role and Course page.** `instructor` is a new role between
+student and administrator (migration `0015_lti`, PR #481). LTI gives it to
+instructors, teaching assistants and course designers, never
+`administrator`. Dex accounts can be instructors through the group
+`portikus-instructors` (PR #487). An instructor gets a read-only Course
+page listing who has launched from each of their courses, with role, last
+launch and workspace state (PR #483, PR #486). The authorization matrix
+proves an instructor is refused on every administrator route and gets 404
+for anyone else's workspace.
+
+**Deployment.** LMS registrations live in a platforms file on the host,
+which `make configure-vm` copies to the VM after checking it with the
+API's own parser. Ansible generates the tool key once, and Caddy lets
+`/lti/*` set its own frame rule (PR #485).
+
+**Mock LMS.** `packages/mock-lms` plays an LMS for tests and for trying
+launches (PR #482, PR #489). It can send each kind of bad token on
+request. `make mock-lms`, `make lti-mock-register` and `make
+lti-mock-unregister` run and trust it from the host; it never ships in
+the Debian package, which a build guard checks.
+
+**Verified.** Unit, route and database tests cover every reason code, the
+role mapping, the platforms file and the Course routes. Playwright tests
+cover a student launch, an instructor launch and the Course page, each bad
+token, the frame page and its new-tab button, administrator routes refused
+for an instructor, and axe on the new pages. The ordinary end-to-end CI shards
+run them against the mock and PostgreSQL (PR #488).
+
+**Reviews.** Security, code and accessibility reviews ran over the epic,
+and their fixes landed as PR #489 to PR #491 and PR #493 to PR #494:
+roles only from the course membership vocabulary, a `__Host-` state
+cookie per login, no redirect off the site, no database transaction held
+across the keyset fetch, and `/lti/login` refusing anything but a
+top-level page load (images, fetches, prefetch and prerender). The
+confirmation reviews were clean.
+
+**Verified on a rehearsal VM** (PR #495). With Dex and the mock LMS
+registered, the smoke test passed 119 checks and the security test 225,
+with one expected warning that the mock is registered. After `make
+lti-mock-unregister`, they passed 103 and 221, and every `/lti` route
+answered 404. A bad platforms file was refused at install with the API's
+own message, and nothing reached the VM. Headless Chromium and Firefox
+both completed a cross-site launch, and a framed launch that went on in a
+new tab.
+
+### Gaps
+
+- **No real LMS has been tried yet.** Only the mock has launched Portikus.
+  Canvas's and Moodle's quirks will show up with the first real
+  registration.
+- **A cloud LMS needs the API's egress allow list widened** for its keyset
+  host (`PORTIKUS_API_IP_ALLOW`), which weakens the API sandbox. A
+  keyset-fetch proxy would avoid that and is not built.
+- **Someone removed from a course stays on the Course page.** Removing
+  members needs roster sync.
+- **An LTI account and a Dex account are separate**, even for the same
+  person.
+- Grade passback, roster sync, Deep Linking and instructor views of
+  student workspaces are left out; roster sync, Deep Linking and instructor views are issues
+  #1217, #1218 and #1219.
+
+## Epic 13.1 — Link a course account to an SSO account, and promote administrators
+
+The requirement is `docs/archive/epics/EPIC-13-1.md` with its rulings, and the design is
+ADR 0026. It serves SPEC.md sections 5.2 and the new section 29 entry.
+The operator's steps are in `docs/OPERATIONS.md`, "Linking a course
+account to an SSO account".
+
+**Linking.** A person who launches from a course (Epic 13) and also signs
+in through single sign-on (SSO) can link the two from Settings, Profile,
+within 15 minutes of a launch (PR #501, PR #502, PR #503). Linking starts
+on the course side and completes with a full OIDC sign-in on the SSO side,
+`prompt=login`, and a confirmation page naming both accounts; it never
+matches by email and never creates or updates a user in link mode. The
+course account is retired: its sessions end, `loadSession` refuses it, and
+its workspace is archived through the existing archive path, unarchived
+automatically on unlink. Course memberships move to the SSO account at
+link time, so an instructor keeps their Course page. A later launch from
+the linked course identity signs into the SSO account and refreshes its
+membership, never its role.
+
+**A stored role grant.** Each account's effective role is now the higher
+of `provider_role` (what the account's own sign-in gave last time) and an
+optional `granted_role` (`instructor` or `administrator`) stored by
+Portikus (migration `0016_account_links`, PR #501). An administrator can
+promote an SSO account to administrator and demote one they granted, each
+behind a confirmation dialog; demoting oneself, a provider-given
+administrator, or the last enabled administrator is refused, including
+two concurrent mutual demotions (PR #502). A grant is refused on a course
+account, and a launch never starts a session for an account whose
+effective role is administrator, because an LMS administrator can act as
+any user in the LMS.
+
+**The Users view.** The admin Workspaces tab is now Users (`?tab=workspaces`
+is unchanged): a Role column and filter, a Source column ("SSO" or
+"Course: <platform host>"), search over the source, Promote and Demote in
+the account section, and ticked-row bulk Disable, Enable, Archive and
+Unarchive over the existing single-row routes (PR #504). `StateBadge`
+gained an `inCell` option so a table of many rows is not many live
+regions (SPEC.md section 25.8), used here and on the Course page. The
+account section shows the full issuer and username, closing issue #302.
+
+**Instructors remove a course member.** `POST
+/courses/:courseId/members/:userId/remove` deletes one `lti_memberships`
+row and writes a `course.member_removed` audit row with ids only; a later
+launch adds the membership back (`#506`, amending Epic 13 rulings 23 and
+27). This closes the "someone removed from a course stays on the Course
+page" gap above as a stopgap; roster sync (NRPS) is still left out.
+
+**Verified.** Unit and database tests cover the migration up and down
+with the backfill, every function in `links.ts` including a single-use
+intent, an expired intent, per-platform uniqueness, `loadSession`
+refusing a retired account, and the effective-role rule. Route tests
+cover every step and every `?error=` code, an old course session refused
+at start and confirm, a linked launch landing in the SSO account with its
+role untouched, the administrator-launch refusal, promote and demote with
+every refusal, and the authorization matrix for every new route. Component
+tests cover the Profile link states, the `/link` page's pending and error
+states, and the Users view's search, role filter, role labels, and
+Promote and Demote dialogs. Playwright covers linking from the mock LMS
+to a mock OIDC account, relaunch landing in the linked account, unlink and
+relaunch landing back in the course account, a link to an unknown SSO
+identity refused, search and promote and demote in the Users view
+including the last-administrator refusal, bulk actions, and member
+removal on the Course page, plus axe on the new pages. `pnpm typecheck`,
+`pnpm lint` and `pnpm test` are green on the epic branch.
+
+**Review rounds.** A code review, a security review and an
+accessibility review ran over the epic head after T5. Their fixes landed
+as PR #508 (web and accessibility: focus after unlink, labelled buttons,
+live regions) and PR #509 (server: sessions record how they started in
+migration `0017_session_method`, a launch session of an administrator is
+refused, a disabled SSO account is refused at confirm, instructors remove
+only students, unlink undoes only the link's own archive, and the launch
+notice with its course-side Unlink and the `/unlinked` page). A
+confirmation review then found more, fixed in the "Epic 13.1
+confirmation-review fixes" PR: every unlink ends every session that came
+through the course identity, with its preview sessions; a launch session
+may unlink only its own identity; migration 0017 (not yet deployed
+anywhere, so edited in place) classifies existing sessions and fills the
+archive time only when it matches the link; an administrator SSO account
+cannot be linked; the preview gateway applies the same session rule as
+the API; Settings moves focus only after the unlinked row is gone; the
+launch notice is announced through a status region mounted in advance;
+and removing the last other course member focuses the page heading.
+Rulings S1 to S5, N1, N2 and N4 in `docs/archive/epics/EPIC-13-1.md` record them.
+
+**Pilot rehearsal:** 2026-09-24, epic head ad10dac deployed to the pilot as 0.1.404+gad10dac (pg_dump and `pre-epic13-1b` snapshots taken first; migration 0017 applied). Smoke test 117 passed, security test 225 passed, plus the expected mock LMS warning. By headless browser through the mock LMS: a course launch, then "Link to my SSO account", reaches the Dex password page with `prompt=login`; an instructor removes a student in a course of their own, has no Remove button on their own row, and the student reappears after launching again. Not yet run on the pilot, for lack of a Dex test account: confirming a link with a real Dex sign-in, the relaunch into the SSO account with its "Not you? Unlink" notice, unlinking, and promote and demote in the Users view. CI's Playwright suite covers each of these against the mock identity provider.
+
+### Gaps
+
+- **No real LMS or production OIDC provider has tried linking yet.** Only
+  the mock LMS and the mock OIDC provider have.
+- **Entra's group overage limit** (past about 200 groups, Entra sends an
+  overage claim instead of group names) means `mapRole` cannot place
+  students or instructors under Entra past that point; a stored grant
+  still reaches administrator. Left for a later epic (ruling 25).
+- **No server-side search or paging** for the Users list; it is fine for
+  one pilot's account count and left for when a list passes about 1,000
+  accounts (ruling 24).
+- **No administrator UI to link or unlink on someone else's behalf.** So
+  a student whose linked SSO account is later disabled or promoted is
+  locked out of launches until one exists (ruling N4, issue #1252).
+- **Moving or merging workspaces, files or projects between accounts** is
+  out of scope; a link only changes where a later launch or sign-in lands.
+- **No `instructor` grant in the UI or API yet**, though the column
+  accepts it, ready for the Entra and Google epic.
+
+## Epic 14 — Sign-in providers
+
+### T1: provider sign-in
+
+The API can now sign in through Microsoft Entra ID and Google Workspace
+as well as Dex and generic OpenID Connect (docs/archive/epics/EPIC-14.md rulings 8 to
+12 and 27, PR #517). New settings: `OIDC_PROVIDER` (`oidc`, `entra` or
+`google`), `OIDC_ALLOWED_TENANT` (required for `entra`),
+`OIDC_ALLOWED_DOMAINS` (required for `google`), `OIDC_DEFAULT_ROLE`
+(`none` or `student`), `OUTBOUND_PROXY_URL`, and the four `DEX_GRPC_*`
+settings, which must be set together or not at all.
+
+Entra and Google sign-ins are admitted only when the signed ID token's
+`tid` or `hd` claim matches; a missing claim is refused. A refusal gets
+the existing 403 page and an `auth.login` `denied` audit row with the
+reason `tenant_not_allowed` or `domain_not_allowed`. Entra and Google
+skip the userinfo call, so userinfo can never add a missing claim. Google
+logins send the first domain as a hint. With `OUTBOUND_PROXY_URL` set,
+OIDC discovery, token and userinfo requests and LTI keyset fetches go
+through undici's `ProxyAgent`, now an exactly pinned dependency of
+`packages/auth`; nothing else does, and Node's global fetch is left
+alone. The mock provider gained optional claims and the Entra-shaped
+(erin, eve, ian) and Google-shaped (gina, gabe, gus) users.
+
+Tests: route tests drive the real `openid-client` through the mock to
+`/auth/callback` under each provider setting; a stub proxy proves which
+requests go through it.
+
+Gaps:
+
+- HTTPS through the proxy failed at first, because the code loaded
+  undici's proxy module without the part that adds `connect` to its
+  dispatcher. T4 found it on the rehearsal VM, and PR #520 fixed it with
+  a test that tunnels HTTPS through a stub proxy.
+
+### T2: first administrator setup code
+
+A new site gets its first administrator from a one-time setup code
+(docs/archive/epics/EPIC-14.md rulings 15 to 18, ADR 0028). The command
+`setup-code-main.js` in `@portikus/auth` prints a code of 16 Crockford
+base-32 characters (80 random bits), valid for 60 minutes and single use.
+Migration `0018_setup_codes` keeps only its SHA-256. Issuing a code
+deletes any unused one and writes `setup.code_issued` without the code.
+The Ansible step that T4 added runs this command by the same path.
+
+The `/setup` page lets a signed-in SSO account enter the code through
+`POST /setup/claim`. A good code sets `granted_role = 'administrator'`
+and writes `setup.code_claimed` and `user.role_changed` with source
+`setup`. A wrong or expired code gets one generic answer and a `failed`
+audit row. A course account, or any session that began with a course
+launch, is refused. Claims are limited to ten per address in ten minutes,
+the sign-in throttle's mechanism. Under standalone Dex, while no enabled
+administrator exists, `/setup` instead shows a form that creates the
+first Dex password and its administrator account in one step through
+`POST /setup/first-account`. `GET /setup/state` tells the page which form
+to show.
+
+Tests: database tests for issuing, claiming, expiry and single use; route
+tests for every refusal, the throttle, the first-account path and a log
+that holds no code; Playwright runs the command against the run's
+database, claims as a fresh student, sees the Administration link, and is
+refused a second claim; axe checks every state of `/setup`.
+
+Gaps:
+
+- Caddy did not route `/setup/*` to the API at first, so a deployed site
+  sent it to the web bundle. T5 added the route and claimed a code
+  through it on the rehearsal VM.
+- The Playwright test claims as a fresh account rather than the shared
+  mock `alice`, because another spec checks at the same time that alice
+  has no Administration link.
+- An account whose provider gives it no role at all cannot sign in, so
+  it cannot claim a code either; under Entra such a person needs an app
+  role first.
+
+### T3: Dex users and the instructor grant in the Users view
+
+The API manages Dex's passwords over Dex's gRPC API with mutual TLS
+(`packages/auth/src/dex-api.ts`, PR #518, docs/archive/epics/EPIC-14.md rulings 14 and
+19 to 24). `POST /admin/dex-users` adds a person with a generated
+20-character password, shown once, and pre-creates the Portikus account
+under the subject Dex will give them, with the chosen role as a grant.
+`reset-password` makes a new password and ends the account's sessions
+and preview sessions. `remove` deletes the password and disables the
+account in one transaction. The routes are for administrators only,
+CSRF-checked, and answer 404 unless `DEX_GRPC_ADDR` is set. A password
+appears in one response body only, never in a log or audit row. The
+proto is Dex's `api/v2/api.proto` copied unchanged into
+`packages/auth/proto/`. It has no display name and no groups, so the form
+asks for none, and any role above student is a Portikus grant.
+
+`make-instructor` and `remove-instructor` follow the promote and demote
+pattern: they refuse course accounts and never touch an administrator
+grant. The Users view shows Add user (only when the site manages Dex
+users), and Reset password, Remove, Make instructor and Remove instructor
+in the detail panel. CI's `dex-signin` job runs Dex with PostgreSQL
+storage and the gRPC API, checks the proto against the pinned commit, and
+creates, signs in as, resets and removes a user on the real Dex.
+
+Gaps:
+
+- Dex sends no `preferred_username` for these passwords, so a sign-in
+  used to overwrite the stored one with null. `upsertUser` now keeps the
+  stored value when the claim is missing.
+
+### T4: egress proxy and provider settings
+
+Squid from Debian runs on `127.0.0.1:3128` in the new `egress_proxy`
+role (ADR 0027, docs/archive/epics/EPIC-14.md rulings 25 to 29, PR #519). It allows
+`CONNECT` to port 443 of listed host names, refuses a name that resolves
+to a private, loopback or link-local address, allows a listed IPv4
+address with its port exactly, and caches nothing. An entry listed with
+its own port also gets plain HTTP there, because undici forwards
+`http://` URLs rather than tunnelling them. The play checks the
+configuration with `squid -k parse` and restarts Squid on failure.
+
+The play builds the list from the provider's discovery document (the
+userinfo host left out for Entra and Google), every LMS keyset URL, and
+`PORTIKUS_EGRESS_EXTRA_HOSTS`. Under Dex or the mock, the site's own name
+is allowed only at 127.0.0.1 on the site's port. `PORTIKUS_API_IP_ALLOW`
+and the `10-idp-egress.conf` drop-in are gone; a play that still sets
+the variable stops with a message naming `PORTIKUS_EGRESS_EXTRA_HOSTS`.
+`PORTIKUS_IDP` also takes `entra` and `google`, with
+`PORTIKUS_ENTRA_TENANT_ID`, `PORTIKUS_GOOGLE_DOMAINS` and
+`PORTIKUS_DEX_UPSTREAM`; the issuer is derived for Entra and Google, and
+Entra uses the `roles` claim with the `Portikus.*` app roles. At the end
+of the portikus role the play prints a setup code when no enabled
+administrator exists.
+
+Verified on the rehearsal VM, never the pilot: as the API's user under
+the unit's address rules, a direct request to accounts.google.com got no
+connection, the same host through the proxy answered 200, example.com
+was refused with 403, and a listed name resolving to 10.0.0.1 was
+refused. `make security-test` passed 232 of 232 with package
+0.1.416+g8137d20. The smoke test's one failure there was T1's proxy bug,
+fixed by #520. The new security module is `infra/tests/security/egress.sh`.
+
+### T5: Dex storage, gRPC and connectors
+
+Dex now keeps its accounts in its own PostgreSQL database, `dex`, owned
+by the `portikus-dex` role and reached over the local socket (docs/archive/epics/EPIC-14.md
+ruling 19, ADR 0028). Its gRPC API listens on `127.0.0.1:5557` and accepts
+only a client certificate from a small certificate authority that Ansible
+makes in `/etc/portikus/dex-grpc/` (ruling 20). The API's client key is
+`root:portikus`, mode 0640, and `api.env` names the files through
+`DEX_GRPC_*` only when the provider is Dex. The certificates are issued
+again when they have less than 30 days left.
+
+`PORTIKUS_DEX_UPSTREAM` adds one upstream connector beside Dex's own
+passwords: `ldap` (Active Directory or OpenLDAP attribute names, a
+required user filter, an optional group search and root certificate, and
+the directory's addresses in Dex's `IPAddressAllow`), `microsoft` (held to
+the site's tenant) or `google` (held to the site's domains). The last two
+reach their provider through the egress proxy with `HTTPS_PROXY` in Dex's
+unit. Bad upstream settings stop the play before anything changes. Caddy
+now lets the LDAP password form through, behind the same sign-in throttle
+as Dex's own form, and routes `/setup/*` to the API.
+
+The users file is retired. When one is given and Dex holds no passwords,
+the play imports every entry through the gRPC API with its own bcrypt
+hash and user ID, so every subject, account and workspace stays the same.
+An administrator or instructor in the file becomes that account's
+`granted_role`, because Dex sends no groups for these passwords. The
+import is all or nothing, and a later run imports nothing. `make users-*`,
+`packages/users-file`, the users-deploy session revocation, and the
+backup's encrypted copy of the users file are gone. The nightly backup
+now also dumps the `dex` database, and a restore loads it.
+
+Verified on the rehearsal VM, never the pilot, with package
+0.1.419+gc66573a and the pilot's backup of 2026-09-24 restored:
+
+- The import moved carol, alice and bob into Dex. Every account kept its
+  subject and still owns its workspace (checked with SQL against the
+  subjects the users file predicts), and Dex holds each user's original
+  hash. carol is administrator by grant. A second play printed "Dex
+  already holds 3 passwords; nothing imported." and changed nothing.
+- A gRPC call with the API's client certificate answered; one with a
+  certificate from another authority, and one with none, were refused.
+- With a throwaway OpenLDAP on the VM, lena (in the user filter and the
+  instructors group) signed in through Caddy and the API as an
+  instructor, and ivan (no group) as a student. otto, outside the filter,
+  was refused with the right password.
+- A setup code issued with the play's command was claimed through Caddy
+  at `/setup/claim`; `/setup/state` answered JSON from the API.
+- `make backup` wrote `dex.dump` into the set. Removing the restored data
+  and restoring that set brought the three Dex passwords back.
+- `make smoke-test` passed 126 of 126, with the lifecycle block skipped
+  because restored workspaces exist, and `make security-test` passed 230
+  of 230. The smoke test's Dex sign-in now picks Dex's own passwords when
+  an upstream connector adds a choice page.
+
+Gaps:
+
+- Dex's `microsoft` and `google` connectors are checked only by the
+  render test; no real tenant was used (see "Unverified until a real
+  tenant exists" in docs/archive/epics/EPIC-14.md).
+- Active Directory was not tried; OpenLDAP stood in for it.
+- The host's nightly backup timer runs an installed copy of `backup.sh`,
+  so `make backup-install-timer` must run again on the host after this
+  lands for the pilot's nightly set to include the `dex` dump. T6 did
+  this on the pilot on 2026-09-24.
+
+### T6: docs and the pilot move
+
+The operator docs now describe every provider as built. docs/OPERATIONS.md
+has a section for each: the Entra app registration with its redirect URI
+and three app roles, the Google OAuth client, LDAP and Active Directory
+settings and user filters, standalone Dex, Dex in front of Entra or
+Google for guests, a generic OIDC provider, Shibboleth's OIDC plugin, and
+why SAML is not built. It also gained "Managing users" for the Users
+view, "The first administrator" for the setup code, and "The egress
+proxy". infra/README.md's "Identity provider" lists every setting as the
+code reads it. The users file, `make users-*` and `PORTIKUS_API_IP_ALLOW`
+now appear only as retired. SPEC.md sections 5.1 and 29 name Epic 14, and
+ADRs 0027 and 0028 are accepted.
+
+A setup code was claimed on the rehearsal VM by T5 (PR #522), through
+Caddy at `/setup/claim`. That covers this task's rehearsal item, so the
+rehearsal VM was not built again.
+
+**The pilot move, 2026-09-24, about 20:40 to 21:00 host time.** The
+pilot went from 0.1.409+g0cd5d7a to 0.1.419+g85b5cd1, the epic head,
+with the full play (`make configure-vm PORTIKUS_DEB=<package>`). It stayed
+on Dex. Before the move:
+
+- Incus snapshots named `pre-epic14` were taken of all 26 workspace
+  volumes: the `-home`, `-docker` and `-recovery` volume of each of the 9
+  workspaces, except bob's, which has no recovery volume.
+- A `pg_dump` of the platform database was saved on the host as
+  `~/portikus-pre-epic14-2026-09-24.dump` (mode 0600). Dex had no
+  database before this move, so nothing else needed dumping.
+
+Results:
+
+- The play imported the users file. It printed "Imported into Dex:
+  carol, alice, bob" and "Grants set: carol". SQL afterwards showed each
+  of the three accounts with the same `sub` as before the move, still
+  owning the same workspace. Dex's `password` table holds the three
+  original user IDs. carol is administrator by grant
+  (`granted_role = 'administrator'`).
+- A second full play wrote no audit row and left Dex's three passwords
+  as they were, so it imported nothing.
+- The old `10-idp-egress.conf` drop-in is gone. Squid is active, and
+  `api.env` has `OIDC_PROVIDER=oidc`, `OIDC_DEFAULT_ROLE=student`,
+  `OUTBOUND_PROXY_URL` and the `DEX_GRPC_*` settings.
+- `make security-test` passed 230 of 230, with one allowed warning: the
+  mock LMS is registered.
+- `make smoke-test` passed 125 of 126, with the lifecycle block skipped
+  because student workspaces exist. The one failure is a test bug. The
+  check "the API unit may reach loopback and the workspace bridge only"
+  compares the list as one string, and systemd prints the same two
+  ranges, `127.0.0.0/8` and `10.200.0.0/24`, in the other order on the
+  pilot.
+- `make backup-install-timer` installed the new `backup.sh` for the
+  nightly timer. `make backup` then wrote the set
+  `/var/backups/portikus/portikus/20260925T005540Z`, which holds
+  `dex.dump.age`.
+
+Gaps:
+
+- Nobody has signed in as carol, alice or bob since the move. Their
+  passwords are Todd's own, so the agent could not run the scripted Dex
+  sign-in (`make smoke-test PORTIKUS_SMOKE_SIGNIN_FILE=<file>`) as them.
+  Todd should sign in as each, or run that command with a sign-in file
+  for each, and check that each lands in the same workspace.
+- Fixed after T6: the smoke test's allow-list check accepts the two
+  ranges in either order, `rebuild-exercise.sh` no longer takes a users
+  file and needs a set that holds `dex.dump`, and the Makefile never
+  imports the users file into the rehearsal VM.
+- The retired users file is still at `~/.config/portikus/users.json`. A
+  play on the pilot whose Dex is empty would import it again.
+- Dex's passwords carry no display name, and Dex sends the username as
+  the name. A sign-in whose name equals the stored username now keeps the
+  stored display name, such as "Carol Admin" (`upsertUser`).
+- The `pre-epic14` snapshots and the dump are kept. Remove them by hand
+  after about a week, around 2026-10-01.
+- Known gap from the review: Remove deletes the Dex password inside the database transaction, so if Dex succeeds and the commit then fails, the account stays enabled with no Dex password. Add user and the first-account form delete the new Dex password in that case; Remove does not recreate one.
+- Review fixes, infrastructure and egress: Portikus asks Dex for `groups` only with Dex's own passwords or LDAP, never behind its Microsoft or Google connector, where students can create groups; OpenLDAP accounts are keyed by `entryUUID`, so a reused username gets a new account; Active Directory keeps `sAMAccountName`, because Dex v2.45.1 cannot encode the binary `objectGUID` (999 of 1,000 random GUIDs failed), and docs/OPERATIONS.md says to disable, not delete, departed accounts; Squid matches names only as written (`dstdomain -n`) and refuses any unlisted IP address given directly; `restore.sh` skips Dex's accounts on a VM without Dex and restarts Dex if loading them fails; the mock-to-Dex carry-over and `make identity-carry-over-dry-run` are removed; CI makes the gRPC certificates with the dex role's own script. Verified on the rehearsal VM with 0.1.423+gd0a823d and a throwaway OpenLDAP: a new person given a deleted person's username got a new account, the old rules let a CONNECT to 1.1.1.1 through by its reverse DNS name while the new ones refuse it, `make security-test` passed 236 of 236 and `make smoke-test` 240 of 240.
+- Confirmation-review fixes: behind Dex's Microsoft or Google connector the play now leaves the API's `OIDC_GROUPS_CLAIM` empty, and the API takes no role from groups when that setting is empty, so a student who adds the `groups` scope to the Dex sign-in address gains nothing; every play on a site that no longer uses the mock ends the sessions of the mock's accounts; a users-file import skipped because Dex already holds passwords now marks the site imported, so a Dex emptied later never gets the file; the setup page and the Add user dialog render the invalid field before moving focus to it, so a screen reader announces it as invalid. Unit, database and render tests cover each; the play task that ends mock sessions has not been run on a VM.
+
+## Epic 14.2 — One front door
+
+Dex is now the only sign-in front door, and every install has a local
+administrator (ADR 0031; SPEC.md sections 5.1 to 5.3 and 24.11; issue
+#537). The working brief was folded into SPEC.md and deleted by T6.
+
+### What was built
+
+- **One issuer (T1, #559).** The API trusts only Dex (or the mock on
+  development and CI sites). `OIDC_PROVIDER`, `OIDC_ALLOWED_TENANT` and
+  `OIDC_ALLOWED_DOMAINS`, the `tid` and `hd` checks and their audit
+  reasons, and the skipped userinfo call are gone; the API always calls
+  userinfo. The Entra- and Google-shaped mock users (eve, ian, gina, gabe,
+  gus) were removed. `OIDC_DEFAULT_ROLE` stays: `student` on every Dex
+  site, `none` for the mock.
+- **The local administrator and password change, server side (T2,
+  #563).** Migration `0019_local_admin` adds `users.must_change_password`
+  and drops `setup_codes`. `packages/auth/src/local-admin.ts` and
+  `reset-admin-main.ts` make or reset the local administrator: Dex user
+  ID `local-admin`, username `admin`, display name "Local administrator",
+  the administrator grant, a 20-character generated password written only
+  to standard output, the flag set, every session and preview session
+  ended, and a `local_admin.created` or `local_admin.reset` audit row.
+  Exit codes: 0 a new password, 10 or 11 when `--if-missing` found the
+  account with the flag set or clear, 1 a failure, 2 bad arguments or
+  settings. `POST /me/password` checks the current password with Dex's
+  `VerifyPassword`, stores the new hash, clears the flag and ends the
+  other sessions; wrong current passwords are throttled at 10 per 10
+  minutes per address. While the flag is set every route answers 403
+  `PASSWORD_CHANGE_REQUIRED` except `/auth/me`, `/me/password`,
+  `/auth/logout` and the routes that need no session, and WebSocket
+  upgrades and the preview gateway refuse the account. Add user and Reset
+  password set the flag. `/setup` and its routes are gone and answer 404.
+- **Web (T4, #568).** The **Set a new password** page, where every page
+  goes while the flag is set, and Settings, Password for Dex local
+  passwords only. The Add user and Reset password dialogs say "They will
+  choose their own password when they first sign in." The `/setup` page is
+  gone. Playwright and axe cover the change page and the Settings section
+  in both themes.
+- **Dex connectors, the play and the host command (T3, #578).** `PORTIKUS_IDP` takes only `dex` and `mock`;
+  `PORTIKUS_DEX_UPSTREAM` takes `none`, `ldap`, `entra`, `google` and
+  `oidc`. `entra` renders Dex's `oidc` connector held to the tenant's
+  issuer, with `roles` read as groups and only the three app roles
+  admitted; `oidc` renders the generic connector, labelled "Single
+  sign-on", admitting only the three groups. The play refuses
+  `PORTIKUS_IDP=entra`, `google` and `external` and
+  `PORTIKUS_DEX_UPSTREAM=microsoft` with a pointer to docs/OPERATIONS.md.
+  The package ships `/usr/bin/portikus reset-admin`, which runs the entry
+  point as the portikus user with the API's environment through
+  `systemd-run --pipe` and writes the password to
+  `/etc/portikus/admin-password` (root, 0600). The play runs it with
+  `--if-missing --email <PORTIKUS_ADMIN_EMAIL>`, prints only how to read
+  the file, and deletes the file once the password has been changed. The
+  API's own egress to providers is gone; the allow list holds only the
+  connector's discovery hosts, and under `entra` not
+  `graph.microsoft.com`.
+- **CI signs in through the real Dex (T5, #572).** The `dex-signin` job
+  covers the local administrator, a password change, and the `oidc` and
+  `entra` connectors pointed at the mock.
+- **LTI label (#558).** Below.
+- **Review fixes (infrastructure and operator docs).** The play refuses
+  `PORTIKUS_DEX_UPSTREAM=oidc` with a `login.microsoftonline.com` issuer
+  and points to `entra`. docs/OPERATIONS.md says to give Entra app roles
+  and generic OIDC groups only to groups that students cannot create or
+  join, and that accounts are keyed on issuer and subject, not email.
+  Dex's gRPC server certificate now also names `localhost`, and an
+  existing certificate without it is reissued, so Node gives no DEP0123
+  warning. `portikus reset-admin` exits 2 when api.env has no
+  `DEX_GRPC_ADDR`. The play fails with a clear message when
+  `/usr/bin/portikus` is missing instead of skipping the local
+  administrator. The smoke test reads the one-time password from its file
+  rather than passing it on grep's command line. `restore.sh` treats a VM
+  whose only user is the local administrator as empty, so the documented
+  rehearsal path (rehearsal-up, configure-vm, restore) works again.
+- **Docs (T6).** SPEC.md sections 5.1, 5.2, 5.3, 24.11 and 29;
+  docs/OPERATIONS.md's provider sections and "The local administrator";
+  infra/README.md; ADRs 0031 (built), 0028 and 0023; the superseded
+  rulings marked in docs/archive/epics/EPIC-14.md.
+
+### Rehearsal
+
+Step 2, a pilot backup restored onto a freshly configured rehearsal VM:
+the pilot's set 20260925T063005Z was restored. The VM had 11 users
+before and 12 after; the only one added was the local administrator. The
+9 workspace owners were unchanged, and carol was still an administrator
+by grant. The local administrator's sign-in, its forced password change,
+and a second `portikus reset-admin` all passed. `make smoke-test` passed
+129 of 129 and `make security-test` 232 of 232. The VM was then
+destroyed. Signing in as carol, alice or bob was not tried, because their
+passwords are Todd's.
+
+### Upgrading to this release
+
+Deploy it with the full play (`make configure-vm PORTIKUS_DEB=...`), not
+`make deploy-app` or a plain `apt upgrade`. The API now checks that Dex's
+gRPC server certificate names `localhost`, which only the play's
+`dex-grpc-certs.sh` reissues, and it refuses to start while api.env holds
+the retired direct-provider settings that only the play removes.
+docs/OPERATIONS.md, "Deploying", says the same.
+
+### Final confirmation fixes
+
+The not-found page's home link is styled as a link. The play's refusal
+of Entra through the generic `oidc` connector also covers
+`login.microsoftonline.us`, `login.partner.microsoftonline.cn` and
+`sts.windows.net`. A restore from a set without `dex.dump` onto a VM
+running Dex sets the restored local administrator's must-change-password
+flag, because Dex still holds the rebuilt VM's one-time password.
+
+### Pilot deploy
+
+The pilot was deployed on 2026-09-25 as 0.1.453+gb10a2ff with the full
+play. The later #582 changed only docs, the not-found link style, a play
+guard and `restore.sh`. Users went from 11 to 12; the only one added was
+the local administrator. All 9 workspaces kept their owner, state and
+label, and carol is still an administrator by grant. `setup_codes` is
+gone. `/etc/portikus/admin-password` is owned by root with mode 0600, and
+the password appears in no play output, journal, file under /var/log or
+audit row. Dex's gRPC certificate now names `DNS:localhost` and
+`IP:127.0.0.1`, and no DEP0123 warning has appeared since. The local
+administrator signed in through Dex and got 403
+`PASSWORD_CHANGE_REQUIRED` on the admin routes; its one-time password is
+left for Todd's first sign-in. `make smoke-test` passed 129 of 129 (the
+lifecycle block was skipped because student workspaces exist) and `make
+security-test` 232 of 232, with the one expected warning about the mock
+LMS.
+
+Rollback kit, to remove after about a week: the libvirt snapshot
+`pre-epic14-2` of the domain `portikus`, Incus snapshots `pre-epic14-2`
+on 26 workspace volumes, and dumps of both databases in Todd's home
+directory.
+
+### Gaps
+
+- The `entra` connector has not met a real tenant, nor the `oidc`
+  connector a real Okta, Keycloak or Shibboleth; docs/OPERATIONS.md,
+  "First checks with a real provider", lists what to check first.
+- The spent one-time password stays in its root-only file until the next
+  play run after the change. It no longer works.
+- Changing `PORTIKUS_ADMIN_EMAIL` after the account exists changes
+  nothing; removing the account and running `portikus reset-admin
+  --email` is the manual step.
+- When `reset-admin` resets an existing Dex password, it keeps the email
+  Dex already holds, ahead of `--email` and the account's stored email.
+  The brief put `--email` first; the effect only shows if Dex's email and
+  the account's differ, which nothing in Portikus does.
+- The local administrator has only a password: Dex at the pinned version
+  has no second factor for its own accounts.
+- Dex's `microsoft` connector, Google groups and more than one connector
+  per site are not built.
+- Dex's `entra` connector needs an `email` claim in the ID token. The
+  docs say to add the optional `email` claim on the app registration for
+  accounts without a mailbox; that step is unverified until a real
+  tenant.
+
+### Accepted risks
+
+- A course user whose LMS lets them edit their own email can choose their
+  workspace label through #558's email fallback, for example another
+  person's name. The impact is limited because previews are owner-only
+  (orchestrator ruling).
+
+### LTI workspace label falls back to the email (#558)
+
+A course (LTI) account with no LMS username now gets a workspace label
+from the part of its email before the `@`, before falling back to its
+LTI user ID, which in Canvas is an unreadable UUID. The cleaning, the
+40-character limit and the `-2`, `-3` clash suffixes are unchanged; when
+the suffixes run out, the email label and then the LTI user ID label are
+each tried once. Existing labels do not change, so the pilot's LTI
+workspaces need relabelling by hand.
+
+## Epic 14.1 — Fixes after Epic 14
+
+### LTI workspaces named after the LMS username (#549)
+
+A course (LTI) launch now stores a username: the id_token's
+`preferred_username`, else the custom claim `username`, which an LMS
+administrator sets with `$User.username` (Moodle) or
+`$Canvas.user.loginId` (Canvas), as `docs/OPERATIONS.md` now explains.
+The workspace label comes from it. A course account with no username gets
+a label made from its LTI user ID instead of `ws-` and random hex
+(SPEC.md, Epic 8; this replaces Epic 13 ruling 12). A returning launch
+refreshes the stored username the same way an SSO sign-in does, but a
+workspace keeps the label it was created with. The mock LMS sends a
+custom-claim username for Sam, a `preferred_username` for Lee, and none
+for the others. Linked launches are unchanged.
+
+### Dex sign-in pages in the Portikus look (#532)
+
+Dex's sign-in pages now carry a Portikus theme (ADR 0023, "Pages"). The
+dex role installs `infra/ansible/roles/dex/files/theme/` (`styles.css`,
+the wordmark as `logo.svg`, a 64-pixel `favicon.png` made from
+`apps/web/public/favicon.svg` with ImageMagick) and Public Sans from
+`packages/ui/src/fonts/` into the pinned build's `themes/portikus/`, and
+`frontend.theme` selects it. The page matches the Portikus sign-in page:
+one card with the wordmark, the design tokens' colours, radii and
+spacing, and light or dark from the browser's setting. It makes no
+request outside the site. Template patches, re-applied after every
+build, move the logo into the card with the text "Portikus", make the
+card the main landmark, turn each page heading into a first-level
+heading, and drop the password form's positive `tabindex`, beside the
+two earlier ones (`lang="en"` and `role="alert"`). The pages also use the
+Portikus words: the title "Sign in, Portikus", the heading "Sign in to
+Portikus", a "Sign in" button, and "That email address or password is
+wrong." after a failed sign-in. Each connector is one link rather than a
+button inside a link, the fields carry `autocomplete`, and a failed
+sign-in marks the password field `aria-invalid`. A last task fails the
+play if any patch did not land; it fails on the stock templates.
+
+Verified on the pilot, 2026-09-25: the dex role applied (`--tags dex`),
+a second run changed nothing, and `make smoke-test` passed 126 of 126
+with the mock LMS warning. axe found no violations on the sign-in page
+or a failed sign-in, in light or dark, nor on the patched connector
+page rendered with three connectors (the pilot has only one, so Dex
+never shows that page there). Text contrast is at least 5.0:1
+(the placeholder in dark), control borders 3.7:1 and the focus ring
+4.6:1 on the page in light.
+
+CI's `dex-signin` job now serves the same themed pages. The theme and
+the patches live in one role task file, `roles/dex/tasks/web.yml`, which
+the job runs on a copy of the pinned commit's stock pages before it
+starts Dex. The job then checks that the sign-in page says "Sign in to
+Portikus", links the theme's stylesheet, and that Dex serves the
+stylesheet, logo, icon and font. So a Dex upgrade that breaks a patch
+fails in CI before it reaches a VM. The sign-in tests now expect the
+Portikus wording after a failed sign-in.
+
+Gaps: none known.
+
+### Administrators land on the admin page (#534)
+
+An administrator who signs in now lands on `/admin` and gets no
+workspace. Their workspace starts only when they press "Open my
+workspace" in the admin header (PR #539; SPEC.md section 6.1). Unit
+tests in `router.test.tsx` and `AdminPage.test.tsx` and the Playwright
+tests `e2e/admin-landing.spec.ts` and `e2e/admin.spec.ts` cover it.
+Review fixes: the wait is announced through a polite status region, the
+button's padding is even, and the browser test now waits for the real
+trip through "/" back to `/admin`.
+
+Gaps: arriving at a workspace leaves focus at the top of the document;
+moving it would race the terminal's own focus on mount.
+
+### Full local browser test run no longer hits the sign-in limit (#540)
+
+One full local `pnpm test:e2e` run makes more than 150 sign-in starts a
+minute from 127.0.0.1, so the API's sign-in start limit answered HTTP
+429 and the 12 LTI tests failed. CI passed only because it splits the
+run into three. LTI launches count as sign-in starts on purpose
+(docs/archive/epics/EPIC-13.md ruling 21), so that stays. The Playwright API server
+now sets the existing `SIGNIN_START_LIMIT_PER_MINUTE` setting to
+100,000. Production keeps its default of 150, and the unit tests in
+`apps/api/src/signin-throttle.test.ts` still prove the 429 at the real
+limit.
+
+Gaps: no browser test checks the 429 itself; the unit tests do.
+
+### Add user asks for the person's name (#547)
+
+A Dex password account used to show its username as its name for ever,
+because Dex sends the username as the name claim. Add user in the Users
+view now asks for a Name (required, 1 to 100 characters after trimming).
+It is stored as the pre-created account's display name, and the success
+dialog shows it. The first sign-in keeps it, because the pre-created
+account already holds the username and a name equal to the username is
+not taken over the stored one (SPEC.md section 5.1).
+
+Gaps: an existing Dex account's name still cannot be changed from the
+Users view.
+
+## Epic 14.3 — Resource guard
+
+### Terminal limit of 20, shown in a toast (#474)
+
+A workspace may now hold 20 terminals instead of 8. The API and the
+workspace agent both read the shared constant, and SPEC.md section 9
+says why the cap exists: it stops a runaway client, and the container's
+CPU, memory and process limits are the real resource limit. A refused
+create now shows a toast that names the limit ("You can have up to 20
+terminals open at once. Close one to open another."). Any other failure
+to create, rename, recolour or close a terminal shows a generic toast.
+The inline "Terminals are unavailable" line is kept only for a terminal
+list that will not load.
+
+The same pull request fixes a flaky API test. When a browser socket
+closed while the API had paused its agent socket for backpressure, the
+API never resumed that socket, so it could not read the agent's close
+reply. Both ends then waited for the WebSocket library's 30-second close
+timeout, which made the real-agent test's shutdown hook time out in CI.
+Stopping the backpressure poll now also resumes the agent socket.
+
+Gaps: the New terminal button is not disabled at the cap; the toast is
+enough for now.
+
+### Toasts time out, and a notification history (#475)
+
+Every toast now goes away on its own: neutral and success after 5
+seconds, warnings and errors after 10. A toast with an action the user
+must answer still stays until answered. Every toast shown is also
+recorded on the server as a notification (migration `0021_notifications`,
+ADR 0033). The account button shows an unread badge ("9+" above nine),
+its accessible name carries the count, and a Notifications dialog,
+opened from the account menu or the badge, lists the history with mark
+read, mark all read and clear. Browsers poll every 30 seconds and on
+window focus. The API caps title and body length, rate-limits recording
+to 30 a minute per user, trims each user to 200 rows, and never logs the
+text; the worker deletes rows older than 90 days every hour. The Epic
+12b backup already covers the table, because it dumps the whole
+database. SPEC.md section 8.5 describes it.
+
+Gaps: a toast whose text comes from a component that renders its own
+words is recorded without that text; every current toast passes plain
+text or elements. The dialog shows the newest 50 and has no "load more"
+yet, though the API pages. The a11y-reviewer pass on the badge and
+dialog is still to run at the epic review.
+
+### Resource guard, idle stop and acceptable use (#554)
+
+The rules are in SPEC.md sections 5.1, 6.4 and 19.4, and the choices in
+ADR 0032. Migration `0020_resource_guard` adds the settings, the
+per-workspace columns and the `workspace_usage_samples` table.
+
+Delivered:
+
+- The controller's `GET /instances/usage` reads every running
+  instance's CPU time, memory working set (page cache left out through
+  the cgroup's `memory.stat`), limits, CPU allowance and boot marker in
+  one Incus call. `PUT /instances/:name/cpu-allowance` sets or removes a
+  time-slice allowance, and every start removes it.
+- The worker samples every running workspace each minute. CPU is
+  judged across runs over a rolling window of wall-clock time, with
+  stopped time as no use; a restart, seen as a changed boot marker or a
+  CPU counter drop, counts up to 60 seconds of full use. Memory is
+  judged per run. A workspace above the CPU threshold is throttled to a
+  time slice; one above the memory threshold is flagged. The worker
+  makes Incus match the database every tick. A stop clears both, and a
+  stop that lifts a throttle drops the samples from before it.
+- Idle stop: the web app reports key presses, clicks and pastes, the
+  API counts file writes and user-started preview page loads, and the
+  worker warns after the idle time and stops five minutes later. The
+  grace period is unchanged. Workspaces whose owner had a grace override
+  of 0 got an idle override of 0 on upgrade.
+- The student sees a throttle notice and the "Still working?" notice.
+  Administrators see **Throttled** and **High memory** tags, a Resource
+  guard section in the Health tab and the detail panel, lift and clear
+  buttons, a guard overrides dialog, and the new settings.
+- Every change is audited (SPEC.md section 24.11).
+- The acceptable-use statement, an administrator-edited text with a
+  built-in default, accepted at first sign-in and after every change, as
+  the second gate after "must change password".
+
+Rehearsal: on the rehearsal VM (0.1.480+g77d322f) every live check
+passed: the units, page cache left out of memory (a 1.5 GB file read
+gave a sample equal to usage minus `inactive_file`), a `recursion=2`
+listing in 23 to 25 ms with three workspaces running, the throttle
+(`cpu.max` `50000 100000` on a 2-CPU workspace), the throttle surviving
+restarts of the worker and controller, lift, stop and start, a reboot
+seen by the boot marker, the memory flag, idle stop, and the
+acceptable-use gate through Caddy. `make smoke-test` passed 243 of 243
+and `make security-test` 242 of 242 with one warning (the mock LMS).
+PR #588 adds the `cpu.max` checks to `limits.sh` and the gate check to
+`preview-edge.sh`.
+
+Pilot: on 2026-09-26, main at 9ca56ba (PR #590) was deployed to the pilot as 0.1.479+g9ca56ba, after `pre-epic14-3` VM and Incus snapshots and database dumps. Migrations 0020 and 0021 applied; users (12) and workspace owners (9) were unchanged. `make smoke-test` passed 129 of 129 and `make security-test` 242 of 242 with one warning (the mock LMS). All student workspaces were stopped, so the live usage read waits for the first workspace start.
+
+Gaps:
+
+- A student can run a heavy load, get throttled, restart and repeat
+  without limit. Each cycle is audited; there is no limit yet.
+- A determined student can fake activity with a script that holds their
+  own session cookie. The throttle still catches heavy CPU.
+- A long unattended job, including a coding agent, is stopped by idle
+  stop unless an administrator sets that workspace's idle override to 0.
+- The CPU average recorded after a reboot from inside the workspace can
+  be above 100%, because up to a minute before each restart counts as
+  full use.
+- Files in the workspace's `/tmp`, a tmpfs, count as memory and can
+  raise the memory flag.
+
+## Epic 18 — Admin interface polish
+
+The rules are in SPEC.md section 20.1 and the table styles in DESIGN.md
+section 9. Task PRs #639, #647 to #649, #651, #652 and #656 on
+`epic/18-admin-ux`; issues #600, #601, #602, #604 and #629.
+
+Delivered:
+
+- The admin page is one frame at most 1440 px wide, at compact density,
+  with an h2 heading per tab through a small `AdminSection` component and
+  a page title naming the tab. The admin area is desktop-only.
+- The design's table classes are in `packages/ui` and on every admin
+  table. The Users and Audit headers stick to the scrolling page.
+- The Users table has seven columns, a two-line Account cell, an "Older
+  image" tag, and its count and "Add user…" in the heading row.
+- The detail panel has Start, Stop and Restart under the state badge,
+  divided sections in a fixed order, Storage as a list with meters, and
+  stays in view beside the table with its own scroll.
+- The Audit table shows short IDs and times, result tags, clipped details
+  with the full text for screen readers, and target links that fill the
+  "Target ID" filter.
+- Settings cards sit in a grid with each Save below its fields.
+- Bulk Rebuild and "Rebuild all on older images…" call the existing
+  single-workspace route once per workspace; a pending operation counts
+  as skipped.
+
+Gaps:
+
+- The Health tab layout (#603) is left to the observability epic.
+- No sortable columns and no React table component.
+- The admin tabs stay under the page heading, not in the app header.
+- No per-row "more" menus and no tablet layout.
+- The detail panel's storage meters do not share the student side's
+  StorageMeters thresholds.
+
+## Epic 20 — Student interface polish
+
+Built on `epic/20-student-ux` from the student interface review of
+2026-09-26 (issues #608 and #609). Only `apps/web`, `packages/ui` and the
+end-to-end tests changed; there are no migrations, contract changes or
+infrastructure changes. The rules are in SPEC.md sections 6.3, 8.3, 8.5,
+14.6, 18.2, 18.3, 19.2 and 28, and DESIGN.md section 9 records where the
+build departs from the mockups on purpose.
+
+Delivered:
+
+- The status bar's state and storage-warning items are bordered buttons,
+  and the warning keeps its warning or error colour.
+- Each stuck screen has a way forward. The empty work area offers "Open
+  a terminal" and "Start Claude Code". The error screen offers "Try
+  again" and "Workspace details", with the raw error under a collapsed
+  "Technical details". The throttle notice's "Restart workspace…" opens
+  the workspace dialog with the restart confirmation on top.
+- Loading skeletons show only while the workspace is starting; stopped
+  and failed workspaces show a plain message in the side panes.
+- `ConfirmDialog` in `packages/ui` gained a neutral form. Archiving uses
+  it and ends with a success toast, as does Duplicate. New project's
+  "What to create" is a segmented control, and "Saved" is plain text.
+- The Preview picker's rows look clickable, and the Preview toolbar
+  moved Copy URL, width, Reset preview data and Show in Running into a
+  More menu.
+- The right-pane tabs no longer repeat their titles (the headings stay
+  for screen readers). Running rows have a visible Preview button and
+  tags on a second line, and the panel heads are readable in the light
+  theme.
+- The workspace dialog moved into its own file and puts its actions
+  first, then storage meters, Docker, the rebuild note and technical
+  details. The error screen shares the meters.
+- Settings groups have clearer titles, long read-only values wrap, the
+  dialog can grow taller, and Appearance comes first.
+- After a phase change on the starting screen, focus moves to the
+  heading only when the button that had it vanished; focus elsewhere,
+  such as on a status-bar button, is left alone.
+
+Gaps:
+
+- The workspace usage figures are not served while the workspace is in
+  error, so the error screen's meters and "Clean up Docker…" do not
+  appear yet.
+- A restart confirmation opened before the workspace starts moving does
+  nothing on confirm.
+- "Reset preview data" still acts without a confirmation, and issue
+  #607's resource notices are left to their own epic.
+
+## Epic 16 — Workspace resilience
+
+The rules are in SPEC.md sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and
+21.7, and the unit split is ADR 0035. Task PRs #635, #636, #642, #646,
+#654, #659, #661, #675 and the closing task on
+`epic/16-workspace-resilience`; issues #610 and #618 to #625. Workspace
+image 2026.09.11. Not yet deployed to the pilot, and existing workspaces
+get the image changes only when rebuilt.
+
+Delivered:
+
+- `/tmp` is a 512 MB tmpfs and `/dev/shm` a 256 MB one, so a big
+  temporary file fails with "No space left on device".
+- The tmux server runs in its own unit, `portikus-terminals.service`, on
+  a private socket, so an agent restart leaves terminals open. The agent
+  unit's process limit is lifted; the terminals unit is capped at 1700.
+- Every tmux call times out after 5 seconds. A student's `~/.tmux.conf` is
+  never read, `tmux kill-server` typed in a pane reaches only the
+  student's own server, and a `~/.bashrc` that exits falls back to a
+  plain shell with a message.
+- Closing a terminal and stopping a Check stop the whole process tree,
+  and Check output pauses for a slow watcher.
+- The port scanner never overlaps itself, idles when nobody watches, and
+  remembers socket owners. Stopping a listener always scans afresh and
+  fails if that scan fails.
+- The file watcher skips more generated folders and stops at 20,000
+  folders with a "too large to update live" notice. A full disk gives
+  `STORAGE_FULL` and "Your home folder is full" on every file action.
+- When the terminals unit stops, open panes and later attaches get a
+  toast saying why: out of memory, or a restart.
+- Review fixes: at most one exit-record lookup per terminal connection,
+  start-time checks before killing a process tree, a hardened exit-record
+  read, and tmux failures no longer mistaken for a missing session.
+- The closing task fixed a race that made a unit test flaky: a tmux
+  server that is shutting down can still answer with no sessions or drop
+  the client. The agent now takes whether the server died from the attach
+  client's final line, and asks tmux only when that line is missing.
+
+Gaps:
+
+- The agent's planned OOM score of -500 was dropped because the kernel
+  refuses it in an unprivileged container (ADR 0035).
+- The exit record can wrongly say `oom-kill` after an earlier pane OOM
+  kill (ADR 0035).
+- Checks still run in the agent's cgroup (issue #1254).
+
+## Epic 17 — Platform resilience
+
+Built on `epic/17-platform-resilience` from the platform resilience audit
+of 2026-09-26. Task PRs #637, #644, #645, #653, #657, #685 and this fold;
+issues #611 to #617. The rules are in SPEC.md sections 4.3, 5.3, 6.5,
+20.1, 24.7 and 25.3, and the reasons in ADR 0034. No migrations.
+
+Delivered:
+
+- Caddy and PostgreSQL restart on failure after 5 seconds. On the
+  rehearsal VM each answered again 5 s after a kill, and the API and
+  worker survived a PostgreSQL kill without restarting.
+- The platform's services outrank workspaces: CPU weight 1000 and
+  `MemoryLow=512M` on `system.slice`, and `MemoryLow=256M` on PostgreSQL
+  and the API.
+- Every worker call to the controller and every controller call to Incus
+  has a time budget. Stops run in the background, so a stop that hangs
+  for ten minutes did not delay another workspace's start.
+- Incus operation waits now read the operation's own status, so a
+  graceful stop that times out is followed by a forced stop; start, stop
+  and create were made tolerant of real failures.
+- The preview gateway caches its three database lookups for 2 seconds and
+  caps each preview session at 2,000 requests per 10 seconds. Removing or
+  regaining access can take up to 2 seconds to reach the gateway.
+- The database pool times out connections at 5 s, statements at 30 s and
+  idle transactions at 60 s; a busy or unreachable database answers 503
+  `SERVICE_BUSY`, and a pool error no longer crashes a process.
+- Per-user limits: 20 workspace start, stop and restart requests and 600
+  file writes a minute, answering 429 `RATE_LIMITED`.
+- The thin pool errors when full instead of freezing writes. A root timer
+  reports metadata use, which the Health tab shows. Administrators are
+  notified at 70% and 90%, and at 90% new workspaces wait in
+  `provisioning` with a message until there is room.
+- Each workspace's network is capped at 200 Mbit/s each way.
+- The first deploy restarts Caddy and PostgreSQL once (OPERATIONS.md,
+  "First deploy with the resilience limits").
+
+Gaps:
+
+- A create has no single shared deadline; on paper its steps can pass the
+  worker's 300 s budget, though a retry adopts what exists.
+- Clone and template on a full disk reported `GIT_FAILED`; fixed in Epic
+  37 (#1253).
+- No watchdogs, no disk I/O priority, no per-address limit on made-up
+  preview cookies, no connection-tracking limits, and no limits on reads.
+- At the rehearsal's load the CPU weight made no measurable difference to
+  `/health` or terminal latency, because the platform's work is short.
+
+## Epic 19 — Admin observability
+
+The rules are in SPEC.md sections 20.1, 24.11 and 25.6, ADR 0036 and
+STACK.md section 15. Task PRs #666, #667, #671, #672, #673, #677 and #683
+on `epic/19-admin-observability`, plus the final sync and fold; issues
+#476, #597, #598, #599 and #603.
+
+Delivered:
+
+- The Health tab is in three rows: Platform and Resource guard, a
+  full-width Trends card, then Failures and Workspaces by state.
+- The Trends card has a range control (1 hour, 6 hours, 1 day, 7 days,
+  remembered per browser) and hand-drawn SVG charts with axes, legends,
+  text summaries and a keyboard readout, all from one
+  `GET /admin/health/series` route.
+- Charts cover pool and memory use, load, host CPU %, network and disk
+  (measured by the controller), running workspaces, availability, a
+  per-workspace heat map, guard events, activity, and the API's request
+  rate, error rate and response time. The API writes per-minute totals
+  to the new `api_request_samples` table (migration 0022).
+- A Logs tab shows the three Portikus services' JSON lines from the
+  journal, filtered by level, service, time, text, user and workspace,
+  with the filters in the URL and every line redacted. The detail panel
+  links to it, and the Health tab has an errors and warnings chart whose
+  bars open it.
+- Only the API process has the `systemd-journal` group. A 401 without a
+  session is logged at info, so signed-out polling does not fill the
+  Warn view.
+- Rehearsed on a throwaway VM (8 vCPUs, 16 GiB, Debian 13, systemd 257)
+  together with Epics 16 and 17: smoke test 299 of 299 and the heavy
+  security suite 295 of 295. `journalctl --grep` and `--reverse
+  --after-cursor` work as the reader expects. With the Debug level on
+  and 2.6 million lines (1.5 GB) in the journal, the 7-day error count
+  was complete after two requests and 10.6 s, and matched a `grep`
+  count exactly. Stored host rates matched counters read by hand
+  within 1%. A planted line with a bearer token, cookie, token and URL
+  password showed only `[redacted]` values.
+- The smoke test checks the Logs tab, the Health series rates, and that
+  terminal output reaches no journal; the security suite's new
+  `observability.sh` module checks who may read logs and series, the
+  journal group, `journalctl` support and redaction.
+- The rehearsal's PostgreSQL kill ended the API: a database connection
+  that dies mid-query raised an unhandled error. Every pool connection
+  now has an error listener.
+
+Gaps:
+
+- The heat map's cell values are not readable by sighted keyboard users;
+  the Peak column is the summary.
+- What the plan left out: per-route
+  request figures, custom windows, agent, Dex, Caddy and PostgreSQL lines,
+  non-JSON lines, alerts, longer per-workspace history, faster sampling
+  and OpenTelemetry. Agent lines are issue #1256; the rest were not filed.
+
+## Epic 21 — Resource tools for students and admins
+
+Built on `epic/21-resource-tools`. Task PRs #668, #669, #674, #676,
+#678, #681, #682, #689, #691 and this closing task, which also merged
+`main` (Epics 16, 17, 18 and 20) into the branch; issues #595, #596 and
+#607. The rules are in SPEC.md sections 18.3, 19.2, 19.4, 20.1, 24.11 and
+26, and the administrator's process read is ADR 0037. Migrations 0023
+and 0024 (0022 is left for Epic 19). Not yet deployed to the pilot.
+
+Delivered:
+
+- Monitor has a Stop button on each of the student's own processes. The
+  agent checks the PID and start ticks, refuses PID 1, itself, other
+  users' processes and the terminals' tmux server (found by PID through
+  its own socket), sends SIGTERM, and offers Force stop only when the
+  program is still running. A disclosure shows the full command line to
+  the student alone.
+- A CPU throttle lifts on its own after 5 minutes under 10% of the full
+  CPU limit (both platform settings, 0 turns it off), and never while a
+  workspace is busy at its throttled share. The notice says so, and an
+  open page shows "Your workspace is back to full speed".
+- The student sees a memory notice when the guard flags memory, and the
+  throttle and memory notices open Monitor sorted by CPU or memory. The
+  status bar always shows memory (the working set) and disk meters,
+  which warn from 85% and clear below 80%.
+- An administrator presses Refresh in the workspace detail panel to read
+  the heaviest processes. The worker asks the controller, which reads the
+  cgroup tree and `/proc` on the host and runs nothing in the workspace.
+  Stop and Force stop go through the agent's checked route, and the
+  student is notified only when a process really exited. Each Refresh
+  and each signal is audited.
+- An agent older than Epic 21 still gives a working Monitor, without Stop
+  buttons, until its workspace restarts.
+- Review fixes, among others: one stop lock and rate limit shared by the
+  student and administrator routes, the memory flag reaching an open
+  page, a fast first status-bar read, and focus kept when a Monitor row
+  vanishes.
+- The closing task: after the merge with Epic 16, the tmux server runs
+  in `portikus-terminals.service`, and both protections cover it (a test
+  checks the agent finds that server's PID). A "no server" answer is
+  reused for 10 seconds, so the usage sample no longer starts a tmux
+  client every second. Opening Monitor from a notice or the status bar
+  focuses the visible Monitor tab, and a notice that never held focus
+  no longer moves it when it goes away.
+
+Rehearsal (throwaway VM, package 0.1.503+g042e11e, before the merge with
+`main`): smoke test 244 passed, security suite 252 passed with one
+expected warning, and the Epic 21 checks passed: the unprivileged
+controller read `/proc` and the cgroup tree, student and administrator
+stops with Force stop, refusals, notifications, audit rows, the idle
+lift, the memory notice and the 10,000-cgroup bound.
+
+Gaps:
+
+- A sudo student can make a program show as protected in the
+  administrator's list by restarting a unit and moving the program into
+  its cgroup, and can make every Refresh fail with 10,000 empty cgroups
+  (about 2.8 seconds, then an error). The administrator can still stop
+  the whole workspace (ADR 0037).
+- The "See what's using" buttons do nothing visible while Find in files
+  covers the right pane's tabs; this predates the epic.
+- The items the plan left out, such as stopping a process tree and an
+  administrator's stop without the agent, were left out; stopping a
+  process tree is issue #1257.
+
+## Epic 23 — Student interface leftovers
+
+Built on `epic/23-ux-leftovers`. Task PRs #710, #712, #714, #719, #720,
+#722, #723 and this closing task; issues #706, #707 and #708, the three
+gaps Epic 20's reviews left. The rules are in SPEC.md sections 6.5,
+14.6, 25.8 and 28. No migrations and no infrastructure changes.
+
+Delivered:
+
+- The error screen shows the storage meters, and "Clean up Docker…" for
+  `STORAGE_FULL` with Docker at the critical level, whenever the
+  workspace agent still answers. With no answer it offers only "Try
+  again" and "Workspace details", and it asks for usage again every 30
+  seconds. The worker keeps an error workspace's agent address current,
+  and the API never calls the agent of an `INSTANCE_MISSING` workspace.
+- A stop or restart confirmation opened while the workspace is changing
+  state keeps Confirm disabled and says why, instead of closing
+  silently. The button stays focusable and the reason is announced.
+- "Reset preview data…" asks for confirmation in the neutral dialog.
+
+Verified by unit and Playwright tests in each task, and by code,
+security and accessibility reviews over the epic head, each followed by
+a confirmation review.
+
+Gaps:
+
+- The radio-item menu component is still not built.
+- The id of the region that states why Confirm is disabled is a fixed
+  default. That is safe while only one confirmation is open at a time.
+
+## Epic 22 — Pilot fixes after Epics 16 to 21
+
+Built on `epic/22-pilot-fixes`. Task PRs #709, #711, #713, #715, #718,
+#721, #726 and this closing task (#716 was replaced by #718); issues
+#699, #700, #701, #702 and #704 from the pilot. The rules are in SPEC.md
+sections 6.5, 18.2, 18.3, 20.1, 24.11 and 25.8. No migrations and no
+infrastructure changes.
+
+Delivered:
+
+- A workspace stop succeeds when the instance reaches Stopped, decided
+  from the instance's state rather than error text, including when Incus
+  briefly answers the state read with 500 "Invalid PID -1" (#704).
+- Every Stop icon button shares one danger colour (#700).
+- Monitor rows have equal heights and two fixed action columns, and the
+  admin Processes table has a fixed Stop column (#702).
+- The Running pane shows the full command for the student's own
+  listeners, through the disclosure Monitor uses (#701).
+- The grace period Save button lines up with its input (#699).
+
+Verified by unit and Playwright tests in each task, by code, security and
+accessibility reviews over the epic head with confirmation reviews, and
+by a rehearsal on a throwaway VM: `make smoke-test` 299 passed, and
+`make security-test PORTIKUS_SECURITY_HEAVY=1` 295 passed. The rehearsal
+found that the stop still failed when the first state read hit the
+Incus 500; #726 fixed that and the rehearsal passed again.
+
+Gaps:
+
+- A screen reader in the Running pane reads the command just before the
+  disclosure chevron.
+- The grace period label may wrap at 200% text size.
+- The narrow Running pane truncates even short names.
+
+## Epic 24 — Admin operations
+
+Built on `epic/24-admin-operations`. Task PRs #731 to #761 (#761 added
+the ui-designer agent) and this closing task;
+issues #730, #626, #283 and #284, and three BACKLOG entries (re-provision
+after a failed create, per-workspace limits, and a limit on
+throttle-then-restart cycles). The rules are in SPEC.md sections 14.5,
+19.4, 20.1, 22.3, 23.6, 24.9, 24.11, 25.8 and 26, STACK.md section 29,
+BROWSER-HANDLING.md section 11.1, and ADRs 0038 to 0043. Migrations 0025
+to 0030.
+
+Delivered:
+
+- **Workspace egress.** A Network tab switches the site between open
+  mode (the default, unchanged) and an allow-list with presets, ports,
+  host names and ranges, "Test a host", and the most-refused names
+  site-wide. Enforcement is our own dnsmasq, a root-owned nftables table
+  applied by a root helper, and a second Squid that reads TLS names and
+  HTTP hosts without decrypting. Open mode can also block a few sites;
+  the list starts empty. Everything fails closed, including after a
+  reboot and when the helper cannot run.
+- **Backups from the admin page.** A Backups tab over a request channel
+  the host polls: Back up now, delete old sets, dumps, `pre-*` snapshots
+  and kept homes, restore one workspace into a side copy written as the
+  student, then replace its home with a kept copy of the old one. The
+  restore key is held root-only on the host. Every limit (retention
+  floor, gap between requested runs, disk floor, byte budget, answer
+  caps) is set on the host.
+- **Workspaces.** Re-provision for a workspace in `error`; a Limits
+  dialog for one workspace's CPU, memory and processes, applied live;
+  and a throttle hold after three throttles in 24 hours by default.
+- **Packages.** An apt hook in the image (2026.09.12) records what a
+  student adds; the Health tab shows aggregate counts with base-image
+  candidates; a rebuilt workspace shows a reinstall note.
+- **HTTPS previews.** A student server speaking HTTPS on its port
+  previews like any other.
+
+Verified by unit, Playwright and axe tests in each task; by the infra
+security suite `infra/tests/security/workspace-egress.sh` and the lying-VM
+test `infra/tests/backup-channel-test.sh`, run on the rehearsal VM; and by
+code, security and accessibility reviews over the epic head, each followed
+by confirmation reviews. The separate end-to-end rehearsal (task T18) was
+dropped by Todd on 2026-09-27: Epic 24 is verified on the pilot, Todd's
+development VM, after the deploy.
+
+Gaps:
+
+- A connection to a newly blocked site that already goes through Squid
+  keeps working until it closes, because Squid is reloaded, not
+  restarted; a restart would cut every workspace's proxied connections.
+- An administrator's lift keeps `cpu_throttle_recent`, so a workspace
+  lifted by hand can be held again sooner than one that started fresh.
+- A student can pause their own `tar` (SIGSTOP) during a side-copy
+  restore; the host-side timeout bounds how long that holds the job.
+- A VM that trickles data slowly can hold the host-wide backup lock for
+  up to 12 hours, the units' start timeout.
+- While `nftables.service` is stopped, the host's input chain is gone and
+  only the Incus ACL protects the gateway, which does not cover IP
+  protocols other than TCP, UDP and ICMP (ADR 0038).
+- Blocking sites in open mode is best effort against casual use; only
+  allow-list mode stops a determined student (ADR 0043).
+- The weekly off-host backup copy is still manual (issue #753).
+
+## Epic 25 — UI polish and help
+
+Built on `epic/25-ui-polish` from a design review of every student and
+administrator screen, with screenshots. The rules are in SPEC.md sections
+5.1, 5.3, 8.5, 8.6 (new, help in the product), 12.7, 13.5, 14.7, 15.8,
+18.2, 18.3, 19.2, 19.4, 20.1, 24.11, 25.1, 25.6, 25.8 and 28, and in
+`design/system/README.md`, "Help in the product". No migrations.
+
+Delivered, by task pull request:
+
+- #774: the Toggletip and PageIntro components, the `/help` page with
+  parts by role, and the new admin tab order.
+- #769: a five-column Users table with a toolbar row that is always
+  there, and neutral confirmations for Enable and Unarchive.
+- #770: the Backups and Network tabs regrouped and explained.
+- #775: the Health tab reordered, with readable charts and a calmer
+  sampling strip.
+- #778: Settings saves each change at once and has only Close; profile
+  values shown as text; keyboard help moved to the Help page.
+- #773: work area, file tree, preview and editor polish, including the
+  refused-port screen with "Choose another port…".
+- #777: the Audit tab names people and filters by person; the Course page
+  uses the admin table and frame.
+- #772: Settings in one column with four guard groups, and a Logs tab that
+  filters by person and sets the service log level.
+- #780: header, account menu, a separate unread-count button, standalone
+  pages, menu tooltips and the student Help.
+- #779: the right pane as a size container, with narrow layouts for
+  Running and Monitor.
+- #771: workspace states, the Workspace dialog, and the storage-full error
+  screen with Reset Docker….
+- #776: the workspace detail panel reordered, with its Resources section
+  and dialogs.
+- #781: follow-ups: one shared Person matcher, help text checked against
+  the code, and layout and test fixes.
+- #782: review fixes: Try again after storage full, a toast for a settings
+  save that fails after Settings closed, and the recovery tip moved.
+- #783: review fixes: rescuing a stuck workspace, site limits read without
+  polling, and Course page focus.
+- #784: review fixes: toggletip keyboard behaviour, tooltips that can be
+  hovered, and focus on Help anchors.
+- This task folds the epic into SPEC.md and STATUS.md.
+- #787: toggletip screen-reader polish: the button no longer says it opens a
+  dialog, the visible tip is hidden from screen readers, and the live
+  region that reads it moved out of table headers; the Network tab's
+  accessibility spec no longer flakes in parallel runs.
+
+Verified by unit, Playwright and axe tests in each task, in both themes;
+by a design review with screenshots of each screen; by code and
+accessibility reviews over the epic head, whose findings were fixed in
+#781 to #784 and then confirmed by both reviewers; and by CI on every task
+pull request.
+
+Gaps:
+
+- `<summary>` elements that hold headings (PageIntro, the Trends groups,
+  Clean up) are untested with VoiceOver.
+- The Course page scrolls sideways at narrow widths.
+- A toggletip in a table header adds its button's name ("About …") to the
+  header's name, which a screen reader may repeat for each cell; accepted
+  as it is. The tip's own text no longer joins it.
+- The `Checkbox` component has no help slot, so a checkbox's toggletip sits
+  in the row beside it.
+- The remembered-open `<details>` logic is copied in PageIntro and
+  TrendsCard; it will be shared if a third copy appears.
+
+## Epic 15 — `apt install portikus`
+
+Built on `epic/15-apt-install`. An operator now installs Portikus on a
+rented Debian 13 server with `apt install portikus`, answers a few
+questions in a text interface, and setup does the rest. The rules are in
+SPEC.md sections 20.1, 21.8, 21.12, 21.13, 22.4, 24.7, 24.8 and 24.9, and
+ADRs 0029, 0030 and 0044. No migrations.
+
+Delivered, by task pull request:
+
+- #790 (T1): the package bundles Node, the Ansible roles with their
+  collections, the archive keyring, `portikus-setup.service` and the
+  `portikus` command; its dependencies come from Debian alone.
+- #791 (T4): a signed apt repository on GitHub Pages and a workflow that
+  publishes signed workspace image releases.
+- #792 and #794 (T6): the admin Workspace image tab and the root image
+  job behind it: fetch, build with a chosen Node and Python, manifest
+  diff, health check, make default and roll back.
+- #793 (T2): the debconf install questions, preseeding, reconfigure, and
+  a container test for every provider and storage kind.
+- #795 and #796: the install guide (docs/INSTALL.md), `setup --follow`
+  that exits, the preseed example in the package, and an image-job race
+  fix.
+- #797 (T3) and #800: the roles run on the local host; storage on a disk,
+  a volume group or a file; TLS by Caddy's authority, given files, or a
+  Let's Encrypt wildcard through Cloudflare; the first image; the `node`
+  role removed.
+- #798: a debconf import fix and the setup-settings test in CI.
+- #801 (T5) and #802: `make install-test` on a throwaway rehearsal VM,
+  with the image job rehearsal, and fixes it found.
+- #803: installer screen polish.
+- #805 (T7): backups on the server, with key download and upload in the
+  Backups tab (entry below).
+- #806 to #811: review and confirmation fixes for security, setup's image
+  handling, apt robustness, postinst, prerm, the release workflow and
+  accessibility (the server security fixes have their own entry below).
+- #812: final leftovers, and set MANIFESTs that must name their own
+  folder.
+- This task folds the epic plan into SPEC.md, STATUS.md and the backlog file.
+
+Verified by unit, Playwright and axe tests in each task, the debconf
+container tests, `make infra-check`, code, security and accessibility
+reviews with confirmation rounds, and a full `make install-test
+IMAGE_JOBS=1` on the combined epic head: green in 2301 seconds (setup 400
+seconds, the smoke test with no failures, the image rehearsal 73 of 73,
+and a rebuild from an off-site backup that also refused a forged set).
+
+Gaps:
+
+- The first real release, 0.1.676, published cleanly, and the pilot was
+  then reinstalled through apt. Pinning between two published versions
+  with `apt install --allow-downgrades` has not been tried yet.
+- A set's MAC does not check its `vm` line, which differs after a rebuild;
+  accepted.
+- The worker shares the API's account, so it can reach the backup-key
+  helper (ADR 0044).
+- Setup failed when any apt repository stayed unreachable after three
+  retries. Closed by Epic 15.1 (#825): it now warns and goes on when only
+  the Portikus repository failed, and still fails for Debian's.
+- The install settings keys are named in three places.
+
+## Epic 15, task T7 — Backups on an apt-installed server
+
+A server installed with `apt install portikus` now backs itself up, and
+the Backups tab works on it (SPEC.md sections 20.1 and 24.9, ADR 0044).
+Before this, such a server took no nightly backup and a request from the
+tab waited forever, because backups were built for a VM on a separate
+host.
+
+- The four backup scripts take `--local`: the commands they sent over SSH
+  run on the server itself, as root. The package ships them in
+  `/usr/lib/portikus/backup/`, with root units for the nightly backup and
+  the tab's channel. Setup's `backup` role enables those timers only on
+  the server itself, installs `age`, and makes the key pair in
+  `/etc/portikus-backup/` when there is none. The pilot and the
+  development VM keep their host-pulled backups.
+- The key stays root-only. The tab's **Download backup key** and
+  **Upload backup key** reach it through `portikus-backup-key.socket`, a
+  root helper started per request. Downloads and uploads are
+  administrator-only, audited by the key's public half, and never logged;
+  the download is `no-store`; an upload must be one age identity, and
+  replacing a different key needs a confirmation. The tab reminds until
+  the key has been downloaded once.
+- Sets copied in by hand are listed and restored with the same checks,
+  and `restore.sh` now refuses a set that is or holds a symbolic link.
+- `sudo portikus restore [--check] [--start-check] <set>` restores a
+  whole server. docs/INSTALL.md explains copying the encrypted sets off
+  the server, which is the real backup, and rebuilding from such a copy.
+
+Verified by `infra/tests/backup-local-test.sh` (new), the existing
+backup-scope and backup-channel tests, unit tests for the routes and the
+authorization matrix, Playwright and axe tests for the key section, and
+`make install-test`, which now backs a rehearsal server up, downloads the
+key, copies a set off it, rebuilds the server from nothing, uploads the
+key, copies the set back and restores it, and checks that the users, the
+Dex accounts and a workspace's files came back.
+
+Gaps:
+
+- Nothing copies the sets off the server automatically (issue #753).
+- A set copied in by hand keeps its `REQUESTED` marker until `portikus
+  restore` removes it, so until then it counts towards the three requested
+  backups the channel allows in 14 days.
+- A whole-server restore is a shell command, not a button.
+
+## Epic 15 review fixes: security (server)
+
+Fixes from the Epic 15 security and code reviews (SPEC.md sections 24.7
+and 24.9, ADR 0044).
+
+- **Caddy's admin interface** was open on `localhost:2019` to every local
+  account, so a compromised API could have loaded a configuration without
+  the preview gateway's authorization step. It is now a Unix socket,
+  `/var/lib/caddy/admin.sock`, mode 0600, owned by caddy. `systemctl
+  reload caddy` uses it; the role restarts Caddy once where it still
+  listens on the old port. The smoke test checks that nothing listens on
+  2019 and that the `portikus` account and `nobody` cannot open the
+  socket.
+- **Authenticated sets.** Each set carries `MANIFEST.mac`, an HMAC-SHA256
+  under a key derived from the private backup key, and the MANIFEST now
+  lists each index's size and checksum. Every restore and the tab's
+  listing check it first; the tab shows a set without a valid MAC as
+  **Not verified** and offers no restore for it. Sets from before the
+  change restore only with root's `--unverified`. `restore-copy.sh` also
+  checks the streamed volume and the index against the MANIFEST. A
+  decrypted MANIFEST over 4 MiB is refused.
+- **The backup key.** A replace keeps the old key as
+  `age-key.txt.replaced-<unix time>`, root-only, and never overwrites one.
+  An upload no longer counts as a download, and a download is recorded
+  only after the reply has been sent in full (a new `mark-downloaded`
+  verb). ADR 0044 now says what a compromised API or worker can and cannot
+  do.
+- `portikus restore` removes the restored set's `REQUESTED` marker.
+- **SSH.** The firewall opens the ports `sshd -T` reports rather than
+  assuming 22, so setup cannot lock out an administrator whose sshd
+  listens elsewhere.
+
+Verified by `backup-local-test.sh`, `backup-scope-test.sh` and
+`backup-channel-test.sh` (forged, re-signed, changed and MAC-less sets,
+swapped volumes and indexes, the kept key, the download record), the
+Caddy render and live test, the firewall render test, route unit tests,
+the Backups tab's unit tests, and `make install-test`, which now also
+copies a forged set onto the rebuilt server and checks the tab lists it as
+not verified and `portikus restore` refuses it.
+
+Gaps:
+
+- The pilot's host still runs the old backup scripts until `make
+  backup-install-timer` is run after the VM is deployed; its existing sets
+  have no MAC and show as not verified until they are signed by hand
+  (docs/OPERATIONS.md, "Authenticated sets").
+- The `FAILED`, `SKIPPED` and `REQUESTED` files in a set are not covered
+  by the MAC; they only change what the tab shows.
+
+## Epic 15.1 — Install docs and release polish
+
+Built on `epic/15-1-docs-release` from the milestone "Epic 15.1: install
+docs and release polish" (issues #821 to #834, #840 and #842; task PRs
+#830 to #853). The rules now live in SPEC.md sections 16.2, 20.1, 21.12,
+21.13, 22.4 and 24.9. No migrations.
+
+Delivered:
+
+- GitHub community files: SECURITY, CONTRIBUTING, issue templates and
+  repository topics (#829, PR #830).
+- Install screenshots in INSTALL.md and a current README quick start,
+  Installing and Status sections (#821, #822, PR #831).
+- The install message includes a hand-set port in the sign-in address
+  (PR #832), and OPERATIONS.md explains registering an LMS on an
+  apt-installed server (PR #833).
+- The Ansible role installs Portikus from the signed apt repository, and
+  releases no longer attach the `.deb` (#823, PR #835). The pilot is
+  updated only by `apt upgrade`. Setup installs an older package only
+  when `PORTIKUS_VERSION` names it (`allow_downgrade`), and warns and goes
+  on when only the Portikus repository is unreachable (#825).
+- One source for the install settings keys (#826, PR #836).
+  `packaging/debian/settings-keys` lists each debconf question, the key
+  postinst writes for it, and whether it is a setting or a secret; the
+  package installs it at `/usr/share/portikus/settings-keys`.
+  `packaging/tests/settings-keys-test.sh`, run by `make infra-check` and
+  the CI debconf job, fails when a key is missing from the templates,
+  config, postinst or `infra/ansible/site.yml`.
+- The development VM's workspace image is built by the image job, and the
+  old role-based image path is gone (#827, PR #837).
+- The worker runs under its own system account, `portikus-worker` (#828,
+  PR #838, review fixes PR #852 and PR #853). It cannot open the backup
+  key socket. Its database role of the same name is not a member of
+  `portikus` and holds only the privileges its queries use
+  (`worker-grants.sql`: nothing on sessions and no write on users); the
+  grants file drops the old membership first, on its own. `worker.env` is
+  `root:portikus-worker` 0640. The host firewall lets the account open
+  loopback connections only to the controller's port 3001, so it cannot
+  reach the API on 3000 or Dex on 5556 around Caddy's sign-in rate limit.
+- A docs pass after Epic 15 and a Markdown link check in CI (#824,
+  PR #839).
+- apt retention keeps the ten newest packages of the current major.minor
+  line and the newest of each older line (PR #841). The signed index
+  carries `Valid-Until` 30 days out, and a weekly scheduled run signs it
+  again unless it was signed less than 6 days before (PR #852). The test
+  and screenshot download helper, `packaging/tests/fetch-published-deb.sh`,
+  reads checksums only from gpgv's verified output (PR #853).
+- Docker is pinned to the overlay2 store on the workspace's Docker
+  volume, and the image health check refuses an image without it (#840,
+  PR #843).
+- A just-created account is not marked stale; the Users view shows "Not
+  signed in yet" (#842, PR #844).
+- A recreated VM keeps its address (#834, PR #850). The pilot's and the
+  rehearsal VM's MAC addresses are fixed in their `variables.tf`, and
+  `infra/tests/vm-mac-test.sh` checks them. `make backup-install-timer`
+  and `make backup-install-channel` refuse a VM that backs itself up, such
+  as the apt-installed pilot; they stay for `make configure-vm` VMs.
+- Review fixes for web, contracts and docs (PR #851).
+
+Verified:
+
+- `make install-test UPGRADE_FROM_PUBLISHED=1 IMAGE_JOBS=1` is green on
+  the final fixes: smoke test 304 passed and 0 failed, image rehearsal 73
+  passed and 0 failed, the worker refused on the API's port 3000 and
+  Dex's port 5556, the worker's database role refused on sessions and
+  users, and the rebuild from a backup passes.
+- The pilot was reinstalled from the apt repository at 0.1.676 and passed
+  the smoke test, 313 of 313.
+- The rehearsal VM kept its MAC and IP address across a destroy and
+  create.
+
+Gaps:
+
+- The debconf config script keeps its own read-back map of settings
+  keys, checked by the test rather than read from the list, because
+  config can run before the package's files are unpacked.
+- The image job's lock and jobs-directory setup is written three times.
+- A scheduled weekly re-sign can still cancel a release queued behind
+  another run (issue #1261).
+- The host backup targets are untested on a `make configure-vm` VM
+  (issue #1262).
+- The pin between two published versions is untested until the second
+  release (issue #1263).
+- After an apt upgrade from a release before 15.1, postinst restarts
+  the worker as `portikus-worker` before `portikus setup` loads the new
+  firewall rule, so until setup finishes the worker can reach ports 3000
+  and 5556 on loopback. This is no new exposure: the old worker ran as
+  `portikus`.
+- The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
+  own address (issue #1264).
+
+## Epic 15.2 — Pilot fixes
+
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
+fixes" (task PRs #863 to #876 and the confirmation fixes).
+
+Delivered:
+
+- Claude Code login in a workspace offers the paste-code URL again
+  (#848). The image sets `BROWSER` to empty for Claude Code only,
+  through `/etc/claude-code/managed-settings.json`, so it no longer opens
+  a second login URL with a localhost callback (BROWSER-HANDLING.md
+  19.2). The image health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser.
+- A terminal tells tmux its size only once the pane has stopped changing
+  size for 100 ms (#849). Claude Code can still leave overlapping lines
+  after one real resize; that is its own renderer.
+- The file viewer shows PNG, JPEG, GIF, WebP and SVG images and PDFs
+  (#816). The file route's `inline=1` serves only those types, with a
+  sandbox Content Security Policy (CSP) and `nosniff`. A PDF is shown
+  from a fetched in-page copy. Relative Markdown images resolve against
+  the Markdown file's folder and load through the file route.
+- "Extract here" for a zip in the Files pane (#817). The agent checks the
+  whole zip before extracting and refuses it for traversal, absolute
+  paths, any symbolic link, a password, zip64, a `.git` path part, a
+  mismatched Unicode path, or a central directory that does not end
+  exactly at the end record (a false entry count could hide entries from
+  the checks). Limits are 1 GiB and 10,000 entries. unzip runs under
+  `prlimit`, and is killed on abort, after the connection closes, or
+  when disk use passes the cap. The files go to a new sibling folder,
+  `name-2` and so on when taken, never `.git`. A walk after extraction
+  refuses any `.git` path part. Zip-slip tests cover this extractor and
+  the recovery restore.
+- Project setup (#846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; new repositories start on
+  `main`; `.portikus/` working files are ignored except `checks.json`
+  and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` for existing ones, including on the first write
+  under `.portikus/` in an older project (#871); new projects get
+  `.portikus/README.md`. Unexpected project route errors are `INTERNAL`
+  and read as a 500.
+- Workspace image 2026.09.14 ships `/usr/share/portikus/AGENTS.md` and
+  sets `init.defaultBranch main`. The agent copies the template once to
+  `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an
+  import of it, never overwriting either (#858). The template tells
+  agents to use `portikus-open`, since `BROWSER` is empty inside Claude
+  Code.
+- Log noise (#859): 4xx answers log at info (429 at warn), several
+  expected conditions no longer log as errors, and setup starts the
+  controller before the worker and masks `systemd-ssh-generator`.
+- Admin image notices (#860, #861): "Old image" for a workspace on a
+  non-default image, "Stale" for accounts only. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package; it is size-capped, follows only https
+  redirects, and keeps the last good image when a check fails. Setup
+  runs it once. The Workspace image and Health tabs show notices, and
+  each administrator gets one notification per version, sent at API
+  start and then every `RELEASE_NOTICE_SECONDS` (default 3600).
+- Review fixes: accessibility (a persistent extract toast, a
+  checkerboard behind images, focus after "Update to", toast live roles,
+  focus kept when a focused toast is dismissed, Monaco token and bracket
+  colours at 4.5:1) and infrastructure (reset-admin marker read, prerm
+  disables the backup timers and socket, setup re-enables the core
+  services after a remove and reinstall, new smoke checks for the inline
+  CSP and for starting at boot).
+- Process: task PRs leave STATUS to the fold task (#874).
+
+Gaps:
+
+- The new smoke check for the `inline=1` sandbox CSP has only run by
+  hand, because the smoke test skips its lifecycle block on a VM that
+  has workspaces.
+- Image 2026.09.14 is not yet built or published. The pilot needs it for
+  the Claude login fix (#848) and the agent instructions (#858).
+- The extractor's free-space backstop reads the whole filesystem, so
+  other writes on it count too. It is only a backstop behind the header
+  checks and `prlimit`.
+- Setup re-enabled the API, controller and worker on every configure;
+  fixed in Epic 37 (#1269).
+- Extract progress is a notice, not a percentage.
+- A PDF over 50 MB is offered as a download rather than shown.
+- An image or PDF over the 2 MiB editor limit showed a change on disk only
+  after its tab was reopened; fixed in Epic 37 (#1267).
+- CSV as a table (optional in #816) was left out.
+
+## Epic 15.3 — Pilot fixes
+
+Built on `epic/15-3-pilot-fixes` from the five issues in the "Pilot
+fixes (next fix batch)" milestone (task PRs #889 to #894). No
+migrations.
+
+Delivered:
+
+- A cloned project's suggested name drops emoji and pictographs from the
+  README heading, flags included, and keeps trademark signs. A heading
+  that is only emoji falls back to the next source (#883).
+- The workspace agent removes image pastes older than 7 days from a
+  project's `.portikus/pastes` on the next paste there (#885).
+- Admin Users shows "Rebuilding…" or "Resetting Docker…" with a spinner
+  on the detail panel and the row while an operation is pending, then a
+  success toast or a failure alert read from the worker's audit rows.
+  `/admin/users` rows carry `pendingOperation` (#881).
+- Workspace image 2026.09.15: `claude` and `codex` typed in a terminal
+  clear it first, so no old shell output sits above the agent. Portikus
+  launchers already started clean (#886).
+- After a package upgrade, the workspace controller restarts the agent in
+  each running workspace whose agent predates the installed files.
+  Terminals survive, and the student sees "Portikus was updated. Your
+  terminals are still running." Workspaces on images older than
+  2026.09.11 are skipped and logged at warn (#887).
+- Review fixes: the upgrade toast is not shown after a real stop and
+  start, the agent's build is its entry file's change time, and
+  an axe scan covers the upgrade toast.
+
+Gaps:
+
+- A keycap emoji such as 1️⃣ left its digit in the clone name; fixed in
+  Epic 37 (#1271).
+- Projects nobody pastes into again keep their old pastes, by design.
+- An admin rebuild or reset result that ends after the panel is closed
+  is not announced; the Audit tab still shows it.
+- The pilot needs image 2026.09.15 published and made default, and old
+  workspaces get the clear only on rebuild.
+- The old-image skip has only unit tests. The new install-test step for
+  #887 passed end to end on a fresh rehearsal VM (2026-09-30).
+
+## Epic 26 — Shared Docker pull storage
+
+Built on `epic/26-docker-cache` for issue #840 (plan #901, task PRs #902
+to #905, review fixes #908 to #912, pilot fixes #921 to #927). Migrations 0031 to 0033. SPEC.md
+section 16.6 and ADR 0045.
+
+Delivered:
+
+- A Docker Hub pull-through cache on the workspace gateway, on its own
+  fixed-size file sized by a new install question (20 GiB by default),
+  cleared automatically past 90 percent full.
+- A ghcr.io cache, on by default, that an administrator can turn off.
+- A global seed volume copied as a thin snapshot into new workspaces,
+  Reset Docker and admin rebuilds. Existing volumes are never replaced.
+- A Docker admin tab: cache use and Clear cache, the Hub credential, the
+  ghcr.io switch, the seed list, cap and Rebuild seed, and an image use
+  report built from registry pull events and agent inventories.
+- The egress gate on the cache ports, the security rulings S1 to S8, and
+  student and admin guide sections.
+- Review fixes: quota changes on seeded volumes, pulls counted per day,
+  digest-pinned seed images, a safe seed swap, the Hub cache held stopped
+  after a failed clear, pull events counted by tag, and accessibility
+  fixes on the Docker tab.
+- Pilot fixes: setup shrinks the cache to fit the disk or turns it off,
+  and never fails because of it; workspaces get no cache settings while it
+  is off; setup loads the egress table so the ghcr.io cache works without
+  a reboot; the ghcr.io hosts line survives a workspace's first start; Go
+  build caches no longer fill the main disk; the seed poll no longer logs
+  every minute; `portikus status` lists the cache services.
+
+Gaps:
+
+- No resource guard admission check for the seed's size, by ruling SEC1.
+- The registry's first pull downloads about twice the bytes.
+- The usage window can take in 31 calendar days.
+- Volumes seeded before the seed-share key fix lack the key.
+- A dropped cache connection stalls a pull for about 15 seconds.
+- The Ansible egress re-apply handler did less than the helper's own
+  re-apply; since Epic 37 it runs the helper (#1274).
+- Every workspace can list the cache's contents, by ruling S6.
+
+## Epic 27 — Certificates from the admin page
+
+Built on `epic/27-certificates` for issue #804 (plan and contract #938,
+docs draft #939, task PRs #940, #941, #943 and #944, review fixes #942,
+#945, #947 and #948, setup fix #949, Caddy package fix #951, docs fold
+#950, job folder mode fix #952). No migration. SPEC.md sections
+20.1, 21.12, 24.8 and 24.11, and ADR 0046.
+
+Delivered:
+
+- A Certificate admin tab: the certificate in use and its expiry, and a
+  form for Caddy's internal authority, ACME (Let's Encrypt, its staging
+  service, ZeroSSL or a directory URL, optional EAB, DNS-01 with nine
+  providers or HTTP-01) and uploaded files. Secrets are write-only.
+  Pre-flight results, Test only, Apply, Renew now (ACME only), Roll back,
+  job progress and Download root certificate are on the tab.
+- The admin API: job requests written as one 0600 file, pre-flight, upload
+  checks that name the failed check, the root download, audit rows
+  without secrets, and expiry and renewal-failure notices to every
+  administrator.
+- The on-demand ask endpoint, on loopback only. It approves a preview
+  name only for a non-system listening port in a running workspace, and
+  at most 10 new names per workspace per hour.
+- The root job `certificate-job`. It issues in a throwaway Caddy, then
+  copies, swaps, reloads and checks on loopback, and rolls back on
+  failure. It also runs the hourly check, the trust bundle and
+  `portikus reset-certificate`. Unit tests and Pebble tests cover HTTP-01,
+  on-demand previews and EAB.
+- Setup builds Caddy with nine DNS plugins. It seeds the certificate once
+  through `certificate-job first-install`, and an old letsencrypt
+  preseed becomes ACME DNS-01 with Cloudflare. Setup keeps the internal
+  root present and passes ACME challenges on port 80 to the throwaway.
+  WebSockets survive reloads. The installer now defaults to `internal`.
+- Review fixes: full service-account key checks in the page, API and job;
+  the mutation cache drops typed secrets; announced upload errors; a
+  race-free job audit; temp request files cleaned up.
+- Fresh installs work again: Caddy's Cloudsmith apt repository is signed
+  by a subkey that expired in 2024, which Debian 13 refuses, so every new
+  install stopped at `apt update`. Setup now installs Caddy from its
+  pinned GitHub release package (SHA-512 checked) and removes the old
+  repository from existing hosts. Setup also re-checks an ACME site's
+  certificate on every run.
+- Docs: ADR 0046, INSTALL.md, OPERATIONS.md and ADMIN-GUIDE.md.
+
+Verified: the scripted fresh install (`make install-test`, 41 steps) on a
+throwaway VM; on the pilot (0.1.762+g2d9bba1e) pre-flight, refused
+uploads, Roll back, `portikus reset-certificate`, a staging Test, a
+refused fake token with the live site unchanged, and a production Let's
+Encrypt DNS-01 Cloudflare apply for the site and the preview wildcard;
+no DNS token outside its secrets file; smoke test 241 passed.
+
+Gaps:
+
+- Re-applying the same settings issues a fresh certificate, but Caddy
+  keeps serving the identical one it already holds until renewal.
+- Only Cloudflare DNS-01 is tested end to end. The other eight providers
+  have configuration tests only. HTTP-01 and EAB are tested against
+  Pebble only, because the pilot's names resolve to a private address.
+- No email for certificate warnings (#918).
+- The ask endpoint's hourly count is in memory, so an API restart resets
+  it.
+- No test forces a failed rename of the request file.
+
+## Epic 28 — Fix batch
+
+Built on `epic/28-fix-batch` for issues #928, #931 to #934, #936, #955,
+#957 and #959 and five backlog items (plan #960, task PRs #961 to #970,
+review fixes #971 to #974, #977, #980 and #984, UI review fixes #976 and
+#979, accessibility fixes #982, test and CI fixes #981 and #983, a
+refusal-message fix #985, merger
+rules #975, this fold #978).
+Migrations 0034 and 0035. SPEC.md sections 3, 6.4, 14.5, 16.6, 19.4,
+22.4, 24.5, 25.8 and 29, and ADR 0045.
+
+Delivered:
+
+- Keep running until (#955): a student can hold their workspace up from
+  the workspace dialog, and neither the disconnect grace nor idle stop
+  counts until the hold ends. Both timers then start from its end, so
+  "Still working?" still warns first. The site cap is 12 hours by default
+  (0 turns it off) with a per-workspace override. The API routes are
+  owner-only and audited, and the status bar shows the hold. The UI review
+  made the button name its end time, dated long holds, showed an active
+  hold in the admin guard summary, and read a 0 cap as off. A request up
+  to 5 minutes past the cap is clamped to it, and the worker's cap updates
+  no longer undo a student's concurrent change. Setting and ending a hold
+  are announced, and focus has a place to go after "Don't keep running".
+- Agent instructions (#933): one template in the package. The controller
+  writes `/etc/claude-code/CLAUDE.md` and Codex's `developer_instructions`
+  in `/etc/codex/config.toml` before every start, replacing the files
+  without opening them, so a named pipe cannot block a start. The home
+  files are given back to the student. Codex applies the system file
+  (tested on the pilot). No new image is needed.
+- The TLS probe (#957) runs only when a preview first asks, so discovery
+  leaves nothing in student server logs. The API caches only final
+  answers, remembers every answer for 30 seconds (forgotten when a
+  listener restarts unprobed, pruned as it goes), shares concurrent
+  probes, and gives the call 1.5 seconds. Listening frames are capped at
+  1,024 services and compared in linear time; the agent trims to the
+  cap.
+- The Docker tab (#931, #934): download sizes or a dash on every image
+  row, a `Meter` component in `packages/ui` for the cache (with its
+  90 percent mark) and the seed, the reason setup turned the cache off,
+  and a 120-day usage window with 120-day retention. Meters say "nearly
+  full" with an alert icon, and their names match their row labels.
+- The seed matches the image (#932): a new install's seed list starts
+  with the default image's node and python slim images, and after an
+  image change a notice under the list names each missing language and
+  its "Update list and rebuild" button swaps them and rebuilds, never past
+  the size limit, which it calls an estimate. The default list is
+  validated before it is written.
+- Workspace images (#936): Delete for any image but the default and the
+  previous (refused by both the API and the root job), a clean-up that
+  keeps the default, the previous and the newest, image sizes as "Image
+  size (compressed)" and a "Main disk space" meter. The delete
+  confirmation says what deleting frees, and focus moves to the job
+  heading. Size recording and
+  delete never fail a job. The image job's three runs share one lock
+  helper.
+- Workspace create counts the Docker seed's size against the pool's
+  90 percent line.
+- The install question for the cache size uses setup's free-space rule.
+- CI (#959): every job in ci.yml, release.yml and workspace-image.yml has
+  a time limit, and apt installs have a step limit and retries. The
+  Playwright install runs once with a 12-minute limit (the e2e job limit
+  is 40 minutes), because killing a slow attempt left apt holding the
+  dpkg lock and the retry failed at once.
+- The agent instruction files are written independently, so one bad path
+  does not skip the other, and setup computes the cache's free space
+  once.
+- The audit person e2e test (#928) waits for the people list; the flake
+  was the test, not the component.
+
+Verified: typecheck, lint and the unit and Playwright tests of each task
+PR, as listed in each PR body. On the pilot (0.1.788+g50a826be): the #933
+checks passed. The system files are root 0644 and match the template,
+Codex's `debug prompt-input` shows the guidance, edits and deletions are
+undone at start, the old import line and old template copy are removed
+while the student's lines are kept, and a start with `/etc/claude-code`
+broken still works. The #936 checks passed: 2026.09.12 was deleted, a
+workspace built from it still starts, and the default and previous images
+are refused by both the API and the job. The pilot run found a doubled
+period in the image refusal messages, fixed in #985. Smoke test: 238 passed, 0
+failed.
+
+Gaps:
+
+- A named pipe at `/etc/hosts` or `/etc/docker/daemon.json` still blocks
+  the controller's read at start, for that student's workspace only.
+- A student's own Codex `developer_instructions` replaces the platform's.
+- Claude Code's `/context` listing of the system file is not checked
+  (needs a signed-in session); the new smoke checks run at the next pilot
+  deploy.
+- The check that a workspace made from a deleted image still starts runs
+  on the pilot during epic verification.
+- Existing images show "Not measured yet" until the next image job.
+- Docker tab sizes are download sizes, and digest-pinned seed names show
+  a dash. The default seed list is written when the tab is first opened,
+  and its first build still needs Rebuild seed.
+- A student picks hours, not a clock time, for Keep running, and may
+  renew a hold indefinitely. The admin guard summary does not list the
+  effective cap.
+- The browser-facing listening event in packages/events has no cap of
+  its own; the API's acceptance bounds it.
+- The admin Docker and Image tabs do not narrow below about 760 px.
+- Deleting `/etc/claude-code` lost Claude Code's managed settings; since
+  Epic 37 they are restored at every start (#1283).
+- Status bar overflow at narrow widths (issue #1276), and the shell's
+  storage meters are not yet on `Meter` (not filed).
+
+## Epic 29 — Code quality cleanup
+
+Built on `epic/29-code-quality` (plan #988, task PRs #989 to #997, #999,
+#1001 to #1009, #1012 to #1016, #1018 to #1022, #1024 to #1026, the
+complexity and copied-code PRs, this fold). #998 and #1000 were rebuilt
+as #1002 and #1003. No migration. SPEC.md sections 22.4, 24.1, 24.11 and
+29, and WORKFLOW.md, "Code style".
+
+Delivered:
+
+- Shared helpers: `recordAudit`, `isUniqueViolation` and `errorMessage`,
+  used across the API, worker, controller, agent and packages. The API
+  has one `sendError`, shared parameter schemas, `parseOr400`, one
+  `escapeHtml` and one job request file writer.
+- One workspace-agent client, `packages/agent-client`, for the API and
+  the worker (SPEC.md section 24.1 says how each handles a broken
+  stream).
+- The worker has one timer loop helper, shared `notifyAdministrators`
+  and `utcDay`, and `reconcile()` split into named steps. Its controller
+  budgets derive from the controller's timeout constants.
+- The workspace agent runs its version-control and docker commands
+  through its runners, has one `AgentFailure` error type, and
+  `listening.ts` is split. Terminal scrollback is one contract constant.
+- The API's admin role routes share one helper, and user functions and
+  terminal piping have their own files. Admin `user.enabled` and
+  `user.disabled` rows now carry the request metadata.
+- The web app has shared text and dialog helpers, storage meters on the
+  ui `Meter`, and split `WorkspaceDetail` and `SettingsDialog` files.
+  Visible change: ages read in full words ("4 minutes ago").
+- Packages: unused contract constants removed, one shared config field
+  set for the API and worker, one `sha256Hex`.
+- e2e specs share one axe check and common helpers. Shell tests share
+  `infra/tests/lib.sh`, and the smoke test is split by subsystem with
+  the same counts (238 passed, 0 failed, 1 skipped on the pilot).
+- Infrastructure: shared Makefile guards, one Go build task file, one
+  Caddy `@api` matcher, one backup library. Verified bootstrap to smoke
+  on the rehearsal VM, with a real backup and restore.
+- Comments trimmed of history everywhere, and `pnpm lint` now fails on
+  issue, epic, task, ruling and review references in code comments.
+- Review fixes: typed agent error codes, a drift-notice toast and focus
+  that survive a reread, and an always-removed Caddy staging binary.
+- The comment check also runs in CI on every change, infra-only ones
+  included, and reads Python, OpenTofu, systemd units and extensionless
+  package scripts.
+- Dead code removed across the repo: the virtual-machine mock sign-in
+  provider (its unit, Ansible settings, Caddy route and test branches;
+  the package no longer ships the mock), refusals of settings retired in
+  Epic 14 and by ADR 0031, clean-up for states no install can reach,
+  unused Make, Ansible and OpenTofu pieces, three unused dependencies,
+  and needless exports. Upgrade code a released version still needs and
+  the TLS debconf questions (used by preseeding) stay.
+- Knip runs in `pnpm lint` and fails on unused files, exports and
+  dependencies. jscpd fails on any copied block, and Biome fails on a
+  product function whose cognitive complexity is over 30; the copies it
+  found were merged and every function over 30 was split.
+- CI runs the infrastructure tests when a source file they read
+  changes (egress code, contracts, the mock LMS), not only on `infra/`
+  changes.
+- Agents: an architect agent designs feature epics before their plans
+  and reviews the whole system at each milestone gate; the end-of-epic
+  code review also looks for dead code Knip cannot see and for comments
+  that restate the code (WORKFLOW.md, "Epic plans").
+- Toggletips no longer pull focus back to their button a moment after
+  closing, which could close a tip opened next (seen as a flaky
+  a11y-workspace-states test).
+- Switching projects no longer flashes the "No terminals open" screen;
+  it waits until the layout and terminal list have loaded.
+- The security suite expects the gateway's port 443 to be open while
+  the ghcr.io cache is on and proves it reaches only the cache; with the
+  cache off it expects the port closed.
+- Local end-to-end runs no longer leave test servers behind when stopped
+  with Ctrl-C or SIGTERM, and never reuse a server already on a test port.
+- The fake Dex test helper makes new certificates when its cached ones
+  are within a day of expiry, so local end-to-end runs no longer fail
+  on stale certificates left in the temporary directory.
+- CI's five browser-test shards are packed by measured file time from
+  `e2e/shard-timings.json` instead of equal test counts, so they finish
+  within seconds of each other (refresh the timings with
+  `node scripts/e2e-shard-list.mjs --refresh`).
+- The rehearsal VM ran the full smoke test, including the lifecycle,
+  terminal, project, recovery and boundary files that the pilot skips.
+
+Gaps:
+
+- Some admin e2e helpers that behave differently remain local copies.
+- jscpd's ignored regions include the whole of `createQuotaSync` and the
+  `WorkspaceProvider` interface, so a copy added inside them is not
+  caught.
+- Five smaller items were left out.
+
+## Epic 30 — Architecture review fixes
+
+Built on `epic/30-architecture-fixes` (task PRs #1043 to #1054 and this
+fold). No migration. SPEC.md sections 6.5, 18.3, 28 and 29, STACK.md
+sections 2 and 9, and ADR 0034.
+
+Delivered:
+
+- Worker: every controller call (creates, starts, stops and maintenance)
+  runs in one background runner keyed by workspace. At most six creates,
+  starts and operations run at once, and stops never wait behind that
+  cap, so a slow rebuild no longer delays other students. A re-create
+  keeps the stored volume sizes, and a start sends the stored recovery
+  size. Stamps are taken when a controller call ends.
+- Worker loops: `startLoop` owns the busy guard and error logging for
+  every interval loop. VM backup deletes are claimed with SKIP LOCKED,
+  and a stale claim is retried after 15 minutes.
+- Controller: every bad request body answers `BAD_REQUEST`. It never
+  reads a file through the Incus files API, because Incus 7.5 reports a
+  named pipe as a regular file and a GET on one leaves an incusd thread
+  blocked for good. Every file it writes is deleted and then pushed
+  while the container is stopped; a start that finds the container
+  running force-stops it first. `daemon.json` is written whole, and the
+  ghcr.io hosts line is edited inside the container after the start,
+  keeping the student's own lines. The apt list is read inside the
+  container as the student; output comes back over the exec websocket,
+  capped at 64 KiB per read and per message, and the command is then
+  killed. Nothing is recorded to a host log. Verified on the rehearsal
+  VM with pipes at nine paths, an output flood and a retry against a
+  pipe-making loop.
+- Worker: a start that keeps failing is retried after a wait that
+  doubles from 10 seconds to 30 minutes, held in memory and reset when
+  the workspace runs or its desired state changes; each retry logs its
+  attempt number.
+- Workspace agent: a stop protects only the platform's own processes, by
+  PID: PID 1, the agent, its tmux attach clients, the tmux server and its
+  pane shells. A program run inside a terminal and a program the agent
+  starts for the student, such as a check run and its children, stay
+  stoppable from both the Monitor and the Running pane; stopping a pane
+  shell is refused.
+- Workspace agent: port stops refuse protected processes and reused
+  process ids through the shared process-stop check, unexpected errors
+  fall back to `INTERNAL`, `runGit` lives in its own file, and one
+  helper aborts work when a client disconnects. The unused
+  `PORTIKUS_WORKSPACE_ID` setting is gone; the URL broker always sends
+  the nil workspace id and the API names the workspace itself.
+- API rate limits all count through the shared fixed-window counter, so
+  no per-key list grows without bound. The workspace socket pushes any
+  view change except the moving timestamps.
+- API layers: `routes/` holds only route files, with shared code in
+  `workspaces/`, `sessions/`, `admin/`, `users/`, `notifications/` and
+  `lti/`; `ServerDeps` lives in `deps.ts`, and `apps/api/src` has no
+  import cycles. `workspaceView` builds every workspace view, and
+  `requestPendingOperation` serves Rebuild, Reset Docker and the home
+  replace with the audit row in the same transaction.
+- API test doubles live in `apps/api/src/testing/`, with the fake agent
+  split by area. A vitest relay suite runs the project, file, Git,
+  search and checks routes against the real workspace agent. A refused
+  port stop is pinned as a 403. build-deb strips and checks test code
+  at any depth.
+- Shared values have one source: notifications, WebSocket close codes,
+  workspace state unions, guard arithmetic and the agent error map.
+- Web: the project events socket lives in the workspace shell, so
+  browser-open requests and on-disk changes arrive whatever right-pane
+  tab shows. Student-facing errors are plain sentences while admin pages
+  keep raw detail. One settings query, one stale-chunk reload (lazy
+  pages included), and socket frames decoded with the shared schemas.
+  Queued browser-open dialogs return focus to the element that had it.
+- The listening monitor reads the tmux process id uncached.
+- Workspace agent: a stop refuses the agent's own tmux attach clients as
+  well as the tmux server, so Stop on a "tmux" row in the Monitor no
+  longer closes the student's terminal.
+
+Gaps:
+
+- The fake agent's session baseline-diff route answers 404, which is not
+  checked against the real agent.
+- Terminals, events, recovery, listening and processes have no real-agent
+  relay test (terminals have `terminal-real-agent.test.ts`). Browser
+  tests still use the fake agent.
+- A student's own edits to `/etc/docker/daemon.json` are reset at every
+  start.
+- A process the student leaves in the background can keep one Incus
+  stdout read open until it exits, at most once a day per workspace (the
+  package survey).
+- An in-container edit without sockets that times out is left running
+  until it exits or the container stops (Incus refuses to cancel it).
+- A start that fails for good has no final error state, and Stop on an
+  errored row whose container still runs does nothing (#1057). The retry
+  wait is lost when the worker restarts.
+- No CI check for import cycles yet (#1011).
+- File-save errors in the editor still show raw messages.
+- No browser test for a live workspace relabel, and the uncached tmux
+  process id has no test.
+- The preview, process-stop and terminal error maps stay local because
+  they answer differently from the shared map.
+- Review items S3 and S4 are deferred to #1041.
+
+## Epic 31 — Workspace reliability, admin polish, CI and lint
+
+Built on `epic/31-reliability` (task PRs #1065 to #1076, the web fixes
+and this fold). Migration 0036. SPEC.md sections 6.3, 6.5, 9.7, 18.3,
+20.1 and 25.3, STACK.md section 14, and ADR 0034.
+
+Delivered:
+
+- Database: migration 0036 adds `workspaces.start_retries` and
+  `settings.controller_checked_at`, with worker grants for them and for
+  deleting terminal rows.
+- Worker: a failing start is retried at most five times, waiting 10
+  seconds, 30 seconds, 1 minute, 2 minutes and 5 minutes. The count is
+  stored on the row, so a worker restart keeps it, and the student's
+  Start, Stop or Restart resets it. After the last retry the row stays
+  in error and the worker logs one warning.
+- Worker: Stop on an errored workspace stops a still-running instance.
+  A failed stop records `STOP_FAILED` and is tried once per Stop, not
+  every sweep, and the sweep's stop respects a Start pressed in between.
+- Worker and controller: the worker's time budget reaches the
+  controller in a header, clamped to the route's own budget. A create or
+  process read stops its Incus and host work when the worker gives up,
+  concurrent creates share one run, and an aborted create never makes an
+  empty Docker volume. The create budget is 480 seconds. Incus requests
+  keep their 30-second default timeout when a signal is passed.
+- Workspace state: the worker records each successful controller check,
+  and the status bar marks the state "unconfirmed", with an alert icon,
+  after two minutes without one. A screen reader announces the change,
+  the workspace dialog shows the unconfirmed note, and the status bar is
+  checked at 320 px.
+- Terminals: creates hold the 20-terminal cap under parallel requests
+  and get distinct names and positions, and the worker deletes ended
+  terminal rows after 30 days.
+- API: admin and workspace JSON replies are sent with
+  `Cache-Control: no-store`, so Back never shows cached JSON.
+- Admin: each tab has its own path, `/admin/<tab>`, and old `?tab=` links
+  redirect. Caddy and the dev proxy serve the page on a reload. "Packages
+  students add" moved to the Workspace image tab. A tab change is
+  announced politely without moving focus, and the image tab's axe scans
+  cover a filled packages table.
+- CI: no run downloads Playwright's system packages or runs
+  `apt-get update` normally; a guard fails the e2e job if the runner
+  image lacks a Chromium library.
+- Lint: `pnpm lint` fails on import cycles, imports between apps,
+  server packages in `apps/web` and testing helpers in product code, and
+  warns about non-test source files over 800 lines.
+- Security suite: its snapshot of the settings row skips
+  `controller_checked_at`, which the worker updates on every sweep.
+
+Verified on the rehearsal VM at c6b43f0e (0.1.873): smoke 362/0 with the
+Dex sign-in, lifecycle and LTI; Caddy preview 129/0; backup tests 92/0,
+96/0 and 129/0; OpenTofu plan unchanged; security suite 391 passed, with
+the settings-snapshot failure fixed above and the host-port probe that
+cannot pass off the pilot. Live checks: retries at 10 s, 30 s, 1 min,
+2 min and 5 min, then one warning and no more; Stop on an errored running
+workspace; "unconfirmed" between 110 and 125 seconds after the worker
+stopped; 25 parallel terminal creates leave 20 with distinct names; a
+31-day ended terminal pruned; admin deep-path reloads and the root
+certificate download through Caddy.
+
+Gaps:
+
+- A terminal create refused at the cap could make an agent-session
+  recovery point; fixed in Epic 37 (#1287).
+- A `controller_checked_at` in the future counted as verified, and
+  `STATUS_REFRESH_SECONDS` had no upper bound. Since Epic 37 a future
+  time is stale and the setting is capped at 60 seconds (#1286).
+- An abort during the Docker seed copy or the instance create does not
+  cancel the Incus operation; a retry adopts what exists (ADR 0034).
+  Routes other than create and the process read ignore the budget.
+- The CI helper's fallback package refresh is untested on CI.
+- The image job, replace-home imports and backups through the
+  controller were not exercised against the 30-second Incus request
+  default; a long Incus call on those paths without its own timeout
+  would now fail at 30 seconds.
+- No Playwright test for start retries, since nothing new is shown.
+- The 14 files over 800 lines are warned about, not split.
+- The #1041 part S3 refactors are still open.
+
+## Epic 32 — Split the busiest hotspots, one deadline for every controller call
+
+Built on `epic/32-hotspots` (task PRs #1082 to #1091 and this fold),
+issue #1041. No migration. SPEC.md sections 6.5 and 25.3, and ADR 0034
+decisions 7 and 9.
+
+Delivered:
+
+- Contracts: the start, stop, maintenance and growth budgets live in
+  `packages/contracts` beside the create budget, with values unchanged.
+  The worker and the controller both read them there.
+- Controller: start, stop, reset-Docker, rebuild and volume growth
+  honour the worker's budget header and its hang-up, as create and the
+  process read already did. The signal reaches every Incus request and
+  polling loop. Without the header, or above it, the controller uses the
+  contract formula. Concurrent callers share one run, aborted only when
+  all have left. On abort the controller sends Incus nothing more and
+  never cancels a started operation. Steps keep their own limits, and
+  the caller's signal only adds to them.
+- Controller: once a graceful stop has been sent, the stop always runs
+  on to the forced stop, so a resource-guard or admin stop is never lost
+  to a worker that gave up.
+- Controller: once the start request has been sent to Incus, a start
+  always finishes its remaining steps, and the controller logs when a
+  caller hangs up or runs out of budget and when a start or stop
+  finishes after its caller left (#1094).
+- Controller: the start's in-container setup is a list of named steps in
+  `start-setup.ts`, in the same order. A failed hostname set now logs a
+  warning and the start carries on.
+- Controller: the Docker seed builder is its own `IncusSeedBuilder` in
+  `seed-builder.ts`, and the provider and builder share the volume
+  helpers in `host.ts`. `provider.ts` went from 1,681 to about 1,470
+  lines.
+- Workspace agent: the terminal, project, file, Git, search and recovery
+  routes are Fastify plugins in their own files, and `server.ts` only
+  wires them (about 250 lines). Routes, statuses and bodies are
+  unchanged.
+- Web: the terminal socket's connect, backoff, close codes and frame
+  handling live in `terminal/terminalSocket.ts`, all terminal files are
+  under `apps/web/src/terminal/`, and a lost session goes through one
+  `sessionEnded()` instead of a prop passed through five components.
+- Web: the editor's buffer state (autosave, version checks, conflicts,
+  deleted on disk, flush on close) is a reducer-based `useFileBuffer`
+  hook, and `FileLeaf` is view code only. A review fix closed a race
+  between typing and the save follow-up, with a test.
+
+Verified: battery at 64d52b3e: `make check` green (6,310 tests;
+coverage lines 93.94 %, branches 86.02 %, statements 92.04 %, functions
+91.59 %), e2e 736 passed, 1 skipped, 1 flake under host load
+(`agent-upgrade.spec.ts` "a page opened on an already upgraded agent
+shows no toast": the poll for zero attachments can miss the
+about-3-second drop window; it passes alone). Rehearsal VM at
+0.1.886+g6f1f8acd: smoke 362/0 with the Dex sign-in, Caddy 149/0,
+security 392/1 (the expected off-pilot probe), rebuild-exercise passed,
+hand checks passed except a late worker restart during a start (fixed by
+#1094). Second rehearsal at 0.1.888+g3bd51b32: smoke 362/0, worker
+restarts at 0.7 s, 2.5 s and after Running all end fully set up, stop
+checks with a SIGTERM-ignoring process pass, and a fresh workspace's
+hostname, timezone, profile, token and recovery mount are correct.
+
+Pilot: 0.1.888+g3bd51b32 installed 2026-10-03 with apt (setup failed=0, no migrations), smoke 233 passed, 0 failed (Dex password sign-in skipped: no pilot sign-in file; lifecycle, terminal and project checks skipped: a workspace exists); controller log clean after the install.
+
+Gaps:
+
+- A stop that outlives the worker's budget still finishes, but the
+  worker gets `TIMEOUT` and may mark the row errored until the sweep
+  sees the instance stopped.
+- The agent now prunes old pastes after any write under
+  `.portikus/pastes/`, including a folder create or a move, not only a
+  file write.
+- The file tree's terminal list now also sends a lost session to the
+  session-ended page.
+- `provider.ts` is still over 800 lines (about 1,470).
+- Set-limits, CPU allowance, replace-home, deleting kept volumes and the
+  added-packages read do not take the caller's signal yet.
+- The start's own timeout can still run out after Incus has started the
+  instance. The worker then retries, and each retry force-stops first, so
+  only a worker that also dies at that moment leaves a half-set-up
+  workspace.
+- A worker restart before the start request shows the workspace in error
+  for about 10 seconds, until the automatic retry.
+- The sweep can show a workspace running about a second before the
+  controller finishes its setup.
+- An exec whose socket errored was reported as "exec timed out"; since
+  Epic 37 it is its own error (#1292).
+- `/etc/hostname` holds the instance name until the second start (the
+  image template, already so).
+
+## Epic 33 — UI polish: admin layouts, Settings, accessibility
+
+Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
+#1121, this fold, and #1123 to #1130 after it), issues #1087 and #1096. No
+migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
+
+Delivered:
+
+- CI: the signed apt repository test backdates its throwaway key two
+  minutes, so apt's verifier no longer rejects it (#1096).
+- Admin frame: the admin content scroller and the Settings section pane keep a
+  stable scrollbar gutter, so content does not shift between tall and
+  short tabs. The unread badge is a larger 24 px pill. The header is a container: on a narrow bar
+  the context text and account name give way, and it stays one line.
+- Admin structure: one `AdminGroup` at level 3 or 4, with an optional
+  description, is the card frame everywhere. A shared `Notice` draws the
+  Backups, backup key and Health warnings. Packages, Trends and admin
+  Settings are cards.
+- Admin tabs: Network, Backups, Certificate and Docker have the new
+  layouts from #1087. Network has a sticky, scrollable side column and a
+  headed read error. Backups is split under 800 lines with one Activity
+  card. Certificate's form is two columns from `@3xl`. Docker's short
+  cards share a grid. Settings shows label, control, then hint, and a
+  search hit focuses the field. Form fields read their hint before their
+  error.
+- Admin tables: Users, Logs and Audit have sortable headers with
+  `aria-sort`. Users has a per-row "more" menu with start, stop,
+  restart, rebuild, archive and disable. `WorkspacesTab.tsx` and
+  `LogsTab.tsx` are split under 800 lines.
+- Review fixes (#1118): sort changes on Users, Logs and Audit are
+  announced, unsorted headers say they sort, and same-time rows keep
+  their order. Users row-menu lifecycle items stay focusable while busy.
+  Settings headings are screen-reader only, the profile picture is a
+  Choose picture button, the account menu names the account, and the
+  Packages list loads with a Skeleton.
+- Sort headers (#1119): Monitor and the admin Processes table use the
+  shared sort header, now in `apps/web/src/table/`, and announce each
+  sort. CPU and Memory sort highest first on the first press. Monitor at
+  its 280 px default hides PID, which the Stop button still names, and
+  draws no faint sort hint for lack of room.
+- Confirmation review fixes (#1120): closing a tab moves focus to the
+  selected tab. Monaco's tab-focus toggle is now loaded; before, Tab
+  could never leave the editor. The editor names, Help and the Student
+  guide give Ctrl+Shift+M on macOS. The diff editor's side names are no
+  longer blank. Operation-end toasts cannot repeat, and a passed
+  deadline is not announced. The Alt+F1 claim, which had no action
+  behind it, is gone from Help and the guide, and the F8 text matches
+  what the editor does.
+- Admin operations: the end of a rebuild, Docker reset or Replace home
+  folder is announced on any admin tab, whether or not the detail panel
+  is open, and several ends share one toast. `StateBadge` has a `moving`
+  option.
+- Components: `MenuRadioGroup` and `MenuRadioItem` (used by the Preview
+  width menu) and a shared `FileInput` (certificate, backup key and
+  profile picture) in `packages/ui`.
+- Student shell: the status bar wraps instead of overflowing. Its
+  Memory and Disk meters use `Meter`, show a percentage, and keep the
+  full figure in their name. The admin detail meters share the storage
+  thresholds. Monitor buttons close Find in files. "Still working?" is
+  an alert dialog over an open dialog. A full-disk save error stays
+  until a save succeeds. The Health heat map has a keyboard cursor with
+  a readout.
+- Accessibility pass over the whole student interface: status regions
+  stay live under dialogs, modals hide content that mounts later, and no
+  region re-announces a ticking time. The file tree is a multi-select
+  tree with Home, End, type-ahead, Shift+Arrow and Ctrl+Space. Search
+  results are named by file and line. The editor's text box is named
+  after its file and the Ctrl+M way out. Tabs move from a right-click
+  menu, a terminal pane moves with "Move into", and "Reset pane sizes"
+  evens out splits; the Help page covers all three (#1114). The header
+  and Course page work at 320 px.
+- Test hardening (#1121): the admin egress test checks only its own
+  blocked sites, so it no longer races the accessibility test; admin
+  page axe scans no longer grow with the run's account count; and the
+  e2e shard timings include the epic's new tests.
+- Help split (#1123): Help is two pages. "Using your workspace" at
+  `/help` holds the student and instructor parts; "For administrators"
+  at `/admin/help` sits inside the admin page and only administrators
+  can open it. The account menu's Help opens the one that matches the
+  page you are on, and every existing anchor still lands. The parts are
+  named apart from the page titles ("Your workspace", "For
+  instructors", "Running the site"), with anchors `#student` and
+  `#admin` unchanged.
+- Admin tab icons (#1124): each admin tab has an icon and the workspace
+  tab look. Help and the nine admin tab icons are in the design system
+  preview. Its header placement and fade were replaced by #1127.
+- Forced colours (#1125): admin and workspace tabs draw a selected-tab
+  bar in forced-colours mode, and the PageIntro example is corrected.
+  Its full-name-on-focus change is moot, because #1127 made tab names
+  always whole.
+- Admin tab strip (#1127): the admin tabs moved out of the app header
+  into a strip under it, drawn like the workspace tab strip, at the top
+  of a frame with a line down each side. Only the framed content
+  scrolls, and its scrollbar sits inside the frame. Tabs show their
+  whole names and wrap to a second row in a fixed order. The group
+  gaps, the fade and the hover text are gone.
+- Frame lines and bold current tab (#1128): the admin frame's side
+  lines use `--line-strong` (3.42:1 light, 4.14:1 dark against the
+  surface), so they mark out the tabbed space. In forced colours the
+  current tab, admin or workspace, is semibold as well as barred, with
+  no layout shift.
+- Page caching (#1129): admin and workspace pages are sent with
+  `Cache-Control: no-store`, so a stored page can no longer answer the
+  same URL's API fetch and empty the Users list after a full page load.
+  The e2e suite cannot catch this because it runs without Caddy.
+- Full-width admin frame (#1130): the admin frame fills the window less
+  a 16 px gutter on each side, instead of stopping at 1440 px. Text and
+  forms keep their own measure of about 72 characters, and tables use
+  the full width. The admin area now works down to 768 px, where the
+  workspace keeps 1024: the tab strip wraps to a second row, and the
+  Users detail panel stacks under the table when the content is
+  narrower than 56rem.
+
+Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02%, branches 86.21%, statements 92.13%, functions 91.71%); `pnpm test:e2e --workers=4` 815 passed, 4 failed, 1 skipped. The 4 failures were page-load timeouts in a11y-image.spec.ts (light and dark, lines 159 and 178) on a host loaded by an unrelated job, and that spec passed 19 of 19 alone three times. Pilot on 0.1.913+gb74d9da0 2026-10-03 (same product code; later commits are tests only): setup failed=0, smoke 233 passed 0 failed (Dex sign-in and lifecycle blocks skipped), dump /var/lib/postgresql/portikus-pre-epic33-2026-10-03.dump on the VM.
+
+Pilot reinstall with #1123-#1128: 0.1.920+g1b1e4536 on 2026-10-03, setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), dump /var/lib/postgresql/portikus-pre-epic33c-2026-10-03.dump on the VM.
+
+Pilot reinstall with #1129 and #1130: 0.1.924+gab6ac0ea on 2026-10-03 (the same code as the #1130 merge), setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), `/admin/users` page served with `cache-control: no-store`, dump /var/lib/postgresql/portikus-pre-epic33e-2026-10-03.dump on the VM.
+
+Gaps:
+
+- The workspace keeps its 1024 px minimum and the admin area its
+  768 px one, so at 560 px both scroll sideways instead of reflowing
+  (SPEC.md section 20.1; DESIGN.md defers the narrow workspace layout).
+- `FileTree.tsx` is still over 800 lines (about 1,290), and `app.css` passed 800 (about 840).
+- Audit sorts by Time only, because it is paged on the server. Logs
+  sorts only the lines already loaded.
+- Below 1280 px an administrator sees only their initials in the
+  header; the full name is in the button's label and menu.
+- "Reset pane sizes" covers terminal splits only, because file, diff
+  and preview tabs have no splitters.
+- The apt repository test had one unexplained early local failure
+  (#1097).
+- On a wrapped admin tab strip, the rule between the rows runs only
+  under tabs, not across the empty end of the second row (#1127).
+
+## Epic 34 — Internet launch
+
+Built on `epic/34-internet-launch` (task PRs #1147 to #1170 and this
+fold), milestone "Internet launch", issue #917. Migrations 0037 to 0039.
+SPEC.md sections 5.1, 20.2, 21.12, 23.6, 24.2, 24.9, 24.11, 24.13 and
+25.6, and ADRs 0048, 0049 and 0050. The goal: a site on a rented host
+with a public address, on one domain, where nobody signs themselves up.
+
+Delivered:
+
+- Security requirements (#1147): SPEC.md 24 states the rules for an
+  internet-facing site.
+- Sign-in limits and the password relay (#1160 T2, #1164, #1169): limits
+  never refuse one client for others' failures and treat an IPv6 /64 as
+  one address. The API relays Dex's password posts and counts each one
+  before forwarding it (10 wrong passwords in ten minutes), with a
+  known-device cookie exemption bound to the last password change and
+  ending after 90 days or on `portikus reset-admin`. Every failure is
+  audited as `auth.password_failed`. Logins must be ASCII. New passwords
+  are checked against a small breached list.
+- Second factor (#1153, #1154, #1161 T21, #1165, #1169): Dex-password
+  accounts set up TOTP or a passkey, with ten recovery codes. Settings,
+  Two-factor sign-in lists, adds, renames and removes factors (never the
+  last) and makes new recovery codes. One per-account counter for wrong
+  codes (10 in ten minutes, 30 a day, then a kept notice). Linking an LMS
+  account to a Dex-password account needs a passed factor, and LMS
+  sessions cannot manage factors. Secrets are sealed with
+  `/etc/portikus/second-factor.key`, which backups carry.
+- Invitations (#1155): only an invitation creates an SSO account, for
+  every provider; Entra matches the UPN. Invite and Revoke in the Users
+  view, a refusal page and an audit row for anyone uninvited.
+- CSV bulk upload (#1158): password or invite rows, preview then
+  confirm, duplicates skipped, administrator rows refused, one-time
+  passwords only as a browser-made download.
+- Provider roles (#1156): sessions whose administrator or instructor
+  role came from the provider end after 12 hours, and sockets close
+  within a second. Signing in again skips Dex's chooser.
+- Administrator resets (#1157, #1162): administrators reset a person's
+  second factor; the holder gets a kept notice for every credential
+  reset (one when both are reset), which cannot be cleared or pruned.
+  The install administrator is protected from other administrators.
+- Socket caps (#1148, #1164): 60 terminal, 16 check-output and 32
+  workspace event sockets per user, closed with 4429 and a clear
+  message.
+- Content security policy (#1150): `script-src 'self'` with no inline or
+  eval sources, checked in Chromium and Firefox.
+- Alerts (#1149, #1161 T4b, #1162, #1168): warning and danger site
+  alerts go to Pushover or a webhook through the egress proxy, with flood
+  control and a Send test alert button. New sources: reboot required,
+  sign-in failure spike, controller outage, backup failure, root
+  filesystem at 90%. `portikus-alert@.service` reports a failed unit at
+  most once per 10 minutes.
+- Outbound limits (#1160 T5, #1152): mail blocked by default, 20 new
+  connections and 5,000 packets a second per workspace, drops logged and
+  shown on the Logs tab as Network warnings. Allow-list addresses expire
+  with the DNS TTL (`learned_v4` and `recent_v4`).
+- Host hardening (#1160 T6): SSH keys only, kernel hardening, SSH rate
+  limit, web connection cap; `make external-port-check` proves only SSH,
+  HTTP and HTTPS answer.
+- Certificate before password (#1160 T10): with Let's Encrypt or
+  certificate files, the administrator's one-time password is written
+  only once a publicly trusted certificate is served. The certificate
+  question is asked in a normal install.
+- Front door (#1161 T7, #1168): slow-client limits, `X-Frame-Options:
+  DENY` outside `/lti/*`, `nosniff` on previews, HSTS covering
+  subdomains.
+- Off-site copy (#1161 T11, #1168, #1170): an hourly rsync-over-SSH push
+  of the newest verified set with a write-only key (rrsync into
+  `incoming`); the target's prune accepts at most one set per UTC day.
+- Tests (#1159, #1161 T16b): an audit coverage test ties SPEC 24.11 to
+  the code; `make security-test SECURITY_TARGET=host` runs on a plain
+  apt-installed host.
+- Accessibility fixes (#1163, #1166): import dialog status line and
+  focus, two-factor settings focus, copy and download of recovery codes,
+  the link page's code field error.
+
+Gaps left (most are filed as GitHub issues):
+
+- Disk encryption at rest is deferred.
+- The breached-password list is small and written by hand.
+- Login counters, second-factor counters and passkey challenges live in
+  one API process and reset on restart.
+- No passkey at link confirm (a recovery code works); links made before
+  #1165 should be relinked.
+- The Help page does not describe invitations; the "Session ended" page
+  does not mention the 12-hour role check.
+- No email delivery of passwords, alerts or reset notices.
+- No alert setting on an install screen; no certificate-expiry alert.
+- The off-site target needs rrsync (Debian 12, Ubuntu 24.04 or later);
+  a broken-into server can fill its disk or backfill past days.
+- Real Entra and LDAP sign-ins with invitations have not been tried on
+  a VM; a real Let's Encrypt issuance before the password was not
+  tested on the rehearsal VM.
+- Domain fronting inside TLS stays open in allow-list mode (ADR 0038).
+- Safari is not tested for the content security policy.
+
+## Epic 35 — Admin notification settings and root shell
+
+Built on `epic/35-admin-notifications-root-shell` (task PRs #1176 to
+#1188 and this fold), issues #918 and #1063. No migration. SPEC.md
+sections 20.1, 20.3, 24.1, 24.8, 24.11 and 25.6, STACK.md sections 15
+and 34, and ADRs 0051 and 0052.
+
+Delivered:
+
+- Plan and decisions (#1176 T1): ADR 0051 (root shell) and ADR 0052
+  (notification settings), reviewed by security-reviewer before code.
+- Notification file and senders (#1179 T2): `NotifyFile` v1 with
+  write-only secret views, `readNotifyFile` (a missing file means all
+  off), and email (nodemailer through the egress proxy, TLS required on
+  587 or 465), ntfy and Teams senders; new secret keys are redacted.
+- Root alerts job (#1183 T3, #1187 F2): `portikus-alerts-job` writes
+  `/etc/portikus/notify.json` and the Squid include
+  `/etc/portikus/egress-proxy.d/alerts.conf`; setup, and on upgrade the
+  package's postinst before the restart, seed the file from
+  `secrets.yaml` or `alerts.env`, warning without failing when the old
+  settings are refused. Backups carry the file. `restore-copy.sh` no
+  longer refuses sets that hold a second-factor key.
+- Notification settings API (#1184 T4, #1186 F1): `GET` and
+  `PUT /admin/notifications`, the job's status, one
+  `settings.notifications_updated` row and an administrator notice per
+  change, and `POST /admin/alerts/test` per channel
+  (`settings.alert_tested`). The API and worker read `notify.json` at
+  each send; `alerts.env` is gone. A broken settings file is repaired by
+  a save; real TLS-through-proxy webhook delivery is tested.
+- Notifications screen (#1185 T5, #1188 F3): Settings, Notifications
+  sets email, Pushover, ntfy, Teams and webhook alerts, the recipient
+  list and "Alert when a root shell opens", with write-only secrets,
+  host-change warnings, job polling and per-channel tests. The e2e tests
+  run the real alerts job.
+- Root-shell helper (#1181 T6): a per-connection Python helper behind
+  `/run/portikus-root-shell.sock` runs `login -f root` as a PAM session;
+  the `portikus-root-shell` group, `/etc/pam.d/remote`, tmux on the host,
+  a Caddy handle that keeps root shells open through a reload, and the
+  `portikus_root_shell` switch (on by default; off ends every recorded
+  session). Verified on the rehearsal VM with
+  `infra/tests/root-shell-rehearsal.py`.
+- Root-shell API (#1180 T7, #1186 F1): status route, the admin
+  WebSocket, open and close audit rows, the optional open alert,
+  revocation with an `end` frame and close 4401, the shared terminal
+  socket cap, and a fake helper for Playwright. A database outage hangs
+  shells up without ending their session.
+- Root-shell tab (#1182 T8b, #1188 F3): `/admin/shell`, shown only when
+  root shells are on, with split panes, a banner, and exit,
+  session-ended, database-lost, socket-cap and refused states; a demoted
+  administrator goes to /not-authorized.
+- Shared pane layout (#1177 T8a, #1188 F3): `SplitTree`, `usePaneDrag`,
+  `PaneFrame` and `useXterm`, with tab-strip and pane-menu wiring shared
+  by workspace and root-shell panes.
+- Workspace terminals (#1178 T10): input stops the moment a session
+  re-check fails; the browser still receives 4401.
+- Fold: SPEC, STACK, ADR 0052, INSTALL, OPERATIONS, ADMIN-GUIDE, the
+  admin help and the backlog file; the plan is deleted.
+
+Gaps left (most are filed as GitHub issues):
+
+- The package's `prerm` removal path has not been run with a real
+  `apt remove`, and the `alerts.env` removal not on a real host.
+- No real delivery e2e for alert channels beyond the webhook through
+  the proxy, because alert URLs must be https on port 443.
+- Turning email off also clears the SMTP settings.
+- `currentJob` can report a dead job ahead of a new one; the page works
+  around it on the notifications tab.
+- A tmux pane that ignores SIGHUP, or anything moved out with
+  `systemd-run --scope`, could outlive the off switch; fixed in Epic 37
+  (#1297). A plain `systemd-run` service is still only named.
+- Root shells have no rename and no per-pane light theme.
+- `e2e/admin-notifications.spec.ts` was flaky under `--repeat-each`;
+  fixed in Epic 37 (#1295).
+
+## Epic 36 — Internet hardening
+
+Built on `epic/36-internet-hardening` (task PRs #1194 to #1207 and this
+fold), issues #1145 and #1192, with parts of #1138. Migration 0040.
+SPEC.md sections 24.9, 24.10, 24.11, 24.13 and 25.6, STACK.md section
+15, and ADRs 0053 and 0054. The goal: close the gaps left before a site
+faces the internet.
+
+Delivered:
+
+- Plan and decisions (#1195 H0): ADR 0053 (sign-in counters in
+  PostgreSQL and the holder bypass) and ADR 0054 (an offline
+  breached-password list from SecLists).
+- Breached passwords (#1200 H1): 10,958 entries from a pinned SecLists
+  file plus the hand-written ones, at least 15 characters, shipped in
+  the package and read once into a set.
+- Anonymous limit (#1201 H2): 600 requests a minute per address on
+  routes without a session (IPv6 /64 as one address, 429
+  `RATE_LIMITED`), ahead of every other count; a separate count of
+  made-up preview cookies at `/preview/authorize`; sign-in starts
+  counted only at `/auth/login` and `/lti/login`.
+- Own authority on a public address (#1203 H3): the certificate job
+  refuses it at first install, apply and rollback unless
+  `portikus_allow_internal_ca_on_public_address` is true in
+  `portikus.yaml`; `reset-certificate` always works; the hourly check
+  raises one warning alert per settings change and a Certificate-tab
+  banner while it is in use. Verified on the rehearsal VM.
+- Pinned agents (#1194 H4, Fixes #1145): the admin image rebuild
+  installs the recipe's pinned Claude Code and Codex versions. Epic 40
+  replaced this: a rebuild no longer touches either tool (§22.6).
+- Log alerts (#1199 H5): the API reads the journal each minute;
+  outbound-limit hits raise one alert per workspace and reason an hour,
+  naming the Incus instance; 20 or more errors in 15 minutes raise one
+  fixed-text alert.
+- Restore tests (#1206 H6): side copy, Replace home and whole restore
+  keep owners, modes and the marker; the side copy now keeps group and
+  setgid bits; recovery points never hold `~/.claude` or `~/.codex`
+  logins, even through links.
+- Residual risks, API side (#1205 H7a): an expired passkey challenge
+  gives back only its own try, by receipt; kept notices are capped at 50
+  per person; HTML the API writes carries a full content security
+  policy, and preview pages their own, framed by the control plane.
+- Off-site quota (#1202 H7b): the prune script empties `incoming` past
+  twice the median kept set's disk (at least 1 GiB) or ten times its
+  file count (at least 100,000), drops sets with hard links, copes with
+  mode-000 folders and warns; INSTALL tells operators to set a
+  `setquota` limit.
+- Stored guess counts (#1207 H8): password, second-factor and
+  password-change counts in PostgreSQL (`signin_counters`, migration
+  0040), one atomic upsert per hit, receipts for give-backs, one audit
+  row per refusal, 503 when the store fails, hourly prune by the API,
+  and no worker rights on the table. A recovery code or passkey still
+  gets a check when the account's count refuses, 10 per session per 10
+  minutes.
+- Help and text (#1197 H9): an "Inviting people" help topic, a link page
+  status line that adds no gap, and a 12-hour sentence on "Session
+  ended".
+- Smoke throttle check (#1198 H11, Fixes #1192): it opens a real Dex
+  form and posts 31 distinct wrong logins; passes on the pilot.
+- Jobs (#1196 H12, #1204): a killed job no longer hides newer ones on
+  the Certificate, Image and Notifications tabs, and a freshly queued
+  job outranks a finished one.
+- Fold: SPEC, STACK, INSTALL, OPERATIONS, the Caddyfile comment and
+  the backlog file; the plan is deleted.
+
+Gaps left (most are filed as GitHub issues):
+
+- Passwords breached after the pinned SecLists snapshot are caught only
+  when the pin is bumped.
+- Split-horizon DNS can make a public site name read as private to the
+  certificate job.
+- The Certificate tab shows the red expiry notice for the internal
+  authority's 12-hour certificates.
+- The log alerts' hourly memory is lost on an API restart.
+- The relay's own refusal pages get only Caddy's `frame-ancestors`.
+- The 12 in the "Session ended" sentence is fixed text.
+- The off-site prune bounds only the steady use of `incoming`; bursts
+  rely on the operator's filesystem quota.
+- Not yet run on a VM: the anonymous-limit 429 through Caddy, the
+  counter-restart smoke check, the `curl -I` policy checks, and a whole
+  `portikus restore` in a full install test.
+- The Dex sign-in CI job is not yet a required check (Todd's ruleset
+  change; the last part of #1138).
+
+## Epic 37 — Bug fixes
+
+Built on `epic/37-bug-fixes` (plan #1306, task PRs #1305, #1307 to
+#1312, review fixes #1315 and #1316, and this fold). A fix batch of 25
+bug issues filed from the old backlog. No migration. SPEC.md sections 3
+and 7.5 gained a sentence each.
+
+Delivered:
+
+- Workspace agent (#1307 T1): clone, template, `git init` and duplicate on
+  a full disk answer `STORAGE_FULL`, and the clone dialog says the home
+  folder is full (#1253). The agent runs at most four searches at once
+  per workspace; a fifth gets `BUSY`, and the search panel explains it
+  (#1231).
+- Controller and worker (#1311 T2): an exec socket error is its own error,
+  not "exec timed out" (#1292); a start that fails after the start
+  request force-stops the instance (#1291); a controller check time in
+  the future counts as stale, and `STATUS_REFRESH_SECONDS` is capped at
+  60 (#1286); Claude Code's managed settings are restored at every start
+  from a template in the package (#1283).
+- API and contracts (#1308 T3): a terminal refused at the 20-terminal cap
+  leaves no recovery point (#1287); the recovery-point rate limit answers
+  `RATE_LIMITED` (#1244); a Google service-account key naming a field
+  twice is refused (#1275); a fresh alerts job folder without a status
+  file is listed as running (#1299); one user's saved layouts are capped
+  at 8 MiB in total, `LAYOUT_LIMIT` (#1239); the image job measures
+  images that have no recorded size (#1277).
+- Web (#1309 T4): a keycap emoji leaves no digit in a suggested clone
+  name (#1271); large viewed images and PDFs refresh when they change on
+  disk (#1267); the browser no longer has its own preview port minimum,
+  so the Preview tab shows the API's refusal (#1238).
+- Flaky browser tests (#1310 T5): the seven specs that change the
+  settings row or the fake notification store hold a lock shared by all
+  workers, so
+  `--repeat-each` works with default workers (#1301, #1295); `toast()`
+  takes the newest toast (#1282).
+- Infrastructure, packaging and root shell (#1312 T6): the package
+  enables its services only on a first install or a reinstall after
+  removal, so an administrator's `systemctl disable` survives upgrades
+  (#1269); the egress settings handler re-applies through the helper,
+  which also refreshes dnsmasq's settings (#1274);
+  `make build-workspace-image` works on an apt-installed VM (#1270); the
+  rehearsal VM has its own LTI platforms file and mock LMS (#1290); the
+  root-shell off switch also kills processes that left a root-shell
+  session and names systemd-run services it cannot end (#1297); the
+  relay test's hang-up race is fixed (#1300).
+- Tooling (#1305 T7): the comment-history check reads regex literals,
+  quoted strings in hash-comment files, CSS colours and regex `.test()`
+  calls (#1285).
+- Review fixes, application (#1316 F1): a terminal closed while being
+  created answers 404 and leaves no tmux session; a layout save over the
+  cap shows the server's message once as a toast; an over-limit viewed
+  file loads once; the search status announces the failure's own
+  message; a PDF reload keeps focus.
+- Review fixes, infrastructure (#1315 F2): the root-shell sweep repeats,
+  up to 10 rounds, until no stray carries the session, and keeps the
+  record and logs if any survive; the egress handler waits out a running
+  apply and then starts a fresh one; `postinst` clears the reinstall mark
+  even without systemd running; ADR 0051 and OPERATIONS say the
+  audit-id kill is best effort.
+- Root-shell zombies (#1318 F3): the sweep no longer counts a process
+  that has exited but is not yet reaped, such as the helper's own login,
+  so an ordinary closed shell logs no survivor and drops its record.
+- Slow tests and CI output (#1320 F4, #1324 F6): the password-throttle
+  test (22 bcrypt hashes) and the dex-import argument test (four child
+  processes) get 30-second timeouts, and the unit-test shards print
+  failing test names to the CI log as well as the blob report (#1314).
+- One reply per request (#1323 F5): since Epic 36's async onSend hooks,
+  every workspace start, stop and restart (and rebuild, Reset Docker,
+  project list, rename and download, recovery restore) logged a 500 with
+  "Reply was already sent", although the client got its 202. The three
+  onSend hooks are synchronous again, those handlers return the reply
+  they send, and a source-scan test forbids both mistakes.
+- Fold: SPEC and STATUS; the plan is deleted.
+
+Gaps left:
+
+- The F5 source-scan guard only matches a statement that starts with
+  `reply` and an inline async onSend hook; a split chain, a helper call
+  without `return`, or a named async hook would slip past it.
+- Flaky tests still open: a root-shell relay test can time out filling
+  its queue (#1321); smoke cleanup can race the final stop and leave a
+  workspace behind (#1322).
+
+- A service started with plain `systemd-run` from a root shell is only
+  listed by setup, never stopped, because nothing ties it to the session.
+- The root-shell kill by audit session id is best effort against a
+  cooperative administrator; root can give a process a new audit id on
+  purpose.
+- The preview refusal text and help page still name 1024 as the default
+  minimum. It is advice, not a check, so a site with a different
+  `PREVIEW_PORT_MIN` sees slightly wrong advice (#1238).
+- A PDF over 50 MB is still offered as a download; a streamed source was
+  not built, because the viewer loads PDFs from a blob on purpose.
+- The layout total is a soft bound: two racing saves can each pass it by
+  one layout.
+- Sizes for images stored before Epic 28 appear at the next boot or the
+  next image job.
+- The rehearsal VM's own setup run removes its LTI platforms file; re-run
+  `make lti-mock-register TOFU_ENV=rehearsal-libvirt` after it.
+
+## Epic 38 — Bug fixes
+
+Built on `epic/38-bug-fixes` (task PRs #1327 to #1330, #1332 to #1339,
+#1341 and #1342, and this fold). A fix batch of 17 issues. No plan file
+was written for it, so there was none to delete. No migration. SPEC.md
+sections 7.6, 9.7, 11.2, 11.4, 15.10, 19.3, 20.1 and the registry cache
+gate paragraph gained a sentence or two each. The workspace image version
+is 2026.10.1.
+
+Delivered:
+
+- Files and editor (#1335 T3): rename, Move to and drag-and-drop ask
+  "Replace?" before replacing a file, never a directory (#1229); a long
+  directory lists 2,000 entries a page with a continuation token and a
+  Show more row (#1230); reference-style Markdown links and images were
+  already fixed by the removal of the rich view (#218), and tests now pin
+  it (#1235); with hidden files shown, a narrow second watcher pushes
+  changes directly inside top-level generated folders (#1226).
+- Terminals (#1328 T6): `clear` reaches the browser at once, through a
+  per-pane `pipe-pane -O` FIFO scanned for the erase-scrollback sequence;
+  the half-second poll is the fallback (#1268).
+- Checks and renames (#1330 T7): a Check runs with OOM score 500, so an
+  out-of-memory Check dies before the workspace agent (#1254); a rename
+  that crashes after moving the folder is healed by the next listing and
+  no longer shows two projects (#1222).
+- Administration (#1332 T8): the admin process list marks protected
+  exactly what the agent's stop refuses, read from the agent's new
+  `GET /processes/protected`; an old agent falls back to host-only flags
+  (#1259).
+- Recovery (#1329 T9): the recovery sweep deletes archive files older than
+  an hour that no recovery point row accounts for. Aside folders from a
+  failed restore are kept by design (#1242, Todd's ruling).
+- Controller (#1334 T10): every controller route that waits on Incus
+  honours the worker's budget and hang-ups (#1288).
+- Release workflow (#1327 T5, #1336 F3): the weekly apt re-sign has its own
+  concurrency group and skips only for a release run that will sign the
+  index (gate undecided, or build, apt or Pages deploy unfinished); a
+  release waits for any unfinished re-sign. A release waiting for approval
+  no longer blocks re-signing (#1261).
+- Infrastructure (#1339 T4, #1341 F5): the rehearsal OS disk is recorded at
+  64 GiB (#1313); Docker cache ports are refused with a reset, not
+  dropped, so Docker falls back at once (#1273); the `names_v4` upgrade
+  code is gone (#1294); the root-shell full-queue tests read while they
+  send, ending a deadlock (#1321); smoke cleanup waits for a stop to
+  settle and fails on a leftover (#1322); Docker containers share
+  `portikus-docker.slice`, capped at 1,000 processes (#1255).
+  `workspace.sh` volume lookups fail loudly instead of reading an Incus
+  error as a missing volume, and the root-shell test teardown ends its
+  reader thread.
+- Student help (#1333 T11): a Recovery points section in the guide and in
+  `/help`.
+- Review fixes, application (#1338 F1, #1342 F6): Show more is a real tree
+  row, reachable by keyboard, keeping focus and announcing what it loaded;
+  a folder is never offered for replacement (`DIRECTORY_EXISTS`); the
+  tree keeps one Tab stop when the focused row is deleted; a nested row's
+  focus no longer jumps to its folder (a bug since Epic 7); the first
+  selection redraws only the changed rows.
+- Review fixes, agent and worker (#1337 F2): leaked pane pipes are swept
+  within 10 seconds of a shell exiting and on delete; the orphan archive
+  sweep deletes at most 20 per workspace per sweep, stops at the first
+  failure, and reads at most 20,000 listed archives.
+- Fold: SPEC and STATUS.
+
+Gaps left:
+
+- Checks are not under the terminals' process cap, so a fork bomb in a
+  Check can use up the container's process limit (#1331).
+- The Docker slice cap is an accident guard. A determined student can
+  leave it (`--cgroup-parent`, or `sudo systemctl set-property`). It is
+  fixed at 1,000, does not follow an administrator's per-workspace
+  process override, and is uncapped on older images until they are
+  rebuilt on 2026.10.1.
+- Loading a Show more page still redraws every row (#1340).
+- When the focused row is removed, focus falls to the page (#1343).
+- Live updates in generated folders reach one level deep, at the project
+  root only. Deeper changes wait for the next refetch.
+- The Move to dialog and the file viewer's sibling list see only the first
+  page of a long folder.
+- A student's own `tmux -L portikus pipe-pane` replaces ours, leaving the
+  poll as the only clear detector, and an agent restart replaces theirs.
+  A line printed in the same instant as a clear may land either side of
+  the wipe.
+- A workspace whose agent lists more than 20,000 archives never has its
+  orphans swept.
+- A sudo student can still protect a program from the admin Stop by
+  running it as root (ADR 0037).
+- The release workflow change is provable only on GitHub, at the next
+  Monday run or release. A non-release push can still replace a waiting
+  release in the `release` group.
+- No Playwright test covers the real agent's pipe-pane clear; the end-to-end
+  environment uses the fake agent.
+- Aside folders have no delete button yet (#1243).
+
+## Epic 39 — Bug fixes and student workspace polish
+
+Built on `epic/39-workspace-polish` (task PRs #1348, #1349, #1351 to
+#1359, #1362 to #1365, #1367, #1369, #1370, and this fold). Fifteen
+issues: bug fixes and small features for the work area. No migration.
+SPEC.md sections 7.5, 8.3, 11.2, 11.5, 12.6, 12.8, 13.2, 13.4, 13.5,
+15.8, 19.3, 24.9, 25.8 and 25.10 gained a sentence or two each, and ADR
+0055 records the voice input choice. The plan file was folded and deleted.
+Out of scope: #1276 (its own epic later) and #1215 (Epic 40).
+
+Delivered:
+
+- Off-site backups (#1349 T1): the prune script spares the newest
+  unfinished set until it is KEEP days old, so a stalled or late upload
+  survives (#1302), and a run that adds a set warns when the target
+  account has no disk or file quota or `quota` is missing (#1303).
+- Checks (#1348 T2, #1359 T2b): a Check runs under the terminals' 1,700
+  process cap, so a fork bomb in a Check cannot starve the agent (#1331).
+  Real-agent check tests set the cap above the host's load.
+- Search and Git (#1354 T3, #1362 F2, #1367 G1): Match case, Whole word
+  and Regex options, with a bad or oversized pattern a named 400 (#1224);
+  the status bar names a detached HEAD by its short id (#1232); a file's
+  diff compares with a typed Git ref (#1227, ref half).
+- Recovery diff (#1351 T4, #1358 T4b): a file compares with its version in
+  a recovery point, read only on Compare, with a keyboard picker and an
+  announced slow-read state (#1227, recovery half). One comparison runs at
+  a time per workspace.
+- Viewers (#1353 T5): fenced code in the Markdown preview is highlighted
+  through a sanitising rebuild of Monaco's colorize (#1233); a `.csv` file
+  opens as a read-only table (#1265). The CSV reader moved to
+  `@portikus/contracts`.
+- Voice input (#1355 T6, #1363 F1a): hold-to-talk microphone button and
+  Alt+Shift+M in each terminal, through the browser's speech recognition.
+  Final text is pasted without control characters or Enter (#1346, ADR
+  0055).
+- Selection zip and extraction progress (#1352 T7, #1365 T10): several
+  selected rows download as one zip, 100 at most (#1234); "Extract here"
+  shows a progress bar (#1266).
+- File tree (#1356 T8, #1365 T10): rows use the browser's drag and drop, so
+  Show more draws only the new rows, in about 70 ms instead of 4 to 5
+  seconds (#1340); a removed focused row hands the Tab stop and focus to
+  its neighbour (#1343).
+- File tabs (#1357 T9, #1365 T10): a file pane joins a split beside a
+  terminal by drag or "Move into" (#1225); a rename or move in the files
+  pane keeps the file's tab, with unsaved text, baseline, view state and
+  zoom (#1228). Unsaved text survives any remount.
+- Review fixes (#1362 F2, #1363 F1a, #1364 F1b, #1370 G2): search beside
+  unreadable folders, nested and "-" names in selection zips, a killed Git
+  type check, voice input errors and focus, recovery diff queries, CSV
+  column cap, labels and ids, bidirectional marks in file names, deep
+  saved layouts refused, a close-tab prompt for unsaved edits, Replace onto
+  an open file, neighbour focus, overlong selection names.
+- CI (#1369 H1): Postgres and the apt test image come from
+  `mirror.gcr.io`, so Docker Hub's anonymous pull limit no longer fails
+  jobs (#1368).
+- Pilot-feedback additions (#1380, #1381, #1382, #1385, #1387 to #1390):
+  - CSV view has row numbers and sortable columns, a view only that is
+    never saved (#1378).
+  - Voice input reaches open files: a hold-to-talk microphone in the file
+    header, or Alt+Shift+M held in the editor, types at the cursor as one
+    undo step with a leading-space rule; hidden for viewers, diffs and
+    browsers without speech recognition (#1375, ADR 0055 addendum).
+  - Tree file rows drop onto pane edges to open or move the file into a
+    split there; a moved pane keeps its Diff view. Folders and multi-row
+    drags are not accepted (#1376).
+  - A file pane has one header line (name and drag handle, parent folder,
+    save state, view buttons, actions menu). Images and other view-only
+    files have no view buttons. The diff's Compare with is a small header
+    button with a menu and dialogs (#1379, #1377).
+  - The preview protocol probe asks in plain HTTP before TLS (2 s HTTP,
+    1 s TLS), so plain dev servers no longer log a garbled 400 (#1386).
+  - Review fixes: dictation keeps the mic held, blank CSV headers show
+    "Column N", Compare with meets the target size.
+- Fold: SPEC, STATUS and ADR 0055. The design system README now says
+  Monaco's background is `surface`.
+
+Gaps left:
+
+- In a pane under 24rem wide the file header's controls sit on a second
+  row. The header fallback outside a file pane stays.
+- Moves made by an agent or in a terminal do not retarget open tabs; the
+  events stream reports a delete and a create (#1228).
+- Undo history is lost when an editor remounts; only the text is carried.
+- A move that replaces a file open elsewhere with its own unsaved edits
+  shows the arriving file's text.
+- CSV is read-only, with sorting but no filtering, and draws 1,000 rows and
+  200 columns.
+- Voice input on Safari is unconfirmed on a real Mac. There is no admin
+  switch to turn it off (#1350).
+- The Checks process cap counts all the student's processes, so a bomb can
+  starve terminals while it runs. The fork-bomb check on the rehearsal VM
+  is pending.
+- The quota warning reads only user quotas, not group or project quotas.
+- A dragged tree row carries one item, not the selection. Touch dragging
+  depends on the browser.
+- Follow-up issues: #1350 (voice admin switch), #1360. #1368 (Docker Hub
+  limit) was fixed by H1. The zoom-button target size (#1371) and the
+  flaky layout test (#1366) were fixed in Epic 40.
+
+## Epic 40 — Update Claude Code and Codex without rebuilding images
+
+Built on `epic/40-agent-updates` (task PRs #1394 to #1396, #1398 to
+#1402, #1404 to #1409, and this fold). Issues #1215 (main feature), #1373,
+#1366, #1371, #1393 and #1403. No migration. SPEC.md sections 9.3, 10,
+18.1, 21.7, 22.4, 22.6, 24.1 and 29 gained text, and ADR 0056 records the
+decisions. The plan file was folded and deleted. Out of scope: a scheduled
+update check, choosing a version, per-course versions (#1246), Playwright
+browsers in the folder (#1361), and backups of the folder (it can be
+downloaded again).
+
+Delivered:
+
+- Shared coding agents (#1215): Claude Code and Codex live in
+  `/var/lib/portikus/coding-agents` on the server, not in the image. Every
+  workspace sees the folder read-only at `/opt/portikus/coding-agents`
+  through a `coding-agents` device on the workspace profile (#1401). Image
+  2026.10.2 links `/usr/local/bin/claude` and `codex` into it and no longer
+  installs them with npm. The controller writes the same two links into a
+  stopped workspace at each start, so workspaces on older images move to the
+  shared tools at their next start (#1400). The smoke test and the image
+  rehearsal cover the links, the read-only mount, the folder's modes, and
+  update and rollback.
+- Root job (#1402, #1404, #1408, #1409): `agents-update`,
+  `agents-rollback {tool}` and `agents-seed` in `image-job`, in a new module
+  `coding_agents.py`. Downloads are verified (Claude Code: `gpgv` against a
+  shipped keyring and the manifest's SHA-256; Codex: GitHub's digest against
+  `codex-package_SHA256SUMS`), unpacked safely into a staging folder and
+  health-checked as the student in a throwaway container. Each tool that
+  passes switches on its own. An update never moves a tool below its current
+  version. Pruning keeps three versions, and at most five when processes
+  still run older ones. The health check's boot wait has one five-minute
+  deadline (#1403). Setup seeds the pinned versions.
+- Contract and API (#1398): job kinds `agents-update` and
+  `agents-rollback`, `AdminImage.codingAgents`, and 409
+  `CODING_AGENT_NO_PREVIOUS`. Claude Code's managed settings set
+  `DISABLE_AUTOUPDATER`.
+- Admin page (#1405, #1409): a Coding agents card on the Workspace image
+  tab with Update coding agents and a Roll back button for each tool, the
+  not-set-up state, its own busy note, and a "Result" message after a job.
+  A refused request reloads the page data. New image manifests no longer
+  record claude or codex, and the compare view never lists them as removed.
+- Checks (#1395, #1399, #1406): a Check the student stops shows a neutral
+  Stopped state, even when its command exits 143 on its own. Any other
+  signal death stays Failed with exit code 128 plus the signal (#1373).
+- Work area (#1396, #1406, #1409): a file pane drags by its whole title bar
+  except its controls and the folder path, which can be selected and copied
+  (#1393). The editor's zoom buttons keep 24 px (#1371). The flaky layout
+  reload test waits for the full saved layout (#1366, #1394).
+- Review fixes: one tool's staging error no longer stops the other tool
+  switching; image health checks wait for boot; the stale text about
+  rebuilds bringing the latest Claude Code and Codex is gone from the admin
+  page, the help and the SPEC.
+- Fold: SPEC, STATUS, ADR 0056 (ADR 0030 marked), INSTALL and OPERATIONS.
+
+Gaps left:
+
+- The Coding agents card shows the version in use and the previous one, not
+  the other kept versions or when the folder last changed.
+- Codex downloads rely on GitHub's digest and the release's checksum file;
+  there is no signature check (an accepted risk, ADR 0056).
+- The axe check in `files-tabs-follow.spec.ts` is still limited to the toast.
+- The rehearsal-VM run (bootstrap to smoke, old-image restart, a live
+  update and rollback) is recorded in the epic pull request.
+
+## Epic 41 — Fix batch after Epic 40
+
+Built on `epic/41-fixes` (task PRs #1418 to #1420, review fixes #1422, and
+this fold). Issues #1360, #1412, #1413, #1415 and #1417. No migration.
+
+Delivered:
+
+- Certificate job (#1360, #1420): the throwaway Caddy picks its HTTP and
+  HTTPS ports together, which removes a rare startup failure ("scheme and
+  port violate convention") that showed up as a flaky Pebble test. The Caddy
+  preview test picks its ports the same way.
+- Upgrade order for the shared coding agents (#1415, #1419): the package's
+  install script runs `image-job agents-links` before it restarts any
+  service. It makes `/var/lib/portikus/coding-agents` and its `bin` links
+  and downloads nothing. A workspace that starts while setup is still
+  downloading the tools gets its `claude` and `codex` links, and they work
+  once setup has seeded the folder. A new packaging test checks the order.
+- Rollback message (#1413, #1418): the per-tool rollback says "switched back
+  to X".
+- LTI smoke test (#1417, #1418 and #1422): it fails one named
+  check when pnpm is missing and stops waiting if the mock LMS exits. After
+  review it probes the keyset once and escapes the issuer URL. A mock LMS
+  that dies is reported as one failure with its last output lines, and the
+  launch checks are skipped. CI now also runs
+  `packaging/tests/agents-links-order-test.sh`, `enable-units-test.sh` and
+  `secrets-yaml-test.sh`.
+- #1412 was ruled working as designed: creating a workspace only provisions
+  it and leaves it stopped (SPEC.md sections 6.2 and 6.3). No code change.
+
+Gaps left:
+
+- The tools still arrive only when setup runs, about two minutes after an
+  upgrade restart.
+- The throwaway Caddy's ports are released before Caddy binds them. This is
+  accepted: only a process on the VM could take one, and then the job fails
+  and can be run again.
+- Registering the mock LMS on an apt-installed VM is a hand step: the
+  platforms file must sit where setup reads it and setup must run, so the
+  egress proxy allows the mock's keyset (#1423).
+
+## Epic 42 — Instructor features
+
+Built on `epic/42-instructor` (plan #1425, task PRs #1427, #1428, #1430,
+#1434 to #1439, #1441, #1442, #1448 and #1449, review fixes #1450, #1452,
+#1453, #1454, #1456 and #1459, smoke fix #1471, and this fold). Issues #1216, #1217, #1218 and #1219.
+Migrations 0041 to 0043. ADRs 0057 and 0058.
+
+Delivered:
+
+- Shared projects (#1219; #1435, #1439, #1448): a student shares one
+  project, read-only, with the instructors of their courses, for 24 hours
+  or until they stop it or archive the project. The share dialog names who
+  can see it, lists who looked, and the student gets a notice on each
+  instructor's first view. The project row carries a Shared tag. The
+  instructor opens it from a Shared project link on the Course page and
+  sees the file tree, text and image files, Git status, diffs and the
+  latest check results, refreshed every 10 seconds. Secret-looking paths,
+  symlinks and check commands are never shown. A stopped workspace stays
+  stopped. Administrators still get 404.
+- Agent usage (#1216; #1434, #1438, #1441, #1449): a loopback receiver in
+  the workspace agent (127.0.0.1:7401) takes Claude Code's and Codex's
+  OpenTelemetry metrics and keeps only allow-listed counts per day, agent
+  and model. The worker stores them every 5 minutes in `agent_usage_days`
+  and prunes after 365 days. Instructors see their course members on the
+  Course page; administrators see everyone in a new Agent usage tab. Help
+  and the student guide tell students.
+- Roster sync (#1217; #1437, #1449): through NRPS (the LTI Names and Role
+  Provisioning Service), from a Sync roster button and an hourly refresh
+  the Course page starts when it opens. Roster people who never launched
+  show as Not started; people who left lose their membership. Platforms
+  accept an optional `authTokenUrl`, and setup allows its host through the
+  egress proxy.
+- Deep Linking (#1218; #1427, #1436, #1442): an instructor picks a
+  template or a public https repository in a script-free picker; a
+  student's launch of that link creates the project once and never
+  overwrites it.
+- Mock LMS (#1428): token endpoint, paged NRPS memberships, roster
+  changes, Deep Linking and saved-link launches, for the e2e tests.
+- Review fixes. Code review: the Course page drives the hourly refresh so
+  its result shows; e2e specs no longer share mock roster state; signing
+  derives the key id inside `@portikus/auth`; the `lti.deep_link` audit
+  names the account; "Last tried" wording; the viewer rereads a file only
+  when it changes; Codex input netted at report time. Security review:
+  each workspace's usage read is isolated with a 5-second timeout; only
+  real days within 40 days back and one ahead are stored, and at most 48
+  boot ids per user per day (#1452, raised from 5 by #1459); shared checks carry no command; the share
+  dialog names the audience; a roster that would leave no instructor is
+  refused (`no_instructor`); shared reads refuse symlinks; archiving ends
+  a share. Accessibility review: the Course page actions fit at 320 px,
+  the viewer keeps focus and its place when the workspace stops, busy
+  buttons stay focusable, share start and stop are announced, the picker
+  ties its error to the field, and check badges no longer chatter. Then
+  #1459: boot cap raised to 48; shared files past the first listing page
+  refresh by polling.
+- Fold: SPEC sections 5.2, 7.2, 24.1, 24.6, 24.11, 25.10, 26, 29 and 31,
+  ADRs 0057 and 0058 accepted, ADMIN-GUIDE and OVERVIEW.
+
+Verification:
+
+- code-reviewer, security-reviewer (no high findings) and a11y-reviewer
+  ran on the epic head; every finding ruled for fixing was fixed in the
+  review-fix PRs above, and each reviewer confirmed.
+- Rehearsal: 0.1.1102+g29b1ed3f on the rehearsal VM, 2026-10-10. Setup
+  failed=0, migrations 0041 to 0043 applied, smoke 381 passed, 0 failed, 0
+  skipped with the Dex sign-in file and every LTI launch check (after the
+  smoke fix #1471). An OTLP payload posted inside a workspace reached
+  agent_usage_days with only allow-listed counts and no email or ids.
+  Shares passed every check: reads, the secret and symlink filter, 409 on
+  a stopped workspace that stayed stopped, and archive ending the share.
+  The Deep Linking round trip and starter launch passed. Roster sync could
+  not run on the VM: the egress proxy refuses the mock LMS's plain-http
+  token POST (real https platforms are unaffected; e2e covers it; #1472).
+  A real signed-in Claude Code or Codex turn is pending for Todd.
+- Pending for Todd: one real Claude Code or Codex turn to confirm usage
+  export (Codex delta temporality, #1462).
+
+Gaps left:
+
+- The live help session with terminals (#1219 step 2) is left out
+  (#1461).
+- Codex's delta temporality is its documented default, not yet seen on a
+  real Codex turn; the rehearsal checks it (#1462). A real Claude Code export needs
+  a signed-in session and is checked by hand.
+- Usage counts come from the student's own workspace and can be forged;
+  they are for reporting only.
+- The secret filter is a deny list: a secret under another name is
+  visible while shared.
+- A roster sync runs only when an instructor opens the Course page or
+  presses Sync. A memberships host that is not a keyset or token host must
+  be added to `portikus_egress_extra_hosts` by the operator.
+- Deferred from code review: a view is recorded before the path check;
+  the taught-course lookup (it has since moved into `courses/membership.ts`); the
+  mock LMS roster role action is unused; a starter whose folder exists
+  without a project row shows a generic error, and its e2e test accepts
+  either outcome because discovery races the launch. These, and a
+  `radiogroup` for the picker fieldset, are #1462.
+- NRPS and Deep Linking are not in the smoke test (#1463).
+- Roster sync cannot be rehearsed against the mock LMS on a VM: the
+  egress proxy refuses its plain-http token request (#1472).
+
+## Epic 43 — Admin self-service
+
+Built on `epic/43-admin-self-service` (plan #1426, task PRs #1429, #1431 to
+#1433, #1440, #1444 to #1447 and #1451, review fixes #1455, #1457 and
+#1458, rehearsal fixes #1465, #1467, #1469, #1470 and #1474, and this
+fold). Issues #1250, #1220, #935, #1252, #1251 and #1256. Migration 0044;
+ADRs 0059 and 0060.
+
+Delivered:
+
+- Root site job (#1432, #1440; ADR 0059): `portikus-site-job.path` and
+  `.service` apply page proxy hosts and LMS platforms (page-owned files and
+  Squid includes, swapped and rolled back on a bad parse), and address and
+  sign-in changes as trials. A trial writes the same install answers as
+  `dpkg-reconfigure portikus` and reruns setup. It is put back after 15
+  minutes (address) or 30 (sign-in) unless kept, and once at boot if
+  overdue. Setup writes a secret-free `site-view.json` for the pages.
+  Postinst's settings writer moved to `write-settings`.
+- Users paging (#1251, #1429): search, filters and sort run on the server,
+  50 rows a page, markers still computed over all accounts.
+- Admin linking (#1252, #1444): an administrator links or unlinks a course
+  account from an SSO account's detail panel, with the holder's refusals,
+  an audit row with `by: "administrator"` and a notice to the holder.
+- Agent log (#1256, #1433; ADR 0060): the workspace agent keeps its last
+  200 warnings in memory, and the admin detail panel reads them, labelled
+  as reported by the workspace.
+- LMS platforms and allowed API hosts (#1250, #1431, #1445): the Sign-in tab
+  adds LTI platforms and the Network tab adds host names the server may
+  reach on port 443; the operator's entries show read-only.
+- Sign-in provider (#1220, #1446): Entra, Google, generic OIDC or Dex
+  passwords only, as a trial, checked by a test sign-in that signs no one
+  in, then kept. LDAP is read-only.
+- Site address (#935, #1447): plan, DNS pre-flight, and a trial kept only
+  from the new address. Uploaded certificates must cover the new names.
+- Docs and help (#1451) for every new page.
+
+Review fixes (code, security and accessibility reviews at 914dc043):
+
+- #1458: the OIDC issuer on the page must be a host name on port 443, and
+  discovery-document hosts reach Squid only as host names on 443; a page
+  LMS issuer cannot be reused with another keyset; trials keep a hash of
+  the answers they wrote and end as `trial_superseded`, never reverting,
+  when something else changed them; a changed provider with no new secret
+  is refused with `missing_secret`; https URLs are ASCII only on both
+  sides; the address job checks the site is not under the preview suffix.
+- #1457: page-only LMS platforms turn LTI on; the test sign-in is a `POST`
+  returning `{location}` and a bad marker refuses the callback; admin
+  linking refuses a higher-role SSO account; the link dialog uses
+  `unlinkedCourse=1`; stale requests are swept on every submit; error
+  codes are unified; the accessibility fixes (paging buttons, trial
+  announcements, focus after self-removing actions, disabled-button
+  reasons, one status region in the link dialog).
+- #1455: wording in the guide and help (page proxy hosts are for the server
+  only), and a steady Users count test.
+- This fold: the page checks that the test sign-in address is https (or
+  http on loopback, for development and e2e) before sending the browser
+  there.
+
+Rehearsal fixes:
+
+- #1465: the setup unit sets HOME, blank sign-in groups are not written,
+  and package removal stops the certificate and site units.
+- #1467: address reach checks are warnings, a trial reverts when the API
+  is not healthy afterwards (`api_unhealthy`), and choosing an outside
+  sign-in provider shows a warning.
+- #1469: a second key set URL for one LMS issuer is refused with a message
+  naming the field; the API shows only its own validation messages, never
+  submitted values.
+- #1470: Dex accounts use the fixed issuer `urn:portikus:dex`, so they
+  survive an address move; migration 0044 moves existing rows, and
+  `reset-admin` migrates first.
+- #1474: the site job unit reaches the API on loopback only, and a trial's
+  deadline is a wall-clock time, since a daemon reload restarts relative
+  countdowns.
+
+All three reviewers confirmed the fixes at ac1c6bb7.
+
+Gaps left:
+
+- `previewSuffixSetByHand` is wrong when `portikus.yaml` sets exactly
+  `preview.<host>` by hand, and the Network page reads the operator's
+  proxy hosts from Squid's configuration (#1464).
+- Setup fetches the discovery document directly as root, not through
+  Squid; accepted for now (ADR 0059, #1464).
+- A `dpkg-reconfigure` or an upgrade that writes different answers during
+  a trial ends it without putting it back; recovery is the local
+  administrator's password or `dpkg-reconfigure portikus`.
+- The address pre-flight cannot test the new port before the switch.
+- The certificate pre-flight cannot reach outside from the site job's
+  sandbox (#1468).
+- A site address move leaves the old name in `/etc/hosts` (#1475).
+- The address apply route does not repeat the page's DNS checks (#1476).
+- Package removal leaves setup-written units and alert drop-ins behind
+  (#1477).
+
+Rehearsal: Epic 43 on the rehearsal VM after restoring the pre-Epic-42 database. Migration 0044 moved Dex accounts to `urn:portikus:dex` and the administrator kept its id. An address move there and back kept the account, workspace and links, with Keep pressed from the new address. Unkept trials and an unhealthy API revert. `trial_superseded` holds after an outside settings change. A second key set URL for one LMS issuer is refused with a field message. Remove and reinstall left no package units. Smoke 385 passed, 0 failed, no skips. Two site job fixes (loopback health check, wall-clock trial deadline) in #1474. Not run: a trial with a real outside OIDC provider, since there is no trusted test provider on port 443.
+
+## Epic 44 — Site address and package removal fixes
+
+Built on `epic/44-site-and-removal` (task PRs #1485 to #1487, #1490, #1493
+to #1495, and this fold). Issues #1475, #1476, #1468, #1464, #1477 and
+#1296. ADRs 0059 and 0061.
+
+Delivered:
+
+- Address Apply refuses a name that does not resolve
+  (`ADDRESS_DNS_UNRESOLVED`); certificate reach and port-80 checks are
+  warnings in both modes, and the warning summary names the right reason.
+- The site's `/etc/hosts` line carries a marker and is replaced on a move;
+  `previewSuffixSetByHand` follows `portikus.yaml`.
+- The Network tab reads the operator's hosts from
+  `operator-proxy-hosts.json`, not `squid.conf`. The link search is
+  debounced and announces a stale search, and a sign-in trial no longer
+  takes focus from another group.
+- Setup fetches a discovery document through Squid once it runs, and on a
+  first setup refuses a private address and pins the fetch, HTTPS only,
+  with no redirects. A temporary Squid rule is always cleaned up.
+- `apt remove` stops and disables setup's units and drops the alert
+  drop-ins; purge deletes them. The workspace limits and storage attach
+  stay on remove. A test ties the list to the Ansible roles, and the
+  install test has remove and reinstall steps (ADR 0061).
+
+Gaps:
+
+- Purge leaves Squid's include and the `/usr/local` helpers (#1492).
+- A host moved several times under old versions may keep stale unmarked
+  `/etc/hosts` lines.
+- A bare-IP issuer is refused through Squid on a rerun.
+- The new install-test remove and reinstall steps have not run on a VM
+  until the rehearsal.
+- DNS checks still depend on a loopback resolver reachable from the sandbox.
+
+Rehearsal: on the rehearsal VM with 0.1.1139+g90b1ce27 and then
+0.1.1140+g3e28ba7b, setup passed on install and on reruns. A test Google
+sign-in fetched its discovery document both through Squid and by the
+pinned first-setup route, and left no temporary rule. Setup kept one
+marked hosts line through an address trial and rollback. Applying an
+unresolvable name was refused with ADDRESS_DNS_UNRESOLVED. The HTTP-01
+reach and port-80 checks warned instead of failing. The file
+operator-proxy-hosts.json (root:portikus 0640) fed the Network page. apt
+remove left only the workspace limits running, and a reinstall brought
+everything back. Purge dropped the marked hosts line and left Squid's
+include broken, as #1492 describes. The rehearsal found that prerm's stop
+could leave an interrupted backup-channel run in the failed state; prerm
+now clears failed Portikus units (#1503). The smoke test gave 385 passed,
+0 failed with the Dex sign-in, after the reinstall, after the purge
+restore and on the final package.
+
+## Epic 45 — Workspace image and Docker cache
+
+Built on `epic/45-image-and-docker` (task PRs #1488, #1489, #1491, #1496, #1498, #1499 and #1501, and this fold). Issues #1361, #1481, #1278, #1279 and #1280. Migration 0046; ADR 0062.
+
+Delivered:
+
+- Playwright in the image (#1361, #1496, #1501; ADR 0062): Playwright 1.63.0's headless Chromium in `/opt/ms-playwright`, checksum-verified at build time, linked into each student's `~/.cache/ms-playwright` at login. Another Playwright version gets Playwright's own message and installs into the home folder. The image grew 136 MiB compressed and 483 MiB unpacked. Smoke launches the browser through `playwright-core` at the pin. Image version 2026.10.3.
+- Coding agents chip (#1481, #1491, #1499): the daily image check records the newest Claude Code and Codex version numbers in `published.json`, and the Coding agents row shows "Update available". The check survives disk and fetch errors, with a 60-second limit per version fetch.
+- Docker error codes (#1278, #1488): `CACHE_OFF`, `SEED_MATCH_UNKNOWN`, `SEED_ALREADY_MATCHES` and `SEED_OVER_LIMIT`, worded by the page.
+- Seed sizes (#1279, #1489, #1498): the seed build measures each image's on-disk size (migration 0046), and the cache helper records download sizes by manifest digest so digest-pinned names get sizes.
+- First seed build (#1280, #1488, #1498): the API writes the default list at start and queues one first build when the pool has room and no seed job was ever requested (read from the audit trail). Any administrator request counts, so a failed Rebuild also stops the platform from queueing its own.
+- The published-image list fetch uses the same 60-second limit as the version fetches; before, a stalled fetch could run for an hour against a 10-minute unit timeout.
+
+Gaps:
+
+- Chromium puts its shared memory on `/tmp`, which was capped at 512 MB. Heavy parallel screenshots could fill it and crash pages (raised to 1G by Epic 46, #1497).
+- The course must pin `@playwright/test@1.63.0` and drop the firefox and webkit projects that `npm init playwright` generates.
+- The image manifest does not record the Playwright pin.
+- With no host health sample yet, the first seed build waits for one.
+- The default list write and the default job insert commit with their audit rows, but there is no failure-injection test.
+- In allow-list egress mode, installing another Playwright version's browser needs `cdn.playwright.dev` on the list.
+
+Rehearsal: on the rehearsal VM with package 0.1.1140+gb46959e8 and
+workspace image 2026.10.3-local.202610110706, setup applied migration
+0046. On first start the platform wrote the default seed list
+(node:24-slim and python:3.13-slim) and queued its first build once;
+restarts did not queue it again. Seed builds recorded each image's
+unpacked size, matching `docker image inspect` inside a workspace
+exactly, and a digest-pinned name got its size too. The admin Docker
+routes returned CACHE_OFF, SEED_MATCH_UNKNOWN, SEED_ALREADY_MATCHES and
+SEED_OVER_LIMIT. In a workspace on the new image, the student's login
+linked the image's headless Chromium into `~/.cache/ms-playwright`, and a
+project pinned to `@playwright/test@1.63.0` ran its tests with no
+download. The image check recorded the newest Claude Code and Codex, and
+the Image tab's API reported a newer version when one was forced. The
+smoke test's Reset Docker check now allows the seed's images (#1505); the
+full smoke test then passed 388 to 0 with the Dex sign-in and nothing
+skipped.
+
+## Epic 46 — Operator tests and package leftovers
+
+Built on `epic/46-operator-tests` (task PRs #1508, #1512, #1514, #1517, #1520, #1521 and #1523, and this fold). Issues #1492, #1497, #1472, #1463, #1423, #1272, #1264 and #1262, and item c of #1462. No migration; ADR 0061.
+
+Delivered:
+
+- Purge (#1492, #1512): stops and disables Squid, leaves `squid.conf`, and deletes `/usr/local/sbin/portikus-storage-attach`, `/usr/local/sbin/portikus-thinpool-status`, `/usr/local/bin/dex` and `/usr/local/share/portikus`. It keeps `distrobuilder`. A test ties the helper list to the Ansible roles and runs the real `postrm` on a fake host.
+- Workspace `/tmp` (#1497, #1521): the cap is 1G, a quarter of the default memory limit. It was measured with four workers and 4000-pixel pages. The image README says what a lab can expect; image version 2026.10.4. Pages taller than about 6000 pixels with four workers still fill `/tmp`; one worker handles them.
+- Mock LMS over https (#1472, #1517, #1520): the rehearsal mock serves https with a one-day certificate that only the rehearsal VM's Caddy root signs, so roster sync goes through CONNECT and the proxy stays unwidened. The mock stops and removes its key on interrupt. With an http mock, the roster checks count as skipped.
+- Smoke test (#1463, #1423, #1462 c, #1517, #1520): an NRPS roster sync with a role change made and undone through the mock's `role` action, and a Deep Linking round trip. With no mock registered, each launch check counts as skipped with "no mock LMS registered" and a `Skipped` total is printed.
+- Probes (#1264, #1272, #1514): `infra/tests/reach-probe.py` checks the worker's refusals to the API, Dex and a listener of its own on 127.0.0.1, ::1 and every VM address, in the install and smoke tests. The install test reads the agent's restart time from `ExecMainStartTimestamp` and destroys its upgrade workspace when a step fails and the VM is kept.
+- Rehearsal fixes (#1529): purge also stops and disables Caddy; remove's prerm deletes Python bytecode caches so dpkg can remove its directories; `lti-mock-register` and `lti-mock-unregister` are apt-aware (they change the platforms file the VM's own `portikus.yaml` names and run the VM's setup); a reinstall after purge works, since setup writes a placeholder Caddyfile while the snippet is missing; `make backup-install-timer` serves any configure-vm VM; image VERSION 2026.10.4, with a smoke check that expects the 512M `/tmp` cap before that version and 1G from it.
+- API crash (#1523): an outbound response body or upload body cancelled before a queued resume ran crashed the API with `ERR_INVALID_STATE`. A pull-based `readableToWeb` replaces `Readable.toWeb` in the outbound fetch helper and the file upload route.
+
+Gaps:
+
+- `make mock-lms` is not supported on the rehearsal, because only the smoke test can mint the certificate.
+- No route-level test forces the stream race on the upload path.
+- Purge keeps the `squid.conf` setup wrote, which still includes `/etc/portikus`, so Squid is left disabled until its owner restores Debian's file (INSTALL.md).
+- Purge keeps `distrobuilder`, so setup rebuilds it once after the build marker is deleted.
+
+Rehearsal: on the rehearsal VM, the https mock LMS ran roster sync through the proxy's CONNECT and Deep Linking, with a full smoke of 397 passed, 0 failed, 0 skipped, and every review case of the LTI checks behaved as specified. Purge leaves no failed unit after a reboot, and a reinstall after purge sets up with failed=0. `make install-test` passed (worker refusals as expected on every address). `make configure-vm`, both host backup timers, a backup and a restore worked on a fresh VM (#1262). Fixes found: apt-aware mock registration, purge stops Caddy, reinstall after purge, backup timer for any configure-vm VM. Gap: the purge path and the mock registration's apt path were not run on the pilot.
+
+## Epic 47 — Workspace polish
+
+Built on `epic/47-workspace-polish` (task PRs #1510, #1511, #1513, #1515, #1516, #1518, #1525 and #1526, and this fold). Issues #1383, #1281, #1243, #1258, #1257, #1350 and #1462. Migration 0047. No ADR.
+
+Delivered:
+
+- Tree drag (#1383, #1510): a drag that starts on a selected row carries the whole selection. A folder drop moves every item, a pane-edge drop opens the first file as a split and the rest as top-level tabs (folders skipped), and the drag image shows the count.
+- Keep running until (#1281, #1511, #1526): an "Or until" clock time in the student's timezone, a past time meaning tomorrow, a time skipped by a daylight saving change moving past the gap, and the same cap as the hours through `keepRunningRefusal`.
+- Kept restore folders (#1243, #1515, #1526): the Recovery points dialog lists `.portikus-aside-<pointId>` folders and deletes one after a confirmation, through a checked agent route that acts only on a real uuid-named directory in `~/projects`. Each delete is audited as `recovery.aside_deleted`.
+- Throttle lift notice (#1258, #1513, #1525): the worker writes one notification when an idle lift happens, whether or not a page is open, and an administrator's lift writes one too.
+- Monitor (#1257, #1518, #1525): the Stop dialog can also stop the process tree and lower its priority (nice +10 on every thread, capped at 19). Every member gets the single stop's start-ticks and protected checks. The child count follows the session when the root leads it. Both actions are audited, a Force stop with only a count of named PIDs.
+- Voice switch (#1350, #1516, #1526): the administrator Settings tab turns voice input off site-wide (migration 0047, on by default, audited). When off, no microphone shows and the Settings dialog says why. It reads as on if the settings fail to load.
+- Follow-ups (#1462 a, b, d, e; #1513): shared views are counted only after path checks, `taughtCourseId` lives in `courses/membership.ts`, a starter launch that meets a folder with no project row says why (409 `PROJECT_EXISTS`), and the picker fieldset is a radiogroup.
+- Review fixes (#1525, #1526): keep-running focus and timezone hint, the voice switch's pending state, recovery delete focus and unique button names, drag image theme tokens.
+
+Gaps:
+
+- No single keyboard action opens a selection in a split (#1524); the Move to dialog moves a selection but does not open it.
+- Kept folders are listed only while the workspace runs. A folder that no recovery point or audited restore names, for example one left by a deleted project, is shown nowhere.
+- A priority lowered from Monitor cannot be raised again from Portikus.
+- Lower priority against an older agent fails until the agent restarts.
+- #1462 item f, confirming Codex delta metrics, needs a real Codex sign-in; the rehearsal VM had none, so it moved to #1531.
+- The administrator's throttle lift notice is covered at unit level only.
+
+Rehearsal: the Epic 47 package (0.1.1164+g33472886, migration 0047 applied) ran on the rehearsal VM beside Epic 46's image. Epic 47's own smoke scripts gave 373 passed and 15 failed, every failure from Epic 46 changes already on that VM (the 1G /tmp cap and the https mock LMS); Epic 46's smoke scripts against the same install gave 397 passed, 0 failed, 0 skipped. In a real workspace, against the real API, agent and worker: a kept folder made by a real agent crash mid-restore was listed, blocked a second restore, and was deleted from the dialog, while `..`, a non-aside name and a symlinked aside were refused by both the API and the agent; "Stop with children" ended a 4-process tree, "Lower priority" only lowered nice values and stopped at 19, and root and PID 1 were refused; the voice switch hid the microphone and Settings said why; keep running until a clock time used the student's timezone, took a past time as tomorrow, and the page and API enforced the cap; a real idle lift wrote one notification with no page open; and a Playwright drag of two selected files moved both into a folder. Gap: Codex delta metrics stay unconfirmed (#1531).
+
+## Epic 48 — Instructor live help and live layout sync
+
+Built on `epic/48-live-help` (task PRs #1542, #1546, #1548, #1549, #1556, #1557, #1558, #1563, #1566 and #1574, and this fold). Issues #1461 and #1384. Migration 0048. ADR 0063.
+
+Delivered:
+
+- Live help (#1461): a student opens "Get live help…" from a project's menu, picks one instructor from their courses, reads plain consent text, and starts a session of up to 60 minutes. The instructor watches the project's terminals live, with no scrollback, and can open previews of anything running in the student's workspace. Typing is off until the student turns it on; it is enforced in the API and again by tmux in the workspace agent.
+- The student's bar cannot be dismissed. It names the instructor and project, shows the time left, switches typing and ends the session, and announces each change with its end reason.
+- The instructor gets a Live help link on the Course page, a list of open sessions, a session page with a mode line, Leave session and a Previews list, and a minimal terminal with no clipboard writes, title changes, image paste or voice, and links that open only on click.
+- Every instructor route and socket goes through one gate; anyone else gets 404. Instructors never keep a workspace awake. One instructor socket per terminal: the newest wins and the older tab says the terminal was opened in another tab. An end closes sockets, previews and bridge forwards at once, and the reason is stored. Start, end, typing changes, terminals opened and previews opened are audited with ids only.
+- Live layout sync (#1384): layouts carry a version; a stale save gets 412 and loads the server's layout. New versions are announced on the owner's workspace socket, so a split made in one browser appears in the other. A remote load keeps this browser's split sizes and selected tab, waits during a drag, keeps unsaved files open, and is never written back on its own.
+
+Verified: each task PR ran typecheck, lint and its unit tests on a private database, and Playwright covers the student side, the instructor side in two browser contexts (view refuses input, typing works, End closes within a second, newest socket wins, a preview opens with no opener), and layout sync, with axe in both themes.
+
+Rehearsal (2026-10-12, rehearsal VM, epic head 29c2ebc5, before #1574 made the newest instructor socket win; Playwright covers that change): the package 0.1.1188+g29c2ebc5 installed with the same commands `make deploy-app` runs, and migration 0048 applied cleanly on top of Epic 49's database. The first smoke run had one failure and 23 skips from one cause: the mock LMS (learning management system) could not start because `build-deb` strips development tools such as `tsc` from the checkout (#1576). After `pnpm install --frozen-lockfile`, the full smoke test with a Dex sign-in file and the https mock LMS passed 397 checks, 0 failed, 0 skipped. A browser script then drove the real site as an instructor and a student sharing a seeded course, and all 18 checks passed: the student started live help and the instructor's Course page showed one open session; in view mode the student's typing showed and the instructor's did not reach the shell; with typing on, the instructor's command ran in the student's shell and wrote a marker file, checked inside the container; the Previews list showed the student's dev server on port 5173 and opened it in a new tab with no `window.opener`; End closed the bar, announced the end, closed the instructor's view at once, and stored the reason `stopped`; the audit log held start, typing changed, terminal opened (view and type), preview opened and ended. Two browser contexts on one project kept the layout in step. The service journals held none of the typed markers or commands. No product bugs were found.
+
+Gaps:
+
+- The listening list is workspace-wide, because listeners have no project.
+- An ended helper's preview tab shows the generic refused page.
+- Pane sizes are per browser, so a resize alone does not show in the other browser.
+- When two browsers conflict, the losing browser's unsaved layout change is dropped.
+- There is no rate limit on how often an instructor opens terminal sockets (#1575).
+- Running `make deploy-app` and then the smoke test breaks the mock LMS (#1576).
+- The instructor's terminal can be taller than the window, so clicking into it scrolls the heading under the sticky header (#1577).
+- `apps/api/src/routes/projects.ts` is over 800 lines (#1564).
+- Administrators who sign in through Google or LTI should teach from a separate instructor-only account until previews move to their own domain (#1236).
+
+## Epic 49 — Fix and polish batch
+
+Built on `epic/49-fix-batch` (task PRs #1535, #1536, #1537, #1538, #1541, #1543, #1547, #1552, #1553, #1559 and #1560, #1569, and this fold). Issues #1533, #1519, #1522, #1524, #1276, #1298, #1241, #1289 and #1284. No migration. SPEC.md sections 8.1, 9.7, 11.2, 13.5, 14.3, 15.2, 20.1, 21.7 and 24.13.
+
+Delivered:
+
+- Terminal close (#1533, #1541, #1552, #1559): the old test checked the wrong process, because `setsid` forks and the child leaves the session. Each terminal now starts with `PORTIKUS_TERMINAL=<session>` in its environment, and closing it also stops every process carrying that mark. The made-up cookie hash test now fails if the raw cookie is stored, and the rebuild test in the admin workspace detail waits for the panel's own poll.
+- Keep mine (#1519, #1541): Ctrl+S read `dirty` from the last render, so a keydown that beat the render saved nothing. `saveNow` now reads the latest edit.
+- Font config (#1522, #1547): the workspace image installs `fontconfig-config`, so headless Chromium no longer prints "Fontconfig error". Image version 2026.10.5. The image build and the smoke test both check for the message.
+- Open N files (#1524, #1536, #1560): the tree's row menu on a selection offers Open N files, which opens the first file as a split and the rest as tabs through the pane-edge drop path, and announces the result.
+- Narrow layout (#1276, #1543, #1560): the 1024 px and 768 px floors are gone. Below 56rem the workspace panes stack in one column that scrolls, with minimum heights. Admin tables that clip their overflow scroll sideways in their own labelled, focusable box below 45rem of content. Covered by Playwright with axe in both themes at 560 px, 320 px and short heights.
+- Made-up cookies (#1298, #1538, #1552): once an address is over the anonymous limit, a cookie that already matched no session from it in the last minute is refused with 429 before any query. The list stores hashes, at most 16 per address and 1024 addresses.
+- Recovery insert (#1241, #1537): the API and the worker share one `recordRecoveryPoint` in `packages/db`. Behaviour is unchanged.
+- File splits (#1289, #1553): the worker's reconciler, the agent's git, listening and recovery modules, and the controller's provider were each split where they started a second job.
+- Label rule (#1284): the `student@<label>` rule moved from the Epic 8 entry in SPEC.md section 29 into section 14.3.
+- Accessibility round 2 (#1569): admin tabs reflow at 320 px with no sideways page scroll, because card grids use a `minmax(0, 1fr)` column and long paths may break anywhere. Open N files is announced once per action, through a new `useAnnouncement` hook that empties the live region and refills it a moment later. `paneName` moved into `apps/web/src/work/moveInto.ts` with its own unit test, which brings `FileTree.tsx` under 800 lines. The admin table keyboard-scroll test waits on scroll position instead of timing, and the no-sideways-scroll check runs on every admin tab at 560, 375 and 320 px.
+
+Gaps:
+
+- A closed terminal cannot catch a process that clears its own environment. Only a control group per terminal would.
+- A session that was just re-enabled or unlinked can get 429 for up to 60 seconds from an address that is over the limit.
+- Rotating made-up cookies still costs one lookup each until the limit refuses.
+- Closing a terminal reads every process environment of the student synchronously (the student's own workspace only).
+- `apps/api/src/routes/preview.ts`, `apps/api/src/routes/projects.ts` and `apps/web/src/app.css` are still over 800 lines because Epics 48 and 50 were editing them (#1564).
+- The Help and sign-in pages keep the 1024 px floor (#1550).
+- Pinch-zoom is blocked on phones (#1551).
+- The checks-route test is flaky (#1562).
+- At 320 px the admin tab strip wraps to six rows, about a third of a 640 px screen.
+- In an admin window under 30rem tall the root-shell tab gets no fixed height.
+
+Rehearsal: On 2026-10-12, on the rehearsal VM (10.101.0.190) at epic head 1b2db072 (before #1569, a CSS and test change that CI and the accessibility confirm covered), the package built from the epic head (0.1.1189+g1b2db072) was installed with the same commands `make deploy-app` runs, and its background setup finished with failed=0. `make build-workspace-image TOFU_ENV=rehearsal-libvirt` built image 2026.10.5-local.202610120734. The build's render check found no fontconfig message, every image health check passed, and the image is now the default. The full smoke test, run with a Dex sign-in file and the https mock LMS registered, passed 398 checks with 0 failed and 0 skipped. That includes the new "headless Chromium loads the font config" check and the LTI roster checks. Then a browser script drove the real site as a fresh student and administrator. Closing a terminal that had started a `setsid sleep` and a `nohup sleep` left neither process running (#1533). "Open 2 files" from the tree's keyboard menu opened notes.md as a split beside the terminal and other.md as a tab (#1524). A manual recovery point and a periodic point made by the worker both appeared on the project (#1241). At 560x900 and 320x640, neither the workspace nor the admin Logs page scrolls sideways, and the Logs table sits in its own labelled, focusable box that scrolls sideways with the arrow keys (#1276). For the made-up cookie list (#1298), one address sent 650 requests with one made-up session cookie. The first 600 got 401 and the rest got 429. 100 more repeats of the same cookie caused no session lookups at all, measured with the sessions table's scan counters, since the VM has no pg_stat_statements. A new made-up cookie caused exactly one lookup, and a real session from the same address still loaded with 200. The cookie value never appeared in the API journal. No bugs were found and no code was changed. The test workspace and users were removed afterwards, and the VM is left running this install.
+
+## Epic 50 — Sign-in and identity
+
+Built on `epic/50-identity` (task PRs #1544, #1545, #1554, #1555, #1561, #1567, #1570, #1571, #1579, #1584 and #1586, and this fold). Issues #1249, #1248, #1247 and #1293. Migration 0049, ADR 0064.
+
+Delivered:
+
+- Account email (#1545): an administrator switch, off by default, that lets Portikus send account mail through the existing alert mail settings. Emailed links carry a random token in the part of the address after `#`, which servers never see; only its hash is stored. Reset links last 30 minutes and invitations 7 days, and each works once.
+- Forgotten password (#1249, #1555): "Forgot your password?" on Dex's sign-in page opens a Portikus page that gives the same answer for every login and emails a link. Using it sets a new password, ends every session, and still asks for the second factor at the next sign-in. Requests are capped per address, per account and for the whole site.
+- Administrator email actions (#1249, #1561): from the Users detail panel, add a user with an emailed set-password link, email and resend SSO invitations (also from a CSV import), and send a reset link. An administrator can change a Dex user's email or username; the account, its Dex subject and its workspace stay the same.
+- Google groups and Entra group IDs (#1248, #1247, #1554, #1571, #1586): Google sites can take roles from Google groups through a service-account key uploaded once on the admin Sign-in page; Entra sites can take roles from three group IDs, with no Microsoft Graph call. Group names are stored in lowercase. Groups never admit anyone without an invitation.
+- A passkey at link confirm (#1293, #1544): confirming a course account link accepts the SSO account's passkey instead of a code.
+- Review fixes (#1567, #1570, #1579): links are revoked on every credential or access change, and before Dex is called; a newer link revokes only older ones; the site-wide reset cap counts only real accounts; the identity pages fit 320 px; Edit is hidden on disabled accounts. #1584 fixed a test fake's timestamp.
+
+Verified: every task PR passed CI with its own unit and Playwright tests (counts in each PR). Code, security and accessibility reviews ran over the epic head, and their findings were fixed and confirmed. The fold ran lint, typecheck, build and the audit-coverage test on a fresh database.
+
+Gaps:
+
+- Google and Entra group sign-in has render and unit tests only and has not met a real tenant (#1587).
+- Entra users in more groups than a token holds need a Microsoft Graph lookup, option B (#1588).
+- Real mail delivery was checked only through a stand-in relay on the rehearsal VM.
+- A group answer typed into the installer's dialog has no automated test.
+- Two links sent in the same millisecond both stay valid.
+- A link whose email failed to send stays in the table until it expires.
+- The site job is over 1,200 lines (#1568).
+- A linked course account's workspace can be archived while still provisioning (#1585, not caused by this epic).
+- Help still has the 1024 px floor (#1550).
+
+Rehearsal (2026-10-12, rehearsal VM 10.101.0.190, epic head 89641619, after PR #1579 merged). The package built from the epic head (0.1.1188+g89641619) was installed with the same commands `make deploy-app` runs. The Epic 48 migration 0048 was undone by hand first (its own down steps, then its ledger row), so 0049_account_email applied cleanly. The first background setup failed for an unrelated reason: the VM's Portikus apt source still pointed at the install test's local repository on 10.101.0.1:8780, which is no longer served. I pointed that source at the official Portikus repository, the line a real apt install has (the old line is saved in /var/tmp/portikus.list.install-test on the VM), and setup then finished with failed=0. Setup added the "Forgot your password?" link to the Dex sign-in page and restarted Dex, which came back up cleanly. The full smoke test, run with a Dex sign-in file and the https mock LMS (learning management system) registered, passed 397 checks with 0 failed and 0 skipped. There is no real mail relay, so I stood up a small SMTP (mail server protocol) sink on the VM that plays an outside relay. It listened on a documentation address, 198.51.100.25, port 465, with a certificate from the site's own Caddy authority. It was set as the SMTP server through the admin Notifications API, and mail reached it through the egress proxy with no proxy rule changed. A browser script then drove the real site, and all 42 of its checks passed. With the "Send account email" switch on, "Add user…" with the email-link box ticked showed no password, and the emailed link set the first password. The same link then failed with "This link has expired or was already used". The new user signed in through Dex (landing on two-factor setup, as a local-password account should). The Dex form's "Forgot your password?" opened the Portikus page and gave the neutral answer. A second request sent a new link and made the first one stop working. Using the newest link set the password and ended the user's open session; reusing it failed, the new password signed in, and the old one was refused. A made-up address and the install administrator's address each got the same answer and no mail. An administrator changed the user's email. The old address got a notice, the new address got a set-password link, the old session ended, and the account kept its id and Dex subject; the audit row held no addresses. A username change kept the password working. The database timestamps show that disabling the account revoked a live link at the moment of the disable, and a second-factor reset revoked one too. "Invite…" with email emailed an invitation pointing at the site's address, and Resend sent it again. For passkey linking, a Dex account enrolled a software passkey (the same one the e2e suite uses). A real launch from the mock LMS as Lin Linker then linked to that account with "Link with a passkey", and a made-up passkey answer was refused first. The /link, /forgot-password and /reset-password pages all fit 320 px. Entra in group mode rendered as expected through an admin sign-in trial: the entra connector, groups taken from the groups claim, and the three group IDs as allowedGroups. Dex started with it and the trial was rolled back. One bug was found: turning on Google group checks from the admin page always fails with write_failed. The site job runs under ProtectSystem=strict, and packaging/systemd/portikus-site-job.service lists /etc/portikus /var/lib/portikus/site-jobs /var/lib/portikus/site-state /var/cache/debconf in ReadWritePaths, but not /etc/portikus-dex. So writing google-service-account.json fails with "Read-only file system". A probe with the same sandbox settings proves it (`touch /etc/portikus-dex/x` gives "Read-only file system"). The job then puts everything back cleanly. Because of this, the Google render could not be checked through the admin page (a sandbox override to get past it was refused by the safety check, and I did not try another route). Real Google and Entra tenants remain a known gap. The service journals since the browser run began hold none of the emailed tokens, passwords or mail text, and the made-up address appears nowhere. Test addresses appear only in Dex's own sign-in lines, which Dex wrote before this epic too. A side observation that is not an Epic 50 change: the linked course account's workspace was marked archived at link time, but its container finished provisioning about 4 seconds later. The test users, invitation, course account, that container and its volumes were removed afterwards. Account email is off again and SMTP is cleared. The sink, its address and its hosts entry are gone. The VM is left running this install.
+
+Google key fix (PR #1586), rehearsed on the same VM: package 0.1.1190+gd2204979 installed with the `make deploy-app` commands, setup failed=0. Turning on Google group checks through the admin Sign-in settings API, with a fake but well-formed service-account key and three mixed-case group emails, no longer failed: the key was written as root:portikus-dex mode 0640, Dex's config had the google connector with the groups in lowercase, and Dex restarted and kept running (it contacts Google only at sign-in). Roll back removed the key and returned Dex to local passwords. No Portikus file, log or service journal held the key.
+
+## Epic 51 — Fix batch after Epics 48 to 50
+
+Built on `epic/51-fix-batch` (task PRs #1596 plan, #1597, #1598, #1599, #1600, #1603, #1604, #1605, #1606, #1607, #1609, #1610, #1612, #1613, #1614, #1616 and #1617, and this fold). Issues #1585, #1578, #1562, #1576, #1577, #1575, #1550, #1551, #1564, #1568, #1601, #1608 and #1611 (the epic pull request closes them). No migration, no ADR. SPEC.md sections 5.2, 7.5, 9.7, 13, 20.1, 21.13 and 22.4.
+
+Delivered:
+
+- Browser tests (#1597): CI runs seven browser-test shards instead of five, with `e2e/shard-timings.json` refreshed from a green epic 50 run (177 spec files).
+- Linked course workspace (#1585, #1598): not a bug. Linking archives and stops in one update, the start sweep skips archived rows, and the archived container is kept so unlinking can restore it. Two database-backed reconcile tests now pin an archive that lands during a create and during a start.
+- Fork-cap test (#1562, #1599): the Check test forks one process past the real `RLIMIT_NPROC` instead of a fixed 400, so other processes exiting on a busy host no longer let it pass by mistake. The route was correct.
+- Live help socket limit (#1575, #1600): an instructor may open 20 terminal sockets a minute (429 `RATE_LIMITED`), checked before the live help gate, so a refused open costs no query, audit row or agent attach.
+- Live help fit (#1577, #1603): the instructor's session page is a column as tall as the window below the header, and the terminal fills what is left with a ten-line floor, so clicking into it no longer scrolls the heading away. Covered by Playwright at six window sizes with axe in both themes.
+- Deploy then smoke test (#1576, #1604): `pnpm deploy --prod` in `make build-deb` rewrote the checkout's install record as production-only, so the next pnpm command removed `tsc`. `scripts/build-deb.sh` now runs `pnpm install --frozen-lockfile` once afterwards (about a second, no fetch), and a CI step pins it. The package contents are unchanged.
+- Reflow and pinch-zoom (#1550, #1551, #1605): `.pk-root` has no 1024 px floor, so Help and the loading frames reflow at 320 px. The panel library's inline `touch-action` blocked pinch-zoom across the workspace; two CSS rules keep its axis and add `pinch-zoom`, and drag-to-resize still works on touch.
+- Site job split (#1568, #1606): `packaging/site/site-job` went from about 1,220 lines to 187, with the jobs in `site_proxy.py`, `site_trial.py`, `site_settings.py`, `site_queue.py` and `site_common.py` (all under 450 lines). The jobs are mixin classes on one Runner. `nfpm.yaml` installs `site_*.py` with a glob. No behaviour change.
+- Image pruning (#1601, #1607): after a fetch or build, the image job also keeps any image a workspace was made from (its Incus `volatile.base_image`), and keeps everything if the instances cannot be listed. Building 2026.10.5 on the pilot had deleted the base image of a live workspace.
+- Shared terminal size (#1608, #1609, #1614, #1617): a terminal shown in two browsers is sized to the browser in use. A hidden or unmeasured pane never sends a size, a new attachment waits for a measured size, and focus, a click or typing claims the size. The agent remembers the last claimer and runs no tmux command when the claim changes nothing, and a claim that finds no tmux client is retried. One click sends one size frame. New sessions fill leftover area with spaces instead of dots. The skips have unit tests, each shown to fail without the code it guards.
+- Apt key flake (#1578, #1610, #1616): the "key is not bound" failure came from ed25519 self-signatures that gpg re-encodes badly after a secret-key round trip (about 1 in 136 keys), which Debian's `sqv` rejects. The test key is now RSA 4096 like the real archive key, backdated again, and 100 of 100 local runs passed. Production was not affected.
+- Layout split kept (#1611, #1612): a terminal that appears in a later terminal list gets a tab on screen but is no longer saved on its own, so a second browser does not overwrite the creating browser's split. A late save now records its version only if its mount is still live and the store is still on the version it was based on. Covered by unit tests and a new two-browser Playwright spec.
+- File splits (#1564, #1613): `apps/api/src/routes/projects.ts` is 666 lines (download and permanent delete moved to `project-download.ts` and `project-delete.ts`) and `apps/web/src/app.css` is 757 lines (three blocks moved to `process-rows.css`, `help/help.css` and `switch.css`). No behaviour change. `preview.ts` was already under 800 lines.
+- Review cleanups (#1616): the live help limit comment gives its own reason, and a site helper was renamed `keys`.
+
+Verified: every task PR passed typecheck, lint and its unit tests, and the browser-visible ones passed Playwright with axe, each on a private database. Code, security and accessibility reviews ran over the epic head; security found nothing to fix, and the code and accessibility findings were fixed through #1614, #1616 and #1617 and confirmed by each reviewer. The fold ran lint and the docs link check.
+
+Rehearsal (2026-10-20, rehearsal VM 10.101.0.190, epic head 3a0d77e5). The package built from the epic head with `make build-deb` (0.1.1247+g3a0d77e5) was installed with the same commands `make deploy-app` runs, and its background setup finished with failed=0. The root site job is now split into modules: /usr/lib/portikus/site-job plus site_common.py, site_proxy.py, site_queue.py, site_settings.py, site_trial.py and site_values.py are all installed. Through the admin API, adding example.org to the proxy host list ran as a site job, finished in under a second, and wrote it into the egress proxy's admin list; removing it again also worked. An Entra sign-in trial in group mode reached its trial with Dex running the Entra connector and the three group IDs, and the rollback put back local passwords with Dex running. Right after the deploy, `make smoke-test` ran from the same checkout with no fresh `pnpm install`, with a Dex sign-in file and the https mock LMS (learning management system) registered. The mock LMS started, and the run passed 398 checks with 0 failed and 0 skipped, so #1576 is fixed. For the image cleanup fix (#1601), `infra/tests/image-job-rehearsal.py` does not apply here: it needs the image releases that `make install-test` serves. So the check was run directly through the admin image API. The oldest image (2026.10.4-local.202610111943) was made the default for a moment. A new student's workspace was created on it, and then two other images were made default and previous again. A build then kept that image, because a workspace was made from it, and removed nothing. A second build removed only the first build's unused image (2026.10.5-local.202610201843) and again kept the old one, and the workspace on it still started. Epic 49's 2026.10.5-local.202610120734 is the default again; the image VERSION is unchanged at 2026.10.5. A browser script then drove the real site, and all of its checks passed but two, which turned out to be the script's mistake. Two browser contexts, 1400x900 and 1000x650, had one student's project open. Browser A opened a terminal and split it with a new terminal, and browser B showed the same split in one tab. After each terminal was used in A, then B, then A again, tmux inside the workspace gave each window exactly the size the browser in use had sent (51x49 in A, 25x32 in B). `tmux list-clients` showed four clients at those two sizes and no small stuck client like 12x6. Then A opened notes.md and B opened other.md about a second later. Both browsers kept the split, and so did the saved layout (#1611). Only notes.md stayed open, because the rule in SPEC.md section 7.5 is that the server's layout wins a near-simultaneous change and the losing browser's change is dropped. The script had wrongly expected both tabs. Opened one after the other, notes.md from A and other.md from B both showed in both browsers, beside the kept split. The instructor's live help view at 1280x600 fit the window (terminal bottom at 540 px, no page scroll), and clicking into the terminal kept the heading in view (#1577). The terminal box keeps the student's size and scrolls inside, as ADR 0063 intends. The service journals since the install hold none of the typed markers or commands, the session tokens, or the trial's client secret. The test users, the course, both workspaces and their volumes were removed afterwards, and the VM is left running this install. No product bugs were found. The rehearsal ran at 3a0d77e5, before #1617's change that lets typing take a terminal's size claim (covered by unit tests).
+
+Gaps:
+
+- #1585 was not a bug: linking archives and stops in one update, the start sweep skips archived rows, and the archived container is kept for unlinking (SPEC.md 20.1); #1598 added race tests.
+- Layout: if the other browser makes its own layout change in the few seconds while a new terminal is starting, that save still wins and the split is lost (§7.5). A near-simultaneous file open in two browsers keeps only the first. If a layout announcement is lost after a remount, the next change can be dropped by the server-wins path.
+- Terminal size: terminals opened before this epic keep tmux's dot fill. A click on a terminal runs up to three tmux commands when the claim changes something (own workspace only). Input dropped from a full early-input queue still records the claim.
+- Live help: the per-instructor socket limit (20 a minute) also counts reconnects, so a reconnect loop can lock that instructor out for up to a minute. In windows shorter than about 560 px the session page still scrolls.
+- apt: if the archive signing key were ever changed to ed25519, gpg's re-encoding would break about 1 key in 128 for Debian's `sqv`.
+- The workspace-agent unit suite has pre-existing order dependence under `--sequence.shuffle` (3 to 5 tests).
+- Pinch-zoom CSS matches the panel library's inline style text, so a library upgrade could break it (an e2e check guards it).
+- Issues filed this epic and still open: #1602 (a worktree deploy needs `VM_IP` and public host overrides).
+
+## Epic 52 — Code help and course profiles
+
+Built on `epic/52-code-help` (task PRs #1625 plan, #1626, #1627, #1630, #1631, #1632, #1633, #1634, #1635, #1636, #1637, #1638, #1639, #1640 and #1641, and this fold). Issue #1246 (the epic pull request closes it). Migration 0050, ADRs 0065 and 0066. SPEC.md sections 2.6, 5.2, 8.7, 13.6, 20.1, 24.1, 24.11, 25.1, 25.2 and 26.
+
+Delivered:
+
+- Documents (#1626): SPEC.md 8.7 (course profile) and 13.6 (code help), ADR 0065 (language servers in the workspace, which supersedes the language-service part of ADR 0015) and ADR 0066 (course profiles hide, stored on the LTI course), with the VISION, STACK and other SPEC edits that go with them.
+- Contracts, migration and dependencies (#1627): the language-server ids (`python`, `typescript`, `ruff`), the limits (4 MiB agent frame, 512 KiB document, 4 sockets and 3 servers per workspace) and close codes 4412 to 4416; `CourseProfile`; read-only `courseProfile` and `codeHelpEnabled` on `GET /me/settings`; migration `0050_course_profile` (`lti_contexts.profile`, `settings.code_help_enabled`), and the admin setting.
+- Agent language-server host (#1632): `GET /projects/:slug/language-servers/:server` on the workspace agent, with one server per project and id, spawned as the student under `prlimit` and `choom`, in its own session, with the real project path as its working directory. The agent rewrites `rootUri`, `rootPath`, `workspaceFolders` and `processId` in `initialize`, merges its own options and client capabilities, and passes everything else through unread. It handles replacement, idle, crash and cap rules, caps a server answer at 4 MiB (a larger one becomes a JSON-RPC error with the same id), and drops each server's standard error. Its tests run against real pyright and the real TypeScript server.
+- TypeScript's own server: TypeScript 7 has a built-in language server (`tsc --lsp --stdio`), found through `typescript/lib/getExePath.js` in the agent tree. The first plan bundled TypeScript 6 with `typescript-language-server`; that was dropped, along with the private `@portikus/tsserver6` package, so nothing extra ships. Diagnostics are pulled (`textDocument/diagnostic`). Automatic type acquisition, which runs `npm`, is off twice: in `initializationOptions`, and by the agent telling the server the client cannot answer `workspace/configuration`, because the server takes the client's answer over its options. A server stops as soon as its last socket closes; the 60 second delay in the plan was dropped, because each new socket restarts the server anyway.
+- API relay (#1630, #1639): the owner-only browser socket `GET /workspaces/:id/projects/:pid/language-servers/:server` (an owner entry in the route policy, so the WebSocket authorization matrix probes it), `pipeMessages` in `workspaces/message-pipe.ts`, 4 sockets per workspace, a once-a-second session check, no frame read. A fifth socket closes with `TOO_MANY_SOCKETS` (4429) so the browser retries. The API relays an agent's close reason only when it is one of the two in `LANGUAGE_SERVER_CLOSE_REASONS`. With the site switch off, the socket closes at once with DISABLED. The terminal pipe and the language-server pipe now stop reading the browser socket while more than 1 MiB waits to be sent to the agent, and read again below 256 KiB, with a test that failed without the fix.
+- Course profile routes (#1630): `effectiveProfile()` (student seats only, the fullest profile wins, no course means Agentic) and an audited `setCourseProfile()` behind `PUT /courses/:courseId/profile`, `GET /admin/courses` and `PUT /admin/courses/:courseId/profile`. `course.profile_changed` and `settings.code_help_updated` carry `{from, to}` and are written in the same transaction as the change.
+- Fake agent (#1630): a scripted LSP responder in `testing/fake-agent/language-servers.ts` with test controls, used by the API and browser tests.
+- Web client (#1631, #1637, #1640): our own LSP client in `apps/web/src/lsp/`. It syncs only `pk:/<projectId>/...` models, incrementally, and skips files over 512 KiB. It provides completion, hover, go to definition, rename, format and diagnostics; answers `client/registerCapability` and `workspace/configuration`; sends `workspace/didChangeWatchedFiles`; and declines `applyEdit`, `showDocument` and `executeCommand`. Hover and completion text is never trusted or HTML: only `http` and `https` links keep their link (any other becomes its text, including after a backslash) and every image form is escaped. Rename stays in the project, touches at most 20 files, applies all or nothing and saves through each tab's version-aware save. A definition target that is not a project file shows a message. The editor bar shows the server's state, with Restart and "Use here", and moves focus to the editor after them. Alt+F8 and Shift+Alt+F8 go to the next and previous problem; F8 stays the notifications key.
+- Problems tab (#1633): the fifth right-pane tab lists the errors and warnings of open files by file, opens a row's file at its line, shows a count, and is hidden when code help is off. Messages are React text. Student help has a new "Code help in the editor" topic.
+- Profile in the web (#1634, #1638): Traditional hides the Claude Code and Codex launchers and the empty pane's "Start Claude Code", the workspace dialog's Docker section, and the Running pane's system rows with their toggle. Reset Docker stays on the storage-full screen. Instructors set the profile on the Course page ("Student interface"), and administrators in a Courses group on the Sign-in tab; the Settings tab has a code-help switch beside voice input. The Courses select keeps focus while it saves (the `Select` primitive gained an optional `ariaDisabled`). Help text for students, instructors and administrators was added and corrected.
+- Agent review fixes (#1636): `prlimit` and `choom` run by absolute path, so a project's `.venv/bin` cannot shadow them; the forced-stop test proves the process tree dies; dead table fields removed; close reasons come from the contracts; one terminal size test de-flaked.
+- Browser tests (#1635): Playwright and axe specs for the six features in TypeScript and Python, the project boundary, untrusted server text, the 512 KiB limit, every close code, the site switch off, and keyboard reach of Restart and "Use here" (`code-help*.spec.ts`, `a11y-code-help.spec.ts`), plus `problems.spec.ts`, `course-profile.spec.ts` and additions to `a11y-course.spec.ts`.
+- Packaging, smoke and load test (#1641): `scripts/build-deb.sh` bundles ruff 0.16.10 as `bin/ruff` with a sha256 check, keeps the `.d.ts` and `.pyi` files the servers read, and fails the build if TypeScript's own lookup cannot find its native binary in the deployed agent tree. The smoke test checks that all three servers start from the installed tree, answer `initialize` and report unavailable (4415) when a binary is hidden. A new load test, `infra/tests/load/code-help.mjs`, drives 25 simulated students.
+- Memory target (SPEC.md 25.1 and 25.2, `docs/CAPACITY.md`): measured on a 16 GiB, 8 vCPU server with 25 students who each also ran a stand-in coding agent, completion p95 was 124 ms for Python and 54 ms for TypeScript, and edit-to-diagnostics p95 was 363 ms and 51 ms. Resident memory per student was pyright 167 MiB (highest 250), TypeScript 57 (66), ruff 18 (41), all three 241 (322); a student with the stand-in agent used about 550 MiB. Free memory fell to 945 MiB, under the 2 GiB bar. Todd ruled that the target is restated by course profile: a 16 GiB server holds 25 students in a Traditional course (no coding agent; about 4.6 GiB free, calculated from the measured figures, not measured) and about 23 in an Agentic course with 2 GiB free, and 25 Agentic students need 20 GiB. The 8 GiB pilot server holds about nine students with code help, or about 16 with it off, so it cannot hold a full code-help class.
+- Fold (this PR): SPEC.md section 29 entry and the corrections above in 13.6, 24.1, 24.11, 25.1 and 25.2, STACK.md section 10, ADR 0065, `docs/CAPACITY.md`, the OVERVIEW current state, the CI browser-test timings, and the temporary entry for `vscode-languageserver-protocol` removed from the web app in `knip.json` (knip passes without it). `docs/EPIC-52.md` is deleted.
+
+Accepted risk (ADR 0065, SPEC.md 24.1): opening a Python file starts pyright with the project's `.venv/bin` first on `PATH`, so it can run the project's own venv code as the student, inside the student's own container. A student could run the same code from a terminal.
+
+Verified: every task PR passed typecheck, lint and its tests on a private database, and each visible change passed Playwright with axe in both themes. The review findings were fixed through #1636 to #1640. The rehearsal VM (16 GiB, 8 vCPUs) ran `make install-test` (apt install, first Dex sign-in, smoke test, upgrade, remove, reinstall, backup, and rebuild with restore) on the package built from the epic head, then the full smoke test with a Dex sign-in file and the mock LMS: 401 passed, 0 failed, 1 skipped. The one skip cannot be avoided, because a packaged host has no `workspace.sh`. The load test ran before the review fixes, which change how processes are spawned and not how much memory they use. The fold ran lint and the docs link check.
+
+Gaps:
+
+- A profile change picked up when the window regains focus can remove the control that has focus (A11).
+- Long Problems messages clamp to three lines; the full text is in the row's title (A12). With five tabs the right pane's tab strip scrolls sideways at the default width. Information-level diagnostics are not listed, and there is no project-wide list (Checks is that).
+- Two editors side by side each announce a crash or "replaced", because each has its own live region (fixed in Epic 53).
+- A backslash shows before `![` inside code samples in a hover.
+- The agent's own buffers for a server's output and for the browser's frames are not bounded (S5), and the agent-to-browser direction has no backpressure from a server's output to the socket in the agent. The harm stays in the student's own container, which has a memory limit.
+- The Traditional 16 GiB figure is calculated, not measured. At 25 Agentic students on 16 GiB the 2 GiB free target is not met (945 MiB); the levers are a 20 GiB server, starting ruff only when a student formats, or turning code help off for the site (a language at a time since Epic 53).
+- `packages/db/src/schema.ts` is 806 lines, and lint warns above 800 (fixed in Epic 53).
+- Unit tests that time out under heavy local load, also on the epic base: `agent.test.ts` "a stop refuses a pane shell…", the `db.test.ts` orphan sweep, `dex-import.test.ts`, and the worker `reconcile.test.ts` "archived while its start is in flight" (#1642).
+- Not built, on purpose (SPEC.md 13.6 and 32): signature help, find references, code actions, the outline, format on save, project-wide problems, C/C++ and Java servers, a cgroup per language server, and the debugger (#1622). Per-course tool versions are #1623.
+
+## Epic 53 — Settings redesign and per-language code help
+
+Built on `epic/53-settings-redesign` (task PRs #1654 plan, #1655, #1656, #1657, #1658, #1659, #1660, #1661 and #1662, and this fold). Issues #1653, #1651, #1649 and #1650 (the epic pull request closes them); #1652 (new languages) stays open. Migration 0051, ADR 0067. SPEC.md sections 6.4, 13.6, 19.4, 20.1, 24.1, 24.11, 25.2, 25.8, 26 and 29.
+
+Delivered:
+
+- Data and contracts (#1655): migration `0051_code_help_languages` replaces `settings.code_help_enabled` with `settings.code_help_languages`, a text array (off becomes `{}`, on becomes `{python,typescript}`, new rows get both, no check constraint), tested both ways. `CODE_HELP_LANGUAGE_IDS`, `CodeHelpLanguage` and `CODE_HELP_LANGUAGE_OF_SERVER` are in `packages/contracts`; the map covers every server id, so a server added without a language does not compile. `codeHelpLanguages` replaces `codeHelpEnabled` on the admin settings read and write and on `GET /me/settings`. A write is strict (400 for `java`, duplicates and non-arrays); a read is lenient (any string), and `siteSwitches` drops ids it does not know.
+- Refusal and audit (#1655): the language-server relay reads the set on every connect and refuses a turned-off language with 4416 "code help is off", before it dials the agent, releases its socket slot, and a failed read closes with a server error. The workspace agent is not taught the set. `settings.code_help_updated` carries `{from, to}` as id arrays in canonical order, in the same transaction, with no row for an equal set. Rows from before this epic hold booleans.
+- Schema split (#1655): the LTI and account-link tables moved to `packages/db/src/schema-lti.ts`; `schema.ts` is 713 lines and lint no longer warns. `db.test.ts` and `instructor-tables.test.ts` list every migration, so they were extended. `createPendingWork.track` in `apps/api/src/workspaces/presence.ts` made a promise nobody handled, which showed as an unhandled rejection when the language read failed; it now has an empty `.catch`.
+- Unit suffix and Keep running (#1657): `TextField` takes `unit`, and `UnitInput` is exported from `packages/ui`. The unit has an id and comes first in `aria-describedby`, not `aria-hidden`, so a screen reader reads "Disconnect grace, edit text, minutes". The Keep running fields line up on their tops, the time box fits a time, and the three storage bars are the same length (#1649). Both were shown to fail first (the time input sat 22 px low, one bar was 98 px short).
+- Right-click menu (#1656): after a diff round trip, Monaco's page-wide hover factory pointed at the diff editor's disposed services, which broke the right-click menu and Ctrl+Space (F2 and F12 kept working). `DiffViewer.tsx` now builds and disposes a bare editor on a detached element to point it back; it uses only the public API. `e2e/editor-context-menu.spec.ts` covers the menu, Ctrl+Space, F12 and F2, and failed on the base (#1650). No unit test, because the cause is inside Monaco, which jsdom tests replace.
+- Editor follows the set (#1658): the manager takes the set of languages. A file in a turned-off language opens as the plain editor, with no socket and no status; a DISABLED close stops only that language (Python and Ruff together); the set is read again when the window regains focus; Problems shows while any language is on. Student help describes per-language code help. `<img>` tags are removed before the `![` escaping in hover text, so `!<img>[x](u)` cannot form an image.
+- Settings page (#1659): the five sections are When workspaces stop, Resource guard, Student tools, Acceptable use and Email and alerts. Each has its own form and Save (**Save stop times**, **Save resource guard**, **Save student tools**, **Save and ask everyone to accept**, **Save email and alerts**), "Not saved. Was …" marks, a count and Discard changes, and sends only the fields it changed. A leave guard (TanStack Router `useBlocker` and the existing ConfirmDialog) names sections and counts, never values; in-page `#` links do not ask. Skeletons in each section's shape, a failed-read notice with **Load again**, a failed save that keeps edits, and one "Last changed" line from `updatedAt`. Student tools has a checkbox per shipped language with its memory, "Coming later" rows for HTML/CSS/JSON, Java, C and C++, and SQL, and the estimate from the Health data's total memory; only its headline is a live `output`. Restore built-in text saves at once after its confirm. Email and alerts saves account email, then the alerts job, and says which part saved if the second fails; the mail server is set whenever any of its fields is filled in, not only when email alerts are on. The Users-tab dialogs use the new labels and units (`LimitsDialog` uses `[&_input]:w-40`). `estimate.ts` and the "Estimate on the Settings page" table in `docs/CAPACITY.md` are kept equal by a unit test. Admin help topics were updated. `UnitInput` keeps the caller's own `aria-describedby` ids after its own (`TextField.tsx`, outside the B1 list).
+- Browser tests (#1660): `settings-sections`, `settings-leave-guard`, `code-help-languages`, `settings-estimate` and `a11y-admin-settings` cover each "Done means" line of #1653: each section's save, discard, the leave guard, nothing saving on a click, a failed read and a failed save, unticking and ticking one language, the "Coming later" rows, the estimate from the server's memory, and axe in both themes. Acceptable use is checked on the request with a stubbed answer, so a parallel run does not make everyone accept again.
+- Review fixes (#1661, #1662): the hover image filter now escapes every `![` as its last step, because dropping an unsafe link before it could leave a `!` ahead of a real link. A code-help status bar takes the announcement only while its editor is shown, so a background tab, the diff view and the conflict view no longer take the announcement. Shift+F10 opens the editor menu before and after a diff round trip. The Checkbox primitive draws an `aria-disabled` box muted (the "Coming later" rows, the egress presets while a save runs, and "Also stop its child processes" in the Monitor stop dialog). The estimate headline reads "Code help adds at most N MiB per student, if every student opens every ticked language", and shows a skeleton, not "not known", while Health loads. An idle Save is `aria-disabled` and described by "No unsaved changes." An edit made during a save stays unsaved.
+- Fold (this PR): SPEC.md sections 6.4, 13.6, 19.4, 20.1, 24.1, 24.11, 25.2, 25.8, 26 and 29, ADR 0067, the OVERVIEW current state, the new labels in `docs/ADMIN-GUIDE.md` and `docs/OPERATIONS.md` and a new `docs/images/admin-settings.png`, and the CI browser-test timings. `docs/EPIC-53.md` is deleted.
+
+Verified: every task PR passed typecheck and lint (Biome, comment history, Knip and jscpd), the unit tests as CI shards them on a private database, and the Playwright specs for the pages it touched, with axe in both themes for visible changes. The code, security and accessibility reviewers reviewed the epic at d55090d2, and their findings were fixed in #1661 and #1662. Each reviewer confirmed its findings closed at 130da63d with nothing new; security fuzzed the hover sanitizer through Monaco's bundled `marked` with about 35 hand-written inputs and 300,000 random ones, and none produced an image. The fold ran lint and the docs link check.
+
+Gaps:
+
+- A profile change picked up when the window regains focus can remove the control that has focus (A11). It was left out of this epic on purpose.
+- Hover text escapes every `![`, so a literal `![` in a docstring shows a backslash. Removing it safely needs a Markdown reading that can differ from the renderer's, so the escape stays.
+- If the editor that announces a code-help state in a split view closes, the other editor's status bar may read the current state again.
+- A student who returns to a tab where code help has stopped hears "Code help stopped" again, because each status bar announces once when it becomes visible.
+- Turning a language off does not close sockets already open; each ends when it closes for another reason, and the next connect is refused. The agent does not know the set (ADR 0067).
+- Rows marked "Coming later" (HTML/CSS/JSON, Java, C and C++, SQL) are shown but cannot be shipped yet. They have no contract id and the API refuses them; #1652 tracks adding them.
+- The estimate reading a real host's memory is covered only with a stubbed Health answer, because the e2e Health report has no host. It counts memory only, and its platform figure comes from a nominal 16 GiB while Health reports a slightly smaller total, so the count can be about one student low (`docs/CAPACITY.md`).
+- Under heavy local load, some unit tests time out that pass alone (web admin tests at 5 seconds, and `agent.test.ts` in `workspace-agent`); the web ones also failed on the base before this epic.
+
+## Epic 54 — Fix batch after Epic 53
+
+Built on `epic/54-fix-batch` (task PRs #1668, #1669, #1670, #1671, #1672, #1673, #1674, #1675, #1676 and #1677, the fold #1678, and the pilot follow-ups #1682 and #1683). Issues #1642, #1602, #1665, #1245, #1223, #1138, #1680 and #1681 (the epic pull request closes them). No migration. ADR 0039 gained a dated change note. SPEC.md sections 20.1, 24, 24.9, 24.11, 25.8, 25.10, 29 and 30.
+
+Delivered:
+
+- Load-proof unit tests (#1642, #1671): the six tests that timed out on a busy host now wait on events or carry timeouts sized to their real work. The agent stop tests resolve when an output frame arrives instead of polling a clock. The git test writes its 5,010 files concurrently. The database orphan sweep is called directly (`dropOrphanedDbs` is exported from `packages/db/src/testing.ts`) and `db.test.ts` and `dex-import.test.ts` give their hooks 30 seconds. The Dex import command-line test runs its four child processes in parallel without blocking the worker. The reconcile helper `untilState` polls until the state lands instead of stopping after 200 polls. On the base, under load, all five targets failed; on this branch none did, up to a load average of about 100.
+- Backups multi-delete (#1665, #1672, #1675): each of the four lists on the Backups tab has a checkbox on every row and a select-all box. One confirm names the count and kinds. The browser sends the existing per-item delete for each selected item, one at a time, so each item is its own audited request and there is no new route. A partial failure keeps the confirm open on the failed items, lists each reason in an alert region and keeps them ticked, and Delete again retries only those. Sets the host keeps cannot be ticked and say why (see the retention floor bullet below). The row's own Delete stays. The button reads "Delete N selected on this tab…" when ticks span lists. `ConfirmDialog` gained `cancelDisabled` and `cancelDisabledReason`, used while deletes run. The Clean up help topic has a paragraph on it.
+- Audit retention (#1245, #1669, #1677): a daily worker sweep deletes `audit_events` rows older than 365 days, for every action, with no setting and no export. The worker role stays append-only: the delete goes through `public.prune_audit_events(batch_size)` in `worker-grants.sql`, a `SECURITY DEFINER` function owned by `portikus` with search path `pg_catalog, public, pg_temp`, a fixed cutoff, a batch size clamped to 1 through 10000, and `EXECUTE` for the worker only. The loop stops on an empty batch. Only the count is logged. Tests run under the real worker role: a 366-day row goes, a 364-day row stays, and the owner, search path and grants are pinned.
+- Changed-line coverage (#1223, #1670, #1676): `scripts/check-changed-coverage.mjs <base-ref>` fails when under 80% of a pull request's added lines that vitest measures are covered. It uses `vitest.config.ts` include and exclude lists directly. It runs in the `unit` job on pull request events only, on a depth-2 checkout against `HEAD^1`, which is the base tip. It prints the percentage and the uncovered ranges, and writes the result to the step summary. A line starting with `++ ` is no longer read as a file header.
+- Worktree deploys (#1602, #1674, #1676): the Makefile's `TOFU_READ_STATE` reads the pilot's OpenTofu state from the main checkout when a worktree has none, so `make deploy-app` and `make smoke-test` find the pilot's address and public host with no overrides. `TOFU_STATE` is unchanged, so init and apply still use the checkout's own state, and the four tofu targets now refuse in a worktree with no state of its own. WORKFLOW.md and the pilot-deploy skill no longer tell people to pass overrides.
+- Security suite on a plain host (#1138, #1673): `make security-test SECURITY_TARGET=host` ran on a fresh `apt install portikus` host. Plain-host mode reads the package's own `site.yml` for limits and marks the reboot checks and the Caddy and PostgreSQL kill checks not applicable, so the suite never stops the services it runs on. A new module, `infra/tests/security/recovery.sh`, checks on a real host that recovery points hold no Claude Code or Codex login, that links stay links, and that a restore brings back every owner, mode and link; breaking the agent made four checks fail. `make backup-scope-test` runs the backup scope test alone, and `make infra-check` calls it. docs/OPERATIONS.md describes both.
+- Audit action tests (#1138, #1668): a test reads every action named in SPEC.md 24.11 and fails if no test file names it. New row assertions cover `dex_user.reset_link_sent` and `admin.invitation_emailed`, and `apps/worker/src/backups.test.ts` now drives every backup request kind's done and failed outcome.
+- Dex sign-in job (#1138): over the last 30 CI runs that ran it, the job passed 30 and failed 0 (27 other runs skipped it because they touched no app or infra code), so no flake needed fixing. Todd ruled it a required check on the main and epic rulesets, which the orchestrator set at fold time; the comment above the job in `ci.yml` and the job list in WORKFLOW.md now say so. It is skipped, which counts as passing, when neither app nor infra code changed.
+- Backup retention floor on the page (#1680, #1683): found on the pilot, where every hand delete of a set was refused. The host channel now reports its keep count (`floor.keepComplete`) and a per-set `requested` flag, and the Backups tab marks the sets it keeps as unavailable with the reason, on both the checkbox and the Delete button; select-all skips them. Todd ruled that hand deletes lose the 14-day age floor and refuse only the newest `PORTIKUS_BACKUP_KEEP_COMPLETE` (3) nightly sets; sets requested from the page do not count and can be deleted. With no complete nightly set, the newest complete set of any kind is kept. After a security review, the requested-backup cap counts a host-kept log (`/var/lib/portikus-backup-channel/requested-runs`) rather than surviving sets, and `backup.sh` writes the `REQUESTED` marker before the set lands. Nightly retention keeps its age floor. The accepted cost, in ADR 0039: a compromised VM can delete every set except the newest 3 nightly ones. An older host that reports no floor gets the old newest-set-only behaviour.
+- Audit tab refresh (#1681, #1682): the newest page refreshes every 5 seconds like the other admin tabs; older pages stay fixed by their cursor. Open details, typed filters and focus survive a refresh.
+- Fold (#1678): SPEC.md sections 20.1, 24.9, 25.8, 25.10 and 29, the Dex sign-in note in `ci.yml` and WORKFLOW.md, the changed-line coverage check in STACK.md section 13, and `docs/EPIC-54.md` is deleted.
+
+Verified: every task PR reported typecheck, lint (Biome, comment history, Knip and jscpd) and the unit tests as CI shards them on a private database, and the Backups change passed Playwright with axe in both themes. `make infra-check` was green for the infrastructure tasks. On the rehearsal VM, `make install-test` passed, the retention floor change passed real-API delete, cap and nightly-floor checks and a smoke test of 401 passed, 0 failed, 1 skipped, and the security and accessibility reviewers signed off on it; and the plain-host security suite passed 311 checks (another workspace present), 413 (empty host) and 429 (heavy run), with 0 failed.
+
+Gaps:
+
+- The shared Checkbox's muted (unavailable) look is faint in both themes (an edge of about 1.3:1). It is exempt from WCAG contrast rules and the Backups row shows a visible reason, but strengthening it would change Settings too.
+- The security suite's VM mode was not rerun in this epic, because it needs the pilot's topology. Plain-host mode passed 429 checks with 0 failed on the rehearsal VM. In plain-host mode the reboot checks and the Caddy and PostgreSQL kill checks are not applicable.
+- At load averages near 100 (many agents on one host), about 28 other unit tests in unrelated files (API rate-limit tests, web page tests) still hit the default 5-second timeout. CI has not shown this.
+- The changed-line coverage check counts added and changed lines only, so a deleted test that drops coverage elsewhere is caught only by the repository floors.
+- Nightly database backups still hold audit rows older than 365 days until those backups age out.
+- The audit action check is a name tripwire: it shows a test names each action, not that the test asserts a row.
+- On upgrade, the requested-backup log starts empty, so a host allows up to 3 requested backups once even if some were made in the last 14 days.
+- The Audit tab does not announce new rows to screen readers, the same as the other refreshing admin tabs.
+- `infra-apply` from a worktree refuses by design; the worktree deploy and smoke test were shown on the real pilot with no overrides.
+
+## Epic 55 — Quick fixes
+
+Built on `epic/55-quick-fixes` (task PRs #1697, #1698, #1699 and #1700, and the fold). Issues #1695 and #1685 (the epic pull request closes them). No migration. ADR 0039 gained a dated change note. SPEC.md sections 24.9 and 29.
+
+Delivered:
+
+- Faster multi-delete (#1695, #1697, #1700): `infra/host/backup-channel.sh` keeps its 30-second timer, but one run now handles several requests. The claim, check, run and report steps are one function, `handle_request`, called in a loop. After a `delete_set` or `delete_dump` that succeeded and was reported, the run claims the next request, up to 20 requests or 25 seconds since the run started (two constants near the top of the script). Any other kind (`backup`, `restore_copy`, `import_home`), a delete the host refused, and a delete that failed each end the run after they are reported, so long jobs stay one per run. Each request still gets its own check, run and report, and the result fields are cleared per request so one delete's error never reaches the next. When the loop ends on "none" after a delete, the closing status report is skipped because that delete's own report just sent a fresh one. The success-only rule (#1700) keeps a hostile VM from looping a refused or bogus delete to keep the host busy: the same bogus `delete_set` served on every pull is handled once per run. No VM-side, API, timer or contract change.
+- Channel tests (#1697, #1700): `infra/tests/backup-channel-test.sh` has a fake VM that serves each claimed request once from an ordered queue, and a fake `date +%s` that moves 10 seconds per read, so the time limit is tested with no real sleep. It covers four queued deletes in one run (each reported alone), the stop at 20 requests and at 25 seconds, a backup after deletes that runs and ends the run with later requests left unclaimed, a first backup that runs alone, a refusal and a failed delete that each end the run, a successful delete before a failed one with no error carried over, and the repeated bogus delete handled once per run. 124 passed, 0 failed. `infra/tests/backup-local-test.sh` (92 passed) has a fake pull that serves each request once.
+- Flaky offsite test (#1685, #1698, #1699): the case "prune drops a second copy of a set it holds" failed about 1 run in 300. The cause was in the test, not the prune code. rrsync, the restricted command on the target, holds an exclusive lock on `incoming` for its whole run and refuses a second connection with "Another instance of rrsync is already accessing this directory." The case before it sends a deliberately failed copy to an absolute path. The client exits at once, sometimes before rrsync on the target has dropped its lock, so the forged second copy was refused, nothing arrived, and the prune had nothing to drop. Production is unaffected: a push sends its marker only after the data copy succeeds, and a successful ssh session waits for rrsync to exit. A helper, `wait_for_rrsync` in `infra/tests/backup-offsite-test.sh`, runs `flock -w 10` on `incoming` before every connection to the target in the section "what the server's key cannot do" (the `rm -rf` attempt, the listing, `--delete`, the `..` path, the absolute-path copy and the forged second copy). If the lock is not released in 10 seconds it records a FAIL by name, prints the counts and exits, so a negative check can never pass because of the lock. No sleeps or retries; `flock` is a required tool of the test. The cause was reproduced by holding the lock with `flock "$incoming" sleep 2 &` before the forged copy, which failed the base test every time with the CI signature.
+- Fold: SPEC.md sections 24.9 and 29, the ADR 0039 change note, and `docs/EPIC-55.md` is deleted.
+
+Verified: `make infra-check` was green for each task PR, shellcheck and the comment-history check were clean, and the channel test fails on the base script (9 checks in the first task, 2 after the success-only rule) and passes on the branch. The offsite test passed 30 of 30 runs on this host and 30 of 30 in an Ubuntu 26.04 container, 129 passed each, and 129 passed 30 of 30 again after the checked wait; the two-rsync loop ran 1000 times with 0 refused. Rehearsal VM (apt-installed, channel in the VM, c5d577eb): four set deletes requested at once were all claimed in one tick and done 16 to 20 seconds after the request, against 25 to 115 seconds before; a backup queued with two deletes ended its tick and the deletes ran in the next; the full smoke test with the Dex sign-in passed 401, failed 0, skipped 2 (both by design). The code reviewer and the security reviewer ran over the epic; the security finding (a refused delete kept the drain going) and three test findings were fixed in #1699 and #1700 and confirmed closed by each reviewer.
+
+Gaps:
+
+- None known.
+
+## Epic 56 — Agent status, usage and file drop
+
+Built on `epic/56-agent-status` (task PRs #1713 to #1724 and #1726, and the fold). Issues #1707, #1710 and #1709 (the epic pull request closes them). No migration and no workspace image rebuild. ADR 0068 is new, and ADR 0057 gained a dated change note. SPEC.md sections 8.5, 9.6, 9.7, 10.8, 24.1, 25.8, 25.10 and 29.
+
+Delivered:
+
+- Agent status (#1707): each terminal tab running Claude Code or Codex shows a mark for working (open ring), needs input (triangle) or finished (check), and a bold label with an unread mark until the student looks at it. The state is also in the tab's accessible name. The project list shows the most urgent state of each project, so agents in other projects are visible. When an agent finishes or needs input in a tab the student is not looking at, a toast says so, with "Open project" for another project. These toasts are not recorded in the notification history (SPEC.md 8.5). A terminal that goes back to "working" loses its unread mark.
+- Desktop notifications (#1707): a per-user setting, Ask me (the default), On or Off, in Settings > Preferences. While it is "ask", the first agent toast on a page load offers "Turn on desktop notifications" and "No thanks". Choosing On saves the choice only. An "Allow in this browser" button asks the browser, and a refusal keeps On and says the browser blocked it. A notification fires only when the page is hidden or unfocused, and its text is the agent and the state only ("Claude Code needs your input"), never a project or terminal name.
+- Usage meter (#1710): each agent has a status bar meter of its fullest plan limit window, with a popover listing every window, its reset time in the student's zone and today's counts. Claude Code's limits come from its status line and Codex's from `codex app-server`. A student with an API key, whose agent reports no plan limit, sees today's tokens and cost for the current UTC day instead (this reverses ADR 0057's "no student usage view" for the current day, ADR 0068). A warning toast, saved in the notification history, fires once per agent, window and reset time at 85 percent. Windows past their reset time are hidden, and a Traditional course hides the meter.
+- File drop (#1709): a file dragged from the desktop onto a terminal is saved to `.portikus/pastes/<stamp>/<name>` and its quoted absolute path is typed at the cursor, with a trailing space and never Enter. A file dragged from the file tree onto the middle of a pane types its path without saving anything; edge drops still split the pane. A name with a control character, or a file over 50 MiB, refuses the whole drop with a toast. "Copy path" in the file tree menu (right-click or Shift+F10) is the keyboard way to the same text, one path or several separated by spaces. Files in the `<stamp>` folders are pruned after 7 days like pasted images.
+- F8 reaches the newest toast from inside a terminal (a bare F8 now passes through xterm; a shifted F8 still goes to the shell).
+- Help: the student Help page describes the marks and alerts, desktop notifications, the meter and today's counts, F8, Copy path and the Esc note.
+
+How it works, in brief:
+
+- Signals come from the agents' own hooks, never from terminal output (SPEC.md 10.8). The controller writes the hook and status-line settings at every workspace start. `apps/workspace-agent/scripts/portikus-agent-state` throws its input away unread, has a 1-second limit and always exits 0. `portikus-claude-status` keeps only the two `rate_limits` windows, posts them and prints a line such as "5h 42% · resets 3:00 pm  7d 18%". A student's own Claude Code status line is replaced.
+- The loopback receiver on port 7401 gained `POST /coding-agent-state` and `POST /claude-limits` (JSON only, 4 KiB, strict checks, no logging). An in-memory board keeps up to 20 terminals, and once a terminal is removed every later post for its id is refused. The state travels on the existing listening socket as `workspace.coding-agents.changed`. The API drops terminal ids the database does not hold for that workspace, adds each terminal's project, throttles notifications to four a second per workspace, and sends a `coding-agents` message to the owner's sockets only. An administrator watching a workspace does not receive it. `GET /workspaces/:id/agent-meter` is owner only.
+- Codex limits (`apps/workspace-agent/src/codex-limits.ts`): the agent runs `codex app-server` as the student, sends initialize and `account/rateLimits/read`, keeps only the window percentages, labels and reset times, and kills the child after the reply or 10 seconds. A cache answers at once, refreshes in the background, runs one reader at a time and at most every three minutes, and refreshes after a Codex "finished" state. `account/read` is never called.
+- The Codex system config sets `daemon_auto_start = false`. Codex ran hooks inside a long-lived background app-server that kept the first terminal's environment, so later sessions reported the first terminal's id and states landed on the wrong tab.
+- Nothing is logged or stored: only state words and numbers travel (STACK.md section 15, ADR 0012). Forged posts from inside a workspace change only the student's own screen.
+
+Reviews: the code reviewer, the security reviewer and the accessibility reviewer all ran over the epic. Their findings were fixed in #1719 to #1723 and #1726 (alerts lost when two lists arrived together, focus after the permission offer, state in tab names, throttling and coalescing in the API, forged tree drops, F8 in a terminal, the Settings radios opening the browser prompt, late posts for a removed terminal), and each reviewer confirmed its findings closed.
+
+Verified: both unit shards pass as CI shards them, with a private test database, and typecheck, lint, knip and `make infra-check` are clean. New Playwright specs are `e2e/agent-status.spec.ts`, `e2e/agent-meter.spec.ts`, `e2e/desktop-notifications.spec.ts`, `e2e/terminal-file-drop.spec.ts` and `e2e/keyboard-f8-toast.spec.ts`, with axe checks in both themes. The Codex reader and the hook scripts have unit tests against a fake `codex` and a fake receiver. Rehearsal VM: the epic build (0.1.1341+gc50d85bb) was installed on the rehearsal VM with real Claude Code and Codex (0.162.1) sign-ins. Codex accepted the generated config and its hooks; working, needs input, finished and clear reached the browser for both agents, and two Codex sessions in two terminals each reported their own terminal once Codex's app-server daemon was turned off. Claude's status line reported its 7-day limit and Codex's app-server reported both windows, and both showed in the status-bar meter. A student's own `disableAllHooks` does not turn off the managed hooks. The full smoke test with a Dex sign-in passed 402, failed 0, and skipped 1 (a packaged host has no workspace.sh, by design). The code, security and accessibility reviews ran, and every finding was fixed and confirmed closed.
+
+Gaps:
+
+- If a student stops Claude Code with Esc, its tab keeps showing "working" until the next prompt. Claude sends no hook for it. Todd accepted this, and Help says so.
+- Claude's 5-hour window was never sent for the test account, so only the 7-day window was seen on a real Claude Code.
+- The first Codex limits after a workspace start appear on the next minute's poll.
+- A Codex token refresh during the app-server read was not exercised.
+- Codex's background app-server daemon is turned off, so hooks carry the right terminal.
+- Unread marks do not survive a page reload.
+- Usage warnings are remembered per browser (local storage), not per user.
+- Hiding the meter in a Traditional course is unit-tested only.
+- The meter popover can cover a toast while it is open.
+- Toasts with actions (the permission offer and "Open project") stay until dismissed or until the student views that terminal.
+- Flaky test #1725 (a workspace-agent attach test that sometimes answers 500) is open.
+
+## Epic 57 — Pilot fixes
+
+Built on `epic/57-pilot-fixes` (task PRs #1734 to #1742, and the fold). Issues #1731, #1732, #1725 and #1703 (the epic pull request closes them). No migration. SPEC.md sections 7.5, 22.3 and 29.
+
+Delivered:
+
+- Layout saves (#1731, #1734, #1740): Caddy compresses API responses and adds `-gzip` to an entity tag (ETag), so the layout version `"5-gzip"` was read as no version and every save was refused. The browser (`apps/web/src/layout/persist.ts`) now reads the number from the tag when a `-<encoding>` suffix follows it. The first version also accepted a weak `W/` prefix; the code review removed that, so only the encoding suffix is read. The second defect in the issue is also fixed: a save queued while leaving a project used a stale version, and now uses the version the save in flight returned. Files and checks were already safe: file-relay sends `Cache-Control: no-transform`, which Caddy honours, so those tags are never changed. New Playwright spec `e2e/layout-etag.spec.ts` rewrites the layout tags to `"<n>-gzip"` the way Caddy does, splits a terminal, switches project and back, and checks every save is a 204. It fails on the base. Smoke step 15.7b in `infra/tests/smoke/projects.sh` saves a layout over 512 bytes through Caddy, reads it back with gzip accepted (and fails if the tag does not end in `-gzip"`, so a Caddy that stops compressing cannot pass it), then saves again with the version read as the browser reads it.
+- Rebuild notice (#1732, #1736, #1741): the title is one sentence ending with the removed packages as a comma-separated list in code style, and the status-region text shares the wording. The `sudo apt install` command has a copy icon button, "Copy command", shown on hover, on keyboard focus and on any touch pointer, in place of the separate text button. The first version showed the icon always only under `(hover: none)`, which misses a touchscreen laptop whose primary pointer is a trackpad; the accessibility review caught it and #1741 changed the rule to `(hover: none), (any-pointer: coarse)`. A new `copy` icon is in `packages/ui/src/primitives/Icon.tsx`. The student Help page does not describe the notice, so Help is unchanged.
+- Flaky attach test (#1725, #1737, #1738, #1739, #1740): the cause was in the tests. A workspace-agent test's own tmux server exits when its last session closes, and a terminal created in that moment got "server exited unexpectedly", which the agent reports as a 500 (TMUX_FAILED). Students cannot hit it: in a workspace the agent uses the terminals unit's server, started with `-D`, which stays up. Every test file that runs its own server now holds a `keep-alive` session through one shared helper, `apps/workspace-agent/src/test-support/tmux-keep-alive.ts`. `agent-session.test.ts` also shared two terminal ids with `tmux.test.ts`, and closing a terminal stops every process marked with its id on any tmux server, so parallel files could kill each other's shells; it now uses its own ids. A second CI failure, in `agent-signal-scripts.test.ts`, was the hook's time read being ahead of `Date.now()`: the runner's wall clock stepped back by 315 ms inside a 54 ms test. The test's bound is now an absolute 10 seconds either way, which still catches a wrong unit, since the receiver only compares one hook's time with another's.
+- LTI platforms file (#1703, #1735, #1742): when the platforms source file was missing, setup read nothing and deleted `/etc/portikus/lti-platforms.json`, turning LTI off without a word. Ruling (Todd, after the security review): fail closed. When the operator names a source file (`portikus_lti_platforms_file`, or `PORTIKUS_LTI_PLATFORMS_FILE` for `make configure-vm`) and it is missing, setup fails in the pre-task that loads it, before any task touches the installed file, and the message names the path and both fixes. A missing file at the default path still turns LTI off. The first fix (#1735) kept the installed file and only warned; the security review found that an operator who deletes the file to revoke an LMS would get a green run with LTI and its egress still on, and #1742 replaced it. `docs/OPERATIONS.md` and `infra/README.md` say so.
+- Fold: SPEC.md sections 7.5, 22.3 and 29, and `docs/EPIC-57.md` is deleted.
+
+Verified: both unit shards pass as CI shards them, with a private test database (about 4880 and 4585 tests), and typecheck, lint, knip and comment-history are clean. `infra/tests/lti-platforms-test.sh` has 27 checks (the fail-closed ones fail on the old code), and `make infra-check` is green. Playwright: `e2e/layout-etag.spec.ts` with the other layout specs (28 passed after the fix round), and `e2e/reinstall-note.spec.ts` with `e2e/a11y-announcements.spec.ts`, including axe in both themes, a 360 px width, and a touchscreen laptop emulated with Chromium's `--blink-settings`. Reviews: the code, security (LTI) and accessibility reviews ran; every finding was fixed (#1740, #1741, #1742) and confirmed closed. Rehearsal VM: the epic head (0.1.1357+g04fa04c0) installed with setup `failed=0`, and the full smoke test passed 405 with 0 failed, including the check that a compressed layout read carries a `-gzip` tag and the next save on it succeeds. The one skip is the `workspace.sh` check, which an apt-installed host never has. With `portikus_lti_platforms_file` pointed at a missing path, setup stopped with the new message and `/etc/portikus/lti-platforms.json` kept the same SHA-256; with the setting restored, setup ended `failed=0`. On the earlier build, file and checks-list saves through Caddy were shown never to be compressed (`Cache-Control: no-transform`), and six saves in a row succeeded.
+
+Gaps:
+
+- The hook time failure (#1725) could not be reproduced on this host, because its clock did not step; the fix follows from the measured timing in the CI log.
+- The tmux race has no permanent regression test: it is timing-based, and a test that hits it reliably takes about three minutes. Reproduced under load with a temporary test (2 of 300 failed on the base, 0 of 300 after).
+- `apps/web/src/editor/features.test.ts` failed twice on one first run under load in a task run and passed on re-run and alone; it was not shown failing on the base.
+- The fail-closed LTI rule is tested by the shell suite only, not on a real host before the rehearsal run above.
+
+## Epic 58 — Claude Code chat tab
+
+Built on `epic/58-agent-chat` (task PRs #1748, #1749, #1751, #1752, #1753, #1754, the fix round #1757, #1763, the start-race fix #1765, and the fold). The epic closes no issues. Migration 0052. SPEC.md sections 8.3, 9.7, 10.2, 10.8, 24.1, 25.8, 25.10, 26 and 29; ADR 0069; STACK.md sections 10 and 35.
+
+Delivered:
+
+- Contract and record (#1748): `packages/contracts/src/chat.ts` holds the chat contract with its caps (client frames 1 MiB, images 5 MiB, at most 4 questions of 2 to 4 options); migration 0052 adds `terminals.kind` (`terminal` or `chat`), and existing rows read back as terminals. The fix round raised the server frame cap to 8 MiB, gave `turn.started` and `turn.finished` an `at` time, removed `snapshot.messages`, and added `resumeChatOf`.
+- API relay (#1749): `apps/api/src/routes/chat.ts` relays chat frames without reading them. Only the owner may attach; a missing, other-workspace or wrong-kind terminal gets 404 before the upgrade. A fake chat host for tests is in `apps/api/src/testing/fake-agent/chat.ts`. The fix round also refused live-help helpers on chat tabs (they neither see nor attach to one) and added Resume on create.
+- Chat host (#1753, replacing #1750, whose fixture held real session ids): `apps/workspace-agent/src/chat/` runs as the command of the tab's tmux session, drives the Claude Agent SDK 0.3.319 (pinned) against the shared CLI, and listens on a private socket. Cards wait without a limit and the first answer wins. The hooks that feed Epic 56's state marks fire under the SDK, and plan limits come from `rate_limit_event`. The fix round replays history as events with real turn times, holds live events during attach and numbers them after the replay, offers bypass (`allowDangerouslySkipPermissions`, proven against the real CLI), shortens oversized card inputs, records the Resume chain in `~/.local/state/portikus/chat-sessions/<tabId>`, and fixed replay of image-only messages and replay status.
+- Conversation and composer (#1751, #1752, then #1757): streamed Markdown, a "Worked for" fold, permission and question cards, images both ways, pickers for model, effort and permission mode, voice input, and the "Claude Code (GUI)" and "Claude Code (TUI)" menu entries. The fix round did all fourteen accessibility findings, the eight design fixes (follow new content, tab names, quiet labelled pickers, a bypass warning, larger chips, compact cards with a diff for Edit, quieter tool blocks, clearer structure), Resume chat, downscaling of large images in the browser, and moved `sanitizeMarkdown` to `apps/web/src/markdown/sanitize.ts`.
+- Package and smoke (#1754, #1763): the .deb build fails without the SDK and the chat host, or with an SDK platform binary (the .deb grew by 5.5 MB); the smoke test creates a chat tab, receives the snapshot and a plan-mode `settings` event, and sends no prompt. The check waits up to 30 seconds for the host socket.
+- Start race (#1765): a new GUI tab could attach before the host listened and close with 4404. The chat route now waits up to 10 seconds for the socket while the tab's tmux session lives. The start effort is one `CHAT_START_EFFORT` constant in the contract.
+- Fold: SPEC.md, STACK.md sections 10 and 35, ADR 0069, the Help topic "Claude Code (GUI) and Claude Code (TUI)", and `docs/EPIC-58.md` is deleted.
+
+Verified: the fix round ran the full unit suite with coverage (631 files, 9736 tests) and Playwright for every touched page (219 tests, with axe in both themes). The security review found no high or medium issue; its one fix (helpers refused on chat tabs) and the correctness and accessibility findings were fixed in the fix round. On the rehearsal VM the full smoke test passed 413 with 0 failed and one skip (the packaged host has no `workspace.sh`), with a Dex sign-in file. Session file modes, Resume, and the .deb contents were checked there, and a send with no Claude login gives a clean error event.
+
+Gaps:
+
+- A real Claude turn has not been run on a VM, because there was no login. The real-CLI test ran in a task, but the full path (a signed-in student, an image, a question) is unproven end to end.
+- An Epic 56 alert toast can cover the composer's Send button at desktop widths (#1745).
+- `pnpm dev` does not start a chat host, because only the built `dist/chat/main.js` exists.
+- The model picker never marks a changed value in bold; only effort and permission mode do, because the default model is not known.
+- A GUI and a TUI can still run one session at once; Help says not to.
+- A plain terminal asked for on the chat route would wait 10 seconds before a 404; the API already refuses it, so it cannot happen.
+- Follow-up issues: copy buttons (#1758), Markdown while typing (#1759), an icon Send button (#1760), a design review against the best chat interfaces (#1761), a question card for terminal Claude Code (#1762), and registering the mock LMS in the install test (#1764).
+
+## Epic 58.1 — chat fix batch
+
+Built on `epic/58.1-chat-fixes` (task PRs #1779, #1787, #1788, #1789, #1790, #1791, #1792, #1793, #1794, #1795, #1796, #1797, #1798, #1799, the last fixes #1800, the real-CLI test fix #1802, and the fold). It closes #1745, #1758, #1759, #1760, #1761, #1768, #1771, #1772, #1773, #1774, #1775, #1776 and #1777. Migration 0053. SPEC.md sections 8.5, 10, 10.8, 24.1, 25.8 and 29.
+
+Delivered:
+
+- Alert toasts (#1779): every agent alert toast stays until it is viewed, dismissed or replaced, and the toast is capped at the screen width (it overflowed at 360 px).
+- Images in replies (#1787): an owner-only route shows a local image from the project, or any path under `/home/student`, in a viewer dialog with "Open in editor" for project files. A remote, `data:`, missing or non-image target shows a plain note. The general file read is not widened. Claude is told to save images under `.portikus/images/`.
+- Splits (#1788): Split right and Split down offer the New tab choices through one shared list; a split tab is named for its focused pane (a shell split from a chat used to read "Claude Code (GUI)"); Escape in a submenu steps back one level.
+- Permissions (#1789, #1797): "Always allow" names every grant and how long it lasts. The chat host holds session allow rules and lists them, each with Revoke; rule changes go through one queue, and a failed grant says so.
+- Composer (#1790, #1791): a TipTap Markdown editor, an icon Send button with a separate Stop, and the four pickers as styled radio menus with a description per choice.
+- Layout and questions (#1792): the chat no longer makes the pane scroll (a hidden label was positioned against the pane), and a question card shows one question at a time with keyboard paging.
+- Sticky settings and hint (#1793): the last model, effort and permission mode are stored per project; a quiet line under the pickers notes when session rules allow actions without asking.
+- Messages (#1794): Copy buttons on replies, sent messages, code blocks and tool output; sent pictures as thumbnails that open the viewer; sent messages drawn as Markdown.
+- Conversation polish (#1796): tool calls as one light line, three starter prompts in a new chat, and a round "Jump to latest" button with a dot.
+- Turn and keyboard (#1798): Send during a turn, Escape to stop, Up for the last message, number keys in permission cards, a Working line naming the step, and a long paste saved as a file chip.
+- Review fixes (#1797, #1799): capped image reads, a named pipe no longer hangs the agent, Revoke busy state and focus, toasts step above a focused control, image syntax in code stays as written, and clearer pager reasons.
+- Epic run process (#1795): CI cancels a stale pull request run when a newer commit arrives; the epic-run skill gains a "starts after" column, one watcher, and an earlier review.
+- Last fixes (#1800): a message sent mid-turn keeps the running step on the Working line until Claude takes it in; one verb table feeds the tool row and the Working line ("Running pnpm test", "Waiting for your permission"); starter prompts keep a draft; long pastes are named apart and announced; code blocks are announced every time; unread question results show once; shared chat e2e helpers.
+- Real-CLI test (#1802): the real-CLI chat test now proves a mid-turn message reaches Claude, not that Haiku obeys it.
+- Fold: STATUS, SPEC.md section 29, the epic-run skill's watcher step, and `docs/EPIC-58.1.md` is deleted.
+
+Todd's rulings:
+
+- #1759: the composer is a WYSIWYG editor (TipTap).
+- #1775: settings are stored server-side, per user and per project; a last-used Bypass returns as Auto.
+- #1777: images may come from the project or anywhere under `/home/student`. Symlinks are allowed when the real path stays under `/home/student`; containment is the only rule (ruled 2026-11-08).
+- Task pull requests keep full CI. Lighter CI on task pull requests is the next step if CI time shows on the serial path.
+
+Verified: each task ran both unit shards with a private database, lint, the comment-history check and the Playwright specs for its pages. Every task PR passed full CI, and the epic push run after each merge passed.
+
+Gaps:
+
+- The sent-thumbnail e2e uses a replayed message, not a real paste and reload (#1794).
+- The "Sent while Claude was working" note is shown live only and is lost on reload, because the transcript does not record it (#1798).
+- The SDK's `unanswered` skip annotation is read by the Claude Code program, not by the model (#1793).
+- The larger design-review proposals are filed as issues #1780 to #1786; Rewind (#1786) needs Todd's ruling. Proposal 9 lives in #1769.
+- The round Jump to latest button can sit over the last message's corner while the student is scrolled back a little (#1800). Closed by Epic 58.2 (#1815): it now has a strip of its own below the log.
+- Haiku sometimes ignores a message sent while Claude works, treating it as an instruction injected into tool output (#1801); the host delivers it correctly.
+- No axe scan of the split submenu, and no Preview in a split (#1788).
+
+## Epic 58.2 — chat and phone fix batch
+
+Built on `epic/58.2-fix-batch` (task PRs #1814, #1815, #1816, #1817, #1818, #1819, #1821, #1825, #1826 and #1828, the fix round #1822, #1823, #1824, #1827, #1832, #1833, #1834 and #1836, and the fold). It closes #1764, #1769, #1805, #1806, #1807, #1808, #1809, #1811 and #1812, and refers to #1801, which stays open. Migration 0054. SPEC.md sections 8.1, 10.2, 24.3, 24.4, 24.13, 25.6, 25.8 and 29.
+
+Delivered:
+
+- Dependabot alerts (#1819): fast-uri (3.1.9 and 4.2.3) and source-map-js (1.2.2) were refreshed inside their ranges, which cleared those alerts. A pnpm override forced dompurify 3.4.17, but `monaco-editor` 0.57.0 bundles its own DOMPurify (3.4.15), so the override changed nothing at runtime; at Todd's ruling the fix round removed it (#1834), and the lockfile is back at dompurify 3.4.15 under Monaco. The dompurify alerts were dismissed (#1829), which also tracks the Monaco upgrade.
+- Composer row (#1816, #1824): the microphone and Send stay on the first line. Below 49rem of composer width each picker shows only its value ("Claude", "Opus", "Medium", "Ask"), and below 35rem the pickers take a line of their own. The accessible names keep the prefix word. The full label shows in a tooltip on hover and on keyboard focus (a new shared `Tooltip` in `packages/ui`), and each picker menu opens with a heading. The breakpoints were measured with the widest values, so choosing a longer value never moves them.
+- Dictation (#1821): the running guess shows greyed and italic at the cursor as an editor decoration. It is hidden from assistive technology and never part of the sent text; the old note under the pickers is gone. The composer bar wraps at every width.
+- Markdown in the composer (#1825): block quotes, strikethrough, separator lines, headings (one to three), bold italics, task lists, nested lists (Tab and Shift+Tab inside a list), and links. Only http and https links are kept, by the same `isSafeLink` check as replies. Typing `[ ] ` makes a task only in a bullet list with one item, and Shift+Tab outdents only a nested item, so Tab and Shift+Tab outside that still leave the box. A task's checkbox is named from its own first line ("To do: buy milk"). A fenced link target has `<`, `>` and `\` backslash-escaped, so a pasted address cannot close the fence early and start a second link (#1834). Five TipTap extensions were added at 3.33.0, and the lazy chat chunk grew from 416.8 KB to 453.1 KB. Help lists the shortcuts.
+- Double paste (#1826): the same text of more than 40 lines pasted twice within 0.8 seconds goes into the box once. The first chip goes and its saved file is deleted through the existing file route. The text is held in memory only and forgotten after 0.8 seconds, or when a message is sent, so the file a sent message points Claude to is never deleted (#1834).
+- Tool-call groups (#1815, #1823): two or more tool calls in a row sit under one native disclosure with a count and the tools used, or the running step; failures show in the summary. The "Claude" byline shows once per run, reloaded history included. "Jump to latest" sits in a strip below the log and never covers a message. The follow-end bug was real: a late scroll event after the log grew made the view think the student had scrolled away. The student now leaves the end only by scrolling up. A lone row that becomes a group keeps its open state and focus.
+- Alerts (#1817, #1822): the reboot-needed, sign-in spike and full system disk alerts keep their raised state in the `settings` row (migration 0054, three boolean columns), so a worker restart no longer repeats them. A missing settings row now fails the tick with a logged warning, instead of announcing every tick. The epic rehearsal found that the worker's database role could not write the new columns, so the flags were never saved; #1836 adds them to the worker's column grant, and a test now runs an alert tick as that restricted role.
+- Phone drawers (#1818, #1827): below 56rem the work area fills the screen, and the project list and the right pane are slide-over modal drawers opened from the header (a Projects button left of the wordmark, a Files button at the right). A drawer keeps focus inside, closes on Escape, a tap outside, its close button, choosing a project or opening a file, and returns focus to its opener. Only the shell behind it is hidden, with `aria-hidden` and not `inert`, so the chat announcer and status notices are still heard and toasts and dialogs stay reachable (ADR 0047, DESIGN.md section 9); it uses a new `hideOutside` in `packages/ui` that takes a root (#1833). A drawer closes on a project change, or when code moves focus behind it; if the window widens while one is open, focus moves to the pane's selected tab. A request for a right-pane surface, such as the memory meter opening Monitor, opens the Files drawer on it. Screenshots at 360, 420 and 800 px in both themes were attached to #1818.
+- Picker tidy (#1832): a dead picker CSS selector was removed. `Tooltip`'s `decorative` prop was kept after a test showed Radix would otherwise describe the Effort picker with its own label.
+- Help (#1814): a note that some models treat a message sent while Claude works with caution, and that Stop then send always works (#1801).
+- Install test (#1828): `make install-test` adds the platforms-file line and registers the mock LMS before its smoke step, fails if the smoke step skips an LTI check, and fetches the image from its `image-<version>` release (checked against `SHA256SUMS`) when the CI artifact has expired.
+- Fold: STATUS, SPEC.md sections 8.1, 9.7, 10.2, 24.4, 24.13, 25.6, 25.8 and 29, the `.pk-chat-jump` override moved into `chat.css`, the round Jump button added to the design README's `radius-full` list, and `docs/EPIC-58.2.md` is deleted.
+
+Todd's rulings:
+
+- #1801: the Agent SDK is already on its newest release (0.3.319). Mid-turn steering stays and Help carries a note. The issue stays open to recheck on SDK upgrades.
+- #1809: the agent picker's short form is "Claude", shown only when the composer is narrow.
+- #1808 was built directly from the issue (option C) without a mockup.
+- The dompurify override is removed, because Monaco bundles its own copy (#1834).
+- #1786 (Rewind) is closed as not wanted, and #1747 as a duplicate of #1782. The design-review proposals #1780 to #1785 wait for a later chat epic.
+- Plan ruling 6 was wrong. The `settings` table is one typed row, not a key and value store, so keeping the alert state there needed migration 0054 (three columns). The task builder found this and stopped; the migration followed.
+
+Verified: every task PR passed its own CI, and each epic push run was green. Each task ran both unit shards with a private test database, lint, the comment-history check and the Playwright specs for its pages, with axe in both themes where a screen changed. Three reviews ran, code, accessibility and security, each with a closing pass, and every finding is fixed or recorded in the gaps below. The accessibility reviewer checked at runtime that the chat announcer is heard behind an open drawer. The rehearsal (`make install-test` on the rehearsal VM) first ran on c0925217 and stopped at the worker database role step, which found the missing alert grant (#1836). It then passed all 48 steps on 2b9dcb57 (package 0.1.1411+g2b9dcb57), upgrade, reinstall, backup, restore and rebuild included, with the smoke test at 413 passed, 0 failed and 1 skipped (the VM's own workspace.sh, which a packaged host lacks), the Dex sign-in, and no LTI check skipped.
+
+Gaps:
+
+- On a narrow composer, Tab visits the pickers before the microphone and Send. The accessibility review ruled this acceptable.
+- Inside a drawer, the first Escape closes a focused tooltip and the second closes the drawer. Ruled acceptable; the app's Radix dialogs behave the same.
+- A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11).
+- After widening from phone width, axe flags the pane resize handles' missing `aria-valuenow` until the panel library sets it. This comes from the library and predates the epic.
+- The Projects navigation has no `tabindex`, so after widening with a drawer open, focus lands on its first link.
+- The drawer's close bar repeats the pane's own title.
+- A lone tool call that grows into a group starts closed unless its row was open.
+- The picker tooltip does not open on touch; the menu heading covers that.
+- There is no key for a non-bulleted continuation paragraph inside a list item in the composer.
+- The empty stamped folder under `.portikus/pastes` stays after a double paste removes its file.
+- The `chat.spec.ts` flake "Skip leaves a question unanswered" failed in one task run and did not reproduce in seven later runs, so it is unfixed.
+- `chat-composer.spec.ts` has load-dependent flakes under several workers ("pasted rich text" and others); each passes alone, and the base fails the same way.
+- The Pebble certificate test flake is filed as #1830.
+- The dompurify Dependabot alerts were dismissed, not fixed, because Monaco bundles its own DOMPurify 3.4.15 (#1829).
+- Removing the override returned the lockfile to dompurify 3.4.15 under Monaco.
+- A task item's checkbox is a Tab stop in the composer.
+- There is no untimed way to put a long paste inline; #1831 proposes one and waits for Todd.
+- The install test's release fallback was tested on its own, not inside a run with an empty image cache.
+- Unit tests ran as the database owner, so a missing column grant for a restricted role shows only in the rehearsal or in `apps/worker/src/grants.test.ts`, which now runs an alert tick as the worker role.
+- #1801 is still open, for a recheck on SDK upgrades.
+
+## Epic 59 — agent rows in the left pane, and a chat batch
+
+Built on `epic/59-agents-and-chat` (task PRs #1843 to #1858, #1862, #1863, #1864, #1866 and #1867, the fix rounds #1859, #1860, #1861, #1865, #1868 and #1869, and the fold). It closes #1770, #1838, #1831, #1839, #1780, #1782, #1781, #1840, #1830, #1820, #1784, #1783 and #1841, and leaves #1785 open. No migration. SPEC.md sections 8.2, 9.7, 10.2, 10.8, 11.1, 25.8, 25.10 and 29; ADRs 0070, 0071, 0072 and 0073.
+
+Delivered:
+
+- Contracts (#1845): every shape the epic needs in `packages/contracts`: `CodingAgentSubagent` and `CodingAgentSubagentPost` (up to 16 per terminal), the terminal `name` and `kind`, `PlanUsage` with the `AgentLimitsReport` and `AgentMeter` provider lists, the `commands`, `context` and `shell` chat events, the optional `message` and `mode` on `permission.answer`, `readAloud` in the saved chat settings, and the file-name search request and response.
+- Subagent hook (#1848, ADR 0070): `portikus-agent-subagent` reports Agent tool calls using only the call id, description, subagent type, background flag and agent id; the prompt and reply are never sent. The workspace agent keeps up to 16 rows per terminal, keyed by tool call id, with a foreground row finishing at `PostToolUse`, a background one at `SubagentStop`, and a failed call removing its row. The API's four-a-second throttle already sends the newest list, and a new test pins it. The fix round (#1859) cuts a long subagent type instead of refusing the post, and refuses a post older than the terminal's clear.
+- Plan-usage diagnosis (L0, no pull request): it found that the chat tab's seven-day figure rarely arrived, and the fix went into the chat host's plan-usage request (#1855).
+- Left-pane rows (#1854, #1861, #1865): under every project, a row per agent tab that has reported (name as the tab shows it, state mark, state with elapsed time) and under it each subagent. Rows are links; a subagent's link selects the tab and opens and focuses its tool row. Each project has one disclosure, open by default. The reveal gives up after 10 seconds, and the ticking time is hidden from assistive technology. Fix round E (#1865) moves a terminal to the newest slot on every subagent post, so a workspace process posting for 41 made-up terminal ids can no longer push out a real terminal's rows (a post for a terminal with no state yet is still kept, because hooks can arrive out of order).
+- Plan usage (#1853, #1855): the status bar shows each provider's seven-day usage and reset time from a provider-keyed list, for Claude and Codex, with tokens and cost only when there is no plan figure. The chat host asks the SDK for plan usage, one request at a time with a 10-second limit (#1864). `five_hour` is accepted and dropped.
+- `/clear` (#1846): the chat host follows Claude Code's new session id into the tab's record, clears every open browser with a fresh snapshot, and Resume or a restart continues the new session. Subagent messages are dropped live as they were on replay.
+- `!` shell commands (#1850, #1862, #1864, ADR 0073): the composer marks a `!` message with a Shell label; the chat host runs it as the student in the project folder with a two-minute limit and a 64 KiB output cap, sends `shell` events, and appends `<bash-input>` and `<bash-stdout>` with `shouldQuery: false`, so no turn starts. The conversation draws each as a "Shell command" group, and a reload replays it. Stop and Esc end a running command (#1868, #1869): the process group is killed and the item reads "Stopped"; a signal death reads "Stopped by signal <name>" with no exit code; a `!` sent while a message is still being read in is refused; and the composer empties when the host accepts the `!`. The host was split into smaller files (`shell-command.ts`, `plan-usage.ts`, `slash-commands.ts`, `session-rules.ts`, `input-queue.ts`) to stay under 800 lines.
+- Deny with a reason and plan modes (#1855, #1856, #1868): Deny and "No, keep planning" take a one-line reason that goes to Claude as the denial message, with a visible Back button beside Send. Plan approval offers "Yes, and accept edits" and "Yes, and ask before edits", and the mode picker follows; the mode comes from the option id alone, and an older browser's `mode` field still parses and is ignored. Edit diffs are coloured by file type.
+- `/` and `@` menus (#1852, #1858, #1860): the `/` menu lists the host's commands, with terminal-only ones dimmed and `/model` and `/effort` opening their pickers; the `@` menu searches file names through `POST /workspaces/:id/projects/:pid/file-search`, which runs ripgrep so `.gitignore` applies, with limits on time, files, concurrency and results. One TipTap suggestion combobox (`@tiptap/suggestion` 3.33.0) serves both. The fix round (#1860) made a hang-up cancel the ripgrep run and kept the best matches under the candidate cap. Fix round H (#1869) ignores a stale answer, and Tab accepts a choice only after an arrow key moved through the list.
+- Syntax colours (#1851, #1861, ADR 0072): highlight.js core 11.12.0 with twelve languages, fetched on demand, so the first page is unchanged (1,029,024 bytes before and after) and the chat chunk grew by 3.5 KB. A block shows as plain text in the same box until the colours arrive.
+- Read aloud (#1844, #1863, ADR 0071): a speech module reads replies in sentence chunks through `speechSynthesis`, preferring a voice on the device. A speaker button sits on each reply, and a per-project "Read replies aloud" switch reads the last reply of each turn. The picker row holds a fifth control, so its breakpoints moved to 40rem and 55rem.
+- Insert as text (#1849): a long paste's chip has a button that puts the text in the box at the cursor and deletes the saved file. A file named by a sent message is never deleted.
+- Context use and cache clock (#1857, #1867, #1868): the host sends a `context` event with tokens used, the window, when the prompt cache goes cold, and its own clock, so the browser corrects for clock skew; usage repeated across the content blocks of one API response is counted once. Each chat tab shows the context figure once it passes half (a warning from 80 percent, with "Run /compact"), and a cache countdown ("Cache 3:42", "soon" in the last 60 seconds, "Cache cold" at zero) on its own last line of the composer, so the pickers, microphone and Send do not move. The ticking digits are hidden from screen readers, which hear only the cache going cold and context reaching 80 percent.
+- Files changed (#1866, #1869): under a finished turn that edited files, a disclosure such as "2 files changed +4 −1" opens to each path with its counts. Choosing a path opens its diff when the project is a Git repository, and the file otherwise. Paths are normalised through one `projectPath` and a shared `projectRoot` helper, so one file is one row and a path outside the project is plain text.
+- Syntax-colour, accessibility and ordering fixes (#1859, #1861, #1865): subagent types are cut to 64 characters instead of refusing the post, a post older than the terminal's clear is refused, one `CODING_AGENT_LABEL` map replaces two, dead exports were removed, and fenced code and diff boxes are named groups.
+- Tests and tooling (#1843, #1847): `migrateDownTo` in `packages/db/src/migrate-testing.ts` replaces the per-migration `migrateDown()` lists; the Pebble certificate test waits for Caddy's HTTP-01 listener as well as its HTTPS port, and bounded waits name what they wait for.
+- Fold: STATUS, SPEC.md sections 8.2, 9.7, 10.2, 10.8, 11.1, 25.8, 25.10 and 29, the student Help pages for the chat and agent status, and `docs/EPIC-59.md` is deleted.
+
+Todd's rulings (2026-11-09):
+
+- The epic and the chat batch ran together, because #1770 needs no chat-host change; Claude Code's hooks already run in chat tabs.
+- Syntax colours use a small, lazily loaded highlighter, not Monaco (ADR 0072).
+- #1785 was cut for time and stays open. The cache timer was the last piece to cut from #1783.
+- The status bar shows the seven-day plan usage only, as a list keyed by provider, and subscription usage replaces tokens and cost when a plan limit exists. Terminal tabs get no new work; they may be removed once the chat is solid.
+- `!` works as in the terminal Claude Code: the host runs it, with no model, and Claude sees it with the next message (ADR 0073).
+- `@` searches every file name in the project through a ripgrep route that respects `.gitignore`.
+- An agent tab gets its left-pane row after its first hook, not before.
+- Option 1 for row names: `CodingAgentTerminal` gains `kind`, so a row reads as the tab does ("Claude Code (TUI)"), not "Terminal N".
+
+Verified: every task PR passed its own CI, and each epic push run was green. Each task ran both unit shards with a private test database, lint, the comment-history check and the Playwright specs for its pages, with axe in both themes where a screen changed. The real Claude Code was exercised by `claude-real.test.ts` for `/clear` (#1846) and for `!` (#1864, Haiku, four tests passing). Reviews: code review (two passes) found 12 and then 6 bugs, plus simplifications, all fixed in the fix rounds. Accessibility review (two passes) found 6 and then 4, all fixed. Security review (two passes) found no High, one Medium and three Low: a `!` command that detaches with `setsid` kept the tab stuck (fixed in #1864), a process posting subagent hooks for made-up terminal ids could evict a real terminal's rows (fixed in #1865), the file search kept running after a hang-up (fixed in #1860), and typed `<bash-input>` text replays as a shell item (recorded as a gap).
+
+The rehearsal VM install test passed on d875b2db (the epic through #1850): every step exited 0, the smoke test ran 413 passed, 0 failed and 1 built-in skip with the Dex sign-in and every LTI check, the restore from the off-site backup worked, and two seeded workspaces had the new subagent hook script (mode 755) and all six new hooks in their managed settings.
+
+The epic push run on f49d1f1c, with every task and fix PR, passed every check.
+
+Gaps:
+
+- A message the student types that happens to contain `<bash-input>` text also replays as a shell item on reload. This is display only; the command is not run.
+- Deploy note: the plan-usage report and meter changed shape (`AgentLimitsReport`), so the workspace agent and the API must be updated together; with only one updated, plan usage shows nothing until both are.
+- `SubagentStop` and the Agent hooks under the SDK have not been seen firing on a real signed-in workspace. Rows show nothing until they do, so the pilot needs a check.
+- `/clear` is detected by any change of session id, so a new id for another reason would also clear the chat. The pilot needs a check that `/clear` gives a new id and nothing else does.
+- #1785 was cut for time and stays open.
+- The `@` menu lists files only, not folders, matches by name with no recency boost, and cannot be used in shell mode.
+- Codex has no subagent hooks, so Codex sessions show no subagent rows.
+- A `!` command cannot be sent while Claude is working, standard input is closed (interactive commands belong in a terminal tab), and a lone `!` is not treated as a command.
+- After a chat host restart the cache time is unknown until the next request, so the cache timer shows nothing until then.
+- `/resume` has no Resume control to map to in the chat, so it stays terminal-only.
+- A diff is coloured line by line, so a multi-line comment or string is coloured only where one line shows it. The fenced code box in replies (`ChatMarkdown.tsx`) is focusable but unnamed, unlike the diff box.
+- The "requests waiting" note is hidden while Deny's reason field is open.
+- Files changed does not count deleted files or changes made by shell commands.
+- The cache and context readouts have no click action; the student types `/compact` by hand.
+- Under machine load, single tests time out in the unit suite and in the chat Playwright specs (for example the CsvView sort, `signin-throttle`, `chat-composer` and `chat-layout` cases). Each passes when rerun alone, so they are not Epic 59 regressions.
+- At 1440 px the status bar no longer fits on one 28-pixel line with both plan meters, and wraps to a second line as designed; the narrower widths are tested.
+- The Pebble flake (#1830) could not be reproduced here, so that fix rests on the cause found in the code.
+- The rehearsal ran through #1850 only. The rehearsal VM has no Claude sign-in, so the full path (a signed-in student, a subagent, a `!` command, read aloud, the context meter) is unproven end to end.
+
+## Epic 60 — documentation refresh
+
+Built on `epic/60-docs` (task PRs #1873 to #1879, the fix round #1882 and #1881, and the fold). Documentation and the in-app Help only; no migration and no product behaviour change. SPEC.md section 29; docs/WORKFLOW.md, "Documentation images".
+
+Delivered:
+
+- Help (#1874, #1876, #1881): the in-app Help names the five New tab items (Terminal, Claude Code (TUI), Claude Code (GUI), Codex and Preview) and what a Traditional course hides, has its own topic and anchor for the phone layout and its drawers, lists the five chat permission modes, says audit records are kept 365 days, names the four sign-in choices as the Sign-in tab shows them, starting with Local accounts only, and says an LDAP or Active Directory server shows read-only, and states the backup floor's exception for Back up now sets.
+- Screenshots (#1875, #1882): `make screenshots` builds the app, starts the end-to-end stack with invented demo data on a throwaway database (or a private one under `TEST_DATABASE_URL`), and rewrites the 30 images in `docs/images/` at 1440 by 900 in 256 colours, with a dark shell image, a phone image at 390 by 844 and three close-up crops. The capture lives in `e2e/doc-images/`, matches no Playwright spec pattern, and never runs in CI. Every image is scripted: the chat comes from the fake agent, not a real Claude session. The fix round seeds audit rows as the product writes them (`ok`, newest first, with a quota change), finds ImageMagick as `magick` or `convert` and says so when it is missing, and pins the PostgreSQL image by digest.
+- Student guide (#1877, #1881): `docs/STUDENT-GUIDE.md` rewritten from the student Help: the New tab items, the chat tab (composer, pickers, permission modes, `/` and `@` menus, `!` commands, permission cards and deny with a reason, plan mode, `/clear`, read aloud, Resume), agent and subagent rows, alerts and the seven-day plan meter, code help and the Problems tab, live help, voice input and the phone layout, with 19 images.
+- Administrator and instructor guides (#1878, #1881): `docs/ADMIN-GUIDE.md` refreshed (invitations and CSV import, deleting several backups and the floor, 365-day audit retention, the Sign-in tab's groups and choices, coding-agent updates, site settings) and checked against the admin pages; the instructor material moved to a new `docs/INSTRUCTOR-GUIDE.md` (the Course page, roster sync, the Agentic or Traditional student interface, Deep Linking starter projects, agent use, shared projects and live help).
+- README (#1879, #1881): rewritten for someone deciding whether to adopt Portikus: what it is and who it is for, a screenshot tour, the supported agents and interfaces, how it works, short Install and Develop sections that link to the full guides, and the list of documents. Status now points here instead of naming an epic.
+- Install and operations (#1873): `docs/INSTALL.md` and `docs/OPERATIONS.md` checked against the code and corrected (every single sign-on provider needs an invitation; group modes for Entra and Google; invitations, CSV import and email edits; the Email and alerts settings name; the backup floor, request cap and multi-delete; 365-day audit retention; LTI token hosts; the measured code-help memory), with epic and issue numbers removed.
+- Fold: this section, SPEC.md section 29, and `docs/EPIC-60.md` deleted.
+
+Todd's rulings (2026-11-10):
+
+- The in-app Help stays the source of truth; it was updated first and both guides were rewritten to match it. Nothing checks that they agree.
+- The README is written for evaluators first.
+- Instructors get their own guide; INSTALL.md and OPERATIONS.md had an accuracy pass, not a rewrite.
+- Every image comes from the committed capture script. The planned real-agent captures from the pilot were cancelled because no test account there has a Claude sign-in, so the chat, agent-row and plan-meter images are scripted too.
+
+Verified: every task PR passed its own CI, and each epic push run was green. The Help changes ran the Help unit tests and `e2e/help.spec.ts` (including axe in both themes); `make screenshots` ran from clean twice with all captures passing, and every image was looked at. Code review checked about 65 concrete claims in the guides and README against the code and found no wrong fact in the prose; it found a misleading audit image, a fifth New tab item (Preview) the docs left out, an undocumented ImageMagick need, an undocumented capture target and a gap in the backup rule, all fixed in the fix round. Accessibility review found the image alt text and the new Help topic sound; it found the admin Help did not mention LDAP or Active Directory (fixed) and drawer buttons that share names with their panes (#1880).
+
+Gaps:
+
+- Nothing checks that the guides and the in-app Help agree, so they can drift again.
+- The images show scripted data, so a chat or plan meter in them is not from a real session, and the chat image is not taken at the same moment as the workspace images.
+- On a phone, the Projects and Files buttons share their names with the panes they open (#1880).
+- GitHub had an incident affecting pull requests and Actions during the run; several PRs needed a close and reopen before CI started, which left stale "Secret scan" failures on already-merged PRs.
