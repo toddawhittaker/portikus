@@ -139,7 +139,7 @@ export interface ChatState {
 	lastError: { seq: number; message: string } | null;
 }
 
-export type ChatContextUsage = Pick<
+type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
 	"usedTokens" | "windowTokens" | "cache"
 >;
