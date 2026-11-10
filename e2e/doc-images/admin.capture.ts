@@ -43,7 +43,9 @@ let courseId = "";
 /** Carol signs in through the mock provider; her name is made to fit the demo. */
 async function asAdmin(page: Page, path: string) {
 	await loginAs(page, "carol");
-	await query("update users set display_name = 'Carol Whitfield' where email = 'carol@example.edu'");
+	await query(
+		"update users set display_name = 'Carol Whitfield' where email = 'carol@example.edu'",
+	);
 	await controllerChecked();
 	await page.goto(path);
 }
@@ -53,7 +55,7 @@ test.beforeAll(async () => {
 	for (const [name, username, state] of CLASS) {
 		people.push(await person(name, username, { state }));
 	}
-	instructor = await person("Dr. Ivy Okafor", "okafor");
+	instructor = await person("Dr. Ivy Okafor", "okafor", { role: "instructor" });
 	courseId = await course(
 		"CS 1210: Programming for the Web",
 		instructor.userId,
@@ -80,7 +82,10 @@ test.beforeAll(async () => {
 test("users and the intro toggletip", async ({ page }) => {
 	await asAdmin(page, "/admin");
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: /^About Image/ }).first().click();
+	await page
+		.getByRole("button", { name: /^About Image/ })
+		.first()
+		.click();
 	await expect(page.locator(".pk-toggletip-content[data-state='open']")).toBeVisible();
 	await shoot(page, "admin-intro-toggletip.png", {
 		clip: { x: 0, y: 40, width: 1000, height: 300 },
@@ -120,7 +125,10 @@ test("health", async ({ page }) => {
 						observedAt: new Date().toISOString(),
 						loadAverage: [0.6 + busy * 2, 0.5 + busy * 1.8, 0.4 + busy],
 						cpuCount: 8,
-						memory: { usedBytes: Math.round((9 + busy * 12) * GIB), totalBytes: 32 * GIB },
+						memory: {
+							usedBytes: Math.round((9 + busy * 12) * GIB),
+							totalBytes: 32 * GIB,
+						},
 						pool: {
 							name: "portikus",
 							usedBytes: Math.round((182 + hour * 0.6) * GIB),
@@ -170,11 +178,25 @@ test("audit", async ({ page }) => {
 	];
 	const rows: [string, string, string, string, object, number][] = [
 		[maya.userId, maya.workspaceId, "auth.login", "success", {}, 3],
-		["worker", diego.workspaceId, "workspace.cpu_throttled", "success", { averagePercent: 96 }, 12],
+		[
+			"worker",
+			diego.workspaceId,
+			"workspace.cpu_throttled",
+			"success",
+			{ averagePercent: 96 },
+			12,
+		],
 		[amara.userId, amara.workspaceId, "workspace.start_requested", "success", {}, 25],
 		["worker", lukas.workspaceId, "workspace.idle_stopped", "success", {}, 47],
 		[priya.userId, priya.workspaceId, "auth.login", "success", {}, 63],
-		["worker", lukas.workspaceId, "workspace.start_failed", "failed", { errorCode: "TIMEOUT" }, 95],
+		[
+			"worker",
+			lukas.workspaceId,
+			"workspace.start_failed",
+			"failed",
+			{ errorCode: "TIMEOUT" },
+			95,
+		],
 		[diego.userId, diego.workspaceId, "auth.login", "success", {}, 130],
 		[maya.userId, maya.workspaceId, "workspace.stop_requested", "success", {}, 180],
 	];
@@ -225,7 +247,8 @@ test("backups", async ({ page }) => {
 		at.setUTCHours(7, 30, 0, 0);
 		return at;
 	};
-	const stamp = (at: Date) => at.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+	const stamp = (at: Date) =>
+		at.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
 	const last = day(0);
 	hostReport(
 		hostStatus({
@@ -237,7 +260,9 @@ test("backups", async ({ page }) => {
 			},
 			nextRunAt: day(-1).toISOString(),
 			sets: [0, 1, 2, 3, 4, 5, 6].map((back) =>
-				backupSet(stamp(day(back)), instances, { sizeBytes: Math.round((38 - back * 0.7) * GIB) }),
+				backupSet(stamp(day(back)), instances, {
+					sizeBytes: Math.round((38 - back * 0.7) * GIB),
+				}),
 			),
 		}),
 	);

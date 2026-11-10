@@ -5,21 +5,21 @@
 import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
 import { query, setWorkspaceState } from "../helpers";
 import {
+	course,
 	flaskRunning,
 	inHours,
-	saveLayout,
-	servePreview,
 	launch,
 	minutesAgo,
 	openProject,
 	otherProjects,
 	person,
 	printTo,
+	saveLayout,
+	servePreview,
 	setAgentTabs,
 	setPlans,
 	shoot,
 	weatherProject,
-	course,
 } from "./seed";
 
 const PROMPT = "student@ws-maya:~/projects/weather-now$";
@@ -71,7 +71,13 @@ async function agents(workspaceId: string, ids: { tui: string; chat?: string }) 
 			],
 		},
 		...(ids.chat
-			? [{ terminalId: ids.chat, agent: "claude" as const, state: "needs-input" as const }]
+			? [
+					{
+						terminalId: ids.chat,
+						agent: "claude" as const,
+						state: "needs-input" as const,
+					},
+				]
 			: []),
 	]);
 	await setPlans(workspaceId, [
@@ -260,7 +266,8 @@ test("chat composer and shell command", async ({ page }) => {
 		send("shell", {
 			id: "sh2",
 			command: "python -m pytest -q tests",
-			output: "..........                                   [100%]\n10 passed in 0.41s\n",
+			output:
+				"..........                                   [100%]\n10 passed in 0.41s\n",
 			exitCode: 0,
 			truncated: false,
 			state: "done",
@@ -276,7 +283,11 @@ test("chat composer and shell command", async ({ page }) => {
 				},
 				{ name: "clear", description: "Start a new conversation", terminalOnly: false },
 				{ name: "review", description: "Review a pull request", terminalOnly: false },
-				{ name: "init", description: "Write a CLAUDE.md for this project", terminalOnly: false },
+				{
+					name: "init",
+					description: "Write a CLAUDE.md for this project",
+					terminalOnly: false,
+				},
 				{ name: "model", description: "Choose the model", terminalOnly: true },
 			],
 		});
@@ -289,7 +300,9 @@ test("chat composer and shell command", async ({ page }) => {
 	await shoot(page, "student-chat-composer.png");
 });
 
-const APP_TAB = { tabs: [{ id: "file:app.py", root: { type: "file", path: "app.py" } }] };
+const APP_TAB = {
+	tabs: [{ id: "file:app.py", root: { type: "file", path: "app.py" } }],
+};
 
 test("checks", async ({ page }) => {
 	const { maya, project } = await workspace(page);
@@ -367,7 +380,8 @@ async function realisticCodeHelp(page: Page) {
 		route.onMessage((data) => {
 			try {
 				const message = JSON.parse(String(data));
-				if (message.id !== undefined && message.method) asked.set(message.id, message.method);
+				if (message.id !== undefined && message.method)
+					asked.set(message.id, message.method);
 			} catch {}
 			server.send(data);
 		});
@@ -435,10 +449,7 @@ test("editor and code help", async ({ page }) => {
 	await shoot(page, "student-editor.png");
 
 	await page.getByTestId("right-pane-tab-problems").click();
-	await editor
-		.locator(".view-line span span", { hasText: "find_city" })
-		.last()
-		.hover();
+	await editor.locator(".view-line span span", { hasText: "find_city" }).last().hover();
 	await expect(page.locator(".monaco-hover:not(.hidden)").first()).toContainText(
 		"latitude and longitude",
 	);
@@ -447,7 +458,7 @@ test("editor and code help", async ({ page }) => {
 
 test("live help, student side", async ({ page }) => {
 	const { maya, project } = await workspace(page);
-	const ivy = await person("Dr. Ivy Okafor", "okafor", { role: "student" });
+	const ivy = await person("Dr. Ivy Okafor", "okafor", { role: "instructor" });
 	await course("CS 1210: Programming for the Web", ivy.userId, [maya.userId]);
 	await openProject(page, maya.workspaceId, project.id);
 	const shell = await launch(page, maya.workspaceId, project.id, "terminal");

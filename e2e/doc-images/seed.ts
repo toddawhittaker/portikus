@@ -16,8 +16,8 @@ import {
 	FAKE_AGENT_TOKEN,
 	query,
 	seedFile,
-	seedListening,
 	seedGit,
+	seedListening,
 	type TestProject,
 	terminalIds,
 	workspacePath,
@@ -25,6 +25,7 @@ import {
 } from "../helpers";
 import { FAKE_AGENT_URL } from "../ports";
 
+const GIB = 1024 ** 3;
 const IMAGES = join(import.meta.dirname, "../../docs/images");
 const RAW = join(tmpdir(), "portikus-screenshots");
 mkdirSync(RAW, { recursive: true });
@@ -61,7 +62,8 @@ async function post(path: string, body: unknown): Promise<void> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
 	});
-	if (!response.ok) throw new Error(`the fake agent refused ${path}: ${response.status}`);
+	if (!response.ok)
+		throw new Error(`the fake agent refused ${path}: ${response.status}`);
 }
 
 export interface Person {
@@ -75,7 +77,7 @@ export async function person(
 	name: string,
 	username: string,
 	options: {
-		role?: "student" | "administrator";
+		role?: "student" | "instructor" | "administrator";
 		context?: BrowserContext;
 		state?: string;
 	} = {},
@@ -90,7 +92,7 @@ export async function person(
 			name,
 			options.role ?? "student",
 			// A believable last sign-in, between one hour and two days ago.
-			60 + (username.length * 397) % 2800,
+			60 + ((username.length * 397) % 2800),
 		],
 	);
 	if (!user) throw new Error("could not create the user");
@@ -98,14 +100,15 @@ export async function person(
 	// Labels are unique, so the same person made again gets a number.
 	// Labels are unique: an earlier shot's workspace gives its label up.
 	const label = `ws-${username}`;
-	await query("update workspaces set label = 'ws-old-' || left(id::text, 8) where label = $1", [
-		label,
-	]);
+	await query(
+		"update workspaces set label = 'ws-old-' || left(id::text, 8) where label = $1",
+		[label],
+	);
 	await query(
 		`insert into workspaces
 		   (id, owner_user_id, label, incus_instance_name, state, desired_state,
 		    agent_address, agent_token)
-		 values ($1, $2, $3, $4, $5, 'running', '127.0.0.1', $6)`,
+		 values ($1, $2, $3, $4, $5, $7, '127.0.0.1', $6)`,
 		[
 			workspaceId,
 			user.id,
@@ -113,8 +116,29 @@ export async function person(
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
 			`${FAKE_AGENT_TOKEN}:${workspaceId}`,
+			// A stopped workspace is meant to stay stopped; otherwise it reads as starting.
+			options.state === "stopped" ? "stopped" : "running",
 		],
 	);
+	// Figures a live site would show: a few GiB of a 25 GiB home, an image version.
+	const spread = (username.length * 7919) % 100;
+	await query("update workspaces set image_version = '2026.11.1' where id = $1", [
+		workspaceId,
+	]);
+	await post("/__test/storage", {
+		key: workspaceId,
+		home: { usedBytes: Math.round((2.5 + spread / 20) * GIB), totalBytes: 25 * GIB },
+		docker: { usedBytes: Math.round((0.8 + spread / 40) * GIB), totalBytes: 20 * GIB },
+		recovery: {
+			usedBytes: Math.round((0.2 + spread / 200) * GIB),
+			totalBytes: 3 * GIB,
+		},
+	});
+	await post("/__test/memory", {
+		key: workspaceId,
+		usedBytes: Math.round((0.9 + spread / 60) * GIB),
+		totalBytes: 4 * GIB,
+	});
 	if (options.context) await addSession(options.context, user.id);
 	await controllerChecked();
 	return { userId: user.id, workspaceId, label };
@@ -244,7 +268,7 @@ const INDEX_HTML = `<!doctype html>
 </html>
 `;
 
-export const CHECKS = {
+const CHECKS = {
 	checks: [
 		{ id: "tests", name: "Tests", command: "pytest -q" },
 		{ id: "lint", name: "Lint", command: "ruff check ." },
@@ -400,7 +424,11 @@ export async function course(
 export async function flaskRunning(workspaceId: string): Promise<void> {
 	const commandLine = "python3 -m flask --app app run --host 0.0.0.0";
 	await seedListening(workspaceId, [
-		{ port: 5000, addresses: ["0.0.0.0"], process: { pid: 4242, command: "python3", commandLine } },
+		{
+			port: 5000,
+			addresses: ["0.0.0.0"],
+			process: { pid: 4242, command: "python3", commandLine },
+		},
 	]);
 	await post("/__test/processes", {
 		key: workspaceId,
@@ -444,9 +472,11 @@ th,td{padding:.5rem 1.25rem;text-align:left;border-bottom:1px solid #e3eaf0}th{b
 
 /** Answer every preview-host request with the weather app's page. */
 export async function servePreview(page: Page): Promise<void> {
-	await page.context().route(/\.preview\.localhost/, (route) =>
-		route.fulfill({ status: 200, contentType: "text/html", body: WEATHER_PAGE }),
-	);
+	await page
+		.context()
+		.route(/\.preview\.localhost/, (route) =>
+			route.fulfill({ status: 200, contentType: "text/html", body: WEATHER_PAGE }),
+		);
 }
 
 /** Give a project a saved layout before it opens. */

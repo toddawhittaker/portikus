@@ -20,4 +20,4 @@ if [ -z "${TEST_DATABASE_URL:-}" ]; then
 	export TEST_DATABASE_URL
 fi
 
-node e2e/with-run-database.mjs --config e2e/screenshots/playwright.config.ts "$@"
+node e2e/with-run-database.mjs --config e2e/doc-images/playwright.config.ts "$@"
