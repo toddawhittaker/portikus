@@ -158,6 +158,26 @@ test("a file edited twice is one entry with its counts summed, in first-touched 
 	]);
 });
 
+test("the same file reached by a relative and an absolute path is one entry", () => {
+	const edit = (file_path: string, id: string) =>
+		call("Edit", { file_path, old_string: "x", new_string: "y" }, "done", id);
+	expect(
+		changedFiles(
+			[
+				edit("src/a.ts", "1"),
+				edit("/home/student/projects/demo/src/a.ts", "2"),
+				edit("./src/a.ts", "3"),
+				edit("/home/student/projects/demo/../x.ts", "4"),
+			],
+			"demo",
+		),
+	).toEqual([
+		{ path: "src/a.ts", added: 3, removed: 3 },
+		// Outside the project it stays as Claude named it.
+		{ path: "/home/student/projects/demo/../x.ts", added: 1, removed: 1 },
+	]);
+});
+
 test("only finished edits count: failed, stopped and running ones changed nothing", () => {
 	const edit = { file_path: "a.ts", old_string: "x", new_string: "y" };
 	expect(

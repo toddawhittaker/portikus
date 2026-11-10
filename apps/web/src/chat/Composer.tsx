@@ -40,7 +40,7 @@ import {
 	useComposerMenu,
 } from "./ComposerCommandMenu.js";
 import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
-import type { ChatStore } from "./chatStore.js";
+import type { ChatState, ChatStore } from "./chatStore.js";
 import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
 	type ComposerMenu,
@@ -58,6 +58,7 @@ import {
 	showInterim,
 } from "./composerEditor.js";
 import type { ReadAloud } from "./readAloud.js";
+import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
@@ -73,6 +74,7 @@ const TIPS = "Type / for commands or @ for files. Paste or drop images to attach
 const KEY_HINT =
 	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
 const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
+const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
 const SENDING = "Wait for your last message to reach Claude.";
@@ -89,6 +91,30 @@ interface Sending {
 	seq: number;
 	text: string;
 	keys: string[];
+	/** The newest `!` command in the conversation when it was sent. */
+	shell: string;
+}
+
+/** The line under the box that fits what the box is doing now. */
+function footHint(now: {
+	shell: boolean;
+	inCode: boolean;
+	shellRunning: boolean;
+	turnRunning: boolean;
+}): string {
+	if (now.shell) return SHELL_HINT;
+	if (now.inCode) return CODE_HINT;
+	if (now.shellRunning) return SHELL_RUNNING_HINT;
+	return now.turnRunning ? RUNNING_HINT : KEY_HINT;
+}
+
+/** The key of the newest `!` command in the conversation, or "". */
+function newestShell(state: ChatState): string {
+	for (let at = state.items.length - 1; at >= 0; at--) {
+		const item = state.items[at];
+		if (item?.kind === "shell") return item.key;
+	}
+	return "";
 }
 
 export interface ComposerProps {
@@ -108,8 +134,14 @@ export function Composer({
 }: ComposerProps) {
 	const ids = useId();
 	const settings = useStore(store, (state) => state.settings);
-	const running = useStore(store, (state) => state.currentTurnId !== null);
+	const turnRunning = useStore(store, (state) => state.currentTurnId !== null);
+	const shellRunning = useStore(store, (state) =>
+		state.items.some((item) => item.kind === "shell" && item.state === "running"),
+	);
+	/** Something Stop can end: a turn, or a `!` command the host is running. */
+	const running = turnRunning || shellRunning;
 	const echoed = useStore(store, (state) => state.lastUserMessageSeq);
+	const lastShell = useStore(store, newestShell);
 	const lastError = useStore(store, (state) => state.lastError);
 	const connection = useStore(store, (state) => state.connection);
 	const commands = useStore(store, selectCommands);
@@ -124,6 +156,11 @@ export function Composer({
 	const [focused, setFocused] = useState(false);
 	const menuModel = useComposerMenu(menu, commands, workspaceId, projectId);
 	const listId = `${ids}-menu`;
+	// A list that changes under the student starts unchosen again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when the menu changes
+	useEffect(() => {
+		arrowed.current = false;
+	}, [menu]);
 	const listShown = menu !== null && focused && menuModel.options.length > 0;
 	const activeOption = optionId(listId, menuModel.active);
 	const host = useRef<HTMLDivElement | null>(null);
@@ -133,6 +170,8 @@ export function Composer({
 	const lastSent = useRef<JSONContent | null>(null);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
+	/** The student has moved through the open menu's list with the arrow keys. */
+	const arrowed = useRef(false);
 	/** Long pastes so far, so each gets its own file and chip name. */
 	const pastes = useRef(0);
 	/** The last long paste's chip, to take back if the same text is pasted again at once. */
@@ -144,7 +183,9 @@ export function Composer({
 	// The echo of the student's own message ends the send; text typed since stays.
 	useEffect(() => {
 		if (!sending) return;
-		if (echoed > sending.seq) {
+		// A `!` command is never echoed as a message: the host accepts it by adding it.
+		const ran = isShellCommand(sending.text) && lastShell !== sending.shell;
+		if (echoed > sending.seq || ran) {
 			const box = editor.current;
 			if (box && composerText(box) === sending.text) box.commands.clearContent(true);
 			clearFiles(sending.keys);
@@ -153,7 +194,7 @@ export function Composer({
 			// The error shows in the conversation; the draft stays to send again.
 			setSending(null);
 		}
-	}, [echoed, lastError, sending, clearFiles]);
+	}, [echoed, lastShell, lastError, sending, clearFiles]);
 
 	// A new socket may never echo a send the old one carried.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only when the connection changes
@@ -234,7 +275,12 @@ export function Composer({
 		setError("");
 		if (text.trim() !== "" && editor.current)
 			lastSent.current = editor.current.getJSON();
-		setSending({ seq, text, keys: files.items.map((item) => item.key) });
+		setSending({
+			seq,
+			text,
+			keys: files.items.map((item) => item.key),
+			shell: newestShell(store.getState()),
+		});
 	}
 
 	function addLongPaste(text: string, lines: number) {
@@ -312,14 +358,23 @@ export function Composer({
 		);
 	}
 
-	/** Keys while a menu is open: arrows move, Enter or Tab chooses; Escape the editor handles. */
+	/**
+	 * Keys while a menu is open: arrows move and Enter chooses. Tab chooses only
+	 * once the arrows have picked an option; otherwise the menu closes and Tab
+	 * moves on, so "email me@" and Tab never inserts a file. Escape the editor handles.
+	 */
 	function onMenuKey(event: KeyboardEvent): boolean {
 		if (!listShown) return false;
 		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
 		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 			event.preventDefault();
+			arrowed.current = true;
 			menuModel.move(event.key === "ArrowDown" ? 1 : -1);
 			return true;
+		}
+		if (event.key === "Tab" && !arrowed.current) {
+			setMenu(null);
+			return false;
 		}
 		if (event.key === "Enter" || event.key === "Tab") {
 			event.preventDefault();
@@ -582,7 +637,7 @@ export function Composer({
 					className="pk-composer-foot"
 					data-testid="chat-composer-hint"
 				>
-					{shell ? SHELL_HINT : inCode ? CODE_HINT : running ? RUNNING_HINT : KEY_HINT}
+					{footHint({ shell, inCode, shellRunning, turnRunning })}
 				</p>
 			)}
 			<span id={`${ids}-tips`} hidden={true}>
