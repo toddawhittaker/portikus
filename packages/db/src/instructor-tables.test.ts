@@ -1,5 +1,6 @@
 import { type Kysely, sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { migrateDownTo } from "./migrate-testing.js";
 import type { Database } from "./schema.js";
 import {
 	createTestDb,
@@ -77,25 +78,12 @@ describe("instructor feature tables", () => {
 					db: trx,
 					provider: { getMigrations: async () => migrations },
 				});
-				for (const name of [
-					"0054_alert_state",
-					"0053_chat_settings",
-					"0052_terminal_kind",
-					"0051_code_help_languages",
-					"0050_course_profile",
-					"0049_account_email",
-					"0048_live_help",
-					"0047_voice_input_switch",
-					"0046_docker_seed_image_bytes",
-					"0044_dex_account_issuer",
-					"0043_agent_usage_days",
-					"0042_project_shares",
+				await migrateDownTo(migrator, "0041_lti_roster_and_deep_linking");
+				const down = await migrator.migrateDown();
+				expect(down.error).toBeUndefined();
+				expect(down.results?.[0]?.migrationName).toBe(
 					"0041_lti_roster_and_deep_linking",
-				]) {
-					const down = await migrator.migrateDown();
-					expect(down.error).toBeUndefined();
-					expect(down.results?.[0]?.migrationName).toBe(name);
-				}
+				);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(0);
 
