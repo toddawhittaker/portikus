@@ -130,3 +130,23 @@ test.skipIf(skip)("a terminal outside any project is dropped", async () => {
 test.skipIf(skip)("an empty list needs no query", async () => {
 	expect(await withProjects(tdb.db, crypto.randomUUID(), [])).toEqual([]);
 });
+
+test.skipIf(skip)(
+	"a terminal's subagent rows reach the browser unchanged",
+	async () => {
+		const ws = await workspace("subagents");
+		const p = await project(ws, "alpha");
+		const t = await terminal(ws, p);
+		const subagents: AgentCodingAgentStatus["subagents"] = [
+			{
+				id: "toolu_01ABC",
+				type: "Explore",
+				description: "Find the parser",
+				state: "finished",
+				since: "2026-11-01T12:00:01.000Z",
+			},
+		];
+		const joined = await withProjects(tdb.db, ws, [{ ...state(t), subagents }]);
+		expect(joined[0]?.subagents).toEqual(subagents);
+	},
+);
