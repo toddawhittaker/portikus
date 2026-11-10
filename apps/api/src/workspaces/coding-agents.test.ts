@@ -95,8 +95,8 @@ test.skipIf(skip)(
 
 		const joined = await withProjects(tdb.db, ws, [state(ta), state(tb)]);
 		expect(joined).toEqual([
-			{ ...state(ta), projectId: a },
-			{ ...state(tb), projectId: b },
+			{ ...state(ta), projectId: a, name: "Terminal" },
+			{ ...state(tb), projectId: b, name: "Terminal" },
 		]);
 	},
 );
