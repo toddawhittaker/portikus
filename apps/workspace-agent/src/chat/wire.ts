@@ -1,3 +1,4 @@
+import { chmod, lstat, mkdir } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { join } from "node:path";
 import { sessionName } from "../tmux.js";
@@ -61,4 +62,17 @@ export function readLines(
 /** Write one frame as a line. */
 export function writeLine(socket: Socket, frame: string): void {
 	if (!socket.destroyed) socket.write(`${frame}\n`);
+}
+
+/**
+ * Make the socket directory, or check the one there: a real directory, the
+ * workspace user's own, mode 0700 (SPEC.md §24.1).
+ */
+export async function privateDirectory(dir: string): Promise<void> {
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	const info = await lstat(dir);
+	if (!info.isDirectory() || info.uid !== process.getuid?.()) {
+		throw new Error("the chat socket directory is not the workspace user's own");
+	}
+	await chmod(dir, 0o700);
 }

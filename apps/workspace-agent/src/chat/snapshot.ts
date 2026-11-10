@@ -3,9 +3,12 @@ import {
 	type ChatOpenCard,
 	type ChatServerEvent,
 	MAX_CHAT_SERVER_FRAME_BYTES,
+	MAX_CHAT_SHELL_COMMAND_CHARS,
+	MAX_CHAT_SHELL_OUTPUT_CHARS,
 } from "@portikus/contracts";
 import { splitAttachmentLines } from "./attachments.js";
 import { type ChatEventBody, ClaudeMessageMapper } from "./claude-adapter.js";
+import { parseBashInput, parseBashOutput } from "./shell-command.js";
 
 /** Most turns replayed on attach (SPEC.md §10.8). */
 export const REPLAY_TURNS = 20;
@@ -51,13 +54,41 @@ function isInterruptMarker(entry: SessionMessage): boolean {
 	return text !== null && INTERRUPT_MARKER.test(text.trim());
 }
 
+/** A `!` command's transcript entry: its input, or its output. */
+function isShellEntry(entry: SessionMessage | undefined): boolean {
+	const text = entry ? userText(entry) : null;
+	return (
+		text !== null && (parseBashInput(text) !== null || parseBashOutput(text) !== null)
+	);
+}
+
+/** A `!` command's input entry and the output entry after it, as one shell item. */
+function shellEvents(group: readonly SessionMessage[]): ChatEventBody[] {
+	const [input, result] = group;
+	const command = parseBashInput((input && userText(input)) ?? "");
+	const output = parseBashOutput((result && userText(result)) ?? "");
+	if (!input || command === null || output === null) return [];
+	return [
+		{
+			type: "shell",
+			id: input.uuid,
+			command: command.slice(0, MAX_CHAT_SHELL_COMMAND_CHARS),
+			output: output.output.slice(0, MAX_CHAT_SHELL_OUTPUT_CHARS),
+			exitCode: output.exitCode,
+			truncated: output.truncated || output.output.length > MAX_CHAT_SHELL_OUTPUT_CHARS,
+			state: "done",
+		},
+	];
+}
+
 /**
  * A message the student typed. Claude Code also writes user entries of its
  * own (interrupt markers, local command echoes, task notifications); those
  * are not shown. An image-only message has no text and still counts.
  */
 function isTyped(entry: SessionMessage): boolean {
-	if (userText(entry) === null || isInterruptMarker(entry)) return false;
+	if (userText(entry) === null || isInterruptMarker(entry) || isShellEntry(entry))
+		return false;
 	const { is_meta, isCompletedLocalCommand, origin } = extras(entry);
 	if (is_meta || isCompletedLocalCommand) return false;
 	return origin?.kind === undefined || origin.kind === "human";
@@ -139,10 +170,16 @@ export function replayHistory(
 	turnRunning: boolean,
 	maxBytes = MAX_CHAT_SERVER_FRAME_BYTES,
 ): { events: ChatEventBody[]; truncated: boolean } {
+	// A `!` command is a group of its own, outside any turn, as it ran.
 	const turns: SessionMessage[][] = [];
 	for (const entry of entries) {
 		if (entry.parent_tool_use_id !== null) continue;
-		if (isTyped(entry) || turns.length === 0) turns.push([]);
+		const afterShell = isShellEntry(turns.at(-1)?.[0]);
+		const text = userText(entry) ?? "";
+		const opens = isShellEntry(entry)
+			? parseBashInput(text) !== null || !afterShell
+			: isTyped(entry) || turns.length === 0 || afterShell;
+		if (opens) turns.push([]);
 		turns.at(-1)?.push(entry);
 	}
 	const kept = turns.slice(-REPLAY_TURNS);
@@ -150,6 +187,10 @@ export function replayHistory(
 	const events: ChatEventBody[] = [];
 	let lastAt = 0;
 	kept.forEach((turn, index) => {
+		if (isShellEntry(turn[0])) {
+			events.push(...shellEvents(turn));
+			return;
+		}
 		const keepImages = index >= kept.length - REPLAY_IMAGE_TURNS;
 		lastAt = timeOf(turn[0], lastAt);
 		events.push({ type: "turn.started", at: lastAt });

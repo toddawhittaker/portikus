@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
-import { makeChatTab, scriptedChat } from "./chat-helpers";
-import { expectNoViolations } from "./helpers";
+import { makeChatTab, openChat, scriptedChat } from "./chat-helpers";
+import { createStudent, expectNoViolations } from "./helpers";
 
 /**
  * A `!` shell command in the conversation (SPEC.md §10.8, §25.8): the command
@@ -186,4 +186,35 @@ test("a reload replays the commands in order, each once", async ({ page, context
 	await expect(commands).toHaveText(["$ls -la", "$cat missing.txt"]);
 	await page.reload();
 	await expect(view.getByTestId("chat-shell")).toHaveCount(2);
+});
+
+test("a `!` sent from the composer runs as a command, starts no turn, and survives a reload", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const student = await createStudent(context);
+	const { view } = await openChat(page, student.workspaceId, "Shell send");
+	const turns = view.getByTestId("chat-turn");
+	const turnsBefore = await turns.count();
+	const box = view.getByTestId("chat-composer-input");
+	await box.fill("!ls -la");
+	await box.press("Enter");
+	const shells = view.getByTestId("chat-shell");
+	await expect(shells).toHaveCount(1);
+	await expect(shells.first().getByTestId("chat-shell-output")).toHaveText(
+		"ran ls -la",
+	);
+	await expect(shells.first().getByTestId("chat-shell-status")).toHaveText(
+		"Finished with exit code 0",
+	);
+	await expect(shells.first()).toContainText("ls -la");
+	await expect(turns).toHaveCount(turnsBefore);
+	await expect(
+		view.getByTestId("chat-user-message").filter({ hasText: "ls -la" }),
+	).toHaveCount(0);
+
+	await page.reload();
+	await expect(view.getByTestId("chat-shell")).toHaveCount(1, { timeout: 15_000 });
+	await expect(view.getByTestId("chat-shell-output")).toHaveText("ran ls -la");
 });
