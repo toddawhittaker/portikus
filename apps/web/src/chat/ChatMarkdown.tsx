@@ -8,7 +8,7 @@
  * parsed document, so code keeps the text as written.
  */
 import { ChatImagePath, chatImageType } from "@portikus/contracts";
-import { type ComponentPropsWithoutRef, memo, useRef, useState } from "react";
+import { type ComponentPropsWithoutRef, memo, useId, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "../editor/markdown.css";
@@ -144,7 +144,11 @@ function fence(node: HastNode | undefined): { tag?: string; code: string } | nul
 	};
 }
 
-/** A wide code block scrolls, so it must be reachable by keyboard. */
+/**
+ * A wide code block scrolls, so it must be reachable by keyboard. The box is
+ * named by the visible language label and its own word ("Python code"), or
+ * just "code" when the fence names no language.
+ */
 function Pre({
 	node,
 	children,
@@ -153,13 +157,27 @@ function Pre({
 	const pre = useRef<HTMLPreElement | null>(null);
 	const block = fence(node as HastNode | undefined);
 	const language = languageFor(block?.tag);
+	const labelId = useId();
+	const preId = useId();
 	return (
 		<div className="pk-chat-pre pk-chat-copy-host">
 			{block?.tag ? (
-				<span className="pk-chat-lang">{language?.label ?? block.tag}</span>
+				<span className="pk-chat-lang" id={labelId}>
+					{language?.label ?? block.tag}
+				</span>
 			) : null}
-			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: see above */}
-			<pre {...props} ref={pre} tabIndex={0} className="pk-chat-hl">
+			{/* biome-ignore-start lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
+			{/* biome-ignore-start lint/a11y/useSemanticElements: a pre of code cannot be a fieldset; the role is what lets it carry a name */}
+			<pre
+				{...props}
+				ref={pre}
+				tabIndex={0}
+				id={preId}
+				role="group"
+				aria-label="code"
+				aria-labelledby={block?.tag ? `${labelId} ${preId}` : undefined}
+				className="pk-chat-hl"
+			>
 				{block && language ? (
 					<code className={`language-${block.tag}`}>
 						<HighlightedCode code={`${block.code}\n`} language={language} />
@@ -168,6 +186,8 @@ function Pre({
 					children
 				)}
 			</pre>
+			{/* biome-ignore-end lint/a11y/useSemanticElements: see above */}
+			{/* biome-ignore-end lint/a11y/noNoninteractiveTabindex: see above */}
 			<CopyButton label="Copy code" text={() => codeText(pre.current)} />
 		</div>
 	);
