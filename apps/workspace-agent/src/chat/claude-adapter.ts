@@ -349,7 +349,17 @@ export const PERMISSION_OPTION = {
 	allowOnce: "allow",
 	allowAlways: "always",
 	deny: "deny",
+	/** Plan approval, continuing in acceptEdits mode. */
+	planAcceptEdits: "allow-accept-edits",
+	/** Plan approval, continuing in default mode. */
+	planAskEdits: "allow-ask-edits",
 } as const;
+
+/** The mode each plan approval option continues in. */
+const PLAN_OPTION_MODE: Record<string, "acceptEdits" | "default"> = {
+	[PERMISSION_OPTION.planAcceptEdits]: "acceptEdits",
+	[PERMISSION_OPTION.planAskEdits]: "default",
+};
 
 /** What `canUseTool` gives the host besides the tool's name and input. */
 export interface ToolAsk {
@@ -387,7 +397,8 @@ export function cardForTool(
 			title: "Claude has a plan. Start working on it?",
 			input: shortenedInput(input),
 			options: [
-				{ id: PERMISSION_OPTION.allowOnce, label: "Yes, go ahead" },
+				{ id: PERMISSION_OPTION.planAcceptEdits, label: "Yes, and accept edits" },
+				{ id: PERMISSION_OPTION.planAskEdits, label: "Yes, and ask before edits" },
 				{ id: PERMISSION_OPTION.deny, label: "No, keep planning" },
 			],
 		};
@@ -429,8 +440,19 @@ export function permissionResult(
 	optionId: string,
 	input: Record<string, unknown>,
 	ask: ToolAsk,
-	_extras: PermissionAnswerExtras = {},
+	extras: PermissionAnswerExtras = {},
 ): PermissionResult {
+	const planMode = PLAN_OPTION_MODE[optionId];
+	if (planMode) {
+		// The session continues in the chosen mode; the host's status event updates the picker.
+		return {
+			behavior: "allow",
+			updatedInput: input,
+			updatedPermissions: [
+				{ type: "setMode", mode: extras.mode ?? planMode, destination: "session" },
+			],
+		};
+	}
 	if (optionId === PERMISSION_OPTION.allowOnce) {
 		return { behavior: "allow", updatedInput: input };
 	}
@@ -442,7 +464,8 @@ export function permissionResult(
 			...(forSdk.length > 0 ? { updatedPermissions: forSdk } : {}),
 		};
 	}
-	return { behavior: "deny", message: "The user declined this tool call." };
+	const reason = extras.message?.trim();
+	return { behavior: "deny", message: reason || "The user declined this tool call." };
 }
 
 /** The init capability that lets an answer mark a question skipped; older CLIs refuse the mark. */

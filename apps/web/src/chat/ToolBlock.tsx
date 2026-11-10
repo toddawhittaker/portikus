@@ -52,7 +52,7 @@ function Detail({ detail }: { detail: ToolDetail }) {
 		case "command":
 			return <CodeBlock text={detail.command} className="pk-chat-command" />;
 		case "edit":
-			return <DiffBlock changes={detail.changes} />;
+			return <DiffBlock changes={detail.changes} path={detail.path} />;
 		case "write":
 			return <CodeBlock text={detail.content} />;
 	}
