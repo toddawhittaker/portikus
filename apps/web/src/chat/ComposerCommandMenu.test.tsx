@@ -82,8 +82,8 @@ beforeEach(() => {
 		effort: "medium",
 		mode: "default",
 	});
-	// The host's command list; the store field arrives with the `commands` event.
-	act(() => store.setState({ commands: COMMANDS } as never));
+	// The host's command list, as its `commands` event leaves it in the store.
+	act(() => store.setState({ commands: COMMANDS }));
 	vi.stubGlobal(
 		"fetch",
 		vi.fn((url: string, init?: RequestInit) => {
@@ -216,7 +216,7 @@ test("Escape closes the menu and leaves the running turn alone; the next Escape 
 });
 
 test("/ later in the message, or with no commands listed, opens no list", async () => {
-	act(() => store.setState({ commands: [] } as never));
+	act(() => store.setState({ commands: [] }));
 	const box = draw();
 	typeInto(box, "/");
 	await waitFor(() =>

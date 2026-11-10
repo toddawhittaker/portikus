@@ -24,13 +24,9 @@ const CONTROLS: Record<string, { testId: string; label: string }> = {
 	effort: { testId: "composer-effort", label: "Effort" },
 };
 
-const NO_COMMANDS: readonly ChatCommand[] = [];
-
 /** The slash commands the host listed in its `commands` event. */
 export function selectCommands(state: ChatState): readonly ChatCommand[] {
-	return (
-		(state as ChatState & { commands?: readonly ChatCommand[] }).commands ?? NO_COMMANDS
-	);
+	return state.commands;
 }
 
 export interface MenuOption {

@@ -6,7 +6,7 @@ import {
 	test,
 } from "@playwright/test";
 import { openChat, receivedFrames } from "./chat-helpers";
-import { createStudent, expectNoViolations } from "./helpers";
+import { createStudent, expectNoViolations, seedFile } from "./helpers";
 
 /**
  * The `@` menu (SPEC.md §10.8, §11.1, §25.8; #1782): `@` anywhere opens a
@@ -175,4 +175,25 @@ test("a newer query cancels the search still running, whose answer never shows",
 	releaseSlow();
 	await staleAnswered;
 	await expect(view.getByRole("option")).toHaveAccessibleName("ab.ts");
+});
+
+test("through the API, @ finds the project's own files", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const { project, view } = await openChat(page, student.workspaceId, "Real search");
+	for (const path of ["src/app.ts", "src/lib/apply.ts", "notes.txt"]) {
+		await seedFile(student.workspaceId, project.slug, path, "x\n");
+	}
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	const searched = page.waitForResponse(
+		(response) =>
+			response.url().endsWith("/file-search") && response.request().method() === "POST",
+	);
+	await page.keyboard.type("@ap");
+	expect((await searched).ok()).toBe(true);
+	const list = view.getByRole("listbox", { name: "Files" });
+	await expect(list.getByRole("option")).toHaveCount(2);
+	await expect(list.getByRole("option").first()).toHaveAccessibleName("src/app.ts");
+	await page.keyboard.press("Enter");
+	await expect(box).toHaveText("@src/app.ts");
 });

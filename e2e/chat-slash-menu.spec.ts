@@ -1,6 +1,7 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { type Frame, makeChatTab, scriptChat } from "./chat-helpers";
-import { expectNoViolations } from "./helpers";
+import { openChat, receivedFrames } from "./chat-helpers";
+import { createStudent, expectNoViolations } from "./helpers";
+import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * The `/` menu (SPEC.md §10.8, §25.8; #1782): typed at the start of the
@@ -27,22 +28,25 @@ const COMMANDS = [
 	},
 ];
 
-/** A chat whose scripted host lists COMMANDS; the frames the page sends are kept. */
+/** A chat whose fake host lists COMMANDS in place of its default list. */
 async function openCommands(page: Page, context: BrowserContext) {
-	const { id } = await makeChatTab(page, context);
-	const received: { type: string; text?: string }[] = [];
-	const first: Frame[] = [["commands", { commands: COMMANDS }]];
-	const view = await scriptChat(page, id, {
-		first,
-		reply: (message) => received.push(message),
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student.workspaceId, "Commands");
+	const listed = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/commands`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ commands: COMMANDS }),
 	});
+	expect(listed.ok).toBe(true);
 	const box = view.getByTestId("chat-composer-input");
 	await box.click();
-	return { view, box, received };
+	return { id, view, box };
 }
 
-const sends = (received: { type: string }[]) =>
-	received.filter((message) => message.type === "send");
+/** The texts the page has sent to the chat. */
+async function sends(id: string): Promise<unknown[]> {
+	return (await receivedFrames(id, "send")).map((frame) => frame.text);
+}
 
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`/ lists the commands at once and narrows as you type (${colorScheme})`, async ({
@@ -89,18 +93,18 @@ test("Enter puts the command in the box without sending, and the next Enter send
 	page,
 	context,
 }) => {
-	const { view, box, received } = await openCommands(page, context);
+	const { id, view, box } = await openCommands(page, context);
 	await page.keyboard.type("/rev");
 	await expect(view.getByRole("listbox")).toBeVisible();
 	await page.keyboard.press("Enter");
 	await expect(box).toHaveText("/review");
 	await expect(view.getByRole("listbox")).toHaveCount(0);
 	await expect(box).toHaveAttribute("aria-expanded", "false");
-	expect(sends(received)).toEqual([]);
+	expect(await sends(id)).toEqual([]);
 	await page.keyboard.type("42");
 	await page.keyboard.press("Enter");
 	await expect
-		.poll(() => sends(received).map((message) => message.text))
+		.poll(() => sends(id))
 		.toEqual(["/review 42"]);
 });
 
@@ -133,7 +137,7 @@ test("a terminal-only command is never sent; /model opens the Model picker inste
 	page,
 	context,
 }) => {
-	const { view, box, received } = await openCommands(page, context);
+	const { id, view, box } = await openCommands(page, context);
 	await page.keyboard.type("/config");
 	const config = view.getByRole("option", { name: /\/config/ });
 	await expect(config).toHaveAttribute("aria-disabled", "true");
@@ -142,7 +146,7 @@ test("a terminal-only command is never sent; /model opens the Model picker inste
 		"/config works only in the terminal, so it is not sent.",
 	);
 	await expect(box).toHaveText("/config");
-	expect(sends(received)).toEqual([]);
+	expect(await sends(id)).toEqual([]);
 
 	await page.keyboard.press("ControlOrMeta+a");
 	await page.keyboard.press("Backspace");
@@ -153,7 +157,7 @@ test("a terminal-only command is never sent; /model opens the Model picker inste
 	await page.keyboard.press("Enter");
 	await expect(page.getByRole("menu", { name: /^Model / })).toBeVisible();
 	await expect(box).toHaveText("");
-	expect(sends(received)).toEqual([]);
+	expect(await sends(id)).toEqual([]);
 });
 
 test("/ after the start of the message is only a slash", async ({ page, context }) => {
