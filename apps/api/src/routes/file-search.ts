@@ -31,6 +31,15 @@ export function registerFileSearchRoutes(app: FastifyInstance, deps: ServerDeps)
 	const { db, config } = deps;
 
 	app.post("/workspaces/:id/projects/:pid/file-search", async (request, reply) => {
+		// A browser that stops waiting for a superseded search kills the
+		// ripgrep behind it, so the hang-up is carried to the agent. The
+		// response's close is the signal: the request's own 'close' fires as
+		// soon as a POST body is read, before the search has run. It is
+		// attached before any await so no hang-up is missed.
+		const controller = new AbortController();
+		reply.raw.once("close", () => {
+			if (!reply.raw.writableFinished) controller.abort();
+		});
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
 		const body = FileNameSearchRequest.safeParse(request.body ?? {});
@@ -43,11 +52,6 @@ export function registerFileSearchRoutes(app: FastifyInstance, deps: ServerDeps)
 			);
 		}
 
-		// A browser that stops waiting for a superseded search kills the
-		// ripgrep behind it, so the hang-up is carried to the agent.
-		const controller = new AbortController();
-		const onClose = () => controller.abort();
-		request.raw.on("close", onClose);
 		const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
 		try {
 			return await relayJson(
@@ -61,7 +65,6 @@ export function registerFileSearchRoutes(app: FastifyInstance, deps: ServerDeps)
 			);
 		} finally {
 			clearTimeout(timer);
-			request.raw.off("close", onClose);
 		}
 	});
 }

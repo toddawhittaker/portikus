@@ -13,9 +13,6 @@ const FILE_NAME_SEARCH_TIMEOUT_MS = 3000;
 /** How many file paths one search reads from ripgrep before it stops. */
 const MAX_FILES_SCANNED = 200_000;
 
-/** How many matches are kept for ranking; the best of them are returned. */
-const MAX_CANDIDATES = 5000;
-
 /**
  * How many ripgrep processes may run at once. The menu searches as the
  * student types, and a cancelled request kills its process, so only several
@@ -68,7 +65,7 @@ function matchRank(path: string, query: string): number | null {
 	return 4;
 }
 
-interface Candidate {
+export interface Candidate {
 	path: string;
 	rank: number;
 	depth: number;
@@ -81,6 +78,25 @@ function byRelevance(a: Candidate, b: Candidate): number {
 		a.path.length - b.path.length ||
 		(a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
 	);
+}
+
+/**
+ * Keep `kept` sorted best first and no longer than `wanted`, so a better match
+ * that arrives late is never lost to the cap.
+ */
+export function keepBest(kept: Candidate[], candidate: Candidate, wanted: number): void {
+	const last = kept.at(-1);
+	if (kept.length >= wanted && last && byRelevance(candidate, last) >= 0) return;
+	let low = 0;
+	let high = kept.length;
+	while (low < high) {
+		const mid = (low + high) >> 1;
+		const at = kept[mid];
+		if (at && byRelevance(at, candidate) <= 0) low = mid + 1;
+		else high = mid;
+	}
+	kept.splice(low, 0, candidate);
+	if (kept.length > wanted) kept.pop();
 }
 
 /**
@@ -138,11 +154,7 @@ export async function searchFileNames(
 		const rank = matchRank(path, lowered);
 		if (rank === null) return;
 		matched += 1;
-		if (candidates.length < MAX_CANDIDATES) {
-			candidates.push({ path, rank, depth: path.split("/").length });
-		} else {
-			truncated = true;
-		}
+		keepBest(candidates, { path, rank, depth: path.split("/").length }, wanted);
 	};
 
 	const timer = setTimeout(() => {
@@ -181,9 +193,8 @@ export async function searchFileNames(
 	if (options.signal?.aborted) return { paths: [], truncated: false };
 	if (!stopped && pending !== "") consume(pending);
 
-	candidates.sort(byRelevance);
 	return {
-		paths: candidates.slice(0, wanted).map((candidate) => candidate.path),
+		paths: candidates.map((candidate) => candidate.path),
 		truncated: truncated || matched > wanted,
 	};
 }

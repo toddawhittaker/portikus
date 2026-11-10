@@ -1,3 +1,4 @@
+import type { AddressInfo } from "node:net";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -204,4 +205,44 @@ test.skipIf(skip)("a stopped workspace answers 409", async () => {
 	const response = await search(alice, workspaceId, projectId, { query: "composer" });
 	expect(response.statusCode).toBe(409);
 	expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+});
+
+function searchOverHttp(body: unknown, signal?: AbortSignal) {
+	const address = app.server.address() as AddressInfo;
+	return fetch(
+		`http://127.0.0.1:${address.port}/workspaces/${workspaceId}/projects/${projectId}/file-search`,
+		{
+			method: "POST",
+			headers: {
+				...csrfHeaders(alice, PUBLIC_URL),
+				"content-type": "application/json",
+			},
+			body: JSON.stringify(body),
+			signal,
+		},
+	);
+}
+
+test.skipIf(skip)(
+	"a search the browser waits for is not cancelled once its body is read",
+	async () => {
+		const before = agent.searchAborted;
+		const response = await searchOverHttp({ query: "slow" });
+		expect(response.status).toBe(200);
+		expect(agent.searchAborted).toBe(before);
+	},
+);
+
+test.skipIf(skip)("a hung-up search is cancelled at the agent too", async () => {
+	const before = agent.searchAborted;
+	const controller = new AbortController();
+	const pending = searchOverHttp({ query: "slow" }, controller.signal);
+	// Give the request time to reach the fake agent before hanging up.
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	controller.abort();
+	await expect(pending).rejects.toThrow();
+
+	await expect
+		.poll(() => agent.searchAborted, { timeout: 5000 })
+		.toBeGreaterThan(before);
 });

@@ -78,6 +78,28 @@ export function registerSearchRoutes(app: FastifyInstance, s: FakeAgentState): v
 		if (!body.success) {
 			return fileError(reply, new FakeFileError("BAD_REQUEST", "invalid file search"));
 		}
+		// A query the test marks as slow stands in for a search still running
+		// when the browser gives up. The wait ends when the caller hangs up
+		// before the answer is sent, or after a short pause.
+		if (body.data.query.includes("slow")) {
+			await new Promise<void>((resolve) => {
+				const onClose = () => {
+					if (reply.raw.writableFinished) return;
+					flags.searchAborted += 1;
+					clearTimeout(timer);
+					resolve();
+				};
+				const timer = setTimeout(() => {
+					reply.raw.off("close", onClose);
+					resolve();
+				}, 1000);
+				reply.raw.once("close", onClose);
+			});
+			if (reply.raw.destroyed) {
+				reply.hijack();
+				return;
+			}
+		}
 		const query = body.data.query.toLowerCase();
 		const prefix = `${slug}/`;
 		const paths = [...fsOf(request)]
