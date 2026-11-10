@@ -43,14 +43,15 @@ ID2 = "1b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
 USER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 
 
-def wait_for_port(port, seconds=20):
-    deadline = time.time() + seconds
-    while time.time() < deadline:
+def wait_for_port(port, what, seconds=30):
+    """Block until `what` accepts connections on `port`, or fail naming it."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
         with socket.socket() as s:
             if s.connect_ex(("127.0.0.1", port)) == 0:
                 return
         time.sleep(0.1)
-    raise RuntimeError(f"nothing listens on {port}")
+    raise RuntimeError(f"{what} did not accept connections on 127.0.0.1:{port} within {seconds} s")
 
 
 class Ask(http.server.BaseHTTPRequestHandler):
@@ -101,7 +102,7 @@ class Pebble(unittest.TestCase):
                    "-doh", "", "-management", f"127.0.0.1:{cls.ports['challtest']}"])
         cls.start([PEBBLE, "-config", f"{d}/pebble.json", "-dnsserver", f"127.0.0.1:{cls.ports['dns']}"],
                   env={"PEBBLE_VA_NOSLEEP": "1", "PEBBLE_WFE_NONCEREJECT": "0"})
-        wait_for_port(cls.ports["acme"])
+        wait_for_port(cls.ports["acme"], "Pebble")
         cls.directory = f"https://127.0.0.1:{cls.ports['acme']}/dir"
         # Pebble's roots, which the job's chain check needs among the system authorities.
         context = ssl.create_default_context(cafile=f"{d}/listener.crt")
@@ -182,7 +183,10 @@ https://*.{SUFFIX} {{
         self.live_log = open(os.path.join(self.root, "live.log"), "wb")
         self.live = subprocess.Popen([CADDY, "run", "--config", self.caddyfile, "--adapter", "caddyfile"],
                                      stdout=subprocess.DEVNULL, stderr=self.live_log, env=self.env)
-        wait_for_port(self.ports["https"])
+        # Caddy opens its HTTPS and HTTP listeners separately. Pebble's HTTP-01 validation dials
+        # the HTTP one, so applying before it is open fails with "connection refused".
+        wait_for_port(self.ports["https"], "Caddy's HTTPS listener")
+        wait_for_port(self.ports["http"], "Caddy's HTTP-01 challenge listener")
 
     def tearDown(self):
         if self.live.poll() is None:
