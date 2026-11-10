@@ -46,7 +46,7 @@ export function SessionRules({ store }: { store: ChatStore }) {
 			list.current?.querySelector<HTMLElement>("summary") ??
 			holder.current
 				?.closest(".pk-chat")
-				?.querySelector<HTMLElement>('[role="textbox"]');
+				?.querySelector<HTMLElement>('[role="combobox"]');
 		target?.focus({ preventScroll: true });
 	}, [pending]);
 

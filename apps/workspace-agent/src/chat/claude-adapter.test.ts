@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
 	ChatServerEvent,
+	MAX_CHAT_COMMANDS,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -10,7 +11,9 @@ import {
 	type ChatEventBody,
 	ClaudeMessageMapper,
 	cardForTool,
+	chatCommands,
 	imagePart,
+	limitsFromUsage,
 	MAX_CARD_INPUT_BYTES,
 	mergeRateLimits,
 	PERMISSION_OPTION,
@@ -99,13 +102,11 @@ describe("mapping recorded SDK frames", () => {
 		).toBe(true);
 	});
 
-	test("the recorded rate limit event fills the seven-day window", () => {
+	test("the recorded rate limit event carries no top-level figure, so it fills nothing", () => {
 		const event = recorded.find(
 			(message) => message.type === "rate_limit_event",
 		) as Extract<SDKMessage, { type: "rate_limit_event" }>;
-		expect(mergeRateLimits({}, event.rate_limit_info)).toEqual({
-			seven_day: { used_percentage: 60, resets_at: 1800000000 },
-		});
+		expect(mergeRateLimits({}, event.rate_limit_info)).toEqual({});
 	});
 });
 
@@ -135,23 +136,119 @@ describe("tool output parts", () => {
 });
 
 describe("rate limits", () => {
-	test("a later event for the other window keeps the first", () => {
+	test("the overage-included weekly window counts as the seven-day window", () => {
+		expect(
+			mergeRateLimits({}, {
+				status: "allowed",
+				rateLimitType: "seven_day_overage_included",
+				utilization: 0.4237,
+				resetsAt: 1794200000,
+			} as SDKRateLimitInfo),
+		).toEqual({ seven_day: { used_percentage: 42.4, resets_at: 1794200000 } });
+	});
+
+	test("a later seven-day event replaces the figure, capped at 100", () => {
 		const first = mergeRateLimits({}, {
 			status: "allowed",
-			rateLimitType: "five_hour",
-			utilization: 0.4237,
+			rateLimitType: "seven_day",
+			utilization: 0.5,
 			resetsAt: 1794200000,
 		} as SDKRateLimitInfo);
-		const both = mergeRateLimits(first, {
-			status: "allowed",
-			rateLimitType: "seven_day",
-			utilization: 1.4,
-			resetsAt: 1800000000,
-		} as SDKRateLimitInfo);
-		expect(both).toEqual({
-			five_hour: { used_percentage: 42.4, resets_at: 1794200000 },
-			seven_day: { used_percentage: 100, resets_at: 1800000000 },
-		});
+		expect(
+			mergeRateLimits(first, {
+				status: "allowed",
+				rateLimitType: "seven_day",
+				utilization: 1.4,
+				resetsAt: 1800000000,
+			} as SDKRateLimitInfo),
+		).toEqual({ seven_day: { used_percentage: 100, resets_at: 1800000000 } });
+	});
+
+	test("five-hour, per-model and figure-less events change nothing", () => {
+		const known = { seven_day: { used_percentage: 5, resets_at: 1794200000 } };
+		for (const info of [
+			{ rateLimitType: "five_hour", utilization: 0.4, resetsAt: 1794200000 },
+			{ rateLimitType: "seven_day_opus", utilization: 0.4, resetsAt: 1794200000 },
+			{ rateLimitType: "seven_day" },
+			{ rateLimitType: "seven_day", utilization: -1, resetsAt: 1794200000 },
+		]) {
+			expect(
+				mergeRateLimits(known, { status: "allowed", ...info } as SDKRateLimitInfo),
+			).toBe(known);
+		}
+	});
+});
+
+describe("limitsFromUsage", () => {
+	const usage = (rateLimits: unknown, available = true) =>
+		({ rate_limits_available: available, rate_limits: rateLimits }) as never;
+
+	test("takes the seven-day window, utilization as given and the reset in epoch seconds", () => {
+		expect(
+			limitsFromUsage(
+				usage({
+					five_hour: { utilization: 90, resets_at: "2026-11-30T01:00:00Z" },
+					seven_day: { utilization: 41.26, resets_at: "2026-12-01T09:00:00Z" },
+				}),
+			),
+		).toEqual({ seven_day: { used_percentage: 41.3, resets_at: 1796115600 } });
+	});
+
+	test("returns nothing when plan limits do not apply or the window is unusable", () => {
+		expect(limitsFromUsage(usage(null, false))).toEqual({});
+		expect(
+			limitsFromUsage(
+				usage(
+					{ seven_day: { utilization: 1, resets_at: "2026-12-01T09:00:00Z" } },
+					false,
+				),
+			),
+		).toEqual({});
+		expect(limitsFromUsage(usage({}))).toEqual({});
+		expect(limitsFromUsage(usage({ seven_day: null }))).toEqual({});
+		expect(
+			limitsFromUsage(usage({ seven_day: { utilization: null, resets_at: null } })),
+		).toEqual({});
+		expect(
+			limitsFromUsage(usage({ seven_day: { utilization: 3, resets_at: "soon" } })),
+		).toEqual({});
+	});
+});
+
+describe("chatCommands", () => {
+	test("marks menu commands and the SDK's terminal ones, and tidies names and hints", () => {
+		expect(
+			chatCommands(
+				[
+					{ name: "/compact", description: "Shrink", argumentHint: "[focus]" },
+					{ name: "model", description: "Pick a model", argumentHint: "" },
+					{ name: "statusline", description: "Set up", argumentHint: "" },
+					{ name: "compact", description: "Duplicate", argumentHint: "" },
+					{ name: "", description: "No name", argumentHint: "" },
+				],
+				new Set(["statusline"]),
+			),
+		).toEqual([
+			{
+				name: "compact",
+				description: "Shrink",
+				argumentHint: "[focus]",
+				terminalOnly: false,
+			},
+			{ name: "model", description: "Pick a model", terminalOnly: true },
+			{ name: "statusline", description: "Set up", terminalOnly: true },
+		]);
+	});
+
+	test("lists no more than the contract allows", () => {
+		const many = Array.from({ length: MAX_CHAT_COMMANDS + 20 }, (_, i) => ({
+			name: `c${i}`,
+			description: "x".repeat(300),
+			argumentHint: "",
+		}));
+		const listed = chatCommands(many);
+		expect(listed).toHaveLength(MAX_CHAT_COMMANDS);
+		expect(listed[0]?.description).toHaveLength(200);
 	});
 });
 
@@ -247,6 +344,40 @@ describe("cards", () => {
 			type: "permission",
 			toolName: "ExitPlanMode",
 			input: { plan: "1. do it" },
+		});
+		expect(card.type === "permission" && card.options.map((o) => o.label)).toEqual([
+			"Yes, and accept edits",
+			"Yes, and ask before edits",
+			"No, keep planning",
+		]);
+	});
+
+	test("approving a plan sets the session's mode to the one chosen", () => {
+		const ask = { toolUseID: "t2" };
+		const setMode = (mode: string) => [
+			{ type: "setMode", mode, destination: "session" },
+		];
+		expect(permissionResult(PERMISSION_OPTION.planAcceptEdits, {}, ask)).toEqual({
+			behavior: "allow",
+			updatedInput: {},
+			updatedPermissions: setMode("acceptEdits"),
+		});
+		expect(permissionResult(PERMISSION_OPTION.planAskEdits, {}, ask)).toEqual({
+			behavior: "allow",
+			updatedInput: {},
+			updatedPermissions: setMode("default"),
+		});
+	});
+
+	test("a denial carries the student's reason, or the plain text when none was typed", () => {
+		const ask = { toolUseID: "t" };
+		expect(permissionResult("deny", {}, ask, { message: " use pnpm " })).toEqual({
+			behavior: "deny",
+			message: "use pnpm",
+		});
+		expect(permissionResult("deny", {}, ask, { message: "  " })).toEqual({
+			behavior: "deny",
+			message: "The user declined this tool call.",
 		});
 	});
 

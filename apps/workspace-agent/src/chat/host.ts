@@ -11,11 +11,13 @@ import {
 	type SDKMessage,
 	type SDKUserMessage,
 	type SessionMessage,
+	type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
 	CHAT_START_EFFORT,
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
 	type ChatOpenCard,
@@ -33,13 +35,23 @@ import {
 	type ClaudeLimitWindows,
 	ClaudeMessageMapper,
 	cardForTool,
+	chatCommands,
+	limitsFromUsage,
 	mergeRateLimits,
 	PERMISSION_OPTION,
+	type PermissionAnswerExtras,
 	permissionResult,
 	questionResult,
 	type ToolAsk,
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
+import {
+	afterRequest,
+	type ContextFigures,
+	fromTranscript,
+	mainThreadUsage,
+	windowFromModelUsage,
+} from "./context-usage.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { writeChatSession } from "./session-record.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
@@ -149,6 +161,16 @@ export class ChatHost {
 	/** The assistant text streamed so far in this turn, for a snapshot. */
 	private partial: { id: string; text: string } | null = null;
 	private limits: ClaudeLimitWindows = {};
+	/** The slash commands last reported; null until Claude has reported any. */
+	private commands: ChatCommand[] | null = null;
+	/** The commands the SDK's init message named, for when their descriptions cannot be read. */
+	private initCommands: { names: string[]; terminalOnly: Set<string> } | null = null;
+	/** How full the context is and when the cache goes cold; null until known. */
+	private context: ContextFigures | null = null;
+	/** The model's context window, once the SDK has reported it. */
+	private windowTokens: number | null = null;
+	/** The model of the last main-thread request, to read its window. */
+	private lastModel: string | null = null;
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
@@ -247,6 +269,122 @@ export class ChatHost {
 			this.broadcast(this.rulesEvent());
 		}
 		void this.pump(session);
+		void this.refreshCommands(session);
+		void this.refreshPlanUsage(session);
+		void this.refreshWindow(session, undefined);
+	}
+
+	/** A main-thread request finished: tell every attachment how full the context is. */
+	private requestMade(message: SDKMessage): void {
+		if (message.type !== "assistant") return;
+		const usage = mainThreadUsage(message);
+		if (!usage) return;
+		this.lastModel = message.message.model || this.lastModel;
+		const next = afterRequest(this.context, usage, Date.now(), this.windowTokens);
+		this.setContext(next);
+	}
+
+	/**
+	 * Read the context window from the SDK, or from the result's
+	 * `modelUsage` when the SDK cannot say. A failure keeps the last figure.
+	 */
+	private async refreshWindow(
+		session: Query,
+		modelUsage: Record<string, { contextWindow?: number }> | undefined,
+	): Promise<void> {
+		let window: number | null = null;
+		try {
+			const usage = await session.getContextUsage({ detail: "summary" });
+			window = usage.maxTokens > 0 ? usage.maxTokens : null;
+		} catch {
+			// Older SDKs and some sessions cannot answer.
+		}
+		window ??= windowFromModelUsage(modelUsage, this.lastModel);
+		if (this.session !== session || window === null || window === this.windowTokens)
+			return;
+		this.windowTokens = window;
+		if (this.context) this.setContext({ ...this.context, windowTokens: window });
+	}
+
+	private setContext(next: ContextFigures): void {
+		if (JSON.stringify(next) === JSON.stringify(this.context)) return;
+		this.context = next;
+		this.broadcast(this.contextEvent(next));
+	}
+
+	private contextEvent(context: ContextFigures): ChatEventBody {
+		return { type: "context", ...context };
+	}
+
+	/**
+	 * Claude Code's `rate_limit_event` often carries no figure, so the plan's
+	 * seven-day usage is asked for directly. A failure keeps the last figure.
+	 */
+	private async refreshPlanUsage(session: Query): Promise<void> {
+		try {
+			const usage =
+				await session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+					skipBehaviors: true,
+				});
+			const found = limitsFromUsage(usage);
+			if (this.session !== session || !found.seven_day) return;
+			this.limits = { ...this.limits, ...found };
+			await this.options.postLimits(this.limits);
+		} catch {
+			// The last known figure stays.
+		}
+	}
+
+	private commandsChanged(commands: SlashCommand[]): void {
+		if (!this.session) return;
+		this.setCommands(
+			this.session,
+			chatCommands(commands, this.initCommands?.terminalOnly),
+		);
+	}
+
+	private initCommandsKnown(
+		names: string[] | undefined,
+		terminal: string[] | undefined,
+	) {
+		this.initCommands = { names: names ?? [], terminalOnly: new Set(terminal ?? []) };
+		if (this.session) void this.refreshCommands(this.session);
+	}
+
+	/** Read the command descriptions, falling back to the names init gave. */
+	private async refreshCommands(session: Query): Promise<void> {
+		try {
+			this.setCommands(
+				session,
+				chatCommands(
+					await session.supportedCommands(),
+					this.initCommands?.terminalOnly,
+				),
+			);
+		} catch {
+			const init = this.initCommands;
+			if (init && this.commands === null) {
+				const commands = init.names.map((name) => ({
+					name,
+					description: "",
+					argumentHint: "",
+				}));
+				this.setCommands(session, chatCommands(commands, init.terminalOnly));
+			}
+		}
+	}
+
+	/** Keep the list and tell every attachment, unless it did not change. */
+	private setCommands(session: Query, commands: ChatCommand[]): void {
+		if (this.session !== session) return;
+		if (commands.length === 0 && this.commands === null) return;
+		if (JSON.stringify(commands) === JSON.stringify(this.commands)) return;
+		this.commands = commands;
+		this.broadcast(this.commandsEvent(commands));
+	}
+
+	private commandsEvent(commands: ChatCommand[]): ChatEventBody {
+		return { type: "commands", commands };
 	}
 
 	private async pump(session: Query): Promise<void> {
@@ -274,21 +412,16 @@ export class ChatHost {
 	private handle(message: SDKMessage): void {
 		this.followSession(message);
 		if (message.type === "system" && message.subtype === "init") {
-			this.options.log.info(
-				{ claudeCode: message.claude_code_version },
-				"claude session started",
-			);
-			this.reportSkipped =
-				message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
-			this.settings.model = message.model || this.settings.model;
-			this.settings.mode =
-				message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
-			this.broadcastSettings();
+			this.sessionStarted(message);
 			return;
 		}
 		// Always allow can switch the mode mid-turn; the picker shows the mode in force.
 		if (message.type === "system" && message.subtype === "status") {
 			if (message.permissionMode) this.modeChanged(message.permissionMode);
+			return;
+		}
+		if (message.type === "system" && message.subtype === "commands_changed") {
+			this.commandsChanged(message.commands);
 			return;
 		}
 		if (message.type === "rate_limit_event") {
@@ -303,9 +436,14 @@ export class ChatHost {
 					? "error"
 					: "done";
 			this.finishTurn(status);
+			if (this.session) {
+				void this.refreshPlanUsage(this.session);
+				void this.refreshWindow(this.session, message.modelUsage);
+			}
 			return;
 		}
 		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
+		this.requestMade(message);
 		for (const event of this.mapper.map(message)) {
 			if (event.type === "text.delta") {
 				const text = this.partial?.id === event.messageId ? this.partial.text : "";
@@ -315,6 +453,19 @@ export class ChatHost {
 			}
 			this.broadcast(event);
 		}
+	}
+
+	private sessionStarted(message: Extract<SDKMessage, { subtype: "init" }>): void {
+		this.options.log.info(
+			{ claudeCode: message.claude_code_version },
+			"claude session started",
+		);
+		this.reportSkipped = message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
+		this.initCommandsKnown(message.slash_commands, message.terminal_slash_commands);
+		this.settings.model = message.model || this.settings.model;
+		this.settings.mode =
+			message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
+		this.broadcastSettings();
 	}
 
 	private followSession(message: SDKMessage): void {
@@ -336,6 +487,7 @@ export class ChatHost {
 		).catch(() => this.options.log.warn("could not record the new chat session"));
 		this.mapper = new ClaudeMessageMapper();
 		this.partial = null;
+		this.context = null;
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
 			if (client.held) {
@@ -423,7 +575,11 @@ export class ChatHost {
 	 * Like `answer`, but Always allow first grants the session rules, so the
 	 * card is claimed before the wait and a second answer cannot also win.
 	 */
-	private async answerPermission(id: string, optionId: string): Promise<void> {
+	private async answerPermission(
+		id: string,
+		optionId: string,
+		extras: PermissionAnswerExtras,
+	): Promise<void> {
 		const open = this.cards.get(id);
 		if (open?.card.type !== "permission") return;
 		if (!open.card.options.some((option) => option.id === optionId)) return;
@@ -438,7 +594,7 @@ export class ChatHost {
 				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
 			);
 		} finally {
-			open.settle(permissionResult(optionId, open.input, open.ask));
+			open.settle(permissionResult(optionId, open.input, open.ask, extras));
 			this.broadcast({ type: "card.resolved", id });
 		}
 	}
@@ -467,11 +623,14 @@ export class ChatHost {
 		const cards = [...this.cards.values()].map((open) => open.card);
 		const turnRunning = this.turnRunning;
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
+		let context = this.context;
 		try {
-			replay = replayHistory(
-				await this.sdk.sessionMessages(this.sessionId, this.options.projectDir),
-				turnRunning,
+			const messages = await this.sdk.sessionMessages(
+				this.sessionId,
+				this.options.projectDir,
 			);
+			replay = replayHistory(messages, turnRunning);
+			context ??= fromTranscript(messages, this.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
@@ -499,6 +658,11 @@ export class ChatHost {
 		}
 		writeLine(socket, this.frame(this.settingsEvent()));
 		writeLine(socket, this.frame(this.rulesEvent()));
+		if (this.commands) writeLine(socket, this.frame(this.commandsEvent(this.commands)));
+		// A figure that arrived during the read was already sent, held.
+		if (context && !held.some((event) => event.type === "context")) {
+			writeLine(socket, this.frame(this.contextEvent(context)));
+		}
 	}
 
 	private async onLine(client: Client, line: string): Promise<void> {
@@ -524,7 +688,10 @@ export class ChatHost {
 			case "send":
 				return this.send(message.text, message.attachments);
 			case "permission.answer":
-				return this.answerPermission(message.id, message.optionId);
+				return this.answerPermission(message.id, message.optionId, {
+					message: message.message,
+					mode: message.mode,
+				});
 			case "rule.revoke":
 				return this.revokeRule(message.rule);
 			case "question.answer":

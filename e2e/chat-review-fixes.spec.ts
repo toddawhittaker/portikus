@@ -137,7 +137,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// Every control along the composer's bottom edge, the corner the toasts start in.
 			const controls = view
 				.getByTestId("chat-composer")
-				.locator('button, [role="textbox"]');
+				.locator('button, [role="combobox"]');
 			expect(await controls.count()).toBeGreaterThan(5);
 			for (const control of await controls.all()) {
 				await control.focus();

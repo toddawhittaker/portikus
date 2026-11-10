@@ -1,16 +1,20 @@
 import type {
 	PermissionResult,
 	PermissionUpdate,
+	SDKControlGetUsageResponse,
 	SDKMessage,
 	SDKRateLimitInfo,
+	SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+	ChatCommand,
 	ChatImageMediaType,
 	type ChatOpenCard,
 	ChatQuestion,
 	type ChatServerEvent,
 	type ChatToolOutputPart,
 	decodedBase64Bytes,
+	MAX_CHAT_COMMANDS,
 	MAX_CHAT_IMAGE_BYTES,
 	MAX_CHAT_QUESTIONS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -191,9 +195,10 @@ interface ClaudeLimitWindow {
 	resets_at: number;
 }
 
-export type ClaudeLimitWindows = Partial<
-	Record<"five_hour" | "seven_day", ClaudeLimitWindow>
->;
+/** Only the seven-day window is shown; Claude has no five-hour limit now. */
+export interface ClaudeLimitWindows {
+	seven_day?: ClaudeLimitWindow;
+}
 
 /**
  * Utilization arrives as a fraction; Claude Code's own status line shows it
@@ -204,32 +209,102 @@ function percent(utilization: number): number {
 }
 
 /**
- * The five-hour and seven-day windows a `rate_limit_event` reports, merged
- * over what was known before (SPEC.md §10.8). An event names one window, or
- * several under `unifiedWindows`.
+ * The seven-day window a `rate_limit_event` reports, merged over what was
+ * known before (SPEC.md §10.8). The overage-included weekly window is the
+ * plan's seven-day window; other windows are not shown.
  */
 export function mergeRateLimits(
 	known: ClaudeLimitWindows,
 	info: SDKRateLimitInfo,
 ): ClaudeLimitWindows {
-	const next: ClaudeLimitWindows = { ...known };
-	const put = (name: unknown, utilization: unknown, resetsAt: unknown) => {
-		if (name !== "five_hour" && name !== "seven_day") return;
-		if (typeof utilization !== "number" || typeof resetsAt !== "number") return;
-		if (!Number.isFinite(utilization) || utilization < 0) return;
-		next[name] = {
+	const { rateLimitType, utilization, resetsAt } = info;
+	if (rateLimitType !== "seven_day" && rateLimitType !== "seven_day_overage_included") {
+		return known;
+	}
+	if (typeof utilization !== "number" || typeof resetsAt !== "number") return known;
+	if (!Number.isFinite(utilization) || utilization < 0) return known;
+	return {
+		...known,
+		seven_day: {
 			used_percentage: percent(utilization),
 			resets_at: Math.floor(resetsAt),
-		};
+		},
 	};
-	const unified = (info as { unifiedWindows?: unknown }).unifiedWindows;
-	if (typeof unified === "object" && unified !== null) {
-		for (const [name, window] of Object.entries(unified as Record<string, Block>)) {
-			put(name, window?.utilization, window?.resetsAt);
+}
+
+/**
+ * The seven-day window from the SDK's usage answer, which has the figure
+ * even when no `rate_limit_event` carries one. There utilization is already
+ * 0 to 100 and the reset is an ISO timestamp. Empty when plan limits do not
+ * apply (an API key) or the window is missing.
+ */
+export function limitsFromUsage(usage: SDKControlGetUsageResponse): ClaudeLimitWindows {
+	if (!usage.rate_limits_available) return {};
+	const window = usage.rate_limits?.seven_day;
+	if (!window) return {};
+	const { utilization, resets_at: resetsAt } = window;
+	if (typeof utilization !== "number" || !Number.isFinite(utilization)) return {};
+	if (utilization < 0 || typeof resetsAt !== "string") return {};
+	const resetsMs = Date.parse(resetsAt);
+	if (Number.isNaN(resetsMs)) return {};
+	return {
+		seven_day: {
+			used_percentage: Math.min(Math.round(utilization * 10) / 10, 100),
+			resets_at: Math.floor(resetsMs / 1000),
+		},
+	};
+}
+
+/**
+ * Commands that open a menu in the terminal and so do nothing useful in the
+ * chat, where the pickers and Resume do the same job. The SDK's own
+ * `terminal_slash_commands` are added to these.
+ */
+const MENU_COMMANDS = new Set([
+	"agents",
+	"config",
+	"doctor",
+	"exit",
+	"help",
+	"hooks",
+	"ide",
+	"login",
+	"logout",
+	"mcp",
+	"memory",
+	"model",
+	"permissions",
+	"resume",
+	"status",
+	"terminal-setup",
+	"theme",
+	"vim",
+]);
+
+/**
+ * The slash commands the chat lists, from the SDK's descriptions. Names that
+ * do not fit the contract are dropped and the list is capped.
+ */
+export function chatCommands(
+	commands: readonly SlashCommand[],
+	terminalOnly: ReadonlySet<string> = new Set(),
+): ChatCommand[] {
+	const listed: ChatCommand[] = [];
+	for (const command of commands) {
+		const name = command.name.replace(/^\/+/, "");
+		const argumentHint = command.argumentHint?.slice(0, 100) ?? "";
+		const item = ChatCommand.safeParse({
+			name,
+			description: (command.description ?? "").slice(0, 200),
+			...(argumentHint === "" ? {} : { argumentHint }),
+			terminalOnly: MENU_COMMANDS.has(name) || terminalOnly.has(name),
+		});
+		if (item.success && !listed.some((known) => known.name === name)) {
+			listed.push(item.data);
 		}
+		if (listed.length === MAX_CHAT_COMMANDS) break;
 	}
-	put(info.rateLimitType, info.utilization, info.resetsAt);
-	return next;
+	return listed;
 }
 
 /**
@@ -274,7 +349,17 @@ export const PERMISSION_OPTION = {
 	allowOnce: "allow",
 	allowAlways: "always",
 	deny: "deny",
+	/** Plan approval, continuing in acceptEdits mode. */
+	planAcceptEdits: "allow-accept-edits",
+	/** Plan approval, continuing in default mode. */
+	planAskEdits: "allow-ask-edits",
 } as const;
+
+/** The mode each plan approval option continues in. */
+const PLAN_OPTION_MODE: Record<string, "acceptEdits" | "default"> = {
+	[PERMISSION_OPTION.planAcceptEdits]: "acceptEdits",
+	[PERMISSION_OPTION.planAskEdits]: "default",
+};
 
 /** What `canUseTool` gives the host besides the tool's name and input. */
 export interface ToolAsk {
@@ -312,7 +397,8 @@ export function cardForTool(
 			title: "Claude has a plan. Start working on it?",
 			input: shortenedInput(input),
 			options: [
-				{ id: PERMISSION_OPTION.allowOnce, label: "Yes, go ahead" },
+				{ id: PERMISSION_OPTION.planAcceptEdits, label: "Yes, and accept edits" },
+				{ id: PERMISSION_OPTION.planAskEdits, label: "Yes, and ask before edits" },
 				{ id: PERMISSION_OPTION.deny, label: "No, keep planning" },
 			],
 		};
@@ -337,6 +423,14 @@ export function cardForTool(
 	};
 }
 
+/** What the student added to a permission answer; both are optional. */
+export interface PermissionAnswerExtras {
+	/** Why the student denied, or what to plan instead. */
+	message?: string | undefined;
+	/** The mode to continue in after approving a plan. */
+	mode?: "acceptEdits" | "default" | undefined;
+}
+
 /**
  * The SDK's answer for a permission card's chosen option. Session allow
  * rules are left out of `updatedPermissions`: the host grants those itself
@@ -346,7 +440,19 @@ export function permissionResult(
 	optionId: string,
 	input: Record<string, unknown>,
 	ask: ToolAsk,
+	extras: PermissionAnswerExtras = {},
 ): PermissionResult {
+	const planMode = PLAN_OPTION_MODE[optionId];
+	if (planMode) {
+		// The session continues in the chosen mode; the host's status event updates the picker.
+		return {
+			behavior: "allow",
+			updatedInput: input,
+			updatedPermissions: [
+				{ type: "setMode", mode: extras.mode ?? planMode, destination: "session" },
+			],
+		};
+	}
 	if (optionId === PERMISSION_OPTION.allowOnce) {
 		return { behavior: "allow", updatedInput: input };
 	}
@@ -358,7 +464,8 @@ export function permissionResult(
 			...(forSdk.length > 0 ? { updatedPermissions: forSdk } : {}),
 		};
 	}
-	return { behavior: "deny", message: "The user declined this tool call." };
+	const reason = extras.message?.trim();
+	return { behavior: "deny", message: reason || "The user declined this tool call." };
 }
 
 /** The init capability that lets an answer mark a question skipped; older CLIs refuse the mark. */

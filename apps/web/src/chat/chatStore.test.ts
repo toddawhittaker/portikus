@@ -489,6 +489,22 @@ test("a new socket waits for its own snapshot", () => {
 	expect(store.getState().connection).toBe("open");
 });
 
+test("the command list the host reports is kept, replaced by the next, and survives a new snapshot", () => {
+	const first = [
+		{ name: "compact", description: "Shrink", terminalOnly: false },
+		{ name: "config", description: "Settings", terminalOnly: true },
+	];
+	let state = feed([snapshot(1)]);
+	expect(state.commands).toEqual([]);
+	state = feed([frame("commands", 2, { commands: first })], state);
+	expect(state.commands).toEqual(first);
+	state = feed([snapshot(3)], state);
+	expect(state.commands).toEqual(first);
+	const next = [{ name: "review", description: "Review", terminalOnly: false }];
+	state = feed([frame("commands", 4, { commands: next })], state);
+	expect(state.commands).toEqual(next);
+});
+
 test("the session rules the host reports are kept, and revoking one sends it", () => {
 	const rule = { rule: "Bash(sed:*)", description: '"sed" commands in this session' };
 	let state = feed([snapshot(1), frame("rules", 2, { rules: [rule] })]);
@@ -639,4 +655,21 @@ test("a shell item keeps its place among the messages around it", () => {
 		frame("shell", 4, { ...SHELL, state: "done", exitCode: 0, output: "x" }),
 	]);
 	expect(state.items.map((item) => item.kind)).toEqual(["message", "shell", "message"]);
+});
+
+test("the latest context event is kept per tab, and a new snapshot clears it", () => {
+	const first = {
+		usedTokens: 1200,
+		windowTokens: 200000,
+		cache: { at: 1000, ttlSeconds: 300 as const },
+	};
+	let state = feed([snapshot(1)]);
+	expect(state.context).toBeNull();
+	state = feed([frame("context", 2, first)], state);
+	expect(state.context).toEqual(first);
+	const next = { usedTokens: 5000, windowTokens: null, cache: null };
+	state = feed([frame("context", 3, next)], state);
+	expect(state.context).toEqual(next);
+	state = feed([snapshot(4)], state);
+	expect(state.context).toBeNull();
 });

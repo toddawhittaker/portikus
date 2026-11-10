@@ -86,7 +86,7 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 	notFound: "This chat is no longer available. Close the tab and start a new one.",
 };
 
-const COMPOSER_BOX = '.pk-chat-composer [role="textbox"]';
+const COMPOSER_BOX = '.pk-chat-composer [role="combobox"]';
 
 /** Ways into a new chat; a click puts one in the message box to edit, never sends it. */
 const STARTERS = [
@@ -337,8 +337,8 @@ function ChatViewBody({
 							card={card}
 							takeFocus={takeFocus}
 							waiting={waiting}
-							onAnswer={(optionId) =>
-								store.getState().answerPermission(card.id, optionId)
+							onAnswer={(optionId, extras) =>
+								store.getState().answerPermission(card.id, optionId, extras)
 							}
 						/>
 					)}

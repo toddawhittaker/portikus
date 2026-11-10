@@ -791,19 +791,20 @@ test("a message over the contract's limit is not sent, and says how to fix it", 
 	expect(sent).toHaveLength(1);
 });
 
-test("the box is a labelled multi-line text box described by the key hint", () => {
+test("the box is a labelled combobox, for its menus, described by the key hint", () => {
 	draw();
-	const box = screen.getByRole("textbox", { name: "Message Claude Code" });
+	const box = screen.getByRole("combobox", { name: "Message Claude Code" });
 	expect(box).toBe(input());
-	expect(box.getAttribute("aria-multiline")).toBe("true");
-	expect(box.getAttribute("aria-placeholder")).toBe(
-		"Message Claude Code, or paste or drop images",
-	);
+	expect(box.getAttribute("aria-expanded")).toBe("false");
+	expect(box.getAttribute("aria-autocomplete")).toBe("list");
+	// A combobox may not carry aria-placeholder; its advice is in the description.
+	expect(box.hasAttribute("aria-placeholder")).toBe(false);
 	const hint = (box.getAttribute("aria-describedby") ?? "")
 		.split(" ")
 		.map((id) => document.getElementById(id)?.textContent)
 		.filter(Boolean);
 	expect(hint).toEqual([
+		"Type / for commands or @ for files. Paste or drop images to attach them.",
 		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
 	]);
 });

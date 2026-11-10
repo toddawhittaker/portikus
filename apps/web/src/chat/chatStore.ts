@@ -9,6 +9,7 @@ import {
 	CHAT_START_EFFORT,
 	type ChatAttachment,
 	ChatClientMessage,
+	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
 	ChatModelChoice,
@@ -120,6 +121,10 @@ export interface ChatState {
 	settings: ChatSettings | null;
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
+	/** The slash commands on offer, as the host last listed them; empty until it does. */
+	commands: ChatCommand[];
+	/** How full the context is and when the prompt cache goes cold; null until the host says. */
+	context: ChatContextUsage | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -134,6 +139,11 @@ export interface ChatState {
 	lastError: { seq: number; message: string } | null;
 }
 
+type ChatContextUsage = Pick<
+	Extract<ChatServerEvent, { type: "context" }>,
+	"usedTokens" | "windowTokens" | "cache"
+>;
+
 export const initialChatState: ChatState = {
 	connection: "connecting",
 	loaded: false,
@@ -145,6 +155,8 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	sessionRules: [],
+	commands: [],
+	context: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -214,6 +226,8 @@ function applySnapshot(
 		truncated: event.truncated,
 		cards: event.cards,
 		items: [],
+		// A new snapshot may be a new session; the host sends its context after.
+		context: null,
 		turns: turnId
 			? {
 					[turnId]: {
@@ -438,9 +452,16 @@ function applyChatEvent(
 			return { ...state, items: items ?? [...state.items, item] };
 		}
 		case "commands":
+			return { ...state, commands: event.commands };
 		case "context":
-			// Not read yet; the tasks that show them handle these events.
-			return state;
+			return {
+				...state,
+				context: {
+					usedTokens: event.usedTokens,
+					windowTokens: event.windowTokens,
+					cache: event.cache,
+				},
+			};
 	}
 }
 
@@ -604,7 +625,11 @@ interface ChatActions {
 		answers: Record<string, string>,
 		notes?: Record<string, string>,
 	) => boolean;
-	answerPermission: (id: string, optionId: string) => boolean;
+	answerPermission: (
+		id: string,
+		optionId: string,
+		extras?: { message?: string; mode?: "acceptEdits" | "default" },
+	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
@@ -629,8 +654,8 @@ export function createChatStore(
 		interrupt: () => deliver({ type: "interrupt" }),
 		answerQuestion: (id, answers, notes) =>
 			deliver({ type: "question.answer", id, answers, ...(notes ? { notes } : {}) }),
-		answerPermission: (id, optionId) =>
-			deliver({ type: "permission.answer", id, optionId }),
+		answerPermission: (id, optionId, extras = {}) =>
+			deliver({ type: "permission.answer", id, optionId, ...extras }),
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
