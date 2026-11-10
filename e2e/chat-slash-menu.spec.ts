@@ -4,7 +4,7 @@ import { createStudent, expectNoViolations } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
- * The `/` menu (SPEC.md §10.8, §25.8; #1782): typed at the start of the
+ * The `/` menu (SPEC.md §10.8, §25.8): typed at the start of the
  * message, it lists the commands the host reported, narrows as the student
  * types, moves with the arrows, puts the choice in the box with Enter or
  * Tab, and closes with Escape. A terminal-only command is never sent; /model
@@ -95,7 +95,7 @@ test("Enter puts the command in the box without sending, and the next Enter send
 }) => {
 	const { id, view, box } = await openCommands(page, context);
 	await page.keyboard.type("/rev");
-	await expect(view.getByRole("listbox")).toBeVisible();
+	await expect(view.getByRole("option")).toHaveCount(1);
 	await page.keyboard.press("Enter");
 	await expect(box).toHaveText("/review");
 	await expect(view.getByRole("listbox")).toHaveCount(0);
@@ -103,9 +103,7 @@ test("Enter puts the command in the box without sending, and the next Enter send
 	expect(await sends(id)).toEqual([]);
 	await page.keyboard.type("42");
 	await page.keyboard.press("Enter");
-	await expect
-		.poll(() => sends(id))
-		.toEqual(["/review 42"]);
+	await expect.poll(() => sends(id)).toEqual(["/review 42"]);
 });
 
 test("Tab chooses too, a click chooses, and Escape closes the list keeping the text", async ({
@@ -114,6 +112,8 @@ test("Tab chooses too, a click chooses, and Escape closes the list keeping the t
 }) => {
 	const { view, box } = await openCommands(page, context);
 	await page.keyboard.type("/");
+	// The list shown is the one this test set, not the host's default.
+	await expect(view.getByRole("option")).toHaveCount(COMMANDS.length);
 	await page.keyboard.press("ArrowDown");
 	await page.keyboard.press("Tab");
 	await expect(box).toHaveText("/review");

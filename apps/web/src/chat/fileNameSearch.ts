@@ -7,7 +7,7 @@ import { FileNameSearchResponse } from "@portikus/contracts";
 import { request } from "../api/request.js";
 
 /** Most paths one search asks for; the menu shows them all. */
-export const FILE_MATCHES = 20;
+const FILE_MATCHES = 20;
 
 export function searchFileNames(
 	workspaceId: string,

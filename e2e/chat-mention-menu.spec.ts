@@ -9,7 +9,7 @@ import { openChat, receivedFrames } from "./chat-helpers";
 import { createStudent, expectNoViolations, seedFile } from "./helpers";
 
 /**
- * The `@` menu (SPEC.md §10.8, §11.1, §25.8; #1782): `@` anywhere opens a
+ * The `@` menu (SPEC.md §10.8, §11.1, §25.8): `@` anywhere opens a
  * list of project files that narrows as the student types and puts the path
  * in the box as a mention the CLI expands. Typing waits before a search goes
  * out, a newer query cancels an older one, no match and a cut-off list say

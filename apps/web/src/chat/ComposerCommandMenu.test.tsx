@@ -18,7 +18,7 @@ import { type ChatStore, createChatStore } from "./chatStore.js";
 import { boxText, typeInto } from "./composerTesting.js";
 
 /**
- * The composer's `/` and `@` menus (SPEC.md §10.8, §25.8; #1782): the box is
+ * The composer's `/` and `@` menus (SPEC.md §10.8, §25.8): the box is
  * the combobox, the list a listbox, keys stay in the box, a terminal-only
  * command is never sent, and file searches wait, cancel and fail quietly.
  */

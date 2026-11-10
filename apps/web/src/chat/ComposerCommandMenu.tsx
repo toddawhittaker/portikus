@@ -1,5 +1,5 @@
 /**
- * The composer's two suggestion menus (SPEC.md §10.8, #1782): `/` at the
+ * The composer's two suggestion menus (SPEC.md §10.8,): `/` at the
  * start of the message lists the slash commands the host reports, and `@`
  * lists project files from the file-name search. Both narrow as the student
  * types. The editor is the combobox and this list its listbox (SPEC.md
@@ -16,7 +16,7 @@ import type { ComposerMenu } from "./composerEditor.js";
 import { searchFileNames } from "./fileNameSearch.js";
 
 /** Typing pauses this long before a file search goes out. */
-export const SEARCH_DEBOUNCE_MS = 150;
+const SEARCH_DEBOUNCE_MS = 150;
 
 /** A picker below the box that does what a terminal-only command does there. */
 const CONTROLS: Record<string, { testId: string; label: string }> = {
@@ -175,7 +175,7 @@ export function useComposerMenu(
 }
 
 /** What the status line says of the list, read politely as it changes. */
-export function menuStatus(menu: ComposerMenu | null, model: MenuModel): string {
+function menuStatus(menu: ComposerMenu | null, model: MenuModel): string {
 	if (!menu) return "";
 	if (menu.kind === "command") {
 		const count = model.options.length;
