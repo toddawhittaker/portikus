@@ -101,6 +101,8 @@ interface FakeChat {
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
 	commands: ChatCommand[];
+	/** The last `context` event body a test set; sent on attach. */
+	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
 }
 
@@ -141,6 +143,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				received: [],
 				settings: { model: "claude-sonnet-4-5", effort: "medium", mode: "default" },
 				commands: DEFAULT_COMMANDS,
+				context: null,
 				sockets: new Set(),
 			};
 			chats.set(id, chat);
@@ -342,6 +345,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			for (const event of chat.history) emit(id, [socket], event);
 			// Before the settings, which tests wait for as the end of an attach.
 			emit(id, [socket], { type: "commands", commands: chat.commands });
+			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
 	);
@@ -352,6 +356,17 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
 		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
+
+	// Set the context figures (body: usedTokens, windowTokens, cache) and send
+	// them to every attachment, as the host does after a request; later
+	// attachments get them too.
+	app.post("/__test/chats/:id/context", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.context = request.body as Record<string, unknown>;
+		emit(id, chat.sockets, { ...chat.context, type: "context" });
 		return reply.status(204).send();
 	});
 

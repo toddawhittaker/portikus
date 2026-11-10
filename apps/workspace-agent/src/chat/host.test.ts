@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -104,6 +105,12 @@ class FakeQuery {
 		this.usageCalls.push(opts);
 		if (this.usageFailure) throw this.usageFailure;
 		return this.usage;
+	}
+	/** What `getContextUsage()` answers; null makes it fail, as an older SDK would. */
+	contextWindow: number | null = null;
+	async getContextUsage() {
+		if (this.contextWindow === null) throw new Error("unsupported");
+		return { maxTokens: this.contextWindow };
 	}
 	close() {
 		this.ended = true;
@@ -1087,5 +1094,125 @@ describe("plan usage", () => {
 		fake.emit({ type: "result", subtype: "success", is_error: false } as never);
 		await vi.waitFor(() => expect(fake.usageCalls).toHaveLength(2));
 		expect(posted).toEqual([]);
+	});
+});
+
+describe("context usage", () => {
+	const assistant = (usage: Record<string, unknown>, parent: string | null = null) =>
+		({
+			type: "assistant",
+			parent_tool_use_id: parent,
+			session_id: ID,
+			uuid: randomUUID(),
+			message: {
+				id: `msg-${randomUUID()}`,
+				role: "assistant",
+				model: "claude-opus-5-5",
+				content: [],
+				usage,
+			},
+		}) as never;
+
+	test("each main-thread request sends the context in use and the cache clock; a subagent's does not", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const before = Date.now();
+		fake.emit(
+			assistant({
+				input_tokens: 10,
+				output_tokens: 5,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 1000,
+				cache_creation: {
+					ephemeral_1h_input_tokens: 1000,
+					ephemeral_5m_input_tokens: 0,
+				},
+			}),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		const first = ofType(a, "context")[0];
+		expect(first?.usedTokens).toBe(1015);
+		expect(first?.windowTokens).toBeNull();
+		expect(first?.cache?.ttlSeconds).toBe(3600);
+		expect(first?.cache?.at).toBeGreaterThanOrEqual(before);
+
+		fake.emit(assistant({ input_tokens: 99999, output_tokens: 1 }, "toolu_sub"));
+		fake.contextWindow = 200000;
+		fake.emit({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			modelUsage: {},
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		expect(ofType(a, "context")[1]).toMatchObject({
+			usedTokens: 1015,
+			windowTokens: 200000,
+		});
+	});
+
+	test("without getContextUsage the window comes from the result's modelUsage", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		fake.emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		fake.emit({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			modelUsage: { "claude-opus-5-5": { contextWindow: 1000000 } },
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "context").at(-1)).toEqual(
+				expect.objectContaining({ usedTokens: 15, windowTokens: 1000000, cache: null }),
+			),
+		);
+	});
+
+	test("a later attach gets the live figure at once", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		fake.emit(
+			assistant({ input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 90 }),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "context")).toHaveLength(1));
+		expect(ofType(b, "context")[0]).toMatchObject({
+			usedTokens: 100,
+			cache: { ttlSeconds: 300 },
+		});
+		const types = b.events.map((event) => event.type);
+		expect(types.indexOf("context")).toBeGreaterThan(types.indexOf("snapshot"));
+	});
+
+	test("before any request, an attach works the figure out from the transcript, with the cache unknown", async () => {
+		transcript = async () => [
+			...EARLIER,
+			{
+				type: "assistant",
+				uuid: "a1",
+				session_id: ID,
+				parent_tool_use_id: null,
+				parent_agent_id: null,
+				message: {
+					usage: { input_tokens: 20, output_tokens: 2, cache_read_input_tokens: 500 },
+				},
+			} as SessionMessage,
+		];
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		expect(ofType(a, "context")[0]).toMatchObject({
+			usedTokens: 522,
+			windowTokens: null,
+			cache: null,
+		});
+	});
+
+	test("an attach to a chat with no requests yet gets no context event", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "context")).toEqual([]);
 	});
 });
