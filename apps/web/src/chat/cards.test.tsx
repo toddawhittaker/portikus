@@ -262,8 +262,7 @@ function renderRules(transport: () => boolean = () => true) {
 		<div className="pk-chat">
 			<SessionRules store={store} />
 			<div className="pk-chat-composer">
-				{/* biome-ignore lint/a11y/useSemanticElements: stands in for the composer's editable box */}
-				<div role="textbox" tabIndex={0} aria-label="Message" />
+				<div role="combobox" aria-expanded={false} tabIndex={0} aria-label="Message" />
 			</div>
 		</div>,
 	);
@@ -314,13 +313,15 @@ test("revoking the last row focuses the summary, and the last rule the message b
 	revokeButton(SED).focus();
 	fireEvent.click(revokeButton(SED));
 	act(() => store.getState().receive(rulesFrame(4, [])));
-	expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
+	expect(document.activeElement).toBe(
+		screen.getByRole("combobox", { name: "Message" }),
+	);
 	expect(rulesStatus()).toBe(`Revoked: ${SED.description}.`);
 });
 
 test("a rule revoked from another browser leaves the focus alone and says nothing", () => {
 	const { store } = renderRules();
-	const box = screen.getByRole("textbox", { name: "Message" });
+	const box = screen.getByRole("combobox", { name: "Message" });
 	box.focus();
 	act(() => store.getState().receive(rulesFrame(3, [GREP])));
 	expect(document.activeElement).toBe(box);
