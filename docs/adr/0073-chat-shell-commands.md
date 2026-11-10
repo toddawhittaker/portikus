@@ -36,14 +36,17 @@ Code Desktop does bash mode.
    exit code is shown as none. At most 65,536 characters of output are kept
    (`MAX_CHAT_SHELL_OUTPUT_CHARS`); the rest is read and dropped so the
    command is not stalled, and the item is marked truncated. A background
-   job the command leaves behind is killed when the shell exits. A command
+   job the command leaves behind is killed when the shell exits. A process
+   that leaves the group (`setsid`) is not waited for: the run ends half a
+   second after the shell exits, or is killed, whoever still holds the pipe. A command
    over 4,000 characters is refused.
 4. **One thing at a time.** A `!` command is refused while Claude is
    working, and a message is refused while a command runs, each with an
    error on the sender's chat view, the way the host already refuses a
    send it cannot take. Steering a running turn with a command would put
    the output in the middle of Claude's work, which the terminal does not
-   do either.
+   do either. If a turn starts anyway while a command runs (a background subagent
+   finishing), the two appends wait until that turn ends.
 5. **Never logged.** Neither the command nor its output is logged (ADR
    0012, STACK.md section 15). They go only to the chat views and the
    student's own transcript.

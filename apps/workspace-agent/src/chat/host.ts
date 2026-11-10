@@ -1,16 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { chmod, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
-import {
-	getSessionInfo,
-	getSessionMessages,
-	type PermissionMode,
-	type PermissionResult,
-	type Query,
-	query,
-	type SDKMessage,
-	type SDKUserMessage,
-	type SessionMessage,
+import type {
+	PermissionMode,
+	PermissionResult,
+	Query,
+	SDKMessage,
+	SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
 	CHAT_START_EFFORT,
@@ -53,6 +49,7 @@ import {
 import { InputQueue } from "./input-queue.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { PlanUsage } from "./plan-usage.js";
+import { type ChatSdk, realSdk } from "./sdk.js";
 import { writeChatSession } from "./session-record.js";
 import { SessionRules } from "./session-rules.js";
 import {
@@ -91,19 +88,6 @@ export interface ChatHostOptions {
 	shellTimeoutMs?: number;
 }
 
-/** The three SDK calls the host makes, so tests can stand in for them. */
-export interface ChatSdk {
-	query: typeof query;
-	sessionExists: (id: string, dir: string) => Promise<boolean>;
-	sessionMessages: (id: string, dir: string) => Promise<SessionMessage[]>;
-}
-
-const realSdk: ChatSdk = {
-	query,
-	sessionExists: async (id, dir) => (await getSessionInfo(id, { dir })) !== undefined,
-	sessionMessages: (id, dir) => getSessionMessages(id, { dir }),
-};
-
 interface OpenCard {
 	card: ChatOpenCard;
 	input: Record<string, unknown>;
@@ -126,6 +110,8 @@ interface Client {
  * restart, and serves each browser attachment, relayed by the agent, as
  * one connection on a Unix socket only the workspace user can open.
  */
+export type { ChatSdk };
+
 export class ChatHost {
 	private readonly clients = new Set<Client>();
 	private readonly cards = new Map<string, OpenCard>();
@@ -145,6 +131,8 @@ export class ChatHost {
 	private shell: ChatShellItem | null = null;
 	/** Each transcript append still owes an empty result, which ends no turn. */
 	private quietResults = 0;
+	/** Appends kept back while a turn runs, so they never land mid-turn (ADR 0073). */
+	private heldAppends: SDKUserMessage[] = [];
 	private readonly planUsage: PlanUsage;
 	private readonly commands = new SlashCommandList((commands) =>
 		this.broadcast(this.commandsEvent(commands)),
@@ -467,6 +455,14 @@ export class ChatHost {
 		this.interrupting = false;
 		this.partial = null;
 		this.broadcast({ type: "turn.finished", status, at: Date.now() });
+		this.flushAppends();
+	}
+
+	private flushAppends(): void {
+		for (const message of this.heldAppends.splice(0)) {
+			this.quietResults += 1;
+			this.input?.push(message);
+		}
 	}
 
 	/**
@@ -721,10 +717,8 @@ export class ChatHost {
 				cwd: this.options.projectDir,
 				timeoutMs: this.options.shellTimeoutMs,
 			});
-			for (const message of shellTranscript(id, command, run)) {
-				this.quietResults += 1;
-				this.input?.push(message);
-			}
+			this.heldAppends.push(...shellTranscript(id, command, run));
+			if (!this.turnRunning) this.flushAppends();
 			const { output, exitCode, truncated } = run;
 			done = { ...done, output, exitCode, truncated };
 		} finally {

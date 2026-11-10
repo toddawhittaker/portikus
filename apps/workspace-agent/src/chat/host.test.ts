@@ -1299,6 +1299,24 @@ describe("shell commands", () => {
 		expect(ofType(a, "turn.started")).toHaveLength(1);
 	});
 
+	test("a turn that starts while a command runs gets its appends only after it ends", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "!sleep 0.3; echo x", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		// A background subagent finishing starts a turn of its own.
+		fake.emit(delta("subagent done"));
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(fake.sent).toHaveLength(0);
+		fake.emit(result(1));
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(fake.sent.every((message) => message.shouldQuery === false)).toBe(true);
+		expect(ofType(a, "turn.finished")).toHaveLength(2);
+	});
+
 	test("a command with attachments, or one that is too long, is refused", async () => {
 		const a = await attach();
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));

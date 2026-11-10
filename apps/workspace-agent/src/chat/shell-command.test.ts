@@ -83,6 +83,28 @@ describe("running a command", () => {
 		expect(run).toMatchObject({ output: "done\n", exitCode: 0, timedOut: false });
 	});
 
+	test("a process that leaves the group with setsid does not hold the run open", async () => {
+		const started = Date.now();
+		const run = await runShellCommand("setsid sleep 30 & echo started; exit 5", {
+			cwd: dir,
+			shell: "/bin/bash",
+			timeoutMs: 20_000,
+		});
+		expect(Date.now() - started).toBeLessThan(8000);
+		expect(run).toMatchObject({ output: "started\n", exitCode: 5, timedOut: false });
+	}, 20_000);
+
+	test("the time limit holds even when an escaped process keeps the pipe", async () => {
+		const started = Date.now();
+		const run = await runShellCommand("setsid sleep 30 & sleep 30", {
+			cwd: dir,
+			shell: "/bin/bash",
+			timeoutMs: 1000,
+		});
+		expect(Date.now() - started).toBeLessThan(8000);
+		expect(run).toMatchObject({ exitCode: null, timedOut: true });
+	}, 20_000);
+
 	test("a shell that cannot start is reported, not thrown", async () => {
 		const run = await runShellCommand("true", {
 			cwd: dir,

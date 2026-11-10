@@ -9,6 +9,8 @@ import {
 
 /** How long a `!` command may run before its process group is killed (ADR 0073). */
 const SHELL_TIME_LIMIT_MS = 2 * 60 * 1000;
+/** How long output may still drain after the shell exits. */
+const EXIT_GRACE_MS = 500;
 
 /**
  * Why the host will not run this command now, or null. One thing runs at a
@@ -89,25 +91,44 @@ export function runShellCommand(
 		};
 		child.stdout.setEncoding("utf8").on("data", take);
 		child.stderr.setEncoding("utf8").on("data", take);
+		let settled = false;
+		let exitCode: number | null = null;
+		const settle = (run: ShellRun) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(run);
+		};
+		// A process that left the group (setsid) may still hold the pipe, so
+		// completion is the shell's exit plus a short grace, not the pipe's close.
+		const finish = () => {
+			setTimeout(() => {
+				child.stdout.destroy();
+				child.stderr.destroy();
+				settle({ output, exitCode: timedOut ? null : exitCode, truncated, timedOut });
+			}, EXIT_GRACE_MS);
+		};
 		const timer = setTimeout(() => {
 			timedOut = true;
 			killGroup(child.pid);
 		}, options.timeoutMs ?? SHELL_TIME_LIMIT_MS);
 		child.once("error", (error: NodeJS.ErrnoException) => {
-			clearTimeout(timer);
-			resolve({
+			settle({
 				output: `The shell could not start (${error.code ?? "error"}).`,
 				exitCode: null,
 				truncated: false,
 				timedOut: false,
 			});
 		});
-		// A background job the command left behind dies with it, so it cannot hold the pipes open.
-		child.once("exit", () => killGroup(child.pid));
-		child.once("close", (code) => {
-			clearTimeout(timer);
-			resolve({ output, exitCode: timedOut ? null : code, truncated, timedOut });
+		child.once("exit", (code) => {
+			exitCode = code;
+			// A background job the command left behind dies with it.
+			killGroup(child.pid);
+			finish();
 		});
+		child.once("close", () =>
+			settle({ output, exitCode: timedOut ? null : exitCode, truncated, timedOut }),
+		);
 	});
 }
 
