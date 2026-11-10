@@ -101,7 +101,21 @@ test("Escape in the reason field goes back to the buttons without answering", ()
 	expect(onAnswer).not.toHaveBeenCalled();
 });
 
-test("plan approval names the mode to go on in, and keep planning takes a reason", () => {
+test("Back, or Escape anywhere in the form, restores the options with focus on Deny", async () => {
+	const onAnswer = renderCard();
+	fireEvent.click(screen.getByRole("button", { name: /Deny/ }));
+	fireEvent.click(screen.getByRole("button", { name: "Back" }));
+	expect(screen.queryByLabelText("Tell Claude what to do instead")).toBeNull();
+	await vi.waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByRole("button", { name: /Deny/ })),
+	);
+	fireEvent.click(screen.getByRole("button", { name: /Deny/ }));
+	fireEvent.keyDown(screen.getByTestId("chat-deny-send"), { key: "Escape" });
+	expect(screen.queryByLabelText("Tell Claude what to do instead")).toBeNull();
+	expect(onAnswer).not.toHaveBeenCalled();
+});
+
+test("plan approval sends only the option, and keep planning takes a reason", () => {
 	const plan: typeof PERMISSION = {
 		...PERMISSION,
 		toolName: "ExitPlanMode",
@@ -114,11 +128,11 @@ test("plan approval names the mode to go on in, and keep planning takes a reason
 	};
 	const first = renderCard(plan);
 	fireEvent.click(screen.getByRole("button", { name: /accept edits/ }));
-	expect(first).toHaveBeenCalledWith("allow-accept-edits", { mode: "acceptEdits" });
+	expect(first).toHaveBeenCalledWith("allow-accept-edits", {});
 	cleanup();
 	const second = renderCard(plan);
 	fireEvent.click(screen.getByRole("button", { name: /ask before edits/ }));
-	expect(second).toHaveBeenCalledWith("allow-ask-edits", { mode: "default" });
+	expect(second).toHaveBeenCalledWith("allow-ask-edits", {});
 	cleanup();
 	const third = renderCard(plan);
 	fireEvent.click(screen.getByRole("button", { name: /keep planning/ }));

@@ -31,6 +31,8 @@ describe("running a command", () => {
 		expect(run).toEqual({
 			output: `${dir}\nout\nerr\nagain\n`,
 			exitCode: 0,
+			stopped: false,
+			signal: null,
 			truncated: false,
 			timedOut: false,
 		});
@@ -71,6 +73,34 @@ describe("running a command", () => {
 		await new Promise((resolve) => setTimeout(resolve, 3000));
 		expect(existsSync(marker)).toBe(false);
 	}, 20_000);
+
+	test("aborting stops the command and its process group at once", async () => {
+		const marker = join(dir, "survived");
+		const stop = new AbortController();
+		const started = Date.now();
+		const running = runShellCommand(`(sleep 3; touch ${marker}) & sleep 600`, {
+			cwd: dir,
+			shell: "/bin/bash",
+			signal: stop.signal,
+		});
+		setTimeout(() => stop.abort(), 300);
+		const run = await running;
+		expect(Date.now() - started).toBeLessThan(5000);
+		expect(run).toMatchObject({ exitCode: null, stopped: true, timedOut: false });
+		expect(bashOutputText(run)).toContain("<bash-stderr>Stopped</bash-stderr>");
+		await new Promise((resolve) => setTimeout(resolve, 3500));
+		expect(existsSync(marker)).toBe(false);
+	}, 20_000);
+
+	test("a command killed by a signal is recorded as stopped by it", async () => {
+		const run = await runShellCommand("kill -SEGV $$", {
+			cwd: dir,
+			shell: "/bin/bash",
+		});
+		expect(run).toMatchObject({ exitCode: null, signal: "SIGSEGV", stopped: false });
+		expect(bashOutputText(run)).toContain("Stopped by signal SIGSEGV");
+		expect(parseBashOutput(bashOutputText(run))).toMatchObject({ exitCode: null });
+	});
 
 	test("a background job left running does not hold the command open", async () => {
 		const started = Date.now();
@@ -133,6 +163,12 @@ describe("the transcript form", () => {
 		});
 		const stopped = { output: "x", exitCode: null, truncated: false, timedOut: true };
 		expect(parseBashOutput(bashOutputText(stopped))).toMatchObject({ exitCode: null });
+		const byStudent = { ...stopped, timedOut: false, stopped: true };
+		expect(parseBashOutput(bashOutputText(byStudent))).toEqual({
+			output: "x",
+			exitCode: null,
+			truncated: false,
+		});
 	});
 
 	test("Claude Code's own bash-mode stderr is shown with the output", () => {

@@ -10,7 +10,7 @@
  *
  * Deny, and "No, keep planning", first open a one-line field for telling
  * Claude what to do instead. Enter sends it (empty keeps the plain denial);
- * Escape goes back to the buttons. Approving a plan names the mode to go on in.
+ * Escape goes back to the buttons. The host reads a plan's mode from the option.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
@@ -26,17 +26,10 @@ type PermissionCardData = Extract<ChatOpenCard, { type: "permission" }>;
 
 export interface PermissionAnswerExtras {
 	message?: string;
-	mode?: "acceptEdits" | "default";
 }
 
 /** The option that opens the "what to do instead" field. */
 const DENY = "deny";
-
-/** The mode each plan approval option goes on in; the ids are the workspace agent's. */
-const PLAN_MODE: Record<string, "acceptEdits" | "default"> = {
-	"allow-accept-edits": "acceptEdits",
-	"allow-ask-edits": "default",
-};
 
 export interface PermissionCardProps {
 	card: PermissionCardData;
@@ -162,8 +155,19 @@ export function PermissionCard({
 			setReasonOpen(true);
 			return;
 		}
-		const mode = PLAN_MODE[optionId];
-		send(optionId, mode ? { mode } : {});
+		send(optionId, {});
+	}
+
+	/** Close the reason field and put focus back on the option that opened it. */
+	function backToOptions() {
+		if (chosen !== null) return;
+		setReasonOpen(false);
+		setReason("");
+		requestAnimationFrame(() =>
+			actions.current
+				?.querySelector<HTMLElement>(`[data-testid="chat-permission-${DENY}"]`)
+				?.focus(),
+		);
 	}
 
 	function send(optionId: string, extras: PermissionAnswerExtras) {
@@ -204,6 +208,12 @@ export function PermissionCard({
 			{reasonOpen ? (
 				<form
 					className="pk-chat-reason"
+					onKeyDown={(event) => {
+						if (event.key !== "Escape") return;
+						event.preventDefault();
+						event.stopPropagation();
+						backToOptions();
+					}}
 					onSubmit={(event) => {
 						event.preventDefault();
 						if (chosen !== null) return;
@@ -221,20 +231,6 @@ export function PermissionCard({
 						autoFocus
 						data-testid="chat-deny-reason"
 						onChange={(event) => setReason(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key !== "Escape") return;
-							event.preventDefault();
-							event.stopPropagation();
-							setReasonOpen(false);
-							setReason("");
-							requestAnimationFrame(() =>
-								actions.current
-									?.querySelector<HTMLElement>(
-										`[data-testid="chat-permission-${DENY}"]`,
-									)
-									?.focus(),
-							);
-						}}
 					/>
 					<div className="pk-chat-card-actions">
 						<Button
@@ -245,6 +241,16 @@ export function PermissionCard({
 						>
 							{reason.trim() ? "Send" : "Deny"}
 						</Button>
+						{chosen === null ? (
+							<Button
+								type="button"
+								variant="secondary"
+								data-testid="chat-deny-back"
+								onClick={backToOptions}
+							>
+								Back
+							</Button>
+						) : null}
 					</div>
 				</form>
 			) : null}

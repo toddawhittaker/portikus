@@ -88,12 +88,15 @@ function ContextUse({
 
 function CacheClock({
 	cache,
+	clockOffsetMs,
 	onAnnounce,
 }: {
 	cache: Cache;
+	/** Added to the host's times to read them on the browser clock. */
+	clockOffsetMs: number;
 	onAnnounce: (text: string) => void;
 }) {
-	const coldAt = cache.at + cache.ttlSeconds * 1000;
+	const coldAt = cache.at + cache.ttlSeconds * 1000 + clockOffsetMs;
 	const now = useNow(coldAt);
 	const cold = now >= coldAt;
 	const seconds = Math.ceil((coldAt - now) / 1000);
@@ -155,6 +158,7 @@ export function ContextMeter({ store, onAnnounce }: Props) {
 							// A new cache write restarts the clock with its own state.
 							key={context.cache.at}
 							cache={context.cache}
+							clockOffsetMs={context.clockOffsetMs}
 							onAnnounce={onAnnounce}
 						/>
 					) : null}
