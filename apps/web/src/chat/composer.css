@@ -23,8 +23,36 @@
 }
 
 /* The editable box: it grows with the text up to a limit, then scrolls. */
-.pk-composer-field {
+.pk-composer-line {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
 	min-inline-size: 0;
+}
+
+.pk-composer-field {
+	flex: 1;
+	min-inline-size: 0;
+}
+
+/* A shell command (SPEC.md §10.8): the word "Shell" and monospace text, so the
+   mode never rests on the border's colour alone (SPEC.md §25.8). */
+.pk-composer.is-shell {
+	border-color: var(--accent-text);
+}
+
+.pk-composer-shell {
+	flex: none;
+	margin-block-start: var(--space-1);
+	padding: 1px var(--space-1\.5);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 20px;
 }
 
 .pk-composer-text {
@@ -39,6 +67,11 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	font-variant-ligatures: none;
+}
+
+.pk-composer.is-shell .pk-composer-text {
+	font-family: var(--font-mono);
+	font-size: 0.95em;
 }
 
 .pk-composer-text:focus {
