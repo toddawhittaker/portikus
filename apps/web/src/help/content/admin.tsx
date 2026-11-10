@@ -332,7 +332,8 @@ export const ADMIN_HELP: HelpPart = {
 					and then the event, such as{" "}
 					<code className="pk-mono-body">workspace.start_requested</code>. Type{" "}
 					<code className="pk-mono-body">workspace.</code> in{" "}
-					<strong>Action starts with</strong> to see every workspace action.
+					<strong>Action starts with</strong> to see every workspace action. Audit
+					records are kept for 365 days, then deleted.
 				</p>
 			),
 		},

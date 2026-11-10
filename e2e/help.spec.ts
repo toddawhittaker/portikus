@@ -278,6 +278,27 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
+/** The phone-layout topic has its own anchor, for every role with a workspace. */
+test("a student lands on the phone topic from its anchor, for instructors too", async ({
+	browser,
+}) => {
+	const page = await pageAs(browser, "student");
+	await page.goto("/help#student-phone");
+	const heading = page.getByRole("heading", {
+		level: 3,
+		name: "On a phone or a narrow window",
+	});
+	await expect(heading).toBeInViewport({ timeout: 15_000 });
+	await expect(page.locator("section:has(> h3#student-getting-started)")).toContainText(
+		"Claude Code (GUI)",
+	);
+	const instructor = await pageAs(browser, "instructor");
+	await instructor.goto("/help#student-phone");
+	await expect(instructor.locator("#student-phone")).toBeInViewport({
+		timeout: 15_000,
+	});
+});
+
 /** Settings links here for keys and screen-reader limits. */
 test("a student lands on the keyboard topic from its anchor", async ({ browser }) => {
 	const page = await pageAs(browser, "student");
