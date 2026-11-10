@@ -260,3 +260,52 @@ describe("snapshot", () => {
 		expect(ChatServerEvent.safeParse(snapshot).success).toBe(true);
 	});
 });
+
+describe("shell commands on replay", () => {
+	const input = (command: string) =>
+		entry("user", { role: "user", content: `<bash-input>${command}</bash-input>` });
+	const output = (stdout: string, stderr = "") =>
+		entry("user", {
+			role: "user",
+			content: `<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`,
+		});
+
+	test("a command and its output come back as one shell item, outside any turn", () => {
+		const ran = input("ls");
+		const { events } = replayHistory(
+			[...turn(1), ran, output("a\nb\n", "Exit code 2"), ...turn(2)],
+			false,
+		);
+		const types = events.map((event) => event.type);
+		const shellAt = types.indexOf("shell");
+		expect(types[shellAt - 1]).toBe("turn.finished");
+		expect(types[shellAt + 1]).toBe("turn.started");
+		expect(events[shellAt]).toEqual({
+			type: "shell",
+			id: ran.uuid,
+			command: "ls",
+			output: "a\nb\n",
+			exitCode: 2,
+			truncated: false,
+			state: "done",
+		});
+		// The command is not shown as a typed message.
+		expect(
+			events.filter((event) => event.type === "message" && event.role === "user"),
+		).toHaveLength(2);
+		expect(
+			ChatServerEvent.safeParse({ ...events[shellAt], sessionId: SESSION, seq: 1 })
+				.success,
+		).toBe(true);
+	});
+
+	test("a command with no output yet is left for the live host to show", () => {
+		const { events } = replayHistory([...turn(1), input("sleep 9")], false);
+		expect(events.some((event) => event.type === "shell")).toBe(false);
+	});
+
+	test("a command first in the transcript replays on its own", () => {
+		const { events } = replayHistory([input("pwd"), output("/p\n")], false);
+		expect(events.map((event) => event.type)).toEqual(["shell"]);
+	});
+});

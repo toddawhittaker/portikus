@@ -7,7 +7,9 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
+	shellCommandText,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { FakeAgentState } from "./state.js";
@@ -260,6 +262,24 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 						type: "settings",
 						agent: "claude",
 						...chat.settings,
+					});
+					return;
+				}
+				// A `!` command runs on the host with no turn; this one "prints" its own text.
+				if (isShellCommand(message.text)) {
+					const shell = {
+						type: "shell",
+						id: `sh-${chat.seq}`,
+						command: shellCommandText(message.text),
+						exitCode: null,
+						truncated: false,
+					};
+					emit(id, chat.sockets, { ...shell, output: "", state: "running" });
+					record(id, chat.sockets, {
+						...shell,
+						output: `ran ${shell.command}\n`,
+						exitCode: 0,
+						state: "done",
 					});
 					return;
 				}
