@@ -22,7 +22,7 @@ stay in it between sessions. The workspace keeps running for a while after
 you close its last browser tab, then stops. Opening Portikus starts it
 again.
 
-![The Portikus workspace: projects on the left, two terminals in the middle, and the project's files on the right](images/student-shell.png)
+![The Portikus workspace: projects with agent and subagent rows on the left, a terminal in the middle, the five right-pane tabs, and plan-usage meters in the status bar](images/student-shell.png)
 
 To start working:
 
@@ -30,8 +30,8 @@ To start working:
    repository…**. If your course offers templates, **From template…** is
    there too. A project is a folder in `~/projects`.
 2. In the middle of the screen, choose **Open a terminal** or **Start Claude
-   Code**. Your course may hide Claude Code and Codex, and then only **Open
-   a terminal** is there.
+   Code**, which opens Claude Code in a terminal. If your course uses the
+   Traditional profile, only **Open a terminal** is there.
 3. Your files are listed on the right. Choose a file to open it in the
    editor.
 
@@ -39,8 +39,8 @@ To start working:
 
 ### The four New tab choices
 
-The **+** at the end of the tab bar, named New tab, opens one of four
-things in the project's folder, and a preview too:
+The **+** at the end of the tab bar, named New tab, offers four choices,
+each opened in the project's folder (it also opens previews):
 
 - **Terminal**: a Linux shell.
 - **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
@@ -49,8 +49,8 @@ things in the project's folder, and a preview too:
   buttons and pickers. GUI means graphical user interface.
 - **Codex**: OpenAI's coding agent, in a terminal.
 
-If your course uses the Traditional profile, your instructor has hidden the
-coding agents, and only **Terminal** is offered.
+If your course uses the Traditional profile, it hides the Claude Code and
+Codex choices, and only **Terminal** is there.
 
 ![The New tab menu: Terminal, Claude Code (TUI), Claude Code (GUI) and Codex](images/student-new-tab-menu.png)
 
@@ -184,6 +184,15 @@ project, except that **Bypass permissions**, which lets Claude act without
 asking, is never carried over; a new chat starts in Auto instead. A warning
 shows while Bypass permissions is on.
 
+The Permissions picker has five modes:
+
+- **Ask** asks before Claude edits files or runs commands.
+- **Accept edits** lets it edit files on its own but asks before commands.
+- **Plan** lets it read and plan but change nothing; when the plan is
+  ready, it asks you to approve it.
+- **Auto** runs what Claude judges safe and asks about the rest.
+- **Bypass permissions** runs commands and changes files without asking.
+
 **The `/` and `@` menus.** Type `/` at the start of a message to see
 Claude's commands, or `@` anywhere to pick a project file. The arrow keys
 move, Enter inserts and Escape closes the list. Commands that only work in
@@ -191,7 +200,7 @@ the terminal are greyed out; `/model` and `/effort` open the pickers
 instead. The `@` list shows files only, and skips files your `.gitignore`
 leaves out.
 
-![The message box with the model and permission pickers and the / menu open](images/student-chat-composer.png)
+![The message box with the / menu open above the model, effort and permission pickers](images/student-chat-composer.png)
 
 **Shell commands.** Start a message with `!` to run it as a shell command
 in the project folder. The box shows a Shell label while you type it. The
@@ -322,7 +331,7 @@ language that is on:
 - **Errors and warnings** are underlined in the file and listed in the
   **Problems** tab.
 
-![A completion list in the editor, with the Problems tab open on the right](images/student-code-help.png)
+![A hover box over a Python function, Code help ready in the editor bar, and a warning in the Problems tab](images/student-code-help.png)
 
 **Problems** lists the errors and warnings in the files you have open,
 grouped by file. Choose one to open the file at that line. Closing a file
@@ -509,16 +518,16 @@ any browser you sign in from.
 
 ![The Settings dialog open at Preferences](images/student-settings.png)
 
-## On a phone
+## On a phone or a narrow window
 
-On a phone or a narrow window the work area fills the screen. The
+On a phone or a narrow window the work area fills the screen, and the side panes become drawers. The
 **Projects** button, left of the Portikus name, slides your project list in
 from the left, and the **Files** button, at the right of the top bar,
 slides the right pane in from the right. Choosing a project or opening a
 file closes it again, and so do Escape, its close button and a tap outside
 it.
 
-![The phone layout with the project drawer open](images/student-phone.png)
+![The phone layout with the project drawer open, showing agent rows](images/student-phone.png)
 
 ## If you forget your password
 
