@@ -84,6 +84,18 @@ export function lineText(lines: number): string {
 	return lines === 1 ? "1 line" : `${LINES.format(lines)} lines`;
 }
 
+/** What the status region says once `saved` files are attached; a long paste says where it went, so nobody pastes it again thinking it was lost. */
+function savedStatus(
+	saved: number,
+	first: File | undefined,
+	paste: { lines: number } | null,
+): string {
+	if (paste && first && saved === 1) {
+		return `Pasted ${lineText(paste.lines)}, attached as ${displayName(first.name)}.`;
+	}
+	return saved > 0 ? `Attached ${fileCount(saved)}.` : "";
+}
+
 export function useComposerAttachments(workspaceId: string, projectId: string) {
 	const toast = useToast();
 	const deleteFile = useFileMutations(workspaceId, projectId).remove.mutate;
@@ -167,15 +179,7 @@ export function useComposerAttachments(workspaceId: string, projectId: string) {
 					return keys;
 				}
 			}
-			// A long paste says where it went, so nobody pastes it again thinking it was lost.
-			const pasted = paste !== null && saved === 1 ? accepted[0] : undefined;
-			setStatus(
-				pasted && paste
-					? `Pasted ${lineText(paste.lines)}, attached as ${displayName(pasted.name)}.`
-					: saved > 0
-						? `Attached ${fileCount(saved)}.`
-						: "",
-			);
+			setStatus(savedStatus(saved, accepted[0], paste));
 			return keys;
 		},
 		[workspaceId, projectId, toast],

@@ -98,7 +98,9 @@ test("Insert as text works from the keyboard alone, and Remove stays a Tab away"
 	const insert = chip.getByRole("button", { name: /^Insert pasted text inline/ });
 	await insert.focus();
 	await page.keyboard.press("Tab");
-	await expect(chip.getByRole("button", { name: "Remove pasted-text.txt" })).toBeFocused();
+	await expect(
+		chip.getByRole("button", { name: "Remove pasted-text.txt" }),
+	).toBeFocused();
 	await page.keyboard.press("Shift+Tab");
 	await expect(insert).toBeFocused();
 	await page.keyboard.press("Enter");
