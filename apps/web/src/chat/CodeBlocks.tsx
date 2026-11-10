@@ -4,7 +4,7 @@
  * "Show all" button so one tool call never buries the reply it led to.
  */
 import { Button } from "@portikus/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { CopyButton } from "./CopyButton.js";
 import "./highlight.css";
 import {
@@ -114,11 +114,14 @@ const DIFF_LIMIT = 30;
 /**
  * An edit as removed and added lines; the marks are text, so a screen
  * reader reads them. With the file's path, each line is coloured in the
- * file's language, and the language is named above the lines.
+ * file's language, and the language is named above the lines. The scrolling
+ * box is named by that label and its own word ("TypeScript diff").
  */
 export function DiffBlock({ changes, path }: { changes: EditChange[]; path?: string }) {
 	const [open, setOpen] = useState(false);
 	const language = path ? languageForPath(path) : null;
+	const labelId = useId();
+	const preId = useId();
 	const highlight = useHighlighter(language !== null);
 	const lines = changes.flatMap((change, at) => {
 		const diff = diffLines(change.before, change.after);
@@ -128,9 +131,22 @@ export function DiffBlock({ changes, path }: { changes: EditChange[]; path?: str
 	const shown = open ? lines : lines.slice(0, DIFF_LIMIT);
 	return (
 		<div className="pk-chat-codeblock pk-chat-hl">
-			{language ? <span className="pk-chat-lang">{language.label}</span> : null}
-			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
-			<pre className="pk-chat-code pk-chat-diff" tabIndex={0} data-testid="chat-diff">
+			{language ? (
+				<span className="pk-chat-lang" id={labelId}>
+					{language.label}
+				</span>
+			) : null}
+			{/* biome-ignore-start lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard */}
+			{/* biome-ignore-start lint/a11y/useSemanticElements: a pre of lines cannot be a fieldset; the role is what lets it carry a name */}
+			<pre
+				className="pk-chat-code pk-chat-diff"
+				tabIndex={0}
+				id={preId}
+				role="group"
+				aria-label="diff"
+				aria-labelledby={language ? `${labelId} ${preId}` : undefined}
+				data-testid="chat-diff"
+			>
 				{shown.map((line, at) => {
 					const tokens =
 						highlight && language ? tokensFor(highlight, line.text, language) : null;
@@ -145,6 +161,8 @@ export function DiffBlock({ changes, path }: { changes: EditChange[]; path?: str
 					);
 				})}
 			</pre>
+			{/* biome-ignore-end lint/a11y/useSemanticElements: see above */}
+			{/* biome-ignore-end lint/a11y/noNoninteractiveTabindex: see above */}
 			{hidden > 0 ? (
 				<MoreButton
 					hidden={hidden}

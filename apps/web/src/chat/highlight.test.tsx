@@ -131,6 +131,16 @@ describe("an edit diff", () => {
 		expect(lines).toEqual(["- x = 1\n", "+ x = 2\n"]);
 	});
 
+	test("the scrolling box is named by its language label, then 'diff'", () => {
+		const { getByTestId } = render(<DiffBlock changes={changes} path="src/app.ts" />);
+		expect(
+			getByTestId("chat-diff").getAttribute("aria-labelledby")?.split(" "),
+		).toHaveLength(2);
+		expect(
+			screen.getByRole("group", { hidden: true, name: "TypeScript diff" }),
+		).toBeTruthy();
+	});
+
 	test("without a path, or with an unknown one, the lines stay plain", async () => {
 		const plain = render(<DiffBlock changes={changes} />);
 		const other = render(<DiffBlock changes={changes} path="notes.txt" />);

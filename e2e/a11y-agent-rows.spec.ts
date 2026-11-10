@@ -66,7 +66,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			0,
 		);
 		await expect(list.getByRole("link").first()).toHaveAccessibleName(
-			/^Claude Code \(TUI\) Working \d+s$/,
+			"Claude Code (TUI) Working",
 		);
 		await expect(list.getByRole("link").nth(1)).toHaveAccessibleName(
 			"Plan the change Plan (working)",

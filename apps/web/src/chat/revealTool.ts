@@ -32,7 +32,11 @@ export function revealTool(root: ParentNode, toolId: string): boolean {
 
 /** The tool row each chat terminal still has to show, by terminal id. */
 const pending = new Map<string, string>();
+const expiry = new Map<string, ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
+
+/** How long a request waits for its row; one that is not in the history never arrives. */
+export const REVEAL_TIMEOUT_MS = 10_000;
 
 function changed() {
 	for (const listener of listeners) listener();
@@ -41,6 +45,20 @@ function changed() {
 /** Ask a chat to show one of its tool rows; a newer request replaces an older one. */
 export function requestToolReveal(terminalId: string, toolId: string): void {
 	pending.set(terminalId, toolId);
+	clearTimeout(expiry.get(terminalId));
+	expiry.set(
+		terminalId,
+		setTimeout(() => settle(terminalId, toolId), REVEAL_TIMEOUT_MS),
+	);
+	changed();
+}
+
+/** Forget a request that was carried out or timed out, unless a newer one replaced it. */
+function settle(terminalId: string, toolId: string): void {
+	if (pending.get(terminalId) !== toolId) return;
+	pending.delete(terminalId);
+	clearTimeout(expiry.get(terminalId));
+	expiry.delete(terminalId);
 	changed();
 }
 
@@ -52,7 +70,7 @@ function subscribe(listener: () => void) {
 /**
  * Carry out a request for this chat once it is on screen and the row has
  * arrived. `content` changes whenever the conversation does, so a row that
- * arrives later is still found.
+ * arrives later is still found, until the request times out.
  */
 export function useToolReveal(
 	terminalId: string,
@@ -65,7 +83,6 @@ export function useToolReveal(
 	useLayoutEffect(() => {
 		if (toolId === undefined || !visible || !root.current) return;
 		if (!revealTool(root.current, toolId)) return;
-		if (pending.get(terminalId) === toolId) pending.delete(terminalId);
-		changed();
+		settle(terminalId, toolId);
 	}, [terminalId, toolId, visible, content, root]);
 }
