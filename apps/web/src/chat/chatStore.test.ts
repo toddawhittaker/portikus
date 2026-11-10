@@ -666,10 +666,10 @@ test("the latest context event is kept per tab, and a new snapshot clears it", (
 	let state = feed([snapshot(1)]);
 	expect(state.context).toBeNull();
 	state = feed([frame("context", 2, first)], state);
-	expect(state.context).toEqual(first);
+	expect(state.context).toEqual({ ...first, clockOffsetMs: 0 });
 	const next = { usedTokens: 5000, windowTokens: null, cache: null };
 	state = feed([frame("context", 3, next)], state);
-	expect(state.context).toEqual(next);
+	expect(state.context).toEqual({ ...next, clockOffsetMs: 0 });
 	state = feed([snapshot(4)], state);
 	expect(state.context).toBeNull();
 });

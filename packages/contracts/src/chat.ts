@@ -341,6 +341,8 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 				ttlSeconds: z.union([z.literal(300), z.literal(3600)]),
 			})
 			.nullable(),
+		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
+		now: z.number().int().nonnegative().optional(),
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),
@@ -371,7 +373,7 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			optionId: z.string().min(1),
 			/** Why the student denied, or what to plan instead; sent only when typed. */
 			message: z.string().min(1).max(MAX_CHAT_ANSWER_MESSAGE_CHARS).optional(),
-			/** The mode to continue in after approving a plan; sent only when chosen. */
+			/** Ignored: the host derives a plan's mode from optionId. Kept so older browsers still parse. */
 			mode: z.enum(["acceptEdits", "default"]).optional(),
 		})
 		.strict(),
@@ -400,3 +402,17 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		.strict(),
 ]);
 export type ChatClientMessage = z.infer<typeof ChatClientMessage>;
+
+/**
+ * A message that starts with `!` is a shell command, not a prompt (SPEC.md
+ * §10.8). A lone `!` is not one: there is nothing to run. The composer and
+ * the chat host share this rule.
+ */
+export function shellCommandText(text: string): string {
+	const trimmed = text.trimStart();
+	return (trimmed.startsWith("!") ? trimmed.slice(1) : trimmed).trim();
+}
+
+export function isShellCommand(text: string): boolean {
+	return text.trimStart().startsWith("!") && shellCommandText(text) !== "";
+}

@@ -11,9 +11,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { sessionEnded } from "../api/sessionEnded.js";
+import { type LayoutStore, LayoutStoreContext } from "../layout/store.js";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_MS } from "../terminal/terminalSocket.js";
+import { speakingId } from "../voice/speak.js";
 import { ChatView } from "./ChatView";
 import { boxText, setText } from "./composerTesting.js";
+import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 vi.mock("../api/sessionEnded.js", () => ({ sessionEnded: vi.fn() }));
 
@@ -597,4 +600,179 @@ test("scrolling up stops the view following new text", () => {
 	expect(box.scrollTop).toBe(2000);
 	expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
 	expect(document.activeElement).toBe(screen.getByTestId("chat-composer-input"));
+});
+
+test("Escape, sending and closing the chat each stop a reply being read", () => {
+	installFakeSpeech();
+	try {
+		const view = draw();
+		snapshot();
+		emit("message", { id: "a1", role: "assistant", markdown: "Hello there." });
+		const root = screen.getByTestId(`chat-view-${TERMINAL}`);
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		expect(speakingId()).toBe("a1");
+		fireEvent.keyDown(root, { key: "Escape" });
+		expect(speakingId()).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		const box = screen.getByTestId("chat-composer-input");
+		setText(box, "Thanks");
+		fireEvent.keyDown(box, { key: "Enter" });
+		expect(speakingId()).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		expect(speakingId()).toBe("a1");
+		view.unmount();
+		expect(speakingId()).toBeNull();
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("Escape in an open menu closes the menu and leaves the speech going", () => {
+	installFakeSpeech();
+	try {
+		draw();
+		snapshot();
+		emit("message", { id: "a1", role: "assistant", markdown: "Hello there." });
+		fireEvent.click(screen.getByRole("button", { name: "Read aloud" }));
+		const trigger = document.createElement("button");
+		trigger.setAttribute("aria-haspopup", "menu");
+		trigger.setAttribute("aria-expanded", "true");
+		document.body.append(trigger);
+		fireEvent.keyDown(screen.getByTestId(`chat-view-${TERMINAL}`), { key: "Escape" });
+		expect(speakingId()).toBe("a1");
+		trigger.remove();
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("a finished turn is read aloud when the project's switch is on, and its tools are not", async () => {
+	installFakeSpeech();
+	try {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					model: "default",
+					effort: "high",
+					mode: "default",
+					readAloud: true,
+				}),
+			),
+		);
+		const synth = globalThis.speechSynthesis as unknown as {
+			spoken: { text: string }[];
+		};
+		draw();
+		snapshot();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(
+			screen
+				.getByRole("switch", { name: "Read replies aloud" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
+		emit("turn.started", { at: 1 });
+		emit("message", { id: "a1", role: "assistant", markdown: "On it." });
+		emit("tool.started", { id: "t1", name: "Bash", title: "ls", input: {} });
+		emit("tool.output", { id: "t1", part: { type: "text", text: "SECRET OUTPUT" } });
+		emit("tool.finished", { id: "t1", isError: false });
+		emit("message", { id: "a2", role: "assistant", markdown: "All finished." });
+		expect(synth.spoken).toHaveLength(0);
+		emit("turn.finished", { at: 2, status: "done" });
+		expect(speakingId()).toBe("a2");
+		expect(synth.spoken.map((one) => one.text)).toEqual(["All finished."]);
+	} finally {
+		removeFakeSpeech();
+	}
+});
+
+test("a shell command's end is announced when it leaves running, in words", () => {
+	draw();
+	snapshot();
+	const announcer = () => screen.getByTestId("chat-announcer").textContent;
+	const command = (body: Record<string, unknown>) =>
+		emit("shell", {
+			id: "s1",
+			command: "ls",
+			output: "",
+			truncated: false,
+			exitCode: null,
+			state: "running",
+			...body,
+		});
+	command({});
+	expect(announcer()).toBe("");
+	command({ state: "done", exitCode: 0 });
+	expect(announcer()).toBe("Command finished.");
+	command({ id: "s2", state: "running" });
+	expect(announcer()).toBe("");
+	command({ id: "s2", state: "done", exitCode: 127 });
+	expect(announcer()).toBe("Command failed with exit code 127.");
+	command({ id: "s3", state: "running" });
+	command({ id: "s3", state: "done", exitCode: null });
+	expect(announcer()).toBe("Command stopped.");
+	// Anything newer in the chat takes the announcement back.
+	emit("message", { id: "u1", role: "user", markdown: "thanks" });
+	expect(announcer()).toBe("");
+});
+
+/** The chat inside a work area whose project is or is not a Git repository. */
+function drawInWorkArea(repo: boolean) {
+	const openFile = vi.fn();
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+	});
+	client.setQueryData(["git-status", WORKSPACE, PROJECT, true], { repo });
+	client.setQueryData(
+		["projects", WORKSPACE, "active"],
+		[{ id: PROJECT, slug: "demo" }],
+	);
+	const layout = { getState: () => ({ openFile }) } as unknown as LayoutStore;
+	render(
+		<QueryClientProvider client={client}>
+			<LayoutStoreContext.Provider value={layout}>
+				<ToastProvider>
+					<ChatView
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminalId={TERMINAL}
+						visible={true}
+						focused={false}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</LayoutStoreContext.Provider>
+		</QueryClientProvider>,
+	);
+	open();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("tool.started", {
+		id: "e1",
+		name: "Edit",
+		title: "Edit",
+		input: {
+			file_path: "/home/student/projects/demo/src/a.ts",
+			old_string: "x",
+			new_string: "y",
+		},
+	});
+	emit("tool.finished", { id: "e1", isError: false });
+	emit("message", { id: "a1", role: "assistant", markdown: "Changed it." });
+	emit("turn.finished", { at: Date.now() + 1_000, status: "done" });
+	fireEvent.click(screen.getByRole("button", { name: "src/a.ts" }));
+	return openFile;
+}
+
+test("a changed file opens in its diff when the project is a Git repository", () => {
+	expect(drawInWorkArea(true)).toHaveBeenCalledWith("src/a.ts", { diff: true });
+});
+
+test("a changed file opens in the editor when the project is not a Git repository", () => {
+	expect(drawInWorkArea(false)).toHaveBeenCalledWith("src/a.ts", undefined);
 });

@@ -37,6 +37,11 @@ const PLAN = {
 };
 
 /** A chat whose host shows `cards` and records what the browser answers. */
+const PLAN_MODE: Record<string, string> = {
+	"allow-accept-edits": "acceptEdits",
+	"allow-ask-edits": "default",
+};
+
 async function openWithCards(
 	page: Page,
 	context: Parameters<typeof makeChatTab>[1],
@@ -58,12 +63,14 @@ async function openWithCards(
 			const message = JSON.parse(String(raw));
 			if (message.type !== "permission.answer") return;
 			received.push(message);
-			if (message.mode) {
+			// The host derives a plan's mode from the option it was approved with.
+			const mode = PLAN_MODE[message.optionId];
+			if (mode) {
 				send("settings", {
 					agent: "claude",
 					model: "claude-haiku-4-5",
 					effort: "high",
-					mode: message.mode,
+					mode,
 				});
 			}
 			send("card.resolved", { id: message.id });
@@ -110,6 +117,28 @@ for (const colorScheme of ["light", "dark"] as const) {
 		]);
 	});
 
+	test(`Back beside Send restores the options after a mistaken Deny (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		test.setTimeout(60_000);
+		await page.emulateMedia({ colorScheme });
+		const { view, received } = await openWithCards(page, context, [BASH]);
+		const card = view.getByTestId("chat-permission-card");
+		await card.getByRole("button", { name: "Deny" }).click();
+		const back = card.getByRole("button", { name: "Back" });
+		await expect(back).toBeVisible();
+		await expectNoViolations(page, '[data-testid="chat-permission-card"]');
+		await back.click();
+		await expect(card.getByLabel(FIELD)).toHaveCount(0);
+		await expect(card.getByRole("button", { name: "Deny" })).toBeFocused();
+		await card.getByRole("button", { name: "Allow once" }).click();
+		await expect(card).toHaveCount(0);
+		expect(received).toEqual([
+			{ type: "permission.answer", id: "p1", optionId: "allow" },
+		]);
+	});
+
 	test(`approving a plan with accept edits switches the mode picker (${colorScheme})`, async ({
 		page,
 		context,
@@ -126,7 +155,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 				type: "permission.answer",
 				id: "p2",
 				optionId: "allow-accept-edits",
-				mode: "acceptEdits",
 			},
 		]);
 	});

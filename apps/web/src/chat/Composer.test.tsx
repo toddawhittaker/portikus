@@ -112,7 +112,13 @@ function draw() {
 			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
 		>
 			<ToastProvider>
-				<Composer store={store} workspaceId="w" projectId="p" terminalId={TERMINAL} />
+				<Composer
+					store={store}
+					readAloud={{ on: false, set: () => {} }}
+					workspaceId="w"
+					projectId="p"
+					terminalId={TERMINAL}
+				/>
 			</ToastProvider>
 		</QueryClientProvider>,
 	);
@@ -817,6 +823,105 @@ test("Markdown typed in the box is sent as the same Markdown text", () => {
 	]);
 	echo("Use **bold**, `code` and\n\n- a list\n- of two");
 	expect(value()).toBe("");
+});
+
+test("a message starting with ! marks the box as a shell command and says so once", () => {
+	draw();
+	const shell = () => screen.queryByTestId("chat-composer-shell");
+	const form = screen.getByTestId("chat-composer");
+	type("! ");
+	// Nothing to run yet: a lone ! is no command (shellCommand.ts).
+	expect(shell()).toBeNull();
+	expect(status()).toBe("");
+	type("!ls");
+	expect(shell()?.textContent).toBe("Shell");
+	expect(shell()?.getAttribute("aria-hidden")).toBe("true");
+	expect(form.classList.contains("is-shell")).toBe(true);
+	expect(status()).toBe("Shell command mode");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(
+		/^Shell command\. Enter runs it/,
+	);
+	// The text stays as typed, and Enter sends it as the host's message.
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: "!ls", attachments: [] }]);
+	// Leaving the mode clears the announcement, so entering it again is said again.
+	type("ls");
+	expect(shell()).toBeNull();
+	expect(form.classList.contains("is-shell")).toBe(false);
+	expect(status()).toBe("");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toMatch(/^Enter sends/);
+	type("  !pwd");
+	expect(shell()).not.toBeNull();
+	expect(status()).toBe("Shell command mode");
+});
+
+const SHELL = {
+	id: "sh-1",
+	command: "pwd",
+	output: "",
+	exitCode: null,
+	truncated: false,
+	state: "running",
+};
+
+test("a ! command is accepted when the host adds it, and the box empties", async () => {
+	draw();
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent).toEqual([{ type: "send", text: "!pwd", attachments: [] }]);
+	// No message echo comes for a command; the host's shell item is the answer.
+	emit("shell", SHELL);
+	await waitFor(() => expect(value()).toBe(""));
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+});
+
+test("a ! command the host refused leaves the text to try again", async () => {
+	draw();
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	emit("error", { message: "Wait for the shell command to finish." });
+	await waitFor(() => expect(screen.getByTestId("chat-composer-send")).toBeTruthy());
+	expect(value()).toBe("!pwd");
+});
+
+test("an older command is not the answer to a ! command sent after it", async () => {
+	draw();
+	emit("shell", { ...SHELL, id: "old", state: "done", exitCode: 0 });
+	type("!pwd");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	// A replay of the old command, same id, changes nothing.
+	emit("shell", { ...SHELL, id: "old", state: "done", exitCode: 0 });
+	expect(value()).toBe("!pwd");
+	emit("shell", SHELL);
+	await waitFor(() => expect(value()).toBe(""));
+});
+
+test("while a ! command runs, Stop interrupts it and goes with the command", () => {
+	draw();
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
+	emit("shell", SHELL);
+	expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+		"The command is running. Esc stops it.",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+	expect(sent.at(-1)).toEqual({ type: "interrupt" });
+	emit("shell", { ...SHELL, state: "done", exitCode: 130 });
+	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
+});
+
+test("Escape stops a running ! command too", () => {
+	draw();
+	emit("shell", SHELL);
+	fireEvent.keyDown(input(), { key: "Escape" });
+	expect(sent).toEqual([{ type: "interrupt" }]);
+});
+
+test("a ! that is not the first character is not shell mode", () => {
+	draw();
+	type("hello !ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
+	type("```\n!ls");
+	expect(screen.queryByTestId("chat-composer-shell")).toBeNull();
 });
 
 test("in a code block the hint says Enter adds a line, and Ctrl+Enter sends", () => {

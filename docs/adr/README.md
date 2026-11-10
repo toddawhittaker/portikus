@@ -100,3 +100,4 @@ has four sections:
 | [0070](0070-subagent-hook.md) | A subagent hook reads only the tool call id, description, subagent type, background flag and agent id, never the prompt; this changes ADR 0068 item 1 for that script (accepted, Epic 59) |
 | [0071](0071-chat-read-aloud.md) | Chat replies are read aloud through the browser's `speechSynthesis`, preferring on-device voices, with Markdown removed and code blocks skipped (accepted, Epic 59) |
 | [0072](0072-chat-syntax-highlighting.md) | Syntax colours in the chat come from highlight.js core with twelve languages, loaded only when a code block renders, coloured through CSS variables (accepted, Epic 59) |
+| [0073](0073-chat-shell-commands.md) | A `!` chat message is run by the chat host itself, as the student in the project folder, with a two-minute limit and a 64 KiB output cap, and appended to the transcript without starting a turn (accepted, Epic 59) |

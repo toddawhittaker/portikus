@@ -520,3 +520,28 @@ describe("read aloud in the saved settings", () => {
 		);
 	});
 });
+
+describe("host clock and ignored plan mode", () => {
+	const env = { sessionId: "00000000-0000-4000-8000-000000000001", seq: 1 };
+	const context = {
+		type: "context",
+		...env,
+		usedTokens: 1,
+		windowTokens: null,
+		cache: null,
+	};
+
+	test("a context event may carry the host's clock, and an older host's need not", () => {
+		expect(ChatServerEvent.safeParse({ ...context, now: 5 }).success).toBe(true);
+		expect(ChatServerEvent.safeParse(context).success).toBe(true);
+		expect(ChatServerEvent.safeParse({ ...context, now: -1 }).success).toBe(false);
+	});
+
+	test("an older browser's permission answer with a mode still parses", () => {
+		const answer = { type: "permission.answer", id: "p", optionId: "allow-ask-edits" };
+		expect(ChatClientMessage.safeParse(answer).success).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ ...answer, mode: "acceptEdits" }).success,
+		).toBe(true);
+	});
+});

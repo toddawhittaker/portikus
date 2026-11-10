@@ -9,15 +9,25 @@
 import type { ChatOpenCard } from "@portikus/contracts";
 import { AgentStateMark, IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "zustand";
+import { useGitStatus } from "../files/useGitStatus.js";
+import { LayoutStoreContext } from "../layout/store.js";
+import { useProjects } from "../projects/queries.js";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
+import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import type { ChatState } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
-import { MessageList } from "./MessageList.js";
+import { type FileOpener, MessageList } from "./MessageList.js";
 import { PermissionCard } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
+import {
+	overlayOpen,
+	useReadAloud,
+	useReadNewReplies,
+	useStopWhenLeaving,
+} from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
 import { useChatSession } from "./useChatSession.js";
@@ -43,6 +53,14 @@ function announcement(state: ChatState): string {
 		return waiting > 0
 			? `${cardAnnouncement(card)} ${waitingText(waiting)}`
 			: cardAnnouncement(card);
+	}
+	// A command is not a turn: its end is said when it is the newest thing in the chat.
+	const newest = state.items.at(-1);
+	if (newest?.kind === "shell" && newest.state === "done") {
+		if (newest.exitCode === null) return "Command stopped.";
+		return newest.exitCode === 0
+			? "Command finished."
+			: `Command failed with exit code ${newest.exitCode}.`;
 	}
 	if (state.currentTurnId !== null) return "Claude is working.";
 	const last = Object.values(state.turns).at(-1);
@@ -89,6 +107,30 @@ export function ChatView(props: ChatViewProps) {
 	);
 }
 
+/**
+ * The work area's own open-file action, given to the chat so a changed file
+ * opens where the file tree would open it: its diff in a Git repository, the
+ * file otherwise. Null outside a work area.
+ */
+function useFileOpener(workspaceId: string, projectId: string): FileOpener | null {
+	const layout = useContext(LayoutStoreContext);
+	const git = useGitStatus(workspaceId, projectId);
+	const projects = useProjects(workspaceId, "active");
+	const slug = projects.data?.find((project) => project.id === projectId)?.slug;
+	const repo = git.data?.repo === true;
+	return useMemo(
+		() =>
+			layout === null
+				? null
+				: {
+						slug,
+						open: (path: string) =>
+							layout.getState().openFile(path, repo ? { diff: true } : undefined),
+					},
+		[layout, slug, repo],
+	);
+}
+
 function ChatViewBody({
 	workspaceId,
 	projectId,
@@ -99,6 +141,10 @@ function ChatViewBody({
 }: ChatViewProps) {
 	const store = useChatSession(workspaceId, projectId, terminalId);
 	const state = useStore(store);
+	const readAloud = useReadAloud(workspaceId, projectId);
+	const opener = useFileOpener(workspaceId, projectId);
+	useReadNewReplies(store, readAloud.on, visible);
+	useStopWhenLeaving(store, visible);
 	const root = useRef<HTMLDivElement | null>(null);
 	const log = useRef<HTMLDivElement | null>(null);
 	const content = useRef<HTMLDivElement | null>(null);
@@ -209,6 +255,10 @@ function ChatViewBody({
 			className="pk-chat"
 			data-testid={`chat-view-${terminalId}`}
 			onKeyDown={(event) => {
+				// Escape stops the speech, unless a menu or dialog is open and it is theirs.
+				if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
+					stopReading();
+				}
 				if (!isLeaveShortcut(event.nativeEvent)) return;
 				event.preventDefault();
 				onLeave();
@@ -255,6 +305,7 @@ function ChatViewBody({
 								currentTurnId={state.currentTurnId}
 								truncated={state.truncated}
 								asking={asking}
+								opener={opener}
 							/>
 						)}
 					</div>
@@ -330,6 +381,7 @@ function ChatViewBody({
 			<div className="pk-chat-composer">
 				<Composer
 					store={store}
+					readAloud={readAloud}
 					workspaceId={workspaceId}
 					projectId={projectId}
 					terminalId={terminalId}

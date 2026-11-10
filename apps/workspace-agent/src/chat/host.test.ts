@@ -18,6 +18,7 @@ import {
 	MAX_CHAT_IMAGE_BYTES,
 } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
+import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { ChatHost, type ChatSdk } from "./host.js";
@@ -1053,6 +1054,25 @@ describe("permission answers", () => {
 		expect((await first.result).behavior).toBe("allow");
 		expect((await second.result).behavior).toBe("allow");
 	});
+
+	test("a plan's mode comes from the option, never from a mode an older browser sends", async () => {
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		const asked = fake.ask("ExitPlanMode", { plan: "p" }, "toolu_plan3");
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+		a.send({
+			type: "permission.answer",
+			id: "toolu_plan3",
+			optionId: "allow-ask-edits",
+			mode: "acceptEdits",
+		});
+		expect(await asked.result).toMatchObject({
+			behavior: "allow",
+			updatedPermissions: [
+				{ type: "setMode", mode: "default", destination: "session" },
+			],
+		});
+	});
 });
 
 describe("plan usage", () => {
@@ -1132,6 +1152,7 @@ describe("context usage", () => {
 		);
 		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
 		const first = ofType(a, "context")[0];
+		expect(first?.now).toBeGreaterThanOrEqual(before);
 		expect(first?.usedTokens).toBe(1015);
 		expect(first?.windowTokens).toBeNull();
 		expect(first?.cache?.ttlSeconds).toBe(3600);
@@ -1150,6 +1171,29 @@ describe("context usage", () => {
 			usedTokens: 1015,
 			windowTokens: 200000,
 		});
+	});
+
+	test("the repeats the SDK sends for each content block of one response count once", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const block = assistant({
+			input_tokens: 10,
+			output_tokens: 5,
+			cache_read_input_tokens: 50,
+		});
+		fake.emit(block);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const again = block as unknown as { message: object; uuid: string };
+		fake.emit({ ...again, uuid: randomUUID(), message: { ...again.message } } as never);
+		fake.emit(
+			assistant({ input_tokens: 10, output_tokens: 9, cache_read_input_tokens: 50 }),
+		);
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "context")).toHaveLength(2);
+		expect(ofType(a, "context")[1]?.usedTokens).toBe(69);
 	});
 
 	test("without getContextUsage the window comes from the result's modelUsage", async () => {
@@ -1214,5 +1258,192 @@ describe("context usage", () => {
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(ofType(a, "context")).toEqual([]);
+	});
+});
+
+describe("shell commands", () => {
+	const result = (turns: number) =>
+		({
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			num_turns: turns,
+		}) as never;
+
+	test("a `!` command runs with no model, shows its output, and is appended without a turn", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "  ! pwd; echo hi >&2; exit 4", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		const [running, done] = ofType(a, "shell");
+		expect(running).toMatchObject({
+			state: "running",
+			command: "pwd; echo hi >&2; exit 4",
+			output: "",
+		});
+		expect(done).toMatchObject({
+			id: running?.id,
+			state: "done",
+			output: `${join(dir, "projects", "demo")}\nhi\n`,
+			exitCode: 4,
+			truncated: false,
+		});
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(fake.sent[0]).toMatchObject({
+			uuid: running?.id,
+			shouldQuery: false,
+			message: { content: "<bash-input>pwd; echo hi >&2; exit 4</bash-input>" },
+		});
+		expect(fake.sent[1]?.shouldQuery).toBe(false);
+		expect(String(fake.sent[1]?.message.content)).toContain("Exit code 4");
+
+		// Each append's empty result ends no turn, and the next real turn ends normally.
+		fake.emit(result(0));
+		fake.emit(result(0));
+		a.send({ type: "send", text: "what did it print?", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(3));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "turn.finished")).toHaveLength(1);
+		fake.emit(result(1));
+		await vi.waitFor(() => expect(ofType(a, "turn.finished")).toHaveLength(2));
+		expect(ofType(a, "turn.started")).toHaveLength(2);
+	});
+
+	test("Stop ends a running command at once and settles it as stopped", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		const started = Date.now();
+		a.send({ type: "send", text: "!sleep 600", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		a.send({ type: "interrupt" });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		expect(Date.now() - started).toBeLessThan(5000);
+		expect(ofType(a, "shell")[1]).toMatchObject({ state: "done", exitCode: null });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(String(fake.sent[1]?.message.content)).toContain(
+			"<bash-stderr>Stopped</bash-stderr>",
+		);
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(3));
+		expect(ofType(a, "error")).toHaveLength(0);
+	});
+
+	test("a `!` sent while a message is still being read in is refused", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		a.send({ type: "send", text: "!ls", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toMatch(/while Claude is working/);
+		expect(ofType(a, "shell")).toHaveLength(0);
+	});
+
+	test("a `!` command is refused while Claude is working", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		a.send({ type: "send", text: "!ls", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "error")[0]?.message).toMatch(/while Claude is working/);
+		expect(ofType(a, "shell")).toHaveLength(0);
+		expect((queries[0] as FakeQuery).sent).toHaveLength(1);
+	});
+
+	test("a message is refused while a command runs, and a late attachment sees it running", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!sleep 0.5; echo late", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		a.send({ type: "send", text: "hello", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		const b = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(b, "shell")[0]).toMatchObject({ state: "running" }),
+		);
+		await vi.waitFor(() =>
+			expect(ofType(b, "shell").at(-1)).toMatchObject({
+				state: "done",
+				output: "late\n",
+			}),
+		);
+		expect(ofType(a, "turn.started")).toHaveLength(1);
+	});
+
+	test("a turn that starts while a command runs gets its appends only after it ends", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const fake = queries[0] as FakeQuery;
+		a.send({ type: "send", text: "!sleep 0.3; echo x", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(1));
+		// A background subagent finishing starts a turn of its own.
+		fake.emit(delta("subagent done"));
+		await vi.waitFor(() => expect(ofType(a, "turn.started")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(fake.sent).toHaveLength(0);
+		fake.emit(result(1));
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(2));
+		expect(fake.sent.every((message) => message.shouldQuery === false)).toBe(true);
+		expect(ofType(a, "turn.finished")).toHaveLength(2);
+	});
+
+	test("a command with attachments, or one that is too long, is refused", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: `!echo ${"x".repeat(5000)}`, attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "error")).toHaveLength(1));
+		expect(ofType(a, "shell")).toHaveLength(0);
+	});
+
+	test("a command past the time limit is killed and reported with no exit code", async () => {
+		await host.stop();
+		queries = [];
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			sdk: sdk(),
+			shellTimeoutMs: 2000,
+		});
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!echo begun; sleep 30", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2), {
+			timeout: 10_000,
+		});
+		expect(ofType(a, "shell")[1]).toMatchObject({ output: "begun\n", exitCode: null });
+		await vi.waitFor(() => expect((queries[0] as FakeQuery).sent).toHaveLength(2));
+		expect(String((queries[0] as FakeQuery).sent[1]?.message.content)).toContain(
+			"time limit",
+		);
+	});
+
+	test("neither the command nor its output is logged", async () => {
+		await host.stop();
+		queries = [];
+		const { logger, lines } = collectingLogger("debug");
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: logger,
+			postLimits: async () => undefined,
+			sdk: sdk(),
+		});
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		a.send({ type: "send", text: "!echo SECRET-$((40+2))-MARK", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
+		expect(ofType(a, "shell")[1]?.output).toBe("SECRET-42-MARK\n");
+		expect(JSON.stringify(lines)).not.toMatch(/SECRET/);
 	});
 });

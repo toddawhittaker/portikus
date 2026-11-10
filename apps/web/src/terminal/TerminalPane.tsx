@@ -13,6 +13,7 @@ import {
 	previewRouteFor,
 	type TerminalLink,
 } from "../links.js";
+import { projectRoot } from "../projectRoot.js";
 import { useProjects } from "../projects/queries.js";
 import {
 	AGENT_UPGRADED_MESSAGE,
@@ -76,7 +77,7 @@ export function pastePath(now: Date, type: string, attempt = 1): string {
  * nothing runs (SPEC.md §2.5, §4.4).
  */
 export function pastedPathInput(slug: string, path: string): string {
-	return `/home/student/projects/${slug}/${path} `;
+	return `${projectRoot(slug)}/${path} `;
 }
 
 /** Follow a link from the terminal's output into the app. */
