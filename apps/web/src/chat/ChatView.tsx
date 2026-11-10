@@ -312,8 +312,8 @@ function ChatViewBody({
 							card={card}
 							takeFocus={takeFocus}
 							waiting={waiting}
-							onAnswer={(optionId) =>
-								store.getState().answerPermission(card.id, optionId)
+							onAnswer={(optionId, extras) =>
+								store.getState().answerPermission(card.id, optionId, extras)
 							}
 						/>
 					)}

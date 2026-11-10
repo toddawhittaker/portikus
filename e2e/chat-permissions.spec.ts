@@ -142,7 +142,10 @@ test("inside a permission card, number keys choose its options; typed in the mes
 	).toEqual([]);
 
 	await card.getByRole("button", { name: "Allow once", exact: true }).focus();
+	// 3 is Deny, which first asks what to do instead; Enter sends a plain denial.
 	await page.keyboard.press("3");
+	await expect(card.getByLabel("Tell Claude what to do instead")).toBeFocused();
+	await page.keyboard.press("Enter");
 	await expect(card).toHaveCount(0);
 	await expect
 		.poll(() =>
