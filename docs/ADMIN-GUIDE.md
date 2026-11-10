@@ -420,7 +420,8 @@ deleted, the confirmation says which and why, and they stay ticked.
 The server always keeps its newest complete nightly backup sets: three,
 unless the operator set another number. Those cannot be ticked, and each
 says why. Sets taken with **Back up now** do not count toward them and can
-be deleted.
+be deleted, except when no nightly set is complete: then the newest complete
+**Back up now** set is kept instead.
 
 ## The site certificate
 
