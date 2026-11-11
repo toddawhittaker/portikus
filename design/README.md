@@ -5,33 +5,17 @@ visual design. The files here are a copy for reading and reference; the
 artifacts remain the place where the design is edited. `docs/DESIGN.md`
 explains the design itself and how engineering picks it up.
 
-## The repository is ahead of the artifacts
+## The artifacts and these files are in sync
 
-On 2026-11-11 the design system artifact was re-published from `system/`, with
-`components/bundle.js`, `bundle.css`, `index.d.ts`, the React 19 copies under
-`components/lib/` and every preview rebuilt from `packages/ui`, so `system/`
-and that artifact are back in sync; what follows still holds for the mockups
-artifact.
-
-Since November 2026 the files here describe a newer look than the two Claude
-Design artifacts do: warm ivory and charcoal surfaces, teal for actions and
+On 2026-11-11 both artifacts were re-published from these files, so they show
+the November 2026 look: warm ivory and charcoal surfaces, teal for actions and
 selection, a violet agent hue, one `Badge` for every status, the 12, 14, 16,
-20 and 24px type scale, the redrawn portico mark and the state picture. The
-code in `packages/ui` and `apps/web` came first, and these files were updated
-by hand to match it. Until the artifacts are re-published from these files,
-treat the repository as the source and the artifacts as out of date. Do not
-refresh this folder from the artifacts before then, or the update is lost.
-
-What was updated by hand: `system/README.md`, `system/tokens.json`, the
-component READMEs that changed (and a new `components/Badge/README.md`, which
-has no preview yet), the eight logo SVGs and their sizes in
-`design-system.json`, and `mockups/portikus-tokens.css` and
-`mockups/portikus-screens.css`. Not updated: the compiled
-`components/bundle.css`, `bundle.js` and the component previews, so the
-mockups take the new colours and type but still draw the old primary button
-(dark fill) and the old tab edge (accent along the top). The mockup screens
-themselves were not redrawn. The blob identifiers in `design-system.json`
-still name the artifact's old logo files.
+20 and 24px type scale, and the redrawn portico mark. The design system
+artifact was re-published from `system/` (pull request #1889), with its bundle,
+types, React copies and previews rebuilt from `packages/ui`. The mockups
+artifact was re-published from `mockups/` the same day, as described under
+`mockups/` below. The blob identifiers in `design-system.json` name the new
+logo uploads.
 
 ## `system/`
 
@@ -60,7 +44,7 @@ and carries the handoff notes reproduced below. `portikus-tokens.css` and
 propose.
 
 Source: https://claude.ai/artifact/RqyBryupN8TcL2pRHeh1vy, version
-1789608073-07be, created 2026-09-17T01:01:47Z.
+1794418500-bf51, created 2026-09-17T01:01:47Z and re-published 2026-11-11.
 
 These screens are Claude Design canvas documents, not ordinary web pages. Each
 one loads a `support.js` runtime that is not part of the artifact's files and
@@ -68,18 +52,38 @@ uses `x-dc` and `x-import` component tags that only that runtime understands.
 Opening one in a browser will not render it. Read them as source, or open the
 artifact.
 
-The mockup artifact also carries a `ds/portikus/` copy of the design system
-bundle so the screens can load it. That copy was left out of this import
-because it is byte-identical to the files already in `system/`:
-`components/bundle.css`, `components/bundle.js`, `components/index.d.ts` and
-`tokens.json` all matched by sha256sum at import time. The `*.dc.html` files
-still reference `ds/portikus/...` paths, which is expected.
+The screens mount the real `packages/ui` components. Where a component cannot
+draw itself on a static canvas, the screen gives it the structure it needs:
+an open menu sits in an open, non-modal `MenuRoot` whose trigger is an
+invisible button at the menu's place; the Reset Docker dialog sits in an open
+`ConfirmDialogRoot`; and the pane handles are drawn as the markup `PaneHandle`
+renders, because the real one needs a resizable panel group around it. Each
+dark screen is its light twin with only the theme default changed.
+
+Menus and dialogs render into the page body, outside the artboard root, so
+`portikus-tokens.css` gives the body the dark values when the artboard is
+dark, and repeats the bundle's `--color-*` mappings on the artboard root and
+the body so they resolve against the artboard's theme. `portikus-screens.css`
+gives the body the app's base type, as `apps/web/src/app.css` does.
+
+The mockup artifact also carries a `ds/portikus/` copy of the design system so
+the screens can load it. `components/bundle.css`, `components/index.d.ts` and
+`tokens.json` there are byte-identical to the files in `system/`, so they are
+not repeated here. `components/bundle.js` is not, and is kept at
+`mockups/ds/portikus/components/bundle.js`. The canvas gives every artboard
+React 18, while the bundle in `system/` is built for React 19 and fails on 18.
+The canvas copy is built from the same `packages/ui/src/index.ts` with the
+repo's esbuild 0.28.2 (an IIFE with global name `Portikus`, minified, with
+`react` and `react-dom` read from `window.React` and `window.ReactDOM`), except
+that `react/jsx-runtime` is replaced by a small module whose `jsx` and `jsxs`
+call `window.React.createElement`. That works on React 18 and 19 alike. Its
+first line is the `@ds-bundle` header from `system/components/bundle.js`.
 
 ## Refreshing these files
 
 There is no script. In a Claude Code session, ask it to re-pull the `project/`
 files of both artifacts into `design/system/` and `design/mockups/`, keeping
-the logo renaming and the `ds/` omission described above, and to open a pull
+the logo renaming and the `ds/` rules described above, and to open a pull
 request with the result.
 
 ## Handoff notes
