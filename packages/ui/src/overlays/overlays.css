@@ -315,6 +315,32 @@
 .pk-tab--unread .pk-tab-label {
 	font-weight: 600;
 }
+/*
+ * A tab with a coding agent in it takes its state's colour: a bar along its
+ * foot, and a soft fill while the tab is in the background.
+ */
+.pk-tab:has(> .pk-agent-mark--working) {
+	--pk-agent-tone: var(--status-starting);
+	--pk-agent-tone-soft: var(--status-starting-soft);
+}
+.pk-tab:has(> .pk-agent-mark--needs-input) {
+	--pk-agent-tone: var(--status-warning);
+	--pk-agent-tone-soft: var(--status-warning-soft);
+}
+.pk-tab:has(> .pk-agent-mark--finished) {
+	--pk-agent-tone: var(--status-running);
+	--pk-agent-tone-soft: var(--status-running-soft);
+}
+.pk-tab:has(> .pk-agent-mark) {
+	box-shadow: inset 0 -2px 0 var(--pk-agent-tone);
+}
+.pk-tab:has(> .pk-agent-mark):not([data-state="active"]) {
+	background: var(--pk-agent-tone-soft);
+	color: var(--ink);
+}
+.pk-tab:has(> .pk-agent-mark):not([data-state="active"]):hover {
+	background: color-mix(in srgb, var(--pk-agent-tone) 12%, var(--pk-agent-tone-soft));
+}
 /* Working is an open ring, needs input a triangle, finished a check. */
 .pk-agent-mark {
 	flex: none;

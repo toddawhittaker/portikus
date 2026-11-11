@@ -65,6 +65,7 @@
 	--ink-inverse: #fdfcfa;
 	--accent: #2c6a66;
 	--accent-hover: #22524f;
+	--accent-active: #1a403e;
 	--on-accent: #ffffff;
 	--accent-soft: #dcebe8;
 	--accent-text: #24605c;
@@ -185,6 +186,7 @@
 	--ink-inverse: #171614;
 	--accent: #7cc2b9;
 	--accent-hover: #9bd3cb;
+	--accent-active: #b6e0da;
 	--on-accent: #0f201e;
 	--accent-soft: #1b3230;
 	--accent-text: #8fcdc4;
@@ -236,6 +238,7 @@
 		--ink-inverse: #171614;
 		--accent: #7cc2b9;
 		--accent-hover: #9bd3cb;
+		--accent-active: #b6e0da;
 		--on-accent: #0f201e;
 		--accent-soft: #1b3230;
 		--accent-text: #8fcdc4;
@@ -397,6 +400,7 @@
 	--color-ink-inverse: var(--ink-inverse);
 	--color-accent: var(--accent);
 	--color-accent-hover: var(--accent-hover);
+	--color-accent-active: var(--accent-active);
 	--color-on-accent: var(--on-accent);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-text: var(--accent-text);

@@ -73,7 +73,7 @@
 	color: var(--ink);
 }
 .pk-pane-tab[aria-selected="true"] {
-	color: var(--ink);
+	color: var(--accent-text);
 	border-bottom-color: var(--accent);
 }
 .pk-pane-tab:focus-visible {

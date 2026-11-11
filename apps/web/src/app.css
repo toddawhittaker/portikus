@@ -360,6 +360,7 @@ body {
 }
 .pk-list-item.is-current {
 	background: var(--surface-selected);
+	box-shadow: inset 2px 0 0 var(--accent);
 }
 .pk-list-row {
 	flex: 1;
@@ -384,6 +385,7 @@ body {
 }
 .pk-list-row[aria-current="page"] {
 	font-weight: 600;
+	color: var(--accent-text);
 }
 .pk-list-row[aria-current="page"] .pk-icon {
 	color: var(--accent);
@@ -598,6 +600,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-6);
+}
+.pk-progress-card[data-phase="error"] {
+	border-inline-start: 4px solid var(--status-error);
 }
 .pk-steps {
 	list-style: none;

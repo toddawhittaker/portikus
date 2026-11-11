@@ -304,14 +304,14 @@ test("the error screen shows the meters and Reset Docker as the main action when
 	);
 	// Reset Docker leads; Try again stays as a secondary action because an
 	// administrator may have grown the quota since.
-	expect(clean.className).toContain("bg-surface-inverse");
+	expect(clean.className).toContain("bg-accent");
 	const names = screen
 		.getAllByRole("button")
 		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
 		.map((button) => button.textContent);
 	expect(names).toEqual(["Reset Docker…", "Try again", "Workspace details"]);
 	expect(screen.getByRole("button", { name: "Try again" }).className).not.toContain(
-		"bg-surface-inverse",
+		"bg-accent",
 	);
 	fireEvent.click(clean);
 	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();
@@ -366,7 +366,7 @@ test("with Docker not full the error screen shows the meters, no Reset Docker, a
 	await screen.findByTestId("storage-meters");
 	expect(screen.queryByRole("button", { name: "Reset Docker…" })).toBeNull();
 	expect(screen.getByRole("button", { name: "Try again" }).className).toContain(
-		"bg-surface-inverse",
+		"bg-accent",
 	);
 	expect(screen.getByTestId("progress-sub").textContent).toContain(
 		"Ask your administrator for more space.",

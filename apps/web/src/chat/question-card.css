@@ -19,6 +19,8 @@
 	display: grid;
 	gap: var(--space-1);
 	padding: var(--space-2) var(--space-2) var(--space-3) var(--space-4);
+	border-start-end-radius: calc(var(--radius-md) - 1px);
+	background: var(--status-warning-soft);
 }
 
 .pk-chat-qbar {

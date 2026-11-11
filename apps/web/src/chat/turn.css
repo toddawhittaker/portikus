@@ -8,6 +8,12 @@
 	flex: none;
 }
 
+.pk-turn-working > .pk-spin {
+	width: 14px;
+	height: 14px;
+	color: var(--status-starting);
+}
+
 .pk-turn-doing {
 	min-inline-size: 0;
 	overflow: hidden;

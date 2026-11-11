@@ -241,6 +241,7 @@
 	max-inline-size: var(--pk-chat-measure);
 	margin: 0;
 	padding: var(--space-2) var(--space-3);
+	border-inline-start: 3px solid var(--status-error);
 	border-radius: var(--radius-sm);
 	background: var(--status-error-soft);
 	color: var(--status-error);
@@ -643,18 +644,35 @@ details[open] > summary > .pk-chat-chevron {
 	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) 0;
 	border: 1px solid var(--line-strong);
+	/* Every docked card waits on the student, so it carries the needs-input colour. */
+	border-inline-start: 4px solid var(--status-warning);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
 	container: pk-chat-card / inline-size;
 }
 
+/* The permission card's heading sits on a tinted band across the card's top. */
+.pk-chat-card:not(.pk-chat-qcard) > h2:first-child {
+	margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0;
+	padding: var(--space-2) var(--space-3);
+	border-block-end: 1px solid var(--line);
+	border-start-end-radius: calc(var(--radius-md) - 1px);
+	background: var(--status-warning-soft);
+	color: var(--ink);
+}
+
 .pk-chat-needs {
 	display: flex;
 	align-items: center;
+	justify-self: start;
 	gap: var(--space-1\.5);
 	margin: 0;
-	color: var(--ink-muted);
+	padding: var(--space-0\.5) var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
 	font-size: 12px;
+	font-weight: 600;
 }
 
 .pk-chat-card-subtitle {

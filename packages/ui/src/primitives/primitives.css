@@ -99,8 +99,10 @@
 	width: 12px;
 	height: 12px;
 	border-radius: var(--radius-full);
-	border: 2px solid currentColor;
-	border-right-color: transparent;
+	/* A faint full track with a solid arc, so it reads as a ring at rest too. */
+	border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+	border-top-color: currentColor;
+	border-right-color: currentColor;
 	animation: pk-rotate var(--duration-spin) linear infinite;
 }
 
@@ -136,8 +138,6 @@
 @media (prefers-reduced-motion: reduce) {
 	.pk-spin {
 		animation: none;
-		border-right-color: currentColor;
-		border-bottom-color: transparent;
 	}
 
 	.pk-skel {

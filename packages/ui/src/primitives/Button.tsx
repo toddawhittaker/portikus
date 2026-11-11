@@ -4,7 +4,7 @@ import { Icon, type IconName } from "./Icon.js";
 
 const VARIANT_CLASS = {
 	primary:
-		"border-transparent bg-surface-inverse text-ink-inverse hover:bg-surface-inverse-hover",
+		"border-transparent bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active",
 	secondary: "bg-surface-raised text-ink border-line-strong hover:bg-surface-hover",
 	quiet: "border-transparent bg-transparent text-ink hover:bg-surface-hover",
 	danger: "border-transparent bg-status-danger text-on-danger hover:bg-danger-hover",

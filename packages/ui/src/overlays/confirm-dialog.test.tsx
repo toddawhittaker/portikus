@@ -281,7 +281,7 @@ describe("ConfirmDialog", () => {
 			</ConfirmDialogRoot>,
 		);
 		const confirm = screen.getByRole("button", { name: "Archive project" });
-		expect(confirm.className).toContain("bg-surface-inverse");
+		expect(confirm.className).toContain("bg-accent");
 		expect(confirm.className).not.toContain("bg-status-danger");
 		expect(screen.getByText("Will be removed").className).toContain("text-ink");
 		expect(screen.getByText("Will be removed").className).not.toContain(

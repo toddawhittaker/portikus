@@ -83,3 +83,30 @@
 .pk-agent-row:not(.pk-agent-row--sub) .pk-agent-state {
 	margin-left: auto;
 }
+/*
+ * An agent's row is tinted by its state, with a bar at its start, so a
+ * working, waiting or finished agent shows from across the room. The mark's
+ * shape still carries the state for anyone who cannot tell the colours apart.
+ */
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--working) {
+	--pk-agent-tone: var(--status-starting);
+	--pk-agent-tone-soft: var(--status-starting-soft);
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input) {
+	--pk-agent-tone: var(--status-warning);
+	--pk-agent-tone-soft: var(--status-warning-soft);
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--finished) {
+	--pk-agent-tone: var(--status-running);
+	--pk-agent-tone-soft: var(--status-running-soft);
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark) {
+	background: var(--pk-agent-tone-soft);
+	box-shadow: inset 2px 0 0 var(--pk-agent-tone);
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark):hover {
+	background: color-mix(in srgb, var(--pk-agent-tone) 12%, var(--pk-agent-tone-soft));
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark) .pk-agent-state {
+	color: var(--pk-agent-tone);
+}
