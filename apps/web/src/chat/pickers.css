@@ -227,6 +227,11 @@
 .pk-ctx-meter .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
 	background: var(--status-warning);
 }
+/* Full outranks the warning above whatever order the stylesheets load in. */
+.pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-error);
+}
 
 /* The cache's last minute: colour plus the icon and the word "soon". */
 .pk-ctx.is-warning {

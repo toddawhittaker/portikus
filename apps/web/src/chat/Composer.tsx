@@ -401,7 +401,8 @@ export function Composer({
 			plain &&
 			event.key === "Escape" &&
 			optionsOpenNow.current &&
-			!pickerMenuOpen()
+			!pickerMenuOpen() &&
+			menu === null
 		) {
 			event.preventDefault();
 			setOptionsOpen(false);

@@ -35,7 +35,7 @@
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--surface: #1b1a18;
+		--surface: #1f1e1b;
 		--surface-raised: #2a2825;
 		--surface-hover: #2f2d29;
 		--line: #36332e;

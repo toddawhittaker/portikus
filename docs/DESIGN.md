@@ -415,7 +415,7 @@ the project list, agent rows included, has a soft teal fill, a 2 px teal
 bar at its start and its name in teal text, and so does the current
 option of the composer's `/` and `@` list, which draws no ring of its own
 because the message box holds the focus; an agent's state stays on its
-mark. A row in a right-pane list has a neutral tonal fill and a 2 px ink
+mark and its state line, never on the row's fill. A row in a right-pane list has a neutral tonal fill and a 2 px ink
 bar, so it never reads as a passed check or an added file. An agent's
 state shows only in its tab's mark (a turning violet ring, an amber
 triangle, a check), so the selected tab always looks the same.
@@ -432,7 +432,7 @@ Extra high · Plan") opens the Chat options panel with the model, effort,
 permission and read-aloud pickers. A value other than the starting one is
 bold, and Bypass permissions shows the warning colour and icon on the
 summary too. Send is the accent circle while there is something to send,
-and a flat sunken circle while the box is empty or a send is under way.
+and a flat sunken circle while the box is empty, a file is still saving or a send is under way.
 Stop, beside it while a turn runs, is a circle with an ink ring and a
 solid ink square, so it holds its own against the filled Send.
 

@@ -50,8 +50,6 @@ export const BYPASS_WARNING =
 interface Choice {
 	value: string;
 	label: string;
-	/** The start of `label` shown alone when the composer is narrow. */
-	short?: string;
 	description: ReactNode;
 	/** Shown but cannot be chosen yet. */
 	unavailable?: boolean;
@@ -61,7 +59,6 @@ const AGENTS: Choice[] = [
 	{
 		value: "claude",
 		label: "Claude Code",
-		short: "Claude",
 		description: "Anthropic's coding agent.",
 	},
 	{
@@ -295,7 +292,7 @@ function summaryOf(shown: ChatSettings): string {
 	const model = modelChoice(shown.model);
 	const first =
 		model === "default"
-			? (AGENTS[0]?.short ?? "Claude")
+			? "Claude"
 			: (MODELS.find((choice) => choice.value === model)?.label ?? model);
 	const effort = EFFORTS.find((choice) => choice.value === shown.effort)?.label;
 	const mode = MODES.find((choice) => choice.value === shown.mode)?.label;
@@ -345,7 +342,7 @@ export function ComposerPickers({
 			const target = event.target;
 			if (!(target instanceof Node)) return;
 			if (panel.current?.contains(target) || button.current?.contains(target)) return;
-			if (document.querySelector('[role="menu"]')) return;
+			if (document.querySelector('[role="menu"].pk-picker-menu')) return;
 			onOpenChange(false);
 		}
 		document.addEventListener("pointerdown", onPointerDown);

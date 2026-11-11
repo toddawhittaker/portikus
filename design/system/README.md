@@ -42,13 +42,13 @@ Code: Monaco gets two themes built from warm hues that read apart, so the editor
 
 ## Status colour and badges
 
-Six workspace states map to six tokens, each with a `-soft` fill: `status-provisioning`, `status-starting`, `status-running`, `status-stopping`, `status-stopped`, `status-error`. Two more serve the rest of the product: `status-warning` (amber) for anything waiting on the student or near a limit, and `status-danger` for destructive actions. Error and danger share a hue today but are separate tokens so they can diverge. Git has its own five (`git-added`, `git-modified`, `git-deleted`, `git-conflict`, `git-conflict-soft`); a conflict is a magenta of its own so it never looks like an ordinary change.
+Workspace states use four tokens, each with a `-soft` fill: `status-starting` (also for setting up and stopping), `status-running`, `status-stopped`, `status-error`. Two more serve the rest of the product: `status-warning` (amber) for anything waiting on the student or near a limit, and `status-danger` for destructive actions. Error and danger share a hue today but are separate tokens so they can diverge. Git has its own five (`git-added`, `git-modified`, `git-deleted`, `git-conflict`, `git-conflict-soft`); a conflict is a magenta of its own so it never looks like an ordinary change.
 
 Every status is drawn by one `Badge` with a tone: `success`, `warning`, `danger`, `info`, `neutral`, `accent` or `agent`. Workspace states, check results, Git letters and the needs-input tag all use it, so they share one height, radius and type. Pick a tone for a new status; do not draw a new pill.
 
 The three transitional states share the blue `info` tone on purpose: motion, not alarm. When `desiredState` differs from `state`, show the transition with the StateBadge spinner and never with the danger tone, however long it takes. Every status carries a word and a distinct glyph (filled dot, open ring, spinner, alert triangle), so colour is never the only signal. Every status foreground meets 4.5:1 on its soft fill and on `surface`, `surface-work` and `surface-raised` in both themes.
 
-Attention has one colour. An agent that needs input takes the amber fill in the project list, a triangle in its tab and the warning Badge; every card docked over the chat composer waiting on the student (permission, question) has a 4px amber start border and `shadow-md`. Errors in the chat and on the workspace card have a 4px `status-error` start border. Guidance under a short list, and info callouts in help, use the `info` fill with `ink` text.
+Attention has one colour. An agent that needs input shows an amber triangle and an amber state line in the project list (never a row fill, which would read as the selection), a triangle in its tab and the warning Badge; every card docked over the chat composer waiting on the student (permission, question) has a 4px amber start border and `shadow-md`. Errors in the chat and on the workspace card have a 4px `status-error` start border. Guidance under a short list, and info callouts in help, use the `info` fill with `ink` text.
 
 ## Type
 
