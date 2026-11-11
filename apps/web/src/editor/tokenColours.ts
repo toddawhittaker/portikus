@@ -1,10 +1,11 @@
 /**
  * The editor's ground and its current-line highlight in each theme: the
- * work surface of packages/ui/src/theme.css and one step under it.
+ * --surface-work and --surface tokens of packages/ui/src/theme.css in light,
+ * --surface-work and --surface-raised in dark.
  */
 export const EDITOR_BACKGROUNDS = {
-	light: { ground: "fdfcf9", line: "f3f1eb" },
-	dark: { ground: "201f1c", line: "292825" },
+	light: { ground: "fffdf8", line: "f5f1e8" },
+	dark: { ground: "22211f", line: "2a2825" },
 } as const;
 
 /**
@@ -32,7 +33,7 @@ const DARK = {
 	amber: "f0c062",
 	blue: "93b6f2",
 	faint: "a29b8f",
-	ink: "ece6da",
+	ink: "f0ebe1",
 	red: "f59a8e",
 };
 
