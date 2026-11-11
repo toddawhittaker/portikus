@@ -157,10 +157,13 @@ for (const theme of ["light", "dark"] as const) {
 		);
 		expect(stopX[1]).toBeCloseTo(stopX[0] ?? 0, 0);
 		expect(stopX[0] ?? 0).toBeGreaterThan(chevronX[0] ?? 0);
-		// Targets stay at least 24 px (WCAG 2.5.8).
-		const stopBox = await box(page.getByTestId("monitor-stop-42"));
-		expect(stopBox.width).toBeGreaterThanOrEqual(24);
-		expect(stopBox.height).toBeGreaterThanOrEqual(24);
+		// Rows are 26 px around 24 px buttons, the smallest target WCAG 2.5.8 allows.
+		for (const height of heights) expect(height).toBeCloseTo(26, 0);
+		for (const testId of ["monitor-show-command-42", "monitor-stop-42"]) {
+			const target = await box(page.getByTestId(testId));
+			expect(target.width).toBeCloseTo(24, 0);
+			expect(target.height).toBeCloseTo(24, 0);
+		}
 
 		const danger = await dangerColor(page);
 		const stop = page.getByTestId("monitor-stop-42");
@@ -260,3 +263,100 @@ for (const theme of ["light", "dark"] as const) {
 		await expectNoViolations(page, "[data-testid='monitor']");
 	});
 }
+
+const IDLE = { ...base, pid: 12, command: "cron", startTicks: 50, cpuPercent: 10 };
+
+async function seedMemoryLimit(workspaceId: string, totalBytes: number): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/memory`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, usedBytes: 1, totalBytes }),
+	});
+	if (!response.ok)
+		throw new Error(`the fake agent refused the memory: ${response.status}`);
+}
+
+async function cellStyle(page: Page, pid: number, column: "cpu" | "mem") {
+	const cell = page
+		.getByTestId(`monitor-process-${pid}`)
+		.locator("td")
+		.nth(column === "cpu" ? 1 : 2);
+	return cell.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return { color: style.color, weight: style.fontWeight, text: element.textContent };
+	});
+}
+
+async function tokenColor(page: Page, token: string): Promise<string> {
+	return page.evaluate((name) => {
+		const probe = document.createElement("span");
+		probe.style.color = `var(${name})`;
+		document.body.append(probe);
+		const color = getComputedStyle(probe).color;
+		probe.remove();
+		return color;
+	}, token);
+}
+
+for (const theme of ["dark", "light"] as const) {
+	test(`heavy CPU and memory turn amber, then red, and bold (${theme})`, async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const limit = 1_000_000;
+		await seedMemoryLimit(student.workspaceId, limit);
+		await seedProcesses(student.workspaceId, [
+			{ ...IDLE, stoppable: false, commandLine: null, residentBytes: 1000 },
+			{ ...BOTH, pid: 60, cpuPercent: 55, residentBytes: 0.55 * limit },
+			{ ...STOP_ONLY, pid: 61, cpuPercent: 85, residentBytes: 0.85 * limit },
+		]);
+		await chooseTheme(page, student.userId, student.workspaceId, theme);
+		await expect(page.getByTestId("monitor-process-61")).toBeVisible();
+
+		const amber = await tokenColor(page, "--status-warning");
+		const red = await tokenColor(page, "--status-danger");
+		const plain = await cellStyle(page, 12, "cpu");
+		expect(plain.weight).not.toBe("700");
+		expect(plain.color).not.toBe(amber);
+		expect(plain.text).toBe("10.0%");
+		for (const column of ["cpu", "mem"] as const) {
+			const heavy = await cellStyle(page, 60, column);
+			expect(heavy).toMatchObject({ color: amber, weight: "700" });
+			expect(heavy.text).toContain("(high)");
+			const near = await cellStyle(page, 61, column);
+			expect(near).toMatchObject({ color: red, weight: "700" });
+			expect(near.text).toContain("(near limit)");
+		}
+		// Plain memory stays plain: 1000 bytes of a million.
+		expect((await cellStyle(page, 12, "mem")).weight).not.toBe("700");
+
+		await page.screenshot({ path: `screenshots/monitor-tint-${theme}.png` });
+		await expectNoViolations(page, "[data-testid='monitor']");
+	});
+}
+
+test("the 24 px buttons still work from the keyboard and keep a visible focus ring", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedProcesses(student.workspaceId, [BOTH, NEITHER]);
+	await openMonitor(page, student.workspaceId);
+	const show = page.getByTestId("monitor-show-command-42");
+	await show.focus();
+	await expect(show).toBeFocused();
+	const ring = await show.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return { width: style.outlineWidth, style: style.outlineStyle };
+	});
+	expect(ring.style).not.toBe("none");
+	expect(Number.parseFloat(ring.width)).toBeGreaterThan(0);
+	await page.keyboard.press("Enter");
+	await expect(show).toHaveAttribute("aria-expanded", "true");
+	await expect(page.getByText("node server.js")).toBeVisible();
+	await page.keyboard.press("Tab");
+	await expect(page.getByTestId("monitor-stop-42")).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("stop-process-status")).toBeAttached();
+});

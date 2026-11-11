@@ -8,6 +8,10 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import {
+	AgentStatusContext,
+	createAgentStatusStore,
+} from "../terminal/codingAgentStatus";
 import { createChatStore } from "./chatStore";
 import { PermissionCard } from "./PermissionCard";
 import { SessionRules } from "./SessionRules";
@@ -490,4 +494,145 @@ test("a number key from outside the card answers nothing", () => {
 	);
 	fireEvent.keyDown(screen.getByRole("textbox", { name: "Elsewhere" }), { key: "1" });
 	expect(onAnswer).not.toHaveBeenCalled();
+});
+
+const LAUNCH_TEXT =
+	"Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it.)\nagentId: a1b2c3 (internal ID - do not mention to user.)\noutput_file: /tmp/claude-1000/a1b2c3.output Do NOT Read or tail this file";
+
+function agentTool(overrides: Parameters<typeof tool>[0] = {}) {
+	return tool({
+		id: "toolu_bg",
+		name: "Agent",
+		title: "Find the login form",
+		input: {
+			description: "Find the login form",
+			subagent_type: "Explore",
+			prompt: "Find where the login form posts",
+			run_in_background: true,
+		},
+		output: [{ type: "text", text: LAUNCH_TEXT }],
+		...overrides,
+	});
+}
+
+function renderWithSubagent(state: "working" | "finished" | null) {
+	const store = createAgentStatusStore(() => true);
+	store.update(
+		[
+			{
+				terminalId: "term-1",
+				agent: "claude",
+				state: "working",
+				since: "2026-11-11T10:00:00.000Z",
+				subagents:
+					state === null
+						? []
+						: [
+								{
+									id: "toolu_bg",
+									type: "Explore",
+									description: "Find the login form",
+									state,
+									since: "2026-11-11T10:00:00.000Z",
+								},
+							],
+				projectId: "22222222-2222-4222-8222-222222222222",
+				name: "Chat",
+				kind: "chat",
+			},
+		],
+		true,
+	);
+	render(
+		<AgentStatusContext.Provider value={store}>
+			<ToolBlock tool={agentTool()} />
+		</AgentStatusContext.Provider>,
+	);
+}
+
+test("a background Agent card says it started, with the launch text one click in", () => {
+	render(<ToolBlock tool={agentTool()} />);
+	const block = screen.getByTestId("chat-tool-toolu_bg");
+	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
+		"Started in the background",
+	);
+	// The prompt is shown in place of the model-only text.
+	expect(block.textContent).toContain("Find where the login form posts");
+	const raw = screen.getByText("Raw output").closest("details");
+	expect(raw?.open).toBe(false);
+	expect(raw?.textContent).toContain("Async agent launched successfully");
+	// Outside the closed disclosure, the launch text appears nowhere.
+	expect(screen.queryByRole("region", { name: "Output" })).toBeNull();
+	const shown = block.cloneNode(true) as HTMLElement;
+	for (const raw of shown.querySelectorAll(".pk-chat-raw")) raw.remove();
+	expect(shown.textContent).not.toContain("internal metadata");
+});
+
+test("a background Agent card takes the subagent's state from the project list", () => {
+	renderWithSubagent("working");
+	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
+		"Started in the background · working",
+	);
+	cleanup();
+	renderWithSubagent("finished");
+	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
+		"Started in the background · finished",
+	);
+});
+
+test("a background Agent card with no reported subagent claims no state", () => {
+	renderWithSubagent(null);
+	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
+		"Started in the background",
+	);
+});
+
+test("a launch is spotted by its text even when the input does not say so", () => {
+	render(
+		<ToolBlock
+			tool={agentTool({
+				input: { description: "Find the login form", prompt: "Find it" },
+			})}
+		/>,
+	);
+	expect(screen.getByTestId("chat-agent-status")).toBeTruthy();
+	expect(screen.getByText("Raw output")).toBeTruthy();
+});
+
+test("a foreground Agent card shows its final reply as before", () => {
+	render(
+		<ToolBlock
+			tool={agentTool({
+				input: { description: "Find the login form", prompt: "Find it" },
+				output: [{ type: "text", text: "It posts to /api/session." }],
+			})}
+		/>,
+	);
+	expect(screen.queryByTestId("chat-agent-status")).toBeNull();
+	expect(screen.queryByText("Raw output")).toBeNull();
+	expect(screen.getByRole("region", { name: "Output" }).textContent).toContain(
+		"It posts to /api/session.",
+	);
+});
+
+test("a background launch that failed shows its error, not a status", () => {
+	render(
+		<ToolBlock
+			tool={agentTool({
+				status: "error",
+				output: [{ type: "text", text: "Unknown agent type" }],
+			})}
+		/>,
+	);
+	expect(screen.queryByTestId("chat-agent-status")).toBeNull();
+	expect(screen.getByRole("region", { name: "Error" }).textContent).toContain(
+		"Unknown agent type",
+	);
+});
+
+test("a background Agent still launching says so", () => {
+	render(<ToolBlock tool={agentTool({ status: "running", output: [] })} />);
+	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
+		"Starting in the background",
+	);
 });
