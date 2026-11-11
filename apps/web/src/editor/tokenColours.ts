@@ -21,7 +21,7 @@ const LIGHT = {
 	terracotta: "b23a1e",
 	amber: "8a5300",
 	blue: "2f58a8",
-	faint: "6b6458",
+	faint: "675f53",
 	ink: "221f1a",
 	red: "b0372b",
 };

@@ -48,7 +48,7 @@ export function Badge({
 			{...rest}
 			data-tone={tone}
 			className={cx(
-				"pk-badge box-border inline-flex h-[22px] min-w-[22px] flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-sm font-sans text-[12px] font-semibold leading-4",
+				"pk-badge box-border inline-flex h-[var(--size-badge)] min-w-[var(--size-badge)] flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-sm font-sans text-[length:var(--text-xs)] font-semibold leading-[var(--leading-xs)]",
 				TONE_TEXT[tone],
 				plain ? "px-0" : cx(TONE_FILL[tone], "px-2"),
 				className,

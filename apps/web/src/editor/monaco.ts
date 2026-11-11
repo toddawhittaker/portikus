@@ -200,7 +200,7 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.light.line}`,
 			"editor.selectionBackground": "#cce9e2",
 			"editorCursor.foreground": "#1d6e67",
-			"editorLineNumber.foreground": "#6b6458",
+			"editorLineNumber.foreground": "#675f53",
 			"editorLineNumber.activeForeground": "#221f1a",
 			"editorIndentGuide.background1": "#e2dacb",
 			"editorWidget.background": "#ffffff",

@@ -63,10 +63,10 @@
 	--surface-inverse: #2a2723;
 	--surface-inverse-hover: #3d3933;
 	--line: #e2dacb;
-	--line-strong: #8c8473;
+	--line-strong: #807868;
 	--ink: #221f1a;
 	--ink-muted: #57514a;
-	--ink-faint: #6b6458;
+	--ink-faint: #675f53;
 	--ink-inverse: #fffdf8;
 	--accent: #1d6e67;
 	--accent-hover: #155851;
@@ -109,7 +109,6 @@
 	--status-danger-soft: #f8dcd6;
 	--danger-hover: #8f2b21;
 	--on-danger: #ffffff;
-	--mark-code: #3a8a7e;
 	/* Git decorations (SPEC.md §12.1): subtle, and a conflict is its own hue. */
 	--git-added: #2b7336;
 	--git-modified: #8a5a00;
@@ -132,9 +131,9 @@
 	--space-12: 48px;
 	--space-16: 64px;
 
-	/* Interface type steps 12, 14, 16, 20 and 24: 12 metadata, 14 the body, rows,
-	   tabs, labels and navigation, 16 pane titles, 20 dialog titles, 24 page titles.
-	   13 is the code size, in the mono face only. */
+	/* Type steps: 12 metadata; 13 code quoted in chat and compact secondary text;
+	   14 the body, rows, tabs, labels and navigation, and the code in the editor
+	   and terminal; 16 pane titles; 20 dialog titles; 24 page titles. */
 	--text-xs: 12px;
 	--text-sm: 13px;
 	--text-md: 14px;
@@ -155,6 +154,7 @@
 	--size-icon-sm: 14px;
 	--size-icon-md: 16px;
 	--size-icon-lg: 20px;
+	--size-badge: 22px;
 	--size-pane-handle: 8px;
 	/* The narrowest a centre-pane tab gets: padding, kind icon, gap, close
 	   control. Past this the strip scrolls instead. */
@@ -471,7 +471,6 @@
 	--color-status-danger-soft: var(--status-danger-soft);
 	--color-danger-hover: var(--danger-hover);
 	--color-on-danger: var(--on-danger);
-	--color-mark-code: var(--mark-code);
 	--color-git-added: var(--git-added);
 	--color-git-modified: var(--git-modified);
 	--color-git-deleted: var(--git-deleted);
