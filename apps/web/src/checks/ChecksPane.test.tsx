@@ -316,6 +316,21 @@ test("the Checks heading is for screen readers only and Edit checks stays", asyn
 	expect(screen.getByTestId("checks-edit")).toBeTruthy();
 });
 
+test("Edit checks is a pencil button, and the hint points at the pencil", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	const edit = await screen.findByRole("button", { name: "Edit checks" });
+	expect(edit.getAttribute("data-testid")).toBe("checks-edit");
+	// The pencil has two paths; the "more" dots are zero-length strokes.
+	expect(edit.querySelectorAll("svg path")).toHaveLength(2);
+	expect(edit.querySelector('svg path[d="M15 5l4 4"]')).not.toBeNull();
+	expect((await screen.findByTestId("checks-note")).textContent).toContain(
+		"To add one, choose the pencil above.",
+	);
+});
+
 test("before any run the output says how to get some, and connects to nothing", async () => {
 	stubBrowserApis();
 	stubChecks({ checks: CHECKS, error: null, runs: [] });

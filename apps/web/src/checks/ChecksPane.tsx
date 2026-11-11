@@ -93,7 +93,7 @@ export function ChecksPane({
 					</Toggletip>
 				</span>
 				<IconButton
-					icon="more"
+					icon="pencil"
 					label="Edit checks"
 					size="sm"
 					data-testid="checks-edit"
@@ -184,7 +184,7 @@ export function ChecksPane({
 							<Icon name="info" />
 							<span>
 								Run a check after each change to see whether your project still works.
-								To add one, choose Edit checks above.
+								To add one, choose the pencil above.
 							</span>
 						</p>
 					</div>

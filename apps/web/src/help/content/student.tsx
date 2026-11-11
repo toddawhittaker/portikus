@@ -539,8 +539,8 @@ export const STUDENT_HELP: HelpPart = {
 					Checks are commands your project lists in{" "}
 					<code className="pk-mono-body">.portikus/checks.json</code>, such as{" "}
 					<code className="pk-mono-body">npm test</code>. Open <strong>Checks</strong>{" "}
-					and press the run button beside one to see its real output. The three-dots
-					button, <strong>Edit checks</strong>, changes the list.
+					and press the run button beside one to see its real output. The pencil button,{" "}
+					<strong>Edit checks</strong>, changes the list.
 				</p>
 			),
 		},
