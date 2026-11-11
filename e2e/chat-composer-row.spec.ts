@@ -1,19 +1,16 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { openChat } from "./chat-helpers";
+import { openChat, openChatOptions } from "./chat-helpers";
 import { createStudent, expectNoViolations } from "./helpers";
 import { splitPane } from "./split-helpers";
 
 /**
- * The composer's bottom row (SPEC.md §10.2, §25.8). The microphone and Send
- * stay at the end of the first line; only the pickers move, as a group, to a
- * line of their own. A narrow composer shows each picker's value alone, but
- * every button keeps its prefix word in its name. The composer is a size
- * container, so these hold for a narrow split pane in a wide window too.
+ * The composer's bottom row (SPEC.md §10.2, §10.8, §25.8): attach, the Chat
+ * options button with a short summary of the settings, then the microphone
+ * and Send at the end, always on one line. The agent, model, effort and
+ * permission pickers and the read-aloud switch live in the options panel,
+ * each named by its label and value. The composer is a size container, so
+ * this holds for a narrow split pane in a wide window too.
  */
-
-/** Where the composer's container queries switch, measured against the widest values. */
-const LABELS_FULL_FROM_REM = 55;
-const ONE_LINE_FROM_REM = 40;
 
 const PICKERS = [
 	["Agent", "composer-agent", "Claude Code"],
@@ -23,20 +20,12 @@ const PICKERS = [
 ] as const;
 
 interface Row {
-	/** The composer's inside width, which the container queries read. */
-	inside: number;
-	/** The pickers share the first line with the tools, microphone and Send. */
+	/** Attach, Options, the microphone and Send share one line. */
 	oneLine: boolean;
-	/** The four pickers sit on one line among themselves. */
-	pickersTogether: boolean;
-	/** The prefix word is showing. */
-	fullLabels: boolean;
 	/** Distance from Send to the inside edge of the composer's box. */
 	sendFromEnd: number;
-	/** Tools, microphone and Send share one line. */
-	actionsOnFirstLine: boolean;
-	/** Nothing in the picker group sticks out sideways. */
-	fits: boolean;
+	/** The Options button ends before the microphone starts. */
+	optionsClear: boolean;
 }
 
 async function rowOf(composer: Locator): Promise<Row> {
@@ -50,71 +39,49 @@ async function rowOf(composer: Locator): Promise<Row> {
 		const style = getComputedStyle(form);
 		const edge = form.getBoundingClientRect();
 		const pad = parseFloat(style.paddingRight) + parseFloat(style.borderRightWidth);
-		const padLeft = parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth);
 		const tools = box(".pk-composer-tools");
+		const options = box("[data-testid=composer-options]");
 		const send = box("[data-testid=chat-composer-send]");
 		const mic = box("[data-testid^=chat-voice-]:not([data-testid*=status])");
-		const picks = box(".pk-composer-picks");
-		const tops = [...form.querySelectorAll<HTMLElement>(".pk-picker")].map((one) =>
-			Math.round(one.getBoundingClientRect().top),
-		);
-		const label = box("[data-testid=composer-agent] .pk-picker-label");
-		const group = form.querySelector<HTMLElement>(".pk-composer-picks");
+		const line = middle(tools);
 		return {
-			inside: edge.width - pad - padLeft,
-			oneLine: Math.abs(middle(picks) - middle(tools)) < 4,
-			pickersTogether: new Set(tops).size === 1,
-			fullLabels: label.width > 4,
+			oneLine: [options, mic, send].every((one) => Math.abs(middle(one) - line) < 4),
 			sendFromEnd: edge.right - pad - send.right,
-			actionsOnFirstLine:
-				Math.abs(middle(mic) - middle(tools)) < 4 &&
-				Math.abs(middle(send) - middle(tools)) < 4,
-			fits: !group || group.scrollWidth <= group.clientWidth,
+			optionsClear: options.right <= mic.left,
 		};
 	});
 }
 
-/** The invariants that hold at every width. */
 function expectPinned(row: Row) {
-	expect(row.actionsOnFirstLine).toBe(true);
+	expect(row.oneLine).toBe(true);
 	// Send sits at the end of the line, not a few pixels short of it.
 	expect(Math.abs(row.sendFromEnd)).toBeLessThanOrEqual(1);
-	// Below this the four widest short values cannot share a line, so the group wraps inside.
-	if (row.inside >= 440) expect(row.pickersTogether).toBe(true);
-	expect(row.fits).toBe(true);
-}
-
-/** The labels and the line follow the composer's own width, in rem. */
-function expectBreakpoints(row: Row) {
-	const rem = 16;
-	expect(row.fullLabels).toBe(row.inside >= LABELS_FULL_FROM_REM * rem);
-	expect(row.oneLine).toBe(row.inside >= ONE_LINE_FROM_REM * rem);
-	// Full labels are never the reason the pickers wrap.
-	if (row.fullLabels) expect(row.oneLine).toBe(true);
-}
-
-function picker(view: Locator, testId: string): Locator {
-	return view.getByTestId(testId);
+	expect(row.optionsClear).toBe(true);
 }
 
 async function chooseOption(page: Page, view: Locator, testId: string, name: string) {
-	await picker(view, testId).click();
+	await view.getByTestId(testId).click();
 	await page.getByRole("menuitemradio", { name, exact: true }).click();
 	await expect(page.getByRole("menu")).toHaveCount(0);
 }
 
 /** A chat whose pickers have the host's first settings, optionally at the widest values. */
-async function openPickers(
+async function openRow(
 	page: Page,
 	context: Parameters<typeof createStudent>[0],
 	widest = false,
 ) {
 	const student = await createStudent(context);
 	const chat = await openChat(page, student.workspaceId, "Row");
-	await expect(picker(chat.view, "composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(chat.view.getByTestId("composer-model")).toBeAttached({
+		timeout: 15_000,
+	});
 	if (widest) {
+		await openChatOptions(chat.view);
 		await chooseOption(page, chat.view, "composer-effort", "Extra high");
 		await chooseOption(page, chat.view, "composer-mode", "Bypass permissions");
+		await page.keyboard.press("Escape");
+		await expect(chat.view.getByTestId("composer-picks")).toBeHidden();
 	}
 	return { ...chat, student };
 }
@@ -125,136 +92,140 @@ for (const colorScheme of ["light", "dark"] as const) {
 		["an 800 px window", 800],
 		["a 420 px window", 420],
 	] as const) {
-		test(`${name}: the microphone and Send stay on the first line (${colorScheme})`, async ({
+		test(`${name}: one line, and the options panel names every setting (${colorScheme})`, async ({
 			page,
 			context,
 		}) => {
 			await page.emulateMedia({ colorScheme });
 			await page.setViewportSize({ width, height: 900 });
-			const { view } = await openPickers(page, context);
-			const row = await rowOf(view.getByTestId("chat-composer"));
-			expectPinned(row);
-			expectBreakpoints(row);
-			if (width === 1800) {
-				expect(row.fullLabels).toBe(true);
-				expect(row.oneLine).toBe(true);
-			}
-			if (width === 420) {
-				expect(row.fullLabels).toBe(false);
-				expect(row.oneLine).toBe(false);
-			}
+			const { view } = await openRow(page, context);
+			expectPinned(await rowOf(view.getByTestId("chat-composer")));
 
-			// Visible words follow the width; names and tooltips never do.
-			for (const [label, testId, value] of PICKERS) {
-				const button = picker(view, testId);
-				await expect(button).toHaveAccessibleName(`${label} ${value}`);
-				// A native title shows on mouse hover only (SPEC.md §25.8).
-				await expect(button).not.toHaveAttribute("title");
-			}
-			// Keyboard focus shows the whole label in the short form, and nothing in
-			// the full form, where every word is already on screen.
-			const tip = page.locator(".pk-tooltip");
-			await view.getByTestId("chat-composer-attach").focus();
-			for (const [label, testId, value] of PICKERS) {
-				await page.keyboard.press("Tab");
-				const button = picker(view, testId);
-				await expect(button).toBeFocused();
-				if (row.fullLabels) {
-					await expect(tip).toHaveCount(0);
-				} else {
-					await expect(tip).toBeVisible();
-					await expect(tip).toHaveText(`${label} ${value}`);
-					await expectNoViolations(page, ".pk-tooltip");
-				}
-				// The name carries the words once; the tooltip adds no description.
-				await expect(button).toHaveAccessibleName(`${label} ${value}`);
-				await expect(button).toHaveAccessibleDescription("");
-			}
-			// The agent's second word is hidden by the same rule as the prefix.
-			const more = await picker(view, "composer-agent")
-				.locator(".pk-picker-more")
-				.boundingBox();
-			expect((more?.width ?? 0) > 4).toBe(row.fullLabels);
+			const options = view.getByTestId("composer-options");
+			await expect(options).toHaveAccessibleName("Chat options: Sonnet · Medium · Ask");
+			await expect(options).toHaveAttribute("aria-expanded", "false");
+			await expect(view.getByTestId("composer-picks")).toBeHidden();
+			await expectNoViolations(page, '[data-testid="chat-composer"]');
 
+			await openChatOptions(view);
+			await expect(options).toHaveAttribute("aria-expanded", "true");
+			for (const [label, testId, value] of PICKERS) {
+				const button = view.getByTestId(testId);
+				await expect(button).toBeVisible();
+				await expect(button).toHaveAccessibleName(`${label} ${value}`);
+			}
+			// The panel stays inside the window.
+			const panel = await view.getByTestId("composer-picks").boundingBox();
+			if (!panel) throw new Error("no panel");
+			expect(panel.x).toBeGreaterThanOrEqual(0);
+			expect(panel.x + panel.width).toBeLessThanOrEqual(width);
+			expect(panel.y).toBeGreaterThanOrEqual(0);
+			// Opening the panel moves nothing on the row.
+			expectPinned(await rowOf(view.getByTestId("chat-composer")));
 			await expectNoViolations(page, '[data-testid="chat-composer"]');
 		});
 	}
 
-	test(`the widest values never push the microphone or Send off the first line (${colorScheme})`, async ({
+	test(`the widest values never push the microphone or Send off the line (${colorScheme})`, async ({
 		page,
 		context,
 	}) => {
 		await page.emulateMedia({ colorScheme });
 		await page.setViewportSize({ width: 1800, height: 900 });
-		const { view } = await openPickers(page, context, true);
+		const { view } = await openRow(page, context, true);
 		const composer = view.getByTestId("chat-composer");
 		const holder = view.locator(".pk-chat-composer");
-		const seen = new Set<string>();
-		// Every 12 px across the range, a little either side of both breakpoints.
-		for (let width = 340; width <= 960; width += 12) {
+		const options = view.getByTestId("composer-options");
+		await expect(options).toHaveAccessibleName(
+			"Chat options: Sonnet · Extra high · Bypass permissions",
+		);
+		// Bypass shows on the closed panel's button too.
+		await expect(options).toHaveClass(/is-warning/);
+		for (let width = 300; width <= 960; width += 12) {
 			await holder.evaluate((el, px) => {
 				(el as HTMLElement).style.inlineSize = `${px}px`;
 				(el as HTMLElement).style.paddingInline = "0";
 			}, width);
-			const row = await rowOf(composer);
-			expectPinned(row);
-			expectBreakpoints(row);
-			seen.add(`${row.fullLabels}/${row.oneLine}`);
+			expectPinned(await rowOf(composer));
 		}
-		// All three states were reached: full on one line, short on one line, short below.
-		expect([...seen].sort()).toEqual(["false/false", "false/true", "true/true"]);
-		await expect(picker(view, "composer-mode")).toHaveAccessibleName(
-			"Permissions Bypass permissions",
-		);
 		await expectNoViolations(page, '[data-testid="chat-composer"]');
 	});
 }
 
-test("a narrow split pane in a wide window gets the short form from its own width", async ({
+test("a narrow split pane in a wide window keeps the row on one line", async ({
 	page,
 	context,
 }) => {
 	await page.setViewportSize({ width: 1500, height: 900 });
-	const { id, view: first } = await openPickers(page, context);
+	const { id, view: first } = await openRow(page, context);
 	await splitPane(page, id, "right", "claude-gui");
 	const second = page.locator("[data-testid^='chat-view-']").nth(1);
-	await expect(second.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(second.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	await expect(first.getByTestId("chat-composer")).toBeVisible();
-
-	const rows = [
-		await rowOf(first.getByTestId("chat-composer")),
-		await rowOf(second.getByTestId("chat-composer")),
-	];
-	for (const row of rows) {
-		expectPinned(row);
-		expectBreakpoints(row);
-		// Half of the window is narrower than the full-label width.
-		expect(row.inside).toBeLessThan(LABELS_FULL_FROM_REM * 16);
-		expect(row.fullLabels).toBe(false);
-	}
-	await expect(picker(second, "composer-agent")).toHaveAccessibleName(
-		"Agent Claude Code",
-	);
+	expectPinned(await rowOf(first.getByTestId("chat-composer")));
+	expectPinned(await rowOf(second.getByTestId("chat-composer")));
 });
 
-test("the row stays reachable from the keyboard in the short form", async ({
+test("the row and the panel work from the keyboard alone", async ({
 	page,
 	context,
 }) => {
 	await page.setViewportSize({ width: 420, height: 900 });
-	const { view } = await openPickers(page, context);
+	const { view } = await openRow(page, context);
+	const options = view.getByTestId("composer-options");
 	await view.getByTestId("chat-composer-attach").focus();
+	await page.keyboard.press("Tab");
+	await expect(options).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(view.getByTestId("composer-picks")).toBeVisible();
 	for (const [, testId] of PICKERS) {
 		await page.keyboard.press("Tab");
-		await expect(picker(view, testId)).toBeFocused();
+		await expect(view.getByTestId(testId)).toBeFocused();
 	}
-	// The read-aloud switch ends the row of settings.
+	// The read-aloud switch ends the panel.
 	await page.keyboard.press("Tab");
 	await expect(view.getByRole("switch", { name: "Read replies aloud" })).toBeFocused();
+	// Escape closes the panel and hands focus back to its button.
+	await page.keyboard.press("Escape");
+	await expect(view.getByTestId("composer-picks")).toBeHidden();
+	await expect(options).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(
 		view.locator("[data-testid^=chat-voice-]:not([data-testid*=status])"),
 	).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(view.getByTestId("chat-composer-send")).toBeFocused();
+});
+
+test("a press outside the panel closes it, and the composer's focus ring is one accent line", async ({
+	page,
+	context,
+}) => {
+	const { view } = await openRow(page, context);
+	await openChatOptions(view);
+	await view.getByTestId("chat-composer-input").click();
+	await expect(view.getByTestId("composer-picks")).toBeHidden();
+	const ring = await view.getByTestId("chat-composer").evaluate((form) => {
+		const style = getComputedStyle(form);
+		return {
+			border: style.borderTopColor,
+			outline: style.outlineColor,
+			width: parseFloat(style.borderTopWidth) + parseFloat(style.outlineWidth),
+			offset: style.outlineOffset,
+		};
+	});
+	expect(ring.outline).toBe(ring.border);
+	expect(ring.width).toBe(2);
+	expect(ring.offset).toBe("0px");
+});
+
+test("on a phone the Options button is a full touch target", async ({
+	page,
+	context,
+}) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	const { view } = await openRow(page, context);
+	const box = await view.getByTestId("composer-options").boundingBox();
+	expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+	expectPinned(await rowOf(view.getByTestId("chat-composer")));
 });

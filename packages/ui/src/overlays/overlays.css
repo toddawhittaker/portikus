@@ -250,13 +250,15 @@
 	background: var(--surface-raised);
 	color: var(--ink);
 }
+.pk-tab[data-state="active"] > svg:first-child {
+	color: var(--accent);
+}
 .pk-tab[data-state="active"]::before,
 .pk-tab[aria-current="page"]::before {
 	content: "";
 	position: absolute;
-	left: 0;
-	right: 0;
-	top: 0;
+	inset-inline: 0;
+	inset-block-end: -1px;
 	height: 2px;
 	background: var(--accent);
 }
@@ -284,10 +286,6 @@
 		font-weight: 600;
 	}
 }
-.pk-tab--terminal[data-state="active"] {
-	background: var(--terminal-bg);
-	color: var(--terminal-fg);
-}
 .pk-tab--dragging {
 	box-shadow: var(--shadow-sm);
 	background: var(--surface-raised);
@@ -299,8 +297,6 @@
 .pk-tab-label {
 	flex: 0 1 auto;
 	min-width: 0;
-	/* The fade falls on this padding while the whole name fits. */
-	padding-inline-end: var(--space-3);
 	margin-inline-end: calc(var(--space-1) * -1);
 	overflow: hidden;
 	white-space: nowrap;
@@ -311,39 +307,20 @@
 		transparent 100%
 	);
 }
+/* The fade falls on this space while the whole name fits; being content, not padding, it lets the label shrink to nothing. */
+.pk-tab-label::after {
+	content: "";
+	display: inline-block;
+	width: var(--space-3);
+}
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;
 }
 .pk-tab--unread .pk-tab-label {
 	font-weight: 600;
 }
-/*
- * A tab with a coding agent in it takes its state's colour: a bar along its
- * foot, and a soft fill while the tab is in the background.
- */
-.pk-tab:has(> .pk-agent-mark--working) {
-	--pk-agent-tone: var(--status-starting);
-	--pk-agent-tone-soft: var(--status-starting-soft);
-}
-.pk-tab:has(> .pk-agent-mark--needs-input) {
-	--pk-agent-tone: var(--status-warning);
-	--pk-agent-tone-soft: var(--status-warning-soft);
-}
-.pk-tab:has(> .pk-agent-mark--finished) {
-	--pk-agent-tone: var(--status-running);
-	--pk-agent-tone-soft: var(--status-running-soft);
-}
-.pk-tab:has(> .pk-agent-mark) {
-	box-shadow: inset 0 -2px 0 var(--pk-agent-tone);
-}
-.pk-tab:has(> .pk-agent-mark):not([data-state="active"]) {
-	background: var(--pk-agent-tone-soft);
-	color: var(--ink);
-}
-.pk-tab:has(> .pk-agent-mark):not([data-state="active"]):hover {
-	background: color-mix(in srgb, var(--pk-agent-tone) 12%, var(--pk-agent-tone-soft));
-}
-/* Working is an open ring, needs input a triangle, finished a check. */
+/* A coding agent's state shows in its tab's mark only, so the selected tab always looks the same:
+   working is an open ring, needs input a triangle, finished a check. */
 .pk-agent-mark {
 	flex: none;
 	display: grid;
@@ -510,9 +487,9 @@
 	background: var(--surface-raised);
 	box-shadow: var(--shadow-md);
 	color: var(--ink);
-	font-size: 13px;
+	font-size: var(--text-sm);
 	font-weight: 400;
-	line-height: 18px;
+	line-height: var(--leading-sm);
 	text-align: start;
 	text-transform: none;
 	white-space: normal;

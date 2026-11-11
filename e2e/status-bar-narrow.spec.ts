@@ -135,7 +135,7 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 	}
 
-	test(`at 1440 px the bar keeps to one 28 px line with every warning showing (${scheme})`, async ({
+	test(`at 1440 px the bar keeps to one 32 px line with every warning showing (${scheme})`, async ({
 		page,
 		context,
 	}) => {
@@ -150,7 +150,7 @@ for (const scheme of ["light", "dark"] as const) {
 		);
 		const bar = page.getByTestId("status-bar");
 		const box = await bar.boundingBox();
-		expect(box?.height).toBe(28);
+		expect(box?.height).toBe(32);
 		// Both groups sit on the same line: their vertical centres match.
 		const centres = await bar.evaluate((node) =>
 			[

@@ -1,17 +1,20 @@
 /**
- * The agent, model, effort and permission pickers along the composer's
- * bottom edge (SPEC.md §10.8). They show what the host last reported in a
+ * The agent, model, effort and permission pickers (SPEC.md §10.8), kept in
+ * one Chat options panel that opens from a button on the composer's bottom
+ * edge, so the row holds only attach, the options summary, the microphone,
+ * Stop and Send. The pickers show what the host last reported in a
  * `settings` event and change it by asking. While a change waits for the
  * host the picker shows the value asked for; a refused change goes back and
  * is announced. A value other than the start value is set in bold, and
- * Bypass permissions carries the warning colour and icon.
+ * Bypass permissions carries the warning colour and icon, on the summary too.
  *
- * The tab's context use and prompt-cache clock take a line under the pickers
- * (ContextMeter.tsx), so they never move the pickers, the microphone or Send.
+ * The tab's context use and prompt-cache clock take a line under the row
+ * (ContextMeter.tsx), so they never move the microphone or Send.
  *
  * Each picker is a menu button with a radio menu, like the New tab menu,
  * so every choice can say what it is for and Bypass can warn before it is
- * chosen (SPEC.md §25.8).
+ * chosen (SPEC.md §25.8). The panel is a disclosure, not a menu: it holds
+ * those buttons, and their menus portal above it.
  */
 import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/contracts";
 import {
@@ -23,7 +26,6 @@ import {
 	MenuRoot,
 	MenuTrigger,
 	Skeleton,
-	Tooltip,
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -183,50 +185,22 @@ function Pick({
 }: PickProps) {
 	const current = choices.find((choice) => choice.value === value);
 	const shown = current?.label ?? value;
-	const labelRef = useRef<HTMLSpanElement>(null);
-	const [tipOpen, setTipOpen] = useState(false);
 	return (
 		<MenuRoot>
-			{/* A narrow composer hides the prefix word, so the tooltip gives the whole
-			    label on hover and keyboard focus. It opens only then: the wide form shows
-			    every word already. The name says it too, so the tooltip is decorative (SPEC.md §25.8). */}
-			<Tooltip
-				decorative={true}
-				content={`${label} ${shown}`}
-				open={tipOpen}
-				onOpenChange={(next) =>
-					setTipOpen(next && (labelRef.current?.offsetWidth ?? 0) <= 1)
-				}
-			>
-				<MenuTrigger asChild={true}>
-					<button
-						type="button"
-						className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
-						aria-describedby={describedBy}
-						data-testid={testId}
-					>
-						{/* The space keeps the name "Model Opus", not "ModelOpus". The narrow
-					    form hides words visually only, so the name keeps the prefix (SPEC.md §25.8). */}
-						<span ref={labelRef} className="pk-picker-label">
-							{label}
-						</span>{" "}
-						{warning ? <Icon name="alert" size="sm" /> : null}
-						<span className="pk-picker-value">
-							{current?.short ? (
-								<>
-									{current.short}
-									<span className="pk-picker-more">
-										{shown.slice(current.short.length)}
-									</span>
-								</>
-							) : (
-								shown
-							)}
-						</span>
-						<Icon name="chevron-down" size="sm" />
-					</button>
-				</MenuTrigger>
-			</Tooltip>
+			<MenuTrigger asChild={true}>
+				<button
+					type="button"
+					className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
+					aria-describedby={describedBy}
+					data-testid={testId}
+				>
+					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
+					<span className="pk-picker-label">{label}</span>{" "}
+					{warning ? <Icon name="alert" size="sm" /> : null}
+					<span className="pk-picker-value">{shown}</span>
+					<Icon name="chevron-down" size="sm" />
+				</button>
+			</MenuTrigger>
 			<Menu label={label} align="start" className="pk-picker-menu">
 				<MenuLabel>{label}</MenuLabel>
 				<MenuRadioGroup
@@ -272,30 +246,24 @@ function Pick({
 	);
 }
 
-/**
- * The "Read replies aloud" switch (ADR 0071). It shows the icon and On or
- * Off, so the row keeps its width; the name holds all its words, and the
- * tooltip says them on hover and keyboard focus (SPEC.md §25.8).
- */
+/** The "Read replies aloud" switch (ADR 0071), a row of the options panel. */
 function ReadAloudSwitch({ readAloud }: { readAloud: ReadAloud }) {
 	return (
-		<Tooltip decorative={true} content="Read replies aloud">
-			<button
-				type="button"
-				role="switch"
-				aria-checked={readAloud.on}
-				className={`pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
-				data-testid="composer-read-aloud"
-				onClick={() => readAloud.set(!readAloud.on)}
-			>
-				<Icon name="speaker" size="sm" />
-				<span className="sr-only">Read replies aloud</span>
-				{/* The state is the switch's own; the words are for the eye. */}
-				<span className="pk-picker-value" aria-hidden={true}>
-					{readAloud.on ? "On" : "Off"}
-				</span>
-			</button>
-		</Tooltip>
+		<button
+			type="button"
+			role="switch"
+			aria-checked={readAloud.on}
+			className={`pk-picker pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
+			data-testid="composer-read-aloud"
+			onClick={() => readAloud.set(!readAloud.on)}
+		>
+			<span className="pk-picker-label">Read replies aloud</span>
+			<Icon name="speaker" size="sm" />
+			{/* The state is the switch's own; the words are for the eye. */}
+			<span className="pk-picker-value" aria-hidden={true}>
+				{readAloud.on ? "On" : "Off"}
+			</span>
+		</button>
 	);
 }
 
@@ -317,6 +285,21 @@ interface PickersProps {
 	/** A sentence for the composer's status region. */
 	onAnnounce: (text: string) => void;
 	readAloud: ReadAloud;
+	/** Whether the options panel is showing; the composer opens it for `/model`. */
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}
+
+/** The short summary on the Options button: agent or model, effort, permissions. */
+function summaryOf(shown: ChatSettings): string {
+	const model = modelChoice(shown.model);
+	const first =
+		model === "default"
+			? (AGENTS[0]?.short ?? "Claude")
+			: (MODELS.find((choice) => choice.value === model)?.label ?? model);
+	const effort = EFFORTS.find((choice) => choice.value === shown.effort)?.label;
+	const mode = MODES.find((choice) => choice.value === shown.mode)?.label;
+	return [first, effort ?? shown.effort, mode ?? shown.mode].join(" \u00b7 ");
 }
 
 export function ComposerPickers({
@@ -325,6 +308,8 @@ export function ComposerPickers({
 	onSet,
 	onAnnounce,
 	readAloud,
+	open,
+	onOpenChange,
 }: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
 	const lastError = useStore(store, (state) => state.lastError);
@@ -334,6 +319,9 @@ export function ComposerPickers({
 	const errorAtAsk = useRef<number>(-1);
 	const rulesActive = useStore(store, selectSessionRulesActive);
 	const hintId = useId();
+	const panelId = useId();
+	const panel = useRef<HTMLFieldSetElement>(null);
+	const button = useRef<HTMLButtonElement>(null);
 
 	// The host's report is the truth; it ends any wait.
 	useEffect(() => {
@@ -350,6 +338,20 @@ export function ComposerPickers({
 		setPending({});
 	}, [lastError, onAnnounce]);
 
+	// A press outside closes the panel, unless it closes a picker's open menu first.
+	useEffect(() => {
+		if (!open) return;
+		function onPointerDown(event: PointerEvent) {
+			const target = event.target;
+			if (!(target instanceof Node)) return;
+			if (panel.current?.contains(target) || button.current?.contains(target)) return;
+			if (document.querySelector('[role="menu"]')) return;
+			onOpenChange(false);
+		}
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [open, onOpenChange]);
+
 	function ask(change: Change) {
 		errorAtAsk.current = lastError?.seq ?? -1;
 		if (onSet(change)) setPending((waiting) => ({ ...waiting, ...change }));
@@ -362,8 +364,39 @@ export function ComposerPickers({
 
 	return (
 		<>
-			<fieldset className="pk-composer-picks" data-testid="composer-picks">
-				<legend className="sr-only">Chat settings</legend>
+			<button
+				type="button"
+				ref={button}
+				className={`pk-composer-options${bypass ? " is-warning" : ""}`}
+				aria-expanded={open}
+				aria-controls={panelId}
+				data-testid="composer-options"
+				onClick={() => onOpenChange(!open)}
+			>
+				<Icon name={bypass ? "alert" : "settings"} size="sm" />
+				<span className="sr-only">Chat options: </span>
+				<span className="pk-composer-options-summary">
+					{shown ? summaryOf(shown) : <Skeleton width="6rem" />}
+				</span>
+				<Icon name={open ? "chevron-up" : "chevron-down"} size="sm" />
+			</button>
+			<fieldset
+				ref={panel}
+				id={panelId}
+				className="pk-composer-picks"
+				data-testid="composer-picks"
+				hidden={!open}
+				onKeyDown={(event) => {
+					// A picker's menu portals out of the panel; its Escape is its own.
+					if (event.key !== "Escape" || event.defaultPrevented) return;
+					if (!(event.target instanceof Node) || !panel.current?.contains(event.target))
+						return;
+					event.preventDefault();
+					onOpenChange(false);
+					button.current?.focus();
+				}}
+			>
+				<legend className="pk-composer-picks-title">Chat options</legend>
 				<Pick
 					label="Agent"
 					testId="composer-agent"
@@ -410,12 +443,13 @@ export function ComposerPickers({
 					</>
 				)}
 				{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
-				{askWithRules ? (
-					<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
-						{ASK_RULES_HINT}
-					</p>
-				) : null}
 			</fieldset>
+			{/* Outside the panel, so Ask never reads as the whole story while it is closed. */}
+			{askWithRules ? (
+				<p id={hintId} className="pk-picker-hint" data-testid="composer-ask-hint">
+					{ASK_RULES_HINT}
+				</p>
+			) : null}
 			<ContextMeter store={store} onAnnounce={onAnnounce} />
 		</>
 	);

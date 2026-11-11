@@ -19,6 +19,7 @@ import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { currentPlatform, type Platform, tabFocusKey } from "../platform.js";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
+import { onThemeChange, pageIsDark } from "./pageTheme.js";
 import {
 	DARK_BRACKETS,
 	DARK_TOKENS,
@@ -26,6 +27,8 @@ import {
 	LIGHT_TOKENS,
 } from "./tokenColours.js";
 import { BASE_FONT_SIZE } from "./zoom.js";
+
+export { onThemeChange };
 
 const environment: Monaco.Environment = {
 	// JSON is the one language service kept, because JSON files are named in
@@ -120,8 +123,18 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions &
 	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
 	fontSize: BASE_FONT_SIZE,
 	// The stock Monaco reading aids are on (SPEC.md §13.2, DESIGN.md "The
-	// editor"): minimap, folding, bracket pair colouring and bracket match.
-	minimap: { enabled: true },
+	// editor"): folding, bracket pair colouring and bracket match. The minimap
+	// is too small to read at this font size; the overview ruler in the
+	// scrollbar marks changes, warnings and errors instead.
+	minimap: { enabled: false },
+	overviewRulerBorder: false,
+	overviewRulerLanes: 3,
+	hideCursorInOverviewRuler: true,
+	scrollbar: {
+		verticalScrollbarSize: 12,
+		horizontalScrollbarSize: 10,
+		useShadows: false,
+	},
 	folding: true,
 	bracketPairColorization: { enabled: true },
 	matchBrackets: "always",
@@ -191,6 +204,19 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.background": "#c1b9a8cc",
 			"scrollbarSlider.hoverBackground": "#a89f8ce6",
 			"scrollbarSlider.activeBackground": "#8d8472",
+			"scrollbar.shadow": "#00000000",
+			// The scrollbar's ticks: the Git and problem colours of theme.css.
+			"editorOverviewRuler.background": "#00000000",
+			"editorOverviewRuler.border": "#00000000",
+			"editorOverviewRuler.modifiedForeground": "#7a5300",
+			"editorOverviewRuler.addedForeground": "#2a6630",
+			"editorOverviewRuler.deletedForeground": "#a4342a",
+			"editorOverviewRuler.warningForeground": "#855b00",
+			"editorOverviewRuler.errorForeground": "#a4342a",
+			"editorOverviewRuler.findMatchForeground": "#2c6a66",
+			"editorOverviewRuler.selectionHighlightForeground": "#2c6a6680",
+			"editorOverviewRuler.wordHighlightForeground": "#2c6a6680",
+			"editorOverviewRuler.bracketMatchForeground": "#00000000",
 			...withHash(LIGHT_BRACKETS),
 		},
 	});
@@ -212,6 +238,18 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.background": "#4b473fcc",
 			"scrollbarSlider.hoverBackground": "#615c52e6",
 			"scrollbarSlider.activeBackground": "#7a7466",
+			"scrollbar.shadow": "#00000000",
+			"editorOverviewRuler.background": "#00000000",
+			"editorOverviewRuler.border": "#00000000",
+			"editorOverviewRuler.modifiedForeground": "#e3b85c",
+			"editorOverviewRuler.addedForeground": "#86c98b",
+			"editorOverviewRuler.deletedForeground": "#f0998f",
+			"editorOverviewRuler.warningForeground": "#e3b85c",
+			"editorOverviewRuler.errorForeground": "#f0998f",
+			"editorOverviewRuler.findMatchForeground": "#7cc2b9",
+			"editorOverviewRuler.selectionHighlightForeground": "#7cc2b980",
+			"editorOverviewRuler.wordHighlightForeground": "#7cc2b980",
+			"editorOverviewRuler.bracketMatchForeground": "#00000000",
 			...withHash(DARK_BRACKETS),
 		},
 	});
@@ -247,31 +285,7 @@ export function getMonaco(): Promise<typeof Monaco> {
 
 /** The theme name matching what the page is showing right now (shell/theme.ts). */
 export function currentThemeName(): string {
-	const chosen = document.documentElement.getAttribute("data-theme");
-	if (chosen === "dark") return DARK_THEME;
-	if (chosen === "light") return LIGHT_THEME;
-	const dark =
-		typeof matchMedia === "function" &&
-		matchMedia("(prefers-color-scheme: dark)").matches;
-	return dark ? DARK_THEME : LIGHT_THEME;
-}
-
-/** Call back whenever the page's light or dark choice may have changed. */
-export function onThemeChange(callback: () => void): () => void {
-	const observer = new MutationObserver(callback);
-	observer.observe(document.documentElement, {
-		attributes: true,
-		attributeFilter: ["data-theme"],
-	});
-	const media =
-		typeof matchMedia === "function"
-			? matchMedia("(prefers-color-scheme: dark)")
-			: null;
-	media?.addEventListener("change", callback);
-	return () => {
-		observer.disconnect();
-		media?.removeEventListener("change", callback);
-	};
+	return pageIsDark() ? DARK_THEME : LIGHT_THEME;
 }
 
 let watching = false;

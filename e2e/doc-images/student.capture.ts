@@ -137,7 +137,7 @@ async function scriptChat(page: Page, id: string, play: (send: Send) => void) {
 	});
 	await page.reload();
 	const view = page.getByTestId(`chat-view-${id}`);
-	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 20_000 });
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 20_000 });
 	return view;
 }
 

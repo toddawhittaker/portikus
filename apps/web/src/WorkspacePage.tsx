@@ -24,6 +24,7 @@ import { DRAWER_IDS, type DrawerName, openedTab } from "./shell/drawers.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
+import { PaneBar } from "./shell/PaneBar.js";
 import {
 	ReinstallNotice,
 	reinstallAnnouncement,
@@ -200,12 +201,6 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				user={user}
 				workspace={workspace}
 				project={project}
-				drawers={{
-					open: drawer,
-					onOpen: setDrawer,
-					projectsRef: projectsButton,
-					filesRef: filesButton,
-				}}
 			/>
 			<LaunchNotice displayName={user.displayName} />
 			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
@@ -214,6 +209,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			<Group
 				className="pk-shell"
 				orientation="horizontal"
+				// The library hit-tests panel edges even without handles, and would swallow taps on a phone.
+				disabled={phone}
 				defaultLayout={layout.defaultLayout}
 				onLayoutChanged={layout.onLayoutChanged}
 			>
@@ -240,7 +237,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						)}
 					</ShellDrawer>
 				</Panel>
-				<PaneHandle label="Resize project list" />
+				{phone ? null : <PaneHandle label="Resize project list" />}
 				<Panel id="work" minSize={360}>
 					<main
 						className="pk-work"
@@ -350,7 +347,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						)}
 					</main>
 				</Panel>
-				<PaneHandle label="Resize file tree" />
+				{phone ? null : <PaneHandle label="Resize file tree" />}
 				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
 					<ShellDrawer
 						id={DRAWER_IDS.files}
@@ -381,6 +378,14 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				workspace={workspace}
 				dialog={workspaceDialog}
 				onDialogChange={setWorkspaceDialog}
+			/>
+			<PaneBar
+				drawers={{
+					open: drawer,
+					onOpen: setDrawer,
+					projectsRef: projectsButton,
+					filesRef: filesButton,
+				}}
 			/>
 		</div>
 	);

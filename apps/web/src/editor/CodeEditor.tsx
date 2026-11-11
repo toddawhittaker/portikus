@@ -5,6 +5,7 @@
  */
 import type * as Monaco from "monaco-editor";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { baseName } from "../files/paths.js";
 import { useEditorZoom } from "../layout/store.js";
 import { CodeHelpStatus } from "../lsp/CodeHelpStatus.js";
 import { modelFitsLimit } from "../lsp/client.js";
@@ -14,6 +15,7 @@ import { projectModelUri } from "../lsp/protocol.js";
 import { serverFor } from "../lsp/servers.js";
 import { useServerStatus } from "../lsp/store.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
+import { FileOpening } from "./FileOpening.js";
 import { insertText } from "./insertText.js";
 import {
 	accessibilitySupport,
@@ -435,7 +437,10 @@ export function CodeEditor({
 
 	return (
 		<div className="pk-editor" data-testid={`editor-${path}`} ref={container}>
-			<div className="pk-editor-host" ref={host} />
+			<div className="pk-editor-host-wrap">
+				<div className="pk-editor-host" ref={host} />
+				{modelReady === 0 ? <FileOpening name={baseName(path)} overlay /> : null}
+			</div>
 			<div className="pk-editor-bar">
 				<span className="pk-editor-language" data-testid={`editor-language-${path}`}>
 					{language}

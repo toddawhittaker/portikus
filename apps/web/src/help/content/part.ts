@@ -5,6 +5,8 @@ interface HelpTopic {
 	id: string;
 	title: string;
 	body: ReactNode;
+	/** Set on the first topic of a group: the group's name in the contents. */
+	group?: string;
 }
 
 /** One part of the Help page: an h2 and its topics, in reading order. */

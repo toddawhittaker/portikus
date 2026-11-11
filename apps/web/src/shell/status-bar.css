@@ -1,4 +1,4 @@
-/* The status bar along the foot of the workspace (SPEC.md §19.2). One 28px line when it fits; when it does not, the workspace group wraps under the path, then its buttons wrap among themselves. */
+/* The status bar along the foot of the workspace (SPEC.md §19.2). One 32px line when it fits; when it does not, the workspace group wraps under the path, then its buttons wrap among themselves. Every button is a 24px borderless target that fills on hover. */
 .pk-statusbar {
 	flex: none;
 	box-sizing: border-box;
@@ -7,9 +7,9 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-1) var(--space-4);
-	min-height: 28px;
-	/* 2px top and bottom keep a single line at 28px with its 20px buttons and the 1px edge. */
-	padding: var(--space-0\.5) var(--space-3);
+	min-height: 32px;
+	/* With the 1px edge, a 24px button line makes the bar 32px tall. */
+	padding: var(--space-0\.5) var(--space-3) var(--space-1);
 	background: var(--surface-sunken);
 	border-top: 1px solid var(--line);
 	font-size: var(--text-xs);
@@ -23,6 +23,7 @@
 	align-items: center;
 	gap: var(--space-4);
 	min-width: 0;
+	padding-inline-start: var(--space-1);
 }
 .pk-statusbar-status {
 	flex: 0 1 auto;
@@ -30,7 +31,7 @@
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
-	gap: var(--space-1) var(--space-4);
+	gap: var(--space-1) var(--space-1);
 	min-width: 0;
 	margin-inline-start: auto;
 }
@@ -44,10 +45,10 @@
 /* No colour here, so the tone classes win; see .pk-statusbar-plain. */
 button.pk-statusbar-item {
 	box-sizing: border-box;
-	height: 20px;
+	height: 24px;
 	margin: 0;
 	padding: 0 var(--space-2);
-	border: 1px solid var(--line-strong);
+	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	font: inherit;
@@ -59,44 +60,43 @@ button.pk-statusbar-item {
 }
 button.pk-statusbar-item:hover {
 	background: var(--surface-hover);
+	color: var(--ink);
+}
+button.pk-statusbar-item:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+/* The chevron says a button opens something; it stays quiet until the pointer is on it. */
+button.pk-statusbar-item > .pk-icon:last-child {
+	color: var(--ink-faint);
 }
 
-/* Memory, disk and the agent plans as one bordered strip of segments, so the bar reads as a few groups rather than a row of separate pills. */
+/* Memory, disk and the agent plans: one group of quiet meters, set off from the workspace state by a hairline. */
 .pk-statusbar-usage {
 	flex: 0 1 auto;
 	display: flex;
 	flex-wrap: wrap;
-	align-items: stretch;
+	align-items: center;
+	gap: var(--space-1);
 	min-width: 0;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	background: var(--surface);
-	overflow: hidden;
+	padding-inline-end: var(--space-2);
+	margin-inline-end: var(--space-1);
+	border-inline-end: 1px solid var(--line);
 }
 .pk-statusbar-usage:empty {
 	display: none;
-}
-.pk-statusbar-usage > button.pk-statusbar-item {
-	height: 20px;
-	border: 0;
-	border-radius: 0;
-}
-.pk-statusbar-usage > button.pk-statusbar-item:not(:first-child) {
-	border-inline-start: 1px solid var(--line);
-}
-.pk-statusbar-usage > button.pk-statusbar-item:focus-visible {
-	outline-offset: var(--ring-offset-inset);
 }
 
 /* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. The element in the selector outranks app.css's .pk-meter grid whatever the load order. */
 button.pk-statusbar-meter {
 	display: inline-flex;
-	gap: var(--space-1\.5);
+	gap: var(--space-2);
 	font-size: inherit;
 	line-height: inherit;
 }
 .pk-statusbar-meter .pk-meter-label {
 	font-weight: 500;
+	color: var(--ink-muted);
 }
 .pk-statusbar-meter .pk-meter-line {
 	flex-wrap: nowrap;
@@ -104,8 +104,13 @@ button.pk-statusbar-meter {
 }
 .pk-statusbar-meter .pk-meter-wrap {
 	flex: none;
-	inline-size: 32px;
+	inline-size: 40px;
 	min-width: 0;
+}
+/* A slim rounded track rather than a boxed bar; the line-strong edge keeps the empty part visible (WCAG 1.4.11). */
+.pk-statusbar-meter .pk-meter-bar {
+	block-size: 6px;
+	border-radius: var(--radius-full);
 }
 /* When space is tight the project path gives way first, then the Git line, each with an ellipsis. */
 .pk-statusbar-path,
@@ -136,7 +141,7 @@ button.pk-statusbar-meter {
 	}
 	button.pk-statusbar-item {
 		height: auto;
-		min-height: 20px;
+		min-height: 24px;
 		max-width: 100%;
 		white-space: normal;
 		text-align: start;

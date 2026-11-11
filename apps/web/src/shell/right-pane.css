@@ -36,15 +36,16 @@
 }
 
 /*
- * The switch stays on one line. When the pane is too narrow for all five
- * names it scrolls sideways; the cut-off name at the edge shows there is more.
+ * The switch stays on one line. Each surface is an icon and a name; a pane
+ * under 26rem keeps the name on the chosen surface only, and the others are
+ * named by their icon, a hover title and their accessible name.
  */
 .pk-pane-tabs {
 	flex: none;
 	display: flex;
 	flex-wrap: nowrap;
 	align-items: stretch;
-	gap: var(--space-1);
+	gap: 0;
 	box-sizing: border-box;
 	height: var(--density-comfortable-tab);
 	padding: 0 var(--space-2);
@@ -53,65 +54,92 @@
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
-	scroll-snap-type: x proximity;
 	scroll-padding-inline: var(--space-2);
 }
 .pk-pane-tabs::-webkit-scrollbar {
 	display: none;
 }
+/* The same selected look as the work area's tabs: a raised face and an accent bar along the foot. */
 .pk-pane-tab {
+	position: relative;
 	flex: none;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	scroll-snap-align: start;
+	gap: var(--space-1\.5);
 	border: 0;
-	border-block: 2px solid transparent;
 	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
 	font-size: var(--text-md);
 	line-height: var(--leading-md);
-	font-weight: 500;
+	font-weight: 400;
 	white-space: nowrap;
 	padding: 0 var(--space-3);
 	cursor: pointer;
 }
+.pk-pane-tab > svg {
+	flex: none;
+}
 .pk-pane-tab:hover {
+	background: var(--surface-hover);
 	color: var(--ink);
 }
 .pk-pane-tab[aria-selected="true"] {
-	color: var(--accent-text);
-	border-bottom-color: var(--accent);
+	background: var(--surface-raised);
+	color: var(--ink);
+}
+.pk-pane-tab[aria-selected="true"] > svg {
+	color: var(--accent);
+}
+.pk-pane-tab[aria-selected="true"]::before {
+	content: "";
+	position: absolute;
+	inset-inline: 0;
+	inset-block-end: -1px;
+	height: 2px;
+	background: var(--accent);
+}
+@media (forced-colors: active) {
+	.pk-pane-tab[aria-selected="true"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
 }
 .pk-pane-tab:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
 
-/*
- * Five names and a count fit the default pane width (about 280px) only at
- * 13px, so a pane under 24rem shares its width out evenly among the names
- * instead of padding each one. Below what that fits, the strip scrolls.
- */
-@container pk-right (width < 24rem) {
-	.pk-pane-tabs {
-		gap: 0;
-		padding-inline: var(--space-2);
-	}
+@container pk-right (width < 26rem) {
 	.pk-pane-tab {
 		flex: 1 0 auto;
-		font-size: var(--text-sm);
-		padding-inline: var(--space-1);
+		min-inline-size: var(--size-control-md);
+		padding-inline: var(--space-2);
+	}
+	.pk-pane-tab[aria-selected="false"] .pk-pane-tab-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 }
 
-/* The count after the Problems tab's name. */
+/* The count after the Problems tab's name: a small pill, so it reads beside the icon alone too. */
 .pk-pane-tab-count {
-	margin-inline-start: var(--space-0\.5);
-	font-size: 12px;
+	min-inline-size: 16px;
+	padding: 0 var(--space-1);
+	box-sizing: border-box;
+	border-radius: var(--radius-full);
+	background: var(--surface-hover);
+	color: var(--ink);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
 	font-variant-numeric: tabular-nums;
-	color: var(--ink-muted);
+	text-align: center;
 }
 
 /* A surface's "About" button sits at the start of its head, the actions at the end. */

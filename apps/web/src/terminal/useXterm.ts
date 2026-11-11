@@ -30,16 +30,16 @@ export const RESIZE_SETTLE_MS = 100;
  * which is far too loud.
  */
 const DARK_THEME = {
-	background: "#11100e",
-	foreground: "#e4dfd4",
+	background: "#22201c",
+	foreground: "#e8e3d8",
 	cursor: "#e8c37a",
-	selectionBackground: "#3a4a48",
-	scrollbarSliderBackground: "#9a938666",
-	scrollbarSliderHoverBackground: "#9a9386b3",
-	scrollbarSliderActiveBackground: "#9a9386cc",
+	selectionBackground: "#3e4f4c",
+	scrollbarSliderBackground: "#a49d9066",
+	scrollbarSliderHoverBackground: "#a49d90b3",
+	scrollbarSliderActiveBackground: "#a49d90cc",
 	// xterm's default palette fails AA on this ground.
-	black: "#11100e",
-	brightBlack: "#857f73",
+	black: "#22201c",
+	brightBlack: "#8f897d",
 	red: "#e07a6e",
 	brightRed: "#f09a8f",
 	green: "#8fc28a",
@@ -309,7 +309,9 @@ export function useXterm({
 
 		const term = new Xterm({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-			fontSize: 13,
+			fontSize: 14,
+			// A little air between lines, so long output is easier to follow.
+			lineHeight: 1.25,
 			theme: terminalTheme(themeRef.current),
 			convertEol: false,
 			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.

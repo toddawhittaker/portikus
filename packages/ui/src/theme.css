@@ -49,6 +49,8 @@
 	/* Colour: light values. */
 	--surface: #f7f5f0;
 	--surface-raised: #fffefb;
+	/* The work area: one step lighter than the side panes and the header, so the work reads first. */
+	--surface-work: #fcfbf8;
 	--surface-sunken: #ebe7dd;
 	--surface-hover: #e1dcd0;
 	--surface-selected: #cfe5e0;
@@ -77,8 +79,6 @@
 	/* The bar that marks the current row in the right pane's lists. */
 	--row-current-bar: inset 2px 0 0 var(--ink);
 	--scrim: #1a18154d;
-	/* Behind a phone's drawer: opaque, so the page behind does not read through. */
-	--scrim-strong: #d9d3c7;
 	--status-provisioning: #3f5a8c;
 	--status-provisioning-soft: #dde5f3;
 	--status-starting: #3f5a8c;
@@ -119,15 +119,15 @@
 	--space-12: 48px;
 	--space-16: 64px;
 
-	/* Type scale: 12 is metadata only, 14 the body, list rows, tabs and navigation. */
+	/* Type scale, 12 14 16 20 24: 12 is metadata only; 14 the body, labels, list rows, tabs and navigation. */
 	--text-xs: 12px;
-	--text-sm: 13px;
+	--text-sm: 14px;
 	--text-md: 14px;
 	--text-lg: 16px;
 	--text-xl: 20px;
 	--text-2xl: 24px;
 	--leading-xs: 16px;
-	--leading-sm: 18px;
+	--leading-sm: 20px;
 	--leading-md: 20px;
 	--leading-lg: 24px;
 	--leading-xl: 28px;
@@ -188,6 +188,7 @@
 	color-scheme: dark;
 	--surface: #1a1917;
 	--surface-raised: #24221f;
+	--surface-work: #201e1b;
 	--surface-sunken: #121110;
 	--surface-hover: #2e2b27;
 	--surface-selected: #1d3a37;
@@ -208,7 +209,6 @@
 	--accent-text: #8fcdc4;
 	--focus: var(--focus-on-dark);
 	--scrim: #00000099;
-	--scrim-strong: #090807;
 	--status-provisioning: #9fb4e0;
 	--status-provisioning-soft: #202a3d;
 	--status-starting: #9fb4e0;
@@ -241,6 +241,7 @@
 		color-scheme: dark;
 		--surface: #1a1917;
 		--surface-raised: #24221f;
+		--surface-work: #201e1b;
 		--surface-sunken: #121110;
 		--surface-hover: #2e2b27;
 		--surface-selected: #1d3a37;
@@ -261,7 +262,6 @@
 		--accent-text: #8fcdc4;
 		--focus: var(--focus-on-dark);
 		--scrim: #00000099;
-		--scrim-strong: #090807;
 		--status-provisioning: #9fb4e0;
 		--status-provisioning-soft: #202a3d;
 		--status-starting: #9fb4e0;
@@ -302,15 +302,15 @@
  */
 :root,
 [data-terminal-theme="dark"] {
-	--terminal-bg: #11100e;
-	--terminal-fg: #e4dfd4;
-	--terminal-muted: #9a9386;
+	--terminal-bg: #22201c;
+	--terminal-fg: #e8e3d8;
+	--terminal-muted: #a49d90;
 	--terminal-cursor: #e8c37a;
-	--terminal-selection: #3a4a48;
+	--terminal-selection: #3e4f4c;
 	/* Hairline between terminal panes, on terminal-bg. */
-	--terminal-line: #2a2824;
-	--ansi-black: #11100e;
-	--ansi-bright-black: #857f73;
+	--terminal-line: #36322c;
+	--ansi-black: #22201c;
+	--ansi-bright-black: #8f897d;
 	--ansi-red: #e07a6e;
 	--ansi-bright-red: #f09a8f;
 	--ansi-green: #8fc28a;
@@ -404,6 +404,7 @@
 
 	--color-surface: var(--surface);
 	--color-surface-raised: var(--surface-raised);
+	--color-surface-work: var(--surface-work);
 	--color-surface-sunken: var(--surface-sunken);
 	--color-surface-hover: var(--surface-hover);
 	--color-surface-selected: var(--surface-selected);

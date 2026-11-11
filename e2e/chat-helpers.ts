@@ -1,6 +1,7 @@
 import {
 	type BrowserContext,
 	expect,
+	type Locator,
 	type Page,
 	type WebSocketRoute,
 } from "@playwright/test";
@@ -127,6 +128,14 @@ export async function scriptChat(
 	});
 	await page.reload();
 	const view = page.getByTestId(`chat-view-${id}`);
-	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	// The Model picker is drawn once settings arrive, in the closed options panel.
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	return view;
+}
+
+/** Open the composer's Chat options panel, which holds the pickers and the read-aloud switch. */
+export async function openChatOptions(view: Locator): Promise<void> {
+	const options = view.getByTestId("composer-options");
+	if ((await options.getAttribute("aria-expanded")) !== "true") await options.click();
+	await expect(view.getByTestId("composer-picks")).toBeVisible();
 }

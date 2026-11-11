@@ -78,14 +78,14 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					A speaker button under each of Claude's replies reads it aloud; press it again
-					to stop. Turn on <strong>Read replies aloud</strong> beside the pickers to
-					hear the last reply of each turn when Claude finishes. Escape, sending a
-					message or leaving the tab stops the speech. Code blocks are not read; you
-					hear "code block" instead. Your browser makes the voice, and Portikus never
-					receives or keeps the text. Portikus picks a voice on your device when there
-					is one. If your browser has only an online voice for your language, such as
-					Chrome's Google voices, the text of the reply is sent to the browser's maker
-					to be spoken.
+					to stop. Turn on <strong>Read replies aloud</strong> in the{" "}
+					<strong>Chat options</strong> panel to hear the last reply of each turn when
+					Claude finishes. Escape, sending a message or leaving the tab stops the
+					speech. Code blocks are not read; you hear "code block" instead. Your browser
+					makes the voice, and Portikus never receives or keeps the text. Portikus picks
+					a voice on your device when there is one. If your browser has only an online
+					voice for your language, such as Chrome's Google voices, the text of the reply
+					is sent to the browser's maker to be spoken.
 				</li>
 				<li>
 					Under the pickers, Portikus shows how full Claude's memory of this chat is

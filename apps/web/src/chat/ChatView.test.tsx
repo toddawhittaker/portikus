@@ -673,7 +673,8 @@ test("a finished turn is read aloud when the project's switch is on, and its too
 		});
 		expect(
 			screen
-				.getByRole("switch", { name: "Read replies aloud" })
+				// In the closed options panel.
+				.getByRole("switch", { name: "Read replies aloud", hidden: true })
 				.getAttribute("aria-checked"),
 		).toBe("true");
 		emit("turn.started", { at: 1 });

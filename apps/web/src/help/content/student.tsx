@@ -74,6 +74,7 @@ export const STUDENT_HELP: HelpPart = {
 	topics: [
 		{
 			id: "student-getting-started",
+			group: "Start here",
 			title: "Getting started",
 			body: (
 				<>
@@ -157,11 +158,12 @@ export const STUDENT_HELP: HelpPart = {
 			body: (
 				<p>
 					On a phone or a narrow window the work area fills the screen, and the side
-					panes become drawers. The <strong>Projects</strong> button, left of the
-					Portikus name, slides your project list in from the left. The{" "}
-					<strong>Files</strong> button, at the right of the top bar, slides the right
-					pane in from the right. Choosing a project or opening a file closes the drawer
-					again, and so do Escape, its close button and a tap outside it.
+					panes become drawers. The bar along the foot of the screen has three buttons.{" "}
+					<strong>Projects</strong> opens your project list on the left,{" "}
+					<strong>Files</strong> opens the right pane on the right, and{" "}
+					<strong>Work</strong> shows the work area again. Choosing a project or opening
+					a file closes the drawer, and so do Escape, its close button and a tap outside
+					it.
 				</p>
 			),
 		},
@@ -184,6 +186,7 @@ export const STUDENT_HELP: HelpPart = {
 		},
 		{
 			id: "student-terminals",
+			group: "Terminals and coding agents",
 			title: "Terminals",
 			body: (
 				<>
@@ -263,6 +266,7 @@ export const STUDENT_HELP: HelpPart = {
 		},
 		{
 			id: "student-files",
+			group: "Files and code",
 			title: "Files and the editor",
 			body: (
 				<ul>
@@ -542,6 +546,7 @@ export const STUDENT_HELP: HelpPart = {
 		},
 		{
 			id: "student-sharing",
+			group: "Your course",
 			title: "Sharing a project with your instructors",
 			body: (
 				<>
@@ -627,6 +632,7 @@ export const STUDENT_HELP: HelpPart = {
 		},
 		{
 			id: "student-settings",
+			group: "Settings and support",
 			title: "Settings",
 			body: (
 				<>

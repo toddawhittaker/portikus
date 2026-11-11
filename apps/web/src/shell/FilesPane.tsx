@@ -1,7 +1,9 @@
 import type { Project } from "@portikus/contracts";
 import {
 	EmptyState,
+	Icon,
 	IconButton,
+	type IconName,
 	TabsContent,
 	TabsList,
 	TabsRoot,
@@ -290,6 +292,15 @@ function Switchers({
 	);
 }
 
+/** Each surface's icon, which stands for its name when the pane is narrow. */
+const SWITCHER_ICONS: Record<RightPane, IconName> = {
+	files: "folder",
+	checks: "clipboard-list",
+	running: "globe",
+	monitor: "activity",
+	problems: "alert",
+};
+
 function Switcher({
 	value,
 	label,
@@ -312,8 +323,11 @@ function Switcher({
 			data-testid={`right-pane-tab-${value}`}
 			// Radix selects on mouse down; a click from assistive technology arrives alone.
 			onClick={() => onPick(value)}
+			// The name shows on hover where a narrow pane hides it.
+			title={label}
 		>
-			{label}
+			<Icon name={SWITCHER_ICONS[value]} />
+			<span className="pk-pane-tab-label">{label}</span>
 			{count ? (
 				<>
 					{" "}

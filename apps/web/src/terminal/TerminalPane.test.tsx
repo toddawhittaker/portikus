@@ -579,7 +579,7 @@ test("the light terminal theme is light and has its own ANSI palette", () => {
 	const dark = terminalTheme("dark");
 	const light = terminalTheme("light");
 
-	expect(dark.background).toBe("#11100e");
+	expect(dark.background).toBe("#22201c");
 	expect(light.background).toBe("#fdfcfa");
 	expect(light.foreground).toBe("#23211d");
 	// The default palette is written for a dark ground, so light brings its own.
@@ -817,7 +817,7 @@ test("a dark terminal reports the dark background instead", async () => {
 			data: outputBytes(`${String.fromCharCode(27)}]11;?${String.fromCharCode(7)}`),
 		});
 	});
-	await waitFor(() => expect(sentInput()).toContain("]11;rgb:11"));
+	await waitFor(() => expect(sentInput()).toContain("]11;rgb:22"));
 });
 
 /**

@@ -1,6 +1,6 @@
 /*
- * The side panes' drawers below 56rem (SPEC.md section 8.1): each slides
- * over the work area from its own side, above a scrim. Values are design
+ * The side panes' drawers below 56rem (SPEC.md section 8.1): each fades in
+ * over the work area on its own side, above a scrim. Values are design
  * tokens only.
  */
 @media (width < 56rem) {
@@ -9,7 +9,7 @@
 		position: absolute;
 		inset: 0;
 		visibility: hidden;
-		/* Hidden only once the slide out has finished. */
+		/* Hidden only once the fade out has finished. */
 		transition: visibility 0s linear var(--duration-base);
 	}
 	.pk-drawer-layer[data-open] {
@@ -37,7 +37,9 @@
 		/* Content wider than the sheet must not let focus scroll it off screen. */
 		overflow: clip;
 		background: var(--surface-sunken);
-		transition: transform var(--duration-base) ease-out;
+		/* A fade, not a slide, so its controls are where they will stay even mid-motion. */
+		opacity: 0;
+		transition: opacity var(--duration-base) ease-out;
 	}
 	/* Focus lands on the sheet as it opens; the sheet is not a control. */
 	.pk-drawer:focus {
@@ -48,23 +50,33 @@
 		inset-inline-start: 0;
 		inline-size: min(20rem, 100% - var(--space-12));
 		border-inline-end: 1px solid var(--line);
-		transform: translateX(-100%);
 	}
 	.pk-drawer-layer--right > .pk-drawer {
 		inset-inline-end: 0;
 		inline-size: min(26rem, 100% - var(--space-12));
 		border-inline-start: 1px solid var(--line);
-		transform: translateX(100%);
 	}
 	.pk-drawer-layer[data-open] > .pk-drawer {
-		transform: none;
+		opacity: 1;
 	}
+	/* The close button sits at the end of the pane's own head, which leaves it room. */
 	.pk-drawer-bar {
-		flex: none;
+		position: absolute;
+		inset-block-start: 0;
+		inset-inline-end: 0;
+		z-index: 1;
 		display: flex;
-		justify-content: flex-end;
-		padding: var(--space-1);
-		border-block-end: 1px solid var(--line);
+		align-items: center;
+		block-size: var(--pk-drawer-head);
+		padding-inline: var(--space-1);
+	}
+	.pk-drawer-layer {
+		--pk-drawer-head: var(--size-control-lg);
+	}
+	.pk-drawer > .pk-pane > .pk-pane-head:first-child,
+	.pk-drawer > .pk-right-pane > :first-child {
+		block-size: var(--pk-drawer-head);
+		padding-inline-end: calc(var(--size-control-lg) + var(--space-2));
 	}
 	.pk-drawer > .pk-pane {
 		flex: 1;
@@ -78,21 +90,14 @@
 	.pk-drawer {
 		display: contents;
 	}
-	/* The buttons that open the drawers exist only where there are drawers. */
-	.pk-appbar > .pk-appbar-drawer {
-		display: none;
-	}
 }
 
 /*
- * A phone: each drawer takes all but a 48px strip, which stays to tap and
- * close but is darkened so the page behind does not show through. Rows and
- * buttons inside grow to touch size (WCAG 2.5.5).
+ * A phone: each drawer takes all but a 48px strip of the dimmed work area,
+ * which stays to tap and close. Rows and buttons inside grow to touch size
+ * (WCAG 2.5.5).
  */
 @media (width < 40rem) {
-	.pk-drawer-scrim {
-		background: var(--scrim-strong);
-	}
 	.pk-drawer-layer--left > .pk-drawer,
 	.pk-drawer-layer--right > .pk-drawer {
 		--pk-row: var(--size-control-lg);
@@ -100,13 +105,12 @@
 		inline-size: calc(100% - var(--space-12));
 		box-shadow: var(--shadow-lg);
 	}
+	.pk-drawer-layer {
+		--pk-drawer-head: 52px;
+	}
 	.pk-drawer .pk-iconbtn {
 		min-inline-size: 40px;
 		min-block-size: 40px;
-	}
-	.pk-drawer-bar {
-		align-items: center;
-		min-block-size: var(--size-control-lg);
 	}
 	.pk-drawer-bar .pk-iconbtn {
 		min-inline-size: var(--size-control-lg);
@@ -119,5 +123,85 @@
 	.pk-appbar .pk-account {
 		min-inline-size: var(--size-control-lg);
 		min-block-size: var(--size-control-lg);
+	}
+}
+
+/*
+ * The pane bar (SPEC.md section 8.1): Projects, Work and Files along the
+ * foot of a phone or narrow window, one tap from each other.
+ */
+.pk-panebar {
+	display: none;
+}
+@media (width < 56rem) {
+	:root {
+		--pk-panebar-height: 60px;
+	}
+	.pk-panebar {
+		flex: none;
+		box-sizing: border-box;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-2);
+		block-size: var(--pk-panebar-height);
+		padding: var(--space-1) var(--space-3);
+		background: var(--surface-sunken);
+		border-block-start: 1px solid var(--line);
+	}
+	.pk-panebar-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-0\.5);
+		min-inline-size: 0;
+		min-block-size: var(--size-control-lg);
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink-muted);
+		font: inherit;
+		font-size: var(--text-xs);
+		line-height: var(--leading-xs);
+		font-weight: 500;
+		cursor: pointer;
+	}
+	/* The icon sits in a pill that fills with the accent for the pane in view. */
+	.pk-panebar-item > svg {
+		box-sizing: content-box;
+		padding: var(--space-1) var(--space-4);
+		border-radius: var(--radius-full);
+		transition: background-color var(--duration-fast) var(--ease-standard);
+	}
+	.pk-panebar-item:hover {
+		color: var(--ink);
+	}
+	.pk-panebar-item:hover > svg {
+		background: var(--surface-hover);
+	}
+	.pk-panebar-item[data-active] {
+		color: var(--accent-text);
+		font-weight: 600;
+	}
+	.pk-panebar-item[data-active] > svg {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.pk-panebar-item:focus-visible {
+		outline: var(--ring-width) solid var(--focus);
+		outline-offset: var(--ring-offset-inset);
+	}
+}
+/* A short window (a phone held sideways, WCAG 1.4.10 reflow): the bar slims. */
+@media (width < 56rem) and (height < 30rem) {
+	:root {
+		--pk-panebar-height: 48px;
+	}
+	.pk-panebar {
+		padding-block: 0;
+	}
+	.pk-panebar-item > svg {
+		padding-block: var(--space-0\.5);
 	}
 }

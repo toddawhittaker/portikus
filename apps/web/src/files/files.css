@@ -186,7 +186,7 @@
 	border-radius: var(--radius-sm);
 	background: none;
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-sm);
 	color: var(--ink);
 	text-align: left;
 	cursor: pointer;
@@ -218,12 +218,10 @@
 	background: none;
 	border: 0;
 	font: inherit;
-	font-size: var(--text-xs);
-	line-height: var(--leading-xs);
-	font-weight: 650;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--ink-muted);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+	color: var(--ink);
 	cursor: pointer;
 }
 .pk-changes-review {

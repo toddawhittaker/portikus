@@ -120,39 +120,47 @@
 	}
 }
 
-/* The output panel below the list. xterm.js sizes itself to this box. */
+/*
+ * The output panel below the list: a label in the pane's own type, then the
+ * output as a card in the terminal palette of the page's theme
+ * (CheckOutput.tsx). xterm.js sizes itself to the card.
+ */
 .pk-check-panel {
 	flex: none;
 	display: flex;
 	flex-direction: column;
+	gap: var(--space-1\.5);
 	min-height: 0;
 	height: 45%;
+	box-sizing: border-box;
+	padding: var(--space-2) var(--space-2) var(--space-3);
 	border-top: 1px solid var(--line);
-	background: var(--terminal-bg);
 }
 .pk-check-panel-head {
 	flex: none;
 	margin: 0;
-	padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+	padding-inline: var(--space-1);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	/* On the terminal background, so the terminal's muted colour keeps contrast. */
-	color: var(--terminal-muted);
-	font-size: 12px;
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
 	font-weight: 400;
-	line-height: 16px;
+	line-height: var(--leading-xs);
 }
 /* Which check the output belongs to; a long name is cut at the end. */
 .pk-check-panel-name {
-	color: var(--terminal-fg);
+	color: var(--ink);
+	font-weight: 600;
 }
 .pk-check-empty {
 	margin: 0;
-	padding: var(--space-2) var(--space-3);
-	color: var(--terminal-muted);
-	font-size: 12px;
-	line-height: 16px;
+	padding: var(--space-3);
+	border: 1px dashed var(--line);
+	border-radius: var(--radius-md);
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	overflow-wrap: anywhere;
 }
 .pk-check-screen {
@@ -161,6 +169,10 @@
 	min-height: 0;
 	overflow: hidden;
 	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--terminal-line);
+	border-radius: var(--radius-md);
+	background: var(--terminal-bg);
+	box-shadow: var(--shadow-sm);
 }
 
 /* One row of the edit dialog: name, command, and remove. */

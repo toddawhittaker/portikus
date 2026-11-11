@@ -188,7 +188,7 @@ for (const docked of [false, true]) {
 		for (const part of [
 			"chat-composer",
 			"chat-composer-send",
-			"composer-mode",
+			"composer-options",
 			"chat-composer-hint",
 		]) {
 			const shown = await box(view.getByTestId(part));

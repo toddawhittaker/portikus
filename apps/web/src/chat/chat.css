@@ -126,8 +126,8 @@
 	gap: var(--space-1\.5);
 	margin: 0;
 	color: var(--ink-muted);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	font-weight: 600;
 }
 
@@ -137,7 +137,8 @@
 	flex: none;
 	overflow: visible;
 	padding: 0;
-	font-size: inherit;
+	/* The conversation is the screen's content, so it reads a step above the chrome around it. */
+	font-size: var(--text-lg);
 	line-height: 1.6;
 	overflow-wrap: anywhere;
 }
@@ -152,15 +153,11 @@
 }
 
 .pk-markdown.pk-chat-md h1 {
-	font-size: 18px;
+	font-size: var(--text-xl);
 }
 
-.pk-markdown.pk-chat-md h2 {
-	font-size: 16px;
-}
-
-.pk-markdown.pk-chat-md :is(h3, h4) {
-	font-size: 15px;
+.pk-markdown.pk-chat-md :is(h2, h3, h4) {
+	font-size: var(--text-lg);
 }
 
 .pk-markdown.pk-chat-md :is(p, ul, ol, blockquote, pre, table) {
@@ -294,7 +291,7 @@ details[open] > summary > .pk-chat-chevron {
 	padding-inline: var(--space-2) var(--space-3);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-sm);
-	font-size: 13px;
+	font-size: var(--text-sm);
 }
 
 .pk-chat-worked-summary:hover {
@@ -345,7 +342,7 @@ details[open] > summary > .pk-chat-chevron {
 	min-block-size: var(--size-control-sm);
 	padding-inline: var(--space-1) var(--space-2);
 	border-radius: var(--radius-sm);
-	font-size: 13px;
+	font-size: var(--text-sm);
 }
 
 .pk-chat-tool-summary:hover {
@@ -716,7 +713,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-card-waiting {
 	margin: 0 0 0 auto;
 	color: var(--ink-muted);
-	font-size: 13px;
+	font-size: var(--text-sm);
 }
 
 .pk-chat-plan {

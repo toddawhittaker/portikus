@@ -1,5 +1,6 @@
 /* One bordered box: files, text, then the controls along the bottom edge. */
 .pk-composer {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
@@ -12,9 +13,11 @@
 	container: pk-composer / inline-size;
 }
 
-.pk-composer:has(.pk-composer-text:focus-visible) {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
+/* One 2px accent ring: the outline lies over the 1px border rather than beside it. */
+.pk-composer:has(.pk-composer-text:focus) {
+	border-color: var(--accent);
+	outline: 1px solid var(--accent);
+	outline-offset: 0;
 }
 
 .pk-composer.is-dragging {
@@ -196,19 +199,49 @@
 	background: none;
 }
 
+/* One line: attach, the Options summary, then the microphone, Stop and Send at the
+   end. The options tray opens above that line; the hint and the readouts take whole
+   lines below it. Spaced by margins, not row gaps, so an empty row adds nothing. */
 .pk-composer-bar {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: auto minmax(0, max-content) 1fr auto;
 	align-items: center;
-	gap: var(--space-2);
+	column-gap: var(--space-1);
 }
 
-/* The microphone and Send keep to the end of the row. */
-.pk-composer-actions {
+.pk-composer-tools {
 	display: flex;
 	align-items: center;
 	gap: var(--space-1);
-	margin-inline-start: auto;
+}
+
+.pk-composer-bar > .pk-composer-tools {
+	grid-area: 2 / 1;
+}
+
+.pk-composer-bar > .pk-composer-options {
+	grid-area: 2 / 2;
+}
+
+.pk-composer-actions {
+	grid-area: 2 / 4;
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.pk-composer-bar > .pk-composer-picks {
+	grid-area: 1 / 1 / 2 / -1;
+}
+
+.pk-composer-bar > .pk-picker-hint {
+	grid-area: 3 / 1 / 4 / -1;
+	margin-block-start: var(--space-1);
+}
+
+.pk-composer-bar > .pk-ctx-row {
+	grid-area: 4 / 1 / 5 / -1;
+	margin-block-start: var(--space-1);
 }
 
 /* Send is the box's main action, so it takes the primary fill. */
@@ -230,24 +263,6 @@
 .pk-composer-send.is-send[aria-disabled="true"] {
 	opacity: 0.55;
 	cursor: not-allowed;
-}
-
-.pk-composer-tools {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-}
-
-.pk-composer-picks {
-	display: flex;
-	flex: 1 1 auto;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-1);
-	min-inline-size: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
 }
 
 .pk-composer-chips {
@@ -340,17 +355,6 @@
 .pk-composer-foot.is-warning {
 	color: var(--status-warning);
 	font-weight: 500;
-}
-
-/* Too narrow for one line: the pickers take a line of their own, below the tools,
-   the microphone and Send, which stay on the first line. One line needs 607px with
-   the widest short values (Extra high, Bypass permissions) and the read-aloud
-   switch, so 40rem (640px) never moves the pickers when a value changes. */
-@container pk-composer (width < 40rem) {
-	.pk-composer-picks {
-		order: 1;
-		flex-basis: 100%;
-	}
 }
 
 /* The `/` and `@` menus: a list at the top of the box itself, above the text. It is

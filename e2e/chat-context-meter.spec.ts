@@ -44,7 +44,7 @@ function written(agoSeconds: number, ttlSeconds: 300 | 3600 = 300): Cache {
 async function openMeter(page: Page, context: BrowserContext) {
 	const student = await createStudent(context);
 	const chat = await openChat(page, student.workspaceId, "Meter");
-	await expect(chat.view.getByTestId("composer-model")).toBeVisible({
+	await expect(chat.view.getByTestId("composer-model")).toBeAttached({
 		timeout: 15_000,
 	});
 	return chat;
@@ -179,7 +179,7 @@ test("each chat tab shows its own conversation's figures", async ({
 	const { id, view: first } = await openMeter(page, context);
 	await splitPane(page, id, "right", "claude-gui");
 	const second = page.locator("[data-testid^='chat-view-']").nth(1);
-	await expect(second.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(second.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	const secondId = (await second.getAttribute("data-testid"))?.replace(
 		"chat-view-",
 		"",
@@ -227,7 +227,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 								form.getBoundingClientRect().top,
 						);
 					return [
-						top(".pk-picker"),
+						top(".pk-composer-options"),
 						top("[data-testid=chat-composer-send]"),
 						top(".pk-composer-tools"),
 					];
@@ -251,7 +251,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const fit = await composer.evaluate((form) => {
 				const group = form.querySelector<HTMLElement>(".pk-composer-picks");
 				const send = form.querySelector("[data-testid=chat-composer-send]");
-				const pickers = form.querySelector(".pk-picker");
+				const pickers = form.querySelector(".pk-composer-options");
 				const edge = form.getBoundingClientRect();
 				const readouts = [...form.querySelectorAll<HTMLElement>(".pk-ctx")].map((one) =>
 					one.getBoundingClientRect(),

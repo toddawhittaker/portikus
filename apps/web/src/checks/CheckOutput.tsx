@@ -6,19 +6,20 @@ import { CloseCode, SCROLLBACK_LINES } from "@portikus/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
+import { usePageTheme } from "../editor/pageTheme.js";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
+import { terminalTheme } from "../terminal/useXterm.js";
 import { decodeCheckFrame } from "./checkFrames.js";
 
-/** The check panel uses the terminal's colours, so output looks the same. */
-const THEME = {
-	background: "#11100e",
-	foreground: "#e4dfd4",
-	cursor: "#11100e",
-	selectionBackground: "#3a4a48",
-	scrollbarSliderBackground: "#9a938666",
-	scrollbarSliderHoverBackground: "#9a9386b3",
-	scrollbarSliderActiveBackground: "#9a9386cc",
-};
+/**
+ * The output takes the terminal palette of the page's own theme, so it sits
+ * in the right pane as a card of the same family rather than a dark slab.
+ * The cursor matches the ground: nothing is typed here.
+ */
+function outputTheme(theme: "light" | "dark"): Record<string, string> {
+	const colours = terminalTheme(theme);
+	return { ...colours, cursor: colours.background ?? "" };
+}
 
 export interface CheckOutputProps {
 	workspaceId: string;
@@ -53,6 +54,12 @@ export function CheckOutput({
 	useEffect(() => {
 		if (term.current) term.current.options.screenReaderMode = screenReaderMode;
 	}, [screenReaderMode]);
+	const theme = usePageTheme();
+	const themeRef = useRef(theme);
+	themeRef.current = theme;
+	useEffect(() => {
+		if (term.current) term.current.options.theme = outputTheme(theme);
+	}, [theme]);
 
 	useEffect(() => {
 		const container = host.current;
@@ -61,7 +68,8 @@ export function CheckOutput({
 		const xterm = new Xterm({
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
-			theme: THEME,
+			lineHeight: 1.3,
+			theme: outputTheme(themeRef.current),
 			// The same floor as the terminals, so dim ANSI colours stay readable.
 			minimumContrastRatio: 4.5,
 			convertEol: false,
@@ -132,6 +140,7 @@ export function CheckOutput({
 	return (
 		<div
 			className="pk-check-screen"
+			data-terminal-theme={theme}
 			data-testid={`check-output-${checkId}`}
 			role="log"
 			aria-label={name ? `Output of ${name}` : "Check output"}

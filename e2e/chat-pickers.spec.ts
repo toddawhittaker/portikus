@@ -1,5 +1,11 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { launchChat, openChat, receivedFrames, scriptedChat } from "./chat-helpers";
+import {
+	launchChat,
+	openChat,
+	openChatOptions,
+	receivedFrames,
+	scriptedChat,
+} from "./chat-helpers";
 import {
 	createProject,
 	createStudent,
@@ -28,12 +34,16 @@ function picker(view: Locator, label: string): Locator {
 	return view.getByTestId(TEST_ID[label] ?? label);
 }
 
-/** A chat from the New tab menu, once its pickers have the host's first settings. */
+/**
+ * A chat from the New tab menu, once its pickers have the host's first
+ * settings, with the Chat options panel that holds them open.
+ */
 async function withPickers<T extends { view: Locator }>(
 	opening: Promise<T>,
 ): Promise<T> {
 	const chat = await opening;
-	await expect(picker(chat.view, "Model")).toBeVisible({ timeout: 15_000 });
+	await expect(picker(chat.view, "Model")).toBeAttached({ timeout: 15_000 });
+	await openChatOptions(chat.view);
 	return chat;
 }
 

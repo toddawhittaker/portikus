@@ -46,7 +46,7 @@ async function openScriptedChat(page: Page, id: string, first: [string, object][
 	});
 	await page.reload();
 	const view = page.getByTestId(`chat-view-${id}`);
-	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	return {
 		view,
 		send: ((type, body) => {

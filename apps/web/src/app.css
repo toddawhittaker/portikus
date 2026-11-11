@@ -235,7 +235,7 @@ body {
  * Too narrow for both side panes at their default widths (240 and 280 px)
  * beside the work area's 360 px minimum (SPEC.md section 8.1): the work
  * area fills the shell, and projects and the right pane become drawers that
- * slide over it from their own side, opened from the header. The panel
+ * slide over it from their own side, opened from the pane bar. The panel
  * library sets sizes and overflow inline, hence !important; its width
  * handles have nothing to resize here, so they go.
  */
@@ -250,13 +250,20 @@ body {
 	.pk-shell > :is(#projects, #files) {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		position: fixed !important;
-		inset: 0;
+		/* Between the header and the pane bar, which stay in view as the frame. */
+		inset: var(--pk-appbar-height) 0 var(--pk-panebar-height) 0;
 		z-index: var(--z-dialog);
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		max-height: none !important;
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		overflow: hidden !important;
 		pointer-events: none;
+	}
+}
+/* A short window: the drawers take the header's height too. */
+@media (width < 56rem) and (height < 30rem) {
+	.pk-shell > :is(#projects, #files) {
+		inset-block-start: 0;
 	}
 }
 .pk-pane {
@@ -306,7 +313,7 @@ body {
 	margin: 0;
 	font-size: var(--text-md);
 	line-height: var(--leading-md);
-	font-weight: 650;
+	font-weight: 600;
 	letter-spacing: -0.005em;
 	color: var(--ink);
 }
@@ -336,7 +343,10 @@ body {
 	padding: var(--space-2);
 	border-top: 1px solid var(--line);
 }
+/* Everything in the work area that sits on the page surface sits on the lighter work surface instead. */
 .pk-work {
+	--surface: var(--surface-work);
+	--color-surface: var(--surface-work);
 	flex: 1;
 	min-width: 0;
 	height: 100%;
@@ -394,7 +404,6 @@ body {
 	color: var(--ink-muted);
 }
 .pk-list-row[aria-current="page"] {
-	font-weight: 600;
 	color: var(--accent-text);
 }
 .pk-list-row[aria-current="page"] .pk-icon {
@@ -464,8 +473,8 @@ body {
 	column-gap: var(--space-4);
 	row-gap: var(--space-1);
 	margin: 0;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 }
 .pk-dl dt {
 	color: var(--ink-muted);
@@ -592,8 +601,8 @@ body {
 	gap: var(--space-2);
 }
 .pk-livehelp-time {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
@@ -741,8 +750,8 @@ body {
 	max-width: none;
 }
 .pk-meters .pk-meter-label {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	font-weight: 500;
 }
 .pk-meters .pk-meter-figure {
@@ -756,8 +765,8 @@ body {
 }
 /* The next step under a full meter: short, muted, below the bar. */
 .pk-meter-step {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	color: var(--ink-muted);
 }
 

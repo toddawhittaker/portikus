@@ -19,23 +19,27 @@
 	padding: var(--space-0\.5) 0 0 calc(14px + var(--space-2));
 }
 /*
- * Two lines per row: the mark and the name, then the state or the subagent
- * type under the name, so neither is cut short in a narrow pane.
+ * Two lines per row: the mark and the name on one line, cut with an
+ * ellipsis (the whole name is its tooltip), then the state or the subagent
+ * type under it. The mark sits level with the first line.
  */
 .pk-agent-row {
 	display: grid;
 	grid-template-columns: 14px minmax(0, 1fr);
-	align-items: center;
+	align-items: start;
 	column-gap: var(--space-2);
-	row-gap: 0;
+	row-gap: var(--space-0\.5);
 	min-width: 0;
 	min-height: var(--pk-tree-row);
-	padding: var(--space-1) var(--space-2);
+	padding: var(--space-1\.5) var(--space-2);
 	border-radius: var(--radius-sm);
 	color: var(--ink);
 	text-decoration: none;
-	font-size: var(--text-sm);
-	line-height: var(--leading-sm);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+}
+.pk-agent-row--sub {
+	padding-block: var(--space-2);
 }
 .pk-agent-row:hover {
 	background: var(--surface-hover);
@@ -47,26 +51,21 @@
 .pk-agent-row .pk-agent-mark {
 	grid-column: 1;
 	grid-row: 1;
+	/* Centred on the first line: (line height - mark) / 2. */
+	margin-block-start: calc((var(--leading-md) - 14px) / 2);
 }
 .pk-agent-name {
 	grid-column: 2;
 	grid-row: 1;
 	min-width: 0;
-	/* Up to two lines before the name is cut, so a subagent's task reads whole. */
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
 	overflow: hidden;
-	overflow-wrap: anywhere;
-	font-weight: 500;
-}
-.pk-agent-row--sub .pk-agent-name {
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-weight: 400;
 }
 /* An unread finish or question is bold, as its tab is. */
 .pk-agent-row.is-unread .pk-agent-name {
-	font-weight: 650;
+	font-weight: 600;
 }
 .pk-agent-state,
 .pk-agent-type {

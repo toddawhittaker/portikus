@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { makeChatTab, scriptChat } from "./chat-helpers";
+import { makeChatTab, openChatOptions, scriptChat } from "./chat-helpers";
 import {
 	createProject,
 	createStudent,
@@ -120,7 +120,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect.poll(async () => (await ids()).length).toBe(4);
 			const chat = (await ids()).find((one) => one !== shell && !agents.includes(one));
 			const view = page.getByTestId(`chat-view-${chat}`);
-			await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+			await expect(view.getByTestId("composer-model")).toBeAttached({
+				timeout: 15_000,
+			});
 
 			const report = (state: "working" | "needs-input") =>
 				setAgents(
@@ -134,7 +136,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(toasts).toHaveCount(2);
 			await expect(toast(page, "Claude Code needs your input")).toBeVisible();
 
-			// Every control along the composer's bottom edge, the corner the toasts start in.
+			// Every control along the composer's bottom edge, the corner the toasts start in,
+			// with the options panel open so its pickers are on screen too.
+			await openChatOptions(view);
 			const controls = view
 				.getByTestId("chat-composer")
 				.locator('button, [role="combobox"]');

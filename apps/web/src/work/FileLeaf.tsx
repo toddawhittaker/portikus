@@ -8,6 +8,7 @@ import { Button, EmptyState, Icon, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
+import { FileOpening } from "../editor/FileOpening.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
@@ -373,7 +374,7 @@ function FileTab({
 		}
 		if (viewer && data) return viewerBody(data);
 		if (text === null || !revealReady) {
-			return <p className="pk-file-note">Loading…</p>;
+			return <FileOpening name={name} />;
 		}
 		if (svgModes && view === "view") {
 			// Drawn from the text in the tab, so it shows unsaved edits too, and
@@ -392,7 +393,7 @@ function FileTab({
 			return <CsvView path={path} text={text} onShowText={() => pressView("edit")} />;
 		}
 		const editor = (
-			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
+			<Suspense fallback={<FileOpening name={name} />}>
 				<CodeEditor
 					path={path}
 					projectId={projectId}

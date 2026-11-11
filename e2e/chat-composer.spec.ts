@@ -5,7 +5,7 @@ import {
 	test,
 	type WebSocketRoute,
 } from "@playwright/test";
-import { openChat, receivedFrames } from "./chat-helpers";
+import { openChat, openChatOptions, receivedFrames } from "./chat-helpers";
 import { join, newCourse } from "./course-profile-helpers";
 import {
 	createProject,
@@ -376,18 +376,22 @@ test("a step still running when the student sends stays on the Working line unti
 	expect(await isAfter(sent, working)).toBe(true);
 });
 
-test("Escape in the message box stops a running turn, but first closes an open picker", async ({
+test("Escape in the message box stops a running turn, but first closes an open picker and the options panel", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
 	const { id, view, box } = await startHeldTurn(page, student);
+	await openChatOptions(view);
 	await view.getByRole("button", { name: /^Model/ }).click();
 	await expect(page.getByRole("menu")).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("menu")).toHaveCount(0);
 	expect(await receivedFrames(id, "interrupt")).toEqual([]);
 	await box.focus();
+	await box.press("Escape");
+	await expect(view.getByTestId("composer-picks")).toBeHidden();
+	expect(await receivedFrames(id, "interrupt")).toEqual([]);
 	await box.press("Escape");
 	await expect
 		.poll(async () => receivedFrames(id, "interrupt"))
@@ -894,7 +898,7 @@ test("Send is an icon button at the end of the row, with the microphone beside i
 	await expect(send.locator("svg")).toBeVisible();
 	const mic = view.getByTestId(`chat-voice-${id}`);
 	const attach = view.getByTestId("chat-composer-attach");
-	const permissions = view.getByTestId("composer-mode");
+	const permissions = view.getByTestId("composer-options");
 	const [sendBox, micBox, attachBox, pickBox] = await Promise.all(
 		[send, mic, attach, permissions].map(async (l) => l.boundingBox()),
 	);

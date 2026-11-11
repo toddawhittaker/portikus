@@ -232,7 +232,7 @@
 	}
 
 	.pk-cell-primary {
-		font-size: 13px;
+		font-size: var(--text-sm);
 		line-height: 16px;
 		color: var(--ink);
 		display: inline-flex;
@@ -258,8 +258,8 @@
 	gap: var(--space-1\.5);
 	min-height: 24px;
 	border-radius: var(--radius-sm);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	cursor: pointer;
 	list-style: none;
 }
