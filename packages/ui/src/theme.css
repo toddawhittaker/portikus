@@ -56,6 +56,8 @@
 	--surface-chrome: var(--surface);
 	--surface-sunken: #ece6da;
 	--surface-hover: #ebe4d6;
+	/* The empty part of a meter: a filled track, never an edge. */
+	--meter-track: #ddd5c5;
 	--surface-selected: #cce9e2;
 	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
 	   never green, which belongs to the passed badge and Git added. */
@@ -168,7 +170,7 @@
 	--density-comfortable-tab: 36px;
 	--density-comfortable-pad: 12px;
 	--density-comfortable-font: 14px;
-	--density-compact-control: 28px;
+	--density-compact-control: 32px;
 	--density-compact-row: 28px;
 	--density-compact-tree-row: 22px;
 	--density-compact-tab: 30px;
@@ -201,11 +203,12 @@
  */
 [data-theme="dark"] {
 	color-scheme: dark;
-	--surface: #1b1a18;
+	--surface: #1f1e1b;
 	--surface-raised: #2a2825;
-	--surface-work: #22211f;
-	--surface-sunken: #141312;
+	--surface-work: #171614;
+	--surface-sunken: #1c1b18;
 	--surface-hover: #2f2d29;
+	--meter-track: #3d3a35;
 	--surface-selected: #183f3a;
 	--surface-row-selected: #37322a;
 	--surface-inverse: #f0ebe1;
@@ -214,7 +217,7 @@
 	--line-strong: #8a8478;
 	--ink: #f0ebe1;
 	--ink-muted: #bdb6aa;
-	--ink-faint: #a29b8f;
+	--ink-faint: #aaa396;
 	--ink-inverse: #1b1a18;
 	--accent: #5fcfbf;
 	--accent-hover: #82dccf;
@@ -259,11 +262,12 @@
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		color-scheme: dark;
-		--surface: #1b1a18;
+		--surface: #1f1e1b;
 		--surface-raised: #2a2825;
-		--surface-work: #22211f;
-		--surface-sunken: #141312;
+		--surface-work: #171614;
+		--surface-sunken: #1c1b18;
 		--surface-hover: #2f2d29;
+		--meter-track: #3d3a35;
 		--surface-selected: #183f3a;
 		--surface-row-selected: #37322a;
 		--surface-inverse: #f0ebe1;
@@ -272,7 +276,7 @@
 		--line-strong: #8a8478;
 		--ink: #f0ebe1;
 		--ink-muted: #bdb6aa;
-		--ink-faint: #a29b8f;
+		--ink-faint: #aaa396;
 		--ink-inverse: #1b1a18;
 		--accent: #5fcfbf;
 		--accent-hover: #82dccf;
@@ -327,14 +331,14 @@
  */
 :root,
 [data-terminal-theme="dark"] {
-	--terminal-bg: #252420;
+	--terminal-bg: #171614;
 	--terminal-fg: #e8e3d8;
 	--terminal-muted: #a49d90;
 	--terminal-cursor: #e8c37a;
 	--terminal-selection: #3e4f4c;
 	/* Hairline between terminal panes, on terminal-bg. */
 	--terminal-line: #3a3832;
-	--ansi-black: #252420;
+	--ansi-black: #171614;
 	--ansi-bright-black: #958f83;
 	--ansi-red: #e07a6e;
 	--ansi-bright-red: #f09a8f;
@@ -432,6 +436,7 @@
 	--color-surface-work: var(--surface-work);
 	--color-surface-sunken: var(--surface-sunken);
 	--color-surface-hover: var(--surface-hover);
+	--color-meter-track: var(--meter-track);
 	--color-surface-selected: var(--surface-selected);
 	--color-surface-row-selected: var(--surface-row-selected);
 	--color-surface-inverse: var(--surface-inverse);

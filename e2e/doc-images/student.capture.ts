@@ -58,6 +58,8 @@ async function workspace(page: Page, colorScheme: "light" | "dark" = "light") {
 	const maya = await person("Maya Chen", "maya", { context: page.context() });
 	await otherProjects(maya.workspaceId);
 	const project = await weatherProject(maya.workspaceId);
+	// Every running workspace shot shows the plan meters beside Memory and Disk.
+	await weeklyPlans(maya.workspaceId);
 	return { maya, project };
 }
 
@@ -382,6 +384,7 @@ for (const colorScheme of SCHEMES) {
 		await page.getByRole("menuitem", { name: "New project" }).click();
 		await expect(page.getByTestId("dialog-create-project")).toBeVisible();
 		await page.getByTestId("field-name").fill("Budget Tracker");
+		await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
 		await shoot(page, imageName("student-new-project", colorScheme));
 	});
 }
@@ -393,6 +396,7 @@ for (const colorScheme of SCHEMES) {
 		await page.getByTestId("me").click();
 		await page.getByRole("menuitem", { name: "Settings" }).click();
 		await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
+		await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
 		await shoot(page, imageName("student-settings", colorScheme));
 	});
 }
@@ -511,6 +515,7 @@ for (const colorScheme of SCHEMES) {
 			timeout: 20_000,
 		});
 		await expect(page.getByTestId("editor-code-help-app.py")).toBeVisible();
+		await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
 		await page.waitForTimeout(2000);
 		await shoot(page, imageName("student-editor", colorScheme));
 		if (colorScheme === "dark") return;

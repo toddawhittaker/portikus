@@ -35,7 +35,7 @@
   --density-comfortable-tab: 36px;
   --density-comfortable-pad: 12px;
   --density-comfortable-font: 14px;
-  --density-compact-control: 28px;
+  --density-compact-control: 32px;
   --density-compact-row: 28px;
   --density-compact-tree-row: 22px;
   --density-compact-tab: 30px;
@@ -77,6 +77,7 @@
   --surface-chrome: #f5f1e8;
   --surface-sunken: #ece6da;
   --surface-hover: #ebe4d6;
+  --meter-track: #ddd5c5;
   --surface-selected: #cce9e2;
   --surface-row-selected: #e9dfcb;
   --surface-inverse: #2a2723;
@@ -122,7 +123,6 @@
   --status-danger-soft: #f8dcd6;
   --danger-hover: #8f2b21;
   --on-danger: #ffffff;
-  --mark-code: #3a8a7e;
   --git-added: #2b7336;
   --git-modified: #8a5a00;
   --git-deleted: #b0372b;
@@ -134,12 +134,13 @@
   color-scheme: light;
 }
 [data-theme="dark"] {
-  --surface: #1b1a18;
+  --surface: #1f1e1b;
   --surface-raised: #2a2825;
-  --surface-work: #22211f;
-  --surface-chrome: #1b1a18;
-  --surface-sunken: #141312;
+  --surface-work: #171614;
+  --surface-chrome: #1f1e1b;
+  --surface-sunken: #1c1b18;
   --surface-hover: #2f2d29;
+  --meter-track: #3d3a35;
   --surface-selected: #183f3a;
   --surface-row-selected: #37322a;
   --surface-inverse: #f0ebe1;
@@ -148,7 +149,7 @@
   --line-strong: #8a8478;
   --ink: #f0ebe1;
   --ink-muted: #bdb6aa;
-  --ink-faint: #a29b8f;
+  --ink-faint: #aaa396;
   --ink-inverse: #1b1a18;
   --accent: #5fcfbf;
   --accent-hover: #82dccf;
@@ -185,7 +186,6 @@
   --status-danger-soft: #45201b;
   --danger-hover: #f8b4aa;
   --on-danger: #1f0d0b;
-  --mark-code: #3a8a7e;
   --git-added: #7fd18a;
   --git-modified: #f2c35a;
   --git-deleted: #f59a8e;
@@ -197,13 +197,13 @@
   color-scheme: dark;
 }
 :root, [data-terminal-theme="dark"] {
-  --terminal-bg: #252420;
+  --terminal-bg: #171614;
   --terminal-fg: #e8e3d8;
   --terminal-muted: #a49d90;
   --terminal-cursor: #e8c37a;
   --terminal-selection: #3e4f4c;
   --terminal-line: #3a3832;
-  --ansi-black: #252420;
+  --ansi-black: #171614;
   --ansi-bright-black: #958f83;
   --ansi-red: #e07a6e;
   --ansi-bright-red: #f09a8f;

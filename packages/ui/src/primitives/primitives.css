@@ -41,12 +41,18 @@
 	outline-offset: var(--ring-offset-inset);
 }
 
-/* A busy button keeps its colour; only a truly disabled one goes flat. */
-.pk-btn:disabled:not([aria-busy="true"]) {
+/*
+ * A button that cannot act, whether disabled or kept focusable with
+ * aria-disabled: no fill and a dashed edge, so it never reads as an enabled
+ * secondary button, with its label still readable. A busy button keeps its
+ * colour.
+ */
+.pk-btn:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
 	cursor: not-allowed;
-	background: var(--surface-sunken);
+	background: transparent;
 	color: var(--ink-faint);
-	border-color: var(--line);
+	border-style: dashed;
+	border-color: var(--line-strong);
 }
 
 .pk-btn[aria-busy="true"] {
@@ -250,9 +256,21 @@
 }
 
 /* PageIntro: a quiet note under a page heading, no card and no fill. */
-.pk-intro {
+.pk-intro,
+.pk-intro-wrap {
 	max-width: 72ch;
 	color: var(--ink-muted);
+}
+/* The lead and the closed disclosure under it read as one short block. */
+.pk-intro-wrap {
+	display: grid;
+	justify-items: start;
+	gap: var(--space-1);
+}
+.pk-intro-lead {
+	margin: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-intro-summary {
 	display: inline-flex;
@@ -286,7 +304,7 @@
 	line-height: 20px;
 }
 
-/* Meter: a native meter styled like the storage meters, with a line-strong edge so the empty part still shows (WCAG 1.4.11). */
+/* Meter: a native meter styled like the storage meters: a filled track and its figure in text beside it. */
 .pk-meter-line {
 	display: flex;
 	flex-wrap: wrap;
@@ -309,9 +327,10 @@
 	box-sizing: border-box;
 	inline-size: 100%;
 	block-size: 8px;
-	border: 1px solid var(--line-strong);
+	/* A filled track with no edge, so the fill runs its full height; the figure beside it carries the value. */
+	border: 0;
 	border-radius: var(--radius-xs);
-	background: var(--surface-hover);
+	background: var(--meter-track);
 	overflow: hidden;
 }
 
@@ -319,7 +338,7 @@
 	block-size: 100%;
 	border: 0;
 	border-radius: 0;
-	background: var(--surface-hover);
+	background: var(--meter-track);
 }
 
 .pk-meter-bar::-webkit-meter-optimum-value {
@@ -341,6 +360,25 @@
 
 .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
 	background: var(--status-warning);
+}
+
+/*
+ * The slim meter of a bar of figures (the status bar, the chat composer): a
+ * short rounded track with its figure on the same line.
+ */
+.pk-meter-line--slim {
+	flex-wrap: nowrap;
+	gap: var(--space-1) var(--space-1\.5);
+}
+
+.pk-meter-line--slim .pk-meter-wrap {
+	flex: none;
+	inline-size: 56px;
+	min-width: 0;
+}
+
+.pk-meter-line--slim .pk-meter-bar {
+	border-radius: var(--radius-full);
 }
 
 /* The tick stands out above and below the bar, in ink, so it reads on the fill and the track. */
@@ -375,9 +413,12 @@
 		forced-color-adjust: none;
 	}
 
+	.pk-meter-bar {
+		border: 1px solid CanvasText;
+	}
+
 	.pk-meter-bar,
 	.pk-meter-bar::-webkit-meter-bar {
-		border-color: CanvasText;
 		background: Canvas;
 	}
 
