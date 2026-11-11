@@ -15,7 +15,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { createStore, useStore } from "zustand";
-import { clampZoom, DEFAULT_ZOOM } from "../editor/zoom.js";
+import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import { movedPath } from "../files/paths.js";
 import { forgetFiles, moveKeys } from "./fileState.js";
 import type { LocalLayout } from "./local.js";
@@ -56,9 +56,8 @@ export interface LayoutState {
 	zooms: Record<string, number>;
 	/**
 	 * The zoom of each terminal and chat pane, by terminal id, so a pane that
-	 * splits or moves, and so mounts again, keeps its size. It is also kept in
-	 * this tab's sessionStorage, so it outlives leaving the workspace; it is
-	 * never sent to the server (SPEC.md §7.5).
+	 * splits or moves, and so mounts again, keeps its size. usePaneZoom
+	 * (paneZoom.ts) also keeps it in this tab's sessionStorage.
 	 */
 	paneZooms: Record<string, number>;
 	/**
@@ -528,10 +527,8 @@ export function createLayoutStore() {
 			setZoom: (path, percent) =>
 				set((state) => ({ zooms: { ...state.zooms, [path]: percent } })),
 
-			setPaneZoom: (terminalId, percent) => {
-				writeSessionPaneZoom(terminalId, percent);
-				set((state) => ({ paneZooms: { ...state.paneZooms, [terminalId]: percent } }));
-			},
+			setPaneZoom: (terminalId, percent) =>
+				set((state) => ({ paneZooms: { ...state.paneZooms, [terminalId]: percent } })),
 
 			setFileView: (path, view) =>
 				set((state) => ({ fileViews: { ...state.fileViews, [path]: view } })),
@@ -753,60 +750,6 @@ export function useEditorZoom(path: string): [number, (percent: number) => void]
 		[store, path],
 	);
 	return [zoom, set];
-}
-
-/** Terminal ids are unique across projects, so one key serves them all. */
-const PANE_ZOOM_KEY = "portikus.paneZoom";
-
-function sessionPaneZooms(): Record<string, unknown> {
-	try {
-		const parsed: unknown = JSON.parse(sessionStorage.getItem(PANE_ZOOM_KEY) ?? "{}");
-		return typeof parsed === "object" && parsed !== null
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		// Refused or corrupt storage: the pane starts at 100%.
-		return {};
-	}
-}
-
-function readSessionPaneZoom(terminalId: string): number | undefined {
-	const value = sessionPaneZooms()[terminalId];
-	return typeof value === "number" ? clampZoom(value) : undefined;
-}
-
-function writeSessionPaneZoom(terminalId: string, percent: number): void {
-	try {
-		const zooms = { ...sessionPaneZooms(), [terminalId]: percent };
-		sessionStorage.setItem(PANE_ZOOM_KEY, JSON.stringify(zooms));
-	} catch {
-		// Refused storage only costs the zoom on leaving the workspace.
-	}
-}
-
-/**
- * The zoom of one terminal or chat pane, held in the layout store like the
- * editor zoom. Null outside a workspace, where there is no store to hold it
- * and the pane offers no zoom.
- */
-export function usePaneZoom(
-	terminalId: string,
-): [number, (percent: number) => void] | null {
-	const store = useContext(LayoutStoreContext);
-	const [zoom, setLocal] = useState(
-		() =>
-			store?.getState().paneZooms[terminalId] ??
-			readSessionPaneZoom(terminalId) ??
-			DEFAULT_ZOOM,
-	);
-	const set = useCallback(
-		(percent: number) => {
-			setLocal(percent);
-			store?.getState().setPaneZoom(terminalId, percent);
-		},
-		[store, terminalId],
-	);
-	return store ? [zoom, set] : null;
 }
 
 /**

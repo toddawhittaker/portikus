@@ -32,7 +32,7 @@ import {
 	wheelZoom,
 	zoomKey,
 } from "../editor/zoom.js";
-import { usePaneZoom } from "../layout/store.js";
+import { usePaneZoom } from "../layout/paneZoom.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import type { SpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";

@@ -149,15 +149,15 @@ test("without pasteImage a pasted picture is ignored", () => {
 /** The pane's zoom sets the terminal's text size (SPEC.md §13.1). */
 test("a new text size reaches the terminal and its new grid is sent on", () => {
 	const resized = vi.fn();
-	let term: { options: { fontSize?: number; lineHeight?: number } } | null = null;
-	const attach = vi.fn((opened) => {
-		term = opened;
+	const opened: { term?: { options: { fontSize?: number; lineHeight?: number } } } = {};
+	const attach = vi.fn((term) => {
+		opened.term = term;
 		return { resized, dispose: vi.fn() };
 	});
 	const { view, options } = renderHost({ attach, fontSize: 21 });
-	expect(term?.options.fontSize).toBe(21);
+	expect(opened.term?.options.fontSize).toBe(21);
 	// Rows close enough that box-drawing borders join up.
-	expect(term?.options.lineHeight).toBe(1.1);
+	expect(opened.term?.options.lineHeight).toBe(1.1);
 	view.rerender(
 		<ToastProvider>
 			<Host {...options} fontSize={21} />
@@ -169,7 +169,7 @@ test("a new text size reaches the terminal and its new grid is sent on", () => {
 			<Host {...options} fontSize={28} />
 		</ToastProvider>,
 	);
-	expect(term?.options.fontSize).toBe(28);
+	expect(opened.term?.options.fontSize).toBe(28);
 	expect(resized).toHaveBeenCalledTimes(1);
 	expect(options.attach).toHaveBeenCalledTimes(1);
 });
