@@ -1841,6 +1841,8 @@ The editor should prioritize:
 
 Large/binary files should open in a viewer or download flow rather than being forced through the text editor.
 
+The editor has no minimap. Its scrollbar instead carries coloured marks for lines Git sees as added, modified or deleted, for warnings and errors, and for find matches, in the colours of the current theme.
+
 A `.csv` file small enough to edit opens as a read-only table with View, Edit and Diff. The first record heads the columns. Each row shows its data-row number as a row header, and the column headers sort a view of the whole file (ascending, descending, file order). Sorting never changes the file and never saves. At most 1,000 rows and 200 columns are drawn, and the view says how many the file holds. A file that is not valid RFC 4180 CSV says so and offers its text.
 
 ### 13.3 External modification

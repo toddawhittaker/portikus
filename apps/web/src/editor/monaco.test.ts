@@ -9,9 +9,9 @@ import {
 
 vi.mock("./features.js", () => ({ loadEditorFeatures: async () => {} }));
 
-/** SPEC.md §13.2 names the minimap among the editor's reading aids. */
-test("every editor shows the minimap beside the overview ruler", () => {
-	expect(baseEditorOptions.minimap?.enabled).toBe(true);
+/** SPEC.md §13.2: a scrollbar with change and problem marks, not a minimap. */
+test("every editor marks changes and problems in the scrollbar, with no minimap", () => {
+	expect(baseEditorOptions.minimap?.enabled).toBe(false);
 	expect(baseEditorOptions.overviewRulerLanes).toBe(3);
 });
 
