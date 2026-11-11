@@ -1,11 +1,13 @@
 /**
  * The frame around one terminal pane in a split: the title bar, which is
- * also the drag handle, the actions menu, and the drop area (SPEC.md §9.3).
- * What runs inside, and what the actions do, is the caller's.
+ * also the drag handle, the zoom controls, the actions menu, and the drop
+ * area (SPEC.md §9.3). What runs inside, and what the actions do, is the
+ * caller's; the pane's zoom reaches it through PaneZoomContext.
  */
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { TerminalTheme } from "@portikus/contracts";
 import {
+	Button,
 	IconButton,
 	Menu,
 	MenuCheckboxItem,
@@ -15,7 +17,22 @@ import {
 	MenuSub,
 	MenuTrigger,
 } from "@portikus/ui";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import {
+	DEFAULT_ZOOM,
+	PaneZoomContext,
+	stepZoom,
+	wheelZoom,
+	zoomKey,
+} from "../editor/zoom.js";
+import { usePaneZoom } from "../layout/paneZoom.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import type { SpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
@@ -104,6 +121,13 @@ export function PaneFrame({
 	const mountId = useRef(crypto.randomUUID());
 	const section = useRef<HTMLElement | null>(null);
 	const actionsMenu = usePaneMenuFocus();
+	// Each pane zooms on its own (SPEC.md §13.1); outside a workspace there is
+	// no zoom to keep, so none is offered.
+	const paneZoom = usePaneZoom(terminalId);
+	const zoom = paneZoom?.[0] ?? DEFAULT_ZOOM;
+	const zoomRef = useRef(paneZoom);
+	zoomRef.current = paneZoom;
+	const zoomable = paneZoom !== null;
 	// The menu returns focus to its trigger as it closes, so the field waits
 	// for that to happen and only commits on a blur once it really had focus.
 	const armed = useRef(false);
@@ -139,6 +163,24 @@ export function PaneFrame({
 		return () => clearTimeout(timer);
 	}, [renaming]);
 
+	// Ctrl + wheel, or a trackpad pinch, over any part of the pane zooms it,
+	// focused or not. Capture, so it is taken before the terminal can scroll
+	// with it or send it to a program.
+	useEffect(() => {
+		const node = section.current;
+		if (!node || !zoomable) return;
+		const onWheel = wheelZoom((steps) => {
+			const current = zoomRef.current;
+			if (current) current[1](stepZoom(current[0], steps));
+		});
+		node.addEventListener("wheel", onWheel, { capture: true, passive: false });
+		return () => node.removeEventListener("wheel", onWheel, { capture: true });
+	}, [zoomable]);
+
+	function setZoom(percent: number) {
+		paneZoom?.[1](percent);
+	}
+
 	function commitRename() {
 		const next = draft.trim();
 		if (next.length > 0 && next !== name) onRename?.(terminalId, next);
@@ -161,6 +203,17 @@ export function PaneFrame({
 			data-mount-id={mountId.current}
 			onFocusCapture={() => onFocus(terminalId)}
 			onMouseDown={() => onFocus(terminalId)}
+			// A chat takes the editor's zoom keys; a terminal leaves them to the
+			// shell, so it zooms by the wheel and the buttons only.
+			onKeyDown={(event) => {
+				if (!chat || !zoomable) return;
+				const key = zoomKey(event);
+				if (key === null) return;
+				event.preventDefault();
+				setZoom(key === "reset" ? DEFAULT_ZOOM : stepZoom(zoom, key === "in" ? 1 : -1));
+			}}
+			style={{ "--pane-zoom": zoom / 100 } as CSSProperties}
+			data-zoom={zoom}
 		>
 			<div className="pk-term-bar">
 				{renaming ? (
@@ -207,6 +260,36 @@ export function PaneFrame({
 								?.focus()
 						}
 					/>
+				) : null}
+				{zoomable ? (
+					<>
+						<IconButton
+							icon="minus"
+							label={`Zoom ${name} out`}
+							size="sm"
+							data-testid={`pane-zoom-out-${terminalId}`}
+							onClick={() => setZoom(stepZoom(zoom, -1))}
+						/>
+						{/* The bar's icon-button colours, so it reads as one of them. */}
+						<Button
+							variant="quiet"
+							size="sm"
+							className="pk-iconbtn tabular-nums"
+							aria-label={`Zoom ${name} to 100%, now ${zoom}%`}
+							title="Back to 100%"
+							data-testid={`pane-zoom-${terminalId}`}
+							onClick={() => setZoom(DEFAULT_ZOOM)}
+						>
+							{zoom}%
+						</Button>
+						<IconButton
+							icon="plus"
+							label={`Zoom ${name} in`}
+							size="sm"
+							data-testid={`pane-zoom-in-${terminalId}`}
+							onClick={() => setZoom(stepZoom(zoom, 1))}
+						/>
+					</>
 				) : null}
 				<MenuRoot onOpenChange={actionsMenu.onOpenChange}>
 					<MenuTrigger asChild={true}>
@@ -310,7 +393,7 @@ export function PaneFrame({
 					</Menu>
 				</MenuRoot>
 			</div>
-			{children}
+			<PaneZoomContext.Provider value={zoom}>{children}</PaneZoomContext.Provider>
 			{voice && voice.state !== "listening" && voice.message !== "" ? (
 				// The error seen as well as heard; the status region reads it.
 				<p

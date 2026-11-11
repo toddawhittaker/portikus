@@ -2,8 +2,16 @@ import { MAX_UPLOAD_BYTES, type Terminal as TerminalMeta } from "@portikus/contr
 import { useToast } from "@portikus/ui";
 import { useNavigate } from "@tanstack/react-router";
 import type { Terminal as Xterm } from "@xterm/xterm";
-import { type MutableRefObject, useCallback, useId, useRef, useState } from "react";
+import {
+	type MutableRefObject,
+	useCallback,
+	useContext,
+	useId,
+	useRef,
+	useState,
+} from "react";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
+import { fontSizeFor, PaneZoomContext } from "../editor/zoom.js";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { savePastedImage } from "../files/queries.js";
 import {
@@ -334,11 +342,14 @@ export function TerminalPane({
 		[workspaceId, projectId, terminalId],
 	);
 
+	// The pane's zoom (SPEC.md §13.1), from the frame around it.
+	const zoom = useContext(PaneZoomContext);
 	useXterm({
 		host,
 		name: terminal.name,
 		theme: terminal.theme,
 		screenReaderMode,
+		fontSize: fontSizeFor(zoom),
 		visible,
 		focusOnMount,
 		describedBy: leaveHintId,

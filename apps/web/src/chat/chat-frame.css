@@ -12,3 +12,15 @@
 	/* The pane never scrolls, even by script; only the chat's log and card body do. */
 	overflow: clip;
 }
+
+/*
+ * The chat zooms with its pane (SPEC.md §13.1): its type uses fixed pixel
+ * sizes, so the whole chat scales, and its column, measure and card widths
+ * are divided back so they stay the size chat.css gives them on screen.
+ */
+.pk-term > .pk-chat {
+	zoom: var(--pane-zoom, 1);
+	--pk-chat-column: calc(60rem / var(--pane-zoom, 1));
+	--pk-chat-measure: calc(46rem / var(--pane-zoom, 1));
+	--pk-chat-card: calc(47.5rem / var(--pane-zoom, 1));
+}
