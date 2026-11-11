@@ -197,7 +197,7 @@ test("the row and the panel work from the keyboard alone", async ({
 	await expect(view.getByTestId("chat-composer-send")).toBeFocused();
 });
 
-test("a press outside the panel closes it, and the composer's focus ring is one accent line", async ({
+test("a press outside the panel closes it, and the composer's focus ring is one 2px focus-colour line", async ({
 	page,
 	context,
 }) => {
@@ -210,13 +210,14 @@ test("a press outside the panel closes it, and the composer's focus ring is one 
 		return {
 			border: style.borderTopColor,
 			outline: style.outlineColor,
-			width: parseFloat(style.borderTopWidth) + parseFloat(style.outlineWidth),
+			width: style.outlineWidth,
 			offset: style.outlineOffset,
 		};
 	});
+	// The 2px outline lies over the 1px border, so one line shows.
 	expect(ring.outline).toBe(ring.border);
-	expect(ring.width).toBe(2);
-	expect(ring.offset).toBe("0px");
+	expect(ring.width).toBe("2px");
+	expect(ring.offset).toBe("-1px");
 });
 
 test("on a phone the Options button is a full touch target", async ({

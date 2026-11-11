@@ -123,7 +123,7 @@ function GlanceCard({
 			className={`pk-card flex min-w-0 flex-col gap-3 p-5 ${className}`}
 			aria-labelledby={`health-${id}-title`}
 		>
-			<h4 className="pk-text-heading m-0" id={`health-${id}-title`}>
+			<h4 className="pk-text-compact m-0 font-semibold" id={`health-${id}-title`}>
 				{title}
 			</h4>
 			{children}
@@ -182,7 +182,7 @@ export function HealthView({
 			) : null}
 
 			<section className="flex flex-col gap-3" aria-labelledby="health-glance-title">
-				<h3 className="pk-group-label" id="health-glance-title">
+				<h3 className="pk-text-heading" id="health-glance-title">
 					At a glance
 				</h3>
 				<div

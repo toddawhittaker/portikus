@@ -158,6 +158,7 @@ export function ProjectAgents({
 							to="/workspaces/$id/projects/$projectId"
 							params={{ id: workspaceId, projectId }}
 							search={{ tab: terminal.terminalId }}
+							aria-current={isCurrent ? "page" : undefined}
 							data-testid={`agent-row-${terminal.terminalId}`}
 						>
 							<AgentStateMark state={terminal.state} unread={isUnread} />

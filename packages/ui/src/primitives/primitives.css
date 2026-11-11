@@ -144,8 +144,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	/* Stopped, it shows the whole ring so it never reads as a stuck half arc. */
 	.pk-spin {
 		animation: none;
+		border-color: currentColor;
 	}
 
 	.pk-skel {

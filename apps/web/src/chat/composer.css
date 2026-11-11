@@ -14,11 +14,11 @@
 	container: pk-composer / inline-size;
 }
 
-/* One 2px accent ring: the outline lies over the 1px border rather than beside it. */
-.pk-composer:has(.pk-composer-text:focus) {
-	border-color: var(--accent);
-	outline: 1px solid var(--accent);
-	outline-offset: 0;
+/* The focus ring on the whole card; the -1px offset lays it over the 1px border. */
+.pk-composer:has(.pk-composer-text:focus-visible) {
+	border-color: var(--focus);
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: -1px;
 }
 
 .pk-composer.is-dragging {

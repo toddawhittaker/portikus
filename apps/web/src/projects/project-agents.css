@@ -21,7 +21,7 @@
 }
 /*
  * The mark, then the name, which may take two lines before it is cut (the
- * whole name is its tooltip), then the state or the subagent type under it.
+ * whole name shows on keyboard focus), then the state or the subagent type under it.
  * The mark sits level with the first line.
  */
 .pk-agent-row {
@@ -50,11 +50,6 @@
 	background: var(--accent-soft);
 	box-shadow: inset 2px 0 0 var(--accent);
 }
-/* An agent waiting on the student takes the needs-input fill wherever it is, so it is found at a glance. */
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input) {
-	background: var(--status-warning-soft);
-	box-shadow: inset 2px 0 0 var(--status-warning);
-}
 .pk-agent-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
@@ -76,6 +71,12 @@
 	overflow: hidden;
 	overflow-wrap: anywhere;
 	font-weight: 400;
+}
+/* A keyboard user cannot open the title tooltip, so focus shows the whole name. */
+.pk-agent-row:focus-visible .pk-agent-name {
+	display: block;
+	-webkit-line-clamp: unset;
+	line-clamp: none;
 }
 /* An unread finish or question is bold, as its tab is. */
 .pk-agent-row.is-unread .pk-agent-name {
