@@ -713,7 +713,7 @@ test.describe("admin layout", () => {
 			expect(lines.start).toBe(lines.strong);
 			expect(lines.end).toBe(lines.strong);
 			expect(lines.strong).toBe(
-				scheme === "light" ? "rgb(138, 131, 117)" : "rgb(127, 120, 108)",
+				scheme === "light" ? "rgb(128, 120, 104)" : "rgb(138, 132, 120)",
 			);
 			await expectNoViolations(page, "[data-testid=admin-frame] > nav");
 		});
