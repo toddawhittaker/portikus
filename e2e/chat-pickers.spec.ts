@@ -638,9 +638,10 @@ test("Read replies aloud sits to the right of Model and Version", async ({
 	const model = await box("composer-model");
 	const version = await box("composer-version");
 	const aloud = await box("composer-read-aloud");
-	// Model and Version are side by side; the switch is in the last column, right of both.
-	expect(Math.abs(model.y - version.y)).toBeLessThan(2);
-	expect(version.x).toBeGreaterThan(model.x);
-	expect(aloud.x).toBeGreaterThanOrEqual(version.x);
-	expect(aloud.x + aloud.width).toBeGreaterThanOrEqual(version.x + version.width);
+	// Version sits right under Model, and the switch is in the last column, right of both.
+	expect(Math.abs(version.x - model.x)).toBeLessThan(2);
+	expect(version.y).toBeGreaterThan(model.y);
+	expect(version.y - (model.y + model.height)).toBeLessThan(12);
+	expect(aloud.x).toBeGreaterThan(model.x);
+	expect(aloud.x + aloud.width).toBeGreaterThanOrEqual(model.x + model.width);
 });

@@ -389,22 +389,25 @@ export function ComposerPickers({
 				/>
 				{shown ? (
 					<>
-						<Pick
-							label="Model"
-							testId="composer-model"
-							value={current?.family ?? shown.model}
-							choices={familyChoices(models, shown.model)}
-							onChoose={(model) => ask({ model })}
-						/>
-						{versions.length > 0 ? (
+						{/* Stacked as one cell, so Version sits under Model at any panel width. */}
+						<div className="pk-picker-pair">
 							<Pick
-								label="Version"
-								testId="composer-version"
-								value={current?.pinned ?? current?.family ?? shown.model}
-								choices={versions}
+								label="Model"
+								testId="composer-model"
+								value={current?.family ?? shown.model}
+								choices={familyChoices(models, shown.model)}
 								onChoose={(model) => ask({ model })}
 							/>
-						) : null}
+							{versions.length > 0 ? (
+								<Pick
+									label="Version"
+									testId="composer-version"
+									value={current?.pinned ?? current?.family ?? shown.model}
+									choices={versions}
+									onChoose={(model) => ask({ model })}
+								/>
+							) : null}
+						</div>
 						<Pick
 							label="Effort"
 							testId="composer-effort"

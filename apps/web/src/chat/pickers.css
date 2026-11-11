@@ -84,6 +84,14 @@
 	display: none;
 }
 
+/* Model and its Version: one grid cell of two rows. */
+.pk-picker-pair {
+	display: grid;
+	align-content: start;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
 /* The Read replies aloud switch sits in the last column, so Model and Version stay together. */
 .pk-picker-switch {
 	grid-column: -2 / -1;
