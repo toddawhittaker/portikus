@@ -149,8 +149,8 @@ export interface ChatState {
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
-/** Every event but a subagent's, which never enters the chat's own sequence. */
-type ChatEvent = Exclude<ChatServerEvent, SubagentFrame>;
+/** Every event but a subagent's or a rename's answer, which never enter the chat's own sequence. */
+type ChatEvent = Exclude<ChatServerEvent, SubagentFrame | { type: "rename.result" }>;
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
@@ -215,6 +215,8 @@ export function receiveChatEvent(
 	now: number,
 ): ChatState {
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
+	// Only the left pane's rename reads its answer.
+	if (event.type === "rename.result") return state;
 	if (event.type === "snapshot") return applySnapshot(state, event, now);
 	// The contract puts the snapshot first, so anything earlier is stale.
 	if (state.awaitingSnapshot) return state;

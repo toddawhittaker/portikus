@@ -5,6 +5,7 @@ import {
 	buildSnapshot,
 	REPLAY_IMAGE_TURNS,
 	REPLAY_SUBAGENT_ENTRIES,
+	REPLAY_SUBAGENT_IMAGE_ENTRIES,
 	REPLAY_TURNS,
 	replayHistory,
 	replaySubagent,
@@ -396,6 +397,40 @@ describe("replaySubagent", () => {
 		const messages = events.filter((event) => event.type === "message");
 		expect(messages).toHaveLength(REPLAY_SUBAGENT_ENTRIES);
 		expect(messages.every((event) => event.role === "assistant")).toBe(true);
+	});
+
+	test(`images older than the last ${REPLAY_SUBAGENT_IMAGE_ENTRIES} entries are omitted`, () => {
+		const read = (n: number) =>
+			entry(
+				"user",
+				{
+					role: "user",
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: `t${n}`,
+							content: [
+								{
+									type: "image",
+									source: { type: "base64", media_type: "image/png", data: PNG },
+								},
+							],
+						},
+					],
+				},
+				CALL,
+			);
+		const reads = Array.from({ length: REPLAY_SUBAGENT_IMAGE_ENTRIES + 3 }, (_, n) =>
+			read(n),
+		);
+		const { events } = replaySubagent([prompt, ...reads], false, 1000);
+		const parts = events.flatMap((event) =>
+			event.type === "tool.output" ? [event.part.type] : [],
+		);
+		expect(parts).toEqual([
+			...Array(3).fill("imageOmitted"),
+			...Array(REPLAY_SUBAGENT_IMAGE_ENTRIES).fill("image"),
+		]);
 	});
 
 	test("an image too large for a frame becomes imageOmitted", () => {

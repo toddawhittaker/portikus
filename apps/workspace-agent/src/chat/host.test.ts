@@ -225,6 +225,11 @@ function delta(text: string) {
 	} as never;
 }
 
+/** The stand-in SDK a host holds, so a test can slow or count one call. */
+function sdkOf(chat: ChatHost): ChatSdk {
+	return (chat as unknown as { sdk: ChatSdk }).sdk;
+}
+
 function ofType<T extends ChatServerEvent["type"]>(client: Client, type: T) {
 	return client.events.filter(
 		(e): e is Extract<ChatServerEvent, { type: T }> => e.type === type,
@@ -1644,6 +1649,33 @@ describe("models", () => {
 		await vi.waitFor(() => expect(ofType(a, "settings").at(-1)?.mode).toBe("plan"));
 	});
 
+	test("switching to a model without Auto while in Auto drops the chat to Ask", async () => {
+		const fake = await startWith([
+			row("opus"),
+			row("haiku", { supportsAutoMode: false }),
+		]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		a.send({ type: "set", model: "haiku" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({
+				model: "haiku",
+				mode: "default",
+			}),
+		);
+		expect(fake.calls).toContain("mode:default");
+		// Out of Auto, a switch leaves the mode the student chose.
+		a.send({ type: "set", mode: "plan" });
+		a.send({ type: "set", model: "opus" });
+		a.send({ type: "set", model: "haiku" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({
+				model: "haiku",
+				mode: "plan",
+			}),
+		);
+	});
+
 	test("a model the init message reports does not replace the value the student chose", async () => {
 		const fake = await startWith([row("opus")]);
 		const a = await attach();
@@ -1702,12 +1734,37 @@ describe("titles", () => {
 		expect(titles.get(ID)).toBe("Grade the quiz");
 	});
 
-	test("a title of only control characters and spaces is refused with an error", async () => {
+	test("a title of only control characters and spaces is refused to the asker alone", async () => {
 		const client = await attach();
+		const other = await attach();
 		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
 		client.send({ type: "rename", title: " \u0001 " });
-		await vi.waitFor(() => expect(ofType(client, "error")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(client, "rename.result")).toHaveLength(1));
+		expect(ofType(client, "rename.result")[0]).toEqual({
+			type: "rename.result",
+			ok: false,
+			message: "A title needs at least one letter or number.",
+		});
+		expect(ofType(client, "error")).toEqual([]);
+		expect(ofType(other, "rename.result")).toEqual([]);
 		expect(titles.has(ID)).toBe(false);
+	});
+
+	test("a rename that worked is confirmed to the asker alone, after the title is published", async () => {
+		const client = await attach();
+		const other = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: "Quiz" });
+		await vi.waitFor(() => expect(ofType(client, "rename.result")).toHaveLength(1));
+		expect(ofType(client, "rename.result")[0]).toEqual({
+			type: "rename.result",
+			ok: true,
+		});
+		expect(postedTitles.at(-1)).toBe("Quiz");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(ofType(other, "rename.result")).toEqual([]);
 	});
 
 	test("after /clear the new session's title is published, even when none", async () => {
@@ -1856,6 +1913,135 @@ describe("subagents", () => {
 		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
 		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
 		expect(frames(client)[0]).toMatchObject({ type: "snapshot", turnRunning: false });
+	});
+
+	test("a tool output that reached the transcript during the replay's read is sent once", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const result = (id: string) => ({
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: id, content: "routes: 3" }],
+		});
+		subagentTranscripts.set("agent-1", [
+			...TRANSCRIPT,
+			subagentEntry("s3", "user", result("toolu_done")),
+		]);
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		// The live copy of the same result arrives while the transcript is read.
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = sdkOf(host).subagentMessages;
+		sdkOf(host).subagentMessages = async (...args) => {
+			await gate;
+			return read(...args);
+		};
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		for (const id of ["toolu_done", "toolu_new"]) {
+			fake.emit({
+				type: "user",
+				parent_tool_use_id: AGENT_CALL,
+				agent_id: "agent-1",
+				message: result(id),
+			} as never);
+		}
+		release();
+		await vi.waitFor(() =>
+			expect(
+				frames(client).filter((event) => event.type === "tool.finished"),
+			).toHaveLength(3),
+		);
+		const outputs = frames(client).flatMap((event) =>
+			event.type === "tool.output" ? [event.id] : [],
+		);
+		expect(outputs).toEqual(["toolu_done", "toolu_new"]);
+	});
+
+	test("/clear ends a running subagent's view as interrupted", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e",
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() =>
+			expect(frames(client).at(-1)).toMatchObject({
+				type: "turn.finished",
+				status: "interrupted",
+			}),
+		);
+	});
+
+	test("a new watch abandons the last one's scan, and an unknown call is not scanned for twice", async () => {
+		subagentTranscripts.set("agent-other", [
+			{ ...subagentEntry("o1", "user", "other"), parent_tool_use_id: "toolu_other" },
+		]);
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		const sdk = sdkOf(host);
+		let listings = 0;
+		const list = sdk.subagentIds;
+		sdk.subagentIds = async (...args) => {
+			listings += 1;
+			return list(...args);
+		};
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = sdk.subagentMessages;
+		const reads: string[] = [];
+		sdk.subagentMessages = async (session, agentId, ...rest) => {
+			reads.push(agentId);
+			if (reads.length === 1) await gate;
+			return read(session, agentId, ...rest);
+		};
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(reads).toHaveLength(1));
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		release();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		// The first scan stopped after the read it was in; the second ran whole.
+		expect(reads).toEqual(["agent-other", "agent-other", "agent-1"]);
+		expect(frames(client)).toHaveLength(1);
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		expect(listings).toBe(2);
+		expect(reads).toHaveLength(3);
+		// A new subagent may be the one asked for, so the next watch looks again.
+		(queries[0] as FakeQuery).emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-2",
+			tool_use_id: "toolu_later",
+			description: "Later",
+		} as never);
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(3));
+		expect(listings).toBe(3);
 	});
 
 	test("a running subagent is ended when Claude Code stops", async () => {

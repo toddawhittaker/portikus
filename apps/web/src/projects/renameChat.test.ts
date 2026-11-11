@@ -50,20 +50,44 @@ test("the title goes once the socket opens, and a reconnect does not send it aga
 	expect(stopped).toBeGreaterThan(0);
 });
 
-test("the host's error rejects the rename with its words", async () => {
+test("the host's refusal rejects the rename with its words", async () => {
 	const rename = renameChat("w1", "t1", "New name");
 	events.onFrame(JSON.stringify({ type: "snapshot" }));
 	events.onOpen();
 	events.onFrame("not json");
-	events.onFrame(JSON.stringify({ type: "error", message: "Nope." }));
+	events.onFrame(
+		JSON.stringify({ type: "rename.result", ok: false, message: "Nope." }),
+	);
 	await expect(rename.done).rejects.toThrow("Nope.");
 });
 
-test("an error frame before the rename went is not its answer", async () => {
+test("a broadcast error, such as a session ending, is not the rename's answer", async () => {
 	const rename = renameChat("w1", "t1", "New name");
+	events.onOpen();
 	events.onFrame(
-		JSON.stringify({ type: "error", message: "Too many open chat views." }),
+		JSON.stringify({ type: "error", seq: 3, message: "The session ended." }),
 	);
+	vi.advanceTimersByTime(RENAME_QUIET_MS);
+	await expect(rename.done).resolves.toBeUndefined();
+});
+
+test("a rename the host confirms waits for the title, then the wait ends quietly", async () => {
+	const rename = renameChat("w1", "t1", "New name");
+	events.onOpen();
+	events.onFrame(JSON.stringify({ type: "rename.result", ok: true }));
+	let settled = false;
+	void rename.done.then(() => {
+		settled = true;
+	});
+	await Promise.resolve();
+	expect(settled).toBe(false);
+	vi.advanceTimersByTime(RENAME_QUIET_MS);
+	await expect(rename.done).resolves.toBeUndefined();
+});
+
+test("an answer before the rename went is not its answer", async () => {
+	const rename = renameChat("w1", "t1", "New name");
+	events.onFrame(JSON.stringify({ type: "rename.result", ok: false, message: "Old." }));
 	events.onOpen();
 	vi.advanceTimersByTime(RENAME_QUIET_MS);
 	await expect(rename.done).resolves.toBeUndefined();

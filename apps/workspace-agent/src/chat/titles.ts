@@ -1,4 +1,4 @@
-import { agentTitleText } from "@portikus/contracts";
+import { agentTitleText, type ChatServerEvent } from "@portikus/contracts";
 import type { ChatSdk } from "./sdk.js";
 
 /**
@@ -52,9 +52,24 @@ export class ChatTitle {
 		if (title === "") throw new Error("A title needs at least one letter or number.");
 		try {
 			await this.sdk.renameSession(sessionId, title, this.dir);
-		} catch {
+		} catch (error) {
+			// Claude Code writes the session file with the first message.
+			if (error instanceof Error && /not found/i.test(error.message)) {
+				throw new Error("Send a message first, then rename it.");
+			}
 			throw new Error("The chat could not be renamed. Try again.");
 		}
 		await this.refresh(sessionId);
+	}
+
+	/** Rename, and say how it went as the `rename.result` the asker reads. */
+	answerRename(
+		sessionId: string,
+		raw: string,
+	): Promise<Extract<ChatServerEvent, { type: "rename.result" }>> {
+		return this.rename(sessionId, raw).then(
+			() => ({ type: "rename.result", ok: true }),
+			(error: Error) => ({ type: "rename.result", ok: false, message: error.message }),
+		);
 	}
 }

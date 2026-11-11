@@ -8,6 +8,7 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	chatStartMode,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	shellCommandText,
@@ -290,7 +291,12 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
-	function handle(id: string, key: string, message: ChatClientMessage): void {
+	function handle(
+		id: string,
+		key: string,
+		message: ChatClientMessage,
+		from: WebSocket,
+	): void {
 		const chat = chatOf(id);
 		switch (message.type) {
 			case "send": {
@@ -382,16 +388,25 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			case "question.answer":
 				answer(id, message);
 				return;
-			case "set":
+			case "set": {
+				// As the host does: a model without Auto takes a chat in Auto to Ask.
+				const mode =
+					message.mode ??
+					(message.model !== undefined && chat.settings.mode === "auto"
+						? chatStartMode(chat.models, message.model)
+						: chat.settings.mode);
 				chat.settings = {
 					model: message.model ?? chat.settings.model,
 					effort: message.effort ?? chat.settings.effort,
-					mode: message.mode ?? chat.settings.mode,
+					mode,
 				};
 				emit(id, chat.sockets, { type: "settings", agent: "claude", ...chat.settings });
 				return;
+			}
 			case "rename":
 				setCodingAgentTitle(s, key, id, message.title);
+				// The answer goes to the asker alone, with no seq, as the host sends it.
+				from.send(JSON.stringify({ type: "rename.result", ok: true }));
 				return;
 			case "interrupt":
 				record(id, chat.sockets, {
@@ -423,7 +438,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				const text = data.toString();
 				chat.received.push(text);
 				try {
-					handle(id, s.keyOf(request), JSON.parse(text) as ChatClientMessage);
+					handle(id, s.keyOf(request), JSON.parse(text) as ChatClientMessage, socket);
 				} catch {
 					// A frame the script cannot read is ignored, like an unknown type.
 				}

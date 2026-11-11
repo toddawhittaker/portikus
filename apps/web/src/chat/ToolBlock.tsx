@@ -11,7 +11,7 @@
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
 import { agentStateWords, Icon, type IconName } from "@portikus/ui";
-import { memo, useContext } from "react";
+import { memo, useContext, useId } from "react";
 import { useAgentStatus } from "../terminal/codingAgentStatus.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
@@ -133,7 +133,7 @@ function agentPrompt(input: unknown): string | null {
  * The way into a subagent's own conversation, on any Agent call, foreground
  * or background, except one that failed before a subagent started.
  */
-function WatchSubagent({ tool }: { tool: ChatToolItem }) {
+function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string }) {
 	const openSubagent = useContext(SubagentOpenerContext);
 	if (!openSubagent || tool.name !== "Agent" || tool.status === "error") return null;
 	return (
@@ -141,6 +141,8 @@ function WatchSubagent({ tool }: { tool: ChatToolItem }) {
 			type="button"
 			className="pk-chat-agent-open pk-focus-ring"
 			data-testid="chat-agent-open"
+			// Every card's button reads the same; its card's title tells them apart.
+			aria-describedby={titleId}
 			onClick={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
 		>
 			Show its conversation
@@ -196,6 +198,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 	// An edit or a write says nothing back; its diff or content is the result.
 	const quiet = detail?.kind === "edit" || detail?.kind === "write";
 	const launch = isBackgroundLaunch(tool);
+	const titleId = useId();
 	return (
 		<details
 			className={`pk-chat-tool${failed ? " is-error" : ""}`}
@@ -204,7 +207,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 		>
 			<summary className="pk-chat-tool-summary pk-focus-inset">
 				<Icon name={line.icon} size="sm" className="pk-chat-tool-icon" />
-				<span className="pk-chat-tool-text">
+				<span className="pk-chat-tool-text" id={titleId}>
 					<span className="pk-chat-tool-verb">
 						{line.verb
 							? tool.status === "done"
@@ -235,7 +238,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 					<p className="pk-chat-tool-path pk-mono-body">{line.path}</p>
 				) : null}
 				{detail ? <Detail detail={detail} /> : null}
-				<WatchSubagent tool={tool} />
+				<WatchSubagent tool={tool} titleId={titleId} />
 				{launch ? (
 					<LaunchBody tool={tool} />
 				) : tool.output.length > 0 ? (

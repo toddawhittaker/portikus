@@ -38,12 +38,13 @@ export const MAX_AGENT_TITLE_CHARS = 80;
 /**
  * A title as shown: control characters (line breaks among them) and
  * invisible format characters (bidi overrides, zero-width marks) become
- * spaces, runs of space close up, and the text is cut to fit without
+ * spaces (except the zero-width joiner, which holds emoji such as 👩‍💻
+ * together), runs of space close up, and the text is cut to fit without
  * splitting a character made of two code units. Empty when nothing is left.
  */
 export function agentTitleText(raw: string): string {
 	const flat = raw
-		.replace(/[\p{Cc}\p{Cf}]/gu, " ")
+		.replace(/(?!\u200D)[\p{Cc}\p{Cf}]/gu, " ")
 		.replace(/\s+/g, " ")
 		.trim();
 	let cut = "";

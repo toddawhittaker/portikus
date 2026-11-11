@@ -151,7 +151,10 @@ interface PendingRename {
 	rename: ChatRename;
 }
 
-/** A chat's title, edited in place: Enter saves, Escape or leaving cancels. */
+/**
+ * A chat's title, edited in place: Enter saves, Escape or leaving cancels.
+ * Leaving keeps focus where the student moved it (WCAG 3.2.1).
+ */
 function TitleEditor({
 	label,
 	initial,
@@ -161,7 +164,7 @@ function TitleEditor({
 	label: string;
 	initial: string;
 	onSave: (title: string) => void;
-	onCancel: () => void;
+	onCancel: (refocus: boolean) => void;
 }) {
 	const input = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
@@ -173,7 +176,7 @@ function TitleEditor({
 			// Escape ends the edit only, not a drawer around the list.
 			event.preventDefault();
 			event.stopPropagation();
-			onCancel();
+			onCancel(true);
 		}
 	}
 	return (
@@ -191,7 +194,7 @@ function TitleEditor({
 				defaultValue={initial}
 				maxLength={MAX_AGENT_TITLE_CHARS}
 				onKeyDown={onKeyDown}
-				onBlur={onCancel}
+				onBlur={() => onCancel(false)}
 				data-testid="agent-title-input"
 			/>
 		</form>
@@ -226,14 +229,14 @@ function AgentRow({
 		if (pending && terminal.title === pending.title) pending.rename.finish();
 	}, [pending, terminal.title]);
 
-	function stopEditing() {
+	function stopEditing(refocus: boolean) {
 		setEditing(false);
 		// The pencil comes back once the editor goes; focus returns to it.
-		requestAnimationFrame(() => pencil.current?.focus());
+		if (refocus) requestAnimationFrame(() => pencil.current?.focus());
 	}
 
 	function save(raw: string) {
-		stopEditing();
+		stopEditing(true);
 		const next = agentTitleText(raw);
 		if (next === "" || next === terminal.title) return;
 		const rename = renameChat(workspaceId, terminal.terminalId, next);
@@ -295,7 +298,8 @@ function AgentRow({
 						</span>
 					</Link>
 				)}
-				{canRename(terminal) && !editing ? (
+				{/* Claude Code can rename a session only once its first message has given it a title. */}
+				{canRename(terminal) && title && !editing ? (
 					<IconButton
 						ref={pencil}
 						icon="pencil"

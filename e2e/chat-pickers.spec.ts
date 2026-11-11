@@ -620,6 +620,35 @@ test("on a model that cannot run Auto a new chat starts in Ask, and the saved se
 	expect(host.received(id)).toEqual([{ type: "set", mode: "plan" }]);
 });
 
+test("switching to a model that cannot run Auto while in Auto shows the chat in Ask", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	// The fake agent's own host, whose Haiku 4.5 cannot run Auto.
+	const { id, view } = await withPickers(openChat(page, student.workspaceId, "To Ask"));
+	await choose(page, view, "Permissions", "Auto");
+	await expect(picker(view, "Permissions")).toHaveText("Permissions Auto");
+	await choose(page, view, "Model", "Haiku");
+	await expect(picker(view, "Permissions")).toHaveText("Permissions Auto");
+	const version = view.getByTestId("composer-version");
+	await version.click();
+	await page
+		.getByRole("menu", { name: /^Version / })
+		.getByRole("menuitemradio", { name: "4.5" })
+		.click();
+	await expect(version).toHaveText("Version 4.5");
+	await expect(picker(view, "Permissions")).toHaveText("Permissions Ask");
+	// The page asked only for the model; the host chose Ask.
+	await expect
+		.poll(async () => receivedFrames(id, "set"))
+		.toEqual([
+			{ type: "set", mode: "auto" },
+			{ type: "set", model: "haiku" },
+			{ type: "set", model: "claude-haiku-4-5-20251001" },
+		]);
+});
+
 test("Read replies aloud sits to the right of Model and Version", async ({
 	page,
 	context,
