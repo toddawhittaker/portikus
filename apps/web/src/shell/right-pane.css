@@ -75,10 +75,20 @@
 	line-height: var(--leading-md);
 	font-weight: 400;
 	white-space: nowrap;
-	padding: 0 var(--space-3);
+	padding: 0;
 	cursor: pointer;
 }
-.pk-pane-tab > svg {
+/* The tab's face fills it, so the name's tooltip opens wherever the pointer is on the tab. */
+.pk-pane-tab-face {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-1\.5);
+	align-self: stretch;
+	flex: 1 0 auto;
+	padding: 0 var(--space-3);
+}
+.pk-pane-tab-face > svg {
 	flex: none;
 }
 .pk-pane-tab:hover {
@@ -89,7 +99,7 @@
 	background: var(--surface-raised);
 	color: var(--ink);
 }
-.pk-pane-tab[aria-selected="true"] > svg {
+.pk-pane-tab[aria-selected="true"] .pk-pane-tab-face > svg {
 	color: var(--accent);
 }
 .pk-pane-tab[aria-selected="true"]::before {
@@ -115,6 +125,8 @@
 	.pk-pane-tab {
 		flex: 1 0 auto;
 		min-inline-size: var(--size-control-md);
+	}
+	.pk-pane-tab-face {
 		padding-inline: var(--space-2);
 	}
 	.pk-pane-tab[aria-selected="false"] .pk-pane-tab-label {

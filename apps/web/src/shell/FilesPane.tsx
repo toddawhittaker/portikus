@@ -317,31 +317,33 @@ function Switcher({
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
-		// The name shows on hover and focus where a narrow pane hides it; the tab is already named by it.
-		<Tooltip content={label} decorative={true}>
-			<TabsTrigger
-				ref={buttonRef}
-				value={value}
-				className="pk-pane-tab"
-				data-testid={`right-pane-tab-${value}`}
-				// Radix selects on mouse down; a click from assistive technology arrives alone.
-				onClick={() => onPick(value)}
-			>
-				<Icon name={SWITCHER_ICONS[value]} />
-				<span className="pk-pane-tab-label">{label}</span>
-				{count ? (
-					<>
-						{" "}
-						<span
-							className="pk-pane-tab-count"
-							data-testid={`right-pane-count-${value}`}
-						>
-							{count}
-						</span>
-					</>
-				) : null}
-			</TabsTrigger>
-		</Tooltip>
+		<TabsTrigger
+			ref={buttonRef}
+			value={value}
+			className="pk-pane-tab"
+			data-testid={`right-pane-tab-${value}`}
+			// Radix selects on mouse down; a click from assistive technology arrives alone.
+			onClick={() => onPick(value)}
+		>
+			{/* The tooltip sits on the face, not the tab: its open state would replace the tab's data-state. */}
+			<Tooltip content={label} decorative={true}>
+				<span className="pk-pane-tab-face">
+					<Icon name={SWITCHER_ICONS[value]} />
+					<span className="pk-pane-tab-label">{label}</span>
+					{count ? (
+						<>
+							{" "}
+							<span
+								className="pk-pane-tab-count"
+								data-testid={`right-pane-count-${value}`}
+							>
+								{count}
+							</span>
+						</>
+					) : null}
+				</span>
+			</Tooltip>
+		</TabsTrigger>
 	);
 }
 
