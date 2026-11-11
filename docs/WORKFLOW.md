@@ -376,10 +376,10 @@ runs everything; pull request runs always run in full.
   as passing) when neither app nor infra code changed.
 
 Jobs install Ubuntu packages through `.github/actions/apt-install`, which
-caches the downloaded `.deb` files per runner image; when a run must
-download them and cannot reach Ubuntu's own mirrors, it fetches them from
-`https://mirrors.edge.kernel.org/ubuntu` through a temporary copy of the
-runner's sources, still checked against the Ubuntu archive key.
+caches the downloaded `.deb` files per runner image; on a cache miss it
+fetches them from `https://mirrors.edge.kernel.org/ubuntu`, never Ubuntu's
+own mirrors (whose lookups can hang on the runners), through a temporary
+copy of the runner's sources, still checked against the Ubuntu archive key.
 
 Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
