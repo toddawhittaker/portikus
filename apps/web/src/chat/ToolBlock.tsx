@@ -3,12 +3,15 @@
  * ("Read a.ts", "Ran pnpm test", "Edited a.ts +1 −3"), with its state only
  * while it runs or when it failed or stopped. It opens to what it did and
  * what came back, leaving out what the row already says (SPEC.md §10.8). The
- * raw input stays one click further in. Images from a tool are drawn from
+ * raw input stays one click further in. A background Agent launch shows a
+ * plain status and its prompt; the text Claude Code returns for the model
+ * stays behind Raw output (SPEC.md §8.3). Images from a tool are drawn from
  * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
-import { Icon, type IconName } from "@portikus/ui";
+import { agentStateWords, Icon, type IconName } from "@portikus/ui";
 import { memo } from "react";
+import { useAgentStatus } from "../terminal/codingAgentStatus.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
 import { useChatImages } from "./ImageViewer.js";
@@ -87,6 +90,66 @@ function ToolState({
 	);
 }
 
+/** How Claude Code's text for the model begins when a background Agent call starts. */
+const LAUNCH_TEXT = "Async agent launched";
+
+/** A background subagent call that is starting or started; a failed one shows its error like any tool. */
+function isBackgroundLaunch(tool: ChatToolItem): boolean {
+	if (tool.name !== "Agent") return false;
+	const first = tool.output[0];
+	const launched = first?.type === "text" && first.text.startsWith(LAUNCH_TEXT);
+	if (tool.status === "running") {
+		const input = tool.input as { run_in_background?: unknown } | null;
+		return launched || input?.run_in_background === true;
+	}
+	return tool.status === "done" && launched;
+}
+
+/** The subagent's state is the one the project list shows for the same tool call. */
+function LaunchStatus({ tool }: { tool: ChatToolItem }) {
+	const { terminals } = useAgentStatus();
+	const state = terminals
+		.flatMap((terminal) => terminal.subagents)
+		.find((subagent) => subagent.id === tool.id)?.state;
+	const text =
+		tool.status === "running"
+			? "Starting in the background"
+			: `Started in the background${state ? ` · ${agentStateWords(state)}` : ""}`;
+	return (
+		<p className="pk-chat-muted" data-testid="chat-agent-status">
+			{text}
+		</p>
+	);
+}
+
+function agentPrompt(input: unknown): string | null {
+	const prompt = (input as { prompt?: unknown } | null)?.prompt;
+	return typeof prompt === "string" && prompt !== "" ? prompt : null;
+}
+
+/** What a background launch shows: its status and prompt, with Claude Code's own text kept closed. */
+function LaunchBody({ tool }: { tool: ChatToolItem }) {
+	const prompt = agentPrompt(tool.input);
+	return (
+		<>
+			<LaunchStatus tool={tool} />
+			{prompt ? <CodeBlock text={prompt} limit={12} /> : null}
+			{tool.output.length > 0 ? (
+				<details className="pk-chat-raw">
+					<summary className="pk-chat-raw-summary pk-focus-inset">
+						<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+						Raw output
+					</summary>
+					{tool.output.map((part, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: parts only append
+						<OutputPart key={at} part={part} tool={tool.name} />
+					))}
+				</details>
+			) : null}
+		</>
+	);
+}
+
 const lines = (count: number) => `${count} ${count === 1 ? "line" : "lines"}`;
 
 /** "+1 −3" to the eye; spelled out for a screen reader. */
@@ -111,6 +174,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 	const detail = line.detail;
 	// An edit or a write says nothing back; its diff or content is the result.
 	const quiet = detail?.kind === "edit" || detail?.kind === "write";
+	const launch = isBackgroundLaunch(tool);
 	return (
 		<details
 			className={`pk-chat-tool${failed ? " is-error" : ""}`}
@@ -150,7 +214,9 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 					<p className="pk-chat-tool-path pk-mono-body">{line.path}</p>
 				) : null}
 				{detail ? <Detail detail={detail} /> : null}
-				{tool.output.length > 0 ? (
+				{launch ? (
+					<LaunchBody tool={tool} />
+				) : tool.output.length > 0 ? (
 					<section
 						className="pk-chat-tool-output"
 						aria-label={failed ? "Error" : "Output"}
