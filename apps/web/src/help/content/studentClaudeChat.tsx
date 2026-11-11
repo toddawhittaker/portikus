@@ -12,7 +12,8 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<strong>Claude Code (GUI)</strong> is a chat tab: replies appear as formatted
 				text, its work is folded into a "Worked for" row, and when it needs a permission
 				or asks a question you answer on a card. You can paste, drop or attach images,
-				and choose the model, effort and permission mode beside the message box.
+				and choose the model, version, effort and permission mode beside the message
+				box.
 			</p>
 			<ul>
 				<li>
@@ -88,13 +89,15 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					is sent to the browser's maker to be spoken.
 				</li>
 				<li>
-					Under the pickers, Portikus shows how full Claude's memory of this chat is
-					once it passes half, and how long until the prompt cache goes cold. While the
+					Under the pickers, Portikus always shows how full Claude's memory of this chat
+					is, as a meter with figures such as "34.2k / 1M", and how long until the
+					prompt cache goes cold. The meter changes look as it fills: at 25, 50, 75 and
+					90 percent. From 75 percent it adds an alert and "nearly full". While the
 					cache is warm, your next message is faster and uses less of your limit. In the
 					last minute it says "soon", and when it says "Cache cold" the next message
 					re-reads the whole chat. When the memory is high, type{" "}
 					<code className="pk-mono-body">/compact</code>. Your screen reader hears only
-					when the cache goes cold and when the memory reaches 80 percent.
+					when the cache goes cold and when the memory reaches 75 and then 90 percent.
 				</li>
 				<li>
 					When Claude edits files, a line under its reply says how many changed. Open it
@@ -112,9 +115,12 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					A chat tab keeps running when you close the browser. When the workspace has
-					stopped and started again, choose <strong>Resume chat</strong> on the ended
-					tab to carry on the same conversation. A reply that was still being written
-					when the workspace stopped is lost.
+					stopped and started again, the ended tab offers <strong>New chat</strong>,{" "}
+					<strong>Resume chat</strong> and <strong>New terminal here</strong>. Choose{" "}
+					<strong>Resume chat</strong> to carry on the same conversation; it reloads the
+					earlier chat and uses more of your plan. <strong>New chat</strong> starts
+					fresh. A reply that was still being written when the workspace stopped is
+					lost.
 				</li>
 				<li>
 					The Permissions picker has five modes. <strong>Ask</strong> asks before Claude
@@ -129,9 +135,43 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					without asking. A warning shows while it is on.
 				</li>
 				<li>
-					A new chat starts with the model, effort and permissions you last chose in
-					that project. Bypass permissions is never carried over: a new chat starts in
-					Auto instead.
+					The <strong>Model</strong> picker lists the models Claude Code offers. Under
+					it, <strong>Version</strong> is Latest by default, which follows the newest
+					version of that model; choose a version to stay on it. A new chat starts with
+					the model, version, effort and permissions you last chose in that project. The
+					very first chat in a project starts on Opus, Medium effort and Auto. Bypass
+					permissions is never carried over: a new chat starts in Auto instead. If a
+					model has no Auto mode, a new chat starts in Ask, and switching to such a
+					model while in Auto changes Permissions to Ask.
+				</li>
+				<li>
+					Each chat has a title, shown under its name in the project list and on its
+					tab. It starts as Claude Code's own summary of the conversation. To give it
+					your own, choose the pencil beside the chat in the project list (it appears
+					once the chat has a title; send a message first), type a name and press Enter
+					(Escape cancels), or type <code className="pk-mono-body">/rename</code> in the
+					chat. Titles are not kept by Portikus; they live in Claude Code's own record
+					in your workspace. A Claude Code (TUI) terminal keeps its tab name.
+				</li>
+				<li>
+					When Claude starts a subagent, a row for it appears under the chat in the
+					project list, and its card in the conversation has{" "}
+					<strong>Show its conversation</strong>. Either opens a panel over the
+					conversation that follows what the subagent is doing. The panel is read-only:
+					Claude Code cannot send a subagent a message, so to pass one on, ask Claude in
+					the chat. If the subagent starts another, it opens in the same panel, and{" "}
+					<strong>Back</strong> returns. Escape or the close button closes the panel. A
+					subagent Claude started in the background shows as "Started in the
+					background", with its state, on its card.
+				</li>
+				<li>
+					A chat zooms on its own, from 50% to 300%: hold{" "}
+					<kbd className="pk-mono-body">Ctrl</kbd> (
+					<kbd className="pk-mono-body">Cmd</kbd> on a Mac) and turn the wheel over it,
+					pinch on a trackpad, press <kbd className="pk-mono-body">Ctrl+Shift+=</kbd>,{" "}
+					<kbd className="pk-mono-body">Ctrl+Shift+-</kbd> or{" "}
+					<kbd className="pk-mono-body">Ctrl+0</kbd>, or use the zoom buttons in the
+					chat's title bar.
 				</li>
 				<li>
 					When Permissions shows Ask but you have chosen "Always allow" for something in

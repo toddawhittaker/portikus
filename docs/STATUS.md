@@ -83,6 +83,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 59, agent rows and chat.** Agent and subagent rows in the left pane, and a chat batch with `!` shell commands, `@` file mentions and changed-file lists (ADRs 0070 to 0073).
 - **Epic 60, documentation refresh.** The guides, the in-app Help and the documentation images brought up to date, and this file cut down to this form.
 - **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
+- **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache (ADR 0074).
 
 ## Open items
 
@@ -150,6 +151,7 @@ list was made and may already be fixed.
 - Turning a code help language off does not close sockets already open.
 - Code help for more languages is #1652 and a debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - Wanted: picking an element in the preview to send to the agent (#1708), and stored check history (#1237).
+- The editor's per-file zoom is lost when the student leaves the workspace route, because it lives only in the layout store; SPEC.md says it survives. Terminal and chat zoom do survive, in the tab's sessionStorage.
 
 ### Chat and coding agents
 
@@ -161,15 +163,19 @@ list was made and may already be fixed.
 - The `@` menu lists files only, with no recency boost, and does not work in shell mode. A `!` command cannot be sent while Claude works and has no standard input. `/resume` stays terminal-only.
 - Files changed does not count deleted files or changes made by shell commands.
 - A typed message that contains `<bash-input>` text replays as a shell item on reload (display only).
+- Subagent frames re-render the whole chat view while the subagent panel is open.
+- More than 256 running subagents drop from the running list.
+- Accepted: Escape closes the subagent panel only when focus is inside it.
+- A model row from Claude Code whose value ends in `[1m]` would be listed as its own family and never highlight (only if Claude Code lists such rows).
 - Unread marks do not survive a reload, and usage warnings are remembered per browser, not per user.
 
 ### Interface and accessibility
 
-- On a phone, the Projects and Files buttons share their names with the panes they open (#1880).
 - A manual VoiceOver pass over headings inside `<summary>` elements is #1260.
 - A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11), and the plan meter popover can cover a toast.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
+- The design system's Icon copy (`design/system`, `bundle.js`) lacks the new glyphs: the pencil and the file-type icons.
 - A course profile change picked up when the window regains focus can remove the control that has focus.
 
 ### Infrastructure, packaging and backups
