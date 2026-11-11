@@ -24,6 +24,8 @@ export function PaneBar({ drawers }: { drawers: DrawerButtons }) {
 				type="button"
 				className="pk-panebar-item"
 				data-active={open === "projects" ? "true" : undefined}
+				// Named for the action: the drawer it opens is the "Projects" dialog.
+				aria-label="Show projects"
 				aria-haspopup="dialog"
 				aria-expanded={open === "projects"}
 				aria-controls={DRAWER_IDS.projects}
@@ -47,6 +49,7 @@ export function PaneBar({ drawers }: { drawers: DrawerButtons }) {
 				type="button"
 				className="pk-panebar-item"
 				data-active={open === "files" ? "true" : undefined}
+				aria-label="Show files"
 				aria-haspopup="dialog"
 				aria-expanded={open === "files"}
 				aria-controls={DRAWER_IDS.files}
