@@ -30,7 +30,7 @@ export const RESIZE_SETTLE_MS = 100;
  * which is far too loud.
  */
 const DARK_THEME = {
-	background: "#22201c",
+	background: "#252420",
 	foreground: "#e8e3d8",
 	cursor: "#e8c37a",
 	selectionBackground: "#3e4f4c",
@@ -38,8 +38,8 @@ const DARK_THEME = {
 	scrollbarSliderHoverBackground: "#a49d90b3",
 	scrollbarSliderActiveBackground: "#a49d90cc",
 	// xterm's default palette fails AA on this ground.
-	black: "#22201c",
-	brightBlack: "#8f897d",
+	black: "#252420",
+	brightBlack: "#958f83",
 	red: "#e07a6e",
 	brightRed: "#f09a8f",
 	green: "#8fc28a",

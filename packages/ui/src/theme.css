@@ -335,7 +335,7 @@
 	/* Hairline between terminal panes, on terminal-bg. */
 	--terminal-line: #3a3832;
 	--ansi-black: #252420;
-	--ansi-bright-black: #8f897d;
+	--ansi-bright-black: #958f83;
 	--ansi-red: #e07a6e;
 	--ansi-bright-red: #f09a8f;
 	--ansi-green: #8fc28a;
