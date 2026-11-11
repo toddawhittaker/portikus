@@ -1,8 +1,8 @@
 /**
- * The zoom of each terminal and chat pane (SPEC.md §13.1). The layout store
- * holds it while the workspace is open; this tab's sessionStorage keeps it
- * when the student leaves the workspace and comes back. It is browser-local
- * and never sent to the server (SPEC.md §7.5).
+ * The zoom of each terminal and chat pane (SPEC.md §13.1). This tab's
+ * sessionStorage keeps it, so a pane that splits or moves, and so mounts
+ * again, or a workspace the student leaves and comes back to, still has it.
+ * It is browser-local and never sent to the server (SPEC.md §7.5).
  */
 import { useCallback, useContext, useState } from "react";
 import { clampZoom, DEFAULT_ZOOM } from "../editor/zoom.js";
@@ -38,27 +38,22 @@ function writeSessionPaneZoom(terminalId: string, percent: number): void {
 }
 
 /**
- * The zoom of one terminal or chat pane, held in the layout store like the
- * editor zoom. Null outside a workspace, where there is no store to hold it
- * and the pane offers no zoom.
+ * The zoom of one terminal or chat pane, read from sessionStorage when the
+ * pane mounts. Null outside a workspace, where the pane offers no zoom.
  */
 export function usePaneZoom(
 	terminalId: string,
 ): [number, (percent: number) => void] | null {
-	const store = useContext(LayoutStoreContext);
+	const inWorkspace = useContext(LayoutStoreContext) !== null;
 	const [zoom, setLocal] = useState(
-		() =>
-			store?.getState().paneZooms[terminalId] ??
-			readSessionPaneZoom(terminalId) ??
-			DEFAULT_ZOOM,
+		() => readSessionPaneZoom(terminalId) ?? DEFAULT_ZOOM,
 	);
 	const set = useCallback(
 		(percent: number) => {
 			setLocal(percent);
-			store?.getState().setPaneZoom(terminalId, percent);
 			writeSessionPaneZoom(terminalId, percent);
 		},
-		[store, terminalId],
+		[terminalId],
 	);
-	return store ? [zoom, set] : null;
+	return inWorkspace ? [zoom, set] : null;
 }

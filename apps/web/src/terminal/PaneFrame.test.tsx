@@ -261,14 +261,16 @@ test("outside a workspace the pane offers no zoom", () => {
 	expect(screen.getByTestId("inside-zoom").textContent).toBe("100");
 });
 
-test("the buttons zoom the pane, the value goes back to 100%, and the store keeps it", () => {
-	const { layout } = renderInWorkspace();
+test("the buttons zoom the pane, the value goes back to 100%, and sessionStorage keeps it", () => {
+	renderInWorkspace();
 	expect(shown()).toBe("100%");
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	expect(shown()).toBe("120%");
 	expect(screen.getByTestId("inside-zoom").textContent).toBe("120");
-	expect(layout.getState().paneZooms).toEqual({ t1: 120 });
+	expect(JSON.parse(sessionStorage.getItem("portikus.paneZoom") ?? "{}")).toEqual({
+		t1: 120,
+	});
 	fireEvent.click(screen.getByLabelText("Zoom root out"));
 	expect(shown()).toBe("110%");
 	fireEvent.click(screen.getByLabelText("Zoom root to 100%, now 110%"));
@@ -276,9 +278,8 @@ test("the buttons zoom the pane, the value goes back to 100%, and the store keep
 });
 
 test("a pane that mounts again, as a split or a move does, keeps its zoom", () => {
-	const layout = createLayoutStore();
-	layout.getState().setPaneZoom("t1", 70);
-	renderInWorkspace({}, layout);
+	sessionStorage.setItem("portikus.paneZoom", JSON.stringify({ t1: 70 }));
+	renderInWorkspace();
 	expect(shown()).toBe("70%");
 	expect(
 		screen.getByTestId("terminal-leaf-t1").style.getPropertyValue("--pane-zoom"),
@@ -291,6 +292,41 @@ test("a pane's zoom outlives its workspace's layout store for the browser sessio
 	view.unmount();
 	renderInWorkspace();
 	expect(shown()).toBe("110%");
+});
+
+const announced = () => screen.getByRole("status").textContent;
+
+test("a zoom button or key says the new zoom in a polite status region", () => {
+	renderInWorkspace({ chat: true });
+	const status = screen.getByRole("status");
+	expect(status.textContent).toBe("");
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	expect(announced()).toBe("root zoom 110%");
+	fireEvent.click(screen.getByLabelText("Zoom root to 100%, now 110%"));
+	expect(announced()).toBe("root zoom 100%");
+	fireEvent.keyDown(screen.getByTestId("inside-zoom"), {
+		code: "Equal",
+		key: "+",
+		ctrlKey: true,
+		shiftKey: true,
+	});
+	expect(announced()).toBe("root zoom 110%");
+});
+
+test("Ctrl + wheel does not announce a zoom", () => {
+	renderInWorkspace();
+	act(() => {
+		screen.getByTestId("inside-zoom").dispatchEvent(
+			new WheelEvent("wheel", {
+				deltaY: -100,
+				ctrlKey: true,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+	expect(shown()).toBe("110%");
+	expect(announced()).toBe("");
 });
 
 test("a refused or corrupt sessionStorage starts the pane at 100%", () => {

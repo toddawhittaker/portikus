@@ -670,11 +670,11 @@ test("what is kept is the host's model, effort and mode", () => {
 			mode: "bypassPermissions",
 		}),
 	).toEqual({ model: "claude-haiku-4-5", effort: "max", mode: "bypassPermissions" });
-	// A value the server would refuse is not sent.
+	// Bad stored values are the stored-settings schema's to refuse, not this function's.
 	expect(
 		lastSettingsOf({ agent: "claude", model: "Not Valid", effort: "low", mode: "plan" })
 			.model,
-	).toBe("default");
+	).toBe("Not Valid");
 });
 
 const SHELL = {

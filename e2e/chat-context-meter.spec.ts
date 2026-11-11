@@ -15,8 +15,8 @@ import { splitPane } from "./split-helpers";
  * `context` event. The context always shows, as "34.2k / 1M", and its look
  * steps up at 25, 50 and 75% and turns to the error look from 90%; the cache
  * clock shows whenever the host reports one. The ticking digits are not read,
- * and the status region announces the cache going cold and each context step
- * crossed.
+ * and the status region announces the cache going cold and the context
+ * passing 75 and 90%.
  */
 
 interface Cache {
@@ -232,7 +232,7 @@ test("a one-hour cache counts from an hour", async ({ page, context }) => {
 	);
 });
 
-test("each step crossed is announced once, shortly, and a fall then a climb is news again", async ({
+test("crossing 75 and 90 percent is announced once, and a fall then a climb is news again", async ({
 	page,
 	context,
 }) => {
@@ -242,10 +242,11 @@ test("each step crossed is announced once, shortly, and a fall then a climb is n
 		setContext(id, { usedTokens: used, windowTokens: 200_000, cache: null });
 	await at(20_000);
 	await expect(status).toHaveText("");
+	// The 25 and 50% steps change the look but say nothing.
 	await at(60_000);
-	await expect(status).toHaveText("Context is now 30% full.");
+	await expect(status).toHaveText("");
 	await at(110_000);
-	await expect(status).toHaveText("Context is now 55% full.");
+	await expect(status).toHaveText("");
 	await at(160_000);
 	await expect(status).toHaveText(/^Context is now 80% full\. Run \/compact/);
 	await expect(view.getByTestId("composer-context")).toHaveAttribute(

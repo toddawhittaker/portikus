@@ -319,6 +319,10 @@ describe("chat titles", () => {
 	test("a title is one line with no control characters, cut at 80 without splitting a character", () => {
 		expect(agentTitleText(" Fix\r\nthe\u0007\tbuild  ")).toBe("Fix the build");
 		expect(agentTitleText("\u0000 \n")).toBe("");
+		// Invisible format characters could reorder or hide text on screen.
+		expect(agentTitleText("fix \u202Etxt.exe\u202C now")).toBe("fix txt.exe now");
+		expect(agentTitleText("a\u200Bb\uFEFFc")).toBe("a b c");
+		expect(agentTitleText("\u200B\u2066")).toBe("");
 		const cut = agentTitleText(`${"a".repeat(79)}😀b`);
 		expect(cut).toBe("a".repeat(79));
 	});

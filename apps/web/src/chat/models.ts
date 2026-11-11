@@ -13,7 +13,7 @@ export interface ModelChoice {
 }
 
 /** The picker's value for the default model, which the list always opens with. */
-export const DEFAULT_MODEL = "default";
+const DEFAULT_MODEL = "default";
 
 const FULL_ID = "claude-";
 
