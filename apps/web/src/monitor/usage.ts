@@ -28,6 +28,31 @@ export function usagePollInterval(
 	return hasSample || settled ? pollMs : Math.min(pollMs, FIRST_SAMPLE_POLL_MS);
 }
 
+/** How close a process is to the workspace's limit. */
+export type LoadLevel = "normal" | "high" | "near-limit";
+
+/** A figure is heavy from this share of its limit, and near the limit from the next. */
+const HEAVY_FROM = 0.5;
+const NEAR_LIMIT_FROM = 0.8;
+
+/** Null or zero limits are never tinted: with nothing to measure against, plain is honest. */
+export function loadLevel(used: number | null, limit: number): LoadLevel {
+	if (used === null || !(limit > 0)) return "normal";
+	const share = used / limit;
+	if (share >= NEAR_LIMIT_FROM) return "near-limit";
+	return share >= HEAVY_FROM ? "high" : "normal";
+}
+
+/** A process's CPU is already a percent of the workspace's total CPU time. */
+export function cpuLoad(cpuPercent: number | null): LoadLevel {
+	return loadLevel(cpuPercent, 100);
+}
+
+/** A process's resident memory against the workspace's memory limit. */
+export function memoryLoad(residentBytes: number, limitBytes: number): LoadLevel {
+	return loadLevel(residentBytes, limitBytes);
+}
+
 export function useWorkspaceUsage(
 	workspaceId: string,
 	enabled: boolean,
