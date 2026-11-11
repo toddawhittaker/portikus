@@ -1,0 +1,31 @@
+name: Install apt packages from a cache
+description: >-
+  Installs Ubuntu packages from .deb files cached per runner image, so a run
+  whose image is already cached needs no apt mirror. A new runner image starts
+  a fresh cache.
+inputs:
+  packages:
+    description: Space-separated package names.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        slug=$(echo "$PACKAGES" | tr -s ' ' '-')
+        echo "image=${ImageOS:-$(lsb_release -is)}-${ImageVersion:-$(lsb_release -rs)}" >> "$GITHUB_OUTPUT"
+        echo "slug=$slug" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TEMP/apt-debs/$slug" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ${{ steps.key.outputs.dir }}
+        key: apt-debs-${{ runner.os }}-${{ runner.arch }}-${{ steps.key.outputs.image }}-${{ steps.key.outputs.slug }}
+    - shell: bash
+      env:
+        DEBS_DIR: ${{ steps.key.outputs.dir }}
+        PACKAGES: ${{ inputs.packages }}
+      # $PACKAGES is left unquoted so each name becomes its own argument.
+      run: '"$GITHUB_WORKSPACE/scripts/ci-apt-install.sh" "$DEBS_DIR" $PACKAGES'
