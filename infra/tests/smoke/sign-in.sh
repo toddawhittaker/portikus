@@ -41,6 +41,16 @@ check_output "dex-client.secret is root, mode 0600" "root:root 600" \
 check_output "the Dex config is root:portikus-dex, mode 0640" "root:portikus-dex 640" \
   ssh_cmd "sudo stat -c '%U:%G %a' /etc/portikus-dex/config.yaml"
 
+# The theme files keep their URLs across releases, so browsers must revalidate
+# them or an old logo outlives a deploy.
+dex_theme_header() {
+  ssh_cmd "${CURL} -sI '${API}/dex/theme/logo.svg'" | tr -d '\r' | grep -i '^cache-control:' | tr '[:upper:]' '[:lower:]'
+}
+check_output "the Dex theme logo is served" "200" \
+  http_status - "${API}/dex/theme/logo.svg"
+check_output "the Dex theme logo is served with Cache-Control: no-cache" "cache-control: no-cache" \
+  dex_theme_header
+
 # The local administrator (SPEC.md section 5.1).  The
 # play made it, so --if-missing changes nothing and exits 10 while its
 # one-time password is unchanged, 11 once it is spent.

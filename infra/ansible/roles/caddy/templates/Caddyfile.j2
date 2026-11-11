@@ -299,10 +299,15 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			method GET
 			path /dex/auth*
 		}
+		# The theme files keep their URLs from one release to the next and Dex
+		# sends no Cache-Control, so a browser would reuse an old logo for days.
+		# no-cache makes it ask each time; the ETag turns that into a cheap 304.
+		@dex_theme path /dex/theme/*
 		route {
 			respond @dex_unused 404
 			respond @dex_long_uri 414
 			respond @dex_auth_other_method 405
+			header @dex_theme Cache-Control no-cache
 			request_body {
 				max_size 16KB
 			}

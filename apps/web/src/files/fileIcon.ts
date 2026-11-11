@@ -48,12 +48,13 @@ const BY_EXTENSION: Record<string, IconName> = {
 	bash: "file-code",
 	zsh: "file-code",
 	sql: "file-code",
-	// Web.
+	// Web pages, then styles.
 	html: "file-web",
 	htm: "file-web",
-	css: "file-web",
-	scss: "file-web",
-	less: "file-web",
+	css: "file-style",
+	scss: "file-style",
+	sass: "file-style",
+	less: "file-style",
 	svg: "file-image",
 	// Data.
 	json: "file-data",

@@ -1,7 +1,8 @@
 /**
  * Each project's agent tabs and their subagents, under its row in the project
  * list (SPEC.md §8.2). Every row is a link to its tab; a subagent's link also
- * opens its tool row in a chat, and its own conversation in a panel there. A chat's row shows its conversation title and
+ * opens its tool row in a chat, and its own conversation in a panel there. A
+ * chat's row shows its conversation title and
  * a pencil that renames it (ADR 0074). The state is part of each link's name
  * and nothing here is announced as it changes: the toasts already do that
  * (SPEC.md §25.8).
