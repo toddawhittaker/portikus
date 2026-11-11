@@ -10,10 +10,9 @@
   .cover { position:relative; height:288px; overflow:hidden; }
   .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
   .art svg { display:block; width:480px; height:288px; }
-  .stone { fill:var(--ink); }
-  .room { fill:var(--terminal-bg); }
-  .code { fill:var(--mark-code); }
-  .cursor { fill:var(--terminal-cursor); }
+  .tile { fill:var(--brand-tile); }
+  .stone { fill:var(--brand-stone); }
+  .spark { fill:var(--brand-spark); }
   .words { position:absolute; left:var(--space-10); bottom:var(--space-10); max-width:440px; }
   .name { margin:0; font-size:88px; line-height:.92; font-weight:700; letter-spacing:-.02em; color:var(--ink); }
   .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
@@ -24,16 +23,15 @@
 <div class="art" aria-hidden="true">
 <svg viewBox="0 0 480 288" width="480" height="288">
 <!--
-  blocks      ink stone (lintel, columns, base line) at 4x the NameMark grid, 384x192 · terminal-bg room 224x112 · mark-code lines and a terminal-cursor block inside it
-  arrangement the NameMark itself, enlarged and centred in the box; lintel and base line the same length, as in the mark
-  pattern     literal motif, from "Portikus is an entryway, not the destination": the portico frames the terminal; three code lines and a cursor are the only texture
-  scales      4x the 96-unit mark grid (lintel and base line space-6 tall), room radius-none (real tools stay square)
+  blocks      the NameMark at 7x its 32-unit grid (224px): a brand-tile rounded square, the brand-stone portico (pediment, lintel, two columns, a step), a brand-spark prompt and cursor in the doorway
+  arrangement the mark itself, centred in the box; no other shapes
+  pattern     literal motif, from "Portikus is an entryway, not the destination": the portico frames the prompt
+  colours     brand tokens only, so the mark reads the same in both themes
 -->
-<g transform="translate(48 48) scale(4)">
-<path class="stone" d="M0 0h96v6h-96z M2 7L17 7L16 11L3 11z M4 11h11v26h-11z M3 37L16 37L17 41L2 41z M79 7L94 7L93 11L80 11z M81 11h11v26h-11z M80 37L93 37L94 41L79 41z M0 42h96v6h-96z"/>
-<path class="room" d="M20 11h56v28h-56z"/>
-<path class="code" d="M25 16h39v2.5h-39z M25 21h22v2.5h-22z M25 26h30v2.5h-30z"/>
-<path class="cursor" d="M25 31h3v5.5h-3z"/>
+<g transform="translate(128 32) scale(7)">
+<path class="tile" d="M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z"/>
+<path class="stone" d="M16 5.5 27 11.5H5z M6 12.5h20v2H6z M8 15.5h3.5v9H8z M20.5 15.5H24v9h-3.5z M5.5 25.5h21v2h-21z"/>
+<path class="spark" d="M12.8 17.4 16.4 20l-3.6 2.6v-1.7l1.6-.9-1.6-.9z M16.8 21.6h2.8v1.4h-2.8z"/>
 </g>
 </svg>
 </div>

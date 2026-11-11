@@ -7,6 +7,12 @@ explains the design itself and how engineering picks it up.
 
 ## The repository is ahead of the artifacts
 
+On 2026-11-11 the design system artifact was re-published from `system/`, with
+`components/bundle.js`, `bundle.css`, `index.d.ts`, the React 19 copies under
+`components/lib/` and every preview rebuilt from `packages/ui`, so `system/`
+and that artifact are back in sync; what follows still holds for the mockups
+artifact.
+
 Since November 2026 the files here describe a newer look than the two Claude
 Design artifacts do: warm ivory and charcoal surfaces, teal for actions and
 selection, a violet agent hue, one `Badge` for every status, the 12, 14, 16,
@@ -37,11 +43,13 @@ four variable font files under `fonts/`, and the eight logo SVGs under
 `assets/Logos/`.
 
 Source: https://claude.ai/artifact/TAPoWu8R6p6Q8GiY7yFmgu, version
-1789595319-c72a, last changed 2026-09-16T21:39:12Z by Todd Whittaker.
+1794416429-1880, last changed 2026-11-11 by Todd Whittaker.
 
 The logo SVGs are stored in the artifact under blob identifiers rather than
 file names. They were renamed on import to the names listed in
-`design-system.json`, and each one's byte size matches the size recorded there.
+`design-system.json`. The artifact stores each SVG re-serialised (explicit
+closing tags), so the sizes recorded there are a few bytes larger than the
+files here; the drawings are the same.
 
 ## `mockups/`
 
