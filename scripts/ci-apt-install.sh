@@ -7,7 +7,8 @@
 # package index, so a run survives Ubuntu's mirrors being unreachable.
 # Otherwise apt downloads the packages and their missing dependencies into
 # DEBS_DIR (using the image's package index first, because apt-get update
-# stalls when the mirrors are slow) and the same step installs them.
+# stalls when the mirrors are slow, then a fresh index, then a fallback
+# mirror) and the same step installs them.
 set -euo pipefail
 
 debs_dir=$1
@@ -24,11 +25,29 @@ if [ ${#missing[@]} -eq 0 ]; then
 fi
 
 if ! compgen -G "$debs_dir/*.deb" >/dev/null; then
+  # Any extra arguments are apt options placed before the install command.
   download() {
-    sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends --download-only \
+    sudo apt-get "$@" install -y -o Acquire::Retries=3 --no-install-recommends --download-only \
       -o Dir::Cache::archives="$debs_dir" "${missing[@]}"
   }
-  download || { sudo apt-get update -o Acquire::Retries=3 && download; }
+  # When the runner cannot resolve Ubuntu's own mirrors, download from
+  # kernel.org's copy, which also carries the security pocket. The image's
+  # sources are copied with only the URIs swapped, so Signed-By still checks
+  # the Ubuntu archive key. The copy and its index live in a temporary folder
+  # that apt reads alone, so no later apt call sees them.
+  download_from_mirror() {
+    mirror_dir=$(mktemp -d)
+    # apt's download user must be able to reach the index folder.
+    chmod 755 "$mirror_dir"
+    trap 'sudo rm -rf "$mirror_dir"' EXIT
+    mkdir -p "$mirror_dir/sources" "$mirror_dir/lists"
+    sed -E 's#^URIs:.*#URIs: https://mirrors.edge.kernel.org/ubuntu/#' \
+      /etc/apt/sources.list.d/ubuntu.sources >"$mirror_dir/sources/mirror.sources"
+    local opts=(-o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts="$mirror_dir/sources"
+      -o Dir::State::Lists="$mirror_dir/lists")
+    sudo apt-get "${opts[@]}" update -o Acquire::Retries=3 && download "${opts[@]}"
+  }
+  download || { sudo apt-get update -o Acquire::Retries=3 && download; } || download_from_mirror
   # apt leaves a root-only lock and partial folder that the cache save cannot read.
   sudo rm -rf "$debs_dir/lock" "$debs_dir/partial"
   sudo chown -R "$(id -u):$(id -g)" "$debs_dir"

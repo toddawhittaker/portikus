@@ -375,6 +375,12 @@ runs everything; pull request runs always run in full.
   the main and epic rulesets since Epic 54, and is skipped (which counts
   as passing) when neither app nor infra code changed.
 
+Jobs install Ubuntu packages through `.github/actions/apt-install`, which
+caches the downloaded `.deb` files per runner image; when a run must
+download them and cannot reach Ubuntu's own mirrors, it fetches them from
+`https://mirrors.edge.kernel.org/ubuntu` through a temporary copy of the
+runner's sources, still checked against the Ubuntu archive key.
+
 Each job detects whether its inputs exist and skips cleanly otherwise, so
 the pipeline is green on a repo with no code and starts enforcing as code
 lands. Do not remove the detection steps; remove the skip once a check is
