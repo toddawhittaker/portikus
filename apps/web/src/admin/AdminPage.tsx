@@ -64,6 +64,8 @@ export function AdminPage() {
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	if (me.user.role !== "administrator") return <Navigate to="/not-authorized" />;
+	// The Root shell tab can push the strip onto a second row; wait for it so the page does not drop once shown.
+	if (rootShell.isPending) return <div className="pk-root" aria-busy="true" />;
 
 	return (
 		<div className="pk-root">

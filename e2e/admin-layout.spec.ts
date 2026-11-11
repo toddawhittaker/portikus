@@ -61,6 +61,8 @@ async function frameLayout(page: Page) {
 }
 
 async function tabBoxes(page: Page): Promise<Box[]> {
+	// A web font swapping in between two reads would move every tab.
+	await page.evaluate(() => document.fonts.ready);
 	return page
 		.getByRole("navigation", { name: "Administration" })
 		.getByRole("link")
