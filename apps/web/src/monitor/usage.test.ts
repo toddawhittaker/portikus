@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import {
 	cpuLoad,
-	memoryLoad,
 	loadLevel,
+	memoryLoad,
 	STORAGE_POLL_MS,
 	USAGE_POLL_MS,
 	usagePollInterval,

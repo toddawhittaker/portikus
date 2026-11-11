@@ -272,7 +272,8 @@ async function seedMemoryLimit(workspaceId: string, totalBytes: number): Promise
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ key: workspaceId, usedBytes: 1, totalBytes }),
 	});
-	if (!response.ok) throw new Error(`the fake agent refused the memory: ${response.status}`);
+	if (!response.ok)
+		throw new Error(`the fake agent refused the memory: ${response.status}`);
 }
 
 async function cellStyle(page: Page, pid: number, column: "cpu" | "mem") {
