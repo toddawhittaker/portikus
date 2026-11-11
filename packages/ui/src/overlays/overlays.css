@@ -178,7 +178,7 @@
 	align-items: stretch;
 	min-width: 0;
 	height: var(--density-comfortable-tab);
-	background: var(--surface-sunken);
+	background: var(--surface-chrome);
 	border-bottom: 1px solid var(--line);
 }
 /* The launcher keeps its place however many tabs there are. */

@@ -19,9 +19,9 @@
 	padding: var(--space-0\.5) 0 0 calc(14px + var(--space-2));
 }
 /*
- * Two lines per row: the mark and the name on one line, cut with an
- * ellipsis (the whole name is its tooltip), then the state or the subagent
- * type under it. The mark sits level with the first line.
+ * The mark, then the name, which may take two lines before it is cut (the
+ * whole name is its tooltip), then the state or the subagent type under it.
+ * The mark sits level with the first line.
  */
 .pk-agent-row {
 	display: grid;
@@ -39,10 +39,15 @@
 	line-height: var(--leading-md);
 }
 .pk-agent-row--sub {
-	padding-block: var(--space-2);
+	padding-block: var(--space-1\.5);
 }
 .pk-agent-row:hover {
 	background: var(--surface-hover);
+}
+/* The agent whose tab is on show: the same selection as the current project's row. */
+.pk-agent-row.is-current {
+	background: var(--accent-soft);
+	box-shadow: inset 2px 0 0 var(--accent);
 }
 .pk-agent-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
@@ -58,9 +63,12 @@
 	grid-column: 2;
 	grid-row: 1;
 	min-width: 0;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 	font-weight: 400;
 }
 /* An unread finish or question is bold, as its tab is. */
@@ -79,31 +87,4 @@
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
-}
-/*
- * An agent's row is tinted by its state, with a bar at its start, so a
- * working, waiting or finished agent shows from across the room. The mark's
- * shape still carries the state for anyone who cannot tell the colours apart.
- */
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--working) {
-	--pk-agent-tone: var(--status-starting);
-	--pk-agent-tone-soft: var(--status-starting-soft);
-}
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input) {
-	--pk-agent-tone: var(--status-warning);
-	--pk-agent-tone-soft: var(--status-warning-soft);
-}
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--finished) {
-	--pk-agent-tone: var(--status-running);
-	--pk-agent-tone-soft: var(--status-running-soft);
-}
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark) {
-	background: var(--pk-agent-tone-soft);
-	box-shadow: inset 2px 0 0 var(--pk-agent-tone);
-}
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark):hover {
-	background: color-mix(in srgb, var(--pk-agent-tone) 12%, var(--pk-agent-tone-soft));
-}
-.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark) .pk-agent-state {
-	color: var(--pk-agent-tone);
 }

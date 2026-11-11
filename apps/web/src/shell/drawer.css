@@ -36,7 +36,7 @@
 		box-sizing: border-box;
 		/* Content wider than the sheet must not let focus scroll it off screen. */
 		overflow: clip;
-		background: var(--surface-sunken);
+		background: var(--surface);
 		/* A fade, not a slide, so its controls are where they will stay even mid-motion. */
 		opacity: 0;
 		transition: opacity var(--duration-base) ease-out;
@@ -93,8 +93,9 @@
 }
 
 /*
- * A phone: each drawer takes all but a 48px strip of the dimmed work area,
- * which stays to tap and close. Rows and buttons inside grow to touch size
+ * A phone: each pane is a screen of its own between the header and the pane
+ * bar, opaque and full width, so nothing of the work area shows at its edge;
+ * the pane bar's Work goes back. Rows and buttons inside grow to touch size
  * (WCAG 2.5.5).
  */
 @media (width < 40rem) {
@@ -102,8 +103,11 @@
 	.pk-drawer-layer--right > .pk-drawer {
 		--pk-row: var(--size-control-lg);
 		--pk-tree-row: 40px;
-		inline-size: calc(100% - var(--space-12));
-		box-shadow: var(--shadow-lg);
+		inline-size: 100%;
+		border-inline: 0;
+	}
+	.pk-drawer-scrim {
+		background: var(--surface);
 	}
 	.pk-drawer-layer {
 		--pk-drawer-head: 52px;
@@ -145,7 +149,7 @@
 		gap: var(--space-2);
 		block-size: var(--pk-panebar-height);
 		padding: var(--space-1) var(--space-3);
-		background: var(--surface-sunken);
+		background: var(--surface);
 		border-block-start: 1px solid var(--line);
 	}
 	.pk-panebar-item {

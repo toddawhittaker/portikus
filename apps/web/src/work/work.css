@@ -580,6 +580,11 @@
 	white-space: nowrap;
 }
 
+.pk-diff-status[data-git="modified"] {
+	background: var(--status-warning-soft);
+	color: var(--git-modified);
+}
+
 .pk-diff-status[data-git="added"],
 .pk-diff-status[data-git="untracked"] {
 	background: var(--status-running-soft);

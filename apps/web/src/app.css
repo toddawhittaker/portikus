@@ -272,7 +272,7 @@ body {
 	flex-direction: column;
 	min-height: 0;
 	height: 100%;
-	background: var(--surface-sunken);
+	background: var(--surface);
 }
 .pk-pane--left {
 	border-right: 1px solid var(--line);
@@ -311,10 +311,10 @@ body {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	margin: 0;
-	font-size: var(--text-md);
-	line-height: var(--leading-md);
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
 	font-weight: 600;
-	letter-spacing: -0.005em;
+	letter-spacing: -0.01em;
 	color: var(--ink);
 }
 /* The folder a pane shows: interface type, so chrome never reads as code. */
@@ -337,6 +337,25 @@ body {
 }
 .pk-pane--left > .pk-pane-body {
 	padding-top: var(--space-2);
+}
+/* A line of guidance under a short list, so the space below it is not left blank. */
+.pk-pane-note {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: var(--space-4) var(--space-2) 0;
+	padding: var(--space-3);
+	border: 1px dashed var(--line);
+	border-radius: var(--radius-md);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	max-inline-size: 40ch;
+}
+.pk-pane-note > svg {
+	flex: none;
+	margin-block-start: 2px;
+	color: var(--accent);
 }
 .pk-pane-foot {
 	flex: none;
@@ -378,9 +397,10 @@ body {
 .pk-list-item:hover {
 	background: var(--surface-hover);
 }
+/* The one selection for a row in the project list, shared with the agent rows. */
 .pk-list-item.is-current {
-	background: var(--surface-selected);
-	box-shadow: inset 3px 0 0 var(--accent);
+	background: var(--accent-soft);
+	box-shadow: inset 2px 0 0 var(--accent);
 }
 .pk-list-row {
 	flex: 1;
@@ -682,7 +702,7 @@ body {
 	gap: var(--space-3);
 	height: var(--pk-tab);
 	padding: 0 var(--space-3);
-	background: var(--surface-sunken);
+	background: var(--surface-chrome);
 	border-bottom: 1px solid var(--line);
 }
 .pk-skel-row {

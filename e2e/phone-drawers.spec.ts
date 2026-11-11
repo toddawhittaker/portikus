@@ -89,13 +89,16 @@ for (const width of WIDTHS) {
 				await expect(d.projectsButton).toHaveAttribute("aria-expanded", "false");
 				await expectNoViolations(page);
 
-				// Projects by touch: it slides in from the left, named, focus on its close button.
+				// Projects by touch: it opens from the left, named, focus on its close button.
+				// On a phone it is a full-width screen; wider, a strip of the work area shows.
+				const phone = width < 640;
 				await d.projectsButton.tap();
 				await expect(d.projects).toBeVisible();
 				await expect(d.projectsButton).toHaveAttribute("aria-expanded", "true");
 				// Once the slide in has finished.
 				await expect.poll(async () => (await boxOf(d.projects)).x).toBe(0);
-				expect((await boxOf(d.projects)).width).toBeLessThan(width);
+				if (phone) expect((await boxOf(d.projects)).width).toBe(width);
+				else expect((await boxOf(d.projects)).width).toBeLessThan(width);
 				await expect(d.projects).toBeFocused();
 				await page.keyboard.press("Tab");
 				await expect(
@@ -108,10 +111,19 @@ for (const width of WIDTHS) {
 					await page.keyboard.press("Tab");
 					expect(await focusIsIn(d.projects)).toBe(true);
 				}
-				// A tap on the work area left showing closes it.
-				await page.touchscreen.tap(width - 8, HEIGHT / 2);
-				await expect(d.projects).toBeHidden();
-				await expect(d.projectsButton).toBeFocused();
+				if (phone) {
+					// On a phone nothing of the work area shows; Work in the pane bar goes back.
+					await page
+						.getByRole("button", { name: "Work", exact: true, includeHidden: true })
+						.tap();
+					await expect(d.projects).toBeHidden();
+					await d.projectsButton.focus();
+				} else {
+					// A tap on the work area left showing closes it.
+					await page.touchscreen.tap(width - 8, HEIGHT / 2);
+					await expect(d.projects).toBeHidden();
+					await expect(d.projectsButton).toBeFocused();
+				}
 
 				// By keyboard; Escape closes and returns focus.
 				await page.keyboard.press("Enter");

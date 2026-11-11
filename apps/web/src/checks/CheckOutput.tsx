@@ -8,7 +8,7 @@ import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
 import { usePageTheme } from "../editor/pageTheme.js";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
-import { terminalTheme } from "../terminal/useXterm.js";
+import { applyCodeFace, terminalTheme } from "../terminal/useXterm.js";
 import { decodeCheckFrame } from "./checkFrames.js";
 
 /**
@@ -19,6 +19,47 @@ import { decodeCheckFrame } from "./checkFrames.js";
 function outputTheme(theme: "light" | "dark"): Record<string, string> {
 	const colours = terminalTheme(theme);
 	return { ...colours, cursor: colours.background ?? "" };
+}
+
+/** SGR colour codes for the closing line: green passed, red failed, yellow stopped. */
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const YELLOW = "\x1b[33m";
+const RESET = "\x1b[0m";
+
+/**
+ * Text broken into lines of at most `columns` characters at its spaces, so a
+ * narrow panel never splits a word the way the terminal's own wrap would. A
+ * word longer than a line is left whole.
+ */
+export function wrapAtSpaces(text: string, columns: number): string[] {
+	const lines: string[] = [];
+	let line = "";
+	for (const word of text.split(" ")) {
+		if (line === "") line = word;
+		else if (line.length + 1 + word.length <= columns) line = `${line} ${word}`;
+		else {
+			lines.push(line);
+			line = word;
+		}
+	}
+	lines.push(line);
+	return lines;
+}
+
+/**
+ * The lines written when a run ends, coloured by how it ended and wrapped to
+ * the panel's width.
+ */
+export function exitLines(stopped: boolean, exitCode: number, columns: number): string {
+	const [colour, text] = stopped
+		? [YELLOW, `[portikus] check stopped (exit code ${exitCode})`]
+		: exitCode === 0
+			? [GREEN, "[portikus] check passed (exit code 0)"]
+			: [RED, `[portikus] check failed (exit code ${exitCode})`];
+	return wrapAtSpaces(text, columns)
+		.map((line) => `${colour}${line}${RESET}`)
+		.join("\r\n");
 }
 
 export interface CheckOutputProps {
@@ -66,7 +107,6 @@ export function CheckOutput({
 		if (!container) return;
 
 		const xterm = new Xterm({
-			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
 			lineHeight: 1.3,
 			theme: outputTheme(themeRef.current),
@@ -83,6 +123,7 @@ export function CheckOutput({
 		term.current = xterm;
 		const fit = new FitAddon();
 		xterm.loadAddon(fit);
+		const dropFace = applyCodeFace(xterm, 13, () => fit.fit());
 		xterm.open(container);
 		fit.fit();
 
@@ -99,13 +140,7 @@ export function CheckOutput({
 				return;
 			}
 			if (frame.kind === "exit") {
-				xterm.writeln(
-					frame.stopped
-						? `\r\n[portikus] check stopped (exit code ${frame.exitCode})`
-						: frame.exitCode === 0
-							? "\r\n[portikus] check passed (exit code 0)"
-							: `\r\n[portikus] check failed (exit code ${frame.exitCode})`,
-				);
+				xterm.writeln(`\r\n${exitLines(frame.stopped, frame.exitCode, xterm.cols)}`);
 				finished.current();
 				return;
 			}
@@ -131,6 +166,7 @@ export function CheckOutput({
 
 		return () => {
 			observer.disconnect();
+			dropFace();
 			socket.close();
 			xterm.dispose();
 			term.current = null;

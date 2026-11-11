@@ -10,7 +10,7 @@
 	min-height: 32px;
 	/* With the 1px edge, a 24px button line makes the bar 32px tall. */
 	padding: var(--space-0\.5) var(--space-3) var(--space-1);
-	background: var(--surface-sunken);
+	background: var(--surface);
 	border-top: 1px solid var(--line);
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);

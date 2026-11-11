@@ -84,6 +84,43 @@ const LIGHT_THEME = {
 	brightWhite: "#23211d",
 };
 
+const FALLBACK_FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/** The code face the editor uses, then the system's monospace. */
+const TERMINAL_FONT = `"JetBrains Mono", ${FALLBACK_FONT}`;
+
+/**
+ * Start a terminal in the code face. xterm.js measures its cells once, so
+ * when the face has not loaded yet the terminal starts in the fallback and
+ * switches when it arrives; `refit` then sizes the grid to the new cells.
+ * Returns a cleanup that drops a switch still pending.
+ */
+export function applyCodeFace(
+	term: Xterm,
+	size: number,
+	refit: () => void,
+): () => void {
+	const fonts = typeof document === "undefined" ? undefined : document.fonts;
+	const face = `${size}px "JetBrains Mono"`;
+	if (!fonts || fonts.check(face)) {
+		term.options.fontFamily = TERMINAL_FONT;
+		return () => {};
+	}
+	let live = true;
+	term.options.fontFamily = FALLBACK_FONT;
+	fonts.load(face).then(
+		() => {
+			if (!live) return;
+			term.options.fontFamily = TERMINAL_FONT;
+			refit();
+		},
+		() => {},
+	);
+	return () => {
+		live = false;
+	};
+}
+
 /** The xterm theme for one of the two schemes (contracts/settings.ts). */
 export function terminalTheme(theme: TerminalTheme): Record<string, string> {
 	return theme === "light" ? LIGHT_THEME : DARK_THEME;
@@ -308,7 +345,6 @@ export function useXterm({
 		container.addEventListener("focusout", onFocusOut);
 
 		const term = new Xterm({
-			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 14,
 			// A little air between lines, so long output is easier to follow.
 			lineHeight: 1.25,
@@ -320,6 +356,7 @@ export function useXterm({
 			minimumContrastRatio: 4.5,
 			screenReaderMode: screenReaderRef.current,
 		});
+		const dropFace = applyCodeFace(term, 14, () => fitIfMeasurable());
 		const openUrl = (uri: string) => handlers.current.openUrl(uri);
 
 		const fitAddon = new FitAddon();
@@ -544,6 +581,7 @@ export function useXterm({
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
+			dropFace();
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;

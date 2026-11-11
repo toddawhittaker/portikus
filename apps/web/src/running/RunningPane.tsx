@@ -17,6 +17,7 @@ import {
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
+	Icon,
 	IconButton,
 	Toggletip,
 	useToast,
@@ -221,6 +222,16 @@ export function RunningPane({
 					</div>
 				);
 			})}
+
+			{services.length > 0 ? (
+				<p className="pk-pane-note" data-testid="running-note">
+					<Icon name="info" />
+					<span>
+						Start another program in a terminal and its port appears here. Preview shows
+						it in a tab beside your code.
+					</span>
+				</p>
+			) : null}
 
 			{stopping ? (
 				<ConfirmDialogRoot open onOpenChange={(open) => !open && setStopping(null)}>

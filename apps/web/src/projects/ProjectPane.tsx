@@ -15,6 +15,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { downloadErrorToast } from "../files/errors.js";
 import { downloadCheckUrl, startDownload } from "../files/queries.js";
+import { useLayout, useLayoutStore } from "../layout/store.js";
 import { StartLiveHelpDialog } from "../livehelp/StartLiveHelpDialog.js";
 import { RecoveryDialog } from "../recovery/RecoveryDialog.js";
 import {
@@ -100,6 +101,9 @@ export function ProjectPane({
 	const agentStatus = useAgentStatus();
 	const marks = marksByProject(agentStatus);
 	const agents = agentsByProject(agentStatus.terminals);
+	// The open project's work area: an agent row whose tab is on show is selected.
+	const layoutStore = useLayoutStore(currentProjectId ?? "none");
+	const activeTabId = useLayout(layoutStore, (state) => state.activeTabId);
 
 	function toggleAgents(projectId: string) {
 		setClosedAgents((closed) => {
@@ -295,6 +299,7 @@ export function ProjectPane({
 										expanded={agentsOpen}
 										terminals={projectAgents}
 										unread={agentStatus.unread}
+										currentTabId={current ? activeTabId : null}
 									/>
 								) : null}
 							</li>

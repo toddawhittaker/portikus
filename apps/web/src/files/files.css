@@ -55,9 +55,14 @@
 	display: flex;
 	flex-direction: column;
 }
+/* The tree takes only the height of its rows, so Changes follows straight
+   under it; a long tree scrolls in its own box. */
+.pk-pane--right > .pk-tree-body {
+	flex: 0 1 auto;
+}
 /* The empty area under the last row: a drop here means the project root.
-   It fills whatever height is left so there is always a
-   target, however few files the project has. */
+   It is at least a row tall, so there is always a target, however few
+   files the project has. */
 .pk-tree-space {
 	flex: 1;
 	min-height: var(--pk-tree-row);
@@ -127,15 +132,24 @@
 	gap: var(--space-1\.5);
 }
 
-/* Git decorations (SPEC.md §12.1, §12.6). */
+/* Git decorations (SPEC.md §12.1, §12.6): a lettered badge in the state
+   badge's style, amber for modified, green for added or untracked, red for
+   deleted and purple for a conflict. */
 .pk-git-letter {
 	flex: none;
-	width: 12px;
-	text-align: center;
-	font-family: var(--font-mono);
-	font-size: 12px;
-	font-weight: 600;
+	box-sizing: border-box;
+	display: inline-grid;
+	place-items: center;
+	min-inline-size: 18px;
+	block-size: 18px;
+	padding-inline: var(--space-1);
+	border-radius: var(--radius-sm);
+	background: var(--status-warning-soft);
 	color: var(--git-modified);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1;
+	font-weight: 700;
 }
 .pk-git-dot {
 	flex: none;
@@ -146,6 +160,7 @@
 }
 [data-git="added"] .pk-git-letter,
 [data-git="untracked"] .pk-git-letter {
+	background: var(--status-running-soft);
 	color: var(--git-added);
 }
 /* Untracked entries read as not-yet-part-of-the-project. */
@@ -153,8 +168,16 @@
 	font-style: italic;
 	opacity: 0.75;
 }
+[data-git="renamed"] .pk-git-letter {
+	background: var(--status-starting-soft);
+	color: var(--status-starting);
+}
 [data-git="deleted"] .pk-git-letter {
+	background: var(--status-error-soft);
 	color: var(--git-deleted);
+}
+[data-git="conflict"] .pk-git-letter {
+	background: var(--git-conflict-soft);
 }
 [data-git="conflict"] .pk-git-letter,
 [data-git="conflict"] .pk-icon {

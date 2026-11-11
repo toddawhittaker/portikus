@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	DARK_BRACKETS,
 	DARK_TOKENS,
+	EDITOR_BACKGROUNDS,
 	LIGHT_BRACKETS,
 	LIGHT_TOKENS,
 } from "./tokenColours.js";
@@ -19,10 +20,10 @@ function contrast(a: string, b: string): number {
 	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
 }
 
-// The editor background and line highlight of each theme in monaco.ts.
+// The editor background and line highlight of each theme.
 const BACKGROUNDS = {
-	light: ["f7f5f0", "efebe3"],
-	dark: ["1a1917", "22201d"],
+	light: [EDITOR_BACKGROUNDS.light.ground, EDITOR_BACKGROUNDS.light.line],
+	dark: [EDITOR_BACKGROUNDS.dark.ground, EDITOR_BACKGROUNDS.dark.line],
 };
 
 test.each([

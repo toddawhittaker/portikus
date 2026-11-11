@@ -23,6 +23,7 @@ import { onThemeChange, pageIsDark } from "./pageTheme.js";
 import {
 	DARK_BRACKETS,
 	DARK_TOKENS,
+	EDITOR_BACKGROUNDS,
 	LIGHT_BRACKETS,
 	LIGHT_TOKENS,
 } from "./tokenColours.js";
@@ -174,7 +175,12 @@ const LIGHT_THEME = "portikus-light";
 const DARK_THEME = "portikus-dark";
 
 function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
-	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));
+	// Comments are set in italic as well, so they read as asides without relying on colour.
+	return Object.entries(colours).map(([token, foreground]) =>
+		token.startsWith("comment")
+			? { token, foreground, fontStyle: "italic" }
+			: { token, foreground },
+	);
 }
 
 function withHash(colours: Record<string, string>): Record<string, string> {
@@ -189,16 +195,16 @@ function defineThemes(monaco: typeof Monaco): void {
 		inherit: true,
 		rules: tokenRules(LIGHT_TOKENS),
 		colors: {
-			"editor.background": "#f7f5f0",
-			"editor.foreground": "#23211d",
-			"editor.lineHighlightBackground": "#efebe3",
-			"editor.selectionBackground": "#cfe5e0",
+			"editor.background": `#${EDITOR_BACKGROUNDS.light.ground}`,
+			"editor.foreground": "#1e2220",
+			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.light.line}`,
+			"editor.selectionBackground": "#d3eae5",
 			"editorCursor.foreground": "#2c6a66",
-			"editorLineNumber.foreground": "#655f55",
-			"editorLineNumber.activeForeground": "#23211d",
-			"editorIndentGuide.background1": "#e3ded3",
-			"editorWidget.background": "#fffefb",
-			"editorWidget.border": "#d9d3c7",
+			"editorLineNumber.foreground": "#5d6461",
+			"editorLineNumber.activeForeground": "#1e2220",
+			"editorIndentGuide.background1": "#e8e5dd",
+			"editorWidget.background": "#ffffff",
+			"editorWidget.border": "#d5dcd9",
 			// The split view's code side needs a scrollbar a student can see
 			// against a pale background.
 			"scrollbarSlider.background": "#c1b9a8cc",
@@ -225,16 +231,16 @@ function defineThemes(monaco: typeof Monaco): void {
 		inherit: true,
 		rules: tokenRules(DARK_TOKENS),
 		colors: {
-			"editor.background": "#1a1917",
+			"editor.background": `#${EDITOR_BACKGROUNDS.dark.ground}`,
 			"editor.foreground": "#ece8df",
-			"editor.lineHighlightBackground": "#22201d",
+			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.dark.line}`,
 			"editor.selectionBackground": "#1d3a37",
 			"editorCursor.foreground": "#7cc2b9",
-			"editorLineNumber.foreground": "#9a9387",
+			"editorLineNumber.foreground": "#959b97",
 			"editorLineNumber.activeForeground": "#ece8df",
 			"editorIndentGuide.background1": "#2e2b27",
-			"editorWidget.background": "#24221f",
-			"editorWidget.border": "#38342f",
+			"editorWidget.background": "#262624",
+			"editorWidget.border": "#303735",
 			"scrollbarSlider.background": "#4b473fcc",
 			"scrollbarSlider.hoverBackground": "#615c52e6",
 			"scrollbarSlider.activeBackground": "#7a7466",

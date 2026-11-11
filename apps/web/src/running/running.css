@@ -213,7 +213,8 @@
 }
 .pk-running-details dd {
 	margin: 0;
-	overflow-wrap: anywhere;
+	/* Break at spaces; only a value with none is broken inside. */
+	overflow-wrap: break-word;
 	font-family: var(--font-mono);
 	font-variant-ligatures: none;
 	font-size: var(--text-xs);

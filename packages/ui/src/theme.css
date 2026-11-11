@@ -46,30 +46,34 @@
 :root {
 	color-scheme: light;
 
-	/* Colour: light values. */
-	--surface: #f7f5f0;
-	--surface-raised: #fffefb;
-	/* The work area: one step lighter than the side panes and the header, so the work reads first. */
-	--surface-work: #fcfbf8;
-	--surface-sunken: #ebe7dd;
-	--surface-hover: #e1dcd0;
-	--surface-selected: #cfe5e0;
+	/* Colour: light values. The chrome (header, side panes, status bar) is a
+	   cool, teal-leaning grey; the work area is a warm near-white, so the work
+	   reads first and the two are told apart by temperature as well as tone. */
+	--surface: #f1f4f3;
+	--surface-raised: #ffffff;
+	--surface-work: #fdfcf9;
+	/* The chrome's own surface. Declared here, it resolves once at the root and so
+	   keeps the chrome tone inside the work area, which repoints --surface. */
+	--surface-chrome: var(--surface);
+	--surface-sunken: #e6ebe9;
+	--surface-hover: #e1e7e5;
+	--surface-selected: #d3eae5;
 	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
 	   never green, which belongs to the passed badge and Git added. */
-	--surface-row-selected: #e3ddd1;
-	--surface-inverse: #2a2723;
-	--surface-inverse-hover: #3d3933;
-	--line: #d9d3c7;
-	--line-strong: #8a8375;
-	--ink: #23211d;
-	--ink-muted: #514c44;
-	--ink-faint: #655f55;
-	--ink-inverse: #fdfcfa;
+	--surface-row-selected: #e2e2dd;
+	--surface-inverse: #262a28;
+	--surface-inverse-hover: #383d3b;
+	--line: #d5dcd9;
+	--line-strong: #7d8784;
+	--ink: #1e2220;
+	--ink-muted: #4b514e;
+	--ink-faint: #5d6461;
+	--ink-inverse: #fbfcfb;
 	--accent: #2c6a66;
 	--accent-hover: #22524f;
 	--accent-active: #1a403e;
 	--on-accent: #ffffff;
-	--accent-soft: #d4e9e5;
+	--accent-soft: #d3eae5;
 	--accent-text: #24605c;
 	/* Both focus colours, named once so a pane with its own scheme can pick
 	   one without the two drifting apart. */
@@ -103,6 +107,7 @@
 	--git-modified: #7a5300;
 	--git-deleted: #a4342a;
 	--git-conflict: #8a3ea0;
+	--git-conflict-soft: #efe0f4;
 
 	/* Spacing: 4px scale, names match Tailwind's numeric steps. */
 	--space-0: 0px;
@@ -119,15 +124,16 @@
 	--space-12: 48px;
 	--space-16: 64px;
 
-	/* Type scale, 12 14 16 20 24: 12 is metadata only; 14 the body, labels, list rows, tabs and navigation. */
+	/* Type scale, 12 13 14 16 20 24: 12 metadata, 13 secondary text, 14 the body, rows, tabs and
+	   navigation, 16 pane titles, 20 dialog titles, 24 page titles. */
 	--text-xs: 12px;
-	--text-sm: 14px;
+	--text-sm: 13px;
 	--text-md: 14px;
 	--text-lg: 16px;
 	--text-xl: 20px;
 	--text-2xl: 24px;
 	--leading-xs: 16px;
-	--leading-sm: 20px;
+	--leading-sm: 18px;
 	--leading-md: 20px;
 	--leading-lg: 24px;
 	--leading-xl: 28px;
@@ -186,20 +192,20 @@
  */
 [data-theme="dark"] {
 	color-scheme: dark;
-	--surface: #1a1917;
-	--surface-raised: #24221f;
-	--surface-work: #201e1b;
-	--surface-sunken: #121110;
-	--surface-hover: #2e2b27;
+	--surface: #181b1b;
+	--surface-raised: #262624;
+	--surface-work: #201f1c;
+	--surface-sunken: #111413;
+	--surface-hover: #252a29;
 	--surface-selected: #1d3a37;
-	--surface-row-selected: #3a3730;
+	--surface-row-selected: #34332f;
 	--surface-inverse: #ece8df;
 	--surface-inverse-hover: #d3cec3;
-	--line: #38342f;
-	--line-strong: #7f786c;
+	--line: #303735;
+	--line-strong: #79827f;
 	--ink: #ece8df;
-	--ink-muted: #b3ac9f;
-	--ink-faint: #9a9387;
+	--ink-muted: #b0b4af;
+	--ink-faint: #959b97;
 	--ink-inverse: #171614;
 	--accent: #7cc2b9;
 	--accent-hover: #9bd3cb;
@@ -231,28 +237,29 @@
 	--git-modified: #e3b85c;
 	--git-deleted: #f0998f;
 	--git-conflict: #d39fe8;
+	--git-conflict-soft: #33233b;
 	--shadow-sm: 0 1px 2px #00000066;
-	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #38342f;
-	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #38342f;
+	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #303735;
+	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #303735;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		color-scheme: dark;
-		--surface: #1a1917;
-		--surface-raised: #24221f;
-		--surface-work: #201e1b;
-		--surface-sunken: #121110;
-		--surface-hover: #2e2b27;
+		--surface: #181b1b;
+		--surface-raised: #262624;
+		--surface-work: #201f1c;
+		--surface-sunken: #111413;
+		--surface-hover: #252a29;
 		--surface-selected: #1d3a37;
-		--surface-row-selected: #3a3730;
+		--surface-row-selected: #34332f;
 		--surface-inverse: #ece8df;
 		--surface-inverse-hover: #d3cec3;
-		--line: #38342f;
-		--line-strong: #7f786c;
+		--line: #303735;
+		--line-strong: #79827f;
 		--ink: #ece8df;
-		--ink-muted: #b3ac9f;
-		--ink-faint: #9a9387;
+		--ink-muted: #b0b4af;
+		--ink-faint: #959b97;
 		--ink-inverse: #171614;
 		--accent: #7cc2b9;
 		--accent-hover: #9bd3cb;
@@ -284,9 +291,10 @@
 		--git-modified: #e3b85c;
 		--git-deleted: #f0998f;
 		--git-conflict: #d39fe8;
+		--git-conflict-soft: #33233b;
 		--shadow-sm: 0 1px 2px #00000066;
-		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #38342f;
-		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #38342f;
+		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #303735;
+		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #303735;
 	}
 }
 
@@ -448,6 +456,7 @@
 	--color-git-modified: var(--git-modified);
 	--color-git-deleted: var(--git-deleted);
 	--color-git-conflict: var(--git-conflict);
+	--color-git-conflict-soft: var(--git-conflict-soft);
 	--color-terminal-bg: var(--terminal-bg);
 	--color-terminal-fg: var(--terminal-fg);
 	--color-terminal-muted: var(--terminal-muted);
