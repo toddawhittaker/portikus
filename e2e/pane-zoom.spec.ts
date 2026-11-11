@@ -89,7 +89,8 @@ test("Ctrl + wheel over an unfocused terminal zooms only that terminal, never th
 			.getByTestId(`terminal-pane-${second}`)
 			.locator("textarea.xterm-helper-textarea"),
 	).toBeFocused();
-	const startSize = await terminalFontSize(page, first);
+	const startSize = "14px";
+	await expect.poll(() => terminalFontSize(page, first)).toBe(startSize);
 	const pageRatio = await page.evaluate(() => window.devicePixelRatio);
 	const pageWheels = await page.evaluateHandle(() => {
 		const seen = { prevented: [] as boolean[] };
@@ -106,7 +107,8 @@ test("Ctrl + wheel over an unfocused terminal zooms only that terminal, never th
 	await ctrlWheel(page, page.getByTestId(`terminal-pane-${first}`), -100);
 	await expect(zoomValue(page, first)).toHaveText("110%");
 	await expect(zoomValue(page, second)).toHaveText("100%");
-	expect(await terminalFontSize(page, first)).not.toBe(startSize);
+	// xterm.js draws the new size on its next frame. 14 px at 110% is 15 px.
+	await expect.poll(() => terminalFontSize(page, first)).toBe("15px");
 	expect(await terminalFontSize(page, second)).toBe(startSize);
 	// The pane took the event, so the browser did not zoom the page.
 	expect(await pageWheels.evaluate((seen) => seen.prevented)).toEqual([true]);
@@ -134,7 +136,7 @@ test("Ctrl + wheel over an unfocused terminal zooms only that terminal, never th
 	await expect(zoomValue(page, first)).toHaveText("110%");
 	await zoomValue(page, first).click();
 	await expect(zoomValue(page, first)).toHaveText("100%");
-	expect(await terminalFontSize(page, first)).toBe(startSize);
+	await expect.poll(() => terminalFontSize(page, first)).toBe(startSize);
 });
 
 test("two chats keep different sizes, by keys and by buttons", async ({
@@ -202,14 +204,16 @@ test("a pane keeps its zoom through a split and leaving the workspace", async ({
 	await page.getByTestId(`pane-zoom-in-${shell}`).click();
 	await page.getByTestId(`pane-zoom-in-${shell}`).click();
 	await expect(zoomValue(page, shell)).toHaveText("130%");
-	const zoomedSize = await terminalFontSize(page, shell);
+	// 14 px at 130%.
+	const zoomedSize = "18px";
+	await expect.poll(() => terminalFontSize(page, shell)).toBe(zoomedSize);
 
 	await splitPane(page, shell, "down");
 	const below = await newId(student.workspaceId, project.id, [shell]);
 	await expectConnected(page, below);
 	await expect(zoomValue(page, shell)).toHaveText("130%");
 	await expect(zoomValue(page, below)).toHaveText("100%");
-	expect(await terminalFontSize(page, shell)).toBe(zoomedSize);
+	await expect.poll(() => terminalFontSize(page, shell)).toBe(zoomedSize);
 
 	// A chat opened in a tab of its own starts at 100%.
 	const { id: chat } = await launchChat(page, student.workspaceId, project.id);
