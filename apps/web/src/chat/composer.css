@@ -245,6 +245,11 @@
 	margin-block-start: var(--space-1);
 }
 
+/* Send and Stop are round so the box's two turn controls read apart from its tools. */
+.pk-composer-send {
+	border-radius: var(--radius-full);
+}
+
 /* Send is the box's main action, so it takes the primary fill. */
 .pk-composer-send.is-send {
 	border-color: transparent;

@@ -2,7 +2,13 @@
  * The student images in docs/images, from a demo workspace with the Weather
  * Now project. Each test sets up and shoots one or a few images.
  */
-import { expect, type Page, test, type WebSocketRoute } from "@playwright/test";
+import {
+	expect,
+	type Locator,
+	type Page,
+	test,
+	type WebSocketRoute,
+} from "@playwright/test";
 import { query, setWorkspaceState } from "../helpers";
 import {
 	course,
@@ -81,10 +87,28 @@ async function agents(workspaceId: string, ids: { tui: string; chat?: string }) 
 				]
 			: []),
 	]);
-	await setPlans(workspaceId, [
-		{ id: "claude", label: "Claude", usedPercent: 38, resetsAt: inHours(70) },
-		{ id: "codex", label: "Codex", usedPercent: 12, resetsAt: inHours(118) },
+	await weeklyPlans(workspaceId);
+}
+
+/** Each agent's weekly plan use, as the status line reports it (SPEC.md §10.8). */
+function weeklyPlans(workspaceId: string) {
+	return setPlans(workspaceId, [
+		{ id: "claude", label: "Claude", usedPercent: 42, resetsAt: inHours(70) },
+		{ id: "codex", label: "Codex", usedPercent: 17, resetsAt: inHours(118) },
 	]);
+}
+
+/**
+ * The host's `context` report: 116k of a 200k window, over the half that
+ * shows the meter, and a one-hour cache read 12 minutes ago.
+ */
+function sendContext(send: Send) {
+	send("context", {
+		usedTokens: 116_000,
+		windowTokens: 200_000,
+		cache: { at: Date.now() - 12 * 60_000, ttlSeconds: 3600 },
+		now: Date.now(),
+	});
 }
 
 for (const colorScheme of ["light", "dark"] as const) {
@@ -113,6 +137,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await shoot(page, "student-agent-rows.png", {
 				clip: { x: 0, y: 0, width: 720, height: 400 },
 			});
+			// The needs-input toast sits over the status bar and would take the click.
+			await page
+				.getByRole("region", { name: /Notifications/ })
+				.getByRole("button", { name: "Dismiss" })
+				.click();
 			await page.getByTestId("agent-meter-claude").click();
 			await expect(page.getByTestId("agent-meter-claude-details")).toBeVisible();
 			await shoot(page, "student-agent-meter.png", {
@@ -142,10 +171,18 @@ async function scriptChat(page: Page, id: string, play: (send: Send) => void) {
 	return view;
 }
 
+/** The composer's context meter and the status bar's plan meters are both up. */
+async function expectMeters(page: Page, view: Locator) {
+	await expect(view.getByTestId("composer-context")).toContainText("Context 58%");
+	await expect(page.getByTestId("agent-meter-claude")).toBeVisible();
+	await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
+}
+
 const SETTINGS = { agent: "claude", model: "default", effort: "high", mode: "default" };
 
 test("chat", async ({ page }) => {
 	const { maya, project } = await workspace(page);
+	await weeklyPlans(maya.workspaceId);
 	await openProject(page, maya.workspaceId, project.id);
 	const id = await launch(page, maya.workspaceId, project.id, "claude-gui");
 	const at = Date.now() - 90_000;
@@ -233,14 +270,17 @@ test("chat", async ({ page }) => {
 			],
 		});
 		send("settings", SETTINGS);
+		sendContext(send);
 	});
 	await expect(view.getByTestId("chat-permission-card")).toBeVisible();
+	await expectMeters(page, view);
 	await view.getByText("4 tool calls").click();
 	await shoot(page, "student-chat.png");
 });
 
 test("chat composer and shell command", async ({ page }) => {
 	const { maya, project } = await workspace(page);
+	await weeklyPlans(maya.workspaceId);
 	await openProject(page, maya.workspaceId, project.id);
 	const id = await launch(page, maya.workspaceId, project.id, "claude-gui");
 	const view = await scriptChat(page, id, (send) => {
@@ -292,8 +332,10 @@ test("chat composer and shell command", async ({ page }) => {
 				{ name: "model", description: "Choose the model", terminalOnly: true },
 			],
 		});
+		sendContext(send);
 	});
 	await expect(view.getByTestId("chat-shell").first()).toBeVisible();
+	await expectMeters(page, view);
 	await shoot(page, "student-chat-shell.png");
 	await view.getByTestId("chat-composer-input").click();
 	await page.keyboard.type("/");
