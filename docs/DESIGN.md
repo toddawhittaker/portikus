@@ -164,10 +164,11 @@ border with its sentence and actions (section 11).
   checking against browser and shell bindings.
 
 `design/README.md` names the source artifacts and says how to refresh the
-copies. Since the November 2026 refresh the repository is ahead of the
-artifacts: the code came first, `design/system` was updated by hand to
-match it, and the mockups take the new tokens but were not redrawn. Section
-11 and the code win over the mockups until the artifacts are re-published. If a screen needs a token or component the system lacks, add it to
+copies. Both artifacts were re-published with the November 2026 look on
+2026-11-11, and the mockups now mount the real `packages/ui` components.
+The mockup screens keep their September layouts and content, though, so
+section 11 and the code win wherever a mockup differs from the product (the
+chat composer, for one, is not drawn). If a screen needs a token or component the system lacks, add it to
 the system first and then use it.
 
 ## 8. Hooking the designs back into engineering

@@ -2,6 +2,7 @@
    Tailwind: expose each colour as --color-<name>: var(--<name>) inside @theme. Theme follows data-theme;
    terminal colours follow data-terminal-theme on the terminal pane, independent of the page theme. */
 :root {
+  --size-badge: 22px;
   --space-0: 0px;
   --space-0\.5: 2px;
   --space-1: 4px;
@@ -83,10 +84,10 @@
   --surface-inverse: #2a2723;
   --surface-inverse-hover: #3d3933;
   --line: #e2dacb;
-  --line-strong: #8c8473;
+  --line-strong: #807868;
   --ink: #221f1a;
   --ink-muted: #57514a;
-  --ink-faint: #6b6458;
+  --ink-faint: #675f53;
   --ink-inverse: #fffdf8;
   --accent: #1d6e67;
   --accent-hover: #155851;
@@ -133,7 +134,8 @@
   --shadow-lg: 0 16px 40px #1a181529, 0 2px 6px #1a18151a;
   color-scheme: light;
 }
-[data-theme="dark"] {
+/* Menus and dialogs render into the body, outside the artboard root, so the body takes the dark values too. */
+[data-theme="dark"], body:has(.pk-root[data-theme="dark"]) {
   --surface: #1f1e1b;
   --surface-raised: #2a2825;
   --surface-work: #171614;
@@ -245,3 +247,42 @@
   --ansi-bright-white: #23211d;
 }
 @media (prefers-reduced-motion: reduce) { :root { --duration-fast: 0ms; --duration-base: 0ms; } }
+
+/* The bundle's Tailwind theme maps --color-<name> to var(--<name>) on :root, where only the light values are in scope.
+   Repeat the mapping on the artboard root and the body so components follow the artboard's data-theme. */
+.pk-root, body:has(.pk-root) {
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-selected: var(--surface-selected);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-inverse: var(--ink-inverse);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-agent-soft: var(--agent-soft);
+  --color-agent-text: var(--agent-text);
+  --color-focus: var(--focus);
+  --color-status-starting: var(--status-starting);
+  --color-status-starting-soft: var(--status-starting-soft);
+  --color-status-running: var(--status-running);
+  --color-status-running-soft: var(--status-running-soft);
+  --color-status-stopped: var(--status-stopped);
+  --color-status-stopped-soft: var(--status-stopped-soft);
+  --color-status-error: var(--status-error);
+  --color-status-error-soft: var(--status-error-soft);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-soft: var(--status-warning-soft);
+  --color-status-danger: var(--status-danger);
+  --color-status-danger-soft: var(--status-danger-soft);
+  --color-danger-hover: var(--danger-hover);
+  --color-on-danger: var(--on-danger);
+}

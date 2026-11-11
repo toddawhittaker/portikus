@@ -19,7 +19,7 @@ runs:
         echo "image=${ImageOS:-$(lsb_release -is)}-${ImageVersion:-$(lsb_release -rs)}" >> "$GITHUB_OUTPUT"
         echo "slug=$slug" >> "$GITHUB_OUTPUT"
         echo "dir=$RUNNER_TEMP/apt-debs/$slug" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache@v6
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ steps.key.outputs.dir }}
         key: apt-debs-${{ runner.os }}-${{ runner.arch }}-${{ steps.key.outputs.image }}-${{ steps.key.outputs.slug }}
