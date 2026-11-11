@@ -38,12 +38,50 @@ export type ChatPermissionMode = z.infer<typeof ChatPermissionMode>;
 export const ChatEffort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type ChatEffort = z.infer<typeof ChatEffort>;
 
-/** The effort a new chat starts at, for the host and the pickers alike. */
-export const CHAT_START_EFFORT: ChatEffort = "high";
+/**
+ * A model as Claude Code names it: a short name such as `opus`, which means
+ * the newest version, or a full ID such as `claude-opus-4-8`, which pins one.
+ * The characters allowed include the brackets of a suffix like `[1m]`.
+ */
+export const ChatModel = z
+	.string()
+	.max(100)
+	.regex(/^[a-z0-9][a-z0-9.\-[\]]*$/);
+export type ChatModel = z.infer<typeof ChatModel>;
 
-/** The model choices the picker offers; the host may report a fuller name. */
-export const ChatModelChoice = z.enum(["default", "opus", "sonnet", "haiku"]);
-export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
+/** What a chat starts at when the project has no last-used settings (SPEC.md §10.8). */
+export const CHAT_START_SETTINGS: {
+	model: ChatModel;
+	effort: ChatEffort;
+	mode: ChatPermissionMode;
+} = { model: "opus", effort: "medium", mode: "auto" };
+
+/** Most models one `models` event lists. */
+export const MAX_CHAT_MODELS = 50;
+
+/** One model Claude Code offers the account, as `supportedModels()` lists it. */
+export const ChatModelInfo = z.object({
+	value: ChatModel,
+	/** The full ID the value means today; a short name's current version. */
+	resolvedModel: z.string().max(100).optional(),
+	displayName: z.string().max(100),
+	description: z.string().max(300),
+	supportsAutoMode: z.boolean(),
+});
+export type ChatModelInfo = z.infer<typeof ChatModelInfo>;
+
+/**
+ * The permission mode a new chat starts at on this model: Auto, or Ask when
+ * the model says it does not support Auto (SPEC.md §10.8).
+ */
+export function chatStartMode(
+	models: readonly ChatModelInfo[],
+	model: string,
+): ChatPermissionMode {
+	const unsupported =
+		models.find((row) => row.value === model)?.supportsAutoMode === false;
+	return unsupported ? "default" : CHAT_START_SETTINGS.mode;
+}
 
 /**
  * The picker values a student last used in one project, which a new chat
@@ -51,7 +89,7 @@ export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
  */
 export const ChatLastSettings = z
 	.object({
-		model: ChatModelChoice,
+		model: ChatModel,
 		effort: ChatEffort,
 		mode: ChatPermissionMode,
 		/** Read each reply aloud; optional so a client from before it still saves. */
@@ -61,14 +99,14 @@ export const ChatLastSettings = z
 export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
 
 /**
- * A stored value read back: a model no longer offered becomes the default,
- * and Bypass permissions is never carried into a new chat, so it comes back
- * as Auto (SPEC.md §10.8).
+ * A stored value read back: a model that no longer parses becomes the
+ * default, and Bypass permissions is never carried into a new chat, so it
+ * comes back as Auto (SPEC.md §10.8).
  */
 export const StoredChatSettings = z
 	.object({
-		model: ChatModelChoice.catch("default"),
-		effort: ChatEffort.catch(CHAT_START_EFFORT),
+		model: ChatModel.catch("default"),
+		effort: ChatEffort.catch(CHAT_START_SETTINGS.effort),
 		mode: ChatPermissionMode.catch("default"),
 		readAloud: z.boolean().catch(false),
 	})
@@ -346,6 +384,15 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),
+	/**
+	 * The models Claude Code offers this account; sent on attach, before the
+	 * settings, once the host has read them.
+	 */
+	z.object({
+		type: z.literal("models"),
+		...Envelope,
+		models: z.array(ChatModelInfo).max(MAX_CHAT_MODELS),
+	}),
 	/** Every session rule now in force; sent on attach and on each change. */
 	z.object({
 		type: z.literal("rules"),
@@ -395,7 +442,7 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	z
 		.object({
 			type: z.literal("set"),
-			model: z.string().min(1).optional(),
+			model: ChatModel.optional(),
 			effort: ChatEffort.optional(),
 			mode: ChatPermissionMode.optional(),
 		})

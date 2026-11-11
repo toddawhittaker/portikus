@@ -4,6 +4,7 @@ import {
 	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
+	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
@@ -87,6 +88,46 @@ const DEFAULT_COMMANDS: ChatCommand[] = [
 	{ name: "config", description: "Open the settings menu", terminalOnly: true },
 ];
 
+/** The models a fake chat offers, shaped like Claude Code's own list. */
+const row = (
+	value: string,
+	displayName: string,
+	description: string,
+	resolvedModel = value,
+	supportsAutoMode = true,
+): ChatModelInfo => ({
+	value,
+	resolvedModel,
+	displayName,
+	description,
+	supportsAutoMode,
+});
+
+const DEFAULT_MODELS: ChatModelInfo[] = [
+	row(
+		"default",
+		"Default (recommended)",
+		"Opus 5.5 · Best for everyday, complex tasks",
+		"claude-opus-5-5",
+	),
+	row("opus", "Opus 5.5", "For complex work and everyday tasks", "claude-opus-5-5"),
+	row("fable", "Fable 5.2", "For your toughest challenges", "claude-fable-5-2"),
+	row("sonnet", "Sonnet 5.5", "Most efficient for simpler tasks", "claude-sonnet-5-5"),
+	row("haiku", "Haiku 5.5", "Fastest for quick answers", "claude-haiku-5-5"),
+	row("claude-fable-5-1", "Fable 5.1", "Most capable for your hardest tasks"),
+	row(
+		"claude-haiku-4-5-20251001",
+		"Haiku 4.5",
+		"Fastest for quick answers",
+		undefined,
+		false,
+	),
+	row("claude-opus-5", "Opus 5", "Best for everyday, complex tasks"),
+	row("claude-opus-4-8", "Opus 4.8", "Best for everyday, complex tasks"),
+	row("claude-opus-4-7", "Opus 4.7", "Best for everyday, complex tasks"),
+	row("claude-sonnet-4-6", "Sonnet 4.6", "Efficient for routine tasks"),
+];
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -103,6 +144,8 @@ interface FakeChat {
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
 	commands: ChatCommand[];
+	/** The models on offer; sent on attach, before the settings. */
+	models: ChatModelInfo[];
 	/** The last `context` event body a test set; sent on attach. */
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
@@ -143,8 +186,9 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				openCards: [],
 				answers: [],
 				received: [],
-				settings: { model: "claude-sonnet-4-5", effort: "medium", mode: "default" },
+				settings: { model: "sonnet", effort: "medium", mode: "default" },
 				commands: DEFAULT_COMMANDS,
+				models: DEFAULT_MODELS,
 				context: null,
 				sockets: new Set(),
 			};
@@ -365,6 +409,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			for (const event of chat.history) emit(id, [socket], event);
 			// Before the settings, which tests wait for as the end of an attach.
 			emit(id, [socket], { type: "commands", commands: chat.commands });
+			emit(id, [socket], { type: "models", models: chat.models });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
@@ -376,6 +421,15 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
 		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
+
+	// Replace the model list and send it to every attachment, as the host does.
+	app.post("/__test/chats/:id/models", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.models = (request.body as { models: ChatModelInfo[] }).models;
+		emit(id, chat.sockets, { type: "models", models: chat.models });
 		return reply.status(204).send();
 	});
 

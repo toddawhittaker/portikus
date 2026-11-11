@@ -88,7 +88,8 @@ test.skipIf(!existsSync(CLAUDE))(
 			await vi.waitFor(() =>
 				expect(events.some((e) => e.type === "snapshot")).toBe(true),
 			);
-			send({ type: "set", model: "haiku" });
+			// A new chat starts in Auto; this one needs Ask to raise the card.
+			send({ type: "set", model: "haiku", mode: "default" });
 			send({
 				type: "send",
 				text: "First run `touch probe.txt` with the Bash tool. Then use the AskUserQuestion tool to ask me one single-select question, header 'Colour', options 'Red' and 'Blue'. Then reply with exactly what I picked and the note I gave.",
@@ -150,6 +151,64 @@ test.skipIf(!existsSync(CLAUDE))(
 		}
 	},
 	300_000,
+);
+
+/**
+ * The model list comes from Claude Code itself, before any message, with a
+ * Latest row per family and pinned versions after it, and the window is
+ * known before the first reply (SPEC.md §10.8).
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"the model list and context window arrive before any message",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			events.push(JSON.parse(line) as ChatServerEvent);
+		});
+		try {
+			await vi.waitFor(
+				() => {
+					expect(events.some((e) => e.type === "models")).toBe(true);
+					expect(events.some((e) => e.type === "context")).toBe(true);
+				},
+				{ timeout: 60_000, interval: 200 },
+			);
+			const listed = events.find((e) => e.type === "models");
+			const models = listed?.type === "models" ? listed.models : [];
+			const values = models.map((row) => row.value);
+			expect(values).toContain("default");
+			expect(values).toContain("opus");
+			// A family's pinned versions are the rows named claude-<family>-….
+			expect(values.some((value) => value.startsWith("claude-opus-"))).toBe(true);
+			for (const row of models) expect(row.displayName).not.toBe("");
+			// Nothing was sent, so the context is empty in a known window.
+			const context = events.find((e) => e.type === "context");
+			expect(context).toMatchObject({ usedTokens: 0 });
+			expect((context as { windowTokens: number | null }).windowTokens).toBeGreaterThan(
+				100_000,
+			);
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	120_000,
 );
 
 /**

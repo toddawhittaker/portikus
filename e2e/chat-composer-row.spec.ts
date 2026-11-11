@@ -15,6 +15,7 @@ import { splitPane } from "./split-helpers";
 const PICKERS = [
 	["Agent", "composer-agent", "Claude Code"],
 	["Model", "composer-model", "Sonnet"],
+	["Version", "composer-version", "Latest (5.5)"],
 	["Effort", "composer-effort", "Medium"],
 	["Permissions", "composer-mode", "Ask"],
 ] as const;
