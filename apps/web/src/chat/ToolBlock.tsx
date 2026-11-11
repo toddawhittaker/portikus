@@ -4,9 +4,9 @@
  * while it runs or when it failed or stopped. It opens to what it did and
  * what came back, leaving out what the row already says (SPEC.md §10.8). The
  * raw input stays one click further in. A background Agent launch shows a
- * plain status, a way into the subagent's own conversation, and its prompt;
- * the text Claude Code returns for the model stays behind Raw output (SPEC.md
- * §8.3). Images from a tool are drawn from
+ * plain status and its prompt; the text Claude Code returns for the model
+ * stays behind Raw output. Every Agent call offers a way into its subagent's
+ * own conversation (SPEC.md §8.3). Images from a tool are drawn from
  * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
@@ -129,23 +129,31 @@ function agentPrompt(input: unknown): string | null {
 	return typeof prompt === "string" && prompt !== "" ? prompt : null;
 }
 
+/**
+ * The way into a subagent's own conversation, on any Agent call, foreground
+ * or background, except one that failed before a subagent started.
+ */
+function WatchSubagent({ tool }: { tool: ChatToolItem }) {
+	const openSubagent = useContext(SubagentOpenerContext);
+	if (!openSubagent || tool.name !== "Agent" || tool.status === "error") return null;
+	return (
+		<button
+			type="button"
+			className="pk-chat-agent-open pk-focus-ring"
+			data-testid="chat-agent-open"
+			onClick={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
+		>
+			Show its conversation
+		</button>
+	);
+}
+
 /** What a background launch shows: its status and prompt, with Claude Code's own text kept closed. */
 function LaunchBody({ tool }: { tool: ChatToolItem }) {
 	const prompt = agentPrompt(tool.input);
-	const openSubagent = useContext(SubagentOpenerContext);
 	return (
 		<>
 			<LaunchStatus tool={tool} />
-			{openSubagent ? (
-				<button
-					type="button"
-					className="pk-chat-agent-open pk-focus-ring"
-					data-testid="chat-agent-open"
-					onClick={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
-				>
-					Show its conversation
-				</button>
-			) : null}
 			{prompt ? <CodeBlock text={prompt} limit={12} /> : null}
 			{tool.output.length > 0 ? (
 				<details className="pk-chat-raw">
@@ -227,6 +235,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 					<p className="pk-chat-tool-path pk-mono-body">{line.path}</p>
 				) : null}
 				{detail ? <Detail detail={detail} /> : null}
+				<WatchSubagent tool={tool} />
 				{launch ? (
 					<LaunchBody tool={tool} />
 				) : tool.output.length > 0 ? (

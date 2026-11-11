@@ -63,6 +63,18 @@ async function scriptSubagentChat(page: Page) {
 		send("message", { id: "u1", role: "user", markdown: "Look into the routes" });
 		send("turn.started", { at });
 		agentCall(send, "toolu_bg", "Count the routes");
+		// A foreground subagent: its call returns the subagent's reply.
+		send("tool.started", {
+			id: "toolu_fg",
+			name: "Agent",
+			title: "Check the tests",
+			input: { description: "Check the tests", prompt: "Check the tests, please." },
+		});
+		send("tool.output", {
+			id: "toolu_fg",
+			part: { type: "text", text: "All 12 pass." },
+		});
+		send("tool.finished", { id: "toolu_fg", isError: false });
 		send("message", { id: "a1", role: "assistant", markdown: "Started it." });
 		send("turn.finished", { at: at + 5_000, status: "done" });
 		ws.onMessage((raw) => {
@@ -89,6 +101,12 @@ async function scriptSubagentChat(page: Page) {
 				});
 				to("tool.finished", { id: "toolu_ls", isError: false });
 				agentCall(to, "toolu_nested", "Read the router");
+			} else if (id === "toolu_fg") {
+				to("snapshot", { cards: [], turnRunning: false, truncated: false });
+				to("turn.started", { at });
+				to("message", { id: "fp", role: "user", markdown: "Check the tests, please." });
+				to("message", { id: "fr", role: "assistant", markdown: "All 12 pass." });
+				to("turn.finished", { at: at + 1_000, status: "done" });
 			} else if (id === "toolu_nested") {
 				to("snapshot", { cards: [], turnRunning: false, truncated: false });
 				to("turn.started", { at });
@@ -154,6 +172,8 @@ for (const colorScheme of ["dark", "light"] as const) {
 			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
 
 			await view.getByTestId("chat-worked").locator("> summary").click();
+			// The two Agent calls in a row sit under one more disclosure.
+			await view.getByTestId("chat-tool-group").locator("> summary").click();
 			const card = view.locator('details[data-testid="chat-tool-toolu_bg"]');
 			await card.locator("> summary").click();
 			const show = card.getByRole("button", { name: "Show its conversation" });
@@ -216,6 +236,33 @@ for (const colorScheme of ["dark", "light"] as const) {
 					type: "subagent.unwatch",
 					toolUseId: "toolu_bg",
 				});
+		});
+
+		test("a foreground Agent card opens its subagent's conversation too", async ({
+			page,
+			context,
+		}) => {
+			const { id } = await makeChatTab(page, context);
+			const host = await scriptSubagentChat(page);
+			await page.reload();
+			const view = page.getByTestId(`chat-view-${id}`);
+			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+			await view.getByTestId("chat-worked").locator("> summary").click();
+			await view.getByTestId("chat-tool-group").locator("> summary").click();
+			const card = view.locator('details[data-testid="chat-tool-toolu_fg"]');
+			await card.locator("> summary").click();
+			// It keeps its reply, and offers the conversation behind it.
+			await expect(card.getByText("All 12 pass.")).toBeVisible();
+			const show = card.getByRole("button", { name: "Show its conversation" });
+			await show.click();
+			const panel = view.getByRole("region", { name: "Subagent Check the tests" });
+			await expect(panel.getByRole("heading", { level: 2 })).toBeFocused();
+			await expect(panel.getByText("Check the tests, please.")).toBeVisible();
+			await expect
+				.poll(() => host.watched.at(-1))
+				.toEqual({ type: "subagent.watch", toolUseId: "toolu_fg" });
+			await page.keyboard.press("Escape");
+			await expect(show).toBeFocused();
 		});
 
 		test("a subagent's row in the project list opens its panel, and closing it lands on the Agent card", async ({

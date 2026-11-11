@@ -275,3 +275,38 @@ test("a subagent picked in the project list opens its panel", () => {
 		screen.getByTestId(`chat-tool-${CALL}`).querySelector("summary"),
 	);
 });
+
+test("a foreground Agent card opens its subagent too; a failed one and other tools do not", () => {
+	draw();
+	emit("turn.started", { at: 3000 });
+	emit("tool.started", {
+		id: "toolu_fg",
+		name: "Agent",
+		title: "Read the router",
+		input: { description: "Read the router", prompt: "Read it." },
+	});
+	emit("tool.started", {
+		id: "toolu_failed",
+		name: "Agent",
+		title: "Broken",
+		input: { description: "Broken", prompt: "x" },
+	});
+	emit("tool.finished", { id: "toolu_failed", isError: true });
+	emit("tool.started", {
+		id: "toolu_read",
+		name: "Read",
+		title: "a.ts",
+		input: { file_path: "a.ts" },
+	});
+	const button = (id: string) =>
+		within(screen.getByTestId(`chat-tool-${id}`)).queryByRole("button", {
+			name: "Show its conversation",
+		});
+	expect(button("toolu_failed")).toBeNull();
+	expect(button("toolu_read")).toBeNull();
+	const running = button("toolu_fg");
+	expect(running).not.toBeNull();
+	fireEvent.click(running as HTMLElement);
+	expect(screen.getByTestId("subagent-panel").dataset.toolId).toBe("toolu_fg");
+	expect(watches().at(-1)).toEqual({ type: "subagent.watch", toolUseId: "toolu_fg" });
+});
