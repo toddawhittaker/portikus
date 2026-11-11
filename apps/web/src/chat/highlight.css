@@ -1,21 +1,21 @@
 /*
- * Syntax colours (ADR 0072). Each colour meets 4.5:1 on the sunken code
+ * Syntax colours (ADR 0072), the editor's palette (editor/tokenColours.ts):
+ * violet keywords and tags, teal strings, terracotta numbers, amber types and
+ * attributes, faint italic comments. Each meets 4.5:1 on the sunken code
  * background and on both diff backgrounds, in both themes. Colour only
  * decorates: the language is named in text, and a diff line's mark is text.
- * A token is used where its value is the colour in both themes (comment,
- * type); the others differ a little in the light theme, so they stay literal.
  */
 .pk-chat-hl {
-	--hl-keyword: light-dark(#7a3e9d, #d6a6f0);
-	--hl-string: light-dark(#2a6630, #86c98b);
-	--hl-number: light-dark(#7d5500, #e3b85c);
-	--hl-comment: var(--ink-muted);
-	--hl-title: light-dark(#3a5585, #9fb4e0);
-	--hl-type: var(--accent-text);
-	--hl-attr: light-dark(#9c3127, #f0998f);
+	--hl-keyword: light-dark(#5a36b8, #bba6ff);
+	--hl-string: light-dark(#0e6b62, #5fd0bf);
+	--hl-number: light-dark(#b23a1e, #f4957c);
+	--hl-comment: var(--ink-faint);
+	--hl-title: light-dark(#2f58a8, #93b6f2);
+	--hl-type: light-dark(#8a5300, #f0c062);
 }
 
-.pk-chat-hl :is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag) {
+.pk-chat-hl
+	:is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-tag, .hljs-name) {
 	color: var(--hl-keyword);
 }
 
@@ -23,35 +23,33 @@
 	color: var(--hl-string);
 }
 
-.pk-chat-hl :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable.constant_) {
-	color: var(--hl-number);
-}
-
-.pk-chat-hl :is(.hljs-comment, .hljs-quote) {
-	color: var(--hl-comment);
-	font-style: italic;
-}
-
-.pk-chat-hl
-	:is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
-	color: var(--hl-title);
-}
-
-.pk-chat-hl :is(.hljs-type, .hljs-built_in, .hljs-class) {
-	color: var(--hl-type);
-}
-
 .pk-chat-hl
 	:is(
-		.hljs-attr,
-		.hljs-attribute,
-		.hljs-meta,
+		.hljs-number,
+		.hljs-literal,
+		.hljs-symbol,
+		.hljs-variable.constant_,
 		.hljs-deletion,
-		.hljs-tag,
 		.hljs-variable,
 		.hljs-template-variable
 	) {
-	color: var(--hl-attr);
+	color: var(--hl-number);
+}
+
+.pk-chat-hl :is(.hljs-comment, .hljs-quote, .hljs-meta) {
+	color: var(--hl-comment);
+}
+
+.pk-chat-hl :is(.hljs-comment, .hljs-quote) {
+	font-style: italic;
+}
+
+.pk-chat-hl :is(.hljs-title, .hljs-section, .hljs-selector-id, .hljs-selector-class) {
+	color: var(--hl-title);
+}
+
+.pk-chat-hl :is(.hljs-type, .hljs-built_in, .hljs-class, .hljs-attr, .hljs-attribute) {
+	color: var(--hl-type);
 }
 
 /* The language a block is written in, named in text above it. */
