@@ -177,8 +177,12 @@ export function PaneFrame({
 		return () => node.removeEventListener("wheel", onWheel, { capture: true });
 	}, [zoomable]);
 
+	// The buttons and keys say the new zoom aloud; the wheel and a pinch do
+	// not, as they fire many times in a gesture.
+	const [announcement, setAnnouncement] = useState("");
 	function setZoom(percent: number) {
 		paneZoom?.[1](percent);
+		setAnnouncement(`${name} zoom ${percent}%`);
 	}
 
 	function commitRename() {
@@ -393,6 +397,15 @@ export function PaneFrame({
 					</Menu>
 				</MenuRoot>
 			</div>
+			{zoomable ? (
+				<span
+					role="status"
+					className="sr-only"
+					data-testid={`pane-zoom-status-${terminalId}`}
+				>
+					{announcement}
+				</span>
+			) : null}
 			<PaneZoomContext.Provider value={zoom}>{children}</PaneZoomContext.Provider>
 			{voice && voice.state !== "listening" && voice.message !== "" ? (
 				// The error seen as well as heard; the status region reads it.

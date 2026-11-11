@@ -12,7 +12,6 @@ import {
 	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
-	ChatModel,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
@@ -24,7 +23,7 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { DEFAULT_MODEL, offeredModel, sameModel } from "./models.js";
+import { offeredModel, sameModel } from "./models.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -142,7 +141,16 @@ export interface ChatState {
 	lastUserMessageSeq: number;
 	/** The newest `error` event, which tells the composer a send or change was refused. */
 	lastError: { seq: number; message: string } | null;
+	/**
+	 * The newest frame of a watched subagent's conversation. The subagent view
+	 * applies each one to a store of its own; the chat's sequence ignores them.
+	 */
+	subagentFrame: SubagentFrame | null;
 }
+
+type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
+/** Every event but a subagent's, which never enters the chat's own sequence. */
+type ChatEvent = Exclude<ChatServerEvent, SubagentFrame>;
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
@@ -172,6 +180,7 @@ export const initialChatState: ChatState = {
 	awaitingSnapshot: true,
 	lastUserMessageSeq: -1,
 	lastError: null,
+	subagentFrame: null,
 };
 
 /** Parse one raw socket frame; null when it is not a valid server event. */
@@ -205,17 +214,14 @@ export function receiveChatEvent(
 	event: ChatServerEvent,
 	now: number,
 ): ChatState {
+	if (event.type === "subagent") return { ...state, subagentFrame: event };
 	if (event.type === "snapshot") return applySnapshot(state, event, now);
 	// The contract puts the snapshot first, so anything earlier is stale.
 	if (state.awaitingSnapshot) return state;
 	return applyInOrder(state, event, now);
 }
 
-function applyInOrder(
-	state: ChatState,
-	event: ChatServerEvent,
-	now: number,
-): ChatState {
+function applyInOrder(state: ChatState, event: ChatEvent, now: number): ChatState {
 	if (event.seq <= state.lastSeq) return state;
 	return { ...applyChatEvent(state, event, now), lastSeq: event.seq };
 }
@@ -271,11 +277,7 @@ function replaceItem(
 }
 
 /** One live event applied to the state, with no ordering checks. */
-function applyChatEvent(
-	state: ChatState,
-	event: ChatServerEvent,
-	now: number,
-): ChatState {
+function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatState {
 	const turnId = state.currentTurnId;
 	switch (event.type) {
 		case "snapshot":
@@ -572,7 +574,7 @@ export function isNewChat(state: ChatState): boolean {
 /** The values worth keeping from what the host confirmed. */
 export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
 	return {
-		model: ChatModel.safeParse(settings.model).success ? settings.model : DEFAULT_MODEL,
+		model: settings.model,
 		effort: settings.effort,
 		mode: settings.mode,
 	};
@@ -645,6 +647,9 @@ interface ChatActions {
 	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;
+	/** Ask for a subagent's conversation as `subagentFrame`s; a new watch replaces the last. */
+	watchSubagent: (toolUseId: string) => boolean;
+	unwatchSubagent: (toolUseId: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -670,6 +675,8 @@ export function createChatStore(
 		answerPermission: (id, optionId, extras = {}) =>
 			deliver({ type: "permission.answer", id, optionId, ...extras }),
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
+		watchSubagent: (toolUseId) => deliver({ type: "subagent.watch", toolUseId }),
+		unwatchSubagent: (toolUseId) => deliver({ type: "subagent.unwatch", toolUseId }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

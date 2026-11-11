@@ -55,12 +55,6 @@ export interface LayoutState {
 	 */
 	zooms: Record<string, number>;
 	/**
-	 * The zoom of each terminal and chat pane, by terminal id, so a pane that
-	 * splits or moves, and so mounts again, keeps its size. usePaneZoom
-	 * (paneZoom.ts) also keeps it in this tab's sessionStorage.
-	 */
-	paneZooms: Record<string, number>;
-	/**
 	 * Which view each open file shows, by project-relative path, so a pane
 	 * moved to a new place keeps showing its diff. Like zoom, session only.
 	 */
@@ -172,8 +166,6 @@ export interface LayoutState {
 	setViewState: (path: string, viewState: unknown) => void;
 	/** Remember the editor zoom of one open file for this session. */
 	setZoom: (path: string, percent: number) => void;
-	/** Remember the zoom of one terminal or chat pane for this session. */
-	setPaneZoom: (terminalId: string, percent: number) => void;
 	/** Remember which view one open file shows for this session. */
 	setFileView: (path: string, view: FileView) => void;
 	/** Put back what this browser remembered for this project. */
@@ -282,7 +274,6 @@ export function createLayoutStore() {
 			diffBaseline: {},
 			viewStates: {},
 			zooms: {},
-			paneZooms: {},
 			fileViews: {},
 			tabHistory: [],
 			unsavedTabs: {},
@@ -526,9 +517,6 @@ export function createLayoutStore() {
 
 			setZoom: (path, percent) =>
 				set((state) => ({ zooms: { ...state.zooms, [path]: percent } })),
-
-			setPaneZoom: (terminalId, percent) =>
-				set((state) => ({ paneZooms: { ...state.paneZooms, [terminalId]: percent } })),
 
 			setFileView: (path, view) =>
 				set((state) => ({ fileViews: { ...state.fileViews, [path]: view } })),

@@ -9,7 +9,16 @@
 import type { ChatOpenCard } from "@portikus/contracts";
 import { IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
+import {
+	useCallback,
+	useContext,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useStore } from "zustand";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { LayoutStoreContext } from "../layout/store.js";
@@ -30,6 +39,13 @@ import {
 } from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
+import { SubagentPanel } from "./SubagentPanel.js";
+import {
+	SubagentOpenerContext,
+	type SubagentTarget,
+	takeSubagentRequest,
+	useSubagentRequest,
+} from "./subagentView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -153,6 +169,47 @@ function ChatViewBody({
 	const follow = useFollowEnd(log, content, visible);
 	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2).
 	useToolReveal(terminalId, log, visible, state.items);
+	const [subagent, setSubagent] = useState<SubagentTarget | null>(null);
+	/** Where the keyboard goes back to when the subagent view closes. */
+	const beforeSubagent = useRef<{
+		element: HTMLElement | null;
+		toolUseId: string;
+	} | null>(null);
+	const showSubagent = useCallback(
+		(target: SubagentTarget, element: HTMLElement | null) => {
+			beforeSubagent.current = { element, toolUseId: target.toolUseId };
+			setSubagent(target);
+		},
+		[],
+	);
+	// From an Agent card, the keyboard goes back to the button that opened it.
+	const openSubagent = useCallback(
+		(target: SubagentTarget) => {
+			const active = document.activeElement;
+			showSubagent(target, active instanceof HTMLElement ? active : null);
+		},
+		[showSubagent],
+	);
+	// From the project list, it opens once this chat is on screen, and the
+	// keyboard goes back to the Agent card's row, as the row's link promises.
+	const requested = useSubagentRequest(terminalId);
+	useEffect(() => {
+		if (!requested || !visible) return;
+		takeSubagentRequest(terminalId);
+		showSubagent(requested, null);
+	}, [requested, visible, terminalId, showSubagent]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs as the view closes
+	useLayoutEffect(() => {
+		const before = beforeSubagent.current;
+		if (subagent || !before) return;
+		beforeSubagent.current = null;
+		const card = log.current?.querySelector<HTMLElement>(
+			`details[data-testid="chat-tool-${CSS.escape(before.toolUseId)}"] > summary`,
+		);
+		const back = before.element?.isConnected ? before.element : card;
+		if (back) back.focus({ preventScroll: true });
+		else focusComposer();
+	}, [subagent]);
 	const card = state.cards[0];
 	const waiting = state.cards.length - 1;
 	// A permission card's id is the id of the tool call it asks about.
@@ -270,6 +327,8 @@ function ChatViewBody({
 					className="pk-chat-scroll"
 					data-testid="chat-scroll"
 					onScroll={follow.onScroll}
+					// The subagent view covers the log; the keyboard stays out from behind it.
+					inert={subagent !== null}
 				>
 					<div ref={content} className="pk-chat-column">
 						{!state.loaded ? (
@@ -299,18 +358,28 @@ function ChatViewBody({
 								</ul>
 							</div>
 						) : (
-							<MessageList
-								items={state.items}
-								turns={state.turns}
-								currentTurnId={state.currentTurnId}
-								truncated={state.truncated}
-								asking={asking}
-								opener={opener}
-							/>
+							<SubagentOpenerContext.Provider value={openSubagent}>
+								<MessageList
+									items={state.items}
+									turns={state.turns}
+									currentTurnId={state.currentTurnId}
+									truncated={state.truncated}
+									asking={asking}
+									opener={opener}
+								/>
+							</SubagentOpenerContext.Provider>
 						)}
 					</div>
 				</div>
-				{follow.away ? (
+				{subagent ? (
+					<SubagentPanel
+						chat={store}
+						target={subagent}
+						opener={opener}
+						onClose={() => setSubagent(null)}
+					/>
+				) : null}
+				{follow.away && !subagent ? (
 					<div className="pk-chat-jump">
 						<IconButton
 							icon="chevron-down"

@@ -507,4 +507,19 @@ describe("subagent messages", () => {
 			} as never),
 		).toHaveLength(1);
 	});
+
+	test("a subagent's own mapper takes only that subagent's messages, nested ones excepted", () => {
+		const mapper = new ClaudeMessageMapper("toolu_task");
+		const message = (parent: string | null, id: string) =>
+			({
+				type: "assistant",
+				parent_tool_use_id: parent,
+				message: { id, content: [{ type: "text", text: `from ${id}` }] },
+			}) as never;
+		expect(mapper.map(message("toolu_task", "msg_sub"))).toEqual([
+			{ type: "message", id: "msg_sub", role: "assistant", markdown: "from msg_sub" },
+		]);
+		expect(mapper.map(message(null, "msg_top"))).toEqual([]);
+		expect(mapper.map(message("toolu_nested", "msg_nested"))).toEqual([]);
+	});
 });

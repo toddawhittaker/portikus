@@ -161,6 +161,7 @@ let reads: string[];
 let transcript: () => Promise<SessionMessage[]>;
 /** Each session's title in the fake session files, and the titles posted. */
 let titles: Map<string, string>;
+let subagentTranscripts: Map<string, SessionMessage[]>;
 let postedTitles: (string | null)[];
 
 const EARLIER: SessionMessage[] = [
@@ -191,6 +192,9 @@ function sdk(): ChatSdk {
 		renameSession: async (id, title) => {
 			titles.set(id, title);
 		},
+		subagentIds: async () => [...subagentTranscripts.keys()],
+		subagentMessages: async (_id, agentId, _dir, limit) =>
+			(subagentTranscripts.get(agentId) ?? []).slice(0, limit),
 	};
 }
 
@@ -238,6 +242,7 @@ beforeEach(async () => {
 	startWindow = null;
 	startModels = null;
 	titles = new Map();
+	subagentTranscripts = new Map();
 	postedTitles = [];
 	host = makeHost();
 	await host.start();
@@ -398,7 +403,7 @@ describe("attaching", () => {
 			{ type: "message", id: "u1", role: "user", markdown: "earlier question" },
 			{ type: "turn.finished", status: "done", at },
 		]);
-		const seqs = client.events.map((event) => event.seq);
+		const seqs = client.events.map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
 		expect(client.events[4]).toMatchObject({
 			type: "settings",
@@ -434,7 +439,7 @@ describe("attaching", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		release();
 		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
-		const seqs = client.events.slice(1).map((event) => event.seq);
+		const seqs = client.events.slice(1).map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
 		expect(new Set(seqs).size).toBe(seqs.length);
 		const types = client.events.map((event) => event.type);
@@ -1719,5 +1724,158 @@ describe("titles", () => {
 			permissionMode: "default",
 		} as never);
 		await vi.waitFor(() => expect(postedTitles.at(-1)).toBeNull());
+	});
+});
+
+describe("subagents", () => {
+	const AGENT_CALL = "toolu_agent";
+	const subagentEntry = (
+		uuid: string,
+		type: "user" | "assistant",
+		message: unknown,
+	): SessionMessage =>
+		({
+			type,
+			uuid,
+			session_id: ID,
+			message,
+			parent_tool_use_id: AGENT_CALL,
+			parent_agent_id: null,
+			timestamp: "2026-11-11T10:00:00.000Z",
+		}) as SessionMessage;
+	const TRANSCRIPT = [
+		subagentEntry("s1", "user", { role: "user", content: "Count the routes." }),
+		subagentEntry("s2", "assistant", {
+			id: "msg_s2",
+			role: "assistant",
+			content: [{ type: "text", text: "Counting now." }],
+		}),
+	];
+	const frames = (client: Client) =>
+		ofType(client, "subagent").map((frame) => frame.event);
+
+	test("the session forwards each subagent's whole conversation", () => {
+		expect(queries[0]?.options.forwardSubagentText).toBe(true);
+	});
+
+	test("a watch replays the transcript, then streams live events to that attachment only", async () => {
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const watching = await attach();
+		const other = await attach();
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
+		watching.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(watching)).toHaveLength(4));
+		expect(frames(watching)).toMatchObject([
+			{ type: "snapshot", seq: 0, cards: [], turnRunning: true, truncated: false },
+			{ type: "turn.started", seq: 1 },
+			{ type: "message", seq: 2, role: "user", markdown: "Count the routes." },
+			{ type: "message", seq: 3, role: "assistant", markdown: "Counting now." },
+		]);
+		expect(ofType(watching, "subagent")[0]).toMatchObject({
+			sessionId: ID,
+			toolUseId: AGENT_CALL,
+		});
+
+		const before = other.events.length;
+		fake.emit({
+			type: "assistant",
+			parent_tool_use_id: AGENT_CALL,
+			agent_id: "agent-1",
+			message: {
+				id: "msg_live",
+				role: "assistant",
+				content: [
+					{
+						type: "tool_use",
+						id: "toolu_inner",
+						name: "Bash",
+						input: { command: "ls" },
+					},
+				],
+			},
+		} as never);
+		fake.emit({
+			type: "system",
+			subtype: "task_notification",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			status: "completed",
+		} as never);
+		await vi.waitFor(() => expect(frames(watching)).toHaveLength(6));
+		expect(frames(watching).slice(4)).toMatchObject([
+			{ type: "tool.started", seq: 4, id: "toolu_inner", name: "Bash" },
+			{ type: "turn.finished", seq: 5, status: "done" },
+		]);
+		// The other attachment sees none of it, and the chat starts no turn.
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(other.events.slice(before)).toEqual([]);
+	});
+
+	test("after unwatching, nothing more arrives", async () => {
+		const fake = queries[0] as FakeQuery;
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		client.send({ type: "subagent.unwatch", toolUseId: AGENT_CALL });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		fake.emit({
+			type: "assistant",
+			parent_tool_use_id: AGENT_CALL,
+			message: {
+				id: "msg_x",
+				role: "assistant",
+				content: [{ type: "text", text: "hi" }],
+			},
+		} as never);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(frames(client)).toHaveLength(1);
+	});
+
+	test("a subagent not seen live, as after a restart, is found by its transcript's first entry", async () => {
+		subagentTranscripts.set("agent-other", [
+			{ ...subagentEntry("o1", "user", "other"), parent_tool_use_id: "toolu_other" },
+		]);
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client).at(-1)?.type).toBe("turn.finished"));
+		expect(frames(client)[0]).toMatchObject({ type: "snapshot", turnRunning: false });
+		expect(frames(client).filter((event) => event.type === "message")).toHaveLength(2);
+	});
+
+	test("an unknown Agent call gets an empty view", async () => {
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		expect(frames(client)[0]).toMatchObject({ type: "snapshot", turnRunning: false });
+	});
+
+	test("a running subagent is ended when Claude Code stops", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		fake.close();
+		await vi.waitFor(() =>
+			expect(frames(client).at(-1)).toMatchObject({
+				type: "turn.finished",
+				status: "error",
+			}),
+		);
 	});
 });

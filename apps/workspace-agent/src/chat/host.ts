@@ -56,6 +56,7 @@ import {
 } from "./shell-command.js";
 import { SlashCommandList } from "./slash-commands.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
+import { SubagentStreams } from "./subagents.js";
 import { ChatTitle } from "./titles.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
@@ -160,9 +161,16 @@ export class ChatHost {
 
 	/** The Claude session in force; /clear moves the tab to a new one. */
 	private sessionId: string;
+	private readonly subagents: SubagentStreams;
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
+		this.subagents = new SubagentStreams({
+			sdk: this.sdk,
+			projectDir: options.projectDir,
+			terminalId: options.terminalId,
+			sessionId: () => this.sessionId,
+		});
 		this.planUsage = new PlanUsage(options.postLimits);
 		this.title = new ChatTitle(this.sdk, options.projectDir, options.postTitle);
 		this.sessionId = options.sessionId ?? options.terminalId;
@@ -229,6 +237,8 @@ export class ChatHost {
 				...(exists ? { resume: sessionId } : { sessionId }),
 				pathToClaudeCodeExecutable: this.options.claudePath ?? CLAUDE_PATH,
 				includePartialMessages: true,
+				// A subagent's whole conversation, for its read-only view.
+				forwardSubagentText: true,
 				effort: this.settings.effort,
 				permissionMode: this.settings.mode,
 				// The picker offers bypass, so the SDK must allow switching to it.
@@ -333,6 +343,7 @@ export class ChatHost {
 		this.session = null;
 		this.input = null;
 		this.cards.denyAll("The session ended.");
+		this.subagents.ended();
 		if (this.turnRunning) this.finishTurn("error");
 		this.broadcast({
 			type: "error",
@@ -342,6 +353,7 @@ export class ChatHost {
 
 	private handle(message: SDKMessage): void {
 		this.followSession(message);
+		if (this.subagents.handle(message)) return;
 		if (message.type === "system" && message.subtype === "init") {
 			this.sessionStarted(message);
 			return;
@@ -431,6 +443,7 @@ export class ChatHost {
 		this.context.figures = null;
 		this.title.reset();
 		void this.title.refresh(sessionId);
+		this.subagents.reset();
 		const context = this.context.current();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
@@ -491,7 +504,10 @@ export class ChatHost {
 		}
 		const client: Client = { socket, held: [] };
 		this.clients.add(client);
-		socket.on("close", () => this.clients.delete(client));
+		socket.on("close", () => {
+			this.clients.delete(client);
+			this.subagents.drop(socket);
+		});
 		socket.on("error", () => socket.destroy());
 		readLines(socket, MAX_CHAT_CLIENT_FRAME_BYTES, (line) => {
 			void this.onLine(client, line);
@@ -576,6 +592,12 @@ export class ChatHost {
 			return;
 		}
 		try {
+			if (parsed.type === "subagent.watch") {
+				return await this.subagents.watch(client.socket, parsed.toolUseId);
+			}
+			if (parsed.type === "subagent.unwatch") {
+				return this.subagents.unwatch(client.socket, parsed.toolUseId);
+			}
 			await this.onMessage(parsed);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "That did not work.";

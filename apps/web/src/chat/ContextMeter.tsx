@@ -6,8 +6,8 @@
  * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
  * The ticking digits are hidden from assistive technology; a stable sentence
- * carries the same meaning, and the row's status region announces each step
- * crossed once (SPEC.md §25.8).
+ * carries the same meaning, and the row's status region announces crossing
+ * 75 and 90% once each, the steps worth acting on (SPEC.md §25.8).
  */
 import { Icon, Meter } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
@@ -25,8 +25,8 @@ const STEPS = [
 	{ from: 25, level: "rising" },
 	{ from: 0, level: "low" },
 ] as const;
-/** The top step is the nearly-full look: the Meter adds the alert icon and the words past this. */
-const WARN_AT_PERCENT = 75;
+/** The nearly-full look: the Meter adds the alert icon and the words from here, and so does the announcement. */
+const WARN_AT_PERCENT = STEPS.find((step) => step.level === "warning")?.from ?? 75;
 /** The cache timer turns to a warning for this long before it goes cold. */
 const SOON_SECONDS = 60;
 
@@ -37,9 +37,9 @@ export function contextLevel(percent: number): (typeof STEPS)[number]["level"] {
 	return STEPS.find((step) => percent >= step.from)?.level ?? "low";
 }
 
-/** The step a share first reached, the one worth announcing; null below the first. */
+/** The announced step a share first reached (75 or 90); null below them. */
 function stepReached(percent: number): number | null {
-	const step = STEPS.find((one) => percent >= one.from && one.from > 0);
+	const step = STEPS.find((one) => percent >= one.from && one.from >= WARN_AT_PERCENT);
 	return step ? step.from : null;
 }
 
@@ -98,8 +98,7 @@ function useAnnounceSteps(percent: number, onAnnounce: (text: string) => void) {
 	useEffect(() => {
 		const reached = stepReached(percent);
 		if (reached !== null && reached > (stepReached(before.current) ?? 0)) {
-			const hint = reached >= WARN_AT_PERCENT ? ` ${COMPACT_HINT}` : "";
-			onAnnounce(`Context is now ${percent}% full.${hint}`);
+			onAnnounce(`Context is now ${percent}% full. ${COMPACT_HINT}`);
 		}
 		before.current = percent;
 	}, [percent, onAnnounce]);

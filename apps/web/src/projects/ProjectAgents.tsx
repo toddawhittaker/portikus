@@ -1,8 +1,9 @@
 /**
  * Each project's agent tabs and their subagents, under its row in the project
  * list (SPEC.md §8.2). Every row is a link to its tab; a subagent's link also
- * opens its tool row in a chat. A chat's row shows its conversation title and
- * a pencil that renames it (ADR 0074). The state is part of each link's name
+ * opens its tool row in a chat, and its own conversation in a panel there. A
+ * chat's row shows its conversation title and a pencil that renames it (ADR
+ * 0074). The state is part of each link's name
  * and nothing here is announced as it changes: the toasts already do that
  * (SPEC.md §25.8).
  */
@@ -16,6 +17,7 @@ import { AgentStateMark, agentStateWords, IconButton, useToast } from "@portikus
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { isoDuration } from "../chat/elapsed.js";
+import { requestSubagentView } from "../chat/subagentView.js";
 import { agentLabel } from "../terminal/agentLabel.js";
 import type { AgentStatusSnapshot } from "../terminal/codingAgentStatus.js";
 import { type ChatRename, renameChat } from "./renameChat.js";
@@ -101,11 +103,14 @@ function SubagentRow({
 	projectId,
 	terminalId,
 	subagent,
+	inChat,
 }: {
 	workspaceId: string;
 	projectId: string;
 	terminalId: string;
 	subagent: CodingAgentSubagent;
+	/** The agent is a Claude Code chat, which can show the subagent's own conversation. */
+	inChat: boolean;
 }) {
 	const description = subagent.description || subagent.type;
 	return (
@@ -116,6 +121,14 @@ function SubagentRow({
 				params={{ id: workspaceId, projectId }}
 				search={{ tab: terminalId, subagent: subagent.id }}
 				data-testid={`subagent-row-${subagent.id}`}
+				onClick={() => {
+					if (inChat) {
+						requestSubagentView(terminalId, {
+							toolUseId: subagent.id,
+							title: description,
+						});
+					}
+				}}
 			>
 				<AgentStateMark state={subagent.state} />
 				{/* The spaces keep the link's name apart; a flex row does not draw them. */}
@@ -303,6 +316,7 @@ function AgentRow({
 							projectId={projectId}
 							terminalId={terminal.terminalId}
 							subagent={subagent}
+							inChat={canRename(terminal)}
 						/>
 					))}
 				</ul>

@@ -276,60 +276,101 @@ const Envelope = {
 	seq: z.number().int().nonnegative(),
 };
 
+/**
+ * Sent first on every attach. It holds the open cards and whether a turn
+ * is running.
+ * History follows it as ordinary events, one frame each with rising
+ * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
+ * `turn.finished` (left out for a turn still running). At most the last
+ * 20 turns are replayed, and `truncated` says older turns exist. Tool
+ * images older than the last 5 turns, or too large for one frame, are
+ * replayed as `imageOmitted`. A reply streaming now follows as one
+ * `text.delta` holding its text so far, then live events, then
+ * `settings`.
+ */
+const SnapshotEvent = z.object({
+	type: z.literal("snapshot"),
+	...Envelope,
+	cards: z.array(ChatOpenCard),
+	turnRunning: z.boolean(),
+	/** Turns older than the replayed ones exist. */
+	truncated: z.boolean(),
+});
+const TurnStartedEvent = z.object({
+	type: z.literal("turn.started"),
+	...Envelope,
+	/** Epoch milliseconds the turn started, from the transcript on replay. */
+	at: z.number().int().nonnegative(),
+});
+const TextDeltaEvent = z.object({
+	type: z.literal("text.delta"),
+	...Envelope,
+	messageId: z.string().min(1),
+	text: z.string(),
+});
+const MessageEvent = z.object({
+	type: z.literal("message"),
+	...Envelope,
+	...ChatMessage.shape,
+});
+const ToolStartedEvent = z.object({
+	type: z.literal("tool.started"),
+	...Envelope,
+	id: z.string().min(1),
+	name: z.string().min(1),
+	title: z.string(),
+	input: z.json(),
+});
+const ToolOutputEvent = z.object({
+	type: z.literal("tool.output"),
+	...Envelope,
+	id: z.string().min(1),
+	part: ChatToolOutputPart,
+});
+const ToolFinishedEvent = z.object({
+	type: z.literal("tool.finished"),
+	...Envelope,
+	id: z.string().min(1),
+	isError: z.boolean(),
+});
+const TurnFinishedEvent = z.object({
+	type: z.literal("turn.finished"),
+	...Envelope,
+	status: z.enum(["done", "interrupted", "error"]),
+	/** Epoch milliseconds the turn finished, from the transcript on replay. */
+	at: z.number().int().nonnegative(),
+});
+
+/** Longest Agent tool call id a watch may name. */
+export const MAX_CHAT_TOOL_ID_CHARS = 200;
+const ToolUseId = z.string().min(1).max(MAX_CHAT_TOOL_ID_CHARS);
+
+/**
+ * One event of a subagent's own conversation, numbered on a sequence of its
+ * own that starts at each watch with a snapshot (no cards; `turnRunning`
+ * while the subagent runs). Its whole run is one turn, which a
+ * `turn.finished` ends.
+ */
+export const ChatSubagentEvent = z.discriminatedUnion("type", [
+	SnapshotEvent,
+	TurnStartedEvent,
+	TextDeltaEvent,
+	MessageEvent,
+	ToolStartedEvent,
+	ToolOutputEvent,
+	ToolFinishedEvent,
+	TurnFinishedEvent,
+]);
+export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
-	/**
-	 * Sent first on every attach. It holds the open cards and whether a turn
-	 * is running.
-	 * History follows it as ordinary events, one frame each with rising
-	 * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
-	 * `turn.finished` (left out for a turn still running). At most the last
-	 * 20 turns are replayed, and `truncated` says older turns exist. Tool
-	 * images older than the last 5 turns, or too large for one frame, are
-	 * replayed as `imageOmitted`. A reply streaming now follows as one
-	 * `text.delta` holding its text so far, then live events, then
-	 * `settings`.
-	 */
-	z.object({
-		type: z.literal("snapshot"),
-		...Envelope,
-		cards: z.array(ChatOpenCard),
-		turnRunning: z.boolean(),
-		/** Turns older than the replayed ones exist. */
-		truncated: z.boolean(),
-	}),
-	z.object({
-		type: z.literal("turn.started"),
-		...Envelope,
-		/** Epoch milliseconds the turn started, from the transcript on replay. */
-		at: z.number().int().nonnegative(),
-	}),
-	z.object({
-		type: z.literal("text.delta"),
-		...Envelope,
-		messageId: z.string().min(1),
-		text: z.string(),
-	}),
-	z.object({ type: z.literal("message"), ...Envelope, ...ChatMessage.shape }),
-	z.object({
-		type: z.literal("tool.started"),
-		...Envelope,
-		id: z.string().min(1),
-		name: z.string().min(1),
-		title: z.string(),
-		input: z.json(),
-	}),
-	z.object({
-		type: z.literal("tool.output"),
-		...Envelope,
-		id: z.string().min(1),
-		part: ChatToolOutputPart,
-	}),
-	z.object({
-		type: z.literal("tool.finished"),
-		...Envelope,
-		id: z.string().min(1),
-		isError: z.boolean(),
-	}),
+	SnapshotEvent,
+	TurnStartedEvent,
+	TextDeltaEvent,
+	MessageEvent,
+	ToolStartedEvent,
+	ToolOutputEvent,
+	ToolFinishedEvent,
 	z.object({
 		type: z.literal("permission.requested"),
 		...Envelope,
@@ -341,12 +382,18 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...QuestionCardFields,
 	}),
 	z.object({ type: z.literal("card.resolved"), ...Envelope, id: z.string().min(1) }),
+	TurnFinishedEvent,
+	/**
+	 * A subagent's conversation, sent only to an attachment watching that
+	 * Agent tool call. It carries no `seq` of the chat's own: the watch
+	 * numbers its events itself, so watching never leaves a gap in another
+	 * attachment's sequence.
+	 */
 	z.object({
-		type: z.literal("turn.finished"),
-		...Envelope,
-		status: z.enum(["done", "interrupted", "error"]),
-		/** Epoch milliseconds the turn finished, from the transcript on replay. */
-		at: z.number().int().nonnegative(),
+		type: z.literal("subagent"),
+		sessionId: TerminalId,
+		toolUseId: ToolUseId,
+		event: ChatSubagentEvent,
 	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
 	z.object({
@@ -448,6 +495,12 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			mode: ChatPermissionMode.optional(),
 		})
 		.strict(),
+	/**
+	 * Watch the subagent an Agent tool call started, read-only. One watch per
+	 * attachment: a new one replaces the last.
+	 */
+	z.object({ type: z.literal("subagent.watch"), toolUseId: ToolUseId }).strict(),
+	z.object({ type: z.literal("subagent.unwatch"), toolUseId: ToolUseId }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */
 	z
 		.object({
