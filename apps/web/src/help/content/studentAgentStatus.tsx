@@ -30,10 +30,10 @@ export const AGENT_STATUS_TOPIC: HelpPart["topics"][number] = {
 					Under each project, the project list also shows each agent tab that has
 					reported, with what it is doing and for how long, such as "Working 4m". Under
 					an agent, its subagents are listed with their description, type and state.
-					Select a row to go to its tab. In a chat, selecting a subagent opens that step
-					of the conversation. Use the arrow button beside a project to hide or show its
-					agents. Rows appear after the agent's first report, and Codex shows no
-					subagents.
+					Select a row to go to its tab. In a chat, selecting a subagent opens a
+					read-only view of its conversation. Use the arrow button beside a project to
+					hide or show its agents. Rows appear after the agent's first report, and Codex
+					shows no subagents.
 				</li>
 				<li>
 					If you stop Claude Code with Esc, its tab keeps showing "working" until you
