@@ -327,9 +327,12 @@ with its use. This section is the summary engineering works from.
 **Surfaces.** There are three steps, so the work reads first. The chrome
 (header, side panes, pane heads, tab strips, status bar) is `surface`, a
 warm ivory in the light theme and a warm charcoal in the dark. The work
-area is `surface-work`, one step lighter. Cards, dialogs, menus, inputs
-and the selected tab's face are `surface-raised`, white in light. Panes
-are divided by 1 px lines, never shadows. Every pane head is the height
+area (editor, terminal, chat) is `surface-work`: one step lighter in the
+light theme, and in the dark the darkest step, so the canvas sits below
+the chrome as it does in a code editor. Cards, dialogs, menus, inputs and
+the composer are `surface-raised`, white in light and the lightest step in
+dark. A well inside a surface (a code block, a table header) is
+`surface-sunken`. Panes are divided by 1 px lines, never shadows. Every pane head is the height
 of the tab strips, so the line under them meets across the shell.
 
 **Colour roles.** Colour carries meaning, never decoration.
@@ -359,6 +362,32 @@ at 14 px. Weight 600 is for titles, selected names and badges. Paths and
 folder names in the chrome use the interface face, so the chrome never
 reads as code.
 
+**Admin pages.** The page title is 20 px semibold, a card's title 16 px,
+and a group's label inside a card 12 px semibold in the muted ink, so the
+three levels read apart. Under the title, one sentence says what the page
+is for; the rest of the "About …" text and "More in Help" sit in a
+disclosure that starts closed. The tabs sit on the chrome with no rules
+between them and the frame has no side lines. Admin controls are compact
+(32 px, 13 px text) but otherwise the student set: one radius, the
+`line-strong` edge, one focus ring. Native selects drop the browser arrow
+for a caret in the muted ink, and native boxes tick in the accent.
+Disclosures use the chevron that turns when open, never the browser's
+triangle.
+
+**Buttons.** A primary button is the accent fill; a secondary one is the
+raised face with a `line-strong` edge. A destructive action that sits
+beside quieter ones in a row, such as a backup's Delete…, is the
+danger-secondary button: danger text and edge on the raised face. A
+button that cannot act has no fill, a dashed edge and faint text, so it
+never reads as an enabled secondary button.
+
+**Meters.** Every bar of figures uses one meter: a filled track
+(`meter-track`) with no edge and its figure beside it in text. In the
+status bar and the chat composer it is the slim meter, a 56 px rounded
+track. Memory and Disk fill with the accent, the plan meters and the
+composer's context with the agent violet; past a warning mark the fill
+turns amber with the alert icon, and at the critical mark red.
+
 **Spacing and shape.** A 4 px scale; components never set their own outer
 margin. Corners are small: 4 px for controls and badges, 6 px for cards
 and menus, 8 px for dialogs, square for tabs, panes, terminals and the
@@ -379,10 +408,13 @@ toasts. Dialogs have the large shadow. Errors in the chat and on the
 workspace card have a 4 px red start border.
 
 **Selection.** One selected look per kind of thing. A tab, in the work area
-or the right pane, has a raised face, full-ink text and a 2 px teal bar
-along its foot; its icon turns teal, or stays violet for an agent. A row in
+or the admin strip, takes the work area's ground as its face (in the right
+pane the raised face), with full-ink text and a 2 px teal bar along its
+foot; its icon turns teal, or stays violet for an agent. A row in
 the project list, agent rows included, has a soft teal fill, a 2 px teal
-bar at its start and its name in teal text; an agent's state stays on its
+bar at its start and its name in teal text, and so does the current
+option of the composer's `/` and `@` list, which draws no ring of its own
+because the message box holds the focus; an agent's state stays on its
 mark. A row in a right-pane list has a neutral tonal fill and a 2 px ink
 bar, so it never reads as a passed check or an added file. An agent's
 state shows only in its tab's mark (a turning violet ring, an amber
@@ -399,7 +431,10 @@ summary, the microphone, Stop and Send. The summary (for example "Opus ·
 Extra high · Plan") opens the Chat options panel with the model, effort,
 permission and read-aloud pickers. A value other than the starting one is
 bold, and Bypass permissions shows the warning colour and icon on the
-summary too.
+summary too. Send is the accent circle while there is something to send,
+and a flat sunken circle while the box is empty or a send is under way.
+Stop, beside it while a turn runs, is a circle with an ink ring and a
+solid ink square, so it holds its own against the filled Send.
 
 **States and the state picture.** Empty, starting and error states share
 one small picture, `StateArt`: the portico of the mark on a soft round
@@ -423,12 +458,12 @@ along the foot, and the side panes open as drawers between the header and
 the bar (section 9).
 
 **Code colours.** The editor's syntax colours come from the chrome's own
-hues, so the editor belongs to the product: violet keywords and tags, teal
-strings, terracotta numbers and constants, amber types and attributes, blue
-for SQL built-ins, and faint italic comments, each at 4.5:1 or better on
+hues, distinct from one another and without violet, which means an agent:
+terracotta keywords and tags, sage strings, teal numbers and constants,
+amber types and attributes, blue for SQL built-ins, and faint italic comments, each at 4.5:1 or better on
 the editor ground and the current-line highlight. The editor ground is the
 work surface. There is no minimap; the scrollbar's overview ruler shows
 Git changes, warnings, errors and find matches as coloured ticks (section 10). Terminals have
-a dark scheme (the default, a warm charcoal) and a light one, chosen per
+a dark scheme (the default, the dark work ground) and a light one, chosen per
 terminal and independent of the page theme; every ANSI colour meets 4.5:1
 on its own background.
