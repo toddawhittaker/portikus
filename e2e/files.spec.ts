@@ -59,8 +59,11 @@ test.describe("file tree", () => {
 		await expect(row(page, "node_modules")).toHaveCount(0);
 	});
 
-	/** An untracked name is italic and dimmer (SPEC.md §12.1). */
-	test("draws an untracked file's name in italic", async ({ page, context }) => {
+	/** An untracked file is marked once: a U and a muted name (SPEC.md §12.1). */
+	test("draws an untracked file's name muted, not italic", async ({
+		page,
+		context,
+	}) => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Untracked" });
 		await seedFile(student.workspaceId, project.slug, "README.md", "# hello\n");
@@ -85,10 +88,10 @@ test.describe("file tree", () => {
 		await expect(row(page, "new.ts")).toHaveAttribute("data-git", "untracked");
 		const untracked = row(page, "new.ts").locator(".pk-tree-name");
 		const tracked = row(page, "README.md").locator(".pk-tree-name");
-		await expect(untracked).toHaveCSS("font-style", "italic");
-		await expect(tracked).toHaveCSS("font-style", "normal");
-		const dim = await untracked.evaluate((el) => getComputedStyle(el).opacity);
-		expect(Number(dim)).toBeLessThan(1);
+		await expect(untracked).toHaveCSS("font-style", "normal");
+		await expect(row(page, "new.ts").locator(".pk-git-letter")).toHaveText("U");
+		const color = (el: Element) => getComputedStyle(el).color;
+		expect(await untracked.evaluate(color)).not.toBe(await tracked.evaluate(color));
 	});
 
 	test("expanding a directory and clicking a file opens a file tab", async ({

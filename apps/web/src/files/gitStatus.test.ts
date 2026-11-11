@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
 	changeRows,
 	DIFF_KIND,
+	DIR_TITLE,
 	decorate,
 	decorations,
 	gitBar,
@@ -50,9 +51,9 @@ test("the working-tree state decides the letter and the kind", () => {
 test("an untracked file is its own kind, not a modification", () => {
 	const decoration = decorate(entry({ path: "new.ts", x: "?", y: "?" }));
 	expect(decoration.kind).toBe("untracked");
-	// Git's own mark, and never the "!" a conflict wears (SPEC.md §12.1).
-	expect(decoration.letter).toBe("?");
-	expect(decoration.title).toContain("Untracked");
+	// U for untracked, as editors mark it, never Git's "?" or a conflict's "!".
+	expect(decoration.letter).toBe("U");
+	expect(decoration.title).toBe("New file, not yet tracked by Git");
 });
 
 test("a diff status is drawn from the same table as the tree", () => {
@@ -83,12 +84,97 @@ test("a rename names the path it came from", () => {
 	expect(decoration.title).toContain("(staged)");
 });
 
+test("each kind has its own letter, and the hover text says it in words", () => {
+	expect(LETTER).toEqual({
+		added: "A",
+		modified: "M",
+		deleted: "D",
+		renamed: "R",
+		untracked: "U",
+		conflict: "!",
+	});
+	expect(decorate(entry({ path: "a.ts", y: "M" })).title).toBe(
+		"Modified since the last commit",
+	);
+	expect(decorate(entry({ path: "a.ts", y: "D" })).title).toBe(
+		"Deleted since the last commit",
+	);
+	expect(decorate(entry({ path: "a.ts", x: "M", y: "M" })).title).toBe(
+		"Modified since the last commit (staged and changed since)",
+	);
+});
+
 test("every directory above a change gets a dot", () => {
 	const marks = decorations(
 		status({ entries: [entry({ path: "src/deep/a.ts", y: "M" })] }),
 	);
-	expect([...marks.changedDirs].sort()).toEqual(["src", "src/deep"]);
+	expect([...marks.changedDirs.keys()].sort()).toEqual(["src", "src/deep"]);
+	expect(marks.changedDirs.get("src")).toBe("modified");
 	expect(marks.byPath.get("src/deep/a.ts")?.letter).toBe("M");
+});
+
+test("a directory's dot takes the most important change below it", () => {
+	const marks = decorations(
+		status({
+			entries: [
+				entry({ path: "new/a.ts", x: "?", y: "?" }),
+				entry({ path: "mix/a.ts", x: "?", y: "?" }),
+				entry({ path: "mix/b.ts", y: "M" }),
+				entry({ path: "mix/deep/c.ts", y: "D" }),
+				entry({ path: "mix/deep/d.ts", x: "U", y: "U", unmerged: true }),
+				entry({ path: "staged/a.ts", x: "A" }),
+				entry({ path: "staged/b.ts", x: "R", origPath: "staged/z.ts" }),
+				entry({ path: "gone/a.ts", y: "D" }),
+				entry({ path: "gone/b.ts", y: "M" }),
+			],
+		}),
+	);
+	// Only new files: the folder must not look modified.
+	expect(marks.changedDirs.get("new")).toBe("untracked");
+	expect(marks.changedDirs.get("mix")).toBe("conflict");
+	expect(marks.changedDirs.get("mix/deep")).toBe("conflict");
+	expect(marks.changedDirs.get("staged")).toBe("renamed");
+	expect(marks.changedDirs.get("gone")).toBe("deleted");
+});
+
+test("the order holds whichever change is listed first", () => {
+	const order = ["conflict", "deleted", "modified", "renamed", "added", "untracked"];
+	const codes: Record<string, Partial<GitEntry>> = {
+		conflict: { x: "U", y: "U", unmerged: true },
+		deleted: { y: "D" },
+		modified: { y: "M" },
+		renamed: { x: "R", origPath: "z" },
+		added: { x: "A" },
+		untracked: { x: "?", y: "?" },
+	};
+	for (let high = 0; high < order.length; high++) {
+		for (let low = high + 1; low < order.length; low++) {
+			const top = order[high] as string;
+			const bottom = order[low] as string;
+			for (const pair of [
+				[top, bottom],
+				[bottom, top],
+			]) {
+				const marks = decorations(
+					status({
+						entries: pair.map((kind, i) => entry({ path: `d/${i}`, ...codes[kind] })),
+					}),
+				);
+				expect(marks.changedDirs.get("d")).toBe(top);
+			}
+		}
+	}
+});
+
+test("a directory's dot says in words what it holds", () => {
+	expect(DIR_TITLE).toEqual({
+		conflict: "Contains a conflict",
+		deleted: "Contains deleted files",
+		modified: "Contains modified files",
+		renamed: "Contains renamed files",
+		added: "Contains new files",
+		untracked: "Contains new files",
+	});
 });
 
 test("a project that is not a repository has no decorations", () => {

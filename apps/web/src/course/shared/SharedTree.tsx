@@ -5,7 +5,7 @@
  */
 import { Icon } from "@portikus/ui";
 import { fileIconName } from "../../files/fileIcon.js";
-import { type GitDecorations, isIgnored } from "../../files/gitStatus.js";
+import { DIR_TITLE, type GitDecorations, isIgnored } from "../../files/gitStatus.js";
 import {
 	displayName,
 	entryCount,
@@ -13,7 +13,7 @@ import {
 	visibleEntries,
 } from "../../files/paths.js";
 import "../../files/files.css";
-import { GitLetter } from "../../files/GitLetter.js";
+import { GitDot, GitLetter } from "../../files/GitLetter.js";
 import { type ShareRef, useSharedTree } from "./queries.js";
 
 export interface SharedTreeProps {
@@ -102,12 +102,12 @@ function Entry(
 	const open = isDir && expanded.has(path);
 	const shown = displayName(name);
 	const decoration = git.byPath.get(path);
-	const dirty = isDir && git.changedDirs.has(path);
+	const dirty = isDir ? git.changedDirs.get(path) : undefined;
 	const ignored = git.repo && isIgnored(path, git.ignored);
 	const status = decoration
 		? decoration.title
 		: dirty
-			? "contains changes"
+			? DIR_TITLE[dirty]
 			: ignored
 				? "ignored"
 				: null;
@@ -136,9 +136,9 @@ function Entry(
 				<span className={`pk-changes-path${ignored ? " pk-muted" : ""}`}>{shown}</span>
 				{status ? <span className="pk-visually-hidden">, {status}</span> : null}
 				{decoration ? (
-					<GitLetter kind={decoration.kind} letter={decoration.letter} />
+					<GitLetter decoration={decoration} />
 				) : dirty ? (
-					<span className="pk-git-dot" aria-hidden="true" />
+					<GitDot kind={dirty} />
 				) : null}
 			</button>
 			{open ? (
