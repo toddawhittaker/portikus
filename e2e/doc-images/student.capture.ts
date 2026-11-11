@@ -573,7 +573,7 @@ for (const colorScheme of SCHEMES) {
 		await openProject(page, maya.workspaceId, project.id);
 		const tui = await launch(page, maya.workspaceId, project.id, "claude");
 		await agents(maya.workspaceId, { tui });
-		await page.getByRole("button", { name: "Projects", exact: true }).click();
+		await page.getByRole("button", { name: "Show projects", exact: true }).click();
 		await expect(page.getByRole("dialog", { name: "Projects" })).toBeVisible();
 		await expect(page.getByTestId(`project-agents-${project.id}`)).toBeVisible();
 		await shoot(page, imageName("student-phone", colorScheme));

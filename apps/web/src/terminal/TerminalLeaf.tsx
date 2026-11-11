@@ -60,6 +60,8 @@ export interface TerminalLeafProps {
 	onReplace: (terminalId: string) => void;
 	/** Continue an ended chat's Claude session in a new chat in its place (SPEC.md §10.8). */
 	onResume: (terminalId: string) => void;
+	/** Replace an ended chat with a fresh chat in the same project (SPEC.md §10.8). */
+	onNewChat: (terminalId: string) => void;
 	onLeave: () => void;
 	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
@@ -96,6 +98,7 @@ export function TerminalLeaf({
 	onExited,
 	onReplace,
 	onResume,
+	onNewChat,
 	onLeave,
 	onMoveToNewTab,
 	moveTargets,
@@ -259,14 +262,25 @@ export function TerminalLeaf({
 					</p>
 					<div className="pk-term-ended-actions">
 						{chat ? (
-							<Button
-								variant="primary"
-								size="sm"
-								data-testid="chat-resume"
-								onClick={() => onResume(terminal.id)}
-							>
-								Resume chat
-							</Button>
+							<>
+								<Button
+									variant="primary"
+									size="sm"
+									data-testid="chat-new"
+									onClick={() => onNewChat(terminal.id)}
+								>
+									New chat
+								</Button>
+								<Button
+									variant="secondary"
+									size="sm"
+									data-testid="chat-resume"
+									aria-describedby={`chat-resume-note-${terminal.id}`}
+									onClick={() => onResume(terminal.id)}
+								>
+									Resume chat
+								</Button>
+							</>
 						) : null}
 						<Button
 							variant="secondary"
@@ -277,6 +291,15 @@ export function TerminalLeaf({
 							New terminal here
 						</Button>
 					</div>
+					{chat ? (
+						<p
+							className="pk-term-ended-note"
+							id={`chat-resume-note-${terminal.id}`}
+							data-testid="chat-resume-note"
+						>
+							Resume chat reloads the earlier conversation and uses more of your plan.
+						</p>
+					) : null}
 				</div>
 			) : chat ? (
 				<Suspense fallback={<ChatLoading />}>

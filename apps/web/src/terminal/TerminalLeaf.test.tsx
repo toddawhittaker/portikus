@@ -117,6 +117,7 @@ function renderLeaf(
 		onExited: vi.fn(),
 		onReplace: vi.fn(),
 		onResume: vi.fn(),
+		onNewChat: vi.fn(),
 		onLeave: vi.fn(),
 		onMoveToNewTab: vi.fn(),
 		onMoveInto: vi.fn(),
@@ -145,6 +146,7 @@ function renderLeaf(
 			onExited={props.onExited}
 			onReplace={props.onReplace}
 			onResume={props.onResume}
+			onNewChat={props.onNewChat}
 			onLeave={props.onLeave}
 			onMoveToNewTab={props.onMoveToNewTab}
 			moveTargets={moveTargets}
@@ -707,7 +709,7 @@ test("a chat tab shows the chat in the same frame, without the terminal's voice 
 	expect(props.onClose).toHaveBeenCalledWith(terminal.id);
 });
 
-test("an ended chat says it ended and offers Resume and a new terminal", () => {
+test("an ended chat offers New chat first, then Resume chat with its cost, then a new terminal", () => {
 	const props = renderLeaf({
 		kind: "chat",
 		agent: "claude",
@@ -717,15 +719,32 @@ test("an ended chat says it ended and offers Resume and a new terminal", () => {
 		"This chat ended when the workspace stopped",
 	);
 	expect(screen.queryByTestId(`chat-view-${terminal.id}`)).toBeNull();
-	fireEvent.click(screen.getByRole("button", { name: "Resume chat" }));
+	const actions = screen
+		.getAllByRole("button")
+		.map((button) => button.textContent)
+		.filter((text) =>
+			["New chat", "Resume chat", "New terminal here"].includes(text ?? ""),
+		);
+	expect(actions).toEqual(["New chat", "Resume chat", "New terminal here"]);
+	const resume = screen.getByRole("button", { name: "Resume chat" });
+	const note = screen.getByTestId("chat-resume-note");
+	expect(note.textContent).toContain("reloads the earlier conversation");
+	expect(note.textContent).toContain("more of your plan");
+	expect(resume.getAttribute("aria-describedby")).toBe(note.id);
+	fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+	expect(props.onNewChat).toHaveBeenCalledWith(terminal.id);
+	expect(props.onResume).not.toHaveBeenCalled();
+	fireEvent.click(resume);
 	expect(props.onResume).toHaveBeenCalledWith(terminal.id);
 	fireEvent.click(screen.getByTestId("new-terminal-here"));
 	expect(props.onReplace).toHaveBeenCalledWith(terminal.id);
 });
 
-test("an ended terminal offers no Resume", () => {
+test("an ended terminal offers no Resume and no New chat", () => {
 	renderLeaf({ endedAt: "2026-01-02T00:00:00.000Z" });
 	expect(screen.queryByTestId("chat-resume")).toBeNull();
+	expect(screen.queryByTestId("chat-new")).toBeNull();
+	expect(screen.queryByTestId("chat-resume-note")).toBeNull();
 });
 
 test("a Claude Code terminal's pane reads TUI", () => {

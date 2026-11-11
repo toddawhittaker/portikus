@@ -24,6 +24,7 @@ type PaneCallbacks = Pick<
 	| "onExited"
 	| "onReplace"
 	| "onResume"
+	| "onNewChat"
 	| "onLeave"
 	| "onMoveToNewTab"
 	| "onMoveInto"
@@ -85,6 +86,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onExited={props.onExited}
 					onReplace={props.onReplace}
 					onResume={props.onResume}
+					onNewChat={props.onNewChat}
 					onLeave={props.onLeave}
 					onMoveToNewTab={props.onMoveToNewTab}
 					moveTargets={props.moveTargetsFor(terminal.id)}
